@@ -1,0 +1,9 @@
+# Caddy serves .wasm as application/wasm, which compileStreaming requires.
+:80 {
+	root * /usr/share/caddy
+	encode zstd gzip
+	# The worklet and engine must be refetched after a rebuild (ADR-0006).
+	@engine path /worklet.js /dsp.wasm
+	header @engine Cache-Control "no-cache"
+	file_server
+}

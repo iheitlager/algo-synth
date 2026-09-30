@@ -1,0 +1,28 @@
+# Project conventions
+
+## The boundary
+
+All music logic lives in `crates/dsp` (ADR-0001): sources, mixer, sequencer,
+generators, song model, parsers. `web/` only sends messages and draws. If a
+feature needs JavaScript beyond that, stop and raise it.
+
+`render` never allocates, locks or panics (ADR-0002). Allocate in
+`Engine::new`; compute coefficients when a parameter changes, not per sample.
+
+A new parameter or source id goes in `params.rs`/`source.rs` **and**
+`web/src/audio/params.ts` (ADR-0004); `cargo test` fails otherwise.
+
+## Tests
+
+Test DSP natively by rendering blocks offline and checking properties
+(finite, bounded, silent, pitch). The browser is for listening.
+
+## Makefile target descriptions
+
+The `## ...` comment after a target is what `make help` prints; keep it to
+3-6 words, imperative or noun-phrase, no parenthetical asides. Put detail in a
+`#` comment on the line(s) above the target instead.
+
+## Ports
+
+`make serve` → 6340, `make dev` → 6341. Keep new services in the 63xx range.
