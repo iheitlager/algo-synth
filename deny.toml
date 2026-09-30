@@ -1,0 +1,26 @@
+# Supply-chain gate: advisories, licences, bans and sources.
+# Run with `make deny` / `cargo deny check`. The engine has no dependencies
+# today (ADR-0001); this keeps it that way on purpose rather than by accident.
+
+[graph]
+targets = [
+    "wasm32-unknown-unknown",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+ignore = []
+
+[licenses]
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

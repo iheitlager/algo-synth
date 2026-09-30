@@ -1,0 +1,108 @@
+# Plan
+
+algo-synth is built **from working to working**: every MVP is something you can open in a browser and play. The route is **one monophonic voice → time → a second base (the ensemble) → more sources → the algorithms**. The algorithms come last on purpose: a generator is only as good as the voice it drives and the clock it runs on.
+
+**Five milestones, eleven MVPs.** Epics become GitHub issues with the `epic` label; their stories become sub-issues that cite spec requirements (`Refs: 001/Req-3`). Every MVP names a **value signal**: how you know it delivers.
+
+| Milestone | MVPs | Value signal |
+|---|---|---|
+| **M1: A voice** | **MVP 1** the pipeline · **MVP 2** the Mono voice | You play it for ten minutes without wanting a different synth |
+| **M2: Time** | **MVP 3** the step sequencer · **MVP 4** the arrangement | A four-track loop you'd keep |
+| **M3: The ensemble** (second base) | **MVP 5** six 2600s play Vivaldi | RV 269 plays start to finish, six patched voices, no glitches |
+| **M4: More sources** | **MVP 6** Drums · **MVP 7** Wave · **MVP 8** effects | A full track: kit, bass, lead, pad, space |
+| **M5: Algo** | **MVP 9** live loops · **MVP 10** evolving loops · **MVP 11** performance | Ten minutes of music you didn't write note by note, and want to hear again |
+
+## Principles for every MVP
+
+- **All music logic lands in `crates/dsp`** (ADR-0001). A feature that needs JavaScript beyond a message or a drawing is a design smell.
+- **Offline-render tests.** Every source and effect is tested natively by rendering blocks and checking properties: finite, bounded, silent when it should be, the right pitch (zero crossings or a Goertzel bin), no DC. The browser is for listening, not for proving.
+- **Performance budget.** Target: 16 voices plus the full mixer under 25% of one core at 48 kHz, measured in `chrome://webaudio-internals`. Checked at the end of each milestone, not guessed.
+
+---
+
+## M1: A voice
+
+### MVP 1: the pipeline *(this base)*
+
+A sine from Rust through the AudioWorklet to the speakers, in the wide-screen layout.
+
+- `crates/dsp`: C ABI, one engine per wasm instance, planar stereo blocks, a 16-voice test voice (table sine, AR envelope), parameter and source registries mirrored in TypeScript.
+- `web/`: Vue view with the four panes; power, master gain, scope, playable keyboards and pads; computer keyboard.
+- `make check`, CI, Podman + Caddy image.
+
+### MVP 2: the Mono voice
+
+The ARP 2600-style semi-modular voice, monophonic, playable from the keyboard and Web MIDI.
+
+1. **Oscillators:** three VCOs with polyBLEP saw and pulse (PWM), triangle and sine; sync; noise (white, pink).
+2. **Filter:** a 4-pole zero-delay-feedback ladder (the Moog sound) with resonance and drive, cutoff smoothed at control rate.
+3. **Modulation:** ADSR and AR envelopes, LFO, sample-and-hold, glide (portamento), mono note priority (last, low, high) with legato.
+4. **Normalled routing:** every module has a default connection, as on the 2600; a *patch* is a small table of overrides (source → destination, amount). The UI shows the normalled path and the patch.
+5. **Web MIDI input:** note on/off, pitch bend, mod wheel, velocity.
+6. **Presets:** a handful of patches (bass, lead, sync lead, bowed string for the ensemble).
+
+## M2: Time
+
+### MVP 3: the step sequencer
+
+- **A sample-accurate clock in the engine** (ADR-0005): tempo, swing, a transport (play, stop, position). Events fire on the exact sample, not on a JavaScript timer.
+- **Song as data:** the UI sends patterns to the engine in a compact binary format, written into a buffer the engine allocated at init; `render` only reads. Spec 002 fixes the format.
+- One 16-step pattern on one track: note, velocity, length, probability, tie.
+
+### MVP 4: the arrangement
+
+- Tracks (each owning one source instance), clips on the bars grid, a loop region, fader and pan per track.
+- Patterns of any length (polymeter), clips looping inside their span.
+- **Save and load** a song: a JSON file you download and open, plus the last session in `localStorage`. No server.
+
+## M3: The ensemble (second base)
+
+### MVP 5: six 2600s play Vivaldi
+
+The second way into the same model: a score instead of a generator.
+
+1. **Standard MIDI File parser** in Rust: total (never panics on bad input), tested with malformed files, types 0 and 1, tempo map.
+2. **Import:** each MIDI track becomes a track with a Mono source, its notes become clips on the bar grid, tempo changes become the song's tempo map.
+3. **Six Mono instances**, each with its own patch (and a little detune and timing humanization per voice, the way six real machines drift).
+4. **The score:** a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
+5. The arrangement pane shows the score as `score` clips; they can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
+
+## M4: More sources
+
+### MVP 6: Drums
+
+Analog-style pad models: bridged-T kick with pitch envelope, snare (tone plus filtered noise), clap (multi-burst noise), closed and open hats (six square oscillators through a band-pass, choke group), toms, cowbell. Per-pad tune, decay, tone, and a global accent.
+
+### MVP 7: Wave
+
+The PPG-style wavetable voice: 64-wave tables built from keyframes, the wave position swept by an envelope and LFO, band-limited by mip-mapped tables, 8 voices, and the optional 8-bit path (reduced bit depth and a lower internal rate) for the character.
+
+### MVP 8: effects
+
+Inserts (drive, filter, crush, chorus), two send buses (tempo-synced delay, algorithmic reverb), and a master compressor and limiter. All preallocated; the order of inserts is editable, their count fixed.
+
+## M5: Algo
+
+### MVP 9: live loops
+
+- **Seeded PRNG in the engine** (same seed, same music), scales and keys.
+- **Generators:** Euclid (k, n, rotation), random walk over a scale, arpeggiator over held or given chords.
+- **Live and frozen:** a live loop writes a new pattern every cycle; freezing commits the current one as a clip.
+- The algo pane edits loops: generator, parameters, scale, target track, seed.
+
+### MVP 10: evolving loops
+
+- **Markov** chains learned from a clip or an imported score.
+- **Mutate:** a probability that each cycle changes a step (note, velocity, rest).
+- **Modulators:** LFOs and random sources targeting any parameter; per-step parameter locks.
+- **Loops that feed loops:** one generator's output as another's input (a Euclid rhythm gating a walk's notes).
+
+### MVP 11: performance
+
+Scenes and quantized launching, MIDI out to hardware, SIMD (`simd128`) and table optimizations where profiling says so.
+
+## Assumptions to confirm
+
+- **Chrome first.** AudioWorklet and Web MIDI are best supported there; Safari and Firefox are checked, not targeted, until MVP 11.
+- **Vue for the view.** The UI is TypeScript + Vue (ADR-0003). If the UI should itself be Rust/wasm (Leptos), that's a new ADR; the engine boundary doesn't change.
+- **Score licensing.** Vivaldi's music is public domain; a given MIDI *file* may not be. MVP 5 picks a source with an explicit open licence.

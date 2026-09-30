@@ -1,0 +1,71 @@
+<script setup lang="ts">
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { getEngine, power, status } from '../audio/engine'
+import { Param } from '../audio/params'
+
+defineProps<{ bpm: number }>()
+
+const gain = ref(0.5)
+watch(gain, (v) => getEngine()?.param(Param.MasterGain, v))
+
+// Oscilloscope from the AnalyserNode (ADR-0003): drawing only, no audio work.
+const scope = ref<HTMLCanvasElement | null>(null)
+let raf = 0
+function draw() {
+  const eng = getEngine()
+  const c = scope.value
+  if (eng && c) {
+    const g = c.getContext('2d')
+    const data = new Float32Array(eng.analyser.fftSize)
+    eng.analyser.getFloatTimeDomainData(data)
+    if (g) {
+      g.clearRect(0, 0, c.width, c.height)
+      g.strokeStyle = '#f0a23b'
+      g.lineWidth = 1.5
+      g.beginPath()
+      for (let i = 0; i < data.length; i++) {
+        const x = (i / data.length) * c.width
+        const y = (0.5 - (data[i] ?? 0) * 0.45) * c.height
+        if (i === 0) g.moveTo(x, y)
+        else g.lineTo(x, y)
+      }
+      g.stroke()
+    }
+  }
+  raf = requestAnimationFrame(draw)
+}
+async function onPower() {
+  await power()
+  getEngine()?.param(Param.MasterGain, gain.value)
+  if (!raf) draw()
+}
+onBeforeUnmount(() => cancelAnimationFrame(raf))
+</script>
+
+<template>
+  <header class="pane bar">
+    <strong class="logo">algo-synth</strong>
+    <button :class="{ on: status.running }" @click="onPower">
+      {{ status.running ? 'Audio on' : 'Power on' }}
+    </button>
+    <button disabled title="Sequencer: plan.md MVP 3">▶ Play</button>
+    <button disabled title="Sequencer: plan.md MVP 3">■ Stop</button>
+    <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
+    <span class="field">BPM <b>{{ bpm }}</b></span>
+    <label class="field gain">Master <input v-model.number="gain" type="range" min="0" max="1" step="0.01" /></label>
+    <canvas ref="scope" class="scope" width="360" height="40" />
+    <span class="field muted">
+      {{ status.error || (status.running ? `${status.sampleRate} Hz · wasm worklet` : 'click Power on to start audio') }}
+    </span>
+  </header>
+</template>
+
+<style scoped>
+.bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; overflow: hidden; }
+.logo { color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
+.on { border-color: var(--accent); color: var(--accent); }
+.field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.gain { width: 180px; }
+.muted { color: var(--muted); }
+.scope { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+</style>

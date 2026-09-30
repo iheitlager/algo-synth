@@ -1,0 +1,20 @@
+[package]
+name = "algo-dsp"
+description = "The algo-synth engine: sources, mixer, sequencer and generators, compiled to wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+# cdylib is the wasm module the worklet loads (ADR-0001); rlib lets native
+# tests link it.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies: the engine is std-only (ADR-0001).
+[dependencies]
+
+[lints]
+workspace = true
