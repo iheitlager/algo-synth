@@ -1,13 +1,14 @@
 <script setup lang="ts">
-// The three sources (ADR-0005). In the base they all play the engine's test
-// voice; the controls marked "soon" arrive with their source's MVP.
+// The three sources (ADR-0005). Mono has its own voice (spec 004); Wave and
+// Drums play first timbres until their MVP. Controls marked "soon" arrive
+// with the MVP named on the card.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getEngine, params, status } from '../audio/engine'
 import { NoiseColour, Param, type ParamId, Preset, type PresetId, Source, type SourceId, Waveform } from '../audio/params'
 
 interface Card { id: SourceId; name: string; style: string; mvp: string; color: string; knobs: string[] }
 const cards: Card[] = [
-  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 2', color: 'var(--mono)', knobs: ['Glide', 'Patch'] },
+  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 5', color: 'var(--mono)', knobs: ['Glide', 'Patch'] },
   { id: Source.Wave, name: 'Wave', style: 'PPG-style wavetable', mvp: 'MVP 7', color: 'var(--wave)', knobs: ['Table', 'Wave pos', 'Env → wave', 'Filter', '8-bit'] },
   { id: Source.Drums, name: 'Drums', style: 'Analog drum processor', mvp: 'MVP 6', color: 'var(--drums)', knobs: ['Tune', 'Decay', 'Tone', 'Snap', 'Accent'] },
 ]
@@ -92,7 +93,10 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
         <div class="knobs">
           <template v-if="c.id === Source.Mono">
             <label v-for="a in adsr" :key="a.id">{{ a.name }}
-              <input type="range" :min="a.min" :max="a.max" :step="a.step" :value="val(a.id)" @input="send(a.id, $event)" />
+              <input
+                type="range" :min="a.min" :max="a.max" :step="a.step" :value="val(a.id)" :disabled="!status.running"
+                @input="send(a.id, $event)"
+              />
             </label>
           </template>
           <template v-else>
@@ -101,7 +105,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
           </template>
           <span v-for="k in c.knobs" :key="k" class="knob soon" :title="c.mvp">{{ k }}</span>
         </div>
-        <div v-if="c.id === Source.Mono" class="vcos">
+        <fieldset v-if="c.id === Source.Mono" class="vcos" :disabled="!status.running">
           <label class="preset">Preset
             <select :disabled="!status.running" @change="loadPreset">
               <option value="">—</option>
@@ -133,7 +137,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
             <span />
             <label>Drive <input type="range" min="0" max="1" step="0.01" :value="val(Param.Drive)" @input="send(Param.Drive, $event)" /></label>
           </div>
-        </div>
+        </fieldset>
         <div v-if="c.id === Source.Drums" class="pads">
           <button
             v-for="[name, n] in pads" :key="n" :disabled="!status.running"
@@ -146,7 +150,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
             @pointerdown="down(c.id, n)" @pointerup="up(c.id, n)" @pointerleave="up(c.id, n)"
           />
         </div>
-        <footer class="soon">test voice until {{ c.mvp }}</footer>
+        <footer v-if="c.id !== Source.Mono" class="soon">first timbre until {{ c.mvp }}</footer>
       </article>
     </div>
   </section>
@@ -160,7 +164,7 @@ header { display: flex; align-items: baseline; gap: 8px; }
 header b { color: var(--c); font-size: 15px; }
 .style { color: var(--muted); font-size: 11px; }
 .knobs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
-.vcos { display: grid; gap: 6px; font-size: 11px; color: var(--muted); }
+.vcos { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 6px; font-size: 11px; color: var(--muted); }
 .vco { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px 8px; align-items: center; }
 .vco b { color: var(--c); }
 .vco label, .vcos > label { display: grid; gap: 2px; }

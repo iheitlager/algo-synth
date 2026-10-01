@@ -2,9 +2,8 @@
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
 //! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `preset` the
-//! defaults and presets. The settings
-//! here are Mono-wide until tracks address parameters per instance
-//! (spec 002 Req 1).
+//! defaults and presets. The settings here are Mono-wide until tracks
+//! address parameters per instance (spec 002 Req 1).
 
 pub mod env;
 pub mod ladder;
@@ -91,85 +90,37 @@ impl MonoParams {
     }
 
     /// Apply an already clamped value; parameters that aren't Mono's are
-    /// ignored.
+    /// ignored. The match is exhaustive on purpose: a new `Param` doesn't
+    /// compile until it is handled here.
     pub fn set(&mut self, param: Param, v: f32) {
-        use Param::*;
-        let (vco, what) = match param {
-            Vco1Wave | Vco1Coarse | Vco1Fine | Vco1Level => (0, param),
-            Vco2Wave | Vco2Coarse | Vco2Fine | Vco2Level | Vco2Sync => (1, param),
-            Vco3Wave | Vco3Coarse | Vco3Fine | Vco3Level | Vco3Sync => (2, param),
-            PulseWidth => {
-                self.pulse_width = v;
-                return;
-            }
-            NoiseLevel => {
-                self.noise_level = v;
-                return;
-            }
-            Param::NoiseColour => {
-                if let Some(c) = noise::NoiseColour::from_id(v.round() as u32) {
-                    self.noise_colour = c;
-                }
-                return;
-            }
-            AdsrAttack | AdsrDecay | AdsrSustain | AdsrRelease | ArAttack | ArRelease | LfoRate
-            | LfoWave => {
-                self.set_modulation(param, v);
-                return;
-            }
-            Cutoff => {
-                self.cutoff = hz_to_note(v);
-                return;
-            }
-            Resonance => {
-                self.k = v * MAX_K;
-                return;
-            }
-            Drive => {
-                // 0..=1 is 0 to +18 dB: 1 + 7·v.
-                self.drive = 1.0 + 7.0 * v;
-                return;
-            }
-            MasterGain | Attack | Release => return,
-        };
-        match what {
-            Vco1Wave | Vco2Wave | Vco3Wave => {
-                if let (Some(w), Some(slot)) =
-                    (Waveform::from_id(v.round() as u32), self.wave.get_mut(vco))
-                {
-                    *slot = w;
-                }
-            }
-            Vco1Coarse | Vco2Coarse | Vco3Coarse => {
-                if let Some(c) = self.coarse.get_mut(vco) {
-                    *c = v.round();
-                }
-                self.retune(vco);
-            }
-            Vco1Fine | Vco2Fine | Vco3Fine => {
-                if let Some(f) = self.fine.get_mut(vco) {
-                    *f = v;
-                }
-                self.retune(vco);
-            }
-            Vco1Level | Vco2Level | Vco3Level => {
-                if let Some(l) = self.level.get_mut(vco) {
-                    *l = v;
-                }
-            }
-            Vco2Sync | Vco3Sync => {
-                if let Some(s) = self.sync.get_mut(vco) {
-                    *s = v >= 0.5;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Envelope times arrive in seconds and are kept in samples.
-    fn set_modulation(&mut self, param: Param, v: f32) {
         let samples = v * self.sample_rate;
         match param {
+            Param::Vco1Wave => self.set_wave(0, v),
+            Param::Vco2Wave => self.set_wave(1, v),
+            Param::Vco3Wave => self.set_wave(2, v),
+            Param::Vco1Coarse => self.set_tune(0, Some(v.round()), None),
+            Param::Vco2Coarse => self.set_tune(1, Some(v.round()), None),
+            Param::Vco3Coarse => self.set_tune(2, Some(v.round()), None),
+            Param::Vco1Fine => self.set_tune(0, None, Some(v)),
+            Param::Vco2Fine => self.set_tune(1, None, Some(v)),
+            Param::Vco3Fine => self.set_tune(2, None, Some(v)),
+            Param::Vco1Level => self.level[0] = v,
+            Param::Vco2Level => self.level[1] = v,
+            Param::Vco3Level => self.level[2] = v,
+            Param::PulseWidth => self.pulse_width = v,
+            Param::Vco2Sync => self.sync[1] = v >= 0.5,
+            Param::Vco3Sync => self.sync[2] = v >= 0.5,
+            Param::NoiseLevel => self.noise_level = v,
+            Param::NoiseColour => {
+                if let Some(c) = NoiseColour::from_id(v.round() as u32) {
+                    self.noise_colour = c;
+                }
+            }
+            Param::Cutoff => self.cutoff = hz_to_note(v),
+            Param::Resonance => self.k = v * MAX_K,
+            // 0..=1 is 0 to +18 dB: 1 + 7·v.
+            Param::Drive => self.drive = 1.0 + 7.0 * v,
+            // Times arrive in seconds and are kept in samples.
             Param::AdsrAttack => self.adsr.attack = samples,
             Param::AdsrDecay => self.adsr.decay = samples,
             Param::AdsrSustain => self.adsr.sustain = v,
@@ -182,12 +133,26 @@ impl MonoParams {
                     self.lfo_wave = w;
                 }
             }
-            _ => {}
+            Param::MasterGain | Param::Attack | Param::Release => {}
         }
     }
 
-    /// Per parameter change, not per sample, so `exp2` is fine.
-    fn retune(&mut self, vco: usize) {
+    fn set_wave(&mut self, vco: usize, v: f32) {
+        if let (Some(w), Some(slot)) = (Waveform::from_id(v.round() as u32), self.wave.get_mut(vco))
+        {
+            *slot = w;
+        }
+    }
+
+    /// Set coarse and/or fine tune and recompute the ratio. Per parameter
+    /// change, not per sample, so `exp2` is fine.
+    fn set_tune(&mut self, vco: usize, coarse: Option<f32>, fine: Option<f32>) {
+        if let (Some(c), Some(slot)) = (coarse, self.coarse.get_mut(vco)) {
+            *slot = c;
+        }
+        if let (Some(f), Some(slot)) = (fine, self.fine.get_mut(vco)) {
+            *slot = f;
+        }
         let semis = self.coarse.get(vco).copied().unwrap_or(0.0)
             + self.fine.get(vco).copied().unwrap_or(0.0) / 100.0;
         if let Some(r) = self.ratio.get_mut(vco) {
@@ -199,6 +164,35 @@ impl MonoParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each parameter lands in the voice in the units `render` uses.
+    #[test]
+    fn values_are_converted_for_render() {
+        let mut p = MonoParams::new(48_000.0);
+        let mut set = |param: Param, v: f32| p.set(param, param.clamp(v));
+        set(Param::Resonance, 0.8);
+        set(Param::Drive, 1.0);
+        set(Param::AdsrAttack, 0.01);
+        set(Param::AdsrSustain, 0.25);
+        set(Param::ArRelease, 2.0);
+        set(Param::LfoRate, 4.0);
+        set(Param::LfoWave, 1.0);
+        set(Param::Cutoff, 440.0);
+        set(Param::Vco3Level, 0.6);
+        set(Param::PulseWidth, 0.2);
+        assert!(
+            (p.k - 4.0).abs() < 1.0e-6,
+            "resonance 0.8 is the self-oscillation threshold"
+        );
+        assert_eq!(p.drive, 8.0);
+        assert_eq!(p.adsr.attack, 480.0);
+        assert_eq!(p.adsr.sustain, 0.25);
+        assert_eq!(p.ar.release, 96_000.0);
+        assert_eq!(p.lfo_inc, 4.0 / 48_000.0);
+        assert_eq!(p.lfo_wave, Waveform::Pulse);
+        assert!((p.cutoff - 69.0).abs() < 1.0e-4);
+        assert_eq!((p.level[2], p.pulse_width), (0.6, 0.2));
+    }
 
     #[test]
     fn coarse_and_fine_set_the_ratio() {

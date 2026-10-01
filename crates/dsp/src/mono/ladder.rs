@@ -73,7 +73,7 @@ pub fn hz_to_note(hz: f32) -> f32 {
 }
 
 /// Cheap `tanh`: exact slope at 0, ±1 from |x| = 3 on.
-fn saturate(x: f32) -> f32 {
+pub fn saturate(x: f32) -> f32 {
     let x = x.clamp(-3.0, 3.0);
     x * (27.0 + x * x) / (27.0 + 9.0 * x * x)
 }

@@ -203,6 +203,32 @@ mod tests {
         }
     }
 
+    /// No leftovers: a preset after another sounds like it does from fresh.
+    #[test]
+    fn a_preset_after_another_renders_like_a_fresh_one() {
+        let render = |presets: &[Preset]| {
+            let mut e = Engine::new(48_000.0);
+            for p in presets {
+                e.preset(*p);
+            }
+            e.note_on(Source::Mono, 60, 1.0);
+            let mut out = Vec::new();
+            for _ in 0..50 {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output());
+            }
+            out
+        };
+        for (preset, name) in Preset::ALL {
+            for (before, _) in Preset::ALL {
+                assert!(
+                    render(&[before, preset]) == render(&[preset]),
+                    "{name} after {before:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn typescript_mirror_matches() {
         let ts = include_str!("../../../../web/src/audio/params.ts");

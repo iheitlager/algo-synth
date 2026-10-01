@@ -6,7 +6,7 @@
 //! blocks (`load_midi`), never inside `render`.
 
 use crate::mono::MonoParams;
-use crate::mono::ladder::LadderTables;
+use crate::mono::ladder::{LadderTables, saturate};
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
 use crate::params::Param;
@@ -23,6 +23,8 @@ pub const VOICES: usize = 32;
 pub const CHANNELS: usize = 16;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
+/// The master limiter passes everything below this level unchanged.
+const KNEE: f32 = 0.5;
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -262,7 +264,7 @@ impl Engine {
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         for sample in left.iter_mut() {
-            *sample *= self.master_gain;
+            *sample = soft_clip(*sample * self.master_gain);
         }
         right.copy_from_slice(left);
     }
@@ -270,6 +272,21 @@ impl Engine {
     /// The planar output buffer: left then right, `BLOCK` samples each.
     pub fn output(&self) -> &[f32; 2 * BLOCK] {
         &self.out
+    }
+}
+
+/// The last stage before the speakers (ADR-0002 rule 5): unchanged below
+/// `KNEE`, then a smooth bend that never passes ±1; NaN and infinity become
+/// silence instead of reaching the output.
+fn soft_clip(x: f32) -> f32 {
+    if !x.is_finite() {
+        return 0.0;
+    }
+    let a = x.abs();
+    if a <= KNEE {
+        x
+    } else {
+        (KNEE + (1.0 - KNEE) * saturate((a - KNEE) / (1.0 - KNEE))).copysign(x)
     }
 }
 
@@ -364,6 +381,48 @@ mod tests {
         assert_eq!(e.active_voices(), 0);
     }
 
+    /// A note on and off before the next block still sounds, then ends.
+    #[test]
+    fn a_mono_tap_shorter_than_a_block_sounds() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(Param::AdsrAttack, 0.001);
+        e.set_param(Param::AdsrRelease, 0.01);
+        e.note_on(Source::Mono, 69, 1.0);
+        e.note_off(Source::Mono, 69);
+        let mut heard = 0.0_f32;
+        for _ in 0..10 {
+            e.render(BLOCK);
+            heard = heard.max(peak(&e));
+        }
+        assert!(heard > 0.01, "peak {heard}");
+        assert_eq!(e.active_voices(), 0);
+    }
+
+    /// Mono's sustain slider moves a held note.
+    #[test]
+    fn mono_sustain_moves_a_held_note() {
+        let level = |sustain: f32| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(Param::AdsrDecay, 0.01);
+            e.note_on(Source::Mono, 57, 1.0);
+            for _ in 0..40 {
+                e.render(BLOCK);
+            }
+            e.set_param(Param::AdsrSustain, sustain);
+            let mut sum = 0.0;
+            for _ in 0..40 {
+                e.render(BLOCK);
+                sum += e.output().iter().map(|s| s * s).sum::<f32>();
+            }
+            sum.sqrt()
+        };
+        let ratio = level(0.35) / level(0.7);
+        assert!(
+            (ratio - 0.5).abs() < 0.05,
+            "half the sustain, half the level: {ratio}"
+        );
+    }
+
     #[test]
     fn release_time_is_time_to_silence() {
         let mut e = Engine::new(48_000.0);
@@ -394,11 +453,50 @@ mod tests {
         }
         assert_eq!(e.active_voices(), VOICES);
         e.render(BLOCK);
-        assert!(
-            e.output()
-                .iter()
-                .all(|s| s.is_finite() && s.abs() <= VOICES as f32)
-        );
+        assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+    }
+
+    /// 16 Mono voices at full resonance, drive and level still stay in ±1.
+    #[test]
+    fn loud_patches_are_limited_to_full_scale() {
+        let mut e = Engine::new(48_000.0);
+        for (p, v) in [
+            (Param::MasterGain, 1.0),
+            (Param::Vco2Level, 1.0),
+            (Param::Vco3Level, 1.0),
+            (Param::NoiseLevel, 1.0),
+            (Param::Resonance, 1.0),
+            (Param::Drive, 1.0),
+            (Param::AdsrSustain, 1.0),
+        ] {
+            e.set_param(p, v);
+        }
+        for i in 0..16 {
+            e.note_on(Source::Mono, 36 + 3 * i, 1.0);
+        }
+        let mut peak_seen = 0.0_f32;
+        for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+            peak_seen = peak_seen.max(peak(&e));
+        }
+        assert!(peak_seen > 0.9, "the limiter is reached, peak {peak_seen}");
+    }
+
+    #[test]
+    fn soft_clip_is_transparent_below_the_knee() {
+        for x in [-0.5, -0.2, 0.0, 0.3, 0.5] {
+            assert_eq!(soft_clip(x), x);
+        }
+        let mut prev = soft_clip(0.5);
+        for i in 1..1000 {
+            let y = soft_clip(0.5 + i as f32 * 0.01);
+            assert!(y >= prev && y <= 1.0, "monotonic and bounded at {i}");
+            prev = y;
+        }
+        assert_eq!(soft_clip(f32::NAN), 0.0);
+        assert_eq!(soft_clip(f32::NEG_INFINITY), 0.0);
+        assert_eq!(soft_clip(-50.0), -1.0);
     }
 
     #[test]

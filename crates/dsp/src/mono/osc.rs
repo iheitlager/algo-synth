@@ -381,6 +381,79 @@ mod tests {
         }
     }
 
+    /// Max difference between the output and itself one master period on.
+    fn period_error(ratio: f32, sync: bool) -> f32 {
+        let (blep, table) = (Blep::new(), sine());
+        // 480 Hz at 48 kHz: a period of exactly 100 samples.
+        let (hz, period) = (480.0, 100);
+        let mut master = Osc::default();
+        master.set_increment(hz / SR);
+        let mut slave = Osc::default();
+        slave.set_increment(hz * ratio / SR);
+        let y: Vec<f32> = (0..4_800)
+            .map(|_| {
+                let (_, wrap) = master.step(&blep, &table, 0.5, None);
+                slave.step(&blep, &table, 0.5, wrap.filter(|_| sync)).0
+            })
+            .collect();
+        y[1_000..]
+            .iter()
+            .zip(&y[1_000 + period..])
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max)
+    }
+
+    /// Hard sync locks the slave to the master's period, at any ratio.
+    #[test]
+    fn sync_locks_slave_to_master_period() {
+        for ratio in [1.5, 2.5, 7.3] {
+            let synced = period_error(ratio, true);
+            let free = period_error(ratio, false);
+            assert!(
+                synced < 0.02,
+                "ratio {ratio}: synced repeats within {synced}"
+            );
+            assert!(free > 0.5, "ratio {ratio}: free-running differs by {free}");
+        }
+    }
+
+    /// A width sweep keeps exactly one rise and one fall per cycle: the
+    /// latch never adds or drops an edge.
+    #[test]
+    fn pwm_sweep_keeps_one_pair_of_edges_per_cycle() {
+        let (blep, table) = (Blep::new(), sine());
+        let mut osc = Osc {
+            wave: Waveform::Pulse,
+            ..Osc::default()
+        };
+        osc.set_increment(220.0 / SR);
+        let n = SR as usize;
+        let y: Vec<f32> = (0..n)
+            .map(|i| {
+                osc.step(&blep, &table, 0.05 + 0.9 * i as f32 / n as f32, None)
+                    .0
+            })
+            .collect();
+        let rises = y.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count();
+        let falls = y.windows(2).filter(|w| w[0] >= 0.0 && w[1] < 0.0).count();
+        assert!(
+            rises.abs_diff(220) <= 1 && falls.abs_diff(220) <= 1,
+            "{rises} rises, {falls} falls"
+        );
+    }
+
+    /// The narrowest pulses, where two edges' ringing overlaps, stay bounded.
+    #[test]
+    fn narrow_pulses_are_bounded() {
+        for hz in [2_000.0, 5_000.0] {
+            for pw in [0.05, 0.95] {
+                let x = render(Waveform::Pulse, hz, pw, 4_800);
+                let peak = x.iter().fold(0.0_f32, |m, y| m.max(y.abs()));
+                assert!(peak <= PEAK, "{hz} Hz at width {pw}: {peak}");
+            }
+        }
+    }
+
     /// Sweeping the width moves edges but never adds a step bigger than a
     /// fixed-width pulse already has.
     #[test]

@@ -141,11 +141,14 @@ impl Voice {
         let [l1, l2, l3] = p.level;
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
         // The engine moves the gate between blocks; the ADSR follows here.
-        if self.gate && !self.adsr.gated() {
+        // A fresh voice opens its ADSR even if its note already ended, so a
+        // tap shorter than a block still sounds, held for one block.
+        if self.adsr.stage == Stage::Idle || (self.gate && !self.adsr.gated()) {
             self.adsr.gate_on(&p.adsr);
         } else if !self.gate && self.adsr.gated() {
             self.adsr.gate_off(&p.adsr);
         }
+        self.adsr.set_sustain(p.adsr.sustain);
         for sample in out.iter_mut() {
             let env = self.adsr.step();
             if self.adsr.stage == Stage::Idle {

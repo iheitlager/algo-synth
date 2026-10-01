@@ -38,7 +38,7 @@ The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, e
 
 ### Requirement 3: Voice allocation [MUST]
 
-`note_on` SHALL take a free voice, or steal the oldest when the pool is full. `note_off` SHALL release only gated voices of that source and note. A released voice SHALL free itself when its envelope falls below −80 dB, and the Release parameter SHALL be the time it takes to get there. Mono is the exception from MVP 2: one monophonic voice per owner, outside this pool (spec 004 Req 6).
+`note_on` SHALL take a free voice, or steal the oldest when the pool is full. `note_off` SHALL release only gated voices of that source and note. A released voice SHALL free itself when its envelope falls below −80 dB, and the Release parameter SHALL be the time it takes to get there. Mono will be the exception from MVP 5: one monophonic voice per owner, outside this pool (spec 004 Req 6, planned). Until then Mono takes voices from this pool, and its own ADSR, not the Release parameter, ends them (spec 004 Req 4).
 
 **Implementation:** `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/engine.rs::Engine::note_off`
 

@@ -77,6 +77,21 @@ impl Env {
         }
     }
 
+    /// Follow a new sustain level while gated: in Sustain the level moves
+    /// there, in Decay the segment aims there instead.
+    pub fn set_sustain(&mut self, sustain: f32) {
+        let s = f64::from(sustain.clamp(0.0, 1.0));
+        if s == self.sustain || !self.gated() {
+            return;
+        }
+        self.sustain = s;
+        self.decay_target = s - FALL_OVERSHOOT;
+        if self.stage == Stage::Decay {
+            self.target = self.decay_target;
+            self.end = s;
+        }
+    }
+
     /// Close the gate: release from the current level.
     pub fn gate_off(&mut self, t: &EnvTimes) {
         if self.stage == Stage::Idle {
@@ -249,6 +264,33 @@ mod tests {
         // Exponential: well below half way at half time.
         assert!(fall[fall.len() / 2] < 0.1);
         assert!(rise.iter().chain(&fall).all(|v| (0.0..=1.0).contains(v)));
+    }
+
+    #[test]
+    fn sustain_follows_while_held() {
+        let t = times(0.001, 0.01, 0.5, 0.1);
+        let mut env = Env::default();
+        env.gate_on(&t);
+        for _ in 0..4_800 {
+            env.step();
+        }
+        assert_eq!(env.stage, Stage::Sustain);
+        env.set_sustain(0.8);
+        assert!((env.step() - 0.8).abs() < 1.0e-6);
+        // During the decay the segment re-aims and still lands on it.
+        let mut env = Env::default();
+        env.gate_on(&t);
+        for _ in 0..200 {
+            env.step();
+        }
+        assert_eq!(env.stage, Stage::Decay);
+        env.set_sustain(0.2);
+        time_in(&mut env, Stage::Decay);
+        assert!((env.level() - 0.2).abs() < 1.0e-6);
+        // Released, it no longer listens.
+        env.gate_off(&t);
+        env.set_sustain(0.9);
+        assert!(env.step() < 0.2);
     }
 
     #[test]
