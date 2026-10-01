@@ -4,7 +4,7 @@ The wasm engine in `crates/dsp`: its C ABI, the render loop, voices and paramete
 
 ### Requirement 1: C ABI without imports [MUST]
 
-The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, exporting `memory`, `init`, `block_len`, `out_ptr`, `process`, `set_param`, `note_on`, `note_off` and `all_off`, taking and returning numbers only. (ADR-0001)
+The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, exporting `memory`, `init`, `block_len`, `out_ptr`, `process`, `set_param`, `note_on`, `note_off` and `all_off`, plus the MIDI player exports of spec 002 Req 9, taking and returning numbers only. (ADR-0001)
 
 **Implementation:** `crates/dsp/src/ffi.rs`
 

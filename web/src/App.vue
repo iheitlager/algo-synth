@@ -5,6 +5,8 @@ import TransportBar from './components/TransportBar.vue'
 import AlgoPane from './components/AlgoPane.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
 import ArrangePane from './components/ArrangePane.vue'
+import PlayerPane from './components/PlayerPane.vue'
+import { player } from './audio/engine'
 import { demoSong } from './model/song'
 </script>
 
@@ -13,7 +15,8 @@ import { demoSong } from './model/song'
     <TransportBar class="transport" :bpm="demoSong.bpm" />
     <AlgoPane class="algo" :loops="demoSong.loops" :tracks="demoSong.tracks" />
     <InstrumentsPane class="instruments" />
-    <ArrangePane class="arrange" :song="demoSong" />
+    <PlayerPane v-if="player.loaded" class="arrange" />
+    <ArrangePane v-else class="arrange" :song="demoSong" />
   </div>
 </template>
 

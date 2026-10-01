@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { getEngine, power, status } from '../audio/engine'
+import { getEngine, loadDemo, loadMidi, play, player, power, status, stop } from '../audio/engine'
 import { Param } from '../audio/params'
 
 defineProps<{ bpm: number }>()
@@ -40,6 +40,21 @@ async function onPower() {
   if (!raf) draw()
 }
 onBeforeUnmount(() => cancelAnimationFrame(raf))
+
+// MIDI player (spec 002 Req 9): loading powers audio on, so start the scope.
+async function onDemo() {
+  await loadDemo()
+  await onPower()
+}
+async function onFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  await loadMidi(await file.arrayBuffer(), file.name)
+  await onPower()
+}
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 </script>
 
 <template>
@@ -48,8 +63,13 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
     <button :class="{ on: status.running }" @click="onPower">
       {{ status.running ? 'Audio on' : 'Power on' }}
     </button>
-    <button disabled title="Sequencer: plan.md MVP 3">▶ Play</button>
-    <button disabled title="Sequencer: plan.md MVP 3">■ Stop</button>
+    <button @click="onDemo">Demo</button>
+    <label class="file"><input type="file" accept=".mid,.midi,audio/midi" @change="onFile" />Open MIDI…</label>
+    <button :disabled="!player.loaded" :class="{ on: player.playing }" @click="play">▶ Play</button>
+    <button :disabled="!player.loaded" @click="stop">■ Stop</button>
+    <span v-if="player.loaded" class="field">
+      <b>{{ clock(player.position) }}</b> / {{ clock(player.length) }} · bar {{ Math.floor(player.position / player.bar) + 1 }}
+    </span>
     <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
     <span class="field">BPM <b>{{ bpm }}</b></span>
     <label class="field gain">Master <input v-model.number="gain" type="range" min="0" max="1" step="0.01" /></label>
@@ -66,6 +86,9 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
 .on { border-color: var(--accent); color: var(--accent); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .gain { width: 180px; }
+.file { border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; background: var(--panel-2); cursor: pointer; white-space: nowrap; }
+.file:hover { border-color: var(--accent); }
+.file input { display: none; }
 .muted { color: var(--muted); }
 .scope { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 </style>

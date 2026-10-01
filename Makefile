@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt version wasm web install test test-rust typecheck lint deny image serve stop clean
+.PHONY: help check dev build fmt version wasm web install demo-midi test test-rust typecheck lint deny image serve stop clean
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -35,6 +35,9 @@ wasm: ## Build the engine to wasm
 web: install ## Bundle the Vue app
 	cd web && npm run build
 install: web/node_modules ## Install web dependencies
+# Pachelbel's Canon, written from scratch, so no third-party licence.
+demo-midi: ## Regenerate the demo MIDI file
+	python3 tools/make_demo_mid.py
 web/node_modules: web/package-lock.json
 	cd web && npm ci
 	@touch web/node_modules
