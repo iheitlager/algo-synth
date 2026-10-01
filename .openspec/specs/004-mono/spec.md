@@ -102,7 +102,7 @@ The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz,
 
 Each owner (live input, and each MIDI channel of the player) SHALL have one monophonic Mono voice, allocated in `Engine::new`; Mono SHALL NOT take voices from the shared pool. Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s.
 
-**Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/engine.rs::Engine::note_on` *(planned, #8)*
+**Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/engine.rs::Engine::note_on` *(planned, #8; moved to plan.md MVP 5)*
 
 #### Scenario: fall back on release
 
@@ -136,7 +136,7 @@ Every module SHALL have a default (normalled) connection, as on the 2600: VCO 1-
 
 A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount), allocated in `Engine::new`. Sources: VCO 1-3, noise, ADSR, AR, LFO, S&H, mod wheel, velocity, key. Destinations: VCO 1-3 pitch, pulse width, filter cutoff, resonance, VCA, LFO rate. An override SHALL replace the normalled connection to its destination. Amounts SHALL be clamped to −1..=1; unknown source or destination ids SHALL be ignored. The view SHALL show the normalled path and the patch, and only send edits (spec 003 Req 6).
 
-**Implementation:** `crates/dsp/src/mono/patch.rs::Patch` *(planned, #9)*
+**Implementation:** `crates/dsp/src/mono/patch.rs::Patch` *(planned, #9; moved to plan.md MVP 5)*
 
 #### Scenario: empty patch is the normalled voice
 
@@ -168,7 +168,7 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 
 ### Requirement 9: Presets [SHOULD]
 
-The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters and the patch; the preset ids SHALL be mirrored in `params.ts`.
+The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters, and the patch once routing exists (Req 7, MVP 5); the preset ids SHALL be mirrored in `params.ts`.
 
 **Implementation:** `crates/dsp/src/mono/preset.rs` *(planned, #11)*
 
