@@ -68,6 +68,7 @@ impl Preset {
                 (AdsrRelease, 0.3),
             ],
             // VCO 2 hard-synced to a silent VCO 1, an octave and a fifth up.
+            // A fixed timbre until routing can sweep VCO 2 (#9).
             Preset::SyncLead => &[
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 19.0),
@@ -97,6 +98,8 @@ impl Preset {
                 (AdsrDecay, 0.5),
                 (AdsrSustain, 0.85),
                 (AdsrRelease, 0.6),
+                // Vibrato rate, ready for LFO → pitch once routing exists (#9);
+                // until then the LFO has no destination.
                 (LfoRate, 5.5),
             ],
         }
@@ -230,12 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn typescript_mirror_matches() {
-        let ts = include_str!("../../../../web/src/audio/params.ts");
-        for (p, name) in Preset::ALL {
-            let line = format!("{name}: {},", p as u32);
-            assert!(ts.contains(&line), "web/src/audio/params.ts lacks `{line}`");
-        }
+    fn unknown_ids_are_none() {
         assert_eq!(Preset::from_id(4), None);
     }
 }

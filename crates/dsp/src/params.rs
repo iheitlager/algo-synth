@@ -10,9 +10,9 @@
 pub enum Param {
     /// Master output gain, 0..=1.
     MasterGain = 0,
-    /// Test-voice attack time in seconds, 0.001..=5.
+    /// Wave's attack time in seconds, 0.001..=5 (Mono has its ADSR).
     Attack = 1,
-    /// Test-voice release time in seconds, 0.005..=10.
+    /// Wave's release time in seconds, 0.005..=10 (Mono has its ADSR).
     Release = 2,
     /// VCO 1 waveform id (`Waveform`), 0..=3.
     Vco1Wave = 3,
@@ -162,13 +162,52 @@ mod tests {
         assert_eq!(Param::Attack.clamp(0.0), 0.001);
     }
 
-    /// ADR-0004: the TypeScript mirror names every id exactly as Rust does.
+    /// The `Name: id` entries of `export const {name} = { ... }`.
+    fn ts_block(ts: &str, name: &str) -> Vec<(String, u32)> {
+        let open = format!("export const {name} = {{");
+        let body = ts
+            .split(&open)
+            .nth(1)
+            .and_then(|rest| rest.split('}').next())
+            .unwrap_or_else(|| panic!("params.ts has no `{open}`"));
+        let mut entries: Vec<(String, u32)> = body
+            .lines()
+            .filter_map(|line| {
+                let (k, v) = line.trim().trim_end_matches(',').split_once(": ")?;
+                Some((k.to_string(), v.parse().ok()?))
+            })
+            .collect();
+        entries.sort();
+        entries
+    }
+
+    /// ADR-0004: every id list in Rust and its block in
+    /// `web/src/audio/params.ts` hold exactly the same names and ids.
     #[test]
     fn typescript_mirror_matches() {
+        use crate::mono::noise::NoiseColour;
+        use crate::mono::osc::Waveform;
+        use crate::mono::preset::Preset;
+        use crate::source::Source;
+        fn rust<T: Copy>(all: &[(T, &str)], id: impl Fn(T) -> u32) -> Vec<(String, u32)> {
+            let mut v: Vec<_> = all.iter().map(|(x, n)| (n.to_string(), id(*x))).collect();
+            v.sort();
+            v
+        }
         let ts = include_str!("../../../web/src/audio/params.ts");
-        for (p, name) in Param::ALL {
-            let line = format!("{name}: {},", p as u32);
-            assert!(ts.contains(&line), "web/src/audio/params.ts lacks `{line}`");
+        let lists = [
+            ("Param", rust(&Param::ALL, |p| p as u32)),
+            ("Source", rust(&Source::ALL, |s| s as u32)),
+            ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
+            ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
+            ("Preset", rust(&Preset::ALL, |p| p as u32)),
+        ];
+        for (name, want) in lists {
+            assert_eq!(
+                ts_block(ts, name),
+                want,
+                "params.ts `{name}` differs from Rust"
+            );
         }
     }
 }

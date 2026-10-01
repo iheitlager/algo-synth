@@ -22,6 +22,9 @@ use crate::source::Source;
 pub const TABLE: usize = 2048;
 /// −80 dB: below this an envelope counts as silent and frees its voice.
 pub const SILENT: f32 = 1.0e-4;
+/// Mono's level after the ladder: one VCO at full level comes out near the
+/// previous preview voice's 0.35.
+const MONO_GAIN: f32 = 0.7;
 
 /// Who started a voice, so a note-off releases only its own notes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -169,28 +172,20 @@ impl Voice {
             let y = self
                 .ladder
                 .process(ctx.ladder, 0.5 * mix, p.cutoff, p.k, p.drive);
-            *sample += y * 0.7 * env * self.velocity;
+            *sample += y * MONO_GAIN * env * self.velocity;
         }
-    }
-
-    /// Attack while gated, release after; false once silent.
-    fn advance_env(&mut self, ctx: &Ctx) -> bool {
-        if self.gate {
-            self.env = (self.env + ctx.attack_step).min(1.0);
-        } else {
-            self.env *= ctx.release_coef;
-            if self.env < SILENT {
-                self.active = false;
-                return false;
-            }
-        }
-        true
     }
 
     fn render_tonal(&mut self, ctx: &Ctx, out: &mut [f32]) {
         for sample in out.iter_mut() {
-            if !self.advance_env(ctx) {
-                return;
+            if self.gate {
+                self.env = (self.env + ctx.attack_step).min(1.0);
+            } else {
+                self.env *= ctx.release_coef;
+                if self.env < SILENT {
+                    self.active = false;
+                    return;
+                }
             }
             let octave = wrap(self.phase * 2.0);
             let x = lookup(ctx.sine, self.phase) * 0.45 + lookup(ctx.sine, octave) * 0.15;
@@ -253,8 +248,16 @@ pub fn midi_to_hz(note: u8) -> f32 {
     440.0 * ((f32::from(note) - 69.0) / 12.0).exp2()
 }
 
+/// One cycle of a sine in `TABLE + 1` samples (a guard sample for the
+/// interpolation). Allocates: build it once, in `Engine::new`.
+pub fn sine_table() -> Vec<f32> {
+    (0..=TABLE)
+        .map(|i| (i as f32 / TABLE as f32 * std::f32::consts::TAU).sin())
+        .collect()
+}
+
 /// Wrap a phase that is at most one cycle past 1 back into `0..1`.
-fn wrap(p: f32) -> f32 {
+pub fn wrap(p: f32) -> f32 {
     if p >= 1.0 { p - 1.0 } else { p }
 }
 
@@ -272,14 +275,8 @@ pub fn lookup(table: &[f32], phase: f32) -> f32 {
 mod tests {
     use super::*;
 
-    fn sine() -> Vec<f32> {
-        (0..=TABLE)
-            .map(|i| (i as f32 / TABLE as f32 * std::f32::consts::TAU).sin())
-            .collect()
-    }
-
     fn render(source: Source, note: u8, blocks: usize) -> (Voice, Vec<f32>) {
-        let (table, blep, mono) = (sine(), Blep::new(), MonoParams::default());
+        let (table, blep, mono) = (sine_table(), Blep::new(), MonoParams::default());
         let ladder = LadderTables::new(48_000.0);
         let ctx = Ctx {
             sine: &table,

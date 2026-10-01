@@ -13,7 +13,7 @@ use crate::params::Param;
 use crate::player::Sequence;
 use crate::smf;
 use crate::source::Source;
-use crate::voice::{Ctx, Owner, TABLE, Voice, decay_coef};
+use crate::voice::{Ctx, Owner, Voice, decay_coef, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
 pub const BLOCK: usize = 128;
@@ -57,9 +57,7 @@ impl Engine {
         } else {
             48_000.0
         };
-        let sine = (0..=TABLE)
-            .map(|i| (i as f32 / TABLE as f32 * std::f32::consts::TAU).sin())
-            .collect();
+        let sine = sine_table();
         let mut engine = Engine {
             sample_rate,
             sine,

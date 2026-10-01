@@ -19,4 +19,4 @@ Pulse width is latched at each cycle start, so a changing width never adds or dr
 - Measured offline: aliases at −81 dB for a 5 kHz saw (the 32-tap variant reaches −98 dB, at twice the cost and latency).
 - Each edge costs 16 table reads and multiply-adds. `render` itself does no transcendental math (ADR-0002).
 - Mono output lags the other sources by 8 samples, which is too short to hear.
-- Sinc ringing overshoots a step by about 9% of its height (Gibbs). A ±1 saw or pulse steps by 2, so a VCO peaks near ±1.16; spec 004 bounds it at ±1.2.
+- Sinc ringing overshoots a step by about 9% of its height (Gibbs). A ±1 saw or pulse steps by 2, so a VCO peaks near ±1.16. The oscillator tests bound it at ±1.2, and a synced sweep, where steps can fall within a sample of each other, at ±1.5 (spec 004 Req 1).

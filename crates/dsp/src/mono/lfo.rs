@@ -5,8 +5,8 @@
 //! at every LFO cycle start and holds it until the next.
 
 use crate::mono::noise::Noise;
-use crate::mono::osc::Waveform;
-use crate::voice::lookup;
+use crate::mono::osc::{Waveform, naive};
+use crate::voice::wrap;
 
 #[derive(Clone, Copy, Default)]
 pub struct Lfo {
@@ -30,18 +30,8 @@ impl Lfo {
             self.held = noise.white();
         }
         let p = self.phase;
-        let y = match wave {
-            Waveform::Sine => lookup(sine, p),
-            Waveform::Triangle => 1.0 - 4.0 * (wrap(p + 0.25) - 0.5).abs(),
-            Waveform::Saw => 2.0 * p - 1.0,
-            Waveform::Pulse => {
-                if p < 0.5 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            }
-        };
+        // Pulse at half width is the square.
+        let y = naive(wave, p, 0.5, sine);
         let held = self.held;
         let next = p + inc.clamp(0.0, 0.5);
         if next >= 1.0 {
@@ -52,21 +42,15 @@ impl Lfo {
     }
 }
 
-fn wrap(p: f32) -> f32 {
-    if p >= 1.0 { p - 1.0 } else { p }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::voice::TABLE;
+    use crate::voice::sine_table;
 
     const SR: f32 = 48_000.0;
 
     fn render(hz: f32, wave: Waveform, seconds: f32) -> (Vec<f32>, Vec<f32>) {
-        let sine: Vec<f32> = (0..=TABLE)
-            .map(|i| (i as f32 / TABLE as f32 * std::f32::consts::TAU).sin())
-            .collect();
+        let sine = sine_table();
         let (mut lfo, mut noise) = (Lfo::default(), Noise::new(7));
         (0..(seconds * SR) as usize)
             .map(|_| lfo.step(hz / SR, wave, &sine, &mut noise))

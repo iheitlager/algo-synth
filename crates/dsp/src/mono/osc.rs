@@ -6,7 +6,7 @@
 //! around every step: a saw wrap, a pulse edge, a sync reset. `render` does
 //! only adds, multiplies and table reads (ADR-0002).
 
-use crate::voice::lookup;
+use crate::voice::{lookup, wrap};
 
 /// Zero crossings of the windowed sinc on each side of a step.
 const ZEROS: usize = 8;
@@ -165,7 +165,7 @@ impl Osc {
 
         let start = self.phase;
         let end = start + self.inc;
-        let wrap = if end >= 1.0 && self.inc > 0.0 {
+        let own_wrap = if end >= 1.0 && self.inc > 0.0 {
             Some((end - 1.0) / self.inc)
         } else {
             None
@@ -175,7 +175,7 @@ impl Osc {
                 // Run to the reset, jump to phase 0, run on from there.
                 let reset = start + self.inc * (1.0 - after);
                 self.edges(blep, start, reset, after, pw);
-                let before = self.naive(wrap_phase(reset), sine);
+                let before = self.naive(wrap(reset), sine);
                 self.pw = pw;
                 let jump = self.naive(0.0, sine) - before;
                 self.correct(blep, jump, after);
@@ -185,7 +185,7 @@ impl Osc {
             }
             _ => {
                 self.edges(blep, start, end, 0.0, pw);
-                self.phase = wrap_phase(end);
+                self.phase = wrap(end);
             }
         }
 
@@ -195,24 +195,11 @@ impl Osc {
             *s = 0.0;
         }
         self.pos = (self.pos + 1) & MASK;
-        (out, wrap)
+        (out, own_wrap)
     }
 
-    /// The waveform without band-limiting, at `phase` in `0..1`.
     fn naive(&self, phase: f32, sine: &[f32]) -> f32 {
-        match self.wave {
-            Waveform::Saw => 2.0 * phase - 1.0,
-            Waveform::Pulse => {
-                if phase < self.pw {
-                    1.0
-                } else {
-                    -1.0
-                }
-            }
-            // Starts at 0 rising, like the sine.
-            Waveform::Triangle => 1.0 - 4.0 * (wrap_phase(phase + 0.25) - 0.5).abs(),
-            Waveform::Sine => lookup(sine, phase),
-        }
+        naive(self.wave, phase, self.pw, sine)
     }
 
     /// Correct the steps the phase crosses in `(from, to]`; `tail` is the
@@ -262,15 +249,28 @@ impl Osc {
     }
 }
 
-/// Wrap a phase that is at most one cycle past 1 back into `0..1`.
-fn wrap_phase(p: f32) -> f32 {
-    if p >= 1.0 { p - 1.0 } else { p }
+/// A waveform without band-limiting at `phase` in `0..1`, a pulse `pw`
+/// wide; the LFO uses it as is.
+pub fn naive(wave: Waveform, phase: f32, pw: f32, sine: &[f32]) -> f32 {
+    match wave {
+        Waveform::Saw => 2.0 * phase - 1.0,
+        Waveform::Pulse => {
+            if phase < pw {
+                1.0
+            } else {
+                -1.0
+            }
+        }
+        // Starts at 0 rising, like the sine.
+        Waveform::Triangle => 1.0 - 4.0 * (wrap(phase + 0.25) - 0.5).abs(),
+        Waveform::Sine => lookup(sine, phase),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::voice::{TABLE, midi_to_hz};
+    use crate::voice::{midi_to_hz, sine_table as sine};
 
     const SR: f32 = 48_000.0;
     /// Gibbs: a band-limited step overshoots by about 9% of its height, and
@@ -279,12 +279,6 @@ mod tests {
     /// A synced pulse can put two steps within a sample or two, and their
     /// ringing adds: 1.48 at worst, for a 14 kHz slave.
     const SYNC_PEAK: f32 = 1.5;
-
-    fn sine() -> Vec<f32> {
-        (0..=TABLE)
-            .map(|i| (i as f32 / TABLE as f32 * std::f32::consts::TAU).sin())
-            .collect()
-    }
 
     fn render(wave: Waveform, hz: f32, pw: f32, n: usize) -> Vec<f32> {
         let (blep, table) = (Blep::new(), sine());
@@ -503,12 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn typescript_mirror_matches() {
-        let ts = include_str!("../../../../web/src/audio/params.ts");
-        for (w, name) in Waveform::ALL {
-            let line = format!("{name}: {},", w as u32);
-            assert!(ts.contains(&line), "web/src/audio/params.ts lacks `{line}`");
-        }
-        assert_eq!(Waveform::from_id(9), None);
+    fn unknown_ids_are_none() {
+        assert_eq!(Waveform::from_id(4), None);
     }
 }

@@ -72,7 +72,11 @@ export const player = reactive({
 /** DSP load as a share of real time (peak is null without a precise clock). */
 export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, seen: false })
 
-/** Parameter values by id, as the engine last reported them (clamped). */
+/**
+ * Parameter values by id: what the view last sent, replaced by the engine's
+ * clamped values at start and after a preset. The sliders' ranges match
+ * Rust's, so the two only differ out of range.
+ */
 export const params = reactive({ values: [] as number[] })
 let engine: AudioEngine | null = null
 

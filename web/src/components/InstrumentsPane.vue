@@ -43,8 +43,10 @@ const adsr = [
   { id: Param.AdsrRelease, name: 'Release', min: 0.001, max: 4, step: 0.001 },
 ]
 function loadPreset(e: Event) {
-  const v = (e.target as HTMLSelectElement).value
-  if (v !== '') getEngine()?.preset(Number(v) as PresetId)
+  const select = e.target as HTMLSelectElement
+  if (select.value !== '') getEngine()?.preset(Number(select.value) as PresetId)
+  // Hand the keys back to the computer keyboard.
+  select.blur()
 }
 // The cutoff slider is exponential: 0..1 is 20 Hz..20 kHz.
 const cutoffHz = (t: number) => 20 * 1000 ** t
@@ -53,8 +55,8 @@ function sendCutoff(e: Event) {
   getEngine()?.param(Param.Cutoff, cutoffHz(Number((e.target as HTMLInputElement).value)))
 }
 function send(id: ParamId, e: Event) {
-  const t = e.target as HTMLInputElement
-  getEngine()?.param(id, t.type === 'checkbox' ? Number(t.checked) : Number(t.value))
+  const t = e.target as HTMLInputElement | HTMLSelectElement
+  getEngine()?.param(id, t instanceof HTMLInputElement && t.type === 'checkbox' ? Number(t.checked) : Number(t.value))
 }
 
 const down = (s: SourceId, n: number) => { selected.value = s; getEngine()?.noteOn(s, n) }

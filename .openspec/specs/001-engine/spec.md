@@ -84,7 +84,7 @@ Every `Param` and `Source` id SHALL appear in `web/src/audio/params.ts` as a `Na
 
 **Implementation:** `crates/dsp/src/params.rs::Param::ALL`, `crates/dsp/src/source.rs::Source::ALL`
 
-**Tests:** `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/source.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`
+**Tests:** `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`
 
 ### Requirement 7: Equal-tempered pitch [MUST]
 
