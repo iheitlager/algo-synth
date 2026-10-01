@@ -27,6 +27,14 @@ export const Param = {
   Cutoff: 20,
   Resonance: 21,
   Drive: 22,
+  AdsrAttack: 23,
+  AdsrDecay: 24,
+  AdsrSustain: 25,
+  AdsrRelease: 26,
+  ArAttack: 27,
+  ArRelease: 28,
+  LfoRate: 29,
+  LfoWave: 30,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

@@ -54,11 +54,24 @@ pub enum Param {
     Resonance = 21,
     /// Ladder drive into the saturator, 0..=1 (0 to +18 dB).
     Drive = 22,
+    /// ADSR attack, decay and release in seconds, 0.001..=10.
+    AdsrAttack = 23,
+    AdsrDecay = 24,
+    /// ADSR sustain level, 0..=1.
+    AdsrSustain = 25,
+    AdsrRelease = 26,
+    /// AR attack and release in seconds, 0.001..=10.
+    ArAttack = 27,
+    ArRelease = 28,
+    /// LFO rate in Hz, 0.01..=50.
+    LfoRate = 29,
+    /// LFO waveform id (`Waveform`; pulse is the square), 0..=3.
+    LfoWave = 30,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 23] = [
+    pub const ALL: [(Param, &'static str); 31] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Attack, "Attack"),
         (Param::Release, "Release"),
@@ -82,6 +95,14 @@ impl Param {
         (Param::Cutoff, "Cutoff"),
         (Param::Resonance, "Resonance"),
         (Param::Drive, "Drive"),
+        (Param::AdsrAttack, "AdsrAttack"),
+        (Param::AdsrDecay, "AdsrDecay"),
+        (Param::AdsrSustain, "AdsrSustain"),
+        (Param::AdsrRelease, "AdsrRelease"),
+        (Param::ArAttack, "ArAttack"),
+        (Param::ArRelease, "ArRelease"),
+        (Param::LfoRate, "LfoRate"),
+        (Param::LfoWave, "LfoWave"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -106,7 +127,14 @@ impl Param {
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
             Param::Cutoff => (20.0, 20_000.0),
-            Param::Resonance | Param::Drive => (0.0, 1.0),
+            Param::Resonance | Param::Drive | Param::AdsrSustain => (0.0, 1.0),
+            Param::AdsrAttack
+            | Param::AdsrDecay
+            | Param::AdsrRelease
+            | Param::ArAttack
+            | Param::ArRelease => (0.001, 10.0),
+            Param::LfoRate => (0.01, 50.0),
+            Param::LfoWave => (0.0, 3.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }

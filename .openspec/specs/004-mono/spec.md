@@ -72,9 +72,9 @@ The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-del
 
 ### Requirement 4: Envelopes [MUST]
 
-The voice SHALL have an ADSR and an AR envelope. Their rates SHALL be computed when a time parameter or the gate changes, not per sample. A gate that opens during release SHALL continue from the current level, without a jump.
+The voice SHALL have an ADSR and an AR envelope; the ADSR SHALL drive the VCA. Each segment SHALL take its set time from wherever it starts, curved as an RC envelope is. Their rates SHALL be computed when a time parameter or the gate changes, not per sample. A gate that opens during release SHALL continue from the current level, without a jump.
 
-**Implementation:** `crates/dsp/src/mono/env.rs` *(planned, #7)*
+**Implementation:** `crates/dsp/src/mono/env.rs::Env`, `crates/dsp/src/voice.rs::Voice` (#7)
 
 #### Scenario: segment times
 
@@ -82,13 +82,13 @@ The voice SHALL have an ADSR and an AR envelope. Their rates SHALL be computed w
 - WHEN the ADSR is gated, held and released offline
 - THEN each segment reaches its target within ±1 ms of its set time
 
-**Tests:** `crates/dsp/src/mono/env.rs::tests::segment_times`, `crates/dsp/src/mono/env.rs::tests::retrigger_does_not_jump` *(planned)*
+**Tests:** `crates/dsp/src/mono/env.rs::tests::segment_times`, `crates/dsp/src/mono/env.rs::tests::retrigger_does_not_jump`, `crates/dsp/src/mono/env.rs::tests::ar_holds_at_full_level`, `crates/dsp/src/engine.rs::tests::mono_follows_its_adsr`
 
 ### Requirement 5: LFO and sample-and-hold [MUST]
 
-The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz, and a sample-and-hold that samples the noise once per LFO period and holds the value until the next.
+The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz, and a sample-and-hold that samples the noise once per LFO period and holds the value until the next. Their destinations come with routing (Req 7).
 
-**Implementation:** `crates/dsp/src/mono/lfo.rs` *(planned, #7)*
+**Implementation:** `crates/dsp/src/mono/lfo.rs::Lfo` (#7)
 
 #### Scenario: sample-and-hold period
 
@@ -96,7 +96,7 @@ The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz,
 - WHEN two seconds are rendered
 - THEN the S&H output changes exactly 8 times, once per LFO period, and is constant in between
 
-**Tests:** `crates/dsp/src/mono/lfo.rs::tests::lfo_frequency`, `crates/dsp/src/mono/lfo.rs::tests::sample_and_hold_once_per_period` *(planned)*
+**Tests:** `crates/dsp/src/mono/lfo.rs::tests::lfo_frequency`, `crates/dsp/src/mono/lfo.rs::tests::sample_and_hold_once_per_period`
 
 ### Requirement 6: Mono note handling and glide [MUST]
 

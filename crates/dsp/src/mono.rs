@@ -1,13 +1,18 @@
 //! The ARP 2600-style Mono voice (spec 004).
 //!
-//! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter. The settings here are Mono-wide until tracks address
-//! parameters per instance (spec 002 Req 1).
+//! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
+//! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold. The settings
+//! here are Mono-wide until tracks address parameters per instance
+//! (spec 002 Req 1).
 
+pub mod env;
 pub mod ladder;
+pub mod lfo;
 pub mod noise;
 pub mod osc;
 
 use crate::params::Param;
+use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
 use noise::NoiseColour;
 use osc::Waveform;
@@ -34,11 +39,25 @@ pub struct MonoParams {
     pub cutoff: f32,
     pub k: f32,
     pub drive: f32,
+    /// Envelope times in samples, so the sample rate is kept to convert.
+    sample_rate: f32,
+    pub adsr: EnvTimes,
+    pub ar: EnvTimes,
+    /// LFO cycles per sample, and its waveform.
+    pub lfo_inc: f32,
+    pub lfo_wave: Waveform,
 }
 
 impl Default for MonoParams {
-    /// VCO 1 alone, a saw: the voice sounds as it did before the VCOs.
     fn default() -> MonoParams {
+        MonoParams::new(48_000.0)
+    }
+}
+
+impl MonoParams {
+    /// VCO 1 alone, a saw, through a 4 kHz ladder, with a short attack.
+    pub fn new(sample_rate: f32) -> MonoParams {
+        let sr = sample_rate;
         MonoParams {
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
@@ -52,11 +71,24 @@ impl Default for MonoParams {
             cutoff: hz_to_note(4_000.0),
             k: 0.0,
             drive: 1.0,
+            sample_rate: sr,
+            adsr: EnvTimes {
+                attack: 0.005 * sr,
+                decay: 0.3 * sr,
+                sustain: 0.7,
+                release: 0.3 * sr,
+            },
+            ar: EnvTimes {
+                attack: 0.005 * sr,
+                decay: 0.0,
+                sustain: 1.0,
+                release: 0.3 * sr,
+            },
+            lfo_inc: 4.0 / sr,
+            lfo_wave: Waveform::Sine,
         }
     }
-}
 
-impl MonoParams {
     /// Apply an already clamped value; parameters that aren't Mono's are
     /// ignored.
     pub fn set(&mut self, param: Param, v: f32) {
@@ -77,6 +109,11 @@ impl MonoParams {
                 if let Some(c) = noise::NoiseColour::from_id(v.round() as u32) {
                     self.noise_colour = c;
                 }
+                return;
+            }
+            AdsrAttack | AdsrDecay | AdsrSustain | AdsrRelease | ArAttack | ArRelease | LfoRate
+            | LfoWave => {
+                self.set_modulation(param, v);
                 return;
             }
             Cutoff => {
@@ -122,6 +159,26 @@ impl MonoParams {
             Vco2Sync | Vco3Sync => {
                 if let Some(s) = self.sync.get_mut(vco) {
                     *s = v >= 0.5;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Envelope times arrive in seconds and are kept in samples.
+    fn set_modulation(&mut self, param: Param, v: f32) {
+        let samples = v * self.sample_rate;
+        match param {
+            Param::AdsrAttack => self.adsr.attack = samples,
+            Param::AdsrDecay => self.adsr.decay = samples,
+            Param::AdsrSustain => self.adsr.sustain = v,
+            Param::AdsrRelease => self.adsr.release = samples,
+            Param::ArAttack => self.ar.attack = samples,
+            Param::ArRelease => self.ar.release = samples,
+            Param::LfoRate => self.lfo_inc = v / self.sample_rate,
+            Param::LfoWave => {
+                if let Some(w) = Waveform::from_id(v.round() as u32) {
+                    self.lfo_wave = w;
                 }
             }
             _ => {}

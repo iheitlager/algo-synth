@@ -3,13 +3,15 @@
 //! These are previews, not the sources the plan builds: enough that Mono,
 //! Wave and Drums sound different when a MIDI file is spread across them.
 //! Mono is three VCOs and noise (`mono::osc`, `mono::noise`) through the
-//! ladder (`mono::ladder`, spec 004 Req 1-3); Wave is a table sine with a
+//! ladder (`mono::ladder`), shaped by the ADSR (`mono::env`), spec 004
+//! Req 1-4; Wave is a table sine with a
 //! second harmonic (MVP 7: the PPG-style wavetable); Drums picks a model
 //! from the General MIDI note (MVP 6: the analog-style kit).
 //!
 //! ADR-0002: every coefficient is computed in `start`; `render` only does
 //! adds, multiplies and table reads.
 
+use crate::mono::env::{Env, Stage};
 use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Blep, Osc};
@@ -65,9 +67,10 @@ pub struct Voice {
     phase: f32,
     increment: f32,
     env: f32,
-    // Mono: the VCOs and the filter.
+    // Mono: the VCOs, the filter and the ADSR on the VCA.
     osc: [Osc; VCOS],
     ladder: Ladder,
+    adsr: Env,
     // Drums.
     drum: Drum,
     base_increment: f32,
@@ -137,8 +140,16 @@ impl Voice {
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
+        // The engine moves the gate between blocks; the ADSR follows here.
+        if self.gate && !self.adsr.gated() {
+            self.adsr.gate_on(&p.adsr);
+        } else if !self.gate && self.adsr.gated() {
+            self.adsr.gate_off(&p.adsr);
+        }
         for sample in out.iter_mut() {
-            if !self.advance_env(ctx) {
+            let env = self.adsr.step();
+            if self.adsr.stage == Stage::Idle {
+                self.active = false;
                 return;
             }
             let [o1, o2, o3] = &mut self.osc;
@@ -155,7 +166,7 @@ impl Voice {
             let y = self
                 .ladder
                 .process(ctx.ladder, 0.5 * mix, p.cutoff, p.k, p.drive);
-            *sample += y * 0.7 * self.env * self.velocity;
+            *sample += y * 0.7 * env * self.velocity;
         }
     }
 

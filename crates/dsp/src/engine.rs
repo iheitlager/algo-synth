@@ -59,7 +59,7 @@ impl Engine {
             sample_rate,
             sine,
             blep: Blep::new(),
-            mono: MonoParams::default(),
+            mono: MonoParams::new(sample_rate),
             ladder: LadderTables::new(sample_rate),
             voices: [Voice::default(); VOICES],
             master_gain: 0.5,
@@ -321,6 +321,25 @@ mod tests {
         }
         assert_eq!(e.active_voices(), 0);
         assert_eq!(peak(&e), 0.0);
+    }
+
+    /// Mono's VCA is its own ADSR, not the test voice's envelope.
+    #[test]
+    fn mono_follows_its_adsr() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(Param::Release, 10.0);
+        e.set_param(Param::AdsrRelease, 0.01);
+        e.note_on(Source::Mono, 57, 1.0);
+        for _ in 0..40 {
+            e.render(BLOCK);
+        }
+        assert!(peak(&e) > 0.05);
+        e.note_off(Source::Mono, 57);
+        // 0.01 s is 3.75 blocks.
+        for _ in 0..5 {
+            e.render(BLOCK);
+        }
+        assert_eq!(e.active_voices(), 0);
     }
 
     #[test]

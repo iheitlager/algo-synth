@@ -32,6 +32,13 @@ const vcos = [
   { n: 2, wave: Param.Vco2Wave, coarse: Param.Vco2Coarse, fine: Param.Vco2Fine, level: Param.Vco2Level, level0: 0, sync: Param.Vco2Sync },
   { n: 3, wave: Param.Vco3Wave, coarse: Param.Vco3Coarse, fine: Param.Vco3Fine, level: Param.Vco3Level, level0: 0, sync: Param.Vco3Sync },
 ]
+// Mono's ADSR (spec 004 Req 4), in seconds and a level; Rust's defaults.
+const adsr = [
+  { id: Param.AdsrAttack, name: 'Attack', min: 0.001, max: 2, step: 0.001, value: 0.005 },
+  { id: Param.AdsrDecay, name: 'Decay', min: 0.001, max: 4, step: 0.001, value: 0.3 },
+  { id: Param.AdsrSustain, name: 'Sustain', min: 0, max: 1, step: 0.01, value: 0.7 },
+  { id: Param.AdsrRelease, name: 'Release', min: 0.001, max: 4, step: 0.001, value: 0.3 },
+]
 // The cutoff slider is exponential: 0..1 → 20 Hz..20 kHz.
 const cutoffHz = (t: number) => 20 * 1000 ** t
 function sendCutoff(e: Event) {
@@ -76,8 +83,15 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
       >
         <header><b>{{ c.name }}</b><span class="style">{{ c.style }}</span></header>
         <div class="knobs">
-          <label>Attack <input v-model.number="attack" type="range" min="0.001" max="2" step="0.001" /></label>
-          <label>Release <input v-model.number="release" type="range" min="0.005" max="4" step="0.005" /></label>
+          <template v-if="c.id === Source.Mono">
+            <label v-for="a in adsr" :key="a.id">{{ a.name }}
+              <input type="range" :min="a.min" :max="a.max" :step="a.step" :value="a.value" @input="send(a.id, $event)" />
+            </label>
+          </template>
+          <template v-else>
+            <label>Attack <input v-model.number="attack" type="range" min="0.001" max="2" step="0.001" /></label>
+            <label>Release <input v-model.number="release" type="range" min="0.005" max="4" step="0.005" /></label>
+          </template>
           <span v-for="k in c.knobs" :key="k" class="knob soon" :title="c.mvp">{{ k }}</span>
         </div>
         <div v-if="c.id === Source.Mono" class="vcos">
