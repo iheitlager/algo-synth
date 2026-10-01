@@ -40,5 +40,6 @@ See [adr/index.md](adr/index.md).
 | [001-engine](specs/001-engine/spec.md) | The wasm engine: C ABI, render loop, voices, parameters |
 | [002-composition](specs/002-composition/spec.md) | Tracks, sources, effects, patterns, clips, algo loops, score import, clock |
 | [003-ui](specs/003-ui/spec.md) | The wide-screen view: transport, algo pane, instruments, arrangement |
+| [004-mono](specs/004-mono/spec.md) | The Mono voice: VCOs, noise, ladder filter, modulation, mono note handling, normalled routing, MIDI input, presets |
 
 Specs are in draft. `**Implementation:**` and `**Tests:**` lines name the *planned* paths for requirements that aren't built yet; they become real links as the code lands.
