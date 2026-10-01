@@ -38,9 +38,9 @@ The voice SHALL have three VCOs, each with saw, pulse, triangle and sine wavefor
 
 ### Requirement 2: Noise [MUST]
 
-The voice SHALL have a white and a pink noise source from a seeded generator; the same seed SHALL give the same samples. Neither SHALL have a DC offset.
+The voice SHALL have a white and a pink noise source from a seeded generator, with a colour switch and a level into the mixer; the same seed SHALL give the same samples. Neither SHALL have a DC offset: pink, whose filter passes DC, goes through a DC blocker.
 
-**Implementation:** `crates/dsp/src/mono/noise.rs::Noise` *(planned, #5)*
+**Implementation:** `crates/dsp/src/mono/noise.rs::Noise` (#5)
 
 #### Scenario: spectral slope
 
@@ -48,7 +48,7 @@ The voice SHALL have a white and a pink noise source from a seeded generator; th
 - WHEN the power per octave is measured from 100 Hz to 10 kHz
 - THEN white is flat and pink falls 3 dB per octave, both within ±1 dB
 
-**Tests:** `crates/dsp/src/mono/noise.rs::tests::white_is_flat`, `crates/dsp/src/mono/noise.rs::tests::pink_falls_3_db_per_octave`, `crates/dsp/src/mono/noise.rs::tests::same_seed_same_noise` *(planned)*
+**Tests:** `crates/dsp/src/mono/noise.rs::tests::white_is_flat`, `crates/dsp/src/mono/noise.rs::tests::pink_falls_3_db_per_octave`, `crates/dsp/src/mono/noise.rs::tests::same_seed_same_noise`, `crates/dsp/src/mono/noise.rs::tests::no_dc_and_bounded`
 
 ### Requirement 3: Ladder filter [MUST]
 

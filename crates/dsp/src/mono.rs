@@ -1,11 +1,13 @@
 //! The ARP 2600-style Mono voice (spec 004).
 //!
-//! `osc` holds the VCOs. The settings here are Mono-wide until tracks address
+//! `osc` holds the VCOs, `noise` the noise source. The settings here are Mono-wide until tracks address
 //! parameters per instance (spec 002 Req 1).
 
+pub mod noise;
 pub mod osc;
 
 use crate::params::Param;
+use noise::NoiseColour;
 use osc::Waveform;
 
 /// Number of VCOs per Mono voice.
@@ -24,6 +26,8 @@ pub struct MonoParams {
     pub pulse_width: f32,
     /// Whether VCO 2 and VCO 3 reset with VCO 1; VCO 1's entry is unused.
     pub sync: [bool; VCOS],
+    pub noise_level: f32,
+    pub noise_colour: NoiseColour,
 }
 
 impl Default for MonoParams {
@@ -37,6 +41,8 @@ impl Default for MonoParams {
             level: [1.0, 0.0, 0.0],
             pulse_width: 0.5,
             sync: [false; VCOS],
+            noise_level: 0.0,
+            noise_colour: NoiseColour::White,
         }
     }
 }
@@ -52,6 +58,16 @@ impl MonoParams {
             Vco3Wave | Vco3Coarse | Vco3Fine | Vco3Level | Vco3Sync => (2, param),
             PulseWidth => {
                 self.pulse_width = v;
+                return;
+            }
+            NoiseLevel => {
+                self.noise_level = v;
+                return;
+            }
+            Param::NoiseColour => {
+                if let Some(c) = noise::NoiseColour::from_id(v.round() as u32) {
+                    self.noise_colour = c;
+                }
                 return;
             }
             MasterGain | Attack | Release => return,
@@ -116,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn wave_and_sync_come_from_their_values() {
+    fn ids_and_switches_come_from_their_values() {
         let mut p = MonoParams::default();
         p.set(Param::Vco3Wave, Param::Vco3Wave.clamp(2.4));
         assert_eq!(p.wave[2], Waveform::Triangle);
@@ -125,5 +141,8 @@ mod tests {
         // Values outside the range are clamped first: 7 becomes Sine.
         p.set(Param::Vco1Wave, Param::Vco1Wave.clamp(7.0));
         assert_eq!(p.wave[0], Waveform::Sine);
+        p.set(Param::NoiseColour, Param::NoiseColour.clamp(1.0));
+        p.set(Param::NoiseLevel, Param::NoiseLevel.clamp(0.5));
+        assert_eq!((p.noise_colour, p.noise_level), (NoiseColour::Pink, 0.5));
     }
 }

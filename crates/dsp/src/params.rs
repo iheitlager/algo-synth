@@ -44,11 +44,15 @@ pub enum Param {
     Vco2Sync = 16,
     /// VCO 3 hard-syncs to VCO 1 when ≥ 0.5.
     Vco3Sync = 17,
+    /// Noise level into the mixer, 0..=1.
+    NoiseLevel = 18,
+    /// Noise colour id (`NoiseColour`), 0..=1.
+    NoiseColour = 19,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 18] = [
+    pub const ALL: [(Param, &'static str); 20] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Attack, "Attack"),
         (Param::Release, "Release"),
@@ -67,6 +71,8 @@ impl Param {
         (Param::PulseWidth, "PulseWidth"),
         (Param::Vco2Sync, "Vco2Sync"),
         (Param::Vco3Sync, "Vco3Sync"),
+        (Param::NoiseLevel, "NoiseLevel"),
+        (Param::NoiseColour, "NoiseColour"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -89,6 +95,7 @@ impl Param {
             Param::Vco1Level | Param::Vco2Level | Param::Vco3Level => (0.0, 1.0),
             Param::PulseWidth => (0.05, 0.95),
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
+            Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }

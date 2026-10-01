@@ -1,4 +1,5 @@
-// Mirror of crates/dsp/src/params.rs, source.rs and mono/osc.rs (ADR-0004).
+// Mirror of crates/dsp/src/params.rs, source.rs, mono/osc.rs and mono/noise.rs
+// (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -21,6 +22,8 @@ export const Param = {
   PulseWidth: 15,
   Vco2Sync: 16,
   Vco3Sync: 17,
+  NoiseLevel: 18,
+  NoiseColour: 19,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -38,3 +41,9 @@ export const Waveform = {
   Sine: 3,
 } as const
 export type WaveformId = (typeof Waveform)[keyof typeof Waveform]
+
+export const NoiseColour = {
+  White: 0,
+  Pink: 1,
+} as const
+export type NoiseColourId = (typeof NoiseColour)[keyof typeof NoiseColour]

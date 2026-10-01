@@ -3,7 +3,7 @@
 // voice; the controls marked "soon" arrive with their source's MVP.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getEngine, status } from '../audio/engine'
-import { Param, type ParamId, Source, type SourceId, Waveform } from '../audio/params'
+import { NoiseColour, Param, type ParamId, Source, type SourceId, Waveform } from '../audio/params'
 
 interface Card { id: SourceId; name: string; style: string; mvp: string; color: string; knobs: string[] }
 const cards: Card[] = [
@@ -26,6 +26,7 @@ watch(release, (v) => getEngine()?.param(Param.Release, v))
 
 // Mono's VCOs (spec 004 Req 1). The view only sends values; Rust clamps them.
 const waves = Object.entries(Waveform)
+const colours = Object.entries(NoiseColour)
 const vcos = [
   { n: 1, wave: Param.Vco1Wave, coarse: Param.Vco1Coarse, fine: Param.Vco1Fine, level: Param.Vco1Level, level0: 1 },
   { n: 2, wave: Param.Vco2Wave, coarse: Param.Vco2Coarse, fine: Param.Vco2Fine, level: Param.Vco2Level, level0: 0, sync: Param.Vco2Sync },
@@ -86,6 +87,13 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
             <label v-if="v.sync !== undefined" class="sync"><input type="checkbox" @change="send(v.sync, $event)" /> Sync to 1</label>
           </div>
           <label>Pulse width <input type="range" min="0.05" max="0.95" step="0.01" value="0.5" @input="send(Param.PulseWidth, $event)" /></label>
+          <div class="vco">
+            <b>Noise</b>
+            <select @change="send(Param.NoiseColour, $event)">
+              <option v-for="[name, id] in colours" :key="id" :value="id">{{ name }}</option>
+            </select>
+            <label>Level <input type="range" min="0" max="1" step="0.01" value="0" @input="send(Param.NoiseLevel, $event)" /></label>
+          </div>
         </div>
         <div v-if="c.id === Source.Drums" class="pads">
           <button

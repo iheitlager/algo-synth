@@ -10,6 +10,7 @@
 //! ADR-0002: every coefficient is computed in `start`; `render` only does
 //! adds, multiplies and table reads.
 
+use crate::mono::noise::Noise;
 use crate::mono::osc::{Blep, Osc};
 use crate::mono::{MonoParams, VCOS};
 use crate::source::Source;
@@ -71,7 +72,8 @@ pub struct Voice {
     base_increment: f32,
     pitch_coef: f32,
     decay_coef: f32,
-    noise: u32,
+    /// Mono's noise source and the drums' noise.
+    noise: Noise,
     hp_prev: f32,
 }
 
@@ -95,7 +97,7 @@ impl Voice {
             started,
             velocity: velocity.clamp(0.0, 1.0),
             increment: hz / sample_rate,
-            noise: started.wrapping_mul(2_654_435_761) | 1,
+            noise: Noise::new(started.wrapping_mul(2_654_435_761) | 1),
             ..Voice::default()
         };
         match source {
@@ -136,6 +138,7 @@ impl Voice {
         }
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
+        let (noise_level, colour) = (p.noise_level, p.noise_colour);
         for sample in out.iter_mut() {
             if !self.advance_env(ctx) {
                 return;
@@ -144,7 +147,12 @@ impl Voice {
             let (y1, wrap) = o1.step(ctx.blep, ctx.sine, p.pulse_width, None);
             let (y2, _) = o2.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync2));
             let (y3, _) = o3.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync3));
-            let mix = y1 * l1 + y2 * l2 + y3 * l3;
+            let noise = if noise_level > 0.0 {
+                self.noise.sample(colour) * noise_level
+            } else {
+                0.0
+            };
+            let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise;
             self.lp += self.lp_a * (mix - self.lp);
             *sample += self.lp * 0.35 * self.env * self.velocity;
         }
@@ -189,9 +197,9 @@ impl Voice {
                         + (self.increment - self.base_increment) * self.pitch_coef;
                     lookup(ctx.sine, self.phase) * 0.9
                 }
-                Drum::Snare => 0.45 * self.white() + 0.3 * lookup(ctx.sine, self.phase),
+                Drum::Snare => 0.45 * self.noise.white() + 0.3 * lookup(ctx.sine, self.phase),
                 Drum::Hat => {
-                    let n = self.white();
+                    let n = self.noise.white();
                     let high = n - self.hp_prev;
                     self.hp_prev = n;
                     0.25 * high
@@ -200,16 +208,6 @@ impl Voice {
             *sample += x * self.env * self.velocity;
             self.phase = wrap(self.phase + self.increment);
         }
-    }
-
-    /// xorshift32 white noise in −1..1.
-    fn white(&mut self) -> f32 {
-        let mut x = self.noise;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.noise = x;
-        (x as f32 / u32::MAX as f32) * 2.0 - 1.0
     }
 }
 
