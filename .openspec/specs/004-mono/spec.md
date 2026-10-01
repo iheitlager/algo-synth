@@ -156,7 +156,7 @@ A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount
 
 The engine SHALL take raw MIDI channel messages through one export, `midi_in(status, d1, d2)`, and interpret them in Rust; JavaScript SHALL only forward the bytes it gets from Web MIDI. Note on and off SHALL carry velocity, and a note on with velocity 0 SHALL be a note off. Pitch bend SHALL be read as 14 bits, with its range a parameter (default ±2 semitones). The mod wheel (CC 1) SHALL be a modulation source (Req 7). Other messages SHALL be ignored.
 
-**Implementation:** `crates/dsp/src/midi.rs`, `crates/dsp/src/ffi.rs::midi_in` *(planned, #10)*
+**Implementation:** `crates/dsp/src/midi.rs`, `crates/dsp/src/ffi.rs::midi_in` *(planned, #10; moved to plan.md MVP 11)*
 
 #### Scenario: bend
 

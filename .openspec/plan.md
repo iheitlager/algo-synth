@@ -34,14 +34,13 @@ A sine from Rust through the AudioWorklet to the speakers, in the wide-screen la
 
 ### MVP 2: the Mono voice
 
-The ARP 2600-style semi-modular voice, monophonic, playable from the keyboard and Web MIDI.
+The ARP 2600-style semi-modular voice, monophonic, playable from the on-screen and computer keyboard. Web MIDI input moved to MVP 11.
 
-1. **Oscillators:** three VCOs with polyBLEP saw and pulse (PWM), triangle and sine; sync; noise (white, pink).
+1. **Oscillators:** three VCOs with band-limited saw and pulse (PWM, a BLEP table: ADR-0007), triangle and sine; sync; noise (white, pink).
 2. **Filter:** a 4-pole zero-delay-feedback ladder (the Moog sound) with resonance and drive, cutoff smoothed at control rate.
 3. **Modulation:** ADSR and AR envelopes, LFO, sample-and-hold, glide (portamento), mono note priority (last, low, high) with legato.
 4. **Normalled routing:** every module has a default connection, as on the 2600; a *patch* is a small table of overrides (source → destination, amount). The UI shows the normalled path and the patch.
-5. **Web MIDI input:** note on/off, pitch bend, mod wheel, velocity.
-6. **Presets:** a handful of patches (bass, lead, sync lead, bowed string for the ensemble).
+5. **Presets:** a handful of patches (bass, lead, sync lead, bowed string for the ensemble).
 
 ## M2: Time
 
@@ -101,7 +100,7 @@ Inserts (drive, filter, crush, chorus), two send buses (tempo-synced delay, algo
 
 ### MVP 11: performance
 
-Scenes and quantized launching, MIDI out to hardware, SIMD (`simd128`) and table optimizations where profiling says so.
+Scenes and quantized launching, Web MIDI in from a hardware keyboard (note on/off, velocity, pitch bend, mod wheel; moved here from MVP 2), MIDI out to hardware, SIMD (`simd128`) and table optimizations where profiling says so.
 
 ## Assumptions to confirm
 
