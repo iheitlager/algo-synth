@@ -2,14 +2,15 @@
 //!
 //! These are previews, not the sources the plan builds: enough that Mono,
 //! Wave and Drums sound different when a MIDI file is spread across them.
-//! Mono is three VCOs (`mono::osc`, spec 004 Req 1) through a key-tracked
-//! one-pole low-pass (the ladder replaces it, #6); Wave is a table sine with a
+//! Mono is three VCOs and noise (`mono::osc`, `mono::noise`) through the
+//! ladder (`mono::ladder`, spec 004 Req 1-3); Wave is a table sine with a
 //! second harmonic (MVP 7: the PPG-style wavetable); Drums picks a model
 //! from the General MIDI note (MVP 6: the analog-style kit).
 //!
 //! ADR-0002: every coefficient is computed in `start`; `render` only does
 //! adds, multiplies and table reads.
 
+use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Blep, Osc};
 use crate::mono::{MonoParams, VCOS};
@@ -46,6 +47,7 @@ pub struct Ctx<'a> {
     pub sine: &'a [f32],
     pub blep: &'a Blep,
     pub mono: &'a MonoParams,
+    pub ladder: &'a LadderTables,
     pub attack_step: f32,
     pub release_coef: f32,
 }
@@ -63,10 +65,9 @@ pub struct Voice {
     phase: f32,
     increment: f32,
     env: f32,
-    // Mono: the VCOs, then one-pole low-pass state and coefficient.
+    // Mono: the VCOs and the filter.
     osc: [Osc; VCOS],
-    lp: f32,
-    lp_a: f32,
+    ladder: Ladder,
     // Drums.
     drum: Drum,
     base_increment: f32,
@@ -101,10 +102,7 @@ impl Voice {
             ..Voice::default()
         };
         match source {
-            Source::Mono => {
-                let cutoff = (hz * 6.0 + 600.0).min(0.45 * sample_rate);
-                v.lp_a = 1.0 - (-std::f32::consts::TAU * cutoff / sample_rate).exp();
-            }
+            Source::Mono => v.ladder = Ladder::new(),
             Source::Wave => {}
             Source::Drums => {
                 v.env = 1.0;
@@ -153,8 +151,11 @@ impl Voice {
                 0.0
             };
             let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise;
-            self.lp += self.lp_a * (mix - self.lp);
-            *sample += self.lp * 0.35 * self.env * self.velocity;
+            // Half the mix keeps two VCOs at full level below the knee.
+            let y = self
+                .ladder
+                .process(ctx.ladder, 0.5 * mix, p.cutoff, p.k, p.drive);
+            *sample += y * 0.7 * self.env * self.velocity;
         }
     }
 
@@ -265,10 +266,12 @@ mod tests {
 
     fn render(source: Source, note: u8, blocks: usize) -> (Voice, Vec<f32>) {
         let (table, blep, mono) = (sine(), Blep::new(), MonoParams::default());
+        let ladder = LadderTables::new(48_000.0);
         let ctx = Ctx {
             sine: &table,
             blep: &blep,
             mono: &mono,
+            ladder: &ladder,
             attack_step: 1.0 / 240.0,
             release_coef: decay_coef(0.1, 48_000.0),
         };

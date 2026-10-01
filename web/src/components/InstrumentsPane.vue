@@ -7,7 +7,7 @@ import { NoiseColour, Param, type ParamId, Source, type SourceId, Waveform } fro
 
 interface Card { id: SourceId; name: string; style: string; mvp: string; color: string; knobs: string[] }
 const cards: Card[] = [
-  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 2', color: 'var(--mono)', knobs: ['Ladder cutoff', 'Resonance', 'Glide', 'Patch'] },
+  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 2', color: 'var(--mono)', knobs: ['Glide', 'Patch'] },
   { id: Source.Wave, name: 'Wave', style: 'PPG-style wavetable', mvp: 'MVP 7', color: 'var(--wave)', knobs: ['Table', 'Wave pos', 'Env → wave', 'Filter', '8-bit'] },
   { id: Source.Drums, name: 'Drums', style: 'Analog drum processor', mvp: 'MVP 6', color: 'var(--drums)', knobs: ['Tune', 'Decay', 'Tone', 'Snap', 'Accent'] },
 ]
@@ -32,6 +32,11 @@ const vcos = [
   { n: 2, wave: Param.Vco2Wave, coarse: Param.Vco2Coarse, fine: Param.Vco2Fine, level: Param.Vco2Level, level0: 0, sync: Param.Vco2Sync },
   { n: 3, wave: Param.Vco3Wave, coarse: Param.Vco3Coarse, fine: Param.Vco3Fine, level: Param.Vco3Level, level0: 0, sync: Param.Vco3Sync },
 ]
+// The cutoff slider is exponential: 0..1 → 20 Hz..20 kHz.
+const cutoffHz = (t: number) => 20 * 1000 ** t
+function sendCutoff(e: Event) {
+  getEngine()?.param(Param.Cutoff, cutoffHz(Number((e.target as HTMLInputElement).value)))
+}
 function send(id: ParamId, e: Event) {
   const t = e.target as HTMLInputElement
   getEngine()?.param(id, t.type === 'checkbox' ? Number(t.checked) : Number(t.value))
@@ -93,6 +98,13 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
               <option v-for="[name, id] in colours" :key="id" :value="id">{{ name }}</option>
             </select>
             <label>Level <input type="range" min="0" max="1" step="0.01" value="0" @input="send(Param.NoiseLevel, $event)" /></label>
+          </div>
+          <div class="vco">
+            <b>Ladder</b>
+            <label>Cutoff <input type="range" min="0" max="1" step="0.001" value="0.767" @input="sendCutoff" /></label>
+            <label>Resonance <input type="range" min="0" max="1" step="0.01" value="0" @input="send(Param.Resonance, $event)" /></label>
+            <span />
+            <label>Drive <input type="range" min="0" max="1" step="0.01" value="0" @input="send(Param.Drive, $event)" /></label>
           </div>
         </div>
         <div v-if="c.id === Source.Drums" class="pads">

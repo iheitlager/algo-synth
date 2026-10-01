@@ -52,9 +52,9 @@ The voice SHALL have a white and a pink noise source from a seeded generator, wi
 
 ### Requirement 3: Ladder filter [MUST]
 
-The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-delay-feedback ladder low-pass with cutoff, resonance and drive. Cutoff SHALL be smoothed at control rate and the filter coefficient recomputed only when the smoothed cutoff changes. Drive SHALL saturate without a per-sample `tanh` (a rational approximation or a table).
+The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-delay-feedback ladder low-pass with cutoff, resonance and drive. Cutoff SHALL be smoothed at control rate and the filter coefficient recomputed only when the smoothed cutoff changes. Drive SHALL saturate without a per-sample `tanh` (a rational approximation or a table). The filter coefficient SHALL come from a table built in `Engine::new`, so modulating the cutoff costs no transcendental math either. Resonance SHALL self-oscillate from 0.8 of its range.
 
-**Implementation:** `crates/dsp/src/mono/ladder.rs::Ladder` *(planned, #6)*
+**Implementation:** `crates/dsp/src/mono/ladder.rs::Ladder`, `crates/dsp/src/mono/ladder.rs::LadderTables` (#6)
 
 #### Scenario: slope
 
@@ -68,7 +68,7 @@ The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-del
 - WHEN a cutoff sweep from 20 Hz to 20 kHz is rendered
 - THEN the filter oscillates near the cutoff and every sample is finite and within ±2
 
-**Tests:** `crates/dsp/src/mono/ladder.rs::tests::falls_24_db_per_octave`, `crates/dsp/src/mono/ladder.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/ladder.rs::tests::any_parameters_stay_finite` *(planned)*
+**Tests:** `crates/dsp/src/mono/ladder.rs::tests::falls_24_db_per_octave`, `crates/dsp/src/mono/ladder.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/ladder.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/ladder.rs::tests::cutoff_is_smoothed`, `crates/dsp/src/mono/ladder.rs::tests::table_matches_tan`
 
 ### Requirement 4: Envelopes [MUST]
 

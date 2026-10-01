@@ -48,11 +48,17 @@ pub enum Param {
     NoiseLevel = 18,
     /// Noise colour id (`NoiseColour`), 0..=1.
     NoiseColour = 19,
+    /// Ladder cutoff in Hz, 20..=20000.
+    Cutoff = 20,
+    /// Ladder resonance, 0..=1; it self-oscillates from 0.8.
+    Resonance = 21,
+    /// Ladder drive into the saturator, 0..=1 (0 to +18 dB).
+    Drive = 22,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 20] = [
+    pub const ALL: [(Param, &'static str); 23] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Attack, "Attack"),
         (Param::Release, "Release"),
@@ -73,6 +79,9 @@ impl Param {
         (Param::Vco3Sync, "Vco3Sync"),
         (Param::NoiseLevel, "NoiseLevel"),
         (Param::NoiseColour, "NoiseColour"),
+        (Param::Cutoff, "Cutoff"),
+        (Param::Resonance, "Resonance"),
+        (Param::Drive, "Drive"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -96,6 +105,8 @@ impl Param {
             Param::PulseWidth => (0.05, 0.95),
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
+            Param::Cutoff => (20.0, 20_000.0),
+            Param::Resonance | Param::Drive => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }

@@ -1,12 +1,14 @@
 //! The ARP 2600-style Mono voice (spec 004).
 //!
-//! `osc` holds the VCOs, `noise` the noise source. The settings here are Mono-wide until tracks address
+//! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter. The settings here are Mono-wide until tracks address
 //! parameters per instance (spec 002 Req 1).
 
+pub mod ladder;
 pub mod noise;
 pub mod osc;
 
 use crate::params::Param;
+use ladder::{MAX_K, hz_to_note};
 use noise::NoiseColour;
 use osc::Waveform;
 
@@ -28,6 +30,10 @@ pub struct MonoParams {
     pub sync: [bool; VCOS],
     pub noise_level: f32,
     pub noise_colour: NoiseColour,
+    /// Ladder cutoff as a MIDI note, feedback, and input gain.
+    pub cutoff: f32,
+    pub k: f32,
+    pub drive: f32,
 }
 
 impl Default for MonoParams {
@@ -43,6 +49,9 @@ impl Default for MonoParams {
             sync: [false; VCOS],
             noise_level: 0.0,
             noise_colour: NoiseColour::White,
+            cutoff: hz_to_note(4_000.0),
+            k: 0.0,
+            drive: 1.0,
         }
     }
 }
@@ -68,6 +77,19 @@ impl MonoParams {
                 if let Some(c) = noise::NoiseColour::from_id(v.round() as u32) {
                     self.noise_colour = c;
                 }
+                return;
+            }
+            Cutoff => {
+                self.cutoff = hz_to_note(v);
+                return;
+            }
+            Resonance => {
+                self.k = v * MAX_K;
+                return;
+            }
+            Drive => {
+                // 0..=1 is 0 to +18 dB: 1 + 7·v.
+                self.drive = 1.0 + 7.0 * v;
                 return;
             }
             MasterGain | Attack | Release => return,

@@ -24,6 +24,9 @@ export const Param = {
   Vco3Sync: 17,
   NoiseLevel: 18,
   NoiseColour: 19,
+  Cutoff: 20,
+  Resonance: 21,
+  Drive: 22,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

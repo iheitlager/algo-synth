@@ -6,6 +6,7 @@
 //! blocks (`load_midi`), never inside `render`.
 
 use crate::mono::MonoParams;
+use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::params::Param;
 use crate::player::Sequence;
@@ -28,6 +29,7 @@ pub struct Engine {
     sine: Vec<f32>,
     blep: Blep,
     mono: MonoParams,
+    ladder: LadderTables,
     voices: [Voice; VOICES],
     master_gain: f32,
     attack_step: f32,
@@ -58,6 +60,7 @@ impl Engine {
             sine,
             blep: Blep::new(),
             mono: MonoParams::default(),
+            ladder: LadderTables::new(sample_rate),
             voices: [Voice::default(); VOICES],
             master_gain: 0.5,
             attack_step: 0.0,
@@ -223,6 +226,7 @@ impl Engine {
                 sine: &self.sine,
                 blep: &self.blep,
                 mono: &self.mono,
+                ladder: &self.ladder,
                 attack_step: self.attack_step,
                 release_coef: self.release_coef,
             };
@@ -398,11 +402,10 @@ mod tests {
         }
         e.render(BLOCK);
         let left = &e.output()[..BLOCK];
-        let start = 64 + LATENCY;
-        assert!(left[..start].iter().all(|s| *s == 0.0));
+        assert!(left[..64].iter().all(|s| *s == 0.0));
         assert!(
-            left[start..start + 2].iter().any(|s| *s != 0.0),
-            "the note should start at frame {start}"
+            left[64..64 + LATENCY + 2].iter().any(|s| *s != 0.0),
+            "the note should start at frame 64"
         );
     }
 
