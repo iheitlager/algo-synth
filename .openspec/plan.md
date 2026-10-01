@@ -30,6 +30,8 @@ A sine from Rust through the AudioWorklet to the speakers, in the wide-screen la
 - `web/`: Vue view with the four panes; power, master gain, scope, playable keyboards and pads; computer keyboard.
 - `make check`, CI, Podman + Caddy image.
 
+**MVP 1b: play a file** *(v0.2, ahead of order)*. A MIDI file played straight from the engine: the SMF parser of MVP 5 brought forward, a sample-timed player per channel, each channel routed to a source, and a first timbre per source. It's a stand-in: MVP 3 (the clock) and MVP 5 (import as tracks and clips) replace the player; MVP 2, 6 and 7 replace the timbres (spec 002 Req 9).
+
 ### MVP 2: the Mono voice
 
 The ARP 2600-style semi-modular voice, monophonic, playable from the keyboard and Web MIDI.

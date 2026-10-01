@@ -1,0 +1,8 @@
+# The panic lints in Cargo.toml are a production rule (ADR-0002): the audio
+# thread never panics. Tests have the opposite rule: fail fast, with
+# `expect("why")`, `unwrap()`, `assert!` and indexing. These switches make
+# clippy skip those lints inside `#[cfg(test)]` modules and `#[test]` fns.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
