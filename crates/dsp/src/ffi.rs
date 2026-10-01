@@ -118,6 +118,12 @@ pub extern "C" fn all_off() {
     with_engine(Engine::all_off);
 }
 
+/// Voices still sounding (gated or releasing), for the view's counter.
+#[unsafe(no_mangle)]
+pub extern "C" fn active_voices() -> u32 {
+    query(0, |e| e.active_voices() as u32)
+}
+
 // --- MIDI player (spec 002, Req 9) -------------------------------------------
 //
 // Loading: JavaScript calls `midi_buf(len)`, writes the file's bytes at the

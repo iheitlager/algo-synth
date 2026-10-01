@@ -69,6 +69,9 @@ export const player = reactive({
   playing: false,
   error: '',
 })
+/** DSP load as a share of real time (peak is null without a precise clock). */
+export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, seen: false })
+
 /** Parameter values by id, as the engine last reported them (clamped). */
 export const params = reactive({ values: [] as number[] })
 let engine: AudioEngine | null = null
@@ -135,6 +138,11 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
   if (data.t === 'pos') {
     player.position = data.sec as number
     player.playing = data.playing as boolean
+  } else if (data.t === 'load') {
+    meter.load = data.load as number
+    meter.peak = data.peak as number | null
+    meter.voices = data.voices as number
+    meter.seen = true
   } else if (data.t === 'params') {
     params.values = Array.from(data.values as Float32Array)
   } else if (data.t === 'midi') {

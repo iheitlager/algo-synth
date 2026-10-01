@@ -4,6 +4,12 @@
 
 // Report the playhead about every 20 ms (8 blocks at 48 kHz).
 const POSITION_EVERY = 8
+// Report the DSP load about twice a second (188 blocks at 48 kHz).
+const LOAD_EVERY = 188
+// Some worklet scopes lack performance.now(); Date.now() only ticks in
+// milliseconds, so then only the average over many blocks means anything.
+const precise = typeof globalThis.performance?.now === 'function'
+const now = precise ? () => globalThis.performance.now() : () => Date.now()
 
 class EngineProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -15,6 +21,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.w.init(sampleRate)
     this.block = this.w.block_len()
     this.tick = 0
+    this.busy = 0
+    this.peak = 0
+    this.blocks = 0
     this.sendParams()
     this.port.onmessage = ({ data }) => {
       const w = this.w
@@ -82,6 +91,7 @@ class EngineProcessor extends AudioWorkletProcessor {
   }
 
   process(_inputs, outputs) {
+    const start = now()
     const w = this.w
     const out = outputs[0]
     const frames = out[0].length
@@ -93,7 +103,25 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (++this.tick % POSITION_EVERY === 0) {
       this.port.postMessage({ t: 'pos', sec: w.position(), playing: w.playing() === 1 })
     }
+    this.measure(now() - start, frames)
     return true
+  }
+
+  // Time spent in this callback as a share of the block's real time.
+  measure(ms, frames) {
+    const budget = (1000 * frames) / sampleRate
+    this.busy += ms
+    this.peak = Math.max(this.peak, ms / budget)
+    if (++this.blocks < LOAD_EVERY) return
+    this.port.postMessage({
+      t: 'load',
+      load: this.busy / (this.blocks * budget),
+      peak: precise ? this.peak : null,
+      voices: this.w.active_voices(),
+    })
+    this.busy = 0
+    this.peak = 0
+    this.blocks = 0
   }
 }
 
