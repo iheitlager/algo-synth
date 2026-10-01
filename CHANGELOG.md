@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Spec 004: the Mono voice (plan.md MVP 2, epic #2), Req 1-9 with measurable scenarios; spec 001 Req 3 notes Mono's own voices (#3).
+
 ## [0.2.0] - 2026-10-01
 
 A MIDI file player in the engine, ahead of the plan's order (plan.md MVP 1b, spec 002 Req 9).
