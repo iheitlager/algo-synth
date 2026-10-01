@@ -18,4 +18,4 @@
 
 - Some code is more verbose (`iter`, `get`, `zip` instead of indexing).
 - Adding a source means sizing its pool up front.
-- Profiling happens in `chrome://webaudio-internals` at the end of each milestone (plan.md).
+- Profiling happens at the end of each milestone (plan.md): render capacity in Chrome DevTools' WebAudio panel (`chrome://webaudio-internals` was retired), with `make bench` as an offline check.

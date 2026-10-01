@@ -5,11 +5,15 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::mono::MonoParams;
+use crate::mono::ladder::{LadderTables, saturate};
+use crate::mono::osc::Blep;
+use crate::mono::preset::{DEFAULTS, Preset};
 use crate::params::Param;
 use crate::player::Sequence;
 use crate::smf;
 use crate::source::Source;
-use crate::voice::{Ctx, Owner, TABLE, Voice, decay_coef};
+use crate::voice::{Ctx, Owner, Voice, decay_coef, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
 pub const BLOCK: usize = 128;
@@ -19,11 +23,18 @@ pub const VOICES: usize = 32;
 pub const CHANNELS: usize = 16;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
+/// The master limiter passes everything below this level unchanged.
+const KNEE: f32 = 0.5;
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
     sample_rate: f32,
     sine: Vec<f32>,
+    blep: Blep,
+    mono: MonoParams,
+    /// The last value set per parameter id, clamped, for the view to read.
+    values: [f32; Param::ALL.len()],
+    ladder: LadderTables,
     voices: [Voice; VOICES],
     master_gain: f32,
     attack_step: f32,
@@ -46,12 +57,14 @@ impl Engine {
         } else {
             48_000.0
         };
-        let sine = (0..=TABLE)
-            .map(|i| (i as f32 / TABLE as f32 * std::f32::consts::TAU).sin())
-            .collect();
+        let sine = sine_table();
         let mut engine = Engine {
             sample_rate,
             sine,
+            blep: Blep::new(),
+            mono: MonoParams::new(sample_rate),
+            values: [0.0; Param::ALL.len()],
+            ladder: LadderTables::new(sample_rate),
             voices: [Voice::default(); VOICES],
             master_gain: 0.5,
             attack_step: 0.0,
@@ -65,6 +78,9 @@ impl Engine {
         engine.set_param(Param::MasterGain, 0.5);
         engine.set_param(Param::Attack, 0.005);
         engine.set_param(Param::Release, 0.3);
+        for (p, v) in DEFAULTS {
+            engine.set_param(p, v);
+        }
         engine
     }
 
@@ -75,11 +91,27 @@ impl Engine {
     /// Set a parameter; the value is clamped into its range.
     pub fn set_param(&mut self, param: Param, value: f32) {
         let v = param.clamp(value);
+        if let Some(slot) = self.values.get_mut(param as usize) {
+            *slot = v;
+        }
         match param {
             Param::MasterGain => self.master_gain = v,
             Param::Attack => self.attack_step = 1.0 / (v * self.sample_rate),
             // Release time is the time to fall to −80 dB, not a time constant.
             Param::Release => self.release_coef = decay_coef(v, self.sample_rate),
+            _ => self.mono.set(param, v),
+        }
+    }
+
+    /// The value `param` was last set to, after clamping.
+    pub fn param_value(&self, param: Param) -> f32 {
+        self.values.get(param as usize).copied().unwrap_or(0.0)
+    }
+
+    /// Set every Mono parameter: the defaults, then the preset's changes.
+    pub fn preset(&mut self, preset: Preset) {
+        for (p, v) in DEFAULTS.iter().chain(preset.changes()) {
+            self.set_param(*p, *v);
         }
     }
 
@@ -214,6 +246,9 @@ impl Engine {
             let chunk = self.sequence.frames_until_next(n - t);
             let ctx = Ctx {
                 sine: &self.sine,
+                blep: &self.blep,
+                mono: &self.mono,
+                ladder: &self.ladder,
                 attack_step: self.attack_step,
                 release_coef: self.release_coef,
             };
@@ -227,7 +262,7 @@ impl Engine {
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         for sample in left.iter_mut() {
-            *sample *= self.master_gain;
+            *sample = soft_clip(*sample * self.master_gain);
         }
         right.copy_from_slice(left);
     }
@@ -235,6 +270,21 @@ impl Engine {
     /// The planar output buffer: left then right, `BLOCK` samples each.
     pub fn output(&self) -> &[f32; 2 * BLOCK] {
         &self.out
+    }
+}
+
+/// The last stage before the speakers (ADR-0002 rule 5): unchanged below
+/// `KNEE`, then a smooth bend that never passes ±1; NaN and infinity become
+/// silence instead of reaching the output.
+fn soft_clip(x: f32) -> f32 {
+    if !x.is_finite() {
+        return 0.0;
+    }
+    let a = x.abs();
+    if a <= KNEE {
+        x
+    } else {
+        (KNEE + (1.0 - KNEE) * saturate((a - KNEE) / (1.0 - KNEE))).copysign(x)
     }
 }
 
@@ -251,6 +301,7 @@ fn default_route() -> [Option<Source>; CHANNELS] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mono::osc::LATENCY;
     use crate::smf::tests::file;
 
     fn peak(e: &Engine) -> f32 {
@@ -309,6 +360,67 @@ mod tests {
         assert_eq!(peak(&e), 0.0);
     }
 
+    /// Mono's VCA is its own ADSR, not the test voice's envelope.
+    #[test]
+    fn mono_follows_its_adsr() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(Param::Release, 10.0);
+        e.set_param(Param::AdsrRelease, 0.01);
+        e.note_on(Source::Mono, 57, 1.0);
+        for _ in 0..40 {
+            e.render(BLOCK);
+        }
+        assert!(peak(&e) > 0.05);
+        e.note_off(Source::Mono, 57);
+        // 0.01 s is 3.75 blocks.
+        for _ in 0..5 {
+            e.render(BLOCK);
+        }
+        assert_eq!(e.active_voices(), 0);
+    }
+
+    /// A note on and off before the next block still sounds, then ends.
+    #[test]
+    fn a_mono_tap_shorter_than_a_block_sounds() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(Param::AdsrAttack, 0.001);
+        e.set_param(Param::AdsrRelease, 0.01);
+        e.note_on(Source::Mono, 69, 1.0);
+        e.note_off(Source::Mono, 69);
+        let mut heard = 0.0_f32;
+        for _ in 0..10 {
+            e.render(BLOCK);
+            heard = heard.max(peak(&e));
+        }
+        assert!(heard > 0.01, "peak {heard}");
+        assert_eq!(e.active_voices(), 0);
+    }
+
+    /// Mono's sustain slider moves a held note.
+    #[test]
+    fn mono_sustain_moves_a_held_note() {
+        let level = |sustain: f32| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(Param::AdsrDecay, 0.01);
+            e.note_on(Source::Mono, 57, 1.0);
+            for _ in 0..40 {
+                e.render(BLOCK);
+            }
+            e.set_param(Param::AdsrSustain, sustain);
+            let mut sum = 0.0;
+            for _ in 0..40 {
+                e.render(BLOCK);
+                sum += e.output().iter().map(|s| s * s).sum::<f32>();
+            }
+            sum.sqrt()
+        };
+        let ratio = level(0.35) / level(0.7);
+        assert!(
+            (ratio - 0.5).abs() < 0.05,
+            "half the sustain, half the level: {ratio}"
+        );
+    }
+
     #[test]
     fn release_time_is_time_to_silence() {
         let mut e = Engine::new(48_000.0);
@@ -339,11 +451,50 @@ mod tests {
         }
         assert_eq!(e.active_voices(), VOICES);
         e.render(BLOCK);
-        assert!(
-            e.output()
-                .iter()
-                .all(|s| s.is_finite() && s.abs() <= VOICES as f32)
-        );
+        assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+    }
+
+    /// 16 Mono voices at full resonance, drive and level still stay in ±1.
+    #[test]
+    fn loud_patches_are_limited_to_full_scale() {
+        let mut e = Engine::new(48_000.0);
+        for (p, v) in [
+            (Param::MasterGain, 1.0),
+            (Param::Vco2Level, 1.0),
+            (Param::Vco3Level, 1.0),
+            (Param::NoiseLevel, 1.0),
+            (Param::Resonance, 1.0),
+            (Param::Drive, 1.0),
+            (Param::AdsrSustain, 1.0),
+        ] {
+            e.set_param(p, v);
+        }
+        for i in 0..16 {
+            e.note_on(Source::Mono, 36 + 3 * i, 1.0);
+        }
+        let mut peak_seen = 0.0_f32;
+        for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+            peak_seen = peak_seen.max(peak(&e));
+        }
+        assert!(peak_seen > 0.9, "the limiter is reached, peak {peak_seen}");
+    }
+
+    #[test]
+    fn soft_clip_is_transparent_below_the_knee() {
+        for x in [-0.5, -0.2, 0.0, 0.3, 0.5] {
+            assert_eq!(soft_clip(x), x);
+        }
+        let mut prev = soft_clip(0.5);
+        for i in 1..1000 {
+            let y = soft_clip(0.5 + i as f32 * 0.01);
+            assert!(y >= prev && y <= 1.0, "monotonic and bounded at {i}");
+            prev = y;
+        }
+        assert_eq!(soft_clip(f32::NAN), 0.0);
+        assert_eq!(soft_clip(f32::NEG_INFINITY), 0.0);
+        assert_eq!(soft_clip(-50.0), -1.0);
     }
 
     #[test]
@@ -381,7 +532,7 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         assert_eq!(load(&mut e, &one_note(0)), Ok(1));
         e.play();
-        // 24_000 = 187 blocks + 64 frames.
+        // 24_000 = 187 blocks + 64 frames; Mono's VCOs lag by LATENCY.
         for _ in 0..187 {
             e.render(BLOCK);
             assert_eq!(peak(&e), 0.0);
@@ -389,9 +540,8 @@ mod tests {
         e.render(BLOCK);
         let left = &e.output()[..BLOCK];
         assert!(left[..64].iter().all(|s| *s == 0.0));
-        // A saw or sine is 0 at phase 0, so the first audible sample is 64 or 65.
         assert!(
-            left[64..66].iter().any(|s| *s != 0.0),
+            left[64..64 + LATENCY + 2].iter().any(|s| *s != 0.0),
             "the note should start at frame 64"
         );
     }

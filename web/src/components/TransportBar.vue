@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { getEngine, loadDemo, loadMidi, play, player, power, status, stop } from '../audio/engine'
+import { getEngine, loadDemo, loadMidi, meter, play, player, power, status, stop } from '../audio/engine'
 import { Param } from '../audio/params'
 
 defineProps<{ bpm: number }>()
+
+// The performance counter: worklet time per block against the budget
+// (plan.md "Performance budget"; tools/bench.mjs uses the same figure).
+const BUDGET = 0.25
+const pct = (x: number) => `${(100 * x).toFixed(1)}%`
 
 const gain = ref(0.5)
 watch(gain, (v) => getEngine()?.param(Param.MasterGain, v))
@@ -74,6 +79,14 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
     <span class="field">BPM <b>{{ bpm }}</b></span>
     <label class="field gain">Master <input v-model.number="gain" type="range" min="0" max="1" step="0.01" /></label>
     <canvas ref="scope" class="scope" width="360" height="40" />
+    <span
+      v-if="status.running && meter.seen" class="field meter" :class="{ over: (meter.peak ?? meter.load) > BUDGET }"
+      title="Time in the audio callback as a share of real time; the budget is 25% (plan.md)"
+    >
+      DSP <b>{{ meter.peak === null ? '≈' : '' }}{{ pct(meter.load) }}</b>
+      <template v-if="meter.peak !== null">· peak {{ pct(meter.peak) }}</template>
+      · {{ meter.voices }} {{ meter.voices === 1 ? 'voice' : 'voices' }}
+    </span>
     <span class="field muted">
       {{ status.error || (status.running ? `${status.sampleRate} Hz · wasm worklet` : 'click Power on to start audio') }}
     </span>
@@ -90,5 +103,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 .file:hover { border-color: var(--accent); }
 .file input { display: none; }
 .muted { color: var(--muted); }
+.meter { font-variant-numeric: tabular-nums; }
+.meter.over b { color: var(--accent); }
 .scope { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 </style>

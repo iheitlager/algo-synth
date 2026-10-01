@@ -1,0 +1,222 @@
+//! The ARP 2600-style Mono voice (spec 004).
+//!
+//! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
+//! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `preset` the
+//! defaults and presets. The settings here are Mono-wide until tracks
+//! address parameters per instance (spec 002 Req 1).
+
+pub mod env;
+pub mod ladder;
+pub mod lfo;
+pub mod noise;
+pub mod osc;
+pub mod preset;
+
+use crate::params::Param;
+use env::EnvTimes;
+use ladder::{MAX_K, hz_to_note};
+use noise::NoiseColour;
+use osc::Waveform;
+
+/// Number of VCOs per Mono voice.
+pub const VCOS: usize = 3;
+
+/// The Mono parameters, with what `render` needs precomputed.
+#[derive(Clone, Copy)]
+pub struct MonoParams {
+    pub wave: [Waveform; VCOS],
+    /// Coarse tune in semitones and fine tune in cents, per VCO.
+    coarse: [f32; VCOS],
+    fine: [f32; VCOS],
+    /// Frequency ratio from coarse and fine, computed when either changes.
+    pub ratio: [f32; VCOS],
+    pub level: [f32; VCOS],
+    pub pulse_width: f32,
+    /// Whether VCO 2 and VCO 3 reset with VCO 1; VCO 1's entry is unused.
+    pub sync: [bool; VCOS],
+    pub noise_level: f32,
+    pub noise_colour: NoiseColour,
+    /// Ladder cutoff as a MIDI note, feedback, and input gain.
+    pub cutoff: f32,
+    pub k: f32,
+    pub drive: f32,
+    /// Envelope times in samples, so the sample rate is kept to convert.
+    sample_rate: f32,
+    pub adsr: EnvTimes,
+    pub ar: EnvTimes,
+    /// LFO cycles per sample, and its waveform.
+    pub lfo_inc: f32,
+    pub lfo_wave: Waveform,
+}
+
+impl Default for MonoParams {
+    fn default() -> MonoParams {
+        MonoParams::new(48_000.0)
+    }
+}
+
+impl MonoParams {
+    /// The voice at `preset::DEFAULTS`: zeroed, then every default set.
+    pub fn new(sample_rate: f32) -> MonoParams {
+        let off = EnvTimes {
+            attack: 0.0,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.0,
+        };
+        let mut p = MonoParams {
+            wave: [Waveform::Saw; VCOS],
+            coarse: [0.0; VCOS],
+            fine: [0.0; VCOS],
+            ratio: [1.0; VCOS],
+            level: [0.0; VCOS],
+            pulse_width: 0.5,
+            sync: [false; VCOS],
+            noise_level: 0.0,
+            noise_colour: NoiseColour::White,
+            cutoff: 0.0,
+            k: 0.0,
+            drive: 1.0,
+            sample_rate,
+            adsr: off,
+            ar: off,
+            lfo_inc: 0.0,
+            lfo_wave: Waveform::Sine,
+        };
+        for (param, v) in preset::DEFAULTS {
+            p.set(param, param.clamp(v));
+        }
+        p
+    }
+
+    /// Apply an already clamped value; parameters that aren't Mono's are
+    /// ignored. The match is exhaustive on purpose: a new `Param` doesn't
+    /// compile until it is handled here.
+    pub fn set(&mut self, param: Param, v: f32) {
+        let samples = v * self.sample_rate;
+        match param {
+            Param::Vco1Wave => self.set_wave(0, v),
+            Param::Vco2Wave => self.set_wave(1, v),
+            Param::Vco3Wave => self.set_wave(2, v),
+            Param::Vco1Coarse => self.set_tune(0, Some(v.round()), None),
+            Param::Vco2Coarse => self.set_tune(1, Some(v.round()), None),
+            Param::Vco3Coarse => self.set_tune(2, Some(v.round()), None),
+            Param::Vco1Fine => self.set_tune(0, None, Some(v)),
+            Param::Vco2Fine => self.set_tune(1, None, Some(v)),
+            Param::Vco3Fine => self.set_tune(2, None, Some(v)),
+            Param::Vco1Level => self.level[0] = v,
+            Param::Vco2Level => self.level[1] = v,
+            Param::Vco3Level => self.level[2] = v,
+            Param::PulseWidth => self.pulse_width = v,
+            Param::Vco2Sync => self.sync[1] = v >= 0.5,
+            Param::Vco3Sync => self.sync[2] = v >= 0.5,
+            Param::NoiseLevel => self.noise_level = v,
+            Param::NoiseColour => {
+                if let Some(c) = NoiseColour::from_id(v.round() as u32) {
+                    self.noise_colour = c;
+                }
+            }
+            Param::Cutoff => self.cutoff = hz_to_note(v),
+            Param::Resonance => self.k = v * MAX_K,
+            // 0..=1 is 0 to +18 dB: 1 + 7·v.
+            Param::Drive => self.drive = 1.0 + 7.0 * v,
+            // Times arrive in seconds and are kept in samples.
+            Param::AdsrAttack => self.adsr.attack = samples,
+            Param::AdsrDecay => self.adsr.decay = samples,
+            Param::AdsrSustain => self.adsr.sustain = v,
+            Param::AdsrRelease => self.adsr.release = samples,
+            Param::ArAttack => self.ar.attack = samples,
+            Param::ArRelease => self.ar.release = samples,
+            Param::LfoRate => self.lfo_inc = v / self.sample_rate,
+            Param::LfoWave => {
+                if let Some(w) = Waveform::from_id(v.round() as u32) {
+                    self.lfo_wave = w;
+                }
+            }
+            Param::MasterGain | Param::Attack | Param::Release => {}
+        }
+    }
+
+    fn set_wave(&mut self, vco: usize, v: f32) {
+        if let (Some(w), Some(slot)) = (Waveform::from_id(v.round() as u32), self.wave.get_mut(vco))
+        {
+            *slot = w;
+        }
+    }
+
+    /// Set coarse and/or fine tune and recompute the ratio. Per parameter
+    /// change, not per sample, so `exp2` is fine.
+    fn set_tune(&mut self, vco: usize, coarse: Option<f32>, fine: Option<f32>) {
+        if let (Some(c), Some(slot)) = (coarse, self.coarse.get_mut(vco)) {
+            *slot = c;
+        }
+        if let (Some(f), Some(slot)) = (fine, self.fine.get_mut(vco)) {
+            *slot = f;
+        }
+        let semis = self.coarse.get(vco).copied().unwrap_or(0.0)
+            + self.fine.get(vco).copied().unwrap_or(0.0) / 100.0;
+        if let Some(r) = self.ratio.get_mut(vco) {
+            *r = (semis / 12.0).exp2();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each parameter lands in the voice in the units `render` uses.
+    #[test]
+    fn values_are_converted_for_render() {
+        let mut p = MonoParams::new(48_000.0);
+        let mut set = |param: Param, v: f32| p.set(param, param.clamp(v));
+        set(Param::Resonance, 0.8);
+        set(Param::Drive, 1.0);
+        set(Param::AdsrAttack, 0.01);
+        set(Param::AdsrSustain, 0.25);
+        set(Param::ArRelease, 2.0);
+        set(Param::LfoRate, 4.0);
+        set(Param::LfoWave, 1.0);
+        set(Param::Cutoff, 440.0);
+        set(Param::Vco3Level, 0.6);
+        set(Param::PulseWidth, 0.2);
+        assert!(
+            (p.k - 4.0).abs() < 1.0e-6,
+            "resonance 0.8 is the self-oscillation threshold"
+        );
+        assert_eq!(p.drive, 8.0);
+        assert_eq!(p.adsr.attack, 480.0);
+        assert_eq!(p.adsr.sustain, 0.25);
+        assert_eq!(p.ar.release, 96_000.0);
+        assert_eq!(p.lfo_inc, 4.0 / 48_000.0);
+        assert_eq!(p.lfo_wave, Waveform::Pulse);
+        assert!((p.cutoff - 69.0).abs() < 1.0e-4);
+        assert_eq!((p.level[2], p.pulse_width), (0.6, 0.2));
+    }
+
+    #[test]
+    fn coarse_and_fine_set_the_ratio() {
+        let mut p = MonoParams::default();
+        p.set(Param::Vco2Coarse, Param::Vco2Coarse.clamp(12.0));
+        assert!((p.ratio[1] - 2.0).abs() < 1.0e-6);
+        p.set(Param::Vco2Fine, Param::Vco2Fine.clamp(-50.0));
+        let expected = (11.5_f32 / 12.0).exp2();
+        assert!((p.ratio[1] - expected).abs() < 1.0e-6);
+        assert_eq!(p.ratio[0], 1.0);
+    }
+
+    #[test]
+    fn ids_and_switches_come_from_their_values() {
+        let mut p = MonoParams::default();
+        p.set(Param::Vco3Wave, Param::Vco3Wave.clamp(2.4));
+        assert_eq!(p.wave[2], Waveform::Triangle);
+        p.set(Param::Vco3Sync, Param::Vco3Sync.clamp(1.0));
+        assert!(p.sync[2] && !p.sync[1]);
+        // Values outside the range are clamped first: 7 becomes Sine.
+        p.set(Param::Vco1Wave, Param::Vco1Wave.clamp(7.0));
+        assert_eq!(p.wave[0], Waveform::Sine);
+        p.set(Param::NoiseColour, Param::NoiseColour.clamp(1.0));
+        p.set(Param::NoiseLevel, Param::NoiseLevel.clamp(0.5));
+        assert_eq!((p.noise_colour, p.noise_level), (NoiseColour::Pink, 0.5));
+    }
+}

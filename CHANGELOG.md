@@ -4,9 +4,29 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
+The Mono voice (plan.md MVP 2, epic #2, PR #15). Note handling and routing move to MVP 5, Web MIDI input to MVP 11.
+
 ### Added
 
 - Spec 004: the Mono voice (plan.md MVP 2, epic #2), Req 1-9 with measurable scenarios; spec 001 Req 3 notes Mono's own voices (#3).
+- `mono::osc`: three VCOs for Mono (saw, pulse, triangle, sine) with coarse and fine tune, level, pulse width and hard sync of VCO 2/3 to VCO 1, band-limited by a BLEP table; 15 new parameters and a `Waveform` id list, mirrored in `params.ts`; VCO controls on the Mono card (#4).
+- `mono::noise`: white (seeded xorshift32) and pink (Paul Kellet's filter plus a DC blocker) noise into the Mono mixer, with level and colour parameters and a mirrored `NoiseColour` id list; the drums share the generator (#5).
+- `mono::ladder`: a 4-pole zero-delay-feedback ladder low-pass with cutoff, resonance (self-oscillating from 0.8) and drive, replacing Mono's one-pole; `g` from a table built in `Engine::new`, cutoff smoothed in pitch over 2 ms, input saturated by a rational `tanh`; three parameters and a Ladder row on the Mono card (#6).
+- `mono::env`: ADSR and AR envelopes with RC-style curves, each segment taking its set time from where it starts (within 1 ms from 1 ms to 10 s); the ADSR is Mono's VCA, with sliders on the Mono card. `mono::lfo`: an LFO (sine, triangle, saw, square, 0.01-50 Hz) and a sample-and-hold on noise; eight parameters mirrored in `params.ts`. The AR, LFO and S&H get destinations with routing (#9) (#7).
+- `mono::preset`: Bass, Lead, Sync lead and Bowed string, as Rust data over one `DEFAULTS` table that is also the voice's starting state; a preset picker on the Mono card. Exports `mono_preset`, `param_count` and `param_value`: the worklet reports every parameter's value at start and after a preset, and the Mono controls show the engine's values instead of TypeScript defaults. Presets set parameters only until routing (#9) (#11).
+- `make bench` (`tools/bench.mjs`): 16 Mono voices on the built `dsp.wasm` in Node's V8, a realistic and a worst-case patch, against the 25% budget; parameter ids read from `params.ts`. A performance counter in the transport bar: DSP load (average and peak share of real time per audio callback) and sounding voices, from the worklet about twice a second; new export `active_voices` (#12).
+- ADR-0007: BLEP-table oscillators instead of polyBLEP, which leaves aliases at −22 dB where spec 004 asks for −60 dB.
+
+### Changed
+
+- Scope of MVP 2 (plan.md): Mono note handling and normalled routing (#8, #9) move to MVP 5, Web MIDI input (#10) to MVP 11; MVP 2 ends with presets. Until routing, the LFO, AR and sample-and-hold have no destination. Profiling now names Chrome DevTools' WebAudio panel, since `chrome://webaudio-internals` is gone (ADR-0002).
+- The master output soft-clips: unchanged below 0.5, never past ±1, NaN and infinity silenced (PR #15 review).
+- Spec 004 Req 1: BLEP table instead of polyBLEP; the sync bound is ±1.5 (band-limited steps ring), plus a pulse-width sweep scenario.
+- Mono output lags the other sources by 8 samples (0.17 ms), the BLEP kernel's half-width.
+- Mono's amplitude follows its own ADSR (`Adsr*` parameters), not the test voice's `Attack`/`Release`, which now shape only Wave.
+- Mono's filter sits at a fixed cutoff (4 kHz by default) instead of tracking the key; key tracking returns as a normalled connection with routing (#9).
 
 ## [0.2.0] - 2026-10-01
 

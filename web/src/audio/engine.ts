@@ -3,7 +3,7 @@
 // This file only sends messages; every musical decision is made in Rust.
 
 import { reactive } from 'vue'
-import type { ParamId, SourceId } from './params'
+import type { ParamId, PresetId, SourceId } from './params'
 
 const base = import.meta.env.BASE_URL
 
@@ -47,7 +47,11 @@ class AudioEngine {
   }
 
   post(msg: object, transfer: Transferable[] = []) { this.node.port.postMessage(msg, transfer) }
-  param(id: ParamId, v: number) { this.post({ t: 'param', id, v }) }
+  param(id: ParamId, v: number) {
+    params.values[id] = v
+    this.post({ t: 'param', id, v })
+  }
+  preset(id: PresetId) { this.post({ t: 'preset', id }) }
   noteOn(s: SourceId, n: number, v = 0.8) { this.post({ t: 'on', s, n, v }) }
   noteOff(s: SourceId, n: number) { this.post({ t: 'off', s, n }) }
   panic() { this.post({ t: 'panic' }) }
@@ -65,6 +69,15 @@ export const player = reactive({
   playing: false,
   error: '',
 })
+/** DSP load as a share of real time (peak is null without a precise clock). */
+export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, seen: false })
+
+/**
+ * Parameter values by id: what the view last sent, replaced by the engine's
+ * clamped values at start and after a preset. The sliders' ranges match
+ * Rust's, so the two only differ out of range.
+ */
+export const params = reactive({ values: [] as number[] })
 let engine: AudioEngine | null = null
 
 export async function power(): Promise<void> {
@@ -129,6 +142,13 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
   if (data.t === 'pos') {
     player.position = data.sec as number
     player.playing = data.playing as boolean
+  } else if (data.t === 'load') {
+    meter.load = data.load as number
+    meter.peak = data.peak as number | null
+    meter.voices = data.voices as number
+    meter.seen = true
+  } else if (data.t === 'params') {
+    params.values = Array.from(data.values as Float32Array)
   } else if (data.t === 'midi') {
     onMidi(data as unknown as MidiSummary)
   }

@@ -4,7 +4,7 @@ The wasm engine in `crates/dsp`: its C ABI, the render loop, voices and paramete
 
 ### Requirement 1: C ABI without imports [MUST]
 
-The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, exporting `memory`, `init`, `block_len`, `out_ptr`, `process`, `set_param`, `note_on`, `note_off` and `all_off`, plus the MIDI player exports of spec 002 Req 9, taking and returning numbers only. (ADR-0001)
+The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, exporting `memory`, `init`, `block_len`, `out_ptr`, `process`, `set_param`, `param_count`, `param_value`, `note_on`, `note_off`, `all_off` and `active_voices`, plus the MIDI player exports of spec 002 Req 9 and `mono_preset` (spec 004 Req 9), taking and returning numbers only. (ADR-0001)
 
 **Implementation:** `crates/dsp/src/ffi.rs`
 
@@ -38,7 +38,7 @@ The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, e
 
 ### Requirement 3: Voice allocation [MUST]
 
-`note_on` SHALL take a free voice, or steal the oldest when the pool is full. `note_off` SHALL release only gated voices of that source and note. A released voice SHALL free itself when its envelope falls below −80 dB, and the Release parameter SHALL be the time it takes to get there. Mono is the exception from MVP 2: one monophonic voice per owner, outside this pool (spec 004 Req 6).
+`note_on` SHALL take a free voice, or steal the oldest when the pool is full. `note_off` SHALL release only gated voices of that source and note. A released voice SHALL free itself when its envelope falls below −80 dB, and the Release parameter SHALL be the time it takes to get there. Mono will be the exception from MVP 5: one monophonic voice per owner, outside this pool (spec 004 Req 6, planned). Until then Mono takes voices from this pool, and its own ADSR, not the Release parameter, ends them (spec 004 Req 4).
 
 **Implementation:** `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/engine.rs::Engine::note_off`
 
@@ -84,7 +84,7 @@ Every `Param` and `Source` id SHALL appear in `web/src/audio/params.ts` as a `Na
 
 **Implementation:** `crates/dsp/src/params.rs::Param::ALL`, `crates/dsp/src/source.rs::Source::ALL`
 
-**Tests:** `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/source.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`
+**Tests:** `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`
 
 ### Requirement 7: Equal-tempered pitch [MUST]
 

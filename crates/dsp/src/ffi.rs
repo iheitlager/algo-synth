@@ -11,6 +11,7 @@
 use std::cell::RefCell;
 
 use crate::engine::{BLOCK, Engine};
+use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
 use crate::source::Source;
@@ -74,6 +75,26 @@ pub extern "C" fn set_param(id: u32, value: f32) {
     }
 }
 
+/// Number of parameter ids; they run from 0 without gaps.
+#[unsafe(no_mangle)]
+pub extern "C" fn param_count() -> u32 {
+    Param::ALL.len() as u32
+}
+
+/// The value parameter `id` was last set to, after clamping; 0 if unknown.
+#[unsafe(no_mangle)]
+pub extern "C" fn param_value(id: u32) -> f32 {
+    Param::from_id(id).map_or(0.0, |p| query(0.0, |e| e.param_value(p)))
+}
+
+/// Load Mono preset `id` (see `mono/preset.rs`); unknown ids are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn mono_preset(id: u32) {
+    if let Some(p) = Preset::from_id(id) {
+        with_engine(|e| e.preset(p));
+    }
+}
+
 /// Start `note` (MIDI 0..=127) on `source`; unknown sources are ignored.
 #[unsafe(no_mangle)]
 pub extern "C" fn note_on(source: u32, note: u32, velocity: f32) {
@@ -95,6 +116,12 @@ pub extern "C" fn note_off(source: u32, note: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn all_off() {
     with_engine(Engine::all_off);
+}
+
+/// Voices still sounding (gated or releasing), for the view's counter.
+#[unsafe(no_mangle)]
+pub extern "C" fn active_voices() -> u32 {
+    query(0, |e| e.active_voices() as u32)
 }
 
 // --- MIDI player (spec 002, Req 9) -------------------------------------------

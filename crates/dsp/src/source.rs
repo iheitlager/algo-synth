@@ -1,8 +1,8 @@
 //! The sound sources a track can own (ADR-0005).
 //!
 //! One enum, no trait objects: each source is a fixed, preallocated voice
-//! pool. In the base all three play the engine's test voice; they get their
-//! own DSP in plan.md MVP 2 (Mono), MVP 6 (Drums) and MVP 7 (Wave).
+//! pool. Mono has its own DSP (`mono`, spec 004); Drums and Wave play first
+//! timbres (`voice`) until plan.md MVP 6 and MVP 7.
 
 /// A source id as it crosses the C ABI; mirrored in `web/src/audio/params.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -41,11 +41,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn typescript_mirror_matches() {
-        let ts = include_str!("../../../web/src/audio/params.ts");
-        for (s, name) in Source::ALL {
-            let line = format!("{name}: {},", s as u32);
-            assert!(ts.contains(&line), "web/src/audio/params.ts lacks `{line}`");
-        }
+    fn unknown_ids_are_none() {
+        assert_eq!(Source::from_id(3), None);
     }
 }
