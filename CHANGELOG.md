@@ -17,6 +17,7 @@ A MIDI file player in the engine, ahead of the plan's order (plan.md MVP 1b, spe
 - C ABI exports for loading, parts, events, transport and routing; the worklet and `web/src/audio/engine.ts` carry them.
 - `web/public/demo.mid`, Pachelbel's Canon, written by `tools/make_demo_mid.py` (public domain, no third-party licence).
 - `clippy.toml`: the panic lints are relaxed inside tests.
+- The view: Demo, Open MIDI…, Play/Stop and the position in the transport; a parts pane with a source picker, piano roll, playhead and click to seek per part.
 
 ### Changed
 
