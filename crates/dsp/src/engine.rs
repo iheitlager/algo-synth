@@ -5,6 +5,8 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::mono::MonoParams;
+use crate::mono::osc::Blep;
 use crate::params::Param;
 use crate::player::Sequence;
 use crate::smf;
@@ -24,6 +26,8 @@ pub const MAX_MIDI: usize = 16 << 20;
 pub struct Engine {
     sample_rate: f32,
     sine: Vec<f32>,
+    blep: Blep,
+    mono: MonoParams,
     voices: [Voice; VOICES],
     master_gain: f32,
     attack_step: f32,
@@ -52,6 +56,8 @@ impl Engine {
         let mut engine = Engine {
             sample_rate,
             sine,
+            blep: Blep::new(),
+            mono: MonoParams::default(),
             voices: [Voice::default(); VOICES],
             master_gain: 0.5,
             attack_step: 0.0,
@@ -80,6 +86,7 @@ impl Engine {
             Param::Attack => self.attack_step = 1.0 / (v * self.sample_rate),
             // Release time is the time to fall to −80 dB, not a time constant.
             Param::Release => self.release_coef = decay_coef(v, self.sample_rate),
+            _ => self.mono.set(param, v),
         }
     }
 
@@ -214,6 +221,8 @@ impl Engine {
             let chunk = self.sequence.frames_until_next(n - t);
             let ctx = Ctx {
                 sine: &self.sine,
+                blep: &self.blep,
+                mono: &self.mono,
                 attack_step: self.attack_step,
                 release_coef: self.release_coef,
             };
@@ -251,6 +260,7 @@ fn default_route() -> [Option<Source>; CHANNELS] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mono::osc::LATENCY;
     use crate::smf::tests::file;
 
     fn peak(e: &Engine) -> f32 {
@@ -381,18 +391,18 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         assert_eq!(load(&mut e, &one_note(0)), Ok(1));
         e.play();
-        // 24_000 = 187 blocks + 64 frames.
+        // 24_000 = 187 blocks + 64 frames; Mono's VCOs lag by LATENCY.
         for _ in 0..187 {
             e.render(BLOCK);
             assert_eq!(peak(&e), 0.0);
         }
         e.render(BLOCK);
         let left = &e.output()[..BLOCK];
-        assert!(left[..64].iter().all(|s| *s == 0.0));
-        // A saw or sine is 0 at phase 0, so the first audible sample is 64 or 65.
+        let start = 64 + LATENCY;
+        assert!(left[..start].iter().all(|s| *s == 0.0));
         assert!(
-            left[64..66].iter().any(|s| *s != 0.0),
-            "the note should start at frame 64"
+            left[start..start + 2].iter().any(|s| *s != 0.0),
+            "the note should start at frame {start}"
         );
     }
 

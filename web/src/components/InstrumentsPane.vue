@@ -3,11 +3,11 @@
 // voice; the controls marked "soon" arrive with their source's MVP.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getEngine, status } from '../audio/engine'
-import { Param, Source, type SourceId } from '../audio/params'
+import { Param, type ParamId, Source, type SourceId, Waveform } from '../audio/params'
 
 interface Card { id: SourceId; name: string; style: string; mvp: string; color: string; knobs: string[] }
 const cards: Card[] = [
-  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 2', color: 'var(--mono)', knobs: ['VCO 1-3', 'Ladder cutoff', 'Resonance', 'Glide', 'Patch'] },
+  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 2', color: 'var(--mono)', knobs: ['Ladder cutoff', 'Resonance', 'Glide', 'Patch'] },
   { id: Source.Wave, name: 'Wave', style: 'PPG-style wavetable', mvp: 'MVP 7', color: 'var(--wave)', knobs: ['Table', 'Wave pos', 'Env → wave', 'Filter', '8-bit'] },
   { id: Source.Drums, name: 'Drums', style: 'Analog drum processor', mvp: 'MVP 6', color: 'var(--drums)', knobs: ['Tune', 'Decay', 'Tone', 'Snap', 'Accent'] },
 ]
@@ -24,6 +24,18 @@ const release = ref(0.3)
 watch(attack, (v) => getEngine()?.param(Param.Attack, v))
 watch(release, (v) => getEngine()?.param(Param.Release, v))
 
+// Mono's VCOs (spec 004 Req 1). The view only sends values; Rust clamps them.
+const waves = Object.entries(Waveform)
+const vcos = [
+  { n: 1, wave: Param.Vco1Wave, coarse: Param.Vco1Coarse, fine: Param.Vco1Fine, level: Param.Vco1Level, level0: 1 },
+  { n: 2, wave: Param.Vco2Wave, coarse: Param.Vco2Coarse, fine: Param.Vco2Fine, level: Param.Vco2Level, level0: 0, sync: Param.Vco2Sync },
+  { n: 3, wave: Param.Vco3Wave, coarse: Param.Vco3Coarse, fine: Param.Vco3Fine, level: Param.Vco3Level, level0: 0, sync: Param.Vco3Sync },
+]
+function send(id: ParamId, e: Event) {
+  const t = e.target as HTMLInputElement
+  getEngine()?.param(id, t.type === 'checkbox' ? Number(t.checked) : Number(t.value))
+}
+
 const down = (s: SourceId, n: number) => { selected.value = s; getEngine()?.noteOn(s, n) }
 const up = (s: SourceId, n: number) => getEngine()?.noteOff(s, n)
 
@@ -31,7 +43,7 @@ const up = (s: SourceId, n: number) => getEngine()?.noteOff(s, n)
 const map = 'awsedftgyhujkolp;'
 const held = new Set<string>()
 function onKey(e: KeyboardEvent, isDown: boolean) {
-  if (e.repeat || e.metaKey || e.ctrlKey || (e.target as HTMLElement).tagName === 'INPUT') return
+  if (e.repeat || e.metaKey || e.ctrlKey || ['INPUT', 'SELECT'].includes((e.target as HTMLElement).tagName)) return
   const i = map.indexOf(e.key)
   if (i < 0) return
   const n = 60 + i
@@ -62,6 +74,19 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
           <label>Release <input v-model.number="release" type="range" min="0.005" max="4" step="0.005" /></label>
           <span v-for="k in c.knobs" :key="k" class="knob soon" :title="c.mvp">{{ k }}</span>
         </div>
+        <div v-if="c.id === Source.Mono" class="vcos">
+          <div v-for="v in vcos" :key="v.n" class="vco">
+            <b>VCO {{ v.n }}</b>
+            <select @change="send(v.wave, $event)">
+              <option v-for="[name, id] in waves" :key="id" :value="id">{{ name }}</option>
+            </select>
+            <label>Coarse <input type="range" min="-24" max="24" step="1" value="0" @input="send(v.coarse, $event)" /></label>
+            <label>Fine <input type="range" min="-50" max="50" step="1" value="0" @input="send(v.fine, $event)" /></label>
+            <label>Level <input type="range" min="0" max="1" step="0.01" :value="v.level0" @input="send(v.level, $event)" /></label>
+            <label v-if="v.sync !== undefined" class="sync"><input type="checkbox" @change="send(v.sync, $event)" /> Sync to 1</label>
+          </div>
+          <label>Pulse width <input type="range" min="0.05" max="0.95" step="0.01" value="0.5" @input="send(Param.PulseWidth, $event)" /></label>
+        </div>
         <div v-if="c.id === Source.Drums" class="pads">
           <button
             v-for="[name, n] in pads" :key="n" :disabled="!status.running"
@@ -88,6 +113,11 @@ header { display: flex; align-items: baseline; gap: 8px; }
 header b { color: var(--c); font-size: 15px; }
 .style { color: var(--muted); font-size: 11px; }
 .knobs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.vcos { display: grid; gap: 6px; font-size: 11px; color: var(--muted); }
+.vco { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px 8px; align-items: center; }
+.vco b { color: var(--c); }
+.vco label, .vcos > label { display: grid; gap: 2px; }
+.vco .sync { display: flex; gap: 4px; align-items: center; }
 .knobs label { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
 .knob { border: 1px dashed var(--line); border-radius: 3px; padding: 3px 6px; }
 .pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }

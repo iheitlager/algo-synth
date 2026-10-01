@@ -2,14 +2,16 @@
 //!
 //! These are previews, not the sources the plan builds: enough that Mono,
 //! Wave and Drums sound different when a MIDI file is spread across them.
-//! Mono is a polyBLEP saw through a key-tracked one-pole low-pass (MVP 2
-//! replaces it with the 2600-style voice); Wave is a table sine with a
+//! Mono is three VCOs (`mono::osc`, spec 004 Req 1) through a key-tracked
+//! one-pole low-pass (the ladder replaces it, #6); Wave is a table sine with a
 //! second harmonic (MVP 7: the PPG-style wavetable); Drums picks a model
 //! from the General MIDI note (MVP 6: the analog-style kit).
 //!
 //! ADR-0002: every coefficient is computed in `start`; `render` only does
 //! adds, multiplies and table reads.
 
+use crate::mono::osc::{Blep, Osc};
+use crate::mono::{MonoParams, VCOS};
 use crate::source::Source;
 
 /// Sine table size; one extra guard sample for interpolation.
@@ -41,6 +43,8 @@ enum Drum {
 /// What `render` needs from the engine besides the voice itself.
 pub struct Ctx<'a> {
     pub sine: &'a [f32],
+    pub blep: &'a Blep,
+    pub mono: &'a MonoParams,
     pub attack_step: f32,
     pub release_coef: f32,
 }
@@ -58,7 +62,8 @@ pub struct Voice {
     phase: f32,
     increment: f32,
     env: f32,
-    // Mono: one-pole low-pass state and coefficient.
+    // Mono: the VCOs, then one-pole low-pass state and coefficient.
+    osc: [Osc; VCOS],
     lp: f32,
     lp_a: f32,
     // Drums.
@@ -117,32 +122,55 @@ impl Voice {
     pub fn render(&mut self, ctx: &Ctx, out: &mut [f32]) {
         match self.source {
             Source::Drums => self.render_drum(ctx, out),
-            Source::Mono | Source::Wave => self.render_tonal(ctx, out),
+            Source::Mono => self.render_mono(ctx, out),
+            Source::Wave => self.render_tonal(ctx, out),
         }
+    }
+
+    fn render_mono(&mut self, ctx: &Ctx, out: &mut [f32]) {
+        let p = ctx.mono;
+        // Once per block: parameter changes reach a sounding voice here.
+        for ((osc, wave), ratio) in self.osc.iter_mut().zip(p.wave).zip(p.ratio) {
+            osc.wave = wave;
+            osc.set_increment(self.increment * ratio);
+        }
+        let [_, sync2, sync3] = p.sync;
+        let [l1, l2, l3] = p.level;
+        for sample in out.iter_mut() {
+            if !self.advance_env(ctx) {
+                return;
+            }
+            let [o1, o2, o3] = &mut self.osc;
+            let (y1, wrap) = o1.step(ctx.blep, ctx.sine, p.pulse_width, None);
+            let (y2, _) = o2.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync2));
+            let (y3, _) = o3.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync3));
+            let mix = y1 * l1 + y2 * l2 + y3 * l3;
+            self.lp += self.lp_a * (mix - self.lp);
+            *sample += self.lp * 0.35 * self.env * self.velocity;
+        }
+    }
+
+    /// Attack while gated, release after; false once silent.
+    fn advance_env(&mut self, ctx: &Ctx) -> bool {
+        if self.gate {
+            self.env = (self.env + ctx.attack_step).min(1.0);
+        } else {
+            self.env *= ctx.release_coef;
+            if self.env < SILENT {
+                self.active = false;
+                return false;
+            }
+        }
+        true
     }
 
     fn render_tonal(&mut self, ctx: &Ctx, out: &mut [f32]) {
         for sample in out.iter_mut() {
-            if self.gate {
-                self.env = (self.env + ctx.attack_step).min(1.0);
-            } else {
-                self.env *= ctx.release_coef;
-                if self.env < SILENT {
-                    self.active = false;
-                    return;
-                }
+            if !self.advance_env(ctx) {
+                return;
             }
-            let x = match self.source {
-                Source::Mono => {
-                    let saw = 2.0 * self.phase - 1.0 - poly_blep(self.phase, self.increment);
-                    self.lp += self.lp_a * (saw - self.lp);
-                    self.lp * 0.35
-                }
-                _ => {
-                    let octave = wrap(self.phase * 2.0);
-                    lookup(ctx.sine, self.phase) * 0.45 + lookup(ctx.sine, octave) * 0.15
-                }
-            };
+            let octave = wrap(self.phase * 2.0);
+            let x = lookup(ctx.sine, self.phase) * 0.45 + lookup(ctx.sine, octave) * 0.15;
             *sample += x * self.env * self.velocity;
             self.phase = wrap(self.phase + self.increment);
         }
@@ -217,21 +245,6 @@ fn wrap(p: f32) -> f32 {
     if p >= 1.0 { p - 1.0 } else { p }
 }
 
-/// polyBLEP residual that removes the saw's aliasing step at the wrap.
-fn poly_blep(t: f32, dt: f32) -> f32 {
-    if dt <= 0.0 {
-        0.0
-    } else if t < dt {
-        let x = t / dt;
-        x + x - x * x - 1.0
-    } else if t > 1.0 - dt {
-        let x = (t - 1.0) / dt;
-        x * x + x + x + 1.0
-    } else {
-        0.0
-    }
-}
-
 /// Linear-interpolated table lookup for a phase in `0..1`.
 pub fn lookup(table: &[f32], phase: f32) -> f32 {
     let pos = phase * TABLE as f32;
@@ -253,9 +266,11 @@ mod tests {
     }
 
     fn render(source: Source, note: u8, blocks: usize) -> (Voice, Vec<f32>) {
-        let table = sine();
+        let (table, blep, mono) = (sine(), Blep::new(), MonoParams::default());
         let ctx = Ctx {
             sine: &table,
+            blep: &blep,
+            mono: &mono,
             attack_step: 1.0 / 240.0,
             release_coef: decay_coef(0.1, 48_000.0),
         };

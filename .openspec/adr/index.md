@@ -8,3 +8,4 @@
 | [0004](0004-one-parameter-registry.md) | One parameter and source registry in Rust, mirrored in TypeScript, the mirror checked by a test | Accepted |
 | [0005](0005-composition-model.md) | Composition: tracks own one source; fixed insert/send/master mixer; patterns in clips from hand, generator or score; the clock in the engine | Accepted |
 | [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted |
+| [0007](0007-blep-table-oscillators.md) | Oscillators band-limit every step (wrap, pulse edge, sync reset) with a windowed-sinc BLEP table, not a 2-point polyBLEP | Accepted |

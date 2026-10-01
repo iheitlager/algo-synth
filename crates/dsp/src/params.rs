@@ -14,14 +14,59 @@ pub enum Param {
     Attack = 1,
     /// Test-voice release time in seconds, 0.005..=10.
     Release = 2,
+    /// VCO 1 waveform id (`Waveform`), 0..=3.
+    Vco1Wave = 3,
+    /// VCO 1 coarse tune in semitones, −24..=24.
+    Vco1Coarse = 4,
+    /// VCO 1 fine tune in cents, −50..=50.
+    Vco1Fine = 5,
+    /// VCO 1 level into the mixer, 0..=1.
+    Vco1Level = 6,
+    /// VCO 2 waveform id (`Waveform`), 0..=3.
+    Vco2Wave = 7,
+    /// VCO 2 coarse tune in semitones, −24..=24.
+    Vco2Coarse = 8,
+    /// VCO 2 fine tune in cents, −50..=50.
+    Vco2Fine = 9,
+    /// VCO 2 level into the mixer, 0..=1.
+    Vco2Level = 10,
+    /// VCO 3 waveform id (`Waveform`), 0..=3.
+    Vco3Wave = 11,
+    /// VCO 3 coarse tune in semitones, −24..=24.
+    Vco3Coarse = 12,
+    /// VCO 3 fine tune in cents, −50..=50.
+    Vco3Fine = 13,
+    /// VCO 3 level into the mixer, 0..=1.
+    Vco3Level = 14,
+    /// Pulse width of every VCO, 0.05..=0.95.
+    PulseWidth = 15,
+    /// VCO 2 hard-syncs to VCO 1 when ≥ 0.5.
+    Vco2Sync = 16,
+    /// VCO 3 hard-syncs to VCO 1 when ≥ 0.5.
+    Vco3Sync = 17,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 3] = [
+    pub const ALL: [(Param, &'static str); 18] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Attack, "Attack"),
         (Param::Release, "Release"),
+        (Param::Vco1Wave, "Vco1Wave"),
+        (Param::Vco1Coarse, "Vco1Coarse"),
+        (Param::Vco1Fine, "Vco1Fine"),
+        (Param::Vco1Level, "Vco1Level"),
+        (Param::Vco2Wave, "Vco2Wave"),
+        (Param::Vco2Coarse, "Vco2Coarse"),
+        (Param::Vco2Fine, "Vco2Fine"),
+        (Param::Vco2Level, "Vco2Level"),
+        (Param::Vco3Wave, "Vco3Wave"),
+        (Param::Vco3Coarse, "Vco3Coarse"),
+        (Param::Vco3Fine, "Vco3Fine"),
+        (Param::Vco3Level, "Vco3Level"),
+        (Param::PulseWidth, "PulseWidth"),
+        (Param::Vco2Sync, "Vco2Sync"),
+        (Param::Vco3Sync, "Vco3Sync"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -38,6 +83,12 @@ impl Param {
             Param::MasterGain => (0.0, 1.0),
             Param::Attack => (0.001, 5.0),
             Param::Release => (0.005, 10.0),
+            Param::Vco1Wave | Param::Vco2Wave | Param::Vco3Wave => (0.0, 3.0),
+            Param::Vco1Coarse | Param::Vco2Coarse | Param::Vco3Coarse => (-24.0, 24.0),
+            Param::Vco1Fine | Param::Vco2Fine | Param::Vco3Fine => (-50.0, 50.0),
+            Param::Vco1Level | Param::Vco2Level | Param::Vco3Level => (0.0, 1.0),
+            Param::PulseWidth => (0.05, 0.95),
+            Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }

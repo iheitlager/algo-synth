@@ -1,14 +1,14 @@
 # 004: The Mono voice
 
-The ARP 2600-style semi-modular monophonic voice in `crates/dsp/src/mono/`: oscillators, noise, filter, modulation, note handling, normalled routing, MIDI input and presets. Decisions: ADR-0001, ADR-0002, ADR-0004. Draft: every requirement here is planned (plan.md MVP 2, epic #2); paths name where the code will land.
+The ARP 2600-style semi-modular monophonic voice in `crates/dsp/src/mono/`: oscillators, noise, filter, modulation, note handling, normalled routing, MIDI input and presets. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0007. Draft: requirements marked *(planned)* are not built yet (plan.md MVP 2, epic #2); paths name where the code will land.
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every new parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and parameters are Mono-wide until tracks address them as (track, parameter) in MVP 4 (spec 002 Req 1). Tests render offline at 48 kHz.
 
 ### Requirement 1: Oscillators [MUST]
 
-The voice SHALL have three VCOs, each with saw, pulse, triangle and sine waveforms, a coarse tune in semitones and a fine tune in cents. Saw and pulse SHALL be band-limited with polyBLEP. Pulse width SHALL range from 5% to 95% and MAY be modulated (PWM). VCO 2 and VCO 3 MAY hard-sync to VCO 1, and a sync reset SHALL be band-limited too.
+The voice SHALL have three VCOs, each with saw, pulse, triangle and sine waveforms, a coarse tune in semitones, a fine tune in cents and a level into the mixer. Saw and pulse SHALL be band-limited by a band-limited step (BLEP) table (ADR-0007). Pulse width SHALL range from 5% to 95% and MAY be modulated (PWM); a changing width SHALL NOT click. VCO 2 and VCO 3 MAY hard-sync to VCO 1, and a sync reset SHALL be band-limited too.
 
-**Implementation:** `crates/dsp/src/mono/osc.rs::Osc` *(planned, #4)*
+**Implementation:** `crates/dsp/src/mono/osc.rs::Osc`, `crates/dsp/src/mono.rs::MonoParams` (#4)
 
 #### Scenario: pitch
 
@@ -26,9 +26,15 @@ The voice SHALL have three VCOs, each with saw, pulse, triangle and sine wavefor
 
 - GIVEN VCO 2 synced to VCO 1 at any ratio from 1 to 8
 - WHEN a sweep of VCO 2's pitch is rendered
-- THEN every sample is finite and within ±1.1
+- THEN every sample is finite and within ±1.5 (a band-limited step rings by about 9% of its height, and a sync reset can land within a sample of another edge)
 
-**Tests:** `crates/dsp/src/mono/osc.rs::tests::pitch_within_a_cent`, `crates/dsp/src/mono/osc.rs::tests::saw_aliasing_below_60_db`, `crates/dsp/src/mono/osc.rs::tests::sync_is_bounded` *(planned)*
+#### Scenario: pulse-width sweep
+
+- GIVEN a 220 Hz pulse
+- WHEN its width is swept from 5% to 95% over one second
+- THEN no sample-to-sample step is larger than a fixed-width pulse already has
+
+**Tests:** `crates/dsp/src/mono/osc.rs::tests::pitch_within_a_cent`, `crates/dsp/src/mono/osc.rs::tests::saw_aliasing_below_60_db`, `crates/dsp/src/mono/osc.rs::tests::sync_is_bounded`, `crates/dsp/src/mono/osc.rs::tests::pwm_sweep_has_no_clicks`, `crates/dsp/src/mono.rs::tests::coarse_and_fine_set_the_ratio`
 
 ### Requirement 2: Noise [MUST]
 

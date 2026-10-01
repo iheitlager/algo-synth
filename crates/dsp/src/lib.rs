@@ -9,6 +9,7 @@
 //! channels over the sources, and a first timbre per source (`voice`).
 
 pub mod engine;
+pub mod mono;
 pub mod params;
 pub mod player;
 pub mod smf;
