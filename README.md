@@ -2,13 +2,13 @@
 
 An algorithmic synthesizer that runs entirely in the browser: three sound sources, a sequencer and algo loops, with the whole engine in Rust compiled to wasm on the audio thread.
 
-## Version: 0.2.0
+## Version: 0.3.0
 
 - **Sources:** Mono (ARP 2600-style semi-modular), Wave (PPG-style wavetable), Drums (analog-style kit).
 - **Compose three ways:** by hand, with seeded generators (Euclid, walk, arp, Markov), or from a MIDI score played by an ensemble of mono voices (six 2600s playing Vivaldi).
 - **No backend:** the container serves static files.
 
-The base (v0.1.0) is the pipeline: a test voice from Rust through the AudioWorklet, in the four-pane layout. v0.2.0 adds a MIDI file player in the engine, each channel routed to a source with a first timbre of its own. See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
+The base (v0.1.0) is the pipeline: a test voice from Rust through the AudioWorklet, in the four-pane layout. v0.2.0 adds a MIDI file player in the engine, each channel routed to a source with a first timbre of its own. v0.3.0 is the Mono voice (MVP 2): three band-limited VCOs, noise, a 4-pole ladder, ADSR, LFO and four presets. See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
 
 ## Quick start
 
