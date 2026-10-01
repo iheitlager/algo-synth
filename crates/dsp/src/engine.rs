@@ -8,6 +8,7 @@
 use crate::mono::MonoParams;
 use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
+use crate::mono::preset::{DEFAULTS, Preset};
 use crate::params::Param;
 use crate::player::Sequence;
 use crate::smf;
@@ -29,6 +30,8 @@ pub struct Engine {
     sine: Vec<f32>,
     blep: Blep,
     mono: MonoParams,
+    /// The last value set per parameter id, clamped, for the view to read.
+    values: [f32; Param::ALL.len()],
     ladder: LadderTables,
     voices: [Voice; VOICES],
     master_gain: f32,
@@ -60,6 +63,7 @@ impl Engine {
             sine,
             blep: Blep::new(),
             mono: MonoParams::new(sample_rate),
+            values: [0.0; Param::ALL.len()],
             ladder: LadderTables::new(sample_rate),
             voices: [Voice::default(); VOICES],
             master_gain: 0.5,
@@ -74,6 +78,9 @@ impl Engine {
         engine.set_param(Param::MasterGain, 0.5);
         engine.set_param(Param::Attack, 0.005);
         engine.set_param(Param::Release, 0.3);
+        for (p, v) in DEFAULTS {
+            engine.set_param(p, v);
+        }
         engine
     }
 
@@ -84,12 +91,27 @@ impl Engine {
     /// Set a parameter; the value is clamped into its range.
     pub fn set_param(&mut self, param: Param, value: f32) {
         let v = param.clamp(value);
+        if let Some(slot) = self.values.get_mut(param as usize) {
+            *slot = v;
+        }
         match param {
             Param::MasterGain => self.master_gain = v,
             Param::Attack => self.attack_step = 1.0 / (v * self.sample_rate),
             // Release time is the time to fall to −80 dB, not a time constant.
             Param::Release => self.release_coef = decay_coef(v, self.sample_rate),
             _ => self.mono.set(param, v),
+        }
+    }
+
+    /// The value `param` was last set to, after clamping.
+    pub fn param_value(&self, param: Param) -> f32 {
+        self.values.get(param as usize).copied().unwrap_or(0.0)
+    }
+
+    /// Set every Mono parameter: the defaults, then the preset's changes.
+    pub fn preset(&mut self, preset: Preset) {
+        for (p, v) in DEFAULTS.iter().chain(preset.changes()) {
+            self.set_param(*p, *v);
         }
     }
 

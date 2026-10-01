@@ -1,7 +1,8 @@
 //! The ARP 2600-style Mono voice (spec 004).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
-//! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold. The settings
+//! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `preset` the
+//! defaults and presets. The settings
 //! here are Mono-wide until tracks address parameters per instance
 //! (spec 002 Req 1).
 
@@ -10,6 +11,7 @@ pub mod ladder;
 pub mod lfo;
 pub mod noise;
 pub mod osc;
+pub mod preset;
 
 use crate::params::Param;
 use env::EnvTimes;
@@ -55,38 +57,37 @@ impl Default for MonoParams {
 }
 
 impl MonoParams {
-    /// VCO 1 alone, a saw, through a 4 kHz ladder, with a short attack.
+    /// The voice at `preset::DEFAULTS`: zeroed, then every default set.
     pub fn new(sample_rate: f32) -> MonoParams {
-        let sr = sample_rate;
-        MonoParams {
+        let off = EnvTimes {
+            attack: 0.0,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.0,
+        };
+        let mut p = MonoParams {
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
             ratio: [1.0; VCOS],
-            level: [1.0, 0.0, 0.0],
+            level: [0.0; VCOS],
             pulse_width: 0.5,
             sync: [false; VCOS],
             noise_level: 0.0,
             noise_colour: NoiseColour::White,
-            cutoff: hz_to_note(4_000.0),
+            cutoff: 0.0,
             k: 0.0,
             drive: 1.0,
-            sample_rate: sr,
-            adsr: EnvTimes {
-                attack: 0.005 * sr,
-                decay: 0.3 * sr,
-                sustain: 0.7,
-                release: 0.3 * sr,
-            },
-            ar: EnvTimes {
-                attack: 0.005 * sr,
-                decay: 0.0,
-                sustain: 1.0,
-                release: 0.3 * sr,
-            },
-            lfo_inc: 4.0 / sr,
+            sample_rate,
+            adsr: off,
+            ar: off,
+            lfo_inc: 0.0,
             lfo_wave: Waveform::Sine,
+        };
+        for (param, v) in preset::DEFAULTS {
+            p.set(param, param.clamp(v));
         }
+        p
     }
 
     /// Apply an already clamped value; parameters that aren't Mono's are

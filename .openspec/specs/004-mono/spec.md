@@ -168,9 +168,9 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 
 ### Requirement 9: Presets [SHOULD]
 
-The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters, and the patch once routing exists (Req 7, MVP 5); the preset ids SHALL be mirrored in `params.ts`.
+The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters, and the patch once routing exists (Req 7, MVP 5); the preset ids SHALL be mirrored in `params.ts`. A preset SHALL set every Mono parameter, starting from the defaults, so none is left over from the last one. The engine SHALL report each parameter's current value (`param_value`), so the view shows what a preset set.
 
-**Implementation:** `crates/dsp/src/mono/preset.rs` *(planned, #11)*
+**Implementation:** `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/engine.rs::Engine::preset`, `crates/dsp/src/ffi.rs::mono_preset`, `crates/dsp/src/ffi.rs::param_value` (#11)
 
 #### Scenario: every preset is safe
 
@@ -178,4 +178,4 @@ The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead
 - WHEN a note across the keyboard is held and released
 - THEN every sample is finite and bounded, and the voice falls silent after its release
 
-**Tests:** `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::typescript_mirror_matches` *(planned)*
+**Tests:** `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::typescript_mirror_matches`, `crates/dsp/src/mono/preset.rs::tests::a_preset_sets_every_mono_parameter`, `crates/dsp/src/mono/preset.rs::tests::defaults_cover_every_mono_parameter_once`

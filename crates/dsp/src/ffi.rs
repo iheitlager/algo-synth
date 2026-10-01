@@ -11,6 +11,7 @@
 use std::cell::RefCell;
 
 use crate::engine::{BLOCK, Engine};
+use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
 use crate::source::Source;
@@ -71,6 +72,26 @@ pub extern "C" fn process(frames: u32) {
 pub extern "C" fn set_param(id: u32, value: f32) {
     if let Some(p) = Param::from_id(id) {
         with_engine(|e| e.set_param(p, value));
+    }
+}
+
+/// Number of parameter ids; they run from 0 without gaps.
+#[unsafe(no_mangle)]
+pub extern "C" fn param_count() -> u32 {
+    Param::ALL.len() as u32
+}
+
+/// The value parameter `id` was last set to, after clamping; 0 if unknown.
+#[unsafe(no_mangle)]
+pub extern "C" fn param_value(id: u32) -> f32 {
+    Param::from_id(id).map_or(0.0, |p| query(0.0, |e| e.param_value(p)))
+}
+
+/// Load Mono preset `id` (see `mono/preset.rs`); unknown ids are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn mono_preset(id: u32) {
+    if let Some(p) = Preset::from_id(id) {
+        with_engine(|e| e.preset(p));
     }
 }
 

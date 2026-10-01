@@ -1,5 +1,5 @@
-// Mirror of crates/dsp/src/params.rs, source.rs, mono/osc.rs and mono/noise.rs
-// (ADR-0004).
+// Mirror of crates/dsp/src/params.rs, source.rs, mono/osc.rs, mono/noise.rs
+// and mono/preset.rs (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -58,3 +58,11 @@ export const NoiseColour = {
   Pink: 1,
 } as const
 export type NoiseColourId = (typeof NoiseColour)[keyof typeof NoiseColour]
+
+export const Preset = {
+  Bass: 0,
+  Lead: 1,
+  SyncLead: 2,
+  BowedString: 3,
+} as const
+export type PresetId = (typeof Preset)[keyof typeof Preset]

@@ -15,6 +15,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.w.init(sampleRate)
     this.block = this.w.block_len()
     this.tick = 0
+    this.sendParams()
     this.port.onmessage = ({ data }) => {
       const w = this.w
       switch (data.t) {
@@ -27,8 +28,17 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'stop': w.stop(); break
         case 'seek': w.seek(data.sec); break
         case 'route': w.route(data.ch, data.s); break
+        case 'preset': w.mono_preset(data.id); this.sendParams(); break
       }
     }
+  }
+
+  // Every parameter's current value, indexed by id, so the view shows what
+  // the engine holds (at start and after a preset).
+  sendParams() {
+    const values = new Float32Array(this.w.param_count())
+    for (let id = 0; id < values.length; id++) values[id] = this.w.param_value(id)
+    this.port.postMessage({ t: 'params', values }, [values.buffer])
   }
 
   // Copy the file into the engine's buffer, parse it there, and send the

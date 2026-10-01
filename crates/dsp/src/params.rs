@@ -146,8 +146,11 @@ mod tests {
 
     #[test]
     fn ids_round_trip() {
-        for (p, _) in Param::ALL {
-            assert_eq!(Param::from_id(p as u32), Some(p));
+        for (i, (p, _)) in Param::ALL.iter().enumerate() {
+            assert_eq!(Param::from_id(*p as u32), Some(*p));
+            // Ids run from 0 without gaps: `param_count` and the engine's
+            // value table rely on it.
+            assert_eq!(*p as usize, i);
         }
         assert_eq!(Param::from_id(999), None);
     }
