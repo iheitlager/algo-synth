@@ -49,8 +49,8 @@ test-rust: ## Engine unit tests (native)
 	cargo test --locked --workspace
 typecheck: install ## vue-tsc over the UI
 	cd web && npm run typecheck
-# 16 Mono voices in Node's V8 against the 25% budget (plan.md); confirm in
-# chrome://webaudio-internals.
+# 16 Mono voices in Node's V8 against the 25% budget (plan.md); confirm with
+# render capacity in Chrome DevTools' WebAudio panel.
 bench: wasm ## Time 16 voices in V8
 	node tools/bench.mjs
 

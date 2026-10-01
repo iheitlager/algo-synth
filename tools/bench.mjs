@@ -3,7 +3,8 @@
 // Loads web/public/dsp.wasm in Node, which runs the same V8 as Chrome,
 // renders 128-frame blocks at 48 kHz and reports the share of one core.
 // Parameter ids come from web/src/audio/params.ts, so nothing is copied here.
-// `chrome://webaudio-internals` is still the reference (ADR-0002).
+// Render capacity in Chrome DevTools' WebAudio panel is still the reference
+// (ADR-0002).
 
 import { readFileSync } from 'node:fs'
 import { cpus } from 'node:os'
