@@ -1,8 +1,9 @@
 //! The ARP 2600-style Mono voice (spec 004).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
-//! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `preset` the
-//! defaults and presets. The settings here are Mono-wide until tracks
+//! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `voice` one
+//! voice per owner with its keys and glide, `preset` the defaults and
+//! presets. The settings here are Mono-wide until tracks
 //! address parameters per instance (spec 002 Req 1).
 
 pub mod env;
@@ -11,12 +12,14 @@ pub mod lfo;
 pub mod noise;
 pub mod osc;
 pub mod preset;
+pub mod voice;
 
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
 use noise::NoiseColour;
 use osc::Waveform;
+use voice::NotePriority;
 
 /// Number of VCOs per Mono voice.
 pub const VCOS: usize = 3;
@@ -28,8 +31,8 @@ pub struct MonoParams {
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
     fine: [f32; VCOS],
-    /// Frequency ratio from coarse and fine, computed when either changes.
-    pub ratio: [f32; VCOS],
+    /// Coarse plus fine tune in semitones, added to the voice's pitch.
+    pub tune: [f32; VCOS],
     pub level: [f32; VCOS],
     pub pulse_width: f32,
     /// Whether VCO 2 and VCO 3 reset with VCO 1; VCO 1's entry is unused.
@@ -47,6 +50,10 @@ pub struct MonoParams {
     /// LFO cycles per sample, and its waveform.
     pub lfo_inc: f32,
     pub lfo_wave: Waveform,
+    /// Which held key sounds, legato on or off, glide time in samples.
+    pub priority: NotePriority,
+    pub legato: bool,
+    pub glide: f32,
 }
 
 impl Default for MonoParams {
@@ -68,7 +75,7 @@ impl MonoParams {
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
-            ratio: [1.0; VCOS],
+            tune: [0.0; VCOS],
             level: [0.0; VCOS],
             pulse_width: 0.5,
             sync: [false; VCOS],
@@ -82,6 +89,9 @@ impl MonoParams {
             ar: off,
             lfo_inc: 0.0,
             lfo_wave: Waveform::Sine,
+            priority: NotePriority::Last,
+            legato: false,
+            glide: 0.0,
         };
         for (param, v) in preset::DEFAULTS {
             p.set(param, param.clamp(v));
@@ -133,6 +143,13 @@ impl MonoParams {
                     self.lfo_wave = w;
                 }
             }
+            Param::Priority => {
+                if let Some(pr) = NotePriority::from_id(v.round() as u32) {
+                    self.priority = pr;
+                }
+            }
+            Param::Legato => self.legato = v >= 0.5,
+            Param::Glide => self.glide = samples,
             Param::MasterGain | Param::Attack | Param::Release => {}
         }
     }
@@ -144,8 +161,7 @@ impl MonoParams {
         }
     }
 
-    /// Set coarse and/or fine tune and recompute the ratio. Per parameter
-    /// change, not per sample, so `exp2` is fine.
+    /// Set coarse and/or fine tune; the voice adds the sum to its pitch.
     fn set_tune(&mut self, vco: usize, coarse: Option<f32>, fine: Option<f32>) {
         if let (Some(c), Some(slot)) = (coarse, self.coarse.get_mut(vco)) {
             *slot = c;
@@ -155,8 +171,8 @@ impl MonoParams {
         }
         let semis = self.coarse.get(vco).copied().unwrap_or(0.0)
             + self.fine.get(vco).copied().unwrap_or(0.0) / 100.0;
-        if let Some(r) = self.ratio.get_mut(vco) {
-            *r = (semis / 12.0).exp2();
+        if let Some(t) = self.tune.get_mut(vco) {
+            *t = semis;
         }
     }
 }
@@ -195,14 +211,20 @@ mod tests {
     }
 
     #[test]
-    fn coarse_and_fine_set_the_ratio() {
+    fn coarse_and_fine_set_the_tune() {
         let mut p = MonoParams::default();
-        p.set(Param::Vco2Coarse, Param::Vco2Coarse.clamp(12.0));
-        assert!((p.ratio[1] - 2.0).abs() < 1.0e-6);
+        p.set(Param::Vco2Coarse, Param::Vco2Coarse.clamp(12.4));
+        assert_eq!(p.tune[1], 12.0, "coarse is whole semitones");
         p.set(Param::Vco2Fine, Param::Vco2Fine.clamp(-50.0));
-        let expected = (11.5_f32 / 12.0).exp2();
-        assert!((p.ratio[1] - expected).abs() < 1.0e-6);
-        assert_eq!(p.ratio[0], 1.0);
+        assert!((p.tune[1] - 11.5).abs() < 1.0e-6);
+        assert_eq!(p.tune[0], 0.0);
+        p.set(Param::Glide, 0.1);
+        p.set(Param::Priority, 2.0);
+        p.set(Param::Legato, 1.0);
+        assert_eq!(
+            (p.glide, p.priority, p.legato),
+            (4_800.0, NotePriority::High, true)
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
-// Mirror of crates/dsp/src/params.rs, source.rs, mono/osc.rs, mono/noise.rs
-// and mono/preset.rs (ADR-0004).
+// Mirror of crates/dsp/src/params.rs, source.rs, mono/osc.rs, mono/noise.rs,
+// mono/preset.rs and mono/voice.rs (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -35,6 +35,9 @@ export const Param = {
   ArRelease: 28,
   LfoRate: 29,
   LfoWave: 30,
+  Priority: 31,
+  Legato: 32,
+  Glide: 33,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -66,3 +69,10 @@ export const Preset = {
   BowedString: 3,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
+
+export const NotePriority = {
+  Last: 0,
+  Low: 1,
+  High: 2,
+} as const
+export type NotePriorityId = (typeof NotePriority)[keyof typeof NotePriority]

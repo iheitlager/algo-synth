@@ -1,30 +1,21 @@
 //! One voice of the pool, with a first timbre per source.
 //!
-//! These are previews, not the sources the plan builds: enough that Mono,
-//! Wave and Drums sound different when a MIDI file is spread across them.
-//! Mono is three VCOs and noise (`mono::osc`, `mono::noise`) through the
-//! ladder (`mono::ladder`), shaped by the ADSR (`mono::env`), spec 004
-//! Req 1-4; Wave is a table sine with a
-//! second harmonic (MVP 7: the PPG-style wavetable); Drums picks a model
-//! from the General MIDI note (MVP 6: the analog-style kit).
+//! These are previews, not the sources the plan builds: enough that Wave and
+//! Drums sound different when a MIDI file is spread across the sources.
+//! Wave is a table sine with a second harmonic (MVP 7: the PPG-style
+//! wavetable); Drums picks a model from the General MIDI note (MVP 6: the
+//! analog-style kit). Mono has its own voices (`mono::voice`).
 //!
 //! ADR-0002: every coefficient is computed in `start`; `render` only does
 //! adds, multiplies and table reads.
 
-use crate::mono::env::{Env, Stage};
-use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::noise::Noise;
-use crate::mono::osc::{Blep, Osc};
-use crate::mono::{MonoParams, VCOS};
 use crate::source::Source;
 
 /// Sine table size; one extra guard sample for interpolation.
 pub const TABLE: usize = 2048;
 /// −80 dB: below this an envelope counts as silent and frees its voice.
 pub const SILENT: f32 = 1.0e-4;
-/// Mono's level after the ladder: one VCO at full level comes out near the
-/// previous preview voice's 0.35.
-const MONO_GAIN: f32 = 0.7;
 
 /// Who started a voice, so a note-off releases only its own notes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -50,9 +41,6 @@ enum Drum {
 /// What `render` needs from the engine besides the voice itself.
 pub struct Ctx<'a> {
     pub sine: &'a [f32],
-    pub blep: &'a Blep,
-    pub mono: &'a MonoParams,
-    pub ladder: &'a LadderTables,
     pub attack_step: f32,
     pub release_coef: f32,
 }
@@ -70,16 +58,12 @@ pub struct Voice {
     phase: f32,
     increment: f32,
     env: f32,
-    // Mono: the VCOs, the filter and the ADSR on the VCA.
-    osc: [Osc; VCOS],
-    ladder: Ladder,
-    adsr: Env,
     // Drums.
     drum: Drum,
     base_increment: f32,
     pitch_coef: f32,
     decay_coef: f32,
-    /// Mono's noise source and the drums' noise.
+    /// The drums' noise.
     noise: Noise,
     hp_prev: f32,
 }
@@ -108,8 +92,7 @@ impl Voice {
             ..Voice::default()
         };
         match source {
-            Source::Mono => v.ladder = Ladder::new(),
-            Source::Wave => {}
+            Source::Mono | Source::Wave => {}
             Source::Drums => {
                 v.env = 1.0;
                 let (drum, start_hz, end_hz, decay) = drum_for(note);
@@ -128,51 +111,7 @@ impl Voice {
     pub fn render(&mut self, ctx: &Ctx, out: &mut [f32]) {
         match self.source {
             Source::Drums => self.render_drum(ctx, out),
-            Source::Mono => self.render_mono(ctx, out),
-            Source::Wave => self.render_tonal(ctx, out),
-        }
-    }
-
-    fn render_mono(&mut self, ctx: &Ctx, out: &mut [f32]) {
-        let p = ctx.mono;
-        // Once per block: parameter changes reach a sounding voice here.
-        for ((osc, wave), ratio) in self.osc.iter_mut().zip(p.wave).zip(p.ratio) {
-            osc.wave = wave;
-            osc.set_increment(self.increment * ratio);
-        }
-        let [_, sync2, sync3] = p.sync;
-        let [l1, l2, l3] = p.level;
-        let (noise_level, colour) = (p.noise_level, p.noise_colour);
-        // The engine moves the gate between blocks; the ADSR follows here.
-        // A fresh voice opens its ADSR even if its note already ended, so a
-        // tap shorter than a block still sounds, held for one block.
-        if self.adsr.stage == Stage::Idle || (self.gate && !self.adsr.gated()) {
-            self.adsr.gate_on(&p.adsr);
-        } else if !self.gate && self.adsr.gated() {
-            self.adsr.gate_off(&p.adsr);
-        }
-        self.adsr.set_sustain(p.adsr.sustain);
-        for sample in out.iter_mut() {
-            let env = self.adsr.step();
-            if self.adsr.stage == Stage::Idle {
-                self.active = false;
-                return;
-            }
-            let [o1, o2, o3] = &mut self.osc;
-            let (y1, wrap) = o1.step(ctx.blep, ctx.sine, p.pulse_width, None);
-            let (y2, _) = o2.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync2));
-            let (y3, _) = o3.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync3));
-            let noise = if noise_level > 0.0 {
-                self.noise.sample(colour) * noise_level
-            } else {
-                0.0
-            };
-            let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise;
-            // Half the mix keeps two VCOs at full level below the knee.
-            let y = self
-                .ladder
-                .process(ctx.ladder, 0.5 * mix, p.cutoff, p.k, p.drive);
-            *sample += y * MONO_GAIN * env * self.velocity;
+            Source::Mono | Source::Wave => self.render_tonal(ctx, out),
         }
     }
 
@@ -276,13 +215,9 @@ mod tests {
     use super::*;
 
     fn render(source: Source, note: u8, blocks: usize) -> (Voice, Vec<f32>) {
-        let (table, blep, mono) = (sine_table(), Blep::new(), MonoParams::default());
-        let ladder = LadderTables::new(48_000.0);
+        let table = sine_table();
         let ctx = Ctx {
             sine: &table,
-            blep: &blep,
-            mono: &mono,
-            ladder: &ladder,
             attack_step: 1.0 / 240.0,
             release_coef: decay_coef(0.1, 48_000.0),
         };
@@ -302,15 +237,15 @@ mod tests {
 
     #[test]
     fn sources_sound_different() {
-        let (_, mono) = render(Source::Mono, 57, 40);
+        let (_, drums) = render(Source::Drums, 57, 40);
         let (_, wave) = render(Source::Wave, 57, 40);
-        let diff: f32 = mono.iter().zip(&wave).map(|(a, b)| (a - b).abs()).sum();
-        assert!(diff > 10.0, "Mono and Wave should differ, diff {diff}");
+        let diff: f32 = drums.iter().zip(&wave).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 10.0, "Drums and Wave should differ, diff {diff}");
     }
 
     #[test]
     fn every_source_is_finite_and_bounded() {
-        for source in [Source::Mono, Source::Wave, Source::Drums] {
+        for source in [Source::Wave, Source::Drums] {
             for note in [0, 35, 36, 38, 42, 46, 49, 60, 127] {
                 let (_, out) = render(source, note, 50);
                 assert!(

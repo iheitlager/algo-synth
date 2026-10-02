@@ -108,7 +108,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 28] = [
+pub const DEFAULTS: [(Param, f32); 31] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -137,6 +137,9 @@ pub const DEFAULTS: [(Param, f32); 28] = [
     (Param::ArRelease, 0.3),
     (Param::LfoRate, 4.0),
     (Param::LfoWave, 3.0),
+    (Param::Priority, 0.0),
+    (Param::Legato, 0.0),
+    (Param::Glide, 0.0),
 ];
 
 #[cfg(test)]

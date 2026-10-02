@@ -67,11 +67,17 @@ pub enum Param {
     LfoRate = 29,
     /// LFO waveform id (`Waveform`; pulse is the square), 0..=3.
     LfoWave = 30,
+    /// Mono note priority id (`NotePriority`: last, low, high), 0..=2.
+    Priority = 31,
+    /// Mono legato when ≥ 0.5: a new key while one is held keeps the envelope.
+    Legato = 32,
+    /// Mono glide time in seconds, 0..=5; 0 is off.
+    Glide = 33,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 31] = [
+    pub const ALL: [(Param, &'static str); 34] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Attack, "Attack"),
         (Param::Release, "Release"),
@@ -103,6 +109,9 @@ impl Param {
         (Param::ArRelease, "ArRelease"),
         (Param::LfoRate, "LfoRate"),
         (Param::LfoWave, "LfoWave"),
+        (Param::Priority, "Priority"),
+        (Param::Legato, "Legato"),
+        (Param::Glide, "Glide"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -135,6 +144,9 @@ impl Param {
             | Param::ArRelease => (0.001, 10.0),
             Param::LfoRate => (0.01, 50.0),
             Param::LfoWave => (0.0, 3.0),
+            Param::Priority => (0.0, 2.0),
+            Param::Legato => (0.0, 1.0),
+            Param::Glide => (0.0, 5.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }
@@ -188,6 +200,7 @@ mod tests {
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
         use crate::mono::preset::Preset;
+        use crate::mono::voice::NotePriority;
         use crate::source::Source;
         fn rust<T: Copy>(all: &[(T, &str)], id: impl Fn(T) -> u32) -> Vec<(String, u32)> {
             let mut v: Vec<_> = all.iter().map(|(x, n)| (n.to_string(), id(*x))).collect();
@@ -201,6 +214,7 @@ mod tests {
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
+            ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
         ];
         for (name, want) in lists {
             assert_eq!(

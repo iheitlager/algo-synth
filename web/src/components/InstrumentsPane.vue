@@ -4,11 +4,11 @@
 // with the MVP named on the card.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getEngine, params, status } from '../audio/engine'
-import { NoiseColour, Param, type ParamId, Preset, type PresetId, Source, type SourceId, Waveform } from '../audio/params'
+import { NoiseColour, NotePriority, Param, type ParamId, Preset, type PresetId, Source, type SourceId, Waveform } from '../audio/params'
 
 interface Card { id: SourceId; name: string; style: string; mvp: string; color: string; knobs: string[] }
 const cards: Card[] = [
-  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 5', color: 'var(--mono)', knobs: ['Glide', 'Patch'] },
+  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 5', color: 'var(--mono)', knobs: ['Patch'] },
   { id: Source.Wave, name: 'Wave', style: 'PPG-style wavetable', mvp: 'MVP 7', color: 'var(--wave)', knobs: ['Table', 'Wave pos', 'Env → wave', 'Filter', '8-bit'] },
   { id: Source.Drums, name: 'Drums', style: 'Analog drum processor', mvp: 'MVP 6', color: 'var(--drums)', knobs: ['Tune', 'Decay', 'Tone', 'Snap', 'Accent'] },
 ]
@@ -31,6 +31,7 @@ const val = (id: ParamId) => params.values[id] ?? 0
 const waves = Object.entries(Waveform)
 const colours = Object.entries(NoiseColour)
 const presets = Object.entries(Preset)
+const priorities = Object.entries(NotePriority)
 const vcos = [
   { n: 1, wave: Param.Vco1Wave, coarse: Param.Vco1Coarse, fine: Param.Vco1Fine, level: Param.Vco1Level },
   { n: 2, wave: Param.Vco2Wave, coarse: Param.Vco2Coarse, fine: Param.Vco2Fine, level: Param.Vco2Level, sync: Param.Vco2Sync },
@@ -131,6 +132,14 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
               <option v-for="[name, id] in colours" :key="id" :value="id">{{ name }}</option>
             </select>
             <label>Level <input type="range" min="0" max="1" step="0.01" :value="val(Param.NoiseLevel)" @input="send(Param.NoiseLevel, $event)" /></label>
+          </div>
+          <div class="vco">
+            <b>Keys</b>
+            <select :value="val(Param.Priority)" title="Which held key sounds" @change="send(Param.Priority, $event)">
+              <option v-for="[name, id] in priorities" :key="id" :value="id">{{ name }}</option>
+            </select>
+            <label class="sync"><input type="checkbox" :checked="val(Param.Legato) >= 0.5" @change="send(Param.Legato, $event)" /> Legato</label>
+            <label>Glide <input type="range" min="0" max="2" step="0.01" :value="val(Param.Glide)" @input="send(Param.Glide, $event)" /></label>
           </div>
           <div class="vco">
             <b>Ladder</b>
