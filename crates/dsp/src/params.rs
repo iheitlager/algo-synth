@@ -73,11 +73,67 @@ pub enum Param {
     Legato = 32,
     /// Mono glide time in seconds, 0..=5; 0 is off.
     Glide = 33,
+    /// Patch slot 1 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch1Source = 34,
+    /// Patch slot 1 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch1Dest = 35,
+    /// Patch slot 1 amount, −1..=1.
+    Patch1Amount = 36,
+    /// Patch slot 2 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch2Source = 37,
+    /// Patch slot 2 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch2Dest = 38,
+    /// Patch slot 2 amount, −1..=1.
+    Patch2Amount = 39,
+    /// Patch slot 3 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch3Source = 40,
+    /// Patch slot 3 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch3Dest = 41,
+    /// Patch slot 3 amount, −1..=1.
+    Patch3Amount = 42,
+    /// Patch slot 4 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch4Source = 43,
+    /// Patch slot 4 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch4Dest = 44,
+    /// Patch slot 4 amount, −1..=1.
+    Patch4Amount = 45,
+    /// Patch slot 5 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch5Source = 46,
+    /// Patch slot 5 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch5Dest = 47,
+    /// Patch slot 5 amount, −1..=1.
+    Patch5Amount = 48,
+    /// Patch slot 6 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch6Source = 49,
+    /// Patch slot 6 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch6Dest = 50,
+    /// Patch slot 6 amount, −1..=1.
+    Patch6Amount = 51,
+    /// Patch slot 7 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch7Source = 52,
+    /// Patch slot 7 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch7Dest = 53,
+    /// Patch slot 7 amount, −1..=1.
+    Patch7Amount = 54,
+    /// Patch slot 8 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch8Source = 55,
+    /// Patch slot 8 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch8Dest = 56,
+    /// Patch slot 8 amount, −1..=1.
+    Patch8Amount = 57,
+    /// Normalled ADSR → cutoff, −1..=1 (±4 octaves).
+    EnvCutoff = 58,
+    /// Normalled key → cutoff, 0..=1 (1 follows the key exactly).
+    KeyTrack = 59,
+    /// Normalled LFO → VCO pitch at full mod wheel, 0..=1 (±2 semitones).
+    Vibrato = 60,
+    /// The mod wheel, 0..=1, until MIDI input sends CC 1 (#10).
+    ModWheel = 61,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 34] = [
+    pub const ALL: [(Param, &'static str); 62] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Attack, "Attack"),
         (Param::Release, "Release"),
@@ -112,6 +168,34 @@ impl Param {
         (Param::Priority, "Priority"),
         (Param::Legato, "Legato"),
         (Param::Glide, "Glide"),
+        (Param::Patch1Source, "Patch1Source"),
+        (Param::Patch1Dest, "Patch1Dest"),
+        (Param::Patch1Amount, "Patch1Amount"),
+        (Param::Patch2Source, "Patch2Source"),
+        (Param::Patch2Dest, "Patch2Dest"),
+        (Param::Patch2Amount, "Patch2Amount"),
+        (Param::Patch3Source, "Patch3Source"),
+        (Param::Patch3Dest, "Patch3Dest"),
+        (Param::Patch3Amount, "Patch3Amount"),
+        (Param::Patch4Source, "Patch4Source"),
+        (Param::Patch4Dest, "Patch4Dest"),
+        (Param::Patch4Amount, "Patch4Amount"),
+        (Param::Patch5Source, "Patch5Source"),
+        (Param::Patch5Dest, "Patch5Dest"),
+        (Param::Patch5Amount, "Patch5Amount"),
+        (Param::Patch6Source, "Patch6Source"),
+        (Param::Patch6Dest, "Patch6Dest"),
+        (Param::Patch6Amount, "Patch6Amount"),
+        (Param::Patch7Source, "Patch7Source"),
+        (Param::Patch7Dest, "Patch7Dest"),
+        (Param::Patch7Amount, "Patch7Amount"),
+        (Param::Patch8Source, "Patch8Source"),
+        (Param::Patch8Dest, "Patch8Dest"),
+        (Param::Patch8Amount, "Patch8Amount"),
+        (Param::EnvCutoff, "EnvCutoff"),
+        (Param::KeyTrack, "KeyTrack"),
+        (Param::Vibrato, "Vibrato"),
+        (Param::ModWheel, "ModWheel"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -147,6 +231,24 @@ impl Param {
             Param::Priority => (0.0, 2.0),
             Param::Legato => (0.0, 1.0),
             Param::Glide => (0.0, 5.0),
+            Param::Patch1Source | Param::Patch1Dest => (0.0, 255.0),
+            Param::Patch2Source | Param::Patch2Dest => (0.0, 255.0),
+            Param::Patch3Source | Param::Patch3Dest => (0.0, 255.0),
+            Param::Patch4Source | Param::Patch4Dest => (0.0, 255.0),
+            Param::Patch5Source | Param::Patch5Dest => (0.0, 255.0),
+            Param::Patch6Source | Param::Patch6Dest => (0.0, 255.0),
+            Param::Patch7Source | Param::Patch7Dest => (0.0, 255.0),
+            Param::Patch8Source | Param::Patch8Dest => (0.0, 255.0),
+            Param::Patch1Amount
+            | Param::Patch2Amount
+            | Param::Patch3Amount
+            | Param::Patch4Amount
+            | Param::Patch5Amount
+            | Param::Patch6Amount
+            | Param::Patch7Amount
+            | Param::Patch8Amount
+            | Param::EnvCutoff => (-1.0, 1.0),
+            Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }
@@ -199,6 +301,7 @@ mod tests {
     fn typescript_mirror_matches() {
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
+        use crate::mono::patch::{ModDest, ModSource};
         use crate::mono::preset::Preset;
         use crate::mono::voice::NotePriority;
         use crate::source::Source;
@@ -215,6 +318,8 @@ mod tests {
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
+            ("ModSource", rust(&ModSource::ALL, |s| s as u32)),
+            ("ModDest", rust(&ModDest::ALL, |d| d as u32)),
         ];
         for (name, want) in lists {
             assert_eq!(

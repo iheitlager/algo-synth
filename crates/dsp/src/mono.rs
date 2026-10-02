@@ -11,6 +11,7 @@ pub mod ladder;
 pub mod lfo;
 pub mod noise;
 pub mod osc;
+pub mod patch;
 pub mod preset;
 pub mod voice;
 
@@ -19,6 +20,7 @@ use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
 use noise::NoiseColour;
 use osc::Waveform;
+use patch::{Normals, Patch};
 use voice::NotePriority;
 
 /// Number of VCOs per Mono voice.
@@ -54,6 +56,12 @@ pub struct MonoParams {
     pub priority: NotePriority,
     pub legato: bool,
     pub glide: f32,
+    /// The patch, which destinations it takes over, the normalled amounts
+    /// and the mod wheel.
+    pub patch: Patch,
+    pub taken: [bool; 8],
+    pub normals: Normals,
+    pub mod_wheel: f32,
 }
 
 impl Default for MonoParams {
@@ -92,6 +100,10 @@ impl MonoParams {
             priority: NotePriority::Last,
             legato: false,
             glide: 0.0,
+            patch: Patch::default(),
+            taken: [false; 8],
+            normals: Normals::default(),
+            mod_wheel: 0.0,
         };
         for (param, v) in preset::DEFAULTS {
             p.set(param, param.clamp(v));
@@ -150,8 +162,38 @@ impl MonoParams {
             }
             Param::Legato => self.legato = v >= 0.5,
             Param::Glide => self.glide = samples,
+            Param::Patch1Source => self.patch.set_source(0, v),
+            Param::Patch1Dest => self.patch.set_dest(0, v),
+            Param::Patch1Amount => self.patch.set_amount(0, v),
+            Param::Patch2Source => self.patch.set_source(1, v),
+            Param::Patch2Dest => self.patch.set_dest(1, v),
+            Param::Patch2Amount => self.patch.set_amount(1, v),
+            Param::Patch3Source => self.patch.set_source(2, v),
+            Param::Patch3Dest => self.patch.set_dest(2, v),
+            Param::Patch3Amount => self.patch.set_amount(2, v),
+            Param::Patch4Source => self.patch.set_source(3, v),
+            Param::Patch4Dest => self.patch.set_dest(3, v),
+            Param::Patch4Amount => self.patch.set_amount(3, v),
+            Param::Patch5Source => self.patch.set_source(4, v),
+            Param::Patch5Dest => self.patch.set_dest(4, v),
+            Param::Patch5Amount => self.patch.set_amount(4, v),
+            Param::Patch6Source => self.patch.set_source(5, v),
+            Param::Patch6Dest => self.patch.set_dest(5, v),
+            Param::Patch6Amount => self.patch.set_amount(5, v),
+            Param::Patch7Source => self.patch.set_source(6, v),
+            Param::Patch7Dest => self.patch.set_dest(6, v),
+            Param::Patch7Amount => self.patch.set_amount(6, v),
+            Param::Patch8Source => self.patch.set_source(7, v),
+            Param::Patch8Dest => self.patch.set_dest(7, v),
+            Param::Patch8Amount => self.patch.set_amount(7, v),
+            // Semitones of cutoff at full ADSR, and of VCO pitch at full LFO.
+            Param::EnvCutoff => self.normals.env_cutoff = 48.0 * v,
+            Param::KeyTrack => self.normals.key_track = v,
+            Param::Vibrato => self.normals.vibrato = 2.0 * v,
+            Param::ModWheel => self.mod_wheel = v,
             Param::MasterGain | Param::Attack | Param::Release => {}
         }
+        self.taken = self.patch.overridden();
     }
 
     fn set_wave(&mut self, vco: usize, v: f32) {

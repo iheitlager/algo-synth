@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format is based on 
 ### Added
 
 - `mono::voice`: one monophonic Mono voice per owner (live input and each MIDI channel), allocated in `Engine::new` instead of the shared pool. A 16-key stack with note priority (last, low, high), legato (a new key while one is held keeps the envelope; release falls back to the next held key) and glide (0-5 s, linear in semitones, exact in time). `Priority`, `Legato` and `Glide` parameters with a mirrored `NotePriority` id list, and a Keys row on the Mono card (#8).
+- `mono::patch`: normalled routing and an 8-slot patch (spec 004 Req 7). Normals with amounts: ADSR → cutoff (`EnvCutoff`), key tracking (`KeyTrack`), LFO × mod wheel → pitch (`Vibrato`, `ModWheel`), ADSR → VCA. Sources VCO 1-3, noise, ADSR, AR, LFO, S&H, mod wheel, velocity, key; destinations VCO 1-3 pitch, pulse width, cutoff, resonance, VCA, LFO rate. An override replaces the normals to its destination. 28 parameters (24 patch fields, 4 normals) and `ModSource`/`ModDest` ids, mirrored; LFO, AR, normal and patch rows on the Mono card. The AR, LFO and S&H are audible now (#9).
+- Presets carry normals and patches: Sync lead's ADSR → VCO 2 sweep, Bowed string's vibrato and velocity → cutoff, filter envelopes and key tracking on Bass and Lead (#9).
 - `PitchTable`: note to increment in 1/16-semitone steps, so Mono's pitch moves every sample with no `exp2` in `render` (about 0.003 cents of error) (#8).
 
 ### Changed

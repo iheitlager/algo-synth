@@ -6,15 +6,22 @@
 //! falls back to the next held one the same way. Glide moves the pitch in a
 //! straight line of semitones, arriving in exactly the glide time.
 //!
-//! Key events arrive between blocks; the envelope acts on them at the next
+//! Key events arrive between blocks; the envelopes act on them at the next
 //! block, so a note shorter than a block still sounds, held for that block.
-//! Pitch comes from `PitchTable` every sample: no `exp2` in `render`
-//! (ADR-0002), so glide (and later modulation) can move it per sample.
+//! Every sample the voice reads its modulation sources (VCOs, noise, ADSR,
+//! AR, LFO, S&H, mod wheel, velocity, key) and sums the normalled
+//! connections and the patch (`mono::patch`). Pitch comes from `PitchTable`
+//! and cutoff from the ladder's table, so both move every sample without
+//! `exp2` in `render` (ADR-0002); the LFO rate follows its modulation once
+//! per block.
 
 use crate::mono::env::{Env, Stage};
+use crate::mono::ladder::MAX_K;
 use crate::mono::ladder::{Ladder, LadderTables};
+use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Blep, Osc};
+use crate::mono::patch::{ModDest, ModSource, Mods, Sources, is_taken, modulate};
 use crate::mono::{MonoParams, VCOS};
 use crate::voice::midi_to_hz;
 
@@ -117,7 +124,16 @@ pub struct MonoVoice {
     osc: [Osc; VCOS],
     ladder: Ladder,
     adsr: Env,
+    ar: Env,
+    lfo: Lfo,
     noise: Noise,
+    /// Last sample's VCO outputs, as modulation sources.
+    last: [f32; VCOS],
+    /// Last sample's modulation, per destination.
+    mods: Mods,
+    /// A patch drives the VCA, so the AR (not only the ADSR) can keep the
+    /// voice sounding.
+    vca_patched: bool,
 }
 
 impl MonoVoice {
@@ -131,7 +147,14 @@ impl MonoVoice {
 
     /// Sounding: gated, releasing, or about to start.
     pub fn active(&self) -> bool {
-        self.retrigger || self.adsr.stage != Stage::Idle
+        self.retrigger
+            || self.adsr.stage != Stage::Idle
+            || (self.vca_patched && self.ar.stage != Stage::Idle)
+    }
+
+    /// Last sample's modulation, per destination.
+    pub fn mods(&self) -> Mods {
+        self.mods
     }
 
     /// A key is held.
@@ -235,25 +258,29 @@ impl MonoVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
         let p = ctx.params;
-        if self.retrigger {
-            self.retrigger = false;
-            self.adsr.gate_on(&p.adsr);
-        } else if self.gate && !self.adsr.gated() {
-            self.adsr.gate_on(&p.adsr);
-        } else if !self.gate && self.adsr.gated() {
-            self.adsr.gate_off(&p.adsr);
+        for (env, times) in [(&mut self.adsr, &p.adsr), (&mut self.ar, &p.ar)] {
+            if self.retrigger || (self.gate && !env.gated()) {
+                env.gate_on(times);
+            } else if !self.gate && env.gated() {
+                env.gate_off(times);
+            }
         }
+        self.retrigger = false;
+        self.vca_patched = is_taken(&p.taken, ModDest::Vca);
         self.adsr.set_sustain(p.adsr.sustain);
         for (osc, wave) in self.osc.iter_mut().zip(p.wave) {
             osc.wave = wave;
         }
+        // Control rate: the LFO's speed follows its modulation per block.
+        let lfo_inc = p.lfo_inc * self.mods.lfo_rate.clamp(-8.0, 8.0).exp2();
         let [t1, t2, t3] = p.tune;
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
         for sample in out.iter_mut() {
-            let env = self.adsr.step();
-            if self.adsr.stage == Stage::Idle {
+            let adsr = self.adsr.step();
+            let ar = self.ar.step();
+            if !self.active() {
                 return;
             }
             if self.glide_left > 0 {
@@ -264,24 +291,48 @@ impl MonoVoice {
                     self.pitch + self.glide_step
                 };
             }
+            let (lfo, held) = self
+                .lfo
+                .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise);
+            let noise = self.noise.sample(colour);
+            let key = self.pitch - 60.0;
+            let mut src: Sources = [0.0; 12];
+            for (s, v) in [
+                (ModSource::Vco1, self.last[0]),
+                (ModSource::Vco2, self.last[1]),
+                (ModSource::Vco3, self.last[2]),
+                (ModSource::Noise, noise),
+                (ModSource::Adsr, adsr),
+                (ModSource::Ar, ar),
+                (ModSource::Lfo, lfo),
+                (ModSource::SampleHold, held),
+                (ModSource::ModWheel, p.mod_wheel),
+                (ModSource::Velocity, self.velocity),
+                (ModSource::Key, key / 60.0),
+            ] {
+                if let Some(slot) = src.get_mut(s as usize) {
+                    *slot = v;
+                }
+            }
+            let m = modulate(&p.patch, &p.taken, &p.normals, &src, key);
+            let [m1, m2, m3] = m.pitch;
+            let pw = (p.pulse_width + m.pulse_width).clamp(0.05, 0.95);
             let [o1, o2, o3] = &mut self.osc;
-            o1.set_increment(ctx.pitch.at(self.pitch + t1));
-            o2.set_increment(ctx.pitch.at(self.pitch + t2));
-            o3.set_increment(ctx.pitch.at(self.pitch + t3));
-            let (y1, wrap) = o1.step(ctx.blep, ctx.sine, p.pulse_width, None);
-            let (y2, _) = o2.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync2));
-            let (y3, _) = o3.step(ctx.blep, ctx.sine, p.pulse_width, wrap.filter(|_| sync3));
-            let noise = if noise_level > 0.0 {
-                self.noise.sample(colour) * noise_level
-            } else {
-                0.0
-            };
-            let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise;
+            o1.set_increment(ctx.pitch.at(self.pitch + t1 + m1));
+            o2.set_increment(ctx.pitch.at(self.pitch + t2 + m2));
+            o3.set_increment(ctx.pitch.at(self.pitch + t3 + m3));
+            let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
+            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2));
+            let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
+            let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise * noise_level;
+            let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K);
             // Half the mix keeps two VCOs at full level below the knee.
             let y = self
                 .ladder
-                .process(ctx.ladder, 0.5 * mix, p.cutoff, p.k, p.drive);
-            *sample += y * MONO_GAIN * env * self.velocity;
+                .process(ctx.ladder, 0.5 * mix, p.cutoff + m.cutoff, k, p.drive);
+            *sample += y * MONO_GAIN * m.vca * self.velocity;
+            self.last = [y1, y2, y3];
+            self.mods = m;
         }
     }
 }
@@ -430,6 +481,98 @@ mod tests {
             r.release(n);
         }
         assert!(!r.voice.gated());
+    }
+
+    /// Spec 004 Req 7: S&H → cutoff at 0.5 with the LFO at 4 Hz changes the
+    /// cutoff exactly once per LFO period, and the ADSR no longer moves it.
+    #[test]
+    fn sample_and_hold_takes_over_the_cutoff() {
+        let mut r = Rig::new(&[
+            (Param::LfoRate, 4.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.3),
+            (Param::Patch1Source, 8.0),
+            (Param::Patch1Dest, 5.0),
+            (Param::Patch1Amount, 0.5),
+        ]);
+        r.press(60);
+        let mut cutoffs = Vec::new();
+        for _ in 0..(SR as usize + 100) {
+            r.render(1);
+            cutoffs.push(r.voice.mods().cutoff);
+        }
+        let changes = cutoffs.windows(2).filter(|w| w[0] != w[1]).count();
+        assert_eq!(changes, 4, "one change per LFO period in 1 s");
+        // During the 300 ms attack the cutoff still only steps with the S&H.
+        assert!(cutoffs[..11_000].windows(2).all(|w| w[0] == w[1]));
+    }
+
+    /// The normals: ADSR → cutoff, key tracking, vibrato through the wheel.
+    #[test]
+    fn normalled_connections_move_their_destinations() {
+        let mut r = Rig::new(&[(Param::EnvCutoff, 0.5), (Param::AdsrSustain, 1.0)]);
+        r.press(60);
+        r.render(4_800);
+        assert!(
+            (r.voice.mods().cutoff - 24.0).abs() < 1.0e-3,
+            "ADSR → cutoff"
+        );
+
+        let cutoff_at = |note: u8| {
+            let mut r = Rig::new(&[(Param::KeyTrack, 1.0)]);
+            r.press(note);
+            r.render(128);
+            r.voice.mods().cutoff
+        };
+        assert!(
+            (cutoff_at(72) - cutoff_at(60) - 12.0).abs() < 1.0e-4,
+            "key tracking"
+        );
+
+        let pitch_range = |wheel: f32| {
+            let mut r = Rig::new(&[
+                (Param::Vibrato, 1.0),
+                (Param::ModWheel, wheel),
+                (Param::LfoRate, 5.0),
+            ]);
+            r.press(60);
+            let mut lo = f32::MAX;
+            let mut hi = f32::MIN;
+            for _ in 0..96 {
+                r.render(100);
+                let p = r.voice.mods().pitch[0];
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+            hi - lo
+        };
+        assert_eq!(pitch_range(0.0), 0.0, "no wheel, no vibrato");
+        assert!(
+            (pitch_range(1.0) - 4.0).abs() < 0.05,
+            "±2 semitones at full wheel"
+        );
+    }
+
+    /// AR patched to the VCA keeps the voice sounding after the ADSR ends.
+    #[test]
+    fn ar_on_the_vca_shapes_the_note() {
+        let mut r = Rig::new(&[
+            (Param::AdsrRelease, 0.01),
+            (Param::ArRelease, 0.5),
+            (Param::Patch1Source, 6.0),
+            (Param::Patch1Dest, 7.0),
+            (Param::Patch1Amount, 1.0),
+        ]);
+        r.press(60);
+        r.render(4_800);
+        r.release(60);
+        let tail = r.render(4_800);
+        assert!(
+            tail[4_000..].iter().any(|s| s.abs() > 1.0e-3),
+            "still sounding at 100 ms"
+        );
+        r.render(48_000);
+        assert!(!r.voice.active());
     }
 
     /// The table gives spec 001 Req 7's pitch within 0.01 cent everywhere.

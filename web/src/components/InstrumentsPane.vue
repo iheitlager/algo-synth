@@ -4,11 +4,13 @@
 // with the MVP named on the card.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getEngine, params, status } from '../audio/engine'
-import { NoiseColour, NotePriority, Param, type ParamId, Preset, type PresetId, Source, type SourceId, Waveform } from '../audio/params'
+import {
+  ModDest, ModSource, NoiseColour, NotePriority, Param, type ParamId, Preset, type PresetId, Source, type SourceId, Waveform,
+} from '../audio/params'
 
 interface Card { id: SourceId; name: string; style: string; mvp: string; color: string; knobs: string[] }
 const cards: Card[] = [
-  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 5', color: 'var(--mono)', knobs: ['Patch'] },
+  { id: Source.Mono, name: 'Mono', style: 'ARP 2600-style semi-modular', mvp: 'MVP 5', color: 'var(--mono)', knobs: [] },
   { id: Source.Wave, name: 'Wave', style: 'PPG-style wavetable', mvp: 'MVP 7', color: 'var(--wave)', knobs: ['Table', 'Wave pos', 'Env → wave', 'Filter', '8-bit'] },
   { id: Source.Drums, name: 'Drums', style: 'Analog drum processor', mvp: 'MVP 6', color: 'var(--drums)', knobs: ['Tune', 'Decay', 'Tone', 'Snap', 'Accent'] },
 ]
@@ -32,6 +34,13 @@ const waves = Object.entries(Waveform)
 const colours = Object.entries(NoiseColour)
 const presets = Object.entries(Preset)
 const priorities = Object.entries(NotePriority)
+const modSources = Object.entries(ModSource)
+const modDests = Object.entries(ModDest)
+// The patch: 8 overrides (source → destination, amount), spec 004 Req 7.
+const patchSlots = Array.from({ length: 8 }, (_, i) => {
+  const key = (field: string) => Param[`Patch${i + 1}${field}` as keyof typeof Param]
+  return { n: i + 1, source: key('Source'), dest: key('Dest'), amount: key('Amount') }
+})
 const vcos = [
   { n: 1, wave: Param.Vco1Wave, coarse: Param.Vco1Coarse, fine: Param.Vco1Fine, level: Param.Vco1Level },
   { n: 2, wave: Param.Vco2Wave, coarse: Param.Vco2Coarse, fine: Param.Vco2Fine, level: Param.Vco2Level, sync: Param.Vco2Sync },
@@ -52,6 +61,12 @@ function loadPreset(e: Event) {
 // The cutoff slider is exponential: 0..1 is 20 Hz..20 kHz.
 const cutoffHz = (t: number) => 20 * 1000 ** t
 const cutoffPos = (hz: number) => (hz > 0 ? Math.log(hz / 20) / Math.log(1000) : 0)
+// The LFO rate slider too: 0..1 is 0.01..50 Hz.
+const lfoHz = (t: number) => 0.01 * 5000 ** t
+const lfoPos = (hz: number) => (hz > 0 ? Math.log(hz / 0.01) / Math.log(5000) : 0)
+function sendLfoRate(e: Event) {
+  getEngine()?.param(Param.LfoRate, lfoHz(Number((e.target as HTMLInputElement).value)))
+}
 function sendCutoff(e: Event) {
   getEngine()?.param(Param.Cutoff, cutoffHz(Number((e.target as HTMLInputElement).value)))
 }
@@ -148,6 +163,41 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', kd); window.remove
             <span />
             <label>Drive <input type="range" min="0" max="1" step="0.01" :value="val(Param.Drive)" @input="send(Param.Drive, $event)" /></label>
           </div>
+          <div class="vco">
+            <b>LFO</b>
+            <select :value="val(Param.LfoWave)" @change="send(Param.LfoWave, $event)">
+              <option v-for="[name, id] in waves" :key="id" :value="id">{{ name === 'Pulse' ? 'Square' : name }}</option>
+            </select>
+            <label>Rate <input type="range" min="0" max="1" step="0.001" :value="lfoPos(val(Param.LfoRate))" @input="sendLfoRate" /></label>
+          </div>
+          <div class="vco">
+            <b>AR</b>
+            <label>Attack <input type="range" min="0.001" max="2" step="0.001" :value="val(Param.ArAttack)" @input="send(Param.ArAttack, $event)" /></label>
+            <label>Release <input type="range" min="0.001" max="4" step="0.001" :value="val(Param.ArRelease)" @input="send(Param.ArRelease, $event)" /></label>
+          </div>
+          <div class="vco">
+            <b>Normal</b>
+            <label>Env → cutoff <input type="range" min="-1" max="1" step="0.01" :value="val(Param.EnvCutoff)" @input="send(Param.EnvCutoff, $event)" /></label>
+            <label>Key track <input type="range" min="0" max="1" step="0.01" :value="val(Param.KeyTrack)" @input="send(Param.KeyTrack, $event)" /></label>
+            <span />
+            <label>Vibrato <input type="range" min="0" max="1" step="0.01" :value="val(Param.Vibrato)" @input="send(Param.Vibrato, $event)" /></label>
+            <label>Mod wheel <input type="range" min="0" max="1" step="0.01" :value="val(Param.ModWheel)" @input="send(Param.ModWheel, $event)" /></label>
+          </div>
+          <p class="normalled">
+            Normalled: VCO 1–3 + noise → ladder → VCA · ADSR → cutoff, VCA · key → pitch, cutoff · LFO × wheel → pitch.
+            A patch slot replaces the normals to its destination.
+          </p>
+          <div v-for="slot in patchSlots" :key="slot.n" class="patch">
+            <span class="soon">{{ slot.n }}</span>
+            <select :value="val(slot.source)" @change="send(slot.source, $event)">
+              <option v-for="[name, id] in modSources" :key="id" :value="id">{{ name }}</option>
+            </select>
+            <span class="soon">→</span>
+            <select :value="val(slot.dest)" @change="send(slot.dest, $event)">
+              <option v-for="[name, id] in modDests" :key="id" :value="id">{{ name }}</option>
+            </select>
+            <input type="range" min="-1" max="1" step="0.01" :value="val(slot.amount)" :title="`amount ${val(slot.amount).toFixed(2)}`" @input="send(slot.amount, $event)" />
+          </div>
         </fieldset>
         <div v-if="c.id === Source.Drums" class="pads">
           <button
@@ -180,6 +230,8 @@ header b { color: var(--c); font-size: 15px; }
 .vco b { color: var(--c); }
 .vco label, .vcos > label { display: grid; gap: 2px; }
 .vco .sync { display: flex; gap: 4px; align-items: center; }
+.normalled { margin: 0; line-height: 1.4; }
+.patch { display: grid; grid-template-columns: 1.2em 1fr auto 1fr 1fr; gap: 4px 6px; align-items: center; }
 .preset { display: flex; gap: 8px; align-items: center; }
 .knobs label { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
 .knob { border: 1px dashed var(--line); border-radius: 3px; padding: 3px 6px; }
