@@ -14,7 +14,6 @@ use crate::engine::{BLOCK, Engine};
 use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
-use crate::source::Source;
 
 thread_local! {
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -95,20 +94,18 @@ pub extern "C" fn mono_preset(id: u32) {
     }
 }
 
-/// Start `note` (MIDI 0..=127) on `source`; unknown sources are ignored.
+/// Start `note` (MIDI 0..=127) on Mono.
 #[unsafe(no_mangle)]
-pub extern "C" fn note_on(source: u32, note: u32, velocity: f32) {
-    if let Some(s) = Source::from_id(source) {
-        let note = u8::try_from(note.min(127)).unwrap_or(127);
-        with_engine(|e| e.note_on(s, note, velocity));
-    }
+pub extern "C" fn note_on(note: u32, velocity: f32) {
+    let note = u8::try_from(note.min(127)).unwrap_or(127);
+    with_engine(|e| e.note_on(note, velocity));
 }
 
-/// Release `note` on `source`.
+/// Release `note` on Mono.
 #[unsafe(no_mangle)]
-pub extern "C" fn note_off(source: u32, note: u32) {
-    if let (Some(s), Ok(n)) = (Source::from_id(source), u8::try_from(note)) {
-        with_engine(|e| e.note_off(s, n));
+pub extern "C" fn note_off(note: u32) {
+    if let Ok(n) = u8::try_from(note) {
+        with_engine(|e| e.note_off(n));
     }
 }
 
@@ -277,19 +274,20 @@ pub extern "C" fn playing() -> u32 {
     query(0, |e| u32::from(e.sequence().playing()))
 }
 
-/// Route MIDI `channel` to `source`; any unknown source id (e.g. 255) mutes it.
+/// Play MIDI `channel` on Mono with target 0; any other target (e.g. 255)
+/// mutes it.
 #[unsafe(no_mangle)]
-pub extern "C" fn route(channel: u32, source: u32) {
+pub extern "C" fn route(channel: u32, target: u32) {
     if let Ok(ch) = u8::try_from(channel) {
-        with_engine(|e| e.route(ch, Source::from_id(source)));
+        with_engine(|e| e.route(ch, target == 0));
     }
 }
 
-/// The source id MIDI `channel` plays on, or 255 if muted.
+/// 0 if MIDI `channel` plays on Mono, 255 if muted.
 #[unsafe(no_mangle)]
 pub extern "C" fn routed(channel: u32) -> u32 {
     let ch = u8::try_from(channel).unwrap_or(u8::MAX);
-    query(255, |e| e.routed(ch).map_or(255, |s| s as u32))
+    query(255, |e| if e.routed(ch) { 0 } else { 255 })
 }
 
 #[cfg(test)]
@@ -299,7 +297,7 @@ mod tests {
     #[test]
     fn exports_are_no_ops_before_init() {
         process(128);
-        note_on(0, 60, 1.0);
+        note_on(60, 1.0);
         set_param(0, 1.0);
         assert!(out_ptr().is_null());
     }
@@ -308,8 +306,7 @@ mod tests {
     fn exports_drive_the_engine() {
         init(48_000.0);
         assert!(!out_ptr().is_null());
-        note_on(0, 69, 1.0);
-        note_on(99, 69, 1.0); // unknown source: ignored
+        note_on(69, 1.0);
         process(128);
         assert_eq!(query(0, |e| e.active_voices()), 1);
     }
@@ -326,11 +323,11 @@ mod tests {
                 .expect("fits")
                 .copy_from_slice(bytes)
         });
-        assert_eq!(midi_load(), 5);
-        assert_eq!(part_channel(4), 9);
-        assert_eq!(routed(9), 2); // Drums
-        route(9, 255);
-        assert_eq!(routed(9), 255);
+        assert_eq!(midi_load(), 4);
+        assert_eq!(part_channel(3), 3);
+        assert_eq!(routed(3), 0);
+        route(3, 255);
+        assert_eq!(routed(3), 255);
         assert!(part_name_len(1) > 0);
         assert!(song_length() > 60.0);
         assert!((song_bar() - 4.0 * 60.0 / 72.0).abs() < 1.0e-3);

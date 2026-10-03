@@ -38,23 +38,23 @@ The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, e
 
 ### Requirement 3: Voice allocation [MUST]
 
-`note_on` SHALL take a free voice, or steal the oldest when the pool is full. `note_off` SHALL release only gated voices of that source and note. A released voice SHALL free itself when its envelope falls below −80 dB, and the Release parameter SHALL be the time it takes to get there. Mono is the exception: one monophonic voice per owner, outside this pool (spec 004 Req 6), ended by its own ADSR, not the Release parameter (spec 004 Req 4).
+Each owner (live input, each MIDI channel) SHALL have its own monophonic Mono voice, allocated in `Engine::new` (spec 004 Req 6). `note_off` SHALL release only that owner's key. A released voice SHALL end when its ADSR does (spec 004 Req 4). The shared pool for Wave and Drums is gone with them (ADR-0008).
 
 **Implementation:** `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/engine.rs::Engine::note_off`
 
 #### Scenario: note sounds then releases
 
-- GIVEN a note on A4
-- WHEN it is held for 10 blocks and then released
-- THEN the output peaks above 0.1 while held and reaches silence with no active voices after the release
+- GIVEN a note on A3 with a 10 ms ADSR release
+- WHEN it is held for 40 blocks and then released
+- THEN the output peaks above 0.05 while held and reaches silence with no active voices after the release
 
-#### Scenario: note off is per source
+#### Scenario: note off is per owner
 
-- GIVEN note 60 on Mono and on Drums
-- WHEN note 60 is released on Drums
-- THEN the Mono voice stays gated
+- GIVEN notes held by live input and by MIDI channels 3 and 4
+- WHEN channel 3's note is released
+- THEN the live and channel 4 voices stay gated
 
-**Tests:** `crates/dsp/src/engine.rs::tests::note_sounds_then_releases_to_silence`, `crates/dsp/src/engine.rs::tests::release_time_is_time_to_silence`, `crates/dsp/src/engine.rs::tests::note_off_only_touches_its_source`
+**Tests:** `crates/dsp/src/engine.rs::tests::mono_follows_its_adsr`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent`
 
 ### Requirement 4: Bounded, finite output [MUST]
 

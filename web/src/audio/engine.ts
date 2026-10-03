@@ -3,13 +3,14 @@
 // This file only sends messages; every musical decision is made in Rust.
 
 import { reactive } from 'vue'
-import type { ParamId, PresetId, SourceId } from './params'
+import type { ParamId, PresetId } from './params'
 
 const base = import.meta.env.BASE_URL
 
-/** A routing choice for a MIDI part: a source id, or MUTE. */
+/** A routing choice for a MIDI part: PLAY on Mono, or MUTE. */
+export const PLAY = 0
 export const MUTE = 255
-export type Route = SourceId | typeof MUTE
+export type Route = typeof PLAY | typeof MUTE
 
 /** One MIDI channel with notes, as the engine summarised it. */
 export interface Part {
@@ -52,8 +53,8 @@ class AudioEngine {
     this.post({ t: 'param', id, v })
   }
   preset(id: PresetId) { this.post({ t: 'preset', id }) }
-  noteOn(s: SourceId, n: number, v = 0.8) { this.post({ t: 'on', s, n, v }) }
-  noteOff(s: SourceId, n: number) { this.post({ t: 'off', s, n }) }
+  noteOn(n: number, v = 0.8) { this.post({ t: 'on', n, v }) }
+  noteOff(n: number) { this.post({ t: 'off', n }) }
   panic() { this.post({ t: 'panic' }) }
 }
 

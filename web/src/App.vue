@@ -1,22 +1,16 @@
 <script setup lang="ts">
-// Wide-screen layout (spec 003): transport on top, the algo pane left,
-// instruments right, the arrangement across the bottom.
+// Wide-screen layout (spec 003): transport on top, the synths, the MIDI
+// player across the bottom.
 import TransportBar from './components/TransportBar.vue'
-import AlgoPane from './components/AlgoPane.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
-import ArrangePane from './components/ArrangePane.vue'
 import PlayerPane from './components/PlayerPane.vue'
-import { player } from './audio/engine'
-import { demoSong } from './model/song'
 </script>
 
 <template>
   <div class="layout">
-    <TransportBar class="transport" :bpm="demoSong.bpm" />
-    <AlgoPane class="algo" :loops="demoSong.loops" :tracks="demoSong.tracks" />
+    <TransportBar class="transport" />
     <InstrumentsPane class="instruments" />
-    <PlayerPane v-if="player.loaded" class="arrange" />
-    <ArrangePane v-else class="arrange" :song="demoSong" />
+    <PlayerPane class="player" />
   </div>
 </template>
 
@@ -26,15 +20,14 @@ import { demoSong } from './model/song'
   display: grid;
   gap: 8px;
   padding: 8px;
-  grid-template-columns: minmax(340px, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) minmax(220px, 36vh);
   grid-template-areas:
-    'transport transport'
-    'algo instruments'
-    'arrange arrange';
+    'transport'
+    'instruments'
+    'player';
 }
 .transport { grid-area: transport; }
-.algo { grid-area: algo; }
 .instruments { grid-area: instruments; }
-.arrange { grid-area: arrange; }
+.player { grid-area: player; }
 </style>

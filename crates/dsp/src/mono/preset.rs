@@ -193,10 +193,9 @@ pub const DEFAULTS: [(Param, f32); 59] = [
 mod tests {
     use super::*;
     use crate::engine::{BLOCK, Engine};
-    use crate::source::Source;
 
     /// The parameters that aren't Mono's.
-    const SHARED: [Param; 3] = [Param::MasterGain, Param::Attack, Param::Release];
+    const SHARED: [Param; 1] = [Param::MasterGain];
 
     #[test]
     fn defaults_cover_every_mono_parameter_once() {
@@ -223,11 +222,11 @@ mod tests {
                 let mut e = Engine::new(48_000.0);
                 e.set_param(Param::MasterGain, 1.0);
                 e.preset(preset);
-                e.note_on(Source::Mono, note, 1.0);
+                e.note_on(note, 1.0);
                 let mut heard = 0.0_f32;
                 for i in 0..(48_000 * 5 / 2 / BLOCK) {
                     if i == 48_000 / BLOCK {
-                        e.note_off(Source::Mono, note);
+                        e.note_off(note);
                     }
                     e.render(BLOCK);
                     for s in e.output() {
@@ -264,7 +263,7 @@ mod tests {
             for p in presets {
                 e.preset(*p);
             }
-            e.note_on(Source::Mono, 60, 1.0);
+            e.note_on(60, 1.0);
             let mut out = Vec::new();
             for _ in 0..50 {
                 e.render(BLOCK);

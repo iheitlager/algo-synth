@@ -24,7 +24,6 @@ const ids = (name) =>
   )
 const Param = ids('Param')
 const Preset = ids('Preset')
-const Source = ids('Source')
 const Waveform = ids('Waveform')
 
 const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
@@ -81,8 +80,6 @@ function run(setup, lowest) {
   const file = sixteenChannels(lowest)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
   if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')
-  // Channel 10 defaults to the drums; every channel plays Mono here.
-  for (let ch = 0; ch < VOICES; ch++) w.route(ch, Source.Mono)
   w.play()
   const block = w.block_len()
   for (let i = 0; i < WARMUP; i++) w.process(block)

@@ -1,6 +1,6 @@
 # 0005: The composition model
 
-**Status:** Accepted · **Date:** 2026-09-30
+**Status:** Accepted, scope narrowed by [ADR-0008](0008-mono-only-to-the-ensemble.md) · **Date:** 2026-09-30
 
 ## Context
 

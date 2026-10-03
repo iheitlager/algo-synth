@@ -191,7 +191,7 @@ impl MonoParams {
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
             Param::ModWheel => self.mod_wheel = v,
-            Param::MasterGain | Param::Attack | Param::Release => {}
+            Param::MasterGain => {}
         }
         self.taken = self.patch.overridden();
     }

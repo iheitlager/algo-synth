@@ -10,133 +10,127 @@
 pub enum Param {
     /// Master output gain, 0..=1.
     MasterGain = 0,
-    /// Wave's attack time in seconds, 0.001..=5 (Mono has its ADSR).
-    Attack = 1,
-    /// Wave's release time in seconds, 0.005..=10 (Mono has its ADSR).
-    Release = 2,
     /// VCO 1 waveform id (`Waveform`), 0..=3.
-    Vco1Wave = 3,
+    Vco1Wave = 1,
     /// VCO 1 coarse tune in semitones, −24..=24.
-    Vco1Coarse = 4,
+    Vco1Coarse = 2,
     /// VCO 1 fine tune in cents, −50..=50.
-    Vco1Fine = 5,
+    Vco1Fine = 3,
     /// VCO 1 level into the mixer, 0..=1.
-    Vco1Level = 6,
+    Vco1Level = 4,
     /// VCO 2 waveform id (`Waveform`), 0..=3.
-    Vco2Wave = 7,
+    Vco2Wave = 5,
     /// VCO 2 coarse tune in semitones, −24..=24.
-    Vco2Coarse = 8,
+    Vco2Coarse = 6,
     /// VCO 2 fine tune in cents, −50..=50.
-    Vco2Fine = 9,
+    Vco2Fine = 7,
     /// VCO 2 level into the mixer, 0..=1.
-    Vco2Level = 10,
+    Vco2Level = 8,
     /// VCO 3 waveform id (`Waveform`), 0..=3.
-    Vco3Wave = 11,
+    Vco3Wave = 9,
     /// VCO 3 coarse tune in semitones, −24..=24.
-    Vco3Coarse = 12,
+    Vco3Coarse = 10,
     /// VCO 3 fine tune in cents, −50..=50.
-    Vco3Fine = 13,
+    Vco3Fine = 11,
     /// VCO 3 level into the mixer, 0..=1.
-    Vco3Level = 14,
+    Vco3Level = 12,
     /// Pulse width of every VCO, 0.05..=0.95.
-    PulseWidth = 15,
+    PulseWidth = 13,
     /// VCO 2 hard-syncs to VCO 1 when ≥ 0.5.
-    Vco2Sync = 16,
+    Vco2Sync = 14,
     /// VCO 3 hard-syncs to VCO 1 when ≥ 0.5.
-    Vco3Sync = 17,
+    Vco3Sync = 15,
     /// Noise level into the mixer, 0..=1.
-    NoiseLevel = 18,
+    NoiseLevel = 16,
     /// Noise colour id (`NoiseColour`), 0..=1.
-    NoiseColour = 19,
+    NoiseColour = 17,
     /// Ladder cutoff in Hz, 20..=20000.
-    Cutoff = 20,
+    Cutoff = 18,
     /// Ladder resonance, 0..=1; it self-oscillates from 0.8.
-    Resonance = 21,
+    Resonance = 19,
     /// Ladder drive into the saturator, 0..=1 (0 to +18 dB).
-    Drive = 22,
+    Drive = 20,
     /// ADSR attack, decay and release in seconds, 0.001..=10.
-    AdsrAttack = 23,
-    AdsrDecay = 24,
+    AdsrAttack = 21,
+    AdsrDecay = 22,
     /// ADSR sustain level, 0..=1.
-    AdsrSustain = 25,
-    AdsrRelease = 26,
+    AdsrSustain = 23,
+    AdsrRelease = 24,
     /// AR attack and release in seconds, 0.001..=10.
-    ArAttack = 27,
-    ArRelease = 28,
+    ArAttack = 25,
+    ArRelease = 26,
     /// LFO rate in Hz, 0.01..=50.
-    LfoRate = 29,
+    LfoRate = 27,
     /// LFO waveform id (`Waveform`; pulse is the square), 0..=3.
-    LfoWave = 30,
+    LfoWave = 28,
     /// Mono note priority id (`NotePriority`: last, low, high), 0..=2.
-    Priority = 31,
+    Priority = 29,
     /// Mono legato when ≥ 0.5: a new key while one is held keeps the envelope.
-    Legato = 32,
+    Legato = 30,
     /// Mono glide time in seconds, 0..=5; 0 is off.
-    Glide = 33,
+    Glide = 31,
     /// Patch slot 1 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch1Source = 34,
+    Patch1Source = 32,
     /// Patch slot 1 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch1Dest = 35,
+    Patch1Dest = 33,
     /// Patch slot 1 amount, −1..=1.
-    Patch1Amount = 36,
+    Patch1Amount = 34,
     /// Patch slot 2 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch2Source = 37,
+    Patch2Source = 35,
     /// Patch slot 2 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch2Dest = 38,
+    Patch2Dest = 36,
     /// Patch slot 2 amount, −1..=1.
-    Patch2Amount = 39,
+    Patch2Amount = 37,
     /// Patch slot 3 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch3Source = 40,
+    Patch3Source = 38,
     /// Patch slot 3 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch3Dest = 41,
+    Patch3Dest = 39,
     /// Patch slot 3 amount, −1..=1.
-    Patch3Amount = 42,
+    Patch3Amount = 40,
     /// Patch slot 4 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch4Source = 43,
+    Patch4Source = 41,
     /// Patch slot 4 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch4Dest = 44,
+    Patch4Dest = 42,
     /// Patch slot 4 amount, −1..=1.
-    Patch4Amount = 45,
+    Patch4Amount = 43,
     /// Patch slot 5 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch5Source = 46,
+    Patch5Source = 44,
     /// Patch slot 5 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch5Dest = 47,
+    Patch5Dest = 45,
     /// Patch slot 5 amount, −1..=1.
-    Patch5Amount = 48,
+    Patch5Amount = 46,
     /// Patch slot 6 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch6Source = 49,
+    Patch6Source = 47,
     /// Patch slot 6 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch6Dest = 50,
+    Patch6Dest = 48,
     /// Patch slot 6 amount, −1..=1.
-    Patch6Amount = 51,
+    Patch6Amount = 49,
     /// Patch slot 7 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch7Source = 52,
+    Patch7Source = 50,
     /// Patch slot 7 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch7Dest = 53,
+    Patch7Dest = 51,
     /// Patch slot 7 amount, −1..=1.
-    Patch7Amount = 54,
+    Patch7Amount = 52,
     /// Patch slot 8 source id (`ModSource`), 0..=255; unknown ids are ignored.
-    Patch8Source = 55,
+    Patch8Source = 53,
     /// Patch slot 8 destination id (`ModDest`), 0..=255; unknown ids are ignored.
-    Patch8Dest = 56,
+    Patch8Dest = 54,
     /// Patch slot 8 amount, −1..=1.
-    Patch8Amount = 57,
+    Patch8Amount = 55,
     /// Normalled ADSR → cutoff, −1..=1 (±4 octaves).
-    EnvCutoff = 58,
+    EnvCutoff = 56,
     /// Normalled key → cutoff, 0..=1 (1 follows the key exactly).
-    KeyTrack = 59,
+    KeyTrack = 57,
     /// Normalled LFO → VCO pitch at full mod wheel, 0..=1 (±2 semitones).
-    Vibrato = 60,
+    Vibrato = 58,
     /// The mod wheel, 0..=1, until MIDI input sends CC 1 (#10).
-    ModWheel = 61,
+    ModWheel = 59,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 62] = [
+    pub const ALL: [(Param, &'static str); 60] = [
         (Param::MasterGain, "MasterGain"),
-        (Param::Attack, "Attack"),
-        (Param::Release, "Release"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
         (Param::Vco1Fine, "Vco1Fine"),
@@ -210,8 +204,6 @@ impl Param {
     pub fn clamp(self, v: f32) -> f32 {
         let (lo, hi) = match self {
             Param::MasterGain => (0.0, 1.0),
-            Param::Attack => (0.001, 5.0),
-            Param::Release => (0.005, 10.0),
             Param::Vco1Wave | Param::Vco2Wave | Param::Vco3Wave => (0.0, 3.0),
             Param::Vco1Coarse | Param::Vco2Coarse | Param::Vco3Coarse => (-24.0, 24.0),
             Param::Vco1Fine | Param::Vco2Fine | Param::Vco3Fine => (-50.0, 50.0),
@@ -273,7 +265,7 @@ mod tests {
     fn clamp_rejects_nan_and_out_of_range() {
         assert_eq!(Param::MasterGain.clamp(f32::NAN), 0.0);
         assert_eq!(Param::MasterGain.clamp(7.0), 1.0);
-        assert_eq!(Param::Attack.clamp(0.0), 0.001);
+        assert_eq!(Param::Cutoff.clamp(0.0), 20.0);
     }
 
     /// The `Name: id` entries of `export const {name} = { ... }`.
@@ -304,7 +296,6 @@ mod tests {
         use crate::mono::patch::{ModDest, ModSource};
         use crate::mono::preset::Preset;
         use crate::mono::voice::NotePriority;
-        use crate::source::Source;
         fn rust<T: Copy>(all: &[(T, &str)], id: impl Fn(T) -> u32) -> Vec<(String, u32)> {
             let mut v: Vec<_> = all.iter().map(|(x, n)| (n.to_string(), id(*x))).collect();
             v.sort();
@@ -313,7 +304,6 @@ mod tests {
         let ts = include_str!("../../../web/src/audio/params.ts");
         let lists = [
             ("Param", rust(&Param::ALL, |p| p as u32)),
-            ("Source", rust(&Source::ALL, |s| s as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),

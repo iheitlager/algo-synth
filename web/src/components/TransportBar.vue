@@ -3,8 +3,6 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { getEngine, loadDemo, loadMidi, meter, play, player, power, status, stop } from '../audio/engine'
 import { Param } from '../audio/params'
 
-defineProps<{ bpm: number }>()
-
 // The performance counter: worklet time per block against the budget
 // (plan.md "Performance budget"; tools/bench.mjs uses the same figure).
 const BUDGET = 0.25
@@ -76,7 +74,6 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
       <b>{{ clock(player.position) }}</b> / {{ clock(player.length) }} · bar {{ Math.floor(player.position / player.bar) + 1 }}
     </span>
     <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
-    <span class="field">BPM <b>{{ bpm }}</b></span>
     <label class="field gain">Master <input v-model.number="gain" type="range" min="0" max="1" step="0.01" /></label>
     <canvas ref="scope" class="scope" width="360" height="40" />
     <span

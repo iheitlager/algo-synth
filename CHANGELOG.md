@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Removed
+
+- Wave and Drums (the 32-voice pool and first timbres in `voice.rs`, `Source` and its mirror, Wave's `Attack`/`Release` parameters, the Wave/Drums cards and pads), the algo pane, the arrangement pane and their demo model (`model/song.ts`). The demo MIDI file loses its drum part. ADR-0008: Mono only, straight to the ensemble (#18).
+
+### Changed
+
+- C ABI: `note_on(note, velocity)` and `note_off(note)` lose the source argument; `route(channel, target)` plays on Mono with target 0 and mutes with anything else; every channel starts playing. Parameter ids from `Vco1Wave` on move down by two (#18).
+- Layout: transport, synths, MIDI player; plan.md goes from MVP 2 straight to MVP 5 (M2, M4, M5 deferred); spec 001 Req 3, 002 Req 9 and 003 Req 1, 3, 5 follow (#18).
+
 ## [0.4.0] - 2026-10-03
 
 A playable Mono (plan.md MVP 2, epic #2, PR #17): note handling and routing.

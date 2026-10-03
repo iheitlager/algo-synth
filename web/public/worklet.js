@@ -29,8 +29,8 @@ class EngineProcessor extends AudioWorkletProcessor {
       const w = this.w
       switch (data.t) {
         case 'param': w.set_param(data.id, data.v); break
-        case 'on': w.note_on(data.s, data.n, data.v); break
-        case 'off': w.note_off(data.s, data.n); break
+        case 'on': w.note_on(data.n, data.v); break
+        case 'off': w.note_off(data.n); break
         case 'panic': w.all_off(); break
         case 'midi': this.loadMidi(new Uint8Array(data.bytes)); break
         case 'play': w.play(); break

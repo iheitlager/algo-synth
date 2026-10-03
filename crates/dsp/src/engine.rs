@@ -1,8 +1,8 @@
-//! The engine: a fixed voice pool for Wave and Drums, one Mono voice per
-//! owner, the MIDI player, planar stereo blocks.
+//! The engine: one Mono voice per owner, the MIDI player, planar stereo
+//! blocks.
 //!
 //! Real-time rules (ADR-0002): `render` never allocates, never panics and
-//! never calls `sin`/`exp`/`pow` per sample. The pool, tables and output are
+//! never calls `sin`/`exp`/`pow` per sample. The voices, tables and output are
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
@@ -14,13 +14,10 @@ use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable};
 use crate::params::Param;
 use crate::player::Sequence;
 use crate::smf;
-use crate::source::Source;
-use crate::voice::{Ctx, Owner, Voice, decay_coef, sine_table};
+use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
 pub const BLOCK: usize = 128;
-/// Voices in the pool, shared by live input and the player (Wave, Drums).
-pub const VOICES: usize = 32;
 /// MIDI channels the player routes.
 pub const CHANNELS: usize = 16;
 /// Mono voices: one for live input, one per MIDI channel (spec 004 Req 6).
@@ -40,20 +37,16 @@ pub struct Engine {
     values: [f32; Param::ALL.len()],
     ladder: LadderTables,
     pitch: PitchTable,
-    voices: [Voice; VOICES],
     /// Index 0 plays live input, 1 + n plays MIDI channel n.
     monos: [MonoVoice; MONO_VOICES],
     master_gain: f32,
-    attack_step: f32,
-    release_coef: f32,
-    counter: u32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
     /// The MIDI file's bytes, written by JavaScript before `load_midi`.
     midi: Vec<u8>,
     sequence: Sequence,
-    /// Which source plays each MIDI channel; `None` mutes it.
-    route: [Option<Source>; CHANNELS],
+    /// Whether each MIDI channel plays; `false` mutes it.
+    route: [bool; CHANNELS],
 }
 
 impl Engine {
@@ -73,22 +66,16 @@ impl Engine {
             values: [0.0; Param::ALL.len()],
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
-            voices: [Voice::default(); VOICES],
             monos: std::array::from_fn(|i| {
                 MonoVoice::new((i as u32 + 1).wrapping_mul(2_654_435_761))
             }),
             master_gain: 0.5,
-            attack_step: 0.0,
-            release_coef: 0.0,
-            counter: 0,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
             sequence: Sequence::default(),
-            route: default_route(),
+            route: [true; CHANNELS],
         };
         engine.set_param(Param::MasterGain, 0.5);
-        engine.set_param(Param::Attack, 0.005);
-        engine.set_param(Param::Release, 0.3);
         for (p, v) in DEFAULTS {
             engine.set_param(p, v);
         }
@@ -107,9 +94,6 @@ impl Engine {
         }
         match param {
             Param::MasterGain => self.master_gain = v,
-            Param::Attack => self.attack_step = 1.0 / (v * self.sample_rate),
-            // Release time is the time to fall to −80 dB, not a time constant.
-            Param::Release => self.release_coef = decay_coef(v, self.sample_rate),
             _ => self.mono.set(param, v),
         }
     }
@@ -126,19 +110,18 @@ impl Engine {
         }
     }
 
-    /// Live input: start a note on a free voice, stealing the oldest.
-    pub fn note_on(&mut self, source: Source, note: u8, velocity: f32) {
-        self.start_voice(source, Owner::Live, note, velocity);
+    /// Live input: press a key on the live Mono voice.
+    pub fn note_on(&mut self, note: u8, velocity: f32) {
+        self.start_voice(Owner::Live, note, velocity);
     }
 
-    /// Live input: release this note on this source.
-    pub fn note_off(&mut self, source: Source, note: u8) {
-        self.stop_note(source, Owner::Live, note);
+    /// Live input: release this key.
+    pub fn note_off(&mut self, note: u8) {
+        self.stop_note(Owner::Live, note);
     }
 
     /// Release every voice.
     pub fn all_off(&mut self) {
-        self.release(|_| true);
         for m in self.monos.iter_mut() {
             m.release_all();
         }
@@ -146,54 +129,23 @@ impl Engine {
 
     /// Voices still sounding (gated or releasing).
     pub fn active_voices(&self) -> usize {
-        self.voices.iter().filter(|v| v.active).count()
-            + self.monos.iter().filter(|m| m.active()).count()
+        self.monos.iter().filter(|m| m.active()).count()
     }
 
-    fn start_voice(&mut self, source: Source, owner: Owner, note: u8, velocity: f32) {
-        if source == Source::Mono {
-            if let Some(m) = self.monos.get_mut(mono_index(owner)) {
-                m.press(note.min(127), velocity, &self.mono);
-            }
-            return;
-        }
-        self.counter = self.counter.wrapping_add(1);
-        let voice = Voice::start(
-            source,
-            owner,
-            note.min(127),
-            velocity,
-            self.counter,
-            self.sample_rate,
-        );
-        let slot = match self.voices.iter_mut().find(|v| !v.active) {
-            Some(free) => Some(free),
-            None => self.voices.iter_mut().min_by_key(|v| v.started),
-        };
-        if let Some(v) = slot {
-            *v = voice;
+    fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
+        if let Some(m) = self.monos.get_mut(mono_index(owner)) {
+            m.press(note.min(127), velocity, &self.mono);
         }
     }
 
-    fn release(&mut self, matches: impl Fn(&Voice) -> bool) {
-        for v in self.voices.iter_mut().filter(|v| v.gate && matches(v)) {
-            v.gate = false;
-        }
-    }
-
-    /// Release `note` from `owner` on `source`.
-    fn stop_note(&mut self, source: Source, owner: Owner, note: u8) {
-        if source == Source::Mono {
-            if let Some(m) = self.monos.get_mut(mono_index(owner)) {
-                m.release(note, &self.mono);
-            }
-        } else {
-            self.release(|v| v.owner == owner && v.source == source && v.note == note);
+    /// Release `note` from `owner`.
+    fn stop_note(&mut self, owner: Owner, note: u8) {
+        if let Some(m) = self.monos.get_mut(mono_index(owner)) {
+            m.release(note, &self.mono);
         }
     }
 
     fn release_player(&mut self) {
-        self.release(|v| matches!(v.owner, Owner::Channel(_)));
         for m in self.monos.iter_mut().skip(1) {
             m.release_all();
         }
@@ -218,7 +170,7 @@ impl Engine {
         let parsed = smf::parse(&self.midi)?;
         self.release_player();
         self.sequence = Sequence::compile(&parsed, self.sample_rate);
-        self.route = default_route();
+        self.route = [true; CHANNELS];
         Ok(self.sequence.parts().len())
     }
 
@@ -240,33 +192,30 @@ impl Engine {
         self.release_player();
     }
 
-    /// Route `channel` to `source`, or mute it with `None`.
-    pub fn route(&mut self, channel: u8, source: Option<Source>) {
+    /// Play `channel` on Mono, or mute it with `false`.
+    pub fn route(&mut self, channel: u8, on: bool) {
         if let Some(slot) = self.route.get_mut(usize::from(channel)) {
-            *slot = source;
-            self.release(|v| v.owner == Owner::Channel(channel));
+            *slot = on;
             if let Some(m) = self.monos.get_mut(mono_index(Owner::Channel(channel))) {
                 m.release_all();
             }
         }
     }
 
-    pub fn routed(&self, channel: u8) -> Option<Source> {
-        self.route.get(usize::from(channel)).copied().flatten()
+    pub fn routed(&self, channel: u8) -> bool {
+        self.route
+            .get(usize::from(channel))
+            .copied()
+            .unwrap_or(false)
     }
 
     fn fire_due_events(&mut self) {
         while let Some(ev) = self.sequence.due() {
             let owner = Owner::Channel(ev.channel);
-            if ev.on {
-                if let Some(source) = self.routed(ev.channel) {
-                    self.start_voice(source, owner, ev.note, ev.velocity);
-                }
-            } else {
-                self.release(|v| v.owner == owner && v.note == ev.note);
-                if let Some(m) = self.monos.get_mut(mono_index(owner)) {
-                    m.release(ev.note, &self.mono);
-                }
+            if !ev.on {
+                self.stop_note(owner, ev.note);
+            } else if self.routed(ev.channel) {
+                self.start_voice(owner, ev.note, ev.velocity);
             }
         }
         if self.sequence.finished() {
@@ -285,11 +234,6 @@ impl Engine {
         while t < n {
             self.fire_due_events();
             let chunk = self.sequence.frames_until_next(n - t);
-            let ctx = Ctx {
-                sine: &self.sine,
-                attack_step: self.attack_step,
-                release_coef: self.release_coef,
-            };
             let mono = MonoCtx {
                 params: &self.mono,
                 sine: &self.sine,
@@ -298,9 +242,6 @@ impl Engine {
                 pitch: &self.pitch,
             };
             if let Some(buf) = self.out.get_mut(t..t + chunk) {
-                for v in self.voices.iter_mut().filter(|v| v.active) {
-                    v.render(&ctx, buf);
-                }
                 for m in self.monos.iter_mut().filter(|m| m.active()) {
                     m.render(&mono, buf);
                 }
@@ -342,16 +283,6 @@ fn soft_clip(x: f32) -> f32 {
     } else {
         (KNEE + (1.0 - KNEE) * saturate((a - KNEE) / (1.0 - KNEE))).copysign(x)
     }
-}
-
-/// Channel 10 (index 9) is drums in General MIDI; everything else starts on
-/// Mono: the ensemble of 2600s.
-fn default_route() -> [Option<Source>; CHANNELS] {
-    let mut route = [Some(Source::Mono); CHANNELS];
-    if let Some(drums) = route.get_mut(9) {
-        *drums = Some(Source::Drums);
-    }
-    route
 }
 
 #[cfg(test)]
@@ -399,40 +330,26 @@ mod tests {
         assert_eq!(peak(&e), 0.0);
     }
 
-    #[test]
-    fn note_sounds_then_releases_to_silence() {
-        let mut e = Engine::new(48_000.0);
-        e.set_param(Param::Release, 0.01);
-        e.note_on(Source::Wave, 69, 1.0);
-        for _ in 0..10 {
-            e.render(BLOCK);
-        }
-        assert!(peak(&e) > 0.1);
-        e.note_off(Source::Wave, 69);
-        for _ in 0..100 {
-            e.render(BLOCK);
-        }
-        assert_eq!(e.active_voices(), 0);
-        assert_eq!(peak(&e), 0.0);
-    }
-
-    /// Mono's VCA is its own ADSR, not the test voice's envelope.
+    /// Mono's VCA is its ADSR: it sounds, then releases to silence.
     #[test]
     fn mono_follows_its_adsr() {
         let mut e = Engine::new(48_000.0);
-        e.set_param(Param::Release, 10.0);
         e.set_param(Param::AdsrRelease, 0.01);
-        e.note_on(Source::Mono, 57, 1.0);
+        e.note_on(57, 1.0);
         for _ in 0..40 {
             e.render(BLOCK);
         }
         assert!(peak(&e) > 0.05);
-        e.note_off(Source::Mono, 57);
+        e.note_off(57);
         // 0.01 s is 3.75 blocks.
         for _ in 0..5 {
             e.render(BLOCK);
         }
         assert_eq!(e.active_voices(), 0);
+        for _ in 0..2 {
+            e.render(BLOCK);
+        }
+        assert_eq!(peak(&e), 0.0);
     }
 
     /// A note on and off before the next block still sounds, then ends.
@@ -441,8 +358,8 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(Param::AdsrAttack, 0.001);
         e.set_param(Param::AdsrRelease, 0.01);
-        e.note_on(Source::Mono, 69, 1.0);
-        e.note_off(Source::Mono, 69);
+        e.note_on(69, 1.0);
+        e.note_off(69);
         let mut heard = 0.0_f32;
         for _ in 0..10 {
             e.render(BLOCK);
@@ -458,7 +375,7 @@ mod tests {
         let level = |sustain: f32| {
             let mut e = Engine::new(48_000.0);
             e.set_param(Param::AdsrDecay, 0.01);
-            e.note_on(Source::Mono, 57, 1.0);
+            e.note_on(57, 1.0);
             for _ in 0..40 {
                 e.render(BLOCK);
             }
@@ -482,52 +399,19 @@ mod tests {
     #[test]
     fn mono_owners_are_independent() {
         let mut e = Engine::new(48_000.0);
-        e.start_voice(Source::Mono, Owner::Channel(2), 60, 1.0);
-        e.start_voice(Source::Mono, Owner::Channel(3), 64, 1.0);
-        e.note_on(Source::Mono, 67, 1.0);
+        e.start_voice(Owner::Channel(2), 60, 1.0);
+        e.start_voice(Owner::Channel(3), 64, 1.0);
+        e.note_on(67, 1.0);
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 3);
-        e.stop_note(Source::Mono, Owner::Channel(2), 60);
+        e.stop_note(Owner::Channel(2), 60);
         assert!(!e.monos[3].gated());
         assert!(e.monos[4].gated() && e.monos[0].gated());
         // Live Mono is monophonic: a second key moves the same voice.
-        e.note_on(Source::Mono, 69, 1.0);
+        e.note_on(69, 1.0);
         e.render(BLOCK);
         assert_eq!(e.monos[0].note(), 69);
         assert_eq!(e.active_voices(), 3);
-    }
-
-    #[test]
-    fn release_time_is_time_to_silence() {
-        let mut e = Engine::new(48_000.0);
-        e.set_param(Param::Release, 0.1);
-        e.note_on(Source::Wave, 69, 1.0);
-        for _ in 0..40 {
-            e.render(BLOCK);
-        }
-        e.note_off(Source::Wave, 69);
-        // 0.05 s = 18.75 blocks: still sounding.
-        for _ in 0..18 {
-            e.render(BLOCK);
-        }
-        assert_eq!(e.active_voices(), 1);
-        // 0.1 s = 37.5 blocks, plus one block of float slack: silent.
-        for _ in 0..21 {
-            e.render(BLOCK);
-        }
-        assert_eq!(e.active_voices(), 0);
-    }
-
-    #[test]
-    fn output_stays_finite_and_bounded_when_the_pool_is_full() {
-        let mut e = Engine::new(44_100.0);
-        e.set_param(Param::MasterGain, 1.0);
-        for n in 0..80 {
-            e.note_on(Source::Wave, n + 20, 1.0);
-        }
-        assert_eq!(e.active_voices(), VOICES);
-        e.render(BLOCK);
-        assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
     }
 
     /// 16 Mono voices at full resonance, drive and level still stay in ±1.
@@ -547,7 +431,7 @@ mod tests {
         }
         // 16 Mono voices: one per MIDI channel.
         for ch in 0..16 {
-            e.start_voice(Source::Mono, Owner::Channel(ch), 36 + 3 * ch, 1.0);
+            e.start_voice(Owner::Channel(ch), 36 + 3 * ch, 1.0);
         }
         let mut peak_seen = 0.0_f32;
         for _ in 0..200 {
@@ -575,19 +459,9 @@ mod tests {
     }
 
     #[test]
-    fn note_off_only_touches_its_source() {
-        let mut e = Engine::new(48_000.0);
-        e.note_on(Source::Mono, 60, 1.0);
-        e.note_on(Source::Wave, 60, 1.0);
-        e.note_off(Source::Wave, 60);
-        assert!(e.monos[0].gated());
-        assert_eq!(e.voices.iter().filter(|v| v.gate).count(), 0);
-    }
-
-    #[test]
     fn short_blocks_leave_the_tail_silent() {
         let mut e = Engine::new(48_000.0);
-        e.note_on(Source::Wave, 69, 1.0);
+        e.note_on(69, 1.0);
         e.render(BLOCK);
         e.render(64);
         assert!(
@@ -637,12 +511,11 @@ mod tests {
     }
 
     #[test]
-    fn channel_ten_is_drums_and_mute_silences() {
+    fn every_channel_plays_and_mute_silences() {
         let mut e = Engine::new(48_000.0);
         load(&mut e, &one_note(9)).expect("loads");
-        assert_eq!(e.routed(9), Some(Source::Drums));
-        assert_eq!(e.routed(0), Some(Source::Mono));
-        e.route(9, None);
+        assert!((0..16).all(|ch| e.routed(ch)));
+        e.route(9, false);
         e.play();
         for _ in 0..300 {
             e.render(BLOCK);
@@ -654,19 +527,13 @@ mod tests {
     fn stop_releases_player_voices_but_not_live_ones() {
         let mut e = Engine::new(48_000.0);
         load(&mut e, &one_note(0)).expect("loads");
-        e.note_on(Source::Wave, 72, 1.0);
+        e.note_on(72, 1.0);
         e.play();
         for _ in 0..200 {
             e.render(BLOCK);
         }
         e.stop();
-        let gated: Vec<Owner> = e
-            .voices
-            .iter()
-            .filter(|v| v.gate)
-            .map(|v| v.owner)
-            .collect();
-        assert_eq!(gated, vec![Owner::Live]);
+        assert!(e.monos[0].gated(), "the live Mono voice is still held");
         assert!(!e.monos[1].gated(), "the player's Mono voice is released");
     }
 
@@ -679,13 +546,13 @@ mod tests {
         assert!(e.midi_buffer(MAX_MIDI + 1).is_none());
     }
 
-    /// The shipped demo (tools/make_demo_mid.py) parses into its five parts.
+    /// The shipped demo (tools/make_demo_mid.py) parses into its four parts.
     #[test]
     fn demo_file_loads() {
         let mut e = Engine::new(48_000.0);
         let parts = load(&mut e, include_bytes!("../../../web/public/demo.mid")).expect("loads");
-        assert_eq!(parts, 5);
+        assert_eq!(parts, 4);
         let channels: Vec<u8> = e.sequence().parts().iter().map(|p| p.channel).collect();
-        assert_eq!(channels, vec![0, 1, 2, 3, 9]);
+        assert_eq!(channels, vec![0, 1, 2, 3]);
     }
 }
