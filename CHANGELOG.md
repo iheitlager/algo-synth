@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-03
+
 ### Added
 
 - The console's processor rack shows Chorus and Flanger with their knobs in real units, and a "← P1" toggle on P2–P4 that chains a processor to the one before it, drawn as a link between the modules (#94, epic #95).
