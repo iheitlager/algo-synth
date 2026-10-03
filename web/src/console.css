@@ -1,0 +1,31 @@
+/* The console look (#52): hardware chassis, silkscreen labels, coloured caps.
+   Fonts are bundled, not fetched (ADR-0006). */
+@import '@fontsource/barlow-condensed/latin-500.css';
+@import '@fontsource/barlow-condensed/latin-600.css';
+@import '@fontsource/barlow-condensed/latin-700.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+
+:root {
+  --con-chassis: #14171c;
+  --con-panel: #1a1e25;
+  --con-panel-2: #20252d;
+  --con-inset: #0d0f13;
+  --con-line: #2b313b;
+  --con-silk: #aab3c0;
+  --con-silk-dim: #6c7685;
+  --con-paper: #e9e4d6;
+  --con-p1: #e8a33d;
+  --con-p2: #4fb3a9;
+  --con-p3: #e0654f;
+  --con-p4: #9bbd4a;
+  --con-drive: #d6483f;
+  --con-pan: #cfd6e2;
+  --con-eq: #5b9be0;
+  --con-comp: #e8c34a;
+  --con-led-g: #3fcf6e;
+  --con-led-a: #f0b03a;
+  --con-led-r: #f0503a;
+  --con-font-silk: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --con-font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}
