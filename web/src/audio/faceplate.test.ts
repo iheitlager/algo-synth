@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  NEW_AMOUNT, amountToPos, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
+  NEW_AMOUNT, amountToPos, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
   type PatchSlot,
 } from './faceplate'
 
@@ -143,5 +143,17 @@ describe('stepped knob scale', () => {
   it('puts a value back at its position', () => {
     expect(coarse.toPos(12)).toBeCloseTo(0.75)
     expect(coarse.toValue(coarse.toPos(-7))).toBe(-7)
+  })
+})
+
+describe('jack names', () => {
+  it('prints the engine ids as a panel would', () => {
+    expect(jackName('Vco1')).toBe('VCO 1')
+    expect(jackName('Vco2Pitch')).toBe('VCO 2 Pitch')
+    expect(jackName('SampleHold')).toBe('S&H')
+    expect(jackName('ModWheel')).toBe('Mod Wheel')
+    expect(jackName('Cutoff')).toBe('Cutoff')
+    expect(jackName('PulseWidth')).toBe('Pulse width')
+    expect(jackName('Fenv')).toBe('Filter env')
   })
 })

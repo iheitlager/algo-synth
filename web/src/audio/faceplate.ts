@@ -166,6 +166,19 @@ export function fmtUnit(unit: Unit, v: number): string {
 
 // --- patch bay ----------------------------------------------------------------------
 
+/** The names the bay prints for the engine's ids: `Vco1Pitch` is `VCO 1 PITCH`, `SampleHold` is `S&H`. */
+export function jackName(id: string): string {
+  if (id === 'SampleHold') return 'S&H'
+  if (id === 'Fenv') return 'Filter env'
+  if (id === 'Adsr') return 'ADSR'
+  if (id === 'Ar') return 'AR'
+  if (id === 'Lfo') return 'LFO'
+  if (id === 'Vca') return 'VCA'
+  if (id === 'LfoRate') return 'LFO rate'
+  if (id === 'PulseWidth') return 'Pulse width'
+  return id.replace(/Vco(\d)/, 'VCO $1 ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\s+/g, ' ').trim()
+}
+
 /** One patch slot, as the engine reports it (spec 004 Req 7); source 0 is an empty slot. */
 export interface PatchSlot {
   source: number
