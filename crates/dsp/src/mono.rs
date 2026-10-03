@@ -246,10 +246,24 @@ impl MonoParams {
             | Param::Send4
             | Param::Mute
             | Param::Solo
-            | Param::DriveMode
-            | Param::DriveAmount
-            | Param::DriveTone
-            | Param::DriveLevel
+            | Param::I1Type
+            | Param::I1A
+            | Param::I1B
+            | Param::I1C
+            | Param::I1D
+            | Param::I1E
+            | Param::I2Type
+            | Param::I2A
+            | Param::I2B
+            | Param::I2C
+            | Param::I2D
+            | Param::I2E
+            | Param::I3Type
+            | Param::I3A
+            | Param::I3B
+            | Param::I3C
+            | Param::I3D
+            | Param::I3E
             | Param::P1Type
             | Param::P1Return
             | Param::P1A

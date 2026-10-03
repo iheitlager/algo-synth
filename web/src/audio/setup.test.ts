@@ -171,7 +171,7 @@ describe('applyPlan', () => {
 
 describe('the mixer in a setup (#49)', () => {
   const mixerNames = [
-    'Level', 'Pan', 'Send1', 'Send2', 'Send3', 'Send4', 'Mute', 'Solo',
+    'Level', 'Pan', 'Send1', 'Send2', 'Send3', 'Send4', 'Mute', 'Solo', 'I1Type', 'I1A', 'I2Type', 'I3E',
   ]
   const globalNames = [
     'P1Type', 'P1Return', 'P1A', 'P4E', 'CompThreshold', 'CompRatio', 'EqLowGain', 'EqHighFreq',
@@ -240,6 +240,18 @@ describe('the mixer in a setup (#49)', () => {
       reg,
     )
     expect(parsed.ok && parsed.setup.synths[0]?.params).toEqual({ Send1: 0.2 })
+  })
+
+  it('moves an old drive insert into insert slot 1', () => {
+    const parsed = parseSetup(
+      JSON.stringify({
+        version: 1,
+        synths: [{ index: 0, params: { DriveMode: 2, DriveAmount: 0.8, DriveTone: 0.6, DriveLevel: 0.7, Level: 0.9 } }],
+      }),
+      reg,
+    )
+    expect(parsed.ok && parsed.setup.synths[0]?.params).toEqual({ I1Type: 2, I1A: 0.8, I1B: 0.6, I1C: 0.7, Level: 0.9 })
+    expect(parsed.ok && parsed.warnings[0]).toMatch(/DriveAmount, DriveLevel, DriveMode, DriveTone/)
   })
 
   it('opens the shipped demo setup without a warning', () => {

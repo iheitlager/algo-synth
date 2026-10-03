@@ -3,11 +3,12 @@
 // solo, fader and meter. It is described by props, not by "synth", so a group
 // bus can use it later (epic #62).
 import { computed } from 'vue'
-import { levelToPos, posToDb, posToLevel, dbText, lin } from '../../audio/console'
+import { INSERT_SHORT, levelToPos, posToDb, posToLevel, dbText, lin } from '../../audio/console'
 import { getEngine, levels, params, status } from '../../audio/engine'
-import { DriveMode, Param, type ParamId } from '../../audio/params'
+import { Param, type ParamId } from '../../audio/params'
 import Fader from './Fader.vue'
 import LedMeter from './LedMeter.vue'
+import { showInsertPanel } from './insertPanel'
 import ParamKnob from './ParamKnob.vue'
 
 const props = defineProps<{
@@ -28,9 +29,10 @@ defineEmits<{ select: []; open: [] }>()
 
 const val = (id: ParamId) => params.values[props.s]?.[id] ?? 0
 const send = (id: ParamId, v: number) => getEngine()?.param(props.s, id, v)
-const driveModes = Object.keys(DriveMode).map((n) => n.slice(0, 3).toUpperCase())
-const mode = computed(() => val(Param.DriveMode))
-const nextMode = () => send(Param.DriveMode, (mode.value + 1) % driveModes.length)
+// Three insert slots in series; a button opens the slot's panel.
+const slotTypes = [Param.I1Type, Param.I2Type, Param.I3Type]
+const slots = computed(() => slotTypes.map((id, n) => ({ n, type: Math.round(val(id)), text: INSERT_SHORT[Math.round(val(id))] ?? '—' })))
+const openSlot = (n: number, e: MouseEvent) => showInsertPanel(props.s, n, props.title, e.currentTarget as HTMLElement)
 const sends = [Param.Send1, Param.Send2, Param.Send3, Param.Send4]
 const pos = computed(() => levelToPos(val(Param.Level)))
 const setPos = (p: number) => send(Param.Level, posToLevel(p))
@@ -47,9 +49,11 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
     </button>
 
     <div class="sec">
-      <div class="cap">Drive</div>
-      <button class="mode" :data-on="mode > 0 ? 1 : 0" title="Drive mode: click to change" :disabled="!status.running" @click="nextMode">{{ driveModes[mode] ?? '' }}</button>
-      <ParamKnob :synth="s" :id="Param.DriveAmount" label="Amt" :name="`${title} drive amount`" :size="30" color="var(--con-drive)" no-val :def="0.3" />
+      <div class="cap">Inserts</div>
+      <button
+        v-for="slot in slots" :key="slot.n" class="slot-btn" :data-on="slot.type > 0 ? 1 : 0" :title="`Insert ${slot.n + 1}: click to edit`"
+        :disabled="!status.running" @click="openSlot(slot.n, $event)"
+      >{{ slot.text }}</button>
     </div>
 
     <div class="sec">
@@ -101,11 +105,11 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
 .cap { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--con-silk-dim); }
 .sends { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 0; width: 100%; padding-inline: 5px; justify-items: center; }
 .sends .off { opacity: 0.28; }
-.mode {
+.slot-btn {
   border: 1px solid #343b46; background: var(--con-inset); border-radius: 3px; font: 500 12px var(--con-font-silk);
-  letter-spacing: 0.14em; padding: 1px 7px; cursor: pointer; color: var(--con-silk-dim); min-width: 44px;
+  letter-spacing: 0.14em; padding: 1px 7px; cursor: pointer; color: var(--con-silk-dim); width: 54px; line-height: 1.2;
 }
-.mode[data-on='1'] { color: #fff; background: #3a1714; border-color: var(--con-drive); box-shadow: 0 0 8px #d6483f55; }
+.slot-btn[data-on='1'] { color: #fff; background: #3a1714; border-color: var(--con-drive); box-shadow: 0 0 8px #d6483f55; }
 .pan { font: 400 10px var(--con-font-mono); color: var(--con-silk-dim); }
 .ms { display: flex; gap: 5px; }
 .btn {

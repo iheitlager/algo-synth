@@ -873,7 +873,7 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::Level, 0.25);
         assert_eq!(e.param_value(0, Param::Level), 0.25);
-        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 8);
+        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 26);
     }
 
     #[test]
@@ -893,11 +893,63 @@ mod tests {
     }
 
     #[test]
+    fn inserts_are_per_strip_and_in_series() {
+        let play = |setup: fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            e.render(BLOCK);
+            e.output().to_vec()
+        };
+        let dry = play(|_| {});
+        // The same slot types in two orders sound different.
+        let drive_eq = play(|e| {
+            e.set_param(0, Param::I1Type, 2.0);
+            e.set_param(0, Param::I1A, 0.9);
+            e.set_param(0, Param::I2Type, 4.0);
+            e.set_param(0, Param::I2C, 1.0);
+        });
+        let eq_drive = play(|e| {
+            e.set_param(0, Param::I1Type, 4.0);
+            e.set_param(0, Param::I1C, 1.0);
+            e.set_param(0, Param::I2Type, 2.0);
+            e.set_param(0, Param::I2A, 0.9);
+        });
+        assert!(drive_eq != dry && eq_drive != dry && drive_eq != eq_drive);
+        // A neutral EQ slot changes nothing; a slot on synth 1 doesn't touch synth 0.
+        assert!(play(|e| e.set_param(0, Param::I3Type, 4.0)) == dry);
+        assert!(
+            play(|e| {
+                e.set_param(1, Param::I1Type, 3.0);
+                e.set_param(1, Param::I1A, 1.0);
+            }) == dry
+        );
+    }
+
+    #[test]
+    fn insert_parameters_are_the_strips_own() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(2, Param::I2Type, 5.0);
+        e.set_param(2, Param::I2B, 0.7);
+        assert_eq!(e.param_value(2, Param::I2Type), 5.0);
+        assert_eq!(e.param_value(0, Param::I2Type), 0.0);
+        assert_eq!(e.param_value(2, Param::I2B), 0.7);
+        e.reset(2);
+        assert_eq!(
+            e.param_value(2, Param::I2Type),
+            0.0,
+            "reset puts the slots back"
+        );
+        assert_eq!(e.param_value(2, Param::I2E), 0.0);
+        assert_eq!(e.param_value(2, Param::I2A), 0.5);
+    }
+
+    #[test]
     fn drive_shapes_the_synth_bus_only() {
         let play = |mode: f32| {
             let mut e = Engine::new(48_000.0);
-            e.set_param(0, Param::DriveMode, mode);
-            e.set_param(0, Param::DriveAmount, 1.0);
+            e.set_param(0, Param::I1Type, mode);
+            e.set_param(0, Param::I1A, 1.0);
             e.set_param(1, Param::Level, 0.0);
             e.note_on(0, 57, 1.0);
             e.note_on(1, 57, 1.0);
@@ -971,8 +1023,13 @@ mod tests {
         for synth in 0..SYNTHS {
             e.set_param(synth, Param::Send1, 1.0);
             e.set_param(synth, Param::Send2, 1.0);
-            e.set_param(synth, Param::DriveMode, 3.0);
-            e.set_param(synth, Param::DriveAmount, 1.0);
+            e.set_param(synth, Param::I1Type, 3.0);
+            e.set_param(synth, Param::I1A, 1.0);
+            e.set_param(synth, Param::I2Type, 4.0);
+            e.set_param(synth, Param::I2A, 0.9);
+            e.set_param(synth, Param::I3Type, 5.0);
+            e.set_param(synth, Param::I3A, 0.5);
+            e.set_param(synth, Param::I3B, 0.6);
             e.note_on(synth, 36 + 3 * synth as u8, 1.0);
         }
         for _ in 0..600 {

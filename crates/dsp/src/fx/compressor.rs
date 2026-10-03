@@ -75,32 +75,66 @@ impl Compressor {
         -20.0 * self.gain.max(1.0e-6).log10()
     }
 
-    /// Compress `left` and `right` in place.
+    /// Start from rest: no reduction.
+    pub fn reset(&mut self) {
+        self.gain = 1.0;
+    }
+
+    fn bypassed(&self) -> bool {
+        self.ratio <= 1.0 && self.makeup == 1.0
+    }
+
+    /// The gain a chunk with this `peak` asks for.
+    fn target(&self, peak: f32) -> f32 {
+        if peak > self.threshold {
+            (peak / self.threshold).powf(1.0 / self.ratio - 1.0)
+        } else {
+            1.0
+        }
+    }
+
+    /// Glide the gain toward `target` for one sample and return what to apply.
+    fn step(&mut self, target: f32) -> f32 {
+        let c = if target < self.gain {
+            self.attack
+        } else {
+            self.release
+        };
+        self.gain += (target - self.gain) * c;
+        self.gain * self.makeup
+    }
+
+    /// Compress `left` and `right` in place, together.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        if self.ratio <= 1.0 && self.makeup == 1.0 {
+        if self.bypassed() {
             self.gain = 1.0;
             return;
         }
-        let slope = 1.0 / self.ratio - 1.0;
         for (l, r) in left.chunks_mut(SUB).zip(right.chunks_mut(SUB)) {
             let peak = l
                 .iter()
                 .chain(r.iter())
                 .fold(0.0_f32, |m, x| m.max(x.abs()));
-            let target = if peak > self.threshold {
-                (peak / self.threshold).powf(slope)
-            } else {
-                1.0
-            };
+            let target = self.target(peak);
             for (l, r) in l.iter_mut().zip(r.iter_mut()) {
-                let c = if target < self.gain {
-                    self.attack
-                } else {
-                    self.release
-                };
-                self.gain += (target - self.gain) * c;
-                *l *= self.gain * self.makeup;
-                *r *= self.gain * self.makeup;
+                let g = self.step(target);
+                *l *= g;
+                *r *= g;
+            }
+        }
+    }
+
+    /// Compress one channel in place.
+    pub fn process_mono(&mut self, x: &mut [f32]) {
+        if self.bypassed() {
+            self.gain = 1.0;
+            return;
+        }
+        for chunk in x.chunks_mut(SUB) {
+            let peak = chunk.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+            let target = self.target(peak);
+            for s in chunk.iter_mut() {
+                *s *= self.step(target);
             }
         }
     }
@@ -180,6 +214,22 @@ mod tests {
         assert!(c.gain_reduction_db() > 0.5 * reduced, "release is slow");
         run(&mut c, &sine(0.01, 96_000));
         assert!(c.gain_reduction_db() < 0.5, "and gets there");
+    }
+
+    #[test]
+    fn one_channel_compresses_like_two_linked_ones() {
+        let x = sine(0.8, 9_600);
+        let mut a = Compressor::new(SR);
+        a.set_threshold(-20.0);
+        a.set_ratio(4.0);
+        let mut mono = x.clone();
+        for chunk in mono.chunks_mut(128) {
+            a.process_mono(chunk);
+        }
+        let mut b = Compressor::new(SR);
+        b.set_threshold(-20.0);
+        b.set_ratio(4.0);
+        assert!(run(&mut b, &x) == mono);
     }
 
     #[test]

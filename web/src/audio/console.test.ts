@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
+  INSERT_KNOBS, INSERT_SHORT, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
   logMap, logPos, polar, posToDb, posToLevel,
 } from './console'
 
@@ -178,5 +178,33 @@ describe('processor knobs', () => {
     expect(PROC_KNOBS[1]?.[1]?.text?.(1)).toBe('95%')
     expect(PROC_KNOBS[2]?.[0]?.text?.(1)).toBe('10.0 s')
     expect(PROC_KNOBS[1]?.[3]?.toggle).toBe(true)
+  })
+})
+
+describe('insert knobs', () => {
+  it('has the knobs of each type and a short name for each', () => {
+    expect(INSERT_SHORT).toHaveLength(6)
+    expect(INSERT_KNOBS[0]).toEqual([])
+    for (const t of [1, 2, 3]) expect(INSERT_KNOBS[t]?.map((k) => k.label)).toEqual(['Amount', 'Tone', 'Level'])
+    expect(INSERT_KNOBS[4]?.map((k) => k.label)).toEqual(['Low', 'Mid Hz', 'Mid', 'High', 'Mid Q'])
+    expect(INSERT_KNOBS[5]?.map((k) => k.label)).toEqual(['Thresh', 'Ratio', 'Attack', 'Release', 'Make-up'])
+  })
+
+  it('reads the defaults as neutral', () => {
+    const eq = INSERT_KNOBS[4] ?? []
+    expect(eq[0]?.text?.(eq[0].def)).toBe('0.0 dB')
+    expect(eq[2]?.text?.(eq[2].def)).toBe('0.0 dB')
+    expect(eq[4]?.text?.(eq[4].def)).toBe('1.0')
+    const comp = INSERT_KNOBS[5] ?? []
+    expect(comp[4]?.text?.(comp[4].def)).toBe('+0.0 dB')
+    expect(comp[0]?.text?.(1)).toBe('0 dB')
+    expect(comp[1]?.text?.(0)).toBe('1.0:1')
+  })
+
+  it('shows the drive in dB and the tone in Hz', () => {
+    const [amount, tone] = INSERT_KNOBS[1] ?? []
+    expect(amount?.text?.(1)).toBe('+40 dB')
+    expect(tone?.text?.(0)).toBe('200 Hz')
+    expect(tone?.text?.(1)).toBe('20.0 k')
   })
 })

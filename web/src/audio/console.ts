@@ -161,3 +161,41 @@ export const PROC_KNOBS: Record<number, ProcKnob[]> = {
     { label: 'Pre', def: 0.1, text: (t) => `${Math.round(t * 100)} ms` },
   ],
 }
+
+// --- insert slots -----------------------------------------------------------------------
+
+/** The short name a strip shows for an insert type id (`InsertType`). */
+export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP']
+
+const driveKnobs: ProcKnob[] = [
+  { label: 'Amount', def: 0.5, text: (t) => `+${Math.round(t * 40)} dB` },
+  { label: 'Tone', def: 0.5, text: (t) => hzText(logMap(200, 20_000)(t)) },
+  { label: 'Level', def: 0.5 },
+]
+const dbAround = (t: number) => `${(t - 0.5) * 30 > 0 ? '+' : ''}${((t - 0.5) * 30).toFixed(1)} dB`
+
+/**
+ * What knob A..E of an insert slot is, by type id. At the default positions
+ * (A–D 0.5, E 0) every type is neutral: an EQ is flat, a compressor adds no
+ * make-up.
+ */
+export const INSERT_KNOBS: Record<number, ProcKnob[]> = {
+  0: [],
+  1: driveKnobs,
+  2: driveKnobs,
+  3: driveKnobs,
+  4: [
+    { label: 'Low', def: 0.5, text: dbAround },
+    { label: 'Mid Hz', def: 0.5, text: (t) => hzText(logMap(200, 8000)(t)) },
+    { label: 'Mid', def: 0.5, text: dbAround },
+    { label: 'High', def: 0.5, text: dbAround },
+    { label: 'Mid Q', def: 0, text: (t) => (8 ** t).toFixed(1) },
+  ],
+  5: [
+    { label: 'Thresh', def: 0.5, text: (t) => `${Math.round(-60 * (1 - t))} dB` },
+    { label: 'Ratio', def: 0.5, text: (t) => `${logMap(1, 20)(t).toFixed(1)}:1` },
+    { label: 'Attack', def: 0.5, text: (t) => `${logMap(0.1, 100)(t).toFixed(1)} ms` },
+    { label: 'Release', def: 0.5, text: (t) => `${Math.round(logMap(10, 1000)(t))} ms` },
+    { label: 'Make-up', def: 0, text: (t) => `+${(t * 24).toFixed(1)} dB` },
+  ],
+}

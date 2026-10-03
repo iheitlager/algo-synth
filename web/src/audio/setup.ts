@@ -109,6 +109,11 @@ export function buildSetup(state: State, reg: Registry): Setup {
 const logPos = (v: number, lo: number, hi: number) =>
   Math.min(1, Math.max(0, Math.log(v / lo) / Math.log(hi / lo)))
 const SEND_ALIASES: Record<string, string> = { EchoSend: 'Send1', ReverbSend: 'Send2' }
+// The drive insert became insert slot 1 (ADR-0010): mode 0..3 is the type
+// (off, overdrive, distortion, fuzz), and amount, tone and level are A, B, C.
+const DRIVE_ALIASES: Record<string, string> = {
+  DriveMode: 'I1Type', DriveAmount: 'I1A', DriveTone: 'I1B', DriveLevel: 'I1C',
+}
 const GLOBAL_ALIASES: Record<string, (v: number) => [string, number]> = {
   EchoTime: (v) => ['P1A', logPos(v, 1, 2000)],
   EchoFeedback: (v) => ['P1B', Math.min(1, v / 0.95)],
@@ -207,7 +212,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     const synth: SynthSetup = {
       index,
       kind: 'mono',
-      params: values(migrate(entry.params, SEND_ALIASES, renamed), (n) => n in reg.params && !(n in reg.global) && !(n === MODEL && reg.models)),
+      params: values(migrate(entry.params, { ...SEND_ALIASES, ...DRIVE_ALIASES }, renamed), (n) => n in reg.params && !(n in reg.global) && !(n === MODEL && reg.models)),
     }
     if (typeof entry.model === 'string') {
       if (reg.models && entry.model in reg.models) synth.model = entry.model
@@ -215,7 +220,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     }
     synths.push(synth)
   }
-  if (renamed.size) warnings.push(`migrated an older setup: ${[...renamed].sort().join(', ')} now live on the mixer and processors P1–P2`)
+  if (renamed.size) warnings.push(`migrated an older setup: ${[...renamed].sort().join(', ')} now live on the mixer, the insert slots and processors P1–P2`)
   if (unknown.size) warnings.push(`ignored unknown parameters: ${[...unknown].sort().join(', ')}`)
 
   const routes: Setup['routes'] = {}

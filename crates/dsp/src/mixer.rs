@@ -5,14 +5,14 @@
 //! worked out when a parameter changes, never per sample.
 
 use crate::engine::{BLOCK, SYNTHS};
-use crate::fx::drive::{Drive, DriveMode};
-use crate::params::Param;
+use crate::fx::insert::{Insert, InsertType};
+use crate::params::{INSERT_SLOTS, InsertField, Param};
 
 /// The processors the sends feed (P1–P4).
 pub const SENDS: usize = 4;
 
 /// Where a strip starts: full fader, centred, no sends, not muted or soloed.
-pub const STRIP_DEFAULTS: [(Param, f32); 8] = [
+pub const STRIP_DEFAULTS: [(Param, f32); 26] = [
     (Param::Level, 1.0),
     (Param::Pan, 0.0),
     (Param::Send1, 0.0),
@@ -21,6 +21,24 @@ pub const STRIP_DEFAULTS: [(Param, f32); 8] = [
     (Param::Send4, 0.0),
     (Param::Mute, 0.0),
     (Param::Solo, 0.0),
+    (Param::I1Type, 0.0),
+    (Param::I1A, 0.5),
+    (Param::I1B, 0.5),
+    (Param::I1C, 0.5),
+    (Param::I1D, 0.5),
+    (Param::I1E, 0.0),
+    (Param::I2Type, 0.0),
+    (Param::I2A, 0.5),
+    (Param::I2B, 0.5),
+    (Param::I2C, 0.5),
+    (Param::I2D, 0.5),
+    (Param::I2E, 0.0),
+    (Param::I3Type, 0.0),
+    (Param::I3A, 0.5),
+    (Param::I3B, 0.5),
+    (Param::I3C, 0.5),
+    (Param::I3D, 0.5),
+    (Param::I3E, 0.0),
 ];
 
 /// One synth's fader, pan and sends, as set from the view.
@@ -73,8 +91,8 @@ impl Strip {
 }
 
 pub struct Mixer {
-    /// Each synth's insert, between its voices and its fader.
-    drives: Vec<Drive>,
+    /// Each strip's insert slots, between its voices and its fader.
+    inserts: Vec<[Insert; INSERT_SLOTS]>,
     /// Each synth's mono bus, filled by its voices.
     bus: Box<[[f32; BLOCK]; SYNTHS]>,
     strips: [Strip; SYNTHS],
@@ -88,7 +106,9 @@ pub struct Mixer {
 impl Mixer {
     pub fn new(sample_rate: f32) -> Mixer {
         Mixer {
-            drives: (0..SYNTHS).map(|_| Drive::new(sample_rate)).collect(),
+            inserts: (0..SYNTHS)
+                .map(|_| std::array::from_fn(|_| Insert::new(sample_rate)))
+                .collect(),
             bus: Box::new([[0.0; BLOCK]; SYNTHS]),
             strips: [Strip::new(); SYNTHS],
             any_solo: false,
@@ -102,15 +122,16 @@ impl Mixer {
         if let Some(s) = self.strips.get_mut(synth) {
             s.set(param, v);
         }
-        if let Some(d) = self.drives.get_mut(synth) {
-            match param {
-                Param::DriveMode => {
-                    d.set_mode(DriveMode::from_id(v.round() as u32).unwrap_or(DriveMode::Off))
+        if let Some((slot, field)) = param.insert() {
+            if let Some(ins) = self.inserts.get_mut(synth).and_then(|i| i.get_mut(slot)) {
+                match field {
+                    InsertField::Type => {
+                        if let Some(t) = InsertType::from_id(v.round() as u32) {
+                            ins.set_type(t);
+                        }
+                    }
+                    InsertField::Knob(k) => ins.set_knob(k, v),
                 }
-                Param::DriveAmount => d.set_amount(v),
-                Param::DriveTone => d.set_tone(v),
-                Param::DriveLevel => d.set_level(v),
-                _ => {}
             }
         }
         self.any_solo = self.strips.iter().any(|s| s.solo);
@@ -145,11 +166,11 @@ impl Mixer {
                 s.fill(0.0);
             }
         }
-        for (((bus, s), drive), peak) in self
+        for (((bus, s), inserts), peak) in self
             .bus
             .iter_mut()
             .zip(self.strips.iter())
-            .zip(self.drives.iter_mut())
+            .zip(self.inserts.iter_mut())
             .zip(self.peaks.iter_mut())
         {
             if s.mute || (self.any_solo && !s.solo) {
@@ -158,7 +179,9 @@ impl Mixer {
             let Some(bus) = bus.get_mut(..n) else {
                 continue;
             };
-            drive.process(bus);
+            for insert in inserts.iter_mut() {
+                insert.process_mono(bus);
+            }
             *peak = bus.iter().fold(0.0_f32, |m, x| m.max(x.abs())) * s.level;
             let [gl, gr] = s.pan;
             for ((x, l), r) in bus.iter().zip(left.iter_mut()).zip(right.iter_mut()) {

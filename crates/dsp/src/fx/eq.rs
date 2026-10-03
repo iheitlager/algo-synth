@@ -160,6 +160,20 @@ impl Equalizer {
         self.with(band, |b| b.q = q);
     }
 
+    /// Start every band from rest.
+    pub fn reset(&mut self) {
+        for band in self.bands.iter_mut() {
+            band.z = [[0.0; 2]; 2];
+        }
+    }
+
+    /// Equalize one channel in place.
+    pub fn process_mono(&mut self, x: &mut [f32]) {
+        for band in self.bands.iter_mut().filter(|b| b.active()) {
+            band.run(0, x);
+        }
+    }
+
     /// Equalize `left` and `right` in place.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         for band in self.bands.iter_mut().filter(|b| b.active()) {

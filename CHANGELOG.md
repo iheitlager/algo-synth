@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Insert slots: three in series on every synth strip, each Off, Overdrive, Distortion, Fuzz, a compact three-band EQ or a Compressor, with a type and five knobs A–E whose meaning depends on the type (`I1Type`…`I3E`, ids 66–83); a slot button on each strip opens a panel with the type and its knobs in real units. Spec 002 Req 2, ADR-0010 (#58, epic #62).
+
+### Changed
+
+- The drive insert is now insert type Overdrive, Distortion or Fuzz: `DriveMode`, `DriveAmount`, `DriveTone` and `DriveLevel` are gone, later parameter ids move up by 14, and an older setup's drive becomes insert slot 1 of its synth (#58, epic #62).
+
 ## [0.11.0] - 2026-10-03
 
 Synth faceplates (epic #67, PR #75).
