@@ -3,8 +3,7 @@
 //! `DEFAULTS` gives every Mono parameter a value in the units `set_param`
 //! takes; it is the voice's starting state (`MonoParams::new`,
 //! `Engine::new`) and the base every preset starts from, so a preset fully
-//! defines the voice. Presets set parameters only until routing adds a patch
-//! (spec 004 Req 7, plan.md MVP 5).
+//! defines the voice, patch and normalled amounts included (spec 004 Req 7).
 
 use crate::params::Param;
 
@@ -52,6 +51,9 @@ impl Preset {
                 (AdsrDecay, 0.25),
                 (AdsrSustain, 0.45),
                 (AdsrRelease, 0.12),
+                // The filter opens with each note and follows the key.
+                (EnvCutoff, 0.4),
+                (KeyTrack, 0.5),
             ],
             // Two saws a few cents apart and a sub saw, a medium cutoff.
             Preset::Lead => &[
@@ -66,9 +68,14 @@ impl Preset {
                 (AdsrDecay, 0.4),
                 (AdsrSustain, 0.75),
                 (AdsrRelease, 0.3),
+                (EnvCutoff, 0.25),
+                (KeyTrack, 0.5),
+                // A little vibrato, the wheel half up.
+                (Vibrato, 0.15),
+                (ModWheel, 0.5),
             ],
             // VCO 2 hard-synced to a silent VCO 1, an octave and a fifth up.
-            // A fixed timbre until routing can sweep VCO 2 (#9).
+            // The ADSR sweeps VCO 2's pitch: the classic sync sweep.
             Preset::SyncLead => &[
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 19.0),
@@ -81,6 +88,11 @@ impl Preset {
                 (AdsrDecay, 0.6),
                 (AdsrSustain, 0.6),
                 (AdsrRelease, 0.25),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.3),
+                (Patch1Source, 5.0),
+                (Patch1Dest, 2.0),
+                (Patch1Amount, 0.5),
             ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
@@ -98,9 +110,16 @@ impl Preset {
                 (AdsrDecay, 0.5),
                 (AdsrSustain, 0.85),
                 (AdsrRelease, 0.6),
-                // Vibrato rate, ready for LFO → pitch once routing exists (#9);
-                // until then the LFO has no destination.
+                // Vibrato at 5.5 Hz, the wheel all the way up; bow pressure
+                // (velocity) brightens the tone.
                 (LfoRate, 5.5),
+                (Vibrato, 0.1),
+                (ModWheel, 1.0),
+                (KeyTrack, 0.6),
+                (EnvCutoff, 0.15),
+                (Patch1Source, 10.0),
+                (Patch1Dest, 5.0),
+                (Patch1Amount, 0.2),
             ],
         }
     }
@@ -108,7 +127,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 28] = [
+pub const DEFAULTS: [(Param, f32); 59] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -137,6 +156,37 @@ pub const DEFAULTS: [(Param, f32); 28] = [
     (Param::ArRelease, 0.3),
     (Param::LfoRate, 4.0),
     (Param::LfoWave, 3.0),
+    (Param::Priority, 0.0),
+    (Param::Legato, 0.0),
+    (Param::Glide, 0.0),
+    (Param::Patch1Source, 0.0),
+    (Param::Patch1Dest, 0.0),
+    (Param::Patch1Amount, 0.0),
+    (Param::Patch2Source, 0.0),
+    (Param::Patch2Dest, 0.0),
+    (Param::Patch2Amount, 0.0),
+    (Param::Patch3Source, 0.0),
+    (Param::Patch3Dest, 0.0),
+    (Param::Patch3Amount, 0.0),
+    (Param::Patch4Source, 0.0),
+    (Param::Patch4Dest, 0.0),
+    (Param::Patch4Amount, 0.0),
+    (Param::Patch5Source, 0.0),
+    (Param::Patch5Dest, 0.0),
+    (Param::Patch5Amount, 0.0),
+    (Param::Patch6Source, 0.0),
+    (Param::Patch6Dest, 0.0),
+    (Param::Patch6Amount, 0.0),
+    (Param::Patch7Source, 0.0),
+    (Param::Patch7Dest, 0.0),
+    (Param::Patch7Amount, 0.0),
+    (Param::Patch8Source, 0.0),
+    (Param::Patch8Dest, 0.0),
+    (Param::Patch8Amount, 0.0),
+    (Param::EnvCutoff, 0.0),
+    (Param::KeyTrack, 0.0),
+    (Param::Vibrato, 0.0),
+    (Param::ModWheel, 0.0),
 ];
 
 #[cfg(test)]

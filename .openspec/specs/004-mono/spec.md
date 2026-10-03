@@ -72,7 +72,7 @@ The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-del
 
 ### Requirement 4: Envelopes [MUST]
 
-The voice SHALL have an ADSR and an AR envelope; the ADSR SHALL drive the VCA. Each segment SHALL take its set time from wherever it starts, curved as an RC envelope is. Their rates SHALL be computed when a time parameter or the gate changes, not per sample. A gate that opens during release SHALL continue from the current level, without a jump; across notes this needs one voice per owner (Req 6, MVP 5), since until then each note starts a fresh voice. A note shorter than one block SHALL still sound, held for that block. The sustain level SHALL follow its parameter while a note is held.
+The voice SHALL have an ADSR and an AR envelope; the ADSR SHALL drive the VCA. Each segment SHALL take its set time from wherever it starts, curved as an RC envelope is. Their rates SHALL be computed when a time parameter or the gate changes, not per sample. A gate that opens during release SHALL continue from the current level, without a jump; across notes this holds within an owner's voice (Req 6). A note shorter than one block SHALL still sound, held for that block. The sustain level SHALL follow its parameter while a note is held.
 
 **Implementation:** `crates/dsp/src/mono/env.rs::Env`, `crates/dsp/src/voice.rs::Voice` (#7)
 
@@ -100,9 +100,9 @@ The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz,
 
 ### Requirement 6: Mono note handling and glide [MUST]
 
-Each owner (live input, and each MIDI channel of the player) SHALL have one monophonic Mono voice, allocated in `Engine::new`; Mono SHALL NOT take voices from the shared pool. Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s.
+Each owner (live input, and each MIDI channel of the player) SHALL have one monophonic Mono voice, allocated in `Engine::new`; Mono SHALL NOT take voices from the shared pool. Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s, in a straight line of semitones; it applies when a key arrives while another is held. A voice SHALL remember up to 16 held keys, forgetting the oldest. Pitch SHALL come from a table, so it can move every sample without per-sample `exp2` (ADR-0002).
 
-**Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/engine.rs::Engine::note_on` *(planned, #8; moved to plan.md MVP 5)*
+**Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/mono/voice.rs::PitchTable`, `crates/dsp/src/engine.rs::Engine::note_on` (#8)
 
 #### Scenario: fall back on release
 
@@ -128,15 +128,15 @@ Each owner (live input, and each MIDI channel of the player) SHALL have one mono
 - WHEN each plays a note
 - THEN three Mono voices sound, and a note off on one leaves the others gated
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::priority_falls_back_on_release`, `crates/dsp/src/mono/voice.rs::tests::legato_keeps_the_envelope`, `crates/dsp/src/mono/voice.rs::tests::glide_time`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent` *(planned)*
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::priority_falls_back_on_release`, `crates/dsp/src/mono/voice.rs::tests::legato_keeps_the_envelope`, `crates/dsp/src/mono/voice.rs::tests::glide_time`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`, `crates/dsp/src/mono/voice.rs::tests::tune_is_heard_within_a_cent`, `crates/dsp/src/mono/voice.rs::tests::a_full_key_stack_forgets_the_oldest`
 
 ### Requirement 7: Normalled routing and patches [MUST]
 
-Every module SHALL have a default (normalled) connection, as on the 2600: VCO 1-3 and noise into the mixer, the mixer into the filter, the filter into the VCA; the ADSR to the filter cutoff and the VCA; the key to VCO pitch and to the filter cutoff (key tracking); the LFO to VCO pitch through the mod wheel. The AR envelope and the S&H SHALL have no default destination.
+Every module SHALL have a default (normalled) connection, as on the 2600: VCO 1-3 and noise into the mixer, the mixer into the filter, the filter into the VCA; the ADSR to the filter cutoff and the VCA; the key to VCO pitch and to the filter cutoff (key tracking); the LFO to VCO pitch through the mod wheel. The AR envelope and the S&H SHALL have no default destination. The audio path and key → VCO pitch are wired; the modulation normals (ADSR → cutoff, key → cutoff, LFO × mod wheel → pitch, ADSR → VCA) each have an amount (`EnvCutoff`, `KeyTrack`, `Vibrato`). The mod wheel is a parameter until MIDI input sends CC 1 (Req 8).
 
-A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount), allocated in `Engine::new`. Sources: VCO 1-3, noise, ADSR, AR, LFO, S&H, mod wheel, velocity, key. Destinations: VCO 1-3 pitch, pulse width, filter cutoff, resonance, VCA, LFO rate. An override SHALL replace the normalled connection to its destination. Amounts SHALL be clamped to −1..=1; unknown source or destination ids SHALL be ignored. The view SHALL show the normalled path and the patch, and only send edits (spec 003 Req 6).
+A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount), allocated in `Engine::new`. Sources: VCO 1-3, noise, ADSR, AR, LFO, S&H, mod wheel, velocity, key. Destinations: VCO 1-3 pitch, pulse width, filter cutoff, resonance, VCA, LFO rate. An override SHALL replace every normalled connection to its destination, and overrides to one destination SHALL add up. Amount 1 at full source SHALL be 24 semitones of VCO pitch, 0.45 of pulse width, 48 semitones of cutoff, full resonance, full VCA gain, or 4 octaves of LFO rate (applied once per block). Amounts SHALL be clamped to −1..=1 (NaN is 0); unknown source or destination ids SHALL be ignored. The patch slots SHALL be parameters, so presets carry them. When a patch drives the VCA, the AR envelope too SHALL keep the voice sounding. The view SHALL show the normalled path and the patch, and only send edits (spec 003 Req 6).
 
-**Implementation:** `crates/dsp/src/mono/patch.rs::Patch` *(planned, #9; moved to plan.md MVP 5)*
+**Implementation:** `crates/dsp/src/mono/patch.rs::Patch`, `crates/dsp/src/mono/patch.rs::modulate`, `crates/dsp/src/mono/voice.rs::MonoVoice::render` (#9)
 
 #### Scenario: empty patch is the normalled voice
 
@@ -150,7 +150,7 @@ A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount
 - WHEN a note is held for one second with the LFO at 4 Hz
 - THEN the cutoff changes 4 times and the ADSR no longer moves it
 
-**Tests:** `crates/dsp/src/mono/patch.rs::tests::empty_patch_is_normalled`, `crates/dsp/src/mono/patch.rs::tests::override_replaces_destination`, `crates/dsp/src/mono/patch.rs::tests::bad_ids_are_ignored` *(planned)*
+**Tests:** `crates/dsp/src/mono/patch.rs::tests::empty_patch_is_normalled`, `crates/dsp/src/mono/patch.rs::tests::override_replaces_destination`, `crates/dsp/src/mono/patch.rs::tests::bad_ids_are_ignored`, `crates/dsp/src/mono/voice.rs::tests::sample_and_hold_takes_over_the_cutoff`, `crates/dsp/src/mono/voice.rs::tests::normalled_connections_move_their_destinations`, `crates/dsp/src/mono/voice.rs::tests::ar_on_the_vca_shapes_the_note`
 
 ### Requirement 8: MIDI input [MUST]
 
@@ -168,7 +168,7 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 
 ### Requirement 9: Presets [SHOULD]
 
-The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters, and the patch once routing exists (Req 7, MVP 5); the preset ids SHALL be mirrored in `params.ts`. A preset SHALL set every Mono parameter, starting from the defaults, so none is left over from the last one. The engine SHALL report each parameter's current value (`param_value`), so the view shows what a preset set.
+The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters, the normalled amounts and the patch (Req 7); the preset ids SHALL be mirrored in `params.ts`. A preset SHALL set every Mono parameter, starting from the defaults, so none is left over from the last one. The engine SHALL report each parameter's current value (`param_value`), so the view shows what a preset set.
 
 **Implementation:** `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/engine.rs::Engine::preset`, `crates/dsp/src/ffi.rs::mono_preset`, `crates/dsp/src/ffi.rs::param_value` (#11)
 

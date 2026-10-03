@@ -34,12 +34,14 @@ A sine from Rust through the AudioWorklet to the speakers, in the wide-screen la
 
 ### MVP 2: the Mono voice
 
-The ARP 2600-style semi-modular voice, monophonic, playable from the on-screen and computer keyboard. Mono note handling and normalled routing moved to MVP 5, Web MIDI input to MVP 11.
+The ARP 2600-style semi-modular voice, monophonic, playable from the on-screen and computer keyboard. Web MIDI input moved to MVP 11.
 
 1. **Oscillators:** three VCOs with band-limited saw and pulse (PWM, a BLEP table: ADR-0007), triangle and sine; sync; noise (white, pink).
 2. **Filter:** a 4-pole zero-delay-feedback ladder (the Moog sound) with resonance and drive, cutoff smoothed at control rate.
 3. **Modulation:** ADSR and AR envelopes, LFO, sample-and-hold.
-4. **Presets:** a handful of settings (bass, lead, sync lead, bowed string for the ensemble); they set parameters, and patches once routing exists (MVP 5).
+4. **Note handling:** one monophonic voice per owner (live input, each MIDI channel) instead of the shared pool; note priority (last, low, high), legato, glide (portamento).
+5. **Normalled routing:** every module has a default connection, as on the 2600; a *patch* is a small table of overrides (source → destination, amount). The UI shows the normalled path and the patch.
+6. **Presets:** a handful of patches (bass, lead, sync lead, bowed string for the ensemble).
 
 ## M2: Time
 
@@ -63,11 +65,9 @@ The second way into the same model: a score instead of a generator.
 
 1. **Standard MIDI File parser** in Rust: total (never panics on bad input), tested with malformed files, types 0 and 1, tempo map.
 2. **Import:** each MIDI track becomes a track with a Mono source, its notes become clips on the bar grid, tempo changes become the song's tempo map.
-3. **Mono note handling** *(moved from MVP 2)*: one monophonic voice per owner (each MIDI channel, live input) instead of the shared pool; note priority (last, low, high), legato, glide (portamento).
-4. **Normalled routing** *(moved from MVP 2)*: every module has a default connection, as on the 2600; a *patch* is a small table of overrides (source → destination, amount). The UI shows the normalled path and the patch.
-5. **Six Mono instances**, each with its own patch (and a little detune and timing humanization per voice, the way six real machines drift).
-6. **The score:** a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
-7. The arrangement pane shows the score as `score` clips; they can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
+3. **Six Mono instances**, each with its own patch (and a little detune and timing humanization per voice, the way six real machines drift).
+4. **The score:** a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
+5. The arrangement pane shows the score as `score` clips; they can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
 
 ## M4: More sources
 

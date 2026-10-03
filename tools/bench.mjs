@@ -51,11 +51,39 @@ const scenarios = {
   }, 72],
 }
 
+// A MIDI variable-length quantity.
+const vlq = (n) => {
+  const out = [n & 0x7f]
+  while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80)
+  return out
+}
+
+// One held note per channel for a minute: 16 Mono voices, since each
+// channel owns one (spec 004 Req 6) and live input is monophonic.
+function sixteenChannels(lowest) {
+  const track = []
+  for (let ch = 0; ch < VOICES; ch++) track.push(0, 0x90 | ch, lowest + 3 * ch, 100)
+  // The player's song ends at its last note off.
+  for (let ch = 0; ch < VOICES; ch++) track.push(...(ch ? [0] : vlq(480 * 120)), 0x80 | ch, lowest + 3 * ch, 0)
+  track.push(0, 0xff, 0x2f, 0)
+  const len = track.length
+  return new Uint8Array([
+    ...[0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0],
+    ...[0x4d, 0x54, 0x72, 0x6b, (len >>> 24) & 255, (len >>> 16) & 255, (len >>> 8) & 255, len & 255],
+    ...track,
+  ])
+}
+
 function run(setup, lowest) {
   const w = new WebAssembly.Instance(module, {}).exports
   w.init(SR)
   setup(w)
-  for (let i = 0; i < VOICES; i++) w.note_on(Source.Mono, lowest + 3 * i, 0.8)
+  const file = sixteenChannels(lowest)
+  new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
+  if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')
+  // Channel 10 defaults to the drums; every channel plays Mono here.
+  for (let ch = 0; ch < VOICES; ch++) w.route(ch, Source.Mono)
+  w.play()
   const block = w.block_len()
   for (let i = 0; i < WARMUP; i++) w.process(block)
   const t0 = process.hrtime.bigint()
