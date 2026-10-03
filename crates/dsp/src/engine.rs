@@ -122,7 +122,9 @@ impl Engine {
         if let Some(slot) = values.get_mut(param as usize) {
             *slot = v;
         }
-        mono.set(param, v);
+        if !param.is_strip() {
+            mono.set(param, v);
+        }
         self.mixer.set(synth, param, v);
     }
 
@@ -346,7 +348,7 @@ impl Engine {
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
-        let (echo, reverb) = (&self.mixer.echo_send, &self.mixer.reverb_send);
+        let [echo, reverb, ..] = &self.mixer.sends;
         if let (Some(e), Some(r)) = (echo.get(..n), reverb.get(..n)) {
             if let (Some(l), Some(rt)) = (left.get_mut(..n), right.get_mut(..n)) {
                 self.echo.process(e, l, rt);
@@ -781,26 +783,50 @@ mod tests {
         e.render(BLOCK);
         let dry: Vec<f32> = e.output().to_vec();
         assert!(
-            e.mixer
-                .echo_send
+            e.mixer.sends[0]
                 .iter()
-                .chain(&e.mixer.reverb_send)
+                .chain(&e.mixer.sends[1])
                 .all(|x| *x == 0.0)
         );
         let mut e = Engine::new(48_000.0);
-        e.set_param(0, Param::EchoSend, 0.5);
-        e.set_param(0, Param::ReverbSend, 1.0);
+        e.set_param(0, Param::Send1, 0.5);
+        e.set_param(0, Param::Send2, 1.0);
         e.set_param(0, Param::Level, 0.5);
         e.note_on(0, 57, 1.0);
         e.render(BLOCK);
         let peak = |b: &[f32]| b.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
-        let (echo, reverb) = (peak(&e.mixer.echo_send), peak(&e.mixer.reverb_send));
+        let (echo, reverb) = (peak(&e.mixer.sends[0]), peak(&e.mixer.sends[1]));
         assert!(
             echo > 0.0 && (reverb / echo - 2.0).abs() < 1.0e-4,
             "{echo} {reverb}"
         );
         // Sends are taps: the dry mix only changes with the fader.
         assert!(peak(e.output()) < peak(&dry));
+    }
+
+    #[test]
+    fn each_send_feeds_its_own_processor_bus() {
+        for (i, send) in [Param::Send1, Param::Send2, Param::Send3, Param::Send4]
+            .into_iter()
+            .enumerate()
+        {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, send, 1.0);
+            e.note_on(0, 57, 1.0);
+            e.render(BLOCK);
+            for (n, bus) in e.mixer.sends.iter().enumerate() {
+                let peak = bus.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+                assert_eq!(peak > 0.0, n == i, "send {} on bus {n}", i + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn strip_parameters_never_reach_the_synth() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Level, 0.25);
+        assert_eq!(e.param_value(0, Param::Level), 0.25);
+        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 8);
     }
 
     #[test]
@@ -853,8 +879,8 @@ mod tests {
         let dry = first_block(|_| {});
         // Sends up, returns at 0: nothing changes.
         let muted = first_block(|e| {
-            e.set_param(0, Param::EchoSend, 1.0);
-            e.set_param(0, Param::ReverbSend, 1.0);
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::Send2, 1.0);
         });
         assert!(dry == muted, "a send alone is silent");
         // A return up, sends at 0: nothing changes either.
@@ -864,10 +890,10 @@ mod tests {
         });
         assert!(dry == no_send, "a return alone is silent");
         let wet = first_block(|e| {
-            e.set_param(0, Param::EchoSend, 1.0);
+            e.set_param(0, Param::Send1, 1.0);
             e.set_param(0, Param::EchoReturn, 1.0);
             e.set_param(0, Param::EchoTime, 20.0);
-            e.set_param(0, Param::ReverbSend, 1.0);
+            e.set_param(0, Param::Send2, 1.0);
             e.set_param(0, Param::ReverbReturn, 1.0);
         });
         assert!(dry != wet, "both together sound");
@@ -900,8 +926,8 @@ mod tests {
         e.set_param(0, Param::ReverbReturn, 1.0);
         e.set_param(0, Param::ReverbSize, 10.0);
         for synth in 0..SYNTHS {
-            e.set_param(synth, Param::EchoSend, 1.0);
-            e.set_param(synth, Param::ReverbSend, 1.0);
+            e.set_param(synth, Param::Send1, 1.0);
+            e.set_param(synth, Param::Send2, 1.0);
             e.set_param(synth, Param::DriveMode, 3.0);
             e.set_param(synth, Param::DriveAmount, 1.0);
             e.note_on(synth, 36 + 3 * synth as u8, 1.0);

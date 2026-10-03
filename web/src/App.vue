@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// Wide-screen layout (spec 003): transport on top, the returns, the synths, the MIDI
+// Wide-screen layout (spec 003): transport on top, the mixer, the synths, the MIDI
 // player across the bottom.
 import TransportBar from './components/TransportBar.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
-import ReturnsPane from './components/ReturnsPane.vue'
+import MixerPane from './components/MixerPane.vue'
 import PlayerPane from './components/PlayerPane.vue'
 </script>
 
 <template>
   <div class="layout">
     <TransportBar class="transport" />
-    <ReturnsPane class="returns" />
+    <MixerPane class="mixer" />
     <InstrumentsPane class="instruments" />
     <PlayerPane class="player" />
   </div>
@@ -26,12 +26,12 @@ import PlayerPane from './components/PlayerPane.vue'
   grid-template-rows: auto auto minmax(0, 1fr) minmax(220px, 36vh);
   grid-template-areas:
     'transport'
-    'returns'
+    'mixer'
     'instruments'
     'player';
 }
 .transport { grid-area: transport; }
-.returns { grid-area: returns; }
+.mixer { grid-area: mixer; max-height: 30vh; }
 .instruments { grid-area: instruments; }
 .player { grid-area: player; }
 </style>

@@ -240,8 +240,10 @@ impl MonoParams {
             // The mixer's (`mixer::Mixer`), not the voice's.
             Param::Level
             | Param::Pan
-            | Param::EchoSend
-            | Param::ReverbSend
+            | Param::Send1
+            | Param::Send2
+            | Param::Send3
+            | Param::Send4
             | Param::Mute
             | Param::Solo
             | Param::DriveMode

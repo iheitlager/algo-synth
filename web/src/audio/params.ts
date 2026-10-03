@@ -66,8 +66,8 @@ export const Param = {
   ModWheel: 59,
   Level: 60,
   Pan: 61,
-  EchoSend: 62,
-  ReverbSend: 63,
+  Send1: 62,
+  Send2: 63,
   Mute: 64,
   Solo: 65,
   DriveMode: 66,
@@ -103,6 +103,8 @@ export const Param = {
   EnvPw: 96,
   OscPw: 97,
   OscCutoff: 98,
+  Send3: 99,
+  Send4: 100,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

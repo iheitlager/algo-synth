@@ -12,7 +12,7 @@ A track SHALL own exactly one source instance (`Mono`, `Wave`, `Drums`), with it
 
 ### Requirement 2: Fixed mixer [MUST]
 
-Each track SHALL pass through up to four inserts, a fader and pan, and two sends (delay, reverb) into a master bus with a compressor and limiter. The insert order MAY change; nothing in the mixer SHALL allocate after init.
+The mixer SHALL own every strip parameter (`Level`, `Pan`, `Send1`–`Send4`, `Mute`, `Solo`; `Param::is_strip`). Each synth's strip SHALL pass through its drive insert, a fader and pan, and four post-fader sends (P1–P4) into a master bus with a compressor and limiter. The insert order MAY change; nothing in the mixer SHALL allocate after init.
 
 **Implementation:** `crates/dsp/src/mixer.rs::Mixer` (strips, buses and sends), `crates/dsp/src/fx/echo.rs::Echo`, `crates/dsp/src/fx/reverb.rs::Reverb` (the returns), `crates/dsp/src/fx/drive.rs::Drive` (the insert, spec 004 Req 11); the master compressor *(planned)*
 

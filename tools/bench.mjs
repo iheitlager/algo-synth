@@ -106,8 +106,8 @@ function run(setup, lowest) {
     w.set_param(s, Param.DriveMode, DriveMode.Fuzz)
     w.set_param(s, Param.DriveAmount, 1)
     w.set_param(s, Param.Pan, s / 7.5 - 1)
-    w.set_param(s, Param.EchoSend, 0.5)
-    w.set_param(s, Param.ReverbSend, 0.5)
+    w.set_param(s, Param.Send1, 0.5)
+    w.set_param(s, Param.Send2, 0.5)
   }
   const file = sixteenChannels(lowest)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)

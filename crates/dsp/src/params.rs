@@ -129,10 +129,10 @@ pub enum Param {
     Level = 60,
     /// Mixer pan of a synth, −1 (left)..=1 (right), equal power.
     Pan = 61,
-    /// Post-fader send to the echo, 0..=1.
-    EchoSend = 62,
-    /// Post-fader send to the reverb, 0..=1.
-    ReverbSend = 63,
+    /// Post-fader send 1 (processor P1), 0..=1.
+    Send1 = 62,
+    /// Post-fader send 2 (processor P2), 0..=1.
+    Send2 = 63,
     /// Silences the synth when ≥ 0.5.
     Mute = 64,
     /// When any synth is soloed (≥ 0.5), only soloed synths sound.
@@ -201,6 +201,10 @@ pub enum Param {
     OscPw = 97,
     /// Poly-mod: VCO 1 → cutoff, −1..=1 (±48 semitones).
     OscCutoff = 98,
+    /// Post-fader send 3 (processor P3), 0..=1.
+    Send3 = 99,
+    /// Post-fader send 4 (processor P4), 0..=1.
+    Send4 = 100,
 }
 
 /// Where the global parameters start: the effects are silent until a return
@@ -220,7 +224,7 @@ pub const GLOBAL_DEFAULTS: [(Param, f32); 10] = [
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 99] = [
+    pub const ALL: [(Param, &'static str); 101] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -283,8 +287,8 @@ impl Param {
         (Param::ModWheel, "ModWheel"),
         (Param::Level, "Level"),
         (Param::Pan, "Pan"),
-        (Param::EchoSend, "EchoSend"),
-        (Param::ReverbSend, "ReverbSend"),
+        (Param::Send1, "Send1"),
+        (Param::Send2, "Send2"),
         (Param::Mute, "Mute"),
         (Param::Solo, "Solo"),
         (Param::DriveMode, "DriveMode"),
@@ -320,7 +324,25 @@ impl Param {
         (Param::EnvPw, "EnvPw"),
         (Param::OscPw, "OscPw"),
         (Param::OscCutoff, "OscCutoff"),
+        (Param::Send3, "Send3"),
+        (Param::Send4, "Send4"),
     ];
+
+    /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
+    /// mixer owns them; the synth never sees them.
+    pub fn is_strip(self) -> bool {
+        matches!(
+            self,
+            Param::Level
+                | Param::Pan
+                | Param::Send1
+                | Param::Send2
+                | Param::Send3
+                | Param::Send4
+                | Param::Mute
+                | Param::Solo
+        )
+    }
 
     /// Parameters of the whole engine, not of one synth: the master gain and
     /// the send effects. Whichever synth they are sent to, they are set once.
@@ -409,7 +431,7 @@ impl Param {
             | Param::LfoCutoff
             | Param::LfoPw => (0.0, 1.0),
             Param::Model => (0.0, 5.0),
-            Param::Level | Param::EchoSend | Param::ReverbSend => (0.0, 1.0),
+            Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::DriveMode => (0.0, 3.0),
