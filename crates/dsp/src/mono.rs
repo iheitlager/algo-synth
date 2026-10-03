@@ -265,6 +265,9 @@ impl MonoParams {
             | Param::I3D
             | Param::I3E
             | Param::Out
+            | Param::P2In
+            | Param::P3In
+            | Param::P4In
             | Param::P1Type
             | Param::P1Return
             | Param::P1A

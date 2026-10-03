@@ -173,7 +173,7 @@ pub enum Param {
     I3D = 82,
     /// Insert slot 3's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
     I3E = 83,
-    /// Processor P1's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    /// Processor P1's effect id (`ProcType`: off, echo, reverb, chorus, flanger), 0..=4.
     P1Type = 84,
     /// Processor P1's return level into the master, 0..=1; 0 is silent.
     P1Return = 85,
@@ -187,7 +187,7 @@ pub enum Param {
     P1D = 89,
     /// Processor P1's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
     P1E = 90,
-    /// Processor P2's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    /// Processor P2's effect id (`ProcType`: off, echo, reverb, chorus, flanger), 0..=4.
     P2Type = 91,
     /// Processor P2's return level into the master, 0..=1; 0 is silent.
     P2Return = 92,
@@ -201,7 +201,7 @@ pub enum Param {
     P2D = 96,
     /// Processor P2's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
     P2E = 97,
-    /// Processor P3's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    /// Processor P3's effect id (`ProcType`: off, echo, reverb, chorus, flanger), 0..=4.
     P3Type = 98,
     /// Processor P3's return level into the master, 0..=1; 0 is silent.
     P3Return = 99,
@@ -215,7 +215,7 @@ pub enum Param {
     P3D = 103,
     /// Processor P3's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
     P3E = 104,
-    /// Processor P4's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    /// Processor P4's effect id (`ProcType`: off, echo, reverb, chorus, flanger), 0..=4.
     P4Type = 105,
     /// Processor P4's return level into the master, 0..=1; 0 is silent.
     P4Return = 106,
@@ -304,11 +304,20 @@ pub enum Param {
     /// Where a strip or group goes after its fader: 0 is the master, 1–8 a group.
     /// A group may only go to a higher-numbered group; other routes are ignored.
     Out = 149,
+    /// Processor P2 takes its input from P1's output as well as its sends when ≥ 0.5.
+    P2In = 150,
+    /// Processor P3 takes its input from P2's output as well as its sends when ≥ 0.5.
+    P3In = 151,
+    /// Processor P4 takes its input from P3's output as well as its sends when ≥ 0.5.
+    P4In = 152,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
 /// a return goes up; P3 and P4 are off.
-pub const GLOBAL_DEFAULTS: [(Param, f32); 44] = [
+pub const GLOBAL_DEFAULTS: [(Param, f32); 47] = [
+    (Param::P2In, 0.0),
+    (Param::P3In, 0.0),
+    (Param::P4In, 0.0),
     (Param::EqLowFreq, 100.0),
     (Param::EqLowGain, 0.0),
     (Param::EqMid1Freq, 500.0),
@@ -385,7 +394,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 150] = [
+    pub const ALL: [(Param, &'static str); 153] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -536,6 +545,9 @@ impl Param {
         (Param::EqHighFreq, "EqHighFreq"),
         (Param::EqHighGain, "EqHighGain"),
         (Param::Out, "Out"),
+        (Param::P2In, "P2In"),
+        (Param::P3In, "P3In"),
+        (Param::P4In, "P4In"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -589,6 +601,9 @@ impl Param {
                 | Param::EqMid2Q
                 | Param::EqHighFreq
                 | Param::EqHighGain
+                | Param::P2In
+                | Param::P3In
+                | Param::P4In
         ) || self.processor().is_some()
     }
 
@@ -679,6 +694,7 @@ impl Param {
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::Out => (0.0, 8.0),
+            Param::P2In | Param::P3In | Param::P4In => (0.0, 1.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),
             Param::I1B => (0.0, 1.0),
@@ -710,7 +726,7 @@ impl Param {
             Param::EqMid2Q => (0.3, 8.0),
             Param::EqHighFreq => (2000.0, 18000.0),
             Param::EqHighGain => (-15.0, 15.0),
-            Param::P1Type | Param::P2Type | Param::P3Type | Param::P4Type => (0.0, 2.0),
+            Param::P1Type | Param::P2Type | Param::P3Type | Param::P4Type => (0.0, 4.0),
             Param::P1Return | Param::P2Return | Param::P3Return | Param::P4Return => (0.0, 1.0),
             Param::P1A => (0.0, 1.0),
             Param::P1B => (0.0, 1.0),

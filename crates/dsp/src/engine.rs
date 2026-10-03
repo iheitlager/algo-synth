@@ -52,6 +52,8 @@ pub struct Engine {
     mixer: Mixer,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
+    /// Processor n+1 takes processor n's output (P2In…P4In).
+    series: [bool; SENDS],
     eq: Equalizer,
     comp: Compressor,
     limiter: Limiter,
@@ -90,6 +92,7 @@ impl Engine {
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
             mixer: Mixer::new(sample_rate),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
+            series: [false; SENDS],
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
             limiter: Limiter::new(sample_rate),
@@ -153,6 +156,17 @@ impl Engine {
         mono.set(param, v);
     }
 
+    /// Processor `i` takes the one before it as input (`v` ≥ 0.5), or not.
+    fn chain(&mut self, i: usize, v: f32) {
+        let on = v >= 0.5;
+        if let Some(s) = self.series.get_mut(i) {
+            *s = on;
+        }
+        if let Some(prev) = i.checked_sub(1).and_then(|k| self.procs.get_mut(k)) {
+            prev.set_feeds_next(on);
+        }
+    }
+
     fn set_global(&mut self, param: Param, v: f32) {
         match param {
             Param::MasterGain => self.master_gain = v,
@@ -171,6 +185,9 @@ impl Engine {
             Param::EqMid2Q => self.eq.set_q(EqBand::Mid2, v),
             Param::EqHighFreq => self.eq.set_freq(EqBand::High, v),
             Param::EqHighGain => self.eq.set_gain(EqBand::High, v),
+            Param::P2In => self.chain(1, v),
+            Param::P3In => self.chain(2, v),
+            Param::P4In => self.chain(3, v),
             _ => {}
         }
         if let Some((slot, field)) = param.processor() {
@@ -385,10 +402,23 @@ impl Engine {
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
         if let (Some(l), Some(r)) = (left.get_mut(..n), right.get_mut(..n)) {
-            for (proc, send) in self.procs.iter_mut().zip(self.mixer.sends.iter()) {
-                if let Some(send) = send.get(..n) {
-                    proc.process(send, l, r);
-                }
+            // P1 to P4 in order: a chained one hears the one before it.
+            for (i, send) in self.mixer.sends.iter().enumerate() {
+                let Some(send) = send.get(..n) else {
+                    continue;
+                };
+                let (done, rest) = self.procs.split_at_mut(i);
+                let Some(proc) = rest.first_mut() else {
+                    continue;
+                };
+                let series = if self.series.get(i).copied().unwrap_or(false) {
+                    i.checked_sub(1)
+                        .and_then(|k| done.get(k))
+                        .and_then(|p| p.wet(n))
+                } else {
+                    None
+                };
+                proc.process(send, series, l, r);
             }
             // The master chain: equalizer, compressor, gain, limiter.
             self.eq.process(l, r);
@@ -1370,6 +1400,65 @@ mod tests {
             }
         }
         for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+    }
+
+    #[test]
+    fn processors_can_be_chained_through_the_engine() {
+        let play = |chained: bool| {
+            let mut e = Engine::new(48_000.0);
+            // P1 an echo with no return, P2 a reverb fed only by P1; the strip sends to P1 only.
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::P1Return, 0.0);
+            e.set_param(0, Param::P2Return, 1.0);
+            e.set_param(0, Param::P2In, if chained { 1.0 } else { 0.0 });
+            // The echo's first repeat comes after 300 ms.
+            e.note_on(0, 57, 1.0);
+            render_out(&mut e, 400)
+        };
+        let alone = play(false);
+        let chained = play(true);
+        assert!(alone != chained, "the chain changes the mix");
+        assert_eq!(Engine::new(48_000.0).param_value(0, Param::P2In), 0.0);
+    }
+
+    #[test]
+    fn chain_parameters_are_global_and_p1_has_none() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(3, Param::P3In, 1.0);
+        assert_eq!(e.param_value(0, Param::P3In), 1.0);
+        e.reset(2);
+        assert_eq!(e.param_value(0, Param::P3In), 1.0, "reset leaves it");
+        e.set_param(0, Param::P4In, 7.0);
+        assert_eq!(e.param_value(0, Param::P4In), 1.0, "clamped");
+        assert!(!Param::ALL.iter().any(|(_, n)| *n == "P1In"));
+    }
+
+    #[test]
+    fn four_chained_processors_stay_bounded() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (i, ty) in [(0, 4.0), (1, 3.0), (2, 1.0), (3, 2.0)] {
+            let p = [Param::P1Type, Param::P2Type, Param::P3Type, Param::P4Type][i];
+            let r = [
+                Param::P1Return,
+                Param::P2Return,
+                Param::P3Return,
+                Param::P4Return,
+            ][i];
+            e.set_param(0, p, ty);
+            e.set_param(0, r, 1.0);
+        }
+        for p in [Param::P2In, Param::P3In, Param::P4In] {
+            e.set_param(0, p, 1.0);
+        }
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Send1, 1.0);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for _ in 0..400 {
             e.render(BLOCK);
             assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
         }

@@ -25,7 +25,6 @@ pub struct Reverb {
     pre_len: usize,
     sample_rate: f32,
     decay: f32,
-    ret: f32,
     /// DC blocker per output side: previous input and output, and its pole.
     dc: [[f32; 2]; 2],
     dc_r: f32,
@@ -47,7 +46,6 @@ impl Reverb {
             pre_len: 1,
             sample_rate,
             decay: 2.0,
-            ret: 0.0,
             dc: [[0.0; 2]; 2],
             dc_r: 1.0 - TAU * 10.0 / sample_rate,
         };
@@ -75,24 +73,18 @@ impl Reverb {
         self.pre_len = n.clamp(1, (MAX_PRE_DELAY * self.sample_rate) as usize);
     }
 
-    /// A return of 0 silences the reverb and forgets its tail.
-    pub fn set_return(&mut self, ret: f32) {
-        if ret == 0.0 && self.ret != 0.0 {
-            for line in self.lines.iter_mut() {
-                line.clear();
-            }
-            self.pre.clear();
-            self.lp = [0.0; LINES];
-            self.dc = [[0.0; 2]; 2];
+    /// Forget the tail.
+    pub fn clear(&mut self) {
+        for line in self.lines.iter_mut() {
+            line.clear();
         }
-        self.ret = ret;
+        self.pre.clear();
+        self.lp = [0.0; LINES];
+        self.dc = [[0.0; 2]; 2];
     }
 
     /// Feed `send` in and add the tail into `left` and `right`.
     pub fn process(&mut self, send: &[f32], left: &mut [f32], right: &mut [f32]) {
-        if self.ret == 0.0 {
-            return;
-        }
         let frames = send.iter().zip(left.iter_mut().zip(right.iter_mut()));
         for (x, (l, r)) in frames {
             self.pre.write(*x);
@@ -126,8 +118,8 @@ impl Reverb {
                 let sign = SIGNS.get(i).copied().unwrap_or(1.0);
                 line.write(w.get(i).copied().unwrap_or(0.0) + x * sign * 0.35);
             }
-            *l += self.dc_block(0, out_l * 0.5) * self.ret;
-            *r += self.dc_block(1, out_r * 0.5) * self.ret;
+            *l += self.dc_block(0, out_l * 0.5);
+            *r += self.dc_block(1, out_r * 0.5);
         }
     }
 
@@ -203,7 +195,6 @@ mod tests {
         let mut r = Reverb::new(SR);
         r.set_size(1.0);
         r.set_damping(0.0);
-        r.set_return(1.0);
         let (l, _) = run(&mut r, &impulse(96_000));
         let peak = db(&l, 0.1, 0.2);
         let half = db(&l, 0.45, 0.55) - peak;
@@ -217,7 +208,6 @@ mod tests {
         let at_one_second = |size: f32| {
             let mut r = Reverb::new(SR);
             r.set_size(size);
-            r.set_return(1.0);
             let (l, _) = run(&mut r, &impulse(96_000));
             db(&l, 1.0, 1.1) - db(&l, 0.1, 0.2)
         };
@@ -230,7 +220,6 @@ mod tests {
             let mut r = Reverb::new(SR);
             r.set_size(3.0);
             r.set_damping(damping);
-            r.set_return(1.0);
             let (l, _) = run(&mut r, &impulse(144_000));
             db(&l, 2.0, 2.2)
         };
@@ -241,7 +230,6 @@ mod tests {
     fn no_dc_and_always_bounded() {
         let mut r = Reverb::new(SR);
         r.set_size(10.0);
-        r.set_return(1.0);
         let loud: Vec<f32> = (0..240_000)
             .map(|i| 0.9 + 0.1 * (i as f32 * 0.37).sin())
             .collect();
@@ -256,20 +244,12 @@ mod tests {
     fn pre_delay_holds_the_tail_back() {
         let mut r = Reverb::new(SR);
         r.set_pre_delay(50.0);
-        r.set_return(1.0);
         let (l, rr) = run(&mut r, &impulse(9_600));
         let first = l
             .iter()
             .zip(&rr)
             .position(|(a, b)| a.abs() + b.abs() > 1.0e-6);
         assert!(first.is_some_and(|i| i >= 2_400), "starts at {first:?}");
-    }
-
-    #[test]
-    fn silent_without_a_return() {
-        let mut r = Reverb::new(SR);
-        let (l, rr) = run(&mut r, &impulse(24_000));
-        assert!(l.iter().chain(&rr).all(|x| *x == 0.0));
     }
 
     #[test]

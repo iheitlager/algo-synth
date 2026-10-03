@@ -179,6 +179,20 @@ describe('processor knobs', () => {
     expect(PROC_KNOBS[2]?.[0]?.text?.(1)).toBe('10.0 s')
     expect(PROC_KNOBS[1]?.[3]?.toggle).toBe(true)
   })
+
+  it('has chorus and flanger with their real units', () => {
+    expect(PROC_KNOBS[3]?.map((k) => k.label)).toEqual(['Rate', 'Depth', 'Delay', 'Spread', 'Tone'])
+    expect(PROC_KNOBS[4]?.map((k) => k.label)).toEqual(['Rate', 'Depth', 'Manual', 'Fdbk', 'Tone'])
+    expect(PROC_KNOBS[3]?.[0]?.text?.(1)).toBe('8.00 Hz')
+    expect(PROC_KNOBS[3]?.[2]?.text?.(0)).toBe('5.0 ms')
+    expect(PROC_KNOBS[3]?.[3]?.text?.(1)).toBe('180°')
+    expect(PROC_KNOBS[4]?.[0]?.text?.(0)).toBe('0.05 Hz')
+    expect(PROC_KNOBS[4]?.[2]?.text?.(1)).toBe('10.0 ms')
+    // Feedback is signed: the middle is none, the ends are ±95%.
+    expect(PROC_KNOBS[4]?.[3]?.text?.(0.5)).toBe('0%')
+    expect(PROC_KNOBS[4]?.[3]?.text?.(1)).toBe('95%')
+    expect(PROC_KNOBS[4]?.[3]?.text?.(0)).toBe('-95%')
+  })
 })
 
 describe('insert knobs', () => {

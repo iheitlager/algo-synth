@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-03
+
+### Added
+
+- The console's processor rack shows Chorus and Flanger with their knobs in real units, and a "← P1" toggle on P2–P4 that chains a processor to the one before it, drawn as a link between the modules (#94, epic #95).
+- Chained processors: `P2In`, `P3In` and `P4In` (ids 150–152) make a processor hear the one before it as well as its sends, so effects combine in series; a chain cannot loop, the previous processor's return may be 0, and chorus and flanger get its stereo output (#93, epic #95).
+- Chorus and flanger as processor types: a two-tap chorus (rate, depth, delay, spread, tone) and a flanger with feedback of either sign (rate, depth, manual, feedback, tone), stereo in and out, with a parabolic LFO and no transcendental per sample. `ProcType` gains `Chorus` and `Flanger`; the processor's return level now scales the effect's wet signal in the slot, not inside each effect (#92, epic #95).
+
 ## [0.13.0] - 2026-10-03
 
 The ARP Odyssey (#64, PR #76).
