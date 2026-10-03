@@ -1,5 +1,6 @@
-//! The engine: up to `SYNTHS` Mono synths, each with its own parameters,
-//! one Mono voice per owner, the MIDI player, planar stereo blocks.
+//! The engine: up to `SYNTHS` synths, each with its own parameters and a voice
+//! pool (`poly`: one Mono voice per owner, or a voice per note), the mixer, the
+//! MIDI player, planar stereo blocks.
 //!
 //! Real-time rules (ADR-0002): `render` never allocates, never panics and
 //! never calls `sin`/`exp`/`pow` per sample. The voices, tables and output are
@@ -15,9 +16,10 @@ use crate::mono::MonoParams;
 use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
-use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable};
+use crate::mono::voice::{MonoVoice, PitchTable};
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
+use crate::poly::{Pool, VOICE_BUDGET};
 use crate::smf;
 use crate::voice::{Owner, sine_table};
 
@@ -27,8 +29,6 @@ pub const BLOCK: usize = 128;
 pub const CHANNELS: usize = 16;
 /// Mono synths, each with its own parameters (plan.md MVP 5).
 pub const SYNTHS: usize = 16;
-/// Mono voices: one live voice per synth, one per MIDI channel (spec 004 Req 6).
-pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
 pub const METERS: usize = STRIPS + 2 + SENDS;
@@ -45,10 +45,10 @@ pub struct Engine {
     values: [[f32; Param::ALL.len()]; STRIPS],
     ladder: LadderTables,
     pitch: PitchTable,
-    /// Index s plays synth s's live input, `SYNTHS + n` plays MIDI channel n.
-    monos: [MonoVoice; MONO_VOICES],
-    /// The synth each voice plays, fixed when its note starts.
-    synth_of: [usize; MONO_VOICES],
+    /// Each synth's voices (spec 006).
+    pools: Vec<Pool>,
+    /// Counts the notes started, so a pool can tell which voice is oldest.
+    clock: u64,
     mixer: Mixer,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
@@ -84,10 +84,8 @@ impl Engine {
             values: [[0.0; Param::ALL.len()]; STRIPS],
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
-            monos: std::array::from_fn(|i| {
-                MonoVoice::new((i as u32 + 1).wrapping_mul(2_654_435_761))
-            }),
-            synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
+            pools: (0..SYNTHS).map(Pool::new).collect(),
+            clock: 0,
             mixer: Mixer::new(sample_rate),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
             eq: Equalizer::new(sample_rate),
@@ -220,14 +218,19 @@ impl Engine {
 
     /// Release every voice.
     pub fn all_off(&mut self) {
-        for m in self.monos.iter_mut() {
-            m.release_all();
+        for pool in self.pools.iter_mut() {
+            pool.release_all();
         }
     }
 
-    /// Voices still sounding (gated or releasing).
+    /// Voices still sounding (gated or releasing), across every synth.
     pub fn active_voices(&self) -> usize {
-        self.monos.iter().filter(|m| m.active()).count()
+        self.pools.iter().map(Pool::active).sum()
+    }
+
+    /// The Mono voice playing for `owner`, wherever it is (for tests and the view's debug).
+    pub fn voice(&self, owner: Owner) -> Option<&MonoVoice> {
+        self.pools.iter().find_map(|p| p.voice(owner))
     }
 
     /// The synth `owner` plays now: its own for live input, the route for a
@@ -240,37 +243,59 @@ impl Engine {
     }
 
     fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
-        let i = mono_index(owner);
         let Some(synth) = self.target(owner) else {
             return;
         };
-        let (Some(m), Some(slot), Some(params)) = (
-            self.monos.get_mut(i),
-            self.synth_of.get_mut(i),
-            self.synths.get(synth),
-        ) else {
-            return;
-        };
-        // A voice changing synth starts clean, not legato from the old one.
-        if *slot != synth {
-            m.release_all();
-            *slot = synth;
+        // An owner plays one synth at a time: leaving one starts clean on the next.
+        for (i, pool) in self.pools.iter_mut().enumerate() {
+            if i != synth {
+                pool.release_owner(owner);
+            }
         }
-        m.press(note.min(127), velocity, params);
+        self.clock += 1;
+        // At the voice budget a note takes the oldest voice in release anywhere,
+        // else the oldest held note of its own synth; with nothing to take, it is dropped.
+        let adds = match (self.pools.get(synth), self.synths.get(synth)) {
+            (Some(pool), Some(params)) => pool.adds_a_voice(owner, note, params),
+            _ => return,
+        };
+        if adds && self.active_voices() >= VOICE_BUDGET && !self.take_a_voice(synth) {
+            return;
+        }
+        if let (Some(pool), Some(params)) = (self.pools.get_mut(synth), self.synths.get(synth)) {
+            pool.note_on(owner, note.min(127), velocity, params, self.clock);
+        }
+    }
+
+    /// Free one voice for a note on `synth`; false when there is none to free.
+    fn take_a_voice(&mut self, synth: usize) -> bool {
+        let oldest = self
+            .pools
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| p.oldest_release().map(|(slot, age)| (i, slot, age)))
+            .min_by_key(|(_, _, age)| *age);
+        if let Some((pool, slot, _)) = oldest {
+            if let Some(p) = self.pools.get_mut(pool) {
+                p.silence(slot);
+            }
+            return true;
+        }
+        self.pools
+            .get_mut(synth)
+            .is_some_and(Pool::silence_oldest_held)
     }
 
     /// Release `note` from `owner`.
     fn stop_note(&mut self, owner: Owner, note: u8) {
-        let i = mono_index(owner);
-        let synth = self.synth_of.get(i).copied().unwrap_or(0);
-        if let (Some(m), Some(params)) = (self.monos.get_mut(i), self.synths.get(synth)) {
-            m.release(note, params);
+        for (pool, params) in self.pools.iter_mut().zip(self.synths.iter()) {
+            pool.note_off(owner, note, params);
         }
     }
 
     fn release_player(&mut self) {
-        for m in self.monos.iter_mut().skip(SYNTHS) {
-            m.release_all();
+        for pool in self.pools.iter_mut() {
+            pool.release_channels();
         }
     }
 
@@ -326,8 +351,8 @@ impl Engine {
     pub fn route(&mut self, channel: u8, synth: Option<usize>) {
         if let Some(slot) = self.route.get_mut(usize::from(channel)) {
             *slot = synth.filter(|s| *s < SYNTHS);
-            if let Some(m) = self.monos.get_mut(mono_index(Owner::Channel(channel))) {
-                m.release_all();
+            for pool in self.pools.iter_mut() {
+                pool.release_owner(Owner::Channel(channel));
             }
         }
     }
@@ -362,21 +387,20 @@ impl Engine {
         while t < n {
             self.fire_due_events();
             let chunk = self.sequence.frames_until_next(n - t);
-            for (m, synth) in self.monos.iter_mut().zip(self.synth_of.iter()) {
-                let Some(params) = self.synths.get(*synth) else {
+            for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
+            {
+                if pool.active() == 0 {
                     continue;
-                };
-                if m.active() {
-                    if let Some(buf) = self.mixer.bus(*synth, t..t + chunk) {
-                        let mono = MonoCtx {
-                            params,
-                            sine: &self.sine,
-                            blep: &self.blep,
-                            ladder: &self.ladder,
-                            pitch: &self.pitch,
-                        };
-                        m.render(&mono, buf);
-                    }
+                }
+                if let Some(buf) = self.mixer.bus(synth, t..t + chunk) {
+                    pool.render(
+                        params,
+                        &self.sine,
+                        &self.blep,
+                        &self.ladder,
+                        &self.pitch,
+                        buf,
+                    );
                 }
             }
             self.sequence.advance(chunk);
@@ -449,20 +473,18 @@ fn live(synth: usize) -> Option<u8> {
         .filter(|s| usize::from(*s) < SYNTHS)
 }
 
-/// Which of `Engine::monos` plays for `owner`.
-fn mono_index(owner: Owner) -> usize {
-    match owner {
-        Owner::Live(s) => usize::from(s),
-        Owner::Channel(ch) => SYNTHS + usize::from(ch),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mono::model::Model;
     use crate::mono::osc::LATENCY;
+    use crate::poly::VOICE_BUDGET;
     use crate::smf::tests::file;
+
+    /// Whether `owner`'s voice has a key held.
+    fn gated(e: &Engine, owner: Owner) -> bool {
+        e.voice(owner).is_some_and(MonoVoice::gated)
+    }
 
     fn peak(e: &Engine) -> f32 {
         e.output().iter().fold(0.0_f32, |m, s| m.max(s.abs()))
@@ -578,12 +600,12 @@ mod tests {
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 3);
         e.stop_note(Owner::Channel(2), 60);
-        assert!(!e.monos[SYNTHS + 2].gated());
-        assert!(e.monos[SYNTHS + 3].gated() && e.monos[0].gated());
+        assert!(!gated(&e, Owner::Channel(2)));
+        assert!(gated(&e, Owner::Channel(3)) && gated(&e, Owner::Live(0)));
         // Live Mono is monophonic: a second key moves the same voice.
         e.note_on(0, 69, 1.0);
         e.render(BLOCK);
-        assert_eq!(e.monos[0].note(), 69);
+        assert_eq!(e.voice(Owner::Live(0)).map(MonoVoice::note), Some(69));
         assert_eq!(e.active_voices(), 3);
     }
 
@@ -728,7 +750,7 @@ mod tests {
         e.set_param(SYNTHS, Param::Cutoff, 300.0);
         e.preset(usize::MAX, Preset::Bass);
         e.reset(SYNTHS);
-        assert!(e.monos[SYNTHS + 4].gated());
+        assert!(gated(&e, Owner::Channel(4)));
         assert_eq!(e.param_value(SYNTHS, Param::Cutoff), 0.0);
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 1);
@@ -765,6 +787,97 @@ mod tests {
             heard(&mut e, 10) < 1.0e-4,
             "silencing synth 4 silences the channel"
         );
+    }
+
+    /// Spec 006 Req 1: a polyphonic synth plays a chord from live keys and a MIDI
+    /// channel at once, each releasing only its own notes.
+    #[test]
+    fn a_poly_synth_plays_chords_from_live_keys_and_a_channel() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Polyphony, 8.0);
+        // A chord of three on channel 0 at 0.5 s, held for 0.5 s.
+        let chord = vec![
+            0x83, 0x60, 0x90, 60, 100, 0x00, 0x90, 64, 100, 0x00, 0x90, 67, 100, 0x83, 0x60, 0x80,
+            60, 0, 0x00, 0x80, 64, 0, 0x00, 0x80, 67, 0, 0x00, 0xFF, 0x2F, 0,
+        ];
+        load(&mut e, &file(0, 480, &[chord])).expect("loads");
+        e.route(0, Some(0));
+        e.note_on(0, 72, 1.0);
+        e.play();
+        let mut most = 0;
+        for _ in 0..260 {
+            e.render(BLOCK);
+            most = most.max(e.active_voices());
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(most, 4, "three chord notes and the live key");
+        for _ in 0..400 {
+            e.render(BLOCK);
+        }
+        assert!(
+            gated_notes(&e, 0) == 1,
+            "the live key is still held after the chord ends"
+        );
+    }
+
+    /// Notes held on a synth: its voices with a key down.
+    fn gated_notes(e: &Engine, synth: usize) -> usize {
+        e.pools[synth].held()
+    }
+
+    /// Spec 006 Req 5: at most the voice budget sounds at once, across synths.
+    #[test]
+    fn the_voice_budget_caps_the_voices_across_synths() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Polyphony, 8.0);
+            for k in 0..8 {
+                e.note_on(synth, 36 + 3 * k + synth as u8, 1.0);
+            }
+        }
+        for _ in 0..100 {
+            e.render(BLOCK);
+            assert!(
+                e.active_voices() <= VOICE_BUDGET,
+                "{} voices",
+                e.active_voices()
+            );
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(e.active_voices(), VOICE_BUDGET, "and the cap is used");
+    }
+
+    /// A note past the budget takes the oldest voice in release first.
+    #[test]
+    fn a_note_at_the_budget_takes_a_released_voice_first() {
+        let mut e = Engine::new(48_000.0);
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Polyphony, 4.0);
+            e.set_param(synth, Param::AdsrRelease, 5.0);
+        }
+        // Synth 9 has room for more notes than it plays.
+        e.set_param(9, Param::Polyphony, 8.0);
+        for synth in 0..SYNTHS {
+            for k in 0..4 {
+                e.note_on(synth, 40 + 4 * k, 1.0);
+            }
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), VOICE_BUDGET);
+        // Synth 5 lets a note go: it is in release, the oldest of the releasing voices.
+        e.note_off(5, 40);
+        e.render(BLOCK);
+        e.note_on(9, 90, 1.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), VOICE_BUDGET);
+        assert_eq!(e.pools[5].held(), 3, "synth 5 kept its three held notes");
+        assert_eq!(
+            e.pools[5].active(),
+            3,
+            "and its released tail was the voice taken"
+        );
+        assert_eq!(e.pools[9].held(), 5, "while the new note sounds on synth 9");
     }
 
     #[test]
@@ -1459,9 +1572,12 @@ mod tests {
             e.render(BLOCK);
         }
         e.stop();
-        assert!(e.monos[0].gated(), "the live Mono voice is still held");
         assert!(
-            !e.monos[SYNTHS].gated(),
+            gated(&e, Owner::Live(0)),
+            "the live Mono voice is still held"
+        );
+        assert!(
+            !gated(&e, Owner::Channel(0)),
             "the player's Mono voice is released"
         );
     }

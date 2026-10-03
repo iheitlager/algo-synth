@@ -8,7 +8,7 @@ Common to every requirement: `render` follows ADR-0002 (no allocation, no panic,
 
 Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a model uses `Model::voices()`. A monosynth model SHALL keep one voice per owner with note priority, legato and glide on that voice (spec 004 Req 6), so every monosynth renders exactly as it did before the pool. A poly model SHALL press each note on a voice of its own. A voice SHALL remember its owner (live keys or a MIDI channel) and its note, so a note-off releases its own voice, and live keys and MIDI channels on one synth SHALL NOT release each other. Rerouting a channel or `all_off` SHALL release its voices.
 
-**Implementation:** `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/engine.rs::Engine` *(planned, #80)*
+**Implementation:** `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/engine.rs::Engine` (#80)
 
 #### Scenario: a chord
 
@@ -22,13 +22,13 @@ Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a
 - WHEN the channel releases a note the live keys also hold
 - THEN only the channel's voice is released
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/poly.rs::tests::a_chord_sounds_one_voice_per_note_and_releases_its_own`, `crates/dsp/src/poly.rs::tests::a_monophonic_synth_keeps_one_voice_per_owner`, `crates/dsp/src/poly.rs::tests::owners_do_not_release_each_other`, `crates/dsp/src/engine.rs::tests::a_poly_synth_plays_chords_from_live_keys_and_a_channel`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
 
 ### Requirement 2: Allocation and stealing [MUST]
 
 A new note SHALL take a free voice, rotating from the last one used. A note already sounding on its owner SHALL re-use that voice. When no voice is free, or the synth's polyphony (`Polyphony`, at most the model's voices) or the global voice budget (64) is full, the voice in release that has sounded longest SHALL be stolen, else the oldest held note, and a stolen voice SHALL restart clean.
 
-**Implementation:** `crates/dsp/src/poly.rs::Pool::allocate` *(planned, #80)*
+**Implementation:** `crates/dsp/src/poly.rs::Pool::allocate` (#80)
 
 #### Scenario: stealing
 
@@ -36,7 +36,7 @@ A new note SHALL take a free voice, rotating from the last one used. A note alre
 - WHEN it is pressed
 - THEN the oldest held note is stolen, and with one voice in release that voice is stolen first
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/poly.rs::tests::a_full_pool_steals_the_release_first_then_the_oldest_held`, `crates/dsp/src/poly.rs::tests::rotation_does_not_cut_a_released_tail_first`, `crates/dsp/src/poly.rs::tests::the_same_note_again_retriggers_its_voice`, `crates/dsp/src/poly.rs::tests::every_sample_is_finite_and_bounded_at_full_polyphony`
 
 ### Requirement 3: Unison and analog variance [MUST]
 
@@ -56,7 +56,7 @@ A new note SHALL take a free voice, rotating from the last one used. A note alre
 
 A poly model's pool SHALL run one LFO and one sample-and-hold, and every voice SHALL read them, so a vibrato is the same on every voice and a voice started later joins it in phase.
 
-**Implementation:** `crates/dsp/src/poly.rs::Pool::render`, `crates/dsp/src/mono/voice.rs::MonoCtx` *(planned, #80)*
+**Implementation:** `crates/dsp/src/poly.rs::Pool::render`, `crates/dsp/src/mono/voice.rs::SharedMod` (#80)
 
 #### Scenario: coherent vibrato
 
@@ -64,13 +64,13 @@ A poly model's pool SHALL run one LFO and one sample-and-hold, and every voice S
 - WHEN both render
 - THEN their pitch modulation is identical
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/poly.rs::tests::the_lfo_is_shared_by_every_voice`
 
 ### Requirement 5: Voice budget [MUST]
 
 At most 64 voices SHALL sound at once across all synths; a note past it SHALL steal the oldest voice in release anywhere, else the oldest held note of its own pool. `make bench` SHALL measure full polyphony on every poly model against the 25% budget of plan.md.
 
-**Implementation:** `crates/dsp/src/engine.rs::Engine`, `tools/bench.mjs` *(planned, #80, #91)*
+**Implementation:** `crates/dsp/src/engine.rs::Engine::start_voice`, `tools/bench.mjs` (#80, #91)
 
 #### Scenario: the cap
 
@@ -78,7 +78,7 @@ At most 64 voices SHALL sound at once across all synths; a note past it SHALL st
 - WHEN the chords are held
 - THEN no more than 64 voices sound and every sample is finite and within ±1
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/engine.rs::tests::the_voice_budget_caps_the_voices_across_synths`, `crates/dsp/src/engine.rs::tests::a_note_at_the_budget_takes_a_released_voice_first`
 
 ### Requirement 6: Prophet-5 [MUST]
 

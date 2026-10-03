@@ -15,6 +15,7 @@
 //! `exp2` in `render` (ADR-0002); the LFO rate follows its modulation once
 //! per block.
 
+use crate::engine::BLOCK;
 use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::MAX_K;
 use crate::mono::ladder::{Ladder, LadderTables};
@@ -97,6 +98,42 @@ impl PitchTable {
     }
 }
 
+/// The LFO and sample-and-hold a polyphonic synth's pool computes once for all
+/// its voices (spec 006 Req 4), one value per sample of the block.
+pub struct SharedMod {
+    pub lfo: [f32; BLOCK],
+    pub held: [f32; BLOCK],
+}
+
+impl SharedMod {
+    pub fn new() -> SharedMod {
+        SharedMod {
+            lfo: [0.0; BLOCK],
+            held: [0.0; BLOCK],
+        }
+    }
+
+    /// Run the pool's LFO for `n` samples.
+    pub fn fill(
+        &mut self,
+        lfo: &mut Lfo,
+        noise: &mut Noise,
+        p: &MonoParams,
+        sine: &[f32],
+        n: usize,
+    ) {
+        for (l, h) in self.lfo.iter_mut().zip(self.held.iter_mut()).take(n) {
+            (*l, *h) = lfo.step(p.lfo_inc, p.lfo_wave, sine, noise);
+        }
+    }
+}
+
+impl Default for SharedMod {
+    fn default() -> SharedMod {
+        SharedMod::new()
+    }
+}
+
 /// What a Mono voice reads from the engine while it renders.
 pub struct MonoCtx<'a> {
     pub params: &'a MonoParams,
@@ -104,6 +141,8 @@ pub struct MonoCtx<'a> {
     pub blep: &'a Blep,
     pub ladder: &'a LadderTables,
     pub pitch: &'a PitchTable,
+    /// A poly synth's shared LFO; `None` gives the voice its own.
+    pub shared: Option<&'a SharedMod>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -312,7 +351,7 @@ impl MonoVoice {
         let (ring_level, sub_level) = (p.ring_level, p.sub_level);
         let hp = p.model.hp();
         let filter_env_is_adsr = p.model.filter_env_is_adsr();
-        for sample in out.iter_mut() {
+        for (i, sample) in out.iter_mut().enumerate() {
             let adsr = self.adsr.step();
             let ar = self.ar.step();
             let fenv = self.fadsr.step();
@@ -327,9 +366,15 @@ impl MonoVoice {
                     self.pitch + self.glide_step
                 };
             }
-            let (lfo, held) = self
-                .lfo
-                .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise);
+            let (lfo, held) = match ctx.shared {
+                Some(sm) => (
+                    sm.lfo.get(i).copied().unwrap_or(0.0),
+                    sm.held.get(i).copied().unwrap_or(0.0),
+                ),
+                None => self
+                    .lfo
+                    .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise),
+            };
             let noise = self.noise.sample(colour);
             let key = self.pitch - 60.0;
             let mut src: Sources = [0.0; SOURCES];
@@ -474,6 +519,7 @@ mod tests {
                 blep: &self.blep,
                 ladder: &self.ladder,
                 pitch: &self.pitch,
+                shared: None,
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {

@@ -154,6 +154,7 @@ export const Param = {
   EqHighFreq: 147,
   EqHighGain: 148,
   Out: 149,
+  Polyphony: 150,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
