@@ -78,9 +78,9 @@ The selected synth SHALL be drawn as one faceplate in the console's hardware sty
 
 **Implementation:** `web/src/components/SynthFaceplate.vue`, `web/src/components/synth/` (`Switch.vue`, `Selector.vue`, `EnvGraph.vue`, `PatchBay.vue`, `SynthRail.vue`, `Keyboard.vue`), `web/src/audio/faceplate.ts`, `web/src/audio/models.ts`
 
-#### Scenario: six instruments
+#### Scenario: every instrument
 
-- GIVEN six synths, one of each model
+- GIVEN one synth of each model
 - WHEN each is selected
 - THEN its faceplate carries its model's name, palette and sections, every control resolves to a parameter, and an edit sends that parameter
 

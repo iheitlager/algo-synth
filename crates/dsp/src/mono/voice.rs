@@ -966,13 +966,63 @@ mod tests {
             assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 2.0));
             (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
         };
-        // Moog (ARP 2600 and Minimoog), Pro-One, SH-101.
-        let (moog, pro, sh) = (rms_of(0.0), rms_of(2.0), rms_of(5.0));
+        // Moog (ARP 2600 and Minimoog), Pro-One, SH-101, Odyssey.
+        let (moog, pro, sh, ody) = (rms_of(0.0), rms_of(2.0), rms_of(5.0), rms_of(6.0));
         assert_eq!(moog, rms_of(1.0), "the Minimoog ladder is the Moog voicing");
-        assert!(moog > 0.0 && pro > 0.0 && sh > 0.0);
+        assert!(moog > 0.0 && pro > 0.0 && sh > 0.0 && ody > 0.0);
         assert!((moog - pro).abs() > 1.0e-3, "{moog} vs {pro}");
         assert!((moog - sh).abs() > 1.0e-3, "{moog} vs {sh}");
         assert!((pro - sh).abs() > 1.0e-3, "{pro} vs {sh}");
+        for other in [moog, pro, sh] {
+            assert!((ody - other).abs() > 1.0e-3, "Odyssey {ody} vs {other}");
+        }
+    }
+
+    /// Spec 005 Req 10: the Odyssey's high-pass is a 6 dB stage after the
+    /// low-pass, and takes the lows out of a low note; the ARP 2600 has none.
+    #[test]
+    fn odyssey_high_pass_takes_out_the_lows() {
+        let rms = |model: f32, hp: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::HpCutoff, hp),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(33);
+            r.render(4_800);
+            let out = r.render(24_000);
+            (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
+        };
+        assert_eq!(crate::mono::model::Model::Odyssey.hp(), Hp::OnePole);
+        let (open, high) = (rms(6.0, 20.0), rms(6.0, 2_000.0));
+        assert!(high < 0.6 * open, "open {open}, high-passed {high}");
+        assert_eq!(
+            rms(0.0, 20.0),
+            rms(0.0, 2_000.0),
+            "the 2600 has no high-pass"
+        );
+    }
+
+    /// Spec 005 Req 10: one ADSR moves both the Odyssey's cutoff and its
+    /// loudness; the filter ADSR plays no part.
+    #[test]
+    fn odyssey_one_envelope_moves_cutoff_and_loudness() {
+        let mut r = Rig::new(&[
+            (Param::Model, 6.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.5),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 0.001),
+        ]);
+        r.press(60);
+        for i in 0..20_000 {
+            r.render(1);
+            if i % 2_000 == 1_999 {
+                let m = r.voice.mods();
+                assert!((m.vca - m.cutoff / 48.0).abs() < 1.0e-3, "{i}: {m:?}");
+            }
+        }
     }
 
     /// Spec 004 Req 12: on a model that uses the filter ADSR, the loudness

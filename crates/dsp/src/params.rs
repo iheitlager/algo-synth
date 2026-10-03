@@ -229,7 +229,7 @@ pub enum Param {
     P4D = 110,
     /// Processor P4's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
     P4E = 111,
-    /// The synth's model id (`Model`), 0..=5; see spec 005.
+    /// The synth's model id (`Model`), 0..=6; see spec 005.
     Model = 112,
     /// Filter ADSR attack, decay and release in seconds, 0.001..=10.
     FenvAttack = 113,
@@ -674,7 +674,7 @@ impl Param {
             | Param::ModWheel
             | Param::LfoCutoff
             | Param::LfoPw => (0.0, 1.0),
-            Param::Model => (0.0, 5.0),
+            Param::Model => (0.0, 6.0),
             Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),

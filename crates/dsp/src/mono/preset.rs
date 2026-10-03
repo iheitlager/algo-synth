@@ -43,11 +43,13 @@ pub enum Preset {
     AcidBass = 28,
     SubPluck = 29,
     Sh101Strings = 30,
+    CurrieLead = 31,
+    OdysseySync = 32,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 31] = [
+    pub const ALL: [(Preset, &'static str); 33] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -79,6 +81,8 @@ impl Preset {
         (Preset::AcidBass, "AcidBass"),
         (Preset::SubPluck, "SubPluck"),
         (Preset::Sh101Strings, "Sh101Strings"),
+        (Preset::CurrieLead, "CurrieLead"),
+        (Preset::OdysseySync, "OdysseySync"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -104,6 +108,7 @@ impl Preset {
             Preset::Ms20Squelch | Preset::JetSweep | Preset::Ms20Strings => Model::Ms20,
             Preset::BladeBrass | Preset::Cs15Strings => Model::Cs15,
             Preset::AcidBass | Preset::SubPluck | Preset::Sh101Strings => Model::Sh101,
+            Preset::CurrieLead | Preset::OdysseySync => Model::Odyssey,
         }
     }
 
@@ -759,6 +764,56 @@ impl Preset {
                 (AdsrRelease, 0.25),
                 (EnvCutoff, 0.7),
                 (KeyTrack, 0.5),
+            ],
+            // Two saws a few cents apart into a bright, slightly resonant
+            // ladder driven into its saturator; legato glide and a quick
+            // vibrato on the wheel: a singing late-70s Odyssey lead in the
+            // manner of Billy Currie. An overdrive insert on the strip adds the
+            // grit; the bends are the player's (#10).
+            Preset::CurrieLead => &[
+                (Model, 6.0),
+                (Vco1Level, 0.9),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.8),
+                (HpCutoff, 60.0),
+                (Cutoff, 3_200.0),
+                (Resonance, 0.35),
+                (Drive, 0.45),
+                (AdsrAttack, 0.008),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.3),
+                (EnvCutoff, 0.25),
+                (KeyTrack, 0.5),
+                (LfoRate, 5.5),
+                (Vibrato, 0.25),
+                (ModWheel, 0.6),
+                (Glide, 0.12),
+                (Legato, 1.0),
+            ],
+            // VCO 2 hard-synced to a silent VCO 1, its pitch swept down by the
+            // ADSR on every note, through an open ladder: the Odyssey's sync
+            // lead.
+            Preset::OdysseySync => &[
+                (Model, 6.0),
+                (Vco1Level, 0.0),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 1.0),
+                (Vco2Sync, 1.0),
+                (HpCutoff, 60.0),
+                (Cutoff, 4_500.0),
+                (Resonance, 0.25),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.25),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.4),
+                (Vibrato, 0.2),
+                (ModWheel, 0.4),
+                (Patch1Source, 5.0),
+                (Patch1Dest, 2.0),
+                (Patch1Amount, 0.45),
             ],
             // Saw and a pulse whose width the LFO moves, a sub, a high-pass and
             // a slow attack that opens the filter with it.

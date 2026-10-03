@@ -494,8 +494,64 @@ const sh101: ModelDef = {
   ],
 }
 
+// The ARP Odyssey Mk II (spec 005 Req 10): two VCOs with sync, ring mod and
+// noise, a 24 dB ladder and a 6 dB high-pass after it, one ADSR to filter and
+// VCA. Not modular, so no patch bay: the presets' patch slots still play.
+// Black and gold.
+const odyssey: ModelDef = {
+  id: Model.Odyssey,
+  name: 'Odyssey',
+  maker: 'ARP · two oscillators, sync, high-pass after the ladder',
+  tagline: 'Two oscillators with hard sync and ring mod, a bright 24 dB ladder, a high-pass after it, glide',
+  theme: { panel: '#121212', ink: '#f0e3b8', soft: '#a6996f', trim: '#8a6d24', accent: '#c9a227' },
+  presets: ['CurrieLead', 'OdysseySync'],
+  sections: [
+    {
+      title: 'VCO 1',
+      controls: [
+        select('Wave', Param.Vco1Wave, WAVES), coarse(Param.Vco1Coarse), fine(Param.Vco1Fine),
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 2',
+      controls: [select('Wave', Param.Vco2Wave, WAVES), coarse(Param.Vco2Coarse), fine(Param.Vco2Fine), sw('Sync', Param.Vco2Sync)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('VCO 1', Param.Vco1Level, 0, 1, 0.01), range('VCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Ring mod', Param.RingLevel, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+        select('Noise colour', Param.NoiseColour, NOISES),
+      ],
+    },
+    { title: 'HPF', controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff')] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('ADSR', Param.EnvCutoff, -1, 1, 0.01), range('Key track', Param.KeyTrack, 0, 1, 0.01),
+        range('LFO', Param.LfoCutoff, 0, 1, 0.01),
+      ],
+    },
+    { title: 'ADSR', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Speed', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ PW', Param.LfoPw, 0, 1, 0.01),
+        range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Keys',
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+    },
+  ],
+}
+
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

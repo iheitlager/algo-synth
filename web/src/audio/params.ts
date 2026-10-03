@@ -274,6 +274,7 @@ export const Model = {
   Ms20: 3,
   Cs15: 4,
   Sh101: 5,
+  Odyssey: 6,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -309,6 +310,8 @@ export const Preset = {
   AcidBass: 28,
   SubPluck: 29,
   Sh101Strings: 30,
+  CurrieLead: 31,
+  OdysseySync: 32,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

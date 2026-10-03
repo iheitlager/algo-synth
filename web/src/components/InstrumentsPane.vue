@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The synths (spec 003 Req 3 and 9, spec 005): a rail of tapes, one per synth
-// (up to 16, each one of six instruments), and the selected one as a faceplate
+// (up to 16, each one of seven instruments), and the selected one as a faceplate
 // in its model's palette with a keyboard under it. The selected synth gets the
 // keys, the computer keyboard's too.
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
