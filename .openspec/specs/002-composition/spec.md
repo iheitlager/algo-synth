@@ -6,9 +6,15 @@ Tracks, sources, effects, fragments, the arrangement, generators, the song as te
 
 A track SHALL be a synth slot (strip 0–15) and own exactly one source: a Mono or Poly model (ADR-0009), the Drums kit (MVP 3) or, later, the Sampler (MVP 6), with its own fixed voice pool and parameters. Parameters SHALL be addressed as (track, parameter).
 
-**Implementation:** `crates/dsp/src/track.rs::Track` *(planned, MVP 3)*
+**Implementation:** `crates/dsp/src/track.rs::Track` *(planned, MVP 3)*; the Drums kit's pads `crates/dsp/src/drums.rs::Kit` (bd, sn, cp, ch, oh, lt, ht, cb: one voice per pad, the closed hat choking the open hat, per-pad tune, decay, tone, level and an accent), in a slot once the voice pool lands (#114)
 
-**Tests:** `crates/dsp/src/track.rs::tests` *(planned)*
+#### Scenario: the loudest hit
+
+- GIVEN any pad at full level, accented by the most, at any extreme of tune, decay and tone
+- WHEN it is rendered offline
+- THEN every sample is finite and within ±1, there is no DC, and it is silent within four seconds
+
+**Tests:** `crates/dsp/src/track.rs::tests` *(planned)*, `crates/dsp/src/drums/tests.rs::every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends`, `crates/dsp/src/drums/tests.rs::the_kick_falls_to_its_tune`, `crates/dsp/src/drums/tests.rs::tune_moves_the_pitch_by_semitones`, `crates/dsp/src/drums/tests.rs::the_hats_sit_high`, `crates/dsp/src/drums/tests.rs::the_closed_hat_chokes_the_open_hat`, `crates/dsp/src/drums/tests.rs::the_clap_comes_in_bursts`, `crates/dsp/src/drums/tests.rs::an_accent_is_louder_by_the_amount`, `crates/dsp/src/drums/tests.rs::the_same_hit_gives_the_same_samples`
 
 ### Requirement 2: Fixed mixer [MUST]
 
