@@ -710,6 +710,48 @@ mod tests {
         );
     }
 
+    /// Spec 005 Req 6: the AR moves the high-pass and the filter ADSR the
+    /// low-pass, each on its own part of the spectrum.
+    #[test]
+    fn cs15_filters_have_their_own_envelopes() {
+        let note = |env_cutoff: f32, env_hp: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 4.0),
+                (Param::Vco1Level, 0.5),
+                (Param::HpCutoff, 100.0),
+                (Param::Cutoff, 400.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvAttack, 0.001),
+                (Param::FenvSustain, 1.0),
+                (Param::ArAttack, 0.001),
+                (Param::EnvCutoff, env_cutoff),
+                (Param::EnvHpCutoff, env_hp),
+            ]);
+            r.press(45);
+            r.render(9_600);
+            let out = r.render(48_000);
+            // The fundamental, and the 20th harmonic.
+            (tone(&out, 110.0), tone(&out, 2_200.0))
+        };
+        let db = |a: f64, b: f64| 20.0 * (a / b).log10();
+        let (low0, high0) = note(0.0, 0.0);
+        let (low_hp, high_hp) = note(0.0, 0.8);
+        assert!(
+            db(low_hp, low0) < -10.0,
+            "the AR lifts the high-pass over the fundamental"
+        );
+        assert!(db(high_hp, high0).abs() < 3.0, "and leaves the top alone");
+        let (low_lp, high_lp) = note(0.8, 0.0);
+        assert!(
+            db(high_lp, high0) > 10.0,
+            "the filter ADSR opens the low-pass"
+        );
+        assert!(
+            db(low_lp, low0).abs() < 2.0,
+            "and leaves the fundamental alone"
+        );
+    }
+
     /// Spec 005 Req 5: noise through the MS-20's high-pass at 2 kHz and
     /// low-pass at 8 kHz is down below the one and above the other.
     #[test]

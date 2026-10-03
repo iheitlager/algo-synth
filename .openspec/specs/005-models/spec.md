@@ -104,7 +104,7 @@ The CS-15 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 - WHEN a note is held
 - THEN moving the AR amount changes the low end of the spectrum and not the high end, and moving the ADSR amount does the reverse
 
-**Tests:** `crates/dsp/src/engine.rs::tests::cs15_filters_have_their_own_envelopes`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::cs15_filters_have_their_own_envelopes`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`
 
 ### Requirement 7: Roland SH-101 [MUST]
 

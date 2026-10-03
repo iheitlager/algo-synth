@@ -22,11 +22,13 @@ pub enum Preset {
     ProBass = 7,
     Ms20Lead = 8,
     Ms20Wobble = 9,
+    Cs15Brass = 10,
+    Cs15Lead = 11,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 10] = [
+    pub const ALL: [(Preset, &'static str); 12] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -37,6 +39,8 @@ impl Preset {
         (Preset::ProBass, "ProBass"),
         (Preset::Ms20Lead, "Ms20Lead"),
         (Preset::Ms20Wobble, "Ms20Wobble"),
+        (Preset::Cs15Brass, "Cs15Brass"),
+        (Preset::Cs15Lead, "Cs15Lead"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -54,6 +58,7 @@ impl Preset {
             Preset::MiniBass | Preset::MiniLead => Model::Minimoog,
             Preset::ProLead | Preset::ProBass => Model::ProOne,
             Preset::Ms20Lead | Preset::Ms20Wobble => Model::Ms20,
+            Preset::Cs15Brass | Preset::Cs15Lead => Model::Cs15,
         }
     }
 
@@ -274,6 +279,58 @@ impl Preset {
                 (Patch1Source, 8.0),
                 (Patch1Dest, 5.0),
                 (Patch1Amount, 0.5),
+            ],
+            // Two saws a few cents apart; the low-pass swells with its
+            // envelope as a brass note does, the high-pass opens a little
+            // with the AR: the CS-15's brass.
+            Preset::Cs15Brass => &[
+                (Model, 4.0),
+                (Vco2Fine, 9.0),
+                (Vco2Level, 0.9),
+                (HpCutoff, 150.0),
+                (Cutoff, 900.0),
+                (Resonance, 0.35),
+                (AdsrAttack, 0.08),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 0.2),
+                (FenvAttack, 0.12),
+                (FenvDecay, 0.4),
+                (FenvSustain, 0.6),
+                (EnvCutoff, 0.6),
+                (ArAttack, 0.15),
+                (EnvHpCutoff, 0.2),
+                (KeyTrack, 0.4),
+                (LfoWave, 2.0),
+                (LfoRate, 5.5),
+                (Vibrato, 0.1),
+                (ModWheel, 0.3),
+            ],
+            // A pulse and a saw an octave up with a little ring mod, a
+            // snappy low-pass and glide: a thin, vocal lead.
+            Preset::Cs15Lead => &[
+                (Model, 4.0),
+                (Vco1Wave, 1.0),
+                (PulseWidth, 0.4),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 0.5),
+                (RingLevel, 0.2),
+                (HpCutoff, 300.0),
+                (HpResonance, 0.2),
+                (Cutoff, 3_000.0),
+                (Resonance, 0.4),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.25),
+                (AdsrSustain, 0.75),
+                (AdsrRelease, 0.2),
+                (FenvAttack, 0.005),
+                (FenvDecay, 0.25),
+                (FenvSustain, 0.35),
+                (EnvCutoff, 0.4),
+                (ArAttack, 0.2),
+                (EnvHpCutoff, 0.15),
+                (Glide, 0.06),
+                (Legato, 1.0),
             ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.

@@ -331,8 +331,72 @@ const ms20: ModelDef = {
   ],
 }
 
+const cs15: ModelDef = {
+  id: Model.Cs15,
+  name: 'CS-15',
+  maker: 'Yamaha · two filters, an envelope for each',
+  tagline: 'Two oscillators, ring mod, a high-pass and a low-pass each with an envelope of its own',
+  theme: { panel: '#2c1f19', ink: '#f2e4ca', soft: '#bba98b', trim: '#6b4b2f', accent: '#d9b27c' },
+  presets: ['Cs15Brass', 'Cs15Lead'],
+  sections: [
+    {
+      title: 'VCO 1',
+      controls: [
+        select('Wave', Param.Vco1Wave, WAVES), range('Octave', Param.Vco1Coarse, -24, 24, 1),
+        fine(Param.Vco1Fine), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 2',
+      controls: [select('Wave', Param.Vco2Wave, WAVES), range('Octave', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('VCO 1', Param.Vco1Level, 0, 1, 0.01), range('VCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Ring mod', Param.RingLevel, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+        select('Noise colour', Param.NoiseColour, NOISES),
+      ],
+    },
+    {
+      title: 'HPF',
+      controls: [
+        range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.HpResonance, 0, 1, 0.01),
+        range('Envelope (AR)', Param.EnvHpCutoff, -1, 1, 0.01),
+      ],
+    },
+    {
+      title: 'LPF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope (ADSR)', Param.EnvCutoff, -1, 1, 0.01), range('Key track', Param.KeyTrack, 0, 1, 0.01),
+        range('Drive', Param.Drive, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Amplifier envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'LPF envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    {
+      title: 'HPF envelope',
+      controls: [range('Attack', Param.ArAttack, 0.001, 2, 0.001), decay('Release', Param.ArRelease)],
+    },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Speed', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ LPF', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Keys',
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+    },
+    { title: 'Sample & hold, patch', controls: [], patch: true },
+  ],
+}
+
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? arp2600
