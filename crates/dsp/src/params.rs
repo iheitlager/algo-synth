@@ -485,8 +485,15 @@ mod tests {
             v
         }
         let ts = include_str!("../../../web/src/audio/params.ts");
+        // `GlobalParam`: what `is_global` marks, which a setup stores once.
+        let global: Vec<(Param, &str)> = Param::ALL
+            .iter()
+            .copied()
+            .filter(|(p, _)| p.is_global())
+            .collect();
         let lists = [
             ("Param", rust(&Param::ALL, |p| p as u32)),
+            ("GlobalParam", rust(&global, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
             ("Model", rust(&Model::ALL, |m| m as u32)),
