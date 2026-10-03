@@ -199,3 +199,82 @@ export const INSERT_KNOBS: Record<number, ProcKnob[]> = {
     { label: 'Make-up', def: 0, text: (t) => `+${(t * 24).toFixed(1)} dB` },
   ],
 }
+
+// --- groups, routing and layout (ADR-0010) -----------------------------------------------
+
+/** Synth strips 0–15, then eight group buses 16–23. */
+export const SYNTH_STRIPS = 16
+export const GROUPS = 8
+export const STRIPS = SYNTH_STRIPS + GROUPS
+/** The strip index of group `g` (0–7). */
+export const groupStrip = (g: number) => SYNTH_STRIPS + g
+
+/** Whether `strip` may go to `out` (0 master, 1–8 a group): a group only to a higher one. */
+export const routeOk = (strip: number, out: number) =>
+  out === 0 || (out >= 1 && out <= GROUPS && (strip < SYNTH_STRIPS || out - 1 > strip - SYNTH_STRIPS))
+
+/** The destinations a strip can pick among the groups on screen, master first. */
+export const outChoices = (strip: number, shownGroups: number[]) => [
+  { out: 0, label: 'Master' },
+  ...shownGroups.filter((g) => routeOk(strip, g + 1)).map((g) => ({ out: g + 1, label: `Group ${g + 1}` })),
+]
+
+/** What a strip's routing and solo state is, as the engine reports it. */
+export interface StripState {
+  mute: boolean
+  solo: boolean
+  out: number
+}
+
+/** The groups a strip passes through, nearest first. */
+function chain(strips: StripState[], i: number): number[] {
+  const groups: number[] = []
+  let out = strips[i]?.out ?? 0
+  while (out !== 0 && groups.length < GROUPS) {
+    const g = SYNTH_STRIPS + out - 1
+    groups.push(g)
+    out = strips[g]?.out ?? 0
+  }
+  return groups
+}
+
+/**
+ * Which strips are heard, as the engine's mixer decides it: a muted strip is
+ * not; with a solo, only soloed strips, the groups they pass through, and what
+ * feeds a soloed group.
+ */
+export function heardStrips(strips: StripState[]): boolean[] {
+  const soloed = strips.map((s, i) => (s.solo ? i : -1)).filter((i) => i >= 0)
+  const heard = strips.map(() => soloed.length === 0)
+  for (const j of soloed) {
+    heard[j] = true
+    for (const g of chain(strips, j)) heard[g] = true
+  }
+  strips.forEach((_, i) => {
+    if (chain(strips, i).some((g) => strips[g]?.solo)) heard[i] = true
+  })
+  return heard.map((h, i) => h && !strips[i]?.mute)
+}
+
+/**
+ * The strips in the order the console shows them: those of `saved` that are on
+ * screen, then the rest, synths before groups.
+ */
+export function orderStrips(saved: number[], shown: number[]): number[] {
+  const on = new Set(shown)
+  const kept = saved.filter((id, i) => on.has(id) && saved.indexOf(id) === i)
+  const rest = [...on].filter((id) => !kept.includes(id)).sort((a, b) => a - b)
+  return [...kept, ...rest]
+}
+
+/** `order` with `id` moved to just before `target` (or to the end when `target` is -1). */
+export function moveBefore(order: number[], id: number, target: number): number[] {
+  const without = order.filter((x) => x !== id)
+  const at = target === -1 ? without.length : without.indexOf(target)
+  if (at < 0 || !order.includes(id)) return order
+  without.splice(at, 0, id)
+  return without
+}
+
+/** The colour of group `g`, apart from the synth hues. */
+export const groupColour = (g: number) => `hsl(${(205 + 47 * g) % 360} 52% 58%)`

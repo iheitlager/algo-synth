@@ -4,7 +4,8 @@
 
 import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
-import { GlobalParam, Param, type ParamId, type PresetId } from './params'
+import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
+import { GlobalParam, Param, StripParam, type ParamId, type PresetId } from './params'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
 const base = import.meta.env.BASE_URL
@@ -103,6 +104,47 @@ export const params = reactive({ values: [] as number[][] })
  * the default patch.
  */
 export const synths = reactive({ list: [0] as number[], selected: 0 })
+
+/**
+ * The group buses on screen (0–7) and how the console lays its strips out
+ * (#61, ADR-0010): `order`, `collapsed` and `hidden` are strip indices, synths
+ * 0–15 and groups 16–23. The engine never sees the layout; a setup keeps it.
+ */
+export const layout = reactive({ groups: [] as number[], order: [] as number[], collapsed: [] as number[], hidden: [] as number[] })
+
+/** Show a group bus on the lowest free number, reset to its defaults; false when all 8 are shown. */
+export function addGroup(): boolean {
+  const free = Array.from({ length: GROUPS }, (_, g) => g).find((g) => !layout.groups.includes(g))
+  if (free === undefined) return false
+  engine?.reset(groupStrip(free))
+  layout.groups = [...layout.groups, free].sort((a, b) => a - b)
+  return true
+}
+
+/** Remove group `g`: what fed it goes to the master, and the group goes back to its defaults. */
+export function removeGroup(g: number) {
+  const strip = groupStrip(g)
+  for (const s of [...synths.list, ...layout.groups.map(groupStrip)]) {
+    if (s !== strip && params.values[s]?.[Param.Out] === g + 1) engine?.param(s, Param.Out, 0)
+  }
+  engine?.reset(strip)
+  layout.groups = layout.groups.filter((x) => x !== g)
+  layout.order = layout.order.filter((x) => x !== strip)
+  layout.collapsed = layout.collapsed.filter((x) => x !== strip)
+  layout.hidden = layout.hidden.filter((x) => x !== strip)
+}
+
+/** Send strip `s` to `out` (0 master, 1–8 a group); the engine refuses a route that would loop. */
+export const setOut = (s: number, out: number) => { if (routeOk(s, out)) engine?.param(s, Param.Out, out) }
+
+const toggle = (list: number[], id: number) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
+export const toggleCollapsed = (id: number) => { layout.collapsed = toggle(layout.collapsed, id) }
+export const toggleHidden = (id: number) => { layout.hidden = toggle(layout.hidden, id) }
+/** Move strip `id` to just before `target` in the console. */
+export function moveStrip(id: number, target: number) {
+  const shown = [...synths.list, ...layout.groups.map(groupStrip)]
+  layout.order = moveBefore(orderStrips(layout.order, shown), id, target)
+}
 
 /** Which main view is shown: the synth panels or the mixer console. */
 export const view = reactive({ main: 'synths' as 'synths' | 'mixer' })
@@ -253,6 +295,7 @@ function onMidi(m: MidiSummary) {
 const registry: Registry = {
   params: Param,
   global: GlobalParam,
+  strip: StripParam,
   models: (registryTables as unknown as Record<string, Record<string, number> | undefined>).Model,
   maxSynths: MAX_SYNTHS,
   channels: CHANNELS,
@@ -268,6 +311,8 @@ const sessionKey = (name: string) => `algo-synth:setup:${name}`
 function state(): State {
   return {
     synths: synths.list,
+    groups: layout.groups,
+    layout: { order: layout.order, collapsed: layout.collapsed, hidden: layout.hidden },
     values: params.values,
     routes: player.parts.map((p) => ({ channel: p.channel, synth: p.synth })),
     ...(player.loaded && { midi: { name: player.fileName, parts: player.parts.length } }),
@@ -321,6 +366,10 @@ function applySetup(setup: Setup, warnings: string[]) {
     if (op.t === 'show') {
       synths.list = op.synths
       if (!op.synths.includes(synths.selected)) synths.selected = op.synths[0] ?? 0
+    } else if (op.t === 'groups') {
+      layout.groups = op.groups
+    } else if (op.t === 'layout') {
+      Object.assign(layout, op.layout)
     } else if (op.t === 'reset') {
       engine.reset(op.s)
     } else if (op.t === 'param') {
@@ -341,7 +390,7 @@ function applySetup(setup: Setup, warnings: string[]) {
   // Ask for the values again: the replies to the resets above would
   // otherwise arrive last and put the sliders back to the defaults. Synth 0
   // too, shown or not: the master and returns read the globals from it.
-  for (const s of new Set([0, ...synths.list])) engine.post({ t: 'dump', s })
+  for (const s of new Set([0, ...synths.list, ...layout.groups.map(groupStrip)])) engine.post({ t: 'dump', s })
   const all = [...warnings, ...plan.warnings]
   if (all.length) player.notice = `Setup: ${all.join('; ')}`
 }

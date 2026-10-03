@@ -205,6 +205,37 @@ export const GlobalParam = {
   EqHighGain: 148,
 } as const
 
+export const StripParam = {
+  Level: 60,
+  Pan: 61,
+  Send1: 62,
+  Send2: 63,
+  Mute: 64,
+  Solo: 65,
+  I1Type: 66,
+  I1A: 67,
+  I1B: 68,
+  I1C: 69,
+  I1D: 70,
+  I1E: 71,
+  I2Type: 72,
+  I2A: 73,
+  I2B: 74,
+  I2C: 75,
+  I2D: 76,
+  I2E: 77,
+  I3Type: 78,
+  I3A: 79,
+  I3B: 80,
+  I3C: 81,
+  I3D: 82,
+  I3E: 83,
+  Send3: 132,
+  Send4: 133,
+  Out: 149,
+} as const
+export type StripParamName = keyof typeof StripParam
+
 export const Waveform = {
   Saw: 0,
   Pulse: 1,

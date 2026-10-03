@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  INSERT_KNOBS, INSERT_SHORT, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
+  INSERT_KNOBS, INSERT_SHORT, STRIPS, heardStrips, moveBefore, orderStrips, outChoices, routeOk, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
   logMap, logPos, polar, posToDb, posToLevel,
 } from './console'
 
@@ -206,5 +206,62 @@ describe('insert knobs', () => {
     expect(amount?.text?.(1)).toBe('+40 dB')
     expect(tone?.text?.(0)).toBe('200 Hz')
     expect(tone?.text?.(1)).toBe('20.0 k')
+  })
+})
+
+describe('routing', () => {
+  it('lets a synth go anywhere and a group only up', () => {
+    expect(routeOk(0, 0)).toBe(true)
+    expect(routeOk(5, 8)).toBe(true)
+    expect(routeOk(5, 9)).toBe(false)
+    expect(routeOk(16, 1)).toBe(false) // group 1 to itself
+    expect(routeOk(17, 1)).toBe(false) // group 2 to group 1
+    expect(routeOk(16, 2)).toBe(true)
+    expect(routeOk(23, 0)).toBe(true)
+    expect(routeOk(23, 8)).toBe(false)
+  })
+
+  it('offers the master and the groups a strip can reach', () => {
+    expect(outChoices(0, [0, 2]).map((c) => c.label)).toEqual(['Master', 'Group 1', 'Group 3'])
+    expect(outChoices(17, [0, 1, 2]).map((c) => c.label)).toEqual(['Master', 'Group 3'])
+  })
+})
+
+describe('heardStrips', () => {
+  const mk = (over: Partial<Record<number, Partial<{ mute: boolean; solo: boolean; out: number }>>> = {}) =>
+    Array.from({ length: STRIPS }, (_, i) => ({ mute: false, solo: false, out: 0, ...over[i] }))
+
+  it('hears everything with no solo, except what is muted', () => {
+    expect(heardStrips(mk({ 3: { mute: true } })).filter((h) => !h)).toHaveLength(1)
+    expect(heardStrips(mk())[3]).toBe(true)
+  })
+
+  it('hears a soloed strip through its groups and nothing else', () => {
+    const h = heardStrips(mk({ 0: { out: 1, solo: true }, 16: { out: 2 } }))
+    expect([h[0], h[1], h[16], h[17], h[18]]).toEqual([true, false, true, true, false])
+  })
+
+  it('hears a soloed group with what feeds it', () => {
+    const h = heardStrips(mk({ 0: { out: 1 }, 16: { solo: true } }))
+    expect([h[0], h[1], h[16]]).toEqual([true, false, true])
+  })
+
+  it('still mutes a soloed strip that is muted', () => {
+    expect(heardStrips(mk({ 0: { solo: true, mute: true } }))[0]).toBe(false)
+  })
+})
+
+describe('console order', () => {
+  it('keeps the saved order of what is shown and appends the rest, synths first', () => {
+    expect(orderStrips([5, 2, 16, 9], [0, 2, 5, 16, 17])).toEqual([5, 2, 16, 0, 17])
+    expect(orderStrips([], [17, 3, 0, 16])).toEqual([0, 3, 16, 17])
+    expect(orderStrips([2, 2, 1], [1, 2])).toEqual([2, 1])
+  })
+
+  it('moves a strip before another, or to the end', () => {
+    expect(moveBefore([0, 1, 2, 3], 3, 1)).toEqual([0, 3, 1, 2])
+    expect(moveBefore([0, 1, 2, 3], 0, -1)).toEqual([1, 2, 3, 0])
+    expect(moveBefore([0, 1, 2], 1, 9)).toEqual([0, 1, 2])
+    expect(moveBefore([0, 1, 2], 7, 1)).toEqual([0, 1, 2])
   })
 })
