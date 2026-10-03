@@ -65,7 +65,7 @@ const arp2600: ModelDef = {
   maker: 'semi-modular, normalled',
   tagline: 'Three VCOs, ladder, ADSR and AR, S&H, a patch behind the normals',
   theme: { panel: '#2f3236', ink: '#ece6d6', soft: '#b3ada0', trim: '#1b1c1e', accent: '#f08a24' },
-  presets: ['Bass', 'Lead', 'SyncLead', 'BowedString'],
+  presets: ['Bass', 'Lead', 'SyncLead', 'BowedString', 'R2D2', 'ShArp', 'SolinaStrings'],
   sections: [
     {
       title: 'ADSR',
@@ -142,7 +142,7 @@ const minimoog: ModelDef = {
   maker: 'Model D · three oscillators, one ladder',
   tagline: 'Three oscillators, the ladder, two contours; Osc 3 is the modulator; low note priority',
   theme: { panel: '#1a1816', ink: '#efe9dc', soft: '#b6af9f', trim: '#6e4a2c', accent: '#f1ead8' },
-  presets: ['MiniBass', 'MiniLead'],
+  presets: ['MiniBass', 'MiniLead', 'LuckyMan', 'FunkBass', 'MoogStrings'],
   sections: [
     {
       title: 'Controllers',
@@ -217,7 +217,7 @@ const proOne: ModelDef = {
   maker: 'Sequential · two oscillators, poly-mod',
   tagline: 'Oscillator A synced to B, poly-mod from the filter envelope and B, 4-pole filter',
   theme: { panel: '#241f1c', ink: '#f1e6d2', soft: '#bcae98', trim: '#8c2f1f', accent: '#e8482b' },
-  presets: ['ProLead', 'ProBass'],
+  presets: ['ProLead', 'ProBass', 'SyncSweep', 'PolyModBell', 'ProStrings'],
   sections: [
     {
       title: 'Oscillator A',
@@ -276,7 +276,7 @@ const ms20: ModelDef = {
   maker: 'Korg · high-pass and low-pass, patch panel',
   tagline: 'Two oscillators, ring mod, a high-pass and a low-pass that both scream, a patch panel',
   theme: { panel: '#18191c', ink: '#f6efdc', soft: '#b9b4a4', trim: '#6e5a12', accent: '#f2c230' },
-  presets: ['Ms20Lead', 'Ms20Wobble'],
+  presets: ['Ms20Lead', 'Ms20Wobble', 'Ms20Squelch', 'JetSweep', 'Ms20Strings'],
   sections: [
     {
       title: 'VCO 1',
@@ -338,7 +338,7 @@ const cs15: ModelDef = {
   maker: 'Yamaha · two filters, an envelope for each',
   tagline: 'Two oscillators, ring mod, a high-pass and a low-pass each with an envelope of its own',
   theme: { panel: '#2c1f19', ink: '#f2e4ca', soft: '#bba98b', trim: '#6b4b2f', accent: '#d9b27c' },
-  presets: ['Cs15Brass', 'Cs15Lead'],
+  presets: ['Cs15Brass', 'Cs15Lead', 'BladeBrass', 'Cs15Strings'],
   sections: [
     {
       title: 'VCO 1',
@@ -407,7 +407,7 @@ const sh101: ModelDef = {
   maker: 'Roland · one oscillator, sub, one envelope',
   tagline: 'Saw, pulse and sub from one oscillator, a resonant low-pass, one envelope for filter and loudness',
   theme: { panel: '#34373b', ink: '#eef1f3', soft: '#adb3b9', trim: '#1c1e21', accent: '#3b8fd6' },
-  presets: ['Sh101Bass', 'Sh101Lead'],
+  presets: ['Sh101Bass', 'Sh101Lead', 'AcidBass', 'SubPluck', 'Sh101Strings'],
   sections: [
     {
       title: 'Controller',

@@ -153,6 +153,23 @@ export const Preset = {
   Cs15Lead: 11,
   Sh101Bass: 12,
   Sh101Lead: 13,
+  R2D2: 14,
+  ShArp: 15,
+  SolinaStrings: 16,
+  LuckyMan: 17,
+  FunkBass: 18,
+  MoogStrings: 19,
+  SyncSweep: 20,
+  PolyModBell: 21,
+  ProStrings: 22,
+  Ms20Squelch: 23,
+  JetSweep: 24,
+  Ms20Strings: 25,
+  BladeBrass: 26,
+  Cs15Strings: 27,
+  AcidBass: 28,
+  SubPluck: 29,
+  Sh101Strings: 30,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

@@ -6,7 +6,7 @@ Common to every requirement: `render` follows ADR-0002, every parameter and id i
 
 ### Requirement 1: Models [MUST]
 
-Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`), held with the synth's parameters; a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets; a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
+Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`), held with the synth's parameters; a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model`, `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/mono.rs::MonoParams` (#30)
 
@@ -108,7 +108,7 @@ The CS-15 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 
 ### Requirement 7: Roland SH-101 [MUST]
 
-The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, locked to VCO 1's phase and pitch by the model), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass, a one-pole high-pass after it, a single ADSR driving the filter and the VCA (it SHALL also be the filter envelope source of the poly-mod and envelope amounts, spec 004 Req 15), an LFO that can modulate pitch, cutoff and pulse width, and glide.
+The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, locked to VCO 1's phase and pitch by the model, and inverted so it adds to the rising saw instead of cancelling it), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass, a one-pole high-pass after it, a single ADSR driving the filter and the VCA (it SHALL also be the filter envelope source of the poly-mod and envelope amounts, spec 004 Req 15), an LFO that can modulate pitch, cutoff and pulse width, and glide.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::Sh101` (#39)
 
@@ -118,7 +118,7 @@ The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, lo
 - WHEN a note is held and released
 - THEN the cutoff and the loudness follow the same envelope
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::sh101_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::sh101_pulse_is_locked_to_the_saw`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::sh101_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::sh101_pulse_is_locked_to_the_saw`, `crates/dsp/src/mono/voice.rs::tests::sh101_saw_and_pulse_add_up`
 
 ### Requirement 8: Panels and colours [MUST]
 
