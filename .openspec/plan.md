@@ -81,6 +81,8 @@ arrange
 ### MVP 4: loops and the arrangement
 
 - **Pitched fragments** on Mono and Poly tracks: mini-notation (`[ ]`, `~`, `*n`, `<a b>`, `?`) and classic notes with durations (`c4:4`, `e4:8.`). Fragments of any length (polymeter), looping.
+- **Chord symbols** in the notation (`c:m7`, `f:maj7`): a chord on a Poly track, the input of `arp`.
+- **A live arpeggiator per synth:** hold a chord, the engine plays it in time with the clock (up, down, up-down, as played, seeded random; octaves, rate, gate, latch). One arp core in `arp.rs` serves the live arp and `arp` in the notation (MVP 9).
 - **The arrangement:** sections of a number of bars, each naming the fragments that play; a loop region; mute per track.
 - **Save and load** a song: the text file you download and open, plus the last session in `localStorage`. No server. The synth setup (patches, mixer) stays its own JSON file (spec 003 Req 7).
 
