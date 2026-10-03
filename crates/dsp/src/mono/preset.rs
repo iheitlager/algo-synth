@@ -20,11 +20,13 @@ pub enum Preset {
     MiniLead = 5,
     ProLead = 6,
     ProBass = 7,
+    Ms20Lead = 8,
+    Ms20Wobble = 9,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 8] = [
+    pub const ALL: [(Preset, &'static str); 10] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -33,6 +35,8 @@ impl Preset {
         (Preset::MiniLead, "MiniLead"),
         (Preset::ProLead, "ProLead"),
         (Preset::ProBass, "ProBass"),
+        (Preset::Ms20Lead, "Ms20Lead"),
+        (Preset::Ms20Wobble, "Ms20Wobble"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -49,6 +53,7 @@ impl Preset {
             Preset::Bass | Preset::Lead | Preset::SyncLead | Preset::BowedString => Model::Arp2600,
             Preset::MiniBass | Preset::MiniLead => Model::Minimoog,
             Preset::ProLead | Preset::ProBass => Model::ProOne,
+            Preset::Ms20Lead | Preset::Ms20Wobble => Model::Ms20,
         }
     }
 
@@ -221,6 +226,54 @@ impl Preset {
                 (EnvCutoff, 0.5),
                 (KeyTrack, 1.0),
                 (Priority, 1.0),
+            ],
+            // Two saws through a thin high-pass and a peaking low-pass that
+            // the envelope pushes toward self-oscillation: the MS-20 scream.
+            Preset::Ms20Lead => &[
+                (Model, 3.0),
+                (Vco2Fine, 8.0),
+                (Vco2Level, 0.6),
+                (HpCutoff, 120.0),
+                (HpResonance, 0.3),
+                (Cutoff, 1_800.0),
+                (Resonance, 0.78),
+                (Drive, 0.3),
+                (AdsrAttack, 0.01),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.25),
+                (FenvAttack, 0.01),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.4),
+                (EnvCutoff, 0.35),
+                (EnvHpCutoff, 0.1),
+                (KeyTrack, 0.5),
+                (Glide, 0.08),
+                (Legato, 1.0),
+            ],
+            // A pulse and a saw an octave down, ring-modulated, with the
+            // sample-and-hold stepping the cutoff on the patch panel.
+            Preset::Ms20Wobble => &[
+                (Model, 3.0),
+                (Vco1Wave, 1.0),
+                (Vco1Coarse, -12.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 6.0),
+                (Vco2Level, 0.7),
+                (RingLevel, 0.35),
+                (HpCutoff, 60.0),
+                (Cutoff, 500.0),
+                (Resonance, 0.85),
+                (Drive, 0.2),
+                (AdsrAttack, 0.003),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.2),
+                (LfoWave, 0.0),
+                (LfoRate, 6.0),
+                (Patch1Source, 8.0),
+                (Patch1Dest, 5.0),
+                (Patch1Amount, 0.5),
             ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.

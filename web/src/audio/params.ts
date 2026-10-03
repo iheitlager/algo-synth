@@ -120,6 +120,8 @@ export const Preset = {
   MiniLead: 5,
   ProLead: 6,
   ProBass: 7,
+  Ms20Lead: 8,
+  Ms20Wobble: 9,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

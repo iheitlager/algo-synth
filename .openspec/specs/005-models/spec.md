@@ -90,7 +90,7 @@ The MS-20 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 - WHEN a cutoff sweep is rendered
 - THEN the filter oscillates and every sample is finite and bounded
 
-**Tests:** `crates/dsp/src/engine.rs::tests::ms20_band_limits_noise`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::ms20_band_limits_noise`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`
 
 ### Requirement 6: Yamaha CS-15 [MUST]
 

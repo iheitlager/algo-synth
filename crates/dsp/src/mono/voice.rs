@@ -710,6 +710,33 @@ mod tests {
         );
     }
 
+    /// Spec 005 Req 5: noise through the MS-20's high-pass at 2 kHz and
+    /// low-pass at 8 kHz is down below the one and above the other.
+    #[test]
+    fn ms20_band_limits_noise() {
+        let mut r = Rig::new(&[
+            (Param::Model, 3.0),
+            (Param::Vco1Level, 0.0),
+            (Param::NoiseLevel, 1.0),
+            (Param::HpCutoff, 2_000.0),
+            (Param::Cutoff, 8_000.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(60);
+        r.render(4_800);
+        let out = r.render(96_000);
+        let band =
+            |hz: &[f64]| hz.iter().map(|h| tone(&out, *h).powi(2)).sum::<f64>() / hz.len() as f64;
+        let db = |x: f64| 10.0 * x.log10();
+        let (low, mid, high) = (
+            band(&[250.0, 300.0, 350.0, 400.0, 450.0, 500.0]),
+            band(&[3_000.0, 3_500.0, 4_000.0, 4_500.0, 5_000.0]),
+            band(&[18_000.0, 19_000.0, 20_000.0, 21_000.0, 22_000.0]),
+        );
+        assert!(db(mid / low) > 20.0, "high-pass: {} dB", db(mid / low));
+        assert!(db(mid / high) > 10.0, "low-pass: {} dB", db(mid / high));
+    }
+
     /// Spec 005 Req 4: with oscillator A synced to a silent B, the filter
     /// envelope into A's pitch sweeps the sound; without it nothing moves.
     #[test]

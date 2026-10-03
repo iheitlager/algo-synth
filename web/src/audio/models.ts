@@ -269,8 +269,70 @@ const proOne: ModelDef = {
   ],
 }
 
+const ms20: ModelDef = {
+  id: Model.Ms20,
+  name: 'MS-20',
+  maker: 'Korg · high-pass and low-pass, patch panel',
+  tagline: 'Two oscillators, ring mod, a high-pass and a low-pass that both scream, a patch panel',
+  theme: { panel: '#18191c', ink: '#f6efdc', soft: '#b9b4a4', trim: '#6e5a12', accent: '#f2c230' },
+  presets: ['Ms20Lead', 'Ms20Wobble'],
+  sections: [
+    {
+      title: 'VCO 1',
+      controls: [
+        select('Wave', Param.Vco1Wave, WAVES), range('Pitch', Param.Vco1Coarse, -24, 24, 1),
+        fine(Param.Vco1Fine), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 2',
+      controls: [select('Wave', Param.Vco2Wave, WAVES), range('Pitch', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('VCO 1', Param.Vco1Level, 0, 1, 0.01), range('VCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Ring mod', Param.RingLevel, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+        select('Noise colour', Param.NoiseColour, NOISES),
+      ],
+    },
+    {
+      title: 'High-pass',
+      controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff'), range('Peak', Param.HpResonance, 0, 1, 0.01)],
+    },
+    {
+      title: 'Low-pass',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Peak', Param.Resonance, 0, 1, 0.01),
+        range('Drive', Param.Drive, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter modulation',
+      controls: [
+        range('EG 2 → LPF', Param.EnvCutoff, -1, 1, 0.01), range('EG 2 → HPF', Param.EnvHpCutoff, -1, 1, 0.01),
+        range('MG → LPF', Param.LfoCutoff, 0, 1, 0.01), range('Key track', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'MG',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Frequency', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'EG 1 (amplifier)', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'EG 2 (filters)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    {
+      title: 'Keys',
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+    },
+    { title: 'Patch panel', controls: [], patch: true },
+  ],
+}
+
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? arp2600
