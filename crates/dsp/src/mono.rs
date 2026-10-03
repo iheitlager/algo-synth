@@ -14,6 +14,7 @@ pub mod noise;
 pub mod osc;
 pub mod patch;
 pub mod preset;
+pub mod svf;
 pub mod voice;
 
 use crate::params::Param;
@@ -48,6 +49,9 @@ pub struct MonoParams {
     /// Ladder cutoff as a MIDI note, feedback, and input gain.
     pub cutoff: f32,
     pub k: f32,
+    /// High-pass cutoff as a MIDI note, and resonance 0..=1.
+    pub hp_cutoff: f32,
+    pub hp_res: f32,
     pub drive: f32,
     /// Envelope times in samples, so the sample rate is kept to convert.
     sample_rate: f32,
@@ -98,6 +102,8 @@ impl MonoParams {
             noise_colour: NoiseColour::White,
             cutoff: 0.0,
             k: 0.0,
+            hp_cutoff: 0.0,
+            hp_res: 0.0,
             drive: 1.0,
             sample_rate,
             adsr: off,
@@ -148,6 +154,8 @@ impl MonoParams {
             }
             Param::Cutoff => self.cutoff = hz_to_note(v),
             Param::Resonance => self.k = v * MAX_K,
+            Param::HpCutoff => self.hp_cutoff = hz_to_note(v),
+            Param::HpResonance => self.hp_res = v,
             // 0..=1 is 0 to +18 dB: 1 + 7·v.
             Param::Drive => self.drive = 1.0 + 7.0 * v,
             // Times arrive in seconds and are kept in samples.
@@ -200,6 +208,7 @@ impl MonoParams {
             Param::Patch8Amount => self.patch.set_amount(7, v),
             // Semitones of cutoff at full ADSR, and of VCO pitch at full LFO.
             Param::EnvCutoff => self.normals.env_cutoff = 48.0 * v,
+            Param::EnvHpCutoff => self.normals.env_hp_cutoff = 48.0 * v,
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
             Param::ModWheel => self.mod_wheel = v,
@@ -207,6 +216,7 @@ impl MonoParams {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;
                     self.normals.cutoff_from_fenv = m.cutoff_follows_filter_env();
+                    self.normals.hp_from_ar = m.hp_follows_ar();
                 }
             }
             Param::MasterGain => {}

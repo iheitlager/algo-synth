@@ -192,6 +192,8 @@ pub struct Mods {
     pub pitch: [f32; 3],
     pub pulse_width: f32,
     pub cutoff: f32,
+    /// Semitones of high-pass cutoff (a normal only, no patch destination).
+    pub hp_cutoff: f32,
     pub resonance: f32,
     /// The VCA gain, 0..=1.
     pub vca: f32,
@@ -205,6 +207,10 @@ pub struct Normals {
     pub env_cutoff: f32,
     /// Whether the normalled cutoff follows the filter ADSR, not the ADSR.
     pub cutoff_from_fenv: bool,
+    /// Semitones of high-pass cutoff at full envelope, and whether that
+    /// envelope is the AR (else the filter ADSR).
+    pub env_hp_cutoff: f32,
+    pub hp_from_ar: bool,
     /// Semitones of cutoff per semitone of key.
     pub key_track: f32,
     /// Semitones of VCO pitch at full LFO and full mod wheel.
@@ -250,10 +256,16 @@ pub fn modulate(
         }
     }
     let [p1, p2, p3, pulse_width, cutoff, resonance, vca, lfo_rate] = d;
+    let hp_env = if normals.hp_from_ar {
+        at(ModSource::Ar)
+    } else {
+        at(ModSource::Fenv)
+    };
     Mods {
         pitch: [p1, p2, p3],
         pulse_width,
         cutoff,
+        hp_cutoff: hp_env * normals.env_hp_cutoff,
         resonance,
         vca: vca.clamp(0.0, 1.0),
         lfo_rate,
@@ -275,6 +287,8 @@ mod tests {
     const NORMALS: Normals = Normals {
         env_cutoff: 24.0,
         cutoff_from_fenv: false,
+        env_hp_cutoff: 12.0,
+        hp_from_ar: false,
         key_track: 0.5,
         vibrato: 2.0,
     };
@@ -305,6 +319,23 @@ mod tests {
             amount: 1.0,
         };
         assert_eq!(run(&p, &src, 0.0).vca, 0.25);
+    }
+
+    /// The high-pass cutoff follows the filter ADSR, or the AR on the
+    /// model that has an envelope for it; it takes no patch destination.
+    #[test]
+    fn high_pass_follows_the_chosen_envelope() {
+        let src = sources(&[(ModSource::Fenv, 0.5), (ModSource::Ar, 1.0)]);
+        let patch = Patch::default();
+        let hp = |hp_from_ar| {
+            let normals = Normals {
+                hp_from_ar,
+                ..NORMALS
+            };
+            modulate(&patch, &patch.overridden(), &normals, &src, 0.0).hp_cutoff
+        };
+        assert_eq!(hp(false), 6.0);
+        assert_eq!(hp(true), 12.0);
     }
 
     #[test]

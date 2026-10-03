@@ -69,6 +69,9 @@ export const Param = {
   FenvDecay: 62,
   FenvSustain: 63,
   FenvRelease: 64,
+  HpCutoff: 65,
+  HpResonance: 66,
+  EnvHpCutoff: 67,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

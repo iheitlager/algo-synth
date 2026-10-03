@@ -19,9 +19,11 @@ use crate::mono::env::{Env, Stage};
 use crate::mono::ladder::MAX_K;
 use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::lfo::Lfo;
+use crate::mono::model::{Filter, Hp};
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Blep, Osc};
 use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
+use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
 use crate::voice::midi_to_hz;
 
@@ -123,6 +125,11 @@ pub struct MonoVoice {
     glide_left: u32,
     osc: [Osc; VCOS],
     ladder: Ladder,
+    /// The 12 dB filters (low-pass and high-pass stage) and the one-pole
+    /// high-pass, for the models that use them.
+    svf_lp: Svf,
+    svf_hp: Svf,
+    pole_hp: OnePole,
     adsr: Env,
     ar: Env,
     fadsr: Env,
@@ -142,6 +149,8 @@ impl MonoVoice {
         MonoVoice {
             noise: Noise::new(seed),
             ladder: Ladder::new(),
+            svf_lp: Svf::new(),
+            svf_hp: Svf::new(),
             ..MonoVoice::default()
         }
     }
@@ -189,6 +198,9 @@ impl MonoVoice {
         if !self.active() {
             // From silence: a fresh filter, which also seeds self-oscillation.
             self.ladder = Ladder::new();
+            self.svf_lp = Svf::new();
+            self.svf_hp = Svf::new();
+            self.pole_hp = OnePole::default();
         }
         let before = self.note;
         self.sound_chosen(p, was_held);
@@ -283,6 +295,7 @@ impl MonoVoice {
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
+        let hp = p.model.hp();
         for sample in out.iter_mut() {
             let adsr = self.adsr.step();
             let ar = self.ar.step();
@@ -333,11 +346,33 @@ impl MonoVoice {
             let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2));
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
             let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise * noise_level;
-            let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K);
             // Half the mix keeps two VCOs at full level below the knee.
-            let y = self
-                .ladder
-                .process(ctx.ladder, 0.5 * mix, p.cutoff + m.cutoff, k, p.drive);
+            let mut x = 0.5 * mix;
+            let hp_cutoff = p.hp_cutoff + m.hp_cutoff;
+            let filter = p.model.filter();
+            if let (Hp::Svf, Filter::Svf(v)) = (hp, filter) {
+                x = self
+                    .svf_hp
+                    .process(ctx.ladder, &v, x, hp_cutoff, p.hp_res)
+                    .hp;
+            }
+            let mut y = match filter {
+                Filter::Ladder(v) => {
+                    let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
+                    let x = x * (1.0 + v.comp * k);
+                    self.ladder
+                        .process(ctx.ladder, x, p.cutoff + m.cutoff, k, p.drive * v.drive)
+                }
+                Filter::Svf(v) => {
+                    let res = p.k / MAX_K + m.resonance;
+                    self.svf_lp
+                        .process(ctx.ladder, &v, x, p.cutoff + m.cutoff, res)
+                        .lp
+                }
+            };
+            if hp == Hp::OnePole {
+                y = self.pole_hp.process(ctx.ladder, y, hp_cutoff);
+            }
             *sample += y * MONO_GAIN * m.vca * self.velocity;
             self.last = [y1, y2, y3];
             self.mods = m;
@@ -516,6 +551,32 @@ mod tests {
     }
 
     /// The normals: ADSR → cutoff, key tracking, vibrato through the wheel.
+    /// Spec 004 Req 12: the ladder is voiced per model, and every voicing
+    /// stays bounded at full resonance and drive.
+    #[test]
+    fn ladder_voicings_differ_and_stay_bounded() {
+        let rms_of = |model: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::Cutoff, 1_200.0),
+                (Param::Resonance, 1.0),
+                (Param::Drive, 1.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(45);
+            let out = r.render(24_000);
+            assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 2.0));
+            (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
+        };
+        // Moog (ARP 2600 and Minimoog), Pro-One, SH-101.
+        let (moog, pro, sh) = (rms_of(0.0), rms_of(2.0), rms_of(5.0));
+        assert_eq!(moog, rms_of(1.0), "the Minimoog ladder is the Moog voicing");
+        assert!(moog > 0.0 && pro > 0.0 && sh > 0.0);
+        assert!((moog - pro).abs() > 1.0e-3, "{moog} vs {pro}");
+        assert!((moog - sh).abs() > 1.0e-3, "{moog} vs {sh}");
+        assert!((pro - sh).abs() > 1.0e-3, "{pro} vs {sh}");
+    }
+
     /// Spec 004 Req 11: on a model that uses the filter ADSR, the loudness
     /// and the cutoff have envelopes of their own.
     #[test]

@@ -133,11 +133,17 @@ pub enum Param {
     /// Filter ADSR sustain level, 0..=1.
     FenvSustain = 63,
     FenvRelease = 64,
+    /// High-pass cutoff in Hz, 20..=20000; 20 is out of the way.
+    HpCutoff = 65,
+    /// High-pass resonance, 0..=1 (the 12 dB high-pass of the MS-20 and CS-15).
+    HpResonance = 66,
+    /// Normalled envelope → high-pass cutoff, −1..=1 (±4 octaves).
+    EnvHpCutoff = 67,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 65] = [
+    pub const ALL: [(Param, &'static str); 68] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -203,6 +209,9 @@ impl Param {
         (Param::FenvDecay, "FenvDecay"),
         (Param::FenvSustain, "FenvSustain"),
         (Param::FenvRelease, "FenvRelease"),
+        (Param::HpCutoff, "HpCutoff"),
+        (Param::HpResonance, "HpResonance"),
+        (Param::EnvHpCutoff, "EnvHpCutoff"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -224,8 +233,12 @@ impl Param {
             Param::PulseWidth => (0.05, 0.95),
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
-            Param::Cutoff => (20.0, 20_000.0),
-            Param::Resonance | Param::Drive | Param::AdsrSustain | Param::FenvSustain => (0.0, 1.0),
+            Param::Cutoff | Param::HpCutoff => (20.0, 20_000.0),
+            Param::Resonance
+            | Param::Drive
+            | Param::AdsrSustain
+            | Param::FenvSustain
+            | Param::HpResonance => (0.0, 1.0),
             Param::AdsrAttack
             | Param::AdsrDecay
             | Param::AdsrRelease
@@ -255,7 +268,8 @@ impl Param {
             | Param::Patch6Amount
             | Param::Patch7Amount
             | Param::Patch8Amount
-            | Param::EnvCutoff => (-1.0, 1.0),
+            | Param::EnvCutoff
+            | Param::EnvHpCutoff => (-1.0, 1.0),
             Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
             Param::Model => (0.0, 5.0),
         };

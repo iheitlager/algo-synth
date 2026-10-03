@@ -238,7 +238,7 @@ The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter wi
 - WHEN a cutoff sweep from 20 Hz to 20 kHz is rendered
 - THEN every sample is finite and within ±2, and the CS-15 voicing at maximum resonance does not oscillate without input
 
-**Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`
+**Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/patch.rs::tests::high_pass_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::models_pair_their_filters_and_stages`
 
 ### Requirement 13: Ring modulator, sub-oscillator, Osc 3 as modulator [MUST]
 
