@@ -507,16 +507,7 @@ mod tests {
 
     /// The parameters that aren't Mono's: global, or the mixer's.
     fn is_shared(p: Param) -> bool {
-        p.is_global()
-            || matches!(
-                p,
-                Param::Level
-                    | Param::Pan
-                    | Param::EchoSend
-                    | Param::ReverbSend
-                    | Param::Mute
-                    | Param::Solo
-            )
+        p.is_global() || p.is_strip()
     }
 
     #[test]

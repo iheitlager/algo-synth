@@ -452,17 +452,9 @@ const sh101: ModelDef = {
   ],
 }
 
-// What every synth has, whatever its model: its mixer strip and its drive
-// insert (spec 002, spec 004 Req 11). They come last on every panel.
+// What every synth has, whatever its model: its drive insert (spec 004
+// Req 11). Its channel strip is in the mixer pane (spec 002 Req 2).
 const strip: Section[] = [
-  {
-    title: 'Channel',
-    controls: [
-      range('Level', Param.Level, 0, 1, 0.01), range('Pan', Param.Pan, -1, 1, 0.01),
-      range('Echo', Param.EchoSend, 0, 1, 0.01), range('Reverb', Param.ReverbSend, 0, 1, 0.01),
-      sw('Mute', Param.Mute), sw('Solo', Param.Solo),
-    ],
-  },
   {
     title: 'Drive insert',
     controls: [

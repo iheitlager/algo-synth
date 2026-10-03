@@ -6,10 +6,13 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
-use crate::fx::{echo::Echo, reverb::Reverb};
-use crate::mixer::{Mixer, STRIP_DEFAULTS};
+use crate::fx::compressor::Compressor;
+use crate::fx::eq::{EqBand, Equalizer};
+use crate::fx::limiter::Limiter;
+use crate::fx::processor::Processor;
+use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS};
 use crate::mono::MonoParams;
-use crate::mono::ladder::{LadderTables, saturate};
+use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
 use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable};
@@ -28,8 +31,6 @@ pub const SYNTHS: usize = 16;
 pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
-/// The master limiter passes everything below this level unchanged.
-const KNEE: f32 = 0.5;
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -46,8 +47,11 @@ pub struct Engine {
     /// The synth each voice plays, fixed when its note starts.
     synth_of: [usize; MONO_VOICES],
     mixer: Mixer,
-    echo: Echo,
-    reverb: Reverb,
+    /// The effect processors P1–P4, fed by the mixer's sends.
+    procs: [Processor; SENDS],
+    eq: Equalizer,
+    comp: Compressor,
+    limiter: Limiter,
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -80,8 +84,10 @@ impl Engine {
             }),
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
             mixer: Mixer::new(sample_rate),
-            echo: Echo::new(sample_rate),
-            reverb: Reverb::new(sample_rate),
+            procs: std::array::from_fn(|_| Processor::new(sample_rate)),
+            eq: Equalizer::new(sample_rate),
+            comp: Compressor::new(sample_rate),
+            limiter: Limiter::new(sample_rate),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
@@ -122,23 +128,36 @@ impl Engine {
         if let Some(slot) = values.get_mut(param as usize) {
             *slot = v;
         }
-        mono.set(param, v);
+        if !param.is_strip() {
+            mono.set(param, v);
+        }
         self.mixer.set(synth, param, v);
     }
 
     fn set_global(&mut self, param: Param, v: f32) {
         match param {
             Param::MasterGain => self.master_gain = v,
-            Param::EchoTime => self.echo.set_time(v),
-            Param::EchoFeedback => self.echo.set_feedback(v),
-            Param::EchoTone => self.echo.set_tone(v),
-            Param::EchoPingPong => self.echo.set_ping_pong(v >= 0.5),
-            Param::EchoReturn => self.echo.set_return(v),
-            Param::ReverbSize => self.reverb.set_size(v),
-            Param::ReverbDamping => self.reverb.set_damping(v),
-            Param::ReverbPreDelay => self.reverb.set_pre_delay(v),
-            Param::ReverbReturn => self.reverb.set_return(v),
+            Param::CompThreshold => self.comp.set_threshold(v),
+            Param::CompRatio => self.comp.set_ratio(v),
+            Param::CompAttack => self.comp.set_attack(v),
+            Param::CompRelease => self.comp.set_release(v),
+            Param::CompMakeup => self.comp.set_makeup(v),
+            Param::EqLowFreq => self.eq.set_freq(EqBand::Low, v),
+            Param::EqLowGain => self.eq.set_gain(EqBand::Low, v),
+            Param::EqMid1Freq => self.eq.set_freq(EqBand::Mid1, v),
+            Param::EqMid1Gain => self.eq.set_gain(EqBand::Mid1, v),
+            Param::EqMid1Q => self.eq.set_q(EqBand::Mid1, v),
+            Param::EqMid2Freq => self.eq.set_freq(EqBand::Mid2, v),
+            Param::EqMid2Gain => self.eq.set_gain(EqBand::Mid2, v),
+            Param::EqMid2Q => self.eq.set_q(EqBand::Mid2, v),
+            Param::EqHighFreq => self.eq.set_freq(EqBand::High, v),
+            Param::EqHighGain => self.eq.set_gain(EqBand::High, v),
             _ => {}
+        }
+        if let Some((slot, field)) = param.processor() {
+            if let Some(p) = self.procs.get_mut(slot) {
+                p.set(field, v);
+            }
         }
     }
 
@@ -346,16 +365,25 @@ impl Engine {
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
-        let (echo, reverb) = (&self.mixer.echo_send, &self.mixer.reverb_send);
-        if let (Some(e), Some(r)) = (echo.get(..n), reverb.get(..n)) {
-            if let (Some(l), Some(rt)) = (left.get_mut(..n), right.get_mut(..n)) {
-                self.echo.process(e, l, rt);
-                self.reverb.process(r, l, rt);
+        if let (Some(l), Some(r)) = (left.get_mut(..n), right.get_mut(..n)) {
+            for (proc, send) in self.procs.iter_mut().zip(self.mixer.sends.iter()) {
+                if let Some(send) = send.get(..n) {
+                    proc.process(send, l, r);
+                }
             }
+            // The master chain: equalizer, compressor, gain, limiter.
+            self.eq.process(l, r);
+            self.comp.process(l, r);
+            for s in l.iter_mut().chain(r.iter_mut()) {
+                *s *= self.master_gain;
+            }
+            self.limiter.process(l, r);
         }
-        for sample in self.out.iter_mut() {
-            *sample = soft_clip(*sample * self.master_gain);
-        }
+    }
+
+    /// How far the master compressor turns the signal down now, in dB.
+    pub fn gain_reduction_db(&self) -> f32 {
+        self.comp.gain_reduction_db()
     }
 
     /// The planar output buffer: left then right, `BLOCK` samples each.
@@ -377,21 +405,6 @@ fn mono_index(owner: Owner) -> usize {
     match owner {
         Owner::Live(s) => usize::from(s),
         Owner::Channel(ch) => SYNTHS + usize::from(ch),
-    }
-}
-
-/// The last stage before the speakers (ADR-0002 rule 5): unchanged below
-/// `KNEE`, then a smooth bend that never passes ±1; NaN and infinity become
-/// silence instead of reaching the output.
-fn soft_clip(x: f32) -> f32 {
-    if !x.is_finite() {
-        return 0.0;
-    }
-    let a = x.abs();
-    if a <= KNEE {
-        x
-    } else {
-        (KNEE + (1.0 - KNEE) * saturate((a - KNEE) / (1.0 - KNEE))).copysign(x)
     }
 }
 
@@ -781,26 +794,50 @@ mod tests {
         e.render(BLOCK);
         let dry: Vec<f32> = e.output().to_vec();
         assert!(
-            e.mixer
-                .echo_send
+            e.mixer.sends[0]
                 .iter()
-                .chain(&e.mixer.reverb_send)
+                .chain(&e.mixer.sends[1])
                 .all(|x| *x == 0.0)
         );
         let mut e = Engine::new(48_000.0);
-        e.set_param(0, Param::EchoSend, 0.5);
-        e.set_param(0, Param::ReverbSend, 1.0);
+        e.set_param(0, Param::Send1, 0.5);
+        e.set_param(0, Param::Send2, 1.0);
         e.set_param(0, Param::Level, 0.5);
         e.note_on(0, 57, 1.0);
         e.render(BLOCK);
         let peak = |b: &[f32]| b.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
-        let (echo, reverb) = (peak(&e.mixer.echo_send), peak(&e.mixer.reverb_send));
+        let (echo, reverb) = (peak(&e.mixer.sends[0]), peak(&e.mixer.sends[1]));
         assert!(
             echo > 0.0 && (reverb / echo - 2.0).abs() < 1.0e-4,
             "{echo} {reverb}"
         );
         // Sends are taps: the dry mix only changes with the fader.
         assert!(peak(e.output()) < peak(&dry));
+    }
+
+    #[test]
+    fn each_send_feeds_its_own_processor_bus() {
+        for (i, send) in [Param::Send1, Param::Send2, Param::Send3, Param::Send4]
+            .into_iter()
+            .enumerate()
+        {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, send, 1.0);
+            e.note_on(0, 57, 1.0);
+            e.render(BLOCK);
+            for (n, bus) in e.mixer.sends.iter().enumerate() {
+                let peak = bus.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+                assert_eq!(peak > 0.0, n == i, "send {} on bus {n}", i + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn strip_parameters_never_reach_the_synth() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Level, 0.25);
+        assert_eq!(e.param_value(0, Param::Level), 0.25);
+        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 8);
     }
 
     #[test]
@@ -853,22 +890,22 @@ mod tests {
         let dry = first_block(|_| {});
         // Sends up, returns at 0: nothing changes.
         let muted = first_block(|e| {
-            e.set_param(0, Param::EchoSend, 1.0);
-            e.set_param(0, Param::ReverbSend, 1.0);
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::Send2, 1.0);
         });
         assert!(dry == muted, "a send alone is silent");
         // A return up, sends at 0: nothing changes either.
         let no_send = first_block(|e| {
-            e.set_param(0, Param::EchoReturn, 1.0);
-            e.set_param(0, Param::ReverbReturn, 1.0);
+            e.set_param(0, Param::P1Return, 1.0);
+            e.set_param(0, Param::P2Return, 1.0);
         });
         assert!(dry == no_send, "a return alone is silent");
         let wet = first_block(|e| {
-            e.set_param(0, Param::EchoSend, 1.0);
-            e.set_param(0, Param::EchoReturn, 1.0);
-            e.set_param(0, Param::EchoTime, 20.0);
-            e.set_param(0, Param::ReverbSend, 1.0);
-            e.set_param(0, Param::ReverbReturn, 1.0);
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::P1Return, 1.0);
+            e.set_param(0, Param::P1A, 0.39);
+            e.set_param(0, Param::Send2, 1.0);
+            e.set_param(0, Param::P2Return, 1.0);
         });
         assert!(dry != wet, "both together sound");
     }
@@ -876,32 +913,28 @@ mod tests {
     #[test]
     fn effect_parameters_are_global() {
         let mut e = Engine::new(48_000.0);
-        e.set_param(3, Param::EchoReturn, 0.4);
-        e.set_param(5, Param::ReverbSize, 7.0);
+        e.set_param(3, Param::P1Return, 0.4);
+        e.set_param(5, Param::P2A, 0.9);
         for synth in [0, 3, 15] {
-            assert_eq!(e.param_value(synth, Param::EchoReturn), 0.4);
-            assert_eq!(e.param_value(synth, Param::ReverbSize), 7.0);
+            assert_eq!(e.param_value(synth, Param::P1Return), 0.4);
+            assert_eq!(e.param_value(synth, Param::P2A), 0.9);
         }
         e.reset(2);
-        assert_eq!(
-            e.param_value(0, Param::EchoReturn),
-            0.4,
-            "reset leaves them"
-        );
+        assert_eq!(e.param_value(0, Param::P1Return), 0.4, "reset leaves them");
     }
 
     #[test]
     fn sixteen_synths_through_both_effects_stay_bounded() {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::MasterGain, 1.0);
-        e.set_param(0, Param::EchoReturn, 1.0);
-        e.set_param(0, Param::EchoFeedback, 0.95);
-        e.set_param(0, Param::EchoPingPong, 1.0);
-        e.set_param(0, Param::ReverbReturn, 1.0);
-        e.set_param(0, Param::ReverbSize, 10.0);
+        e.set_param(0, Param::P1Return, 1.0);
+        e.set_param(0, Param::P1B, 1.0);
+        e.set_param(0, Param::P1D, 1.0);
+        e.set_param(0, Param::P2Return, 1.0);
+        e.set_param(0, Param::P2A, 1.0);
         for synth in 0..SYNTHS {
-            e.set_param(synth, Param::EchoSend, 1.0);
-            e.set_param(synth, Param::ReverbSend, 1.0);
+            e.set_param(synth, Param::Send1, 1.0);
+            e.set_param(synth, Param::Send2, 1.0);
             e.set_param(synth, Param::DriveMode, 3.0);
             e.set_param(synth, Param::DriveAmount, 1.0);
             e.note_on(synth, 36 + 3 * synth as u8, 1.0);
@@ -936,20 +969,65 @@ mod tests {
         assert_eq!(e.active_voices(), SYNTHS);
     }
 
+    /// Peak of a held loud note on synth 0 after `setup`.
+    fn loud_peak(setup: impl FnOnce(&mut Engine)) -> f32 {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Vco2Level, 1.0);
+        e.set_param(0, Param::AdsrSustain, 1.0);
+        setup(&mut e);
+        e.note_on(0, 57, 1.0);
+        let mut peak = 0.0_f32;
+        for i in 0..400 {
+            e.render(BLOCK);
+            if i > 300 {
+                peak = peak.max(side_peaks(&mut e, 1).0);
+            }
+        }
+        peak
+    }
+
     #[test]
-    fn soft_clip_is_transparent_below_the_knee() {
-        for x in [-0.5, -0.2, 0.0, 0.3, 0.5] {
-            assert_eq!(soft_clip(x), x);
+    fn the_master_compressor_turns_a_loud_mix_down() {
+        let plain = loud_peak(|_| {});
+        let squeezed = loud_peak(|e| {
+            e.set_param(0, Param::CompThreshold, -30.0);
+            e.set_param(0, Param::CompRatio, 8.0);
+        });
+        assert!(squeezed < 0.7 * plain, "{squeezed} vs {plain}");
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(e.gain_reduction_db(), 0.0);
+        e.set_param(0, Param::CompThreshold, -40.0);
+        e.set_param(0, Param::CompRatio, 20.0);
+        e.note_on(0, 57, 1.0);
+        for _ in 0..100 {
+            e.render(BLOCK);
         }
-        let mut prev = soft_clip(0.5);
-        for i in 1..1000 {
-            let y = soft_clip(0.5 + i as f32 * 0.01);
-            assert!(y >= prev && y <= 1.0, "monotonic and bounded at {i}");
-            prev = y;
-        }
-        assert_eq!(soft_clip(f32::NAN), 0.0);
-        assert_eq!(soft_clip(f32::NEG_INFINITY), 0.0);
-        assert_eq!(soft_clip(-50.0), -1.0);
+        assert!(e.gain_reduction_db() > 3.0);
+    }
+
+    #[test]
+    fn the_master_eq_shapes_the_mix_and_flat_leaves_it() {
+        let flat = first_block(|_| {});
+        let same = first_block(|e| e.set_param(0, Param::EqMid1Freq, 800.0));
+        assert!(flat == same, "a band at 0 dB changes nothing");
+        let boosted = first_block(|e| {
+            e.set_param(0, Param::EqMid1Freq, 220.0);
+            e.set_param(0, Param::EqMid1Gain, 12.0);
+        });
+        assert!(flat != boosted);
+        let mut e = Engine::new(48_000.0);
+        e.set_param(3, Param::EqHighGain, -6.0);
+        assert_eq!(e.param_value(0, Param::EqHighGain), -6.0);
+    }
+
+    #[test]
+    fn compressor_parameters_are_global() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(4, Param::CompRatio, 6.0);
+        assert_eq!(e.param_value(0, Param::CompRatio), 6.0);
+        e.reset(1);
+        assert_eq!(e.param_value(0, Param::CompRatio), 6.0);
     }
 
     #[test]

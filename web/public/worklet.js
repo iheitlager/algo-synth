@@ -120,6 +120,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       load: this.busy / (this.blocks * budget),
       peak: precise ? this.peak : null,
       voices: this.w.active_voices(),
+      reduction: this.w.gain_reduction_db(),
     })
     this.busy = 0
     this.peak = 0
