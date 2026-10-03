@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-04
+
+Polyphonic synths (epic #78, PR #116).
 ### Added
 
 - **Polyphony** (epic #78, spec 006, ADR-0011): each synth owns a voice pool of up to 16 voices with a global budget of 64, a shared LFO, unison with detune spread, analog variance and a stereo chorus (Modes I, II and I+II; stereo strips balance instead of pan).
