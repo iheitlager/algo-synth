@@ -106,6 +106,20 @@ export const Param = {
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
+// Engine-wide parameters (Param::is_global): a setup stores them once.
+export const GlobalParam = {
+  MasterGain: 0,
+  EchoTime: 70,
+  EchoFeedback: 71,
+  EchoTone: 72,
+  EchoPingPong: 73,
+  EchoReturn: 74,
+  ReverbSize: 75,
+  ReverbDamping: 76,
+  ReverbPreDelay: 77,
+  ReverbReturn: 78,
+} as const
+
 export const Waveform = {
   Saw: 0,
   Pulse: 1,

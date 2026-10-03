@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-03
+
+Synth setups next to the MIDI file (#41, PR #44).
+
+### Added
+
+- Synth setups (#41): **Save setup** downloads `<song>.synths.json` with the synths on screen, each one's kind, model and parameters by name, the channel routing and the global parameters (master gain, echo, reverb); **Open…** takes a MIDI file, a setup or both. Unknown entries are skipped with one notice, a bad file changes nothing, a part-count mismatch warns. The last setup per MIDI file is kept in `localStorage`; Demo ships `demo.synths.json` (Bass and three Bowed string violins a little apart). Values are written as the shortest decimal for the same f32. Spec 003 Req 7.
+- `GlobalParam` in `params.ts`: the parameters `Param::is_global` marks, mirrored and checked by the mirror test, so a setup stores them once (#41).
+- vitest for the view's pure functions (`make test-web`, part of `make test` and CI) (#41).
+
 ## [0.6.0] - 2026-10-03
 
 The family of monosynths (epic #28, PR #42).

@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt version wasm web install demo-midi test test-rust typecheck bench lint deny image serve stop clean
+.PHONY: help check dev build fmt version wasm web install demo-midi test test-rust test-web typecheck bench lint deny image serve stop clean
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -44,9 +44,11 @@ web/node_modules: web/package-lock.json
 
 ##@ Tests
 
-test: test-rust typecheck ## Engine tests + UI typecheck
+test: test-rust test-web typecheck ## Engine and UI tests, typecheck
 test-rust: ## Engine unit tests (native)
 	cargo test --locked --workspace
+test-web: install ## UI unit tests (vitest)
+	cd web && npm test
 typecheck: install ## vue-tsc over the UI
 	cd web && npm run typecheck
 # 16 Mono voices in Node's V8 against the 25% budget (plan.md); confirm with

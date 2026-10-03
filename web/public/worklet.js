@@ -39,6 +39,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'route': w.route(data.ch, data.s); break
         case 'preset': w.mono_preset(data.s, data.id); this.sendParams(data.s); break
         case 'reset': w.synth_reset(data.s); this.sendParams(data.s); break
+        case 'dump': this.sendParams(data.s); break
       }
     }
   }
