@@ -10,7 +10,7 @@
 
 use std::cell::RefCell;
 
-use crate::engine::{BLOCK, Engine, SYNTHS};
+use crate::engine::{BLOCK, Engine, METERS, SYNTHS};
 use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
@@ -58,6 +58,31 @@ pub extern "C" fn out_ptr() -> *const f32 {
             .map_or(std::ptr::null(), |e| e.output().as_ptr()),
         Err(_) => std::ptr::null(),
     })
+}
+
+/// How many meters `meters_ptr` points at.
+#[unsafe(no_mangle)]
+pub extern "C" fn meters_len() -> u32 {
+    METERS as u32
+}
+
+/// Address of the peak meters: one per synth strip, master left and right,
+/// then each processor's return, as the highest linear level since the last
+/// `meters_clear`.
+#[unsafe(no_mangle)]
+pub extern "C" fn meters_ptr() -> *const f32 {
+    ENGINE.with(|cell| match cell.try_borrow() {
+        Ok(guard) => guard
+            .as_ref()
+            .map_or(std::ptr::null(), |e| e.meters().as_ptr()),
+        Err(_) => std::ptr::null(),
+    })
+}
+
+/// Start the meters over, once the view has read them.
+#[unsafe(no_mangle)]
+pub extern "C" fn meters_clear() {
+    with_engine(Engine::clear_meters);
 }
 
 /// Render the next block into the output buffer.
@@ -320,12 +345,16 @@ mod tests {
         note_on(0, 60, 1.0);
         set_param(0, 0, 1.0);
         assert!(out_ptr().is_null());
+        assert!(meters_ptr().is_null());
+        meters_clear();
     }
 
     #[test]
     fn exports_drive_the_engine() {
         init(48_000.0);
         assert!(!out_ptr().is_null());
+        assert!(!meters_ptr().is_null());
+        assert_eq!(meters_len() as usize, METERS);
         note_on(0, 69, 1.0);
         note_on(3, 69, 1.0);
         note_on(99, 69, 1.0); // unknown synth: ignored

@@ -29,6 +29,9 @@ pub const CHANNELS: usize = 16;
 pub const SYNTHS: usize = 16;
 /// Mono voices: one live voice per synth, one per MIDI channel (spec 004 Req 6).
 pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
+/// Peak meters: one per synth strip, then master left and right, then one per
+/// processor return.
+pub const METERS: usize = SYNTHS + 2 + SENDS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
 
@@ -55,6 +58,8 @@ pub struct Engine {
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
+    /// The highest level of each meter since `clear_meters`.
+    meters: [f32; METERS],
     /// The MIDI file's bytes, written by JavaScript before `load_midi`.
     midi: Vec<u8>,
     sequence: Sequence,
@@ -90,6 +95,7 @@ impl Engine {
             limiter: Limiter::new(sample_rate),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
+            meters: [0.0; METERS],
             midi: Vec::new(),
             sequence: Sequence::default(),
             route: [Some(0); CHANNELS],
@@ -378,7 +384,37 @@ impl Engine {
                 *s *= self.master_gain;
             }
             self.limiter.process(l, r);
+            let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+            let (pl, pr) = (peak(l), peak(r));
+            self.record(SYNTHS, pl);
+            self.record(SYNTHS + 1, pr);
         }
+        for i in 0..SYNTHS {
+            let level = self.mixer.peaks.get(i).copied().unwrap_or(0.0);
+            self.record(i, level);
+        }
+        for i in 0..SENDS {
+            let level = self.procs.get_mut(i).map_or(0.0, |p| p.take_peak());
+            self.record(SYNTHS + 2 + i, level);
+        }
+    }
+
+    fn record(&mut self, meter: usize, level: f32) {
+        if let Some(m) = self.meters.get_mut(meter) {
+            *m = m.max(level);
+        }
+    }
+
+    /// The meters since the last `clear_meters`: each synth strip after its
+    /// fader, master left and right after the limiter, and each processor's
+    /// return. For the view; levels are linear, 1 is full scale.
+    pub fn meters(&self) -> &[f32; METERS] {
+        &self.meters
+    }
+
+    /// Start the meters over, after the view has read them.
+    pub fn clear_meters(&mut self) {
+        self.meters.fill(0.0);
     }
 
     /// How far the master compressor turns the signal down now, in dB.
@@ -1019,6 +1055,55 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(3, Param::EqHighGain, -6.0);
         assert_eq!(e.param_value(0, Param::EqHighGain), -6.0);
+    }
+
+    #[test]
+    fn meters_read_the_post_fader_peaks_and_start_over() {
+        let mut e = Engine::new(48_000.0);
+        assert!(e.meters().iter().all(|m| *m == 0.0));
+        e.note_on(0, 57, 1.0);
+        e.set_param(0, Param::Send1, 1.0);
+        e.set_param(0, Param::P1Return, 1.0);
+        e.set_param(0, Param::P1A, 0.2);
+        for _ in 0..80 {
+            e.render(BLOCK);
+        }
+        let m = *e.meters();
+        assert!(m[0] > 0.05 && m[0] <= 1.0, "strip 0: {}", m[0]);
+        assert_eq!(m[1], 0.0, "an idle strip reads zero");
+        assert!(
+            m[SYNTHS] > 0.0 && m[SYNTHS + 1] > 0.0,
+            "master left and right"
+        );
+        assert!(m[SYNTHS + 2] > 0.0, "the echo return has something");
+        assert_eq!(m[SYNTHS + 3], 0.0, "and the reverb does not");
+        // The fader scales the strip's reading.
+        e.clear_meters();
+        assert!(e.meters().iter().all(|m| *m == 0.0));
+        e.set_param(0, Param::Level, 0.25);
+        e.render(BLOCK);
+        assert!(e.meters()[0] < 0.5 * m[0]);
+    }
+
+    #[test]
+    fn muted_and_unsoloed_strips_read_zero() {
+        let mut e = Engine::new(48_000.0);
+        e.note_on(0, 57, 1.0);
+        e.note_on(1, 64, 1.0);
+        e.set_param(0, Param::Mute, 1.0);
+        for _ in 0..40 {
+            e.render(BLOCK);
+        }
+        assert_eq!(e.meters()[0], 0.0);
+        assert!(e.meters()[1] > 0.0);
+        e.set_param(0, Param::Mute, 0.0);
+        e.set_param(0, Param::Solo, 1.0);
+        e.clear_meters();
+        for _ in 0..40 {
+            e.render(BLOCK);
+        }
+        assert!(e.meters()[0] > 0.0);
+        assert_eq!(e.meters()[1], 0.0);
     }
 
     #[test]

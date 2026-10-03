@@ -55,6 +55,10 @@ pub struct Processor {
     reverb_tail: usize,
     tail: usize,
     silence: [f32; BLOCK],
+    /// What the slot adds this block, kept apart to measure it.
+    wet: [[f32; BLOCK]; 2],
+    /// The highest sample the slot has added since `take_peak`.
+    peak: f32,
 }
 
 impl Processor {
@@ -68,6 +72,8 @@ impl Processor {
             reverb_tail: 0,
             tail: (TAIL_SECONDS * sample_rate) as usize,
             silence: [0.0; BLOCK],
+            wet: [[0.0; BLOCK]; 2],
+            peak: 0.0,
         }
     }
 
@@ -134,14 +140,34 @@ impl Processor {
             ProcType::Reverb => (silence, send),
             ProcType::Off => (silence, silence),
         };
+        let [wl, wr] = &mut self.wet;
+        let (Some(wl), Some(wr)) = (wl.get_mut(..n), wr.get_mut(..n)) else {
+            return;
+        };
+        wl.fill(0.0);
+        wr.fill(0.0);
         if self.kind == ProcType::Echo || self.echo_tail > 0 {
-            self.echo.process(echo_in, left, right);
+            self.echo.process(echo_in, wl, wr);
         }
         if self.kind == ProcType::Reverb || self.reverb_tail > 0 {
-            self.reverb.process(reverb_in, left, right);
+            self.reverb.process(reverb_in, wl, wr);
         }
         self.echo_tail = self.echo_tail.saturating_sub(n);
         self.reverb_tail = self.reverb_tail.saturating_sub(n);
+        for ((w, l), (v, r)) in wl
+            .iter()
+            .zip(left.iter_mut())
+            .zip(wr.iter().zip(right.iter_mut()))
+        {
+            *l += w;
+            *r += v;
+            self.peak = self.peak.max(w.abs()).max(v.abs());
+        }
+    }
+
+    /// The highest sample added since the last call, then start over.
+    pub fn take_peak(&mut self) -> f32 {
+        std::mem::take(&mut self.peak)
     }
 }
 
