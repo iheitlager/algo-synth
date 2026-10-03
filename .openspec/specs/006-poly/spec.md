@@ -42,7 +42,7 @@ A new note SHALL take a free voice, rotating from the last one used. A note alre
 
 `Assign` SHALL be Poly or Unison. In Unison a note presses on every voice of the pool up to `Polyphony`, spread by `UnisonDetune` (0..50 cents either side, evenly), and stays bounded. `Analog` (0..1) SHALL give each voice a seeded static detune (up to ±6 cents), a slow drift (up to ±3 cents) and a small cutoff offset (up to ±0.5 semitone), worked out once per block; the same seed SHALL give the same sound, and `Analog` 0 SHALL be exact.
 
-**Implementation:** `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/mono/voice.rs::MonoVoice` *(planned, #81)*
+**Implementation:** `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#81)
 
 #### Scenario: unison width
 
@@ -50,7 +50,7 @@ A new note SHALL take a free voice, rotating from the last one used. A note alre
 - WHEN a note is held
 - THEN six distinct pitches sound within ±20 cents of the note and the sum stays within ±1
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/poly.rs::tests::unison_spreads_every_voice_around_the_note`, `crates/dsp/src/poly.rs::tests::unison_falls_back_to_the_last_key_held`, `crates/dsp/src/poly.rs::tests::analog_variance_is_bounded_repeatable_and_off_at_zero`
 
 ### Requirement 4: Shared LFO [MUST]
 

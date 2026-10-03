@@ -36,6 +36,10 @@ pub struct MonoParams {
     pub model: Model,
     /// Voices the synth plays at once (spec 006): 1 is monophonic.
     pub polyphony: usize,
+    /// Unison assignment, its detune spread in cents either side, and the analog variance.
+    pub unison: bool,
+    pub unison_cents: f32,
+    pub analog: f32,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -102,6 +106,9 @@ impl MonoParams {
         let mut p = MonoParams {
             model: Model::Arp2600,
             polyphony: 1,
+            unison: false,
+            unison_cents: 0.0,
+            analog: 0.0,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -312,6 +319,9 @@ impl MonoParams {
             | Param::EqHighFreq
             | Param::EqHighGain => {}
             Param::Polyphony => self.polyphony = v.round().max(1.0) as usize,
+            Param::Assign => self.unison = v >= 0.5,
+            Param::UnisonDetune => self.unison_cents = 50.0 * v,
+            Param::Analog => self.analog = v,
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

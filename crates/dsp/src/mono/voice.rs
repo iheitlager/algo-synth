@@ -147,6 +147,10 @@ pub struct MonoCtx<'a> {
 
 #[derive(Clone, Copy, Default)]
 pub struct MonoVoice {
+    /// Semitones added to the oscillators' pitch and to the cutoff: a polyphonic
+    /// pool's unison spread and analog variance, set once per block (spec 006 Req 3).
+    pub trim: f32,
+    pub cutoff_trim: f32,
     /// Held keys and their velocities, oldest first.
     keys: [(u8, f32); KEYS],
     held: usize,
@@ -403,17 +407,18 @@ impl MonoVoice {
             let [m1, m2, m3] = m.pitch;
             let pw = (p.pulse_width + m.pulse_width).clamp(0.05, 0.95);
             let [o1, o2, o3] = &mut self.osc;
-            let inc1 = ctx.pitch.at(self.pitch + t1 + m1);
+            let base = self.pitch + self.trim;
+            let inc1 = ctx.pitch.at(base + t1 + m1);
             o1.set_increment(inc1);
             // The SH-101's pulse is VCO 1's own phase: same pitch, reset with it.
             let locked = p.model.pulse_locked();
             o2.set_increment(if locked {
                 inc1
             } else {
-                ctx.pitch.at(self.pitch + t2 + m2)
+                ctx.pitch.at(base + t2 + m2)
             });
             // Off the key and five octaves down, VCO 3 is a modulator.
-            let key3 = if p.vco3_follow { self.pitch } else { 60.0 };
+            let key3 = if p.vco3_follow { base } else { 60.0 };
             let low3 = if p.vco3_low { 60.0 } else { 0.0 };
             o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
             let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
@@ -451,13 +456,24 @@ impl MonoVoice {
                 Filter::Ladder(v) => {
                     let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
                     let x = x * (1.0 + v.comp * k);
-                    self.ladder
-                        .process(ctx.ladder, x, p.cutoff + m.cutoff, k, p.drive * v.drive)
+                    self.ladder.process(
+                        ctx.ladder,
+                        x,
+                        p.cutoff + m.cutoff + self.cutoff_trim,
+                        k,
+                        p.drive * v.drive,
+                    )
                 }
                 Filter::Svf(v) => {
                     let res = p.k / MAX_K + m.resonance;
                     self.svf_lp
-                        .process(ctx.ladder, &v, x, p.cutoff + m.cutoff, res)
+                        .process(
+                            ctx.ladder,
+                            &v,
+                            x,
+                            p.cutoff + m.cutoff + self.cutoff_trim,
+                            res,
+                        )
                         .lp
                 }
             };

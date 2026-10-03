@@ -307,6 +307,13 @@ pub enum Param {
     /// Voices the synth plays at once, 1..=16: 1 is monophonic (one voice per
     /// owner, with note priority and glide), more press each note on a voice.
     Polyphony = 150,
+    /// How a poly synth assigns notes: 0 poly (a voice per note), 1 unison (every
+    /// voice plays the last note).
+    Assign = 151,
+    /// Unison detune spread, 0..=1: 0 to ±50 cents across the voices.
+    UnisonDetune = 152,
+    /// Analog variance, 0..=1: each voice's own detune, drift and cutoff offset.
+    Analog = 153,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -388,7 +395,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 151] = [
+    pub const ALL: [(Param, &'static str); 154] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -540,6 +547,9 @@ impl Param {
         (Param::EqHighGain, "EqHighGain"),
         (Param::Out, "Out"),
         (Param::Polyphony, "Polyphony"),
+        (Param::Assign, "Assign"),
+        (Param::UnisonDetune, "UnisonDetune"),
+        (Param::Analog, "Analog"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -684,6 +694,8 @@ impl Param {
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::Out => (0.0, 8.0),
             Param::Polyphony => (1.0, 16.0),
+            Param::Assign => (0.0, 1.0),
+            Param::UnisonDetune | Param::Analog => (0.0, 1.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),
             Param::I1B => (0.0, 1.0),

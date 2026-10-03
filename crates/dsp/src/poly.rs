@@ -65,7 +65,25 @@ struct Slot {
     note: u8,
     /// The engine's note counter when it started: lower is older.
     age: u64,
+    /// This voice's unison detune in cents (0 outside unison).
+    cents: f32,
 }
+
+/// A number in −1..=1 that depends only on `i` and `salt`: a voice's own, repeatable offset.
+fn unit(i: usize, salt: u32) -> f32 {
+    let mut x = (i as u32 + 1).wrapping_mul(0x9E37_79B1) ^ salt.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x2C1B_3C6D);
+    x ^= x >> 12;
+    x = x.wrapping_mul(0x297A_2D39);
+    x ^= x >> 15;
+    (x as f32 / u32::MAX as f32) * 2.0 - 1.0
+}
+
+/// The largest static detune of an analog voice, in cents, and of its drift; and its cutoff offset in semitones.
+const ANALOG_CENTS: f32 = 6.0;
+const DRIFT_CENTS: f32 = 3.0;
+const ANALOG_CUTOFF: f32 = 0.5;
 
 /// The seed of an owner's noise, as it was when each owner had a voice of its own.
 fn owner_seed(owner: Owner) -> u32 {
@@ -85,6 +103,12 @@ pub struct Pool {
     lfo: Lfo,
     noise: Noise,
     shared: SharedMod,
+    /// Each voice's slow drift in cents, and the generator that moves it.
+    drift: [f32; MAX_VOICES],
+    rng: u32,
+    /// The keys a unison synth holds, oldest first, to fall back on when the sounding one ends.
+    keys: [(Option<Owner>, u8, f32); MAX_VOICES],
+    nkeys: usize,
 }
 
 impl Pool {
@@ -97,6 +121,10 @@ impl Pool {
             lfo: Lfo::default(),
             noise: Noise::new(seed(MAX_VOICES) | 1),
             shared: SharedMod::new(),
+            drift: [0.0; MAX_VOICES],
+            rng: seed(MAX_VOICES + 1) | 1,
+            keys: [(None, 0, 0.0); MAX_VOICES],
+            nkeys: 0,
         }
     }
 
@@ -187,9 +215,71 @@ impl Pool {
         let limit = p.polyphony.clamp(1, MAX_VOICES);
         if limit == 1 {
             self.press_mono(owner, note, velocity, p, clock);
+        } else if p.unison {
+            self.remember(owner, note, velocity);
+            self.sound_unison(owner, note, velocity, p, clock, limit);
         } else {
             self.press_poly(owner, note, velocity, p, clock, limit);
         }
+    }
+
+    /// Hold `note` in the unison key stack (a note held again moves to the top).
+    fn remember(&mut self, owner: Owner, note: u8, velocity: f32) {
+        self.forget(owner, note);
+        if self.nkeys == MAX_VOICES {
+            self.keys.copy_within(1.., 0);
+            self.nkeys -= 1;
+        }
+        if let Some(k) = self.keys.get_mut(self.nkeys) {
+            *k = (Some(owner), note, velocity);
+            self.nkeys += 1;
+        }
+    }
+
+    fn forget(&mut self, owner: Owner, note: u8) {
+        let held = self.keys.get(..self.nkeys).unwrap_or(&[]);
+        if let Some(i) = held
+            .iter()
+            .position(|(o, n, _)| *o == Some(owner) && *n == note)
+        {
+            if let Some(tail) = self.keys.get_mut(i..self.nkeys) {
+                tail.rotate_left(1);
+            }
+            self.nkeys -= 1;
+        }
+    }
+
+    /// Every voice of the pool plays `note`, spread in pitch by the unison detune.
+    fn sound_unison(
+        &mut self,
+        owner: Owner,
+        note: u8,
+        velocity: f32,
+        p: &MonoParams,
+        clock: u64,
+        limit: usize,
+    ) {
+        for i in 0..limit {
+            let cents = if limit > 1 {
+                let mid = (limit - 1) as f32 / 2.0;
+                p.unison_cents * (i as f32 - mid) / mid
+            } else {
+                0.0
+            };
+            if let (Some(PolyVoice::Mono(v)), Some(s)) =
+                (self.voices.get_mut(i), self.slots.get_mut(i))
+            {
+                v.release_all();
+                v.press(note, velocity, p);
+                *s = Slot {
+                    owner: Some(owner),
+                    note,
+                    age: clock,
+                    cents,
+                };
+            }
+        }
+        self.last = limit - 1;
     }
 
     /// The owner's voice, or a free one made for it (else the oldest).
@@ -217,6 +307,7 @@ impl Pool {
                 owner: Some(owner),
                 note,
                 age: clock,
+                cents: 0.0,
             };
         }
     }
@@ -253,6 +344,7 @@ impl Pool {
                 owner: Some(owner),
                 note,
                 age: clock,
+                cents: 0.0,
             };
         }
         self.last = i;
@@ -286,6 +378,34 @@ impl Pool {
     /// Release `note` for `owner`: a monophonic owner's voice falls back to its next
     /// held key; a polyphonic note releases the voice that plays it.
     pub fn note_off(&mut self, owner: Owner, note: u8, p: &MonoParams) {
+        if p.polyphony > 1 && p.unison {
+            self.forget(owner, note);
+            let sounding = self
+                .slots
+                .iter()
+                .zip(&self.voices)
+                .any(|(s, v)| s.owner == Some(owner) && s.note == note && v.gated());
+            if !sounding {
+                return;
+            }
+            // The last key still held takes over; with none, the voices release.
+            let next = self
+                .keys
+                .get(..self.nkeys)
+                .unwrap_or(&[])
+                .iter()
+                .rev()
+                .find(|(o, _, _)| *o == Some(owner))
+                .copied();
+            match next {
+                Some((_, n, vel)) => {
+                    let age = self.slots.iter().map(|s| s.age).max().unwrap_or(0);
+                    self.sound_unison(owner, n, vel, p, age, p.polyphony.clamp(1, MAX_VOICES));
+                }
+                None => self.release_owner(owner),
+            }
+            return;
+        }
         if p.polyphony <= 1 {
             if let Some(i) = self.slots.iter().position(|s| s.owner == Some(owner)) {
                 if let Some(PolyVoice::Mono(v)) = self.voices.get_mut(i) {
@@ -306,6 +426,21 @@ impl Pool {
 
     /// Release every voice `owner` holds.
     pub fn release_owner(&mut self, owner: Owner) {
+        while self
+            .keys
+            .get(..self.nkeys)
+            .is_some_and(|k| k.iter().any(|(o, _, _)| *o == Some(owner)))
+        {
+            let n = self.keys.get(..self.nkeys).and_then(|k| {
+                k.iter()
+                    .find(|(o, _, _)| *o == Some(owner))
+                    .map(|(_, n, _)| *n)
+            });
+            match n {
+                Some(n) => self.forget(owner, n),
+                None => break,
+            }
+        }
         for (s, v) in self.slots.iter().zip(self.voices.iter_mut()) {
             if s.owner == Some(owner) {
                 v.release_all();
@@ -323,8 +458,33 @@ impl Pool {
     }
 
     pub fn release_all(&mut self) {
+        self.nkeys = 0;
         for v in self.voices.iter_mut() {
             v.release_all();
+        }
+    }
+
+    /// Each voice's pitch and cutoff trim for the next block: its unison detune and,
+    /// with `Analog`, its own static detune, a slow drift and a cutoff offset.
+    fn retrim(&mut self, p: &MonoParams, poly: bool) {
+        for (i, (v, s)) in self.voices.iter_mut().zip(self.slots.iter()).enumerate() {
+            let PolyVoice::Mono(m) = v;
+            if !poly {
+                m.trim = 0.0;
+                m.cutoff_trim = 0.0;
+                continue;
+            }
+            // xorshift: a step of drift in −1..=1.
+            self.rng ^= self.rng << 13;
+            self.rng ^= self.rng >> 17;
+            self.rng ^= self.rng << 5;
+            let step = (self.rng as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            if let Some(d) = self.drift.get_mut(i) {
+                *d = (*d * 0.998 + step * 0.12).clamp(-DRIFT_CENTS, DRIFT_CENTS);
+                let own = unit(i, 1) * ANALOG_CENTS + *d;
+                m.trim = (s.cents + own * p.analog) / 100.0;
+            }
+            m.cutoff_trim = unit(i, 2) * ANALOG_CUTOFF * p.analog;
         }
     }
 
@@ -339,6 +499,7 @@ impl Pool {
         out: &mut [f32],
     ) {
         let poly = p.polyphony > 1;
+        self.retrim(p, poly);
         if poly {
             self.shared
                 .fill(&mut self.lfo, &mut self.noise, p, sine, out.len());
@@ -584,6 +745,94 @@ mod tests {
             pitch_mods[0], pitch_mods[1],
             "and is the same on both voices"
         );
+    }
+
+    fn trims(r: &Rig) -> Vec<f32> {
+        r.pool
+            .voices
+            .iter()
+            .zip(&r.pool.slots)
+            .filter(|(v, _)| v.active())
+            .map(|(v, _)| match v {
+                PolyVoice::Mono(m) => m.trim,
+            })
+            .collect()
+    }
+
+    /// Spec 006 Req 3: unison presses the note on every voice, spread evenly.
+    #[test]
+    fn unison_spreads_every_voice_around_the_note() {
+        use crate::params::Param;
+        let mut r = Rig::new(6.0);
+        for (p, v) in [(Param::Assign, 1.0), (Param::UnisonDetune, 0.4)] {
+            r.params.set(p, p.clamp(v));
+        }
+        r.on(LIVE, 60);
+        let out = r.run(40);
+        assert_eq!(r.pool.active(), 6, "all six voices play the one note");
+        assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 6.0));
+        let mut t = trims(&r);
+        t.sort_by(f32::total_cmp);
+        assert_eq!(t.len(), 6);
+        // 0.4 of 50 cents: ±20 cents, evenly spaced, six distinct pitches.
+        assert!(
+            (t[0] + 0.2).abs() < 1.0e-5 && (t[5] - 0.2).abs() < 1.0e-5,
+            "{t:?}"
+        );
+        for w in t.windows(2) {
+            assert!((w[1] - w[0] - 0.08).abs() < 1.0e-5, "even steps: {t:?}");
+        }
+    }
+
+    #[test]
+    fn unison_falls_back_to_the_last_key_held() {
+        use crate::params::Param;
+        let mut r = Rig::new(4.0);
+        r.params.set(Param::Assign, 1.0);
+        r.on(LIVE, 60);
+        r.on(LIVE, 64);
+        assert_eq!(r.held(), vec![64, 64, 64, 64]);
+        r.off(LIVE, 64);
+        assert_eq!(r.held(), vec![60, 60, 60, 60], "back to the key still down");
+        r.off(LIVE, 60);
+        assert!(r.held().is_empty());
+        // A key let go while another sounds changes nothing.
+        r.on(LIVE, 60);
+        r.on(LIVE, 64);
+        r.off(LIVE, 60);
+        assert_eq!(r.held(), vec![64, 64, 64, 64]);
+    }
+
+    /// Spec 006 Req 3: `Analog` gives each voice its own bounded offsets, the same
+    /// every time, and 0 is exact.
+    #[test]
+    fn analog_variance_is_bounded_repeatable_and_off_at_zero() {
+        use crate::params::Param;
+        let chord = |analog: f32| {
+            let mut r = Rig::new(6.0);
+            r.params.set(Param::Analog, analog);
+            for n in [60, 64, 67, 71] {
+                r.on(LIVE, n);
+            }
+            let out = r.run(300);
+            (trims(&r), out)
+        };
+        let (exact, out0) = chord(0.0);
+        assert!(exact.iter().all(|t| *t == 0.0), "{exact:?}");
+        let (loose, out1) = chord(1.0);
+        let (again, out2) = chord(1.0);
+        assert_eq!(out1, out2, "the same seed gives the same sound");
+        assert_ne!(out0, out1, "and variance is audible");
+        assert_eq!(loose, again);
+        assert!(loose.iter().any(|t| *t != 0.0));
+        // At most 6 cents of static detune and 3 of drift.
+        assert!(loose.iter().all(|t| t.abs() <= 0.0901), "{loose:?}");
+        let distinct = loose
+            .iter()
+            .map(|t| t.to_bits())
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        assert_eq!(distinct, loose.len(), "every voice has its own");
     }
 
     #[test]
