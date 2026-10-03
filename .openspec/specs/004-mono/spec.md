@@ -124,7 +124,7 @@ Each owner (live input, and each MIDI channel of the player) SHALL have one mono
 
 #### Scenario: owners are independent
 
-- GIVEN MIDI channels 2 and 3 both routed to Mono, and live input on Mono
+- GIVEN MIDI channels 3 and 4 playing on synth 0, and live input on synth 0
 - WHEN each plays a note
 - THEN three Mono voices sound, and a note off on one leaves the others gated
 
@@ -179,3 +179,29 @@ The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead
 - THEN every sample is finite and bounded, and the voice falls silent after its release
 
 **Tests:** `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/mono/preset.rs::tests::a_preset_sets_every_mono_parameter`, `crates/dsp/src/mono/preset.rs::tests::defaults_cover_every_mono_parameter_once`
+
+### Requirement 10: Independent synths [MUST]
+
+The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its own parameters, values and patch (plan.md MVP 5); `set_param`, `param_value`, `mono_preset`, `note_on` and `note_off` SHALL name the synth, and `synth_reset` SHALL put one back to the defaults. `MasterGain` SHALL stay global. Each synth SHALL have its own live voice; each MIDI channel SHALL play on one synth or be muted, and loading a file SHALL put its parts on synths 0, 1, 2… in order. A voice SHALL keep the synth its note started on, and SHALL follow that synth's parameters while it sounds. An unknown synth SHALL be ignored (or mute, as a route), and a live note SHALL never reach a channel's voice.
+
+**Implementation:** `crates/dsp/src/engine.rs::Engine` (`SYNTHS`, `set_param`, `preset`, `reset`, `route`), `crates/dsp/src/ffi.rs` (`synth_count`, `synth_reset`), `web/src/audio/engine.ts::addSynth` (#19)
+
+#### Scenario: own patch
+
+- GIVEN synth 1 with every VCO and the noise at level 0
+- WHEN synth 0 and synth 1 each play a note
+- THEN synth 1 stays below −80 dB and synth 0 sounds
+
+#### Scenario: one synth per part
+
+- GIVEN the four-part demo file
+- WHEN it loads
+- THEN channels 1-4 play on synths 0-3
+
+#### Scenario: sixteen at once
+
+- GIVEN 16 synths on different presets
+- WHEN each plays a note at full master gain
+- THEN 16 voices sound and every sample is finite and within ±1
+
+**Tests:** `crates/dsp/src/engine.rs::tests::synths_have_their_own_parameters`, `crates/dsp/src/engine.rs::tests::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine.rs::tests::master_gain_is_global`, `crates/dsp/src/engine.rs::tests::unknown_synths_are_ignored`, `crates/dsp/src/engine.rs::tests::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine.rs::tests::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine.rs::tests::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine.rs::tests::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`

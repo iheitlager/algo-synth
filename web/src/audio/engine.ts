@@ -7,10 +7,11 @@ import type { ParamId, PresetId } from './params'
 
 const base = import.meta.env.BASE_URL
 
-/** A routing choice for a MIDI part: PLAY on Mono, or MUTE. */
-export const PLAY = 0
+/** Mono synths the engine holds (`SYNTHS` in engine.rs). */
+export const MAX_SYNTHS = 16
+/** A routing choice for a MIDI part: a synth index, or MUTE. */
 export const MUTE = 255
-export type Route = typeof PLAY | typeof MUTE
+export type Route = number
 
 /** One MIDI channel with notes, as the engine summarised it. */
 export interface Part {
@@ -19,7 +20,7 @@ export interface Part {
   notes: number
   start: number
   end: number
-  source: Route
+  synth: Route
   /** Notes for drawing: [start s, end s, pitch], paired on the main thread. */
   roll: [number, number, number][]
 }
@@ -48,13 +49,15 @@ class AudioEngine {
   }
 
   post(msg: object, transfer: Transferable[] = []) { this.node.port.postMessage(msg, transfer) }
-  param(id: ParamId, v: number) {
-    params.values[id] = v
-    this.post({ t: 'param', id, v })
+  param(s: number, id: ParamId, v: number) {
+    const values = params.values[s]
+    if (values) values[id] = v
+    this.post({ t: 'param', s, id, v })
   }
-  preset(id: PresetId) { this.post({ t: 'preset', id }) }
-  noteOn(n: number, v = 0.8) { this.post({ t: 'on', n, v }) }
-  noteOff(n: number) { this.post({ t: 'off', n }) }
+  preset(s: number, id: PresetId) { this.post({ t: 'preset', s, id }) }
+  reset(s: number) { this.post({ t: 'reset', s }) }
+  noteOn(s: number, n: number, v = 0.8) { this.post({ t: 'on', s, n, v }) }
+  noteOff(s: number, n: number) { this.post({ t: 'off', s, n }) }
   panic() { this.post({ t: 'panic' }) }
 }
 
@@ -74,11 +77,45 @@ export const player = reactive({
 export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, seen: false })
 
 /**
- * Parameter values by id: what the view last sent, replaced by the engine's
- * clamped values at start and after a preset. The sliders' ranges match
- * Rust's, so the two only differ out of range.
+ * Parameter values by synth and id: what the view last sent, replaced by the
+ * engine's clamped values at start and after a preset or reset. The sliders'
+ * ranges match Rust's, so the two only differ out of range.
  */
-export const params = reactive({ values: [] as number[] })
+export const params = reactive({ values: [] as number[][] })
+
+/**
+ * The synths on screen, by engine index, and the one the keyboard plays. The
+ * engine always holds `MAX_SYNTHS`; adding one shows a free index, reset to
+ * the default patch.
+ */
+export const synths = reactive({ list: [0] as number[], selected: 0 })
+
+/** One hue per synth, so a part's notes match its synth's card. */
+export const synthColour = (s: number) => `hsl(${(12 + 47 * s) % 360} 68% 62%)`
+
+/** Show synth `s`, reset to the default patch unless it is already shown. */
+function show(s: number) {
+  if (synths.list.includes(s)) return
+  engine?.reset(s)
+  synths.list = [...synths.list, s].sort((a, b) => a - b)
+}
+
+/** Add a synth on the lowest free index and select it; false when all 16 are shown. */
+export function addSynth(): boolean {
+  const free = Array.from({ length: MAX_SYNTHS }, (_, i) => i).find((i) => !synths.list.includes(i))
+  if (free === undefined) return false
+  show(free)
+  synths.selected = free
+  return true
+}
+
+/** Remove synth `s` (never the last one); parts playing on it are muted. */
+export function removeSynth(s: number) {
+  if (synths.list.length <= 1) return
+  synths.list = synths.list.filter((i) => i !== s)
+  for (const p of player.parts) if (p.synth === s) route(p, MUTE)
+  if (synths.selected === s) synths.selected = synths.list[0] ?? 0
+}
 let engine: AudioEngine | null = null
 
 export async function power(): Promise<void> {
@@ -124,15 +161,15 @@ export async function loadDemo(): Promise<void> {
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
 export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
-export function route(part: Part, source: Route) {
-  part.source = source
-  engine?.post({ t: 'route', ch: part.channel, s: source })
+export function route(part: Part, synth: Route) {
+  part.synth = synth
+  engine?.post({ t: 'route', ch: part.channel, s: synth })
 }
 
 interface MidiSummary {
   t: 'midi'
   code: number
-  parts?: { channel: number; name: Uint8Array; notes: number; start: number; end: number; source: number }[]
+  parts?: { channel: number; name: Uint8Array; notes: number; start: number; end: number; synth: number }[]
   packed?: Uint32Array
   times?: Float32Array
   length?: number
@@ -149,7 +186,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     meter.voices = data.voices as number
     meter.seen = true
   } else if (data.t === 'params') {
-    params.values = Array.from(data.values as Float32Array)
+    params.values[data.s as number] = Array.from(data.values as Float32Array)
   } else if (data.t === 'midi') {
     onMidi(data as unknown as MidiSummary)
   }
@@ -168,9 +205,11 @@ function onMidi(m: MidiSummary) {
     notes: p.notes,
     start: p.start,
     end: p.end,
-    source: p.source as Route,
+    synth: p.synth,
     roll: rolls.get(p.channel) ?? [],
   }))
+  // The engine puts the parts on synths 0, 1, 2…: show each of them.
+  for (const p of player.parts) if (p.synth !== MUTE) show(p.synth)
   player.length = m.length ?? 0
   player.bar = m.bar || 2
   player.position = 0

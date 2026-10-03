@@ -7,11 +7,10 @@
 pub const TABLE: usize = 2048;
 
 /// Who started a voice, so a note-off releases only its own notes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Owner {
-    /// The on-screen or computer keyboard.
-    #[default]
-    Live,
+    /// The on-screen or computer keyboard, playing this synth.
+    Live(u8),
     /// The MIDI player, on this channel (0..=15).
     Channel(u8),
 }

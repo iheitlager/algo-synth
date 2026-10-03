@@ -5,7 +5,7 @@ An algorithmic synthesizer that runs entirely in the browser, with the whole eng
 ## Version: 0.4.0
 
 - **Mono:** an ARP 2600-style semi-modular voice: three VCOs, noise, a 4-pole ladder, envelopes, LFO, normalled routing with patch overrides.
-- **MIDI player:** load a file, each channel plays its own Mono voice; next, each on its own patch (six 2600s playing Vivaldi).
+- **Up to 16 synths:** add 2600s as you need them, each with its own patch. A MIDI file plays each part on its own synth, on the way to six 2600s playing Vivaldi.
 - **No backend:** the container serves static files.
 
 The base (v0.1.0) is the pipeline: a test voice from Rust through the AudioWorklet, in the four-pane layout. v0.2.0 adds a MIDI file player in the engine, each channel routed to a source with a first timbre of its own. v0.3.0 is the Mono voice (MVP 2): three band-limited VCOs, noise, a 4-pole ladder, ADSR, LFO and four presets. v0.4.0 makes it playable: note priority, legato and glide, and normalled routing with an 8-slot patch. See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
