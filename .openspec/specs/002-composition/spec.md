@@ -14,13 +14,23 @@ A track SHALL own exactly one source instance (`Mono`, `Wave`, `Drums`), with it
 
 Each track SHALL pass through up to four inserts, a fader and pan, and two sends (delay, reverb) into a master bus with a compressor and limiter. The insert order MAY change; nothing in the mixer SHALL allocate after init.
 
-**Implementation:** `crates/dsp/src/mixer.rs::Mixer` (strips, buses and sends); inserts and the master compressor *(planned)*
+**Implementation:** `crates/dsp/src/mixer.rs::Mixer` (strips, buses and sends), `crates/dsp/src/fx/echo.rs::Echo`, `crates/dsp/src/fx/reverb.rs::Reverb` (the returns), `crates/dsp/src/fx/drive.rs::Drive` (the insert, spec 004 Req 11); the master compressor *(planned)*
+
+The echo SHALL be a stereo delay of up to 2 s set in milliseconds, with feedback clamped below 1, a low-pass in the loop, ping-pong and a return level. The reverb SHALL be an 8-line feedback delay network with a Hadamard matrix, a size (seconds to −60 dB), damping, pre-delay and a return level. Both are global; with both returns at 0 they SHALL be silent.
 
 #### Scenario: strips
 
 - GIVEN a synth playing
 - WHEN its pan is −1, 0 or +1, its level 0, or another synth soloed
 - THEN it sounds left only, 3 dB down on both sides, right only, or not at all
+
+#### Scenario: returns
+
+- GIVEN an impulse on the echo send
+- WHEN the time is 100 ms and the feedback 0.5
+- THEN echoes land every 100 ms, each half the one before
+
+**Tests:** `crates/dsp/src/fx/echo.rs::tests::echoes_land_at_the_set_time_and_decay_by_the_feedback`, `crates/dsp/src/fx/echo.rs::tests::feedback_is_clamped_and_the_loop_stays_bounded`, `crates/dsp/src/fx/reverb.rs::tests::the_tail_falls_60_db_in_about_the_size_setting`, `crates/dsp/src/fx/reverb.rs::tests::no_dc_and_always_bounded`, `crates/dsp/src/engine.rs::tests::the_effects_only_sound_through_a_send_and_a_return`, `crates/dsp/src/engine.rs::tests::sixteen_synths_through_both_effects_stay_bounded`
 
 **Tests:** `crates/dsp/src/engine.rs::tests::pan_is_equal_power`, `crates/dsp/src/engine.rs::tests::fader_mute_and_solo`, `crates/dsp/src/engine.rs::tests::sends_follow_the_fader_and_leave_the_mix_alone`, `crates/dsp/src/engine.rs::tests::sixteen_full_synths_stay_bounded_in_stereo`
 

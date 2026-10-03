@@ -74,6 +74,15 @@ export const Param = {
   DriveAmount: 67,
   DriveTone: 68,
   DriveLevel: 69,
+  EchoTime: 70,
+  EchoFeedback: 71,
+  EchoTone: 72,
+  EchoPingPong: 73,
+  EchoReturn: 74,
+  ReverbSize: 75,
+  ReverbDamping: 76,
+  ReverbPreDelay: 77,
+  ReverbReturn: 78,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
