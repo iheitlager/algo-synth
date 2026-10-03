@@ -1,5 +1,5 @@
-//! The engine: one Mono voice per owner, the MIDI player, planar stereo
-//! blocks.
+//! The engine: up to `SYNTHS` Mono synths, each with its own parameters,
+//! one Mono voice per owner, the MIDI player, planar stereo blocks.
 //!
 //! Real-time rules (ADR-0002): `render` never allocates, never panics and
 //! never calls `sin`/`exp`/`pow` per sample. The voices, tables and output are
@@ -20,8 +20,10 @@ use crate::voice::{Owner, sine_table};
 pub const BLOCK: usize = 128;
 /// MIDI channels the player routes.
 pub const CHANNELS: usize = 16;
-/// Mono voices: one for live input, one per MIDI channel (spec 004 Req 6).
-pub const MONO_VOICES: usize = 1 + CHANNELS;
+/// Mono synths, each with its own parameters (plan.md MVP 5).
+pub const SYNTHS: usize = 16;
+/// Mono voices: one live voice per synth, one per MIDI channel (spec 004 Req 6).
+pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
 /// The master limiter passes everything below this level unchanged.
@@ -32,21 +34,23 @@ pub struct Engine {
     sample_rate: f32,
     sine: Vec<f32>,
     blep: Blep,
-    mono: MonoParams,
-    /// The last value set per parameter id, clamped, for the view to read.
-    values: [f32; Param::ALL.len()],
+    synths: [MonoParams; SYNTHS],
+    /// The last value set per synth and parameter id, clamped, for the view.
+    values: [[f32; Param::ALL.len()]; SYNTHS],
     ladder: LadderTables,
     pitch: PitchTable,
-    /// Index 0 plays live input, 1 + n plays MIDI channel n.
+    /// Index s plays synth s's live input, `SYNTHS + n` plays MIDI channel n.
     monos: [MonoVoice; MONO_VOICES],
+    /// The synth each voice plays, fixed when its note starts.
+    synth_of: [usize; MONO_VOICES],
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
     /// The MIDI file's bytes, written by JavaScript before `load_midi`.
     midi: Vec<u8>,
     sequence: Sequence,
-    /// Whether each MIDI channel plays; `false` mutes it.
-    route: [bool; CHANNELS],
+    /// The synth each MIDI channel plays on; `None` mutes it.
+    route: [Option<usize>; CHANNELS],
 }
 
 impl Engine {
@@ -62,22 +66,23 @@ impl Engine {
             sample_rate,
             sine,
             blep: Blep::new(),
-            mono: MonoParams::new(sample_rate),
-            values: [0.0; Param::ALL.len()],
+            synths: [MonoParams::new(sample_rate); SYNTHS],
+            values: [[0.0; Param::ALL.len()]; SYNTHS],
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
             monos: std::array::from_fn(|i| {
                 MonoVoice::new((i as u32 + 1).wrapping_mul(2_654_435_761))
             }),
+            synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
             sequence: Sequence::default(),
-            route: [true; CHANNELS],
+            route: [Some(0); CHANNELS],
         };
-        engine.set_param(Param::MasterGain, 0.5);
-        for (p, v) in DEFAULTS {
-            engine.set_param(p, v);
+        engine.set_param(0, Param::MasterGain, 0.5);
+        for synth in 0..SYNTHS {
+            engine.reset(synth);
         }
         engine
     }
@@ -86,38 +91,66 @@ impl Engine {
         self.sample_rate
     }
 
-    /// Set a parameter; the value is clamped into its range.
-    pub fn set_param(&mut self, param: Param, value: f32) {
+    /// Set a parameter of `synth`; the value is clamped into its range.
+    /// `MasterGain` is global, whichever synth it is sent to. Unknown synths
+    /// are ignored.
+    pub fn set_param(&mut self, synth: usize, param: Param, value: f32) {
         let v = param.clamp(value);
-        if let Some(slot) = self.values.get_mut(param as usize) {
+        if param == Param::MasterGain {
+            self.master_gain = v;
+            for values in self.values.iter_mut() {
+                if let Some(slot) = values.get_mut(param as usize) {
+                    *slot = v;
+                }
+            }
+            return;
+        }
+        let (Some(values), Some(mono)) = (self.values.get_mut(synth), self.synths.get_mut(synth))
+        else {
+            return;
+        };
+        if let Some(slot) = values.get_mut(param as usize) {
             *slot = v;
         }
-        match param {
-            Param::MasterGain => self.master_gain = v,
-            _ => self.mono.set(param, v),
-        }
+        mono.set(param, v);
     }
 
-    /// The value `param` was last set to, after clamping.
-    pub fn param_value(&self, param: Param) -> f32 {
-        self.values.get(param as usize).copied().unwrap_or(0.0)
+    /// The value `param` of `synth` was last set to, after clamping.
+    pub fn param_value(&self, synth: usize, param: Param) -> f32 {
+        self.values
+            .get(synth)
+            .and_then(|v| v.get(param as usize))
+            .copied()
+            .unwrap_or(0.0)
     }
 
-    /// Set every Mono parameter: the defaults, then the preset's changes.
-    pub fn preset(&mut self, preset: Preset) {
+    /// Set every Mono parameter of `synth`: the defaults, then the preset's
+    /// changes.
+    pub fn preset(&mut self, synth: usize, preset: Preset) {
         for (p, v) in DEFAULTS.iter().chain(preset.changes()) {
-            self.set_param(*p, *v);
+            self.set_param(synth, *p, *v);
         }
     }
 
-    /// Live input: press a key on the live Mono voice.
-    pub fn note_on(&mut self, note: u8, velocity: f32) {
-        self.start_voice(Owner::Live, note, velocity);
+    /// Put `synth` back to the defaults, for a newly added synth.
+    pub fn reset(&mut self, synth: usize) {
+        for (p, v) in DEFAULTS {
+            self.set_param(synth, p, v);
+        }
     }
 
-    /// Live input: release this key.
-    pub fn note_off(&mut self, note: u8) {
-        self.stop_note(Owner::Live, note);
+    /// Live input: press a key on `synth`'s live voice.
+    pub fn note_on(&mut self, synth: usize, note: u8, velocity: f32) {
+        if let Some(s) = live(synth) {
+            self.start_voice(Owner::Live(s), note, velocity);
+        }
+    }
+
+    /// Live input: release this key on `synth`.
+    pub fn note_off(&mut self, synth: usize, note: u8) {
+        if let Some(s) = live(synth) {
+            self.stop_note(Owner::Live(s), note);
+        }
     }
 
     /// Release every voice.
@@ -132,21 +165,46 @@ impl Engine {
         self.monos.iter().filter(|m| m.active()).count()
     }
 
-    fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
-        if let Some(m) = self.monos.get_mut(mono_index(owner)) {
-            m.press(note.min(127), velocity, &self.mono);
+    /// The synth `owner` plays now: its own for live input, the route for a
+    /// channel.
+    fn target(&self, owner: Owner) -> Option<usize> {
+        match owner {
+            Owner::Live(s) => Some(usize::from(s)),
+            Owner::Channel(ch) => self.routed(ch),
         }
+    }
+
+    fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
+        let i = mono_index(owner);
+        let Some(synth) = self.target(owner) else {
+            return;
+        };
+        let (Some(m), Some(slot), Some(params)) = (
+            self.monos.get_mut(i),
+            self.synth_of.get_mut(i),
+            self.synths.get(synth),
+        ) else {
+            return;
+        };
+        // A voice changing synth starts clean, not legato from the old one.
+        if *slot != synth {
+            m.release_all();
+            *slot = synth;
+        }
+        m.press(note.min(127), velocity, params);
     }
 
     /// Release `note` from `owner`.
     fn stop_note(&mut self, owner: Owner, note: u8) {
-        if let Some(m) = self.monos.get_mut(mono_index(owner)) {
-            m.release(note, &self.mono);
+        let i = mono_index(owner);
+        let synth = self.synth_of.get(i).copied().unwrap_or(0);
+        if let (Some(m), Some(params)) = (self.monos.get_mut(i), self.synths.get(synth)) {
+            m.release(note, params);
         }
     }
 
     fn release_player(&mut self) {
-        for m in self.monos.iter_mut().skip(1) {
+        for m in self.monos.iter_mut().skip(SYNTHS) {
             m.release_all();
         }
     }
@@ -165,12 +223,18 @@ impl Engine {
     }
 
     /// Parse the buffer and make it the current sequence, stopped at the
-    /// top with the default routing. Returns the number of parts.
+    /// top, its parts on synths 0, 1, 2… in order. Returns the number of
+    /// parts.
     pub fn load_midi(&mut self) -> Result<usize, smf::Error> {
         let parsed = smf::parse(&self.midi)?;
         self.release_player();
         self.sequence = Sequence::compile(&parsed, self.sample_rate);
-        self.route = [true; CHANNELS];
+        self.route = [Some(0); CHANNELS];
+        for (synth, part) in self.sequence.parts().iter().enumerate().take(SYNTHS) {
+            if let Some(slot) = self.route.get_mut(usize::from(part.channel)) {
+                *slot = Some(synth);
+            }
+        }
         Ok(self.sequence.parts().len())
     }
 
@@ -192,21 +256,19 @@ impl Engine {
         self.release_player();
     }
 
-    /// Play `channel` on Mono, or mute it with `false`.
-    pub fn route(&mut self, channel: u8, on: bool) {
+    /// Play `channel` on `synth`, or mute it with `None`. An unknown synth
+    /// mutes too.
+    pub fn route(&mut self, channel: u8, synth: Option<usize>) {
         if let Some(slot) = self.route.get_mut(usize::from(channel)) {
-            *slot = on;
+            *slot = synth.filter(|s| *s < SYNTHS);
             if let Some(m) = self.monos.get_mut(mono_index(Owner::Channel(channel))) {
                 m.release_all();
             }
         }
     }
 
-    pub fn routed(&self, channel: u8) -> bool {
-        self.route
-            .get(usize::from(channel))
-            .copied()
-            .unwrap_or(false)
+    pub fn routed(&self, channel: u8) -> Option<usize> {
+        self.route.get(usize::from(channel)).copied().flatten()
     }
 
     fn fire_due_events(&mut self) {
@@ -214,7 +276,7 @@ impl Engine {
             let owner = Owner::Channel(ev.channel);
             if !ev.on {
                 self.stop_note(owner, ev.note);
-            } else if self.routed(ev.channel) {
+            } else {
                 self.start_voice(owner, ev.note, ev.velocity);
             }
         }
@@ -234,16 +296,21 @@ impl Engine {
         while t < n {
             self.fire_due_events();
             let chunk = self.sequence.frames_until_next(n - t);
-            let mono = MonoCtx {
-                params: &self.mono,
-                sine: &self.sine,
-                blep: &self.blep,
-                ladder: &self.ladder,
-                pitch: &self.pitch,
-            };
             if let Some(buf) = self.out.get_mut(t..t + chunk) {
-                for m in self.monos.iter_mut().filter(|m| m.active()) {
-                    m.render(&mono, buf);
+                for (m, synth) in self.monos.iter_mut().zip(self.synth_of.iter()) {
+                    let Some(params) = self.synths.get(*synth) else {
+                        continue;
+                    };
+                    if m.active() {
+                        let mono = MonoCtx {
+                            params,
+                            sine: &self.sine,
+                            blep: &self.blep,
+                            ladder: &self.ladder,
+                            pitch: &self.pitch,
+                        };
+                        m.render(&mono, buf);
+                    }
                 }
             }
             self.sequence.advance(chunk);
@@ -262,11 +329,19 @@ impl Engine {
     }
 }
 
+/// The live owner index for `synth`, or `None` past `SYNTHS`, so a live note
+/// never lands on a channel's voice.
+fn live(synth: usize) -> Option<u8> {
+    u8::try_from(synth)
+        .ok()
+        .filter(|s| usize::from(*s) < SYNTHS)
+}
+
 /// Which of `Engine::monos` plays for `owner`.
 fn mono_index(owner: Owner) -> usize {
     match owner {
-        Owner::Live => 0,
-        Owner::Channel(ch) => 1 + usize::from(ch),
+        Owner::Live(s) => usize::from(s),
+        Owner::Channel(ch) => SYNTHS + usize::from(ch),
     }
 }
 
@@ -334,13 +409,13 @@ mod tests {
     #[test]
     fn mono_follows_its_adsr() {
         let mut e = Engine::new(48_000.0);
-        e.set_param(Param::AdsrRelease, 0.01);
-        e.note_on(57, 1.0);
+        e.set_param(0, Param::AdsrRelease, 0.01);
+        e.note_on(0, 57, 1.0);
         for _ in 0..40 {
             e.render(BLOCK);
         }
         assert!(peak(&e) > 0.05);
-        e.note_off(57);
+        e.note_off(0, 57);
         // 0.01 s is 3.75 blocks.
         for _ in 0..5 {
             e.render(BLOCK);
@@ -356,10 +431,10 @@ mod tests {
     #[test]
     fn a_mono_tap_shorter_than_a_block_sounds() {
         let mut e = Engine::new(48_000.0);
-        e.set_param(Param::AdsrAttack, 0.001);
-        e.set_param(Param::AdsrRelease, 0.01);
-        e.note_on(69, 1.0);
-        e.note_off(69);
+        e.set_param(0, Param::AdsrAttack, 0.001);
+        e.set_param(0, Param::AdsrRelease, 0.01);
+        e.note_on(0, 69, 1.0);
+        e.note_off(0, 69);
         let mut heard = 0.0_f32;
         for _ in 0..10 {
             e.render(BLOCK);
@@ -374,12 +449,12 @@ mod tests {
     fn mono_sustain_moves_a_held_note() {
         let level = |sustain: f32| {
             let mut e = Engine::new(48_000.0);
-            e.set_param(Param::AdsrDecay, 0.01);
-            e.note_on(57, 1.0);
+            e.set_param(0, Param::AdsrDecay, 0.01);
+            e.note_on(0, 57, 1.0);
             for _ in 0..40 {
                 e.render(BLOCK);
             }
-            e.set_param(Param::AdsrSustain, sustain);
+            e.set_param(0, Param::AdsrSustain, sustain);
             let mut sum = 0.0;
             for _ in 0..40 {
                 e.render(BLOCK);
@@ -401,14 +476,14 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.start_voice(Owner::Channel(2), 60, 1.0);
         e.start_voice(Owner::Channel(3), 64, 1.0);
-        e.note_on(67, 1.0);
+        e.note_on(0, 67, 1.0);
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 3);
         e.stop_note(Owner::Channel(2), 60);
-        assert!(!e.monos[3].gated());
-        assert!(e.monos[4].gated() && e.monos[0].gated());
+        assert!(!e.monos[SYNTHS + 2].gated());
+        assert!(e.monos[SYNTHS + 3].gated() && e.monos[0].gated());
         // Live Mono is monophonic: a second key moves the same voice.
-        e.note_on(69, 1.0);
+        e.note_on(0, 69, 1.0);
         e.render(BLOCK);
         assert_eq!(e.monos[0].note(), 69);
         assert_eq!(e.active_voices(), 3);
@@ -427,7 +502,7 @@ mod tests {
             (Param::Drive, 1.0),
             (Param::AdsrSustain, 1.0),
         ] {
-            e.set_param(p, v);
+            e.set_param(0, p, v);
         }
         // 16 Mono voices: one per MIDI channel.
         for ch in 0..16 {
@@ -440,6 +515,129 @@ mod tests {
             peak_seen = peak_seen.max(peak(&e));
         }
         assert!(peak_seen > 0.9, "the limiter is reached, peak {peak_seen}");
+    }
+
+    /// Mute `synth` at its mixer: every VCO and the noise at level 0.
+    fn silence(e: &mut Engine, synth: usize) {
+        for p in [
+            Param::Vco1Level,
+            Param::Vco2Level,
+            Param::Vco3Level,
+            Param::NoiseLevel,
+        ] {
+            e.set_param(synth, p, 0.0);
+        }
+    }
+
+    /// Peak over `blocks` blocks.
+    fn heard(e: &mut Engine, blocks: usize) -> f32 {
+        (0..blocks).fold(0.0_f32, |m, _| {
+            e.render(BLOCK);
+            m.max(peak(e))
+        })
+    }
+
+    /// plan.md MVP 5: each synth has its own patch.
+    #[test]
+    fn synths_have_their_own_parameters() {
+        let mut e = Engine::new(48_000.0);
+        silence(&mut e, 1);
+        assert_eq!(e.param_value(1, Param::Vco1Level), 0.0);
+        assert!(e.param_value(0, Param::Vco1Level) > 0.0);
+        e.note_on(1, 57, 1.0);
+        // Below −80 dB: the ladder leaves a residue of about −107 dB.
+        assert!(heard(&mut e, 20) < 1.0e-4, "synth 1 is silenced");
+        e.note_on(0, 57, 1.0);
+        assert!(heard(&mut e, 20) > 0.05, "synth 0 still sounds");
+        assert_eq!(e.active_voices(), 2);
+    }
+
+    #[test]
+    fn a_preset_on_one_synth_leaves_the_others() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(2, Preset::Bass);
+        for (p, v) in DEFAULTS {
+            assert_eq!(e.param_value(0, p), v, "{p:?} on synth 0");
+            assert_eq!(e.param_value(3, p), v, "{p:?} on synth 3");
+        }
+        e.reset(2);
+        for (p, v) in DEFAULTS {
+            assert_eq!(e.param_value(2, p), v, "{p:?} after reset");
+        }
+    }
+
+    #[test]
+    fn master_gain_is_global() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(5, Param::MasterGain, 0.2);
+        assert_eq!(e.param_value(0, Param::MasterGain), 0.2);
+        assert_eq!(e.master_gain, 0.2);
+    }
+
+    /// Out-of-range synths are ignored, and a live note never reaches a
+    /// channel's voice.
+    #[test]
+    fn unknown_synths_are_ignored() {
+        let mut e = Engine::new(48_000.0);
+        e.start_voice(Owner::Channel(4), 60, 1.0);
+        e.note_on(SYNTHS, 62, 1.0);
+        e.note_off(SYNTHS + 4, 60);
+        e.set_param(SYNTHS, Param::Cutoff, 300.0);
+        e.preset(usize::MAX, Preset::Bass);
+        e.reset(SYNTHS);
+        assert!(e.monos[SYNTHS + 4].gated());
+        assert_eq!(e.param_value(SYNTHS, Param::Cutoff), 0.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 1);
+    }
+
+    #[test]
+    fn a_channel_plays_on_its_routed_synth() {
+        let render = |synth: Option<usize>| {
+            let mut e = Engine::new(48_000.0);
+            silence(&mut e, 1);
+            load(&mut e, &one_note(0)).expect("loads");
+            e.route(0, synth);
+            e.play();
+            heard(&mut e, 300)
+        };
+        assert!(render(Some(0)) > 0.05);
+        assert!(render(Some(1)) < 1.0e-4, "synth 1 is silenced");
+        assert_eq!(render(None), 0.0, "muted");
+        assert_eq!(render(Some(SYNTHS)), 0.0, "an unknown synth mutes");
+    }
+
+    /// Changing a synth's patch reaches the channel voice playing on it.
+    #[test]
+    fn a_channel_voice_follows_its_synths_parameters() {
+        let mut e = Engine::new(48_000.0);
+        load(&mut e, &one_note(0)).expect("loads");
+        e.route(0, Some(4));
+        e.play();
+        // The note starts at 0.5 s (187.5 blocks).
+        assert!(heard(&mut e, 200) > 0.05);
+        silence(&mut e, 4);
+        heard(&mut e, 2);
+        assert!(
+            heard(&mut e, 10) < 1.0e-4,
+            "silencing synth 4 silences the channel"
+        );
+    }
+
+    #[test]
+    fn sixteen_differently_patched_synths_play_together() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            let (preset, _) = Preset::ALL[synth % Preset::ALL.len()];
+            e.preset(synth, preset);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(e.active_voices(), SYNTHS);
     }
 
     #[test]
@@ -461,7 +659,7 @@ mod tests {
     #[test]
     fn short_blocks_leave_the_tail_silent() {
         let mut e = Engine::new(48_000.0);
-        e.note_on(69, 1.0);
+        e.note_on(0, 69, 1.0);
         e.render(BLOCK);
         e.render(64);
         assert!(
@@ -514,8 +712,8 @@ mod tests {
     fn every_channel_plays_and_mute_silences() {
         let mut e = Engine::new(48_000.0);
         load(&mut e, &one_note(9)).expect("loads");
-        assert!((0..16).all(|ch| e.routed(ch)));
-        e.route(9, false);
+        assert!((0..16).all(|ch| e.routed(ch).is_some()));
+        e.route(9, None);
         e.play();
         for _ in 0..300 {
             e.render(BLOCK);
@@ -527,14 +725,17 @@ mod tests {
     fn stop_releases_player_voices_but_not_live_ones() {
         let mut e = Engine::new(48_000.0);
         load(&mut e, &one_note(0)).expect("loads");
-        e.note_on(72, 1.0);
+        e.note_on(0, 72, 1.0);
         e.play();
         for _ in 0..200 {
             e.render(BLOCK);
         }
         e.stop();
         assert!(e.monos[0].gated(), "the live Mono voice is still held");
-        assert!(!e.monos[1].gated(), "the player's Mono voice is released");
+        assert!(
+            !e.monos[SYNTHS].gated(),
+            "the player's Mono voice is released"
+        );
     }
 
     #[test]
@@ -554,5 +755,11 @@ mod tests {
         assert_eq!(parts, 4);
         let channels: Vec<u8> = e.sequence().parts().iter().map(|p| p.channel).collect();
         assert_eq!(channels, vec![0, 1, 2, 3]);
+        let synths: Vec<Option<usize>> = (0..4).map(|ch| e.routed(ch)).collect();
+        assert_eq!(
+            synths,
+            vec![Some(0), Some(1), Some(2), Some(3)],
+            "one synth per part"
+        );
     }
 }

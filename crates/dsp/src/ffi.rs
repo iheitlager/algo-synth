@@ -10,7 +10,7 @@
 
 use std::cell::RefCell;
 
-use crate::engine::{BLOCK, Engine};
+use crate::engine::{BLOCK, Engine, SYNTHS};
 use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
@@ -66,12 +66,25 @@ pub extern "C" fn process(frames: u32) {
     with_engine(|e| e.render(frames as usize));
 }
 
-/// Set parameter `id` (see `params.rs`); unknown ids are ignored.
+/// Set parameter `id` (see `params.rs`) of `synth`; unknown ids and synths
+/// are ignored. `MasterGain` is global.
 #[unsafe(no_mangle)]
-pub extern "C" fn set_param(id: u32, value: f32) {
+pub extern "C" fn set_param(synth: u32, id: u32, value: f32) {
     if let Some(p) = Param::from_id(id) {
-        with_engine(|e| e.set_param(p, value));
+        with_engine(|e| e.set_param(synth as usize, p, value));
     }
+}
+
+/// Number of Mono synths; ids run from 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_count() -> u32 {
+    SYNTHS as u32
+}
+
+/// Put `synth` back to the default patch.
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_reset(synth: u32) {
+    with_engine(|e| e.reset(synth as usize));
 }
 
 /// Number of parameter ids; they run from 0 without gaps.
@@ -80,32 +93,34 @@ pub extern "C" fn param_count() -> u32 {
     Param::ALL.len() as u32
 }
 
-/// The value parameter `id` was last set to, after clamping; 0 if unknown.
+/// The value parameter `id` of `synth` was last set to, after clamping; 0
+/// if unknown.
 #[unsafe(no_mangle)]
-pub extern "C" fn param_value(id: u32) -> f32 {
-    Param::from_id(id).map_or(0.0, |p| query(0.0, |e| e.param_value(p)))
+pub extern "C" fn param_value(synth: u32, id: u32) -> f32 {
+    Param::from_id(id).map_or(0.0, |p| query(0.0, |e| e.param_value(synth as usize, p)))
 }
 
-/// Load Mono preset `id` (see `mono/preset.rs`); unknown ids are ignored.
+/// Load Mono preset `id` (see `mono/preset.rs`) on `synth`; unknown ids are
+/// ignored.
 #[unsafe(no_mangle)]
-pub extern "C" fn mono_preset(id: u32) {
+pub extern "C" fn mono_preset(synth: u32, id: u32) {
     if let Some(p) = Preset::from_id(id) {
-        with_engine(|e| e.preset(p));
+        with_engine(|e| e.preset(synth as usize, p));
     }
 }
 
-/// Start `note` (MIDI 0..=127) on Mono.
+/// Start `note` (MIDI 0..=127) on `synth`'s live voice.
 #[unsafe(no_mangle)]
-pub extern "C" fn note_on(note: u32, velocity: f32) {
+pub extern "C" fn note_on(synth: u32, note: u32, velocity: f32) {
     let note = u8::try_from(note.min(127)).unwrap_or(127);
-    with_engine(|e| e.note_on(note, velocity));
+    with_engine(|e| e.note_on(synth as usize, note, velocity));
 }
 
-/// Release `note` on Mono.
+/// Release `note` on `synth`'s live voice.
 #[unsafe(no_mangle)]
-pub extern "C" fn note_off(note: u32) {
+pub extern "C" fn note_off(synth: u32, note: u32) {
     if let Ok(n) = u8::try_from(note) {
-        with_engine(|e| e.note_off(n));
+        with_engine(|e| e.note_off(synth as usize, n));
     }
 }
 
@@ -274,20 +289,19 @@ pub extern "C" fn playing() -> u32 {
     query(0, |e| u32::from(e.sequence().playing()))
 }
 
-/// Play MIDI `channel` on Mono with target 0; any other target (e.g. 255)
-/// mutes it.
+/// Play MIDI `channel` on `synth`; an unknown synth (e.g. 255) mutes it.
 #[unsafe(no_mangle)]
-pub extern "C" fn route(channel: u32, target: u32) {
+pub extern "C" fn route(channel: u32, synth: u32) {
     if let Ok(ch) = u8::try_from(channel) {
-        with_engine(|e| e.route(ch, target == 0));
+        with_engine(|e| e.route(ch, Some(synth as usize)));
     }
 }
 
-/// 0 if MIDI `channel` plays on Mono, 255 if muted.
+/// The synth MIDI `channel` plays on, or 255 if muted.
 #[unsafe(no_mangle)]
 pub extern "C" fn routed(channel: u32) -> u32 {
     let ch = u8::try_from(channel).unwrap_or(u8::MAX);
-    query(255, |e| if e.routed(ch) { 0 } else { 255 })
+    query(255, |e| e.routed(ch).map_or(255, |s| s as u32))
 }
 
 #[cfg(test)]
@@ -297,8 +311,8 @@ mod tests {
     #[test]
     fn exports_are_no_ops_before_init() {
         process(128);
-        note_on(60, 1.0);
-        set_param(0, 1.0);
+        note_on(0, 60, 1.0);
+        set_param(0, 0, 1.0);
         assert!(out_ptr().is_null());
     }
 
@@ -306,9 +320,20 @@ mod tests {
     fn exports_drive_the_engine() {
         init(48_000.0);
         assert!(!out_ptr().is_null());
-        note_on(69, 1.0);
+        note_on(0, 69, 1.0);
+        note_on(3, 69, 1.0);
+        note_on(99, 69, 1.0); // unknown synth: ignored
         process(128);
-        assert_eq!(query(0, |e| e.active_voices()), 1);
+        assert_eq!(query(0, |e| e.active_voices()), 2);
+        assert_eq!(synth_count(), 16);
+        set_param(3, Param::Cutoff as u32, 300.0);
+        assert_eq!(param_value(3, Param::Cutoff as u32), 300.0);
+        assert_ne!(param_value(0, Param::Cutoff as u32), 300.0);
+        synth_reset(3);
+        assert_eq!(
+            param_value(3, Param::Cutoff as u32),
+            param_value(0, Param::Cutoff as u32)
+        );
     }
 
     #[test]
@@ -325,9 +350,11 @@ mod tests {
         });
         assert_eq!(midi_load(), 4);
         assert_eq!(part_channel(3), 3);
-        assert_eq!(routed(3), 0);
+        assert_eq!(routed(3), 3, "the fourth part plays on synth 3");
         route(3, 255);
         assert_eq!(routed(3), 255);
+        route(3, 99);
+        assert_eq!(routed(3), 255, "an unknown synth mutes");
         assert!(part_name_len(1) > 0);
         assert!(song_length() > 60.0);
         assert!((song_bar() - 4.0 * 60.0 / 72.0).abs() < 1.0e-3);

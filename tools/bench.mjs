@@ -29,24 +29,25 @@ const Waveform = ids('Waveform')
 const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
 
-// [setup, lowest note]; voices are 3 semitones apart from there.
+// [setup for one synth, lowest note]; voices are 3 semitones apart from
+// there. Each MIDI channel plays its own synth, all set up the same.
 const scenarios = {
   // Three saws and pink noise, in a string section's range.
-  'bowed string': [(w) => w.mono_preset(Preset.BowedString), 36],
+  'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
   // Every BLEP edge there can be: three pulses, both synced, noise, full
   // resonance and drive, high up where edges come most often.
-  'worst case': [(w) => {
-    w.mono_preset(Preset.SyncLead)
+  'worst case': [(w, s) => {
+    w.mono_preset(s, Preset.SyncLead)
     for (const v of [1, 2, 3]) {
-      w.set_param(Param[`Vco${v}Wave`], Waveform.Pulse)
-      w.set_param(Param[`Vco${v}Level`], 1)
+      w.set_param(s, Param[`Vco${v}Wave`], Waveform.Pulse)
+      w.set_param(s, Param[`Vco${v}Level`], 1)
     }
-    w.set_param(Param.Vco3Coarse, 24)
-    w.set_param(Param.Vco3Sync, 1)
-    w.set_param(Param.PulseWidth, 0.1)
-    w.set_param(Param.NoiseLevel, 0.5)
-    w.set_param(Param.Resonance, 1)
-    w.set_param(Param.Drive, 1)
+    w.set_param(s, Param.Vco3Coarse, 24)
+    w.set_param(s, Param.Vco3Sync, 1)
+    w.set_param(s, Param.PulseWidth, 0.1)
+    w.set_param(s, Param.NoiseLevel, 0.5)
+    w.set_param(s, Param.Resonance, 1)
+    w.set_param(s, Param.Drive, 1)
   }, 72],
 }
 
@@ -76,7 +77,7 @@ function sixteenChannels(lowest) {
 function run(setup, lowest) {
   const w = new WebAssembly.Instance(module, {}).exports
   w.init(SR)
-  setup(w)
+  for (let s = 0; s < w.synth_count(); s++) setup(w, s)
   const file = sixteenChannels(lowest)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
   if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')

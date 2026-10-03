@@ -220,13 +220,13 @@ mod tests {
         for (preset, name) in Preset::ALL {
             for note in [24, 36, 48, 60, 72, 84, 96] {
                 let mut e = Engine::new(48_000.0);
-                e.set_param(Param::MasterGain, 1.0);
-                e.preset(preset);
-                e.note_on(note, 1.0);
+                e.set_param(0, Param::MasterGain, 1.0);
+                e.preset(0, preset);
+                e.note_on(0, note, 1.0);
                 let mut heard = 0.0_f32;
                 for i in 0..(48_000 * 5 / 2 / BLOCK) {
                     if i == 48_000 / BLOCK {
-                        e.note_off(note);
+                        e.note_off(0, note);
                     }
                     e.render(BLOCK);
                     for s in e.output() {
@@ -243,15 +243,15 @@ mod tests {
     #[test]
     fn a_preset_sets_every_mono_parameter() {
         let mut e = Engine::new(48_000.0);
-        e.preset(Preset::Bass);
-        e.preset(Preset::Lead);
+        e.preset(0, Preset::Bass);
+        e.preset(0, Preset::Lead);
         for (p, v) in DEFAULTS {
             let want = Preset::Lead
                 .changes()
                 .iter()
                 .find(|(c, _)| *c == p)
                 .map_or(v, |(_, c)| *c);
-            assert_eq!(e.param_value(p), want, "{p:?}");
+            assert_eq!(e.param_value(0, p), want, "{p:?}");
         }
     }
 
@@ -261,9 +261,9 @@ mod tests {
         let render = |presets: &[Preset]| {
             let mut e = Engine::new(48_000.0);
             for p in presets {
-                e.preset(*p);
+                e.preset(0, *p);
             }
-            e.note_on(60, 1.0);
+            e.note_on(0, 60, 1.0);
             let mut out = Vec::new();
             for _ in 0..50 {
                 e.render(BLOCK);

@@ -24,30 +24,31 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.busy = 0
     this.peak = 0
     this.blocks = 0
-    this.sendParams()
+    for (let s = 0; s < this.w.synth_count(); s++) this.sendParams(s)
     this.port.onmessage = ({ data }) => {
       const w = this.w
       switch (data.t) {
-        case 'param': w.set_param(data.id, data.v); break
-        case 'on': w.note_on(data.n, data.v); break
-        case 'off': w.note_off(data.n); break
+        case 'param': w.set_param(data.s, data.id, data.v); break
+        case 'on': w.note_on(data.s, data.n, data.v); break
+        case 'off': w.note_off(data.s, data.n); break
         case 'panic': w.all_off(); break
         case 'midi': this.loadMidi(new Uint8Array(data.bytes)); break
         case 'play': w.play(); break
         case 'stop': w.stop(); break
         case 'seek': w.seek(data.sec); break
         case 'route': w.route(data.ch, data.s); break
-        case 'preset': w.mono_preset(data.id); this.sendParams(); break
+        case 'preset': w.mono_preset(data.s, data.id); this.sendParams(data.s); break
+        case 'reset': w.synth_reset(data.s); this.sendParams(data.s); break
       }
     }
   }
 
-  // Every parameter's current value, indexed by id, so the view shows what
-  // the engine holds (at start and after a preset).
-  sendParams() {
+  // Every parameter's current value on synth `s`, indexed by id, so the view
+  // shows what the engine holds (at start, after a preset or a reset).
+  sendParams(s) {
     const values = new Float32Array(this.w.param_count())
-    for (let id = 0; id < values.length; id++) values[id] = this.w.param_value(id)
-    this.port.postMessage({ t: 'params', values }, [values.buffer])
+    for (let id = 0; id < values.length; id++) values[id] = this.w.param_value(s, id)
+    this.port.postMessage({ t: 'params', s, values }, [values.buffer])
   }
 
   // Copy the file into the engine's buffer, parse it there, and send the
@@ -74,7 +75,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         start: w.part_start(i),
         end: w.part_end(i),
         name: new Uint8Array(w.memory.buffer, w.part_name_ptr(i), w.part_name_len(i)).slice(),
-        source: w.routed(ch),
+        synth: w.routed(ch),
       })
     }
     const n = w.event_count()

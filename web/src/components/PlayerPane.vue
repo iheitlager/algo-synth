@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The loaded MIDI file (spec 002 Req 9): one row per channel with notes, its
 // source, and a piano roll. Drawing and messages only; the engine plays it.
-import { MUTE, PLAY, player, route, seek, type Part, type Route } from '../audio/engine'
+import { computed } from 'vue'
+import { MUTE, player, route, seek, synthColour, synths, type Part, type Route } from '../audio/engine'
 
-const choices: { label: string; value: Route }[] = [
-  { label: 'Mono', value: PLAY },
+// Each part plays on one of the shown synths, or is muted.
+const choices = computed<{ label: string; value: Route }[]>(() => [
+  ...synths.list.map((s) => ({ label: `Mono ${s + 1}`, value: s })),
   { label: 'Mute', value: MUTE },
-]
-const colour = (r: Route) => (r === PLAY ? 'var(--mono)' : 'var(--muted)')
+])
+const colour = (r: Route) => (r === MUTE ? 'var(--muted)' : synthColour(r))
 
 // Pitch range of a part, padded so a single note still has height.
 function range(p: Part): [number, number] {
@@ -37,7 +39,7 @@ function onSeek(e: MouseEvent) {
     <div v-for="p in player.parts" :key="p.channel" class="row">
       <div class="track">
         <b>{{ p.name || `Channel ${p.channel + 1}` }}</b>
-        <select :value="p.source" @change="route(p, Number(($event.target as HTMLSelectElement).value) as Route)">
+        <select :value="p.synth" @change="route(p, Number(($event.target as HTMLSelectElement).value) as Route)">
           <option v-for="c in choices" :key="c.value" :value="c.value">{{ c.label }}</option>
         </select>
         <span class="muted">ch {{ p.channel + 1 }} · {{ p.notes }} notes</span>
@@ -50,7 +52,7 @@ function onSeek(e: MouseEvent) {
           <rect
             v-for="(n, i) in p.roll" :key="i"
             :x="n[0]" :y="-n[2] - 1" :width="Math.max(n[1] - n[0], 0.02)" height="1"
-            :fill="colour(p.source)"
+            :fill="colour(p.synth)"
           />
         </svg>
         <div class="head" :style="{ left: `${(player.position / (player.length || 1)) * 100}%` }" />

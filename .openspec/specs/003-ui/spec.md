@@ -14,9 +14,9 @@ Audio SHALL start only from a user gesture (the Power button), creating the Audi
 
 **Implementation:** `web/src/audio/engine.ts::power`, `web/src/components/TransportBar.vue`
 
-### Requirement 3: Play the synth [MUST]
+### Requirement 3: Play the synths [MUST]
 
-The Mono card SHALL be playable from its on-screen keyboard and the computer keyboard (`a`…`;`, C4 upward).
+The view SHALL show one card per Mono synth, each with its own controls and on-screen keyboard; **+ Synth** SHALL add one (up to 16, reset to the default patch) and × SHALL remove one (never the last), muting the parts that played on it. The computer keyboard (`a`…`;`, C4 upward) SHALL play the selected synth, and a held key SHALL release on the synth it started on. Loading a MIDI file SHALL show a synth for each part, and each part SHALL pick its synth or mute.
 
 **Implementation:** `web/src/components/InstrumentsPane.vue`
 
