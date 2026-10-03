@@ -124,7 +124,7 @@ The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, lo
 
 The view SHALL draw each synth with a panel of its model: the sections, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the six are told apart at a glance. A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
 
-**Implementation:** `web/src/audio/models.ts`, `web/src/components/SynthPanel.vue`, `web/src/components/InstrumentsPane.vue` (#30)
+**Implementation:** `web/src/audio/models.ts`, `web/src/components/SynthFaceplate.vue`, `web/src/components/InstrumentsPane.vue` (#30, drawn as faceplates by spec 003 Req 9)
 
 #### Scenario: six instruments
 

@@ -5,13 +5,28 @@
 
 import { DriveMode, Model, ModDest, ModSource, NoiseColour, NotePriority, Param, Preset, Waveform } from './params'
 import type { ModelId, ParamId } from './params'
+import type { Scale } from './console'
+import { exp, lin } from './console'
+import type { Unit } from './faceplate'
+import { stepped } from './faceplate'
 
 type Options = readonly (readonly [string, number])[]
 
+/**
+ * A control and how it is drawn (spec 003 Req 9). A knob keeps its range, its
+ * scale and its unit here, so the view only draws and sends; `def` is where a
+ * double-click puts it, in the engine's units.
+ */
 export type Control =
-  | { kind: 'range'; label: string; param: ParamId; min: number; max: number; step: number; map?: 'cutoff' | 'lfo' }
+  | {
+      kind: 'knob'; label: string; param: ParamId; lo: number; hi: number; scale: 'lin' | 'exp'; unit: Unit
+      /** Whole steps of this size (coarse and fine tune). */
+      step?: number; bipolar?: boolean; def: number; size?: number
+    }
   | { kind: 'select'; label: string; param: ParamId; options: Options }
   | { kind: 'switch'; label: string; param: ParamId }
+  /** An envelope drawn as its curve with a knob for each time and level it has. */
+  | { kind: 'env'; label: string; a: ParamId; d?: ParamId; s?: ParamId; r?: ParamId; decayIsRelease?: boolean }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -21,13 +36,17 @@ export interface Section {
   patch?: boolean
 }
 
-/** CSS colours of a panel: surface, lettering, quieter lettering, trim, accent. */
+/**
+ * CSS colours of a faceplate: surface, lettering, quieter lettering, trim,
+ * accent, and the wood of the cheeks for the instruments that have it.
+ */
 export interface Theme {
   panel: string
   ink: string
   soft: string
   trim: string
   accent: string
+  wood?: string
 }
 
 export interface ModelDef {
@@ -41,8 +60,42 @@ export interface ModelDef {
   sections: Section[]
 }
 
-const range = (label: string, param: ParamId, min: number, max: number, step: number, map?: 'cutoff' | 'lfo'): Control =>
-  ({ kind: 'range', label, param, min, max, step, map })
+/** Where a double-click puts a knob, in engine units, when it is not the low end (or 0 for a bipolar one). */
+const RESET: Partial<Record<ParamId, number>> = {
+  [Param.Cutoff]: 4_000, [Param.PulseWidth]: 0.5, [Param.Vco1Level]: 1, [Param.LfoRate]: 4,
+  [Param.AdsrAttack]: 0.005, [Param.AdsrDecay]: 0.3, [Param.AdsrSustain]: 0.7, [Param.AdsrRelease]: 0.3,
+  [Param.FenvAttack]: 0.005, [Param.FenvDecay]: 0.3, [Param.FenvSustain]: 0.7, [Param.FenvRelease]: 0.3,
+  [Param.ArAttack]: 0.005, [Param.ArRelease]: 0.3,
+}
+const BIG = 46
+
+/**
+ * A knob for the range a panel gives a parameter: the old slider's minimum,
+ * maximum and step, with a scale and a unit worked out from what it is (an
+ * exponential cutoff in Hz, envelope times in seconds, tune in semitones or
+ * cents, a bipolar amount, otherwise a share of its range).
+ */
+export function range(label: string, param: ParamId, min: number, max: number, step: number, map?: 'cutoff' | 'lfo'): Control {
+  const knob = { kind: 'knob' as const, label, param }
+  if (map === 'cutoff') return { ...knob, lo: 20, hi: 20_000, scale: 'exp', unit: 'hz', def: RESET[param] ?? 20, size: BIG }
+  if (map === 'lfo') return { ...knob, lo: 0.01, hi: 50, scale: 'exp', unit: 'rate', def: RESET[param] ?? 4 }
+  if (min === 0.001) return { ...knob, lo: min, hi: max, scale: 'exp', unit: 'sec', def: RESET[param] ?? 0.3 }
+  if (param === Param.Glide) return { ...knob, lo: min, hi: max, scale: 'lin', unit: 'sec', def: 0 }
+  if (step === 1 && max === 24) return { ...knob, lo: min, hi: max, scale: 'lin', unit: 'st', step: 1, bipolar: true, def: 0 }
+  if (step === 1 && max === 50) return { ...knob, lo: min, hi: max, scale: 'lin', unit: 'ct', step: 1, bipolar: true, def: 0 }
+  if (min < 0) return { ...knob, lo: min, hi: max, scale: 'lin', unit: 'bip', bipolar: true, def: 0 }
+  if (param === Param.PulseWidth) return { ...knob, lo: min, hi: max, scale: 'lin', unit: 'width', def: RESET[param] ?? 0.5 }
+  return { ...knob, lo: min, hi: max, scale: 'lin', unit: 'pct', def: RESET[param] ?? min, ...(param === Param.Resonance ? { size: BIG } : {}) }
+}
+/** The scale a knob control turns a position into a value with. */
+export function scaleOf(c: Extract<Control, { kind: 'knob' }>): Scale {
+  if (c.scale === 'exp') return exp(c.lo, c.hi)
+  return c.step ? stepped(c.lo, c.hi, c.step) : lin(c.lo, c.hi)
+}
+
+/** An envelope with its attack, decay, sustain and release; leave out what it has not. */
+const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: ParamId, decayIsRelease = false): Control =>
+  ({ kind: 'env', label, a, d, s, r, decayIsRelease })
 const select = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options })
 const sw = (label: string, param: ParamId): Control => ({ kind: 'switch', label, param })
 
@@ -69,12 +122,7 @@ const arp2600: ModelDef = {
   sections: [
     {
       title: 'ADSR',
-      controls: [
-        range('Attack', Param.AdsrAttack, 0.001, 2, 0.001),
-        range('Decay', Param.AdsrDecay, 0.001, 4, 0.001),
-        range('Sustain', Param.AdsrSustain, 0, 1, 0.01),
-        range('Release', Param.AdsrRelease, 0.001, 4, 0.001),
-      ],
+      controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)],
     },
     {
       title: 'VCO 1',
@@ -111,7 +159,7 @@ const arp2600: ModelDef = {
     { title: 'LFO', controls: [select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo')] },
     {
       title: 'AR',
-      controls: [range('Attack', Param.ArAttack, 0.001, 2, 0.001), range('Release', Param.ArRelease, 0.001, 4, 0.001)],
+      controls: [envelope('', Param.ArAttack, undefined, undefined, Param.ArRelease)],
     },
     {
       title: 'Normal',
@@ -130,9 +178,6 @@ const arp2600: ModelDef = {
   ],
 }
 
-const attack = (p: ParamId) => range('Attack', p, 0.001, 2, 0.001)
-const decay = (label: string, p: ParamId) => range(label, p, 0.001, 4, 0.001)
-const sustain = (p: ParamId) => range('Sustain', p, 0, 1, 0.01)
 /** Key tracking in steps, as f32 values so the engine's report selects the step. */
 const KEY_STEPS: Options = [['Off', 0], ['⅓', Math.fround(1 / 3)], ['⅔', Math.fround(2 / 3)], ['Full', 1]]
 
@@ -141,7 +186,7 @@ const minimoog: ModelDef = {
   name: 'Minimoog',
   maker: 'Model D · three oscillators, one ladder',
   tagline: 'Three oscillators, the ladder, two contours; Osc 3 is the modulator; low note priority',
-  theme: { panel: '#1a1816', ink: '#efe9dc', soft: '#b6af9f', trim: '#6e4a2c', accent: '#f1ead8' },
+  theme: { panel: '#1a1816', ink: '#efe9dc', soft: '#b6af9f', trim: '#6e4a2c', accent: '#f1ead8', wood: '#5a3a22' },
   presets: ['MiniBass', 'MiniLead', 'LuckyMan', 'FunkBass', 'MoogStrings'],
   sections: [
     {
@@ -188,11 +233,11 @@ const minimoog: ModelDef = {
     },
     {
       title: 'Filter contour',
-      controls: [attack(Param.FenvAttack), decay('Decay', Param.FenvDecay), sustain(Param.FenvSustain)],
+      controls: [envelope('', Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, undefined, true)],
     },
     {
       title: 'Loudness contour',
-      controls: [attack(Param.AdsrAttack), decay('Decay', Param.AdsrDecay), sustain(Param.AdsrSustain)],
+      controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, undefined, true)],
     },
     {
       title: 'Modulation',
@@ -205,9 +250,7 @@ const minimoog: ModelDef = {
 }
 
 const HALF_FULL: Options = [['Off', 0], ['Half', 0.5], ['Full', 1]]
-const adsrControls = (a: ParamId, d: ParamId, su: ParamId, r: ParamId): Control[] => [
-  attack(a), decay('Decay', d), sustain(su), decay('Release', r),
-]
+const adsrControls = (a: ParamId, d: ParamId, su: ParamId, r: ParamId): Control[] => [envelope('', a, d, su, r)]
 
 // Oscillator A is VCO 2 and B is VCO 1, so A can be synced to B and poly-mod
 // runs from B into A, in the direction the instrument has (spec 005 Req 4).
@@ -216,7 +259,7 @@ const proOne: ModelDef = {
   name: 'Pro-One',
   maker: 'Sequential · two oscillators, poly-mod',
   tagline: 'Oscillator A synced to B, poly-mod from the filter envelope and B, 4-pole filter',
-  theme: { panel: '#241f1c', ink: '#f1e6d2', soft: '#bcae98', trim: '#8c2f1f', accent: '#e8482b' },
+  theme: { panel: '#241f1c', ink: '#f1e6d2', soft: '#bcae98', trim: '#8c2f1f', accent: '#e8482b', wood: '#6b4a2e' },
   presets: ['ProLead', 'ProBass', 'SyncSweep', 'PolyModBell', 'ProStrings'],
   sections: [
     {
@@ -378,7 +421,7 @@ const cs15: ModelDef = {
     { title: 'LPF envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
     {
       title: 'HPF envelope',
-      controls: [range('Attack', Param.ArAttack, 0.001, 2, 0.001), decay('Release', Param.ArRelease)],
+      controls: [envelope('', Param.ArAttack, undefined, undefined, Param.ArRelease)],
     },
     {
       title: 'LFO',
