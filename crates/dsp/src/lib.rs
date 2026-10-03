@@ -13,6 +13,7 @@ pub mod params;
 pub mod player;
 pub mod poly;
 pub mod smf;
+pub mod table;
 pub mod voice;
 
 mod ffi;
