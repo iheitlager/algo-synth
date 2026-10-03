@@ -6,15 +6,24 @@
   },
   "global": {
     "MasterGain": 0.5,
-    "EchoTime": 300,
-    "EchoFeedback": 0.4,
-    "EchoTone": 0.7,
-    "EchoPingPong": 0,
-    "EchoReturn": 0,
-    "ReverbSize": 2,
-    "ReverbDamping": 0.3,
-    "ReverbPreDelay": 10,
-    "ReverbReturn": 0
+    "P1Type": 1,
+    "P1Return": 0,
+    "P1A": 0.75,
+    "P1B": 0.4,
+    "P1C": 0.7,
+    "P1D": 0,
+    "P1E": 0,
+    "P2Type": 2,
+    "P2Return": 0,
+    "P2A": 0.65,
+    "P2B": 0.3,
+    "P2C": 0.1,
+    "P2D": 0,
+    "P2E": 0,
+    "P3Type": 0,
+    "P3Return": 0,
+    "P4Type": 0,
+    "P4Return": 0
   },
   "synths": [
     {

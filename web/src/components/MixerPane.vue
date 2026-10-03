@@ -3,7 +3,7 @@
 // mute, solo) and the returns of the send effects. The view only sends values
 // and shows what the engine reports back.
 import { getEngine, params, status, synthColour, synths } from '../audio/engine'
-import { Param, type ParamId } from '../audio/params'
+import { Param, type ParamId, ProcType } from '../audio/params'
 
 const val = (id: ParamId) => params.values[0]?.[id] ?? 0
 const sval = (s: number, id: ParamId) => params.values[s]?.[id] ?? 0
@@ -19,13 +19,26 @@ function send(id: ParamId, e: Event) {
   const t = e.target as HTMLInputElement
   getEngine()?.param(0, id, t.type === 'checkbox' ? Number(t.checked) : Number(t.value))
 }
-// Delay times and the reverb's size are exponential sliders.
-const echoMs = (t: number) => 1 * 2000 ** t
-const echoPos = (ms: number) => (ms > 1 ? Math.log(ms) / Math.log(2000) : 0)
-const sizeS = (t: number) => 0.1 * 100 ** t
-const sizePos = (s: number) => (s > 0.1 ? Math.log(s / 0.1) / Math.log(100) : 0)
-const slide = (id: ParamId, f: (t: number) => number, e: Event) =>
-  getEngine()?.param(0, id, f(Number((e.target as HTMLInputElement).value)))
+// The processors P1–P4 (spec 002 Req 2). A knob is 0..1; what it means
+// depends on the type, so the labels and readouts come from this table.
+const procTypes = Object.entries(ProcType)
+interface Knob { label: string; show?: (v: number) => string; toggle?: boolean }
+const knobsOf: Record<number, Knob[]> = {
+  [ProcType.Off]: [],
+  [ProcType.Echo]: [
+    { label: 'Time', show: (v) => `${Math.round(2000 ** v)} ms` },
+    { label: 'Feedback' }, { label: 'Tone' }, { label: 'Ping-pong', toggle: true },
+  ],
+  [ProcType.Reverb]: [
+    { label: 'Size', show: (v) => `${(0.1 * 100 ** v).toFixed(1)} s` },
+    { label: 'Damping' }, { label: 'Pre-delay', show: (v) => `${Math.round(v * 100)} ms` },
+  ],
+}
+const procs = [1, 2, 3, 4].map((n) => {
+  const id = (f: string) => Param[`P${n}${f}` as keyof typeof Param]
+  return { n, type: id('Type'), ret: id('Return'), knobs: ['A', 'B', 'C', 'D', 'E'].map(id) }
+})
+const kindOf = (type: ParamId) => val(type)
 </script>
 
 <template>
@@ -40,23 +53,21 @@ const slide = (id: ParamId, f: (t: number) => number, e: Event) =>
         <label class="sync"><input type="checkbox" :checked="sval(s, Param.Solo) >= 0.5" @change="strip(s, Param.Solo, $event)" /> Solo</label>
       </div>
     </fieldset>
-    <div class="returns">
-    <fieldset :disabled="!status.running">
-      <b>Echo</b>
-      <label>Time <input type="range" min="0" max="1" step="0.001" :value="echoPos(val(Param.EchoTime))" @input="slide(Param.EchoTime, echoMs, $event)" /> {{ Math.round(val(Param.EchoTime)) }} ms</label>
-      <label>Feedback <input type="range" min="0" max="0.95" step="0.01" :value="val(Param.EchoFeedback)" @input="send(Param.EchoFeedback, $event)" /></label>
-      <label>Tone <input type="range" min="0" max="1" step="0.01" :value="val(Param.EchoTone)" @input="send(Param.EchoTone, $event)" /></label>
-      <label class="sync"><input type="checkbox" :checked="val(Param.EchoPingPong) >= 0.5" @change="send(Param.EchoPingPong, $event)" /> Ping-pong</label>
-      <label>Return <input type="range" min="0" max="1" step="0.01" :value="val(Param.EchoReturn)" @input="send(Param.EchoReturn, $event)" /></label>
+    <fieldset class="returns" :disabled="!status.running">
+      <div v-for="p in procs" :key="p.n" class="proc">
+        <b>P{{ p.n }}</b>
+        <select :value="val(p.type)" @change="send(p.type, $event)">
+          <option v-for="[name, id] in procTypes" :key="id" :value="id">{{ name }}</option>
+        </select>
+        <template v-if="kindOf(p.type) > 0">
+          <template v-for="(k, i) in knobsOf[kindOf(p.type)]" :key="i">
+            <label v-if="k.toggle" class="sync"><input type="checkbox" :checked="val(p.knobs[i] as ParamId) >= 0.5" @change="send(p.knobs[i] as ParamId, $event)" /> {{ k.label }}</label>
+            <label v-else>{{ k.label }} <input type="range" min="0" max="1" step="0.001" :value="val(p.knobs[i] as ParamId)" @input="send(p.knobs[i] as ParamId, $event)" /> <span v-if="k.show">{{ k.show(val(p.knobs[i] as ParamId)) }}</span></label>
+          </template>
+          <label>Return <input type="range" min="0" max="1" step="0.01" :value="val(p.ret)" @input="send(p.ret, $event)" /></label>
+        </template>
+      </div>
     </fieldset>
-    <fieldset :disabled="!status.running">
-      <b>Reverb</b>
-      <label>Size <input type="range" min="0" max="1" step="0.001" :value="sizePos(val(Param.ReverbSize))" @input="slide(Param.ReverbSize, sizeS, $event)" /> {{ val(Param.ReverbSize).toFixed(1) }} s</label>
-      <label>Damping <input type="range" min="0" max="1" step="0.01" :value="val(Param.ReverbDamping)" @input="send(Param.ReverbDamping, $event)" /></label>
-      <label>Pre-delay <input type="range" min="0" max="100" step="1" :value="val(Param.ReverbPreDelay)" @input="send(Param.ReverbPreDelay, $event)" /></label>
-      <label>Return <input type="range" min="0" max="1" step="0.01" :value="val(Param.ReverbReturn)" @input="send(Param.ReverbReturn, $event)" /></label>
-    </fieldset>
-    </div>
   </section>
 </template>
 
@@ -67,8 +78,8 @@ const slide = (id: ParamId, f: (t: number) => number, e: Event) =>
 .strip b { grid-column: 1 / -1; }
 .strip label { display: grid; gap: 2px; }
 .strip .sync { display: flex; align-items: center; gap: 4px; }
-.returns { display: flex; flex-wrap: wrap; gap: 6px 24px; }
-fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
-b { color: var(--accent); font-size: 13px; }
+.returns { border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
+.proc { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+.proc b { color: var(--accent); font-size: 13px; width: 2em; }
 label { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 </style>

@@ -14,9 +14,9 @@ A track SHALL own exactly one source instance (`Mono`, `Wave`, `Drums`), with it
 
 The mixer SHALL own every strip parameter (`Level`, `Pan`, `Send1`–`Send4`, `Mute`, `Solo`; `Param::is_strip`). Each synth's strip SHALL pass through its drive insert, a fader and pan, and four post-fader sends (P1–P4) into a master bus with a compressor and limiter. The insert order MAY change; nothing in the mixer SHALL allocate after init.
 
-**Implementation:** `crates/dsp/src/mixer.rs::Mixer` (strips, buses and sends), `crates/dsp/src/fx/echo.rs::Echo`, `crates/dsp/src/fx/reverb.rs::Reverb` (the returns), `crates/dsp/src/fx/drive.rs::Drive` (the insert, spec 004 Req 11); the master compressor *(planned)*
+**Implementation:** `crates/dsp/src/mixer.rs::Mixer` (strips, buses and sends), `crates/dsp/src/fx/processor.rs::Processor` (P1–P4), `crates/dsp/src/fx/echo.rs::Echo`, `crates/dsp/src/fx/reverb.rs::Reverb`, `crates/dsp/src/fx/drive.rs::Drive` (the insert, spec 004 Req 11); the master compressor *(planned)*
 
-The echo SHALL be a stereo delay of up to 2 s set in milliseconds, with feedback clamped below 1, a low-pass in the loop, ping-pong and a return level. The reverb SHALL be an 8-line feedback delay network with a Hadamard matrix, a size (seconds to −60 dB), damping, pre-delay and a return level. Both are global; with both returns at 0 they SHALL be silent.
+The four sends SHALL feed four effect processors, P1–P4. Each SHALL have a type (off, echo, reverb), a return level and five knobs A–E in 0..=1 whose meaning depends on the type (echo: time, feedback, tone, ping-pong; reverb: size, damping, pre-delay). All types of a slot SHALL be allocated at init; switching type SHALL hand the input to the new type and let the old one ring out, without a click or an allocation. The echo SHALL be a stereo delay of up to 2 s set in milliseconds, with feedback clamped below 1, a low-pass in the loop and ping-pong. The reverb SHALL be an 8-line feedback delay network with a Hadamard matrix. With every return at 0 the processors SHALL be silent.
 
 #### Scenario: strips
 
@@ -30,7 +30,7 @@ The echo SHALL be a stereo delay of up to 2 s set in milliseconds, with feedback
 - WHEN the time is 100 ms and the feedback 0.5
 - THEN echoes land every 100 ms, each half the one before
 
-**Tests:** `crates/dsp/src/fx/echo.rs::tests::echoes_land_at_the_set_time_and_decay_by_the_feedback`, `crates/dsp/src/fx/echo.rs::tests::feedback_is_clamped_and_the_loop_stays_bounded`, `crates/dsp/src/fx/reverb.rs::tests::the_tail_falls_60_db_in_about_the_size_setting`, `crates/dsp/src/fx/reverb.rs::tests::no_dc_and_always_bounded`, `crates/dsp/src/engine.rs::tests::the_effects_only_sound_through_a_send_and_a_return`, `crates/dsp/src/engine.rs::tests::sixteen_synths_through_both_effects_stay_bounded`
+**Tests:** `crates/dsp/src/fx/processor.rs::tests::switching_type_lets_the_old_tail_ring_out`, `crates/dsp/src/fx/processor.rs::tests::the_echo_knobs_set_time_and_feedback`, `crates/dsp/src/fx/processor.rs::tests::the_reverb_knob_sets_the_size`, `crates/dsp/src/fx/echo.rs::tests::echoes_land_at_the_set_time_and_decay_by_the_feedback`, `crates/dsp/src/fx/echo.rs::tests::feedback_is_clamped_and_the_loop_stays_bounded`, `crates/dsp/src/fx/reverb.rs::tests::the_tail_falls_60_db_in_about_the_size_setting`, `crates/dsp/src/fx/reverb.rs::tests::no_dc_and_always_bounded`, `crates/dsp/src/engine.rs::tests::the_effects_only_sound_through_a_send_and_a_return`, `crates/dsp/src/engine.rs::tests::sixteen_synths_through_both_effects_stay_bounded`
 
 **Tests:** `crates/dsp/src/engine.rs::tests::pan_is_equal_power`, `crates/dsp/src/engine.rs::tests::fader_mute_and_solo`, `crates/dsp/src/engine.rs::tests::sends_follow_the_fader_and_leave_the_mix_alone`, `crates/dsp/src/engine.rs::tests::sixteen_full_synths_stay_bounded_in_stereo`
 

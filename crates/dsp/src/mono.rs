@@ -250,15 +250,34 @@ impl MonoParams {
             | Param::DriveAmount
             | Param::DriveTone
             | Param::DriveLevel
-            | Param::EchoTime
-            | Param::EchoFeedback
-            | Param::EchoTone
-            | Param::EchoPingPong
-            | Param::EchoReturn
-            | Param::ReverbSize
-            | Param::ReverbDamping
-            | Param::ReverbPreDelay
-            | Param::ReverbReturn => {}
+            | Param::P1Type
+            | Param::P1Return
+            | Param::P1A
+            | Param::P1B
+            | Param::P1C
+            | Param::P1D
+            | Param::P1E
+            | Param::P2Type
+            | Param::P2Return
+            | Param::P2A
+            | Param::P2B
+            | Param::P2C
+            | Param::P2D
+            | Param::P2E
+            | Param::P3Type
+            | Param::P3Return
+            | Param::P3A
+            | Param::P3B
+            | Param::P3C
+            | Param::P3D
+            | Param::P3E
+            | Param::P4Type
+            | Param::P4Return
+            | Param::P4A
+            | Param::P4B
+            | Param::P4C
+            | Param::P4D
+            | Param::P4E => {}
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

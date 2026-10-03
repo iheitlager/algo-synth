@@ -3,6 +3,7 @@
 
 pub mod drive;
 pub mod echo;
+pub mod processor;
 pub mod reverb;
 
 /// A ring buffer read at a distance behind the write position.

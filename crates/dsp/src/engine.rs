@@ -6,8 +6,8 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
-use crate::fx::{echo::Echo, reverb::Reverb};
-use crate::mixer::{Mixer, STRIP_DEFAULTS};
+use crate::fx::processor::Processor;
+use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS};
 use crate::mono::MonoParams;
 use crate::mono::ladder::{LadderTables, saturate};
 use crate::mono::osc::Blep;
@@ -46,8 +46,8 @@ pub struct Engine {
     /// The synth each voice plays, fixed when its note starts.
     synth_of: [usize; MONO_VOICES],
     mixer: Mixer,
-    echo: Echo,
-    reverb: Reverb,
+    /// The effect processors P1–P4, fed by the mixer's sends.
+    procs: [Processor; SENDS],
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -80,8 +80,7 @@ impl Engine {
             }),
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
             mixer: Mixer::new(sample_rate),
-            echo: Echo::new(sample_rate),
-            reverb: Reverb::new(sample_rate),
+            procs: std::array::from_fn(|_| Processor::new(sample_rate)),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
@@ -129,18 +128,12 @@ impl Engine {
     }
 
     fn set_global(&mut self, param: Param, v: f32) {
-        match param {
-            Param::MasterGain => self.master_gain = v,
-            Param::EchoTime => self.echo.set_time(v),
-            Param::EchoFeedback => self.echo.set_feedback(v),
-            Param::EchoTone => self.echo.set_tone(v),
-            Param::EchoPingPong => self.echo.set_ping_pong(v >= 0.5),
-            Param::EchoReturn => self.echo.set_return(v),
-            Param::ReverbSize => self.reverb.set_size(v),
-            Param::ReverbDamping => self.reverb.set_damping(v),
-            Param::ReverbPreDelay => self.reverb.set_pre_delay(v),
-            Param::ReverbReturn => self.reverb.set_return(v),
-            _ => {}
+        if param == Param::MasterGain {
+            self.master_gain = v;
+        } else if let Some((slot, field)) = param.processor() {
+            if let Some(p) = self.procs.get_mut(slot) {
+                p.set(field, v);
+            }
         }
     }
 
@@ -348,11 +341,11 @@ impl Engine {
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
-        let [echo, reverb, ..] = &self.mixer.sends;
-        if let (Some(e), Some(r)) = (echo.get(..n), reverb.get(..n)) {
-            if let (Some(l), Some(rt)) = (left.get_mut(..n), right.get_mut(..n)) {
-                self.echo.process(e, l, rt);
-                self.reverb.process(r, l, rt);
+        if let (Some(l), Some(r)) = (left.get_mut(..n), right.get_mut(..n)) {
+            for (proc, send) in self.procs.iter_mut().zip(self.mixer.sends.iter()) {
+                if let Some(send) = send.get(..n) {
+                    proc.process(send, l, r);
+                }
             }
         }
         for sample in self.out.iter_mut() {
@@ -885,16 +878,16 @@ mod tests {
         assert!(dry == muted, "a send alone is silent");
         // A return up, sends at 0: nothing changes either.
         let no_send = first_block(|e| {
-            e.set_param(0, Param::EchoReturn, 1.0);
-            e.set_param(0, Param::ReverbReturn, 1.0);
+            e.set_param(0, Param::P1Return, 1.0);
+            e.set_param(0, Param::P2Return, 1.0);
         });
         assert!(dry == no_send, "a return alone is silent");
         let wet = first_block(|e| {
             e.set_param(0, Param::Send1, 1.0);
-            e.set_param(0, Param::EchoReturn, 1.0);
-            e.set_param(0, Param::EchoTime, 20.0);
+            e.set_param(0, Param::P1Return, 1.0);
+            e.set_param(0, Param::P1A, 0.39);
             e.set_param(0, Param::Send2, 1.0);
-            e.set_param(0, Param::ReverbReturn, 1.0);
+            e.set_param(0, Param::P2Return, 1.0);
         });
         assert!(dry != wet, "both together sound");
     }
@@ -902,29 +895,25 @@ mod tests {
     #[test]
     fn effect_parameters_are_global() {
         let mut e = Engine::new(48_000.0);
-        e.set_param(3, Param::EchoReturn, 0.4);
-        e.set_param(5, Param::ReverbSize, 7.0);
+        e.set_param(3, Param::P1Return, 0.4);
+        e.set_param(5, Param::P2A, 0.9);
         for synth in [0, 3, 15] {
-            assert_eq!(e.param_value(synth, Param::EchoReturn), 0.4);
-            assert_eq!(e.param_value(synth, Param::ReverbSize), 7.0);
+            assert_eq!(e.param_value(synth, Param::P1Return), 0.4);
+            assert_eq!(e.param_value(synth, Param::P2A), 0.9);
         }
         e.reset(2);
-        assert_eq!(
-            e.param_value(0, Param::EchoReturn),
-            0.4,
-            "reset leaves them"
-        );
+        assert_eq!(e.param_value(0, Param::P1Return), 0.4, "reset leaves them");
     }
 
     #[test]
     fn sixteen_synths_through_both_effects_stay_bounded() {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::MasterGain, 1.0);
-        e.set_param(0, Param::EchoReturn, 1.0);
-        e.set_param(0, Param::EchoFeedback, 0.95);
-        e.set_param(0, Param::EchoPingPong, 1.0);
-        e.set_param(0, Param::ReverbReturn, 1.0);
-        e.set_param(0, Param::ReverbSize, 10.0);
+        e.set_param(0, Param::P1Return, 1.0);
+        e.set_param(0, Param::P1B, 1.0);
+        e.set_param(0, Param::P1D, 1.0);
+        e.set_param(0, Param::P2Return, 1.0);
+        e.set_param(0, Param::P2A, 1.0);
         for synth in 0..SYNTHS {
             e.set_param(synth, Param::Send1, 1.0);
             e.set_param(synth, Param::Send2, 1.0);

@@ -96,11 +96,11 @@ function run(setup, lowest) {
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
   // both effects with long feedback and tail.
-  w.set_param(0, Param.EchoReturn, 0.5)
-  w.set_param(0, Param.EchoPingPong, 1)
-  w.set_param(0, Param.EchoFeedback, 0.7)
-  w.set_param(0, Param.ReverbReturn, 0.5)
-  w.set_param(0, Param.ReverbSize, 6)
+  w.set_param(0, Param.P1Return, 0.5)
+  w.set_param(0, Param.P1D, 1)
+  w.set_param(0, Param.P1B, 0.7)
+  w.set_param(0, Param.P2Return, 0.5)
+  w.set_param(0, Param.P2A, 0.9)
   for (let s = 0; s < w.synth_count(); s++) {
     setup(w, s)
     w.set_param(s, Param.DriveMode, DriveMode.Fuzz)
