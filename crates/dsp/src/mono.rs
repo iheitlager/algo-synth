@@ -191,6 +191,26 @@ impl MonoParams {
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
             Param::ModWheel => self.mod_wheel = v,
+            // The mixer's (`mixer::Mixer`), not the voice's.
+            Param::Level
+            | Param::Pan
+            | Param::EchoSend
+            | Param::ReverbSend
+            | Param::Mute
+            | Param::Solo
+            | Param::DriveMode
+            | Param::DriveAmount
+            | Param::DriveTone
+            | Param::DriveLevel
+            | Param::EchoTime
+            | Param::EchoFeedback
+            | Param::EchoTone
+            | Param::EchoPingPong
+            | Param::EchoReturn
+            | Param::ReverbSize
+            | Param::ReverbDamping
+            | Param::ReverbPreDelay
+            | Param::ReverbReturn => {}
             Param::MasterGain => {}
         }
         self.taken = self.patch.overridden();

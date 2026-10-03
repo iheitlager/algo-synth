@@ -2,7 +2,7 @@
 
 An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. For now it is one ARP 2600-style voice and a MIDI player, on the way to six 2600s playing Vivaldi; the sequencer, more sources and algo loops come after (ADR-0008).
 
-## Version: 0.4.0
+## Version: 0.5.0
 
 - **Mono:** an ARP 2600-style semi-modular voice: three VCOs, noise, a 4-pole ladder, envelopes, LFO, normalled routing with patch overrides.
 - **Up to 16 synths:** add 2600s as you need them, each with its own patch. A MIDI file plays each part on its own synth, on the way to six 2600s playing Vivaldi.

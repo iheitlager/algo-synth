@@ -125,11 +125,64 @@ pub enum Param {
     Vibrato = 58,
     /// The mod wheel, 0..=1, until MIDI input sends CC 1 (#10).
     ModWheel = 59,
+    /// Mixer fader of a synth, 0..=1.
+    Level = 60,
+    /// Mixer pan of a synth, −1 (left)..=1 (right), equal power.
+    Pan = 61,
+    /// Post-fader send to the echo, 0..=1.
+    EchoSend = 62,
+    /// Post-fader send to the reverb, 0..=1.
+    ReverbSend = 63,
+    /// Silences the synth when ≥ 0.5.
+    Mute = 64,
+    /// When any synth is soloed (≥ 0.5), only soloed synths sound.
+    Solo = 65,
+    /// Drive insert mode id (`DriveMode`: off, overdrive, distortion, fuzz), 0..=3.
+    DriveMode = 66,
+    /// Drive amount, 0..=1 (0 to +40 dB into the shaper).
+    DriveAmount = 67,
+    /// Drive tone, 0..=1: the low-pass after the shaper, 200 Hz to 20 kHz.
+    DriveTone = 68,
+    /// Drive output level, 0..=1.
+    DriveLevel = 69,
+    /// Echo delay time in ms, 1..=2000 (not tied to a tempo).
+    EchoTime = 70,
+    /// Echo feedback, 0..=0.95; it never reaches 1.
+    EchoFeedback = 71,
+    /// Echo tone, 0..=1: the low-pass in the loop, 500 Hz to 20 kHz.
+    EchoTone = 72,
+    /// Echo ping-pong when ≥ 0.5: the repeats alternate sides.
+    EchoPingPong = 73,
+    /// Echo return level into the master, 0..=1; 0 is silent.
+    EchoReturn = 74,
+    /// Reverb size as the seconds the tail takes to fall 60 dB, 0.1..=10.
+    ReverbSize = 75,
+    /// Reverb damping, 0..=1: how fast the tail loses its highs.
+    ReverbDamping = 76,
+    /// Reverb pre-delay in ms, 0..=100.
+    ReverbPreDelay = 77,
+    /// Reverb return level into the master, 0..=1; 0 is silent.
+    ReverbReturn = 78,
 }
+
+/// Where the global parameters start: the effects are silent until a return
+/// goes up.
+pub const GLOBAL_DEFAULTS: [(Param, f32); 10] = [
+    (Param::MasterGain, 0.5),
+    (Param::EchoTime, 300.0),
+    (Param::EchoFeedback, 0.4),
+    (Param::EchoTone, 0.7),
+    (Param::EchoPingPong, 0.0),
+    (Param::EchoReturn, 0.0),
+    (Param::ReverbSize, 2.0),
+    (Param::ReverbDamping, 0.3),
+    (Param::ReverbPreDelay, 10.0),
+    (Param::ReverbReturn, 0.0),
+];
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 60] = [
+    pub const ALL: [(Param, &'static str); 79] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -190,7 +243,44 @@ impl Param {
         (Param::KeyTrack, "KeyTrack"),
         (Param::Vibrato, "Vibrato"),
         (Param::ModWheel, "ModWheel"),
+        (Param::Level, "Level"),
+        (Param::Pan, "Pan"),
+        (Param::EchoSend, "EchoSend"),
+        (Param::ReverbSend, "ReverbSend"),
+        (Param::Mute, "Mute"),
+        (Param::Solo, "Solo"),
+        (Param::DriveMode, "DriveMode"),
+        (Param::DriveAmount, "DriveAmount"),
+        (Param::DriveTone, "DriveTone"),
+        (Param::DriveLevel, "DriveLevel"),
+        (Param::EchoTime, "EchoTime"),
+        (Param::EchoFeedback, "EchoFeedback"),
+        (Param::EchoTone, "EchoTone"),
+        (Param::EchoPingPong, "EchoPingPong"),
+        (Param::EchoReturn, "EchoReturn"),
+        (Param::ReverbSize, "ReverbSize"),
+        (Param::ReverbDamping, "ReverbDamping"),
+        (Param::ReverbPreDelay, "ReverbPreDelay"),
+        (Param::ReverbReturn, "ReverbReturn"),
     ];
+
+    /// Parameters of the whole engine, not of one synth: the master gain and
+    /// the send effects. Whichever synth they are sent to, they are set once.
+    pub fn is_global(self) -> bool {
+        matches!(
+            self,
+            Param::MasterGain
+                | Param::EchoTime
+                | Param::EchoFeedback
+                | Param::EchoTone
+                | Param::EchoPingPong
+                | Param::EchoReturn
+                | Param::ReverbSize
+                | Param::ReverbDamping
+                | Param::ReverbPreDelay
+                | Param::ReverbReturn
+        )
+    }
 
     /// The parameter for a raw id, or `None` for an unknown one.
     pub fn from_id(id: u32) -> Option<Param> {
@@ -241,6 +331,19 @@ impl Param {
             | Param::Patch8Amount
             | Param::EnvCutoff => (-1.0, 1.0),
             Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
+            Param::Level | Param::EchoSend | Param::ReverbSend => (0.0, 1.0),
+            Param::Pan => (-1.0, 1.0),
+            Param::Mute | Param::Solo => (0.0, 1.0),
+            Param::DriveMode => (0.0, 3.0),
+            Param::DriveAmount | Param::DriveTone | Param::DriveLevel => (0.0, 1.0),
+            Param::EchoTime => (1.0, 2_000.0),
+            Param::EchoFeedback => (0.0, 0.95),
+            Param::EchoTone | Param::EchoReturn | Param::ReverbDamping | Param::ReverbReturn => {
+                (0.0, 1.0)
+            }
+            Param::EchoPingPong => (0.0, 1.0),
+            Param::ReverbSize => (0.1, 10.0),
+            Param::ReverbPreDelay => (0.0, 100.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }
@@ -291,6 +394,7 @@ mod tests {
     /// `web/src/audio/params.ts` hold exactly the same names and ids.
     #[test]
     fn typescript_mirror_matches() {
+        use crate::fx::drive::DriveMode;
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
         use crate::mono::patch::{ModDest, ModSource};
@@ -306,6 +410,7 @@ mod tests {
             ("Param", rust(&Param::ALL, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
+            ("DriveMode", rust(&DriveMode::ALL, |m| m as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
             ("ModSource", rust(&ModSource::ALL, |s| s as u32)),

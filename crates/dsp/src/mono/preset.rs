@@ -127,7 +127,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 59] = [
+pub const DEFAULTS: [(Param, f32); 63] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -187,6 +187,10 @@ pub const DEFAULTS: [(Param, f32); 59] = [
     (Param::KeyTrack, 0.0),
     (Param::Vibrato, 0.0),
     (Param::ModWheel, 0.0),
+    (Param::DriveMode, 0.0),
+    (Param::DriveAmount, 0.3),
+    (Param::DriveTone, 0.8),
+    (Param::DriveLevel, 0.7),
 ];
 
 #[cfg(test)]
@@ -194,14 +198,25 @@ mod tests {
     use super::*;
     use crate::engine::{BLOCK, Engine};
 
-    /// The parameters that aren't Mono's.
-    const SHARED: [Param; 1] = [Param::MasterGain];
+    /// The parameters that aren't Mono's: global, or the mixer's.
+    fn is_shared(p: Param) -> bool {
+        p.is_global()
+            || matches!(
+                p,
+                Param::Level
+                    | Param::Pan
+                    | Param::EchoSend
+                    | Param::ReverbSend
+                    | Param::Mute
+                    | Param::Solo
+            )
+    }
 
     #[test]
     fn defaults_cover_every_mono_parameter_once() {
         for (p, _) in Param::ALL {
             let n = DEFAULTS.iter().filter(|(d, _)| *d == p).count();
-            let want = usize::from(!SHARED.contains(&p));
+            let want = usize::from(!is_shared(p));
             assert_eq!(n, want, "{p:?} in DEFAULTS {n} times");
         }
     }
@@ -211,7 +226,7 @@ mod tests {
         let changes = Preset::ALL.iter().flat_map(|(p, _)| p.changes());
         for (p, v) in DEFAULTS.iter().chain(changes) {
             assert_eq!(p.clamp(*v), *v, "{p:?} = {v} is out of range");
-            assert!(!SHARED.contains(p), "a preset sets {p:?}");
+            assert!(!is_shared(*p), "a preset sets {p:?}");
         }
     }
 
