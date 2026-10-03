@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
+The family of monosynths (epic #28, PR #42) on top of 16 independent Mono synths (#19) and the Mono-only product (#18).
+
 ### Added
 
 - **A family of six monosynths** (epic #28, ADR-0009, spec 005): every synth slot has a model, `Param::Model`: ARP 2600, Minimoog, Sequential Pro-One, Korg MS-20, Yamaha CS-15 or Roland SH-101. One shared voice with the model deciding the filter and its voicing, the high-pass stage, which envelope moves the cutoff, decay-as-release and the modulation source; two presets per model (14 in all). A new or reset synth is an ARP 2600, and its sound is pinned to what it was before models (#29, #30, #34).
