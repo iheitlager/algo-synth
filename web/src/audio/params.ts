@@ -207,6 +207,20 @@ export const Param = {
   WtSteps: 200,
   EnvWt: 201,
   LfoWt: 202,
+  Pcm1Sample: 203,
+  Pcm2Sample: 204,
+  Structure: 205,
+  P2Cutoff: 206,
+  P2Resonance: 207,
+  P2EnvCutoff: 208,
+  P2FenvAttack: 209,
+  P2FenvDecay: 210,
+  P2FenvSustain: 211,
+  P2FenvRelease: 212,
+  P2AdsrAttack: 213,
+  P2AdsrDecay: 214,
+  P2AdsrSustain: 215,
+  P2AdsrRelease: 216,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -333,6 +347,7 @@ export const Model = {
   Jupiter8: 9,
   Matrix12: 10,
   PpgWave: 11,
+  D50: 12,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -400,6 +415,12 @@ export const Preset = {
   PpgPulseBass: 60,
   PpgDigitalPluck: 61,
   PpgOrganWave: 62,
+  LaFantasia: 63,
+  LaPluckPad: 64,
+  LaBreathFlute: 65,
+  LaRingBell: 66,
+  LaThumpBass: 67,
+  LaChoir: 68,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

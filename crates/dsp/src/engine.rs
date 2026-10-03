@@ -975,6 +975,160 @@ mod tests {
         );
     }
 
+    /// A D-50 voice set up with the given parameters, playing note `note`; its left
+    /// channel for `blocks` blocks.
+    fn d50_note(settings: &[(Param, f32)], note: u8, blocks: usize) -> Vec<f32> {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (p, v) in [
+            (Param::Model, 12.0),
+            (Param::Polyphony, 16.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::P2Cutoff, 20_000.0),
+        ]
+        .iter()
+        .chain(settings)
+        {
+            e.set_param(0, *p, *v);
+        }
+        e.note_on(0, note, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..blocks {
+            e.render(BLOCK);
+            out.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        out
+    }
+
+    fn rms(x: &[f32]) -> f64 {
+        (x.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / x.len().max(1) as f64).sqrt()
+    }
+
+    /// Spec 006 Req 12: a PCM attack sounds in the first tens of milliseconds and the
+    /// synthesised body carries on after it.
+    #[test]
+    fn the_d50_attack_sounds_first_and_the_body_carries_on() {
+        let with_attack = d50_note(
+            &[
+                (Param::Pcm1Sample, 7.0),
+                (Param::Vco1Level, 1.0),
+                (Param::AdsrAttack, 0.001),
+                (Param::AdsrDecay, 0.1),
+                (Param::AdsrSustain, 0.0),
+                (Param::Vco2Level, 0.15),
+                (Param::P2AdsrAttack, 0.001),
+                (Param::P2AdsrSustain, 1.0),
+            ],
+            48,
+            300,
+        );
+        let (early, late) = (rms(&with_attack[..2_000]), rms(&with_attack[24_000..]));
+        assert!(
+            early > 2.5 * late,
+            "the attack stands out over the body: {early} vs {late}"
+        );
+        assert!(late > 0.005, "and the body carries on: {late}");
+        // Without the attack the body is steady from the first moments.
+        let body = d50_note(
+            &[
+                (Param::Vco1Level, 0.0),
+                (Param::Vco2Level, 0.15),
+                (Param::P2AdsrAttack, 0.001),
+                (Param::P2AdsrSustain, 1.0),
+            ],
+            48,
+            300,
+        );
+        let ratio = rms(&body[2_000..6_000]) / rms(&body[24_000..]);
+        assert!((0.7..1.4).contains(&ratio), "steady: {ratio}");
+    }
+
+    /// The pair adds, rings or syncs: ring needs both partials, sync makes partial 2
+    /// repeat with partial 1.
+    #[test]
+    fn the_d50_partials_add_ring_and_sync() {
+        let both = [
+            (Param::Vco1Level, 0.8),
+            (Param::Vco2Level, 0.8),
+            (Param::Vco2Coarse, 7.0),
+        ];
+        let mut add = both.to_vec();
+        add.push((Param::Structure, 0.0));
+        let mut ring = both.to_vec();
+        ring.push((Param::Structure, 2.0));
+        let (a, r) = (d50_note(&add, 57, 60), d50_note(&ring, 57, 60));
+        assert!(a != r, "ring is not add");
+        // Ring with partial 2 silent is silence; add is not.
+        let mut quiet = vec![
+            (Param::Vco1Level, 0.8),
+            (Param::Vco2Level, 0.0),
+            (Param::Structure, 2.0),
+        ];
+        assert!(
+            rms(&d50_note(&quiet, 57, 60)[4_800..]) < 1.0e-6,
+            "ring of a silent partial"
+        );
+        quiet[2].1 = 0.0;
+        assert!(
+            rms(&d50_note(&quiet, 57, 60)[4_800..]) > 0.01,
+            "while add keeps partial 1"
+        );
+        // Synced, the sound repeats with partial 1's period (220 Hz is 218.18
+        // samples); added, a partial a fifth up does not.
+        let repeats = |structure: f32| {
+            let mut settings = both.to_vec();
+            settings.push((Param::Structure, structure));
+            let out = d50_note(&settings, 57, 80);
+            let x = &out[6_000..];
+            let norm = x.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>();
+            (216..=221)
+                .map(|lag| {
+                    x.iter()
+                        .zip(&x[lag..])
+                        .map(|(a, b)| f64::from(*a) * f64::from(*b))
+                        .sum::<f64>()
+                        / norm
+                })
+                .fold(f64::MIN, f64::max)
+        };
+        let (synced, added) = (repeats(1.0), repeats(0.0));
+        assert!(synced > 0.9, "synced repeats with partial 1: {synced}");
+        assert!(added < 0.8, "added does not: {added}");
+    }
+
+    /// The D-50 has sixteen voices.
+    #[test]
+    fn the_d50_has_sixteen_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::LaFantasia);
+        let chord: Vec<u8> = (0..17).map(|k| 36 + 3 * k).collect();
+        for n in &chord {
+            e.note_on(0, *n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 16);
+        assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
+    /// Changing a synth from a Mono-voice model to the D-50 plays the D-50 at the next note.
+    #[test]
+    fn a_model_change_replaces_the_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.note_on(0, 57, 1.0);
+        e.render(BLOCK);
+        e.note_off(0, 57);
+        e.preset(0, Preset::LaThumpBass);
+        e.note_on(0, 45, 1.0);
+        let mut heard = 0.0_f32;
+        for _ in 0..40 {
+            e.render(BLOCK);
+            heard = heard.max(e.output().iter().fold(0.0, |m, s| m.max(s.abs())));
+        }
+        assert!(heard > 0.05);
+        assert!(e.pools[0].held_notes().contains(&45));
+    }
+
     /// Notes held on a synth: its voices with a key down.
     fn gated_notes(e: &Engine, synth: usize) -> usize {
         e.pools[synth].held()

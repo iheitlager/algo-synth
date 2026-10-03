@@ -75,11 +75,17 @@ pub enum Preset {
     PpgPulseBass = 60,
     PpgDigitalPluck = 61,
     PpgOrganWave = 62,
+    LaFantasia = 63,
+    LaPluckPad = 64,
+    LaBreathFlute = 65,
+    LaRingBell = 66,
+    LaThumpBass = 67,
+    LaChoir = 68,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 63] = [
+    pub const ALL: [(Preset, &'static str); 69] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -143,6 +149,12 @@ impl Preset {
         (Preset::PpgPulseBass, "PpgPulseBass"),
         (Preset::PpgDigitalPluck, "PpgDigitalPluck"),
         (Preset::PpgOrganWave, "PpgOrganWave"),
+        (Preset::LaFantasia, "LaFantasia"),
+        (Preset::LaPluckPad, "LaPluckPad"),
+        (Preset::LaBreathFlute, "LaBreathFlute"),
+        (Preset::LaRingBell, "LaRingBell"),
+        (Preset::LaThumpBass, "LaThumpBass"),
+        (Preset::LaChoir, "LaChoir"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -156,6 +168,12 @@ impl Preset {
     /// The model this preset is for; `changes` sets it.
     pub fn model(self) -> Model {
         match self {
+            Preset::LaFantasia
+            | Preset::LaPluckPad
+            | Preset::LaBreathFlute
+            | Preset::LaRingBell
+            | Preset::LaThumpBass
+            | Preset::LaChoir => Model::D50,
             Preset::PpgSweepPad
             | Preset::PpgGlassBell
             | Preset::PpgFormant
@@ -1667,6 +1685,162 @@ impl Preset {
                 (LfoWave, 2.0),
                 (LfoRate, 0.7),
             ],
+            // A struck-glass attack over a swept pulse pad with chorus II: the shimmering
+            // bell-over-pad sound the D-50 is remembered for.
+            Preset::LaFantasia => &[
+                (Model, 12.0),
+                (Polyphony, 16.0),
+                (Analog, 0.1),
+                (ChorusMode, 2.0),
+                (Pcm1Sample, 8.0),
+                (Vco1Level, 0.7),
+                (Cutoff, 9_000.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 0.9),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 0.6),
+                (Vco2Wave, 1.0),
+                (Vco2Fine, 6.0),
+                (Vco2Level, 0.9),
+                (LfoWave, 2.0),
+                (LfoRate, 0.5),
+                (LfoPw, 0.3),
+                (P2Cutoff, 2_500.0),
+                (P2Resonance, 0.15),
+                (P2EnvCutoff, 0.3),
+                (P2FenvAttack, 0.6),
+                (P2FenvDecay, 0.8),
+                (P2FenvSustain, 0.6),
+                (P2AdsrAttack, 0.35),
+                (P2AdsrDecay, 0.6),
+                (P2AdsrSustain, 0.85),
+                (P2AdsrRelease, 0.9),
+                (KeyTrack, 0.5),
+            ],
+            // A plucked-string attack over a slow saw pad: the pluck settles into the pad.
+            Preset::LaPluckPad => &[
+                (Model, 12.0),
+                (Polyphony, 16.0),
+                (Analog, 0.1),
+                (ChorusMode, 1.0),
+                (Pcm1Sample, 2.0),
+                (Vco1Level, 0.9),
+                (Cutoff, 8_000.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 0.3),
+                (Vco2Level, 0.8),
+                (P2Cutoff, 1_800.0),
+                (P2Resonance, 0.1),
+                (P2EnvCutoff, 0.25),
+                (P2FenvAttack, 0.5),
+                (P2FenvSustain, 0.7),
+                (P2AdsrAttack, 0.5),
+                (P2AdsrDecay, 0.6),
+                (P2AdsrSustain, 0.9),
+                (P2AdsrRelease, 0.7),
+                (KeyTrack, 0.5),
+            ],
+            // A breath of noise swelling into a triangle body with vibrato on the wheel:
+            // a flute.
+            Preset::LaBreathFlute => &[
+                (Model, 12.0),
+                (Polyphony, 16.0),
+                (Analog, 0.1),
+                (Pcm1Sample, 5.0),
+                (Vco1Level, 0.6),
+                (Cutoff, 7_000.0),
+                (AdsrAttack, 0.05),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.15),
+                (AdsrRelease, 0.2),
+                (Vco2Wave, 2.0),
+                (Vco2Level, 0.9),
+                (P2Cutoff, 4_000.0),
+                (P2Resonance, 0.1),
+                (P2AdsrAttack, 0.09),
+                (P2AdsrDecay, 0.3),
+                (P2AdsrSustain, 0.9),
+                (P2AdsrRelease, 0.2),
+                (LfoWave, 3.0),
+                (LfoRate, 5.0),
+                (Vibrato, 0.1),
+                (ModWheel, 1.0),
+                (KeyTrack, 0.6),
+            ],
+            // A struck-bell attack ring-modulated with a saw: a metallic, clangorous
+            // bell that decays in its own time.
+            Preset::LaRingBell => &[
+                (Model, 12.0),
+                (Polyphony, 16.0),
+                (Analog, 0.1),
+                (Structure, 2.0),
+                (Pcm1Sample, 3.0),
+                (Vco1Level, 1.0),
+                (Cutoff, 10_000.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 1.6),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 1.0),
+                (Vco2Coarse, 7.0),
+                (Vco2Level, 1.0),
+                (P2Cutoff, 8_000.0),
+                (P2AdsrAttack, 0.001),
+                (P2AdsrDecay, 1.8),
+                (P2AdsrSustain, 0.0),
+                (P2AdsrRelease, 1.0),
+                (KeyTrack, 1.0),
+            ],
+            // A falling-sine thump under a saw bass with a snapping filter: a punchy,
+            // deep bass.
+            Preset::LaThumpBass => &[
+                (Model, 12.0),
+                (Polyphony, 16.0),
+                (Analog, 0.1),
+                (Pcm1Sample, 7.0),
+                (Vco1Level, 1.0),
+                (Cutoff, 6_000.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 0.25),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 0.1),
+                (Vco2Coarse, -12.0),
+                (Vco2Level, 0.9),
+                (P2Cutoff, 500.0),
+                (P2Resonance, 0.3),
+                (P2EnvCutoff, 0.6),
+                (P2FenvAttack, 0.002),
+                (P2FenvDecay, 0.3),
+                (P2FenvSustain, 0.1),
+                (P2AdsrAttack, 0.002),
+                (P2AdsrDecay, 0.3),
+                (P2AdsrSustain, 0.6),
+                (P2AdsrRelease, 0.15),
+                (KeyTrack, 1.0),
+            ],
+            // The looping vowel sample under a soft saw, chorus II: a choir.
+            Preset::LaChoir => &[
+                (Model, 12.0),
+                (Polyphony, 16.0),
+                (Analog, 0.2),
+                (ChorusMode, 2.0),
+                (Pcm1Sample, 6.0),
+                (Vco1Level, 0.9),
+                (Cutoff, 8_000.0),
+                (AdsrAttack, 0.25),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 1.0),
+                (AdsrRelease, 0.6),
+                (Vco2Level, 0.5),
+                (P2Cutoff, 2_200.0),
+                (P2Resonance, 0.1),
+                (P2AdsrAttack, 0.3),
+                (P2AdsrDecay, 0.5),
+                (P2AdsrSustain, 0.9),
+                (P2AdsrRelease, 0.6),
+                (KeyTrack, 0.5),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -1700,7 +1874,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 132] = [
+pub const DEFAULTS: [(Param, f32); 146] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -1833,6 +2007,20 @@ pub const DEFAULTS: [(Param, f32); 132] = [
     (Param::WtSteps, 0.0),
     (Param::EnvWt, 0.0),
     (Param::LfoWt, 0.0),
+    (Param::Pcm1Sample, 0.0),
+    (Param::Pcm2Sample, 0.0),
+    (Param::Structure, 0.0),
+    (Param::P2Cutoff, 4_000.0),
+    (Param::P2Resonance, 0.0),
+    (Param::P2EnvCutoff, 0.0),
+    (Param::P2FenvAttack, 0.005),
+    (Param::P2FenvDecay, 0.3),
+    (Param::P2FenvSustain, 0.7),
+    (Param::P2FenvRelease, 0.3),
+    (Param::P2AdsrAttack, 0.005),
+    (Param::P2AdsrDecay, 0.3),
+    (Param::P2AdsrSustain, 0.7),
+    (Param::P2AdsrRelease, 0.3),
 ];
 
 #[cfg(test)]

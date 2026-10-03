@@ -606,6 +606,71 @@ const ppgWave: ModelDef = {
   ],
 }
 
+/** A partial's source: synthesised, or one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs). */
+const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8]]
+const SYNTH_WAVES: Options = [['Saw', 0], ['Pulse', 1], ['Triangle', 2]]
+const STRUCTURE: Options = [['Add', 0], ['Sync', 1], ['Ring', 2]]
+
+// Sixteen voices of two partials, each a synthesised oscillator or a generated PCM
+// attack, each with its own filter and envelopes, added, synced or ring-modulated
+// (spec 006 Req 12). The attacks are the engine's own, not the D-50's ROM.
+const d50: ModelDef = {
+  id: Model.D50,
+  name: 'D-50',
+  maker: 'Roland · sixteen voices, LA synthesis',
+  tagline: 'Sixteen voices: two partials, synthesised or a generated attack sample, each with its own filter and envelopes',
+  theme: { panel: '#1c1d22', ink: '#e9e6df', soft: '#a6a39b', trim: '#3b3f4a', accent: '#ee5d6c' },
+  presets: ['LaFantasia', 'LaPluckPad', 'LaBreathFlute', 'LaRingBell', 'LaThumpBass', 'LaChoir'],
+  sections: [
+    {
+      title: 'Partial 1',
+      controls: [
+        select('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
+        range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), range('Level', Param.Vco1Level, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter 1',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01),
+      ],
+    },
+    { title: 'Filter env 1', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amp env 1', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'Partial 2',
+      controls: [
+        select('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
+        range('Pitch', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter 2',
+      controls: [
+        range('Cutoff', Param.P2Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.P2Resonance, 0, 1, 0.01),
+        range('Envelope', Param.P2EnvCutoff, -1, 1, 0.01),
+      ],
+    },
+    { title: 'Filter env 2', controls: adsrControls(Param.P2FenvAttack, Param.P2FenvDecay, Param.P2FenvSustain, Param.P2FenvRelease) },
+    { title: 'Amp env 2', controls: adsrControls(Param.P2AdsrAttack, Param.P2AdsrDecay, Param.P2AdsrSustain, Param.P2AdsrRelease) },
+    {
+      title: 'Structure',
+      controls: [select('Partials', Param.Structure, STRUCTURE), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01)],
+    },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
 const ms20: ModelDef = {
   id: Model.Ms20,
   name: 'MS-20',
@@ -845,7 +910,7 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

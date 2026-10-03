@@ -412,6 +412,30 @@ pub enum Param {
     EnvWt = 201,
     /// LFO → wave position of both oscillators, 0..=1.
     LfoWt = 202,
+    /// Partial 1's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample (the D-50).
+    Pcm1Sample = 203,
+    /// Partial 2's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample.
+    Pcm2Sample = 204,
+    /// How the two partials combine: 0 add, 1 sync (partial 2 to 1), 2 ring (1 × 2).
+    Structure = 205,
+    /// Partial 2's filter cutoff in Hz, 20..=20000.
+    P2Cutoff = 206,
+    /// Partial 2's filter resonance, 0..=1.
+    P2Resonance = 207,
+    /// Partial 2's filter envelope amount, −1..=1 (±4 octaves).
+    P2EnvCutoff = 208,
+    /// Partial 2's filter envelope attack, decay and release in seconds, 0.001..=10.
+    P2FenvAttack = 209,
+    P2FenvDecay = 210,
+    /// Partial 2's filter envelope sustain level, 0..=1.
+    P2FenvSustain = 211,
+    P2FenvRelease = 212,
+    /// Partial 2's amplifier envelope attack, decay and release in seconds, 0.001..=10.
+    P2AdsrAttack = 213,
+    P2AdsrDecay = 214,
+    /// Partial 2's amplifier envelope sustain level, 0..=1.
+    P2AdsrSustain = 215,
+    P2AdsrRelease = 216,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -493,7 +517,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 203] = [
+    pub const ALL: [(Param, &'static str); 217] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -697,6 +721,20 @@ impl Param {
         (Param::WtSteps, "WtSteps"),
         (Param::EnvWt, "EnvWt"),
         (Param::LfoWt, "LfoWt"),
+        (Param::Pcm1Sample, "Pcm1Sample"),
+        (Param::Pcm2Sample, "Pcm2Sample"),
+        (Param::Structure, "Structure"),
+        (Param::P2Cutoff, "P2Cutoff"),
+        (Param::P2Resonance, "P2Resonance"),
+        (Param::P2EnvCutoff, "P2EnvCutoff"),
+        (Param::P2FenvAttack, "P2FenvAttack"),
+        (Param::P2FenvDecay, "P2FenvDecay"),
+        (Param::P2FenvSustain, "P2FenvSustain"),
+        (Param::P2FenvRelease, "P2FenvRelease"),
+        (Param::P2AdsrAttack, "P2AdsrAttack"),
+        (Param::P2AdsrDecay, "P2AdsrDecay"),
+        (Param::P2AdsrSustain, "P2AdsrSustain"),
+        (Param::P2AdsrRelease, "P2AdsrRelease"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -848,6 +886,20 @@ impl Param {
             Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),
             Param::WtSteps => (0.0, 1.0),
             Param::EnvWt => (-1.0, 1.0),
+            Param::Pcm1Sample => (0.0, 8.0),
+            Param::Pcm2Sample => (0.0, 8.0),
+            Param::Structure => (0.0, 2.0),
+            Param::P2Cutoff => (20.0, 20_000.0),
+            Param::P2Resonance => (0.0, 1.0),
+            Param::P2EnvCutoff => (-1.0, 1.0),
+            Param::P2FenvAttack => (0.001, 10.0),
+            Param::P2FenvDecay => (0.001, 10.0),
+            Param::P2FenvSustain => (0.0, 1.0),
+            Param::P2FenvRelease => (0.001, 10.0),
+            Param::P2AdsrAttack => (0.001, 10.0),
+            Param::P2AdsrDecay => (0.001, 10.0),
+            Param::P2AdsrSustain => (0.0, 1.0),
+            Param::P2AdsrRelease => (0.001, 10.0),
             Param::Lfo2Rate => (0.01, 50.0),
             Param::Lfo2Wave => (0.0, 3.0),
             Param::RampTime => (0.01, 30.0),

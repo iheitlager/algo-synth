@@ -7,6 +7,7 @@
 
 pub mod engine;
 pub mod fx;
+pub mod la;
 pub mod mixer;
 pub mod mono;
 pub mod params;

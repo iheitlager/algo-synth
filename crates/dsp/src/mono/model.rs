@@ -22,11 +22,12 @@ pub enum Model {
     Jupiter8 = 9,
     Matrix12 = 10,
     PpgWave = 11,
+    D50 = 12,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 12] = [
+    pub const ALL: [(Model, &'static str); 13] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -39,6 +40,7 @@ impl Model {
         (Model::Jupiter8, "Jupiter8"),
         (Model::Matrix12, "Matrix12"),
         (Model::PpgWave, "PpgWave"),
+        (Model::D50, "D50"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -129,6 +131,12 @@ pub const PPG: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 1.0,
 };
+/// The D-50's partial filters: clean, a little bass kept.
+pub const D50: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.2,
+    k_scale: 0.98,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -170,6 +178,7 @@ impl Model {
             Model::Jupiter8 => 8,
             Model::Matrix12 => 12,
             Model::PpgWave => 8,
+            Model::D50 => 16,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -183,6 +192,7 @@ impl Model {
             Model::Jupiter8 => Filter::Ladder(JUPITER),
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
+            Model::D50 => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -197,6 +207,11 @@ impl Model {
             Model::Matrix12 => Some(Filter::Svf(MATRIX12)),
             _ => None,
         }
+    }
+
+    /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
+    pub fn uses_la(self) -> bool {
+        self == Model::D50
     }
 
     /// Whether VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
@@ -217,9 +232,12 @@ impl Model {
             Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => {
                 Hp::OnePole
             }
-            Model::Arp2600 | Model::Minimoog | Model::ProOne | Model::Prophet5 | Model::PpgWave => {
-                Hp::None
-            }
+            Model::Arp2600
+            | Model::Minimoog
+            | Model::ProOne
+            | Model::Prophet5
+            | Model::PpgWave
+            | Model::D50 => Hp::None,
         }
     }
 

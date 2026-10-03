@@ -13,6 +13,7 @@
 //! heap data, so a model change rebuilds one without allocating.
 
 use crate::engine::SYNTHS;
+use crate::la::LaVoice;
 use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
@@ -26,19 +27,35 @@ pub const VOICE_BUDGET: usize = 64;
 
 /// One voice of a pool: the Mono voice now; other engines join as further variants.
 #[derive(Clone, Copy)]
+// Boxing the larger variant would allocate when a voice is rebuilt on a model change; the
+// pool is allocated once and its voices are plain values (ADR-0011).
+#[allow(clippy::large_enum_variant)]
 pub enum PolyVoice {
     Mono(MonoVoice),
+    /// The D-50's two-partial voice.
+    La(LaVoice),
 }
 
 impl PolyVoice {
-    fn new(seed: u32) -> PolyVoice {
-        PolyVoice::Mono(MonoVoice::new(seed))
+    /// A voice of the kind a synth's model plays with.
+    fn new(seed: u32, p: Option<&MonoParams>) -> PolyVoice {
+        if p.is_some_and(|p| p.model.uses_la()) {
+            PolyVoice::La(LaVoice::new())
+        } else {
+            PolyVoice::Mono(MonoVoice::new(seed))
+        }
+    }
+
+    /// Whether this voice is of the kind `p`'s model needs.
+    fn fits(&self, p: &MonoParams) -> bool {
+        matches!(self, PolyVoice::La(_)) == p.model.uses_la()
     }
 
     /// Sounding: gated, releasing, or about to start.
     pub fn active(&self) -> bool {
         match self {
             PolyVoice::Mono(v) => v.active(),
+            PolyVoice::La(v) => v.active(),
         }
     }
 
@@ -46,12 +63,45 @@ impl PolyVoice {
     pub fn gated(&self) -> bool {
         match self {
             PolyVoice::Mono(v) => v.gated(),
+            PolyVoice::La(v) => v.gated(),
         }
     }
 
     fn release_all(&mut self) {
         match self {
             PolyVoice::Mono(v) => v.release_all(),
+            PolyVoice::La(v) => v.release_all(),
+        }
+    }
+
+    /// Press a key on a voice of the right kind (a voice of another kind is replaced).
+    fn press(&mut self, note: u8, velocity: f32, p: &MonoParams, seed: u32) {
+        if !self.fits(p) {
+            *self = PolyVoice::new(seed, Some(p));
+        }
+        match self {
+            PolyVoice::Mono(v) => v.press(note, velocity, p),
+            PolyVoice::La(v) => v.press(note, velocity),
+        }
+    }
+
+    fn release(&mut self, note: u8, p: &MonoParams) {
+        match self {
+            PolyVoice::Mono(v) => v.release(note, p),
+            PolyVoice::La(v) => v.release_all(),
+        }
+    }
+
+    fn set_trim(&mut self, trim: f32, cutoff: f32) {
+        match self {
+            PolyVoice::Mono(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
+            PolyVoice::La(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
         }
     }
 }
@@ -113,7 +163,7 @@ impl Pool {
     pub fn new(index: usize) -> Pool {
         let seed = |i: usize| ((index * MAX_VOICES + i) as u32 + 1).wrapping_mul(0x9E37_79B1);
         Pool {
-            voices: std::array::from_fn(|i| PolyVoice::new(seed(i))),
+            voices: std::array::from_fn(|i| PolyVoice::new(seed(i), None)),
             slots: [Slot::default(); MAX_VOICES],
             last: MAX_VOICES - 1,
             lfo: Lfo::default(),
@@ -155,6 +205,7 @@ impl Pool {
         let i = self.slots.iter().position(|s| s.owner == Some(owner))?;
         match self.voices.get(i)? {
             PolyVoice::Mono(v) => Some(v),
+            PolyVoice::La(_) => None,
         }
     }
 
@@ -185,7 +236,7 @@ impl Pool {
     /// Silence a voice at once and free its slot (a stolen voice restarts clean).
     pub fn silence(&mut self, i: usize) {
         if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
-            *v = PolyVoice::new(owner_seed_of_slot(i, s.owner));
+            *v = PolyVoice::new(owner_seed_of_slot(i, s.owner), None);
             *s = Slot::default();
         }
     }
@@ -278,11 +329,9 @@ impl Pool {
             } else {
                 0.0
             };
-            if let (Some(PolyVoice::Mono(v)), Some(s)) =
-                (self.voices.get_mut(i), self.slots.get_mut(i))
-            {
+            if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
                 v.release_all();
-                v.press(note, velocity, p);
+                v.press(note, velocity, p, owner_seed(owner));
                 *s = Slot {
                     owner: Some(owner),
                     note,
@@ -307,14 +356,13 @@ impl Pool {
                     .or_else(|| self.oldest_held(MAX_VOICES))
                     .unwrap_or(0);
                 if let Some(v) = self.voices.get_mut(i) {
-                    *v = PolyVoice::new(owner_seed(owner));
+                    *v = PolyVoice::new(owner_seed(owner), Some(p));
                 }
                 i
             }
         };
-        if let (Some(PolyVoice::Mono(v)), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i))
-        {
-            v.press(note, velocity, p);
+        if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
+            v.press(note, velocity, p, owner_seed(owner));
             *s = Slot {
                 owner: Some(owner),
                 note,
@@ -349,9 +397,8 @@ impl Pool {
             }
             None => self.allocate(limit),
         };
-        if let (Some(PolyVoice::Mono(v)), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i))
-        {
-            v.press(note, velocity, p);
+        if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
+            v.press(note, velocity, p, owner_seed(owner));
             *s = Slot {
                 owner: Some(owner),
                 note,
@@ -420,7 +467,7 @@ impl Pool {
         }
         if p.voices() <= 1 {
             if let Some(i) = self.slots.iter().position(|s| s.owner == Some(owner)) {
-                if let Some(PolyVoice::Mono(v)) = self.voices.get_mut(i) {
+                if let Some(v) = self.voices.get_mut(i) {
                     v.release(note, p);
                 }
             }
@@ -431,7 +478,7 @@ impl Pool {
             .iter()
             .zip(&self.voices)
             .position(|(s, v)| s.owner == Some(owner) && s.note == note && v.gated());
-        if let Some(PolyVoice::Mono(v)) = held.and_then(|i| self.voices.get_mut(i)) {
+        if let Some(v) = held.and_then(|i| self.voices.get_mut(i)) {
             v.release(note, p);
         }
     }
@@ -480,12 +527,11 @@ impl Pool {
     /// with `Analog`, its own static detune, a slow drift and a cutoff offset.
     fn retrim(&mut self, p: &MonoParams, poly: bool) {
         for (i, (v, s)) in self.voices.iter_mut().zip(self.slots.iter()).enumerate() {
-            let PolyVoice::Mono(m) = v;
             if !poly {
-                m.trim = 0.0;
-                m.cutoff_trim = 0.0;
+                v.set_trim(0.0, 0.0);
                 continue;
             }
+            let mut trim = 0.0;
             // xorshift: a step of drift in −1..=1.
             self.rng ^= self.rng << 13;
             self.rng ^= self.rng >> 17;
@@ -494,9 +540,9 @@ impl Pool {
             if let Some(d) = self.drift.get_mut(i) {
                 *d = (*d * 0.998 + step * 0.12).clamp(-DRIFT_CENTS, DRIFT_CENTS);
                 let own = unit(i, 1) * ANALOG_CENTS + *d;
-                m.trim = (s.cents + own * p.analog) / 100.0;
+                trim = (s.cents + own * p.analog) / 100.0;
             }
-            m.cutoff_trim = unit(i, 2) * ANALOG_CUTOFF * p.analog;
+            v.set_trim(trim, unit(i, 2) * ANALOG_CUTOFF * p.analog);
         }
     }
 
@@ -520,6 +566,7 @@ impl Pool {
         for v in self.voices.iter_mut().filter(|v| v.active()) {
             match v {
                 PolyVoice::Mono(m) => m.render(&ctx, out),
+                PolyVoice::La(l) => l.render(&ctx, out),
             }
         }
     }
@@ -745,6 +792,7 @@ mod tests {
             .filter(|v| v.active())
             .map(|v| match v {
                 PolyVoice::Mono(m) => m.mods().pitch[0],
+                PolyVoice::La(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -766,6 +814,7 @@ mod tests {
             .filter(|(v, _)| v.active())
             .map(|(v, _)| match v {
                 PolyVoice::Mono(m) => m.trim,
+                PolyVoice::La(l) => l.trim,
             })
             .collect()
     }
