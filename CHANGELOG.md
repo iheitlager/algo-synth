@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-03
+
+The ARP Odyssey (#64, PR #76).
+
 ### Added
 
 - **ARP Odyssey**, a seventh model (#64, spec 005 Req 10): two VCOs with hard sync, ring mod and noise, a 24 dB ladder with its own `ODYSSEY` voicing (brighter and cleaner than the Moog) and a 6 dB high-pass after it, one ADSR to filter and VCA, LFO, portamento; a black-and-gold faceplate with no patch bay (it isn't modular; presets may still use patch slots). Presets `CurrieLead` (two detuned saws into a bright, driven ladder, legato glide, vibrato on the wheel, after Billy Currie's late-70s lead; an overdrive insert on its strip adds the grit) and `OdysseySync`. `make bench`'s `six models` scenario is now `all models`, with the Odyssey in the family.
