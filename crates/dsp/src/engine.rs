@@ -17,7 +17,7 @@ use crate::mono::MonoParams;
 use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
-use crate::mono::voice::{MonoVoice, PitchTable};
+use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
@@ -406,15 +406,14 @@ impl Engine {
                     continue;
                 }
                 if let Some(buf) = self.mixer.bus(synth, t..t + chunk) {
-                    pool.render(
-                        params,
-                        &self.sine,
-                        &self.blep,
-                        &self.ladder,
-                        &self.pitch,
-                        self.tables,
-                        buf,
-                    );
+                    let tools = Tools {
+                        sine: &self.sine,
+                        blep: &self.blep,
+                        ladder: &self.ladder,
+                        pitch: &self.pitch,
+                        tables: self.tables,
+                    };
+                    pool.render(params, tools, buf);
                 }
             }
             self.sequence.advance(chunk);

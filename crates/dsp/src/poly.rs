@@ -14,12 +14,9 @@
 
 use crate::engine::SYNTHS;
 use crate::mono::MonoParams;
-use crate::mono::ladder::LadderTables;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
-use crate::mono::osc::Blep;
-use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable, SharedMod};
-use crate::table::Tables;
+use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools};
 use crate::voice::Owner;
 
 /// Voices in a pool.
@@ -504,30 +501,21 @@ impl Pool {
     }
 
     /// Add every sounding voice into `out`.
-    pub fn render(
-        &mut self,
-        p: &MonoParams,
-        sine: &[f32],
-        blep: &Blep,
-        ladder: &LadderTables,
-        pitch: &PitchTable,
-        tables: &Tables,
-        out: &mut [f32],
-    ) {
+    pub fn render(&mut self, p: &MonoParams, tools: Tools, out: &mut [f32]) {
         let poly = p.voices() > 1;
         self.retrim(p, poly);
         if poly {
             self.shared
-                .fill(&mut self.lfo, &mut self.noise, p, sine, out.len());
+                .fill(&mut self.lfo, &mut self.noise, p, tools.sine, out.len());
         }
         let ctx = MonoCtx {
             params: p,
-            sine,
-            blep,
-            ladder,
-            pitch,
+            sine: tools.sine,
+            blep: tools.blep,
+            ladder: tools.ladder,
+            pitch: tools.pitch,
             shared: if poly { Some(&self.shared) } else { None },
-            tables,
+            tables: tools.tables,
         };
         for v in self.voices.iter_mut().filter(|v| v.active()) {
             match v {
@@ -546,6 +534,10 @@ fn owner_seed_of_slot(i: usize, owner: Option<Owner>) -> u32 {
 mod tests {
     use super::*;
     use crate::engine::BLOCK;
+    use crate::mono::ladder::LadderTables;
+    use crate::mono::osc::Blep;
+    use crate::mono::voice::PitchTable;
+    use crate::table::Tables;
     use crate::voice::sine_table;
 
     const SR: f32 = 48_000.0;
@@ -591,15 +583,14 @@ mod tests {
             let mut all = Vec::new();
             for _ in 0..blocks {
                 let mut out = vec![0.0; BLOCK];
-                self.pool.render(
-                    &self.params,
-                    &self.sine,
-                    &self.blep,
-                    &self.ladder,
-                    &self.pitch,
-                    self.tables,
-                    &mut out,
-                );
+                let tools = Tools {
+                    sine: &self.sine,
+                    blep: &self.blep,
+                    ladder: &self.ladder,
+                    pitch: &self.pitch,
+                    tables: self.tables,
+                };
+                self.pool.render(&self.params, tools, &mut out);
                 all.extend(out);
             }
             all

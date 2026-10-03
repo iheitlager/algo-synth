@@ -135,6 +135,16 @@ impl Default for SharedMod {
     }
 }
 
+/// The lookup tables the engine builds once and every voice reads.
+#[derive(Clone, Copy)]
+pub struct Tools<'a> {
+    pub sine: &'a [f32],
+    pub blep: &'a Blep,
+    pub ladder: &'a LadderTables,
+    pub pitch: &'a PitchTable,
+    pub tables: &'a Tables,
+}
+
 /// What a Mono voice reads from the engine while it renders.
 pub struct MonoCtx<'a> {
     pub params: &'a MonoParams,
