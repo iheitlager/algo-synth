@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SWEEP, arcPath, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
+  PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
   logMap, logPos, polar, posToDb, posToLevel,
 } from './console'
 
@@ -145,5 +145,38 @@ describe('compressor curve', () => {
   it('adds make-up gain everywhere', () => {
     expect(compOutDb(-40, -20, 4, 6)).toBe(-34)
     expect(compOutDb(0, -20, 4, 6)).toBe(-9)
+  })
+})
+
+describe('parameter scales', () => {
+  it('maps a linear range and back', () => {
+    const s = lin(-15, 15)
+    expect(s.toValue(0.5)).toBe(0)
+    expect(s.toValue(2)).toBe(15)
+    expect(s.toPos(7.5)).toBeCloseTo(0.75)
+    expect(s.toPos(-40)).toBe(0)
+  })
+
+  it('maps an exponential range and back', () => {
+    const s = exp(10, 1000)
+    expect(s.toValue(0.5)).toBeCloseTo(100)
+    expect(s.toPos(100)).toBeCloseTo(0.5)
+  })
+
+  it('prints frequencies', () => {
+    expect(hzText(440)).toBe('440 Hz')
+    expect(hzText(2500)).toBe('2.5 k')
+  })
+})
+
+describe('processor knobs', () => {
+  it('has the knobs of each type, with echo time in milliseconds', () => {
+    expect(PROC_KNOBS[0]).toEqual([])
+    expect(PROC_KNOBS[1]?.map((k) => k.label)).toEqual(['Time', 'Fdbk', 'Tone', 'Ping-pong'])
+    expect(PROC_KNOBS[2]?.map((k) => k.label)).toEqual(['Size', 'Damp', 'Pre'])
+    expect(PROC_KNOBS[1]?.[0]?.text?.(0.5)).toBe('45 ms')
+    expect(PROC_KNOBS[1]?.[1]?.text?.(1)).toBe('95%')
+    expect(PROC_KNOBS[2]?.[0]?.text?.(1)).toBe('10.0 s')
+    expect(PROC_KNOBS[1]?.[3]?.toggle).toBe(true)
   })
 })

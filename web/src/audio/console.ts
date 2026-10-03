@@ -114,3 +114,50 @@ export const eqDb = (bands: EqBand[], f: number) => bands.reduce((sum, b) => sum
 /** The output level in dB for an input level, with a hard knee and make-up gain. */
 export const compOutDb = (inDb: number, thresholdDb: number, ratio: number, makeupDb: number) =>
   (inDb <= thresholdDb ? inDb : thresholdDb + (inDb - thresholdDb) / Math.max(1, ratio)) + makeupDb
+
+// --- parameter scales ----------------------------------------------------------------
+
+/** How a knob position 0..1 maps to a parameter's value and back. */
+export interface Scale {
+  toValue: (t: number) => number
+  toPos: (v: number) => number
+}
+
+/** An even scale from `lo` to `hi`. */
+export const lin = (lo: number, hi: number): Scale => ({
+  toValue: (t) => lo + (hi - lo) * clamp01(t),
+  toPos: (v) => clamp01((v - lo) / (hi - lo)),
+})
+/** An even-in-octaves scale from `lo` to `hi` (both above 0). */
+export const exp = (lo: number, hi: number): Scale => ({ toValue: logMap(lo, hi), toPos: logPos(lo, hi) })
+
+/** A frequency as the console prints it. */
+export const hzText = (hz: number) => (hz >= 1000 ? `${(hz / 1000).toFixed(1)} k` : `${Math.round(hz)} Hz`)
+
+// --- processor knobs ------------------------------------------------------------------
+
+/** What knob A..E of an effect processor is, by type id (`ProcType`). */
+export interface ProcKnob {
+  label: string
+  /** The readout for a position 0..1. */
+  text?: (t: number) => string
+  /** A button, not a knob: on from 0.5. */
+  toggle?: boolean
+  /** Where double-click puts the knob, as the engine starts it. */
+  def: number
+}
+
+export const PROC_KNOBS: Record<number, ProcKnob[]> = {
+  0: [],
+  1: [
+    { label: 'Time', def: 0.75, text: (t) => `${Math.round(logMap(1, 2000)(t))} ms` },
+    { label: 'Fdbk', def: 0.4, text: (t) => `${Math.round(t * 95)}%` },
+    { label: 'Tone', def: 0.7, text: (t) => hzText(logMap(500, 20_000)(t)) },
+    { label: 'Ping-pong', def: 0, toggle: true },
+  ],
+  2: [
+    { label: 'Size', def: 0.65, text: (t) => `${logMap(0.1, 10)(t).toFixed(1)} s` },
+    { label: 'Damp', def: 0.3, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Pre', def: 0.1, text: (t) => `${Math.round(t * 100)} ms` },
+  ],
+}
