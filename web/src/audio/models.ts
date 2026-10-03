@@ -3,7 +3,7 @@
 // The view only draws this and sends parameter changes; which control belongs
 // on which panel is layout, and every musical decision stays in Rust.
 
-import { Model, ModDest, ModSource, NoiseColour, NotePriority, Param, Preset, Waveform } from './params'
+import { DriveMode, Model, ModDest, ModSource, NoiseColour, NotePriority, Param, Preset, Waveform } from './params'
 import type { ModelId, ParamId } from './params'
 
 type Options = readonly (readonly [string, number])[]
@@ -50,6 +50,7 @@ const entries = (o: Record<string, number>): Options => Object.entries(o)
 export const WAVES = entries(Waveform)
 export const LFO_WAVES: Options = WAVES.map(([n, id]) => [n === 'Pulse' ? 'Square' : n, id])
 export const NOISES = entries(NoiseColour)
+export const DRIVE_MODES = entries(DriveMode)
 export const PRIORITIES = entries(NotePriority)
 export const MOD_SOURCES = entries(ModSource)
 export const MOD_DESTS = entries(ModDest)
@@ -451,8 +452,31 @@ const sh101: ModelDef = {
   ],
 }
 
+// What every synth has, whatever its model: its mixer strip and its drive
+// insert (spec 002, spec 004 Req 11). They come last on every panel.
+const strip: Section[] = [
+  {
+    title: 'Channel',
+    controls: [
+      range('Level', Param.Level, 0, 1, 0.01), range('Pan', Param.Pan, -1, 1, 0.01),
+      range('Echo', Param.EchoSend, 0, 1, 0.01), range('Reverb', Param.ReverbSend, 0, 1, 0.01),
+      sw('Mute', Param.Mute), sw('Solo', Param.Solo),
+    ],
+  },
+  {
+    title: 'Drive insert',
+    controls: [
+      select('Mode', Param.DriveMode, DRIVE_MODES), range('Amount', Param.DriveAmount, 0, 1, 0.01),
+      range('Tone', Param.DriveTone, 0, 1, 0.01), range('Level', Param.DriveLevel, 0, 1, 0.01),
+    ],
+  },
+]
+
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101].map((m) => ({
+  ...m,
+  sections: [...m.sections, ...strip],
+}))
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
-export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? arp2600
+export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

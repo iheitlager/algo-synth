@@ -1,7 +1,7 @@
 // Time 16 Mono voices in V8 (plan.md "Performance budget", #12).
 //
 // Loads web/public/dsp.wasm in Node, which runs the same V8 as Chrome,
-// renders 128-frame blocks at 48 kHz and reports the share of one core.
+// with the drive, mixer and both send effects on, renders 128-frame blocks at 48 kHz and reports the share of one core.
 // Parameter ids come from web/src/audio/params.ts, so nothing is copied here.
 // Render capacity in Chrome DevTools' WebAudio panel is still the reference
 // (ADR-0002).
@@ -25,6 +25,7 @@ const ids = (name) =>
 const Param = ids('Param')
 const Preset = ids('Preset')
 const Waveform = ids('Waveform')
+const DriveMode = ids('DriveMode')
 
 const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
@@ -93,7 +94,21 @@ function sixteenChannels(lowest) {
 function run(setup, lowest) {
   const w = new WebAssembly.Instance(module, {}).exports
   w.init(SR)
-  for (let s = 0; s < w.synth_count(); s++) setup(w, s)
+  // The whole chain: every synth through Fuzz, panned, into both sends and
+  // both effects with long feedback and tail.
+  w.set_param(0, Param.EchoReturn, 0.5)
+  w.set_param(0, Param.EchoPingPong, 1)
+  w.set_param(0, Param.EchoFeedback, 0.7)
+  w.set_param(0, Param.ReverbReturn, 0.5)
+  w.set_param(0, Param.ReverbSize, 6)
+  for (let s = 0; s < w.synth_count(); s++) {
+    setup(w, s)
+    w.set_param(s, Param.DriveMode, DriveMode.Fuzz)
+    w.set_param(s, Param.DriveAmount, 1)
+    w.set_param(s, Param.Pan, s / 7.5 - 1)
+    w.set_param(s, Param.EchoSend, 0.5)
+    w.set_param(s, Param.ReverbSend, 0.5)
+  }
   const file = sixteenChannels(lowest)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
   if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')

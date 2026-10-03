@@ -33,7 +33,7 @@ pub enum ModSource {
     Velocity = 10,
     /// The key relative to middle C, −1..1 over ±5 octaves.
     Key = 11,
-    /// The filter ADSR (spec 004 Req 11).
+    /// The filter ADSR (spec 004 Req 12).
     Fenv = 12,
 }
 
@@ -217,7 +217,7 @@ pub struct Normals {
     pub mod_from_osc3: bool,
     /// Pulse width at full modulation source (LFO → pulse width).
     pub lfo_pw: f32,
-    /// Poly-mod (spec 004 Req 14), in the units of the destination: the
+    /// Poly-mod (spec 004 Req 15), in the units of the destination: the
     /// filter envelope and VCO 1 into VCO 2's pitch (semitones), the pulse
     /// width, and VCO 1 into the cutoff (semitones).
     pub env_freq2: f32,

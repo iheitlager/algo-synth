@@ -40,7 +40,7 @@ The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs,
 
 ### Requirement 3: Minimoog [MUST]
 
-The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, low note priority, and Osc 3 usable as a modulator (spec 004 Req 13). It has no LFO: Osc 3 SHALL be the source of its vibrato and of `LfoCutoff` (the modulation normals), and its panel SHALL have no patch panel. Its normalled cutoff SHALL follow the filter ADSR, with key tracking in steps of off, 1/3, 2/3 and full.
+The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, low note priority, and Osc 3 usable as a modulator (spec 004 Req 14). It has no LFO: Osc 3 SHALL be the source of its vibrato and of `LfoCutoff` (the modulation normals), and its panel SHALL have no patch panel. Its normalled cutoff SHALL follow the filter ADSR, with key tracking in steps of off, 1/3, 2/3 and full.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::Minimoog`, `crates/dsp/src/mono/voice.rs::MonoVoice::render` (#35)
 
@@ -60,7 +60,7 @@ The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive i
 
 ### Requirement 4: Pro-One [MUST]
 
-The Pro-One SHALL have two oscillators (A and B), the second synced to the first, noise, a 4-pole low-pass in its own voicing, a loudness ADSR and a filter ADSR, an LFO, and poly-mod: the filter envelope and oscillator B each modulate oscillator A's pitch and pulse width, and oscillator B the cutoff (spec 004 Req 14). Its oscillator A SHALL be VCO 2 and B VCO 1, so sync and poly-mod run in the direction the instrument has.
+The Pro-One SHALL have two oscillators (A and B), the second synced to the first, noise, a 4-pole low-pass in its own voicing, a loudness ADSR and a filter ADSR, an LFO, and poly-mod: the filter envelope and oscillator B each modulate oscillator A's pitch and pulse width, and oscillator B the cutoff (spec 004 Req 15). Its oscillator A SHALL be VCO 2 and B VCO 1, so sync and poly-mod run in the direction the instrument has.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::ProOne`, `crates/dsp/src/mono/patch.rs::modulate` (#36)
 
@@ -108,7 +108,7 @@ The CS-15 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 
 ### Requirement 7: Roland SH-101 [MUST]
 
-The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, locked to VCO 1's phase and pitch by the model), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass, a one-pole high-pass after it, a single ADSR driving the filter and the VCA (it SHALL also be the filter envelope source of the poly-mod and envelope amounts, spec 004 Req 14), an LFO that can modulate pitch, cutoff and pulse width, and glide.
+The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, locked to VCO 1's phase and pitch by the model), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass, a one-pole high-pass after it, a single ADSR driving the filter and the VCA (it SHALL also be the filter envelope source of the poly-mod and envelope amounts, spec 004 Req 15), an LFO that can modulate pitch, cutoff and pulse width, and glide.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::Sh101` (#39)
 
@@ -146,4 +146,4 @@ Sixteen synths across all six models SHALL render within the performance budget 
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `six models` and `family worst`, 3.6% and 4.7% of a core on an Apple M4 Pro)
+**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `six models` and `family worst`, 3.9% and 5.0% of a core on an Apple M4 Pro, with the mixer and effects)

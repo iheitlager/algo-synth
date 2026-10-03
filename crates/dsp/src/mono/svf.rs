@@ -1,5 +1,5 @@
 //! The 12 dB state-variable filter and the one-pole high-pass (spec 004
-//! Req 12): the MS-20 and CS-15 filters, and the SH-101's high-pass.
+//! Req 13): the MS-20 and CS-15 filters, and the SH-101's high-pass.
 //!
 //! A zero-delay-feedback state-variable filter after Zavalishin, giving a
 //! low-pass and a high-pass at once. Both integrator states go through the

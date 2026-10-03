@@ -1,5 +1,5 @@
 // Mirror of crates/dsp/src/params.rs, mono/osc.rs, mono/noise.rs,
-// mono/preset.rs, mono/voice.rs, mono/patch.rs and mono/model.rs (ADR-0004).
+// mono/preset.rs, fx/drive.rs, mono/voice.rs, mono/patch.rs and mono/model.rs (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -64,26 +64,45 @@ export const Param = {
   KeyTrack: 57,
   Vibrato: 58,
   ModWheel: 59,
-  Model: 60,
-  FenvAttack: 61,
-  FenvDecay: 62,
-  FenvSustain: 63,
-  FenvRelease: 64,
-  HpCutoff: 65,
-  HpResonance: 66,
-  EnvHpCutoff: 67,
-  RingLevel: 68,
-  SubLevel: 69,
-  SubOctave: 70,
-  Vco3KeyFollow: 71,
-  Vco3Low: 72,
-  LfoCutoff: 73,
-  LfoPw: 74,
-  EnvFreq2: 75,
-  OscFreq2: 76,
-  EnvPw: 77,
-  OscPw: 78,
-  OscCutoff: 79,
+  Level: 60,
+  Pan: 61,
+  EchoSend: 62,
+  ReverbSend: 63,
+  Mute: 64,
+  Solo: 65,
+  DriveMode: 66,
+  DriveAmount: 67,
+  DriveTone: 68,
+  DriveLevel: 69,
+  EchoTime: 70,
+  EchoFeedback: 71,
+  EchoTone: 72,
+  EchoPingPong: 73,
+  EchoReturn: 74,
+  ReverbSize: 75,
+  ReverbDamping: 76,
+  ReverbPreDelay: 77,
+  ReverbReturn: 78,
+  Model: 79,
+  FenvAttack: 80,
+  FenvDecay: 81,
+  FenvSustain: 82,
+  FenvRelease: 83,
+  HpCutoff: 84,
+  HpResonance: 85,
+  EnvHpCutoff: 86,
+  RingLevel: 87,
+  SubLevel: 88,
+  SubOctave: 89,
+  Vco3KeyFollow: 90,
+  Vco3Low: 91,
+  LfoCutoff: 92,
+  LfoPw: 93,
+  EnvFreq2: 94,
+  OscFreq2: 95,
+  EnvPw: 96,
+  OscPw: 97,
+  OscCutoff: 98,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -94,6 +113,14 @@ export const Waveform = {
   Sine: 3,
 } as const
 export type WaveformId = (typeof Waveform)[keyof typeof Waveform]
+
+export const DriveMode = {
+  Off: 0,
+  Overdrive: 1,
+  Distortion: 2,
+  Fuzz: 3,
+} as const
+export type DriveModeId = (typeof DriveMode)[keyof typeof DriveMode]
 
 export const NoiseColour = {
   White: 0,

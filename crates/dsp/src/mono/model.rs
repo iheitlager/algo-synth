@@ -38,7 +38,7 @@ impl Model {
     }
 }
 
-/// How a ladder is voiced (spec 004 Req 12): the same filter, set up as the
+/// How a ladder is voiced (spec 004 Req 13): the same filter, set up as the
 /// instrument had it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LadderVoicing {
@@ -165,7 +165,7 @@ impl Model {
 
     /// Whether the normalled cutoff follows the filter ADSR. The ARP 2600
     /// and the SH-101 have one envelope for filter and loudness, so theirs
-    /// follows the ADSR (spec 004 Req 11).
+    /// follows the ADSR (spec 004 Req 12).
     pub fn cutoff_follows_filter_env(self) -> bool {
         !matches!(self, Model::Arp2600 | Model::Sh101)
     }

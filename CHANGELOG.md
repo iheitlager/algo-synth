@@ -4,9 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-10-03
+## [0.6.0] - 2026-10-03
 
-The family of monosynths (epic #28, PR #42) on top of 16 independent Mono synths (#19) and the Mono-only product (#18).
+The family of monosynths (epic #28, PR #42).
 
 ### Added
 
@@ -16,8 +16,15 @@ The family of monosynths (epic #28, PR #42) on top of 16 independent Mono synths
 - **Ring modulator, sub-oscillator and Osc 3 as a modulator:** `RingLevel` (VCO 1 × VCO 2), `SubLevel`/`SubOctave` (a band-limited square at an exact half or quarter of VCO 1's pitch), `Vco3KeyFollow`/`Vco3Low` (#33).
 - **Poly-mod and LFO destinations:** `EnvFreq2`, `OscFreq2`, `EnvPw`, `OscPw`, `OscCutoff` (Pro-One style) and `LfoCutoff`, `LfoPw`; they add after the normals and the patch. On the Minimoog, which has no LFO, Osc 3 is the modulation source (#35, #36).
 - **Per-model panels and palettes:** the view draws each synth from its model's description (`models.ts`, `SynthPanel.vue`) with that instrument's sections, control names and colours, a model picker and a preset list per model (#30, #34-#39).
-- `make bench` has `six models` and `family worst` scenarios: 16 synths across the family at 3.6% and 4.7% of a core (#40).
+- `make bench` has `six models` and `family worst` scenarios: 16 synths across the family at 3.9% and 5.0% of a core (#40).
 
+## [0.5.0] - 2026-10-03
+
+### Added
+
+- Send effects: a stereo echo (up to 2 s in ms, feedback below 1, tone, ping-pong) and an 8-line Hadamard reverb (size, damping, pre-delay), fed by each synth's sends and returned into the master; nine global parameters (ids 70–78) and a Returns strip. `make bench` now runs the whole chain (#26).
+- Drive insert on each synth's bus: Off, Overdrive, Distortion and Fuzz with first-order ADAA, plus `DriveMode`, `DriveAmount`, `DriveTone`, `DriveLevel` (ids 66–69, presets may set them) and a Drive row on each card. Spec 004 Req 11 (#25).
+- Mixer: each synth has its own bus with `Level`, `Pan` (equal power), `EchoSend`, `ReverbSend` (post-fader), `Mute` and `Solo`, summed into a stereo master before the soft clip; a mixer row on each card. Parameter ids 60–65 (#24).
 - Up to 16 Mono synths, each with its own parameters, values and patch, preallocated in `Engine::new`; `MasterGain` stays global. Each synth has its own live voice, and a voice keeps the synth its note started on. Loading a MIDI file puts its parts on synths 0, 1, 2…; each part picks a synth or mutes. New exports `synth_count` and `synth_reset`; `set_param`, `param_value`, `mono_preset`, `note_on`, `note_off` take the synth first, and `route(channel, synth)` mutes on an unknown synth. Spec 004 Req 10 (#19).
 - The view: one card per synth, colour-coded, with **+ Synth** and × (removing one mutes its parts); the keyboard plays the selected synth, and a held key releases on the synth it started on. `make bench` sets up all 16 synths (3.3% and 5.8% of a core) (#19).
 

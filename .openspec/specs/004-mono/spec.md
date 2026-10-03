@@ -206,7 +206,21 @@ The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its 
 
 **Tests:** `crates/dsp/src/engine.rs::tests::synths_have_their_own_parameters`, `crates/dsp/src/engine.rs::tests::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine.rs::tests::master_gain_is_global`, `crates/dsp/src/engine.rs::tests::unknown_synths_are_ignored`, `crates/dsp/src/engine.rs::tests::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine.rs::tests::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine.rs::tests::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine.rs::tests::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
 
-### Requirement 11: Filter envelope [MUST]
+### Requirement 11: Drive insert [SHOULD]
+
+Each synth's bus SHALL have a drive insert between its voices and its fader, with modes Off, Overdrive (soft, asymmetric), Distortion (hard) and Fuzz, and `DriveAmount`, `DriveTone` (a low-pass after the shaper) and `DriveLevel`. The shapers SHALL use first-order antiderivative anti-aliasing and no per-sample transcendental functions (ADR-0002). Off SHALL pass the bus through bit for bit, and every mode SHALL stay finite and bounded for any input.
+
+**Implementation:** `crates/dsp/src/fx/drive.rs::Drive` (#25)
+
+#### Scenario: harmonics and aliases
+
+- GIVEN a sine through a mode other than Off
+- WHEN the drive goes up
+- THEN its harmonics grow, and a 4.7 kHz sine at full drive keeps the alias at 19.8 kHz below 1% of the fundamental
+
+**Tests:** `crates/dsp/src/fx/drive.rs::tests::off_is_bit_exact`, `crates/dsp/src/fx/drive.rs::tests::every_mode_is_finite_and_bounded_for_any_input`, `crates/dsp/src/fx/drive.rs::tests::more_drive_means_more_harmonics`, `crates/dsp/src/fx/drive.rs::tests::a_high_sine_at_full_drive_keeps_its_aliases_low`, `crates/dsp/src/engine.rs::tests::drive_shapes_the_synth_bus_only`
+
+### Requirement 12: Filter envelope [MUST]
 
 The voice SHALL have a second ADSR for the filter (`FenvAttack`, `FenvDecay`, `FenvSustain`, `FenvRelease`), independent of the loudness ADSR and available as the modulation source `Fenv`. Which envelope the normalled cutoff follows (`EnvCutoff`) SHALL be the model's choice (spec 005 Req 1): the ARP 2600 follows the ADSR, so its sound is unchanged. The filter ADSR SHALL obey Req 4 (times, retrigger, sustain following).
 
@@ -220,7 +234,7 @@ The voice SHALL have a second ADSR for the filter (`FenvAttack`, `FenvDecay`, `F
 
 **Tests:** `crates/dsp/src/mono/voice.rs::tests::filter_envelope_is_independent`, `crates/dsp/src/mono/voice.rs::tests::arp_cutoff_still_follows_the_adsr`, `crates/dsp/src/mono/patch.rs::tests::normalled_cutoff_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::single_envelope_models_follow_the_adsr`
 
-### Requirement 12: Filter flavours [MUST]
+### Requirement 13: Filter flavours [MUST]
 
 The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter with a saturating state, giving a low-pass and a high-pass output, and a one-pole high-pass. The ladder SHALL have three voicings (Moog, Pro-One, SH-101) differing in drive, resonance and bass compensation; the 12 dB filter two (MS-20, CS-15) differing in the resonance at which it self-oscillates and in its saturation ceiling. The high-pass stage SHALL have its own cutoff (`HpCutoff`), resonance (`HpResonance`) and envelope amount (`EnvHpCutoff`). Coefficients SHALL come from the table of Req 3, so nothing costs a transcendental per sample.
 
@@ -240,7 +254,7 @@ The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter wi
 
 **Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/patch.rs::tests::high_pass_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::models_pair_their_filters_and_stages`
 
-### Requirement 13: Ring modulator, sub-oscillator, Osc 3 as modulator [MUST]
+### Requirement 14: Ring modulator, sub-oscillator, Osc 3 as modulator [MUST]
 
 The mixer SHALL take a ring modulator, VCO 1 × VCO 2 (`RingLevel`), and a sub-oscillator, a square exactly one or two octaves below VCO 1 (`SubLevel`, `SubOctave`), band-limited like the VCOs. VCO 3 SHALL be usable as a modulator: `Vco3KeyFollow` off holds its pitch whatever the key, and `Vco3Low` drops it five octaves into the low-frequency range; its output stays a modulation source (`Vco3`) at any mixer level.
 
@@ -260,7 +274,7 @@ The mixer SHALL take a ring modulator, VCO 1 × VCO 2 (`RingLevel`), and a sub-o
 
 **Tests:** `crates/dsp/src/mono/voice.rs::tests::ring_modulation_has_sum_and_difference`, `crates/dsp/src/mono/voice.rs::tests::sub_is_exactly_an_octave_down`, `crates/dsp/src/mono/voice.rs::tests::osc3_low_and_unfollowed_is_a_fixed_modulator`
 
-### Requirement 14: Poly-mod and LFO destinations [MUST]
+### Requirement 15: Poly-mod and LFO destinations [MUST]
 
 The voice SHALL add, after the normals and the patch, five poly-mod amounts: filter envelope → VCO 2 pitch (`EnvFreq2`), VCO 1 → VCO 2 pitch (`OscFreq2`), filter envelope → pulse width (`EnvPw`), VCO 1 → pulse width (`OscPw`) and VCO 1 → cutoff (`OscCutoff`), and two modulation amounts, LFO → cutoff (`LfoCutoff`, ±24 semitones at 1, no mod wheel) and LFO → pulse width (`LfoPw`, ±0.45). On a model whose modulator is VCO 3 (the Minimoog, spec 005 Req 3) these, and the vibrato normal, read VCO 3 instead of the LFO. They add to a destination without taking it over from its normals or its patch. Scale: ±24 semitones of pitch, ±0.45 of pulse width, ±48 semitones of cutoff for the poly-mod amounts.
 

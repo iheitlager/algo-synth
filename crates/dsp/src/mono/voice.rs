@@ -617,7 +617,7 @@ mod tests {
         out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
     }
 
-    /// Spec 004 Req 13: VCO 1 × VCO 2 has the sum and difference
+    /// Spec 004 Req 14: VCO 1 × VCO 2 has the sum and difference
     /// frequencies and neither of its inputs.
     #[test]
     fn ring_modulation_has_sum_and_difference() {
@@ -924,7 +924,7 @@ mod tests {
         assert!(late > 2.0 * early, "{early} brightens to {late}");
     }
 
-    /// Spec 004 Req 12: the ladder is voiced per model, and every voicing
+    /// Spec 004 Req 13: the ladder is voiced per model, and every voicing
     /// stays bounded at full resonance and drive.
     #[test]
     fn ladder_voicings_differ_and_stay_bounded() {
@@ -950,7 +950,7 @@ mod tests {
         assert!((pro - sh).abs() > 1.0e-3, "{pro} vs {sh}");
     }
 
-    /// Spec 004 Req 11: on a model that uses the filter ADSR, the loudness
+    /// Spec 004 Req 12: on a model that uses the filter ADSR, the loudness
     /// and the cutoff have envelopes of their own.
     #[test]
     fn filter_envelope_is_independent() {

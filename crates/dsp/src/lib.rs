@@ -6,6 +6,8 @@
 //! messages and copies the output block.
 
 pub mod engine;
+pub mod fx;
+pub mod mixer;
 pub mod mono;
 pub mod params;
 pub mod player;

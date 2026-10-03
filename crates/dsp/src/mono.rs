@@ -65,7 +65,7 @@ pub struct MonoParams {
     sample_rate: f32,
     pub adsr: EnvTimes,
     pub ar: EnvTimes,
-    /// The filter ADSR (spec 004 Req 11).
+    /// The filter ADSR (spec 004 Req 12).
     pub fadsr: EnvTimes,
     /// LFO cycles per sample, and its waveform.
     pub lfo_inc: f32,
@@ -237,6 +237,26 @@ impl MonoParams {
             Param::OscPw => self.normals.osc_pw = 0.45 * v,
             Param::OscCutoff => self.normals.osc_cutoff = 48.0 * v,
             Param::ModWheel => self.mod_wheel = v,
+            // The mixer's (`mixer::Mixer`), not the voice's.
+            Param::Level
+            | Param::Pan
+            | Param::EchoSend
+            | Param::ReverbSend
+            | Param::Mute
+            | Param::Solo
+            | Param::DriveMode
+            | Param::DriveAmount
+            | Param::DriveTone
+            | Param::DriveLevel
+            | Param::EchoTime
+            | Param::EchoFeedback
+            | Param::EchoTone
+            | Param::EchoPingPong
+            | Param::EchoReturn
+            | Param::ReverbSize
+            | Param::ReverbDamping
+            | Param::ReverbPreDelay
+            | Param::ReverbReturn => {}
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;
