@@ -363,6 +363,7 @@ fn soft_clip(x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mono::model::Model;
     use crate::mono::osc::LATENCY;
     use crate::smf::tests::file;
 
@@ -679,6 +680,30 @@ mod tests {
             e.note_on(synth, 36 + 3 * synth as u8, 1.0);
         }
         for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(e.active_voices(), SYNTHS);
+    }
+
+    /// Spec 005 Req 9: 16 synths cycling through the six models, each on
+    /// that model's first preset, play together within ±1.
+    #[test]
+    fn sixteen_synths_of_every_model_play_together() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            let (model, _) = Model::ALL[synth % Model::ALL.len()];
+            let (preset, _) = Preset::ALL
+                .iter()
+                .find(|(p, _)| p.model() == model)
+                .copied()
+                .expect("every model has a preset");
+            e.preset(synth, preset);
+            assert_eq!(e.param_value(synth, Param::Model), model as u32 as f32);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for _ in 0..400 {
             e.render(BLOCK);
             assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
         }

@@ -29,11 +29,27 @@ const Waveform = ids('Waveform')
 const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
 
+// One preset of each model, so the ensemble is the family: ARP 2600, Minimoog,
+// Pro-One, MS-20, CS-15, SH-101.
+const family = ['Bass', 'MiniLead', 'ProLead', 'Ms20Lead', 'Cs15Brass', 'Sh101Lead']
+
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
 // there. Each MIDI channel plays its own synth, all set up the same.
 const scenarios = {
   // Three saws and pink noise, in a string section's range.
   'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
+  // Sixteen synths cycling through the six models (spec 005 Req 9).
+  'six models': [(w, s) => w.mono_preset(s, Preset[family[s % family.length]]), 36],
+  // The family at its most expensive: ring mod, sub, noise, both filters at
+  // full resonance and drive (the MS-20 and CS-15 filters, the high-pass
+  // stages), high up.
+  'family worst': [(w, s) => {
+    w.mono_preset(s, Preset[family[s % family.length]])
+    for (const v of [1, 2, 3]) w.set_param(s, Param[`Vco${v}Level`], 1)
+    for (const p of ['RingLevel', 'SubLevel', 'Resonance', 'HpResonance', 'Drive']) w.set_param(s, Param[p], 1)
+    w.set_param(s, Param.NoiseLevel, 0.5)
+    w.set_param(s, Param.HpCutoff, 200)
+  }, 72],
   // Every BLEP edge there can be: three pulses, both synced, noise, full
   // resonance and drive, high up where edges come most often.
   'worst case': [(w, s) => {

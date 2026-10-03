@@ -1,6 +1,6 @@
 # 005: Synth models
 
-The family of monosynths (epic #28): each of the 16 synth slots is one of six instruments, built from the shared Mono modules of spec 004. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009. Draft: requirements marked *(planned)* are not built yet.
+The family of monosynths (epic #28): each of the 16 synth slots is one of six instruments, built from the shared Mono modules of spec 004. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009. Built in epic #28; every requirement names its code and tests.
 
 Common to every requirement: `render` follows ADR-0002, every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have, and is tested on that. Tests render offline at 48 kHz.
 
@@ -138,7 +138,7 @@ The view SHALL draw each synth with a panel of its model: the sections, control 
 
 Sixteen synths across all six models SHALL render within the performance budget of plan.md (25% of a core), and every model's presets SHALL be bounded at full master gain.
 
-**Implementation:** `tools/bench.mjs` (#40)
+**Implementation:** `tools/bench.mjs`, `crates/dsp/src/engine.rs::Engine` (#40)
 
 #### Scenario: sixteen at once, six models
 
@@ -146,4 +146,4 @@ Sixteen synths across all six models SHALL render within the performance budget 
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench`
+**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `six models` and `family worst`, 3.6% and 4.7% of a core on an Apple M4 Pro)

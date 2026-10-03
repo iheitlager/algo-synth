@@ -34,7 +34,7 @@ The voice SHALL have three VCOs, each with saw, pulse, triangle and sine wavefor
 - WHEN its width is swept from 5% to 95% over one second
 - THEN no sample-to-sample step is larger than a fixed-width pulse already has
 
-**Tests:** `crates/dsp/src/mono/osc.rs::tests::pitch_within_a_cent`, `crates/dsp/src/mono/osc.rs::tests::saw_aliasing_below_60_db`, `crates/dsp/src/mono/osc.rs::tests::sync_is_bounded`, `crates/dsp/src/mono/osc.rs::tests::pwm_sweep_has_no_clicks`, `crates/dsp/src/mono/osc.rs::tests::pwm_sweep_keeps_one_pair_of_edges_per_cycle`, `crates/dsp/src/mono/osc.rs::tests::sync_locks_slave_to_master_period`, `crates/dsp/src/mono/osc.rs::tests::narrow_pulses_are_bounded`, `crates/dsp/src/mono.rs::tests::coarse_and_fine_set_the_ratio`
+**Tests:** `crates/dsp/src/mono/osc.rs::tests::pitch_within_a_cent`, `crates/dsp/src/mono/osc.rs::tests::saw_aliasing_below_60_db`, `crates/dsp/src/mono/osc.rs::tests::sync_is_bounded`, `crates/dsp/src/mono/osc.rs::tests::pwm_sweep_has_no_clicks`, `crates/dsp/src/mono/osc.rs::tests::pwm_sweep_keeps_one_pair_of_edges_per_cycle`, `crates/dsp/src/mono/osc.rs::tests::sync_locks_slave_to_master_period`, `crates/dsp/src/mono/osc.rs::tests::narrow_pulses_are_bounded`, `crates/dsp/src/mono.rs::tests::coarse_and_fine_set_the_tune`
 
 ### Requirement 2: Noise [MUST]
 
@@ -74,7 +74,7 @@ The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-del
 
 The voice SHALL have an ADSR and an AR envelope; the ADSR SHALL drive the VCA. Each segment SHALL take its set time from wherever it starts, curved as an RC envelope is. Their rates SHALL be computed when a time parameter or the gate changes, not per sample. A gate that opens during release SHALL continue from the current level, without a jump; across notes this holds within an owner's voice (Req 6). A note shorter than one block SHALL still sound, held for that block. The sustain level SHALL follow its parameter while a note is held.
 
-**Implementation:** `crates/dsp/src/mono/env.rs::Env`, `crates/dsp/src/voice.rs::Voice` (#7)
+**Implementation:** `crates/dsp/src/mono/env.rs::Env`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#7)
 
 #### Scenario: segment times
 
