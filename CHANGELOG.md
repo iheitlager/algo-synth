@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- **Synth faceplates** (epic #67, spec 003 Req 9): the Synths view is a rail of tapes (model, synth number, routed MIDI channels, LED meter, mute, solo) beside one faceplate in the console's hardware style and the model's own palette, with the sections and control names of that instrument and wooden cheeks on the Minimoog and Pro-One. Rotary knobs with the console's popover and readouts in real units (Hz, ms, semitones, cents), LED switches, stepped selectors with drawn waveform icons, every envelope as a live curve with a knob per time and level, and a piano keyboard under it that lights keys held from the mouse or the computer keyboard (#69, #70, #71, #72).
+- **Patch bay** for the ARP 2600, MS-20 and CS-15: the eight patch slots as a matrix (sources down, destinations across, a lit point in the source's colour per connection) with a knob and readout for each slot's amount (#73).
+- `audio/faceplate.ts`: the maths behind the drawings (envelope curve, waveform icons, nearest step, readout units, patch cells), and `audio/models.test.ts`, which walks every model's description. 22 more vitest tests (#69, #70, #73).
+
+### Changed
+
+- `models.ts` describes how each control is drawn (knob range, scale, unit and reset value; envelopes; selectors), not only what it is. The knob popover is mounted once in `App.vue` for the synths and the mixer. The card grid and its slider panel are gone (#70, #71, #72).
+
 ## [0.10.0] - 2026-10-03
 
 ### Added
