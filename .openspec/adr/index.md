@@ -14,3 +14,4 @@
 | [0010](0010-mixer-topology.md) | Mixer topology: strips and eight group buses in one index space, `Out` routing that cannot cycle, three insert slots per strip and group with the type as a parameter | Accepted |
 | [0011](0011-polyphony.md) | Polyphony: a voice pool per synth (the Mono voice per note), allocation and stealing, unison, analog variance, a shared LFO and a global voice budget | Accepted |
 | [0012](0012-the-song-is-text.md) | The song is text: a Tidal/Strudel-style notation with classic note names and durations and drum lanes, parsed and printed by the engine; the drum grid and generators edit it; a language model writes it | Accepted |
+| [0013](0013-sample-store.md) | The sample store: Rust parses and resamples WAV at load, in bounded memory; fixed slots, a hard cap, errors as codes | Accepted |

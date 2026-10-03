@@ -16,6 +16,7 @@ pub mod mono;
 pub mod params;
 pub mod player;
 pub mod poly;
+pub mod sample;
 pub mod smf;
 pub mod table;
 pub mod voice;
