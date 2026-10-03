@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-04
+
+### Added
+
+- The drum kit's pads, synthesized after the TR-808: kick (a sine falling to its tune), snare (two tuned sines and high-passed noise), clap (three noise bursts and a tail), closed and open hats (six square oscillators through a band- and a high-pass, the closed choking the open), two toms and a cowbell. Per-pad tune, decay, tone and level and a kit accent; everything is computed per hit, and the loudest hit stays within full scale. Pad names are the notation's (`bd sn cp ch oh lt ht cb`), notes General MIDI's. Playing the kit from a synth slot follows with the voice pool (#114) (#99, epic #97).
+
 ## [0.15.0] - 2026-10-04
 
 ### Added
