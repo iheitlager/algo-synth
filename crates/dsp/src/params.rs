@@ -139,11 +139,21 @@ pub enum Param {
     HpResonance = 66,
     /// Normalled envelope → high-pass cutoff, −1..=1 (±4 octaves).
     EnvHpCutoff = 67,
+    /// Ring modulator (VCO 1 × VCO 2) level into the mixer, 0..=1.
+    RingLevel = 68,
+    /// Sub-oscillator level into the mixer, 0..=1.
+    SubLevel = 69,
+    /// Sub-oscillator octaves below VCO 1: 0 is one, 1 is two.
+    SubOctave = 70,
+    /// VCO 3 follows the key when ≥ 0.5; off holds its pitch.
+    Vco3KeyFollow = 71,
+    /// VCO 3 sounds five octaves lower, in the low-frequency range, when ≥ 0.5.
+    Vco3Low = 72,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 68] = [
+    pub const ALL: [(Param, &'static str); 73] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -212,6 +222,11 @@ impl Param {
         (Param::HpCutoff, "HpCutoff"),
         (Param::HpResonance, "HpResonance"),
         (Param::EnvHpCutoff, "EnvHpCutoff"),
+        (Param::RingLevel, "RingLevel"),
+        (Param::SubLevel, "SubLevel"),
+        (Param::SubOctave, "SubOctave"),
+        (Param::Vco3KeyFollow, "Vco3KeyFollow"),
+        (Param::Vco3Low, "Vco3Low"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -232,6 +247,8 @@ impl Param {
             Param::Vco1Level | Param::Vco2Level | Param::Vco3Level => (0.0, 1.0),
             Param::PulseWidth => (0.05, 0.95),
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
+            Param::RingLevel | Param::SubLevel | Param::SubOctave => (0.0, 1.0),
+            Param::Vco3KeyFollow | Param::Vco3Low => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
             Param::Cutoff | Param::HpCutoff => (20.0, 20_000.0),
             Param::Resonance

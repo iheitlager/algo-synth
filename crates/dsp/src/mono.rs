@@ -46,6 +46,14 @@ pub struct MonoParams {
     pub sync: [bool; VCOS],
     pub noise_level: f32,
     pub noise_colour: NoiseColour,
+    /// Ring modulator and sub-oscillator levels, and the sub's frequency as
+    /// a share of VCO 1's (a half or a quarter).
+    pub ring_level: f32,
+    pub sub_level: f32,
+    pub sub_ratio: f32,
+    /// Whether VCO 3 follows the key, and whether it is in the low range.
+    pub vco3_follow: bool,
+    pub vco3_low: bool,
     /// Ladder cutoff as a MIDI note, feedback, and input gain.
     pub cutoff: f32,
     pub k: f32,
@@ -100,6 +108,11 @@ impl MonoParams {
             sync: [false; VCOS],
             noise_level: 0.0,
             noise_colour: NoiseColour::White,
+            ring_level: 0.0,
+            sub_level: 0.0,
+            sub_ratio: 0.5,
+            vco3_follow: true,
+            vco3_low: false,
             cutoff: 0.0,
             k: 0.0,
             hp_cutoff: 0.0,
@@ -147,6 +160,11 @@ impl MonoParams {
             Param::Vco2Sync => self.sync[1] = v >= 0.5,
             Param::Vco3Sync => self.sync[2] = v >= 0.5,
             Param::NoiseLevel => self.noise_level = v,
+            Param::RingLevel => self.ring_level = v,
+            Param::SubLevel => self.sub_level = v,
+            Param::SubOctave => self.sub_ratio = if v >= 0.5 { 0.25 } else { 0.5 },
+            Param::Vco3KeyFollow => self.vco3_follow = v >= 0.5,
+            Param::Vco3Low => self.vco3_low = v >= 0.5,
             Param::NoiseColour => {
                 if let Some(c) = NoiseColour::from_id(v.round() as u32) {
                     self.noise_colour = c;

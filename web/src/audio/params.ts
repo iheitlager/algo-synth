@@ -72,6 +72,11 @@ export const Param = {
   HpCutoff: 65,
   HpResonance: 66,
   EnvHpCutoff: 67,
+  RingLevel: 68,
+  SubLevel: 69,
+  SubOctave: 70,
+  Vco3KeyFollow: 71,
+  Vco3Low: 72,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

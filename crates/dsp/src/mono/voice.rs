@@ -21,7 +21,7 @@ use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::lfo::Lfo;
 use crate::mono::model::{Filter, Hp};
 use crate::mono::noise::Noise;
-use crate::mono::osc::{Blep, Osc};
+use crate::mono::osc::{Blep, Osc, Waveform};
 use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
@@ -124,6 +124,8 @@ pub struct MonoVoice {
     glide_step: f32,
     glide_left: u32,
     osc: [Osc; VCOS],
+    /// The sub-oscillator: a square at a half or quarter of VCO 1's pitch.
+    sub: Osc,
     ladder: Ladder,
     /// The 12 dB filters (low-pass and high-pass stage) and the one-pole
     /// high-pass, for the models that use them.
@@ -295,6 +297,7 @@ impl MonoVoice {
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
+        let (ring_level, sub_level) = (p.ring_level, p.sub_level);
         let hp = p.model.hp();
         for sample in out.iter_mut() {
             let adsr = self.adsr.step();
@@ -339,13 +342,31 @@ impl MonoVoice {
             let [m1, m2, m3] = m.pitch;
             let pw = (p.pulse_width + m.pulse_width).clamp(0.05, 0.95);
             let [o1, o2, o3] = &mut self.osc;
-            o1.set_increment(ctx.pitch.at(self.pitch + t1 + m1));
+            let inc1 = ctx.pitch.at(self.pitch + t1 + m1);
+            o1.set_increment(inc1);
             o2.set_increment(ctx.pitch.at(self.pitch + t2 + m2));
-            o3.set_increment(ctx.pitch.at(self.pitch + t3 + m3));
+            // Off the key and five octaves down, VCO 3 is a modulator.
+            let key3 = if p.vco3_follow { self.pitch } else { 60.0 };
+            let low3 = if p.vco3_low { 60.0 } else { 0.0 };
+            o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
             let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
             let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2));
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
-            let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise * noise_level;
+            // The sub is a pulse at an exact fraction of VCO 1's increment, so
+            // it stays an octave (or two) down through glide and vibrato.
+            let sub = if sub_level > 0.0 {
+                self.sub.wave = Waveform::Pulse;
+                self.sub.set_increment(inc1 * p.sub_ratio);
+                self.sub.step(ctx.blep, ctx.sine, 0.5, None).0
+            } else {
+                0.0
+            };
+            let mix = y1 * l1
+                + y2 * l2
+                + y3 * l3
+                + noise * noise_level
+                + y1 * y2 * ring_level
+                + sub * sub_level;
             // Half the mix keeps two VCOs at full level below the knee.
             let mut x = 0.5 * mix;
             let hp_cutoff = p.hp_cutoff + m.hp_cutoff;
@@ -551,6 +572,125 @@ mod tests {
     }
 
     /// The normals: ADSR → cutoff, key tracking, vibrato through the wheel.
+    /// Amplitude of `hz` in `out` (a Goertzel bin, scaled to a sine's peak).
+    fn tone(out: &[f32], hz: f64) -> f64 {
+        let w = std::f64::consts::TAU * hz / f64::from(SR);
+        let (mut re, mut im) = (0.0, 0.0);
+        for (i, y) in out.iter().enumerate() {
+            re += f64::from(*y) * (w * i as f64).cos();
+            im += f64::from(*y) * (w * i as f64).sin();
+        }
+        2.0 * (re * re + im * im).sqrt() / out.len() as f64
+    }
+
+    /// Rising zero crossings: whole cycles of a tone.
+    fn cycles(out: &[f32]) -> usize {
+        out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+    }
+
+    /// Spec 004 Req 13: VCO 1 × VCO 2 has the sum and difference
+    /// frequencies and neither of its inputs.
+    #[test]
+    fn ring_modulation_has_sum_and_difference() {
+        let mut r = Rig::new(&[
+            (Param::Vco1Wave, 3.0),
+            (Param::Vco1Level, 0.0),
+            (Param::Vco2Wave, 3.0),
+            (Param::Vco2Coarse, 7.0),
+            (Param::RingLevel, 1.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(57);
+        r.render(4_800);
+        let out = r.render(48_000);
+        let a = 440.0 / 2.0;
+        let b = a * 2.0_f64.powf(7.0 / 12.0);
+        let (diff, sum) = (tone(&out, b - a), tone(&out, a + b));
+        assert!(diff > 0.1 && sum > 0.1, "difference {diff}, sum {sum}");
+        for input in [a, b] {
+            assert!(tone(&out, input) < 0.01 * diff, "{input} Hz leaks through");
+        }
+    }
+
+    /// The sub is exactly twice VCO 1's period, through vibrato and glide.
+    #[test]
+    fn sub_is_exactly_an_octave_down() {
+        let counts = |octave: f32| {
+            let run = |vco1: f32, sub: f32| {
+                let mut r = Rig::new(&[
+                    (Param::Vco1Wave, 3.0),
+                    (Param::Vco1Level, vco1),
+                    (Param::SubLevel, sub),
+                    (Param::SubOctave, octave),
+                    (Param::Cutoff, 20_000.0),
+                    (Param::AdsrSustain, 1.0),
+                    (Param::Vibrato, 1.0),
+                    (Param::ModWheel, 1.0),
+                    (Param::LfoRate, 5.0),
+                    (Param::Glide, 0.4),
+                ]);
+                r.press(45);
+                r.press(57);
+                r.render(2_400);
+                cycles(&r.render(96_000))
+            };
+            (run(1.0, 0.0), run(0.0, 1.0))
+        };
+        let (vco, sub) = counts(0.0);
+        assert!((2 * sub).abs_diff(vco) <= 1, "{vco} cycles, sub {sub}");
+        let (vco, sub) = counts(1.0);
+        assert!((4 * sub).abs_diff(vco) <= 2, "{vco} cycles, sub {sub}");
+    }
+
+    /// VCO 3 off the key and in the low range is a fixed modulator, and a
+    /// modulation source whatever its level in the mixer.
+    #[test]
+    fn osc3_low_and_unfollowed_is_a_fixed_modulator() {
+        let hz = |note: u8| {
+            let mut r = Rig::new(&[
+                (Param::Vco1Level, 0.0),
+                (Param::Vco3Wave, 3.0),
+                (Param::Vco3Level, 1.0),
+                (Param::Vco3Low, 1.0),
+                (Param::Vco3KeyFollow, 0.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(note);
+            r.render(4_800);
+            cycles(&r.render(96_000)) as f64 / 2.0
+        };
+        let (low, high) = (hz(36), hz(96));
+        assert_eq!(low, high, "the key does not move it");
+        assert!(
+            (low - 8.18).abs() < 1.0,
+            "five octaves below middle C: {low} Hz"
+        );
+
+        let mut r = Rig::new(&[
+            (Param::Vco1Level, 0.0),
+            (Param::Vco3Level, 0.0),
+            (Param::Vco3Low, 1.0),
+            (Param::Vco3Wave, 3.0),
+            (Param::Patch1Source, 3.0),
+            (Param::Patch1Dest, 5.0),
+            (Param::Patch1Amount, 0.5),
+        ]);
+        r.press(60);
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for _ in 0..600 {
+            r.render(160);
+            let c = r.voice.mods().cutoff;
+            lo = lo.min(c);
+            hi = hi.max(c);
+        }
+        assert!(
+            hi - lo > 40.0,
+            "VCO 3 at level 0 still modulates: {lo}..{hi}"
+        );
+    }
+
     /// Spec 004 Req 12: the ladder is voiced per model, and every voicing
     /// stays bounded at full resonance and drive.
     #[test]
