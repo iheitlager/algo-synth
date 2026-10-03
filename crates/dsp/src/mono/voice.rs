@@ -373,6 +373,9 @@ impl MonoVoice {
             o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
             let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
             let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
+            // The rising saw starts low where a pulse is high, so a pulse in
+            // the saw's phase would cancel it: the SH-101's is inverted.
+            let y2 = if locked { -y2 } else { y2 };
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
             // The sub is a pulse at an exact fraction of VCO 1's increment, so
             // it stays an octave (or two) down through glide and vibrato.
@@ -749,6 +752,28 @@ mod tests {
             (m.vca - m.cutoff / 48.0).abs() < 1.0e-3,
             "release too: {m:?}"
         );
+    }
+
+    /// Saw and locked pulse add up: the pulse reinforces the saw instead of
+    /// cancelling it.
+    #[test]
+    fn sh101_saw_and_pulse_add_up() {
+        let rms = |pulse: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 5.0),
+                (Param::Vco1Level, 0.5),
+                (Param::Vco2Wave, 1.0),
+                (Param::Vco2Level, pulse),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(45);
+            r.render(4_800);
+            let out = r.render(48_000);
+            (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
+        };
+        let (saw, both) = (rms(0.0), rms(0.5));
+        assert!(both > 1.2 * saw, "saw {saw}, saw and pulse {both}");
     }
 
     /// The pulse is VCO 1's own phase: saw plus pulse make one cycle, not a

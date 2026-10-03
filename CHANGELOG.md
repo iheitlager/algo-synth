@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-03
+
+Famous and string presets for every synth model (PR #65).
+
+### Added
+
+- 17 presets, ids 14-30, after well-known sounds: ARP 2600 `R2D2`, `ShArp` (sample-and-hold arpeggio), `SolinaStrings`; Minimoog `LuckyMan` (portamento solo), `FunkBass`, `MoogStrings`; Pro-One `SyncSweep`, `PolyModBell`, `ProStrings`; MS-20 `Ms20Squelch`, `JetSweep`, `Ms20Strings`; CS-15 `BladeBrass`, `Cs15Strings`; SH-101 `AcidBass`, `SubPluck`, `Sh101Strings`. The names point at a character, they are not recreations of the original patches.
+
+### Fixed
+
+- SH-101: the locked pulse was in antiphase with the saw, so the two cancelled and halved the level (a saw plus a pulse sounded quieter than the saw alone). The pulse is inverted now; `Sh101Lead` is about four times louder.
+
 ## [0.8.0] - 2026-10-03
 
 ### Changed
