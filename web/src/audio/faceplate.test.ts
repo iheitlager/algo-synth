@@ -98,6 +98,7 @@ describe('value readouts', () => {
     expect(fmtUnit('st', 7)).toBe('+7 st')
     expect(fmtUnit('st', -12)).toBe('-12 st')
     expect(fmtUnit('ct', 0)).toBe('0 ct')
+    expect(fmtUnit('int', 49.6)).toBe('50')
   })
 })
 

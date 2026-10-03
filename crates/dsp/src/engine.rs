@@ -1129,6 +1129,27 @@ mod tests {
         assert!(e.pools[0].held_notes().contains(&45));
     }
 
+    /// The DX7 has sixteen voices, and its voices are FM voices.
+    #[test]
+    fn the_dx7_has_sixteen_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::FmElectricPiano);
+        let chord: Vec<u8> = (0..17).map(|k| 40 + 3 * k).collect();
+        for n in &chord {
+            e.note_on(0, *n, 1.0);
+        }
+        let mut heard = 0.0_f32;
+        for _ in 0..40 {
+            e.render(BLOCK);
+            heard = heard.max(e.output().iter().fold(0.0, |m, s| m.max(s.abs())));
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert!(heard > 0.05);
+        assert_eq!(e.active_voices(), 16);
+        assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
     /// Notes held on a synth: its voices with a key down.
     fn gated_notes(e: &Engine, synth: usize) -> usize {
         e.pools[synth].held()

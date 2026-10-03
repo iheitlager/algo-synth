@@ -12,6 +12,10 @@ const paramsOf = (c: Control): number[] => {
       return [c.param]
     case 'env':
       return [c.a, c.d, c.s, c.r].filter((p) => p !== undefined) as number[]
+    case 'eg4':
+      return [...c.rates, ...c.levels]
+    case 'algo':
+      return [c.param]
     default:
       return []
   }

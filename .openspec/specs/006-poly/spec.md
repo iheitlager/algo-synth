@@ -180,9 +180,9 @@ The D-50 SHALL have 16 voices of two partials, each a synthesised oscillator (sa
 
 ### Requirement 13: FM voice and DX7 [MUST]
 
-The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or fixed frequency, detune (−7..+7), output level, velocity sensitivity and a 4-rate, 4-level envelope; 32 algorithms; feedback on operator 6; an LFO and a pitch envelope. An operator's carrier or modulator role SHALL follow the algorithm, and every output SHALL stay finite and bounded.
+The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or fixed frequency, detune (−7..+7), output level, velocity sensitivity and a 4-rate, 4-level envelope; 32 algorithms; feedback on operator 6; an LFO (six waveforms, a delay, started with each note) and a pitch envelope, and key scaling of level and rate and velocity sensitivity per operator. An operator's carrier or modulator role SHALL follow the algorithm, the envelopes SHALL run at the DX7's rates (the slowest decay halves the level in 2^20 samples, and every four steps of rate double the speed), and every output SHALL stay finite and bounded. Amplitude modulation by the LFO (the AMS and AMD settings) is held in the patch but not applied, as in the reference.
 
-**Implementation:** `crates/dsp/src/fm.rs::FmVoice`, `crates/dsp/src/fm/algorithms.rs`, `crates/dsp/src/mono/model.rs::Model::Dx7` *(planned, #89)*
+**Implementation:** `crates/dsp/src/fm.rs::FmVoice`, `crates/dsp/src/fm/algorithms.rs`, `crates/dsp/src/fm/envelope.rs`, `crates/dsp/src/fm/patch.rs`, `crates/dsp/src/mono/model.rs::Model::Dx7`, `web/src/audio/dx7.ts` (#89)
 
 #### Scenario: algorithms
 
@@ -190,7 +190,7 @@ The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or
 - WHEN a note renders
 - THEN the carriers sound at the played pitch, and the modulators add partials only through their routes
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/fm.rs::tests::a_carrier_sounds_at_the_played_pitch`, `crates/dsp/src/fm.rs::tests::modulators_add_partials_only_through_their_routes`, `crates/dsp/src/fm.rs::tests::feedback_adds_harmonics_to_operator_6`, `crates/dsp/src/fm.rs::tests::every_algorithm_stays_bounded_at_full_modulation`, `crates/dsp/src/fm.rs::tests::velocity_sensitivity_shapes_the_level`, `crates/dsp/src/fm.rs::tests::a_released_voice_falls_silent_and_ends`, `crates/dsp/src/fm.rs::tests::the_pitch_envelope_bends_the_note`, `crates/dsp/src/fm.rs::tests::key_scaling_follows_the_curves`, `crates/dsp/src/fm/envelope.rs::tests::decay_rates_follow_the_hardware`, `crates/dsp/src/fm/algorithms.rs::tests::every_algorithm_is_a_sound_routing`, `crates/dsp/src/fm/algorithms.rs::tests::the_typescript_copy_matches`, `crates/dsp/src/engine.rs::tests::the_dx7_has_sixteen_voices`, `web/src/audio/dx7.test.ts`
 
 ### Requirement 14: DX7 SysEx import [SHOULD]
 

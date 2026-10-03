@@ -13,6 +13,7 @@
 //! heap data, so a model change rebuilds one without allocating.
 
 use crate::engine::SYNTHS;
+use crate::fm::FmVoice;
 use crate::la::LaVoice;
 use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
@@ -34,21 +35,27 @@ pub enum PolyVoice {
     Mono(MonoVoice),
     /// The D-50's two-partial voice.
     La(LaVoice),
+    /// The DX7's six-operator FM voice.
+    Fm(FmVoice),
 }
 
 impl PolyVoice {
     /// A voice of the kind a synth's model plays with.
     fn new(seed: u32, p: Option<&MonoParams>) -> PolyVoice {
-        if p.is_some_and(|p| p.model.uses_la()) {
-            PolyVoice::La(LaVoice::new())
-        } else {
-            PolyVoice::Mono(MonoVoice::new(seed))
+        match p {
+            Some(p) if p.model.uses_la() => PolyVoice::La(LaVoice::new()),
+            Some(p) if p.model.uses_fm() => PolyVoice::Fm(FmVoice::new(p.sample_rate())),
+            _ => PolyVoice::Mono(MonoVoice::new(seed)),
         }
     }
 
     /// Whether this voice is of the kind `p`'s model needs.
     fn fits(&self, p: &MonoParams) -> bool {
-        matches!(self, PolyVoice::La(_)) == p.model.uses_la()
+        match self {
+            PolyVoice::Mono(_) => !p.model.uses_la() && !p.model.uses_fm(),
+            PolyVoice::La(_) => p.model.uses_la(),
+            PolyVoice::Fm(_) => p.model.uses_fm(),
+        }
     }
 
     /// Sounding: gated, releasing, or about to start.
@@ -56,6 +63,7 @@ impl PolyVoice {
         match self {
             PolyVoice::Mono(v) => v.active(),
             PolyVoice::La(v) => v.active(),
+            PolyVoice::Fm(v) => v.active(),
         }
     }
 
@@ -64,6 +72,7 @@ impl PolyVoice {
         match self {
             PolyVoice::Mono(v) => v.gated(),
             PolyVoice::La(v) => v.gated(),
+            PolyVoice::Fm(v) => v.gated(),
         }
     }
 
@@ -71,6 +80,7 @@ impl PolyVoice {
         match self {
             PolyVoice::Mono(v) => v.release_all(),
             PolyVoice::La(v) => v.release_all(),
+            PolyVoice::Fm(v) => v.release_all(),
         }
     }
 
@@ -82,6 +92,7 @@ impl PolyVoice {
         match self {
             PolyVoice::Mono(v) => v.press(note, velocity, p),
             PolyVoice::La(v) => v.press(note, velocity),
+            PolyVoice::Fm(v) => v.press(note, velocity, p),
         }
     }
 
@@ -89,6 +100,7 @@ impl PolyVoice {
         match self {
             PolyVoice::Mono(v) => v.release(note, p),
             PolyVoice::La(v) => v.release_all(),
+            PolyVoice::Fm(v) => v.release_all(),
         }
     }
 
@@ -99,6 +111,10 @@ impl PolyVoice {
                 v.cutoff_trim = cutoff;
             }
             PolyVoice::La(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
+            PolyVoice::Fm(v) => {
                 v.trim = trim;
                 v.cutoff_trim = cutoff;
             }
@@ -205,7 +221,7 @@ impl Pool {
         let i = self.slots.iter().position(|s| s.owner == Some(owner))?;
         match self.voices.get(i)? {
             PolyVoice::Mono(v) => Some(v),
-            PolyVoice::La(_) => None,
+            PolyVoice::La(_) | PolyVoice::Fm(_) => None,
         }
     }
 
@@ -567,6 +583,7 @@ impl Pool {
             match v {
                 PolyVoice::Mono(m) => m.render(&ctx, out),
                 PolyVoice::La(l) => l.render(&ctx, out),
+                PolyVoice::Fm(f) => f.render(&ctx, out),
             }
         }
     }
@@ -792,7 +809,7 @@ mod tests {
             .filter(|v| v.active())
             .map(|v| match v {
                 PolyVoice::Mono(m) => m.mods().pitch[0],
-                PolyVoice::La(_) => 0.0,
+                PolyVoice::La(_) | PolyVoice::Fm(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -815,6 +832,7 @@ mod tests {
             .map(|(v, _)| match v {
                 PolyVoice::Mono(m) => m.trim,
                 PolyVoice::La(l) => l.trim,
+                PolyVoice::Fm(f) => f.trim,
             })
             .collect()
     }

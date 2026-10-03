@@ -23,11 +23,12 @@ pub enum Model {
     Matrix12 = 10,
     PpgWave = 11,
     D50 = 12,
+    Dx7 = 13,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 13] = [
+    pub const ALL: [(Model, &'static str); 14] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -41,6 +42,7 @@ impl Model {
         (Model::Matrix12, "Matrix12"),
         (Model::PpgWave, "PpgWave"),
         (Model::D50, "D50"),
+        (Model::Dx7, "Dx7"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -179,6 +181,7 @@ impl Model {
             Model::Matrix12 => 12,
             Model::PpgWave => 8,
             Model::D50 => 16,
+            Model::Dx7 => 16,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -192,7 +195,7 @@ impl Model {
             Model::Jupiter8 => Filter::Ladder(JUPITER),
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
-            Model::D50 => Filter::Ladder(D50),
+            Model::D50 | Model::Dx7 => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -207,6 +210,11 @@ impl Model {
             Model::Matrix12 => Some(Filter::Svf(MATRIX12)),
             _ => None,
         }
+    }
+
+    /// Whether the voice is the DX7's six-operator FM voice (spec 006 Req 13).
+    pub fn uses_fm(self) -> bool {
+        self == Model::Dx7
     }
 
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
@@ -237,7 +245,8 @@ impl Model {
             | Model::ProOne
             | Model::Prophet5
             | Model::PpgWave
-            | Model::D50 => Hp::None,
+            | Model::D50
+            | Model::Dx7 => Hp::None,
         }
     }
 

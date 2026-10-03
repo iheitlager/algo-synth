@@ -27,6 +27,10 @@ export type Control =
   | { kind: 'switch'; label: string; param: ParamId }
   /** An envelope drawn as its curve with a knob for each time and level it has. */
   | { kind: 'env'; label: string; a: ParamId; d?: ParamId; s?: ParamId; r?: ParamId; decayIsRelease?: boolean }
+  /** A DX7 envelope of four rates and four levels, drawn as its curve. */
+  | { kind: 'eg4'; label: string; rates: ParamId[]; levels: ParamId[] }
+  /** The DX7 algorithm number, drawn as the manual does. */
+  | { kind: 'algo'; label: string; param: ParamId }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -94,6 +98,10 @@ export function scaleOf(c: Extract<Control, { kind: 'knob' }>): Scale {
   if (c.scale === 'exp') return exp(c.lo, c.hi)
   return c.step ? stepped(c.lo, c.hi, c.step) : lin(c.lo, c.hi)
 }
+
+/** A whole-number knob from 0 to `max` (the DX7's 0..99 settings), reset to `def`. */
+const int = (label: string, param: ParamId, max: number, def = 0): Control =>
+  ({ kind: 'knob', label, param, lo: 0, hi: max, scale: 'lin', unit: 'int', step: 1, def, size: 32 })
 
 /** An envelope with its attack, decay, sustain and release; leave out what it has not. */
 const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: ParamId, decayIsRelease = false): Control =>
@@ -671,6 +679,58 @@ const d50: ModelDef = {
   ],
 }
 
+const CURVES: Options = [['−Lin', 0], ['−Exp', 1], ['+Exp', 2], ['+Lin', 3]]
+const LFO_SHAPES: Options = [['Tri', 0], ['Saw ↓', 1], ['Saw ↑', 2], ['Sqr', 3], ['Sine', 4], ['S&H', 5]]
+
+/** One DX7 operator: its frequency and level, its envelope, and its key scaling. */
+const dxOperator = (n: number): Section[] => {
+  const p = (f: string) => Param[`Op${n}${f}` as keyof typeof Param]
+  return [
+    {
+      title: `Operator ${n}`,
+      controls: [
+        sw('Fixed', p('Mode')), int('Coarse', p('Coarse'), 31, 1), int('Fine', p('Fine'), 99), int('Detune', p('Detune'), 14, 7),
+        int('Level', p('Level'), 99), int('Velocity', p('VelSens'), 7), int('Amp mod', p('AmpSens'), 3), int('Rate scale', p('RateScale'), 7),
+      ],
+    },
+    { title: `EG ${n}`, controls: [{ kind: 'eg4', label: `Operator ${n}`, rates: [p('R1'), p('R2'), p('R3'), p('R4')], levels: [p('L1'), p('L2'), p('L3'), p('L4')] }] },
+    {
+      title: `Scaling ${n}`,
+      controls: [
+        int('Break point', p('BreakPoint'), 99, 39), int('Left depth', p('LeftDepth'), 99), select('Left curve', p('LeftCurve'), CURVES),
+        int('Right depth', p('RightDepth'), 99), select('Right curve', p('RightCurve'), CURVES),
+      ],
+    },
+  ]
+}
+
+// Sixteen voices of six sine operators in 32 algorithms with the DX7's envelopes,
+// feedback, LFO and pitch envelope (spec 006 Req 13). Operator 6 has the feedback.
+const dx7: ModelDef = {
+  id: Model.Dx7,
+  name: 'DX7',
+  maker: 'Yamaha · sixteen voices, six-operator FM',
+  tagline: 'Sixteen voices: six sine operators, 32 algorithms, feedback, the DX7 envelopes',
+  theme: { panel: '#1d2326', ink: '#e4efe9', soft: '#9db0a6', trim: '#34464a', accent: '#4fd1a5' },
+  presets: ['FmElectricPiano', 'FmBell', 'FmBrass', 'FmBass', 'FmMarimba', 'FmPad'],
+  sections: [
+    { title: 'Algorithm', controls: [{ kind: 'algo', label: 'Algorithm', param: Param.Algorithm }, int('Feedback', Param.Feedback, 7)] },
+    { title: 'Pitch EG', controls: [{ kind: 'eg4', label: 'Pitch', rates: [Param.PitchR1, Param.PitchR2, Param.PitchR3, Param.PitchR4], levels: [Param.PitchL1, Param.PitchL2, Param.PitchL3, Param.PitchL4] }] },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoShape, LFO_SHAPES), int('Speed', Param.LfoSpeed, 99, 35), int('Delay', Param.LfoDelay, 99),
+        int('Pitch depth', Param.LfoPitchDepth, 99), int('Amp depth', Param.LfoAmpDepth, 99), int('Pitch sens', Param.PitchSens, 7, 3),
+        sw('Key sync', Param.LfoSync),
+      ],
+    },
+    { title: 'Keyboard', controls: [int('Transpose', Param.Transpose, 48, 24), sw('Osc sync', Param.OscSync)] },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    ...[1, 2, 3, 4, 5, 6].flatMap(dxOperator),
+    voicesSection(),
+  ],
+}
+
 const ms20: ModelDef = {
   id: Model.Ms20,
   name: 'MS-20',
@@ -910,7 +970,7 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

@@ -138,7 +138,7 @@ export const stepped = (lo: number, hi: number, step: number): Scale => ({
 // --- value readouts -----------------------------------------------------------------
 
 /** How a knob prints its value. */
-export type Unit = 'pct' | 'bip' | 'sec' | 'hz' | 'rate' | 'st' | 'ct' | 'width'
+export type Unit = 'pct' | 'bip' | 'sec' | 'hz' | 'rate' | 'st' | 'ct' | 'width' | 'int'
 
 const signed = (x: number, text: string) => (x > 0 ? `+${text}` : text)
 
@@ -161,6 +161,8 @@ export function fmtUnit(unit: Unit, v: number): string {
       return signed(v, `${Math.round(v)} st`)
     case 'ct':
       return signed(v, `${Math.round(v)} ct`)
+    case 'int':
+      return `${Math.round(v)}`
   }
 }
 
