@@ -1,6 +1,6 @@
 # 006: Polyphony
 
-Epic #78: each synth owns a voice pool, and seven polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50 and Yamaha DX7. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011. Requirements marked *(planned)* are not built yet.
+Epic #78: each synth owns a voice pool, and seven polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7 and the Polymoog. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011.
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have and is tested on that. Tests render offline at 48 kHz.
 
@@ -219,3 +219,17 @@ Chord pads on every poly model SHALL render within the performance budget, and e
 - THEN the load is within 25% of a core and every sample is within ±1
 
 **Tests:** `tools/bench.mjs` (`make bench`: the `poly pads` and `poly worst` scenarios), `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
+
+### Requirement 16: Polymoog [SHOULD]
+
+The Polymoog model SHALL play sixteen voices, each with its own resonant filter and envelopes, and ship the Strings, Vox Humana, Funk and Brass registrations as presets. The Vox Humana's resonance peak SHALL move with the filter envelope.
+
+**Implementation:** `crates/dsp/src/mono/model.rs`, `crates/dsp/src/mono/preset.rs`, `web/src/audio/models.ts`
+
+#### Scenario: a vocal peak
+
+- GIVEN the Vox Humana preset and a held note
+- WHEN the filter envelope falls from its peak to its sustain
+- THEN the most prominent harmonic stands out by several dB and moves down
+
+**Tests:** `crates/dsp/src/engine.rs::tests::the_polymoog_has_sixteen_voices`, `crates/dsp/src/engine.rs::tests::the_vox_humana_resonance_peak_follows_the_filter_envelope`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`

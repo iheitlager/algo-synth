@@ -494,6 +494,7 @@ export const Model = {
   PpgWave: 11,
   D50: 12,
   Dx7: 13,
+  PolyMoog: 14,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -573,6 +574,10 @@ export const Preset = {
   FmBass: 72,
   FmMarimba: 73,
   FmPad: 74,
+  PolyStrings: 75,
+  VoxHumana: 76,
+  PolyFunk: 77,
+  PolyBrass: 78,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

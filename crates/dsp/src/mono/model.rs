@@ -24,11 +24,12 @@ pub enum Model {
     PpgWave = 11,
     D50 = 12,
     Dx7 = 13,
+    PolyMoog = 14,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 14] = [
+    pub const ALL: [(Model, &'static str); 15] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -43,6 +44,7 @@ impl Model {
         (Model::PpgWave, "PpgWave"),
         (Model::D50, "D50"),
         (Model::Dx7, "Dx7"),
+        (Model::PolyMoog, "PolyMoog"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -139,6 +141,12 @@ pub const D50: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 0.98,
 };
+/// The Polymoog's resonator filter: strongly resonant, vocal rather than screaming.
+pub const POLYMOOG: SvfVoicing = SvfVoicing {
+    osc_at: 1.05,
+    k_min: 0.04,
+    ceiling: 1.0,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -181,7 +189,7 @@ impl Model {
             Model::Matrix12 => 12,
             Model::PpgWave => 8,
             Model::D50 => 16,
-            Model::Dx7 => 16,
+            Model::Dx7 | Model::PolyMoog => 16,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -199,6 +207,7 @@ impl Model {
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
+            Model::PolyMoog => Filter::Svf(POLYMOOG),
         }
     }
 
@@ -246,7 +255,8 @@ impl Model {
             | Model::Prophet5
             | Model::PpgWave
             | Model::D50
-            | Model::Dx7 => Hp::None,
+            | Model::Dx7
+            | Model::PolyMoog => Hp::None,
         }
     }
 

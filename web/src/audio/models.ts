@@ -973,7 +973,48 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7]
+// Sixteen voices, each with its own resonant filter and envelope: the Polymoog's
+// Strings, Vox Humana, Funk and Brass registrations as presets (spec 006 Req 16).
+const polyMoog: ModelDef = {
+  id: Model.PolyMoog,
+  name: 'Polymoog',
+  maker: 'Moog · sixteen voices, a resonator per key',
+  tagline: 'Sixteen voices: saw and pulse, a resonant filter and an envelope for every key',
+  theme: { panel: '#2a2420', ink: '#f1e9dc', soft: '#b4a995', trim: '#14100d', accent: '#e0603a', wood: '#5a3a22' },
+  presets: ['PolyStrings', 'VoxHumana', 'PolyFunk', 'PolyBrass'],
+  sections: [
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Oscillators',
+      controls: [
+        select('Wave 1', Param.Vco1Wave, WAVES), range('Level 1', Param.Vco1Level, 0, 1, 0.01),
+        select('Wave 2', Param.Vco2Wave, WAVES), range('Level 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Range 2', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine),
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'Resonator',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Ensemble', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

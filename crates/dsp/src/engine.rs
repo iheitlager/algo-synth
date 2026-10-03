@@ -1223,6 +1223,75 @@ mod tests {
 
     /// The DX7 has sixteen voices, and its voices are FM voices.
     #[test]
+    fn the_polymoog_has_sixteen_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::PolyStrings);
+        for k in 0..17 {
+            e.note_on(0, 36 + 3 * k, 1.0);
+        }
+        let mut heard = 0.0_f32;
+        for _ in 0..200 {
+            e.render(BLOCK);
+            heard = heard.max(e.output().iter().fold(0.0, |m, s| m.max(s.abs())));
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert!(heard > 0.05);
+        assert_eq!(e.active_voices(), 16);
+    }
+
+    /// Spec 006 Req 16: the Vox Humana's resonance peak falls with the filter envelope, so
+    /// the strongest harmonic of a held note is higher early than late, and stands out
+    /// from its neighbours like a formant.
+    #[test]
+    fn the_vox_humana_resonance_peak_follows_the_filter_envelope() {
+        let f0 = 440.0 * 2.0_f64.powf((48.0 - 69.0) / 12.0);
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::VoxHumana);
+        e.set_param(0, Param::Analog, 0.0);
+        e.set_param(0, Param::ChorusMode, 0.0);
+        e.set_param(0, Param::Vco2Level, 0.0);
+        e.note_on(0, 48, 1.0);
+        let mut left = Vec::new();
+        for _ in 0..(48_000 * 2 / BLOCK) {
+            e.render(BLOCK);
+            left.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        // The level of each harmonic of the note in a window: (the most prominent harmonic and how far it stands out, in dB).
+        let peak = |from: usize, to: usize| {
+            let out = &left[from..to];
+            let levels: Vec<f64> = (1..=30)
+                .map(|k| {
+                    let w = std::f64::consts::TAU * f0 * f64::from(k) / 48_000.0;
+                    let (mut re, mut im) = (0.0, 0.0);
+                    for (i, y) in out.iter().enumerate() {
+                        re += f64::from(*y) * (w * i as f64).cos();
+                        im += f64::from(*y) * (w * i as f64).sin();
+                    }
+                    re * re + im * im
+                })
+                .collect();
+            // The harmonic that stands highest above the ones around it, and by how much (dB).
+            let db: Vec<f64> = levels.iter().map(|l| 10.0 * l.max(1e-9).log10()).collect();
+            let prominence = |k: usize| {
+                let near = |j: usize| db.get(j).copied().unwrap_or(f64::MIN);
+                db.get(k).copied().unwrap_or(f64::MIN)
+                    - 0.5 * (near(k.wrapping_sub(2)).max(-99.0) + near(k + 2).max(-99.0))
+            };
+            let k = (2..20).fold(2, |m, k| if prominence(k) > prominence(m) { k } else { m });
+            (k + 1, prominence(k))
+        };
+        let (early, early_ratio) = peak(4_800, 14_400);
+        let (late, _) = peak(57_600, 81_600);
+        assert!(early > late, "the peak is at harmonic {early}, then {late}");
+        assert!(
+            early_ratio > 4.0,
+            "the peak stands out by only {early_ratio}"
+        );
+    }
+
+    #[test]
     fn the_dx7_has_sixteen_voices() {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::MasterGain, 1.0);
