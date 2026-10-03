@@ -66,6 +66,8 @@ pub struct Insert {
     kind: InsertType,
     knob: [f32; 5],
     drive: Drive,
+    /// The right channel's shaper, for a stereo bus.
+    drive_r: Drive,
     eq: Equalizer,
     comp: Compressor,
 }
@@ -76,6 +78,7 @@ impl Insert {
             kind: InsertType::Off,
             knob: [0.5, 0.5, 0.5, 0.5, 0.0],
             drive: Drive::new(sample_rate),
+            drive_r: Drive::new(sample_rate),
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
         }
@@ -88,6 +91,7 @@ impl Insert {
         self.kind = kind;
         // Whatever was running starts from rest the next time it is picked.
         self.drive.set_mode(DriveMode::Off);
+        self.drive_r.set_mode(DriveMode::Off);
         self.eq.reset();
         self.comp.reset();
         self.apply();
@@ -105,10 +109,12 @@ impl Insert {
     fn apply(&mut self) {
         let [a, b, c, d, e] = self.knob;
         if let Some(mode) = self.kind.drive_mode() {
-            self.drive.set_mode(mode);
-            self.drive.set_amount(a);
-            self.drive.set_tone(b);
-            self.drive.set_level(c);
+            for d in [&mut self.drive, &mut self.drive_r] {
+                d.set_mode(mode);
+                d.set_amount(a);
+                d.set_tone(b);
+                d.set_level(c);
+            }
             return;
         }
         match self.kind {
@@ -139,6 +145,20 @@ impl Insert {
             InsertType::Eq => self.eq.process_mono(x),
             InsertType::Comp => self.comp.process_mono(x),
             _ => self.drive.process(x),
+        }
+    }
+
+    /// Process a stereo bus in place: the compressor sees both channels and
+    /// gives them one gain; the others treat each side alike.
+    pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32]) {
+        match self.kind {
+            InsertType::Off => {}
+            InsertType::Eq => self.eq.process(left, right),
+            InsertType::Comp => self.comp.process(left, right),
+            _ => {
+                self.drive.process(left);
+                self.drive_r.process(right);
+            }
         }
     }
 }
@@ -252,6 +272,50 @@ mod tests {
         assert!(
             again[..2_000] == loud[..2_000],
             "no gain reduction carried over"
+        );
+    }
+
+    #[test]
+    fn stereo_off_and_neutral_are_bit_exact_and_sides_match_mono() {
+        let x = sine(440.0, 0.7, 4_800);
+        let both = |s: &mut Insert| {
+            let (mut l, mut r) = (x.clone(), x.clone());
+            for (l, r) in l.chunks_mut(128).zip(r.chunks_mut(128)) {
+                s.process_stereo(l, r);
+            }
+            (l, r)
+        };
+        let (l, r) = both(&mut Insert::new(SR));
+        assert!(l == x && r == x);
+        let (l, r) = both(&mut slot(InsertType::Eq, [0.5, 0.5, 0.5, 0.5, 0.0]));
+        assert!(l == x && r == x);
+        // The shapers and the EQ do on each side what they do on one channel.
+        for kind in [InsertType::Fuzz, InsertType::Eq] {
+            let knobs = [0.9, 0.6, 0.8, 0.3, 0.2];
+            let (l, r) = both(&mut slot(kind, knobs));
+            let mono = run(&mut slot(kind, knobs), &x);
+            assert!(l == mono && r == mono, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_stereo_compressor_gives_both_sides_one_gain() {
+        let loud = sine(440.0, 0.9, 24_000);
+        let quiet = sine(440.0, 0.02, 24_000);
+        let mut s = slot(InsertType::Comp, [0.6, 0.7, 0.1, 0.5, 0.0]);
+        let (mut l, mut r) = (loud.clone(), quiet.clone());
+        for (l, r) in l.chunks_mut(128).zip(r.chunks_mut(128)) {
+            s.process_stereo(l, r);
+        }
+        let ratio_r = peak(&r) / peak(&quiet);
+        let ratio_l = peak(&l) / peak(&loud);
+        assert!(
+            (ratio_r - ratio_l).abs() < 0.02,
+            "linked: {ratio_l} vs {ratio_r}"
+        );
+        assert!(
+            ratio_r < 0.7,
+            "the quiet side is turned down with the loud one"
         );
     }
 

@@ -1301,6 +1301,48 @@ mod tests {
     }
 
     #[test]
+    fn a_group_has_inserts_for_the_mix_it_carries() {
+        let play = |setup: fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::Out, 1.0);
+            e.set_param(1, Param::Out, 1.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            e.note_on(1, 64, 1.0);
+            render_out(&mut e, 60)
+        };
+        let dry = play(|_| {});
+        assert!(
+            play(|e| e.set_param(G1, Param::I1Type, 4.0)) == dry,
+            "a flat EQ on a group"
+        );
+        let boosted = play(|e| {
+            e.set_param(G1, Param::I1Type, 4.0);
+            e.set_param(G1, Param::I1C, 1.0);
+            e.set_param(G1, Param::I1B, 0.4);
+        });
+        assert!(boosted != dry);
+        let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        let squeezed = play(|e| {
+            e.set_param(G1, Param::I1Type, 5.0);
+            e.set_param(G1, Param::I1A, 0.1);
+            e.set_param(G1, Param::I1B, 0.9);
+        });
+        assert!(
+            peak(&squeezed) < 0.6 * peak(&dry),
+            "{} vs {}",
+            peak(&squeezed),
+            peak(&dry)
+        );
+        // The inserts are the group's own: strips going straight to the master keep theirs.
+        let strip_only = play(|e| {
+            e.set_param(0, Param::I1Type, 3.0);
+            e.set_param(0, Param::I1A, 1.0);
+        });
+        assert!(strip_only != dry);
+    }
+
+    #[test]
     fn groups_have_sends_of_their_own() {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::Out, 1.0);

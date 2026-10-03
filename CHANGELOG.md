@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Insert slots on the group buses: the same three slots and six types as a strip's, working on the group's stereo bus (the compressor gives both sides one gain), before the group's fader (#60, epic #62).
 - Group buses: eight stereo groups (strips 16–23) with their own fader, balance, sends, mute, solo and meter, and an `Out` on every strip and group (0 is the master, 1–8 a group). A group feeds only the master or a higher-numbered group, so routes can't loop; a soloed strip stays heard through its groups. Meters grow to 30 (#59, epic #62).
 - Insert slots: three in series on every synth strip, each Off, Overdrive, Distortion, Fuzz, a compact three-band EQ or a Compressor, with a type and five knobs A–E whose meaning depends on the type (`I1Type`…`I3E`, ids 66–83); a slot button on each strip opens a panel with the type and its knobs in real units. Spec 002 Req 2, ADR-0010 (#58, epic #62).
 

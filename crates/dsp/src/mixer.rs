@@ -324,6 +324,11 @@ impl Mixer {
             let (Some(gl), Some(gr)) = (gl.get_mut(..n), gr.get_mut(..n)) else {
                 continue;
             };
+            if let Some(inserts) = self.inserts.get_mut(idx) {
+                for insert in inserts.iter_mut() {
+                    insert.process_stereo(gl, gr);
+                }
+            }
             if let Some(p) = self.peaks.get_mut(idx) {
                 let peak = gl
                     .iter()

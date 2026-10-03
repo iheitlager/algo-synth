@@ -96,7 +96,14 @@ function run(setup, lowest) {
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
   // both effects with long feedback and tail.
-  for (let g = 0; g < 8; g++) w.set_param(16 + g, Param.Send1, 0.2)
+  for (let g = 0; g < 8; g++) {
+    w.set_param(16 + g, Param.Send1, 0.2)
+    // Group inserts too: an EQ and a compressor on every group.
+    w.set_param(16 + g, Param.I1Type, InsertType.Eq)
+    w.set_param(16 + g, Param.I1C, 0.7)
+    w.set_param(16 + g, Param.I2Type, InsertType.Comp)
+    w.set_param(16 + g, Param.I2B, 0.6)
+  }
   w.set_param(0, Param.P1Return, 0.5)
   w.set_param(0, Param.P1D, 1)
   w.set_param(0, Param.P1B, 0.7)
