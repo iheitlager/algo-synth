@@ -1,12 +1,12 @@
 # 005: Synth models
 
-The family of monosynths (epic #28): each of the 16 synth slots is one of six instruments, built from the shared Mono modules of spec 004. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009. Built in epic #28; every requirement names its code and tests.
+The family of monosynths (epic #28): each of the 16 synth slots is one of seven instruments, built from the shared Mono modules of spec 004. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009. Built in epic #28; every requirement names its code and tests.
 
 Common to every requirement: `render` follows ADR-0002, every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have, and is tested on that. Tests render offline at 48 kHz.
 
 ### Requirement 1: Models [MUST]
 
-Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`), held with the synth's parameters; a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
+Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), held with the synth's parameters; a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model`, `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/mono.rs::MonoParams` (#30)
 
@@ -122,13 +122,13 @@ The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, lo
 
 ### Requirement 8: Panels and colours [MUST]
 
-The view SHALL draw each synth with a panel of its model: the sections, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the six are told apart at a glance. A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
+The view SHALL draw each synth with a panel of its model: the sections, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the seven are told apart at a glance. A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
 
 **Implementation:** `web/src/audio/models.ts`, `web/src/components/SynthFaceplate.vue`, `web/src/components/InstrumentsPane.vue` (#30, drawn as faceplates by spec 003 Req 9)
 
-#### Scenario: six instruments
+#### Scenario: every instrument
 
-- GIVEN six synths, one of each model
+- GIVEN seven synths, one of each model
 - WHEN the view is drawn
 - THEN each card carries its model's name and palette, and the controls of its panel
 
@@ -136,14 +136,34 @@ The view SHALL draw each synth with a panel of its model: the sections, control 
 
 ### Requirement 9: Mixed ensemble budget [MUST]
 
-Sixteen synths across all six models SHALL render within the performance budget of plan.md (25% of a core), and every model's presets SHALL be bounded at full master gain.
+Sixteen synths across all the models SHALL render within the performance budget of plan.md (25% of a core), and every model's presets SHALL be bounded at full master gain.
 
 **Implementation:** `tools/bench.mjs`, `crates/dsp/src/engine.rs::Engine` (#40)
 
-#### Scenario: sixteen at once, six models
+#### Scenario: sixteen at once, every model
 
-- GIVEN 16 synths cycling through the six models and their presets
+- GIVEN 16 synths cycling through the models and their presets
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `six models` and `family worst`, 3.9% and 5.0% of a core on an Apple M4 Pro, with the mixer and effects)
+**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `all models` and `family worst`, 5.5% and 6.6% of a core on an Apple M4 Pro with seven models, the flexible mixer and effects)
+
+### Requirement 10: ARP Odyssey [MUST]
+
+The Odyssey (the Mk II and III of about 1975-81) SHALL be two VCOs (saw, pulse with width, triangle, sine) with VCO 2 hard-synced to VCO 1 on a switch, ring mod of VCO 1 by VCO 2, and white or pink noise in its mixer; a 24 dB ladder with a voicing of its own (`ODYSSEY`: brighter and cleaner than the Moog, a little bass kept under resonance) and a 6 dB high-pass *after* it; one ADSR normalled to both cutoff and VCA; an LFO to pitch, cutoff and pulse width, and portamento. It is not modular, so its faceplate has no patch bay (spec 003 Req 9): the AR and sample-and-hold are reached through the patch slots of presets and setups only. The faceplate SHALL be black and gold. Presets: **Currie lead** (two detuned saws, a bright, slightly resonant ladder driven into its saturator, legato glide, a quick vibrato on the wheel: the late-70s lead of Billy Currie with Gary Numan; an overdrive insert on its strip adds the grit, since presets don't set the mixer; no transcription ships) and **Odyssey sync** (VCO 2 synced to a silent VCO 1, its pitch swept by the ADSR). The bends of such a solo need a pitch-bend source (#10).
+
+**Implementation:** `crates/dsp/src/mono/model.rs::Model::Odyssey`, `crates/dsp/src/mono/model.rs::ODYSSEY`, `crates/dsp/src/mono/preset.rs` (`CurrieLead`, `OdysseySync`), `web/src/audio/models.ts` (#64)
+
+#### Scenario: the high-pass after the ladder
+
+- GIVEN an Odyssey playing A1 with the ladder open
+- WHEN the high-pass goes from 20 Hz to 2 kHz
+- THEN the level falls below 60%, while on the ARP 2600 the same setting changes nothing
+
+#### Scenario: one envelope moves both
+
+- GIVEN an Odyssey with the ADSR at full amount on the cutoff
+- WHEN a note's attack runs
+- THEN the cutoff follows the loudness at every point, and the filter ADSR plays no part
+
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::odyssey_high_pass_takes_out_the_lows`, `crates/dsp/src/mono/voice.rs::tests::odyssey_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/model.rs::tests::single_envelope_models_follow_the_adsr`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`

@@ -18,7 +18,7 @@ const paramsOf = (c: Control): number[] => {
 }
 
 describe('model descriptions', () => {
-  it('describes all six models, once each, in the Model order', () => {
+  it('describes every model, once each, in the Model order', () => {
     expect(MODELS.map((m) => m.id)).toEqual(Object.values(Model))
     expect(modelDef(Model.Cs15).name).toBe('CS-15')
     expect(modelDef(99).id).toBe(Model.Arp2600)

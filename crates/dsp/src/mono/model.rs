@@ -16,17 +16,19 @@ pub enum Model {
     Ms20 = 3,
     Cs15 = 4,
     Sh101 = 5,
+    Odyssey = 6,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 6] = [
+    pub const ALL: [(Model, &'static str); 7] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
         (Model::Ms20, "Ms20"),
         (Model::Cs15, "Cs15"),
         (Model::Sh101, "Sh101"),
+        (Model::Odyssey, "Odyssey"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -80,6 +82,13 @@ pub const SH101: LadderVoicing = LadderVoicing {
     comp: 0.15,
     k_scale: 0.95,
 };
+/// The ARP 4035/4075 of the later Odysseys: brighter and cleaner than the
+/// Moog, a little bass kept under resonance, short of the full range.
+pub const ODYSSEY: LadderVoicing = LadderVoicing {
+    drive: 0.85,
+    comp: 0.2,
+    k_scale: 0.97,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -117,6 +126,7 @@ impl Model {
             Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
             Model::ProOne => Filter::Ladder(PRO_ONE),
             Model::Sh101 => Filter::Ladder(SH101),
+            Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
         }
@@ -126,7 +136,7 @@ impl Model {
     pub fn hp(self) -> Hp {
         match self {
             Model::Ms20 | Model::Cs15 => Hp::Svf,
-            Model::Sh101 => Hp::OnePole,
+            Model::Sh101 | Model::Odyssey => Hp::OnePole,
             Model::Arp2600 | Model::Minimoog | Model::ProOne => Hp::None,
         }
     }
@@ -163,11 +173,11 @@ impl Model {
         self == Model::Cs15
     }
 
-    /// Whether the normalled cutoff follows the filter ADSR. The ARP 2600
-    /// and the SH-101 have one envelope for filter and loudness, so theirs
-    /// follows the ADSR (spec 004 Req 12).
+    /// Whether the normalled cutoff follows the filter ADSR. The ARP 2600,
+    /// the SH-101 and the Odyssey (whose ADSR is normalled to both filter
+    /// and VCA; its AR is a patch source) follow the ADSR (spec 004 Req 12).
     pub fn cutoff_follows_filter_env(self) -> bool {
-        !matches!(self, Model::Arp2600 | Model::Sh101)
+        !matches!(self, Model::Arp2600 | Model::Sh101 | Model::Odyssey)
     }
 }
 
@@ -181,7 +191,7 @@ mod tests {
             assert_eq!(Model::from_id(*m as u32), Some(*m));
             assert_eq!(*m as usize, i, "ids run from 0 without gaps");
         }
-        assert_eq!(Model::from_id(6), None);
+        assert_eq!(Model::from_id(7), None);
         assert_eq!(Model::default(), Model::Arp2600);
     }
 
@@ -203,7 +213,7 @@ mod tests {
     #[test]
     fn single_envelope_models_follow_the_adsr() {
         for (m, name) in Model::ALL {
-            let single = matches!(m, Model::Arp2600 | Model::Sh101);
+            let single = matches!(m, Model::Arp2600 | Model::Sh101 | Model::Odyssey);
             assert_eq!(m.cutoff_follows_filter_env(), !single, "{name}");
         }
     }

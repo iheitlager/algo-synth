@@ -1,4 +1,4 @@
-//! The Mono voice (spec 004): one shared voice, six models (spec 005).
+//! The Mono voice (spec 004): one shared voice, seven models (spec 005).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
 //! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `voice` one

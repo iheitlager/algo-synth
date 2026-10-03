@@ -656,7 +656,7 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(1, Param::Model, 1.0);
         e.set_param(1, Param::Model, 99.0);
-        assert_eq!(e.param_value(1, Param::Model), 5.0, "clamped into range");
+        assert_eq!(e.param_value(1, Param::Model), 6.0, "clamped into range");
         e.set_param(1, Param::Model, 1.0);
         assert_eq!(e.param_value(1, Param::Model), 1.0);
         assert_eq!(e.param_value(0, Param::Model), 0.0);
@@ -1051,7 +1051,7 @@ mod tests {
         }
     }
 
-    /// Spec 005 Req 9: 16 synths cycling through the six models, each on
+    /// Spec 005 Req 9: 16 synths cycling through the models, each on
     /// that model's first preset, play together within ±1.
     #[test]
     fn sixteen_synths_of_every_model_play_together() {
