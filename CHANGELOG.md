@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Chorus and flanger as processor types: a two-tap chorus (rate, depth, delay, spread, tone) and a flanger with feedback of either sign (rate, depth, manual, feedback, tone), stereo in and out, with a parabolic LFO and no transcendental per sample. `ProcType` gains `Chorus` and `Flanger`; the processor's return level now scales the effect's wet signal in the slot, not inside each effect (#92, epic #95).
+
 ## [0.13.0] - 2026-10-03
 
 The ARP Odyssey (#64, PR #76).

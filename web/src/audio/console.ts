@@ -160,6 +160,20 @@ export const PROC_KNOBS: Record<number, ProcKnob[]> = {
     { label: 'Damp', def: 0.3, text: (t) => `${Math.round(t * 100)}%` },
     { label: 'Pre', def: 0.1, text: (t) => `${Math.round(t * 100)} ms` },
   ],
+  3: [
+    { label: 'Rate', def: 0.4, text: (t) => `${logMap(0.1, 8)(t).toFixed(2)} Hz` },
+    { label: 'Depth', def: 0.5, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Delay', def: 0.4, text: (t) => `${(5 + 25 * t).toFixed(1)} ms` },
+    { label: 'Spread', def: 0.5, text: (t) => `${Math.round(t * 180)}°` },
+    { label: 'Tone', def: 0.8, text: (t) => hzText(logMap(500, 20_000)(t)) },
+  ],
+  4: [
+    { label: 'Rate', def: 0.35, text: (t) => `${logMap(0.05, 5)(t).toFixed(2)} Hz` },
+    { label: 'Depth', def: 0.7, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Manual', def: 0.35, text: (t) => `${logMap(0.5, 10)(t).toFixed(1)} ms` },
+    { label: 'Fdbk', def: 0.7, text: (t) => `${Math.round((t - 0.5) * 190)}%` },
+    { label: 'Tone', def: 0.8, text: (t) => hzText(logMap(500, 20_000)(t)) },
+  ],
 }
 
 // --- insert slots -----------------------------------------------------------------------

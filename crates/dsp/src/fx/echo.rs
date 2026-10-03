@@ -24,7 +24,6 @@ pub struct Echo {
     /// One-pole low-pass coefficient in the loop.
     tone: f32,
     ping_pong: bool,
-    ret: f32,
     lp: [f32; 2],
 }
 
@@ -40,7 +39,6 @@ impl Echo {
             feedback: 0.0,
             tone: 1.0,
             ping_pong: false,
-            ret: 0.0,
             lp: [0.0; 2],
         };
         e.set_time(300.0);
@@ -69,21 +67,16 @@ impl Echo {
         self.ping_pong = on;
     }
 
-    /// A return of 0 silences the echo and forgets what it held.
-    pub fn set_return(&mut self, ret: f32) {
-        if ret == 0.0 && self.ret != 0.0 {
-            self.left.clear();
-            self.right.clear();
-            self.lp = [0.0; 2];
-        }
-        self.ret = ret;
+    /// Forget what the loop holds.
+    pub fn clear(&mut self) {
+        self.left.clear();
+        self.right.clear();
+        self.lp = [0.0; 2];
     }
 
-    /// Feed `send` in and add the echoes into `left` and `right`.
+    /// Feed `send` in and add the echoes into `left` and `right`, at full level:
+    /// the processor applies the return.
     pub fn process(&mut self, send: &[f32], left: &mut [f32], right: &mut [f32]) {
-        if self.ret == 0.0 {
-            return;
-        }
         let frames = send.iter().zip(left.iter_mut().zip(right.iter_mut()));
         for (x, (l, r)) in frames {
             self.delay += (self.target - self.delay) * SLEW;
@@ -99,8 +92,8 @@ impl Echo {
                 self.left.write(x + self.feedback * *fl);
                 self.right.write(x + self.feedback * *fr);
             }
-            *l += yl * self.ret;
-            *r += yr * self.ret;
+            *l += yl;
+            *r += yr;
         }
     }
 }
@@ -139,7 +132,6 @@ mod tests {
         let mut e = Echo::new(SR);
         e.set_time(100.0);
         e.set_feedback(0.5);
-        e.set_return(1.0);
         let (l, _) = run(&mut e, &impulse(24_000));
         let t = 4_800;
         let (a, b, c) = (
@@ -161,7 +153,6 @@ mod tests {
         let mut e = Echo::new(SR);
         e.set_time(10.0);
         e.set_feedback(5.0);
-        e.set_return(1.0);
         let noise: Vec<f32> = (0..96_000)
             .map(|i| if i % 3 == 0 { 1.0 } else { -1.0 })
             .collect();
@@ -177,18 +168,9 @@ mod tests {
         e.set_time(50.0);
         e.set_feedback(0.6);
         e.set_ping_pong(true);
-        e.set_return(1.0);
         let (l, r) = run(&mut e, &impulse(12_000));
         let t = 2_400;
         assert!(around(&l, t, 100) > 0.5 && around(&r, t, 100).abs() < 1.0e-3);
         assert!(around(&r, 2 * t, 100) > 0.2 && around(&l, 2 * t, 100).abs() < 1.0e-3);
-    }
-
-    #[test]
-    fn silent_without_a_return() {
-        let mut e = Echo::new(SR);
-        e.set_feedback(0.5);
-        let (l, r) = run(&mut e, &impulse(24_000));
-        assert!(l.iter().chain(&r).all(|x| *x == 0.0));
     }
 }

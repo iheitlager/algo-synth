@@ -258,6 +258,8 @@ export const ProcType = {
   Off: 0,
   Echo: 1,
   Reverb: 2,
+  Chorus: 3,
+  Flanger: 4,
 } as const
 export type ProcTypeId = (typeof ProcType)[keyof typeof ProcType]
 

@@ -26,6 +26,7 @@ const Param = ids('Param')
 const Preset = ids('Preset')
 const Waveform = ids('Waveform')
 const InsertType = ids('InsertType')
+const ProcType = ids('ProcType')
 
 const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
@@ -109,6 +110,11 @@ function run(setup, lowest) {
   w.set_param(0, Param.P1B, 0.7)
   w.set_param(0, Param.P2Return, 0.5)
   w.set_param(0, Param.P2A, 0.9)
+  // P3 and P4 too: a chorus and a flanger.
+  w.set_param(0, Param.P3Type, ProcType.Chorus)
+  w.set_param(0, Param.P3Return, 0.4)
+  w.set_param(0, Param.P4Type, ProcType.Flanger)
+  w.set_param(0, Param.P4Return, 0.4)
   w.set_param(0, Param.CompThreshold, -30)
   w.set_param(0, Param.CompRatio, 4)
   for (const b of ['Low', 'Mid1', 'Mid2', 'High']) w.set_param(0, Param[`Eq${b}Gain`], 6)
@@ -127,6 +133,8 @@ function run(setup, lowest) {
     w.set_param(s, Param.Out, 1 + (s % 8))
     w.set_param(s, Param.Send1, 0.5)
     w.set_param(s, Param.Send2, 0.5)
+    w.set_param(s, Param.Send3, 0.3)
+    w.set_param(s, Param.Send4, 0.3)
   }
   const file = sixteenChannels(lowest)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
