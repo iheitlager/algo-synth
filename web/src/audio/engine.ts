@@ -84,11 +84,11 @@ export const meter = reactive({ load: 0, peak: null as number | null, voices: 0,
 
 /**
  * The console's meters (#53), as linear peaks since the last update: one per
- * synth (after its fader), then master left and right, then each processor's
- * return. Replaced whole about 47 times a second.
+ * strip (16 synths, then 8 groups; after the fader), then master left and
+ * right, then each processor's return. Replaced whole about 47 times a second.
  */
-export const METER_SYNTHS = 16
-export const levels = shallowReactive<{ values: Float32Array }>({ values: new Float32Array(METER_SYNTHS + 2 + 4) })
+export const METER_STRIPS = 16 + 8
+export const levels = shallowReactive<{ values: Float32Array }>({ values: new Float32Array(METER_STRIPS + 2 + 4) })
 
 /**
  * Parameter values by synth and id: what the view last sent, replaced by the

@@ -153,6 +153,7 @@ export const Param = {
   EqMid2Q: 146,
   EqHighFreq: 147,
   EqHighGain: 148,
+  Out: 149,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

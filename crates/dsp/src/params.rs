@@ -301,6 +301,9 @@ pub enum Param {
     EqHighFreq = 147,
     /// Master EQ: High shelf gain in dB, −15..=15.
     EqHighGain = 148,
+    /// Where a strip or group goes after its fader: 0 is the master, 1–8 a group.
+    /// A group may only go to a higher-numbered group; other routes are ignored.
+    Out = 149,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -382,7 +385,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 149] = [
+    pub const ALL: [(Param, &'static str); 150] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -532,6 +535,7 @@ impl Param {
         (Param::EqMid2Q, "EqMid2Q"),
         (Param::EqHighFreq, "EqHighFreq"),
         (Param::EqHighGain, "EqHighGain"),
+        (Param::Out, "Out"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -547,6 +551,7 @@ impl Param {
                 | Param::Send4
                 | Param::Mute
                 | Param::Solo
+                | Param::Out
         ) || self.insert().is_some()
     }
 
@@ -673,6 +678,7 @@ impl Param {
             Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
+            Param::Out => (0.0, 8.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),
             Param::I1B => (0.0, 1.0),
