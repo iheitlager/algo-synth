@@ -129,6 +129,25 @@ fn spectrum(table: usize, k: usize, amp: &mut [f32; HARMONICS]) {
 }
 
 impl Tables {
+    /// The tables for `sample_rate`, built once per process and shared: building them
+    /// takes about 20 ms, and an engine is made per audio node (and per test). The lock
+    /// is taken here, in `Engine::new`, and never while rendering (ADR-0002).
+    pub fn shared(sample_rate: f32) -> &'static Tables {
+        static CACHE: std::sync::OnceLock<std::sync::Mutex<Vec<(u32, &'static Tables)>>> =
+            std::sync::OnceLock::new();
+        let cache = CACHE.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+        let key = sample_rate.to_bits();
+        let mut known = cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, t)) = known.iter().find(|(k, _)| *k == key) {
+            return t;
+        }
+        let t: &'static Tables = Box::leak(Box::new(Tables::new(sample_rate)));
+        known.push((key, t));
+        t
+    }
+
     pub fn new(sample_rate: f32) -> Tables {
         let sine = sine_table();
         let mut waves = vec![0.0; TABLES * WAVES * STRIDE];

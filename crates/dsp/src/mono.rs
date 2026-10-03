@@ -48,6 +48,13 @@ pub struct MonoParams {
     pub lfo2_inc: f32,
     pub lfo2_wave: Waveform,
     pub ramp_inc: f32,
+    /// The wavetable oscillators (spec 006 Req 11): table and position of each, stepped
+    /// positions, and the filter envelope's and the LFO's reach on the position.
+    pub wt_table: [usize; 2],
+    pub wt_pos: [f32; 2],
+    pub wt_steps: bool,
+    pub env_wt: f32,
+    pub lfo_wt: f32,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -138,6 +145,11 @@ impl MonoParams {
             lfo2_inc: 0.0,
             lfo2_wave: Waveform::Sine,
             ramp_inc: 0.0,
+            wt_table: [0; 2],
+            wt_pos: [0.0; 2],
+            wt_steps: false,
+            env_wt: 0.0,
+            lfo_wt: 0.0,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -390,6 +402,13 @@ impl MonoParams {
             Param::Patch20Source => self.patch.set_source(19, v),
             Param::Patch20Dest => self.patch.set_dest(19, v),
             Param::Patch20Amount => self.patch.set_amount(19, v),
+            Param::Wt1Table => self.wt_table[0] = v.round() as usize,
+            Param::Wt2Table => self.wt_table[1] = v.round() as usize,
+            Param::Wt1Pos => self.wt_pos[0] = v,
+            Param::Wt2Pos => self.wt_pos[1] = v,
+            Param::WtSteps => self.wt_steps = v >= 0.5,
+            Param::EnvWt => self.env_wt = v,
+            Param::LfoWt => self.lfo_wt = v,
             Param::Lfo2Rate => self.lfo2_inc = v / self.sample_rate,
             Param::Lfo2Wave => {
                 if let Some(w) = Waveform::from_id(v.round() as u32) {

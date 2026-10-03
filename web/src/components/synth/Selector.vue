@@ -15,7 +15,9 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [v: number] }>()
 
 const current = computed(() => nearestStep(props.options, props.modelValue))
-const icon = (name: string) => wavePath(name, 26, 16)
+// Icons only when every option is a waveform, so a wavetable named Pulse stays text.
+const allWaves = computed(() => props.options.every(([n]) => wavePath(n, 26, 16) !== null))
+const icon = (name: string) => (allWaves.value ? wavePath(name, 26, 16) : null)
 const choose = (i: number) => {
   const o = props.options[i]
   if (o) emit('update:modelValue', o[1])

@@ -69,11 +69,17 @@ pub enum Preset {
     MatrixPunch = 54,
     MatrixBells = 55,
     MatrixLead = 56,
+    PpgSweepPad = 57,
+    PpgGlassBell = 58,
+    PpgFormant = 59,
+    PpgPulseBass = 60,
+    PpgDigitalPluck = 61,
+    PpgOrganWave = 62,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 57] = [
+    pub const ALL: [(Preset, &'static str); 63] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -131,6 +137,12 @@ impl Preset {
         (Preset::MatrixPunch, "MatrixPunch"),
         (Preset::MatrixBells, "MatrixBells"),
         (Preset::MatrixLead, "MatrixLead"),
+        (Preset::PpgSweepPad, "PpgSweepPad"),
+        (Preset::PpgGlassBell, "PpgGlassBell"),
+        (Preset::PpgFormant, "PpgFormant"),
+        (Preset::PpgPulseBass, "PpgPulseBass"),
+        (Preset::PpgDigitalPluck, "PpgDigitalPluck"),
+        (Preset::PpgOrganWave, "PpgOrganWave"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -144,6 +156,12 @@ impl Preset {
     /// The model this preset is for; `changes` sets it.
     pub fn model(self) -> Model {
         match self {
+            Preset::PpgSweepPad
+            | Preset::PpgGlassBell
+            | Preset::PpgFormant
+            | Preset::PpgPulseBass
+            | Preset::PpgDigitalPluck
+            | Preset::PpgOrganWave => Model::PpgWave,
             Preset::MatrixPad
             | Preset::MatrixSweep
             | Preset::MatrixBrass
@@ -1486,6 +1504,169 @@ impl Preset {
                 (Patch2Dest, 2.0),
                 (Patch2Amount, 0.025),
             ],
+            // The Sweep table slowly opened by the filter envelope and breathed by the
+            // LFO, crossfaded, with chorus II: the sweeping digital pad.
+            Preset::PpgSweepPad => &[
+                (Model, 11.0),
+                (Polyphony, 8.0),
+                (Analog, 0.5),
+                (ChorusMode, 2.0),
+                (Wt1Table, 0.0),
+                (Wt1Pos, 0.15),
+                (Vco1Level, 0.8),
+                (Wt2Table, 0.0),
+                (Wt2Pos, 0.25),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.7),
+                (EnvWt, 0.7),
+                (LfoWt, 0.1),
+                (Cutoff, 3_000.0),
+                (Resonance, 0.15),
+                (AdsrAttack, 0.9),
+                (AdsrDecay, 0.8),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 1.0),
+                (FenvAttack, 1.4),
+                (FenvDecay, 1.0),
+                (FenvSustain, 0.6),
+                (EnvCutoff, 0.15),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 0.3),
+            ],
+            // The Bell table thrown open at the strike and falling back as the note
+            // dies, in digital steps: a glassy bell.
+            Preset::PpgGlassBell => &[
+                (Model, 11.0),
+                (Polyphony, 8.0),
+                (Analog, 0.3),
+                (WtSteps, 1.0),
+                (Wt1Table, 7.0),
+                (Wt1Pos, 0.2),
+                (Vco1Level, 0.9),
+                (Wt2Table, 7.0),
+                (Wt2Pos, 0.1),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 0.5),
+                (EnvWt, 0.7),
+                (Cutoff, 7_000.0),
+                (Resonance, 0.1),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 1.8),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 1.3),
+                (FenvAttack, 0.001),
+                (FenvDecay, 1.2),
+                (FenvSustain, 0.0),
+                (EnvCutoff, 0.1),
+                (KeyTrack, 1.0),
+            ],
+            // The Formant table swept by a slow LFO from oo to ee: a vocal, breathing
+            // choir pad.
+            Preset::PpgFormant => &[
+                (Model, 11.0),
+                (Polyphony, 8.0),
+                (Analog, 0.5),
+                (ChorusMode, 1.0),
+                (Wt1Table, 2.0),
+                (Wt1Pos, 0.4),
+                (Vco1Level, 0.9),
+                (Wt2Table, 2.0),
+                (Wt2Pos, 0.45),
+                (Vco2Fine, 6.0),
+                (Vco2Level, 0.7),
+                (LfoWt, 0.35),
+                (Cutoff, 4_000.0),
+                (Resonance, 0.1),
+                (AdsrAttack, 0.5),
+                (AdsrDecay, 0.6),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.8),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 0.4),
+            ],
+            // A pulse table that narrows with the envelope into a low, closing filter:
+            // a hollow digital bass.
+            Preset::PpgPulseBass => &[
+                (Model, 11.0),
+                (Polyphony, 8.0),
+                (Analog, 0.3),
+                (Wt1Table, 1.0),
+                (Wt1Pos, 0.1),
+                (Vco1Coarse, -12.0),
+                (Vco1Level, 1.0),
+                (Wt2Table, 5.0),
+                (Wt2Pos, 0.2),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 5.0),
+                (Vco2Level, 0.7),
+                (EnvWt, 0.5),
+                (Cutoff, 700.0),
+                (Resonance, 0.3),
+                (Drive, 0.2),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.15),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.3),
+                (FenvSustain, 0.1),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 1.0),
+            ],
+            // The seeded Digital table in steps, closing quickly: a gritty, stepped
+            // pluck.
+            Preset::PpgDigitalPluck => &[
+                (Model, 11.0),
+                (Polyphony, 8.0),
+                (Analog, 0.3),
+                (WtSteps, 1.0),
+                (Wt1Table, 6.0),
+                (Wt1Pos, 0.6),
+                (Vco1Level, 1.0),
+                (Wt2Table, 6.0),
+                (Wt2Pos, 0.3),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 0.5),
+                (EnvWt, -0.5),
+                (Cutoff, 2_500.0),
+                (Resonance, 0.25),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 0.3),
+                (FenvAttack, 0.001),
+                (FenvDecay, 0.35),
+                (FenvSustain, 0.0),
+                (EnvCutoff, 0.5),
+                (KeyTrack, 0.8),
+            ],
+            // The Organ table with the LFO shifting its drawbars, chorus I: a moving,
+            // wave-organ pad.
+            Preset::PpgOrganWave => &[
+                (Model, 11.0),
+                (Polyphony, 8.0),
+                (Analog, 0.4),
+                (ChorusMode, 1.0),
+                (Wt1Table, 4.0),
+                (Wt1Pos, 0.5),
+                (Vco1Level, 0.9),
+                (Wt2Table, 4.0),
+                (Wt2Pos, 0.2),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 0.4),
+                (LfoWt, 0.4),
+                (Cutoff, 5_000.0),
+                (Resonance, 0.05),
+                (AdsrAttack, 0.02),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.3),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 0.7),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -1519,7 +1700,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 125] = [
+pub const DEFAULTS: [(Param, f32); 132] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -1645,6 +1826,13 @@ pub const DEFAULTS: [(Param, f32); 125] = [
     (Param::Patch20Source, 0.0),
     (Param::Patch20Dest, 0.0),
     (Param::Patch20Amount, 0.0),
+    (Param::Wt1Table, 0.0),
+    (Param::Wt1Pos, 0.0),
+    (Param::Wt2Table, 0.0),
+    (Param::Wt2Pos, 0.0),
+    (Param::WtSteps, 0.0),
+    (Param::EnvWt, 0.0),
+    (Param::LfoWt, 0.0),
 ];
 
 #[cfg(test)]
@@ -1675,9 +1863,26 @@ mod tests {
         }
     }
 
+    /// Run `check` on every preset, spread over the machine's threads: each check
+    /// renders seconds of audio, and a failure in any thread fails the test.
+    fn for_every_preset(check: impl Fn(Preset, &str) + Sync) {
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let per = Preset::ALL.len().div_ceil(threads);
+        std::thread::scope(|scope| {
+            for chunk in Preset::ALL.chunks(per) {
+                let check = &check;
+                scope.spawn(move || {
+                    for (preset, name) in chunk {
+                        check(*preset, name);
+                    }
+                });
+            }
+        });
+    }
+
     #[test]
     fn every_preset_is_bounded() {
-        for (preset, name) in Preset::ALL {
+        for_every_preset(|preset, name| {
             for note in [24, 48, 72, 96] {
                 let mut e = Engine::new(48_000.0);
                 e.set_param(0, Param::MasterGain, 1.0);
@@ -1697,7 +1902,7 @@ mod tests {
                 assert!(heard > 0.02, "{name} {note} is silent");
                 assert_eq!(e.active_voices(), 0, "{name} {note} still sounds");
             }
-        }
+        });
     }
 
     #[test]
@@ -1794,13 +1999,13 @@ mod tests {
     /// audible, and silent once released.
     #[test]
     fn every_poly_preset_plays_a_full_chord() {
-        for (preset, name) in Preset::ALL {
+        for_every_preset(|preset, name| {
             let mut probe = Engine::new(48_000.0);
             probe.preset(0, preset);
             let voices =
                 (probe.param_value(0, Param::Polyphony) as usize).min(preset.model().voices());
             if voices < 2 {
-                continue;
+                return;
             }
             let mut e = Engine::new(48_000.0);
             e.set_param(0, Param::MasterGain, 1.0);
@@ -1810,8 +2015,8 @@ mod tests {
                 e.note_on(0, *n, 1.0);
             }
             let mut heard = 0.0_f32;
-            for i in 0..(48_000 * 5 / BLOCK) {
-                if i == 48_000 / BLOCK {
+            for i in 0..(48_000 * 3 / BLOCK) {
+                if i == 24_000 / BLOCK {
                     for n in &chord {
                         e.note_off(0, *n);
                     }
@@ -1824,10 +2029,9 @@ mod tests {
             }
             assert!(heard > 0.05, "{name} is silent");
             assert_eq!(e.active_voices(), 0, "{name} still sounds");
-        }
+        });
     }
 
-    /// A preset sets its model, so a switch of model is a whole sound.
     #[test]
     fn every_preset_sets_its_model() {
         for (preset, name) in Preset::ALL {

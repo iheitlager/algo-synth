@@ -22,6 +22,7 @@ use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
 use crate::smf;
+use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
@@ -46,6 +47,8 @@ pub struct Engine {
     values: [[f32; Param::ALL.len()]; STRIPS],
     ladder: LadderTables,
     pitch: PitchTable,
+    /// The wavetables and attack samples, generated once at start.
+    tables: &'static Tables,
     /// Each synth's voices (spec 006).
     pools: Vec<Pool>,
     /// Counts the notes started, so a pool can tell which voice is oldest.
@@ -87,6 +90,7 @@ impl Engine {
             values: [[0.0; Param::ALL.len()]; STRIPS],
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
+            tables: Tables::shared(sample_rate),
             pools: (0..SYNTHS).map(Pool::new).collect(),
             clock: 0,
             mixer: Mixer::new(sample_rate),
@@ -408,6 +412,7 @@ impl Engine {
                         &self.blep,
                         &self.ladder,
                         &self.pitch,
+                        self.tables,
                         buf,
                     );
                 }
@@ -953,6 +958,22 @@ mod tests {
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 12);
         assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
+    /// The PPG Wave has eight voices.
+    #[test]
+    fn the_ppg_wave_has_eight_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::PpgSweepPad);
+        for n in [48, 52, 55, 59, 62, 65, 69, 72, 76] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 8);
+        assert_eq!(
+            e.pools[0].held_notes(),
+            vec![52, 55, 59, 62, 65, 69, 72, 76]
+        );
     }
 
     /// Notes held on a synth: its voices with a key down.

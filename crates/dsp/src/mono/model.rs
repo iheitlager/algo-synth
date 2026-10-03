@@ -21,11 +21,12 @@ pub enum Model {
     Juno106 = 8,
     Jupiter8 = 9,
     Matrix12 = 10,
+    PpgWave = 11,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 11] = [
+    pub const ALL: [(Model, &'static str); 12] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -37,6 +38,7 @@ impl Model {
         (Model::Juno106, "Juno106"),
         (Model::Jupiter8, "Jupiter8"),
         (Model::Matrix12, "Matrix12"),
+        (Model::PpgWave, "PpgWave"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -121,6 +123,12 @@ pub const MATRIX12: SvfVoicing = SvfVoicing {
     k_min: 0.05,
     ceiling: 1.1,
 };
+/// The PPG Wave's four-pole (an SSM-style ladder): clean, bass kept.
+pub const PPG: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.2,
+    k_scale: 1.0,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -161,6 +169,7 @@ impl Model {
             Model::Juno106 => 6,
             Model::Jupiter8 => 8,
             Model::Matrix12 => 12,
+            Model::PpgWave => 8,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -173,6 +182,7 @@ impl Model {
             Model::Sh101 | Model::Juno106 => Filter::Ladder(SH101),
             Model::Jupiter8 => Filter::Ladder(JUPITER),
             Model::Matrix12 => Filter::Ladder(MATRIX),
+            Model::PpgWave => Filter::Ladder(PPG),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -189,6 +199,11 @@ impl Model {
         }
     }
 
+    /// Whether VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
+    pub fn uses_tables(self) -> bool {
+        self == Model::PpgWave
+    }
+
     /// Whether the voice runs the second LFO and the ramp, the sources the
     /// Matrix-12's modulation matrix adds.
     pub fn has_matrix(self) -> bool {
@@ -202,7 +217,9 @@ impl Model {
             Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => {
                 Hp::OnePole
             }
-            Model::Arp2600 | Model::Minimoog | Model::ProOne | Model::Prophet5 => Hp::None,
+            Model::Arp2600 | Model::Minimoog | Model::ProOne | Model::Prophet5 | Model::PpgWave => {
+                Hp::None
+            }
         }
     }
 

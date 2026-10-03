@@ -200,6 +200,13 @@ export const Param = {
   Patch20Source: 193,
   Patch20Dest: 194,
   Patch20Amount: 195,
+  Wt1Table: 196,
+  Wt1Pos: 197,
+  Wt2Table: 198,
+  Wt2Pos: 199,
+  WtSteps: 200,
+  EnvWt: 201,
+  LfoWt: 202,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -325,6 +332,7 @@ export const Model = {
   Juno106: 8,
   Jupiter8: 9,
   Matrix12: 10,
+  PpgWave: 11,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -386,6 +394,12 @@ export const Preset = {
   MatrixPunch: 54,
   MatrixBells: 55,
   MatrixLead: 56,
+  PpgSweepPad: 57,
+  PpgGlassBell: 58,
+  PpgFormant: 59,
+  PpgPulseBass: 60,
+  PpgDigitalPluck: 61,
+  PpgOrganWave: 62,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

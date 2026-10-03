@@ -398,6 +398,20 @@ pub enum Param {
     Patch20Dest = 194,
     /// Patch slot 20 amount, −1..=1.
     Patch20Amount = 195,
+    /// Wavetable of the first table oscillator, 0..=7 (the PPG Wave).
+    Wt1Table = 196,
+    /// Wave position of the first oscillator in its table, 0..=1.
+    Wt1Pos = 197,
+    /// Wavetable of the second oscillator, 0..=7.
+    Wt2Table = 198,
+    /// Wave position of the second oscillator, 0..=1.
+    Wt2Pos = 199,
+    /// Stepped wave positions when ≥ 0.5, as the PPG's, instead of a crossfade.
+    WtSteps = 200,
+    /// Filter envelope → wave position of both oscillators, −1..=1.
+    EnvWt = 201,
+    /// LFO → wave position of both oscillators, 0..=1.
+    LfoWt = 202,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -479,7 +493,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 196] = [
+    pub const ALL: [(Param, &'static str); 203] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -676,6 +690,13 @@ impl Param {
         (Param::Patch20Source, "Patch20Source"),
         (Param::Patch20Dest, "Patch20Dest"),
         (Param::Patch20Amount, "Patch20Amount"),
+        (Param::Wt1Table, "Wt1Table"),
+        (Param::Wt1Pos, "Wt1Pos"),
+        (Param::Wt2Table, "Wt2Table"),
+        (Param::Wt2Pos, "Wt2Pos"),
+        (Param::WtSteps, "WtSteps"),
+        (Param::EnvWt, "EnvWt"),
+        (Param::LfoWt, "LfoWt"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -823,6 +844,10 @@ impl Param {
             Param::Assign => (0.0, 1.0),
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),
+            Param::Wt1Table | Param::Wt2Table => (0.0, 7.0),
+            Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),
+            Param::WtSteps => (0.0, 1.0),
+            Param::EnvWt => (-1.0, 1.0),
             Param::Lfo2Rate => (0.01, 50.0),
             Param::Lfo2Wave => (0.0, 3.0),
             Param::RampTime => (0.01, 30.0),

@@ -19,6 +19,7 @@ use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
 use crate::mono::osc::Blep;
 use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable, SharedMod};
+use crate::table::Tables;
 use crate::voice::Owner;
 
 /// Voices in a pool.
@@ -510,6 +511,7 @@ impl Pool {
         blep: &Blep,
         ladder: &LadderTables,
         pitch: &PitchTable,
+        tables: &Tables,
         out: &mut [f32],
     ) {
         let poly = p.voices() > 1;
@@ -525,6 +527,7 @@ impl Pool {
             ladder,
             pitch,
             shared: if poly { Some(&self.shared) } else { None },
+            tables,
         };
         for v in self.voices.iter_mut().filter(|v| v.active()) {
             match v {
@@ -554,6 +557,7 @@ mod tests {
         blep: Blep,
         ladder: LadderTables,
         pitch: PitchTable,
+        tables: &'static Tables,
         clock: u64,
     }
 
@@ -568,6 +572,7 @@ mod tests {
                 blep: Blep::new(),
                 ladder: LadderTables::new(SR),
                 pitch: PitchTable::new(SR),
+                tables: Tables::shared(SR),
                 clock: 0,
             }
         }
@@ -592,6 +597,7 @@ mod tests {
                     &self.blep,
                     &self.ladder,
                     &self.pitch,
+                    self.tables,
                     &mut out,
                 );
                 all.extend(out);

@@ -26,6 +26,7 @@ use crate::mono::osc::{Blep, Osc, Waveform};
 use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
+use crate::table::{TableOsc, Tables};
 use crate::voice::midi_to_hz;
 
 /// Keys a voice remembers; pressing one more forgets the oldest.
@@ -143,6 +144,8 @@ pub struct MonoCtx<'a> {
     pub pitch: &'a PitchTable,
     /// A poly synth's shared LFO; `None` gives the voice its own.
     pub shared: Option<&'a SharedMod>,
+    /// The generated wavetables and samples.
+    pub tables: &'a Tables,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -167,6 +170,8 @@ pub struct MonoVoice {
     glide_step: f32,
     glide_left: u32,
     osc: [Osc; VCOS],
+    /// The wavetable oscillators of the models that use them, in place of VCO 1 and 2.
+    tabs: [TableOsc; 2],
     /// The sub-oscillator: a square at a half or quarter of VCO 1's pitch.
     sub: Osc,
     ladder: Ladder,
@@ -344,6 +349,9 @@ impl MonoVoice {
         }
         if self.retrigger {
             self.ramp = 0.0;
+            for t in self.tabs.iter_mut() {
+                t.reset();
+            }
         }
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
@@ -356,6 +364,7 @@ impl MonoVoice {
         let lfo_inc = p.lfo_inc * self.mods.lfo_rate.clamp(-8.0, 8.0).exp2();
         let lfo2_inc = p.lfo2_inc * self.mods.lfo2_rate.clamp(-8.0, 8.0).exp2();
         let matrix = p.model.has_matrix();
+        let tables = p.model.uses_tables();
         let [t1, t2, t3] = p.tune;
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
@@ -439,8 +448,25 @@ impl MonoVoice {
             let key3 = if p.vco3_follow { base } else { 60.0 };
             let low3 = if p.vco3_low { 60.0 } else { 0.0 };
             o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
-            let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
-            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
+            let (y1, wrap, y2) = if tables {
+                // The envelope and the LFO move both wave positions.
+                let [t1, t2] = &mut self.tabs;
+                t1.set_increment(inc1);
+                t2.set_increment(ctx.pitch.at(base + p.tune[1] + m2));
+                let sweep = fenv * p.env_wt + lfo * p.lfo_wt;
+                let pos =
+                    |i: usize| (p.wt_pos.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
+                let tab = |i: usize| p.wt_table.get(i).copied().unwrap_or(0);
+                (
+                    t1.step(ctx.tables, tab(0), pos(0), p.wt_steps),
+                    None,
+                    t2.step(ctx.tables, tab(1), pos(1), p.wt_steps),
+                )
+            } else {
+                let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
+                let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
+                (y1, wrap, y2)
+            };
             // The rising saw starts low where a pulse is high, so a pulse in
             // the saw's phase would cancel it: the SH-101's is inverted.
             let y2 = if locked { -y2 } else { y2 };
@@ -519,6 +545,7 @@ mod tests {
         blep: Blep,
         ladder: LadderTables,
         pitch: PitchTable,
+        tables: &'static Tables,
         voice: MonoVoice,
     }
 
@@ -534,6 +561,7 @@ mod tests {
                 blep: Blep::new(),
                 ladder: LadderTables::new(SR),
                 pitch: PitchTable::new(SR),
+                tables: Tables::shared(SR),
                 voice: MonoVoice::new(1),
             }
         }
@@ -554,6 +582,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
+                tables: self.tables,
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {
@@ -800,6 +829,70 @@ mod tests {
         assert!(
             hi - lo > 40.0,
             "VCO 3 at level 0 still modulates: {lo}..{hi}"
+        );
+    }
+
+    /// Spec 006 Req 11: the filter envelope moves the wave position, so the
+    /// spectrum of a held note changes over the envelope; with no amount it does not.
+    #[test]
+    fn ppg_envelope_sweeps_the_wave_position() {
+        let brightness_over_time = |amount: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 11.0),
+                (Param::Wt1Table, 0.0),
+                (Param::Wt1Pos, 0.0),
+                (Param::Vco1Level, 1.0),
+                (Param::Vco2Level, 0.0),
+                (Param::EnvWt, amount),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvAttack, 0.5),
+                (Param::FenvSustain, 1.0),
+            ]);
+            r.press(45);
+            r.render(480);
+            let early = brightness(&r.render(2_400));
+            r.render(24_000);
+            let late = brightness(&r.render(2_400));
+            (early, late)
+        };
+        let (early, late) = brightness_over_time(1.0);
+        assert!(
+            late > 2.0 * early,
+            "the Sweep table brightens: {early} to {late}"
+        );
+        let (a, b) = brightness_over_time(0.0);
+        assert!(
+            (a / b - 1.0).abs() < 0.05,
+            "and stands still without it: {a} {b}"
+        );
+    }
+
+    /// The table oscillators stand in for VCO 1 and 2 on this model only: a model
+    /// without them ignores the table parameters, and the PPG does not.
+    #[test]
+    fn only_the_ppg_reads_wavetables() {
+        let sound = |model: f32, pos: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::Vco1Level, 1.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::Wt1Pos, pos),
+            ]);
+            r.press(57);
+            r.render(2_400);
+            r.render(9_600)
+        };
+        assert_eq!(
+            sound(9.0, 0.0),
+            sound(9.0, 1.0),
+            "a Jupiter-8 ignores the wave position"
+        );
+        assert_ne!(
+            sound(11.0, 0.0),
+            sound(11.0, 1.0),
+            "and the PPG moves with it"
         );
     }
 
