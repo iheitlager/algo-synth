@@ -112,7 +112,7 @@ The Juno-106 SHALL have 6 voices of one DCO (saw and pulse with pulse-width modu
 
 The Jupiter-8 SHALL have 8 voices of two VCOs (VCO 2 synced to VCO 1) with cross-modulation of VCO 1 by VCO 2, noise, a low-pass of 12 dB or 24 dB per octave by a switch, a high-pass, two envelopes (filter and loudness), an LFO, and poly or unison assignment.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Jupiter8` *(planned, #84)*
+**Implementation:** `crates/dsp/src/mono/model.rs::Model::Jupiter8`, `crates/dsp/src/mono.rs::MonoParams::filter` (#84)
 
 #### Scenario: the slope switch
 
@@ -120,7 +120,7 @@ The Jupiter-8 SHALL have 8 voices of two VCOs (VCO 2 synced to VCO 1) with cross
 - WHEN the response is measured two and three octaves above the cutoff
 - THEN it falls by about 12 and 24 dB per octave
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::jupiter_slope_switch_is_12_or_24_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::cross_mod_moves_vco1_from_vco2`, `crates/dsp/src/engine.rs::tests::the_jupiter_8_has_eight_voices`, `crates/dsp/src/mono/model.rs::tests::only_the_jupiter_has_a_slope_switch`
 
 ### Requirement 9: Matrix-12 [MUST]
 

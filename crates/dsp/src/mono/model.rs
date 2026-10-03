@@ -19,11 +19,12 @@ pub enum Model {
     Odyssey = 6,
     Prophet5 = 7,
     Juno106 = 8,
+    Jupiter8 = 9,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 9] = [
+    pub const ALL: [(Model, &'static str); 10] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -33,6 +34,7 @@ impl Model {
         (Model::Odyssey, "Odyssey"),
         (Model::Prophet5, "Prophet5"),
         (Model::Juno106, "Juno106"),
+        (Model::Jupiter8, "Jupiter8"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -93,6 +95,18 @@ pub const ODYSSEY: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 0.97,
 };
+/// The Jupiter-8's four-pole: clean and a little bass kept under resonance.
+pub const JUPITER: LadderVoicing = LadderVoicing {
+    drive: 0.9,
+    comp: 0.25,
+    k_scale: 0.98,
+};
+/// Its two-pole setting: resonant but short of oscillating.
+pub const JUPITER12: SvfVoicing = SvfVoicing {
+    osc_at: 1.1,
+    k_min: 0.08,
+    ceiling: 1.0,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -131,6 +145,7 @@ impl Model {
         match self {
             Model::Prophet5 => 5,
             Model::Juno106 => 6,
+            Model::Jupiter8 => 8,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -141,17 +156,24 @@ impl Model {
             Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
             Model::ProOne | Model::Prophet5 => Filter::Ladder(PRO_ONE),
             Model::Sh101 | Model::Juno106 => Filter::Ladder(SH101),
+            Model::Jupiter8 => Filter::Ladder(JUPITER),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
         }
     }
 
+    /// The 12 dB low-pass of a model with the slope switch (the Jupiter-8's
+    /// two-pole setting), if it has one.
+    pub fn filter_12db(self) -> Option<Filter> {
+        (self == Model::Jupiter8).then_some(Filter::Svf(JUPITER12))
+    }
+
     /// The high-pass stage.
     pub fn hp(self) -> Hp {
         match self {
             Model::Ms20 | Model::Cs15 => Hp::Svf,
-            Model::Sh101 | Model::Odyssey | Model::Juno106 => Hp::OnePole,
+            Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 => Hp::OnePole,
             Model::Arp2600 | Model::Minimoog | Model::ProOne | Model::Prophet5 => Hp::None,
         }
     }
@@ -242,6 +264,20 @@ mod tests {
             crate::poly::MAX_VOICES,
             "a monosynth is not limited"
         );
+    }
+
+    /// Only a model with the slope switch has a 12 dB setting, and it is a
+    /// state-variable filter beside the ladder.
+    #[test]
+    fn only_the_jupiter_has_a_slope_switch() {
+        for (m, name) in Model::ALL {
+            assert_eq!(m.filter_12db().is_some(), m == Model::Jupiter8, "{name}");
+        }
+        assert!(matches!(Model::Jupiter8.filter(), Filter::Ladder(_)));
+        assert!(matches!(
+            Model::Jupiter8.filter_12db(),
+            Some(Filter::Svf(_))
+        ));
     }
 
     #[test]

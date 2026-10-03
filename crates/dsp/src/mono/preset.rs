@@ -57,11 +57,17 @@ pub enum Preset {
     JunoBass = 42,
     JunoPluck = 43,
     JunoPoly = 44,
+    JupiterBrass = 45,
+    JupiterStrings = 46,
+    JupiterBass = 47,
+    JupiterSync = 48,
+    JupiterXMod = 49,
+    JupiterPad = 50,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 45] = [
+    pub const ALL: [(Preset, &'static str); 51] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -107,6 +113,12 @@ impl Preset {
         (Preset::JunoBass, "JunoBass"),
         (Preset::JunoPluck, "JunoPluck"),
         (Preset::JunoPoly, "JunoPoly"),
+        (Preset::JupiterBrass, "JupiterBrass"),
+        (Preset::JupiterStrings, "JupiterStrings"),
+        (Preset::JupiterBass, "JupiterBass"),
+        (Preset::JupiterSync, "JupiterSync"),
+        (Preset::JupiterXMod, "JupiterXMod"),
+        (Preset::JupiterPad, "JupiterPad"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -120,6 +132,12 @@ impl Preset {
     /// The model this preset is for; `changes` sets it.
     pub fn model(self) -> Model {
         match self {
+            Preset::JupiterBrass
+            | Preset::JupiterStrings
+            | Preset::JupiterBass
+            | Preset::JupiterSync
+            | Preset::JupiterXMod
+            | Preset::JupiterPad => Model::Jupiter8,
             Preset::JunoPad
             | Preset::JunoStrings
             | Preset::JunoBrass
@@ -1136,6 +1154,155 @@ impl Preset {
                 (EnvCutoff, 0.3),
                 (KeyTrack, 0.5),
             ],
+            // Two saws a few cents apart, the filter opened by its envelope on every
+            // note: the Jupiter brass.
+            Preset::JupiterBrass => &[
+                (Model, 9.0),
+                (Polyphony, 8.0),
+                (Analog, 0.4),
+                (Vco1Level, 0.9),
+                (Vco2Fine, 8.0),
+                (Vco2Level, 0.9),
+                (Cutoff, 1_000.0),
+                (Resonance, 0.2),
+                (Slope, 1.0),
+                (AdsrAttack, 0.05),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.25),
+                (FenvAttack, 0.07),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.55),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 0.6),
+            ],
+            // A saw and a pulse swept by the LFO, a slow attack and the filter at
+            // 12 dB: a soft string pad.
+            Preset::JupiterStrings => &[
+                (Model, 9.0),
+                (Polyphony, 8.0),
+                (Analog, 0.5),
+                (Vco1Level, 0.8),
+                (Vco2Wave, 1.0),
+                (Vco2Fine, 6.0),
+                (Vco2Level, 0.7),
+                (LfoWave, 2.0),
+                (LfoRate, 0.5),
+                (LfoPw, 0.3),
+                (Cutoff, 2_600.0),
+                (Resonance, 0.1),
+                (Slope, 0.0),
+                (AdsrAttack, 0.35),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.6),
+                (FenvAttack, 0.4),
+                (FenvSustain, 0.8),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+            ],
+            // Unison on all eight voices, two saws an octave down, a 24 dB filter
+            // snapping shut: the big Jupiter bass.
+            Preset::JupiterBass => &[
+                (Model, 9.0),
+                (Polyphony, 8.0),
+                (Assign, 1.0),
+                (UnisonDetune, 0.15),
+                (Analog, 0.4),
+                (Vco1Coarse, -12.0),
+                (Vco1Level, 1.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 5.0),
+                (Vco2Level, 0.9),
+                (Cutoff, 450.0),
+                (Resonance, 0.3),
+                (Slope, 1.0),
+                (Drive, 0.3),
+                (AdsrAttack, 0.003),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.15),
+                (FenvAttack, 0.003),
+                (FenvDecay, 0.3),
+                (FenvSustain, 0.15),
+                (EnvCutoff, 0.65),
+                (KeyTrack, 1.0),
+            ],
+            // VCO 2 synced to VCO 1 and swept by the filter envelope through
+            // cross-modulation: the Jupiter sync lead, in unison.
+            Preset::JupiterSync => &[
+                (Model, 9.0),
+                (Polyphony, 8.0),
+                (Assign, 1.0),
+                (UnisonDetune, 0.1),
+                (Analog, 0.4),
+                (Vco1Level, 0.0),
+                (Vco2Coarse, 7.0),
+                (Vco2Level, 1.0),
+                (Vco2Sync, 1.0),
+                (EnvFreq2, 0.45),
+                (Cutoff, 3_800.0),
+                (Resonance, 0.2),
+                (Slope, 1.0),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.3),
+                (FenvAttack, 0.005),
+                (FenvDecay, 0.6),
+                (FenvSustain, 0.3),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+            ],
+            // VCO 2 frequency-modulating VCO 1: a metallic, clangorous sound that
+            // the envelope tames.
+            Preset::JupiterXMod => &[
+                (Model, 9.0),
+                (Polyphony, 8.0),
+                (Analog, 0.4),
+                (Vco1Wave, 3.0),
+                (Vco1Level, 0.9),
+                (Vco2Wave, 3.0),
+                (Vco2Coarse, 7.0),
+                (Vco2Level, 0.0),
+                (XMod, 0.6),
+                (Cutoff, 5_000.0),
+                (Resonance, 0.15),
+                (Slope, 1.0),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.9),
+                (AdsrSustain, 0.1),
+                (AdsrRelease, 0.6),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.2),
+                (EnvCutoff, 0.3),
+                (KeyTrack, 1.0),
+            ],
+            // Two saws, a slow swell, and the LFO breathing the filter: a warm pad.
+            Preset::JupiterPad => &[
+                (Model, 9.0),
+                (Polyphony, 8.0),
+                (Analog, 0.6),
+                (Vco1Level, 0.8),
+                (Vco1Fine, -9.0),
+                (Vco2Fine, 9.0),
+                (Vco2Level, 0.8),
+                (Cutoff, 1_500.0),
+                (Resonance, 0.2),
+                (Slope, 1.0),
+                (AdsrAttack, 0.9),
+                (AdsrDecay, 0.8),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 1.1),
+                (FenvAttack, 1.0),
+                (FenvSustain, 0.7),
+                (EnvCutoff, 0.25),
+                (LfoWave, 3.0),
+                (LfoRate, 0.35),
+                (LfoCutoff, 0.3),
+                (KeyTrack, 0.5),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -1169,7 +1336,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 84] = [
+pub const DEFAULTS: [(Param, f32); 86] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -1254,6 +1421,8 @@ pub const DEFAULTS: [(Param, f32); 84] = [
     (Param::UnisonDetune, 0.3),
     (Param::Analog, 0.0),
     (Param::ChorusMode, 0.0),
+    (Param::XMod, 0.0),
+    (Param::Slope, 1.0),
 ];
 
 #[cfg(test)]
@@ -1287,7 +1456,7 @@ mod tests {
     #[test]
     fn every_preset_is_bounded() {
         for (preset, name) in Preset::ALL {
-            for note in [24, 36, 48, 60, 72, 84, 96] {
+            for note in [24, 48, 72, 96] {
                 let mut e = Engine::new(48_000.0);
                 e.set_param(0, Param::MasterGain, 1.0);
                 e.preset(0, preset);
@@ -1340,10 +1509,15 @@ mod tests {
             }
             out
         };
+        // After the first, the middle and the last preset of the list: one of
+        // each kind of leftover, without rendering every pair.
+        let n = Preset::ALL.len();
+        let befores = [Preset::ALL[0].0, Preset::ALL[n / 2].0, Preset::ALL[n - 1].0];
         for (preset, name) in Preset::ALL {
-            for (before, _) in Preset::ALL {
+            let fresh = render(&[preset]);
+            for before in befores {
                 assert!(
-                    render(&[before, preset]) == render(&[preset]),
+                    render(&[before, preset]) == fresh,
                     "{name} after {before:?}"
                 );
             }

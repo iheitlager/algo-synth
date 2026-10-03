@@ -316,6 +316,10 @@ pub enum Param {
     Analog = 153,
     /// The synth's stereo chorus: 0 off, 1 I, 2 II, 3 I+II (spec 006 Req 7).
     ChorusMode = 154,
+    /// Cross-modulation of VCO 1's pitch by VCO 2, 0..=1 (up to ±24 semitones).
+    XMod = 155,
+    /// Low-pass slope on the models with the switch: 0 is 12 dB, 1 is 24 dB per octave.
+    Slope = 156,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -397,7 +401,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 155] = [
+    pub const ALL: [(Param, &'static str); 157] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -553,6 +557,8 @@ impl Param {
         (Param::UnisonDetune, "UnisonDetune"),
         (Param::Analog, "Analog"),
         (Param::ChorusMode, "ChorusMode"),
+        (Param::XMod, "XMod"),
+        (Param::Slope, "Slope"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -699,6 +705,7 @@ impl Param {
             Param::Polyphony => (1.0, 16.0),
             Param::Assign => (0.0, 1.0),
             Param::ChorusMode => (0.0, 3.0),
+            Param::XMod | Param::Slope => (0.0, 1.0),
             Param::UnisonDetune | Param::Analog => (0.0, 1.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),

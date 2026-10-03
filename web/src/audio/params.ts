@@ -159,6 +159,8 @@ export const Param = {
   UnisonDetune: 152,
   Analog: 153,
   ChorusMode: 154,
+  XMod: 155,
+  Slope: 156,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -282,6 +284,7 @@ export const Model = {
   Odyssey: 6,
   Prophet5: 7,
   Juno106: 8,
+  Jupiter8: 9,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -331,6 +334,12 @@ export const Preset = {
   JunoBass: 42,
   JunoPluck: 43,
   JunoPoly: 44,
+  JupiterBrass: 45,
+  JupiterStrings: 46,
+  JupiterBass: 47,
+  JupiterSync: 48,
+  JupiterXMod: 49,
+  JupiterPad: 50,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

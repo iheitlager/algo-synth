@@ -445,7 +445,7 @@ impl MonoVoice {
             // Half the mix keeps two VCOs at full level below the knee.
             let mut x = 0.5 * mix;
             let hp_cutoff = p.hp_cutoff + m.hp_cutoff;
-            let filter = p.model.filter();
+            let filter = p.filter();
             if let (Hp::Svf, Filter::Svf(v)) = (hp, filter) {
                 x = self
                     .svf_hp
@@ -783,6 +783,71 @@ mod tests {
             hi - lo > 40.0,
             "VCO 3 at level 0 still modulates: {lo}..{hi}"
         );
+    }
+
+    /// Spec 006 Req 8: the Jupiter-8's switch takes its low-pass between 12 and
+    /// 24 dB per octave. Measured on noise, an octave and two above the cutoff.
+    #[test]
+    fn jupiter_slope_switch_is_12_or_24_db_per_octave() {
+        let falls = |slope: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 9.0),
+                (Param::Vco1Level, 0.0),
+                (Param::NoiseLevel, 1.0),
+                (Param::Cutoff, 1_000.0),
+                (Param::Resonance, 0.0),
+                (Param::Slope, slope),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(60);
+            r.render(9_600);
+            let out = r.render(192_000);
+            let band = |f: f64| {
+                (0..8)
+                    .map(|k| tone(&out, f * (0.94 + 0.02 * k as f64)).powi(2))
+                    .sum::<f64>()
+                    / 8.0
+            };
+            let db = |a: f64, b: f64| 10.0 * (a / b).log10();
+            (
+                db(band(3_000.0), band(6_000.0)),
+                db(band(6_000.0), band(12_000.0)),
+            )
+        };
+        let (a12, b12) = falls(0.0);
+        let (a24, b24) = falls(1.0);
+        assert!(
+            (a12 - 12.0).abs() < 3.5 && (b12 - 12.0).abs() < 3.5,
+            "12 dB: {a12} {b12}"
+        );
+        // Two octaves up the 24 dB filter is near the noise floor of the measure.
+        assert!((a24 - 24.0).abs() < 4.5 && b24 > 8.0, "24 dB: {a24} {b24}");
+        assert!(a24 > a12 + 8.0, "and it falls much faster than 12 dB");
+    }
+
+    /// Cross-modulation: VCO 2 moves VCO 1's pitch, at any mixer level.
+    #[test]
+    fn cross_mod_moves_vco1_from_vco2() {
+        let range = |xmod: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 9.0),
+                (Param::Vco2Level, 0.0),
+                (Param::Vco2Wave, 3.0),
+                (Param::Vco2Coarse, -24.0),
+                (Param::XMod, xmod),
+            ]);
+            r.press(60);
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for _ in 0..400 {
+                r.render(128);
+                let p = r.voice.mods().pitch[0];
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+            hi - lo
+        };
+        assert_eq!(range(0.0), 0.0);
+        assert!(range(1.0) > 30.0, "{}", range(1.0));
     }
 
     /// Spec 006 Req 7: the Juno's high-pass steps thin the bass.

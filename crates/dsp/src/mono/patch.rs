@@ -225,6 +225,8 @@ pub struct Normals {
     pub env_pw: f32,
     pub osc_pw: f32,
     pub osc_cutoff: f32,
+    /// Semitones of VCO 1 pitch at full VCO 2 (cross-modulation).
+    pub xmod: f32,
     /// Semitones of cutoff per semitone of key.
     pub key_track: f32,
     /// Semitones of VCO pitch at full LFO and full mod wheel.
@@ -277,6 +279,7 @@ pub fn modulate(
     // Poly-mod and the LFO's pulse width add after the normals and the
     // patch, without taking a destination over from them.
     let (fenv, vco1) = (at(ModSource::Fenv), at(ModSource::Vco1));
+    d[0] += at(ModSource::Vco2) * normals.xmod;
     d[1] += fenv * normals.env_freq2 + vco1 * normals.osc_freq2;
     d[3] += fenv * normals.env_pw + vco1 * normals.osc_pw + modulator * normals.lfo_pw;
     d[4] += vco1 * normals.osc_cutoff;
@@ -322,6 +325,7 @@ mod tests {
         env_pw: 0.0,
         osc_pw: 0.0,
         osc_cutoff: 0.0,
+        xmod: 0.0,
         key_track: 0.5,
         vibrato: 2.0,
     };

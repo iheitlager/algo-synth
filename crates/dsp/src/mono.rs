@@ -20,7 +20,7 @@ pub mod voice;
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
-use model::Model;
+use model::{Filter, Model};
 use noise::NoiseColour;
 use osc::Waveform;
 use patch::{Normals, Patch};
@@ -42,6 +42,8 @@ pub struct MonoParams {
     pub analog: f32,
     /// The stereo chorus mode (0 off); the engine runs it after the voices.
     pub chorus_mode: usize,
+    /// Whether a model with the slope switch filters at 12 dB (else 24).
+    pub slope12: bool,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -97,6 +99,17 @@ impl Default for MonoParams {
 }
 
 impl MonoParams {
+    /// The low-pass in use: the model's, or on a model with the slope switch its
+    /// 12 dB one when the switch says so.
+    pub fn filter(&self) -> Filter {
+        if self.slope12 {
+            if let Some(f) = self.model.filter_12db() {
+                return f;
+            }
+        }
+        self.model.filter()
+    }
+
     /// The voices this synth plays at once: `Polyphony`, at most its model's.
     pub fn voices(&self) -> usize {
         self.polyphony.clamp(1, self.model.voices())
@@ -117,6 +130,7 @@ impl MonoParams {
             unison_cents: 0.0,
             analog: 0.0,
             chorus_mode: 0,
+            slope12: false,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -331,6 +345,8 @@ impl MonoParams {
             Param::UnisonDetune => self.unison_cents = 50.0 * v,
             Param::Analog => self.analog = v,
             Param::ChorusMode => self.chorus_mode = v.round() as usize,
+            Param::XMod => self.normals.xmod = 24.0 * v,
+            Param::Slope => self.slope12 = v < 0.5,
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

@@ -427,6 +427,64 @@ const juno106: ModelDef = {
   ],
 }
 
+const SLOPE: Options = [['12 dB', 0], ['24 dB', 1]]
+
+// Eight voices of two VCOs (VCO 2 synced to VCO 1, and modulating its pitch),
+// a low-pass of 12 or 24 dB per octave, a high-pass, two envelopes and an LFO
+// (spec 006 Req 8). Dual and split tones are not built; poly and unison are.
+const jupiter8: ModelDef = {
+  id: Model.Jupiter8,
+  name: 'Jupiter-8',
+  maker: 'Roland · eight voices, sync and cross-mod',
+  tagline: 'Eight voices: two VCOs with sync and cross-mod, a 12 or 24 dB low-pass, a high-pass, two envelopes',
+  theme: { panel: '#1b1d20', ink: '#f0efe8', soft: '#adb0b6', trim: '#8a7a20', accent: '#e6d44a' },
+  presets: ['JupiterBrass', 'JupiterStrings', 'JupiterBass', 'JupiterSync', 'JupiterXMod', 'JupiterPad'],
+  sections: [
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 1',
+      controls: [
+        select('Range', Param.Vco1Coarse, [['16′', -12], ['8′', 0], ['4′', 12], ['2′', 24]]),
+        select('Wave', Param.Vco1Wave, WAVES), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 2',
+      controls: [
+        range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES),
+        sw('Sync', Param.Vco2Sync),
+      ],
+    },
+    { title: 'Cross mod', controls: [range('VCO 2 → 1', Param.XMod, 0, 1, 0.01)] },
+    {
+      title: 'Mixer',
+      controls: [
+        range('VCO 1', Param.Vco1Level, 0, 1, 0.01), range('VCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'HPF', controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff')] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        select('Slope', Param.Slope, SLOPE), range('Envelope', Param.EnvCutoff, -1, 1, 0.01),
+        range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Env 1 (filter)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Env 2 (amplifier)', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    voicesSection(),
+  ],
+}
+
 const ms20: ModelDef = {
   id: Model.Ms20,
   name: 'MS-20',
@@ -666,7 +724,7 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

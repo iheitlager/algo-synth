@@ -925,6 +925,22 @@ mod tests {
         assert_eq!(e.pools[0].held_notes(), vec![52, 55, 59, 62, 65, 69]);
     }
 
+    /// The Jupiter-8 has eight voices.
+    #[test]
+    fn the_jupiter_8_has_eight_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::JupiterBrass);
+        for n in [48, 52, 55, 59, 62, 65, 69, 72, 76] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 8);
+        assert_eq!(
+            e.pools[0].held_notes(),
+            vec![52, 55, 59, 62, 65, 69, 72, 76]
+        );
+    }
+
     /// Notes held on a synth: its voices with a key down.
     fn gated_notes(e: &Engine, synth: usize) -> usize {
         e.pools[synth].held()
