@@ -310,6 +310,428 @@ pub enum Param {
     P3In = 151,
     /// Processor P4 takes its input from P3's output as well as its sends when ≥ 0.5.
     P4In = 152,
+    /// Voices the synth plays at once, 1..=16: 1 is monophonic (one voice per
+    /// owner, with note priority and glide), more press each note on a voice.
+    Polyphony = 153,
+    /// How a poly synth assigns notes: 0 poly (a voice per note), 1 unison (every
+    /// voice plays the last note).
+    Assign = 154,
+    /// Unison detune spread, 0..=1: 0 to ±50 cents across the voices.
+    UnisonDetune = 155,
+    /// Analog variance, 0..=1: each voice's own detune, drift and cutoff offset.
+    Analog = 156,
+    /// The synth's stereo chorus: 0 off, 1 I, 2 II, 3 I+II (spec 006 Req 7).
+    ChorusMode = 157,
+    /// Cross-modulation of VCO 1's pitch by VCO 2, 0..=1 (up to ±24 semitones).
+    XMod = 158,
+    /// Low-pass slope on the models with the switch: 0 is 12 dB, 1 is 24 dB per octave.
+    Slope = 159,
+    /// The second LFO's rate in Hz, 0.01..=50 (the Matrix-12).
+    Lfo2Rate = 160,
+    /// The second LFO's waveform id (`Waveform`), 0..=3.
+    Lfo2Wave = 161,
+    /// The ramp's time to full in seconds, 0.01..=30; it restarts with each note.
+    RampTime = 162,
+    /// Patch slot 9 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch9Source = 163,
+    /// Patch slot 9 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch9Dest = 164,
+    /// Patch slot 9 amount, −1..=1.
+    Patch9Amount = 165,
+    /// Patch slot 10 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch10Source = 166,
+    /// Patch slot 10 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch10Dest = 167,
+    /// Patch slot 10 amount, −1..=1.
+    Patch10Amount = 168,
+    /// Patch slot 11 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch11Source = 169,
+    /// Patch slot 11 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch11Dest = 170,
+    /// Patch slot 11 amount, −1..=1.
+    Patch11Amount = 171,
+    /// Patch slot 12 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch12Source = 172,
+    /// Patch slot 12 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch12Dest = 173,
+    /// Patch slot 12 amount, −1..=1.
+    Patch12Amount = 174,
+    /// Patch slot 13 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch13Source = 175,
+    /// Patch slot 13 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch13Dest = 176,
+    /// Patch slot 13 amount, −1..=1.
+    Patch13Amount = 177,
+    /// Patch slot 14 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch14Source = 178,
+    /// Patch slot 14 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch14Dest = 179,
+    /// Patch slot 14 amount, −1..=1.
+    Patch14Amount = 180,
+    /// Patch slot 15 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch15Source = 181,
+    /// Patch slot 15 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch15Dest = 182,
+    /// Patch slot 15 amount, −1..=1.
+    Patch15Amount = 183,
+    /// Patch slot 16 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch16Source = 184,
+    /// Patch slot 16 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch16Dest = 185,
+    /// Patch slot 16 amount, −1..=1.
+    Patch16Amount = 186,
+    /// Patch slot 17 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch17Source = 187,
+    /// Patch slot 17 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch17Dest = 188,
+    /// Patch slot 17 amount, −1..=1.
+    Patch17Amount = 189,
+    /// Patch slot 18 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch18Source = 190,
+    /// Patch slot 18 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch18Dest = 191,
+    /// Patch slot 18 amount, −1..=1.
+    Patch18Amount = 192,
+    /// Patch slot 19 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch19Source = 193,
+    /// Patch slot 19 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch19Dest = 194,
+    /// Patch slot 19 amount, −1..=1.
+    Patch19Amount = 195,
+    /// Patch slot 20 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch20Source = 196,
+    /// Patch slot 20 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch20Dest = 197,
+    /// Patch slot 20 amount, −1..=1.
+    Patch20Amount = 198,
+    /// Wavetable of the first table oscillator, 0..=7 (the PPG Wave).
+    Wt1Table = 199,
+    /// Wave position of the first oscillator in its table, 0..=1.
+    Wt1Pos = 200,
+    /// Wavetable of the second oscillator, 0..=7.
+    Wt2Table = 201,
+    /// Wave position of the second oscillator, 0..=1.
+    Wt2Pos = 202,
+    /// Stepped wave positions when ≥ 0.5, as the PPG's, instead of a crossfade.
+    WtSteps = 203,
+    /// Filter envelope → wave position of both oscillators, −1..=1.
+    EnvWt = 204,
+    /// LFO → wave position of both oscillators, 0..=1.
+    LfoWt = 205,
+    /// Partial 1's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample (the D-50).
+    Pcm1Sample = 206,
+    /// Partial 2's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample.
+    Pcm2Sample = 207,
+    /// How the two partials combine: 0 add, 1 sync (partial 2 to 1), 2 ring (1 × 2).
+    Structure = 208,
+    /// Partial 2's filter cutoff in Hz, 20..=20000.
+    P2Cutoff = 209,
+    /// Partial 2's filter resonance, 0..=1.
+    P2Resonance = 210,
+    /// Partial 2's filter envelope amount, −1..=1 (±4 octaves).
+    P2EnvCutoff = 211,
+    /// Partial 2's filter envelope attack, decay and release in seconds, 0.001..=10.
+    P2FenvAttack = 212,
+    P2FenvDecay = 213,
+    /// Partial 2's filter envelope sustain level, 0..=1.
+    P2FenvSustain = 214,
+    P2FenvRelease = 215,
+    /// Partial 2's amplifier envelope attack, decay and release in seconds, 0.001..=10.
+    P2AdsrAttack = 216,
+    P2AdsrDecay = 217,
+    /// Partial 2's amplifier envelope sustain level, 0..=1.
+    P2AdsrSustain = 218,
+    P2AdsrRelease = 219,
+    /// Operator 1 Rate 1, 0..=99.
+    Op1R1 = 220,
+    /// Operator 1 Rate 2, 0..=99.
+    Op1R2 = 221,
+    /// Operator 1 Rate 3, 0..=99.
+    Op1R3 = 222,
+    /// Operator 1 Rate 4, 0..=99.
+    Op1R4 = 223,
+    /// Operator 1 Level 1, 0..=99.
+    Op1L1 = 224,
+    /// Operator 1 Level 2, 0..=99.
+    Op1L2 = 225,
+    /// Operator 1 Level 3, 0..=99.
+    Op1L3 = 226,
+    /// Operator 1 Level 4, 0..=99.
+    Op1L4 = 227,
+    /// Operator 1 level scaling break point, 0..=99.
+    Op1BreakPoint = 228,
+    /// Operator 1 level scaling depth to the left, 0..=99.
+    Op1LeftDepth = 229,
+    /// Operator 1 level scaling depth to the right, 0..=99.
+    Op1RightDepth = 230,
+    /// Operator 1 level scaling curve to the left (−lin, −exp, +exp, +lin), 0..=3.
+    Op1LeftCurve = 231,
+    /// Operator 1 level scaling curve to the right, 0..=3.
+    Op1RightCurve = 232,
+    /// Operator 1 rate scaling, 0..=7.
+    Op1RateScale = 233,
+    /// Operator 1 amplitude modulation sensitivity, 0..=3.
+    Op1AmpSens = 234,
+    /// Operator 1 velocity sensitivity, 0..=7.
+    Op1VelSens = 235,
+    /// Operator 1 output level, 0..=99.
+    Op1Level = 236,
+    /// Operator 1 frequency mode (0 ratio, 1 fixed), 0..=1.
+    Op1Mode = 237,
+    /// Operator 1 coarse frequency, 0..=31.
+    Op1Coarse = 238,
+    /// Operator 1 fine frequency, 0..=99.
+    Op1Fine = 239,
+    /// Operator 1 detune (7 is centre), 0..=14.
+    Op1Detune = 240,
+    /// Operator 2 Rate 1, 0..=99.
+    Op2R1 = 241,
+    /// Operator 2 Rate 2, 0..=99.
+    Op2R2 = 242,
+    /// Operator 2 Rate 3, 0..=99.
+    Op2R3 = 243,
+    /// Operator 2 Rate 4, 0..=99.
+    Op2R4 = 244,
+    /// Operator 2 Level 1, 0..=99.
+    Op2L1 = 245,
+    /// Operator 2 Level 2, 0..=99.
+    Op2L2 = 246,
+    /// Operator 2 Level 3, 0..=99.
+    Op2L3 = 247,
+    /// Operator 2 Level 4, 0..=99.
+    Op2L4 = 248,
+    /// Operator 2 level scaling break point, 0..=99.
+    Op2BreakPoint = 249,
+    /// Operator 2 level scaling depth to the left, 0..=99.
+    Op2LeftDepth = 250,
+    /// Operator 2 level scaling depth to the right, 0..=99.
+    Op2RightDepth = 251,
+    /// Operator 2 level scaling curve to the left (−lin, −exp, +exp, +lin), 0..=3.
+    Op2LeftCurve = 252,
+    /// Operator 2 level scaling curve to the right, 0..=3.
+    Op2RightCurve = 253,
+    /// Operator 2 rate scaling, 0..=7.
+    Op2RateScale = 254,
+    /// Operator 2 amplitude modulation sensitivity, 0..=3.
+    Op2AmpSens = 255,
+    /// Operator 2 velocity sensitivity, 0..=7.
+    Op2VelSens = 256,
+    /// Operator 2 output level, 0..=99.
+    Op2Level = 257,
+    /// Operator 2 frequency mode (0 ratio, 1 fixed), 0..=1.
+    Op2Mode = 258,
+    /// Operator 2 coarse frequency, 0..=31.
+    Op2Coarse = 259,
+    /// Operator 2 fine frequency, 0..=99.
+    Op2Fine = 260,
+    /// Operator 2 detune (7 is centre), 0..=14.
+    Op2Detune = 261,
+    /// Operator 3 Rate 1, 0..=99.
+    Op3R1 = 262,
+    /// Operator 3 Rate 2, 0..=99.
+    Op3R2 = 263,
+    /// Operator 3 Rate 3, 0..=99.
+    Op3R3 = 264,
+    /// Operator 3 Rate 4, 0..=99.
+    Op3R4 = 265,
+    /// Operator 3 Level 1, 0..=99.
+    Op3L1 = 266,
+    /// Operator 3 Level 2, 0..=99.
+    Op3L2 = 267,
+    /// Operator 3 Level 3, 0..=99.
+    Op3L3 = 268,
+    /// Operator 3 Level 4, 0..=99.
+    Op3L4 = 269,
+    /// Operator 3 level scaling break point, 0..=99.
+    Op3BreakPoint = 270,
+    /// Operator 3 level scaling depth to the left, 0..=99.
+    Op3LeftDepth = 271,
+    /// Operator 3 level scaling depth to the right, 0..=99.
+    Op3RightDepth = 272,
+    /// Operator 3 level scaling curve to the left (−lin, −exp, +exp, +lin), 0..=3.
+    Op3LeftCurve = 273,
+    /// Operator 3 level scaling curve to the right, 0..=3.
+    Op3RightCurve = 274,
+    /// Operator 3 rate scaling, 0..=7.
+    Op3RateScale = 275,
+    /// Operator 3 amplitude modulation sensitivity, 0..=3.
+    Op3AmpSens = 276,
+    /// Operator 3 velocity sensitivity, 0..=7.
+    Op3VelSens = 277,
+    /// Operator 3 output level, 0..=99.
+    Op3Level = 278,
+    /// Operator 3 frequency mode (0 ratio, 1 fixed), 0..=1.
+    Op3Mode = 279,
+    /// Operator 3 coarse frequency, 0..=31.
+    Op3Coarse = 280,
+    /// Operator 3 fine frequency, 0..=99.
+    Op3Fine = 281,
+    /// Operator 3 detune (7 is centre), 0..=14.
+    Op3Detune = 282,
+    /// Operator 4 Rate 1, 0..=99.
+    Op4R1 = 283,
+    /// Operator 4 Rate 2, 0..=99.
+    Op4R2 = 284,
+    /// Operator 4 Rate 3, 0..=99.
+    Op4R3 = 285,
+    /// Operator 4 Rate 4, 0..=99.
+    Op4R4 = 286,
+    /// Operator 4 Level 1, 0..=99.
+    Op4L1 = 287,
+    /// Operator 4 Level 2, 0..=99.
+    Op4L2 = 288,
+    /// Operator 4 Level 3, 0..=99.
+    Op4L3 = 289,
+    /// Operator 4 Level 4, 0..=99.
+    Op4L4 = 290,
+    /// Operator 4 level scaling break point, 0..=99.
+    Op4BreakPoint = 291,
+    /// Operator 4 level scaling depth to the left, 0..=99.
+    Op4LeftDepth = 292,
+    /// Operator 4 level scaling depth to the right, 0..=99.
+    Op4RightDepth = 293,
+    /// Operator 4 level scaling curve to the left (−lin, −exp, +exp, +lin), 0..=3.
+    Op4LeftCurve = 294,
+    /// Operator 4 level scaling curve to the right, 0..=3.
+    Op4RightCurve = 295,
+    /// Operator 4 rate scaling, 0..=7.
+    Op4RateScale = 296,
+    /// Operator 4 amplitude modulation sensitivity, 0..=3.
+    Op4AmpSens = 297,
+    /// Operator 4 velocity sensitivity, 0..=7.
+    Op4VelSens = 298,
+    /// Operator 4 output level, 0..=99.
+    Op4Level = 299,
+    /// Operator 4 frequency mode (0 ratio, 1 fixed), 0..=1.
+    Op4Mode = 300,
+    /// Operator 4 coarse frequency, 0..=31.
+    Op4Coarse = 301,
+    /// Operator 4 fine frequency, 0..=99.
+    Op4Fine = 302,
+    /// Operator 4 detune (7 is centre), 0..=14.
+    Op4Detune = 303,
+    /// Operator 5 Rate 1, 0..=99.
+    Op5R1 = 304,
+    /// Operator 5 Rate 2, 0..=99.
+    Op5R2 = 305,
+    /// Operator 5 Rate 3, 0..=99.
+    Op5R3 = 306,
+    /// Operator 5 Rate 4, 0..=99.
+    Op5R4 = 307,
+    /// Operator 5 Level 1, 0..=99.
+    Op5L1 = 308,
+    /// Operator 5 Level 2, 0..=99.
+    Op5L2 = 309,
+    /// Operator 5 Level 3, 0..=99.
+    Op5L3 = 310,
+    /// Operator 5 Level 4, 0..=99.
+    Op5L4 = 311,
+    /// Operator 5 level scaling break point, 0..=99.
+    Op5BreakPoint = 312,
+    /// Operator 5 level scaling depth to the left, 0..=99.
+    Op5LeftDepth = 313,
+    /// Operator 5 level scaling depth to the right, 0..=99.
+    Op5RightDepth = 314,
+    /// Operator 5 level scaling curve to the left (−lin, −exp, +exp, +lin), 0..=3.
+    Op5LeftCurve = 315,
+    /// Operator 5 level scaling curve to the right, 0..=3.
+    Op5RightCurve = 316,
+    /// Operator 5 rate scaling, 0..=7.
+    Op5RateScale = 317,
+    /// Operator 5 amplitude modulation sensitivity, 0..=3.
+    Op5AmpSens = 318,
+    /// Operator 5 velocity sensitivity, 0..=7.
+    Op5VelSens = 319,
+    /// Operator 5 output level, 0..=99.
+    Op5Level = 320,
+    /// Operator 5 frequency mode (0 ratio, 1 fixed), 0..=1.
+    Op5Mode = 321,
+    /// Operator 5 coarse frequency, 0..=31.
+    Op5Coarse = 322,
+    /// Operator 5 fine frequency, 0..=99.
+    Op5Fine = 323,
+    /// Operator 5 detune (7 is centre), 0..=14.
+    Op5Detune = 324,
+    /// Operator 6 Rate 1, 0..=99.
+    Op6R1 = 325,
+    /// Operator 6 Rate 2, 0..=99.
+    Op6R2 = 326,
+    /// Operator 6 Rate 3, 0..=99.
+    Op6R3 = 327,
+    /// Operator 6 Rate 4, 0..=99.
+    Op6R4 = 328,
+    /// Operator 6 Level 1, 0..=99.
+    Op6L1 = 329,
+    /// Operator 6 Level 2, 0..=99.
+    Op6L2 = 330,
+    /// Operator 6 Level 3, 0..=99.
+    Op6L3 = 331,
+    /// Operator 6 Level 4, 0..=99.
+    Op6L4 = 332,
+    /// Operator 6 level scaling break point, 0..=99.
+    Op6BreakPoint = 333,
+    /// Operator 6 level scaling depth to the left, 0..=99.
+    Op6LeftDepth = 334,
+    /// Operator 6 level scaling depth to the right, 0..=99.
+    Op6RightDepth = 335,
+    /// Operator 6 level scaling curve to the left (−lin, −exp, +exp, +lin), 0..=3.
+    Op6LeftCurve = 336,
+    /// Operator 6 level scaling curve to the right, 0..=3.
+    Op6RightCurve = 337,
+    /// Operator 6 rate scaling, 0..=7.
+    Op6RateScale = 338,
+    /// Operator 6 amplitude modulation sensitivity, 0..=3.
+    Op6AmpSens = 339,
+    /// Operator 6 velocity sensitivity, 0..=7.
+    Op6VelSens = 340,
+    /// Operator 6 output level, 0..=99.
+    Op6Level = 341,
+    /// Operator 6 frequency mode (0 ratio, 1 fixed), 0..=1.
+    Op6Mode = 342,
+    /// Operator 6 coarse frequency, 0..=31.
+    Op6Coarse = 343,
+    /// Operator 6 fine frequency, 0..=99.
+    Op6Fine = 344,
+    /// Operator 6 detune (7 is centre), 0..=14.
+    Op6Detune = 345,
+    /// Pitch envelope rate 1, 0..=99.
+    PitchR1 = 346,
+    /// Pitch envelope rate 2, 0..=99.
+    PitchR2 = 347,
+    /// Pitch envelope rate 3, 0..=99.
+    PitchR3 = 348,
+    /// Pitch envelope rate 4, 0..=99.
+    PitchR4 = 349,
+    /// Pitch envelope level 1, 0..=99.
+    PitchL1 = 350,
+    /// Pitch envelope level 2, 0..=99.
+    PitchL2 = 351,
+    /// Pitch envelope level 3, 0..=99.
+    PitchL3 = 352,
+    /// Pitch envelope level 4, 0..=99.
+    PitchL4 = 353,
+    /// Algorithm (0 is algorithm 1), 0..=31.
+    Algorithm = 354,
+    /// Operator 6 feedback, 0..=7.
+    Feedback = 355,
+    /// Oscillator key sync, 0..=1.
+    OscSync = 356,
+    /// LFO speed, 0..=99.
+    LfoSpeed = 357,
+    /// LFO delay, 0..=99.
+    LfoDelay = 358,
+    /// LFO pitch modulation depth, 0..=99.
+    LfoPitchDepth = 359,
+    /// LFO amplitude modulation depth, 0..=99.
+    LfoAmpDepth = 360,
+    /// LFO key sync, 0..=1.
+    LfoSync = 361,
+    /// LFO waveform (triangle, saw down, saw up, square, sine, sample and hold), 0..=5.
+    LfoShape = 362,
+    /// Pitch modulation sensitivity, 0..=7.
+    PitchSens = 363,
+    /// Transpose, 24 is the middle C, 0..=48.
+    Transpose = 364,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -394,7 +816,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 153] = [
+    pub const ALL: [(Param, &'static str); 365] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -548,6 +970,218 @@ impl Param {
         (Param::P2In, "P2In"),
         (Param::P3In, "P3In"),
         (Param::P4In, "P4In"),
+        (Param::Polyphony, "Polyphony"),
+        (Param::Assign, "Assign"),
+        (Param::UnisonDetune, "UnisonDetune"),
+        (Param::Analog, "Analog"),
+        (Param::ChorusMode, "ChorusMode"),
+        (Param::XMod, "XMod"),
+        (Param::Slope, "Slope"),
+        (Param::Lfo2Rate, "Lfo2Rate"),
+        (Param::Lfo2Wave, "Lfo2Wave"),
+        (Param::RampTime, "RampTime"),
+        (Param::Patch9Source, "Patch9Source"),
+        (Param::Patch9Dest, "Patch9Dest"),
+        (Param::Patch9Amount, "Patch9Amount"),
+        (Param::Patch10Source, "Patch10Source"),
+        (Param::Patch10Dest, "Patch10Dest"),
+        (Param::Patch10Amount, "Patch10Amount"),
+        (Param::Patch11Source, "Patch11Source"),
+        (Param::Patch11Dest, "Patch11Dest"),
+        (Param::Patch11Amount, "Patch11Amount"),
+        (Param::Patch12Source, "Patch12Source"),
+        (Param::Patch12Dest, "Patch12Dest"),
+        (Param::Patch12Amount, "Patch12Amount"),
+        (Param::Patch13Source, "Patch13Source"),
+        (Param::Patch13Dest, "Patch13Dest"),
+        (Param::Patch13Amount, "Patch13Amount"),
+        (Param::Patch14Source, "Patch14Source"),
+        (Param::Patch14Dest, "Patch14Dest"),
+        (Param::Patch14Amount, "Patch14Amount"),
+        (Param::Patch15Source, "Patch15Source"),
+        (Param::Patch15Dest, "Patch15Dest"),
+        (Param::Patch15Amount, "Patch15Amount"),
+        (Param::Patch16Source, "Patch16Source"),
+        (Param::Patch16Dest, "Patch16Dest"),
+        (Param::Patch16Amount, "Patch16Amount"),
+        (Param::Patch17Source, "Patch17Source"),
+        (Param::Patch17Dest, "Patch17Dest"),
+        (Param::Patch17Amount, "Patch17Amount"),
+        (Param::Patch18Source, "Patch18Source"),
+        (Param::Patch18Dest, "Patch18Dest"),
+        (Param::Patch18Amount, "Patch18Amount"),
+        (Param::Patch19Source, "Patch19Source"),
+        (Param::Patch19Dest, "Patch19Dest"),
+        (Param::Patch19Amount, "Patch19Amount"),
+        (Param::Patch20Source, "Patch20Source"),
+        (Param::Patch20Dest, "Patch20Dest"),
+        (Param::Patch20Amount, "Patch20Amount"),
+        (Param::Wt1Table, "Wt1Table"),
+        (Param::Wt1Pos, "Wt1Pos"),
+        (Param::Wt2Table, "Wt2Table"),
+        (Param::Wt2Pos, "Wt2Pos"),
+        (Param::WtSteps, "WtSteps"),
+        (Param::EnvWt, "EnvWt"),
+        (Param::LfoWt, "LfoWt"),
+        (Param::Pcm1Sample, "Pcm1Sample"),
+        (Param::Pcm2Sample, "Pcm2Sample"),
+        (Param::Structure, "Structure"),
+        (Param::P2Cutoff, "P2Cutoff"),
+        (Param::P2Resonance, "P2Resonance"),
+        (Param::P2EnvCutoff, "P2EnvCutoff"),
+        (Param::P2FenvAttack, "P2FenvAttack"),
+        (Param::P2FenvDecay, "P2FenvDecay"),
+        (Param::P2FenvSustain, "P2FenvSustain"),
+        (Param::P2FenvRelease, "P2FenvRelease"),
+        (Param::P2AdsrAttack, "P2AdsrAttack"),
+        (Param::P2AdsrDecay, "P2AdsrDecay"),
+        (Param::P2AdsrSustain, "P2AdsrSustain"),
+        (Param::P2AdsrRelease, "P2AdsrRelease"),
+        (Param::Op1R1, "Op1R1"),
+        (Param::Op1R2, "Op1R2"),
+        (Param::Op1R3, "Op1R3"),
+        (Param::Op1R4, "Op1R4"),
+        (Param::Op1L1, "Op1L1"),
+        (Param::Op1L2, "Op1L2"),
+        (Param::Op1L3, "Op1L3"),
+        (Param::Op1L4, "Op1L4"),
+        (Param::Op1BreakPoint, "Op1BreakPoint"),
+        (Param::Op1LeftDepth, "Op1LeftDepth"),
+        (Param::Op1RightDepth, "Op1RightDepth"),
+        (Param::Op1LeftCurve, "Op1LeftCurve"),
+        (Param::Op1RightCurve, "Op1RightCurve"),
+        (Param::Op1RateScale, "Op1RateScale"),
+        (Param::Op1AmpSens, "Op1AmpSens"),
+        (Param::Op1VelSens, "Op1VelSens"),
+        (Param::Op1Level, "Op1Level"),
+        (Param::Op1Mode, "Op1Mode"),
+        (Param::Op1Coarse, "Op1Coarse"),
+        (Param::Op1Fine, "Op1Fine"),
+        (Param::Op1Detune, "Op1Detune"),
+        (Param::Op2R1, "Op2R1"),
+        (Param::Op2R2, "Op2R2"),
+        (Param::Op2R3, "Op2R3"),
+        (Param::Op2R4, "Op2R4"),
+        (Param::Op2L1, "Op2L1"),
+        (Param::Op2L2, "Op2L2"),
+        (Param::Op2L3, "Op2L3"),
+        (Param::Op2L4, "Op2L4"),
+        (Param::Op2BreakPoint, "Op2BreakPoint"),
+        (Param::Op2LeftDepth, "Op2LeftDepth"),
+        (Param::Op2RightDepth, "Op2RightDepth"),
+        (Param::Op2LeftCurve, "Op2LeftCurve"),
+        (Param::Op2RightCurve, "Op2RightCurve"),
+        (Param::Op2RateScale, "Op2RateScale"),
+        (Param::Op2AmpSens, "Op2AmpSens"),
+        (Param::Op2VelSens, "Op2VelSens"),
+        (Param::Op2Level, "Op2Level"),
+        (Param::Op2Mode, "Op2Mode"),
+        (Param::Op2Coarse, "Op2Coarse"),
+        (Param::Op2Fine, "Op2Fine"),
+        (Param::Op2Detune, "Op2Detune"),
+        (Param::Op3R1, "Op3R1"),
+        (Param::Op3R2, "Op3R2"),
+        (Param::Op3R3, "Op3R3"),
+        (Param::Op3R4, "Op3R4"),
+        (Param::Op3L1, "Op3L1"),
+        (Param::Op3L2, "Op3L2"),
+        (Param::Op3L3, "Op3L3"),
+        (Param::Op3L4, "Op3L4"),
+        (Param::Op3BreakPoint, "Op3BreakPoint"),
+        (Param::Op3LeftDepth, "Op3LeftDepth"),
+        (Param::Op3RightDepth, "Op3RightDepth"),
+        (Param::Op3LeftCurve, "Op3LeftCurve"),
+        (Param::Op3RightCurve, "Op3RightCurve"),
+        (Param::Op3RateScale, "Op3RateScale"),
+        (Param::Op3AmpSens, "Op3AmpSens"),
+        (Param::Op3VelSens, "Op3VelSens"),
+        (Param::Op3Level, "Op3Level"),
+        (Param::Op3Mode, "Op3Mode"),
+        (Param::Op3Coarse, "Op3Coarse"),
+        (Param::Op3Fine, "Op3Fine"),
+        (Param::Op3Detune, "Op3Detune"),
+        (Param::Op4R1, "Op4R1"),
+        (Param::Op4R2, "Op4R2"),
+        (Param::Op4R3, "Op4R3"),
+        (Param::Op4R4, "Op4R4"),
+        (Param::Op4L1, "Op4L1"),
+        (Param::Op4L2, "Op4L2"),
+        (Param::Op4L3, "Op4L3"),
+        (Param::Op4L4, "Op4L4"),
+        (Param::Op4BreakPoint, "Op4BreakPoint"),
+        (Param::Op4LeftDepth, "Op4LeftDepth"),
+        (Param::Op4RightDepth, "Op4RightDepth"),
+        (Param::Op4LeftCurve, "Op4LeftCurve"),
+        (Param::Op4RightCurve, "Op4RightCurve"),
+        (Param::Op4RateScale, "Op4RateScale"),
+        (Param::Op4AmpSens, "Op4AmpSens"),
+        (Param::Op4VelSens, "Op4VelSens"),
+        (Param::Op4Level, "Op4Level"),
+        (Param::Op4Mode, "Op4Mode"),
+        (Param::Op4Coarse, "Op4Coarse"),
+        (Param::Op4Fine, "Op4Fine"),
+        (Param::Op4Detune, "Op4Detune"),
+        (Param::Op5R1, "Op5R1"),
+        (Param::Op5R2, "Op5R2"),
+        (Param::Op5R3, "Op5R3"),
+        (Param::Op5R4, "Op5R4"),
+        (Param::Op5L1, "Op5L1"),
+        (Param::Op5L2, "Op5L2"),
+        (Param::Op5L3, "Op5L3"),
+        (Param::Op5L4, "Op5L4"),
+        (Param::Op5BreakPoint, "Op5BreakPoint"),
+        (Param::Op5LeftDepth, "Op5LeftDepth"),
+        (Param::Op5RightDepth, "Op5RightDepth"),
+        (Param::Op5LeftCurve, "Op5LeftCurve"),
+        (Param::Op5RightCurve, "Op5RightCurve"),
+        (Param::Op5RateScale, "Op5RateScale"),
+        (Param::Op5AmpSens, "Op5AmpSens"),
+        (Param::Op5VelSens, "Op5VelSens"),
+        (Param::Op5Level, "Op5Level"),
+        (Param::Op5Mode, "Op5Mode"),
+        (Param::Op5Coarse, "Op5Coarse"),
+        (Param::Op5Fine, "Op5Fine"),
+        (Param::Op5Detune, "Op5Detune"),
+        (Param::Op6R1, "Op6R1"),
+        (Param::Op6R2, "Op6R2"),
+        (Param::Op6R3, "Op6R3"),
+        (Param::Op6R4, "Op6R4"),
+        (Param::Op6L1, "Op6L1"),
+        (Param::Op6L2, "Op6L2"),
+        (Param::Op6L3, "Op6L3"),
+        (Param::Op6L4, "Op6L4"),
+        (Param::Op6BreakPoint, "Op6BreakPoint"),
+        (Param::Op6LeftDepth, "Op6LeftDepth"),
+        (Param::Op6RightDepth, "Op6RightDepth"),
+        (Param::Op6LeftCurve, "Op6LeftCurve"),
+        (Param::Op6RightCurve, "Op6RightCurve"),
+        (Param::Op6RateScale, "Op6RateScale"),
+        (Param::Op6AmpSens, "Op6AmpSens"),
+        (Param::Op6VelSens, "Op6VelSens"),
+        (Param::Op6Level, "Op6Level"),
+        (Param::Op6Mode, "Op6Mode"),
+        (Param::Op6Coarse, "Op6Coarse"),
+        (Param::Op6Fine, "Op6Fine"),
+        (Param::Op6Detune, "Op6Detune"),
+        (Param::PitchR1, "PitchR1"),
+        (Param::PitchR2, "PitchR2"),
+        (Param::PitchR3, "PitchR3"),
+        (Param::PitchR4, "PitchR4"),
+        (Param::PitchL1, "PitchL1"),
+        (Param::PitchL2, "PitchL2"),
+        (Param::PitchL3, "PitchL3"),
+        (Param::PitchL4, "PitchL4"),
+        (Param::Algorithm, "Algorithm"),
+        (Param::Feedback, "Feedback"),
+        (Param::OscSync, "OscSync"),
+        (Param::LfoSpeed, "LfoSpeed"),
+        (Param::LfoDelay, "LfoDelay"),
+        (Param::LfoPitchDepth, "LfoPitchDepth"),
+        (Param::LfoAmpDepth, "LfoAmpDepth"),
+        (Param::LfoSync, "LfoSync"),
+        (Param::LfoShape, "LfoShape"),
+        (Param::PitchSens, "PitchSens"),
+        (Param::Transpose, "Transpose"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -689,12 +1323,219 @@ impl Param {
             | Param::ModWheel
             | Param::LfoCutoff
             | Param::LfoPw => (0.0, 1.0),
-            Param::Model => (0.0, 6.0),
+            Param::Model => (0.0, (crate::mono::model::Model::ALL.len() - 1) as f32),
             Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::Out => (0.0, 8.0),
             Param::P2In | Param::P3In | Param::P4In => (0.0, 1.0),
+            Param::Polyphony => (1.0, 16.0),
+            Param::Assign => (0.0, 1.0),
+            Param::ChorusMode => (0.0, 3.0),
+            Param::XMod | Param::Slope => (0.0, 1.0),
+            Param::Wt1Table | Param::Wt2Table => (0.0, 7.0),
+            Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),
+            Param::WtSteps => (0.0, 1.0),
+            Param::EnvWt => (-1.0, 1.0),
+            Param::Pcm1Sample => (0.0, 8.0),
+            Param::Pcm2Sample => (0.0, 8.0),
+            Param::Structure => (0.0, 2.0),
+            Param::P2Cutoff => (20.0, 20_000.0),
+            Param::P2Resonance => (0.0, 1.0),
+            Param::P2EnvCutoff => (-1.0, 1.0),
+            Param::P2FenvAttack => (0.001, 10.0),
+            Param::P2FenvDecay => (0.001, 10.0),
+            Param::P2FenvSustain => (0.0, 1.0),
+            Param::P2FenvRelease => (0.001, 10.0),
+            Param::P2AdsrAttack => (0.001, 10.0),
+            Param::P2AdsrDecay => (0.001, 10.0),
+            Param::P2AdsrSustain => (0.0, 1.0),
+            Param::P2AdsrRelease => (0.001, 10.0),
+            Param::Op1R1
+            | Param::Op1R2
+            | Param::Op1R3
+            | Param::Op1R4
+            | Param::Op1L1
+            | Param::Op1L2
+            | Param::Op1L3
+            | Param::Op1L4
+            | Param::Op1BreakPoint
+            | Param::Op1LeftDepth
+            | Param::Op1RightDepth
+            | Param::Op1Level
+            | Param::Op1Fine
+            | Param::Op2R1
+            | Param::Op2R2
+            | Param::Op2R3
+            | Param::Op2R4
+            | Param::Op2L1
+            | Param::Op2L2
+            | Param::Op2L3
+            | Param::Op2L4
+            | Param::Op2BreakPoint
+            | Param::Op2LeftDepth
+            | Param::Op2RightDepth
+            | Param::Op2Level
+            | Param::Op2Fine
+            | Param::Op3R1
+            | Param::Op3R2
+            | Param::Op3R3
+            | Param::Op3R4
+            | Param::Op3L1
+            | Param::Op3L2
+            | Param::Op3L3
+            | Param::Op3L4
+            | Param::Op3BreakPoint
+            | Param::Op3LeftDepth
+            | Param::Op3RightDepth
+            | Param::Op3Level
+            | Param::Op3Fine
+            | Param::Op4R1
+            | Param::Op4R2
+            | Param::Op4R3
+            | Param::Op4R4
+            | Param::Op4L1
+            | Param::Op4L2
+            | Param::Op4L3
+            | Param::Op4L4
+            | Param::Op4BreakPoint
+            | Param::Op4LeftDepth
+            | Param::Op4RightDepth
+            | Param::Op4Level
+            | Param::Op4Fine
+            | Param::Op5R1
+            | Param::Op5R2
+            | Param::Op5R3
+            | Param::Op5R4
+            | Param::Op5L1
+            | Param::Op5L2
+            | Param::Op5L3
+            | Param::Op5L4
+            | Param::Op5BreakPoint
+            | Param::Op5LeftDepth
+            | Param::Op5RightDepth
+            | Param::Op5Level
+            | Param::Op5Fine
+            | Param::Op6R1
+            | Param::Op6R2
+            | Param::Op6R3
+            | Param::Op6R4
+            | Param::Op6L1
+            | Param::Op6L2
+            | Param::Op6L3
+            | Param::Op6L4
+            | Param::Op6BreakPoint
+            | Param::Op6LeftDepth
+            | Param::Op6RightDepth
+            | Param::Op6Level
+            | Param::Op6Fine
+            | Param::PitchR1
+            | Param::PitchR2
+            | Param::PitchR3
+            | Param::PitchR4
+            | Param::PitchL1
+            | Param::PitchL2
+            | Param::PitchL3
+            | Param::PitchL4
+            | Param::LfoSpeed
+            | Param::LfoDelay
+            | Param::LfoPitchDepth
+            | Param::LfoAmpDepth => (0.0, 99.0),
+            Param::Op1LeftCurve
+            | Param::Op1RightCurve
+            | Param::Op1AmpSens
+            | Param::Op2LeftCurve
+            | Param::Op2RightCurve
+            | Param::Op2AmpSens
+            | Param::Op3LeftCurve
+            | Param::Op3RightCurve
+            | Param::Op3AmpSens
+            | Param::Op4LeftCurve
+            | Param::Op4RightCurve
+            | Param::Op4AmpSens
+            | Param::Op5LeftCurve
+            | Param::Op5RightCurve
+            | Param::Op5AmpSens
+            | Param::Op6LeftCurve
+            | Param::Op6RightCurve
+            | Param::Op6AmpSens => (0.0, 3.0),
+            Param::Op1RateScale
+            | Param::Op1VelSens
+            | Param::Op2RateScale
+            | Param::Op2VelSens
+            | Param::Op3RateScale
+            | Param::Op3VelSens
+            | Param::Op4RateScale
+            | Param::Op4VelSens
+            | Param::Op5RateScale
+            | Param::Op5VelSens
+            | Param::Op6RateScale
+            | Param::Op6VelSens
+            | Param::Feedback
+            | Param::PitchSens => (0.0, 7.0),
+            Param::Op1Mode
+            | Param::Op2Mode
+            | Param::Op3Mode
+            | Param::Op4Mode
+            | Param::Op5Mode
+            | Param::Op6Mode
+            | Param::OscSync
+            | Param::LfoSync => (0.0, 1.0),
+            Param::Op1Coarse
+            | Param::Op2Coarse
+            | Param::Op3Coarse
+            | Param::Op4Coarse
+            | Param::Op5Coarse
+            | Param::Op6Coarse
+            | Param::Algorithm => (0.0, 31.0),
+            Param::Op1Detune
+            | Param::Op2Detune
+            | Param::Op3Detune
+            | Param::Op4Detune
+            | Param::Op5Detune
+            | Param::Op6Detune => (0.0, 14.0),
+            Param::LfoShape => (0.0, 5.0),
+            Param::Transpose => (0.0, 48.0),
+            Param::Lfo2Rate => (0.01, 50.0),
+            Param::Lfo2Wave => (0.0, 3.0),
+            Param::RampTime => (0.01, 30.0),
+            Param::Patch9Source
+            | Param::Patch9Dest
+            | Param::Patch10Source
+            | Param::Patch10Dest
+            | Param::Patch11Source
+            | Param::Patch11Dest
+            | Param::Patch12Source
+            | Param::Patch12Dest
+            | Param::Patch13Source
+            | Param::Patch13Dest
+            | Param::Patch14Source
+            | Param::Patch14Dest
+            | Param::Patch15Source
+            | Param::Patch15Dest
+            | Param::Patch16Source
+            | Param::Patch16Dest
+            | Param::Patch17Source
+            | Param::Patch17Dest
+            | Param::Patch18Source
+            | Param::Patch18Dest
+            | Param::Patch19Source
+            | Param::Patch19Dest
+            | Param::Patch20Source
+            | Param::Patch20Dest => (0.0, 255.0),
+            Param::Patch9Amount
+            | Param::Patch10Amount
+            | Param::Patch11Amount
+            | Param::Patch12Amount
+            | Param::Patch13Amount
+            | Param::Patch14Amount
+            | Param::Patch15Amount
+            | Param::Patch16Amount
+            | Param::Patch17Amount
+            | Param::Patch18Amount
+            | Param::Patch19Amount
+            | Param::Patch20Amount => (-1.0, 1.0),
+            Param::UnisonDetune | Param::Analog => (0.0, 1.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),
             Param::I1B => (0.0, 1.0),

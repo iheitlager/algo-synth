@@ -2,10 +2,11 @@
 
 An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. For now it is a family of six monosynths (ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101) and a MIDI player, on the way to six different synths playing Vivaldi; the sequencer, more sources and algo loops come after (ADR-0008).
 
-## Version: 0.16.0
+## Version: 0.17.0
 
 - **Mono:** one shared voice: three band-limited VCOs, ring mod and sub, noise, a 4-pole ladder or a 12 dB high-pass/low-pass pair, ADSR, filter ADSR and AR, LFO, normalled routing with patch overrides, poly-mod.
 - **Up to 16 synths, seven models:** add synths as you need them, each an ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 or Odyssey with its own faceplate (knobs, envelope curves, patch bay), colours and patch. A MIDI file plays each part on its own synth, on the way to six different synths playing Vivaldi.
+- **Polyphony:** each synth owns a pool of up to 16 voices (a global budget of 64) with unison, analog drift and a stereo chorus. Eight polyphonic models join the family: Prophet-5, Juno-106, Jupiter-8, Matrix-12 (with its modulation matrix), PPG Wave (wavetables), Roland D-50 (LA synthesis), Yamaha DX7 (six-operator FM, loads `.syx` voices and banks) and the Polymoog, each with presets and its own faceplate.
 - **Setups:** save the synths, their models, patches and routing as `<song>.synths.json` next to the MIDI file, and open both together.
 - **No backend:** the container serves static files.
 

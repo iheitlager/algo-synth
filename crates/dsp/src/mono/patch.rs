@@ -35,10 +35,14 @@ pub enum ModSource {
     Key = 11,
     /// The filter ADSR (spec 004 Req 12).
     Fenv = 12,
+    /// The second LFO (the Matrix-12, spec 006 Req 9).
+    Lfo2 = 13,
+    /// A ramp from 0 to 1 over `RampTime` from each note's start.
+    Ramp = 14,
 }
 
 impl ModSource {
-    pub const ALL: [(ModSource, &'static str); 13] = [
+    pub const ALL: [(ModSource, &'static str); 15] = [
         (ModSource::None, "None"),
         (ModSource::Vco1, "Vco1"),
         (ModSource::Vco2, "Vco2"),
@@ -52,6 +56,8 @@ impl ModSource {
         (ModSource::Velocity, "Velocity"),
         (ModSource::Key, "Key"),
         (ModSource::Fenv, "Fenv"),
+        (ModSource::Lfo2, "Lfo2"),
+        (ModSource::Ramp, "Ramp"),
     ];
 
     /// The source for a raw id, or `None` for an unknown one.
@@ -78,10 +84,14 @@ pub enum ModDest {
     Resonance = 6,
     Vca = 7,
     LfoRate = 8,
+    /// The high-pass cutoff, in semitones (the Matrix-12).
+    HpCutoff = 9,
+    /// The second LFO's rate, in octaves.
+    Lfo2Rate = 10,
 }
 
 impl ModDest {
-    pub const ALL: [(ModDest, &'static str); 9] = [
+    pub const ALL: [(ModDest, &'static str); 11] = [
         (ModDest::None, "None"),
         (ModDest::Vco1Pitch, "Vco1Pitch"),
         (ModDest::Vco2Pitch, "Vco2Pitch"),
@@ -91,6 +101,8 @@ impl ModDest {
         (ModDest::Resonance, "Resonance"),
         (ModDest::Vca, "Vca"),
         (ModDest::LfoRate, "LfoRate"),
+        (ModDest::HpCutoff, "HpCutoff"),
+        (ModDest::Lfo2Rate, "Lfo2Rate"),
     ];
 
     /// The destination for a raw id, or `None` for an unknown one.
@@ -108,14 +120,14 @@ impl ModDest {
 }
 
 /// Destinations that take modulation (all but `ModDest::None`).
-const DESTS: usize = 8;
-/// Slots in a patch.
-pub const SLOTS: usize = 8;
+pub const DESTS: usize = 10;
+/// Slots in a patch: the Matrix-12 uses all twenty, the others the first eight.
+pub const SLOTS: usize = 20;
 
 /// What amount 1 at full source does to each destination, in its units:
 /// semitones of pitch, pulse width, semitones of cutoff, a share of the
 /// full resonance, VCA gain, octaves of LFO rate.
-const SCALE: [f32; DESTS] = [24.0, 24.0, 24.0, 0.45, 48.0, 1.0, 1.0, 4.0];
+const SCALE: [f32; DESTS] = [24.0, 24.0, 24.0, 0.45, 48.0, 1.0, 1.0, 4.0, 48.0, 4.0];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Slot {
@@ -184,7 +196,7 @@ pub fn is_taken(taken: &[bool; DESTS], dest: ModDest) -> bool {
 /// The value of every source for one sample, indexed by `ModSource` id.
 pub type Sources = [f32; SOURCES];
 /// Number of modulation sources, `ModSource::None` included.
-pub const SOURCES: usize = 13;
+pub const SOURCES: usize = 15;
 
 /// The modulation each destination receives, in its own units.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -198,6 +210,8 @@ pub struct Mods {
     /// The VCA gain, 0..=1.
     pub vca: f32,
     pub lfo_rate: f32,
+    /// Octaves of second-LFO rate.
+    pub lfo2_rate: f32,
 }
 
 /// The normalled amounts, in destination units.
@@ -225,6 +239,8 @@ pub struct Normals {
     pub env_pw: f32,
     pub osc_pw: f32,
     pub osc_cutoff: f32,
+    /// Semitones of VCO 1 pitch at full VCO 2 (cross-modulation).
+    pub xmod: f32,
     /// Semitones of cutoff per semitone of key.
     pub key_track: f32,
     /// Semitones of VCO pitch at full LFO and full mod wheel.
@@ -242,7 +258,10 @@ pub fn modulate(
 ) -> Mods {
     let at = |s: ModSource| src.get(s as usize).copied().unwrap_or(0.0);
     let mut d = [0.0; DESTS];
-    let [_, _, _, _, cutoff_taken, _, vca_taken, _] = *taken;
+    let (cutoff_taken, vca_taken) = (
+        taken.get(4).copied().unwrap_or(false),
+        taken.get(6).copied().unwrap_or(false),
+    );
     let modulator = if normals.mod_from_osc3 {
         at(ModSource::Vco3)
     } else {
@@ -277,10 +296,22 @@ pub fn modulate(
     // Poly-mod and the LFO's pulse width add after the normals and the
     // patch, without taking a destination over from them.
     let (fenv, vco1) = (at(ModSource::Fenv), at(ModSource::Vco1));
+    d[0] += at(ModSource::Vco2) * normals.xmod;
     d[1] += fenv * normals.env_freq2 + vco1 * normals.osc_freq2;
     d[3] += fenv * normals.env_pw + vco1 * normals.osc_pw + modulator * normals.lfo_pw;
     d[4] += vco1 * normals.osc_cutoff;
-    let [p1, p2, p3, pulse_width, cutoff, resonance, vca, lfo_rate] = d;
+    let [
+        p1,
+        p2,
+        p3,
+        pulse_width,
+        cutoff,
+        resonance,
+        vca,
+        lfo_rate,
+        hp_matrix,
+        lfo2_rate,
+    ] = d;
     let hp_env = if normals.hp_from_ar {
         at(ModSource::Ar)
     } else {
@@ -290,10 +321,11 @@ pub fn modulate(
         pitch: [p1, p2, p3],
         pulse_width,
         cutoff,
-        hp_cutoff: hp_env * normals.env_hp_cutoff,
+        hp_cutoff: hp_env * normals.env_hp_cutoff + hp_matrix,
         resonance,
         vca: vca.clamp(0.0, 1.0),
         lfo_rate,
+        lfo2_rate,
     }
 }
 
@@ -322,6 +354,7 @@ mod tests {
         env_pw: 0.0,
         osc_pw: 0.0,
         osc_cutoff: 0.0,
+        xmod: 0.0,
         key_track: 0.5,
         vibrato: 2.0,
     };
@@ -440,6 +473,57 @@ mod tests {
             m.cutoff,
             0.5 * 0.5 * 48.0 + 5.0,
             "the patch took the normals, not poly-mod"
+        );
+    }
+
+    /// Spec 006 Req 9: twenty slots, each source into each destination, summed.
+    #[test]
+    fn twenty_slots_add_up_per_destination() {
+        let src = sources(&[
+            (ModSource::Lfo2, 0.5),
+            (ModSource::Ramp, 1.0),
+            (ModSource::Fenv, 0.25),
+            (ModSource::Ar, 0.5),
+        ]);
+        let mut patch = Patch::default();
+        assert_eq!(patch.slots.len(), 20);
+        // Slots 1-12 into the cutoff (48 semitones at amount 1), 13-16 into the
+        // high-pass, 17-20 into the second LFO's rate (4 octaves).
+        for (i, slot) in patch.slots.iter_mut().enumerate() {
+            *slot = match i {
+                0..=11 => Slot {
+                    source: ModSource::Ramp,
+                    dest: ModDest::Cutoff,
+                    amount: 0.01,
+                },
+                12..=15 => Slot {
+                    source: ModSource::Fenv,
+                    dest: ModDest::HpCutoff,
+                    amount: 0.5,
+                },
+                _ => Slot {
+                    source: ModSource::Lfo2,
+                    dest: ModDest::Lfo2Rate,
+                    amount: 0.25,
+                },
+            };
+        }
+        let m = modulate(&patch, &patch.overridden(), &NORMALS, &src, 0.0);
+        assert!(
+            (m.cutoff - 12.0 * 0.01 * 48.0).abs() < 1.0e-4,
+            "{}",
+            m.cutoff
+        );
+        assert!(
+            // Four slots of the filter envelope, plus the normalled high-pass envelope.
+            (m.hp_cutoff - (4.0 * 0.25 * 0.5 * 48.0 + 0.25 * 12.0)).abs() < 1.0e-3,
+            "{}",
+            m.hp_cutoff
+        );
+        assert!(
+            (m.lfo2_rate - 4.0 * 0.5 * 0.25 * 4.0).abs() < 1.0e-4,
+            "{}",
+            m.lfo2_rate
         );
     }
 

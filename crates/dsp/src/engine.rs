@@ -1,5 +1,6 @@
-//! The engine: up to `SYNTHS` Mono synths, each with its own parameters,
-//! one Mono voice per owner, the MIDI player, planar stereo blocks.
+//! The engine: up to `SYNTHS` synths, each with its own parameters and a voice
+//! pool (`poly`: one Mono voice per owner, or a voice per note), the mixer, the
+//! MIDI player, planar stereo blocks.
 //!
 //! Real-time rules (ADR-0002): `render` never allocates, never panics and
 //! never calls `sin`/`exp`/`pow` per sample. The voices, tables and output are
@@ -7,7 +8,9 @@
 //! blocks (`load_midi`), never inside `render`.
 
 use crate::clock::Clock;
+use crate::fm::sysex;
 use crate::fx::compressor::Compressor;
+use crate::fx::ensemble::Ensemble;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
@@ -16,10 +19,12 @@ use crate::mono::MonoParams;
 use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
-use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable};
+use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
+use crate::poly::{Pool, VOICE_BUDGET};
 use crate::smf;
+use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
@@ -28,13 +33,13 @@ pub const BLOCK: usize = 128;
 pub const CHANNELS: usize = 16;
 /// Mono synths, each with its own parameters (plan.md MVP 5).
 pub const SYNTHS: usize = 16;
-/// Mono voices: one live voice per synth, one per MIDI channel (spec 004 Req 6).
-pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
 pub const METERS: usize = STRIPS + 2 + SENDS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
+/// The largest SysEx file taken: a bank is 4 104 bytes, so this leaves room for many.
+pub const MAX_SYSEX: usize = 1 << 20;
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -46,11 +51,15 @@ pub struct Engine {
     values: [[f32; Param::ALL.len()]; STRIPS],
     ladder: LadderTables,
     pitch: PitchTable,
-    /// Index s plays synth s's live input, `SYNTHS + n` plays MIDI channel n.
-    monos: [MonoVoice; MONO_VOICES],
-    /// The synth each voice plays, fixed when its note starts.
-    synth_of: [usize; MONO_VOICES],
+    /// The wavetables and attack samples, generated once at start.
+    tables: &'static Tables,
+    /// Each synth's voices (spec 006).
+    pools: Vec<Pool>,
+    /// Counts the notes started, so a pool can tell which voice is oldest.
+    note_count: u64,
     mixer: Mixer,
+    /// Each synth's stereo chorus, run after its voices when it is on.
+    chorus: Vec<Ensemble>,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
     /// Processor n+1 takes processor n's output (P2In…P4In).
@@ -65,6 +74,10 @@ pub struct Engine {
     meters: [f32; METERS],
     /// The MIDI file's bytes, written by JavaScript before `load_midi`.
     midi: Vec<u8>,
+    /// A DX7 SysEx file's bytes, written by JavaScript before `load_sysex`, and the
+    /// voices parsed from it.
+    sysex: Vec<u8>,
+    sysex_voices: Vec<sysex::Voice>,
     sequence: Sequence,
     /// The transport's tempo and sixteenth steps (spec 002 Req 5).
     clock: Clock,
@@ -89,11 +102,11 @@ impl Engine {
             values: [[0.0; Param::ALL.len()]; STRIPS],
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
-            monos: std::array::from_fn(|i| {
-                MonoVoice::new((i as u32 + 1).wrapping_mul(2_654_435_761))
-            }),
-            synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
+            tables: Tables::shared(sample_rate),
+            pools: (0..SYNTHS).map(Pool::new).collect(),
+            note_count: 0,
             mixer: Mixer::new(sample_rate),
+            chorus: (0..SYNTHS).map(|_| Ensemble::new(sample_rate)).collect(),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
             series: [false; SENDS],
             eq: Equalizer::new(sample_rate),
@@ -103,6 +116,8 @@ impl Engine {
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
             midi: Vec::new(),
+            sysex: Vec::new(),
+            sysex_voices: Vec::new(),
             sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
@@ -158,6 +173,11 @@ impl Engine {
             *slot = v;
         }
         mono.set(param, v);
+        if param == Param::ChorusMode {
+            if let Some(c) = self.chorus.get_mut(synth) {
+                c.set_mode(mono.chorus_mode);
+            }
+        }
     }
 
     /// Processor `i` takes the one before it as input (`v` ≥ 0.5), or not.
@@ -241,14 +261,19 @@ impl Engine {
 
     /// Release every voice.
     pub fn all_off(&mut self) {
-        for m in self.monos.iter_mut() {
-            m.release_all();
+        for pool in self.pools.iter_mut() {
+            pool.release_all();
         }
     }
 
-    /// Voices still sounding (gated or releasing).
+    /// Voices still sounding (gated or releasing), across every synth.
     pub fn active_voices(&self) -> usize {
-        self.monos.iter().filter(|m| m.active()).count()
+        self.pools.iter().map(Pool::active).sum()
+    }
+
+    /// The Mono voice playing for `owner`, wherever it is (for tests and the view's debug).
+    pub fn voice(&self, owner: Owner) -> Option<&MonoVoice> {
+        self.pools.iter().find_map(|p| p.voice(owner))
     }
 
     /// The synth `owner` plays now: its own for live input, the route for a
@@ -261,38 +286,116 @@ impl Engine {
     }
 
     fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
-        let i = mono_index(owner);
         let Some(synth) = self.target(owner) else {
             return;
         };
-        let (Some(m), Some(slot), Some(params)) = (
-            self.monos.get_mut(i),
-            self.synth_of.get_mut(i),
-            self.synths.get(synth),
-        ) else {
-            return;
-        };
-        // A voice changing synth starts clean, not legato from the old one.
-        if *slot != synth {
-            m.release_all();
-            *slot = synth;
+        // An owner plays one synth at a time: leaving one starts clean on the next.
+        for (i, pool) in self.pools.iter_mut().enumerate() {
+            if i != synth {
+                pool.release_owner(owner);
+            }
         }
-        m.press(note.min(127), velocity, params);
+        self.note_count += 1;
+        // At the voice budget a note takes the oldest voice in release anywhere,
+        // else the oldest held note of its own synth; with nothing to take, it is dropped.
+        let adds = match (self.pools.get(synth), self.synths.get(synth)) {
+            (Some(pool), Some(params)) => pool.adds_a_voice(owner, note, params),
+            _ => return,
+        };
+        if adds && self.active_voices() >= VOICE_BUDGET && !self.take_a_voice(synth) {
+            return;
+        }
+        if let (Some(pool), Some(params)) = (self.pools.get_mut(synth), self.synths.get(synth)) {
+            pool.note_on(owner, note.min(127), velocity, params, self.note_count);
+        }
+    }
+
+    /// Free one voice for a note on `synth`; false when there is none to free.
+    fn take_a_voice(&mut self, synth: usize) -> bool {
+        let oldest = self
+            .pools
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| p.oldest_release().map(|(slot, age)| (i, slot, age)))
+            .min_by_key(|(_, _, age)| *age);
+        if let Some((pool, slot, _)) = oldest {
+            if let Some(p) = self.pools.get_mut(pool) {
+                p.silence(slot);
+            }
+            return true;
+        }
+        self.pools
+            .get_mut(synth)
+            .is_some_and(Pool::silence_oldest_held)
     }
 
     /// Release `note` from `owner`.
     fn stop_note(&mut self, owner: Owner, note: u8) {
-        let i = mono_index(owner);
-        let synth = self.synth_of.get(i).copied().unwrap_or(0);
-        if let (Some(m), Some(params)) = (self.monos.get_mut(i), self.synths.get(synth)) {
-            m.release(note, params);
+        for (pool, params) in self.pools.iter_mut().zip(self.synths.iter()) {
+            pool.note_off(owner, note, params);
         }
     }
 
     fn release_player(&mut self) {
-        for m in self.monos.iter_mut().skip(SYNTHS) {
-            m.release_all();
+        for pool in self.pools.iter_mut() {
+            pool.release_channels();
         }
+    }
+
+    // --- DX7 SysEx (spec 006 Req 14) -------------------------------------
+
+    /// Size the SysEx buffer for `len` bytes and return it for writing.
+    /// `None` if the file is larger than `MAX_SYSEX`.
+    pub fn sysex_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
+        if len > MAX_SYSEX {
+            return None;
+        }
+        self.sysex.clear();
+        self.sysex.resize(len, 0);
+        Some(&mut self.sysex)
+    }
+
+    /// Parse the buffer into voices, replacing the previous ones. Returns how many.
+    pub fn load_sysex(&mut self) -> Result<usize, sysex::Error> {
+        self.sysex_voices = sysex::parse(&self.sysex)?;
+        Ok(self.sysex_voices.len())
+    }
+
+    #[cfg(test)]
+    fn load_sysex_of(&mut self, bytes: &[u8]) -> Result<usize, sysex::Error> {
+        if let Some(b) = self.sysex_buffer(bytes.len()) {
+            b.copy_from_slice(bytes);
+        }
+        self.load_sysex()
+    }
+
+    /// The name of voice `i` from the last `load_sysex`.
+    pub fn sysex_name(&self, i: usize) -> &str {
+        self.sysex_voices.get(i).map_or("", |v| v.name.as_str())
+    }
+
+    /// Set every DX7 parameter of `synth` from voice `i`. The parameters go through
+    /// `set_param`, so the view reads the same values back. False if there is no such voice.
+    pub fn apply_sysex(&mut self, synth: usize, i: usize) -> bool {
+        let Some(voice) = self.sysex_voices.get(i) else {
+            return false;
+        };
+        let patch = voice.patch;
+        for op in 0..6 {
+            // `ops[0]` is operator 6, the last block of parameters.
+            let base = Param::Op1R1 as u32 + (5 - op as u32) * 21;
+            for k in 0..21 {
+                if let Some(p) = Param::from_id(base + k as u32) {
+                    self.set_param(synth, p, f32::from(patch.op_field(op, k)));
+                }
+            }
+        }
+        for k in 0..19 {
+            if let Some(p) = Param::from_id(Param::PitchR1 as u32 + k as u32) {
+                self.set_param(synth, p, f32::from(patch.global_field(k)));
+            }
+        }
+        true
     }
 
     // --- MIDI player -----------------------------------------------------
@@ -365,8 +468,8 @@ impl Engine {
     pub fn route(&mut self, channel: u8, synth: Option<usize>) {
         if let Some(slot) = self.route.get_mut(usize::from(channel)) {
             *slot = synth.filter(|s| *s < SYNTHS);
-            if let Some(m) = self.monos.get_mut(mono_index(Owner::Channel(channel))) {
-                m.release_all();
+            for pool in self.pools.iter_mut() {
+                pool.release_owner(Owner::Channel(channel));
             }
         }
     }
@@ -408,26 +511,32 @@ impl Engine {
                 .sequence
                 .frames_until_next(n - t)
                 .min(self.clock.frames_until_next(n - t));
-            for (m, synth) in self.monos.iter_mut().zip(self.synth_of.iter()) {
-                let Some(params) = self.synths.get(*synth) else {
+            for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
+            {
+                if pool.active() == 0 {
                     continue;
-                };
-                if m.active() {
-                    if let Some(buf) = self.mixer.bus(*synth, t..t + chunk) {
-                        let mono = MonoCtx {
-                            params,
-                            sine: &self.sine,
-                            blep: &self.blep,
-                            ladder: &self.ladder,
-                            pitch: &self.pitch,
-                        };
-                        m.render(&mono, buf);
-                    }
+                }
+                if let Some(buf) = self.mixer.bus(synth, t..t + chunk) {
+                    let tools = Tools {
+                        sine: &self.sine,
+                        blep: &self.blep,
+                        ladder: &self.ladder,
+                        pitch: &self.pitch,
+                        tables: self.tables,
+                    };
+                    pool.render(params, tools, buf);
                 }
             }
             self.sequence.advance(chunk);
             self.clock.advance(chunk);
             t += chunk;
+        }
+        // A synth with its chorus on is stereo from here on.
+        for (synth, chorus) in self.chorus.iter_mut().enumerate() {
+            if chorus.on() {
+                self.mixer
+                    .widen(synth, n, |dry, l, r| chorus.process(dry, l, r));
+            }
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
@@ -509,23 +618,48 @@ fn live(synth: usize) -> Option<u8> {
         .filter(|s| usize::from(*s) < SYNTHS)
 }
 
-/// Which of `Engine::monos` plays for `owner`.
-fn mono_index(owner: Owner) -> usize {
-    match owner {
-        Owner::Live(s) => usize::from(s),
-        Owner::Channel(ch) => SYNTHS + usize::from(ch),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mono::model::Model;
     use crate::mono::osc::LATENCY;
+    use crate::poly::VOICE_BUDGET;
     use crate::smf::tests::file;
+
+    /// Whether `owner`'s voice has a key held.
+    fn gated(e: &Engine, owner: Owner) -> bool {
+        e.voice(owner).is_some_and(MonoVoice::gated)
+    }
 
     fn peak(e: &Engine) -> f32 {
         e.output().iter().fold(0.0_f32, |m, s| m.max(s.abs()))
+    }
+
+    /// Spec 006 Req 14: a SysEx voice reaches the DX7 parameters, operator 6 first.
+    #[test]
+    fn a_sysex_voice_sets_the_dx7_parameters() {
+        let mut p = crate::fm::patch::FmPatch::default();
+        p.set_op(0, 16, 77.0); // operator 6's output level
+        p.set_op(5, 16, 55.0); // operator 1's
+        p.set_global(8, 12.0); // algorithm
+        let data = sysex::to_voice_bytes(&p, "TESTVOICE");
+        let mut file = vec![0xf0, 0x43, 0x00, 0x00, 0x01, 0x1b];
+        file.extend_from_slice(&data);
+        file.extend_from_slice(&[sysex::checksum(&data), 0xf7]);
+        let mut e = Engine::new(48_000.0);
+        e.sysex_buffer(file.len())
+            .expect("fits")
+            .copy_from_slice(&file);
+        assert_eq!(e.load_sysex(), Ok(1));
+        assert_eq!(e.sysex_name(0), "TESTVOICE");
+        assert!(e.apply_sysex(2, 0));
+        assert!(!e.apply_sysex(2, 1));
+        let get = |e: &Engine, id: u32| e.param_value(2, Param::from_id(id).expect("id"));
+        assert_eq!(get(&e, Param::Op6R1 as u32 + 16), 77.0);
+        assert_eq!(get(&e, Param::Op1R1 as u32 + 16), 55.0);
+        assert_eq!(get(&e, Param::Algorithm as u32), 12.0);
+        assert_eq!(e.load_sysex_of(b"junk"), Err(sysex::Error::Unsupported));
+        assert!(e.sysex_buffer(MAX_SYSEX + 1).is_none());
     }
 
     fn load(e: &mut Engine, bytes: &[u8]) -> Result<usize, smf::Error> {
@@ -638,12 +772,12 @@ mod tests {
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 3);
         e.stop_note(Owner::Channel(2), 60);
-        assert!(!e.monos[SYNTHS + 2].gated());
-        assert!(e.monos[SYNTHS + 3].gated() && e.monos[0].gated());
+        assert!(!gated(&e, Owner::Channel(2)));
+        assert!(gated(&e, Owner::Channel(3)) && gated(&e, Owner::Live(0)));
         // Live Mono is monophonic: a second key moves the same voice.
         e.note_on(0, 69, 1.0);
         e.render(BLOCK);
-        assert_eq!(e.monos[0].note(), 69);
+        assert_eq!(e.voice(Owner::Live(0)).map(MonoVoice::note), Some(69));
         assert_eq!(e.active_voices(), 3);
     }
 
@@ -716,7 +850,11 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(1, Param::Model, 1.0);
         e.set_param(1, Param::Model, 99.0);
-        assert_eq!(e.param_value(1, Param::Model), 6.0, "clamped into range");
+        assert_eq!(
+            e.param_value(1, Param::Model),
+            (Model::ALL.len() - 1) as f32,
+            "clamped into range"
+        );
         e.set_param(1, Param::Model, 1.0);
         assert_eq!(e.param_value(1, Param::Model), 1.0);
         assert_eq!(e.param_value(0, Param::Model), 0.0);
@@ -788,7 +926,7 @@ mod tests {
         e.set_param(SYNTHS, Param::Cutoff, 300.0);
         e.preset(usize::MAX, Preset::Bass);
         e.reset(SYNTHS);
-        assert!(e.monos[SYNTHS + 4].gated());
+        assert!(gated(&e, Owner::Channel(4)));
         assert_eq!(e.param_value(SYNTHS, Param::Cutoff), 0.0);
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 1);
@@ -825,6 +963,472 @@ mod tests {
             heard(&mut e, 10) < 1.0e-4,
             "silencing synth 4 silences the channel"
         );
+    }
+
+    /// Spec 006 Req 1: a polyphonic synth plays a chord from live keys and a MIDI
+    /// channel at once, each releasing only its own notes.
+    #[test]
+    fn a_poly_synth_plays_chords_from_live_keys_and_a_channel() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Polyphony, 8.0);
+        // A chord of three on channel 0 at 0.5 s, held for 0.5 s.
+        let chord = vec![
+            0x83, 0x60, 0x90, 60, 100, 0x00, 0x90, 64, 100, 0x00, 0x90, 67, 100, 0x83, 0x60, 0x80,
+            60, 0, 0x00, 0x80, 64, 0, 0x00, 0x80, 67, 0, 0x00, 0xFF, 0x2F, 0,
+        ];
+        load(&mut e, &file(0, 480, &[chord])).expect("loads");
+        e.route(0, Some(0));
+        e.note_on(0, 72, 1.0);
+        e.play();
+        let mut most = 0;
+        for _ in 0..260 {
+            e.render(BLOCK);
+            most = most.max(e.active_voices());
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(most, 4, "three chord notes and the live key");
+        for _ in 0..400 {
+            e.render(BLOCK);
+        }
+        assert!(
+            gated_notes(&e, 0) == 1,
+            "the live key is still held after the chord ends"
+        );
+    }
+
+    /// Spec 006 Req 6: the Prophet-5 has five voices; a sixth note steals the oldest.
+    #[test]
+    fn the_prophet_5_has_five_voices_and_the_sixth_steals_one() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::P5Brass);
+        // The model's own count limits a pool set for more.
+        e.set_param(0, Param::Polyphony, 16.0);
+        for n in [60, 64, 67, 71, 74] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 5);
+        e.note_on(0, 77, 1.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 5, "still five");
+        assert_eq!(
+            e.pools[0].held_notes(),
+            vec![64, 67, 71, 74, 77],
+            "the oldest, 60, was stolen"
+        );
+    }
+
+    /// The Prophet bass is unison: one key, every voice.
+    #[test]
+    fn the_prophet_bass_plays_one_note_on_all_five_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::P5Bass);
+        e.note_on(0, 40, 1.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 5);
+        assert_eq!(e.pools[0].held_notes(), vec![40; 5]);
+    }
+
+    /// Spec 006 Req 7: with the chorus off both sides of a Juno-106 are the same;
+    /// with it on they differ, and the sends and meter still work on the stereo strip.
+    #[test]
+    fn the_juno_chorus_makes_the_two_sides_differ() {
+        let sides = |mode: f32| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.preset(0, Preset::JunoPad);
+            e.set_param(0, Param::ChorusMode, mode);
+            e.set_param(0, Param::AdsrAttack, 0.01);
+            for n in [57, 61, 64] {
+                e.note_on(0, n, 1.0);
+            }
+            let (mut l, mut r) = (Vec::new(), Vec::new());
+            for _ in 0..150 {
+                e.render(BLOCK);
+                l.extend_from_slice(&e.output()[..BLOCK]);
+                r.extend_from_slice(&e.output()[BLOCK..]);
+                assert!(e.output().iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+            }
+            (l, r)
+        };
+        let (l, r) = sides(0.0);
+        assert!(
+            l.iter().any(|x| x.abs() > 0.01) && l == r,
+            "mono without the chorus"
+        );
+        for mode in [1.0, 2.0, 3.0] {
+            let (l, r) = sides(mode);
+            let diff: f32 = l
+                .iter()
+                .zip(&r)
+                .skip(4_800)
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+            assert!(diff > 1.0, "mode {mode}: {diff}");
+        }
+    }
+
+    /// The Juno-106 has six voices.
+    #[test]
+    fn the_juno_106_has_six_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::JunoPoly);
+        for n in [48, 52, 55, 59, 62, 65, 69] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 6);
+        assert_eq!(e.pools[0].held_notes(), vec![52, 55, 59, 62, 65, 69]);
+    }
+
+    /// The Jupiter-8 has eight voices.
+    #[test]
+    fn the_jupiter_8_has_eight_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::JupiterBrass);
+        for n in [48, 52, 55, 59, 62, 65, 69, 72, 76] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 8);
+        assert_eq!(
+            e.pools[0].held_notes(),
+            vec![52, 55, 59, 62, 65, 69, 72, 76]
+        );
+    }
+
+    /// The Matrix-12 has twelve voices.
+    #[test]
+    fn the_matrix_12_has_twelve_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::MatrixPad);
+        let chord: Vec<u8> = (0..13).map(|k| 40 + 3 * k).collect();
+        for n in &chord {
+            e.note_on(0, *n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 12);
+        assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
+    /// The PPG Wave has eight voices.
+    #[test]
+    fn the_ppg_wave_has_eight_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::PpgSweepPad);
+        for n in [48, 52, 55, 59, 62, 65, 69, 72, 76] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 8);
+        assert_eq!(
+            e.pools[0].held_notes(),
+            vec![52, 55, 59, 62, 65, 69, 72, 76]
+        );
+    }
+
+    /// A D-50 voice set up with the given parameters, playing note `note`; its left
+    /// channel for `blocks` blocks.
+    fn d50_note(settings: &[(Param, f32)], note: u8, blocks: usize) -> Vec<f32> {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (p, v) in [
+            (Param::Model, 12.0),
+            (Param::Polyphony, 16.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::P2Cutoff, 20_000.0),
+        ]
+        .iter()
+        .chain(settings)
+        {
+            e.set_param(0, *p, *v);
+        }
+        e.note_on(0, note, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..blocks {
+            e.render(BLOCK);
+            out.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        out
+    }
+
+    fn rms(x: &[f32]) -> f64 {
+        (x.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / x.len().max(1) as f64).sqrt()
+    }
+
+    /// Spec 006 Req 12: a PCM attack sounds in the first tens of milliseconds and the
+    /// synthesised body carries on after it.
+    #[test]
+    fn the_d50_attack_sounds_first_and_the_body_carries_on() {
+        let with_attack = d50_note(
+            &[
+                (Param::Pcm1Sample, 7.0),
+                (Param::Vco1Level, 1.0),
+                (Param::AdsrAttack, 0.001),
+                (Param::AdsrDecay, 0.1),
+                (Param::AdsrSustain, 0.0),
+                (Param::Vco2Level, 0.15),
+                (Param::P2AdsrAttack, 0.001),
+                (Param::P2AdsrSustain, 1.0),
+            ],
+            48,
+            300,
+        );
+        let (early, late) = (rms(&with_attack[..2_000]), rms(&with_attack[24_000..]));
+        assert!(
+            early > 2.5 * late,
+            "the attack stands out over the body: {early} vs {late}"
+        );
+        assert!(late > 0.005, "and the body carries on: {late}");
+        // Without the attack the body is steady from the first moments.
+        let body = d50_note(
+            &[
+                (Param::Vco1Level, 0.0),
+                (Param::Vco2Level, 0.15),
+                (Param::P2AdsrAttack, 0.001),
+                (Param::P2AdsrSustain, 1.0),
+            ],
+            48,
+            300,
+        );
+        let ratio = rms(&body[2_000..6_000]) / rms(&body[24_000..]);
+        assert!((0.7..1.4).contains(&ratio), "steady: {ratio}");
+    }
+
+    /// The pair adds, rings or syncs: ring needs both partials, sync makes partial 2
+    /// repeat with partial 1.
+    #[test]
+    fn the_d50_partials_add_ring_and_sync() {
+        let both = [
+            (Param::Vco1Level, 0.8),
+            (Param::Vco2Level, 0.8),
+            (Param::Vco2Coarse, 7.0),
+        ];
+        let mut add = both.to_vec();
+        add.push((Param::Structure, 0.0));
+        let mut ring = both.to_vec();
+        ring.push((Param::Structure, 2.0));
+        let (a, r) = (d50_note(&add, 57, 60), d50_note(&ring, 57, 60));
+        assert!(a != r, "ring is not add");
+        // Ring with partial 2 silent is silence; add is not.
+        let mut quiet = vec![
+            (Param::Vco1Level, 0.8),
+            (Param::Vco2Level, 0.0),
+            (Param::Structure, 2.0),
+        ];
+        assert!(
+            rms(&d50_note(&quiet, 57, 60)[4_800..]) < 1.0e-6,
+            "ring of a silent partial"
+        );
+        quiet[2].1 = 0.0;
+        assert!(
+            rms(&d50_note(&quiet, 57, 60)[4_800..]) > 0.01,
+            "while add keeps partial 1"
+        );
+        // Synced, the sound repeats with partial 1's period (220 Hz is 218.18
+        // samples); added, a partial a fifth up does not.
+        let repeats = |structure: f32| {
+            let mut settings = both.to_vec();
+            settings.push((Param::Structure, structure));
+            let out = d50_note(&settings, 57, 80);
+            let x = &out[6_000..];
+            let norm = x.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>();
+            (216..=221)
+                .map(|lag| {
+                    x.iter()
+                        .zip(&x[lag..])
+                        .map(|(a, b)| f64::from(*a) * f64::from(*b))
+                        .sum::<f64>()
+                        / norm
+                })
+                .fold(f64::MIN, f64::max)
+        };
+        let (synced, added) = (repeats(1.0), repeats(0.0));
+        assert!(synced > 0.9, "synced repeats with partial 1: {synced}");
+        assert!(added < 0.8, "added does not: {added}");
+    }
+
+    /// The D-50 has sixteen voices.
+    #[test]
+    fn the_d50_has_sixteen_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::LaFantasia);
+        let chord: Vec<u8> = (0..17).map(|k| 36 + 3 * k).collect();
+        for n in &chord {
+            e.note_on(0, *n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 16);
+        assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
+    /// Changing a synth from a Mono-voice model to the D-50 plays the D-50 at the next note.
+    #[test]
+    fn a_model_change_replaces_the_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.note_on(0, 57, 1.0);
+        e.render(BLOCK);
+        e.note_off(0, 57);
+        e.preset(0, Preset::LaThumpBass);
+        e.note_on(0, 45, 1.0);
+        let mut heard = 0.0_f32;
+        for _ in 0..40 {
+            e.render(BLOCK);
+            heard = heard.max(e.output().iter().fold(0.0, |m, s| m.max(s.abs())));
+        }
+        assert!(heard > 0.05);
+        assert!(e.pools[0].held_notes().contains(&45));
+    }
+
+    /// The DX7 has sixteen voices, and its voices are FM voices.
+    #[test]
+    fn the_polymoog_has_sixteen_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::PolyStrings);
+        for k in 0..17 {
+            e.note_on(0, 36 + 3 * k, 1.0);
+        }
+        let mut heard = 0.0_f32;
+        for _ in 0..200 {
+            e.render(BLOCK);
+            heard = heard.max(e.output().iter().fold(0.0, |m, s| m.max(s.abs())));
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert!(heard > 0.05);
+        assert_eq!(e.active_voices(), 16);
+    }
+
+    /// Spec 006 Req 16: the Vox Humana's resonance peak falls with the filter envelope, so
+    /// the strongest harmonic of a held note is higher early than late, and stands out
+    /// from its neighbours like a formant.
+    #[test]
+    fn the_vox_humana_resonance_peak_follows_the_filter_envelope() {
+        let f0 = 440.0 * 2.0_f64.powf((48.0 - 69.0) / 12.0);
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::VoxHumana);
+        e.set_param(0, Param::Analog, 0.0);
+        e.set_param(0, Param::ChorusMode, 0.0);
+        e.set_param(0, Param::Vco2Level, 0.0);
+        e.note_on(0, 48, 1.0);
+        let mut left = Vec::new();
+        for _ in 0..(48_000 * 2 / BLOCK) {
+            e.render(BLOCK);
+            left.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        // The level of each harmonic of the note in a window: (the most prominent harmonic and how far it stands out, in dB).
+        let peak = |from: usize, to: usize| {
+            let out = &left[from..to];
+            let levels: Vec<f64> = (1..=30)
+                .map(|k| {
+                    let w = std::f64::consts::TAU * f0 * f64::from(k) / 48_000.0;
+                    let (mut re, mut im) = (0.0, 0.0);
+                    for (i, y) in out.iter().enumerate() {
+                        re += f64::from(*y) * (w * i as f64).cos();
+                        im += f64::from(*y) * (w * i as f64).sin();
+                    }
+                    re * re + im * im
+                })
+                .collect();
+            // The harmonic that stands highest above the ones around it, and by how much (dB).
+            let db: Vec<f64> = levels.iter().map(|l| 10.0 * l.max(1e-9).log10()).collect();
+            let prominence = |k: usize| {
+                let near = |j: usize| db.get(j).copied().unwrap_or(f64::MIN);
+                db.get(k).copied().unwrap_or(f64::MIN)
+                    - 0.5 * (near(k.wrapping_sub(2)).max(-99.0) + near(k + 2).max(-99.0))
+            };
+            let k = (2..20).fold(2, |m, k| if prominence(k) > prominence(m) { k } else { m });
+            (k + 1, prominence(k))
+        };
+        let (early, early_ratio) = peak(4_800, 14_400);
+        let (late, _) = peak(57_600, 81_600);
+        assert!(early > late, "the peak is at harmonic {early}, then {late}");
+        assert!(
+            early_ratio > 4.0,
+            "the peak stands out by only {early_ratio}"
+        );
+    }
+
+    #[test]
+    fn the_dx7_has_sixteen_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::FmElectricPiano);
+        let chord: Vec<u8> = (0..17).map(|k| 40 + 3 * k).collect();
+        for n in &chord {
+            e.note_on(0, *n, 1.0);
+        }
+        let mut heard = 0.0_f32;
+        for _ in 0..40 {
+            e.render(BLOCK);
+            heard = heard.max(e.output().iter().fold(0.0, |m, s| m.max(s.abs())));
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert!(heard > 0.05);
+        assert_eq!(e.active_voices(), 16);
+        assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
+    /// Notes held on a synth: its voices with a key down.
+    fn gated_notes(e: &Engine, synth: usize) -> usize {
+        e.pools[synth].held()
+    }
+
+    /// Spec 006 Req 5: at most the voice budget sounds at once, across synths.
+    #[test]
+    fn the_voice_budget_caps_the_voices_across_synths() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Polyphony, 8.0);
+            for k in 0..8 {
+                e.note_on(synth, 36 + 3 * k + synth as u8, 1.0);
+            }
+        }
+        for _ in 0..100 {
+            e.render(BLOCK);
+            assert!(
+                e.active_voices() <= VOICE_BUDGET,
+                "{} voices",
+                e.active_voices()
+            );
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(e.active_voices(), VOICE_BUDGET, "and the cap is used");
+    }
+
+    /// A note past the budget takes the oldest voice in release first.
+    #[test]
+    fn a_note_at_the_budget_takes_a_released_voice_first() {
+        let mut e = Engine::new(48_000.0);
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Polyphony, 4.0);
+            e.set_param(synth, Param::AdsrRelease, 5.0);
+        }
+        // Synth 9 has room for more notes than it plays.
+        e.set_param(9, Param::Polyphony, 8.0);
+        for synth in 0..SYNTHS {
+            for k in 0..4 {
+                e.note_on(synth, 40 + 4 * k, 1.0);
+            }
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), VOICE_BUDGET);
+        // Synth 5 lets a note go: it is in release, the oldest of the releasing voices.
+        e.note_off(5, 40);
+        e.render(BLOCK);
+        e.note_on(9, 90, 1.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), VOICE_BUDGET);
+        assert_eq!(e.pools[5].held(), 3, "synth 5 kept its three held notes");
+        assert_eq!(
+            e.pools[5].active(),
+            3,
+            "and its released tail was the voice taken"
+        );
+        assert_eq!(e.pools[9].held(), 5, "while the new note sounds on synth 9");
     }
 
     #[test]
@@ -1615,9 +2219,12 @@ mod tests {
             e.render(BLOCK);
         }
         e.stop();
-        assert!(e.monos[0].gated(), "the live Mono voice is still held");
         assert!(
-            !e.monos[SYNTHS].gated(),
+            gated(&e, Owner::Live(0)),
+            "the live Mono voice is still held"
+        );
+        assert!(
+            !gated(&e, Owner::Channel(0)),
             "the player's Mono voice is released"
         );
     }

@@ -5,14 +5,18 @@
 // goes out as a message and nothing is decided here.
 import { computed } from 'vue'
 import { exp, lin } from '../audio/console'
+import { stepped } from '../audio/faceplate'
 import { fmtUnit } from '../audio/faceplate'
 import { getEngine, params, status } from '../audio/engine'
 import { scaleOf, type Control, type ModelDef } from '../audio/models'
 import type { ParamId } from '../audio/params'
 import ParamKnob from './console/ParamKnob.vue'
+import AlgoDiagram from './synth/AlgoDiagram.vue'
+import Eg4Graph from './synth/Eg4Graph.vue'
 import EnvGraph from './synth/EnvGraph.vue'
 import PatchBay from './synth/PatchBay.vue'
 import Selector from './synth/Selector.vue'
+import SysexLoader from './synth/SysexLoader.vue'
 import Switch from './synth/Switch.vue'
 
 const props = defineProps<{ s: number; def: ModelDef }>()
@@ -49,6 +53,9 @@ const envTimes = (c: Env) => ({
   s: c.s !== undefined ? val(c.s) : 1,
   r: c.r !== undefined ? val(c.r) : c.decayIsRelease && c.d !== undefined ? val(c.d) : 0.05,
 })
+const EG4_RATE = stepped(0, 99, 1)
+const dxText = (v: number) => `${Math.round(v)}`
+const ALGORITHM = stepped(0, 31, 1)
 const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}${i}`)
 </script>
 
@@ -58,7 +65,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
     <div class="mods">
       <section v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch }" :aria-label="sec.title">
         <h3>{{ sec.title }}</h3>
-        <PatchBay v-if="sec.patch" :s="s" />
+        <PatchBay v-if="sec.patch" :s="s" :slots="def.patchSlots ?? 8" />
         <div v-else class="ctls">
           <template v-for="(c, i) in sec.controls" :key="key(c, i)">
             <ParamKnob
@@ -84,6 +91,29 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
                 />
               </div>
             </div>
+            <div v-else-if="c.kind === 'eg4'" class="env">
+              <Eg4Graph :rates="c.rates.map(val)" :levels="c.levels.map(val)" :label="c.label" />
+              <div class="eknobs">
+                <ParamKnob
+                  v-for="(id, k) in c.rates" :key="id" :synth="s" :id="id" :label="`R${k + 1}`" :name="`${def.name} ${c.label} rate ${k + 1}`"
+                  :scale="EG4_RATE" :def="99" :size="26" :color="def.theme.accent" :text="dxText"
+                />
+              </div>
+              <div class="eknobs">
+                <ParamKnob
+                  v-for="(id, k) in c.levels" :key="id" :synth="s" :id="id" :label="`L${k + 1}`" :name="`${def.name} ${c.label} level ${k + 1}`"
+                  :scale="EG4_RATE" :def="k === 3 ? 0 : 99" :size="26" :color="def.theme.accent" :text="dxText"
+                />
+              </div>
+            </div>
+            <div v-else-if="c.kind === 'algo'" class="algobox">
+              <AlgoDiagram :n="val(c.param)" />
+              <ParamKnob
+                :synth="s" :id="c.param" :label="c.label" :name="`${def.name} algorithm`" :scale="ALGORITHM" :def="0" :size="40"
+                :color="def.theme.accent" :text="(v: number) => `${Math.round(v) + 1}`"
+              />
+            </div>
+            <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>
@@ -112,5 +142,6 @@ h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.2em; 
 .ctls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; }
 .env { display: flex; flex-direction: column; gap: 6px; }
 .eknobs { display: flex; gap: 8px; justify-content: space-between; }
+.algobox { display: flex; gap: 14px; align-items: center; }
 .note { margin: 0; max-width: 260px; font: 400 11px/1.4 var(--con-font-mono); }
 </style>

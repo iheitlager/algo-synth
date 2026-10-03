@@ -98,6 +98,7 @@ describe('value readouts', () => {
     expect(fmtUnit('st', 7)).toBe('+7 st')
     expect(fmtUnit('st', -12)).toBe('-12 st')
     expect(fmtUnit('ct', 0)).toBe('0 ct')
+    expect(fmtUnit('int', 49.6)).toBe('50')
   })
 })
 
@@ -155,5 +156,9 @@ describe('jack names', () => {
     expect(jackName('Cutoff')).toBe('Cutoff')
     expect(jackName('PulseWidth')).toBe('Pulse width')
     expect(jackName('Fenv')).toBe('Filter env')
+    expect(jackName('Lfo2')).toBe('LFO 2')
+    expect(jackName('Lfo2Rate')).toBe('LFO 2 rate')
+    expect(jackName('HpCutoff')).toBe('HP cutoff')
+    expect(jackName('Ramp')).toBe('Ramp')
   })
 })

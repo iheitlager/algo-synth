@@ -15,6 +15,7 @@
 //! `exp2` in `render` (ADR-0002); the LFO rate follows its modulation once
 //! per block.
 
+use crate::engine::BLOCK;
 use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::MAX_K;
 use crate::mono::ladder::{Ladder, LadderTables};
@@ -25,6 +26,7 @@ use crate::mono::osc::{Blep, Osc, Waveform};
 use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
+use crate::table::{TableOsc, Tables};
 use crate::voice::midi_to_hz;
 
 /// Keys a voice remembers; pressing one more forgets the oldest.
@@ -97,6 +99,52 @@ impl PitchTable {
     }
 }
 
+/// The LFO and sample-and-hold a polyphonic synth's pool computes once for all
+/// its voices (spec 006 Req 4), one value per sample of the block.
+pub struct SharedMod {
+    pub lfo: [f32; BLOCK],
+    pub held: [f32; BLOCK],
+}
+
+impl SharedMod {
+    pub fn new() -> SharedMod {
+        SharedMod {
+            lfo: [0.0; BLOCK],
+            held: [0.0; BLOCK],
+        }
+    }
+
+    /// Run the pool's LFO for `n` samples.
+    pub fn fill(
+        &mut self,
+        lfo: &mut Lfo,
+        noise: &mut Noise,
+        p: &MonoParams,
+        sine: &[f32],
+        n: usize,
+    ) {
+        for (l, h) in self.lfo.iter_mut().zip(self.held.iter_mut()).take(n) {
+            (*l, *h) = lfo.step(p.lfo_inc, p.lfo_wave, sine, noise);
+        }
+    }
+}
+
+impl Default for SharedMod {
+    fn default() -> SharedMod {
+        SharedMod::new()
+    }
+}
+
+/// The lookup tables the engine builds once and every voice reads.
+#[derive(Clone, Copy)]
+pub struct Tools<'a> {
+    pub sine: &'a [f32],
+    pub blep: &'a Blep,
+    pub ladder: &'a LadderTables,
+    pub pitch: &'a PitchTable,
+    pub tables: &'a Tables,
+}
+
 /// What a Mono voice reads from the engine while it renders.
 pub struct MonoCtx<'a> {
     pub params: &'a MonoParams,
@@ -104,10 +152,18 @@ pub struct MonoCtx<'a> {
     pub blep: &'a Blep,
     pub ladder: &'a LadderTables,
     pub pitch: &'a PitchTable,
+    /// A poly synth's shared LFO; `None` gives the voice its own.
+    pub shared: Option<&'a SharedMod>,
+    /// The generated wavetables and samples.
+    pub tables: &'a Tables,
 }
 
 #[derive(Clone, Copy, Default)]
 pub struct MonoVoice {
+    /// Semitones added to the oscillators' pitch and to the cutoff: a polyphonic
+    /// pool's unison spread and analog variance, set once per block (spec 006 Req 3).
+    pub trim: f32,
+    pub cutoff_trim: f32,
     /// Held keys and their velocities, oldest first.
     keys: [(u8, f32); KEYS],
     held: usize,
@@ -124,6 +180,8 @@ pub struct MonoVoice {
     glide_step: f32,
     glide_left: u32,
     osc: [Osc; VCOS],
+    /// The wavetable oscillators of the models that use them, in place of VCO 1 and 2.
+    tabs: [TableOsc; 2],
     /// The sub-oscillator: a square at a half or quarter of VCO 1's pitch.
     sub: Osc,
     ladder: Ladder,
@@ -136,6 +194,9 @@ pub struct MonoVoice {
     ar: Env,
     fadsr: Env,
     lfo: Lfo,
+    /// The second LFO and the ramp, for the models with a modulation matrix.
+    lfo2: Lfo,
+    ramp: f32,
     noise: Noise,
     /// Last sample's VCO outputs, as modulation sources.
     last: [f32; VCOS],
@@ -296,6 +357,12 @@ impl MonoVoice {
                 env.gate_off(times);
             }
         }
+        if self.retrigger {
+            self.ramp = 0.0;
+            for t in self.tabs.iter_mut() {
+                t.reset();
+            }
+        }
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
         self.adsr.set_sustain(p.adsr.sustain);
@@ -305,6 +372,9 @@ impl MonoVoice {
         }
         // Control rate: the LFO's speed follows its modulation per block.
         let lfo_inc = p.lfo_inc * self.mods.lfo_rate.clamp(-8.0, 8.0).exp2();
+        let lfo2_inc = p.lfo2_inc * self.mods.lfo2_rate.clamp(-8.0, 8.0).exp2();
+        let matrix = p.model.has_matrix();
+        let tables = p.model.uses_tables();
         let [t1, t2, t3] = p.tune;
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
@@ -312,7 +382,7 @@ impl MonoVoice {
         let (ring_level, sub_level) = (p.ring_level, p.sub_level);
         let hp = p.model.hp();
         let filter_env_is_adsr = p.model.filter_env_is_adsr();
-        for sample in out.iter_mut() {
+        for (i, sample) in out.iter_mut().enumerate() {
             let adsr = self.adsr.step();
             let ar = self.ar.step();
             let fenv = self.fadsr.step();
@@ -327,10 +397,24 @@ impl MonoVoice {
                     self.pitch + self.glide_step
                 };
             }
-            let (lfo, held) = self
-                .lfo
-                .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise);
+            let (lfo, held) = match ctx.shared {
+                Some(sm) => (
+                    sm.lfo.get(i).copied().unwrap_or(0.0),
+                    sm.held.get(i).copied().unwrap_or(0.0),
+                ),
+                None => self
+                    .lfo
+                    .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise),
+            };
             let noise = self.noise.sample(colour);
+            let lfo2 = if matrix {
+                self.ramp = (self.ramp + p.ramp_inc).min(1.0);
+                self.lfo2
+                    .step(lfo2_inc, p.lfo2_wave, ctx.sine, &mut self.noise)
+                    .0
+            } else {
+                0.0
+            };
             let key = self.pitch - 60.0;
             let mut src: Sources = [0.0; SOURCES];
             for (s, v) in [
@@ -340,6 +424,8 @@ impl MonoVoice {
                 (ModSource::Noise, noise),
                 (ModSource::Adsr, adsr),
                 (ModSource::Ar, ar),
+                (ModSource::Lfo2, lfo2),
+                (ModSource::Ramp, self.ramp),
                 (
                     ModSource::Fenv,
                     if filter_env_is_adsr { adsr } else { fenv },
@@ -358,21 +444,39 @@ impl MonoVoice {
             let [m1, m2, m3] = m.pitch;
             let pw = (p.pulse_width + m.pulse_width).clamp(0.05, 0.95);
             let [o1, o2, o3] = &mut self.osc;
-            let inc1 = ctx.pitch.at(self.pitch + t1 + m1);
+            let base = self.pitch + self.trim;
+            let inc1 = ctx.pitch.at(base + t1 + m1);
             o1.set_increment(inc1);
             // The SH-101's pulse is VCO 1's own phase: same pitch, reset with it.
             let locked = p.model.pulse_locked();
             o2.set_increment(if locked {
                 inc1
             } else {
-                ctx.pitch.at(self.pitch + t2 + m2)
+                ctx.pitch.at(base + t2 + m2)
             });
             // Off the key and five octaves down, VCO 3 is a modulator.
-            let key3 = if p.vco3_follow { self.pitch } else { 60.0 };
+            let key3 = if p.vco3_follow { base } else { 60.0 };
             let low3 = if p.vco3_low { 60.0 } else { 0.0 };
             o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
-            let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
-            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
+            let (y1, wrap, y2) = if tables {
+                // The envelope and the LFO move both wave positions.
+                let [t1, t2] = &mut self.tabs;
+                t1.set_increment(inc1);
+                t2.set_increment(ctx.pitch.at(base + p.tune[1] + m2));
+                let sweep = fenv * p.env_wt + lfo * p.lfo_wt;
+                let pos =
+                    |i: usize| (p.wt_pos.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
+                let tab = |i: usize| p.wt_table.get(i).copied().unwrap_or(0);
+                (
+                    t1.step(ctx.tables, tab(0), pos(0), p.wt_steps),
+                    None,
+                    t2.step(ctx.tables, tab(1), pos(1), p.wt_steps),
+                )
+            } else {
+                let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
+                let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
+                (y1, wrap, y2)
+            };
             // The rising saw starts low where a pulse is high, so a pulse in
             // the saw's phase would cancel it: the SH-101's is inverted.
             let y2 = if locked { -y2 } else { y2 };
@@ -395,7 +499,7 @@ impl MonoVoice {
             // Half the mix keeps two VCOs at full level below the knee.
             let mut x = 0.5 * mix;
             let hp_cutoff = p.hp_cutoff + m.hp_cutoff;
-            let filter = p.model.filter();
+            let filter = p.filter();
             if let (Hp::Svf, Filter::Svf(v)) = (hp, filter) {
                 x = self
                     .svf_hp
@@ -406,13 +510,24 @@ impl MonoVoice {
                 Filter::Ladder(v) => {
                     let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
                     let x = x * (1.0 + v.comp * k);
-                    self.ladder
-                        .process(ctx.ladder, x, p.cutoff + m.cutoff, k, p.drive * v.drive)
+                    self.ladder.process(
+                        ctx.ladder,
+                        x,
+                        p.cutoff + m.cutoff + self.cutoff_trim,
+                        k,
+                        p.drive * v.drive,
+                    )
                 }
                 Filter::Svf(v) => {
                     let res = p.k / MAX_K + m.resonance;
                     self.svf_lp
-                        .process(ctx.ladder, &v, x, p.cutoff + m.cutoff, res)
+                        .process(
+                            ctx.ladder,
+                            &v,
+                            x,
+                            p.cutoff + m.cutoff + self.cutoff_trim,
+                            res,
+                        )
                         .lp
                 }
             };
@@ -440,6 +555,7 @@ mod tests {
         blep: Blep,
         ladder: LadderTables,
         pitch: PitchTable,
+        tables: &'static Tables,
         voice: MonoVoice,
     }
 
@@ -455,6 +571,7 @@ mod tests {
                 blep: Blep::new(),
                 ladder: LadderTables::new(SR),
                 pitch: PitchTable::new(SR),
+                tables: Tables::shared(SR),
                 voice: MonoVoice::new(1),
             }
         }
@@ -474,6 +591,8 @@ mod tests {
                 blep: &self.blep,
                 ladder: &self.ladder,
                 pitch: &self.pitch,
+                shared: None,
+                tables: self.tables,
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {
@@ -723,6 +842,224 @@ mod tests {
         );
     }
 
+    /// Spec 006 Req 11: the filter envelope moves the wave position, so the
+    /// spectrum of a held note changes over the envelope; with no amount it does not.
+    #[test]
+    fn ppg_envelope_sweeps_the_wave_position() {
+        let brightness_over_time = |amount: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 11.0),
+                (Param::Wt1Table, 0.0),
+                (Param::Wt1Pos, 0.0),
+                (Param::Vco1Level, 1.0),
+                (Param::Vco2Level, 0.0),
+                (Param::EnvWt, amount),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvAttack, 0.5),
+                (Param::FenvSustain, 1.0),
+            ]);
+            r.press(45);
+            r.render(480);
+            let early = brightness(&r.render(2_400));
+            r.render(24_000);
+            let late = brightness(&r.render(2_400));
+            (early, late)
+        };
+        let (early, late) = brightness_over_time(1.0);
+        assert!(
+            late > 2.0 * early,
+            "the Sweep table brightens: {early} to {late}"
+        );
+        let (a, b) = brightness_over_time(0.0);
+        assert!(
+            (a / b - 1.0).abs() < 0.05,
+            "and stands still without it: {a} {b}"
+        );
+    }
+
+    /// The table oscillators stand in for VCO 1 and 2 on this model only: a model
+    /// without them ignores the table parameters, and the PPG does not.
+    #[test]
+    fn only_the_ppg_reads_wavetables() {
+        let sound = |model: f32, pos: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::Vco1Level, 1.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::Wt1Pos, pos),
+            ]);
+            r.press(57);
+            r.render(2_400);
+            r.render(9_600)
+        };
+        assert_eq!(
+            sound(9.0, 0.0),
+            sound(9.0, 1.0),
+            "a Jupiter-8 ignores the wave position"
+        );
+        assert_ne!(
+            sound(11.0, 0.0),
+            sound(11.0, 1.0),
+            "and the PPG moves with it"
+        );
+    }
+
+    /// Spec 006 Req 9: the ramp runs from 0 to 1 over its time and starts again with each note.
+    #[test]
+    fn the_ramp_runs_over_its_time_and_restarts() {
+        let mut r = Rig::new(&[
+            (Param::Model, 10.0),
+            (Param::RampTime, 0.1),
+            (Param::Patch1Source, 14.0),
+            (Param::Patch1Dest, 5.0),
+            (Param::Patch1Amount, 1.0),
+            (Param::EnvCutoff, 0.0),
+            (Param::KeyTrack, 0.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(60);
+        r.render(2_400);
+        let half = r.voice.mods().cutoff;
+        assert!((half - 24.0).abs() < 0.5, "half way up after 50 ms: {half}");
+        r.render(4_800);
+        assert!(
+            (r.voice.mods().cutoff - 48.0).abs() < 1.0e-3,
+            "and full after 100 ms"
+        );
+        r.release(60);
+        r.render(128);
+        r.press(62);
+        r.render(1_200);
+        let again = r.voice.mods().cutoff;
+        assert!(again < 15.0, "a new note starts it over: {again}");
+    }
+
+    /// The second LFO is a modulation source of its own, at its own rate.
+    #[test]
+    fn the_second_lfo_moves_what_it_is_patched_to() {
+        let range = |rate: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 10.0),
+                (Param::Lfo2Rate, rate),
+                (Param::Lfo2Wave, 3.0),
+                (Param::Patch1Source, 13.0),
+                (Param::Patch1Dest, 5.0),
+                (Param::Patch1Amount, 0.5),
+                (Param::EnvCutoff, 0.0),
+                (Param::KeyTrack, 0.0),
+            ]);
+            r.press(60);
+            let (mut lo, mut hi, mut crossings, mut last) = (f32::MAX, f32::MIN, 0, 0.0_f32);
+            for _ in 0..750 {
+                r.render(128);
+                let c = r.voice.mods().cutoff;
+                lo = lo.min(c);
+                hi = hi.max(c);
+                if last <= 0.0 && c > 0.0 {
+                    crossings += 1;
+                }
+                last = c;
+            }
+            (hi - lo, crossings)
+        };
+        let (swing, cycles) = range(5.0);
+        assert!(swing > 40.0, "±24 semitones of cutoff: {swing}");
+        assert!(
+            (9..=11).contains(&cycles),
+            "2 s at 5 Hz is ten cycles: {cycles}"
+        );
+    }
+
+    /// Spec 006 Req 8: the Jupiter-8's switch takes its low-pass between 12 and
+    /// 24 dB per octave. Measured on noise, an octave and two above the cutoff.
+    #[test]
+    fn jupiter_slope_switch_is_12_or_24_db_per_octave() {
+        let falls = |slope: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 9.0),
+                (Param::Vco1Level, 0.0),
+                (Param::NoiseLevel, 1.0),
+                (Param::Cutoff, 1_000.0),
+                (Param::Resonance, 0.0),
+                (Param::Slope, slope),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(60);
+            r.render(9_600);
+            let out = r.render(192_000);
+            let band = |f: f64| {
+                (0..8)
+                    .map(|k| tone(&out, f * (0.94 + 0.02 * k as f64)).powi(2))
+                    .sum::<f64>()
+                    / 8.0
+            };
+            let db = |a: f64, b: f64| 10.0 * (a / b).log10();
+            (
+                db(band(3_000.0), band(6_000.0)),
+                db(band(6_000.0), band(12_000.0)),
+            )
+        };
+        let (a12, b12) = falls(0.0);
+        let (a24, b24) = falls(1.0);
+        assert!(
+            (a12 - 12.0).abs() < 3.5 && (b12 - 12.0).abs() < 3.5,
+            "12 dB: {a12} {b12}"
+        );
+        // Two octaves up the 24 dB filter is near the noise floor of the measure.
+        assert!((a24 - 24.0).abs() < 4.5 && b24 > 8.0, "24 dB: {a24} {b24}");
+        assert!(a24 > a12 + 8.0, "and it falls much faster than 12 dB");
+    }
+
+    /// Cross-modulation: VCO 2 moves VCO 1's pitch, at any mixer level.
+    #[test]
+    fn cross_mod_moves_vco1_from_vco2() {
+        let range = |xmod: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 9.0),
+                (Param::Vco2Level, 0.0),
+                (Param::Vco2Wave, 3.0),
+                (Param::Vco2Coarse, -24.0),
+                (Param::XMod, xmod),
+            ]);
+            r.press(60);
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for _ in 0..400 {
+                r.render(128);
+                let p = r.voice.mods().pitch[0];
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+            hi - lo
+        };
+        assert_eq!(range(0.0), 0.0);
+        assert!(range(1.0) > 30.0, "{}", range(1.0));
+    }
+
+    /// Spec 006 Req 7: the Juno's high-pass steps thin the bass.
+    #[test]
+    fn juno_high_pass_steps_thin_the_bass() {
+        let low = |hp: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 8.0),
+                (Param::Vco1Level, 1.0),
+                (Param::HpCutoff, hp),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(45);
+            r.render(9_600);
+            tone(&r.render(48_000), 110.0)
+        };
+        let (off, step) = (low(20.0), low(1_600.0));
+        assert!(
+            20.0 * (step / off).log10() < -12.0,
+            "the top step takes the fundamental down: {off} {step}"
+        );
+        assert!(low(240.0) > step, "and the first step less");
+    }
+
     /// Spec 005 Req 7: the SH-101's cutoff and loudness are moved by the
     /// same envelope, whatever the filter ADSR is set to.
     #[test]
@@ -758,9 +1095,16 @@ mod tests {
     /// cancelling it.
     #[test]
     fn sh101_saw_and_pulse_add_up() {
+        // The SH-101 and the Juno-106 both mix a saw with a pulse locked to it.
+        for model in [5.0, 8.0] {
+            saw_and_pulse(model);
+        }
+    }
+
+    fn saw_and_pulse(model: f32) {
         let rms = |pulse: f32| {
             let mut r = Rig::new(&[
-                (Param::Model, 5.0),
+                (Param::Model, model),
                 (Param::Vco1Level, 0.5),
                 (Param::Vco2Wave, 1.0),
                 (Param::Vco2Level, pulse),

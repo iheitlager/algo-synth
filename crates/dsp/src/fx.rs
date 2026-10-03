@@ -5,6 +5,7 @@ pub mod chorus;
 pub mod compressor;
 pub mod drive;
 pub mod echo;
+pub mod ensemble;
 pub mod eq;
 pub mod flanger;
 pub mod insert;

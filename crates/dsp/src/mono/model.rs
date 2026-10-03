@@ -17,11 +17,19 @@ pub enum Model {
     Cs15 = 4,
     Sh101 = 5,
     Odyssey = 6,
+    Prophet5 = 7,
+    Juno106 = 8,
+    Jupiter8 = 9,
+    Matrix12 = 10,
+    PpgWave = 11,
+    D50 = 12,
+    Dx7 = 13,
+    PolyMoog = 14,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 7] = [
+    pub const ALL: [(Model, &'static str); 15] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -29,6 +37,14 @@ impl Model {
         (Model::Cs15, "Cs15"),
         (Model::Sh101, "Sh101"),
         (Model::Odyssey, "Odyssey"),
+        (Model::Prophet5, "Prophet5"),
+        (Model::Juno106, "Juno106"),
+        (Model::Jupiter8, "Jupiter8"),
+        (Model::Matrix12, "Matrix12"),
+        (Model::PpgWave, "PpgWave"),
+        (Model::D50, "D50"),
+        (Model::Dx7, "Dx7"),
+        (Model::PolyMoog, "PolyMoog"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -89,6 +105,48 @@ pub const ODYSSEY: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 0.97,
 };
+/// The Jupiter-8's four-pole: clean and a little bass kept under resonance.
+pub const JUPITER: LadderVoicing = LadderVoicing {
+    drive: 0.9,
+    comp: 0.25,
+    k_scale: 0.98,
+};
+/// Its two-pole setting: resonant but short of oscillating.
+pub const JUPITER12: SvfVoicing = SvfVoicing {
+    osc_at: 1.1,
+    k_min: 0.08,
+    ceiling: 1.0,
+};
+/// The Matrix-12's four-pole: clean, with the bass kept under resonance.
+pub const MATRIX: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.35,
+    k_scale: 1.0,
+};
+/// Its two-pole setting: smooth, short of oscillating.
+pub const MATRIX12: SvfVoicing = SvfVoicing {
+    osc_at: 1.05,
+    k_min: 0.05,
+    ceiling: 1.1,
+};
+/// The PPG Wave's four-pole (an SSM-style ladder): clean, bass kept.
+pub const PPG: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.2,
+    k_scale: 1.0,
+};
+/// The D-50's partial filters: clean, a little bass kept.
+pub const D50: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.2,
+    k_scale: 0.98,
+};
+/// The Polymoog's resonator filter: strongly resonant, vocal rather than screaming.
+pub const POLYMOOG: SvfVoicing = SvfVoicing {
+    osc_at: 1.05,
+    k_min: 0.04,
+    ceiling: 1.0,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -120,24 +178,85 @@ pub enum Hp {
 }
 
 impl Model {
+    /// How many voices the instrument has at most (spec 006 Req 1): the
+    /// polyphonic models are limited to their own count, the monosynths to the
+    /// pool's.
+    pub fn voices(self) -> usize {
+        match self {
+            Model::Prophet5 => 5,
+            Model::Juno106 => 6,
+            Model::Jupiter8 => 8,
+            Model::Matrix12 => 12,
+            Model::PpgWave => 8,
+            Model::D50 => 16,
+            Model::Dx7 | Model::PolyMoog => 16,
+            _ => crate::poly::MAX_VOICES,
+        }
+    }
+
     /// The filter and its voicing.
     pub fn filter(self) -> Filter {
         match self {
             Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
-            Model::ProOne => Filter::Ladder(PRO_ONE),
-            Model::Sh101 => Filter::Ladder(SH101),
+            Model::ProOne | Model::Prophet5 => Filter::Ladder(PRO_ONE),
+            Model::Sh101 | Model::Juno106 => Filter::Ladder(SH101),
+            Model::Jupiter8 => Filter::Ladder(JUPITER),
+            Model::Matrix12 => Filter::Ladder(MATRIX),
+            Model::PpgWave => Filter::Ladder(PPG),
+            Model::D50 | Model::Dx7 => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
+            Model::PolyMoog => Filter::Svf(POLYMOOG),
         }
+    }
+
+    /// The 12 dB low-pass of a model with the slope switch (the Jupiter-8's
+    /// two-pole setting), if it has one.
+    pub fn filter_12db(self) -> Option<Filter> {
+        match self {
+            Model::Jupiter8 => Some(Filter::Svf(JUPITER12)),
+            Model::Matrix12 => Some(Filter::Svf(MATRIX12)),
+            _ => None,
+        }
+    }
+
+    /// Whether the voice is the DX7's six-operator FM voice (spec 006 Req 13).
+    pub fn uses_fm(self) -> bool {
+        self == Model::Dx7
+    }
+
+    /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
+    pub fn uses_la(self) -> bool {
+        self == Model::D50
+    }
+
+    /// Whether VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
+    pub fn uses_tables(self) -> bool {
+        self == Model::PpgWave
+    }
+
+    /// Whether the voice runs the second LFO and the ramp, the sources the
+    /// Matrix-12's modulation matrix adds.
+    pub fn has_matrix(self) -> bool {
+        self == Model::Matrix12
     }
 
     /// The high-pass stage.
     pub fn hp(self) -> Hp {
         match self {
             Model::Ms20 | Model::Cs15 => Hp::Svf,
-            Model::Sh101 | Model::Odyssey => Hp::OnePole,
-            Model::Arp2600 | Model::Minimoog | Model::ProOne => Hp::None,
+            Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => {
+                Hp::OnePole
+            }
+            Model::Arp2600
+            | Model::Minimoog
+            | Model::ProOne
+            | Model::Prophet5
+            | Model::PpgWave
+            | Model::D50
+            | Model::Dx7
+            | Model::PolyMoog => Hp::None,
         }
     }
 
@@ -145,13 +264,13 @@ impl Model {
     /// and high-pass envelope amounts) is the ADSR: the SH-101 has one
     /// envelope for filter and loudness.
     pub fn filter_env_is_adsr(self) -> bool {
-        self == Model::Sh101
+        matches!(self, Model::Sh101 | Model::Juno106)
     }
 
     /// Whether VCO 2 is the pulse output of VCO 1: phase-locked to it and at
     /// its pitch, as the SH-101's one oscillator gives saw and pulse together.
     pub fn pulse_locked(self) -> bool {
-        self == Model::Sh101
+        matches!(self, Model::Sh101 | Model::Juno106)
     }
 
     /// Whether a time set as decay is also the release, on the loudness and
@@ -177,7 +296,10 @@ impl Model {
     /// the SH-101 and the Odyssey (whose ADSR is normalled to both filter
     /// and VCA; its AR is a patch source) follow the ADSR (spec 004 Req 12).
     pub fn cutoff_follows_filter_env(self) -> bool {
-        !matches!(self, Model::Arp2600 | Model::Sh101 | Model::Odyssey)
+        !matches!(
+            self,
+            Model::Arp2600 | Model::Sh101 | Model::Odyssey | Model::Juno106
+        )
     }
 }
 
@@ -191,7 +313,7 @@ mod tests {
             assert_eq!(Model::from_id(*m as u32), Some(*m));
             assert_eq!(*m as usize, i, "ids run from 0 without gaps");
         }
-        assert_eq!(Model::from_id(7), None);
+        assert_eq!(Model::from_id(99), None);
         assert_eq!(Model::default(), Model::Arp2600);
     }
 
@@ -211,9 +333,46 @@ mod tests {
     }
 
     #[test]
+    fn polyphonic_models_have_their_own_voice_count() {
+        assert_eq!(Model::Prophet5.voices(), 5);
+        for (m, name) in Model::ALL {
+            assert!(
+                m.voices() >= 1 && m.voices() <= crate::poly::MAX_VOICES,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            Model::Minimoog.voices(),
+            crate::poly::MAX_VOICES,
+            "a monosynth is not limited"
+        );
+    }
+
+    /// Only a model with the slope switch has a 12 dB setting, and it is a
+    /// state-variable filter beside the ladder.
+    #[test]
+    fn only_the_jupiter_has_a_slope_switch() {
+        for (m, name) in Model::ALL {
+            assert_eq!(
+                m.filter_12db().is_some(),
+                matches!(m, Model::Jupiter8 | Model::Matrix12),
+                "{name}"
+            );
+        }
+        assert!(matches!(Model::Jupiter8.filter(), Filter::Ladder(_)));
+        assert!(matches!(
+            Model::Jupiter8.filter_12db(),
+            Some(Filter::Svf(_))
+        ));
+    }
+
+    #[test]
     fn single_envelope_models_follow_the_adsr() {
         for (m, name) in Model::ALL {
-            let single = matches!(m, Model::Arp2600 | Model::Sh101 | Model::Odyssey);
+            let single = matches!(
+                m,
+                Model::Arp2600 | Model::Sh101 | Model::Odyssey | Model::Juno106
+            );
             assert_eq!(m.cutoff_follows_filter_env(), !single, "{name}");
         }
     }

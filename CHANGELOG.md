@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-04
+
+Polyphonic synths (epic #78, PR #116).
+### Added
+
+- **Polyphony** (epic #78, spec 006, ADR-0011): each synth owns a voice pool of up to 16 voices with a global budget of 64, a shared LFO, unison with detune spread, analog variance and a stereo chorus (Modes I, II and I+II; stereo strips balance instead of pan).
+- Eight polyphonic models: **Prophet-5** (#82), **Juno-106** (#83), **Jupiter-8** (#84), **Matrix-12** with a twenty-slot modulation matrix (#85), **PPG Wave** with generated wavetables (#87), **Roland D-50** with LA synthesis (#88), **Yamaha DX7** with six-operator FM after the msfa reference (#89, see `NOTICE`) and the **Polymoog** with Strings and Vox Humana (#96); six presets each (four for the Polymoog) and a faceplate each.
+- **DX7 SysEx import** (#90): the engine reads single voices and 32-voice banks (framed or bare, any checksum); the faceplate loads a `.syx` file and picks a voice. JavaScript only forwards the bytes (`sysex_buf`, `sysex_load`, `sysex_apply`).
+- `make bench` gains `poly pads` and `poly worst`: 64 voices of chord pads on every polyphonic model, about 19% of a core (#91).
+
 ## [0.16.0] - 2026-10-04
 
 ### Added

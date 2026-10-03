@@ -27,6 +27,12 @@ export type Control =
   | { kind: 'switch'; label: string; param: ParamId }
   /** An envelope drawn as its curve with a knob for each time and level it has. */
   | { kind: 'env'; label: string; a: ParamId; d?: ParamId; s?: ParamId; r?: ParamId; decayIsRelease?: boolean }
+  /** A DX7 envelope of four rates and four levels, drawn as its curve. */
+  | { kind: 'eg4'; label: string; rates: ParamId[]; levels: ParamId[] }
+  /** The DX7 algorithm number, drawn as the manual does. */
+  | { kind: 'algo'; label: string; param: ParamId }
+  /** Load DX7 voices from a SysEx file; the engine reads it, the view only forwards the bytes. */
+  | { kind: 'sysex' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -58,6 +64,8 @@ export interface ModelDef {
   /** The model's presets, the first loaded when the model is chosen. */
   presets: (keyof typeof Preset)[]
   sections: Section[]
+  /** Patch slots the bay shows (8 unless the model has a modulation matrix). */
+  patchSlots?: number
 }
 
 /** Where a double-click puts a knob, in engine units, when it is not the low end (or 0 for a bipolar one). */
@@ -92,6 +100,10 @@ export function scaleOf(c: Extract<Control, { kind: 'knob' }>): Scale {
   if (c.scale === 'exp') return exp(c.lo, c.hi)
   return c.step ? stepped(c.lo, c.hi, c.step) : lin(c.lo, c.hi)
 }
+
+/** A whole-number knob from 0 to `max` (the DX7's 0..99 settings), reset to `def`. */
+const int = (label: string, param: ParamId, max: number, def = 0): Control =>
+  ({ kind: 'knob', label, param, lo: 0, hi: max, scale: 'lin', unit: 'int', step: 1, def, size: 32 })
 
 /** An envelope with its attack, decay, sustain and release; leave out what it has not. */
 const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: ParamId, decayIsRelease = false): Control =>
@@ -309,6 +321,416 @@ const proOne: ModelDef = {
       title: 'Keys',
       controls: [select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), range('Glide', Param.Glide, 0, 2, 0.01)],
     },
+  ],
+}
+
+/** What every polyphonic model has: how notes are assigned, the unison spread and the vintage drift. */
+const ASSIGN: Options = [['Poly', 0], ['Unison', 1]]
+const voicesSection = (): Section => ({
+  title: 'Voices',
+  controls: [select('Assign', Param.Assign, ASSIGN), range('Unison detune', Param.UnisonDetune, 0, 1, 0.01), range('Vintage', Param.Analog, 0, 1, 0.01)],
+})
+
+// Five voices of the Pro-One's two-oscillator voice (spec 006 Req 6): A is VCO 2,
+// B is VCO 1, poly-mod from the filter envelope and B, unison and vintage drift.
+const prophet5: ModelDef = {
+  id: Model.Prophet5,
+  name: 'Prophet-5',
+  maker: 'Sequential · five voices, poly-mod',
+  tagline: 'Five voices: two oscillators, poly-mod, a 4-pole filter, two envelopes, unison, vintage drift',
+  theme: { panel: '#1c1b1a', ink: '#f4ead8', soft: '#bfae94', trim: '#3a2a1c', accent: '#f0a73a', wood: '#6e4426' },
+  presets: ['P5Brass', 'P5Strings', 'P5Bass', 'P5SyncLead', 'P5Bell', 'P5Pad'],
+  sections: [
+    {
+      title: 'Oscillator A',
+      controls: [
+        range('Frequency', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES),
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), sw('Sync to B', Param.Vco2Sync),
+      ],
+    },
+    {
+      title: 'Oscillator B',
+      controls: [range('Frequency', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), select('Wave', Param.Vco1Wave, WAVES)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('Osc A', Param.Vco2Level, 0, 1, 0.01), range('Osc B', Param.Vco1Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01), select('Noise colour', Param.NoiseColour, NOISES),
+      ],
+    },
+    {
+      title: 'Poly-mod',
+      controls: [
+        range('Filter env → Freq A', Param.EnvFreq2, -1, 1, 0.01), range('Osc B → Freq A', Param.OscFreq2, -1, 1, 0.01),
+        range('Filter env → PW A', Param.EnvPw, -1, 1, 0.01), range('Osc B → PW A', Param.OscPw, -1, 1, 0.01),
+        range('Osc B → Filter', Param.OscCutoff, -1, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope amount', Param.EnvCutoff, -1, 1, 0.01), select('Key track', Param.KeyTrack, HALF_FULL),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Freq', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW A', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    voicesSection(),
+  ],
+}
+
+/** The Juno's high-pass in its four steps, and its chorus modes. */
+const HPF_STEPS: Options = [['0', 20], ['1', 240], ['2', 720], ['3', 1600]]
+const CHORUS: Options = [['Off', 0], ['I', 1], ['II', 2], ['I+II', 3]]
+
+// Six voices of one DCO (saw and a locked pulse, a sub), an IR3109-voiced
+// low-pass, a high-pass in four steps, one envelope for filter and loudness,
+// and the stereo chorus (spec 006 Req 7). The pulse is VCO 2, locked by the model.
+const juno106: ModelDef = {
+  id: Model.Juno106,
+  name: 'Juno-106',
+  maker: 'Roland · six voices, DCO, chorus',
+  tagline: 'Six voices: a DCO with sub, a 24 dB low-pass, one envelope, and the stereo chorus',
+  theme: { panel: '#262b30', ink: '#eaeef2', soft: '#a3adb8', trim: '#14171a', accent: '#3fb6c9' },
+  presets: ['JunoPad', 'JunoStrings', 'JunoBrass', 'JunoBass', 'JunoPluck', 'JunoPoly'],
+  sections: [
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'DCO',
+      controls: [
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), range('PWM · LFO', Param.LfoPw, 0, 1, 0.01),
+        select('Range', Param.Vco1Coarse, [['16′', -12], ['8′', 0], ['4′', 12]]),
+      ],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('Saw', Param.Vco1Level, 0, 1, 0.01), range('Pulse', Param.Vco2Level, 0, 1, 0.01),
+        range('Sub', Param.SubLevel, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'HPF', controls: [select('Cutoff', Param.HpCutoff, HPF_STEPS)] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
+const SLOPE: Options = [['12 dB', 0], ['24 dB', 1]]
+
+// Eight voices of two VCOs (VCO 2 synced to VCO 1, and modulating its pitch),
+// a low-pass of 12 or 24 dB per octave, a high-pass, two envelopes and an LFO
+// (spec 006 Req 8). Dual and split tones are not built; poly and unison are.
+const jupiter8: ModelDef = {
+  id: Model.Jupiter8,
+  name: 'Jupiter-8',
+  maker: 'Roland · eight voices, sync and cross-mod',
+  tagline: 'Eight voices: two VCOs with sync and cross-mod, a 12 or 24 dB low-pass, a high-pass, two envelopes',
+  theme: { panel: '#1b1d20', ink: '#f0efe8', soft: '#adb0b6', trim: '#8a7a20', accent: '#e6d44a' },
+  presets: ['JupiterBrass', 'JupiterStrings', 'JupiterBass', 'JupiterSync', 'JupiterXMod', 'JupiterPad'],
+  sections: [
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 1',
+      controls: [
+        select('Range', Param.Vco1Coarse, [['16′', -12], ['8′', 0], ['4′', 12], ['2′', 24]]),
+        select('Wave', Param.Vco1Wave, WAVES), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'VCO 2',
+      controls: [
+        range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES),
+        sw('Sync', Param.Vco2Sync),
+      ],
+    },
+    { title: 'Cross mod', controls: [range('VCO 2 → 1', Param.XMod, 0, 1, 0.01)] },
+    {
+      title: 'Mixer',
+      controls: [
+        range('VCO 1', Param.Vco1Level, 0, 1, 0.01), range('VCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'HPF', controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff')] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        select('Slope', Param.Slope, SLOPE), range('Envelope', Param.EnvCutoff, -1, 1, 0.01),
+        range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Env 1 (filter)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Env 2 (amplifier)', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    voicesSection(),
+  ],
+}
+
+// Twelve voices of two oscillators with sync, a filter with a 12 or 24 dB slope
+// and a high-pass, three envelopes, two LFOs, a ramp, and a matrix of twenty
+// slots that adds any source to any destination (spec 006 Req 9).
+const matrix12: ModelDef = {
+  id: Model.Matrix12,
+  name: 'Matrix-12',
+  maker: 'Oberheim · twelve voices, a modulation matrix',
+  tagline: 'Twelve voices: two oscillators, three envelopes, two LFOs, a ramp and a twenty-slot matrix',
+  theme: { panel: '#17191c', ink: '#f2ece0', soft: '#b0aca2', trim: '#7a3d10', accent: '#ff7a1a' },
+  patchSlots: 20,
+  presets: ['MatrixPad', 'MatrixSweep', 'MatrixBrass', 'MatrixPunch', 'MatrixBells', 'MatrixLead'],
+  sections: [
+    {
+      title: 'LFO 1',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'LFO 2',
+      controls: [select('Wave', Param.Lfo2Wave, LFO_WAVES), range('Rate', Param.Lfo2Rate, 0, 1, 0.001, 'lfo')],
+    },
+    { title: 'Ramp', controls: [range('Time', Param.RampTime, 0.01, 30, 0.01)] },
+    {
+      title: 'DCO 1',
+      controls: [
+        select('Range', Param.Vco1Coarse, [['16′', -12], ['8′', 0], ['4′', 12], ['2′', 24]]),
+        select('Wave', Param.Vco1Wave, WAVES), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'DCO 2',
+      controls: [range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES), sw('Sync', Param.Vco2Sync)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('DCO 1', Param.Vco1Level, 0, 1, 0.01), range('DCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01), range('FM 2 → 1', Param.XMod, 0, 1, 0.01),
+      ],
+    },
+    { title: 'HPF', controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff')] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        select('Slope', Param.Slope, SLOPE), range('Envelope', Param.EnvCutoff, -1, 1, 0.01),
+        range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Env 1 (filter)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Env 2 (amplifier)', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Env 3', controls: [envelope('', Param.ArAttack, undefined, undefined, Param.ArRelease)] },
+    voicesSection(),
+    { title: 'Modulation matrix', controls: [], patch: true },
+  ],
+}
+
+/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs). */
+const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7]]
+
+// Eight voices of two wavetable oscillators whose wave position the filter
+// envelope and the LFO move, in stepped transitions or crossfaded, into a
+// four-pole low-pass (spec 006 Req 11). The tables are generated by the engine.
+const ppgWave: ModelDef = {
+  id: Model.PpgWave,
+  name: 'PPG Wave',
+  maker: 'PPG · eight voices, wavetables',
+  tagline: 'Eight voices: two wavetable oscillators swept by envelope and LFO, a 4-pole analog-style filter',
+  theme: { panel: '#202830', ink: '#e6edf3', soft: '#9fb0bf', trim: '#3a4a5a', accent: '#5ec2ff' },
+  presets: ['PpgSweepPad', 'PpgGlassBell', 'PpgFormant', 'PpgPulseBass', 'PpgDigitalPluck', 'PpgOrganWave'],
+  sections: [
+    {
+      title: 'Wavetable 1',
+      controls: [
+        select('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
+        range('Range', Param.Vco1Coarse, -24, 24, 1), range('Level', Param.Vco1Level, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Wavetable 2',
+      controls: [
+        select('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
+        range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Wave motion',
+      controls: [
+        range('Env → wave', Param.EnvWt, -1, 1, 0.01), range('LFO → wave', Param.LfoWt, 0, 1, 0.01),
+        sw('Steps', Param.WtSteps),
+      ],
+    },
+    { title: 'Noise', controls: [range('Level', Param.NoiseLevel, 0, 1, 0.01)] },
+    {
+      title: 'Filter',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+        range('Drive', Param.Drive, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
+/** A partial's source: synthesised, or one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs). */
+const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8]]
+const SYNTH_WAVES: Options = [['Saw', 0], ['Pulse', 1], ['Triangle', 2]]
+const STRUCTURE: Options = [['Add', 0], ['Sync', 1], ['Ring', 2]]
+
+// Sixteen voices of two partials, each a synthesised oscillator or a generated PCM
+// attack, each with its own filter and envelopes, added, synced or ring-modulated
+// (spec 006 Req 12). The attacks are the engine's own, not the D-50's ROM.
+const d50: ModelDef = {
+  id: Model.D50,
+  name: 'D-50',
+  maker: 'Roland · sixteen voices, LA synthesis',
+  tagline: 'Sixteen voices: two partials, synthesised or a generated attack sample, each with its own filter and envelopes',
+  theme: { panel: '#1c1d22', ink: '#e9e6df', soft: '#a6a39b', trim: '#3b3f4a', accent: '#ee5d6c' },
+  presets: ['LaFantasia', 'LaPluckPad', 'LaBreathFlute', 'LaRingBell', 'LaThumpBass', 'LaChoir'],
+  sections: [
+    {
+      title: 'Partial 1',
+      controls: [
+        select('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
+        range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), range('Level', Param.Vco1Level, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter 1',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01),
+      ],
+    },
+    { title: 'Filter env 1', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amp env 1', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'Partial 2',
+      controls: [
+        select('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
+        range('Pitch', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter 2',
+      controls: [
+        range('Cutoff', Param.P2Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.P2Resonance, 0, 1, 0.01),
+        range('Envelope', Param.P2EnvCutoff, -1, 1, 0.01),
+      ],
+    },
+    { title: 'Filter env 2', controls: adsrControls(Param.P2FenvAttack, Param.P2FenvDecay, Param.P2FenvSustain, Param.P2FenvRelease) },
+    { title: 'Amp env 2', controls: adsrControls(Param.P2AdsrAttack, Param.P2AdsrDecay, Param.P2AdsrSustain, Param.P2AdsrRelease) },
+    {
+      title: 'Structure',
+      controls: [select('Partials', Param.Structure, STRUCTURE), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01)],
+    },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
+const CURVES: Options = [['−Lin', 0], ['−Exp', 1], ['+Exp', 2], ['+Lin', 3]]
+const LFO_SHAPES: Options = [['Tri', 0], ['Saw ↓', 1], ['Saw ↑', 2], ['Sqr', 3], ['Sine', 4], ['S&H', 5]]
+
+/** One DX7 operator: its frequency and level, its envelope, and its key scaling. */
+const dxOperator = (n: number): Section[] => {
+  const p = (f: string) => Param[`Op${n}${f}` as keyof typeof Param]
+  return [
+    {
+      title: `Operator ${n}`,
+      controls: [
+        sw('Fixed', p('Mode')), int('Coarse', p('Coarse'), 31, 1), int('Fine', p('Fine'), 99), int('Detune', p('Detune'), 14, 7),
+        int('Level', p('Level'), 99), int('Velocity', p('VelSens'), 7), int('Amp mod', p('AmpSens'), 3), int('Rate scale', p('RateScale'), 7),
+      ],
+    },
+    { title: `EG ${n}`, controls: [{ kind: 'eg4', label: `Operator ${n}`, rates: [p('R1'), p('R2'), p('R3'), p('R4')], levels: [p('L1'), p('L2'), p('L3'), p('L4')] }] },
+    {
+      title: `Scaling ${n}`,
+      controls: [
+        int('Break point', p('BreakPoint'), 99, 39), int('Left depth', p('LeftDepth'), 99), select('Left curve', p('LeftCurve'), CURVES),
+        int('Right depth', p('RightDepth'), 99), select('Right curve', p('RightCurve'), CURVES),
+      ],
+    },
+  ]
+}
+
+// Sixteen voices of six sine operators in 32 algorithms with the DX7's envelopes,
+// feedback, LFO and pitch envelope (spec 006 Req 13). Operator 6 has the feedback.
+const dx7: ModelDef = {
+  id: Model.Dx7,
+  name: 'DX7',
+  maker: 'Yamaha · sixteen voices, six-operator FM',
+  tagline: 'Sixteen voices: six sine operators, 32 algorithms, feedback, the DX7 envelopes',
+  theme: { panel: '#1d2326', ink: '#e4efe9', soft: '#9db0a6', trim: '#34464a', accent: '#4fd1a5' },
+  presets: ['FmElectricPiano', 'FmBell', 'FmBrass', 'FmBass', 'FmMarimba', 'FmPad'],
+  sections: [
+    { title: 'Algorithm', controls: [{ kind: 'algo', label: 'Algorithm', param: Param.Algorithm }, int('Feedback', Param.Feedback, 7)] },
+    { title: 'Pitch EG', controls: [{ kind: 'eg4', label: 'Pitch', rates: [Param.PitchR1, Param.PitchR2, Param.PitchR3, Param.PitchR4], levels: [Param.PitchL1, Param.PitchL2, Param.PitchL3, Param.PitchL4] }] },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoShape, LFO_SHAPES), int('Speed', Param.LfoSpeed, 99, 35), int('Delay', Param.LfoDelay, 99),
+        int('Pitch depth', Param.LfoPitchDepth, 99), int('Amp depth', Param.LfoAmpDepth, 99), int('Pitch sens', Param.PitchSens, 7, 3),
+        sw('Key sync', Param.LfoSync),
+      ],
+    },
+    { title: 'Keyboard', controls: [int('Transpose', Param.Transpose, 48, 24), sw('Osc sync', Param.OscSync)] },
+    { title: 'Voices', controls: [{ kind: 'sysex' }] },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    ...[1, 2, 3, 4, 5, 6].flatMap(dxOperator),
+    voicesSection(),
   ],
 }
 
@@ -551,7 +973,48 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey]
+// Sixteen voices, each with its own resonant filter and envelope: the Polymoog's
+// Strings, Vox Humana, Funk and Brass registrations as presets (spec 006 Req 16).
+const polyMoog: ModelDef = {
+  id: Model.PolyMoog,
+  name: 'Polymoog',
+  maker: 'Moog · sixteen voices, a resonator per key',
+  tagline: 'Sixteen voices: saw and pulse, a resonant filter and an envelope for every key',
+  theme: { panel: '#2a2420', ink: '#f1e9dc', soft: '#b4a995', trim: '#14100d', accent: '#e0603a', wood: '#5a3a22' },
+  presets: ['PolyStrings', 'VoxHumana', 'PolyFunk', 'PolyBrass'],
+  sections: [
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Oscillators',
+      controls: [
+        select('Wave 1', Param.Vco1Wave, WAVES), range('Level 1', Param.Vco1Level, 0, 1, 0.01),
+        select('Wave 2', Param.Vco2Wave, WAVES), range('Level 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Range 2', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine),
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'Resonator',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Ensemble', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

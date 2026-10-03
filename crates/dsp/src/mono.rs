@@ -17,13 +17,14 @@ pub mod preset;
 pub mod svf;
 pub mod voice;
 
+use crate::fm::patch::FmPatch;
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
-use model::Model;
+use model::{Filter, Model};
 use noise::NoiseColour;
 use osc::Waveform;
-use patch::{Normals, Patch};
+use patch::{DESTS, Normals, Patch};
 use voice::NotePriority;
 
 /// Number of VCOs per Mono voice.
@@ -34,6 +35,39 @@ pub const VCOS: usize = 3;
 pub struct MonoParams {
     /// Which instrument this synth is (spec 005).
     pub model: Model,
+    /// Voices the synth plays at once (spec 006): 1 is monophonic.
+    pub polyphony: usize,
+    /// Unison assignment, its detune spread in cents either side, and the analog variance.
+    pub unison: bool,
+    pub unison_cents: f32,
+    pub analog: f32,
+    /// The stereo chorus mode (0 off); the engine runs it after the voices.
+    pub chorus_mode: usize,
+    /// Whether a model with the slope switch filters at 12 dB (else 24).
+    pub slope12: bool,
+    /// The second LFO (cycles per sample, waveform) and the ramp's step per sample.
+    pub lfo2_inc: f32,
+    pub lfo2_wave: Waveform,
+    pub ramp_inc: f32,
+    /// The wavetable oscillators (spec 006 Req 11): table and position of each, stepped
+    /// positions, and the filter envelope's and the LFO's reach on the position.
+    pub wt_table: [usize; 2],
+    pub wt_pos: [f32; 2],
+    pub wt_steps: bool,
+    pub env_wt: f32,
+    pub lfo_wt: f32,
+    /// The D-50's partials (spec 006 Req 12): each one's PCM attack (0 is synthesised), how
+    /// the pair combines, and partial 2's own filter and envelopes (partial 1 uses the
+    /// synth's: `cutoff`, `adsr`, `fadsr`).
+    pub pcm: [usize; 2],
+    pub structure: usize,
+    pub p2_cutoff: f32,
+    pub p2_k: f32,
+    pub p2_env_cutoff: f32,
+    pub p2_fadsr: EnvTimes,
+    pub p2_adsr: EnvTimes,
+    /// The DX7 voice (spec 006 Req 13).
+    pub fm: FmPatch,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -77,7 +111,7 @@ pub struct MonoParams {
     /// The patch, which destinations it takes over, the normalled amounts
     /// and the mod wheel.
     pub patch: Patch,
-    pub taken: [bool; 8],
+    pub taken: [bool; DESTS],
     pub normals: Normals,
     pub mod_wheel: f32,
 }
@@ -89,6 +123,27 @@ impl Default for MonoParams {
 }
 
 impl MonoParams {
+    /// The sample rate the parameters were converted for.
+    pub fn sample_rate(&self) -> f32 {
+        self.sample_rate
+    }
+
+    /// The low-pass in use: the model's, or on a model with the slope switch its
+    /// 12 dB one when the switch says so.
+    pub fn filter(&self) -> Filter {
+        if self.slope12 {
+            if let Some(f) = self.model.filter_12db() {
+                return f;
+            }
+        }
+        self.model.filter()
+    }
+
+    /// The voices this synth plays at once: `Polyphony`, at most its model's.
+    pub fn voices(&self) -> usize {
+        self.polyphony.clamp(1, self.model.voices())
+    }
+
     /// The voice at `preset::DEFAULTS`: zeroed, then every default set.
     pub fn new(sample_rate: f32) -> MonoParams {
         let off = EnvTimes {
@@ -99,6 +154,28 @@ impl MonoParams {
         };
         let mut p = MonoParams {
             model: Model::Arp2600,
+            polyphony: 1,
+            unison: false,
+            unison_cents: 0.0,
+            analog: 0.0,
+            chorus_mode: 0,
+            slope12: false,
+            lfo2_inc: 0.0,
+            lfo2_wave: Waveform::Sine,
+            ramp_inc: 0.0,
+            wt_table: [0; 2],
+            wt_pos: [0.0; 2],
+            wt_steps: false,
+            env_wt: 0.0,
+            lfo_wt: 0.0,
+            pcm: [0; 2],
+            structure: 0,
+            p2_cutoff: 0.0,
+            p2_k: 0.0,
+            p2_env_cutoff: 0.0,
+            p2_fadsr: off,
+            p2_adsr: off,
+            fm: FmPatch::default(),
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -128,7 +205,7 @@ impl MonoParams {
             legato: false,
             glide: 0.0,
             patch: Patch::default(),
-            taken: [false; 8],
+            taken: [false; DESTS],
             normals: Normals::default(),
             mod_wheel: 0.0,
         };
@@ -311,6 +388,223 @@ impl MonoParams {
             | Param::EqMid2Q
             | Param::EqHighFreq
             | Param::EqHighGain => {}
+            Param::Polyphony => self.polyphony = v.round().max(1.0) as usize,
+            Param::Assign => self.unison = v >= 0.5,
+            Param::UnisonDetune => self.unison_cents = 50.0 * v,
+            Param::Analog => self.analog = v,
+            Param::ChorusMode => self.chorus_mode = v.round() as usize,
+            Param::XMod => self.normals.xmod = 24.0 * v,
+            Param::Slope => self.slope12 = v < 0.5,
+            Param::Patch9Source => self.patch.set_source(8, v),
+            Param::Patch9Dest => self.patch.set_dest(8, v),
+            Param::Patch9Amount => self.patch.set_amount(8, v),
+            Param::Patch10Source => self.patch.set_source(9, v),
+            Param::Patch10Dest => self.patch.set_dest(9, v),
+            Param::Patch10Amount => self.patch.set_amount(9, v),
+            Param::Patch11Source => self.patch.set_source(10, v),
+            Param::Patch11Dest => self.patch.set_dest(10, v),
+            Param::Patch11Amount => self.patch.set_amount(10, v),
+            Param::Patch12Source => self.patch.set_source(11, v),
+            Param::Patch12Dest => self.patch.set_dest(11, v),
+            Param::Patch12Amount => self.patch.set_amount(11, v),
+            Param::Patch13Source => self.patch.set_source(12, v),
+            Param::Patch13Dest => self.patch.set_dest(12, v),
+            Param::Patch13Amount => self.patch.set_amount(12, v),
+            Param::Patch14Source => self.patch.set_source(13, v),
+            Param::Patch14Dest => self.patch.set_dest(13, v),
+            Param::Patch14Amount => self.patch.set_amount(13, v),
+            Param::Patch15Source => self.patch.set_source(14, v),
+            Param::Patch15Dest => self.patch.set_dest(14, v),
+            Param::Patch15Amount => self.patch.set_amount(14, v),
+            Param::Patch16Source => self.patch.set_source(15, v),
+            Param::Patch16Dest => self.patch.set_dest(15, v),
+            Param::Patch16Amount => self.patch.set_amount(15, v),
+            Param::Patch17Source => self.patch.set_source(16, v),
+            Param::Patch17Dest => self.patch.set_dest(16, v),
+            Param::Patch17Amount => self.patch.set_amount(16, v),
+            Param::Patch18Source => self.patch.set_source(17, v),
+            Param::Patch18Dest => self.patch.set_dest(17, v),
+            Param::Patch18Amount => self.patch.set_amount(17, v),
+            Param::Patch19Source => self.patch.set_source(18, v),
+            Param::Patch19Dest => self.patch.set_dest(18, v),
+            Param::Patch19Amount => self.patch.set_amount(18, v),
+            Param::Patch20Source => self.patch.set_source(19, v),
+            Param::Patch20Dest => self.patch.set_dest(19, v),
+            Param::Patch20Amount => self.patch.set_amount(19, v),
+            Param::Wt1Table => self.wt_table[0] = v.round() as usize,
+            Param::Wt2Table => self.wt_table[1] = v.round() as usize,
+            Param::Wt1Pos => self.wt_pos[0] = v,
+            Param::Wt2Pos => self.wt_pos[1] = v,
+            Param::WtSteps => self.wt_steps = v >= 0.5,
+            Param::EnvWt => self.env_wt = v,
+            Param::LfoWt => self.lfo_wt = v,
+            Param::Pcm1Sample => self.pcm[0] = v.round() as usize,
+            Param::Pcm2Sample => self.pcm[1] = v.round() as usize,
+            Param::Structure => self.structure = v.round() as usize,
+            Param::P2Cutoff => self.p2_cutoff = hz_to_note(v),
+            Param::P2Resonance => self.p2_k = v * MAX_K,
+            Param::P2EnvCutoff => self.p2_env_cutoff = 48.0 * v,
+            Param::P2FenvAttack => self.p2_fadsr.attack = samples,
+            Param::P2FenvDecay => self.p2_fadsr.decay = samples,
+            Param::P2FenvSustain => self.p2_fadsr.sustain = v,
+            Param::P2FenvRelease => self.p2_fadsr.release = samples,
+            Param::P2AdsrAttack => self.p2_adsr.attack = samples,
+            Param::P2AdsrDecay => self.p2_adsr.decay = samples,
+            Param::P2AdsrSustain => self.p2_adsr.sustain = v,
+            Param::P2AdsrRelease => self.p2_adsr.release = samples,
+            Param::Op1R1 => self.fm.set_op(5, 0, v),
+            Param::Op1R2 => self.fm.set_op(5, 1, v),
+            Param::Op1R3 => self.fm.set_op(5, 2, v),
+            Param::Op1R4 => self.fm.set_op(5, 3, v),
+            Param::Op1L1 => self.fm.set_op(5, 4, v),
+            Param::Op1L2 => self.fm.set_op(5, 5, v),
+            Param::Op1L3 => self.fm.set_op(5, 6, v),
+            Param::Op1L4 => self.fm.set_op(5, 7, v),
+            Param::Op1BreakPoint => self.fm.set_op(5, 8, v),
+            Param::Op1LeftDepth => self.fm.set_op(5, 9, v),
+            Param::Op1RightDepth => self.fm.set_op(5, 10, v),
+            Param::Op1LeftCurve => self.fm.set_op(5, 11, v),
+            Param::Op1RightCurve => self.fm.set_op(5, 12, v),
+            Param::Op1RateScale => self.fm.set_op(5, 13, v),
+            Param::Op1AmpSens => self.fm.set_op(5, 14, v),
+            Param::Op1VelSens => self.fm.set_op(5, 15, v),
+            Param::Op1Level => self.fm.set_op(5, 16, v),
+            Param::Op1Mode => self.fm.set_op(5, 17, v),
+            Param::Op1Coarse => self.fm.set_op(5, 18, v),
+            Param::Op1Fine => self.fm.set_op(5, 19, v),
+            Param::Op1Detune => self.fm.set_op(5, 20, v),
+            Param::Op2R1 => self.fm.set_op(4, 0, v),
+            Param::Op2R2 => self.fm.set_op(4, 1, v),
+            Param::Op2R3 => self.fm.set_op(4, 2, v),
+            Param::Op2R4 => self.fm.set_op(4, 3, v),
+            Param::Op2L1 => self.fm.set_op(4, 4, v),
+            Param::Op2L2 => self.fm.set_op(4, 5, v),
+            Param::Op2L3 => self.fm.set_op(4, 6, v),
+            Param::Op2L4 => self.fm.set_op(4, 7, v),
+            Param::Op2BreakPoint => self.fm.set_op(4, 8, v),
+            Param::Op2LeftDepth => self.fm.set_op(4, 9, v),
+            Param::Op2RightDepth => self.fm.set_op(4, 10, v),
+            Param::Op2LeftCurve => self.fm.set_op(4, 11, v),
+            Param::Op2RightCurve => self.fm.set_op(4, 12, v),
+            Param::Op2RateScale => self.fm.set_op(4, 13, v),
+            Param::Op2AmpSens => self.fm.set_op(4, 14, v),
+            Param::Op2VelSens => self.fm.set_op(4, 15, v),
+            Param::Op2Level => self.fm.set_op(4, 16, v),
+            Param::Op2Mode => self.fm.set_op(4, 17, v),
+            Param::Op2Coarse => self.fm.set_op(4, 18, v),
+            Param::Op2Fine => self.fm.set_op(4, 19, v),
+            Param::Op2Detune => self.fm.set_op(4, 20, v),
+            Param::Op3R1 => self.fm.set_op(3, 0, v),
+            Param::Op3R2 => self.fm.set_op(3, 1, v),
+            Param::Op3R3 => self.fm.set_op(3, 2, v),
+            Param::Op3R4 => self.fm.set_op(3, 3, v),
+            Param::Op3L1 => self.fm.set_op(3, 4, v),
+            Param::Op3L2 => self.fm.set_op(3, 5, v),
+            Param::Op3L3 => self.fm.set_op(3, 6, v),
+            Param::Op3L4 => self.fm.set_op(3, 7, v),
+            Param::Op3BreakPoint => self.fm.set_op(3, 8, v),
+            Param::Op3LeftDepth => self.fm.set_op(3, 9, v),
+            Param::Op3RightDepth => self.fm.set_op(3, 10, v),
+            Param::Op3LeftCurve => self.fm.set_op(3, 11, v),
+            Param::Op3RightCurve => self.fm.set_op(3, 12, v),
+            Param::Op3RateScale => self.fm.set_op(3, 13, v),
+            Param::Op3AmpSens => self.fm.set_op(3, 14, v),
+            Param::Op3VelSens => self.fm.set_op(3, 15, v),
+            Param::Op3Level => self.fm.set_op(3, 16, v),
+            Param::Op3Mode => self.fm.set_op(3, 17, v),
+            Param::Op3Coarse => self.fm.set_op(3, 18, v),
+            Param::Op3Fine => self.fm.set_op(3, 19, v),
+            Param::Op3Detune => self.fm.set_op(3, 20, v),
+            Param::Op4R1 => self.fm.set_op(2, 0, v),
+            Param::Op4R2 => self.fm.set_op(2, 1, v),
+            Param::Op4R3 => self.fm.set_op(2, 2, v),
+            Param::Op4R4 => self.fm.set_op(2, 3, v),
+            Param::Op4L1 => self.fm.set_op(2, 4, v),
+            Param::Op4L2 => self.fm.set_op(2, 5, v),
+            Param::Op4L3 => self.fm.set_op(2, 6, v),
+            Param::Op4L4 => self.fm.set_op(2, 7, v),
+            Param::Op4BreakPoint => self.fm.set_op(2, 8, v),
+            Param::Op4LeftDepth => self.fm.set_op(2, 9, v),
+            Param::Op4RightDepth => self.fm.set_op(2, 10, v),
+            Param::Op4LeftCurve => self.fm.set_op(2, 11, v),
+            Param::Op4RightCurve => self.fm.set_op(2, 12, v),
+            Param::Op4RateScale => self.fm.set_op(2, 13, v),
+            Param::Op4AmpSens => self.fm.set_op(2, 14, v),
+            Param::Op4VelSens => self.fm.set_op(2, 15, v),
+            Param::Op4Level => self.fm.set_op(2, 16, v),
+            Param::Op4Mode => self.fm.set_op(2, 17, v),
+            Param::Op4Coarse => self.fm.set_op(2, 18, v),
+            Param::Op4Fine => self.fm.set_op(2, 19, v),
+            Param::Op4Detune => self.fm.set_op(2, 20, v),
+            Param::Op5R1 => self.fm.set_op(1, 0, v),
+            Param::Op5R2 => self.fm.set_op(1, 1, v),
+            Param::Op5R3 => self.fm.set_op(1, 2, v),
+            Param::Op5R4 => self.fm.set_op(1, 3, v),
+            Param::Op5L1 => self.fm.set_op(1, 4, v),
+            Param::Op5L2 => self.fm.set_op(1, 5, v),
+            Param::Op5L3 => self.fm.set_op(1, 6, v),
+            Param::Op5L4 => self.fm.set_op(1, 7, v),
+            Param::Op5BreakPoint => self.fm.set_op(1, 8, v),
+            Param::Op5LeftDepth => self.fm.set_op(1, 9, v),
+            Param::Op5RightDepth => self.fm.set_op(1, 10, v),
+            Param::Op5LeftCurve => self.fm.set_op(1, 11, v),
+            Param::Op5RightCurve => self.fm.set_op(1, 12, v),
+            Param::Op5RateScale => self.fm.set_op(1, 13, v),
+            Param::Op5AmpSens => self.fm.set_op(1, 14, v),
+            Param::Op5VelSens => self.fm.set_op(1, 15, v),
+            Param::Op5Level => self.fm.set_op(1, 16, v),
+            Param::Op5Mode => self.fm.set_op(1, 17, v),
+            Param::Op5Coarse => self.fm.set_op(1, 18, v),
+            Param::Op5Fine => self.fm.set_op(1, 19, v),
+            Param::Op5Detune => self.fm.set_op(1, 20, v),
+            Param::Op6R1 => self.fm.set_op(0, 0, v),
+            Param::Op6R2 => self.fm.set_op(0, 1, v),
+            Param::Op6R3 => self.fm.set_op(0, 2, v),
+            Param::Op6R4 => self.fm.set_op(0, 3, v),
+            Param::Op6L1 => self.fm.set_op(0, 4, v),
+            Param::Op6L2 => self.fm.set_op(0, 5, v),
+            Param::Op6L3 => self.fm.set_op(0, 6, v),
+            Param::Op6L4 => self.fm.set_op(0, 7, v),
+            Param::Op6BreakPoint => self.fm.set_op(0, 8, v),
+            Param::Op6LeftDepth => self.fm.set_op(0, 9, v),
+            Param::Op6RightDepth => self.fm.set_op(0, 10, v),
+            Param::Op6LeftCurve => self.fm.set_op(0, 11, v),
+            Param::Op6RightCurve => self.fm.set_op(0, 12, v),
+            Param::Op6RateScale => self.fm.set_op(0, 13, v),
+            Param::Op6AmpSens => self.fm.set_op(0, 14, v),
+            Param::Op6VelSens => self.fm.set_op(0, 15, v),
+            Param::Op6Level => self.fm.set_op(0, 16, v),
+            Param::Op6Mode => self.fm.set_op(0, 17, v),
+            Param::Op6Coarse => self.fm.set_op(0, 18, v),
+            Param::Op6Fine => self.fm.set_op(0, 19, v),
+            Param::Op6Detune => self.fm.set_op(0, 20, v),
+            Param::PitchR1 => self.fm.set_global(0, v),
+            Param::PitchR2 => self.fm.set_global(1, v),
+            Param::PitchR3 => self.fm.set_global(2, v),
+            Param::PitchR4 => self.fm.set_global(3, v),
+            Param::PitchL1 => self.fm.set_global(4, v),
+            Param::PitchL2 => self.fm.set_global(5, v),
+            Param::PitchL3 => self.fm.set_global(6, v),
+            Param::PitchL4 => self.fm.set_global(7, v),
+            Param::Algorithm => self.fm.set_global(8, v),
+            Param::Feedback => self.fm.set_global(9, v),
+            Param::OscSync => self.fm.set_global(10, v),
+            Param::LfoSpeed => self.fm.set_global(11, v),
+            Param::LfoDelay => self.fm.set_global(12, v),
+            Param::LfoPitchDepth => self.fm.set_global(13, v),
+            Param::LfoAmpDepth => self.fm.set_global(14, v),
+            Param::LfoSync => self.fm.set_global(15, v),
+            Param::LfoShape => self.fm.set_global(16, v),
+            Param::PitchSens => self.fm.set_global(17, v),
+            Param::Transpose => self.fm.set_global(18, v),
+            Param::Lfo2Rate => self.lfo2_inc = v / self.sample_rate,
+            Param::Lfo2Wave => {
+                if let Some(w) = Waveform::from_id(v.round() as u32) {
+                    self.lfo2_wave = w;
+                }
+            }
+            Param::RampTime => self.ramp_inc = 1.0 / (v * self.sample_rate),
+
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;
@@ -321,7 +615,12 @@ impl MonoParams {
             }
             Param::MasterGain => {}
         }
-        self.taken = self.patch.overridden();
+        // A modulation matrix adds to its destinations; a patch panel replaces the normals.
+        self.taken = if self.model.has_matrix() {
+            [false; DESTS]
+        } else {
+            self.patch.overridden()
+        };
     }
 
     fn set_wave(&mut self, vco: usize, v: f32) {
