@@ -9,7 +9,7 @@ const BUDGET = 0.25
 const pct = (x: number) => `${(100 * x).toFixed(1)}%`
 
 const gain = ref(0.5)
-watch(gain, (v) => getEngine()?.param(Param.MasterGain, v))
+watch(gain, (v) => getEngine()?.param(0, Param.MasterGain, v))
 
 // Oscilloscope from the AnalyserNode (ADR-0003): drawing only, no audio work.
 const scope = ref<HTMLCanvasElement | null>(null)
@@ -39,7 +39,7 @@ function draw() {
 }
 async function onPower() {
   await power()
-  getEngine()?.param(Param.MasterGain, gain.value)
+  getEngine()?.param(0, Param.MasterGain, gain.value)
   if (!raf) draw()
 }
 onBeforeUnmount(() => cancelAnimationFrame(raf))
