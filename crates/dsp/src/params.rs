@@ -129,10 +129,10 @@ pub enum Param {
     Level = 60,
     /// Mixer pan of a synth, −1 (left)..=1 (right), equal power.
     Pan = 61,
-    /// Post-fader send to the echo, 0..=1.
-    EchoSend = 62,
-    /// Post-fader send to the reverb, 0..=1.
-    ReverbSend = 63,
+    /// Post-fader send 1 (processor P1), 0..=1.
+    Send1 = 62,
+    /// Post-fader send 2 (processor P2), 0..=1.
+    Send2 = 63,
     /// Silences the synth when ≥ 0.5.
     Mute = 64,
     /// When any synth is soloed (≥ 0.5), only soloed synths sound.
@@ -145,82 +145,202 @@ pub enum Param {
     DriveTone = 68,
     /// Drive output level, 0..=1.
     DriveLevel = 69,
-    /// Echo delay time in ms, 1..=2000 (not tied to a tempo).
-    EchoTime = 70,
-    /// Echo feedback, 0..=0.95; it never reaches 1.
-    EchoFeedback = 71,
-    /// Echo tone, 0..=1: the low-pass in the loop, 500 Hz to 20 kHz.
-    EchoTone = 72,
-    /// Echo ping-pong when ≥ 0.5: the repeats alternate sides.
-    EchoPingPong = 73,
-    /// Echo return level into the master, 0..=1; 0 is silent.
-    EchoReturn = 74,
-    /// Reverb size as the seconds the tail takes to fall 60 dB, 0.1..=10.
-    ReverbSize = 75,
-    /// Reverb damping, 0..=1: how fast the tail loses its highs.
-    ReverbDamping = 76,
-    /// Reverb pre-delay in ms, 0..=100.
-    ReverbPreDelay = 77,
-    /// Reverb return level into the master, 0..=1; 0 is silent.
-    ReverbReturn = 78,
+    /// Processor P1's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    P1Type = 70,
+    /// Processor P1's return level into the master, 0..=1; 0 is silent.
+    P1Return = 71,
+    /// Processor P1's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
+    P1A = 72,
+    /// Processor P1's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
+    P1B = 73,
+    /// Processor P1's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
+    P1C = 74,
+    /// Processor P1's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
+    P1D = 75,
+    /// Processor P1's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
+    P1E = 76,
+    /// Processor P2's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    P2Type = 77,
+    /// Processor P2's return level into the master, 0..=1; 0 is silent.
+    P2Return = 78,
+    /// Processor P2's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
+    P2A = 79,
+    /// Processor P2's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
+    P2B = 80,
+    /// Processor P2's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
+    P2C = 81,
+    /// Processor P2's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
+    P2D = 82,
+    /// Processor P2's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
+    P2E = 83,
+    /// Processor P3's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    P3Type = 84,
+    /// Processor P3's return level into the master, 0..=1; 0 is silent.
+    P3Return = 85,
+    /// Processor P3's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
+    P3A = 86,
+    /// Processor P3's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
+    P3B = 87,
+    /// Processor P3's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
+    P3C = 88,
+    /// Processor P3's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
+    P3D = 89,
+    /// Processor P3's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
+    P3E = 90,
+    /// Processor P4's effect id (`ProcType`: off, echo, reverb), 0..=2.
+    P4Type = 91,
+    /// Processor P4's return level into the master, 0..=1; 0 is silent.
+    P4Return = 92,
+    /// Processor P4's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
+    P4A = 93,
+    /// Processor P4's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
+    P4B = 94,
+    /// Processor P4's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
+    P4C = 95,
+    /// Processor P4's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
+    P4D = 96,
+    /// Processor P4's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
+    P4E = 97,
     /// The synth's model id (`Model`), 0..=5; see spec 005.
-    Model = 79,
+    Model = 98,
     /// Filter ADSR attack, decay and release in seconds, 0.001..=10.
-    FenvAttack = 80,
-    FenvDecay = 81,
+    FenvAttack = 99,
+    FenvDecay = 100,
     /// Filter ADSR sustain level, 0..=1.
-    FenvSustain = 82,
-    FenvRelease = 83,
+    FenvSustain = 101,
+    FenvRelease = 102,
     /// High-pass cutoff in Hz, 20..=20000; 20 is out of the way.
-    HpCutoff = 84,
+    HpCutoff = 103,
     /// High-pass resonance, 0..=1 (the 12 dB high-pass of the MS-20 and CS-15).
-    HpResonance = 85,
+    HpResonance = 104,
     /// Normalled envelope → high-pass cutoff, −1..=1 (±4 octaves).
-    EnvHpCutoff = 86,
+    EnvHpCutoff = 105,
     /// Ring modulator (VCO 1 × VCO 2) level into the mixer, 0..=1.
-    RingLevel = 87,
+    RingLevel = 106,
     /// Sub-oscillator level into the mixer, 0..=1.
-    SubLevel = 88,
+    SubLevel = 107,
     /// Sub-oscillator octaves below VCO 1: 0 is one, 1 is two.
-    SubOctave = 89,
+    SubOctave = 108,
     /// VCO 3 follows the key when ≥ 0.5; off holds its pitch.
-    Vco3KeyFollow = 90,
+    Vco3KeyFollow = 109,
     /// VCO 3 sounds five octaves lower, in the low-frequency range, when ≥ 0.5.
-    Vco3Low = 91,
+    Vco3Low = 110,
     /// Normalled LFO → cutoff, 0..=1 (±24 semitones at full LFO).
-    LfoCutoff = 92,
+    LfoCutoff = 111,
     /// Normalled LFO → pulse width, 0..=1 (±0.45 at full LFO).
-    LfoPw = 93,
+    LfoPw = 112,
     /// Poly-mod: filter envelope → VCO 2 pitch, −1..=1 (±24 semitones).
-    EnvFreq2 = 94,
+    EnvFreq2 = 113,
     /// Poly-mod: VCO 1 → VCO 2 pitch, −1..=1 (±24 semitones).
-    OscFreq2 = 95,
+    OscFreq2 = 114,
     /// Poly-mod: filter envelope → pulse width, −1..=1 (±0.45).
-    EnvPw = 96,
+    EnvPw = 115,
     /// Poly-mod: VCO 1 → pulse width, −1..=1 (±0.45).
-    OscPw = 97,
+    OscPw = 116,
     /// Poly-mod: VCO 1 → cutoff, −1..=1 (±48 semitones).
-    OscCutoff = 98,
+    OscCutoff = 117,
+    /// Post-fader send 3 (processor P3), 0..=1.
+    Send3 = 118,
+    /// Post-fader send 4 (processor P4), 0..=1.
+    Send4 = 119,
+    /// Master compressor threshold in dB, −60..=0.
+    CompThreshold = 120,
+    /// Master compressor ratio, 1..=20; 1 is off.
+    CompRatio = 121,
+    /// Master compressor attack in ms, 0.1..=100.
+    CompAttack = 122,
+    /// Master compressor release in ms, 10..=1000.
+    CompRelease = 123,
+    /// Master compressor make-up gain in dB, 0..=24.
+    CompMakeup = 124,
+    /// Master EQ: Low shelf corner in Hz, 20..=500.
+    EqLowFreq = 125,
+    /// Master EQ: Low shelf gain in dB, −15..=15.
+    EqLowGain = 126,
+    /// Master EQ: Mid band 1 centre in Hz, 100..=8000.
+    EqMid1Freq = 127,
+    /// Master EQ: Mid band 1 gain in dB, −15..=15.
+    EqMid1Gain = 128,
+    /// Master EQ: Mid band 1 Q, 0.3..=8.
+    EqMid1Q = 129,
+    /// Master EQ: Mid band 2 centre in Hz, 500..=12000.
+    EqMid2Freq = 130,
+    /// Master EQ: Mid band 2 gain in dB, −15..=15.
+    EqMid2Gain = 131,
+    /// Master EQ: Mid band 2 Q, 0.3..=8.
+    EqMid2Q = 132,
+    /// Master EQ: High shelf corner in Hz, 2000..=18000.
+    EqHighFreq = 133,
+    /// Master EQ: High shelf gain in dB, −15..=15.
+    EqHighGain = 134,
 }
 
-/// Where the global parameters start: the effects are silent until a return
-/// goes up.
-pub const GLOBAL_DEFAULTS: [(Param, f32); 10] = [
+/// Where the global parameters start: P1 an echo and P2 a reverb, silent until
+/// a return goes up; P3 and P4 are off.
+pub const GLOBAL_DEFAULTS: [(Param, f32); 44] = [
+    (Param::EqLowFreq, 100.0),
+    (Param::EqLowGain, 0.0),
+    (Param::EqMid1Freq, 500.0),
+    (Param::EqMid1Gain, 0.0),
+    (Param::EqMid1Q, 1.0),
+    (Param::EqMid2Freq, 3000.0),
+    (Param::EqMid2Gain, 0.0),
+    (Param::EqMid2Q, 1.0),
+    (Param::EqHighFreq, 8000.0),
+    (Param::EqHighGain, 0.0),
     (Param::MasterGain, 0.5),
-    (Param::EchoTime, 300.0),
-    (Param::EchoFeedback, 0.4),
-    (Param::EchoTone, 0.7),
-    (Param::EchoPingPong, 0.0),
-    (Param::EchoReturn, 0.0),
-    (Param::ReverbSize, 2.0),
-    (Param::ReverbDamping, 0.3),
-    (Param::ReverbPreDelay, 10.0),
-    (Param::ReverbReturn, 0.0),
+    (Param::CompThreshold, -12.0),
+    (Param::CompRatio, 1.0),
+    (Param::CompAttack, 10.0),
+    (Param::CompRelease, 120.0),
+    (Param::CompMakeup, 0.0),
+    (Param::P1Type, 1.0),
+    (Param::P1Return, 0.0),
+    (Param::P1A, 0.75),
+    (Param::P1B, 0.4),
+    (Param::P1C, 0.7),
+    (Param::P1D, 0.0),
+    (Param::P1E, 0.0),
+    (Param::P2Type, 2.0),
+    (Param::P2Return, 0.0),
+    (Param::P2A, 0.65),
+    (Param::P2B, 0.3),
+    (Param::P2C, 0.1),
+    (Param::P2D, 0.0),
+    (Param::P2E, 0.0),
+    (Param::P3Type, 0.0),
+    (Param::P3Return, 0.0),
+    (Param::P3A, 0.0),
+    (Param::P3B, 0.0),
+    (Param::P3C, 0.0),
+    (Param::P3D, 0.0),
+    (Param::P3E, 0.0),
+    (Param::P4Type, 0.0),
+    (Param::P4Return, 0.0),
+    (Param::P4A, 0.0),
+    (Param::P4B, 0.0),
+    (Param::P4C, 0.0),
+    (Param::P4D, 0.0),
+    (Param::P4E, 0.0),
 ];
+
+/// The first processor parameter id, and how many each slot has: type,
+/// return and five knobs.
+const PROC_BASE: usize = Param::P1Type as usize;
+const PROC_FIELDS: usize = 7;
+
+/// What a processor parameter sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcField {
+    Type,
+    Return,
+    /// Knob 0..=4 (A..E).
+    Knob(usize),
+}
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 99] = [
+    pub const ALL: [(Param, &'static str); 135] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -283,23 +403,42 @@ impl Param {
         (Param::ModWheel, "ModWheel"),
         (Param::Level, "Level"),
         (Param::Pan, "Pan"),
-        (Param::EchoSend, "EchoSend"),
-        (Param::ReverbSend, "ReverbSend"),
+        (Param::Send1, "Send1"),
+        (Param::Send2, "Send2"),
         (Param::Mute, "Mute"),
         (Param::Solo, "Solo"),
         (Param::DriveMode, "DriveMode"),
         (Param::DriveAmount, "DriveAmount"),
         (Param::DriveTone, "DriveTone"),
         (Param::DriveLevel, "DriveLevel"),
-        (Param::EchoTime, "EchoTime"),
-        (Param::EchoFeedback, "EchoFeedback"),
-        (Param::EchoTone, "EchoTone"),
-        (Param::EchoPingPong, "EchoPingPong"),
-        (Param::EchoReturn, "EchoReturn"),
-        (Param::ReverbSize, "ReverbSize"),
-        (Param::ReverbDamping, "ReverbDamping"),
-        (Param::ReverbPreDelay, "ReverbPreDelay"),
-        (Param::ReverbReturn, "ReverbReturn"),
+        (Param::P1Type, "P1Type"),
+        (Param::P1Return, "P1Return"),
+        (Param::P1A, "P1A"),
+        (Param::P1B, "P1B"),
+        (Param::P1C, "P1C"),
+        (Param::P1D, "P1D"),
+        (Param::P1E, "P1E"),
+        (Param::P2Type, "P2Type"),
+        (Param::P2Return, "P2Return"),
+        (Param::P2A, "P2A"),
+        (Param::P2B, "P2B"),
+        (Param::P2C, "P2C"),
+        (Param::P2D, "P2D"),
+        (Param::P2E, "P2E"),
+        (Param::P3Type, "P3Type"),
+        (Param::P3Return, "P3Return"),
+        (Param::P3A, "P3A"),
+        (Param::P3B, "P3B"),
+        (Param::P3C, "P3C"),
+        (Param::P3D, "P3D"),
+        (Param::P3E, "P3E"),
+        (Param::P4Type, "P4Type"),
+        (Param::P4Return, "P4Return"),
+        (Param::P4A, "P4A"),
+        (Param::P4B, "P4B"),
+        (Param::P4C, "P4C"),
+        (Param::P4D, "P4D"),
+        (Param::P4E, "P4E"),
         (Param::Model, "Model"),
         (Param::FenvAttack, "FenvAttack"),
         (Param::FenvDecay, "FenvDecay"),
@@ -320,7 +459,40 @@ impl Param {
         (Param::EnvPw, "EnvPw"),
         (Param::OscPw, "OscPw"),
         (Param::OscCutoff, "OscCutoff"),
+        (Param::Send3, "Send3"),
+        (Param::Send4, "Send4"),
+        (Param::CompThreshold, "CompThreshold"),
+        (Param::CompRatio, "CompRatio"),
+        (Param::CompAttack, "CompAttack"),
+        (Param::CompRelease, "CompRelease"),
+        (Param::CompMakeup, "CompMakeup"),
+        (Param::EqLowFreq, "EqLowFreq"),
+        (Param::EqLowGain, "EqLowGain"),
+        (Param::EqMid1Freq, "EqMid1Freq"),
+        (Param::EqMid1Gain, "EqMid1Gain"),
+        (Param::EqMid1Q, "EqMid1Q"),
+        (Param::EqMid2Freq, "EqMid2Freq"),
+        (Param::EqMid2Gain, "EqMid2Gain"),
+        (Param::EqMid2Q, "EqMid2Q"),
+        (Param::EqHighFreq, "EqHighFreq"),
+        (Param::EqHighGain, "EqHighGain"),
     ];
+
+    /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
+    /// mixer owns them; the synth never sees them.
+    pub fn is_strip(self) -> bool {
+        matches!(
+            self,
+            Param::Level
+                | Param::Pan
+                | Param::Send1
+                | Param::Send2
+                | Param::Send3
+                | Param::Send4
+                | Param::Mute
+                | Param::Solo
+        )
+    }
 
     /// Parameters of the whole engine, not of one synth: the master gain and
     /// the send effects. Whichever synth they are sent to, they are set once.
@@ -328,16 +500,36 @@ impl Param {
         matches!(
             self,
             Param::MasterGain
-                | Param::EchoTime
-                | Param::EchoFeedback
-                | Param::EchoTone
-                | Param::EchoPingPong
-                | Param::EchoReturn
-                | Param::ReverbSize
-                | Param::ReverbDamping
-                | Param::ReverbPreDelay
-                | Param::ReverbReturn
-        )
+                | Param::CompThreshold
+                | Param::CompRatio
+                | Param::CompAttack
+                | Param::CompRelease
+                | Param::CompMakeup
+                | Param::EqLowFreq
+                | Param::EqLowGain
+                | Param::EqMid1Freq
+                | Param::EqMid1Gain
+                | Param::EqMid1Q
+                | Param::EqMid2Freq
+                | Param::EqMid2Gain
+                | Param::EqMid2Q
+                | Param::EqHighFreq
+                | Param::EqHighGain
+        ) || self.processor().is_some()
+    }
+
+    /// The processor slot (0–3) and field of a P1–P4 parameter.
+    pub fn processor(self) -> Option<(usize, ProcField)> {
+        let i = (self as usize).checked_sub(PROC_BASE)?;
+        if i >= 4 * PROC_FIELDS {
+            return None;
+        }
+        let field = match i % PROC_FIELDS {
+            0 => ProcField::Type,
+            1 => ProcField::Return,
+            k => ProcField::Knob(k - 2),
+        };
+        Some((i / PROC_FIELDS, field))
     }
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -409,19 +601,48 @@ impl Param {
             | Param::LfoCutoff
             | Param::LfoPw => (0.0, 1.0),
             Param::Model => (0.0, 5.0),
-            Param::Level | Param::EchoSend | Param::ReverbSend => (0.0, 1.0),
+            Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::DriveMode => (0.0, 3.0),
             Param::DriveAmount | Param::DriveTone | Param::DriveLevel => (0.0, 1.0),
-            Param::EchoTime => (1.0, 2_000.0),
-            Param::EchoFeedback => (0.0, 0.95),
-            Param::EchoTone | Param::EchoReturn | Param::ReverbDamping | Param::ReverbReturn => {
-                (0.0, 1.0)
-            }
-            Param::EchoPingPong => (0.0, 1.0),
-            Param::ReverbSize => (0.1, 10.0),
-            Param::ReverbPreDelay => (0.0, 100.0),
+            Param::CompThreshold => (-60.0, 0.0),
+            Param::CompRatio => (1.0, 20.0),
+            Param::CompAttack => (0.1, 100.0),
+            Param::CompRelease => (10.0, 1_000.0),
+            Param::CompMakeup => (0.0, 24.0),
+            Param::EqLowFreq => (20.0, 500.0),
+            Param::EqLowGain => (-15.0, 15.0),
+            Param::EqMid1Freq => (100.0, 8000.0),
+            Param::EqMid1Gain => (-15.0, 15.0),
+            Param::EqMid1Q => (0.3, 8.0),
+            Param::EqMid2Freq => (500.0, 12000.0),
+            Param::EqMid2Gain => (-15.0, 15.0),
+            Param::EqMid2Q => (0.3, 8.0),
+            Param::EqHighFreq => (2000.0, 18000.0),
+            Param::EqHighGain => (-15.0, 15.0),
+            Param::P1Type | Param::P2Type | Param::P3Type | Param::P4Type => (0.0, 2.0),
+            Param::P1Return | Param::P2Return | Param::P3Return | Param::P4Return => (0.0, 1.0),
+            Param::P1A => (0.0, 1.0),
+            Param::P1B => (0.0, 1.0),
+            Param::P1C => (0.0, 1.0),
+            Param::P1D => (0.0, 1.0),
+            Param::P1E => (0.0, 1.0),
+            Param::P2A => (0.0, 1.0),
+            Param::P2B => (0.0, 1.0),
+            Param::P2C => (0.0, 1.0),
+            Param::P2D => (0.0, 1.0),
+            Param::P2E => (0.0, 1.0),
+            Param::P3A => (0.0, 1.0),
+            Param::P3B => (0.0, 1.0),
+            Param::P3C => (0.0, 1.0),
+            Param::P3D => (0.0, 1.0),
+            Param::P3E => (0.0, 1.0),
+            Param::P4A => (0.0, 1.0),
+            Param::P4B => (0.0, 1.0),
+            Param::P4C => (0.0, 1.0),
+            Param::P4D => (0.0, 1.0),
+            Param::P4E => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }
@@ -473,6 +694,7 @@ mod tests {
     #[test]
     fn typescript_mirror_matches() {
         use crate::fx::drive::DriveMode;
+        use crate::fx::processor::ProcType;
         use crate::mono::model::Model;
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
@@ -485,12 +707,20 @@ mod tests {
             v
         }
         let ts = include_str!("../../../web/src/audio/params.ts");
+        // `GlobalParam`: what `is_global` marks, which a setup stores once.
+        let global: Vec<(Param, &str)> = Param::ALL
+            .iter()
+            .copied()
+            .filter(|(p, _)| p.is_global())
+            .collect();
         let lists = [
             ("Param", rust(&Param::ALL, |p| p as u32)),
+            ("GlobalParam", rust(&global, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
             ("Model", rust(&Model::ALL, |m| m as u32)),
             ("DriveMode", rust(&DriveMode::ALL, |m| m as u32)),
+            ("ProcType", rust(&ProcType::ALL, |t| t as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
             ("ModSource", rust(&ModSource::ALL, |s| s as u32)),

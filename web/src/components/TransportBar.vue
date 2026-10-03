@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
-import { getEngine, loadDemo, loadMidi, meter, play, player, power, status, stop } from '../audio/engine'
+import { onBeforeUnmount, ref } from 'vue'
+import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, status, stop } from '../audio/engine'
 import { Param } from '../audio/params'
 
 // The performance counter: worklet time per block against the budget
@@ -8,8 +8,9 @@ import { Param } from '../audio/params'
 const BUDGET = 0.25
 const pct = (x: number) => `${(100 * x).toFixed(1)}%`
 
-const gain = ref(0.5)
-watch(gain, (v) => getEngine()?.param(0, Param.MasterGain, v))
+// Master gain is global: the engine's value, so a setup moves the slider.
+const gain = () => params.values[0]?.[Param.MasterGain] ?? 0.5
+const sendGain = (e: Event) => getEngine()?.param(0, Param.MasterGain, Number((e.target as HTMLInputElement).value))
 
 // Oscilloscope from the AnalyserNode (ADR-0003): drawing only, no audio work.
 const scope = ref<HTMLCanvasElement | null>(null)
@@ -39,7 +40,6 @@ function draw() {
 }
 async function onPower() {
   await power()
-  getEngine()?.param(0, Param.MasterGain, gain.value)
   if (!raf) draw()
 }
 onBeforeUnmount(() => cancelAnimationFrame(raf))
@@ -49,12 +49,13 @@ async function onDemo() {
   await loadDemo()
   await onPower()
 }
+// A MIDI file, a setup (.synths.json), or both at once (#41).
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const files = Array.from(input.files ?? [])
   input.value = ''
-  if (!file) return
-  await loadMidi(await file.arrayBuffer(), file.name)
+  if (!files.length) return
+  await openFiles(files)
   await onPower()
 }
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -67,14 +68,17 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
       {{ status.running ? 'Audio on' : 'Power on' }}
     </button>
     <button @click="onDemo">Demo</button>
-    <label class="file"><input type="file" accept=".mid,.midi,audio/midi" @change="onFile" />Open MIDI…</label>
+    <label class="file" title="A MIDI file, its .synths.json setup, or both">
+      <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json" @change="onFile" />Open…
+    </label>
+    <button :disabled="!status.running" title="Download the synths, their patches and routing as .synths.json" @click="saveSetup">Save setup</button>
     <button :disabled="!player.loaded" :class="{ on: player.playing }" @click="play">▶ Play</button>
     <button :disabled="!player.loaded" @click="stop">■ Stop</button>
     <span v-if="player.loaded" class="field">
       <b>{{ clock(player.position) }}</b> / {{ clock(player.length) }} · bar {{ Math.floor(player.position / player.bar) + 1 }}
     </span>
     <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
-    <label class="field gain">Master <input v-model.number="gain" type="range" min="0" max="1" step="0.01" /></label>
+    <label class="field gain">Master <input type="range" min="0" max="1" step="0.01" :value="gain()" @input="sendGain" /></label>
     <canvas ref="scope" class="scope" width="360" height="40" />
     <span
       v-if="status.running && meter.seen" class="field meter" :class="{ over: (meter.peak ?? meter.load) > BUDGET }"

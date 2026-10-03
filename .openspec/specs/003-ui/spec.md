@@ -37,3 +37,23 @@ The transport bar SHALL draw the output waveform from the AnalyserNode.
 The view SHALL only send messages and draw; sequencing, generation and synthesis SHALL live in the engine. (ADR-0001)
 
 **Tests:** review
+
+### Requirement 7: Synth setups [SHOULD]
+
+The view SHALL save the synths on screen, each one's kind, model and parameters, the channel routing and the global parameters (`GlobalParam`) as a versioned `.synths.json` file, with parameters keyed by name, not id. **Open…** SHALL take a MIDI file, a setup, or both in either order; with a MIDI file the setup SHALL apply once the parts arrive, alone it SHALL apply to the synths on screen. Applying SHALL reset each listed synth, set its model before its other parameters, then the routes and the globals. A file that isn't JSON or has an unknown version SHALL change nothing; unknown names, models and synths SHALL be skipped and listed in one notice, and a part-count mismatch SHALL warn. The last setup per MIDI file SHALL be kept in `localStorage` and restored when that file opens again, below a picked file and above a shipped one; Demo ships one. A parameter added to the registry SHALL be saved without changes to the setup code; this carries the whole mixer (strips, sends, processors, equalizer, compressor). A setup written before the mixer was central (`EchoSend`, `ReverbSend`, the global `Echo*` and `Reverb*`) SHALL load, migrated to `Send1`, `Send2` and the knobs of P1 and P2 with one notice. The format is built in the view from values the engine reports, which clamps every value it receives (#41).
+
+**Implementation:** `web/src/audio/setup.ts` (`buildSetup`, `parseSetup`, `applyPlan`, `shortF32`), `web/src/audio/engine.ts` (`saveSetup`, `openFiles`), `crates/dsp/src/params.rs::Param::is_global`, `web/public/demo.synths.json`
+
+#### Scenario: round trip
+
+- GIVEN a setup built from the view's values
+- WHEN it is written as JSON, read back and applied
+- THEN every per-synth parameter, global and route is the same 32-bit float or synth as before
+
+#### Scenario: unknown entries
+
+- GIVEN a setup with an unknown parameter, model, kind, a duplicate and an out-of-range synth
+- WHEN it is read
+- THEN the rest applies and each skip is listed once
+
+**Tests:** `web/src/audio/setup.test.ts`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`

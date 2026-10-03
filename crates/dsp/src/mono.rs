@@ -240,23 +240,59 @@ impl MonoParams {
             // The mixer's (`mixer::Mixer`), not the voice's.
             Param::Level
             | Param::Pan
-            | Param::EchoSend
-            | Param::ReverbSend
+            | Param::Send1
+            | Param::Send2
+            | Param::Send3
+            | Param::Send4
             | Param::Mute
             | Param::Solo
             | Param::DriveMode
             | Param::DriveAmount
             | Param::DriveTone
             | Param::DriveLevel
-            | Param::EchoTime
-            | Param::EchoFeedback
-            | Param::EchoTone
-            | Param::EchoPingPong
-            | Param::EchoReturn
-            | Param::ReverbSize
-            | Param::ReverbDamping
-            | Param::ReverbPreDelay
-            | Param::ReverbReturn => {}
+            | Param::P1Type
+            | Param::P1Return
+            | Param::P1A
+            | Param::P1B
+            | Param::P1C
+            | Param::P1D
+            | Param::P1E
+            | Param::P2Type
+            | Param::P2Return
+            | Param::P2A
+            | Param::P2B
+            | Param::P2C
+            | Param::P2D
+            | Param::P2E
+            | Param::P3Type
+            | Param::P3Return
+            | Param::P3A
+            | Param::P3B
+            | Param::P3C
+            | Param::P3D
+            | Param::P3E
+            | Param::P4Type
+            | Param::P4Return
+            | Param::P4A
+            | Param::P4B
+            | Param::P4C
+            | Param::P4D
+            | Param::P4E
+            | Param::CompThreshold
+            | Param::CompRatio
+            | Param::CompAttack
+            | Param::CompRelease
+            | Param::CompMakeup
+            | Param::EqLowFreq
+            | Param::EqLowGain
+            | Param::EqMid1Freq
+            | Param::EqMid1Gain
+            | Param::EqMid1Q
+            | Param::EqMid2Freq
+            | Param::EqMid2Gain
+            | Param::EqMid2Q
+            | Param::EqHighFreq
+            | Param::EqHighGain => {}
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

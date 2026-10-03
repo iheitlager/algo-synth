@@ -2,16 +2,20 @@
 // AudioWorkletNode (dsp.wasm) -> AnalyserNode (scope) -> speakers.
 // This file only sends messages; every musical decision is made in Rust.
 
-import { reactive } from 'vue'
-import type { ParamId, PresetId } from './params'
+import { reactive, watch } from 'vue'
+import * as registryTables from './params'
+import { GlobalParam, Param, type ParamId, type PresetId } from './params'
+import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
 const base = import.meta.env.BASE_URL
 
 /** Mono synths the engine holds (`SYNTHS` in engine.rs). */
 export const MAX_SYNTHS = 16
 /** A routing choice for a MIDI part: a synth index, or MUTE. */
-export const MUTE = 255
+export { MUTE }
 export type Route = number
+/** MIDI channels the player routes. */
+const CHANNELS = 16
 
 /** One MIDI channel with notes, as the engine summarised it. */
 export interface Part {
@@ -72,9 +76,11 @@ export const player = reactive({
   position: 0,
   playing: false,
   error: '',
+  /** What applying a setup reported: skipped entries, a part-count mismatch, or why it failed. */
+  notice: '',
 })
 /** DSP load as a share of real time (peak is null without a precise clock). */
-export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, seen: false })
+export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, reduction: 0, seen: false })
 
 /**
  * Parameter values by synth and id: what the view last sent, replaced by the
@@ -154,8 +160,11 @@ export async function loadMidi(bytes: ArrayBuffer, fileName: string): Promise<vo
 }
 
 export async function loadDemo(): Promise<void> {
-  const res = await fetch(`${base}demo.mid`)
-  await loadMidi(await res.arrayBuffer(), 'Canon in D (demo)')
+  const [mid, setup] = await Promise.all([fetch(`${base}demo.mid`), fetch(`${base}demo.synths.json`)])
+  const parsed = setup.ok ? parseSetup(await setup.text(), registry) : null
+  pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings, from: 'shipped' } : null
+  player.notice = ''
+  await loadMidi(await mid.arrayBuffer(), 'Canon in D (demo)')
 }
 
 export const play = () => engine?.post({ t: 'play' })
@@ -184,6 +193,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     meter.load = data.load as number
     meter.peak = data.peak as number | null
     meter.voices = data.voices as number
+    meter.reduction = data.reduction as number
     meter.seen = true
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
@@ -195,6 +205,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
 function onMidi(m: MidiSummary) {
   if (m.code < 0 || !m.parts || !m.packed || !m.times) {
     player.error = LOAD_ERRORS[m.code] ?? `load failed (${m.code})`
+    pending = null
     return
   }
   const decoder = new TextDecoder('utf-8')
@@ -215,7 +226,142 @@ function onMidi(m: MidiSummary) {
   player.position = 0
   player.playing = false
   player.loaded = true
+  loadedName = player.fileName
+  // A picked setup file beats the last session for this file, which beats a
+  // shipped one (the demo's).
+  const next = pending?.from === 'file' ? pending : (storedSetup(loadedName) ?? pending)
+  pending = null
+  if (next) applySetup(next.setup, next.warnings)
 }
+
+// --- Setups (#41) -------------------------------------------------------------
+
+/** The registry setups are built from; `Model` joins it with synth models (epic #28). */
+const registry: Registry = {
+  params: Param,
+  global: GlobalParam,
+  models: (registryTables as unknown as Record<string, Record<string, number> | undefined>).Model,
+  maxSynths: MAX_SYNTHS,
+  channels: CHANNELS,
+}
+
+/** A setup waiting for its MIDI file to load. */
+let pending: { setup: Setup; warnings: string[]; from: 'file' | 'shipped' | 'session' } | null = null
+/** The MIDI file whose setup the last session is kept under. */
+let loadedName = ''
+
+const sessionKey = (name: string) => `algo-synth:setup:${name}`
+
+function state(): State {
+  return {
+    synths: synths.list,
+    values: params.values,
+    routes: player.parts.map((p) => ({ channel: p.channel, synth: p.synth })),
+    ...(player.loaded && { midi: { name: player.fileName, parts: player.parts.length } }),
+  }
+}
+
+/** The current setup as the text of a `.synths.json` file. */
+export const setupText = () => `${JSON.stringify(buildSetup(state(), registry), null, 2)}\n`
+
+/** Download the current setup, named after the loaded MIDI file. */
+export function saveSetup() {
+  const stem = player.loaded ? player.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([setupText()], { type: 'application/json' }))
+  link.download = `${stem}.synths.json`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+}
+
+/**
+ * Open what the user picked: a MIDI file, a setup, or both in either order.
+ * With a MIDI file the setup waits until its parts arrive; alone it applies
+ * to the synths on screen.
+ */
+export async function openFiles(files: File[]): Promise<void> {
+  const isSetup = (f: File) => /\.json$/i.test(f.name)
+  const setupFile = files.find(isSetup)
+  const midiFile = files.find((f) => !isSetup(f))
+  player.notice = ''
+  let parsed: ReturnType<typeof parseSetup> | null = null
+  if (setupFile) {
+    parsed = parseSetup(await setupFile.text(), registry)
+    if (!parsed.ok) player.notice = `${setupFile.name}: ${parsed.error}; nothing applied`
+  }
+  if (midiFile) {
+    pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings, from: 'file' } : null
+    await loadMidi(await midiFile.arrayBuffer(), midiFile.name)
+  } else if (parsed?.ok) {
+    await power()
+    applySetup(parsed.setup, parsed.warnings)
+  }
+}
+
+/** Apply a parsed setup to the engine and the view. */
+function applySetup(setup: Setup, warnings: string[]) {
+  if (!engine) return
+  const midi = player.loaded ? { name: player.fileName, parts: player.parts.length } : undefined
+  const plan = applyPlan(setup, registry, midi)
+  const before = synths.list
+  for (const op of plan.ops) {
+    if (op.t === 'show') {
+      synths.list = op.synths
+      if (!op.synths.includes(synths.selected)) synths.selected = op.synths[0] ?? 0
+    } else if (op.t === 'reset') {
+      engine.reset(op.s)
+    } else if (op.t === 'param') {
+      engine.param(op.s, op.id as ParamId, op.v)
+    } else {
+      const part = player.parts.find((p) => p.channel === op.channel)
+      if (part) route(part, op.synth)
+      else engine.post({ t: 'route', ch: op.channel, s: op.synth })
+    }
+  }
+  // A part on a synth the setup doesn't list keeps that synth: as it was if
+  // it was on screen, at the default patch if not.
+  for (const p of player.parts) {
+    if (p.synth === MUTE || synths.list.includes(p.synth)) continue
+    if (before.includes(p.synth)) synths.list = [...synths.list, p.synth].sort((a, b) => a - b)
+    else show(p.synth)
+  }
+  // Ask for the values again: the replies to the resets above would
+  // otherwise arrive last and put the sliders back to the defaults. Synth 0
+  // too, shown or not: the master and returns read the globals from it.
+  for (const s of new Set([0, ...synths.list])) engine.post({ t: 'dump', s })
+  const all = [...warnings, ...plan.warnings]
+  if (all.length) player.notice = `Setup: ${all.join('; ')}`
+}
+
+/** The last session's setup for this MIDI file, if any. */
+function storedSetup(name: string): typeof pending {
+  try {
+    const text = localStorage.getItem(sessionKey(name))
+    const parsed = text ? parseSetup(text, registry) : null
+    return parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings, from: 'session' } : null
+  } catch {
+    return null
+  }
+}
+
+// Keep the last session per MIDI file, a moment after anything changes. A
+// convenience only: storage can be unavailable, and the file is the real save.
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => [params.values, synths.list, player.parts.map((p) => p.synth)],
+  () => {
+    if (!player.loaded || !loadedName) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(sessionKey(loadedName), setupText())
+      } catch {
+        // Private window or storage full: keep playing.
+      }
+    }, 500)
+  },
+  { deep: true },
+)
 
 /** Pair note-ons with their offs per channel, for drawing only. */
 function pairNotes(packed: Uint32Array, times: Float32Array) {

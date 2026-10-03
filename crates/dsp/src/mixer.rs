@@ -1,18 +1,24 @@
-//! The mixer (ADR-0005, spec 002 Req 2): one bus per synth, each with a
-//! fader, an equal-power pan and two post-fader sends, summed into a stereo
-//! master. Everything is allocated in `Mixer::new` (ADR-0002); gains are
+//! The mixer (ADR-0005, spec 002 Req 2): one strip per synth, each with a
+//! drive insert, a fader, an equal-power pan and four post-fader sends
+//! (P1–P4), summed into a stereo master. It owns every strip parameter
+//! (`Param::is_strip`). Everything is allocated in `Mixer::new` (ADR-0002); gains are
 //! worked out when a parameter changes, never per sample.
 
 use crate::engine::{BLOCK, SYNTHS};
 use crate::fx::drive::{Drive, DriveMode};
 use crate::params::Param;
 
+/// The processors the sends feed (P1–P4).
+pub const SENDS: usize = 4;
+
 /// Where a strip starts: full fader, centred, no sends, not muted or soloed.
-pub const STRIP_DEFAULTS: [(Param, f32); 6] = [
+pub const STRIP_DEFAULTS: [(Param, f32); 8] = [
     (Param::Level, 1.0),
     (Param::Pan, 0.0),
-    (Param::EchoSend, 0.0),
-    (Param::ReverbSend, 0.0),
+    (Param::Send1, 0.0),
+    (Param::Send2, 0.0),
+    (Param::Send3, 0.0),
+    (Param::Send4, 0.0),
     (Param::Mute, 0.0),
     (Param::Solo, 0.0),
 ];
@@ -23,8 +29,7 @@ struct Strip {
     level: f32,
     /// Left and right gains of the pan law, for pan −1..=1.
     pan: [f32; 2],
-    echo: f32,
-    reverb: f32,
+    send: [f32; SENDS],
     mute: bool,
     solo: bool,
 }
@@ -34,8 +39,7 @@ impl Strip {
         let mut s = Strip {
             level: 0.0,
             pan: [0.0; 2],
-            echo: 0.0,
-            reverb: 0.0,
+            send: [0.0; SENDS],
             mute: false,
             solo: false,
         };
@@ -57,8 +61,10 @@ impl Strip {
                     _ => [angle.cos(), angle.sin()],
                 };
             }
-            Param::EchoSend => self.echo = v,
-            Param::ReverbSend => self.reverb = v,
+            Param::Send1 => self.send[0] = v,
+            Param::Send2 => self.send[1] = v,
+            Param::Send3 => self.send[2] = v,
+            Param::Send4 => self.send[3] = v,
             Param::Mute => self.mute = v >= 0.5,
             Param::Solo => self.solo = v >= 0.5,
             _ => {}
@@ -73,9 +79,8 @@ pub struct Mixer {
     bus: Box<[[f32; BLOCK]; SYNTHS]>,
     strips: [Strip; SYNTHS],
     any_solo: bool,
-    /// The summed post-fader sends, for the echo and the reverb.
-    pub echo_send: [f32; BLOCK],
-    pub reverb_send: [f32; BLOCK],
+    /// The summed post-fader sends, one buffer per processor.
+    pub sends: [[f32; BLOCK]; SENDS],
 }
 
 impl Mixer {
@@ -85,8 +90,7 @@ impl Mixer {
             bus: Box::new([[0.0; BLOCK]; SYNTHS]),
             strips: [Strip::new(); SYNTHS],
             any_solo: false,
-            echo_send: [0.0; BLOCK],
-            reverb_send: [0.0; BLOCK],
+            sends: [[0.0; BLOCK]; SENDS],
         }
     }
 
@@ -124,20 +128,18 @@ impl Mixer {
     }
 
     /// Sum the buses through their strips into `left` and `right`, and the
-    /// sends into `echo_send` and `reverb_send`. The first `frames` of each
-    /// are overwritten.
+    /// sends into `sends`. The first `frames` of each are overwritten.
     pub fn mix(&mut self, frames: usize, left: &mut [f32], right: &mut [f32]) {
         let n = frames.min(BLOCK).min(left.len()).min(right.len());
         let (Some(left), Some(right)) = (left.get_mut(..n), right.get_mut(..n)) else {
             return;
         };
-        let (Some(echo), Some(reverb)) =
-            (self.echo_send.get_mut(..n), self.reverb_send.get_mut(..n))
-        else {
-            return;
-        };
-        for out in [&mut *left, &mut *right, &mut *echo, &mut *reverb] {
-            out.fill(0.0);
+        left.fill(0.0);
+        right.fill(0.0);
+        for send in self.sends.iter_mut() {
+            if let Some(s) = send.get_mut(..n) {
+                s.fill(0.0);
+            }
         }
         for ((bus, s), drive) in self
             .bus
@@ -148,20 +150,23 @@ impl Mixer {
             if s.mute || (self.any_solo && !s.solo) {
                 continue;
             }
-            if let Some(b) = bus.get_mut(..n) {
-                drive.process(b);
-            }
+            let Some(bus) = bus.get_mut(..n) else {
+                continue;
+            };
+            drive.process(bus);
             let [gl, gr] = s.pan;
-            let (ge, gv) = (s.level * s.echo, s.level * s.reverb);
-            let frames = bus
-                .iter()
-                .zip(left.iter_mut().zip(right.iter_mut()))
-                .zip(echo.iter_mut().zip(reverb.iter_mut()));
-            for ((x, (l, r)), (e, v)) in frames {
+            for ((x, l), r) in bus.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
                 *l += x * s.level * gl;
                 *r += x * s.level * gr;
-                *e += x * ge;
-                *v += x * gv;
+            }
+            for (send, amount) in self.sends.iter_mut().zip(s.send) {
+                let gain = s.level * amount;
+                if gain == 0.0 {
+                    continue;
+                }
+                for (acc, x) in send.iter_mut().zip(bus.iter()) {
+                    *acc += x * gain;
+                }
             }
         }
     }

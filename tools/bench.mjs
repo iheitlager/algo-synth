@@ -96,18 +96,21 @@ function run(setup, lowest) {
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
   // both effects with long feedback and tail.
-  w.set_param(0, Param.EchoReturn, 0.5)
-  w.set_param(0, Param.EchoPingPong, 1)
-  w.set_param(0, Param.EchoFeedback, 0.7)
-  w.set_param(0, Param.ReverbReturn, 0.5)
-  w.set_param(0, Param.ReverbSize, 6)
+  w.set_param(0, Param.P1Return, 0.5)
+  w.set_param(0, Param.P1D, 1)
+  w.set_param(0, Param.P1B, 0.7)
+  w.set_param(0, Param.P2Return, 0.5)
+  w.set_param(0, Param.P2A, 0.9)
+  w.set_param(0, Param.CompThreshold, -30)
+  w.set_param(0, Param.CompRatio, 4)
+  for (const b of ['Low', 'Mid1', 'Mid2', 'High']) w.set_param(0, Param[`Eq${b}Gain`], 6)
   for (let s = 0; s < w.synth_count(); s++) {
     setup(w, s)
     w.set_param(s, Param.DriveMode, DriveMode.Fuzz)
     w.set_param(s, Param.DriveAmount, 1)
     w.set_param(s, Param.Pan, s / 7.5 - 1)
-    w.set_param(s, Param.EchoSend, 0.5)
-    w.set_param(s, Param.ReverbSend, 0.5)
+    w.set_param(s, Param.Send1, 0.5)
+    w.set_param(s, Param.Send2, 0.5)
   }
   const file = sixteenChannels(lowest)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)

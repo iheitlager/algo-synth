@@ -1,8 +1,12 @@
 //! Effects: the drive insert on each synth's bus and the send effects. Their
 //! buffers are allocated up front and `process` never allocates (ADR-0002).
 
+pub mod compressor;
 pub mod drive;
 pub mod echo;
+pub mod eq;
+pub mod limiter;
+pub mod processor;
 pub mod reverb;
 
 /// A ring buffer read at a distance behind the write position.

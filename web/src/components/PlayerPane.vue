@@ -35,7 +35,8 @@ function onSeek(e: MouseEvent) {
       <span>{{ player.fileName }}</span>
       <span>{{ player.parts.length }} parts · {{ Math.ceil(player.length / player.bar) }} bars</span>
     </div>
-    <div v-else class="pane-head"><span>MIDI player</span><span>Demo or Open MIDI… to load a file</span></div>
+    <div v-else class="pane-head"><span>MIDI player</span><span>Demo or Open… to load a file and its setup</span></div>
+    <p v-if="player.notice" class="notice">{{ player.notice }}</p>
     <div v-for="p in player.parts" :key="p.channel" class="row">
       <div class="track">
         <b>{{ p.name || `Channel ${p.channel + 1}` }}</b>
@@ -71,4 +72,5 @@ select { font: inherit; font-size: 11px; color: var(--text); background: var(--p
 .lane svg { position: absolute; inset: 4px 0; width: 100%; height: calc(100% - 8px); }
 .head { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); pointer-events: none; }
 .error { color: var(--mono); padding: 0 12px; }
+.notice { color: var(--muted); padding: 4px 12px; margin: 0; font-size: 11px; }
 </style>

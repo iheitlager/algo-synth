@@ -39,6 +39,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'route': w.route(data.ch, data.s); break
         case 'preset': w.mono_preset(data.s, data.id); this.sendParams(data.s); break
         case 'reset': w.synth_reset(data.s); this.sendParams(data.s); break
+        case 'dump': this.sendParams(data.s); break
       }
     }
   }
@@ -119,6 +120,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       load: this.busy / (this.blocks * budget),
       peak: precise ? this.peak : null,
       voices: this.w.active_voices(),
+      reduction: this.w.gain_reduction_db(),
     })
     this.busy = 0
     this.peak = 0

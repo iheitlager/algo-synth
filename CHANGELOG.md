@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-03
+
+Famous and string presets for every synth model (PR #65).
+
 ### Added
 
 - 17 presets, ids 14-30, after well-known sounds: ARP 2600 `R2D2`, `ShArp` (sample-and-hold arpeggio), `SolinaStrings`; Minimoog `LuckyMan` (portamento solo), `FunkBass`, `MoogStrings`; Pro-One `SyncSweep`, `PolyModBell`, `ProStrings`; MS-20 `Ms20Squelch`, `JetSweep`, `Ms20Strings`; CS-15 `BladeBrass`, `Cs15Strings`; SH-101 `AcidBass`, `SubPluck`, `Sh101Strings`. The names point at a character, they are not recreations of the original patches.
@@ -11,6 +15,26 @@ All notable changes to this project are documented here. The format is based on 
 ### Fixed
 
 - SH-101: the locked pulse was in antiphase with the saw, so the two cancelled and halved the level (a saw plus a pulse sounded quieter than the saw alone). The pulse is inverted now; `Sh101Lead` is about four times louder.
+
+## [0.8.0] - 2026-10-03
+
+### Changed
+
+- The mixer owns every strip parameter (`Param::is_strip`) and has four post-fader sends: `EchoSend` and `ReverbSend` become `Send1` and `Send2`, `Send3` and `Send4` are new (P1–P4). The mixer pane replaces the Returns pane and the Channel section on each card; the drive insert stays on the synth (#45, epic #50).
+- The send effects are four processors P1–P4, each an Off, Echo or Reverb with a return and five 0..1 knobs whose meaning depends on the type. `EchoTime`…`ReverbReturn` (ids 70–78) are replaced by `P1Type`…`P4E`, and later parameter ids move up by 19; setups store names, so only the old effect names need a migration (#46, epic #50).
+- Master compressor (feed-forward, stereo-linked; `CompThreshold`, `CompRatio`, `CompAttack`, `CompRelease`, `CompMakeup`, ids 120–124; ratio 1 is off) with a gain-reduction meter, and a brick-wall limiter in place of the soft clip: master gain now comes after the compressor, and nothing is bent below full scale any more (#47, epic #50).
+- Master equalizer before the compressor: a low shelf, two parametric bands and a high shelf (`EqLowFreq`…`EqHighGain`, ids 125–134, ±15 dB); bands at 0 dB are skipped, so flat is bit-exact (#48, epic #50).
+- Setups carry the whole mixer (strips, sends, processors, EQ, compressor) with no change to the save code, since they are in the registry. A setup from before the mixer was central still loads: `EchoSend` and `ReverbSend` become `Send1` and `Send2`, and the global echo and reverb parameters become the knobs of P1 and P2, with one warning listing what was migrated (#49, epic #50).
+
+## [0.7.0] - 2026-10-03
+
+Synth setups next to the MIDI file (#41, PR #44).
+
+### Added
+
+- Synth setups (#41): **Save setup** downloads `<song>.synths.json` with the synths on screen, each one's kind, model and parameters by name, the channel routing and the global parameters (master gain, echo, reverb); **Open…** takes a MIDI file, a setup or both. Unknown entries are skipped with one notice, a bad file changes nothing, a part-count mismatch warns. The last setup per MIDI file is kept in `localStorage`; Demo ships `demo.synths.json` (Bass and three Bowed string violins a little apart). Values are written as the shortest decimal for the same f32. Spec 003 Req 7.
+- `GlobalParam` in `params.ts`: the parameters `Param::is_global` marks, mirrored and checked by the mirror test, so a setup stores them once (#41).
+- vitest for the view's pure functions (`make test-web`, part of `make test` and CI) (#41).
 
 ## [0.6.0] - 2026-10-03
 
