@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-03
+
 ### Added
 
 - The mixer console: a Synths | Mixer switch shows one thin strip per synth side by side (tape, drive, four sends, pan, mute, solo, fader and LED meter), the four processors as a rack and the master section with an EQ curve, a compressor transfer curve and stereo meters. Knobs turn by dragging and open a slider on click; double-click on a strip's tape shows the synth's panel. Replaces the mixer pane. Spec 003 Req 8 (#55, epic #56).
