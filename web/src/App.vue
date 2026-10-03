@@ -4,6 +4,7 @@
 import { nextTick } from 'vue'
 import { synths, view } from './audio/engine'
 import ConsolePane from './components/ConsolePane.vue'
+import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
 import PlayerPane from './components/PlayerPane.vue'
 import TransportBar from './components/TransportBar.vue'
@@ -24,6 +25,8 @@ async function openSynth(s: number) {
     <InstrumentsPane v-show="view.main === 'synths'" class="main" />
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <PlayerPane class="player" />
+    <!-- One popover for every knob, in the synths and in the mixer. -->
+    <KnobPop />
   </div>
 </template>
 

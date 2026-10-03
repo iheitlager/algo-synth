@@ -4,6 +4,7 @@
 // no engine: the engine stays the source of truth for every value, and these
 // only turn a value into a picture, a label or an edit.
 
+import type { Scale } from './console'
 import { clamp, clamp01, hzText } from './console'
 
 // --- envelope ----------------------------------------------------------------------
@@ -125,6 +126,14 @@ export function stepIndex(i: number, n: number, key: string): number | null {
   if (key === 'End') return n - 1
   return null
 }
+
+// --- knob scales --------------------------------------------------------------------
+
+/** An even scale in whole steps of `step` (coarse and fine tune): the knob lands on a step. */
+export const stepped = (lo: number, hi: number, step: number): Scale => ({
+  toValue: (t) => clamp(lo + Math.round((clamp01(t) * (hi - lo)) / step) * step, lo, hi),
+  toPos: (v) => clamp01((v - lo) / (hi - lo)),
+})
 
 // --- value readouts -----------------------------------------------------------------
 

@@ -5,7 +5,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { MAX_SYNTHS, addSynth, getEngine, params, removeSynth, status, synthColour, synths } from '../audio/engine'
 import { MODELS, modelDef, type ModelDef } from '../audio/models'
 import { Param, Preset, type PresetId } from '../audio/params'
-import SynthPanel from './SynthPanel.vue'
+import SynthFaceplate from './SynthFaceplate.vue'
 
 const keys = Array.from({ length: 25 }, (_, i) => 48 + i)
 const black = (n: number) => [1, 3, 6, 8, 10].includes(n % 12)
@@ -100,7 +100,7 @@ function onRemove(s: number) {
             </select>
           </label>
         </div>
-        <SynthPanel :s="s" :def="def" />
+        <SynthFaceplate :s="s" :def="def" />
         <div class="kbd">
           <span
             v-for="n in keys" :key="n" class="key" :class="{ black: black(n) }"

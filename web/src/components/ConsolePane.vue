@@ -7,7 +7,6 @@ import { modelDef } from '../audio/models'
 import { params, player, synthColour, synths } from '../audio/engine'
 import { Param } from '../audio/params'
 import ChannelStrip from './console/ChannelStrip.vue'
-import KnobPop from './console/KnobPop.vue'
 import MasterSection from './console/MasterSection.vue'
 import ProcessorModule from './console/ProcessorModule.vue'
 
@@ -45,7 +44,6 @@ const procOff = computed(() => [Param.P1Type, Param.P2Type, Param.P3Type, Param.
       <ProcessorModule v-for="n in 4" :key="n" :n="n - 1" />
     </div>
     <div class="master"><h2>Master</h2><MasterSection /></div>
-    <KnobPop />
   </section>
 </template>
 

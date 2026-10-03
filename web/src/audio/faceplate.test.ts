@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  NEW_AMOUNT, amountToPos, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
+  NEW_AMOUNT, amountToPos, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
   type PatchSlot,
 } from './faceplate'
 
@@ -127,5 +127,21 @@ describe('patch bay', () => {
     expect(amountToPos(1)).toBe(1)
     expect(posToAmount(amountToPos(0.37))).toBeCloseTo(0.37)
     expect(posToAmount(2)).toBe(1)
+  })
+})
+
+describe('stepped knob scale', () => {
+  const coarse = stepped(-24, 24, 1)
+  it('lands on whole steps across the range', () => {
+    expect(coarse.toValue(0)).toBe(-24)
+    expect(coarse.toValue(0.5)).toBe(0)
+    expect(coarse.toValue(1)).toBe(24)
+    expect(coarse.toValue(0.5 + 0.4 / 48)).toBe(0)
+    expect(Number.isInteger(coarse.toValue(0.7312))).toBe(true)
+    expect(coarse.toValue(9)).toBe(24)
+  })
+  it('puts a value back at its position', () => {
+    expect(coarse.toPos(12)).toBeCloseTo(0.75)
+    expect(coarse.toValue(coarse.toPos(-7))).toBe(-7)
   })
 })
