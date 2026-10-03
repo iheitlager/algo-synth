@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format is based on 
 
 - The mixer owns every strip parameter (`Param::is_strip`) and has four post-fader sends: `EchoSend` and `ReverbSend` become `Send1` and `Send2`, `Send3` and `Send4` are new (P1–P4). The mixer pane replaces the Returns pane and the Channel section on each card; the drive insert stays on the synth (#45, epic #50).
 - The send effects are four processors P1–P4, each an Off, Echo or Reverb with a return and five 0..1 knobs whose meaning depends on the type. `EchoTime`…`ReverbReturn` (ids 70–78) are replaced by `P1Type`…`P4E`, and later parameter ids move up by 19; setups store names, so only the old effect names need a migration (#46, epic #50).
+- Master compressor (feed-forward, stereo-linked; `CompThreshold`, `CompRatio`, `CompAttack`, `CompRelease`, `CompMakeup`, ids 120–124; ratio 1 is off) with a gain-reduction meter, and a brick-wall limiter in place of the soft clip: master gain now comes after the compressor, and nothing is bent below full scale any more (#47, epic #50).
 
 ## [0.7.0] - 2026-10-03
 

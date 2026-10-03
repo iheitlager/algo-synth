@@ -136,6 +136,12 @@ pub extern "C" fn active_voices() -> u32 {
     query(0, |e| e.active_voices() as u32)
 }
 
+/// The master compressor's gain reduction in dB, for the view's meter.
+#[unsafe(no_mangle)]
+pub extern "C" fn gain_reduction_db() -> f32 {
+    query(0.0, |e| e.gain_reduction_db())
+}
+
 // --- MIDI player (spec 002, Req 9) -------------------------------------------
 //
 // Loading: JavaScript calls `midi_buf(len)`, writes the file's bytes at the

@@ -6,10 +6,12 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::fx::compressor::Compressor;
+use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
 use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS};
 use crate::mono::MonoParams;
-use crate::mono::ladder::{LadderTables, saturate};
+use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
 use crate::mono::voice::{MonoCtx, MonoVoice, PitchTable};
@@ -28,8 +30,6 @@ pub const SYNTHS: usize = 16;
 pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
-/// The master limiter passes everything below this level unchanged.
-const KNEE: f32 = 0.5;
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -48,6 +48,8 @@ pub struct Engine {
     mixer: Mixer,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
+    comp: Compressor,
+    limiter: Limiter,
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -81,6 +83,8 @@ impl Engine {
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
             mixer: Mixer::new(sample_rate),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
+            comp: Compressor::new(sample_rate),
+            limiter: Limiter::new(sample_rate),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
@@ -128,9 +132,16 @@ impl Engine {
     }
 
     fn set_global(&mut self, param: Param, v: f32) {
-        if param == Param::MasterGain {
-            self.master_gain = v;
-        } else if let Some((slot, field)) = param.processor() {
+        match param {
+            Param::MasterGain => self.master_gain = v,
+            Param::CompThreshold => self.comp.set_threshold(v),
+            Param::CompRatio => self.comp.set_ratio(v),
+            Param::CompAttack => self.comp.set_attack(v),
+            Param::CompRelease => self.comp.set_release(v),
+            Param::CompMakeup => self.comp.set_makeup(v),
+            _ => {}
+        }
+        if let Some((slot, field)) = param.processor() {
             if let Some(p) = self.procs.get_mut(slot) {
                 p.set(field, v);
             }
@@ -347,10 +358,18 @@ impl Engine {
                     proc.process(send, l, r);
                 }
             }
+            // The master chain: compressor, gain, limiter.
+            self.comp.process(l, r);
+            for s in l.iter_mut().chain(r.iter_mut()) {
+                *s *= self.master_gain;
+            }
+            self.limiter.process(l, r);
         }
-        for sample in self.out.iter_mut() {
-            *sample = soft_clip(*sample * self.master_gain);
-        }
+    }
+
+    /// How far the master compressor turns the signal down now, in dB.
+    pub fn gain_reduction_db(&self) -> f32 {
+        self.comp.gain_reduction_db()
     }
 
     /// The planar output buffer: left then right, `BLOCK` samples each.
@@ -372,21 +391,6 @@ fn mono_index(owner: Owner) -> usize {
     match owner {
         Owner::Live(s) => usize::from(s),
         Owner::Channel(ch) => SYNTHS + usize::from(ch),
-    }
-}
-
-/// The last stage before the speakers (ADR-0002 rule 5): unchanged below
-/// `KNEE`, then a smooth bend that never passes ±1; NaN and infinity become
-/// silence instead of reaching the output.
-fn soft_clip(x: f32) -> f32 {
-    if !x.is_finite() {
-        return 0.0;
-    }
-    let a = x.abs();
-    if a <= KNEE {
-        x
-    } else {
-        (KNEE + (1.0 - KNEE) * saturate((a - KNEE) / (1.0 - KNEE))).copysign(x)
     }
 }
 
@@ -951,20 +955,50 @@ mod tests {
         assert_eq!(e.active_voices(), SYNTHS);
     }
 
+    /// Peak of a held loud note on synth 0 after `setup`.
+    fn loud_peak(setup: impl FnOnce(&mut Engine)) -> f32 {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Vco2Level, 1.0);
+        e.set_param(0, Param::AdsrSustain, 1.0);
+        setup(&mut e);
+        e.note_on(0, 57, 1.0);
+        let mut peak = 0.0_f32;
+        for i in 0..400 {
+            e.render(BLOCK);
+            if i > 300 {
+                peak = peak.max(side_peaks(&mut e, 1).0);
+            }
+        }
+        peak
+    }
+
     #[test]
-    fn soft_clip_is_transparent_below_the_knee() {
-        for x in [-0.5, -0.2, 0.0, 0.3, 0.5] {
-            assert_eq!(soft_clip(x), x);
+    fn the_master_compressor_turns_a_loud_mix_down() {
+        let plain = loud_peak(|_| {});
+        let squeezed = loud_peak(|e| {
+            e.set_param(0, Param::CompThreshold, -30.0);
+            e.set_param(0, Param::CompRatio, 8.0);
+        });
+        assert!(squeezed < 0.7 * plain, "{squeezed} vs {plain}");
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(e.gain_reduction_db(), 0.0);
+        e.set_param(0, Param::CompThreshold, -40.0);
+        e.set_param(0, Param::CompRatio, 20.0);
+        e.note_on(0, 57, 1.0);
+        for _ in 0..100 {
+            e.render(BLOCK);
         }
-        let mut prev = soft_clip(0.5);
-        for i in 1..1000 {
-            let y = soft_clip(0.5 + i as f32 * 0.01);
-            assert!(y >= prev && y <= 1.0, "monotonic and bounded at {i}");
-            prev = y;
-        }
-        assert_eq!(soft_clip(f32::NAN), 0.0);
-        assert_eq!(soft_clip(f32::NEG_INFINITY), 0.0);
-        assert_eq!(soft_clip(-50.0), -1.0);
+        assert!(e.gain_reduction_db() > 3.0);
+    }
+
+    #[test]
+    fn compressor_parameters_are_global() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(4, Param::CompRatio, 6.0);
+        assert_eq!(e.param_value(0, Param::CompRatio), 6.0);
+        e.reset(1);
+        assert_eq!(e.param_value(0, Param::CompRatio), 6.0);
     }
 
     #[test]

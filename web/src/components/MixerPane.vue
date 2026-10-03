@@ -2,7 +2,7 @@
 // The mixer (spec 002 Req 2): one strip per synth (fader, pan, four sends,
 // mute, solo) and the returns of the send effects. The view only sends values
 // and shows what the engine reports back.
-import { getEngine, params, status, synthColour, synths } from '../audio/engine'
+import { getEngine, meter, params, status, synthColour, synths } from '../audio/engine'
 import { Param, type ParamId, ProcType } from '../audio/params'
 
 const val = (id: ParamId) => params.values[0]?.[id] ?? 0
@@ -39,6 +39,14 @@ const procs = [1, 2, 3, 4].map((n) => {
   return { n, type: id('Type'), ret: id('Return'), knobs: ['A', 'B', 'C', 'D', 'E'].map(id) }
 })
 const kindOf = (type: ParamId) => val(type)
+// The master compressor (spec 002 Req 2): ratio 1 is off.
+const comp = [
+  { label: 'Threshold', id: Param.CompThreshold, min: -60, max: 0, step: 0.5, unit: 'dB' },
+  { label: 'Ratio', id: Param.CompRatio, min: 1, max: 20, step: 0.1, unit: ':1' },
+  { label: 'Attack', id: Param.CompAttack, min: 0.1, max: 100, step: 0.1, unit: 'ms' },
+  { label: 'Release', id: Param.CompRelease, min: 10, max: 1000, step: 1, unit: 'ms' },
+  { label: 'Make-up', id: Param.CompMakeup, min: 0, max: 24, step: 0.5, unit: 'dB' },
+]
 </script>
 
 <template>
@@ -68,6 +76,14 @@ const kindOf = (type: ParamId) => val(type)
         </template>
       </div>
     </fieldset>
+    <fieldset class="master" :disabled="!status.running">
+      <b>Compressor</b>
+      <label v-for="c in comp" :key="c.label">{{ c.label }}
+        <input type="range" :min="c.min" :max="c.max" :step="c.step" :value="val(c.id)" @input="send(c.id, $event)" />
+        {{ Number(val(c.id).toFixed(1)) }} {{ c.unit }}
+      </label>
+      <span title="How far the compressor is turning the master down">GR <b>{{ meter.reduction.toFixed(1) }}</b> dB</span>
+    </fieldset>
   </section>
 </template>
 
@@ -79,6 +95,8 @@ const kindOf = (type: ParamId) => val(type)
 .strip label { display: grid; gap: 2px; }
 .strip .sync { display: flex; align-items: center; gap: 4px; }
 .returns { border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
+.master { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+.master b:first-child { color: var(--accent); font-size: 13px; }
 .proc { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
 .proc b { color: var(--accent); font-size: 13px; width: 2em; }
 label { display: flex; gap: 6px; align-items: center; white-space: nowrap; }

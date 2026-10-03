@@ -101,6 +101,8 @@ function run(setup, lowest) {
   w.set_param(0, Param.P1B, 0.7)
   w.set_param(0, Param.P2Return, 0.5)
   w.set_param(0, Param.P2A, 0.9)
+  w.set_param(0, Param.CompThreshold, -30)
+  w.set_param(0, Param.CompRatio, 4)
   for (let s = 0; s < w.synth_count(); s++) {
     setup(w, s)
     w.set_param(s, Param.DriveMode, DriveMode.Fuzz)

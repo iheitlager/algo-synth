@@ -243,12 +243,27 @@ pub enum Param {
     Send3 = 118,
     /// Post-fader send 4 (processor P4), 0..=1.
     Send4 = 119,
+    /// Master compressor threshold in dB, −60..=0.
+    CompThreshold = 120,
+    /// Master compressor ratio, 1..=20; 1 is off.
+    CompRatio = 121,
+    /// Master compressor attack in ms, 0.1..=100.
+    CompAttack = 122,
+    /// Master compressor release in ms, 10..=1000.
+    CompRelease = 123,
+    /// Master compressor make-up gain in dB, 0..=24.
+    CompMakeup = 124,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
 /// a return goes up; P3 and P4 are off.
-pub const GLOBAL_DEFAULTS: [(Param, f32); 29] = [
+pub const GLOBAL_DEFAULTS: [(Param, f32); 34] = [
     (Param::MasterGain, 0.5),
+    (Param::CompThreshold, -12.0),
+    (Param::CompRatio, 1.0),
+    (Param::CompAttack, 10.0),
+    (Param::CompRelease, 120.0),
+    (Param::CompMakeup, 0.0),
     (Param::P1Type, 1.0),
     (Param::P1Return, 0.0),
     (Param::P1A, 0.75),
@@ -295,7 +310,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 120] = [
+    pub const ALL: [(Param, &'static str); 125] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -416,6 +431,11 @@ impl Param {
         (Param::OscCutoff, "OscCutoff"),
         (Param::Send3, "Send3"),
         (Param::Send4, "Send4"),
+        (Param::CompThreshold, "CompThreshold"),
+        (Param::CompRatio, "CompRatio"),
+        (Param::CompAttack, "CompAttack"),
+        (Param::CompRelease, "CompRelease"),
+        (Param::CompMakeup, "CompMakeup"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -437,7 +457,15 @@ impl Param {
     /// Parameters of the whole engine, not of one synth: the master gain and
     /// the send effects. Whichever synth they are sent to, they are set once.
     pub fn is_global(self) -> bool {
-        self == Param::MasterGain || self.processor().is_some()
+        matches!(
+            self,
+            Param::MasterGain
+                | Param::CompThreshold
+                | Param::CompRatio
+                | Param::CompAttack
+                | Param::CompRelease
+                | Param::CompMakeup
+        ) || self.processor().is_some()
     }
 
     /// The processor slot (0–3) and field of a P1–P4 parameter.
@@ -528,6 +556,11 @@ impl Param {
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::DriveMode => (0.0, 3.0),
             Param::DriveAmount | Param::DriveTone | Param::DriveLevel => (0.0, 1.0),
+            Param::CompThreshold => (-60.0, 0.0),
+            Param::CompRatio => (1.0, 20.0),
+            Param::CompAttack => (0.1, 100.0),
+            Param::CompRelease => (10.0, 1_000.0),
+            Param::CompMakeup => (0.0, 24.0),
             Param::P1Type | Param::P2Type | Param::P3Type | Param::P4Type => (0.0, 2.0),
             Param::P1Return | Param::P2Return | Param::P3Return | Param::P4Return => (0.0, 1.0),
             Param::P1A => (0.0, 1.0),

@@ -80,7 +80,7 @@ export const player = reactive({
   notice: '',
 })
 /** DSP load as a share of real time (peak is null without a precise clock). */
-export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, seen: false })
+export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, reduction: 0, seen: false })
 
 /**
  * Parameter values by synth and id: what the view last sent, replaced by the
@@ -193,6 +193,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     meter.load = data.load as number
     meter.peak = data.peak as number | null
     meter.voices = data.voices as number
+    meter.reduction = data.reduction as number
     meter.seen = true
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)

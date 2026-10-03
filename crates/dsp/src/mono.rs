@@ -277,7 +277,12 @@ impl MonoParams {
             | Param::P4B
             | Param::P4C
             | Param::P4D
-            | Param::P4E => {}
+            | Param::P4E
+            | Param::CompThreshold
+            | Param::CompRatio
+            | Param::CompAttack
+            | Param::CompRelease
+            | Param::CompMakeup => {}
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

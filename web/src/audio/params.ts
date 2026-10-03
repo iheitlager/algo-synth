@@ -124,12 +124,22 @@ export const Param = {
   OscCutoff: 117,
   Send3: 118,
   Send4: 119,
+  CompThreshold: 120,
+  CompRatio: 121,
+  CompAttack: 122,
+  CompRelease: 123,
+  CompMakeup: 124,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
 // Engine-wide parameters (Param::is_global): a setup stores them once.
 export const GlobalParam = {
   MasterGain: 0,
+  CompThreshold: 120,
+  CompRatio: 121,
+  CompAttack: 122,
+  CompRelease: 123,
+  CompMakeup: 124,
   P1Type: 70,
   P1Return: 71,
   P1A: 72,
