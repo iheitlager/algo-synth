@@ -9,6 +9,7 @@
 pub mod env;
 pub mod ladder;
 pub mod lfo;
+pub mod model;
 pub mod noise;
 pub mod osc;
 pub mod patch;
@@ -18,6 +19,7 @@ pub mod voice;
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
+use model::Model;
 use noise::NoiseColour;
 use osc::Waveform;
 use patch::{Normals, Patch};
@@ -29,6 +31,8 @@ pub const VCOS: usize = 3;
 /// The Mono parameters, with what `render` needs precomputed.
 #[derive(Clone, Copy)]
 pub struct MonoParams {
+    /// Which instrument this synth is (spec 005).
+    pub model: Model,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -80,6 +84,7 @@ impl MonoParams {
             release: 0.0,
         };
         let mut p = MonoParams {
+            model: Model::Arp2600,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -191,6 +196,11 @@ impl MonoParams {
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
             Param::ModWheel => self.mod_wheel = v,
+            Param::Model => {
+                if let Some(m) = Model::from_id(v.round() as u32) {
+                    self.model = m;
+                }
+            }
             Param::MasterGain => {}
         }
         self.taken = self.patch.overridden();

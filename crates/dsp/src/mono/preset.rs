@@ -5,6 +5,7 @@
 //! `Engine::new`) and the base every preset starts from, so a preset fully
 //! defines the voice, patch and normalled amounts included (spec 004 Req 7).
 
+use crate::mono::model::Model;
 use crate::params::Param;
 
 /// A preset id; mirrored in `web/src/audio/params.ts`.
@@ -32,6 +33,13 @@ impl Preset {
             .iter()
             .find(|(p, _)| *p as u32 == id)
             .map(|(p, _)| *p)
+    }
+
+    /// The model this preset is for; `changes` sets it.
+    pub fn model(self) -> Model {
+        match self {
+            Preset::Bass | Preset::Lead | Preset::SyncLead | Preset::BowedString => Model::Arp2600,
+        }
     }
 
     /// What this preset changes from `DEFAULTS`.
@@ -127,7 +135,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 59] = [
+pub const DEFAULTS: [(Param, f32); 60] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -187,6 +195,7 @@ pub const DEFAULTS: [(Param, f32); 59] = [
     (Param::KeyTrack, 0.0),
     (Param::Vibrato, 0.0),
     (Param::ModWheel, 0.0),
+    (Param::Model, 0.0),
 ];
 
 #[cfg(test)]
@@ -290,7 +299,10 @@ mod tests {
             (Preset::Bass, [0.117948, 0.479209, 0.040528, 0.162096]),
             (Preset::Lead, [0.169469, 0.478455, -0.246227, -0.055599]),
             (Preset::SyncLead, [0.150151, 0.386691, -0.188180, -0.129467]),
-            (Preset::BowedString, [0.093402, 0.229120, -0.096020, 0.048850]),
+            (
+                Preset::BowedString,
+                [0.093402, 0.229120, -0.096020, 0.048850],
+            ),
         ];
         for (preset, want) in gold {
             let mut e = Engine::new(48_000.0);
@@ -302,8 +314,8 @@ mod tests {
                 e.render(BLOCK);
                 out.extend_from_slice(e.output().get(..BLOCK).unwrap_or(&[]));
             }
-            let rms = (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64)
-                .sqrt();
+            let rms =
+                (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt();
             let peak = out.iter().fold(0.0_f32, |a, s| a.max(s.abs()));
             let got = [
                 rms,
@@ -315,6 +327,35 @@ mod tests {
                 assert!((g - w).abs() < 2.0e-5, "{preset:?}: {got:?} vs {want:?}");
             }
         }
+    }
+
+    /// A preset sets its model, so a switch of model is a whole sound.
+    #[test]
+    fn every_preset_sets_its_model() {
+        for (preset, name) in Preset::ALL {
+            let mut e = Engine::new(48_000.0);
+            e.preset(0, preset);
+            assert_eq!(
+                e.param_value(0, Param::Model),
+                preset.model() as u32 as f32,
+                "{name}"
+            );
+        }
+    }
+
+    /// A new or reset synth is an ARP 2600, and a preset after another
+    /// model's leaves nothing of it.
+    #[test]
+    fn a_new_synth_is_an_arp_2600() {
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(e.param_value(5, Param::Model), 0.0);
+        e.set_param(5, Param::Model, 3.0);
+        assert_eq!(e.param_value(5, Param::Model), 3.0);
+        e.reset(5);
+        assert_eq!(e.param_value(5, Param::Model), 0.0);
+        e.set_param(5, Param::Model, 3.0);
+        e.preset(5, Preset::Bass);
+        assert_eq!(e.param_value(5, Param::Model), 0.0);
     }
 
     #[test]

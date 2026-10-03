@@ -552,6 +552,22 @@ mod tests {
         assert_eq!(e.active_voices(), 2);
     }
 
+    /// Spec 005 Req 1: the model is a parameter of its own synth.
+    #[test]
+    fn models_are_per_synth() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(1, Param::Model, 1.0);
+        e.set_param(1, Param::Model, 99.0);
+        assert_eq!(e.param_value(1, Param::Model), 5.0, "clamped into range");
+        e.set_param(1, Param::Model, 1.0);
+        assert_eq!(e.param_value(1, Param::Model), 1.0);
+        assert_eq!(e.param_value(0, Param::Model), 0.0);
+        assert_eq!(e.param_value(2, Param::Model), 0.0);
+        for (p, v) in DEFAULTS.iter().filter(|(p, _)| *p != Param::Model) {
+            assert_eq!(e.param_value(0, *p), *v, "{p:?} on synth 0");
+        }
+    }
+
     #[test]
     fn a_preset_on_one_synth_leaves_the_others() {
         let mut e = Engine::new(48_000.0);

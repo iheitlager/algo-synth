@@ -125,11 +125,13 @@ pub enum Param {
     Vibrato = 58,
     /// The mod wheel, 0..=1, until MIDI input sends CC 1 (#10).
     ModWheel = 59,
+    /// The synth's model id (`Model`), 0..=5; see spec 005.
+    Model = 60,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 60] = [
+    pub const ALL: [(Param, &'static str); 61] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -190,6 +192,7 @@ impl Param {
         (Param::KeyTrack, "KeyTrack"),
         (Param::Vibrato, "Vibrato"),
         (Param::ModWheel, "ModWheel"),
+        (Param::Model, "Model"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -241,6 +244,7 @@ impl Param {
             | Param::Patch8Amount
             | Param::EnvCutoff => (-1.0, 1.0),
             Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
+            Param::Model => (0.0, 5.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }
@@ -291,6 +295,7 @@ mod tests {
     /// `web/src/audio/params.ts` hold exactly the same names and ids.
     #[test]
     fn typescript_mirror_matches() {
+        use crate::mono::model::Model;
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
         use crate::mono::patch::{ModDest, ModSource};
@@ -306,6 +311,7 @@ mod tests {
             ("Param", rust(&Param::ALL, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
+            ("Model", rust(&Model::ALL, |m| m as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
             ("ModSource", rust(&ModSource::ALL, |s| s as u32)),

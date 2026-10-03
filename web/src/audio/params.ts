@@ -1,5 +1,5 @@
 // Mirror of crates/dsp/src/params.rs, mono/osc.rs, mono/noise.rs,
-// mono/preset.rs, mono/voice.rs and mono/patch.rs (ADR-0004).
+// mono/preset.rs, mono/voice.rs, mono/patch.rs and mono/model.rs (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -64,6 +64,7 @@ export const Param = {
   KeyTrack: 57,
   Vibrato: 58,
   ModWheel: 59,
+  Model: 60,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -80,6 +81,16 @@ export const NoiseColour = {
   Pink: 1,
 } as const
 export type NoiseColourId = (typeof NoiseColour)[keyof typeof NoiseColour]
+
+export const Model = {
+  Arp2600: 0,
+  Minimoog: 1,
+  ProOne: 2,
+  Ms20: 3,
+  Cs15: 4,
+  Sh101: 5,
+} as const
+export type ModelId = (typeof Model)[keyof typeof Model]
 
 export const Preset = {
   Bass: 0,
