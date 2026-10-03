@@ -158,6 +158,7 @@ export const Param = {
   Assign: 151,
   UnisonDetune: 152,
   Analog: 153,
+  ChorusMode: 154,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -280,6 +281,7 @@ export const Model = {
   Sh101: 5,
   Odyssey: 6,
   Prophet5: 7,
+  Juno106: 8,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -323,6 +325,12 @@ export const Preset = {
   P5SyncLead: 36,
   P5Bell: 37,
   P5Pad: 38,
+  JunoPad: 39,
+  JunoStrings: 40,
+  JunoBrass: 41,
+  JunoBass: 42,
+  JunoPluck: 43,
+  JunoPoly: 44,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

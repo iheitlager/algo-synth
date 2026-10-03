@@ -98,7 +98,7 @@ The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A 
 
 The Juno-106 SHALL have 6 voices of one DCO (saw and pulse with pulse-width modulation from the LFO or by hand, a sub-oscillator), noise, a 4-pole low-pass, a high-pass in four steps, one ADSR driving filter and loudness, an LFO, and a stereo BBD-style chorus with modes I, II and I+II that decorrelates the left and right outputs and is off for mode off.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Juno106`, `crates/dsp/src/fx/chorus.rs::Chorus` *(planned, #83)*
+**Implementation:** `crates/dsp/src/mono/model.rs::Model::Juno106`, `crates/dsp/src/fx/chorus.rs::Chorus`, `crates/dsp/src/mixer.rs::Mixer::widen` (#83)
 
 #### Scenario: the chorus widens
 
@@ -106,7 +106,7 @@ The Juno-106 SHALL have 6 voices of one DCO (saw and pulse with pulse-width modu
 - WHEN left and right are compared
 - THEN off is identical on both sides and the chorus makes them differ
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/fx/chorus.rs::tests::off_is_identical_on_both_sides_and_the_chorus_widens`, `crates/dsp/src/fx/chorus.rs::tests::every_mode_stays_bounded_and_keeps_the_level`, `crates/dsp/src/fx/chorus.rs::tests::the_modes_sweep_at_their_own_rates`, `crates/dsp/src/engine.rs::tests::the_juno_chorus_makes_the_two_sides_differ`, `crates/dsp/src/engine.rs::tests::the_juno_106_has_six_voices`, `crates/dsp/src/mono/voice.rs::tests::juno_high_pass_steps_thin_the_bass`, `crates/dsp/src/mono/voice.rs::tests::sh101_saw_and_pulse_add_up`
 
 ### Requirement 8: Jupiter-8 [MUST]
 

@@ -51,11 +51,17 @@ pub enum Preset {
     P5SyncLead = 36,
     P5Bell = 37,
     P5Pad = 38,
+    JunoPad = 39,
+    JunoStrings = 40,
+    JunoBrass = 41,
+    JunoBass = 42,
+    JunoPluck = 43,
+    JunoPoly = 44,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 39] = [
+    pub const ALL: [(Preset, &'static str); 45] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -95,6 +101,12 @@ impl Preset {
         (Preset::P5SyncLead, "P5SyncLead"),
         (Preset::P5Bell, "P5Bell"),
         (Preset::P5Pad, "P5Pad"),
+        (Preset::JunoPad, "JunoPad"),
+        (Preset::JunoStrings, "JunoStrings"),
+        (Preset::JunoBrass, "JunoBrass"),
+        (Preset::JunoBass, "JunoBass"),
+        (Preset::JunoPluck, "JunoPluck"),
+        (Preset::JunoPoly, "JunoPoly"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -108,6 +120,12 @@ impl Preset {
     /// The model this preset is for; `changes` sets it.
     pub fn model(self) -> Model {
         match self {
+            Preset::JunoPad
+            | Preset::JunoStrings
+            | Preset::JunoBrass
+            | Preset::JunoBass
+            | Preset::JunoPluck
+            | Preset::JunoPoly => Model::Juno106,
             Preset::P5Brass
             | Preset::P5Strings
             | Preset::P5Bass
@@ -992,6 +1010,132 @@ impl Preset {
                 (LfoCutoff, 0.3),
                 (KeyTrack, 0.5),
             ],
+            // A saw and a pulse that the LFO sweeps, a sub, a slow swell and chorus II:
+            // the lush Juno pad.
+            Preset::JunoPad => &[
+                (Model, 8.0),
+                (Polyphony, 6.0),
+                (Analog, 0.5),
+                (ChorusMode, 2.0),
+                (Vco1Level, 0.6),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.6),
+                (SubLevel, 0.3),
+                (LfoWave, 2.0),
+                (LfoRate, 0.6),
+                (LfoPw, 0.4),
+                (Cutoff, 1_800.0),
+                (Resonance, 0.15),
+                (AdsrAttack, 0.5),
+                (AdsrDecay, 0.7),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 0.9),
+                (EnvCutoff, 0.15),
+                (KeyTrack, 0.5),
+            ],
+            // Saw and a swept pulse with both chorus buttons in: the fast, shallow
+            // shimmer of the Juno strings.
+            Preset::JunoStrings => &[
+                (Model, 8.0),
+                (Polyphony, 6.0),
+                (Analog, 0.5),
+                (ChorusMode, 3.0),
+                (Vco1Level, 0.9),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 0.6),
+                (LfoPw, 0.3),
+                (Cutoff, 3_000.0),
+                (Resonance, 0.1),
+                (AdsrAttack, 0.25),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.5),
+                (EnvCutoff, 0.1),
+                (KeyTrack, 0.5),
+            ],
+            // A saw, a pulse and a sub through a filter the one envelope sweeps on
+            // every note, with chorus I: the Juno brass.
+            Preset::JunoBrass => &[
+                (Model, 8.0),
+                (Polyphony, 6.0),
+                (Analog, 0.4),
+                (ChorusMode, 1.0),
+                (Vco1Level, 1.0),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.6),
+                (SubLevel, 0.3),
+                (Cutoff, 900.0),
+                (Resonance, 0.3),
+                (AdsrAttack, 0.05),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.25),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 0.5),
+            ],
+            // The sub-oscillator at full level under a saw and a pulse, no chorus:
+            // the Juno bass.
+            Preset::JunoBass => &[
+                (Model, 8.0),
+                (Polyphony, 6.0),
+                (Analog, 0.3),
+                (Vco1Level, 0.7),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.5),
+                (SubLevel, 1.0),
+                (Cutoff, 600.0),
+                (Resonance, 0.3),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.35),
+                (AdsrSustain, 0.5),
+                (AdsrRelease, 0.2),
+                (EnvCutoff, 0.5),
+                (KeyTrack, 0.5),
+            ],
+            // A narrow pulse with PWM and a filter that closes quickly, chorus I: a
+            // plucked Juno.
+            Preset::JunoPluck => &[
+                (Model, 8.0),
+                (Polyphony, 6.0),
+                (Analog, 0.4),
+                (ChorusMode, 1.0),
+                (Vco1Level, 0.0),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.9),
+                (SubLevel, 0.3),
+                (PulseWidth, 0.3),
+                (LfoWave, 2.0),
+                (LfoRate, 1.2),
+                (LfoPw, 0.35),
+                (Cutoff, 1_500.0),
+                (Resonance, 0.4),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 0.45),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 0.3),
+                (EnvCutoff, 0.55),
+                (KeyTrack, 0.5),
+            ],
+            // A bright saw with a little resonance and the high-pass in its first step,
+            // chorus II: the classic poly-synth chord sound.
+            Preset::JunoPoly => &[
+                (Model, 8.0),
+                (Polyphony, 6.0),
+                (Analog, 0.5),
+                (ChorusMode, 2.0),
+                (Vco1Level, 1.0),
+                (HpCutoff, 240.0),
+                (Cutoff, 2_200.0),
+                (Resonance, 0.45),
+                (AdsrAttack, 0.01),
+                (AdsrDecay, 0.6),
+                (AdsrSustain, 0.6),
+                (AdsrRelease, 0.3),
+                (EnvCutoff, 0.3),
+                (KeyTrack, 0.5),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -1025,7 +1169,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 83] = [
+pub const DEFAULTS: [(Param, f32); 84] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -1109,6 +1253,7 @@ pub const DEFAULTS: [(Param, f32); 83] = [
     (Param::Assign, 0.0),
     (Param::UnisonDetune, 0.3),
     (Param::Analog, 0.0),
+    (Param::ChorusMode, 0.0),
 ];
 
 #[cfg(test)]

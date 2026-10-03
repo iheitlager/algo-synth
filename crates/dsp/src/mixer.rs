@@ -56,6 +56,8 @@ struct Strip {
     send: [f32; SENDS],
     mute: bool,
     solo: bool,
+    /// Left and right gains for a stereo strip: a balance, unity at the centre.
+    balance: [f32; 2],
     /// 0 is the master, 1–8 a group.
     out: usize,
     group: bool,
@@ -66,6 +68,7 @@ impl Strip {
         let mut s = Strip {
             level: 0.0,
             pan: [0.0; 2],
+            balance: [1.0; 2],
             send: [0.0; SENDS],
             mute: false,
             solo: false,
@@ -82,6 +85,7 @@ impl Strip {
         match param {
             Param::Level => self.level = v,
             Param::Pan => {
+                self.balance = [1.0 - v.max(0.0), 1.0 + v.min(0.0)];
                 self.pan = if self.group {
                     // A group is already stereo: balance, unity at the centre.
                     [1.0 - v.max(0.0), 1.0 + v.min(0.0)]
@@ -112,6 +116,11 @@ pub struct Mixer {
     inserts: Vec<[Insert; INSERT_SLOTS]>,
     /// Each synth's mono bus, filled by its voices.
     bus: Box<[[f32; BLOCK]; SYNTHS]>,
+    /// The right side of a synth that is stereo (the chorus): its bus is then the left.
+    bus_r: Box<[[f32; BLOCK]; SYNTHS]>,
+    wide: [bool; SYNTHS],
+    /// The dry signal while a stereo effect writes both sides.
+    dry: [f32; BLOCK],
     /// Each group's stereo bus, left then right.
     groups: Box<[[[f32; BLOCK]; 2]; GROUPS]>,
     strips: [Strip; STRIPS],
@@ -131,6 +140,9 @@ impl Mixer {
                 .map(|_| std::array::from_fn(|_| Insert::new(sample_rate)))
                 .collect(),
             bus: Box::new([[0.0; BLOCK]; SYNTHS]),
+            bus_r: Box::new([[0.0; BLOCK]; SYNTHS]),
+            wide: [false; SYNTHS],
+            dry: [0.0; BLOCK],
             groups: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
             strips: std::array::from_fn(|i| Strip::new(i >= SYNTHS)),
             heard: [true; STRIPS],
@@ -229,8 +241,34 @@ impl Mixer {
         self.bus.get_mut(synth)?.get_mut(range)
     }
 
+    /// Make `synth` stereo for this block: `effect` reads its mono bus and writes
+    /// the left and right sides, and the strip then balances them instead of panning.
+    pub fn widen(
+        &mut self,
+        synth: usize,
+        frames: usize,
+        effect: impl FnOnce(&[f32], &mut [f32], &mut [f32]),
+    ) {
+        let n = frames.min(BLOCK);
+        let (Some(l), Some(r), Some(wide)) = (
+            self.bus.get_mut(synth),
+            self.bus_r.get_mut(synth),
+            self.wide.get_mut(synth),
+        ) else {
+            return;
+        };
+        let (Some(l), Some(r), Some(dry)) = (l.get_mut(..n), r.get_mut(..n), self.dry.get_mut(..n))
+        else {
+            return;
+        };
+        dry.copy_from_slice(l);
+        effect(dry, l, r);
+        *wide = true;
+    }
+
     /// Silence the buses at the start of a block.
     pub fn clear(&mut self, frames: usize) {
+        self.wide = [false; SYNTHS];
         for bus in self.bus.iter_mut() {
             if let Some(b) = bus.get_mut(..frames) {
                 b.fill(0.0);
@@ -274,11 +312,23 @@ impl Mixer {
             let Some(bus) = bus.get_mut(..n) else {
                 continue;
             };
+            let mut wide_r = if self.wide.get(i).copied().unwrap_or(false) {
+                self.bus_r.get_mut(i).and_then(|r| r.get_mut(..n))
+            } else {
+                None
+            };
             for insert in inserts.iter_mut() {
-                insert.process_mono(bus);
+                match wide_r.as_deref_mut() {
+                    Some(r) => insert.process_stereo(bus, r),
+                    None => insert.process_mono(bus),
+                }
             }
             if let Some(p) = self.peaks.get_mut(i) {
-                *p = bus.iter().fold(0.0_f32, |m, x| m.max(x.abs())) * s.level;
+                let mut peak = bus.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+                if let Some(r) = wide_r.as_deref() {
+                    peak = r.iter().fold(peak, |m, x| m.max(x.abs()));
+                }
+                *p = peak * s.level;
             }
             // Into the master, or a group's stereo bus.
             let (dl, dr): (&mut [f32], &mut [f32]) = match s.out {
@@ -293,6 +343,28 @@ impl Mixer {
                     (gl, gr)
                 }
             };
+            if let Some(right) = wide_r.as_deref() {
+                let [bl, br] = s.balance;
+                for (((x, y), l), r) in bus
+                    .iter()
+                    .zip(right.iter())
+                    .zip(dl.iter_mut())
+                    .zip(dr.iter_mut())
+                {
+                    *l += x * s.level * bl;
+                    *r += y * s.level * br;
+                }
+                for (send, amount) in self.sends.iter_mut().zip(s.send) {
+                    let gain = 0.5 * s.level * amount;
+                    if gain == 0.0 {
+                        continue;
+                    }
+                    for ((acc, x), y) in send.iter_mut().zip(bus.iter()).zip(right.iter()) {
+                        *acc += (x + y) * gain;
+                    }
+                }
+                continue;
+            }
             let [pl, pr] = s.pan;
             for ((x, l), r) in bus.iter().zip(dl.iter_mut()).zip(dr.iter_mut()) {
                 *l += x * s.level * pl;

@@ -785,6 +785,29 @@ mod tests {
         );
     }
 
+    /// Spec 006 Req 7: the Juno's high-pass steps thin the bass.
+    #[test]
+    fn juno_high_pass_steps_thin_the_bass() {
+        let low = |hp: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 8.0),
+                (Param::Vco1Level, 1.0),
+                (Param::HpCutoff, hp),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(45);
+            r.render(9_600);
+            tone(&r.render(48_000), 110.0)
+        };
+        let (off, step) = (low(20.0), low(1_600.0));
+        assert!(
+            20.0 * (step / off).log10() < -12.0,
+            "the top step takes the fundamental down: {off} {step}"
+        );
+        assert!(low(240.0) > step, "and the first step less");
+    }
+
     /// Spec 005 Req 7: the SH-101's cutoff and loudness are moved by the
     /// same envelope, whatever the filter ADSR is set to.
     #[test]
@@ -820,9 +843,16 @@ mod tests {
     /// cancelling it.
     #[test]
     fn sh101_saw_and_pulse_add_up() {
+        // The SH-101 and the Juno-106 both mix a saw with a pulse locked to it.
+        for model in [5.0, 8.0] {
+            saw_and_pulse(model);
+        }
+    }
+
+    fn saw_and_pulse(model: f32) {
         let rms = |pulse: f32| {
             let mut r = Rig::new(&[
-                (Param::Model, 5.0),
+                (Param::Model, model),
                 (Param::Vco1Level, 0.5),
                 (Param::Vco2Wave, 1.0),
                 (Param::Vco2Level, pulse),

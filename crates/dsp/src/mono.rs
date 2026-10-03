@@ -40,6 +40,8 @@ pub struct MonoParams {
     pub unison: bool,
     pub unison_cents: f32,
     pub analog: f32,
+    /// The stereo chorus mode (0 off); the engine runs it after the voices.
+    pub chorus_mode: usize,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -114,6 +116,7 @@ impl MonoParams {
             unison: false,
             unison_cents: 0.0,
             analog: 0.0,
+            chorus_mode: 0,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -327,6 +330,7 @@ impl MonoParams {
             Param::Assign => self.unison = v >= 0.5,
             Param::UnisonDetune => self.unison_cents = 50.0 * v,
             Param::Analog => self.analog = v,
+            Param::ChorusMode => self.chorus_mode = v.round() as usize,
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

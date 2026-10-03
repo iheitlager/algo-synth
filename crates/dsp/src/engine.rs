@@ -7,6 +7,7 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::fx::chorus::Chorus;
 use crate::fx::compressor::Compressor;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
@@ -50,6 +51,8 @@ pub struct Engine {
     /// Counts the notes started, so a pool can tell which voice is oldest.
     clock: u64,
     mixer: Mixer,
+    /// Each synth's stereo chorus, run after its voices when it is on.
+    chorus: Vec<Chorus>,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
     eq: Equalizer,
@@ -87,6 +90,7 @@ impl Engine {
             pools: (0..SYNTHS).map(Pool::new).collect(),
             clock: 0,
             mixer: Mixer::new(sample_rate),
+            chorus: (0..SYNTHS).map(|_| Chorus::new(sample_rate)).collect(),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
@@ -149,6 +153,11 @@ impl Engine {
             *slot = v;
         }
         mono.set(param, v);
+        if param == Param::ChorusMode {
+            if let Some(c) = self.chorus.get_mut(synth) {
+                c.set_mode(mono.chorus_mode);
+            }
+        }
     }
 
     fn set_global(&mut self, param: Param, v: f32) {
@@ -405,6 +414,13 @@ impl Engine {
             }
             self.sequence.advance(chunk);
             t += chunk;
+        }
+        // A synth with its chorus on is stereo from here on.
+        for (synth, chorus) in self.chorus.iter_mut().enumerate() {
+            if chorus.on() {
+                self.mixer
+                    .widen(synth, n, |dry, l, r| chorus.process(dry, l, r));
+            }
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
@@ -855,6 +871,58 @@ mod tests {
         e.render(BLOCK);
         assert_eq!(e.active_voices(), 5);
         assert_eq!(e.pools[0].held_notes(), vec![40; 5]);
+    }
+
+    /// Spec 006 Req 7: with the chorus off both sides of a Juno-106 are the same;
+    /// with it on they differ, and the sends and meter still work on the stereo strip.
+    #[test]
+    fn the_juno_chorus_makes_the_two_sides_differ() {
+        let sides = |mode: f32| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.preset(0, Preset::JunoPad);
+            e.set_param(0, Param::ChorusMode, mode);
+            e.set_param(0, Param::AdsrAttack, 0.01);
+            for n in [57, 61, 64] {
+                e.note_on(0, n, 1.0);
+            }
+            let (mut l, mut r) = (Vec::new(), Vec::new());
+            for _ in 0..150 {
+                e.render(BLOCK);
+                l.extend_from_slice(&e.output()[..BLOCK]);
+                r.extend_from_slice(&e.output()[BLOCK..]);
+                assert!(e.output().iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+            }
+            (l, r)
+        };
+        let (l, r) = sides(0.0);
+        assert!(
+            l.iter().any(|x| x.abs() > 0.01) && l == r,
+            "mono without the chorus"
+        );
+        for mode in [1.0, 2.0, 3.0] {
+            let (l, r) = sides(mode);
+            let diff: f32 = l
+                .iter()
+                .zip(&r)
+                .skip(4_800)
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+            assert!(diff > 1.0, "mode {mode}: {diff}");
+        }
+    }
+
+    /// The Juno-106 has six voices.
+    #[test]
+    fn the_juno_106_has_six_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::JunoPoly);
+        for n in [48, 52, 55, 59, 62, 65, 69] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 6);
+        assert_eq!(e.pools[0].held_notes(), vec![52, 55, 59, 62, 65, 69]);
     }
 
     /// Notes held on a synth: its voices with a key down.

@@ -376,6 +376,57 @@ const prophet5: ModelDef = {
   ],
 }
 
+/** The Juno's high-pass in its four steps, and its chorus modes. */
+const HPF_STEPS: Options = [['0', 20], ['1', 240], ['2', 720], ['3', 1600]]
+const CHORUS: Options = [['Off', 0], ['I', 1], ['II', 2], ['I+II', 3]]
+
+// Six voices of one DCO (saw and a locked pulse, a sub), an IR3109-voiced
+// low-pass, a high-pass in four steps, one envelope for filter and loudness,
+// and the stereo chorus (spec 006 Req 7). The pulse is VCO 2, locked by the model.
+const juno106: ModelDef = {
+  id: Model.Juno106,
+  name: 'Juno-106',
+  maker: 'Roland · six voices, DCO, chorus',
+  tagline: 'Six voices: a DCO with sub, a 24 dB low-pass, one envelope, and the stereo chorus',
+  theme: { panel: '#262b30', ink: '#eaeef2', soft: '#a3adb8', trim: '#14171a', accent: '#3fb6c9' },
+  presets: ['JunoPad', 'JunoStrings', 'JunoBrass', 'JunoBass', 'JunoPluck', 'JunoPoly'],
+  sections: [
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'DCO',
+      controls: [
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), range('PWM · LFO', Param.LfoPw, 0, 1, 0.01),
+        select('Range', Param.Vco1Coarse, [['16′', -12], ['8′', 0], ['4′', 12]]),
+      ],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('Saw', Param.Vco1Level, 0, 1, 0.01), range('Pulse', Param.Vco2Level, 0, 1, 0.01),
+        range('Sub', Param.SubLevel, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+      ],
+    },
+    { title: 'HPF', controls: [select('Cutoff', Param.HpCutoff, HPF_STEPS)] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
 const ms20: ModelDef = {
   id: Model.Ms20,
   name: 'MS-20',
@@ -615,7 +666,7 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

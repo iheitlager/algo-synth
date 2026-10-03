@@ -314,6 +314,8 @@ pub enum Param {
     UnisonDetune = 152,
     /// Analog variance, 0..=1: each voice's own detune, drift and cutoff offset.
     Analog = 153,
+    /// The synth's stereo chorus: 0 off, 1 I, 2 II, 3 I+II (spec 006 Req 7).
+    ChorusMode = 154,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -395,7 +397,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 154] = [
+    pub const ALL: [(Param, &'static str); 155] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -550,6 +552,7 @@ impl Param {
         (Param::Assign, "Assign"),
         (Param::UnisonDetune, "UnisonDetune"),
         (Param::Analog, "Analog"),
+        (Param::ChorusMode, "ChorusMode"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -695,6 +698,7 @@ impl Param {
             Param::Out => (0.0, 8.0),
             Param::Polyphony => (1.0, 16.0),
             Param::Assign => (0.0, 1.0),
+            Param::ChorusMode => (0.0, 3.0),
             Param::UnisonDetune | Param::Analog => (0.0, 1.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),
