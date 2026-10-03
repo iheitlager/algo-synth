@@ -81,7 +81,7 @@ function onRemove(s: number) {
       >
         <header>
           <i class="dot" :title="`synth ${s + 1}`" />
-          <b>{{ def.name }}</b><span class="style">{{ def.maker }}</span>
+          <b :title="def.tagline">{{ def.name }}</b><span class="style">{{ def.maker }}</span>
           <button
             class="remove" title="Remove this synth; parts on it are muted"
             :disabled="synths.list.length <= 1" @click.stop="onRemove(s)"

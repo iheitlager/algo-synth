@@ -1,10 +1,10 @@
-//! The ARP 2600-style Mono voice (spec 004).
+//! The Mono voice (spec 004): one shared voice, six models (spec 005).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
 //! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `voice` one
 //! voice per owner with its keys and glide, `preset` the defaults and
-//! presets. The settings here are Mono-wide until tracks
-//! address parameters per instance (spec 002 Req 1).
+//! presets, `model` which instrument a synth is, `svf` the 12 dB filters.
+//! The settings here belong to one synth (spec 004 Req 10).
 
 pub mod env;
 pub mod ladder;
