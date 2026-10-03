@@ -282,7 +282,17 @@ impl MonoParams {
             | Param::CompRatio
             | Param::CompAttack
             | Param::CompRelease
-            | Param::CompMakeup => {}
+            | Param::CompMakeup
+            | Param::EqLowFreq
+            | Param::EqLowGain
+            | Param::EqMid1Freq
+            | Param::EqMid1Gain
+            | Param::EqMid1Q
+            | Param::EqMid2Freq
+            | Param::EqMid2Gain
+            | Param::EqMid2Q
+            | Param::EqHighFreq
+            | Param::EqHighGain => {}
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;

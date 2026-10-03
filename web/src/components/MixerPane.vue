@@ -47,6 +47,19 @@ const comp = [
   { label: 'Release', id: Param.CompRelease, min: 10, max: 1000, step: 1, unit: 'ms' },
   { label: 'Make-up', id: Param.CompMakeup, min: 0, max: 24, step: 0.5, unit: 'dB' },
 ]
+// The master equalizer (spec 002 Req 2): shelves and two parametric bands.
+const eq = [
+  { name: 'Low', freq: Param.EqLowFreq, gain: Param.EqLowGain, fmin: 20, fmax: 500 },
+  { name: 'Mid 1', freq: Param.EqMid1Freq, gain: Param.EqMid1Gain, q: Param.EqMid1Q, fmin: 100, fmax: 8000 },
+  { name: 'Mid 2', freq: Param.EqMid2Freq, gain: Param.EqMid2Gain, q: Param.EqMid2Q, fmin: 500, fmax: 12000 },
+  { name: 'High', freq: Param.EqHighFreq, gain: Param.EqHighGain, fmin: 2000, fmax: 18000 },
+]
+// A frequency slider is exponential: 0..1 spans the band's range.
+const hzOf = (t: number, lo: number, hi: number) => lo * (hi / lo) ** t
+const posOf = (hz: number, lo: number, hi: number) => Math.log(hz / lo) / Math.log(hi / lo)
+function sendFreq(id: ParamId, lo: number, hi: number, e: Event) {
+  getEngine()?.param(0, id, hzOf(Number((e.target as HTMLInputElement).value), lo, hi))
+}
 </script>
 
 <template>
@@ -77,6 +90,15 @@ const comp = [
       </div>
     </fieldset>
     <fieldset class="master" :disabled="!status.running">
+      <b>EQ</b>
+      <span v-for="b in eq" :key="b.name" class="band">
+        {{ b.name }}
+        <label>Freq <input type="range" min="0" max="1" step="0.001" :value="posOf(val(b.freq), b.fmin, b.fmax)" @input="sendFreq(b.freq, b.fmin, b.fmax, $event)" /> {{ Math.round(val(b.freq)) }} Hz</label>
+        <label>Gain <input type="range" min="-15" max="15" step="0.5" :value="val(b.gain)" @input="send(b.gain, $event)" /> {{ Number(val(b.gain).toFixed(1)) }} dB</label>
+        <label v-if="b.q">Q <input type="range" min="0.3" max="8" step="0.1" :value="val(b.q)" @input="send(b.q, $event)" /></label>
+      </span>
+    </fieldset>
+    <fieldset class="master" :disabled="!status.running">
       <b>Compressor</b>
       <label v-for="c in comp" :key="c.label">{{ c.label }}
         <input type="range" :min="c.min" :max="c.max" :step="c.step" :value="val(c.id)" @input="send(c.id, $event)" />
@@ -97,6 +119,7 @@ const comp = [
 .returns { border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
 .master { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
 .master b:first-child { color: var(--accent); font-size: 13px; }
+.band { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding-right: 10px; border-right: 1px solid var(--line); }
 .proc { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
 .proc b { color: var(--accent); font-size: 13px; width: 2em; }
 label { display: flex; gap: 6px; align-items: center; white-space: nowrap; }

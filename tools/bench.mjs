@@ -103,6 +103,7 @@ function run(setup, lowest) {
   w.set_param(0, Param.P2A, 0.9)
   w.set_param(0, Param.CompThreshold, -30)
   w.set_param(0, Param.CompRatio, 4)
+  for (const b of ['Low', 'Mid1', 'Mid2', 'High']) w.set_param(0, Param[`Eq${b}Gain`], 6)
   for (let s = 0; s < w.synth_count(); s++) {
     setup(w, s)
     w.set_param(s, Param.DriveMode, DriveMode.Fuzz)

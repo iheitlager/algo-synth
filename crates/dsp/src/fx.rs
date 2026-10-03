@@ -4,6 +4,7 @@
 pub mod compressor;
 pub mod drive;
 pub mod echo;
+pub mod eq;
 pub mod limiter;
 pub mod processor;
 pub mod reverb;

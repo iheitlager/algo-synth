@@ -7,6 +7,7 @@
 //! blocks (`load_midi`), never inside `render`.
 
 use crate::fx::compressor::Compressor;
+use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
 use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS};
@@ -48,6 +49,7 @@ pub struct Engine {
     mixer: Mixer,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
+    eq: Equalizer,
     comp: Compressor,
     limiter: Limiter,
     master_gain: f32,
@@ -83,6 +85,7 @@ impl Engine {
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
             mixer: Mixer::new(sample_rate),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
+            eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
             limiter: Limiter::new(sample_rate),
             master_gain: 0.5,
@@ -139,6 +142,16 @@ impl Engine {
             Param::CompAttack => self.comp.set_attack(v),
             Param::CompRelease => self.comp.set_release(v),
             Param::CompMakeup => self.comp.set_makeup(v),
+            Param::EqLowFreq => self.eq.set_freq(EqBand::Low, v),
+            Param::EqLowGain => self.eq.set_gain(EqBand::Low, v),
+            Param::EqMid1Freq => self.eq.set_freq(EqBand::Mid1, v),
+            Param::EqMid1Gain => self.eq.set_gain(EqBand::Mid1, v),
+            Param::EqMid1Q => self.eq.set_q(EqBand::Mid1, v),
+            Param::EqMid2Freq => self.eq.set_freq(EqBand::Mid2, v),
+            Param::EqMid2Gain => self.eq.set_gain(EqBand::Mid2, v),
+            Param::EqMid2Q => self.eq.set_q(EqBand::Mid2, v),
+            Param::EqHighFreq => self.eq.set_freq(EqBand::High, v),
+            Param::EqHighGain => self.eq.set_gain(EqBand::High, v),
             _ => {}
         }
         if let Some((slot, field)) = param.processor() {
@@ -358,7 +371,8 @@ impl Engine {
                     proc.process(send, l, r);
                 }
             }
-            // The master chain: compressor, gain, limiter.
+            // The master chain: equalizer, compressor, gain, limiter.
+            self.eq.process(l, r);
             self.comp.process(l, r);
             for s in l.iter_mut().chain(r.iter_mut()) {
                 *s *= self.master_gain;
@@ -990,6 +1004,21 @@ mod tests {
             e.render(BLOCK);
         }
         assert!(e.gain_reduction_db() > 3.0);
+    }
+
+    #[test]
+    fn the_master_eq_shapes_the_mix_and_flat_leaves_it() {
+        let flat = first_block(|_| {});
+        let same = first_block(|e| e.set_param(0, Param::EqMid1Freq, 800.0));
+        assert!(flat == same, "a band at 0 dB changes nothing");
+        let boosted = first_block(|e| {
+            e.set_param(0, Param::EqMid1Freq, 220.0);
+            e.set_param(0, Param::EqMid1Gain, 12.0);
+        });
+        assert!(flat != boosted);
+        let mut e = Engine::new(48_000.0);
+        e.set_param(3, Param::EqHighGain, -6.0);
+        assert_eq!(e.param_value(0, Param::EqHighGain), -6.0);
     }
 
     #[test]

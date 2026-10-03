@@ -253,11 +253,41 @@ pub enum Param {
     CompRelease = 123,
     /// Master compressor make-up gain in dB, 0..=24.
     CompMakeup = 124,
+    /// Master EQ: Low shelf corner in Hz, 20..=500.
+    EqLowFreq = 125,
+    /// Master EQ: Low shelf gain in dB, −15..=15.
+    EqLowGain = 126,
+    /// Master EQ: Mid band 1 centre in Hz, 100..=8000.
+    EqMid1Freq = 127,
+    /// Master EQ: Mid band 1 gain in dB, −15..=15.
+    EqMid1Gain = 128,
+    /// Master EQ: Mid band 1 Q, 0.3..=8.
+    EqMid1Q = 129,
+    /// Master EQ: Mid band 2 centre in Hz, 500..=12000.
+    EqMid2Freq = 130,
+    /// Master EQ: Mid band 2 gain in dB, −15..=15.
+    EqMid2Gain = 131,
+    /// Master EQ: Mid band 2 Q, 0.3..=8.
+    EqMid2Q = 132,
+    /// Master EQ: High shelf corner in Hz, 2000..=18000.
+    EqHighFreq = 133,
+    /// Master EQ: High shelf gain in dB, −15..=15.
+    EqHighGain = 134,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
 /// a return goes up; P3 and P4 are off.
-pub const GLOBAL_DEFAULTS: [(Param, f32); 34] = [
+pub const GLOBAL_DEFAULTS: [(Param, f32); 44] = [
+    (Param::EqLowFreq, 100.0),
+    (Param::EqLowGain, 0.0),
+    (Param::EqMid1Freq, 500.0),
+    (Param::EqMid1Gain, 0.0),
+    (Param::EqMid1Q, 1.0),
+    (Param::EqMid2Freq, 3000.0),
+    (Param::EqMid2Gain, 0.0),
+    (Param::EqMid2Q, 1.0),
+    (Param::EqHighFreq, 8000.0),
+    (Param::EqHighGain, 0.0),
     (Param::MasterGain, 0.5),
     (Param::CompThreshold, -12.0),
     (Param::CompRatio, 1.0),
@@ -310,7 +340,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 125] = [
+    pub const ALL: [(Param, &'static str); 135] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -436,6 +466,16 @@ impl Param {
         (Param::CompAttack, "CompAttack"),
         (Param::CompRelease, "CompRelease"),
         (Param::CompMakeup, "CompMakeup"),
+        (Param::EqLowFreq, "EqLowFreq"),
+        (Param::EqLowGain, "EqLowGain"),
+        (Param::EqMid1Freq, "EqMid1Freq"),
+        (Param::EqMid1Gain, "EqMid1Gain"),
+        (Param::EqMid1Q, "EqMid1Q"),
+        (Param::EqMid2Freq, "EqMid2Freq"),
+        (Param::EqMid2Gain, "EqMid2Gain"),
+        (Param::EqMid2Q, "EqMid2Q"),
+        (Param::EqHighFreq, "EqHighFreq"),
+        (Param::EqHighGain, "EqHighGain"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -465,6 +505,16 @@ impl Param {
                 | Param::CompAttack
                 | Param::CompRelease
                 | Param::CompMakeup
+                | Param::EqLowFreq
+                | Param::EqLowGain
+                | Param::EqMid1Freq
+                | Param::EqMid1Gain
+                | Param::EqMid1Q
+                | Param::EqMid2Freq
+                | Param::EqMid2Gain
+                | Param::EqMid2Q
+                | Param::EqHighFreq
+                | Param::EqHighGain
         ) || self.processor().is_some()
     }
 
@@ -561,6 +611,16 @@ impl Param {
             Param::CompAttack => (0.1, 100.0),
             Param::CompRelease => (10.0, 1_000.0),
             Param::CompMakeup => (0.0, 24.0),
+            Param::EqLowFreq => (20.0, 500.0),
+            Param::EqLowGain => (-15.0, 15.0),
+            Param::EqMid1Freq => (100.0, 8000.0),
+            Param::EqMid1Gain => (-15.0, 15.0),
+            Param::EqMid1Q => (0.3, 8.0),
+            Param::EqMid2Freq => (500.0, 12000.0),
+            Param::EqMid2Gain => (-15.0, 15.0),
+            Param::EqMid2Q => (0.3, 8.0),
+            Param::EqHighFreq => (2000.0, 18000.0),
+            Param::EqHighGain => (-15.0, 15.0),
             Param::P1Type | Param::P2Type | Param::P3Type | Param::P4Type => (0.0, 2.0),
             Param::P1Return | Param::P2Return | Param::P3Return | Param::P4Return => (0.0, 1.0),
             Param::P1A => (0.0, 1.0),
