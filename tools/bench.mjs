@@ -115,6 +115,8 @@ function run(setup, lowest) {
   w.set_param(0, Param.P3Return, 0.4)
   w.set_param(0, Param.P4Type, ProcType.Flanger)
   w.set_param(0, Param.P4Return, 0.4)
+  // Chain them: P1 into P2 into P3 into P4.
+  for (const n of [2, 3, 4]) w.set_param(0, Param[`P${n}In`], 1)
   w.set_param(0, Param.CompThreshold, -30)
   w.set_param(0, Param.CompRatio, 4)
   for (const b of ['Low', 'Mid1', 'Mid2', 'High']) w.set_param(0, Param[`Eq${b}Gain`], 6)

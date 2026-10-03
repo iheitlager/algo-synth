@@ -154,6 +154,9 @@ export const Param = {
   EqHighFreq: 147,
   EqHighGain: 148,
   Out: 149,
+  P2In: 150,
+  P3In: 151,
+  P4In: 152,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -203,6 +206,9 @@ export const GlobalParam = {
   EqMid2Q: 146,
   EqHighFreq: 147,
   EqHighGain: 148,
+  P2In: 150,
+  P3In: 151,
+  P4In: 152,
 } as const
 
 export const StripParam = {
