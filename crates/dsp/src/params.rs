@@ -137,11 +137,19 @@ pub enum Param {
     Mute = 64,
     /// When any synth is soloed (≥ 0.5), only soloed synths sound.
     Solo = 65,
+    /// Drive insert mode id (`DriveMode`: off, overdrive, distortion, fuzz), 0..=3.
+    DriveMode = 66,
+    /// Drive amount, 0..=1 (0 to +40 dB into the shaper).
+    DriveAmount = 67,
+    /// Drive tone, 0..=1: the low-pass after the shaper, 200 Hz to 20 kHz.
+    DriveTone = 68,
+    /// Drive output level, 0..=1.
+    DriveLevel = 69,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 66] = [
+    pub const ALL: [(Param, &'static str); 70] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -208,6 +216,10 @@ impl Param {
         (Param::ReverbSend, "ReverbSend"),
         (Param::Mute, "Mute"),
         (Param::Solo, "Solo"),
+        (Param::DriveMode, "DriveMode"),
+        (Param::DriveAmount, "DriveAmount"),
+        (Param::DriveTone, "DriveTone"),
+        (Param::DriveLevel, "DriveLevel"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -262,6 +274,8 @@ impl Param {
             Param::Level | Param::EchoSend | Param::ReverbSend => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
+            Param::DriveMode => (0.0, 3.0),
+            Param::DriveAmount | Param::DriveTone | Param::DriveLevel => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }
@@ -312,6 +326,7 @@ mod tests {
     /// `web/src/audio/params.ts` hold exactly the same names and ids.
     #[test]
     fn typescript_mirror_matches() {
+        use crate::fx::drive::DriveMode;
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
         use crate::mono::patch::{ModDest, ModSource};
@@ -327,6 +342,7 @@ mod tests {
             ("Param", rust(&Param::ALL, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
+            ("DriveMode", rust(&DriveMode::ALL, |m| m as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
             ("ModSource", rust(&ModSource::ALL, |s| s as u32)),

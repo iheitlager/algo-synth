@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Drive insert on each synth's bus: Off, Overdrive, Distortion and Fuzz with first-order ADAA, plus `DriveMode`, `DriveAmount`, `DriveTone`, `DriveLevel` (ids 66–69, presets may set them) and a Drive row on each card. Spec 004 Req 11 (#25).
 - Mixer: each synth has its own bus with `Level`, `Pan` (equal power), `EchoSend`, `ReverbSend` (post-fader), `Mute` and `Solo`, summed into a stereo master before the soft clip; a mixer row on each card. Parameter ids 60–65 (#24).
 - Up to 16 Mono synths, each with its own parameters, values and patch, preallocated in `Engine::new`; `MasterGain` stays global. Each synth has its own live voice, and a voice keeps the synth its note started on. Loading a MIDI file puts its parts on synths 0, 1, 2…; each part picks a synth or mutes. New exports `synth_count` and `synth_reset`; `set_param`, `param_value`, `mono_preset`, `note_on`, `note_off` take the synth first, and `route(channel, synth)` mutes on an unknown synth. Spec 004 Req 10 (#19).
 - The view: one card per synth, colour-coded, with **+ Synth** and × (removing one mutes its parts); the keyboard plays the selected synth, and a held key releases on the synth it started on. `make bench` sets up all 16 synths (3.3% and 5.8% of a core) (#19).

@@ -127,7 +127,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 59] = [
+pub const DEFAULTS: [(Param, f32); 63] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -187,6 +187,10 @@ pub const DEFAULTS: [(Param, f32); 59] = [
     (Param::KeyTrack, 0.0),
     (Param::Vibrato, 0.0),
     (Param::ModWheel, 0.0),
+    (Param::DriveMode, 0.0),
+    (Param::DriveAmount, 0.3),
+    (Param::DriveTone, 0.8),
+    (Param::DriveLevel, 0.7),
 ];
 
 #[cfg(test)]

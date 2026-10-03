@@ -197,7 +197,11 @@ impl MonoParams {
             | Param::EchoSend
             | Param::ReverbSend
             | Param::Mute
-            | Param::Solo => {}
+            | Param::Solo
+            | Param::DriveMode
+            | Param::DriveAmount
+            | Param::DriveTone
+            | Param::DriveLevel => {}
             Param::MasterGain => {}
         }
         self.taken = self.patch.overridden();

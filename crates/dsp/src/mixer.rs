@@ -4,6 +4,7 @@
 //! worked out when a parameter changes, never per sample.
 
 use crate::engine::{BLOCK, SYNTHS};
+use crate::fx::drive::{Drive, DriveMode};
 use crate::params::Param;
 
 /// Where a strip starts: full fader, centred, no sends, not muted or soloed.
@@ -66,6 +67,8 @@ impl Strip {
 }
 
 pub struct Mixer {
+    /// Each synth's insert, between its voices and its fader.
+    drives: Vec<Drive>,
     /// Each synth's mono bus, filled by its voices.
     bus: Box<[[f32; BLOCK]; SYNTHS]>,
     strips: [Strip; SYNTHS],
@@ -75,15 +78,10 @@ pub struct Mixer {
     pub reverb_send: [f32; BLOCK],
 }
 
-impl Default for Mixer {
-    fn default() -> Mixer {
-        Mixer::new()
-    }
-}
-
 impl Mixer {
-    pub fn new() -> Mixer {
+    pub fn new(sample_rate: f32) -> Mixer {
         Mixer {
+            drives: (0..SYNTHS).map(|_| Drive::new(sample_rate)).collect(),
             bus: Box::new([[0.0; BLOCK]; SYNTHS]),
             strips: [Strip::new(); SYNTHS],
             any_solo: false,
@@ -96,6 +94,17 @@ impl Mixer {
     pub fn set(&mut self, synth: usize, param: Param, v: f32) {
         if let Some(s) = self.strips.get_mut(synth) {
             s.set(param, v);
+        }
+        if let Some(d) = self.drives.get_mut(synth) {
+            match param {
+                Param::DriveMode => {
+                    d.set_mode(DriveMode::from_id(v.round() as u32).unwrap_or(DriveMode::Off))
+                }
+                Param::DriveAmount => d.set_amount(v),
+                Param::DriveTone => d.set_tone(v),
+                Param::DriveLevel => d.set_level(v),
+                _ => {}
+            }
         }
         self.any_solo = self.strips.iter().any(|s| s.solo);
     }
@@ -130,9 +139,17 @@ impl Mixer {
         for out in [&mut *left, &mut *right, &mut *echo, &mut *reverb] {
             out.fill(0.0);
         }
-        for (bus, s) in self.bus.iter().zip(self.strips.iter()) {
+        for ((bus, s), drive) in self
+            .bus
+            .iter_mut()
+            .zip(self.strips.iter())
+            .zip(self.drives.iter_mut())
+        {
             if s.mute || (self.any_solo && !s.solo) {
                 continue;
+            }
+            if let Some(b) = bus.get_mut(..n) {
+                drive.process(b);
             }
             let [gl, gr] = s.pan;
             let (ge, gv) = (s.level * s.echo, s.level * s.reverb);

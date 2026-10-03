@@ -1,5 +1,5 @@
 // Mirror of crates/dsp/src/params.rs, mono/osc.rs, mono/noise.rs,
-// mono/preset.rs, mono/voice.rs and mono/patch.rs (ADR-0004).
+// mono/preset.rs, fx/drive.rs, mono/voice.rs and mono/patch.rs (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -70,6 +70,10 @@ export const Param = {
   ReverbSend: 63,
   Mute: 64,
   Solo: 65,
+  DriveMode: 66,
+  DriveAmount: 67,
+  DriveTone: 68,
+  DriveLevel: 69,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -80,6 +84,14 @@ export const Waveform = {
   Sine: 3,
 } as const
 export type WaveformId = (typeof Waveform)[keyof typeof Waveform]
+
+export const DriveMode = {
+  Off: 0,
+  Overdrive: 1,
+  Distortion: 2,
+  Fuzz: 3,
+} as const
+export type DriveModeId = (typeof DriveMode)[keyof typeof DriveMode]
 
 export const NoiseColour = {
   White: 0,

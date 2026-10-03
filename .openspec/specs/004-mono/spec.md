@@ -205,3 +205,17 @@ The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its 
 - THEN 16 voices sound and every sample is finite and within ±1
 
 **Tests:** `crates/dsp/src/engine.rs::tests::synths_have_their_own_parameters`, `crates/dsp/src/engine.rs::tests::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine.rs::tests::master_gain_is_global`, `crates/dsp/src/engine.rs::tests::unknown_synths_are_ignored`, `crates/dsp/src/engine.rs::tests::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine.rs::tests::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine.rs::tests::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine.rs::tests::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
+
+### Requirement 11: Drive insert [SHOULD]
+
+Each synth's bus SHALL have a drive insert between its voices and its fader, with modes Off, Overdrive (soft, asymmetric), Distortion (hard) and Fuzz, and `DriveAmount`, `DriveTone` (a low-pass after the shaper) and `DriveLevel`. The shapers SHALL use first-order antiderivative anti-aliasing and no per-sample transcendental functions (ADR-0002). Off SHALL pass the bus through bit for bit, and every mode SHALL stay finite and bounded for any input.
+
+**Implementation:** `crates/dsp/src/fx/drive.rs::Drive` (#25)
+
+#### Scenario: harmonics and aliases
+
+- GIVEN a sine through a mode other than Off
+- WHEN the drive goes up
+- THEN its harmonics grow, and a 4.7 kHz sine at full drive keeps the alias at 19.8 kHz below 1% of the fundamental
+
+**Tests:** `crates/dsp/src/fx/drive.rs::tests::off_is_bit_exact`, `crates/dsp/src/fx/drive.rs::tests::every_mode_is_finite_and_bounded_for_any_input`, `crates/dsp/src/fx/drive.rs::tests::more_drive_means_more_harmonics`, `crates/dsp/src/fx/drive.rs::tests::a_high_sine_at_full_drive_keeps_its_aliases_low`, `crates/dsp/src/engine.rs::tests::drive_shapes_the_synth_bus_only`

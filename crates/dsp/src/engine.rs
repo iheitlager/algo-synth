@@ -76,7 +76,7 @@ impl Engine {
                 MonoVoice::new((i as u32 + 1).wrapping_mul(2_654_435_761))
             }),
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
-            mixer: Mixer::new(),
+            mixer: Mixer::new(sample_rate),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
@@ -741,6 +741,22 @@ mod tests {
             e.render(BLOCK);
             assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
         }
+    }
+
+    #[test]
+    fn drive_shapes_the_synth_bus_only() {
+        let play = |mode: f32| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::DriveMode, mode);
+            e.set_param(0, Param::DriveAmount, 1.0);
+            e.set_param(1, Param::Level, 0.0);
+            e.note_on(0, 57, 1.0);
+            e.note_on(1, 57, 1.0);
+            e.render(BLOCK);
+            e.output().to_vec()
+        };
+        assert!(play(0.0) != play(2.0), "drive changes the sound");
+        assert_eq!(play(0.0), play(0.0));
     }
 
     #[test]
