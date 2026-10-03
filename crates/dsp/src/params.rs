@@ -125,11 +125,23 @@ pub enum Param {
     Vibrato = 58,
     /// The mod wheel, 0..=1, until MIDI input sends CC 1 (#10).
     ModWheel = 59,
+    /// Mixer fader of a synth, 0..=1.
+    Level = 60,
+    /// Mixer pan of a synth, −1 (left)..=1 (right), equal power.
+    Pan = 61,
+    /// Post-fader send to the echo, 0..=1.
+    EchoSend = 62,
+    /// Post-fader send to the reverb, 0..=1.
+    ReverbSend = 63,
+    /// Silences the synth when ≥ 0.5.
+    Mute = 64,
+    /// When any synth is soloed (≥ 0.5), only soloed synths sound.
+    Solo = 65,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 60] = [
+    pub const ALL: [(Param, &'static str); 66] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -190,6 +202,12 @@ impl Param {
         (Param::KeyTrack, "KeyTrack"),
         (Param::Vibrato, "Vibrato"),
         (Param::ModWheel, "ModWheel"),
+        (Param::Level, "Level"),
+        (Param::Pan, "Pan"),
+        (Param::EchoSend, "EchoSend"),
+        (Param::ReverbSend, "ReverbSend"),
+        (Param::Mute, "Mute"),
+        (Param::Solo, "Solo"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -241,6 +259,9 @@ impl Param {
             | Param::Patch8Amount
             | Param::EnvCutoff => (-1.0, 1.0),
             Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
+            Param::Level | Param::EchoSend | Param::ReverbSend => (0.0, 1.0),
+            Param::Pan => (-1.0, 1.0),
+            Param::Mute | Param::Solo => (0.0, 1.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }
     }

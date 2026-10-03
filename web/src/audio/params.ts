@@ -64,6 +64,12 @@ export const Param = {
   KeyTrack: 57,
   Vibrato: 58,
   ModWheel: 59,
+  Level: 60,
+  Pan: 61,
+  EchoSend: 62,
+  ReverbSend: 63,
+  Mute: 64,
+  Solo: 65,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

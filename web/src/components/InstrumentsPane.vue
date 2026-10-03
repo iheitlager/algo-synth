@@ -127,6 +127,17 @@ function onRemove(s: number) {
               <option v-for="[name, id] in presets" :key="id" :value="id">{{ name }}</option>
             </select>
           </label>
+          <div class="vco">
+            <b>Mixer</b>
+            <label>Level <input type="range" min="0" max="1" step="0.01" :value="val(s, Param.Level)" @input="send(s, Param.Level, $event)" /></label>
+            <label>Pan <input type="range" min="-1" max="1" step="0.01" :value="val(s, Param.Pan)" @input="send(s, Param.Pan, $event)" /></label>
+            <span />
+            <label>Echo <input type="range" min="0" max="1" step="0.01" :value="val(s, Param.EchoSend)" @input="send(s, Param.EchoSend, $event)" /></label>
+            <label>Reverb <input type="range" min="0" max="1" step="0.01" :value="val(s, Param.ReverbSend)" @input="send(s, Param.ReverbSend, $event)" /></label>
+            <span />
+            <label class="sync"><input type="checkbox" :checked="val(s, Param.Mute) >= 0.5" @change="send(s, Param.Mute, $event)" /> Mute</label>
+            <label class="sync"><input type="checkbox" :checked="val(s, Param.Solo) >= 0.5" @change="send(s, Param.Solo, $event)" /> Solo</label>
+          </div>
           <div v-for="v in vcos" :key="v.n" class="vco">
             <b>VCO {{ v.n }}</b>
             <select :value="val(s, v.wave)" @change="send(s, v.wave, $event)">

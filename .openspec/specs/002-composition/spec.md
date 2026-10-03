@@ -14,7 +14,15 @@ A track SHALL own exactly one source instance (`Mono`, `Wave`, `Drums`), with it
 
 Each track SHALL pass through up to four inserts, a fader and pan, and two sends (delay, reverb) into a master bus with a compressor and limiter. The insert order MAY change; nothing in the mixer SHALL allocate after init.
 
-**Implementation:** `crates/dsp/src/mixer.rs` *(planned, MVP 8)*
+**Implementation:** `crates/dsp/src/mixer.rs::Mixer` (strips, buses and sends); inserts and the master compressor *(planned)*
+
+#### Scenario: strips
+
+- GIVEN a synth playing
+- WHEN its pan is −1, 0 or +1, its level 0, or another synth soloed
+- THEN it sounds left only, 3 dB down on both sides, right only, or not at all
+
+**Tests:** `crates/dsp/src/engine.rs::tests::pan_is_equal_power`, `crates/dsp/src/engine.rs::tests::fader_mute_and_solo`, `crates/dsp/src/engine.rs::tests::sends_follow_the_fader_and_leave_the_mix_alone`, `crates/dsp/src/engine.rs::tests::sixteen_full_synths_stay_bounded_in_stereo`
 
 ### Requirement 3: Patterns [MUST]
 

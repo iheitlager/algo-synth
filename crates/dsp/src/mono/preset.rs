@@ -194,8 +194,16 @@ mod tests {
     use super::*;
     use crate::engine::{BLOCK, Engine};
 
-    /// The parameters that aren't Mono's.
-    const SHARED: [Param; 1] = [Param::MasterGain];
+    /// The parameters that aren't Mono's: global, or the mixer's.
+    const SHARED: [Param; 7] = [
+        Param::MasterGain,
+        Param::Level,
+        Param::Pan,
+        Param::EchoSend,
+        Param::ReverbSend,
+        Param::Mute,
+        Param::Solo,
+    ];
 
     #[test]
     fn defaults_cover_every_mono_parameter_once() {

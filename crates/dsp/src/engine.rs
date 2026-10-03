@@ -6,6 +6,7 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::mixer::{Mixer, STRIP_DEFAULTS};
 use crate::mono::MonoParams;
 use crate::mono::ladder::{LadderTables, saturate};
 use crate::mono::osc::Blep;
@@ -43,6 +44,7 @@ pub struct Engine {
     monos: [MonoVoice; MONO_VOICES],
     /// The synth each voice plays, fixed when its note starts.
     synth_of: [usize; MONO_VOICES],
+    mixer: Mixer,
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -74,6 +76,7 @@ impl Engine {
                 MonoVoice::new((i as u32 + 1).wrapping_mul(2_654_435_761))
             }),
             synth_of: std::array::from_fn(|i| if i < SYNTHS { i } else { 0 }),
+            mixer: Mixer::new(),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             midi: Vec::new(),
@@ -113,6 +116,7 @@ impl Engine {
             *slot = v;
         }
         mono.set(param, v);
+        self.mixer.set(synth, param, v);
     }
 
     /// The value `param` of `synth` was last set to, after clamping.
@@ -134,8 +138,8 @@ impl Engine {
 
     /// Put `synth` back to the defaults, for a newly added synth.
     pub fn reset(&mut self, synth: usize) {
-        for (p, v) in DEFAULTS {
-            self.set_param(synth, p, v);
+        for (p, v) in DEFAULTS.iter().chain(STRIP_DEFAULTS.iter()) {
+            self.set_param(synth, *p, *v);
         }
     }
 
@@ -292,16 +296,17 @@ impl Engine {
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
         self.out.fill(0.0);
+        self.mixer.clear(n);
         let mut t = 0;
         while t < n {
             self.fire_due_events();
             let chunk = self.sequence.frames_until_next(n - t);
-            if let Some(buf) = self.out.get_mut(t..t + chunk) {
-                for (m, synth) in self.monos.iter_mut().zip(self.synth_of.iter()) {
-                    let Some(params) = self.synths.get(*synth) else {
-                        continue;
-                    };
-                    if m.active() {
+            for (m, synth) in self.monos.iter_mut().zip(self.synth_of.iter()) {
+                let Some(params) = self.synths.get(*synth) else {
+                    continue;
+                };
+                if m.active() {
+                    if let Some(buf) = self.mixer.bus(*synth, t..t + chunk) {
                         let mono = MonoCtx {
                             params,
                             sine: &self.sine,
@@ -317,10 +322,10 @@ impl Engine {
             t += chunk;
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
-        for sample in left.iter_mut() {
+        self.mixer.mix(n, left, right);
+        for sample in self.out.iter_mut() {
             *sample = soft_clip(*sample * self.master_gain);
         }
-        right.copy_from_slice(left);
     }
 
     /// The planar output buffer: left then right, `BLOCK` samples each.
@@ -638,6 +643,104 @@ mod tests {
             assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
         }
         assert_eq!(e.active_voices(), SYNTHS);
+    }
+
+    /// Left and right peaks over `blocks` blocks of one held note.
+    fn side_peaks(e: &mut Engine, blocks: usize) -> (f32, f32) {
+        (0..blocks).fold((0.0_f32, 0.0_f32), |(l, r), _| {
+            e.render(BLOCK);
+            let out = e.output();
+            let side = |s: &[f32]| s.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+            (l.max(side(&out[..BLOCK])), r.max(side(&out[BLOCK..])))
+        })
+    }
+
+    #[test]
+    fn pan_is_equal_power() {
+        // A fresh engine per pan, so each hears the same note.
+        let at = |pan: f32| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::Pan, pan);
+            e.note_on(0, 57, 1.0);
+            side_peaks(&mut e, 40)
+        };
+        let (cl, cr) = at(0.0);
+        assert!(cl > 0.01 && (cl - cr).abs() < 1.0e-6, "centre {cl} {cr}");
+        let (l, r) = at(-1.0);
+        assert!(l > 0.01 && r == 0.0, "left only: {l} {r}");
+        assert!((cl / l - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.02);
+        let (l, r) = at(1.0);
+        assert!(l == 0.0 && r > 0.01, "right only: {l} {r}");
+    }
+
+    #[test]
+    fn fader_mute_and_solo() {
+        let mut e = Engine::new(48_000.0);
+        e.note_on(0, 57, 1.0);
+        e.note_on(1, 64, 1.0);
+        assert!(heard(&mut e, 40) > 0.05);
+        e.set_param(0, Param::Level, 0.0);
+        e.set_param(1, Param::Mute, 1.0);
+        assert_eq!(heard(&mut e, 10), 0.0, "fader 0 and a mute are silent");
+        e.set_param(1, Param::Mute, 0.0);
+        assert!(heard(&mut e, 10) > 0.05, "synth 1 unmuted");
+        e.set_param(0, Param::Level, 1.0);
+        e.set_param(0, Param::Solo, 1.0);
+        e.set_param(1, Param::Level, 0.0);
+        assert!(
+            heard(&mut e, 10) > 0.05,
+            "solo silences the others, not itself"
+        );
+        e.set_param(0, Param::Solo, 0.0);
+        e.set_param(1, Param::Level, 1.0);
+        e.set_param(1, Param::Solo, 1.0);
+        e.set_param(0, Param::Level, 0.0);
+        assert!(heard(&mut e, 10) > 0.05, "only the soloed synth sounds");
+    }
+
+    #[test]
+    fn sends_follow_the_fader_and_leave_the_mix_alone() {
+        let mut e = Engine::new(48_000.0);
+        e.note_on(0, 57, 1.0);
+        e.render(BLOCK);
+        let dry: Vec<f32> = e.output().to_vec();
+        assert!(
+            e.mixer
+                .echo_send
+                .iter()
+                .chain(&e.mixer.reverb_send)
+                .all(|x| *x == 0.0)
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::EchoSend, 0.5);
+        e.set_param(0, Param::ReverbSend, 1.0);
+        e.set_param(0, Param::Level, 0.5);
+        e.note_on(0, 57, 1.0);
+        e.render(BLOCK);
+        let peak = |b: &[f32]| b.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+        let (echo, reverb) = (peak(&e.mixer.echo_send), peak(&e.mixer.reverb_send));
+        assert!(
+            echo > 0.0 && (reverb / echo - 2.0).abs() < 1.0e-4,
+            "{echo} {reverb}"
+        );
+        // Sends are taps: the dry mix only changes with the fader.
+        assert!(peak(e.output()) < peak(&dry));
+    }
+
+    #[test]
+    fn sixteen_full_synths_stay_bounded_in_stereo() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Pan, synth as f32 / 7.5 - 1.0);
+            e.set_param(synth, Param::Vco2Level, 1.0);
+            e.set_param(synth, Param::Vco3Level, 1.0);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
     }
 
     #[test]
