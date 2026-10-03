@@ -211,6 +211,10 @@ pub struct Normals {
     /// envelope is the AR (else the filter ADSR).
     pub env_hp_cutoff: f32,
     pub hp_from_ar: bool,
+    /// Semitones of cutoff at full modulation source (no mod wheel).
+    pub lfo_cutoff: f32,
+    /// Whether VCO 3 is the modulation source instead of the LFO.
+    pub mod_from_osc3: bool,
     /// Semitones of cutoff per semitone of key.
     pub key_track: f32,
     /// Semitones of VCO pitch at full LFO and full mod wheel.
@@ -229,7 +233,12 @@ pub fn modulate(
     let at = |s: ModSource| src.get(s as usize).copied().unwrap_or(0.0);
     let mut d = [0.0; DESTS];
     let [_, _, _, _, cutoff_taken, _, vca_taken, _] = *taken;
-    let vibrato = at(ModSource::Lfo) * at(ModSource::ModWheel) * normals.vibrato;
+    let modulator = if normals.mod_from_osc3 {
+        at(ModSource::Vco3)
+    } else {
+        at(ModSource::Lfo)
+    };
+    let vibrato = modulator * at(ModSource::ModWheel) * normals.vibrato;
     // The three VCO pitches come first in `ModDest` order.
     for (v, t) in d.iter_mut().zip(taken).take(3) {
         if !t {
@@ -242,7 +251,7 @@ pub fn modulate(
         } else {
             at(ModSource::Adsr)
         };
-        d[4] = env * normals.env_cutoff + key * normals.key_track;
+        d[4] = env * normals.env_cutoff + key * normals.key_track + modulator * normals.lfo_cutoff;
     }
     if !vca_taken {
         d[6] = at(ModSource::Adsr);
@@ -289,6 +298,8 @@ mod tests {
         cutoff_from_fenv: false,
         env_hp_cutoff: 12.0,
         hp_from_ar: false,
+        lfo_cutoff: 0.0,
+        mod_from_osc3: false,
         key_track: 0.5,
         vibrato: 2.0,
     };
@@ -336,6 +347,34 @@ mod tests {
         };
         assert_eq!(hp(false), 6.0);
         assert_eq!(hp(true), 12.0);
+    }
+
+    /// The modulation normals read the LFO, or VCO 3 on the model that has
+    /// no LFO; LFO → cutoff does not wait for the mod wheel.
+    #[test]
+    fn the_modulation_source_is_the_lfo_or_osc3() {
+        let src = sources(&[
+            (ModSource::Lfo, 0.5),
+            (ModSource::Vco3, -1.0),
+            (ModSource::ModWheel, 1.0),
+        ]);
+        let patch = Patch::default();
+        let run = |mod_from_osc3, wheel: f32| {
+            let mut src = src;
+            src[ModSource::ModWheel as usize] = wheel;
+            let normals = Normals {
+                lfo_cutoff: 10.0,
+                mod_from_osc3,
+                ..NORMALS
+            };
+            modulate(&patch, &patch.overridden(), &normals, &src, 0.0)
+        };
+        let lfo = run(false, 1.0);
+        assert_eq!((lfo.pitch[0], lfo.cutoff), (1.0, 5.0));
+        let osc3 = run(true, 1.0);
+        assert_eq!((osc3.pitch[0], osc3.cutoff), (-2.0, -10.0));
+        let no_wheel = run(true, 0.0);
+        assert_eq!((no_wheel.pitch[0], no_wheel.cutoff), (0.0, -10.0));
     }
 
     #[test]

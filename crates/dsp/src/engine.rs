@@ -568,6 +568,35 @@ mod tests {
         }
     }
 
+    /// Spec 005 Req 1: two synths with the same settings and different
+    /// models sound different, and one's model leaves the other alone.
+    #[test]
+    fn models_sound_different() {
+        let render = |model: f32| {
+            let mut e = Engine::new(48_000.0);
+            for (p, v) in [
+                (Param::Model, model),
+                (Param::Cutoff, 300.0),
+                (Param::EnvCutoff, 0.6),
+                (Param::FenvAttack, 0.5),
+                (Param::AdsrSustain, 1.0),
+            ] {
+                e.set_param(1, p, v);
+            }
+            e.note_on(1, 45, 1.0);
+            let mut out = Vec::new();
+            for _ in 0..200 {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output().get(..BLOCK).unwrap_or(&[]));
+            }
+            out
+        };
+        let (arp, mini) = (render(0.0), render(1.0));
+        let diff: f32 = arp.iter().zip(&mini).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 1.0, "the models differ: {diff}");
+        assert_eq!(arp, render(0.0), "and each is repeatable");
+    }
+
     #[test]
     fn a_preset_on_one_synth_leaves_the_others() {
         let mut e = Engine::new(48_000.0);

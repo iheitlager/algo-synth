@@ -15,7 +15,7 @@
 //! `exp2` in `render` (ADR-0002); the LFO rate follows its modulation once
 //! per block.
 
-use crate::mono::env::{Env, Stage};
+use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::MAX_K;
 use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::lfo::Lfo;
@@ -273,10 +273,22 @@ impl MonoVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
         let p = ctx.params;
+        // Where a model's contours have no release knob, decay is the release.
+        let times = |t: &EnvTimes| {
+            if p.model.decay_is_release() {
+                EnvTimes {
+                    release: t.decay,
+                    ..*t
+                }
+            } else {
+                *t
+            }
+        };
+        let (adsr_times, fadsr_times) = (times(&p.adsr), times(&p.fadsr));
         for (env, times) in [
-            (&mut self.adsr, &p.adsr),
+            (&mut self.adsr, &adsr_times),
             (&mut self.ar, &p.ar),
-            (&mut self.fadsr, &p.fadsr),
+            (&mut self.fadsr, &fadsr_times),
         ] {
             if self.retrigger || (self.gate && !env.gated()) {
                 env.gate_on(times);
@@ -689,6 +701,55 @@ mod tests {
             hi - lo > 40.0,
             "VCO 3 at level 0 still modulates: {lo}..{hi}"
         );
+    }
+
+    /// Spec 005 Req 3: on the Minimoog the decay time is the release too.
+    #[test]
+    fn minimoog_decay_is_release() {
+        let fall = |model: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::AdsrDecay, 0.1),
+                (Param::AdsrRelease, 4.0),
+                (Param::AdsrSustain, 0.5),
+                (Param::Cutoff, 20_000.0),
+            ]);
+            r.press(60);
+            r.render(48_000);
+            r.release(60);
+            r.render(14_400);
+            r.voice.active()
+        };
+        assert!(!fall(1.0), "the Minimoog has fallen silent within 0.3 s");
+        assert!(fall(0.0), "the ARP 2600 is still releasing");
+    }
+
+    /// Spec 005 Req 3: the loudness is full at once while a slow filter
+    /// contour opens the spectrum.
+    #[test]
+    fn minimoog_filter_contour_brightens_a_held_note() {
+        let mut r = Rig::new(&[
+            (Param::Model, 1.0),
+            (Param::Cutoff, 150.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.001),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 0.5),
+            (Param::FenvSustain, 1.0),
+        ]);
+        r.press(45);
+        // Brightness: how much of the signal's energy is in its steps.
+        let brightness = |out: &[f32]| {
+            let steps: f64 = out.windows(2).map(|w| f64::from(w[1] - w[0]).powi(2)).sum();
+            let level: f64 = out.iter().map(|s| f64::from(*s).powi(2)).sum();
+            (steps / level).sqrt()
+        };
+        r.render(480);
+        assert!(r.voice.mods().vca > 0.99, "the loudness contour is full");
+        let early = brightness(&r.render(2_400));
+        r.render(24_000);
+        let late = brightness(&r.render(2_400));
+        assert!(late > 2.0 * early, "{early} brightens to {late}");
     }
 
     /// Spec 004 Req 12: the ladder is voiced per model, and every voicing

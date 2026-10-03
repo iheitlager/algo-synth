@@ -16,15 +16,19 @@ pub enum Preset {
     Lead = 1,
     SyncLead = 2,
     BowedString = 3,
+    MiniBass = 4,
+    MiniLead = 5,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 4] = [
+    pub const ALL: [(Preset, &'static str); 6] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
         (Preset::BowedString, "BowedString"),
+        (Preset::MiniBass, "MiniBass"),
+        (Preset::MiniLead, "MiniLead"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -39,6 +43,7 @@ impl Preset {
     pub fn model(self) -> Model {
         match self {
             Preset::Bass | Preset::Lead | Preset::SyncLead | Preset::BowedString => Model::Arp2600,
+            Preset::MiniBass | Preset::MiniLead => Model::Minimoog,
         }
     }
 
@@ -102,6 +107,60 @@ impl Preset {
                 (Patch1Dest, 2.0),
                 (Patch1Amount, 0.5),
             ],
+            // Two saws and a pulse an octave under, overdriven into a low
+            // ladder that the contour opens: the Minimoog's bass. Low note
+            // priority, as on the instrument.
+            Preset::MiniBass => &[
+                (Model, 1.0),
+                (Vco1Coarse, -12.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 4.0),
+                (Vco2Level, 1.0),
+                (Vco3Wave, 1.0),
+                (Vco3Coarse, -24.0),
+                (Vco3Level, 0.8),
+                (Cutoff, 450.0),
+                (Resonance, 0.3),
+                (Drive, 0.5),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.8),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.35),
+                (FenvSustain, 0.2),
+                (EnvCutoff, 0.55),
+                (KeyTrack, 0.33),
+                (Priority, 1.0),
+                (Glide, 0.04),
+            ],
+            // Two saws a few cents apart and a triangle; VCO 3 in its low
+            // range is the vibrato, the wheel half up. Glide, legato.
+            Preset::MiniLead => &[
+                (Model, 1.0),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.8),
+                (Vco3Wave, 2.0),
+                (Vco3Coarse, -3.0),
+                (Vco3Level, 0.0),
+                (Vco3Low, 1.0),
+                (Vco3KeyFollow, 0.0),
+                (Cutoff, 1_800.0),
+                (Resonance, 0.35),
+                (Drive, 0.25),
+                (AdsrAttack, 0.02),
+                (AdsrDecay, 0.6),
+                (AdsrSustain, 0.8),
+                (FenvAttack, 0.02),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.5),
+                (EnvCutoff, 0.3),
+                (KeyTrack, 0.67),
+                (Vibrato, 0.2),
+                (ModWheel, 0.6),
+                (Glide, 0.12),
+                (Legato, 1.0),
+                (Priority, 1.0),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -135,7 +194,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 72] = [
+pub const DEFAULTS: [(Param, f32); 73] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -208,6 +267,7 @@ pub const DEFAULTS: [(Param, f32); 72] = [
     (Param::SubOctave, 0.0),
     (Param::Vco3KeyFollow, 1.0),
     (Param::Vco3Low, 0.0),
+    (Param::LfoCutoff, 0.0),
 ];
 
 #[cfg(test)]
@@ -372,6 +432,6 @@ mod tests {
 
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(4), None);
+        assert_eq!(Preset::from_id(99), None);
     }
 }

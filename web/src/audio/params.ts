@@ -77,6 +77,7 @@ export const Param = {
   SubOctave: 70,
   Vco3KeyFollow: 71,
   Vco3Low: 72,
+  LfoCutoff: 73,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -109,6 +110,8 @@ export const Preset = {
   Lead: 1,
   SyncLead: 2,
   BowedString: 3,
+  MiniBass: 4,
+  MiniLead: 5,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

@@ -149,11 +149,13 @@ pub enum Param {
     Vco3KeyFollow = 71,
     /// VCO 3 sounds five octaves lower, in the low-frequency range, when ≥ 0.5.
     Vco3Low = 72,
+    /// Normalled LFO → cutoff, 0..=1 (±24 semitones at full LFO).
+    LfoCutoff = 73,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 73] = [
+    pub const ALL: [(Param, &'static str); 74] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -227,6 +229,7 @@ impl Param {
         (Param::SubOctave, "SubOctave"),
         (Param::Vco3KeyFollow, "Vco3KeyFollow"),
         (Param::Vco3Low, "Vco3Low"),
+        (Param::LfoCutoff, "LfoCutoff"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -287,7 +290,7 @@ impl Param {
             | Param::Patch8Amount
             | Param::EnvCutoff
             | Param::EnvHpCutoff => (-1.0, 1.0),
-            Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
+            Param::KeyTrack | Param::Vibrato | Param::ModWheel | Param::LfoCutoff => (0.0, 1.0),
             Param::Model => (0.0, 5.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }

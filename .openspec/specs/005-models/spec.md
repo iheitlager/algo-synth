@@ -22,7 +22,7 @@ Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`,
 - WHEN a note across the keyboard is held and released
 - THEN every sample is finite and bounded, and the voice falls silent after its release
 
-**Tests:** `crates/dsp/src/mono/model.rs::tests::ids_round_trip`, `crates/dsp/src/engine.rs::tests::models_are_per_synth`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_preset_sets_its_model`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
+**Tests:** `crates/dsp/src/mono/model.rs::tests::ids_round_trip`, `crates/dsp/src/engine.rs::tests::models_are_per_synth`, `crates/dsp/src/engine.rs::tests::models_sound_different`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_preset_sets_its_model`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
 
 ### Requirement 2: ARP 2600 [MUST]
 
@@ -56,7 +56,7 @@ The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive i
 - WHEN a note is held
 - THEN the loudness is full at once while the spectrum brightens over the filter attack
 
-**Tests:** `crates/dsp/src/engine.rs::tests::minimoog_decay_is_release`, `crates/dsp/src/engine.rs::tests::minimoog_filter_contour_brightens_a_held_note`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::minimoog_decay_is_release`, `crates/dsp/src/mono/voice.rs::tests::minimoog_filter_contour_brightens_a_held_note`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`
 
 ### Requirement 4: Pro-One [MUST]
 

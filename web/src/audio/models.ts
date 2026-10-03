@@ -129,8 +129,82 @@ const arp2600: ModelDef = {
   ],
 }
 
+const attack = (p: ParamId) => range('Attack', p, 0.001, 2, 0.001)
+const decay = (label: string, p: ParamId) => range(label, p, 0.001, 4, 0.001)
+const sustain = (p: ParamId) => range('Sustain', p, 0, 1, 0.01)
+/** Key tracking in steps, as f32 values so the engine's report selects the step. */
+const KEY_STEPS: Options = [['Off', 0], ['⅓', Math.fround(1 / 3)], ['⅔', Math.fround(2 / 3)], ['Full', 1]]
+
+const minimoog: ModelDef = {
+  id: Model.Minimoog,
+  name: 'Minimoog',
+  maker: 'Model D · three oscillators, one ladder',
+  tagline: 'Three oscillators, the ladder, two contours; Osc 3 is the modulator; low note priority',
+  theme: { panel: '#1a1816', ink: '#efe9dc', soft: '#b6af9f', trim: '#6e4a2c', accent: '#f1ead8' },
+  presets: ['MiniBass', 'MiniLead'],
+  sections: [
+    {
+      title: 'Controllers',
+      controls: [
+        range('Glide', Param.Glide, 0, 2, 0.01),
+        select('Note priority', Param.Priority, PRIORITIES),
+        sw('Legato', Param.Legato),
+      ],
+    },
+    {
+      title: 'Oscillator 1',
+      controls: [range('Range', Param.Vco1Coarse, -24, 24, 1), select('Waveform', Param.Vco1Wave, WAVES)],
+    },
+    {
+      title: 'Oscillator 2',
+      controls: [
+        range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Waveform', Param.Vco2Wave, WAVES),
+      ],
+    },
+    {
+      title: 'Oscillator 3',
+      controls: [
+        range('Range', Param.Vco3Coarse, -24, 24, 1), fine(Param.Vco3Fine), select('Waveform', Param.Vco3Wave, WAVES),
+        sw('Low frequency', Param.Vco3Low), sw('Keyboard control', Param.Vco3KeyFollow),
+      ],
+    },
+    { title: 'Pulse', controls: [range('Width', Param.PulseWidth, 0.05, 0.95, 0.01)] },
+    {
+      title: 'Mixer',
+      controls: [
+        range('Osc 1', Param.Vco1Level, 0, 1, 0.01), range('Osc 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Osc 3', Param.Vco3Level, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
+        select('Noise colour', Param.NoiseColour, NOISES), range('Overdrive', Param.Drive, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Emphasis', Param.Resonance, 0, 1, 0.01),
+        range('Contour amount', Param.EnvCutoff, -1, 1, 0.01), select('Keyboard control', Param.KeyTrack, KEY_STEPS),
+        range('Filter modulation', Param.LfoCutoff, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter contour',
+      controls: [attack(Param.FenvAttack), decay('Decay', Param.FenvDecay), sustain(Param.FenvSustain)],
+    },
+    {
+      title: 'Loudness contour',
+      controls: [attack(Param.AdsrAttack), decay('Decay', Param.AdsrDecay), sustain(Param.AdsrSustain)],
+    },
+    {
+      title: 'Modulation',
+      controls: [
+        range('Oscillator modulation', Param.Vibrato, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+        { kind: 'note', text: 'Osc 3 is the modulation source; decay is also the release.' },
+      ],
+    },
+  ],
+}
+
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600]
+export const MODELS: ModelDef[] = [arp2600, minimoog]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? arp2600

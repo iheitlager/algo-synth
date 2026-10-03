@@ -229,12 +229,14 @@ impl MonoParams {
             Param::EnvHpCutoff => self.normals.env_hp_cutoff = 48.0 * v,
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
+            Param::LfoCutoff => self.normals.lfo_cutoff = 24.0 * v,
             Param::ModWheel => self.mod_wheel = v,
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;
                     self.normals.cutoff_from_fenv = m.cutoff_follows_filter_env();
                     self.normals.hp_from_ar = m.hp_follows_ar();
+                    self.normals.mod_from_osc3 = m.modulates_with_osc3();
                 }
             }
             Param::MasterGain => {}

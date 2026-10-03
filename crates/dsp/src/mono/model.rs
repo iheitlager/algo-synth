@@ -131,6 +131,19 @@ impl Model {
         }
     }
 
+    /// Whether a time set as decay is also the release, on the loudness and
+    /// the filter ADSR: the Minimoog's contours have no release knob.
+    pub fn decay_is_release(self) -> bool {
+        self == Model::Minimoog
+    }
+
+    /// Whether VCO 3 is the modulation source of the normals (vibrato,
+    /// `LfoCutoff`) instead of the LFO: the Minimoog has no LFO, Osc 3 in
+    /// its low range does that job.
+    pub fn modulates_with_osc3(self) -> bool {
+        self == Model::Minimoog
+    }
+
     /// Whether the high-pass cutoff follows the AR envelope (the CS-15's
     /// own envelope for it) rather than the filter ADSR.
     pub fn hp_follows_ar(self) -> bool {
