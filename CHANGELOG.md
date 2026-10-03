@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-03
+
+Synth faceplates (epic #67, PR #75).
+
 ### Added
 
 - **Synth faceplates** (epic #67, spec 003 Req 9): the Synths view is a rail of tapes (model, synth number, routed MIDI channels, LED meter, mute, solo) beside one faceplate in the console's hardware style and the model's own palette, with the sections and control names of that instrument and wooden cheeks on the Minimoog and Pro-One. Rotary knobs with the console's popover and readouts in real units (Hz, ms, semitones, cents), LED switches, stepped selectors with drawn waveform icons, every envelope as a live curve with a knob per time and level, and a piano keyboard under it that lights keys held from the mouse or the computer keyboard (#69, #70, #71, #72).
