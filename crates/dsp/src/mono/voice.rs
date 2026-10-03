@@ -15,13 +15,15 @@
 //! `exp2` in `render` (ADR-0002); the LFO rate follows its modulation once
 //! per block.
 
-use crate::mono::env::{Env, Stage};
+use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::MAX_K;
 use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::lfo::Lfo;
+use crate::mono::model::{Filter, Hp};
 use crate::mono::noise::Noise;
-use crate::mono::osc::{Blep, Osc};
-use crate::mono::patch::{ModDest, ModSource, Mods, Sources, is_taken, modulate};
+use crate::mono::osc::{Blep, Osc, Waveform};
+use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
+use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
 use crate::voice::midi_to_hz;
 
@@ -122,9 +124,17 @@ pub struct MonoVoice {
     glide_step: f32,
     glide_left: u32,
     osc: [Osc; VCOS],
+    /// The sub-oscillator: a square at a half or quarter of VCO 1's pitch.
+    sub: Osc,
     ladder: Ladder,
+    /// The 12 dB filters (low-pass and high-pass stage) and the one-pole
+    /// high-pass, for the models that use them.
+    svf_lp: Svf,
+    svf_hp: Svf,
+    pole_hp: OnePole,
     adsr: Env,
     ar: Env,
+    fadsr: Env,
     lfo: Lfo,
     noise: Noise,
     /// Last sample's VCO outputs, as modulation sources.
@@ -141,6 +151,8 @@ impl MonoVoice {
         MonoVoice {
             noise: Noise::new(seed),
             ladder: Ladder::new(),
+            svf_lp: Svf::new(),
+            svf_hp: Svf::new(),
             ..MonoVoice::default()
         }
     }
@@ -188,6 +200,9 @@ impl MonoVoice {
         if !self.active() {
             // From silence: a fresh filter, which also seeds self-oscillation.
             self.ladder = Ladder::new();
+            self.svf_lp = Svf::new();
+            self.svf_hp = Svf::new();
+            self.pole_hp = OnePole::default();
         }
         let before = self.note;
         self.sound_chosen(p, was_held);
@@ -258,7 +273,23 @@ impl MonoVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
         let p = ctx.params;
-        for (env, times) in [(&mut self.adsr, &p.adsr), (&mut self.ar, &p.ar)] {
+        // Where a model's contours have no release knob, decay is the release.
+        let times = |t: &EnvTimes| {
+            if p.model.decay_is_release() {
+                EnvTimes {
+                    release: t.decay,
+                    ..*t
+                }
+            } else {
+                *t
+            }
+        };
+        let (adsr_times, fadsr_times) = (times(&p.adsr), times(&p.fadsr));
+        for (env, times) in [
+            (&mut self.adsr, &adsr_times),
+            (&mut self.ar, &p.ar),
+            (&mut self.fadsr, &fadsr_times),
+        ] {
             if self.retrigger || (self.gate && !env.gated()) {
                 env.gate_on(times);
             } else if !self.gate && env.gated() {
@@ -268,6 +299,7 @@ impl MonoVoice {
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
         self.adsr.set_sustain(p.adsr.sustain);
+        self.fadsr.set_sustain(p.fadsr.sustain);
         for (osc, wave) in self.osc.iter_mut().zip(p.wave) {
             osc.wave = wave;
         }
@@ -277,9 +309,13 @@ impl MonoVoice {
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
+        let (ring_level, sub_level) = (p.ring_level, p.sub_level);
+        let hp = p.model.hp();
+        let filter_env_is_adsr = p.model.filter_env_is_adsr();
         for sample in out.iter_mut() {
             let adsr = self.adsr.step();
             let ar = self.ar.step();
+            let fenv = self.fadsr.step();
             if !self.active() {
                 return;
             }
@@ -296,7 +332,7 @@ impl MonoVoice {
                 .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise);
             let noise = self.noise.sample(colour);
             let key = self.pitch - 60.0;
-            let mut src: Sources = [0.0; 12];
+            let mut src: Sources = [0.0; SOURCES];
             for (s, v) in [
                 (ModSource::Vco1, self.last[0]),
                 (ModSource::Vco2, self.last[1]),
@@ -304,6 +340,10 @@ impl MonoVoice {
                 (ModSource::Noise, noise),
                 (ModSource::Adsr, adsr),
                 (ModSource::Ar, ar),
+                (
+                    ModSource::Fenv,
+                    if filter_env_is_adsr { adsr } else { fenv },
+                ),
                 (ModSource::Lfo, lfo),
                 (ModSource::SampleHold, held),
                 (ModSource::ModWheel, p.mod_wheel),
@@ -318,18 +358,64 @@ impl MonoVoice {
             let [m1, m2, m3] = m.pitch;
             let pw = (p.pulse_width + m.pulse_width).clamp(0.05, 0.95);
             let [o1, o2, o3] = &mut self.osc;
-            o1.set_increment(ctx.pitch.at(self.pitch + t1 + m1));
-            o2.set_increment(ctx.pitch.at(self.pitch + t2 + m2));
-            o3.set_increment(ctx.pitch.at(self.pitch + t3 + m3));
+            let inc1 = ctx.pitch.at(self.pitch + t1 + m1);
+            o1.set_increment(inc1);
+            // The SH-101's pulse is VCO 1's own phase: same pitch, reset with it.
+            let locked = p.model.pulse_locked();
+            o2.set_increment(if locked {
+                inc1
+            } else {
+                ctx.pitch.at(self.pitch + t2 + m2)
+            });
+            // Off the key and five octaves down, VCO 3 is a modulator.
+            let key3 = if p.vco3_follow { self.pitch } else { 60.0 };
+            let low3 = if p.vco3_low { 60.0 } else { 0.0 };
+            o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
             let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
-            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2));
+            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
-            let mix = y1 * l1 + y2 * l2 + y3 * l3 + noise * noise_level;
-            let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K);
+            // The sub is a pulse at an exact fraction of VCO 1's increment, so
+            // it stays an octave (or two) down through glide and vibrato.
+            let sub = if sub_level > 0.0 {
+                self.sub.wave = Waveform::Pulse;
+                self.sub.set_increment(inc1 * p.sub_ratio);
+                self.sub.step(ctx.blep, ctx.sine, 0.5, None).0
+            } else {
+                0.0
+            };
+            let mix = y1 * l1
+                + y2 * l2
+                + y3 * l3
+                + noise * noise_level
+                + y1 * y2 * ring_level
+                + sub * sub_level;
             // Half the mix keeps two VCOs at full level below the knee.
-            let y = self
-                .ladder
-                .process(ctx.ladder, 0.5 * mix, p.cutoff + m.cutoff, k, p.drive);
+            let mut x = 0.5 * mix;
+            let hp_cutoff = p.hp_cutoff + m.hp_cutoff;
+            let filter = p.model.filter();
+            if let (Hp::Svf, Filter::Svf(v)) = (hp, filter) {
+                x = self
+                    .svf_hp
+                    .process(ctx.ladder, &v, x, hp_cutoff, p.hp_res)
+                    .hp;
+            }
+            let mut y = match filter {
+                Filter::Ladder(v) => {
+                    let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
+                    let x = x * (1.0 + v.comp * k);
+                    self.ladder
+                        .process(ctx.ladder, x, p.cutoff + m.cutoff, k, p.drive * v.drive)
+                }
+                Filter::Svf(v) => {
+                    let res = p.k / MAX_K + m.resonance;
+                    self.svf_lp
+                        .process(ctx.ladder, &v, x, p.cutoff + m.cutoff, res)
+                        .lp
+                }
+            };
+            if hp == Hp::OnePole {
+                y = self.pole_hp.process(ctx.ladder, y, hp_cutoff);
+            }
             *sample += y * MONO_GAIN * m.vca * self.velocity;
             self.last = [y1, y2, y3];
             self.mods = m;
@@ -508,6 +594,409 @@ mod tests {
     }
 
     /// The normals: ADSR → cutoff, key tracking, vibrato through the wheel.
+    /// Amplitude of `hz` in `out` (a Goertzel bin, scaled to a sine's peak).
+    fn tone(out: &[f32], hz: f64) -> f64 {
+        let w = std::f64::consts::TAU * hz / f64::from(SR);
+        let (mut re, mut im) = (0.0, 0.0);
+        for (i, y) in out.iter().enumerate() {
+            re += f64::from(*y) * (w * i as f64).cos();
+            im += f64::from(*y) * (w * i as f64).sin();
+        }
+        2.0 * (re * re + im * im).sqrt() / out.len() as f64
+    }
+
+    /// Brightness: how much of a signal's energy is in its steps.
+    fn brightness(out: &[f32]) -> f64 {
+        let steps: f64 = out.windows(2).map(|w| f64::from(w[1] - w[0]).powi(2)).sum();
+        let level: f64 = out.iter().map(|s| f64::from(*s).powi(2)).sum();
+        (steps / level).sqrt()
+    }
+
+    /// Rising zero crossings: whole cycles of a tone.
+    fn cycles(out: &[f32]) -> usize {
+        out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+    }
+
+    /// Spec 004 Req 14: VCO 1 × VCO 2 has the sum and difference
+    /// frequencies and neither of its inputs.
+    #[test]
+    fn ring_modulation_has_sum_and_difference() {
+        let mut r = Rig::new(&[
+            (Param::Vco1Wave, 3.0),
+            (Param::Vco1Level, 0.0),
+            (Param::Vco2Wave, 3.0),
+            (Param::Vco2Coarse, 7.0),
+            (Param::RingLevel, 1.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(57);
+        r.render(4_800);
+        let out = r.render(48_000);
+        let a = 440.0 / 2.0;
+        let b = a * 2.0_f64.powf(7.0 / 12.0);
+        let (diff, sum) = (tone(&out, b - a), tone(&out, a + b));
+        assert!(diff > 0.1 && sum > 0.1, "difference {diff}, sum {sum}");
+        for input in [a, b] {
+            assert!(tone(&out, input) < 0.01 * diff, "{input} Hz leaks through");
+        }
+    }
+
+    /// The sub is exactly twice VCO 1's period, through vibrato and glide.
+    #[test]
+    fn sub_is_exactly_an_octave_down() {
+        let counts = |octave: f32| {
+            let run = |vco1: f32, sub: f32| {
+                let mut r = Rig::new(&[
+                    (Param::Vco1Wave, 3.0),
+                    (Param::Vco1Level, vco1),
+                    (Param::SubLevel, sub),
+                    (Param::SubOctave, octave),
+                    (Param::Cutoff, 20_000.0),
+                    (Param::AdsrSustain, 1.0),
+                    (Param::Vibrato, 1.0),
+                    (Param::ModWheel, 1.0),
+                    (Param::LfoRate, 5.0),
+                    (Param::Glide, 0.4),
+                ]);
+                r.press(45);
+                r.press(57);
+                r.render(2_400);
+                cycles(&r.render(96_000))
+            };
+            (run(1.0, 0.0), run(0.0, 1.0))
+        };
+        let (vco, sub) = counts(0.0);
+        assert!((2 * sub).abs_diff(vco) <= 1, "{vco} cycles, sub {sub}");
+        let (vco, sub) = counts(1.0);
+        assert!((4 * sub).abs_diff(vco) <= 2, "{vco} cycles, sub {sub}");
+    }
+
+    /// VCO 3 off the key and in the low range is a fixed modulator, and a
+    /// modulation source whatever its level in the mixer.
+    #[test]
+    fn osc3_low_and_unfollowed_is_a_fixed_modulator() {
+        let hz = |note: u8| {
+            let mut r = Rig::new(&[
+                (Param::Vco1Level, 0.0),
+                (Param::Vco3Wave, 3.0),
+                (Param::Vco3Level, 1.0),
+                (Param::Vco3Low, 1.0),
+                (Param::Vco3KeyFollow, 0.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(note);
+            r.render(4_800);
+            cycles(&r.render(96_000)) as f64 / 2.0
+        };
+        let (low, high) = (hz(36), hz(96));
+        assert_eq!(low, high, "the key does not move it");
+        assert!(
+            (low - 8.18).abs() < 1.0,
+            "five octaves below middle C: {low} Hz"
+        );
+
+        let mut r = Rig::new(&[
+            (Param::Vco1Level, 0.0),
+            (Param::Vco3Level, 0.0),
+            (Param::Vco3Low, 1.0),
+            (Param::Vco3Wave, 3.0),
+            (Param::Patch1Source, 3.0),
+            (Param::Patch1Dest, 5.0),
+            (Param::Patch1Amount, 0.5),
+        ]);
+        r.press(60);
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for _ in 0..600 {
+            r.render(160);
+            let c = r.voice.mods().cutoff;
+            lo = lo.min(c);
+            hi = hi.max(c);
+        }
+        assert!(
+            hi - lo > 40.0,
+            "VCO 3 at level 0 still modulates: {lo}..{hi}"
+        );
+    }
+
+    /// Spec 005 Req 7: the SH-101's cutoff and loudness are moved by the
+    /// same envelope, whatever the filter ADSR is set to.
+    #[test]
+    fn sh101_one_envelope_moves_cutoff_and_loudness() {
+        let mut r = Rig::new(&[
+            (Param::Model, 5.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.5),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 0.001),
+            (Param::EnvPw, 1.0),
+        ]);
+        r.press(60);
+        for i in 0..40_000 {
+            r.render(1);
+            let m = r.voice.mods();
+            if i % 2_000 == 1_999 {
+                assert!((m.vca - m.cutoff / 48.0).abs() < 1.0e-3, "{i}: {m:?}");
+                assert!((m.vca - m.pulse_width / 0.45).abs() < 1.0e-3, "{i}: {m:?}");
+            }
+        }
+        assert!(r.voice.mods().vca > 0.5, "and the attack is under way");
+        r.release(60);
+        r.render(2_400);
+        let m = r.voice.mods();
+        assert!(
+            (m.vca - m.cutoff / 48.0).abs() < 1.0e-3,
+            "release too: {m:?}"
+        );
+    }
+
+    /// The pulse is VCO 1's own phase: saw plus pulse make one cycle, not a
+    /// beat between two oscillators.
+    #[test]
+    fn sh101_pulse_is_locked_to_the_saw() {
+        let mut r = Rig::new(&[
+            (Param::Model, 5.0),
+            (Param::Vco1Level, 1.0),
+            (Param::Vco2Wave, 1.0),
+            (Param::Vco2Level, 1.0),
+            (Param::Vco2Coarse, 7.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::AdsrSustain, 1.0),
+            (Param::Glide, 0.2),
+        ]);
+        r.press(40);
+        r.press(52);
+        r.render(4_800);
+        let out = r.render(96_000);
+        // Locked, the sound repeats every VCO 1 cycle: the spectrum is the
+        // harmonics of the glide's target, nothing in between.
+        let f0 = 440.0 * 2.0_f64.powf((52.0 - 69.0) / 12.0);
+        let off = tone(&out, 1.5 * f0);
+        assert!(
+            off < 0.02 * tone(&out, f0),
+            "a beating partner would show here: {off}"
+        );
+    }
+
+    /// Spec 005 Req 6: the AR moves the high-pass and the filter ADSR the
+    /// low-pass, each on its own part of the spectrum.
+    #[test]
+    fn cs15_filters_have_their_own_envelopes() {
+        let note = |env_cutoff: f32, env_hp: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 4.0),
+                (Param::Vco1Level, 0.5),
+                (Param::HpCutoff, 100.0),
+                (Param::Cutoff, 400.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvAttack, 0.001),
+                (Param::FenvSustain, 1.0),
+                (Param::ArAttack, 0.001),
+                (Param::EnvCutoff, env_cutoff),
+                (Param::EnvHpCutoff, env_hp),
+            ]);
+            r.press(45);
+            r.render(9_600);
+            let out = r.render(48_000);
+            // The fundamental, and the 20th harmonic.
+            (tone(&out, 110.0), tone(&out, 2_200.0))
+        };
+        let db = |a: f64, b: f64| 20.0 * (a / b).log10();
+        let (low0, high0) = note(0.0, 0.0);
+        let (low_hp, high_hp) = note(0.0, 0.8);
+        assert!(
+            db(low_hp, low0) < -10.0,
+            "the AR lifts the high-pass over the fundamental"
+        );
+        assert!(db(high_hp, high0).abs() < 3.0, "and leaves the top alone");
+        let (low_lp, high_lp) = note(0.8, 0.0);
+        assert!(
+            db(high_lp, high0) > 10.0,
+            "the filter ADSR opens the low-pass"
+        );
+        assert!(
+            db(low_lp, low0).abs() < 2.0,
+            "and leaves the fundamental alone"
+        );
+    }
+
+    /// Spec 005 Req 5: noise through the MS-20's high-pass at 2 kHz and
+    /// low-pass at 8 kHz is down below the one and above the other.
+    #[test]
+    fn ms20_band_limits_noise() {
+        let mut r = Rig::new(&[
+            (Param::Model, 3.0),
+            (Param::Vco1Level, 0.0),
+            (Param::NoiseLevel, 1.0),
+            (Param::HpCutoff, 2_000.0),
+            (Param::Cutoff, 8_000.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(60);
+        r.render(4_800);
+        let out = r.render(96_000);
+        let band =
+            |hz: &[f64]| hz.iter().map(|h| tone(&out, *h).powi(2)).sum::<f64>() / hz.len() as f64;
+        let db = |x: f64| 10.0 * x.log10();
+        let (low, mid, high) = (
+            band(&[250.0, 300.0, 350.0, 400.0, 450.0, 500.0]),
+            band(&[3_000.0, 3_500.0, 4_000.0, 4_500.0, 5_000.0]),
+            band(&[18_000.0, 19_000.0, 20_000.0, 21_000.0, 22_000.0]),
+        );
+        assert!(db(mid / low) > 20.0, "high-pass: {} dB", db(mid / low));
+        assert!(db(mid / high) > 10.0, "low-pass: {} dB", db(mid / high));
+    }
+
+    /// Spec 005 Req 4: with oscillator A synced to a silent B, the filter
+    /// envelope into A's pitch sweeps the sound; without it nothing moves.
+    #[test]
+    fn pro_one_poly_mod_sweeps_the_synced_oscillator() {
+        let spectrum = |amount: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 2.0),
+                (Param::Vco1Level, 0.0),
+                (Param::Vco2Level, 1.0),
+                (Param::Vco2Sync, 1.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvAttack, 0.001),
+                (Param::FenvDecay, 0.3),
+                (Param::FenvSustain, 0.0),
+                (Param::EnvFreq2, amount),
+            ]);
+            r.press(45);
+            r.render(480);
+            let early = brightness(&r.render(2_400));
+            r.render(48_000);
+            let late = brightness(&r.render(2_400));
+            (early, late)
+        };
+        let (early, late) = spectrum(1.0);
+        assert!(early > 1.15 * late, "swept: {early} falls to {late}");
+        let (early, late) = spectrum(0.0);
+        assert!(
+            (early / late - 1.0).abs() < 0.1,
+            "still: {early} and {late}"
+        );
+    }
+
+    /// Spec 005 Req 3: on the Minimoog the decay time is the release too.
+    #[test]
+    fn minimoog_decay_is_release() {
+        let fall = |model: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::AdsrDecay, 0.1),
+                (Param::AdsrRelease, 4.0),
+                (Param::AdsrSustain, 0.5),
+                (Param::Cutoff, 20_000.0),
+            ]);
+            r.press(60);
+            r.render(48_000);
+            r.release(60);
+            r.render(14_400);
+            r.voice.active()
+        };
+        assert!(!fall(1.0), "the Minimoog has fallen silent within 0.3 s");
+        assert!(fall(0.0), "the ARP 2600 is still releasing");
+    }
+
+    /// Spec 005 Req 3: the loudness is full at once while a slow filter
+    /// contour opens the spectrum.
+    #[test]
+    fn minimoog_filter_contour_brightens_a_held_note() {
+        let mut r = Rig::new(&[
+            (Param::Model, 1.0),
+            (Param::Cutoff, 150.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.001),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 0.5),
+            (Param::FenvSustain, 1.0),
+        ]);
+        r.press(45);
+        r.render(480);
+        assert!(r.voice.mods().vca > 0.99, "the loudness contour is full");
+        let early = brightness(&r.render(2_400));
+        r.render(24_000);
+        let late = brightness(&r.render(2_400));
+        assert!(late > 2.0 * early, "{early} brightens to {late}");
+    }
+
+    /// Spec 004 Req 13: the ladder is voiced per model, and every voicing
+    /// stays bounded at full resonance and drive.
+    #[test]
+    fn ladder_voicings_differ_and_stay_bounded() {
+        let rms_of = |model: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::Cutoff, 1_200.0),
+                (Param::Resonance, 1.0),
+                (Param::Drive, 1.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(45);
+            let out = r.render(24_000);
+            assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 2.0));
+            (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
+        };
+        // Moog (ARP 2600 and Minimoog), Pro-One, SH-101.
+        let (moog, pro, sh) = (rms_of(0.0), rms_of(2.0), rms_of(5.0));
+        assert_eq!(moog, rms_of(1.0), "the Minimoog ladder is the Moog voicing");
+        assert!(moog > 0.0 && pro > 0.0 && sh > 0.0);
+        assert!((moog - pro).abs() > 1.0e-3, "{moog} vs {pro}");
+        assert!((moog - sh).abs() > 1.0e-3, "{moog} vs {sh}");
+        assert!((pro - sh).abs() > 1.0e-3, "{pro} vs {sh}");
+    }
+
+    /// Spec 004 Req 12: on a model that uses the filter ADSR, the loudness
+    /// and the cutoff have envelopes of their own.
+    #[test]
+    fn filter_envelope_is_independent() {
+        let mut r = Rig::new(&[
+            (Param::Model, 1.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.001),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 1.0),
+            (Param::FenvSustain, 1.0),
+        ]);
+        r.press(60);
+        let mut reached = None;
+        for i in 0..52_000 {
+            r.render(1);
+            let m = r.voice.mods();
+            if i == 240 {
+                assert!(m.vca > 0.99, "loudness is full after 5 ms: {}", m.vca);
+                assert!(m.cutoff < 2.5, "the cutoff has barely moved: {}", m.cutoff);
+            }
+            if reached.is_none() && m.cutoff >= 47.99 {
+                reached = Some(i);
+            }
+        }
+        let at = reached.expect("the filter envelope peaks");
+        assert!(
+            (at as i64 - 48_000).abs() <= 48,
+            "filter attack takes 1 s ± 1 ms, took {at} samples"
+        );
+    }
+
+    /// The ARP 2600 has one envelope: its cutoff follows the ADSR, whatever
+    /// the filter ADSR does.
+    #[test]
+    fn arp_cutoff_still_follows_the_adsr() {
+        let mut r = Rig::new(&[
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.001),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 1.0),
+        ]);
+        r.press(60);
+        r.render(2_400);
+        assert!((r.voice.mods().cutoff - 48.0).abs() < 1.0e-3);
+    }
+
     #[test]
     fn normalled_connections_move_their_destinations() {
         let mut r = Rig::new(&[(Param::EnvCutoff, 0.5), (Param::AdsrSustain, 1.0)]);

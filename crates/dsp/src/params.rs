@@ -163,6 +163,44 @@ pub enum Param {
     ReverbPreDelay = 77,
     /// Reverb return level into the master, 0..=1; 0 is silent.
     ReverbReturn = 78,
+    /// The synth's model id (`Model`), 0..=5; see spec 005.
+    Model = 79,
+    /// Filter ADSR attack, decay and release in seconds, 0.001..=10.
+    FenvAttack = 80,
+    FenvDecay = 81,
+    /// Filter ADSR sustain level, 0..=1.
+    FenvSustain = 82,
+    FenvRelease = 83,
+    /// High-pass cutoff in Hz, 20..=20000; 20 is out of the way.
+    HpCutoff = 84,
+    /// High-pass resonance, 0..=1 (the 12 dB high-pass of the MS-20 and CS-15).
+    HpResonance = 85,
+    /// Normalled envelope → high-pass cutoff, −1..=1 (±4 octaves).
+    EnvHpCutoff = 86,
+    /// Ring modulator (VCO 1 × VCO 2) level into the mixer, 0..=1.
+    RingLevel = 87,
+    /// Sub-oscillator level into the mixer, 0..=1.
+    SubLevel = 88,
+    /// Sub-oscillator octaves below VCO 1: 0 is one, 1 is two.
+    SubOctave = 89,
+    /// VCO 3 follows the key when ≥ 0.5; off holds its pitch.
+    Vco3KeyFollow = 90,
+    /// VCO 3 sounds five octaves lower, in the low-frequency range, when ≥ 0.5.
+    Vco3Low = 91,
+    /// Normalled LFO → cutoff, 0..=1 (±24 semitones at full LFO).
+    LfoCutoff = 92,
+    /// Normalled LFO → pulse width, 0..=1 (±0.45 at full LFO).
+    LfoPw = 93,
+    /// Poly-mod: filter envelope → VCO 2 pitch, −1..=1 (±24 semitones).
+    EnvFreq2 = 94,
+    /// Poly-mod: VCO 1 → VCO 2 pitch, −1..=1 (±24 semitones).
+    OscFreq2 = 95,
+    /// Poly-mod: filter envelope → pulse width, −1..=1 (±0.45).
+    EnvPw = 96,
+    /// Poly-mod: VCO 1 → pulse width, −1..=1 (±0.45).
+    OscPw = 97,
+    /// Poly-mod: VCO 1 → cutoff, −1..=1 (±48 semitones).
+    OscCutoff = 98,
 }
 
 /// Where the global parameters start: the effects are silent until a return
@@ -182,7 +220,7 @@ pub const GLOBAL_DEFAULTS: [(Param, f32); 10] = [
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 79] = [
+    pub const ALL: [(Param, &'static str); 99] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -262,6 +300,26 @@ impl Param {
         (Param::ReverbDamping, "ReverbDamping"),
         (Param::ReverbPreDelay, "ReverbPreDelay"),
         (Param::ReverbReturn, "ReverbReturn"),
+        (Param::Model, "Model"),
+        (Param::FenvAttack, "FenvAttack"),
+        (Param::FenvDecay, "FenvDecay"),
+        (Param::FenvSustain, "FenvSustain"),
+        (Param::FenvRelease, "FenvRelease"),
+        (Param::HpCutoff, "HpCutoff"),
+        (Param::HpResonance, "HpResonance"),
+        (Param::EnvHpCutoff, "EnvHpCutoff"),
+        (Param::RingLevel, "RingLevel"),
+        (Param::SubLevel, "SubLevel"),
+        (Param::SubOctave, "SubOctave"),
+        (Param::Vco3KeyFollow, "Vco3KeyFollow"),
+        (Param::Vco3Low, "Vco3Low"),
+        (Param::LfoCutoff, "LfoCutoff"),
+        (Param::LfoPw, "LfoPw"),
+        (Param::EnvFreq2, "EnvFreq2"),
+        (Param::OscFreq2, "OscFreq2"),
+        (Param::EnvPw, "EnvPw"),
+        (Param::OscPw, "OscPw"),
+        (Param::OscCutoff, "OscCutoff"),
     ];
 
     /// Parameters of the whole engine, not of one synth: the master gain and
@@ -300,14 +358,23 @@ impl Param {
             Param::Vco1Level | Param::Vco2Level | Param::Vco3Level => (0.0, 1.0),
             Param::PulseWidth => (0.05, 0.95),
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
+            Param::RingLevel | Param::SubLevel | Param::SubOctave => (0.0, 1.0),
+            Param::Vco3KeyFollow | Param::Vco3Low => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
-            Param::Cutoff => (20.0, 20_000.0),
-            Param::Resonance | Param::Drive | Param::AdsrSustain => (0.0, 1.0),
+            Param::Cutoff | Param::HpCutoff => (20.0, 20_000.0),
+            Param::Resonance
+            | Param::Drive
+            | Param::AdsrSustain
+            | Param::FenvSustain
+            | Param::HpResonance => (0.0, 1.0),
             Param::AdsrAttack
             | Param::AdsrDecay
             | Param::AdsrRelease
             | Param::ArAttack
-            | Param::ArRelease => (0.001, 10.0),
+            | Param::ArRelease
+            | Param::FenvAttack
+            | Param::FenvDecay
+            | Param::FenvRelease => (0.001, 10.0),
             Param::LfoRate => (0.01, 50.0),
             Param::LfoWave => (0.0, 3.0),
             Param::Priority => (0.0, 2.0),
@@ -329,8 +396,19 @@ impl Param {
             | Param::Patch6Amount
             | Param::Patch7Amount
             | Param::Patch8Amount
-            | Param::EnvCutoff => (-1.0, 1.0),
-            Param::KeyTrack | Param::Vibrato | Param::ModWheel => (0.0, 1.0),
+            | Param::EnvCutoff
+            | Param::EnvHpCutoff
+            | Param::EnvFreq2
+            | Param::OscFreq2
+            | Param::EnvPw
+            | Param::OscPw
+            | Param::OscCutoff => (-1.0, 1.0),
+            Param::KeyTrack
+            | Param::Vibrato
+            | Param::ModWheel
+            | Param::LfoCutoff
+            | Param::LfoPw => (0.0, 1.0),
+            Param::Model => (0.0, 5.0),
             Param::Level | Param::EchoSend | Param::ReverbSend => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
@@ -395,6 +473,7 @@ mod tests {
     #[test]
     fn typescript_mirror_matches() {
         use crate::fx::drive::DriveMode;
+        use crate::mono::model::Model;
         use crate::mono::noise::NoiseColour;
         use crate::mono::osc::Waveform;
         use crate::mono::patch::{ModDest, ModSource};
@@ -410,6 +489,7 @@ mod tests {
             ("Param", rust(&Param::ALL, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
+            ("Model", rust(&Model::ALL, |m| m as u32)),
             ("DriveMode", rust(&DriveMode::ALL, |m| m as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),

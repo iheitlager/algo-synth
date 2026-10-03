@@ -1,5 +1,5 @@
 // Mirror of crates/dsp/src/params.rs, mono/osc.rs, mono/noise.rs,
-// mono/preset.rs, fx/drive.rs, mono/voice.rs and mono/patch.rs (ADR-0004).
+// mono/preset.rs, fx/drive.rs, mono/voice.rs, mono/patch.rs and mono/model.rs (ADR-0004).
 // Rust is the source of truth; `cargo test` fails if a line here drifts.
 // Keep the `Name: id,` shape: the test greps for it.
 
@@ -83,6 +83,26 @@ export const Param = {
   ReverbDamping: 76,
   ReverbPreDelay: 77,
   ReverbReturn: 78,
+  Model: 79,
+  FenvAttack: 80,
+  FenvDecay: 81,
+  FenvSustain: 82,
+  FenvRelease: 83,
+  HpCutoff: 84,
+  HpResonance: 85,
+  EnvHpCutoff: 86,
+  RingLevel: 87,
+  SubLevel: 88,
+  SubOctave: 89,
+  Vco3KeyFollow: 90,
+  Vco3Low: 91,
+  LfoCutoff: 92,
+  LfoPw: 93,
+  EnvFreq2: 94,
+  OscFreq2: 95,
+  EnvPw: 96,
+  OscPw: 97,
+  OscCutoff: 98,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -108,11 +128,31 @@ export const NoiseColour = {
 } as const
 export type NoiseColourId = (typeof NoiseColour)[keyof typeof NoiseColour]
 
+export const Model = {
+  Arp2600: 0,
+  Minimoog: 1,
+  ProOne: 2,
+  Ms20: 3,
+  Cs15: 4,
+  Sh101: 5,
+} as const
+export type ModelId = (typeof Model)[keyof typeof Model]
+
 export const Preset = {
   Bass: 0,
   Lead: 1,
   SyncLead: 2,
   BowedString: 3,
+  MiniBass: 4,
+  MiniLead: 5,
+  ProLead: 6,
+  ProBass: 7,
+  Ms20Lead: 8,
+  Ms20Wobble: 9,
+  Cs15Brass: 10,
+  Cs15Lead: 11,
+  Sh101Bass: 12,
+  Sh101Lead: 13,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 
@@ -136,6 +176,7 @@ export const ModSource = {
   ModWheel: 9,
   Velocity: 10,
   Key: 11,
+  Fenv: 12,
 } as const
 export type ModSourceId = (typeof ModSource)[keyof typeof ModSource]
 

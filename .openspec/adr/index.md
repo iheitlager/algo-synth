@@ -10,3 +10,4 @@
 | [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted |
 | [0007](0007-blep-table-oscillators.md) | Oscillators band-limit every step (wrap, pulse edge, sync reset) with a windowed-sinc BLEP table, not a 2-point polyBLEP | Accepted |
 | [0008](0008-mono-only-to-the-ensemble.md) | Mono only, straight to the ensemble: Wave, Drums, the arrangement and algo loops removed for now | Accepted |
+| [0009](0009-synth-models.md) | Synth models: one shared voice with a `Model` per slot (enum dispatch) and one data-driven panel per model; six monosynths | Accepted |

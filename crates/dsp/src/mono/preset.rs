@@ -5,6 +5,7 @@
 //! `Engine::new`) and the base every preset starts from, so a preset fully
 //! defines the voice, patch and normalled amounts included (spec 004 Req 7).
 
+use crate::mono::model::Model;
 use crate::params::Param;
 
 /// A preset id; mirrored in `web/src/audio/params.ts`.
@@ -15,15 +16,35 @@ pub enum Preset {
     Lead = 1,
     SyncLead = 2,
     BowedString = 3,
+    MiniBass = 4,
+    MiniLead = 5,
+    ProLead = 6,
+    ProBass = 7,
+    Ms20Lead = 8,
+    Ms20Wobble = 9,
+    Cs15Brass = 10,
+    Cs15Lead = 11,
+    Sh101Bass = 12,
+    Sh101Lead = 13,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 4] = [
+    pub const ALL: [(Preset, &'static str); 14] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
         (Preset::BowedString, "BowedString"),
+        (Preset::MiniBass, "MiniBass"),
+        (Preset::MiniLead, "MiniLead"),
+        (Preset::ProLead, "ProLead"),
+        (Preset::ProBass, "ProBass"),
+        (Preset::Ms20Lead, "Ms20Lead"),
+        (Preset::Ms20Wobble, "Ms20Wobble"),
+        (Preset::Cs15Brass, "Cs15Brass"),
+        (Preset::Cs15Lead, "Cs15Lead"),
+        (Preset::Sh101Bass, "Sh101Bass"),
+        (Preset::Sh101Lead, "Sh101Lead"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -32,6 +53,18 @@ impl Preset {
             .iter()
             .find(|(p, _)| *p as u32 == id)
             .map(|(p, _)| *p)
+    }
+
+    /// The model this preset is for; `changes` sets it.
+    pub fn model(self) -> Model {
+        match self {
+            Preset::Bass | Preset::Lead | Preset::SyncLead | Preset::BowedString => Model::Arp2600,
+            Preset::MiniBass | Preset::MiniLead => Model::Minimoog,
+            Preset::ProLead | Preset::ProBass => Model::ProOne,
+            Preset::Ms20Lead | Preset::Ms20Wobble => Model::Ms20,
+            Preset::Cs15Brass | Preset::Cs15Lead => Model::Cs15,
+            Preset::Sh101Bass | Preset::Sh101Lead => Model::Sh101,
+        }
     }
 
     /// What this preset changes from `DEFAULTS`.
@@ -94,6 +127,260 @@ impl Preset {
                 (Patch1Dest, 2.0),
                 (Patch1Amount, 0.5),
             ],
+            // Two saws and a pulse an octave under, overdriven into a low
+            // ladder that the contour opens: the Minimoog's bass. Low note
+            // priority, as on the instrument.
+            Preset::MiniBass => &[
+                (Model, 1.0),
+                (Vco1Coarse, -12.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 4.0),
+                (Vco2Level, 1.0),
+                (Vco3Wave, 1.0),
+                (Vco3Coarse, -24.0),
+                (Vco3Level, 0.8),
+                (Cutoff, 450.0),
+                (Resonance, 0.3),
+                (Drive, 0.5),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.8),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.35),
+                (FenvSustain, 0.2),
+                (EnvCutoff, 0.55),
+                (KeyTrack, 0.33),
+                (Priority, 1.0),
+                (Glide, 0.04),
+            ],
+            // Two saws a few cents apart and a triangle; VCO 3 in its low
+            // range is the vibrato, the wheel half up. Glide, legato.
+            Preset::MiniLead => &[
+                (Model, 1.0),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.8),
+                (Vco3Wave, 2.0),
+                (Vco3Coarse, -3.0),
+                (Vco3Level, 0.0),
+                (Vco3Low, 1.0),
+                (Vco3KeyFollow, 0.0),
+                (Cutoff, 1_800.0),
+                (Resonance, 0.35),
+                (Drive, 0.25),
+                (AdsrAttack, 0.02),
+                (AdsrDecay, 0.6),
+                (AdsrSustain, 0.8),
+                (FenvAttack, 0.02),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.5),
+                (EnvCutoff, 0.3),
+                (KeyTrack, 0.67),
+                (Vibrato, 0.2),
+                (ModWheel, 0.6),
+                (Glide, 0.12),
+                (Legato, 1.0),
+                (Priority, 1.0),
+            ],
+            // Oscillator A (VCO 2) synced to a silent B (VCO 1), a fifth
+            // over: the filter envelope sweeps A's pitch, the classic
+            // poly-mod sync lead. Low note priority, a little glide.
+            Preset::ProLead => &[
+                (Model, 2.0),
+                (Vco1Level, 0.0),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 1.0),
+                (Vco2Sync, 1.0),
+                (Cutoff, 3_500.0),
+                (Resonance, 0.2),
+                (Drive, 0.2),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.3),
+                (FenvAttack, 0.005),
+                (FenvDecay, 0.7),
+                (FenvSustain, 0.3),
+                (EnvFreq2, 0.35),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 5.5),
+                (Vibrato, 0.15),
+                (ModWheel, 0.5),
+                (Priority, 1.0),
+                (Glide, 0.03),
+            ],
+            // A saw an octave down and a narrow pulse (A) whose width the
+            // LFO moves; full key tracking, as on the Pro-One.
+            Preset::ProBass => &[
+                (Model, 2.0),
+                (Vco1Coarse, -12.0),
+                (Vco2Wave, 1.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 5.0),
+                (Vco2Level, 0.8),
+                (PulseWidth, 0.35),
+                (LfoWave, 2.0),
+                (LfoRate, 0.8),
+                (LfoPw, 0.25),
+                (Cutoff, 700.0),
+                (Resonance, 0.4),
+                (Drive, 0.3),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.15),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.3),
+                (FenvSustain, 0.15),
+                (EnvCutoff, 0.5),
+                (KeyTrack, 1.0),
+                (Priority, 1.0),
+            ],
+            // Two saws through a thin high-pass and a peaking low-pass that
+            // the envelope pushes toward self-oscillation: the MS-20 scream.
+            Preset::Ms20Lead => &[
+                (Model, 3.0),
+                (Vco2Fine, 8.0),
+                (Vco2Level, 0.6),
+                (HpCutoff, 120.0),
+                (HpResonance, 0.3),
+                (Cutoff, 1_800.0),
+                (Resonance, 0.78),
+                (Drive, 0.3),
+                (AdsrAttack, 0.01),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.25),
+                (FenvAttack, 0.01),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.4),
+                (EnvCutoff, 0.35),
+                (EnvHpCutoff, 0.1),
+                (KeyTrack, 0.5),
+                (Glide, 0.08),
+                (Legato, 1.0),
+            ],
+            // A pulse and a saw an octave down, ring-modulated, with the
+            // sample-and-hold stepping the cutoff on the patch panel.
+            Preset::Ms20Wobble => &[
+                (Model, 3.0),
+                (Vco1Wave, 1.0),
+                (Vco1Coarse, -12.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 6.0),
+                (Vco2Level, 0.7),
+                (RingLevel, 0.35),
+                (HpCutoff, 60.0),
+                (Cutoff, 500.0),
+                (Resonance, 0.85),
+                (Drive, 0.2),
+                (AdsrAttack, 0.003),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.2),
+                (LfoWave, 0.0),
+                (LfoRate, 6.0),
+                (Patch1Source, 8.0),
+                (Patch1Dest, 5.0),
+                (Patch1Amount, 0.5),
+            ],
+            // Two saws a few cents apart; the low-pass swells with its
+            // envelope as a brass note does, the high-pass opens a little
+            // with the AR: the CS-15's brass.
+            Preset::Cs15Brass => &[
+                (Model, 4.0),
+                (Vco2Fine, 9.0),
+                (Vco2Level, 0.9),
+                (HpCutoff, 150.0),
+                (Cutoff, 900.0),
+                (Resonance, 0.35),
+                (AdsrAttack, 0.08),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 0.2),
+                (FenvAttack, 0.12),
+                (FenvDecay, 0.4),
+                (FenvSustain, 0.6),
+                (EnvCutoff, 0.6),
+                (ArAttack, 0.15),
+                (EnvHpCutoff, 0.2),
+                (KeyTrack, 0.4),
+                (LfoWave, 2.0),
+                (LfoRate, 5.5),
+                (Vibrato, 0.1),
+                (ModWheel, 0.3),
+            ],
+            // A pulse and a saw an octave up with a little ring mod, a
+            // snappy low-pass and glide: a thin, vocal lead.
+            Preset::Cs15Lead => &[
+                (Model, 4.0),
+                (Vco1Wave, 1.0),
+                (PulseWidth, 0.4),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 0.5),
+                (RingLevel, 0.2),
+                (HpCutoff, 300.0),
+                (HpResonance, 0.2),
+                (Cutoff, 3_000.0),
+                (Resonance, 0.4),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.25),
+                (AdsrSustain, 0.75),
+                (AdsrRelease, 0.2),
+                (FenvAttack, 0.005),
+                (FenvDecay, 0.25),
+                (FenvSustain, 0.35),
+                (EnvCutoff, 0.4),
+                (ArAttack, 0.2),
+                (EnvHpCutoff, 0.15),
+                (Glide, 0.06),
+                (Legato, 1.0),
+            ],
+            // Saw and pulse together, and a sub two octaves down, through a
+            // resonant low-pass that the one envelope opens on every note.
+            Preset::Sh101Bass => &[
+                (Model, 5.0),
+                (Vco1Level, 0.6),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.6),
+                (SubLevel, 0.9),
+                (SubOctave, 1.0),
+                (Cutoff, 500.0),
+                (Resonance, 0.45),
+                (Drive, 0.3),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.3),
+                (AdsrRelease, 0.15),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 0.5),
+            ],
+            // Saw with a pulse whose width the LFO moves, a sub an octave
+            // down, vibrato on the wheel, glide: the 101 lead.
+            Preset::Sh101Lead => &[
+                (Model, 5.0),
+                (Vco1Level, 0.7),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.4),
+                (SubLevel, 0.3),
+                (HpCutoff, 120.0),
+                (Cutoff, 2_500.0),
+                (Resonance, 0.35),
+                (AdsrAttack, 0.01),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.25),
+                (EnvCutoff, 0.3),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 5.5),
+                (LfoPw, 0.3),
+                (Vibrato, 0.12),
+                (ModWheel, 1.0),
+                (Glide, 0.1),
+                (Legato, 1.0),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -127,7 +414,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 63] = [
+pub const DEFAULTS: [(Param, f32); 83] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -191,6 +478,26 @@ pub const DEFAULTS: [(Param, f32); 63] = [
     (Param::DriveAmount, 0.3),
     (Param::DriveTone, 0.8),
     (Param::DriveLevel, 0.7),
+    (Param::Model, 0.0),
+    (Param::FenvAttack, 0.005),
+    (Param::FenvDecay, 0.3),
+    (Param::FenvSustain, 0.7),
+    (Param::FenvRelease, 0.3),
+    (Param::HpCutoff, 20.0),
+    (Param::HpResonance, 0.0),
+    (Param::EnvHpCutoff, 0.0),
+    (Param::RingLevel, 0.0),
+    (Param::SubLevel, 0.0),
+    (Param::SubOctave, 0.0),
+    (Param::Vco3KeyFollow, 1.0),
+    (Param::Vco3Low, 0.0),
+    (Param::LfoCutoff, 0.0),
+    (Param::LfoPw, 0.0),
+    (Param::EnvFreq2, 0.0),
+    (Param::OscFreq2, 0.0),
+    (Param::EnvPw, 0.0),
+    (Param::OscPw, 0.0),
+    (Param::OscCutoff, 0.0),
 ];
 
 #[cfg(test)]
@@ -296,8 +603,93 @@ mod tests {
         }
     }
 
+    /// The ARP 2600 voice sounds as it did before models (spec 005 Req 2):
+    /// rms, peak and two samples of half a second of A3, per preset, from the
+    /// last release before the model was added, then scaled by the mixer's
+    /// centre pan.
+    #[test]
+    fn arp_presets_keep_their_sound() {
+        let gold: [(Preset, [f64; 4]); 4] = [
+            (Preset::Bass, [0.117948, 0.479209, 0.040528, 0.162096]),
+            (Preset::Lead, [0.169469, 0.478455, -0.246227, -0.055599]),
+            (Preset::SyncLead, [0.150151, 0.386691, -0.188180, -0.129467]),
+            (
+                Preset::BowedString,
+                [0.093402, 0.229120, -0.096020, 0.048850],
+            ),
+        ];
+        for (preset, want) in gold {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.preset(0, preset);
+            e.note_on(0, 57, 0.8);
+            let mut out = Vec::new();
+            for _ in 0..(48_000 / 2 / BLOCK) {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output().get(..BLOCK).unwrap_or(&[]));
+            }
+            let rms =
+                (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt();
+            let peak = out.iter().fold(0.0_f32, |a, s| a.max(s.abs()));
+            let got = [
+                rms,
+                f64::from(peak),
+                f64::from(out[7000]),
+                f64::from(out[15000]),
+            ];
+            // The mixer's centre pan is equal power (spec 002 Req 2): x 1/sqrt 2.
+            for (g, w) in got
+                .iter()
+                .zip(want.map(|w| w * std::f64::consts::FRAC_1_SQRT_2))
+            {
+                assert!((g - w).abs() < 2.0e-5, "{preset:?}: {got:?} vs {want:?}");
+            }
+        }
+    }
+
+    /// A preset sets its model, so a switch of model is a whole sound.
+    #[test]
+    fn every_preset_sets_its_model() {
+        for (preset, name) in Preset::ALL {
+            let mut e = Engine::new(48_000.0);
+            e.preset(0, preset);
+            assert_eq!(
+                e.param_value(0, Param::Model),
+                preset.model() as u32 as f32,
+                "{name}"
+            );
+        }
+    }
+
+    /// Spec 005 Req 1: every model has at least two presets of its own.
+    #[test]
+    fn every_model_has_at_least_two_presets() {
+        for (model, name) in Model::ALL {
+            let n = Preset::ALL
+                .iter()
+                .filter(|(p, _)| p.model() == model)
+                .count();
+            assert!(n >= 2, "{name} has {n} presets");
+        }
+    }
+
+    /// A new or reset synth is an ARP 2600, and a preset after another
+    /// model's leaves nothing of it.
+    #[test]
+    fn a_new_synth_is_an_arp_2600() {
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(e.param_value(5, Param::Model), 0.0);
+        e.set_param(5, Param::Model, 3.0);
+        assert_eq!(e.param_value(5, Param::Model), 3.0);
+        e.reset(5);
+        assert_eq!(e.param_value(5, Param::Model), 0.0);
+        e.set_param(5, Param::Model, 3.0);
+        e.preset(5, Preset::Bass);
+        assert_eq!(e.param_value(5, Param::Model), 0.0);
+    }
+
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(4), None);
+        assert_eq!(Preset::from_id(99), None);
     }
 }

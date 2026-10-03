@@ -398,6 +398,7 @@ fn soft_clip(x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mono::model::Model;
     use crate::mono::osc::LATENCY;
     use crate::smf::tests::file;
 
@@ -585,6 +586,51 @@ mod tests {
         e.note_on(0, 57, 1.0);
         assert!(heard(&mut e, 20) > 0.05, "synth 0 still sounds");
         assert_eq!(e.active_voices(), 2);
+    }
+
+    /// Spec 005 Req 1: the model is a parameter of its own synth.
+    #[test]
+    fn models_are_per_synth() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(1, Param::Model, 1.0);
+        e.set_param(1, Param::Model, 99.0);
+        assert_eq!(e.param_value(1, Param::Model), 5.0, "clamped into range");
+        e.set_param(1, Param::Model, 1.0);
+        assert_eq!(e.param_value(1, Param::Model), 1.0);
+        assert_eq!(e.param_value(0, Param::Model), 0.0);
+        assert_eq!(e.param_value(2, Param::Model), 0.0);
+        for (p, v) in DEFAULTS.iter().filter(|(p, _)| *p != Param::Model) {
+            assert_eq!(e.param_value(0, *p), *v, "{p:?} on synth 0");
+        }
+    }
+
+    /// Spec 005 Req 1: two synths with the same settings and different
+    /// models sound different, and one's model leaves the other alone.
+    #[test]
+    fn models_sound_different() {
+        let render = |model: f32| {
+            let mut e = Engine::new(48_000.0);
+            for (p, v) in [
+                (Param::Model, model),
+                (Param::Cutoff, 300.0),
+                (Param::EnvCutoff, 0.6),
+                (Param::FenvAttack, 0.5),
+                (Param::AdsrSustain, 1.0),
+            ] {
+                e.set_param(1, p, v);
+            }
+            e.note_on(1, 45, 1.0);
+            let mut out = Vec::new();
+            for _ in 0..200 {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output().get(..BLOCK).unwrap_or(&[]));
+            }
+            out
+        };
+        let (arp, mini) = (render(0.0), render(1.0));
+        let diff: f32 = arp.iter().zip(&mini).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 1.0, "the models differ: {diff}");
+        assert_eq!(arp, render(0.0), "and each is repeatable");
     }
 
     #[test]
@@ -864,6 +910,30 @@ mod tests {
             e.render(BLOCK);
             assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
         }
+    }
+
+    /// Spec 005 Req 9: 16 synths cycling through the six models, each on
+    /// that model's first preset, play together within ±1.
+    #[test]
+    fn sixteen_synths_of_every_model_play_together() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            let (model, _) = Model::ALL[synth % Model::ALL.len()];
+            let (preset, _) = Preset::ALL
+                .iter()
+                .find(|(p, _)| p.model() == model)
+                .copied()
+                .expect("every model has a preset");
+            e.preset(synth, preset);
+            assert_eq!(e.param_value(synth, Param::Model), model as u32 as f32);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for _ in 0..400 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+        assert_eq!(e.active_voices(), SYNTHS);
     }
 
     #[test]

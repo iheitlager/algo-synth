@@ -50,8 +50,33 @@ impl LadderTables {
         }
     }
 
+    /// Move a smoothed cutoff (a MIDI note, `None` before the first sample)
+    /// toward `target`. Returns the note to retune at, or `None` when it
+    /// already sits there, so a coefficient is only recomputed while the
+    /// cutoff moves (ADR-0002). Non-finite targets go to the lowest note.
+    pub(crate) fn follow(&self, state: &mut Option<f32>, target: f32) -> Option<f32> {
+        let target = if target.is_finite() { target } else { LO };
+        match *state {
+            Some(n) if n == target => None,
+            Some(n) => {
+                let next = n + (target - n) * self.smooth;
+                let next = if (target - next).abs() < 0.01 {
+                    target
+                } else {
+                    next
+                };
+                *state = Some(next);
+                Some(next)
+            }
+            None => {
+                *state = Some(target);
+                Some(target)
+            }
+        }
+    }
+
     /// The prewarped one-pole gain for a cutoff given as a MIDI note.
-    fn g_at(&self, note: f32) -> f32 {
+    pub(crate) fn g_at(&self, note: f32) -> f32 {
         let pos = ((note - LO) * STEPS).clamp(0.0, (HI - LO) * STEPS);
         let i = pos as usize;
         let frac = pos - i as f32;
@@ -99,19 +124,8 @@ impl Ladder {
     /// Filter one sample. `cutoff` is a MIDI note, `k` the feedback
     /// (0..=`MAX_K`), `drive` the input gain into the saturator.
     pub fn process(&mut self, t: &LadderTables, x: f32, cutoff: f32, k: f32, drive: f32) -> f32 {
-        let target = if cutoff.is_finite() { cutoff } else { LO };
-        match self.note {
-            Some(n) if n == target => {}
-            Some(n) => {
-                let next = n + (target - n) * t.smooth;
-                let next = if (target - next).abs() < 0.01 {
-                    target
-                } else {
-                    next
-                };
-                self.retune(t, next);
-            }
-            None => self.retune(t, target),
+        if let Some(note) = t.follow(&mut self.note, cutoff) {
+            self.retune(t, note);
         }
         let (g, inv) = (self.big_g, self.inv);
         let [s1, s2, s3, s4] = self.s;
@@ -135,7 +149,6 @@ impl Ladder {
 
     fn retune(&mut self, t: &LadderTables, note: f32) {
         let g = t.g_at(note);
-        self.note = Some(note);
         self.inv = 1.0 / (1.0 + g);
         self.big_g = g * self.inv;
     }

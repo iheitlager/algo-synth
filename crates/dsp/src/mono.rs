@@ -1,23 +1,26 @@
-//! The ARP 2600-style Mono voice (spec 004).
+//! The Mono voice (spec 004): one shared voice, six models (spec 005).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
 //! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `voice` one
 //! voice per owner with its keys and glide, `preset` the defaults and
-//! presets. The settings here are Mono-wide until tracks
-//! address parameters per instance (spec 002 Req 1).
+//! presets, `model` which instrument a synth is, `svf` the 12 dB filters.
+//! The settings here belong to one synth (spec 004 Req 10).
 
 pub mod env;
 pub mod ladder;
 pub mod lfo;
+pub mod model;
 pub mod noise;
 pub mod osc;
 pub mod patch;
 pub mod preset;
+pub mod svf;
 pub mod voice;
 
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
+use model::Model;
 use noise::NoiseColour;
 use osc::Waveform;
 use patch::{Normals, Patch};
@@ -29,6 +32,8 @@ pub const VCOS: usize = 3;
 /// The Mono parameters, with what `render` needs precomputed.
 #[derive(Clone, Copy)]
 pub struct MonoParams {
+    /// Which instrument this synth is (spec 005).
+    pub model: Model,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -41,14 +46,27 @@ pub struct MonoParams {
     pub sync: [bool; VCOS],
     pub noise_level: f32,
     pub noise_colour: NoiseColour,
+    /// Ring modulator and sub-oscillator levels, and the sub's frequency as
+    /// a share of VCO 1's (a half or a quarter).
+    pub ring_level: f32,
+    pub sub_level: f32,
+    pub sub_ratio: f32,
+    /// Whether VCO 3 follows the key, and whether it is in the low range.
+    pub vco3_follow: bool,
+    pub vco3_low: bool,
     /// Ladder cutoff as a MIDI note, feedback, and input gain.
     pub cutoff: f32,
     pub k: f32,
+    /// High-pass cutoff as a MIDI note, and resonance 0..=1.
+    pub hp_cutoff: f32,
+    pub hp_res: f32,
     pub drive: f32,
     /// Envelope times in samples, so the sample rate is kept to convert.
     sample_rate: f32,
     pub adsr: EnvTimes,
     pub ar: EnvTimes,
+    /// The filter ADSR (spec 004 Req 12).
+    pub fadsr: EnvTimes,
     /// LFO cycles per sample, and its waveform.
     pub lfo_inc: f32,
     pub lfo_wave: Waveform,
@@ -80,6 +98,7 @@ impl MonoParams {
             release: 0.0,
         };
         let mut p = MonoParams {
+            model: Model::Arp2600,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -89,12 +108,20 @@ impl MonoParams {
             sync: [false; VCOS],
             noise_level: 0.0,
             noise_colour: NoiseColour::White,
+            ring_level: 0.0,
+            sub_level: 0.0,
+            sub_ratio: 0.5,
+            vco3_follow: true,
+            vco3_low: false,
             cutoff: 0.0,
             k: 0.0,
+            hp_cutoff: 0.0,
+            hp_res: 0.0,
             drive: 1.0,
             sample_rate,
             adsr: off,
             ar: off,
+            fadsr: off,
             lfo_inc: 0.0,
             lfo_wave: Waveform::Sine,
             priority: NotePriority::Last,
@@ -133,6 +160,11 @@ impl MonoParams {
             Param::Vco2Sync => self.sync[1] = v >= 0.5,
             Param::Vco3Sync => self.sync[2] = v >= 0.5,
             Param::NoiseLevel => self.noise_level = v,
+            Param::RingLevel => self.ring_level = v,
+            Param::SubLevel => self.sub_level = v,
+            Param::SubOctave => self.sub_ratio = if v >= 0.5 { 0.25 } else { 0.5 },
+            Param::Vco3KeyFollow => self.vco3_follow = v >= 0.5,
+            Param::Vco3Low => self.vco3_low = v >= 0.5,
             Param::NoiseColour => {
                 if let Some(c) = NoiseColour::from_id(v.round() as u32) {
                     self.noise_colour = c;
@@ -140,6 +172,8 @@ impl MonoParams {
             }
             Param::Cutoff => self.cutoff = hz_to_note(v),
             Param::Resonance => self.k = v * MAX_K,
+            Param::HpCutoff => self.hp_cutoff = hz_to_note(v),
+            Param::HpResonance => self.hp_res = v,
             // 0..=1 is 0 to +18 dB: 1 + 7·v.
             Param::Drive => self.drive = 1.0 + 7.0 * v,
             // Times arrive in seconds and are kept in samples.
@@ -149,6 +183,10 @@ impl MonoParams {
             Param::AdsrRelease => self.adsr.release = samples,
             Param::ArAttack => self.ar.attack = samples,
             Param::ArRelease => self.ar.release = samples,
+            Param::FenvAttack => self.fadsr.attack = samples,
+            Param::FenvDecay => self.fadsr.decay = samples,
+            Param::FenvSustain => self.fadsr.sustain = v,
+            Param::FenvRelease => self.fadsr.release = samples,
             Param::LfoRate => self.lfo_inc = v / self.sample_rate,
             Param::LfoWave => {
                 if let Some(w) = Waveform::from_id(v.round() as u32) {
@@ -188,8 +226,16 @@ impl MonoParams {
             Param::Patch8Amount => self.patch.set_amount(7, v),
             // Semitones of cutoff at full ADSR, and of VCO pitch at full LFO.
             Param::EnvCutoff => self.normals.env_cutoff = 48.0 * v,
+            Param::EnvHpCutoff => self.normals.env_hp_cutoff = 48.0 * v,
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
+            Param::LfoCutoff => self.normals.lfo_cutoff = 24.0 * v,
+            Param::LfoPw => self.normals.lfo_pw = 0.45 * v,
+            Param::EnvFreq2 => self.normals.env_freq2 = 24.0 * v,
+            Param::OscFreq2 => self.normals.osc_freq2 = 24.0 * v,
+            Param::EnvPw => self.normals.env_pw = 0.45 * v,
+            Param::OscPw => self.normals.osc_pw = 0.45 * v,
+            Param::OscCutoff => self.normals.osc_cutoff = 48.0 * v,
             Param::ModWheel => self.mod_wheel = v,
             // The mixer's (`mixer::Mixer`), not the voice's.
             Param::Level
@@ -211,6 +257,14 @@ impl MonoParams {
             | Param::ReverbDamping
             | Param::ReverbPreDelay
             | Param::ReverbReturn => {}
+            Param::Model => {
+                if let Some(m) = Model::from_id(v.round() as u32) {
+                    self.model = m;
+                    self.normals.cutoff_from_fenv = m.cutoff_follows_filter_env();
+                    self.normals.hp_from_ar = m.hp_follows_ar();
+                    self.normals.mod_from_osc3 = m.modulates_with_osc3();
+                }
+            }
             Param::MasterGain => {}
         }
         self.taken = self.patch.overridden();

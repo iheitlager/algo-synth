@@ -33,10 +33,12 @@ pub enum ModSource {
     Velocity = 10,
     /// The key relative to middle C, −1..1 over ±5 octaves.
     Key = 11,
+    /// The filter ADSR (spec 004 Req 12).
+    Fenv = 12,
 }
 
 impl ModSource {
-    pub const ALL: [(ModSource, &'static str); 12] = [
+    pub const ALL: [(ModSource, &'static str); 13] = [
         (ModSource::None, "None"),
         (ModSource::Vco1, "Vco1"),
         (ModSource::Vco2, "Vco2"),
@@ -49,6 +51,7 @@ impl ModSource {
         (ModSource::ModWheel, "ModWheel"),
         (ModSource::Velocity, "Velocity"),
         (ModSource::Key, "Key"),
+        (ModSource::Fenv, "Fenv"),
     ];
 
     /// The source for a raw id, or `None` for an unknown one.
@@ -179,7 +182,9 @@ pub fn is_taken(taken: &[bool; DESTS], dest: ModDest) -> bool {
 }
 
 /// The value of every source for one sample, indexed by `ModSource` id.
-pub type Sources = [f32; 12];
+pub type Sources = [f32; SOURCES];
+/// Number of modulation sources, `ModSource::None` included.
+pub const SOURCES: usize = 13;
 
 /// The modulation each destination receives, in its own units.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -187,6 +192,8 @@ pub struct Mods {
     pub pitch: [f32; 3],
     pub pulse_width: f32,
     pub cutoff: f32,
+    /// Semitones of high-pass cutoff (a normal only, no patch destination).
+    pub hp_cutoff: f32,
     pub resonance: f32,
     /// The VCA gain, 0..=1.
     pub vca: f32,
@@ -196,8 +203,28 @@ pub struct Mods {
 /// The normalled amounts, in destination units.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Normals {
-    /// Semitones of cutoff at full ADSR.
+    /// Semitones of cutoff at full ADSR (or filter ADSR).
     pub env_cutoff: f32,
+    /// Whether the normalled cutoff follows the filter ADSR, not the ADSR.
+    pub cutoff_from_fenv: bool,
+    /// Semitones of high-pass cutoff at full envelope, and whether that
+    /// envelope is the AR (else the filter ADSR).
+    pub env_hp_cutoff: f32,
+    pub hp_from_ar: bool,
+    /// Semitones of cutoff at full modulation source (no mod wheel).
+    pub lfo_cutoff: f32,
+    /// Whether VCO 3 is the modulation source instead of the LFO.
+    pub mod_from_osc3: bool,
+    /// Pulse width at full modulation source (LFO → pulse width).
+    pub lfo_pw: f32,
+    /// Poly-mod (spec 004 Req 15), in the units of the destination: the
+    /// filter envelope and VCO 1 into VCO 2's pitch (semitones), the pulse
+    /// width, and VCO 1 into the cutoff (semitones).
+    pub env_freq2: f32,
+    pub osc_freq2: f32,
+    pub env_pw: f32,
+    pub osc_pw: f32,
+    pub osc_cutoff: f32,
     /// Semitones of cutoff per semitone of key.
     pub key_track: f32,
     /// Semitones of VCO pitch at full LFO and full mod wheel.
@@ -216,7 +243,12 @@ pub fn modulate(
     let at = |s: ModSource| src.get(s as usize).copied().unwrap_or(0.0);
     let mut d = [0.0; DESTS];
     let [_, _, _, _, cutoff_taken, _, vca_taken, _] = *taken;
-    let vibrato = at(ModSource::Lfo) * at(ModSource::ModWheel) * normals.vibrato;
+    let modulator = if normals.mod_from_osc3 {
+        at(ModSource::Vco3)
+    } else {
+        at(ModSource::Lfo)
+    };
+    let vibrato = modulator * at(ModSource::ModWheel) * normals.vibrato;
     // The three VCO pitches come first in `ModDest` order.
     for (v, t) in d.iter_mut().zip(taken).take(3) {
         if !t {
@@ -224,7 +256,12 @@ pub fn modulate(
         }
     }
     if !cutoff_taken {
-        d[4] = at(ModSource::Adsr) * normals.env_cutoff + key * normals.key_track;
+        let env = if normals.cutoff_from_fenv {
+            at(ModSource::Fenv)
+        } else {
+            at(ModSource::Adsr)
+        };
+        d[4] = env * normals.env_cutoff + key * normals.key_track + modulator * normals.lfo_cutoff;
     }
     if !vca_taken {
         d[6] = at(ModSource::Adsr);
@@ -237,11 +274,23 @@ pub fn modulate(
             }
         }
     }
+    // Poly-mod and the LFO's pulse width add after the normals and the
+    // patch, without taking a destination over from them.
+    let (fenv, vco1) = (at(ModSource::Fenv), at(ModSource::Vco1));
+    d[1] += fenv * normals.env_freq2 + vco1 * normals.osc_freq2;
+    d[3] += fenv * normals.env_pw + vco1 * normals.osc_pw + modulator * normals.lfo_pw;
+    d[4] += vco1 * normals.osc_cutoff;
     let [p1, p2, p3, pulse_width, cutoff, resonance, vca, lfo_rate] = d;
+    let hp_env = if normals.hp_from_ar {
+        at(ModSource::Ar)
+    } else {
+        at(ModSource::Fenv)
+    };
     Mods {
         pitch: [p1, p2, p3],
         pulse_width,
         cutoff,
+        hp_cutoff: hp_env * normals.env_hp_cutoff,
         resonance,
         vca: vca.clamp(0.0, 1.0),
         lfo_rate,
@@ -253,7 +302,7 @@ mod tests {
     use super::*;
 
     fn sources(pairs: &[(ModSource, f32)]) -> Sources {
-        let mut s = [0.0; 12];
+        let mut s = [0.0; SOURCES];
         for (src, v) in pairs {
             s[*src as usize] = *v;
         }
@@ -262,12 +311,136 @@ mod tests {
 
     const NORMALS: Normals = Normals {
         env_cutoff: 24.0,
+        cutoff_from_fenv: false,
+        env_hp_cutoff: 12.0,
+        hp_from_ar: false,
+        lfo_cutoff: 0.0,
+        mod_from_osc3: false,
+        lfo_pw: 0.0,
+        env_freq2: 0.0,
+        osc_freq2: 0.0,
+        env_pw: 0.0,
+        osc_pw: 0.0,
+        osc_cutoff: 0.0,
         key_track: 0.5,
         vibrato: 2.0,
     };
 
     fn run(patch: &Patch, src: &Sources, key: f32) -> Mods {
         modulate(patch, &patch.overridden(), &NORMALS, src, key)
+    }
+
+    /// The model chooses which envelope the normalled cutoff follows; a
+    /// patch can read either.
+    #[test]
+    fn normalled_cutoff_follows_the_chosen_envelope() {
+        let src = sources(&[(ModSource::Adsr, 1.0), (ModSource::Fenv, 0.25)]);
+        let by_adsr = run(&Patch::default(), &src, 0.0);
+        assert_eq!(by_adsr.cutoff, 24.0);
+        let normals = Normals {
+            cutoff_from_fenv: true,
+            ..NORMALS
+        };
+        let patch = Patch::default();
+        let by_fenv = modulate(&patch, &patch.overridden(), &normals, &src, 0.0);
+        assert_eq!(by_fenv.cutoff, 6.0);
+        assert_eq!(by_fenv.vca, 1.0, "the VCA stays on the ADSR");
+        let mut p = Patch::default();
+        p.slots[0] = Slot {
+            source: ModSource::Fenv,
+            dest: ModDest::Vca,
+            amount: 1.0,
+        };
+        assert_eq!(run(&p, &src, 0.0).vca, 0.25);
+    }
+
+    /// The high-pass cutoff follows the filter ADSR, or the AR on the
+    /// model that has an envelope for it; it takes no patch destination.
+    #[test]
+    fn high_pass_follows_the_chosen_envelope() {
+        let src = sources(&[(ModSource::Fenv, 0.5), (ModSource::Ar, 1.0)]);
+        let patch = Patch::default();
+        let hp = |hp_from_ar| {
+            let normals = Normals {
+                hp_from_ar,
+                ..NORMALS
+            };
+            modulate(&patch, &patch.overridden(), &normals, &src, 0.0).hp_cutoff
+        };
+        assert_eq!(hp(false), 6.0);
+        assert_eq!(hp(true), 12.0);
+    }
+
+    /// The modulation normals read the LFO, or VCO 3 on the model that has
+    /// no LFO; LFO → cutoff does not wait for the mod wheel.
+    #[test]
+    fn the_modulation_source_is_the_lfo_or_osc3() {
+        let src = sources(&[
+            (ModSource::Lfo, 0.5),
+            (ModSource::Vco3, -1.0),
+            (ModSource::ModWheel, 1.0),
+        ]);
+        let patch = Patch::default();
+        let run = |mod_from_osc3, wheel: f32| {
+            let mut src = src;
+            src[ModSource::ModWheel as usize] = wheel;
+            let normals = Normals {
+                lfo_cutoff: 10.0,
+                mod_from_osc3,
+                ..NORMALS
+            };
+            modulate(&patch, &patch.overridden(), &normals, &src, 0.0)
+        };
+        let lfo = run(false, 1.0);
+        assert_eq!((lfo.pitch[0], lfo.cutoff), (1.0, 5.0));
+        let osc3 = run(true, 1.0);
+        assert_eq!((osc3.pitch[0], osc3.cutoff), (-2.0, -10.0));
+        let no_wheel = run(true, 0.0);
+        assert_eq!((no_wheel.pitch[0], no_wheel.cutoff), (0.0, -10.0));
+    }
+
+    /// Poly-mod adds to a destination, with its normals and with a patch
+    /// that has taken it over.
+    #[test]
+    fn poly_mod_adds_to_the_normals() {
+        let src = sources(&[
+            (ModSource::Adsr, 1.0),
+            (ModSource::Fenv, 0.5),
+            (ModSource::Vco1, 0.5),
+            (ModSource::Lfo, 1.0),
+        ]);
+        let normals = Normals {
+            osc_cutoff: 10.0,
+            env_freq2: 8.0,
+            osc_freq2: 4.0,
+            env_pw: 0.2,
+            osc_pw: 0.1,
+            lfo_pw: 0.05,
+            ..NORMALS
+        };
+        let patch = Patch::default();
+        let m = modulate(&patch, &patch.overridden(), &normals, &src, 0.0);
+        assert_eq!(m.cutoff, 24.0 + 5.0, "ADSR normal plus VCO 1");
+        assert_eq!(
+            m.pitch[1],
+            4.0 + 2.0,
+            "filter envelope and VCO 1 into VCO 2"
+        );
+        assert_eq!(m.pitch[0], 0.0, "and only VCO 2");
+        assert!((m.pulse_width - (0.1 + 0.05 + 0.05)).abs() < 1.0e-6);
+
+        let mut taken = Patch::default();
+        taken.slots[0] = Slot {
+            source: ModSource::Fenv,
+            dest: ModDest::Cutoff,
+            amount: 0.5,
+        };
+        let m = modulate(&taken, &taken.overridden(), &normals, &src, 0.0);
+        assert_eq!(
+            m.cutoff,
+            0.5 * 0.5 * 48.0 + 5.0,
+            "the patch took the normals, not poly-mod"
+        );
     }
 
     #[test]

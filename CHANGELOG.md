@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-03
+
+The family of monosynths (epic #28, PR #42).
+
+### Added
+
+- **A family of six monosynths** (epic #28, ADR-0009, spec 005): every synth slot has a model, `Param::Model`: ARP 2600, Minimoog, Sequential Pro-One, Korg MS-20, Yamaha CS-15 or Roland SH-101. One shared voice with the model deciding the filter and its voicing, the high-pass stage, which envelope moves the cutoff, decay-as-release and the modulation source; two presets per model (14 in all). A new or reset synth is an ARP 2600, and its sound is pinned to what it was before models (#29, #30, #34).
+- **Filter ADSR** (`FenvAttack`..`FenvRelease`, modulation source `Fenv`): the ARP 2600 and SH-101 keep one envelope for filter and loudness, the others have two (#31).
+- **Filter flavours:** a 12 dB state-variable filter with saturating states and a one-pole high-pass, three ladder voicings (Moog, Pro-One, SH-101) and two 12 dB voicings (the MS-20 self-oscillates, the CS-15 does not); `HpCutoff`, `HpResonance`, `EnvHpCutoff` (#32).
+- **Ring modulator, sub-oscillator and Osc 3 as a modulator:** `RingLevel` (VCO 1 × VCO 2), `SubLevel`/`SubOctave` (a band-limited square at an exact half or quarter of VCO 1's pitch), `Vco3KeyFollow`/`Vco3Low` (#33).
+- **Poly-mod and LFO destinations:** `EnvFreq2`, `OscFreq2`, `EnvPw`, `OscPw`, `OscCutoff` (Pro-One style) and `LfoCutoff`, `LfoPw`; they add after the normals and the patch. On the Minimoog, which has no LFO, Osc 3 is the modulation source (#35, #36).
+- **Per-model panels and palettes:** the view draws each synth from its model's description (`models.ts`, `SynthPanel.vue`) with that instrument's sections, control names and colours, a model picker and a preset list per model (#30, #34-#39).
+- `make bench` has `six models` and `family worst` scenarios: 16 synths across the family at 3.9% and 5.0% of a core (#40).
+
 ## [0.5.0] - 2026-10-03
 
 ### Added
