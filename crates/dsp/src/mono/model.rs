@@ -131,6 +131,19 @@ impl Model {
         }
     }
 
+    /// Whether the filter envelope source (`ModSource::Fenv`, so the poly-mod
+    /// and high-pass envelope amounts) is the ADSR: the SH-101 has one
+    /// envelope for filter and loudness.
+    pub fn filter_env_is_adsr(self) -> bool {
+        self == Model::Sh101
+    }
+
+    /// Whether VCO 2 is the pulse output of VCO 1: phase-locked to it and at
+    /// its pitch, as the SH-101's one oscillator gives saw and pulse together.
+    pub fn pulse_locked(self) -> bool {
+        self == Model::Sh101
+    }
+
     /// Whether a time set as decay is also the release, on the loudness and
     /// the filter ADSR: the Minimoog's contours have no release knob.
     pub fn decay_is_release(self) -> bool {

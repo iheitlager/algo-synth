@@ -311,6 +311,7 @@ impl MonoVoice {
         let (noise_level, colour) = (p.noise_level, p.noise_colour);
         let (ring_level, sub_level) = (p.ring_level, p.sub_level);
         let hp = p.model.hp();
+        let filter_env_is_adsr = p.model.filter_env_is_adsr();
         for sample in out.iter_mut() {
             let adsr = self.adsr.step();
             let ar = self.ar.step();
@@ -339,7 +340,10 @@ impl MonoVoice {
                 (ModSource::Noise, noise),
                 (ModSource::Adsr, adsr),
                 (ModSource::Ar, ar),
-                (ModSource::Fenv, fenv),
+                (
+                    ModSource::Fenv,
+                    if filter_env_is_adsr { adsr } else { fenv },
+                ),
                 (ModSource::Lfo, lfo),
                 (ModSource::SampleHold, held),
                 (ModSource::ModWheel, p.mod_wheel),
@@ -356,13 +360,19 @@ impl MonoVoice {
             let [o1, o2, o3] = &mut self.osc;
             let inc1 = ctx.pitch.at(self.pitch + t1 + m1);
             o1.set_increment(inc1);
-            o2.set_increment(ctx.pitch.at(self.pitch + t2 + m2));
+            // The SH-101's pulse is VCO 1's own phase: same pitch, reset with it.
+            let locked = p.model.pulse_locked();
+            o2.set_increment(if locked {
+                inc1
+            } else {
+                ctx.pitch.at(self.pitch + t2 + m2)
+            });
             // Off the key and five octaves down, VCO 3 is a modulator.
             let key3 = if p.vco3_follow { self.pitch } else { 60.0 };
             let low3 = if p.vco3_low { 60.0 } else { 0.0 };
             o3.set_increment(ctx.pitch.at(key3 + t3 + m3 - low3));
             let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
-            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2));
+            let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
             // The sub is a pulse at an exact fraction of VCO 1's increment, so
             // it stays an octave (or two) down through glide and vibrato.
@@ -707,6 +717,65 @@ mod tests {
         assert!(
             hi - lo > 40.0,
             "VCO 3 at level 0 still modulates: {lo}..{hi}"
+        );
+    }
+
+    /// Spec 005 Req 7: the SH-101's cutoff and loudness are moved by the
+    /// same envelope, whatever the filter ADSR is set to.
+    #[test]
+    fn sh101_one_envelope_moves_cutoff_and_loudness() {
+        let mut r = Rig::new(&[
+            (Param::Model, 5.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.5),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 0.001),
+            (Param::EnvPw, 1.0),
+        ]);
+        r.press(60);
+        for i in 0..40_000 {
+            r.render(1);
+            let m = r.voice.mods();
+            if i % 2_000 == 1_999 {
+                assert!((m.vca - m.cutoff / 48.0).abs() < 1.0e-3, "{i}: {m:?}");
+                assert!((m.vca - m.pulse_width / 0.45).abs() < 1.0e-3, "{i}: {m:?}");
+            }
+        }
+        assert!(r.voice.mods().vca > 0.5, "and the attack is under way");
+        r.release(60);
+        r.render(2_400);
+        let m = r.voice.mods();
+        assert!(
+            (m.vca - m.cutoff / 48.0).abs() < 1.0e-3,
+            "release too: {m:?}"
+        );
+    }
+
+    /// The pulse is VCO 1's own phase: saw plus pulse make one cycle, not a
+    /// beat between two oscillators.
+    #[test]
+    fn sh101_pulse_is_locked_to_the_saw() {
+        let mut r = Rig::new(&[
+            (Param::Model, 5.0),
+            (Param::Vco1Level, 1.0),
+            (Param::Vco2Wave, 1.0),
+            (Param::Vco2Level, 1.0),
+            (Param::Vco2Coarse, 7.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::AdsrSustain, 1.0),
+            (Param::Glide, 0.2),
+        ]);
+        r.press(40);
+        r.press(52);
+        r.render(4_800);
+        let out = r.render(96_000);
+        // Locked, the sound repeats every VCO 1 cycle: the spectrum is the
+        // harmonics of the glide's target, nothing in between.
+        let f0 = 440.0 * 2.0_f64.powf((52.0 - 69.0) / 12.0);
+        let off = tone(&out, 1.5 * f0);
+        assert!(
+            off < 0.02 * tone(&out, f0),
+            "a beating partner would show here: {off}"
         );
     }
 

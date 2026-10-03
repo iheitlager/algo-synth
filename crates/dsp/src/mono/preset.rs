@@ -24,11 +24,13 @@ pub enum Preset {
     Ms20Wobble = 9,
     Cs15Brass = 10,
     Cs15Lead = 11,
+    Sh101Bass = 12,
+    Sh101Lead = 13,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 12] = [
+    pub const ALL: [(Preset, &'static str); 14] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -41,6 +43,8 @@ impl Preset {
         (Preset::Ms20Wobble, "Ms20Wobble"),
         (Preset::Cs15Brass, "Cs15Brass"),
         (Preset::Cs15Lead, "Cs15Lead"),
+        (Preset::Sh101Bass, "Sh101Bass"),
+        (Preset::Sh101Lead, "Sh101Lead"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -59,6 +63,7 @@ impl Preset {
             Preset::ProLead | Preset::ProBass => Model::ProOne,
             Preset::Ms20Lead | Preset::Ms20Wobble => Model::Ms20,
             Preset::Cs15Brass | Preset::Cs15Lead => Model::Cs15,
+            Preset::Sh101Bass | Preset::Sh101Lead => Model::Sh101,
         }
     }
 
@@ -332,6 +337,50 @@ impl Preset {
                 (Glide, 0.06),
                 (Legato, 1.0),
             ],
+            // Saw and pulse together, and a sub two octaves down, through a
+            // resonant low-pass that the one envelope opens on every note.
+            Preset::Sh101Bass => &[
+                (Model, 5.0),
+                (Vco1Level, 0.6),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.6),
+                (SubLevel, 0.9),
+                (SubOctave, 1.0),
+                (Cutoff, 500.0),
+                (Resonance, 0.45),
+                (Drive, 0.3),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.3),
+                (AdsrRelease, 0.15),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 0.5),
+            ],
+            // Saw with a pulse whose width the LFO moves, a sub an octave
+            // down, vibrato on the wheel, glide: the 101 lead.
+            Preset::Sh101Lead => &[
+                (Model, 5.0),
+                (Vco1Level, 0.7),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.4),
+                (SubLevel, 0.3),
+                (HpCutoff, 120.0),
+                (Cutoff, 2_500.0),
+                (Resonance, 0.35),
+                (AdsrAttack, 0.01),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.25),
+                (EnvCutoff, 0.3),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 5.5),
+                (LfoPw, 0.3),
+                (Vibrato, 0.12),
+                (ModWheel, 1.0),
+                (Glide, 0.1),
+                (Legato, 1.0),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -589,6 +638,18 @@ mod tests {
                 preset.model() as u32 as f32,
                 "{name}"
             );
+        }
+    }
+
+    /// Spec 005 Req 1: every model has at least two presets of its own.
+    #[test]
+    fn every_model_has_at_least_two_presets() {
+        for (model, name) in Model::ALL {
+            let n = Preset::ALL
+                .iter()
+                .filter(|(p, _)| p.model() == model)
+                .count();
+            assert!(n >= 2, "{name} has {n} presets");
         }
     }
 

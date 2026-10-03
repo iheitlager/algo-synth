@@ -108,7 +108,7 @@ The CS-15 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 
 ### Requirement 7: Roland SH-101 [MUST]
 
-The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse a phase-locked second VCO), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass, a one-pole high-pass after it, a single ADSR driving the filter and the VCA, an LFO that can modulate pitch, cutoff and pulse width, and glide.
+The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, locked to VCO 1's phase and pitch by the model), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass, a one-pole high-pass after it, a single ADSR driving the filter and the VCA (it SHALL also be the filter envelope source of the poly-mod and envelope amounts, spec 004 Req 14), an LFO that can modulate pitch, cutoff and pulse width, and glide.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::Sh101` (#39)
 
@@ -118,7 +118,7 @@ The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse a phase-l
 - WHEN a note is held and released
 - THEN the cutoff and the loudness follow the same envelope
 
-**Tests:** `crates/dsp/src/engine.rs::tests::sh101_one_envelope_moves_cutoff_and_loudness`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::sh101_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::sh101_pulse_is_locked_to_the_saw`
 
 ### Requirement 8: Panels and colours [MUST]
 
