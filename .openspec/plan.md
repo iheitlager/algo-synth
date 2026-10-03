@@ -69,7 +69,8 @@ The second way into the same model: a score instead of a generator. With the arr
 2. **Mono only** (#18): Wave, Drums, the algo and arrangement panes removed.
 3. **Up to 16 Mono instances** (#19, done), each with its own patch, preallocated, and each one of six **models** (epic #28, ADR-0009, spec 005): ARP 2600, Minimoog, Pro-One, MS-20, Yamaha CS-15, Roland SH-101, with their own controls, filters, presets and panel colours, so the ensemble is six different synths, not six 2600s; a MIDI channel plays on one instance, a loaded file gets one per channel. Then a little detune and timing humanization per instance, the way six real machines drift (#21).
 4. **The score** (#20): a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
-5. *(Later, with MVP 4)* Import as tracks and `score` clips that can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
+5. **Polyphony** (epic #78, ADR-0011, spec 006): a voice pool per synth and seven polyphonic instruments (Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7), so a MIDI file's chords play through the ensemble.
+6. *(Later, with MVP 4)* Import as tracks and `score` clips that can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
 
 ## M4: More sources
 

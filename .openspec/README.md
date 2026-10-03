@@ -42,5 +42,6 @@ See [adr/index.md](adr/index.md).
 | [003-ui](specs/003-ui/spec.md) | The wide-screen view: transport, synth faceplates, mixer console, MIDI player |
 | [004-mono](specs/004-mono/spec.md) | The Mono voice: VCOs, noise, filters, envelopes, modulation, mono note handling, normalled routing, MIDI input, presets |
 | [005-models](specs/005-models/spec.md) | The synth models: ARP 2600, Minimoog, Pro-One, MS-20, CS-15 and SH-101, each with its own sound, panel and colours |
+| [006-poly](specs/006-poly/spec.md) | Polyphony: the voice pool, allocation and stealing, unison, analog variance, and the Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, D-50 and DX7 |
 
 Specs are in draft. `**Implementation:**` and `**Tests:**` lines name the *planned* paths for requirements that aren't built yet; they become real links as the code lands.
