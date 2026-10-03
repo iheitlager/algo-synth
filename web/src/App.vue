@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // Wide-screen layout (spec 003): transport on top, the synths or the mixer
 // console, the MIDI player across the bottom.
-import { nextTick } from 'vue'
 import { synths, view } from './audio/engine'
 import ConsolePane from './components/ConsolePane.vue'
 import KnobPop from './components/console/KnobPop.vue'
@@ -9,12 +8,10 @@ import InstrumentsPane from './components/InstrumentsPane.vue'
 import PlayerPane from './components/PlayerPane.vue'
 import TransportBar from './components/TransportBar.vue'
 
-// A strip's panel is one double-click away: show the synths and bring its card in view.
-async function openSynth(s: number) {
+// A strip's faceplate is one double-click away: select the synth and show the synths.
+function openSynth(s: number) {
   synths.selected = s
   view.main = 'synths'
-  await nextTick()
-  document.getElementById(`synth-${s}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 }
 </script>
 

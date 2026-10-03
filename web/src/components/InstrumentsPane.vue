@@ -1,23 +1,37 @@
 <script setup lang="ts">
-// The synths (spec 004, spec 005): up to 16, each one of six instruments with
-// a panel and palette of its model. The selected one gets the keys.
-import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { MAX_SYNTHS, addSynth, getEngine, params, removeSynth, status, synthColour, synths } from '../audio/engine'
+// The synths (spec 003 Req 3 and 9, spec 005): a rail of tapes, one per synth
+// (up to 16, each one of six instruments), and the selected one as a faceplate
+// in its model's palette with a keyboard under it. The selected synth gets the
+// keys, the computer keyboard's too.
+import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
+import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, status, synthColour, synths } from '../audio/engine'
 import { MODELS, modelDef, type ModelDef } from '../audio/models'
 import { Param, Preset, type PresetId } from '../audio/params'
 import SynthFaceplate from './SynthFaceplate.vue'
-
-const keys = Array.from({ length: 25 }, (_, i) => 48 + i)
-const black = (n: number) => [1, 3, 6, 8, 10].includes(n % 12)
+import Keyboard from './synth/Keyboard.vue'
+import SynthRail, { type Tape } from './synth/SynthRail.vue'
 
 // The view shows what the engine reports (`params`), so a preset or a model
-// change moves the sliders.
-const defOf = (s: number): ModelDef => modelDef(params.values[s]?.[Param.Model] ?? 0)
-const cards = computed(() => synths.list.map((s) => ({ s, def: defOf(s) })))
-const themeOf = (def: ModelDef, s: number) => ({
-  '--c': def.theme.accent, '--card': def.theme.panel, '--ink': def.theme.ink,
-  '--soft': def.theme.soft, '--trim': def.theme.trim, '--dot': synthColour(s),
-})
+// change moves the knobs.
+const val = (s: number, id: number) => params.values[s]?.[id] ?? 0
+const defOf = (s: number): ModelDef => modelDef(val(s, Param.Model))
+const anySolo = computed(() => synths.list.some((s) => val(s, Param.Solo) >= 0.5))
+const tapes = computed<Tape[]>(() =>
+  synths.list.map((s) => {
+    const channels = player.parts.filter((p) => p.synth === s).map((p) => p.channel + 1)
+    return {
+      s,
+      name: defOf(s).name,
+      accent: defOf(s).theme.accent,
+      dot: synthColour(s),
+      footer: channels.length ? `Ch ${channels.join('·')}` : '—',
+      silenced: val(s, Param.Mute) >= 0.5 || (anySolo.value && val(s, Param.Solo) < 0.5),
+    }
+  }),
+)
+const sel = computed(() => (synths.list.includes(synths.selected) ? synths.selected : (synths.list[0] ?? 0)))
+const def = computed(() => defOf(sel.value))
+const accent = computed(() => ({ '--c': def.value.theme.accent }))
 function loadPreset(s: number, e: Event) {
   const select = e.target as HTMLSelectElement
   if (select.value !== '') getEngine()?.preset(s, Number(select.value) as PresetId)
@@ -32,8 +46,10 @@ function loadModel(s: number, e: Event) {
   select.blur()
 }
 
-const down = (s: number, n: number) => { synths.selected = s; getEngine()?.noteOn(s, n) }
-const up = (s: number, n: number) => getEngine()?.noteOff(s, n)
+// Keys sounding now, to light on the keyboard: from the mouse or the computer keyboard.
+const lit = reactive(new Set<number>())
+const down = (s: number, n: number) => { synths.selected = s; getEngine()?.noteOn(s, n); lit.add(n) }
+const up = (s: number, n: number) => { getEngine()?.noteOff(s, n); lit.delete(n) }
 
 // Computer keyboard: the bottom two rows play C4..E5 on the selected synth.
 // A held key remembers its synth, so selecting another can't strand a note.
@@ -65,67 +81,49 @@ function onRemove(s: number) {
 </script>
 
 <template>
-  <section class="pane">
-    <div class="pane-head">
-      <span>Synths · {{ synths.list.length }}/{{ MAX_SYNTHS }}</span>
-      <span class="head-right">
-        <span class="soon">{{ status.running ? 'keys A–; play the selected synth' : 'power on to play' }}</span>
-        <button :disabled="!status.running || synths.list.length >= MAX_SYNTHS" @click="addSynth">+ Synth</button>
-      </span>
-    </div>
-    <div class="cards">
-      <article
-        v-for="{ s, def } in cards" :key="s" :id="`synth-${s}`" class="card"
-        :class="{ sel: synths.selected === s }" :style="themeOf(def, s)"
-        @click="synths.selected = s"
-      >
-        <header>
-          <i class="dot" :title="`synth ${s + 1}`" />
-          <b :title="def.tagline">{{ def.name }}</b><span class="style">{{ def.maker }}</span>
-          <button
-            class="remove" title="Remove this synth; parts on it are muted"
-            :disabled="synths.list.length <= 1" @click.stop="onRemove(s)"
-          >×</button>
-        </header>
-        <div class="pick" @click.stop>
+  <section class="pane stage" aria-label="Synths">
+    <SynthRail :tapes="tapes" :selected="sel" :can-add="synths.list.length < MAX_SYNTHS" @select="synths.selected = $event" @add="addSynth" />
+    <div class="face" :style="accent">
+      <header>
+        <div class="title">
+          <h2 :title="def.tagline">{{ def.name }}</h2>
+          <span>{{ def.maker }}</span>
+        </div>
+        <div class="pick">
           <label>Model
-            <select :disabled="!status.running" :value="def.id" @change="loadModel(s, $event)">
+            <select :disabled="!status.running" :value="def.id" @change="loadModel(sel, $event)">
               <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.name }}</option>
             </select>
           </label>
           <label>Preset
-            <select :disabled="!status.running" @change="loadPreset(s, $event)">
+            <select :disabled="!status.running" @change="loadPreset(sel, $event)">
               <option value="">—</option>
               <option v-for="name in def.presets" :key="name" :value="Preset[name]">{{ name }}</option>
             </select>
           </label>
+          <span class="hint">{{ status.running ? 'keys A–; play it' : 'power on to play' }}</span>
+          <button class="remove" title="Remove this synth; parts on it are muted" :disabled="synths.list.length <= 1" @click="onRemove(sel)">× Remove</button>
         </div>
-        <SynthFaceplate :s="s" :def="def" />
-        <div class="kbd">
-          <span
-            v-for="n in keys" :key="n" class="key" :class="{ black: black(n) }"
-            @pointerdown="down(s, n)" @pointerup="up(s, n)" @pointerleave="up(s, n)"
-          />
-        </div>
-      </article>
+      </header>
+      <div class="scroll">
+        <SynthFaceplate :key="sel" :s="sel" :def="def" />
+      </div>
+      <Keyboard :lit="lit" @down="down(sel, $event)" @up="up(sel, $event)" />
     </div>
   </section>
 </template>
 
 <style scoped>
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 8px; padding: 8px; }
-.card { background: var(--card); color: var(--soft); border: 1px solid var(--trim); border-top: 3px solid var(--c); border-radius: 4px; padding: 10px; display: grid; gap: 10px; align-content: start; cursor: pointer; }
-.card.sel { box-shadow: 0 0 0 1px var(--c); }
-header { display: flex; align-items: baseline; gap: 8px; }
-header b { color: var(--ink); font-size: 15px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); align-self: center; }
-.remove { margin-left: auto; padding: 0 8px; line-height: 1.4; }
-.head-right { display: flex; gap: 10px; align-items: center; }
-.style { color: var(--soft); font-size: 11px; }
-.pick { display: flex; gap: 12px; font-size: 11px; }
+.stage { display: flex; align-items: stretch; overflow: hidden; background: var(--con-chassis); border-color: var(--con-line); }
+.face { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 14px; border-bottom: 1px solid #0b0d10; background: var(--con-panel); box-shadow: 0 1px 0 #2a303a inset; font-family: var(--con-font-silk); }
+.title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--con-paper); white-space: nowrap; }
+.title span { color: var(--con-silk-dim); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick { display: flex; gap: 14px; align-items: center; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--con-silk-dim); }
 .pick label { display: flex; gap: 6px; align-items: center; }
-.kbd { display: flex; height: 64px; gap: 1px; }
-.key { flex: 1; background: #d9dde3; border-radius: 0 0 3px 3px; }
-.key.black { background: #2b2f36; height: 62%; }
-.key:active { background: var(--c); }
+.pick select { font: 500 13px var(--con-font-silk); letter-spacing: 0.06em; background: var(--con-inset); color: var(--con-paper); border: 1px solid #343b46; border-radius: 3px; padding: 3px 6px; }
+.hint { font-style: italic; }
+.remove { font: 600 12px var(--con-font-silk); letter-spacing: 0.1em; text-transform: uppercase; }
+.scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
 </style>
