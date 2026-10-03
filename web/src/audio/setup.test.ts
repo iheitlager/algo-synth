@@ -174,7 +174,7 @@ describe('the mixer in a setup (#49)', () => {
     'Level', 'Pan', 'Send1', 'Send2', 'Send3', 'Send4', 'Mute', 'Solo', 'I1Type', 'I1A', 'I2Type', 'I3E',
   ]
   const globalNames = [
-    'P1Type', 'P1Return', 'P1A', 'P4E', 'CompThreshold', 'CompRatio', 'EqLowGain', 'EqHighFreq',
+    'P1Type', 'P1Return', 'P1A', 'P4E', 'P2In', 'P4In', 'CompThreshold', 'CompRatio', 'EqLowGain', 'EqHighFreq',
   ]
 
   it('saves strips per synth and the processors, compressor and EQ once', () => {
