@@ -151,11 +151,23 @@ pub enum Param {
     Vco3Low = 72,
     /// Normalled LFO → cutoff, 0..=1 (±24 semitones at full LFO).
     LfoCutoff = 73,
+    /// Normalled LFO → pulse width, 0..=1 (±0.45 at full LFO).
+    LfoPw = 74,
+    /// Poly-mod: filter envelope → VCO 2 pitch, −1..=1 (±24 semitones).
+    EnvFreq2 = 75,
+    /// Poly-mod: VCO 1 → VCO 2 pitch, −1..=1 (±24 semitones).
+    OscFreq2 = 76,
+    /// Poly-mod: filter envelope → pulse width, −1..=1 (±0.45).
+    EnvPw = 77,
+    /// Poly-mod: VCO 1 → pulse width, −1..=1 (±0.45).
+    OscPw = 78,
+    /// Poly-mod: VCO 1 → cutoff, −1..=1 (±48 semitones).
+    OscCutoff = 79,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 74] = [
+    pub const ALL: [(Param, &'static str); 80] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -230,6 +242,12 @@ impl Param {
         (Param::Vco3KeyFollow, "Vco3KeyFollow"),
         (Param::Vco3Low, "Vco3Low"),
         (Param::LfoCutoff, "LfoCutoff"),
+        (Param::LfoPw, "LfoPw"),
+        (Param::EnvFreq2, "EnvFreq2"),
+        (Param::OscFreq2, "OscFreq2"),
+        (Param::EnvPw, "EnvPw"),
+        (Param::OscPw, "OscPw"),
+        (Param::OscCutoff, "OscCutoff"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -289,8 +307,17 @@ impl Param {
             | Param::Patch7Amount
             | Param::Patch8Amount
             | Param::EnvCutoff
-            | Param::EnvHpCutoff => (-1.0, 1.0),
-            Param::KeyTrack | Param::Vibrato | Param::ModWheel | Param::LfoCutoff => (0.0, 1.0),
+            | Param::EnvHpCutoff
+            | Param::EnvFreq2
+            | Param::OscFreq2
+            | Param::EnvPw
+            | Param::OscPw
+            | Param::OscCutoff => (-1.0, 1.0),
+            Param::KeyTrack
+            | Param::Vibrato
+            | Param::ModWheel
+            | Param::LfoCutoff
+            | Param::LfoPw => (0.0, 1.0),
             Param::Model => (0.0, 5.0),
         };
         if v.is_nan() { lo } else { v.clamp(lo, hi) }

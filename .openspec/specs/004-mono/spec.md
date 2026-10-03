@@ -262,7 +262,7 @@ The mixer SHALL take a ring modulator, VCO 1 × VCO 2 (`RingLevel`), and a sub-o
 
 ### Requirement 14: Poly-mod and LFO destinations [MUST]
 
-The voice SHALL add, after the normals and the patch, five poly-mod amounts: filter envelope → VCO 2 pitch (`EnvFreq2`), VCO 1 → VCO 2 pitch (`OscFreq2`), filter envelope → pulse width (`EnvPw`), VCO 1 → pulse width (`OscPw`) and VCO 1 → cutoff (`OscCutoff`), and two LFO amounts, LFO → cutoff (`LfoCutoff`) and LFO → pulse width (`LfoPw`). They add to a destination without taking it over from its normals. Scale: ±24 semitones of pitch, ±0.45 of pulse width, ±48 semitones of cutoff.
+The voice SHALL add, after the normals and the patch, five poly-mod amounts: filter envelope → VCO 2 pitch (`EnvFreq2`), VCO 1 → VCO 2 pitch (`OscFreq2`), filter envelope → pulse width (`EnvPw`), VCO 1 → pulse width (`OscPw`) and VCO 1 → cutoff (`OscCutoff`), and two modulation amounts, LFO → cutoff (`LfoCutoff`, ±24 semitones at 1, no mod wheel) and LFO → pulse width (`LfoPw`, ±0.45). On a model whose modulator is VCO 3 (the Minimoog, spec 005 Req 3) these, and the vibrato normal, read VCO 3 instead of the LFO. They add to a destination without taking it over from its normals or its patch. Scale: ±24 semitones of pitch, ±0.45 of pulse width, ±48 semitones of cutoff for the poly-mod amounts.
 
 **Implementation:** `crates/dsp/src/mono/patch.rs::modulate` (#36)
 
@@ -272,4 +272,4 @@ The voice SHALL add, after the normals and the patch, five poly-mod amounts: fil
 - WHEN a note is held
 - THEN the cutoff modulation is the sum of both
 
-**Tests:** `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`
+**Tests:** `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`

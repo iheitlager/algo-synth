@@ -40,7 +40,7 @@ The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs,
 
 ### Requirement 3: Minimoog [MUST]
 
-The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, and Osc 3 usable as a modulator (spec 004 Req 13). It SHALL have no patch panel on its panel, and its normalled cutoff SHALL follow the filter ADSR with key tracking of 0, 1/3 or 2/3.
+The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, low note priority, and Osc 3 usable as a modulator (spec 004 Req 13). It has no LFO: Osc 3 SHALL be the source of its vibrato and of `LfoCutoff` (the modulation normals), and its panel SHALL have no patch panel. Its normalled cutoff SHALL follow the filter ADSR, with key tracking in steps of off, 1/3, 2/3 and full.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::Minimoog`, `crates/dsp/src/mono/voice.rs::MonoVoice::render` (#35)
 
@@ -70,7 +70,7 @@ The Pro-One SHALL have two oscillators (A and B), the second synced to the first
 - WHEN a note is held through the envelope
 - THEN the sync sweep changes the spectrum of the held note over time
 
-**Tests:** `crates/dsp/src/engine.rs::tests::pro_one_poly_mod_sweeps_the_synced_oscillator`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::pro_one_poly_mod_sweeps_the_synced_oscillator`, `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`
 
 ### Requirement 5: MS-20 [MUST]
 

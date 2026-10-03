@@ -230,6 +230,12 @@ impl MonoParams {
             Param::KeyTrack => self.normals.key_track = v,
             Param::Vibrato => self.normals.vibrato = 2.0 * v,
             Param::LfoCutoff => self.normals.lfo_cutoff = 24.0 * v,
+            Param::LfoPw => self.normals.lfo_pw = 0.45 * v,
+            Param::EnvFreq2 => self.normals.env_freq2 = 24.0 * v,
+            Param::OscFreq2 => self.normals.osc_freq2 = 24.0 * v,
+            Param::EnvPw => self.normals.env_pw = 0.45 * v,
+            Param::OscPw => self.normals.osc_pw = 0.45 * v,
+            Param::OscCutoff => self.normals.osc_cutoff = 48.0 * v,
             Param::ModWheel => self.mod_wheel = v,
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {

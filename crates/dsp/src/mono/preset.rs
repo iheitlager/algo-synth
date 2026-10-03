@@ -18,17 +18,21 @@ pub enum Preset {
     BowedString = 3,
     MiniBass = 4,
     MiniLead = 5,
+    ProLead = 6,
+    ProBass = 7,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 6] = [
+    pub const ALL: [(Preset, &'static str); 8] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
         (Preset::BowedString, "BowedString"),
         (Preset::MiniBass, "MiniBass"),
         (Preset::MiniLead, "MiniLead"),
+        (Preset::ProLead, "ProLead"),
+        (Preset::ProBass, "ProBass"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -44,6 +48,7 @@ impl Preset {
         match self {
             Preset::Bass | Preset::Lead | Preset::SyncLead | Preset::BowedString => Model::Arp2600,
             Preset::MiniBass | Preset::MiniLead => Model::Minimoog,
+            Preset::ProLead | Preset::ProBass => Model::ProOne,
         }
     }
 
@@ -161,6 +166,62 @@ impl Preset {
                 (Legato, 1.0),
                 (Priority, 1.0),
             ],
+            // Oscillator A (VCO 2) synced to a silent B (VCO 1), a fifth
+            // over: the filter envelope sweeps A's pitch, the classic
+            // poly-mod sync lead. Low note priority, a little glide.
+            Preset::ProLead => &[
+                (Model, 2.0),
+                (Vco1Level, 0.0),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 1.0),
+                (Vco2Sync, 1.0),
+                (Cutoff, 3_500.0),
+                (Resonance, 0.2),
+                (Drive, 0.2),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.3),
+                (FenvAttack, 0.005),
+                (FenvDecay, 0.7),
+                (FenvSustain, 0.3),
+                (EnvFreq2, 0.35),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+                (LfoWave, 2.0),
+                (LfoRate, 5.5),
+                (Vibrato, 0.15),
+                (ModWheel, 0.5),
+                (Priority, 1.0),
+                (Glide, 0.03),
+            ],
+            // A saw an octave down and a narrow pulse (A) whose width the
+            // LFO moves; full key tracking, as on the Pro-One.
+            Preset::ProBass => &[
+                (Model, 2.0),
+                (Vco1Coarse, -12.0),
+                (Vco2Wave, 1.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 5.0),
+                (Vco2Level, 0.8),
+                (PulseWidth, 0.35),
+                (LfoWave, 2.0),
+                (LfoRate, 0.8),
+                (LfoPw, 0.25),
+                (Cutoff, 700.0),
+                (Resonance, 0.4),
+                (Drive, 0.3),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.15),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.3),
+                (FenvSustain, 0.15),
+                (EnvCutoff, 0.5),
+                (KeyTrack, 1.0),
+                (Priority, 1.0),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -194,7 +255,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 73] = [
+pub const DEFAULTS: [(Param, f32); 79] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -268,6 +329,12 @@ pub const DEFAULTS: [(Param, f32); 73] = [
     (Param::Vco3KeyFollow, 1.0),
     (Param::Vco3Low, 0.0),
     (Param::LfoCutoff, 0.0),
+    (Param::LfoPw, 0.0),
+    (Param::EnvFreq2, 0.0),
+    (Param::OscFreq2, 0.0),
+    (Param::EnvPw, 0.0),
+    (Param::OscPw, 0.0),
+    (Param::OscCutoff, 0.0),
 ];
 
 #[cfg(test)]

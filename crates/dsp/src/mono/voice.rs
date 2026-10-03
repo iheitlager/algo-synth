@@ -595,6 +595,13 @@ mod tests {
         2.0 * (re * re + im * im).sqrt() / out.len() as f64
     }
 
+    /// Brightness: how much of a signal's energy is in its steps.
+    fn brightness(out: &[f32]) -> f64 {
+        let steps: f64 = out.windows(2).map(|w| f64::from(w[1] - w[0]).powi(2)).sum();
+        let level: f64 = out.iter().map(|s| f64::from(*s).powi(2)).sum();
+        (steps / level).sqrt()
+    }
+
     /// Rising zero crossings: whole cycles of a tone.
     fn cycles(out: &[f32]) -> usize {
         out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
@@ -703,6 +710,39 @@ mod tests {
         );
     }
 
+    /// Spec 005 Req 4: with oscillator A synced to a silent B, the filter
+    /// envelope into A's pitch sweeps the sound; without it nothing moves.
+    #[test]
+    fn pro_one_poly_mod_sweeps_the_synced_oscillator() {
+        let spectrum = |amount: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 2.0),
+                (Param::Vco1Level, 0.0),
+                (Param::Vco2Level, 1.0),
+                (Param::Vco2Sync, 1.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvAttack, 0.001),
+                (Param::FenvDecay, 0.3),
+                (Param::FenvSustain, 0.0),
+                (Param::EnvFreq2, amount),
+            ]);
+            r.press(45);
+            r.render(480);
+            let early = brightness(&r.render(2_400));
+            r.render(48_000);
+            let late = brightness(&r.render(2_400));
+            (early, late)
+        };
+        let (early, late) = spectrum(1.0);
+        assert!(early > 1.15 * late, "swept: {early} falls to {late}");
+        let (early, late) = spectrum(0.0);
+        assert!(
+            (early / late - 1.0).abs() < 0.1,
+            "still: {early} and {late}"
+        );
+    }
+
     /// Spec 005 Req 3: on the Minimoog the decay time is the release too.
     #[test]
     fn minimoog_decay_is_release() {
@@ -738,12 +778,6 @@ mod tests {
             (Param::FenvSustain, 1.0),
         ]);
         r.press(45);
-        // Brightness: how much of the signal's energy is in its steps.
-        let brightness = |out: &[f32]| {
-            let steps: f64 = out.windows(2).map(|w| f64::from(w[1] - w[0]).powi(2)).sum();
-            let level: f64 = out.iter().map(|s| f64::from(*s).powi(2)).sum();
-            (steps / level).sqrt()
-        };
         r.render(480);
         assert!(r.voice.mods().vca > 0.99, "the loudness contour is full");
         let early = brightness(&r.render(2_400));

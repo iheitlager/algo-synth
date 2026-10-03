@@ -203,8 +203,74 @@ const minimoog: ModelDef = {
   ],
 }
 
+const HALF_FULL: Options = [['Off', 0], ['Half', 0.5], ['Full', 1]]
+const adsrControls = (a: ParamId, d: ParamId, su: ParamId, r: ParamId): Control[] => [
+  attack(a), decay('Decay', d), sustain(su), decay('Release', r),
+]
+
+// Oscillator A is VCO 2 and B is VCO 1, so A can be synced to B and poly-mod
+// runs from B into A, in the direction the instrument has (spec 005 Req 4).
+const proOne: ModelDef = {
+  id: Model.ProOne,
+  name: 'Pro-One',
+  maker: 'Sequential · two oscillators, poly-mod',
+  tagline: 'Oscillator A synced to B, poly-mod from the filter envelope and B, 4-pole filter',
+  theme: { panel: '#241f1c', ink: '#f1e6d2', soft: '#bcae98', trim: '#8c2f1f', accent: '#e8482b' },
+  presets: ['ProLead', 'ProBass'],
+  sections: [
+    {
+      title: 'Oscillator A',
+      controls: [
+        range('Frequency', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES),
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), sw('Sync to B', Param.Vco2Sync),
+      ],
+    },
+    {
+      title: 'Oscillator B',
+      controls: [range('Frequency', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), select('Wave', Param.Vco1Wave, WAVES)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('Osc A', Param.Vco2Level, 0, 1, 0.01), range('Osc B', Param.Vco1Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01), select('Noise colour', Param.NoiseColour, NOISES),
+      ],
+    },
+    {
+      title: 'Poly-mod',
+      controls: [
+        range('Filter env → Freq A', Param.EnvFreq2, -1, 1, 0.01), range('Osc B → Freq A', Param.OscFreq2, -1, 1, 0.01),
+        range('Filter env → PW A', Param.EnvPw, -1, 1, 0.01), range('Osc B → PW A', Param.OscPw, -1, 1, 0.01),
+        range('Osc B → Filter', Param.OscCutoff, -1, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope amount', Param.EnvCutoff, -1, 1, 0.01), select('Key track', Param.KeyTrack, HALF_FULL),
+        range('Drive', Param.Drive, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Freq', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW A', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Keys',
+      controls: [select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), range('Glide', Param.Glide, 0, 2, 0.01)],
+    },
+  ],
+}
+
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? arp2600
