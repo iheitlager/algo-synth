@@ -63,11 +63,17 @@ pub enum Preset {
     JupiterSync = 48,
     JupiterXMod = 49,
     JupiterPad = 50,
+    MatrixPad = 51,
+    MatrixSweep = 52,
+    MatrixBrass = 53,
+    MatrixPunch = 54,
+    MatrixBells = 55,
+    MatrixLead = 56,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 51] = [
+    pub const ALL: [(Preset, &'static str); 57] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -119,6 +125,12 @@ impl Preset {
         (Preset::JupiterSync, "JupiterSync"),
         (Preset::JupiterXMod, "JupiterXMod"),
         (Preset::JupiterPad, "JupiterPad"),
+        (Preset::MatrixPad, "MatrixPad"),
+        (Preset::MatrixSweep, "MatrixSweep"),
+        (Preset::MatrixBrass, "MatrixBrass"),
+        (Preset::MatrixPunch, "MatrixPunch"),
+        (Preset::MatrixBells, "MatrixBells"),
+        (Preset::MatrixLead, "MatrixLead"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -132,6 +144,12 @@ impl Preset {
     /// The model this preset is for; `changes` sets it.
     pub fn model(self) -> Model {
         match self {
+            Preset::MatrixPad
+            | Preset::MatrixSweep
+            | Preset::MatrixBrass
+            | Preset::MatrixPunch
+            | Preset::MatrixBells
+            | Preset::MatrixLead => Model::Matrix12,
             Preset::JupiterBrass
             | Preset::JupiterStrings
             | Preset::JupiterBass
@@ -1303,6 +1321,171 @@ impl Preset {
                 (LfoCutoff, 0.3),
                 (KeyTrack, 0.5),
             ],
+            // A saw and a pulse, a second LFO moving the pulse width and breathing the
+            // filter through the matrix: a slow, wide pad.
+            Preset::MatrixPad => &[
+                (Model, 10.0),
+                (Polyphony, 12.0),
+                (Analog, 0.5),
+                (Vco1Level, 0.8),
+                (Vco2Wave, 1.0),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.7),
+                (Cutoff, 1_800.0),
+                (Resonance, 0.15),
+                (Slope, 1.0),
+                (AdsrAttack, 0.6),
+                (AdsrDecay, 0.7),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 1.0),
+                (FenvAttack, 0.7),
+                (FenvSustain, 0.7),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+                (Lfo2Rate, 0.3),
+                (Lfo2Wave, 2.0),
+                (Patch1Source, 13.0),
+                (Patch1Dest, 4.0),
+                (Patch1Amount, 0.35),
+                (Patch2Source, 13.0),
+                (Patch2Dest, 5.0),
+                (Patch2Amount, 0.18),
+            ],
+            // A long ramp from every note's start into the cutoff and resonance: the
+            // filter sweeps open and the resonance rises as the note ages.
+            Preset::MatrixSweep => &[
+                (Model, 10.0),
+                (Polyphony, 12.0),
+                (Analog, 0.4),
+                (Vco1Level, 0.9),
+                (Vco2Fine, 6.0),
+                (Vco2Level, 0.8),
+                (Cutoff, 500.0),
+                (Resonance, 0.2),
+                (Slope, 1.0),
+                (AdsrAttack, 0.05),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.6),
+                (EnvCutoff, 0.0),
+                (KeyTrack, 0.6),
+                (RampTime, 3.0),
+                (Patch1Source, 14.0),
+                (Patch1Dest, 5.0),
+                (Patch1Amount, 0.7),
+                (Patch2Source, 14.0),
+                (Patch2Dest, 6.0),
+                (Patch2Amount, 0.25),
+            ],
+            // Two saws, the filter opened by its envelope and by how hard the key is
+            // struck, through the matrix: velocity-sensitive brass.
+            Preset::MatrixBrass => &[
+                (Model, 10.0),
+                (Polyphony, 12.0),
+                (Analog, 0.4),
+                (Vco1Level, 0.9),
+                (Vco2Fine, 8.0),
+                (Vco2Level, 0.9),
+                (Cutoff, 900.0),
+                (Resonance, 0.2),
+                (Slope, 1.0),
+                (AdsrAttack, 0.05),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.25),
+                (FenvAttack, 0.07),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.55),
+                (EnvCutoff, 0.5),
+                (KeyTrack, 0.6),
+                (Patch1Source, 10.0),
+                (Patch1Dest, 5.0),
+                (Patch1Amount, 0.4),
+            ],
+            // A short third envelope bending the pitch into every note, a sub-heavy
+            // saw and a snapping filter: a punchy bass.
+            Preset::MatrixPunch => &[
+                (Model, 10.0),
+                (Polyphony, 12.0),
+                (Analog, 0.3),
+                (Vco1Coarse, -12.0),
+                (Vco1Level, 1.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 4.0),
+                (Vco2Level, 0.8),
+                (Cutoff, 500.0),
+                (Resonance, 0.3),
+                (Slope, 1.0),
+                (AdsrAttack, 0.002),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.6),
+                (AdsrRelease, 0.15),
+                (FenvAttack, 0.002),
+                (FenvDecay, 0.3),
+                (FenvSustain, 0.1),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 1.0),
+                (ArAttack, 0.001),
+                (ArRelease, 0.07),
+                (Patch1Source, 6.0),
+                (Patch1Dest, 1.0),
+                (Patch1Amount, 0.5),
+                (Patch2Source, 6.0),
+                (Patch2Dest, 2.0),
+                (Patch2Amount, 0.5),
+            ],
+            // VCO 2 frequency-modulating VCO 1 with the third envelope shaping the
+            // modulation through the matrix: a struck, clangorous bell.
+            Preset::MatrixBells => &[
+                (Model, 10.0),
+                (Polyphony, 12.0),
+                (Analog, 0.3),
+                (Vco1Wave, 3.0),
+                (Vco1Level, 0.9),
+                (Vco2Wave, 3.0),
+                (Vco2Coarse, 19.0),
+                (Vco2Level, 0.0),
+                (XMod, 0.5),
+                (Cutoff, 6_000.0),
+                (Resonance, 0.1),
+                (Slope, 1.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 1.8),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 1.4),
+                (KeyTrack, 1.0),
+            ],
+            // Unison with a second LFO as the vibrato, delayed by nothing but the wheel:
+            // a singing mono-style lead on all twelve voices.
+            Preset::MatrixLead => &[
+                (Model, 10.0),
+                (Polyphony, 12.0),
+                (Assign, 1.0),
+                (UnisonDetune, 0.12),
+                (Analog, 0.4),
+                (Vco1Level, 0.9),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.9),
+                (Cutoff, 2_800.0),
+                (Resonance, 0.3),
+                (Slope, 1.0),
+                (AdsrAttack, 0.01),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.3),
+                (FenvAttack, 0.01),
+                (FenvSustain, 0.6),
+                (EnvCutoff, 0.25),
+                (KeyTrack, 0.5),
+                (Lfo2Rate, 5.5),
+                (Lfo2Wave, 3.0),
+                (Patch1Source, 13.0),
+                (Patch1Dest, 1.0),
+                (Patch1Amount, 0.025),
+                (Patch2Source, 13.0),
+                (Patch2Dest, 2.0),
+                (Patch2Amount, 0.025),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -1336,7 +1519,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 86] = [
+pub const DEFAULTS: [(Param, f32); 125] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -1423,6 +1606,45 @@ pub const DEFAULTS: [(Param, f32); 86] = [
     (Param::ChorusMode, 0.0),
     (Param::XMod, 0.0),
     (Param::Slope, 1.0),
+    (Param::Lfo2Rate, 2.0),
+    (Param::Lfo2Wave, 2.0),
+    (Param::RampTime, 1.0),
+    (Param::Patch9Source, 0.0),
+    (Param::Patch9Dest, 0.0),
+    (Param::Patch9Amount, 0.0),
+    (Param::Patch10Source, 0.0),
+    (Param::Patch10Dest, 0.0),
+    (Param::Patch10Amount, 0.0),
+    (Param::Patch11Source, 0.0),
+    (Param::Patch11Dest, 0.0),
+    (Param::Patch11Amount, 0.0),
+    (Param::Patch12Source, 0.0),
+    (Param::Patch12Dest, 0.0),
+    (Param::Patch12Amount, 0.0),
+    (Param::Patch13Source, 0.0),
+    (Param::Patch13Dest, 0.0),
+    (Param::Patch13Amount, 0.0),
+    (Param::Patch14Source, 0.0),
+    (Param::Patch14Dest, 0.0),
+    (Param::Patch14Amount, 0.0),
+    (Param::Patch15Source, 0.0),
+    (Param::Patch15Dest, 0.0),
+    (Param::Patch15Amount, 0.0),
+    (Param::Patch16Source, 0.0),
+    (Param::Patch16Dest, 0.0),
+    (Param::Patch16Amount, 0.0),
+    (Param::Patch17Source, 0.0),
+    (Param::Patch17Dest, 0.0),
+    (Param::Patch17Amount, 0.0),
+    (Param::Patch18Source, 0.0),
+    (Param::Patch18Dest, 0.0),
+    (Param::Patch18Amount, 0.0),
+    (Param::Patch19Source, 0.0),
+    (Param::Patch19Dest, 0.0),
+    (Param::Patch19Amount, 0.0),
+    (Param::Patch20Source, 0.0),
+    (Param::Patch20Dest, 0.0),
+    (Param::Patch20Amount, 0.0),
 ];
 
 #[cfg(test)]

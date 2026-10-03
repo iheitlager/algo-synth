@@ -69,7 +69,9 @@ describe('model descriptions', () => {
     for (const m of MODELS) {
       for (const c of controls(m)) if (c.kind === 'env') expect(c.a, m.name).toBeDefined()
       const patch = m.sections.some((s) => s.patch)
-      expect(patch, m.name).toBe([Model.Arp2600, Model.Ms20, Model.Cs15].some((id) => id === m.id))
+      expect(patch, m.name).toBe([Model.Arp2600, Model.Ms20, Model.Cs15, Model.Matrix12].some((id) => id === m.id))
+      // The matrix has twenty slots and the engine has parameters for all of them.
+      if (m.patchSlots) expect(Param[`Patch${m.patchSlots}Amount` as keyof typeof Param], m.name).toBeDefined()
     }
   })
 

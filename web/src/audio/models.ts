@@ -58,6 +58,8 @@ export interface ModelDef {
   /** The model's presets, the first loaded when the model is chosen. */
   presets: (keyof typeof Preset)[]
   sections: Section[]
+  /** Patch slots the bay shows (8 unless the model has a modulation matrix). */
+  patchSlots?: number
 }
 
 /** Where a double-click puts a knob, in engine units, when it is not the low end (or 0 for a bipolar one). */
@@ -485,6 +487,66 @@ const jupiter8: ModelDef = {
   ],
 }
 
+// Twelve voices of two oscillators with sync, a filter with a 12 or 24 dB slope
+// and a high-pass, three envelopes, two LFOs, a ramp, and a matrix of twenty
+// slots that adds any source to any destination (spec 006 Req 9).
+const matrix12: ModelDef = {
+  id: Model.Matrix12,
+  name: 'Matrix-12',
+  maker: 'Oberheim · twelve voices, a modulation matrix',
+  tagline: 'Twelve voices: two oscillators, three envelopes, two LFOs, a ramp and a twenty-slot matrix',
+  theme: { panel: '#17191c', ink: '#f2ece0', soft: '#b0aca2', trim: '#7a3d10', accent: '#ff7a1a' },
+  patchSlots: 20,
+  presets: ['MatrixPad', 'MatrixSweep', 'MatrixBrass', 'MatrixPunch', 'MatrixBells', 'MatrixLead'],
+  sections: [
+    {
+      title: 'LFO 1',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Pitch', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    {
+      title: 'LFO 2',
+      controls: [select('Wave', Param.Lfo2Wave, LFO_WAVES), range('Rate', Param.Lfo2Rate, 0, 1, 0.001, 'lfo')],
+    },
+    { title: 'Ramp', controls: [range('Time', Param.RampTime, 0.01, 30, 0.01)] },
+    {
+      title: 'DCO 1',
+      controls: [
+        select('Range', Param.Vco1Coarse, [['16′', -12], ['8′', 0], ['4′', 12], ['2′', 24]]),
+        select('Wave', Param.Vco1Wave, WAVES), range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01),
+      ],
+    },
+    {
+      title: 'DCO 2',
+      controls: [range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES), sw('Sync', Param.Vco2Sync)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('DCO 1', Param.Vco1Level, 0, 1, 0.01), range('DCO 2', Param.Vco2Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01), range('FM 2 → 1', Param.XMod, 0, 1, 0.01),
+      ],
+    },
+    { title: 'HPF', controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff')] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        select('Slope', Param.Slope, SLOPE), range('Envelope', Param.EnvCutoff, -1, 1, 0.01),
+        range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Env 1 (filter)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Env 2 (amplifier)', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Env 3', controls: [envelope('', Param.ArAttack, undefined, undefined, Param.ArRelease)] },
+    voicesSection(),
+    { title: 'Modulation matrix', controls: [], patch: true },
+  ],
+}
+
 const ms20: ModelDef = {
   id: Model.Ms20,
   name: 'MS-20',
@@ -724,7 +786,7 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

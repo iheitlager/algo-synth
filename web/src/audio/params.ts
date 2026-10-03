@@ -161,6 +161,45 @@ export const Param = {
   ChorusMode: 154,
   XMod: 155,
   Slope: 156,
+  Lfo2Rate: 157,
+  Lfo2Wave: 158,
+  RampTime: 159,
+  Patch9Source: 160,
+  Patch9Dest: 161,
+  Patch9Amount: 162,
+  Patch10Source: 163,
+  Patch10Dest: 164,
+  Patch10Amount: 165,
+  Patch11Source: 166,
+  Patch11Dest: 167,
+  Patch11Amount: 168,
+  Patch12Source: 169,
+  Patch12Dest: 170,
+  Patch12Amount: 171,
+  Patch13Source: 172,
+  Patch13Dest: 173,
+  Patch13Amount: 174,
+  Patch14Source: 175,
+  Patch14Dest: 176,
+  Patch14Amount: 177,
+  Patch15Source: 178,
+  Patch15Dest: 179,
+  Patch15Amount: 180,
+  Patch16Source: 181,
+  Patch16Dest: 182,
+  Patch16Amount: 183,
+  Patch17Source: 184,
+  Patch17Dest: 185,
+  Patch17Amount: 186,
+  Patch18Source: 187,
+  Patch18Dest: 188,
+  Patch18Amount: 189,
+  Patch19Source: 190,
+  Patch19Dest: 191,
+  Patch19Amount: 192,
+  Patch20Source: 193,
+  Patch20Dest: 194,
+  Patch20Amount: 195,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -285,6 +324,7 @@ export const Model = {
   Prophet5: 7,
   Juno106: 8,
   Jupiter8: 9,
+  Matrix12: 10,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -340,6 +380,12 @@ export const Preset = {
   JupiterSync: 48,
   JupiterXMod: 49,
   JupiterPad: 50,
+  MatrixPad: 51,
+  MatrixSweep: 52,
+  MatrixBrass: 53,
+  MatrixPunch: 54,
+  MatrixBells: 55,
+  MatrixLead: 56,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 
@@ -364,6 +410,8 @@ export const ModSource = {
   Velocity: 10,
   Key: 11,
   Fenv: 12,
+  Lfo2: 13,
+  Ramp: 14,
 } as const
 export type ModSourceId = (typeof ModSource)[keyof typeof ModSource]
 
@@ -377,5 +425,7 @@ export const ModDest = {
   Resonance: 6,
   Vca: 7,
   LfoRate: 8,
+  HpCutoff: 9,
+  Lfo2Rate: 10,
 } as const
 export type ModDestId = (typeof ModDest)[keyof typeof ModDest]

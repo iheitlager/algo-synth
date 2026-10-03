@@ -20,11 +20,12 @@ pub enum Model {
     Prophet5 = 7,
     Juno106 = 8,
     Jupiter8 = 9,
+    Matrix12 = 10,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 10] = [
+    pub const ALL: [(Model, &'static str); 11] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -35,6 +36,7 @@ impl Model {
         (Model::Prophet5, "Prophet5"),
         (Model::Juno106, "Juno106"),
         (Model::Jupiter8, "Jupiter8"),
+        (Model::Matrix12, "Matrix12"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -107,6 +109,18 @@ pub const JUPITER12: SvfVoicing = SvfVoicing {
     k_min: 0.08,
     ceiling: 1.0,
 };
+/// The Matrix-12's four-pole: clean, with the bass kept under resonance.
+pub const MATRIX: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.35,
+    k_scale: 1.0,
+};
+/// Its two-pole setting: smooth, short of oscillating.
+pub const MATRIX12: SvfVoicing = SvfVoicing {
+    osc_at: 1.05,
+    k_min: 0.05,
+    ceiling: 1.1,
+};
 /// Sharp, and screaming at the top of the knob.
 pub const MS20: SvfVoicing = SvfVoicing {
     osc_at: 0.9,
@@ -146,6 +160,7 @@ impl Model {
             Model::Prophet5 => 5,
             Model::Juno106 => 6,
             Model::Jupiter8 => 8,
+            Model::Matrix12 => 12,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -157,6 +172,7 @@ impl Model {
             Model::ProOne | Model::Prophet5 => Filter::Ladder(PRO_ONE),
             Model::Sh101 | Model::Juno106 => Filter::Ladder(SH101),
             Model::Jupiter8 => Filter::Ladder(JUPITER),
+            Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -166,14 +182,26 @@ impl Model {
     /// The 12 dB low-pass of a model with the slope switch (the Jupiter-8's
     /// two-pole setting), if it has one.
     pub fn filter_12db(self) -> Option<Filter> {
-        (self == Model::Jupiter8).then_some(Filter::Svf(JUPITER12))
+        match self {
+            Model::Jupiter8 => Some(Filter::Svf(JUPITER12)),
+            Model::Matrix12 => Some(Filter::Svf(MATRIX12)),
+            _ => None,
+        }
+    }
+
+    /// Whether the voice runs the second LFO and the ramp, the sources the
+    /// Matrix-12's modulation matrix adds.
+    pub fn has_matrix(self) -> bool {
+        self == Model::Matrix12
     }
 
     /// The high-pass stage.
     pub fn hp(self) -> Hp {
         match self {
             Model::Ms20 | Model::Cs15 => Hp::Svf,
-            Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 => Hp::OnePole,
+            Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => {
+                Hp::OnePole
+            }
             Model::Arp2600 | Model::Minimoog | Model::ProOne | Model::Prophet5 => Hp::None,
         }
     }
@@ -271,7 +299,11 @@ mod tests {
     #[test]
     fn only_the_jupiter_has_a_slope_switch() {
         for (m, name) in Model::ALL {
-            assert_eq!(m.filter_12db().is_some(), m == Model::Jupiter8, "{name}");
+            assert_eq!(
+                m.filter_12db().is_some(),
+                matches!(m, Model::Jupiter8 | Model::Matrix12),
+                "{name}"
+            );
         }
         assert!(matches!(Model::Jupiter8.filter(), Filter::Ladder(_)));
         assert!(matches!(

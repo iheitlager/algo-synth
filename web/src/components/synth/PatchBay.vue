@@ -11,24 +11,24 @@ import { MOD_DESTS, MOD_SOURCES } from '../../audio/models'
 import { Param, type ParamId } from '../../audio/params'
 import ParamKnob from '../console/ParamKnob.vue'
 
-const props = defineProps<{ s: number }>()
+const props = withDefaults(defineProps<{ s: number; slots?: number }>(), { slots: 8 })
 
 const val = (id: ParamId) => params.values[props.s]?.[id] ?? 0
-const ids = Array.from({ length: 8 }, (_, i) => {
+const ids = Array.from({ length: props.slots }, (_, i) => {
   const key = (field: string) => Param[`Patch${i + 1}${field}` as keyof typeof Param]
   return { source: key('Source'), dest: key('Dest'), amount: key('Amount') }
 })
-const slots = computed<PatchSlot[]>(() => ids.map((i) => ({ source: val(i.source), dest: val(i.dest), amount: val(i.amount) })))
+const patch = computed<PatchSlot[]>(() => ids.map((i) => ({ source: val(i.source), dest: val(i.dest), amount: val(i.amount) })))
 // The id 0 of each list is the empty slot: it is not a jack.
 const sources = MOD_SOURCES.filter(([, id]) => id !== 0)
 const dests = MOD_DESTS.filter(([, id]) => id !== 0)
-const used = computed(() => slots.value.filter((s) => s.source !== 0).length)
+const used = computed(() => patch.value.filter((s) => s.source !== 0).length)
 // One colour per source, so a joined point and its slot read together.
 const colour = (source: number) => `hsl(${(source * 47 + 20) % 360} 70% 62%)`
 
-const joined = (source: number, dest: number) => findSlot(slots.value, source, dest) >= 0
+const joined = (source: number, dest: number) => findSlot(patch.value, source, dest) >= 0
 function press(source: number, dest: number) {
-  const edit = pressCell(slots.value, source, dest)
+  const edit = pressCell(patch.value, source, dest)
   const slot = edit && ids[edit.slot]
   if (!edit || !slot) return
   getEngine()?.param(props.s, slot.source, edit.value.source)
@@ -55,15 +55,15 @@ const nameOf = (list: typeof sources, id: number) => jackName(list.find(([, i]) 
             <button
               type="button" class="cell" :class="{ on: joined(sid, did) }" :style="{ '--k': colour(sid) }"
               :aria-pressed="joined(sid, did)" :aria-label="`${jackName(sname)} to ${jackName(dname)}`"
-              :disabled="!status.running || (!joined(sid, did) && used >= 8)" @click="press(sid, did)"
+              :disabled="!status.running || (!joined(sid, did) && used >= props.slots)" @click="press(sid, did)"
             />
           </td>
         </tr>
       </tbody>
     </table>
     <div class="slots">
-      <div class="count">Slots {{ used }}/8</div>
-      <div v-for="(slot, i) in slots" :key="i" class="slot" :class="{ free: slot.source === 0 }">
+      <div class="count">Slots {{ used }}/{{ slots }}</div>
+      <div v-for="(slot, i) in patch" :key="i" class="slot" :class="{ free: slot.source === 0 }">
         <template v-if="slot.source !== 0">
           <i class="swatch" :style="{ background: colour(slot.source) }" aria-hidden="true" />
           <span class="route">{{ nameOf(sources, slot.source) }} → {{ nameOf(dests, slot.dest) }}</span>
@@ -90,7 +90,8 @@ const nameOf = (list: typeof sources, id: number) => jackName(list.find(([, i]) 
 .cell:disabled { opacity: 0.35; cursor: default; }
 .cell:focus-visible { outline: 2px solid var(--con-paper); outline-offset: 1px; }
 .cell.on { background: var(--k); border-color: var(--k); box-shadow: 0 0 9px var(--k), 0 0 2px #fff6 inset; }
-.slots { display: grid; gap: 4px; min-width: 240px; }
+.slots { flex: 1 1 520px; display: grid; gap: 4px; min-width: 240px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.count { grid-column: 1 / -1; }
 .count { font: 600 11px var(--con-font-silk); letter-spacing: 0.18em; text-transform: uppercase; color: var(--con-silk-dim); margin-bottom: 2px; }
 .slot { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; background: var(--con-inset); border-radius: 4px; border: 1px solid #272d36; }
 .slot.free { opacity: 0.45; }

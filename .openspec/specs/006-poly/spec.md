@@ -124,9 +124,9 @@ The Jupiter-8 SHALL have 8 voices of two VCOs (VCO 2 synced to VCO 1) with cross
 
 ### Requirement 9: Matrix-12 [MUST]
 
-The Matrix-12 SHALL have 12 voices of two oscillators with sync, a filter with a switchable slope and a high-pass, three envelopes and two LFOs, and a modulation matrix of 20 slots reading every source (including the second LFO and a ramp) into every destination, adding in the voice.
+The Matrix-12 SHALL have 12 voices of two oscillators with sync, a filter with a switchable slope and a high-pass, three envelopes and two LFOs, and a modulation matrix of 20 slots reading every source (including the second LFO and a ramp that restarts with each note) into every destination, including the high-pass cutoff and the second LFO's rate. Its slots SHALL add to a destination and SHALL NOT take it over from the normals, as the 8-slot patch of the other models does.
 
-**Implementation:** `crates/dsp/src/mono/patch.rs::Patch`, `crates/dsp/src/mono/model.rs::Model::Matrix12` *(planned, #85)*
+**Implementation:** `crates/dsp/src/mono/patch.rs::Patch`, `crates/dsp/src/mono/voice.rs::MonoVoice::render`, `crates/dsp/src/mono/model.rs::Model::Matrix12` (#85)
 
 #### Scenario: the matrix
 
@@ -134,7 +134,7 @@ The Matrix-12 SHALL have 12 voices of two oscillators with sync, a filter with a
 - WHEN a note is held
 - THEN each destination receives the sum of its slots
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/mono/patch.rs::tests::twenty_slots_add_up_per_destination`, `crates/dsp/src/mono/voice.rs::tests::the_ramp_runs_over_its_time_and_restarts`, `crates/dsp/src/mono/voice.rs::tests::the_second_lfo_moves_what_it_is_patched_to`, `crates/dsp/src/engine.rs::tests::the_matrix_12_has_twelve_voices`
 
 ### Requirement 10: Table oscillator [MUST]
 

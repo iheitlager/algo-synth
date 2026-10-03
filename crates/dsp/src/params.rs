@@ -320,6 +320,84 @@ pub enum Param {
     XMod = 155,
     /// Low-pass slope on the models with the switch: 0 is 12 dB, 1 is 24 dB per octave.
     Slope = 156,
+    /// The second LFO's rate in Hz, 0.01..=50 (the Matrix-12).
+    Lfo2Rate = 157,
+    /// The second LFO's waveform id (`Waveform`), 0..=3.
+    Lfo2Wave = 158,
+    /// The ramp's time to full in seconds, 0.01..=30; it restarts with each note.
+    RampTime = 159,
+    /// Patch slot 9 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch9Source = 160,
+    /// Patch slot 9 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch9Dest = 161,
+    /// Patch slot 9 amount, −1..=1.
+    Patch9Amount = 162,
+    /// Patch slot 10 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch10Source = 163,
+    /// Patch slot 10 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch10Dest = 164,
+    /// Patch slot 10 amount, −1..=1.
+    Patch10Amount = 165,
+    /// Patch slot 11 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch11Source = 166,
+    /// Patch slot 11 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch11Dest = 167,
+    /// Patch slot 11 amount, −1..=1.
+    Patch11Amount = 168,
+    /// Patch slot 12 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch12Source = 169,
+    /// Patch slot 12 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch12Dest = 170,
+    /// Patch slot 12 amount, −1..=1.
+    Patch12Amount = 171,
+    /// Patch slot 13 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch13Source = 172,
+    /// Patch slot 13 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch13Dest = 173,
+    /// Patch slot 13 amount, −1..=1.
+    Patch13Amount = 174,
+    /// Patch slot 14 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch14Source = 175,
+    /// Patch slot 14 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch14Dest = 176,
+    /// Patch slot 14 amount, −1..=1.
+    Patch14Amount = 177,
+    /// Patch slot 15 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch15Source = 178,
+    /// Patch slot 15 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch15Dest = 179,
+    /// Patch slot 15 amount, −1..=1.
+    Patch15Amount = 180,
+    /// Patch slot 16 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch16Source = 181,
+    /// Patch slot 16 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch16Dest = 182,
+    /// Patch slot 16 amount, −1..=1.
+    Patch16Amount = 183,
+    /// Patch slot 17 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch17Source = 184,
+    /// Patch slot 17 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch17Dest = 185,
+    /// Patch slot 17 amount, −1..=1.
+    Patch17Amount = 186,
+    /// Patch slot 18 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch18Source = 187,
+    /// Patch slot 18 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch18Dest = 188,
+    /// Patch slot 18 amount, −1..=1.
+    Patch18Amount = 189,
+    /// Patch slot 19 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch19Source = 190,
+    /// Patch slot 19 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch19Dest = 191,
+    /// Patch slot 19 amount, −1..=1.
+    Patch19Amount = 192,
+    /// Patch slot 20 source id (`ModSource`), 0..=255; unknown ids are ignored.
+    Patch20Source = 193,
+    /// Patch slot 20 destination id (`ModDest`), 0..=255; unknown ids are ignored.
+    Patch20Dest = 194,
+    /// Patch slot 20 amount, −1..=1.
+    Patch20Amount = 195,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -401,7 +479,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 157] = [
+    pub const ALL: [(Param, &'static str); 196] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -559,6 +637,45 @@ impl Param {
         (Param::ChorusMode, "ChorusMode"),
         (Param::XMod, "XMod"),
         (Param::Slope, "Slope"),
+        (Param::Lfo2Rate, "Lfo2Rate"),
+        (Param::Lfo2Wave, "Lfo2Wave"),
+        (Param::RampTime, "RampTime"),
+        (Param::Patch9Source, "Patch9Source"),
+        (Param::Patch9Dest, "Patch9Dest"),
+        (Param::Patch9Amount, "Patch9Amount"),
+        (Param::Patch10Source, "Patch10Source"),
+        (Param::Patch10Dest, "Patch10Dest"),
+        (Param::Patch10Amount, "Patch10Amount"),
+        (Param::Patch11Source, "Patch11Source"),
+        (Param::Patch11Dest, "Patch11Dest"),
+        (Param::Patch11Amount, "Patch11Amount"),
+        (Param::Patch12Source, "Patch12Source"),
+        (Param::Patch12Dest, "Patch12Dest"),
+        (Param::Patch12Amount, "Patch12Amount"),
+        (Param::Patch13Source, "Patch13Source"),
+        (Param::Patch13Dest, "Patch13Dest"),
+        (Param::Patch13Amount, "Patch13Amount"),
+        (Param::Patch14Source, "Patch14Source"),
+        (Param::Patch14Dest, "Patch14Dest"),
+        (Param::Patch14Amount, "Patch14Amount"),
+        (Param::Patch15Source, "Patch15Source"),
+        (Param::Patch15Dest, "Patch15Dest"),
+        (Param::Patch15Amount, "Patch15Amount"),
+        (Param::Patch16Source, "Patch16Source"),
+        (Param::Patch16Dest, "Patch16Dest"),
+        (Param::Patch16Amount, "Patch16Amount"),
+        (Param::Patch17Source, "Patch17Source"),
+        (Param::Patch17Dest, "Patch17Dest"),
+        (Param::Patch17Amount, "Patch17Amount"),
+        (Param::Patch18Source, "Patch18Source"),
+        (Param::Patch18Dest, "Patch18Dest"),
+        (Param::Patch18Amount, "Patch18Amount"),
+        (Param::Patch19Source, "Patch19Source"),
+        (Param::Patch19Dest, "Patch19Dest"),
+        (Param::Patch19Amount, "Patch19Amount"),
+        (Param::Patch20Source, "Patch20Source"),
+        (Param::Patch20Dest, "Patch20Dest"),
+        (Param::Patch20Amount, "Patch20Amount"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -706,6 +823,45 @@ impl Param {
             Param::Assign => (0.0, 1.0),
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),
+            Param::Lfo2Rate => (0.01, 50.0),
+            Param::Lfo2Wave => (0.0, 3.0),
+            Param::RampTime => (0.01, 30.0),
+            Param::Patch9Source
+            | Param::Patch9Dest
+            | Param::Patch10Source
+            | Param::Patch10Dest
+            | Param::Patch11Source
+            | Param::Patch11Dest
+            | Param::Patch12Source
+            | Param::Patch12Dest
+            | Param::Patch13Source
+            | Param::Patch13Dest
+            | Param::Patch14Source
+            | Param::Patch14Dest
+            | Param::Patch15Source
+            | Param::Patch15Dest
+            | Param::Patch16Source
+            | Param::Patch16Dest
+            | Param::Patch17Source
+            | Param::Patch17Dest
+            | Param::Patch18Source
+            | Param::Patch18Dest
+            | Param::Patch19Source
+            | Param::Patch19Dest
+            | Param::Patch20Source
+            | Param::Patch20Dest => (0.0, 255.0),
+            Param::Patch9Amount
+            | Param::Patch10Amount
+            | Param::Patch11Amount
+            | Param::Patch12Amount
+            | Param::Patch13Amount
+            | Param::Patch14Amount
+            | Param::Patch15Amount
+            | Param::Patch16Amount
+            | Param::Patch17Amount
+            | Param::Patch18Amount
+            | Param::Patch19Amount
+            | Param::Patch20Amount => (-1.0, 1.0),
             Param::UnisonDetune | Param::Analog => (0.0, 1.0),
             Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
             Param::I1A => (0.0, 1.0),

@@ -23,7 +23,7 @@ use ladder::{MAX_K, hz_to_note};
 use model::{Filter, Model};
 use noise::NoiseColour;
 use osc::Waveform;
-use patch::{Normals, Patch};
+use patch::{DESTS, Normals, Patch};
 use voice::NotePriority;
 
 /// Number of VCOs per Mono voice.
@@ -44,6 +44,10 @@ pub struct MonoParams {
     pub chorus_mode: usize,
     /// Whether a model with the slope switch filters at 12 dB (else 24).
     pub slope12: bool,
+    /// The second LFO (cycles per sample, waveform) and the ramp's step per sample.
+    pub lfo2_inc: f32,
+    pub lfo2_wave: Waveform,
+    pub ramp_inc: f32,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -87,7 +91,7 @@ pub struct MonoParams {
     /// The patch, which destinations it takes over, the normalled amounts
     /// and the mod wheel.
     pub patch: Patch,
-    pub taken: [bool; 8],
+    pub taken: [bool; DESTS],
     pub normals: Normals,
     pub mod_wheel: f32,
 }
@@ -131,6 +135,9 @@ impl MonoParams {
             analog: 0.0,
             chorus_mode: 0,
             slope12: false,
+            lfo2_inc: 0.0,
+            lfo2_wave: Waveform::Sine,
+            ramp_inc: 0.0,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -160,7 +167,7 @@ impl MonoParams {
             legato: false,
             glide: 0.0,
             patch: Patch::default(),
-            taken: [false; 8],
+            taken: [false; DESTS],
             normals: Normals::default(),
             mod_wheel: 0.0,
         };
@@ -347,6 +354,50 @@ impl MonoParams {
             Param::ChorusMode => self.chorus_mode = v.round() as usize,
             Param::XMod => self.normals.xmod = 24.0 * v,
             Param::Slope => self.slope12 = v < 0.5,
+            Param::Patch9Source => self.patch.set_source(8, v),
+            Param::Patch9Dest => self.patch.set_dest(8, v),
+            Param::Patch9Amount => self.patch.set_amount(8, v),
+            Param::Patch10Source => self.patch.set_source(9, v),
+            Param::Patch10Dest => self.patch.set_dest(9, v),
+            Param::Patch10Amount => self.patch.set_amount(9, v),
+            Param::Patch11Source => self.patch.set_source(10, v),
+            Param::Patch11Dest => self.patch.set_dest(10, v),
+            Param::Patch11Amount => self.patch.set_amount(10, v),
+            Param::Patch12Source => self.patch.set_source(11, v),
+            Param::Patch12Dest => self.patch.set_dest(11, v),
+            Param::Patch12Amount => self.patch.set_amount(11, v),
+            Param::Patch13Source => self.patch.set_source(12, v),
+            Param::Patch13Dest => self.patch.set_dest(12, v),
+            Param::Patch13Amount => self.patch.set_amount(12, v),
+            Param::Patch14Source => self.patch.set_source(13, v),
+            Param::Patch14Dest => self.patch.set_dest(13, v),
+            Param::Patch14Amount => self.patch.set_amount(13, v),
+            Param::Patch15Source => self.patch.set_source(14, v),
+            Param::Patch15Dest => self.patch.set_dest(14, v),
+            Param::Patch15Amount => self.patch.set_amount(14, v),
+            Param::Patch16Source => self.patch.set_source(15, v),
+            Param::Patch16Dest => self.patch.set_dest(15, v),
+            Param::Patch16Amount => self.patch.set_amount(15, v),
+            Param::Patch17Source => self.patch.set_source(16, v),
+            Param::Patch17Dest => self.patch.set_dest(16, v),
+            Param::Patch17Amount => self.patch.set_amount(16, v),
+            Param::Patch18Source => self.patch.set_source(17, v),
+            Param::Patch18Dest => self.patch.set_dest(17, v),
+            Param::Patch18Amount => self.patch.set_amount(17, v),
+            Param::Patch19Source => self.patch.set_source(18, v),
+            Param::Patch19Dest => self.patch.set_dest(18, v),
+            Param::Patch19Amount => self.patch.set_amount(18, v),
+            Param::Patch20Source => self.patch.set_source(19, v),
+            Param::Patch20Dest => self.patch.set_dest(19, v),
+            Param::Patch20Amount => self.patch.set_amount(19, v),
+            Param::Lfo2Rate => self.lfo2_inc = v / self.sample_rate,
+            Param::Lfo2Wave => {
+                if let Some(w) = Waveform::from_id(v.round() as u32) {
+                    self.lfo2_wave = w;
+                }
+            }
+            Param::RampTime => self.ramp_inc = 1.0 / (v * self.sample_rate),
+
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;
@@ -357,7 +408,12 @@ impl MonoParams {
             }
             Param::MasterGain => {}
         }
-        self.taken = self.patch.overridden();
+        // A modulation matrix adds to its destinations; a patch panel replaces the normals.
+        self.taken = if self.model.has_matrix() {
+            [false; DESTS]
+        } else {
+            self.patch.overridden()
+        };
     }
 
     fn set_wave(&mut self, vco: usize, v: f32) {

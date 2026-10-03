@@ -941,6 +941,20 @@ mod tests {
         );
     }
 
+    /// The Matrix-12 has twelve voices.
+    #[test]
+    fn the_matrix_12_has_twelve_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::MatrixPad);
+        let chord: Vec<u8> = (0..13).map(|k| 40 + 3 * k).collect();
+        for n in &chord {
+            e.note_on(0, *n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 12);
+        assert_eq!(e.pools[0].held_notes(), chord[1..].to_vec());
+    }
+
     /// Notes held on a synth: its voices with a key down.
     fn gated_notes(e: &Engine, synth: usize) -> usize {
         e.pools[synth].held()

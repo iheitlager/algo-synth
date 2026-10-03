@@ -179,6 +179,9 @@ pub struct MonoVoice {
     ar: Env,
     fadsr: Env,
     lfo: Lfo,
+    /// The second LFO and the ramp, for the models with a modulation matrix.
+    lfo2: Lfo,
+    ramp: f32,
     noise: Noise,
     /// Last sample's VCO outputs, as modulation sources.
     last: [f32; VCOS],
@@ -339,6 +342,9 @@ impl MonoVoice {
                 env.gate_off(times);
             }
         }
+        if self.retrigger {
+            self.ramp = 0.0;
+        }
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
         self.adsr.set_sustain(p.adsr.sustain);
@@ -348,6 +354,8 @@ impl MonoVoice {
         }
         // Control rate: the LFO's speed follows its modulation per block.
         let lfo_inc = p.lfo_inc * self.mods.lfo_rate.clamp(-8.0, 8.0).exp2();
+        let lfo2_inc = p.lfo2_inc * self.mods.lfo2_rate.clamp(-8.0, 8.0).exp2();
+        let matrix = p.model.has_matrix();
         let [t1, t2, t3] = p.tune;
         let [_, sync2, sync3] = p.sync;
         let [l1, l2, l3] = p.level;
@@ -380,6 +388,14 @@ impl MonoVoice {
                     .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise),
             };
             let noise = self.noise.sample(colour);
+            let lfo2 = if matrix {
+                self.ramp = (self.ramp + p.ramp_inc).min(1.0);
+                self.lfo2
+                    .step(lfo2_inc, p.lfo2_wave, ctx.sine, &mut self.noise)
+                    .0
+            } else {
+                0.0
+            };
             let key = self.pitch - 60.0;
             let mut src: Sources = [0.0; SOURCES];
             for (s, v) in [
@@ -389,6 +405,8 @@ impl MonoVoice {
                 (ModSource::Noise, noise),
                 (ModSource::Adsr, adsr),
                 (ModSource::Ar, ar),
+                (ModSource::Lfo2, lfo2),
+                (ModSource::Ramp, self.ramp),
                 (
                     ModSource::Fenv,
                     if filter_env_is_adsr { adsr } else { fenv },
@@ -782,6 +800,72 @@ mod tests {
         assert!(
             hi - lo > 40.0,
             "VCO 3 at level 0 still modulates: {lo}..{hi}"
+        );
+    }
+
+    /// Spec 006 Req 9: the ramp runs from 0 to 1 over its time and starts again with each note.
+    #[test]
+    fn the_ramp_runs_over_its_time_and_restarts() {
+        let mut r = Rig::new(&[
+            (Param::Model, 10.0),
+            (Param::RampTime, 0.1),
+            (Param::Patch1Source, 14.0),
+            (Param::Patch1Dest, 5.0),
+            (Param::Patch1Amount, 1.0),
+            (Param::EnvCutoff, 0.0),
+            (Param::KeyTrack, 0.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(60);
+        r.render(2_400);
+        let half = r.voice.mods().cutoff;
+        assert!((half - 24.0).abs() < 0.5, "half way up after 50 ms: {half}");
+        r.render(4_800);
+        assert!(
+            (r.voice.mods().cutoff - 48.0).abs() < 1.0e-3,
+            "and full after 100 ms"
+        );
+        r.release(60);
+        r.render(128);
+        r.press(62);
+        r.render(1_200);
+        let again = r.voice.mods().cutoff;
+        assert!(again < 15.0, "a new note starts it over: {again}");
+    }
+
+    /// The second LFO is a modulation source of its own, at its own rate.
+    #[test]
+    fn the_second_lfo_moves_what_it_is_patched_to() {
+        let range = |rate: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 10.0),
+                (Param::Lfo2Rate, rate),
+                (Param::Lfo2Wave, 3.0),
+                (Param::Patch1Source, 13.0),
+                (Param::Patch1Dest, 5.0),
+                (Param::Patch1Amount, 0.5),
+                (Param::EnvCutoff, 0.0),
+                (Param::KeyTrack, 0.0),
+            ]);
+            r.press(60);
+            let (mut lo, mut hi, mut crossings, mut last) = (f32::MAX, f32::MIN, 0, 0.0_f32);
+            for _ in 0..750 {
+                r.render(128);
+                let c = r.voice.mods().cutoff;
+                lo = lo.min(c);
+                hi = hi.max(c);
+                if last <= 0.0 && c > 0.0 {
+                    crossings += 1;
+                }
+                last = c;
+            }
+            (hi - lo, crossings)
+        };
+        let (swing, cycles) = range(5.0);
+        assert!(swing > 40.0, "±24 semitones of cutoff: {swing}");
+        assert!(
+            (9..=11).contains(&cycles),
+            "2 s at 5 Hz is ten cycles: {cycles}"
         );
     }
 

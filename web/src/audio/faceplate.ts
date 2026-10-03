@@ -175,6 +175,9 @@ export function jackName(id: string): string {
   if (id === 'Lfo') return 'LFO'
   if (id === 'Vca') return 'VCA'
   if (id === 'LfoRate') return 'LFO rate'
+  if (id === 'Lfo2') return 'LFO 2'
+  if (id === 'Lfo2Rate') return 'LFO 2 rate'
+  if (id === 'HpCutoff') return 'HP cutoff'
   if (id === 'PulseWidth') return 'Pulse width'
   return id.replace(/Vco(\d)/, 'VCO $1 ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\s+/g, ' ').trim()
 }

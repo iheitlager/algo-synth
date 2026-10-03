@@ -58,7 +58,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
     <div class="mods">
       <section v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch }" :aria-label="sec.title">
         <h3>{{ sec.title }}</h3>
-        <PatchBay v-if="sec.patch" :s="s" />
+        <PatchBay v-if="sec.patch" :s="s" :slots="def.patchSlots ?? 8" />
         <div v-else class="ctls">
           <template v-for="(c, i) in sec.controls" :key="key(c, i)">
             <ParamKnob
