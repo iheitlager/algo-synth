@@ -281,6 +281,42 @@ mod tests {
         }
     }
 
+    /// The ARP 2600 voice sounds as it did before models (spec 005 Req 2):
+    /// rms, peak and two samples of half a second of A3, per preset, from the
+    /// last release before the model was added.
+    #[test]
+    fn arp_presets_keep_their_sound() {
+        let gold: [(Preset, [f64; 4]); 4] = [
+            (Preset::Bass, [0.117948, 0.479209, 0.040528, 0.162096]),
+            (Preset::Lead, [0.169469, 0.478455, -0.246227, -0.055599]),
+            (Preset::SyncLead, [0.150151, 0.386691, -0.188180, -0.129467]),
+            (Preset::BowedString, [0.093402, 0.229120, -0.096020, 0.048850]),
+        ];
+        for (preset, want) in gold {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.preset(0, preset);
+            e.note_on(0, 57, 0.8);
+            let mut out = Vec::new();
+            for _ in 0..(48_000 / 2 / BLOCK) {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output().get(..BLOCK).unwrap_or(&[]));
+            }
+            let rms = (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64)
+                .sqrt();
+            let peak = out.iter().fold(0.0_f32, |a, s| a.max(s.abs()));
+            let got = [
+                rms,
+                f64::from(peak),
+                f64::from(out[7000]),
+                f64::from(out[15000]),
+            ];
+            for (g, w) in got.iter().zip(want) {
+                assert!((g - w).abs() < 2.0e-5, "{preset:?}: {got:?} vs {want:?}");
+            }
+        }
+    }
+
     #[test]
     fn unknown_ids_are_none() {
         assert_eq!(Preset::from_id(4), None);

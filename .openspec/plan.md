@@ -10,7 +10,7 @@ algo-synth is built **from working to working**: every MVP is something you can 
 |---|---|---|
 | **M1: A voice** | **MVP 1** the pipeline · **MVP 2** the Mono voice | You play it for ten minutes without wanting a different synth |
 | **M2: Time** *(deferred)* | **MVP 3** the step sequencer · **MVP 4** the arrangement | A four-track loop you'd keep |
-| **M3: The ensemble** (next) | **MVP 5** six 2600s play Vivaldi | RV 269 plays start to finish, six patched voices, no glitches |
+| **M3: The ensemble** (next) | **MVP 5** six monosynths play Vivaldi | RV 269 plays start to finish, six differently voiced synths, no glitches |
 | **M4: More sources** *(deferred)* | **MVP 6** Drums · **MVP 7** Wave · **MVP 8** effects | A full track: kit, bass, lead, pad, space |
 | **M5: Algo** *(deferred)* | **MVP 9** live loops · **MVP 10** evolving loops · **MVP 11** performance | Ten minutes of music you didn't write note by note, and want to hear again |
 
@@ -61,13 +61,13 @@ The ARP 2600-style semi-modular voice, monophonic, playable from the on-screen a
 
 ## M3: The ensemble (second base)
 
-### MVP 5: six 2600s play Vivaldi
+### MVP 5: six monosynths play Vivaldi
 
 The second way into the same model: a score instead of a generator. With the arrangement deferred (ADR-0008), the MIDI player plays the score directly.
 
 1. **Standard MIDI File parser** in Rust: total (never panics on bad input), tested with malformed files, types 0 and 1, tempo map. *(Done in v0.2.)*
 2. **Mono only** (#18): Wave, Drums, the algo and arrangement panes removed.
-3. **Up to 16 Mono instances** (#19, done), each with its own patch, preallocated; a MIDI channel plays on one instance, a loaded file gets one per channel. Then a little detune and timing humanization per instance, the way six real machines drift (#21).
+3. **Up to 16 Mono instances** (#19, done), each with its own patch, preallocated, and each one of six **models** (epic #28, ADR-0009, spec 005): ARP 2600, Minimoog, Pro-One, MS-20, Yamaha CS-15, Roland SH-101, with their own controls, filters, presets and panel colours, so the ensemble is six different synths, not six 2600s; a MIDI channel plays on one instance, a loaded file gets one per channel. Then a little detune and timing humanization per instance, the way six real machines drift (#21).
 4. **The score** (#20): a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
 5. *(Later, with MVP 4)* Import as tracks and `score` clips that can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
 
