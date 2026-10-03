@@ -14,6 +14,8 @@ const VOICES = 16
 const WARMUP = 200
 const BLOCKS = 4_000
 const BUDGET = 0.25
+// Notes held on each channel; the polyphonic scenarios hold chords (spec 006 Req 15).
+const CHORD = [0, 3, 7, 12]
 
 const ts = readFileSync(new URL('../web/src/audio/params.ts', import.meta.url), 'utf8')
 const ids = (name) =>
@@ -41,6 +43,16 @@ const scenarios = {
   'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
   // Sixteen synths cycling through every model (spec 005 Req 9).
   'all models': [(w, s) => w.mono_preset(s, Preset[family[s % family.length]]), 36],
+  // Chord pads on every polyphonic model: sixteen synths, four voices each,
+  // which is the whole voice budget (spec 006 Req 15).
+  'poly pads': [(w, s) => w.mono_preset(s, Preset[polys[s % polys.length]]), 48, CHORD],
+  // The same, with analog drift, resonance and drive at full.
+  'poly worst': [(w, s) => {
+    w.mono_preset(s, Preset[polys[s % polys.length]])
+    w.set_param(s, Param.Analog, 1)
+    w.set_param(s, Param.Resonance, 0.9)
+    w.set_param(s, Param.Drive, 0.5)
+  }, 60, CHORD],
   // The family at its most expensive: ring mod, sub, noise, both filters at
   // full resonance and drive (the MS-20 and CS-15 filters, the high-pass
   // stages), high up.
@@ -68,6 +80,10 @@ const scenarios = {
   }, 72],
 }
 
+// The pad of each polyphonic model, so the ensemble is all of them: Prophet-5,
+// Juno-106, Jupiter-8, Matrix-12, PPG Wave, D-50, DX7.
+const polys = ['P5Pad', 'JunoPad', 'JupiterPad', 'MatrixPad', 'PpgSweepPad', 'LaFantasia', 'FmPad']
+
 // A MIDI variable-length quantity.
 const vlq = (n) => {
   const out = [n & 0x7f]
@@ -76,12 +92,21 @@ const vlq = (n) => {
 }
 
 // One held note per channel for a minute: 16 Mono voices, since each
-// channel owns one (spec 004 Req 6) and live input is monophonic.
-function sixteenChannels(lowest) {
+// channel owns one (spec 004 Req 6) and live input is monophonic. With a
+// chord, each channel holds all of its notes: a polyphonic voice per note.
+function sixteenChannels(lowest, chord = [0]) {
   const track = []
-  for (let ch = 0; ch < VOICES; ch++) track.push(0, 0x90 | ch, lowest + 3 * ch, 100)
+  const spread = (ch) => (chord.length > 1 ? 3 * (ch % 4) : 3 * ch)
+  const notes = (ch) => chord.map((n) => lowest + spread(ch) + n)
+  for (let ch = 0; ch < VOICES; ch++) for (const n of notes(ch)) track.push(0, 0x90 | ch, n, 100)
   // The player's song ends at its last note off.
-  for (let ch = 0; ch < VOICES; ch++) track.push(...(ch ? [0] : vlq(480 * 120)), 0x80 | ch, lowest + 3 * ch, 0)
+  let first = true
+  for (let ch = 0; ch < VOICES; ch++) {
+    for (const n of notes(ch)) {
+      track.push(...(first ? vlq(480 * 120) : [0]), 0x80 | ch, n, 0)
+      first = false
+    }
+  }
   track.push(0, 0xff, 0x2f, 0)
   const len = track.length
   return new Uint8Array([
@@ -91,7 +116,7 @@ function sixteenChannels(lowest) {
   ])
 }
 
-function run(setup, lowest) {
+function run(setup, lowest, chord) {
   const w = new WebAssembly.Instance(module, {}).exports
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
@@ -128,7 +153,7 @@ function run(setup, lowest) {
     w.set_param(s, Param.Send1, 0.5)
     w.set_param(s, Param.Send2, 0.5)
   }
-  const file = sixteenChannels(lowest)
+  const file = sixteenChannels(lowest, chord)
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
   if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')
   w.play()
@@ -138,20 +163,26 @@ function run(setup, lowest) {
   for (let i = 0; i < BLOCKS; i++) w.process(block)
   const ns = Number(process.hrtime.bigint() - t0)
   const voices = w.active_voices()
+  // Every sample stays within ±1 (untimed: reading the output costs).
+  let peak = 0
+  for (let i = 0; i < 500; i++) {
+    w.process(block)
+    for (const x of new Float32Array(w.memory.buffer, w.out_ptr(), 2 * block)) peak = Math.max(peak, Math.abs(x))
+  }
   const perBlock = ns / BLOCKS / 1_000
   const realtime = (block / SR) * 1e6
-  return { voices, perBlock, load: perBlock / realtime, realtime }
+  return { voices, perBlock, load: perBlock / realtime, realtime, peak }
 }
 
 console.log(`${cpus()[0]?.model ?? 'unknown CPU'} · Node ${process.version} · V8 ${process.versions.v8}`)
 let over = false
-for (const [name, [setup, lowest]] of Object.entries(scenarios)) {
-  const r = run(setup, lowest)
+for (const [name, [setup, lowest, chord]] of Object.entries(scenarios)) {
+  const r = run(setup, lowest, chord)
   const pct = (100 * r.load).toFixed(1)
-  const ok = r.load <= BUDGET
+  const ok = r.load <= BUDGET && r.peak <= 1
   over ||= !ok
   console.log(
-    `${name.padEnd(13)} ${r.voices} voices  ${r.perBlock.toFixed(1)} µs/block of ${r.realtime.toFixed(0)}  ${pct}% of a core  ${ok ? 'within' : 'OVER'} the ${100 * BUDGET}% budget`,
+    `${name.padEnd(13)} ${r.voices} voices  ${r.perBlock.toFixed(1)} µs/block of ${r.realtime.toFixed(0)}  ${pct}% of a core, peak ${r.peak.toFixed(2)}  ${ok ? 'within' : 'OVER'} the ${100 * BUDGET}% budget`,
   )
 }
 process.exitCode = over ? 1 : 0

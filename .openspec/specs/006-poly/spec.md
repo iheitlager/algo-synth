@@ -1,6 +1,6 @@
 # 006: Polyphony
 
-Epic #78: each synth owns a voice pool, and seven polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50 and Yamaha DX7. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011. Draft: requirements marked *(planned)* are not built yet.
+Epic #78: each synth owns a voice pool, and seven polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50 and Yamaha DX7. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011. Requirements marked *(planned)* are not built yet.
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have and is tested on that. Tests render offline at 48 kHz.
 
@@ -210,7 +210,7 @@ The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (pac
 
 Chord pads on every poly model SHALL render within the performance budget, and every preset of every poly model SHALL be finite, bounded, audible and silent after release at full polyphony.
 
-**Implementation:** `tools/bench.mjs`, `crates/dsp/src/mono/preset.rs` *(planned, #91)*
+**Implementation:** `tools/bench.mjs`, `crates/dsp/src/mono/preset.rs`
 
 #### Scenario: all of them at once
 
@@ -218,4 +218,4 @@ Chord pads on every poly model SHALL render within the performance budget, and e
 - WHEN they are held
 - THEN the load is within 25% of a core and every sample is within ±1
 
-**Tests:** *(planned)*
+**Tests:** `tools/bench.mjs` (`make bench`: the `poly pads` and `poly worst` scenarios), `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
