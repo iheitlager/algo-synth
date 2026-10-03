@@ -8,6 +8,7 @@
 pub mod algorithms;
 pub mod envelope;
 pub mod patch;
+pub mod sysex;
 
 use crate::fm::algorithms::{FB_IN, FB_OUT, OUT_BUS_ADD, algorithm, carriers};
 use crate::fm::envelope::{Env, Lfo, N, PitchEnv, scale_out_level};

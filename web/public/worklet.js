@@ -33,6 +33,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'off': w.note_off(data.s, data.n); break
         case 'panic': w.all_off(); break
         case 'midi': this.loadMidi(new Uint8Array(data.bytes)); break
+        case 'sysex': this.loadSysex(new Uint8Array(data.bytes)); break
+        case 'sysexApply': w.sysex_apply(data.s, data.i); this.sendParams(data.s); break
         case 'play': w.play(); break
         case 'stop': w.stop(); break
         case 'seek': w.seek(data.sec); break
@@ -90,6 +92,27 @@ class EngineProcessor extends AudioWorkletProcessor {
       { t: 'midi', code, parts, packed, times, length: w.song_length(), bar: w.song_bar() },
       [packed.buffer, times.buffer],
     )
+  }
+
+  // The same for a DX7 SysEx file: the voices' names come back as bytes.
+  loadSysex(bytes) {
+    const w = this.w
+    const ptr = w.sysex_buf(bytes.length)
+    if (!ptr) {
+      this.port.postMessage({ t: 'sysex', code: -6 })
+      return
+    }
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    const code = w.sysex_load()
+    if (code < 0) {
+      this.port.postMessage({ t: 'sysex', code })
+      return
+    }
+    const names = []
+    for (let i = 0; i < code; i++) {
+      names.push(new Uint8Array(w.memory.buffer, w.sysex_name_ptr(i), w.sysex_name_len(i)).slice())
+    }
+    this.port.postMessage({ t: 'sysex', code, names })
   }
 
   process(_inputs, outputs) {

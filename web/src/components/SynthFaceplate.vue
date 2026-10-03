@@ -16,6 +16,7 @@ import Eg4Graph from './synth/Eg4Graph.vue'
 import EnvGraph from './synth/EnvGraph.vue'
 import PatchBay from './synth/PatchBay.vue'
 import Selector from './synth/Selector.vue'
+import SysexLoader from './synth/SysexLoader.vue'
 import Switch from './synth/Switch.vue'
 
 const props = defineProps<{ s: number; def: ModelDef }>()
@@ -112,6 +113,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
                 :color="def.theme.accent" :text="(v: number) => `${Math.round(v) + 1}`"
               />
             </div>
+            <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>

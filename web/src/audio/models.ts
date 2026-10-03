@@ -31,6 +31,8 @@ export type Control =
   | { kind: 'eg4'; label: string; rates: ParamId[]; levels: ParamId[] }
   /** The DX7 algorithm number, drawn as the manual does. */
   | { kind: 'algo'; label: string; param: ParamId }
+  /** Load DX7 voices from a SysEx file; the engine reads it, the view only forwards the bytes. */
+  | { kind: 'sysex' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -725,6 +727,7 @@ const dx7: ModelDef = {
       ],
     },
     { title: 'Keyboard', controls: [int('Transpose', Param.Transpose, 48, 24), sw('Osc sync', Param.OscSync)] },
+    { title: 'Voices', controls: [{ kind: 'sysex' }] },
     { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
     ...[1, 2, 3, 4, 5, 6].flatMap(dxOperator),
     voicesSection(),

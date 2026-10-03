@@ -16,6 +16,8 @@ const paramsOf = (c: Control): number[] => {
       return [...c.rates, ...c.levels]
     case 'algo':
       return [c.param]
+    case 'sysex':
+      return []
     default:
       return []
   }

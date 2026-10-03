@@ -118,4 +118,49 @@ impl FmPatch {
             _ => {}
         }
     }
+
+    /// Field `k` of operator `op`, as `set_op` takes it.
+    pub fn op_field(&self, op: usize, k: usize) -> u8 {
+        let Some(o) = self.ops.get(op) else {
+            return 0;
+        };
+        match k {
+            0..=3 => o.rates.get(k).copied().unwrap_or(0),
+            4..=7 => o.levels.get(k - 4).copied().unwrap_or(0),
+            8 => o.break_point,
+            9 => o.left_depth,
+            10 => o.right_depth,
+            11 => o.left_curve,
+            12 => o.right_curve,
+            13 => o.rate_scale,
+            14 => o.amp_sens,
+            15 => o.vel_sens,
+            16 => o.level,
+            17 => o.mode,
+            18 => o.coarse,
+            19 => o.fine,
+            20 => o.detune,
+            _ => 0,
+        }
+    }
+
+    /// Global field `k`, as `set_global` takes it.
+    pub fn global_field(&self, k: usize) -> u8 {
+        match k {
+            0..=3 => self.pitch_rates.get(k).copied().unwrap_or(0),
+            4..=7 => self.pitch_levels.get(k - 4).copied().unwrap_or(0),
+            8 => self.algorithm,
+            9 => self.feedback,
+            10 => u8::from(self.osc_sync),
+            11 => self.lfo_speed,
+            12 => self.lfo_delay,
+            13 => self.lfo_pitch_depth,
+            14 => self.lfo_amp_depth,
+            15 => u8::from(self.lfo_sync),
+            16 => self.lfo_shape,
+            17 => self.pitch_sens,
+            18 => self.transpose,
+            _ => 0,
+        }
+    }
 }

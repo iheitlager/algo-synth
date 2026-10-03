@@ -7,6 +7,7 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::fm::sysex;
 use crate::fx::chorus::Chorus;
 use crate::fx::compressor::Compressor;
 use crate::fx::eq::{EqBand, Equalizer};
@@ -36,6 +37,8 @@ pub const SYNTHS: usize = 16;
 pub const METERS: usize = STRIPS + 2 + SENDS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
+/// The largest SysEx file taken: a bank is 4 104 bytes, so this leaves room for many.
+pub const MAX_SYSEX: usize = 1 << 20;
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -68,6 +71,10 @@ pub struct Engine {
     meters: [f32; METERS],
     /// The MIDI file's bytes, written by JavaScript before `load_midi`.
     midi: Vec<u8>,
+    /// A DX7 SysEx file's bytes, written by JavaScript before `load_sysex`, and the
+    /// voices parsed from it.
+    sysex: Vec<u8>,
+    sysex_voices: Vec<sysex::Voice>,
     sequence: Sequence,
     /// The synth each MIDI channel plays on; `None` mutes it.
     route: [Option<usize>; CHANNELS],
@@ -103,6 +110,8 @@ impl Engine {
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
             midi: Vec::new(),
+            sysex: Vec::new(),
+            sysex_voices: Vec::new(),
             sequence: Sequence::default(),
             route: [Some(0); CHANNELS],
         };
@@ -312,6 +321,62 @@ impl Engine {
         }
     }
 
+    // --- DX7 SysEx (spec 006 Req 14) -------------------------------------
+
+    /// Size the SysEx buffer for `len` bytes and return it for writing.
+    /// `None` if the file is larger than `MAX_SYSEX`.
+    pub fn sysex_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
+        if len > MAX_SYSEX {
+            return None;
+        }
+        self.sysex.clear();
+        self.sysex.resize(len, 0);
+        Some(&mut self.sysex)
+    }
+
+    /// Parse the buffer into voices, replacing the previous ones. Returns how many.
+    pub fn load_sysex(&mut self) -> Result<usize, sysex::Error> {
+        self.sysex_voices = sysex::parse(&self.sysex)?;
+        Ok(self.sysex_voices.len())
+    }
+
+    #[cfg(test)]
+    fn load_sysex_of(&mut self, bytes: &[u8]) -> Result<usize, sysex::Error> {
+        if let Some(b) = self.sysex_buffer(bytes.len()) {
+            b.copy_from_slice(bytes);
+        }
+        self.load_sysex()
+    }
+
+    /// The name of voice `i` from the last `load_sysex`.
+    pub fn sysex_name(&self, i: usize) -> &str {
+        self.sysex_voices.get(i).map_or("", |v| v.name.as_str())
+    }
+
+    /// Set every DX7 parameter of `synth` from voice `i`. The parameters go through
+    /// `set_param`, so the view reads the same values back. False if there is no such voice.
+    pub fn apply_sysex(&mut self, synth: usize, i: usize) -> bool {
+        let Some(voice) = self.sysex_voices.get(i) else {
+            return false;
+        };
+        let patch = voice.patch;
+        for op in 0..6 {
+            // `ops[0]` is operator 6, the last block of parameters.
+            let base = Param::Op1R1 as u32 + (5 - op as u32) * 21;
+            for k in 0..21 {
+                if let Some(p) = Param::from_id(base + k as u32) {
+                    self.set_param(synth, p, f32::from(patch.op_field(op, k)));
+                }
+            }
+        }
+        for k in 0..19 {
+            if let Some(p) = Param::from_id(Param::PitchR1 as u32 + k as u32) {
+                self.set_param(synth, p, f32::from(patch.global_field(k)));
+            }
+        }
+        true
+    }
+
     // --- MIDI player -----------------------------------------------------
 
     /// Size the MIDI buffer for `len` bytes and return it for writing.
@@ -508,6 +573,33 @@ mod tests {
 
     fn peak(e: &Engine) -> f32 {
         e.output().iter().fold(0.0_f32, |m, s| m.max(s.abs()))
+    }
+
+    /// Spec 006 Req 14: a SysEx voice reaches the DX7 parameters, operator 6 first.
+    #[test]
+    fn a_sysex_voice_sets_the_dx7_parameters() {
+        let mut p = crate::fm::patch::FmPatch::default();
+        p.set_op(0, 16, 77.0); // operator 6's output level
+        p.set_op(5, 16, 55.0); // operator 1's
+        p.set_global(8, 12.0); // algorithm
+        let data = sysex::to_voice_bytes(&p, "TESTVOICE");
+        let mut file = vec![0xf0, 0x43, 0x00, 0x00, 0x01, 0x1b];
+        file.extend_from_slice(&data);
+        file.extend_from_slice(&[sysex::checksum(&data), 0xf7]);
+        let mut e = Engine::new(48_000.0);
+        e.sysex_buffer(file.len())
+            .expect("fits")
+            .copy_from_slice(&file);
+        assert_eq!(e.load_sysex(), Ok(1));
+        assert_eq!(e.sysex_name(0), "TESTVOICE");
+        assert!(e.apply_sysex(2, 0));
+        assert!(!e.apply_sysex(2, 1));
+        let get = |e: &Engine, id: u32| e.param_value(2, Param::from_id(id).expect("id"));
+        assert_eq!(get(&e, Param::Op6R1 as u32 + 16), 77.0);
+        assert_eq!(get(&e, Param::Op1R1 as u32 + 16), 55.0);
+        assert_eq!(get(&e, Param::Algorithm as u32), 12.0);
+        assert_eq!(e.load_sysex_of(b"junk"), Err(sysex::Error::Unsupported));
+        assert!(e.sysex_buffer(MAX_SYSEX + 1).is_none());
     }
 
     fn load(e: &mut Engine, bytes: &[u8]) -> Result<usize, smf::Error> {

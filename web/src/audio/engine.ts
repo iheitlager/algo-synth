@@ -220,6 +220,24 @@ export async function loadDemo(): Promise<void> {
   await loadMidi(await mid.arrayBuffer(), 'Canon in D (demo)')
 }
 
+// DX7 SysEx: the engine parses the file; the view keeps the voice names it sends back.
+export const sysex = reactive({ names: [] as string[], error: '', fileName: '' })
+const SYSEX_ERRORS: Record<number, string> = {
+  [-1]: 'the file is empty',
+  [-2]: 'not a Yamaha SysEx file',
+  [-3]: 'not a DX7 voice or bank',
+  [-4]: 'the file is truncated',
+  [-6]: 'the file is too large',
+}
+export async function loadSysex(bytes: ArrayBuffer, fileName: string): Promise<void> {
+  await power()
+  if (!engine) return
+  sysex.fileName = fileName
+  sysex.error = ''
+  engine.post({ t: 'sysex', bytes }, [bytes])
+}
+export const applySysex = (s: number, i: number) => engine?.post({ t: 'sysexApply', s, i })
+
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
 export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
@@ -254,6 +272,14 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
   } else if (data.t === 'midi') {
     onMidi(data as unknown as MidiSummary)
+  } else if (data.t === 'sysex') {
+    const code = data.code as number
+    if (code < 0) {
+      sysex.error = SYSEX_ERRORS[code] ?? `load failed (${code})`
+      return
+    }
+    const decoder = new TextDecoder('utf-8')
+    sysex.names = (data.names as Uint8Array[]).map((n) => decoder.decode(n))
   }
 }
 

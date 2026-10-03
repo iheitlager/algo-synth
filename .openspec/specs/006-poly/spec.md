@@ -194,9 +194,9 @@ The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or
 
 ### Requirement 14: DX7 SysEx import [SHOULD]
 
-The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (packed format) into the DX7 parameters, total over any input (it never panics, and reports the voices it could not read), and JavaScript SHALL only forward the bytes.
+The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (packed format) into the DX7 parameters, total over any input (it never panics, and reports an error for what it cannot read), and JavaScript SHALL only forward the bytes.
 
-**Implementation:** `crates/dsp/src/fm/sysex.rs`, `crates/dsp/src/ffi.rs` *(planned, #90)*
+**Implementation:** `crates/dsp/src/fm/sysex.rs`, `crates/dsp/src/engine.rs`, `crates/dsp/src/ffi.rs`, `web/src/components/synth/SysexLoader.vue`
 
 #### Scenario: a bank
 
@@ -204,7 +204,7 @@ The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (pac
 - WHEN they are parsed
 - THEN the first yields 32 voices and the second an error without panic
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/fm/sysex.rs::tests::a_bank_and_a_single_voice_are_read`, `crates/dsp/src/fm/sysex.rs::tests::bad_input_is_an_error_not_a_panic`, `crates/dsp/src/engine.rs::tests::a_sysex_voice_sets_the_dx7_parameters`
 
 ### Requirement 15: Polyphonic budget [MUST]
 

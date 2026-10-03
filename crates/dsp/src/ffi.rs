@@ -199,6 +199,48 @@ pub extern "C" fn midi_load() -> i32 {
     })
 }
 
+// --- DX7 SysEx (spec 006, Req 14) ----------------------------------------------
+//
+// Same shape as the MIDI file: `sysex_buf(len)`, write the bytes, `sysex_load()`.
+// Voice names are read as bytes (`sysex_name_ptr`/`sysex_name_len`); `sysex_apply`
+// sets the DX7 parameters of a synth from one voice.
+
+/// Size the engine's SysEx buffer and return its address; null if too large.
+#[unsafe(no_mangle)]
+pub extern "C" fn sysex_buf(len: u32) -> *mut u8 {
+    query(std::ptr::null_mut(), |e| {
+        e.sysex_buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
+    })
+}
+
+/// Parse the buffer: the number of voices, or a negative `sysex::Error` code
+/// (−5 before `init`).
+#[unsafe(no_mangle)]
+pub extern "C" fn sysex_load() -> i32 {
+    query(-5, |e| match e.load_sysex() {
+        Ok(n) => i32::try_from(n).unwrap_or(i32::MAX),
+        Err(err) => err.code(),
+    })
+}
+
+/// Address of voice `i`'s name (ASCII); valid until the next `sysex_load`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sysex_name_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| e.sysex_name(i as usize).as_ptr())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn sysex_name_len(i: u32) -> u32 {
+    query(0, |e| e.sysex_name(i as usize).len() as u32)
+}
+
+/// Set synth `synth`'s DX7 parameters from voice `i`; false if there is no such voice.
+#[unsafe(no_mangle)]
+pub extern "C" fn sysex_apply(synth: u32, i: u32) -> bool {
+    query(false, |e| e.apply_sysex(synth as usize, i as usize))
+}
+
 fn seconds(e: &Engine, samples: u64) -> f32 {
     (samples as f64 / f64::from(e.sample_rate())) as f32
 }
