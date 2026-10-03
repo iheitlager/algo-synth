@@ -81,6 +81,8 @@ pub struct Mixer {
     any_solo: bool,
     /// The summed post-fader sends, one buffer per processor.
     pub sends: [[f32; BLOCK]; SENDS],
+    /// Each strip's post-fader peak in the last block; 0 when it is silenced.
+    pub peaks: [f32; SYNTHS],
 }
 
 impl Mixer {
@@ -91,6 +93,7 @@ impl Mixer {
             strips: [Strip::new(); SYNTHS],
             any_solo: false,
             sends: [[0.0; BLOCK]; SENDS],
+            peaks: [0.0; SYNTHS],
         }
     }
 
@@ -136,16 +139,18 @@ impl Mixer {
         };
         left.fill(0.0);
         right.fill(0.0);
+        self.peaks.fill(0.0);
         for send in self.sends.iter_mut() {
             if let Some(s) = send.get_mut(..n) {
                 s.fill(0.0);
             }
         }
-        for ((bus, s), drive) in self
+        for (((bus, s), drive), peak) in self
             .bus
             .iter_mut()
             .zip(self.strips.iter())
             .zip(self.drives.iter_mut())
+            .zip(self.peaks.iter_mut())
         {
             if s.mute || (self.any_solo && !s.solo) {
                 continue;
@@ -154,6 +159,7 @@ impl Mixer {
                 continue;
             };
             drive.process(bus);
+            *peak = bus.iter().fold(0.0_f32, |m, x| m.max(x.abs())) * s.level;
             let [gl, gr] = s.pan;
             for ((x, l), r) in bus.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
                 *l += x * s.level * gl;

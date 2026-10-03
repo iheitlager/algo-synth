@@ -104,6 +104,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (out[1]) out[1].set(buf.subarray(this.block, this.block + frames))
     if (++this.tick % POSITION_EVERY === 0) {
       this.port.postMessage({ t: 'pos', sec: w.position(), playing: w.playing() === 1 })
+      // The meters hold the highest level since the last read.
+      const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
+      w.meters_clear()
+      this.port.postMessage({ t: 'meters', levels }, [levels.buffer])
     }
     this.measure(now() - start, frames)
     return true

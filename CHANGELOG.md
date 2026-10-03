@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Peak meters from the engine: per synth strip (after its fader), master left and right, and each processor's return, read by the worklet about 47 times a second through new exports `meters_ptr`, `meters_len` and `meters_clear` (#53, epic #56).
+- Console primitives for the coming mixer view: rotary knob with a click-to-slider popover, fader with a dB taper, LED meter, bundled Barlow Condensed and IBM Plex Mono fonts (#52, epic #56).
+
 ## [0.9.0] - 2026-10-03
 
 Famous and string presets for every synth model (PR #65).

@@ -2,7 +2,7 @@
 // AudioWorkletNode (dsp.wasm) -> AnalyserNode (scope) -> speakers.
 // This file only sends messages; every musical decision is made in Rust.
 
-import { reactive, watch } from 'vue'
+import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GlobalParam, Param, type ParamId, type PresetId } from './params'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
@@ -81,6 +81,14 @@ export const player = reactive({
 })
 /** DSP load as a share of real time (peak is null without a precise clock). */
 export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, reduction: 0, seen: false })
+
+/**
+ * The console's meters (#53), as linear peaks since the last update: one per
+ * synth (after its fader), then master left and right, then each processor's
+ * return. Replaced whole about 47 times a second.
+ */
+export const METER_SYNTHS = 16
+export const levels = shallowReactive<{ values: Float32Array }>({ values: new Float32Array(METER_SYNTHS + 2 + 4) })
 
 /**
  * Parameter values by synth and id: what the view last sent, replaced by the
@@ -195,6 +203,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     meter.voices = data.voices as number
     meter.reduction = data.reduction as number
     meter.seen = true
+  } else if (data.t === 'meters') {
+    levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
   } else if (data.t === 'midi') {

@@ -7,6 +7,9 @@ import { ledSegments } from '../../audio/console'
 const props = withDefaults(defineProps<{ level: number; height: number; width?: number; segs?: number }>(), { width: 9, segs: 28 })
 
 const canvas = ref<HTMLCanvasElement | null>(null)
+// The engine reports the highest level since its last report; the bar falls
+// from it smoothly and a hold dot stays at the highest recent peak.
+let shown = 0
 let peak = 0
 const colors = { g: '#3fcf6e', a: '#f0b03a', r: '#f0503a' }
 
@@ -17,9 +20,9 @@ function draw() {
   const { width: W, height: H } = cv
   const gap = 2
   const segH = (H - gap * (props.segs - 1)) / props.segs
-  // The hold dot falls slowly.
+    shown = Math.max(props.level, shown * 0.86)
   peak = Math.max(props.level, peak * 0.985)
-  const lit = ledSegments(props.level, props.segs)
+  const lit = ledSegments(shown, props.segs)
   const hold = Math.round(ledSegments(peak, props.segs)) - 1
   g.clearRect(0, 0, W, H)
   for (let i = 0; i < props.segs; i++) {
