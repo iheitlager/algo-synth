@@ -137,142 +137,173 @@ pub enum Param {
     Mute = 64,
     /// When any synth is soloed (≥ 0.5), only soloed synths sound.
     Solo = 65,
-    /// Drive insert mode id (`DriveMode`: off, overdrive, distortion, fuzz), 0..=3.
-    DriveMode = 66,
-    /// Drive amount, 0..=1 (0 to +40 dB into the shaper).
-    DriveAmount = 67,
-    /// Drive tone, 0..=1: the low-pass after the shaper, 200 Hz to 20 kHz.
-    DriveTone = 68,
-    /// Drive output level, 0..=1.
-    DriveLevel = 69,
+    /// Insert slot 1's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor), 0..=5.
+    I1Type = 66,
+    /// Insert slot 1's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
+    I1A = 67,
+    /// Insert slot 1's knob B, 0..=1; what it does depends on the type (see `fx::insert`).
+    I1B = 68,
+    /// Insert slot 1's knob C, 0..=1; what it does depends on the type (see `fx::insert`).
+    I1C = 69,
+    /// Insert slot 1's knob D, 0..=1; what it does depends on the type (see `fx::insert`).
+    I1D = 70,
+    /// Insert slot 1's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
+    I1E = 71,
+    /// Insert slot 2's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor), 0..=5.
+    I2Type = 72,
+    /// Insert slot 2's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
+    I2A = 73,
+    /// Insert slot 2's knob B, 0..=1; what it does depends on the type (see `fx::insert`).
+    I2B = 74,
+    /// Insert slot 2's knob C, 0..=1; what it does depends on the type (see `fx::insert`).
+    I2C = 75,
+    /// Insert slot 2's knob D, 0..=1; what it does depends on the type (see `fx::insert`).
+    I2D = 76,
+    /// Insert slot 2's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
+    I2E = 77,
+    /// Insert slot 3's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor), 0..=5.
+    I3Type = 78,
+    /// Insert slot 3's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
+    I3A = 79,
+    /// Insert slot 3's knob B, 0..=1; what it does depends on the type (see `fx::insert`).
+    I3B = 80,
+    /// Insert slot 3's knob C, 0..=1; what it does depends on the type (see `fx::insert`).
+    I3C = 81,
+    /// Insert slot 3's knob D, 0..=1; what it does depends on the type (see `fx::insert`).
+    I3D = 82,
+    /// Insert slot 3's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
+    I3E = 83,
     /// Processor P1's effect id (`ProcType`: off, echo, reverb), 0..=2.
-    P1Type = 70,
+    P1Type = 84,
     /// Processor P1's return level into the master, 0..=1; 0 is silent.
-    P1Return = 71,
+    P1Return = 85,
     /// Processor P1's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
-    P1A = 72,
+    P1A = 86,
     /// Processor P1's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
-    P1B = 73,
+    P1B = 87,
     /// Processor P1's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
-    P1C = 74,
+    P1C = 88,
     /// Processor P1's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
-    P1D = 75,
+    P1D = 89,
     /// Processor P1's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
-    P1E = 76,
+    P1E = 90,
     /// Processor P2's effect id (`ProcType`: off, echo, reverb), 0..=2.
-    P2Type = 77,
+    P2Type = 91,
     /// Processor P2's return level into the master, 0..=1; 0 is silent.
-    P2Return = 78,
+    P2Return = 92,
     /// Processor P2's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
-    P2A = 79,
+    P2A = 93,
     /// Processor P2's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
-    P2B = 80,
+    P2B = 94,
     /// Processor P2's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
-    P2C = 81,
+    P2C = 95,
     /// Processor P2's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
-    P2D = 82,
+    P2D = 96,
     /// Processor P2's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
-    P2E = 83,
+    P2E = 97,
     /// Processor P3's effect id (`ProcType`: off, echo, reverb), 0..=2.
-    P3Type = 84,
+    P3Type = 98,
     /// Processor P3's return level into the master, 0..=1; 0 is silent.
-    P3Return = 85,
+    P3Return = 99,
     /// Processor P3's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
-    P3A = 86,
+    P3A = 100,
     /// Processor P3's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
-    P3B = 87,
+    P3B = 101,
     /// Processor P3's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
-    P3C = 88,
+    P3C = 102,
     /// Processor P3's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
-    P3D = 89,
+    P3D = 103,
     /// Processor P3's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
-    P3E = 90,
+    P3E = 104,
     /// Processor P4's effect id (`ProcType`: off, echo, reverb), 0..=2.
-    P4Type = 91,
+    P4Type = 105,
     /// Processor P4's return level into the master, 0..=1; 0 is silent.
-    P4Return = 92,
+    P4Return = 106,
     /// Processor P4's knob A, 0..=1; what it does depends on the type (see `fx::processor`).
-    P4A = 93,
+    P4A = 107,
     /// Processor P4's knob B, 0..=1; what it does depends on the type (see `fx::processor`).
-    P4B = 94,
+    P4B = 108,
     /// Processor P4's knob C, 0..=1; what it does depends on the type (see `fx::processor`).
-    P4C = 95,
+    P4C = 109,
     /// Processor P4's knob D, 0..=1; what it does depends on the type (see `fx::processor`).
-    P4D = 96,
+    P4D = 110,
     /// Processor P4's knob E, 0..=1; what it does depends on the type (see `fx::processor`).
-    P4E = 97,
+    P4E = 111,
     /// The synth's model id (`Model`), 0..=5; see spec 005.
-    Model = 98,
+    Model = 112,
     /// Filter ADSR attack, decay and release in seconds, 0.001..=10.
-    FenvAttack = 99,
-    FenvDecay = 100,
+    FenvAttack = 113,
+    FenvDecay = 114,
     /// Filter ADSR sustain level, 0..=1.
-    FenvSustain = 101,
-    FenvRelease = 102,
+    FenvSustain = 115,
+    FenvRelease = 116,
     /// High-pass cutoff in Hz, 20..=20000; 20 is out of the way.
-    HpCutoff = 103,
+    HpCutoff = 117,
     /// High-pass resonance, 0..=1 (the 12 dB high-pass of the MS-20 and CS-15).
-    HpResonance = 104,
+    HpResonance = 118,
     /// Normalled envelope → high-pass cutoff, −1..=1 (±4 octaves).
-    EnvHpCutoff = 105,
+    EnvHpCutoff = 119,
     /// Ring modulator (VCO 1 × VCO 2) level into the mixer, 0..=1.
-    RingLevel = 106,
+    RingLevel = 120,
     /// Sub-oscillator level into the mixer, 0..=1.
-    SubLevel = 107,
+    SubLevel = 121,
     /// Sub-oscillator octaves below VCO 1: 0 is one, 1 is two.
-    SubOctave = 108,
+    SubOctave = 122,
     /// VCO 3 follows the key when ≥ 0.5; off holds its pitch.
-    Vco3KeyFollow = 109,
+    Vco3KeyFollow = 123,
     /// VCO 3 sounds five octaves lower, in the low-frequency range, when ≥ 0.5.
-    Vco3Low = 110,
+    Vco3Low = 124,
     /// Normalled LFO → cutoff, 0..=1 (±24 semitones at full LFO).
-    LfoCutoff = 111,
+    LfoCutoff = 125,
     /// Normalled LFO → pulse width, 0..=1 (±0.45 at full LFO).
-    LfoPw = 112,
+    LfoPw = 126,
     /// Poly-mod: filter envelope → VCO 2 pitch, −1..=1 (±24 semitones).
-    EnvFreq2 = 113,
+    EnvFreq2 = 127,
     /// Poly-mod: VCO 1 → VCO 2 pitch, −1..=1 (±24 semitones).
-    OscFreq2 = 114,
+    OscFreq2 = 128,
     /// Poly-mod: filter envelope → pulse width, −1..=1 (±0.45).
-    EnvPw = 115,
+    EnvPw = 129,
     /// Poly-mod: VCO 1 → pulse width, −1..=1 (±0.45).
-    OscPw = 116,
+    OscPw = 130,
     /// Poly-mod: VCO 1 → cutoff, −1..=1 (±48 semitones).
-    OscCutoff = 117,
+    OscCutoff = 131,
     /// Post-fader send 3 (processor P3), 0..=1.
-    Send3 = 118,
+    Send3 = 132,
     /// Post-fader send 4 (processor P4), 0..=1.
-    Send4 = 119,
+    Send4 = 133,
     /// Master compressor threshold in dB, −60..=0.
-    CompThreshold = 120,
+    CompThreshold = 134,
     /// Master compressor ratio, 1..=20; 1 is off.
-    CompRatio = 121,
+    CompRatio = 135,
     /// Master compressor attack in ms, 0.1..=100.
-    CompAttack = 122,
+    CompAttack = 136,
     /// Master compressor release in ms, 10..=1000.
-    CompRelease = 123,
+    CompRelease = 137,
     /// Master compressor make-up gain in dB, 0..=24.
-    CompMakeup = 124,
+    CompMakeup = 138,
     /// Master EQ: Low shelf corner in Hz, 20..=500.
-    EqLowFreq = 125,
+    EqLowFreq = 139,
     /// Master EQ: Low shelf gain in dB, −15..=15.
-    EqLowGain = 126,
+    EqLowGain = 140,
     /// Master EQ: Mid band 1 centre in Hz, 100..=8000.
-    EqMid1Freq = 127,
+    EqMid1Freq = 141,
     /// Master EQ: Mid band 1 gain in dB, −15..=15.
-    EqMid1Gain = 128,
+    EqMid1Gain = 142,
     /// Master EQ: Mid band 1 Q, 0.3..=8.
-    EqMid1Q = 129,
+    EqMid1Q = 143,
     /// Master EQ: Mid band 2 centre in Hz, 500..=12000.
-    EqMid2Freq = 130,
+    EqMid2Freq = 144,
     /// Master EQ: Mid band 2 gain in dB, −15..=15.
-    EqMid2Gain = 131,
+    EqMid2Gain = 145,
     /// Master EQ: Mid band 2 Q, 0.3..=8.
-    EqMid2Q = 132,
+    EqMid2Q = 146,
     /// Master EQ: High shelf corner in Hz, 2000..=18000.
-    EqHighFreq = 133,
+    EqHighFreq = 147,
     /// Master EQ: High shelf gain in dB, −15..=15.
-    EqHighGain = 134,
+    EqHighGain = 148,
+    /// Where a strip or group goes after its fader: 0 is the master, 1–8 a group.
+    /// A group may only go to a higher-numbered group; other routes are ignored.
+    Out = 149,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -329,6 +360,20 @@ pub const GLOBAL_DEFAULTS: [(Param, f32); 44] = [
 const PROC_BASE: usize = Param::P1Type as usize;
 const PROC_FIELDS: usize = 7;
 
+/// The first insert parameter id, and how many each slot has: type and five
+/// knobs. A strip has three slots.
+const INSERT_BASE: usize = Param::I1Type as usize;
+const INSERT_FIELDS: usize = 6;
+pub const INSERT_SLOTS: usize = 3;
+
+/// What an insert parameter sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InsertField {
+    Type,
+    /// Knob 0..=4 (A..E).
+    Knob(usize),
+}
+
 /// What a processor parameter sets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcField {
@@ -340,7 +385,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 135] = [
+    pub const ALL: [(Param, &'static str); 150] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -407,10 +452,24 @@ impl Param {
         (Param::Send2, "Send2"),
         (Param::Mute, "Mute"),
         (Param::Solo, "Solo"),
-        (Param::DriveMode, "DriveMode"),
-        (Param::DriveAmount, "DriveAmount"),
-        (Param::DriveTone, "DriveTone"),
-        (Param::DriveLevel, "DriveLevel"),
+        (Param::I1Type, "I1Type"),
+        (Param::I1A, "I1A"),
+        (Param::I1B, "I1B"),
+        (Param::I1C, "I1C"),
+        (Param::I1D, "I1D"),
+        (Param::I1E, "I1E"),
+        (Param::I2Type, "I2Type"),
+        (Param::I2A, "I2A"),
+        (Param::I2B, "I2B"),
+        (Param::I2C, "I2C"),
+        (Param::I2D, "I2D"),
+        (Param::I2E, "I2E"),
+        (Param::I3Type, "I3Type"),
+        (Param::I3A, "I3A"),
+        (Param::I3B, "I3B"),
+        (Param::I3C, "I3C"),
+        (Param::I3D, "I3D"),
+        (Param::I3E, "I3E"),
         (Param::P1Type, "P1Type"),
         (Param::P1Return, "P1Return"),
         (Param::P1A, "P1A"),
@@ -476,6 +535,7 @@ impl Param {
         (Param::EqMid2Q, "EqMid2Q"),
         (Param::EqHighFreq, "EqHighFreq"),
         (Param::EqHighGain, "EqHighGain"),
+        (Param::Out, "Out"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -491,7 +551,21 @@ impl Param {
                 | Param::Send4
                 | Param::Mute
                 | Param::Solo
-        )
+                | Param::Out
+        ) || self.insert().is_some()
+    }
+
+    /// The insert slot (0–2) and field of an I1–I3 parameter.
+    pub fn insert(self) -> Option<(usize, InsertField)> {
+        let i = (self as usize).checked_sub(INSERT_BASE)?;
+        if i >= INSERT_SLOTS * INSERT_FIELDS {
+            return None;
+        }
+        let field = match i % INSERT_FIELDS {
+            0 => InsertField::Type,
+            k => InsertField::Knob(k - 1),
+        };
+        Some((i / INSERT_FIELDS, field))
     }
 
     /// Parameters of the whole engine, not of one synth: the master gain and
@@ -604,8 +678,23 @@ impl Param {
             Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
-            Param::DriveMode => (0.0, 3.0),
-            Param::DriveAmount | Param::DriveTone | Param::DriveLevel => (0.0, 1.0),
+            Param::Out => (0.0, 8.0),
+            Param::I1Type | Param::I2Type | Param::I3Type => (0.0, 5.0),
+            Param::I1A => (0.0, 1.0),
+            Param::I1B => (0.0, 1.0),
+            Param::I1C => (0.0, 1.0),
+            Param::I1D => (0.0, 1.0),
+            Param::I1E => (0.0, 1.0),
+            Param::I2A => (0.0, 1.0),
+            Param::I2B => (0.0, 1.0),
+            Param::I2C => (0.0, 1.0),
+            Param::I2D => (0.0, 1.0),
+            Param::I2E => (0.0, 1.0),
+            Param::I3A => (0.0, 1.0),
+            Param::I3B => (0.0, 1.0),
+            Param::I3C => (0.0, 1.0),
+            Param::I3D => (0.0, 1.0),
+            Param::I3E => (0.0, 1.0),
             Param::CompThreshold => (-60.0, 0.0),
             Param::CompRatio => (1.0, 20.0),
             Param::CompAttack => (0.1, 100.0),
@@ -693,7 +782,7 @@ mod tests {
     /// `web/src/audio/params.ts` hold exactly the same names and ids.
     #[test]
     fn typescript_mirror_matches() {
-        use crate::fx::drive::DriveMode;
+        use crate::fx::insert::InsertType;
         use crate::fx::processor::ProcType;
         use crate::mono::model::Model;
         use crate::mono::noise::NoiseColour;
@@ -713,13 +802,20 @@ mod tests {
             .copied()
             .filter(|(p, _)| p.is_global())
             .collect();
+        // `StripParam`: what `is_strip` marks, which belongs to a mixer strip.
+        let strip: Vec<(Param, &str)> = Param::ALL
+            .iter()
+            .copied()
+            .filter(|(p, _)| p.is_strip())
+            .collect();
         let lists = [
             ("Param", rust(&Param::ALL, |p| p as u32)),
             ("GlobalParam", rust(&global, |p| p as u32)),
+            ("StripParam", rust(&strip, |p| p as u32)),
             ("Waveform", rust(&Waveform::ALL, |w| w as u32)),
             ("NoiseColour", rust(&NoiseColour::ALL, |c| c as u32)),
             ("Model", rust(&Model::ALL, |m| m as u32)),
-            ("DriveMode", rust(&DriveMode::ALL, |m| m as u32)),
+            ("InsertType", rust(&InsertType::ALL, |t| t as u32)),
             ("ProcType", rust(&ProcType::ALL, |t| t as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),

@@ -10,7 +10,7 @@ use crate::fx::compressor::Compressor;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
-use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS};
+use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS, STRIPS};
 use crate::mono::MonoParams;
 use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
@@ -29,9 +29,9 @@ pub const CHANNELS: usize = 16;
 pub const SYNTHS: usize = 16;
 /// Mono voices: one live voice per synth, one per MIDI channel (spec 004 Req 6).
 pub const MONO_VOICES: usize = SYNTHS + CHANNELS;
-/// Peak meters: one per synth strip, then master left and right, then one per
-/// processor return.
-pub const METERS: usize = SYNTHS + 2 + SENDS;
+/// Peak meters: one per strip (the synths, then the groups), then master left
+/// and right, then one per processor return.
+pub const METERS: usize = STRIPS + 2 + SENDS;
 /// Largest MIDI file accepted: 16 MiB.
 pub const MAX_MIDI: usize = 16 << 20;
 
@@ -42,7 +42,7 @@ pub struct Engine {
     blep: Blep,
     synths: [MonoParams; SYNTHS],
     /// The last value set per synth and parameter id, clamped, for the view.
-    values: [[f32; Param::ALL.len()]; SYNTHS],
+    values: [[f32; Param::ALL.len()]; STRIPS],
     ladder: LadderTables,
     pitch: PitchTable,
     /// Index s plays synth s's live input, `SYNTHS + n` plays MIDI channel n.
@@ -81,7 +81,7 @@ impl Engine {
             sine,
             blep: Blep::new(),
             synths: [MonoParams::new(sample_rate); SYNTHS],
-            values: [[0.0; Param::ALL.len()]; SYNTHS],
+            values: [[0.0; Param::ALL.len()]; STRIPS],
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
             monos: std::array::from_fn(|i| {
@@ -103,8 +103,8 @@ impl Engine {
         for (p, v) in GLOBAL_DEFAULTS {
             engine.set_param(0, p, v);
         }
-        for synth in 0..SYNTHS {
-            engine.reset(synth);
+        for strip in 0..STRIPS {
+            engine.reset(strip);
         }
         engine
     }
@@ -127,6 +127,22 @@ impl Engine {
             }
             return;
         }
+        if param.is_strip() {
+            // The mixer owns it, for a synth's strip or a group's; a route that
+            // isn't allowed is refused and nothing changes.
+            if !self.mixer.set(synth, param, v) {
+                return;
+            }
+            if let Some(slot) = self
+                .values
+                .get_mut(synth)
+                .and_then(|r| r.get_mut(param as usize))
+            {
+                *slot = v;
+            }
+            return;
+        }
+        // A synth parameter: groups have none.
         let (Some(values), Some(mono)) = (self.values.get_mut(synth), self.synths.get_mut(synth))
         else {
             return;
@@ -134,10 +150,7 @@ impl Engine {
         if let Some(slot) = values.get_mut(param as usize) {
             *slot = v;
         }
-        if !param.is_strip() {
-            mono.set(param, v);
-        }
-        self.mixer.set(synth, param, v);
+        mono.set(param, v);
     }
 
     fn set_global(&mut self, param: Param, v: f32) {
@@ -386,16 +399,16 @@ impl Engine {
             self.limiter.process(l, r);
             let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
             let (pl, pr) = (peak(l), peak(r));
-            self.record(SYNTHS, pl);
-            self.record(SYNTHS + 1, pr);
+            self.record(STRIPS, pl);
+            self.record(STRIPS + 1, pr);
         }
-        for i in 0..SYNTHS {
+        for i in 0..STRIPS {
             let level = self.mixer.peaks.get(i).copied().unwrap_or(0.0);
             self.record(i, level);
         }
         for i in 0..SENDS {
             let level = self.procs.get_mut(i).map_or(0.0, |p| p.take_peak());
-            self.record(SYNTHS + 2 + i, level);
+            self.record(STRIPS + 2 + i, level);
         }
     }
 
@@ -873,7 +886,7 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::Level, 0.25);
         assert_eq!(e.param_value(0, Param::Level), 0.25);
-        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 8);
+        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 27);
     }
 
     #[test]
@@ -893,11 +906,63 @@ mod tests {
     }
 
     #[test]
+    fn inserts_are_per_strip_and_in_series() {
+        let play = |setup: fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            e.render(BLOCK);
+            e.output().to_vec()
+        };
+        let dry = play(|_| {});
+        // The same slot types in two orders sound different.
+        let drive_eq = play(|e| {
+            e.set_param(0, Param::I1Type, 2.0);
+            e.set_param(0, Param::I1A, 0.9);
+            e.set_param(0, Param::I2Type, 4.0);
+            e.set_param(0, Param::I2C, 1.0);
+        });
+        let eq_drive = play(|e| {
+            e.set_param(0, Param::I1Type, 4.0);
+            e.set_param(0, Param::I1C, 1.0);
+            e.set_param(0, Param::I2Type, 2.0);
+            e.set_param(0, Param::I2A, 0.9);
+        });
+        assert!(drive_eq != dry && eq_drive != dry && drive_eq != eq_drive);
+        // A neutral EQ slot changes nothing; a slot on synth 1 doesn't touch synth 0.
+        assert!(play(|e| e.set_param(0, Param::I3Type, 4.0)) == dry);
+        assert!(
+            play(|e| {
+                e.set_param(1, Param::I1Type, 3.0);
+                e.set_param(1, Param::I1A, 1.0);
+            }) == dry
+        );
+    }
+
+    #[test]
+    fn insert_parameters_are_the_strips_own() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(2, Param::I2Type, 5.0);
+        e.set_param(2, Param::I2B, 0.7);
+        assert_eq!(e.param_value(2, Param::I2Type), 5.0);
+        assert_eq!(e.param_value(0, Param::I2Type), 0.0);
+        assert_eq!(e.param_value(2, Param::I2B), 0.7);
+        e.reset(2);
+        assert_eq!(
+            e.param_value(2, Param::I2Type),
+            0.0,
+            "reset puts the slots back"
+        );
+        assert_eq!(e.param_value(2, Param::I2E), 0.0);
+        assert_eq!(e.param_value(2, Param::I2A), 0.5);
+    }
+
+    #[test]
     fn drive_shapes_the_synth_bus_only() {
         let play = |mode: f32| {
             let mut e = Engine::new(48_000.0);
-            e.set_param(0, Param::DriveMode, mode);
-            e.set_param(0, Param::DriveAmount, 1.0);
+            e.set_param(0, Param::I1Type, mode);
+            e.set_param(0, Param::I1A, 1.0);
             e.set_param(1, Param::Level, 0.0);
             e.note_on(0, 57, 1.0);
             e.note_on(1, 57, 1.0);
@@ -971,8 +1036,13 @@ mod tests {
         for synth in 0..SYNTHS {
             e.set_param(synth, Param::Send1, 1.0);
             e.set_param(synth, Param::Send2, 1.0);
-            e.set_param(synth, Param::DriveMode, 3.0);
-            e.set_param(synth, Param::DriveAmount, 1.0);
+            e.set_param(synth, Param::I1Type, 3.0);
+            e.set_param(synth, Param::I1A, 1.0);
+            e.set_param(synth, Param::I2Type, 4.0);
+            e.set_param(synth, Param::I2A, 0.9);
+            e.set_param(synth, Param::I3Type, 5.0);
+            e.set_param(synth, Param::I3A, 0.5);
+            e.set_param(synth, Param::I3B, 0.6);
             e.note_on(synth, 36 + 3 * synth as u8, 1.0);
         }
         for _ in 0..600 {
@@ -1072,11 +1142,11 @@ mod tests {
         assert!(m[0] > 0.05 && m[0] <= 1.0, "strip 0: {}", m[0]);
         assert_eq!(m[1], 0.0, "an idle strip reads zero");
         assert!(
-            m[SYNTHS] > 0.0 && m[SYNTHS + 1] > 0.0,
+            m[STRIPS] > 0.0 && m[STRIPS + 1] > 0.0,
             "master left and right"
         );
-        assert!(m[SYNTHS + 2] > 0.0, "the echo return has something");
-        assert_eq!(m[SYNTHS + 3], 0.0, "and the reverb does not");
+        assert!(m[STRIPS + 2] > 0.0, "the echo return has something");
+        assert_eq!(m[STRIPS + 3], 0.0, "and the reverb does not");
         // The fader scales the strip's reading.
         e.clear_meters();
         assert!(e.meters().iter().all(|m| *m == 0.0));
@@ -1104,6 +1174,205 @@ mod tests {
         }
         assert!(e.meters()[0] > 0.0);
         assert_eq!(e.meters()[1], 0.0);
+    }
+
+    /// Render `blocks` blocks and return the output.
+    fn render_out(e: &mut Engine, blocks: usize) -> Vec<f32> {
+        let mut all = Vec::new();
+        for _ in 0..blocks {
+            e.render(BLOCK);
+            all.extend_from_slice(e.output());
+        }
+        all
+    }
+
+    const GROUPS_N: usize = crate::mixer::GROUPS;
+    const G1: usize = SYNTHS;
+    const G2: usize = SYNTHS + 1;
+
+    #[test]
+    fn a_strip_routed_to_a_group_is_heard_through_the_group() {
+        let play = |setup: fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            render_out(&mut e, 40)
+        };
+        let direct = play(|_| {});
+        let via = play(|e| e.set_param(0, Param::Out, 1.0));
+        assert!(direct == via, "a group at unity changes nothing");
+        let quiet = play(|e| {
+            e.set_param(0, Param::Out, 1.0);
+            e.set_param(G1, Param::Level, 0.25);
+        });
+        assert!(
+            quiet.iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+                < 0.4 * direct.iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+        );
+        let muted = play(|e| {
+            e.set_param(0, Param::Out, 1.0);
+            e.set_param(G1, Param::Mute, 1.0);
+        });
+        assert!(
+            muted.iter().all(|x| *x == 0.0),
+            "a muted group silences what it carries"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Out, 1.0);
+        e.set_param(G1, Param::Pan, -1.0);
+        e.note_on(0, 57, 1.0);
+        let out = render_out(&mut e, 40);
+        let side = |from: usize| {
+            (0..40)
+                .flat_map(|b| out[b * 2 * BLOCK + from..b * 2 * BLOCK + from + BLOCK].to_vec())
+                .fold(0.0_f32, |m, x| m.max(x.abs()))
+        };
+        assert!(
+            side(0) > 0.01 && side(BLOCK) == 0.0,
+            "balance −1 keeps only the left"
+        );
+    }
+
+    #[test]
+    fn routes_cannot_loop() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(G1, Param::Out, 1.0);
+        assert_eq!(
+            e.param_value(G1, Param::Out),
+            0.0,
+            "a group can't feed itself"
+        );
+        e.set_param(G2, Param::Out, 1.0);
+        assert_eq!(e.param_value(G2, Param::Out), 0.0, "nor a lower group");
+        e.set_param(G1, Param::Out, 2.0);
+        assert_eq!(e.param_value(G1, Param::Out), 2.0, "but a higher one");
+        e.set_param(0, Param::Out, 8.0);
+        assert_eq!(e.param_value(0, Param::Out), 8.0, "any group for a synth");
+        e.set_param(0, Param::Out, 99.0);
+        assert_eq!(e.param_value(0, Param::Out), 8.0, "clamped, not wrapped");
+    }
+
+    #[test]
+    fn a_chain_of_groups_reaches_the_master() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Out, 1.0);
+        e.set_param(G1, Param::Out, 2.0);
+        e.set_param(G2, Param::Level, 0.0);
+        e.note_on(0, 57, 1.0);
+        assert!(
+            render_out(&mut e, 40).iter().all(|x| *x == 0.0),
+            "the second group's fader closes it"
+        );
+        e.set_param(G2, Param::Level, 1.0);
+        assert!(render_out(&mut e, 40).iter().any(|x| *x != 0.0));
+        let m = *e.meters();
+        assert!(m[G1] > 0.0 && m[G2] > 0.0, "both groups meter");
+    }
+
+    #[test]
+    fn solo_keeps_the_groups_in_a_soloed_path_heard() {
+        let heard = |solo: usize| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::Out, 1.0);
+            e.note_on(0, 57, 1.0);
+            e.note_on(1, 64, 1.0);
+            e.set_param(solo, Param::Solo, 1.0);
+            for _ in 0..40 {
+                e.render(BLOCK);
+            }
+            let m = *e.meters();
+            (m[0] > 0.0, m[1] > 0.0, m[G1] > 0.0)
+        };
+        assert_eq!(
+            heard(0),
+            (true, false, true),
+            "a soloed strip is heard through its group"
+        );
+        assert_eq!(
+            heard(1),
+            (false, true, false),
+            "and the group it doesn't pass is not"
+        );
+        assert_eq!(
+            heard(G1),
+            (true, false, true),
+            "a soloed group is heard with what feeds it"
+        );
+    }
+
+    #[test]
+    fn a_group_has_inserts_for_the_mix_it_carries() {
+        let play = |setup: fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::Out, 1.0);
+            e.set_param(1, Param::Out, 1.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            e.note_on(1, 64, 1.0);
+            render_out(&mut e, 60)
+        };
+        let dry = play(|_| {});
+        assert!(
+            play(|e| e.set_param(G1, Param::I1Type, 4.0)) == dry,
+            "a flat EQ on a group"
+        );
+        let boosted = play(|e| {
+            e.set_param(G1, Param::I1Type, 4.0);
+            e.set_param(G1, Param::I1C, 1.0);
+            e.set_param(G1, Param::I1B, 0.4);
+        });
+        assert!(boosted != dry);
+        let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        let squeezed = play(|e| {
+            e.set_param(G1, Param::I1Type, 5.0);
+            e.set_param(G1, Param::I1A, 0.1);
+            e.set_param(G1, Param::I1B, 0.9);
+        });
+        assert!(
+            peak(&squeezed) < 0.6 * peak(&dry),
+            "{} vs {}",
+            peak(&squeezed),
+            peak(&dry)
+        );
+        // The inserts are the group's own: strips going straight to the master keep theirs.
+        let strip_only = play(|e| {
+            e.set_param(0, Param::I1Type, 3.0);
+            e.set_param(0, Param::I1A, 1.0);
+        });
+        assert!(strip_only != dry);
+    }
+
+    #[test]
+    fn groups_have_sends_of_their_own() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Out, 1.0);
+        e.set_param(G1, Param::Send3, 1.0);
+        e.note_on(0, 57, 1.0);
+        e.render(BLOCK);
+        let peak = |b: &[f32]| b.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+        assert!(peak(&e.mixer.sends[2]) > 0.0);
+        assert_eq!(peak(&e.mixer.sends[0]), 0.0);
+    }
+
+    #[test]
+    fn sixteen_strips_through_eight_groups_stay_bounded() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Out, 1.0 + (synth % GROUPS_N) as f32);
+            e.set_param(synth, Param::Vco2Level, 1.0);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for g in 0..GROUPS_N {
+            // Chain the groups: each into the next, the last into the master.
+            if g + 1 < GROUPS_N {
+                e.set_param(SYNTHS + g, Param::Out, (g + 2) as f32);
+            }
+        }
+        for _ in 0..200 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
     }
 
     #[test]

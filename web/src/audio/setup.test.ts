@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import demoText from '../../public/demo.synths.json?raw'
-import { GlobalParam, Param } from './params'
+import { GlobalParam, Param, StripParam } from './params'
 import { MUTE, applyPlan, buildSetup, parseSetup, shortF32, type Registry, type State } from './setup'
 
-const reg: Registry = { params: Param, global: GlobalParam, maxSynths: 16, channels: 16 }
+const reg: Registry = { params: Param, global: GlobalParam, strip: StripParam, maxSynths: 16, channels: 16 }
 // The registry once synth models exist (epic #28): a `Model` parameter and names.
 const withModels: Registry = {
   ...reg,
@@ -171,7 +171,7 @@ describe('applyPlan', () => {
 
 describe('the mixer in a setup (#49)', () => {
   const mixerNames = [
-    'Level', 'Pan', 'Send1', 'Send2', 'Send3', 'Send4', 'Mute', 'Solo',
+    'Level', 'Pan', 'Send1', 'Send2', 'Send3', 'Send4', 'Mute', 'Solo', 'I1Type', 'I1A', 'I2Type', 'I3E',
   ]
   const globalNames = [
     'P1Type', 'P1Return', 'P1A', 'P4E', 'CompThreshold', 'CompRatio', 'EqLowGain', 'EqHighFreq',
@@ -242,8 +242,85 @@ describe('the mixer in a setup (#49)', () => {
     expect(parsed.ok && parsed.setup.synths[0]?.params).toEqual({ Send1: 0.2 })
   })
 
+  it('moves an old drive insert into insert slot 1', () => {
+    const parsed = parseSetup(
+      JSON.stringify({
+        version: 1,
+        synths: [{ index: 0, params: { DriveMode: 2, DriveAmount: 0.8, DriveTone: 0.6, DriveLevel: 0.7, Level: 0.9 } }],
+      }),
+      reg,
+    )
+    expect(parsed.ok && parsed.setup.synths[0]?.params).toEqual({ I1Type: 2, I1A: 0.8, I1B: 0.6, I1C: 0.7, Level: 0.9 })
+    expect(parsed.ok && parsed.warnings[0]).toMatch(/DriveAmount, DriveLevel, DriveMode, DriveTone/)
+  })
+
   it('opens the shipped demo setup without a warning', () => {
     const parsed = parseSetup(demoText, { ...reg, models: { Arp2600: 0 } })
     expect(parsed.ok && parsed.warnings).toEqual([])
+  })
+})
+
+describe('groups and layout in a setup (#61)', () => {
+  const grouped: State = {
+    ...state,
+    groups: [0, 2],
+    layout: { order: [2, 16, 0], collapsed: [16], hidden: [5] },
+    values: [...state.values, ...Array.from({ length: 13 }, () => []), values(3), [], values(7, { [Param.Out]: 3, [Param.Level]: 0.4 })],
+  }
+
+  it('saves each group with its strip parameters only, and the layout', () => {
+    const s = buildSetup(grouped, reg)
+    expect(s.groups?.map((g) => g.index)).toEqual([0, 2])
+    const params = s.groups?.[1]?.params ?? {}
+    expect(Object.keys(params).sort()).toEqual(Object.keys(StripParam).sort())
+    expect(params.Out).toBe(3)
+    expect(params.Level).toBe(0.4)
+    expect(params).not.toHaveProperty('Cutoff')
+    expect(s.layout).toEqual({ order: [2, 16, 0], collapsed: [16], hidden: [5] })
+  })
+
+  it('restores groups and layout exactly through a file', () => {
+    const parsed = parseSetup(JSON.stringify(buildSetup(grouped, reg)), reg)
+    expect(parsed.ok && parsed.warnings).toEqual([])
+    if (!parsed.ok) return
+    const { ops } = applyPlan(parsed.setup, reg)
+    expect(ops.find((o) => o.t === 'groups')).toEqual({ t: 'groups', groups: [0, 2] })
+    expect(ops.find((o) => o.t === 'layout')).toEqual({ t: 'layout', layout: { order: [2, 16, 0], collapsed: [16], hidden: [5] } })
+    // Group 3 is strip 18: reset first, then its parameters, with the route and level exact.
+    const at = ops.findIndex((o) => o.t === 'reset' && o.s === 18)
+    expect(at).toBeGreaterThan(0)
+    const mine = ops.filter((o) => o.t === 'param' && o.s === 18)
+    const out = mine.find((o) => o.t === 'param' && o.id === Param.Out)
+    expect(out && out.t === 'param' && out.v).toBe(3)
+  })
+
+  it('drops what is not a group or a strip, with one warning each', () => {
+    const parsed = parseSetup(
+      JSON.stringify({
+        version: 1,
+        synths: [],
+        groups: [{ index: 0, params: { Level: 0.5, Cutoff: 300 } }, { index: 0, params: {} }, { index: 9, params: {} }, { params: {} }],
+        layout: { order: [0, 99, 16], collapsed: 'no', hidden: [1, 1, -2] },
+      }),
+      reg,
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.setup.groups).toEqual([{ index: 0, params: { Level: 0.5 } }])
+    expect(parsed.setup.layout).toEqual({ order: [0, 16], collapsed: [], hidden: [1] })
+    expect(parsed.warnings).toEqual([
+      'skipped a second group 1',
+      'skipped group 10: there are 8',
+      'skipped a group without an index',
+      'ignored unknown group parameters: Cutoff',
+      'ignored layout entries that are not strips',
+    ])
+  })
+
+  it('leaves groups and layout alone when an older file has none', () => {
+    const parsed = parseSetup('{"version":1,"synths":[{"index":0,"params":{}}]}', reg)
+    expect(parsed.ok && parsed.setup.groups).toBeUndefined()
+    if (!parsed.ok) return
+    expect(applyPlan(parsed.setup, reg).ops.some((o) => o.t === 'groups' || o.t === 'layout')).toBe(false)
   })
 })

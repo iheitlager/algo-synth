@@ -3,7 +3,7 @@
 // type has, a return level and a return meter. All parameters are global.
 import { computed } from 'vue'
 import { PROC_KNOBS, clamp01, levelDb } from '../../audio/console'
-import { getEngine, levels, METER_SYNTHS, params } from '../../audio/engine'
+import { getEngine, levels, METER_STRIPS, params } from '../../audio/engine'
 import { Param, ProcType, type ParamId } from '../../audio/params'
 import ParamKnob from './ParamKnob.vue'
 
@@ -18,7 +18,7 @@ const pick = (t: number) => getEngine()?.param(0, id('Type'), t)
 const on = (pid: ParamId) => (params.values[0]?.[pid] ?? 0) >= 0.5
 const flip = (pid: ParamId) => getEngine()?.param(0, pid, on(pid) ? 0 : 1)
 // The return meter: −54 dB is empty, 0 dB full.
-const level = computed(() => clamp01((levelDb(levels.values[METER_SYNTHS + 2 + props.n] ?? 0) + 54) / 54))
+const level = computed(() => clamp01((levelDb(levels.values[METER_STRIPS + 2 + props.n] ?? 0) + 54) / 54))
 </script>
 
 <template>

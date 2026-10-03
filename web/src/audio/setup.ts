@@ -8,6 +8,9 @@
 // effects, models) is saved and restored without changes here.
 
 export const SETUP_VERSION = 1
+/** The strip index of group 0 (ADR-0010). */
+const GROUP_BASE = 16
+const GROUPS = 8
 /** A route to no synth: the channel is muted. Matches `MUTE` in engine.ts. */
 export const MUTE = 255
 
@@ -19,12 +22,28 @@ export interface SynthSetup {
   params: Record<string, number>
 }
 
+/** A group bus (ADR-0010): its number 0–7 and its strip parameters by name. */
+export interface GroupSetup {
+  index: number
+  params: Record<string, number>
+}
+
+/** How the console is laid out; strip indices (synths 0–15, groups 16–23). Only the view uses it. */
+export interface Layout {
+  order: number[]
+  collapsed: number[]
+  hidden: number[]
+}
+
 export interface Setup {
   version: typeof SETUP_VERSION
   /** The MIDI file the setup was made for, to warn on a mismatch. */
   midi?: { name: string; parts: number }
   global: Record<string, number>
   synths: SynthSetup[]
+  /** The group buses on screen; absent in setups from before groups. */
+  groups?: GroupSetup[]
+  layout?: Layout
   /** MIDI channel (0-15) to a synth index, or 'mute'. */
   routes: Record<string, number | 'mute'>
 }
@@ -35,6 +54,8 @@ export interface Registry {
   params: Record<string, number>
   /** The engine-wide ones (`GlobalParam`). */
   global: Record<string, number>
+  /** The ones a mixer strip or group owns (`StripParam`). */
+  strip?: Record<string, number>
   /** Model names to ids (`Model`), when synth models exist. */
   models?: Record<string, number>
   maxSynths: number
@@ -44,6 +65,9 @@ export interface Registry {
 /** What the view holds: shown synths, values by synth and id, routes. */
 export interface State {
   synths: number[]
+  /** The group buses on screen, 0–7. */
+  groups?: number[]
+  layout?: Layout
   values: number[][]
   routes: { channel: number; synth: number }[]
   midi?: { name: string; parts: number }
@@ -51,6 +75,8 @@ export interface State {
 
 export type Op =
   | { t: 'show'; synths: number[] }
+  | { t: 'groups'; groups: number[] }
+  | { t: 'layout'; layout: Layout }
   | { t: 'reset'; s: number }
   | { t: 'param'; s: number; id: number; v: number }
   | { t: 'route'; channel: number; synth: number }
@@ -99,7 +125,24 @@ export function buildSetup(state: State, reg: Registry): Setup {
   })
   const routes: Setup['routes'] = {}
   for (const r of state.routes) routes[String(r.channel)] = r.synth === MUTE ? 'mute' : r.synth
-  return { version: SETUP_VERSION, ...(state.midi && { midi: state.midi }), global, synths, routes }
+  const groups = (state.groups ?? []).map((g): GroupSetup => {
+    const values = state.values[GROUP_BASE + g] ?? []
+    const params: Record<string, number> = {}
+    for (const [name, id] of Object.entries(reg.strip ?? {})) {
+      const v = values[id]
+      if (finite(v)) params[name] = shortF32(v)
+    }
+    return { index: g, params }
+  })
+  return {
+    version: SETUP_VERSION,
+    ...(state.midi && { midi: state.midi }),
+    global,
+    synths,
+    groups,
+    ...(state.layout && { layout: state.layout }),
+    routes,
+  }
 }
 
 // Setups written before the mixer was central (#50) used other names: the
@@ -109,6 +152,11 @@ export function buildSetup(state: State, reg: Registry): Setup {
 const logPos = (v: number, lo: number, hi: number) =>
   Math.min(1, Math.max(0, Math.log(v / lo) / Math.log(hi / lo)))
 const SEND_ALIASES: Record<string, string> = { EchoSend: 'Send1', ReverbSend: 'Send2' }
+// The drive insert became insert slot 1 (ADR-0010): mode 0..3 is the type
+// (off, overdrive, distortion, fuzz), and amount, tone and level are A, B, C.
+const DRIVE_ALIASES: Record<string, string> = {
+  DriveMode: 'I1Type', DriveAmount: 'I1A', DriveTone: 'I1B', DriveLevel: 'I1C',
+}
 const GLOBAL_ALIASES: Record<string, (v: number) => [string, number]> = {
   EchoTime: (v) => ['P1A', logPos(v, 1, 2000)],
   EchoFeedback: (v) => ['P1B', Math.min(1, v / 0.95)],
@@ -152,6 +200,51 @@ function migrateGlobal(from: unknown, renamed: Set<string>): unknown {
   if ([...renamed].some((n) => n.startsWith('Echo') && n in GLOBAL_ALIASES)) out.P1Type ??= 1
   if ([...renamed].some((n) => n.startsWith('Reverb') && n in GLOBAL_ALIASES)) out.P2Type ??= 2
   return out
+}
+
+function parseGroups(raw: unknown, reg: Registry, warnings: string[]): GroupSetup[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: GroupSetup[] = []
+  const unknown = new Set<string>()
+  for (const entry of raw) {
+    if (!isObject(entry) || !Number.isInteger(entry.index)) {
+      warnings.push('skipped a group without an index')
+      continue
+    }
+    const index = entry.index as number
+    if (index < 0 || index >= GROUPS) {
+      warnings.push(`skipped group ${index + 1}: there are ${GROUPS}`)
+      continue
+    }
+    if (out.some((g) => g.index === index)) {
+      warnings.push(`skipped a second group ${index + 1}`)
+      continue
+    }
+    const params: Record<string, number> = {}
+    if (isObject(entry.params)) {
+      for (const [name, v] of Object.entries(entry.params)) {
+        if (name in (reg.strip ?? {}) && finite(v)) params[name] = v
+        else unknown.add(name)
+      }
+    }
+    out.push({ index, params })
+  }
+  if (unknown.size) warnings.push(`ignored unknown group parameters: ${[...unknown].sort().join(', ')}`)
+  return out
+}
+
+function parseLayout(raw: unknown, warnings: string[]): Layout | undefined {
+  if (!isObject(raw)) return undefined
+  let bad = false
+  const strips = (x: unknown) => {
+    if (!Array.isArray(x)) return []
+    const ok = x.filter((n): n is number => Number.isInteger(n) && n >= 0 && n < GROUP_BASE + GROUPS)
+    if (ok.length !== x.length) bad = true
+    return [...new Set(ok)]
+  }
+  const layout = { order: strips(raw.order), collapsed: strips(raw.collapsed), hidden: strips(raw.hidden) }
+  if (bad) warnings.push('ignored layout entries that are not strips')
+  return layout
 }
 
 export type Parsed = { ok: true; setup: Setup; warnings: string[] } | { ok: false; error: string }
@@ -207,7 +300,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     const synth: SynthSetup = {
       index,
       kind: 'mono',
-      params: values(migrate(entry.params, SEND_ALIASES, renamed), (n) => n in reg.params && !(n in reg.global) && !(n === MODEL && reg.models)),
+      params: values(migrate(entry.params, { ...SEND_ALIASES, ...DRIVE_ALIASES }, renamed), (n) => n in reg.params && !(n in reg.global) && !(n === MODEL && reg.models)),
     }
     if (typeof entry.model === 'string') {
       if (reg.models && entry.model in reg.models) synth.model = entry.model
@@ -215,8 +308,11 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     }
     synths.push(synth)
   }
-  if (renamed.size) warnings.push(`migrated an older setup: ${[...renamed].sort().join(', ')} now live on the mixer and processors P1–P2`)
+  if (renamed.size) warnings.push(`migrated an older setup: ${[...renamed].sort().join(', ')} now live on the mixer, the insert slots and processors P1–P2`)
   if (unknown.size) warnings.push(`ignored unknown parameters: ${[...unknown].sort().join(', ')}`)
+
+  const groups = parseGroups(raw.groups, reg, warnings)
+  const layout = parseLayout(raw.layout, warnings)
 
   const routes: Setup['routes'] = {}
   if (isObject(raw.routes)) {
@@ -239,7 +335,11 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     isObject(raw.midi) && typeof raw.midi.name === 'string' && Number.isInteger(raw.midi.parts)
       ? { name: raw.midi.name, parts: raw.midi.parts as number }
       : undefined
-  return { ok: true, setup: { version: SETUP_VERSION, ...(midi && { midi }), global, synths, routes }, warnings }
+  return {
+    ok: true,
+    setup: { version: SETUP_VERSION, ...(midi && { midi }), global, synths, ...(groups && { groups }), ...(layout && { layout }), routes },
+    warnings,
+  }
 }
 
 /**
@@ -270,6 +370,17 @@ export function applyPlan(
       if (id !== undefined) ops.push({ t: 'param', s, id, v })
     }
   }
+  if (setup.groups) {
+    ops.push({ t: 'groups', groups: setup.groups.map((g) => g.index).sort((a, b) => a - b) })
+    for (const group of setup.groups) {
+      const s = GROUP_BASE + group.index
+      ops.push({ t: 'reset', s })
+      for (const [name, v] of Object.entries(group.params)) {
+        const id = reg.params[name]
+        if (id !== undefined) ops.push({ t: 'param', s, id, v })
+      }
+    }
+  }
   for (const [ch, target] of Object.entries(setup.routes)) {
     ops.push({ t: 'route', channel: Number(ch), synth: target === 'mute' ? MUTE : target })
   }
@@ -277,5 +388,6 @@ export function applyPlan(
     const id = reg.global[name]
     if (id !== undefined) ops.push({ t: 'param', s: 0, id, v })
   }
+  if (setup.layout) ops.push({ t: 'layout', layout: setup.layout })
   return { ops, warnings }
 }

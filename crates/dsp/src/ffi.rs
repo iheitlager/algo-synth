@@ -11,6 +11,7 @@
 use std::cell::RefCell;
 
 use crate::engine::{BLOCK, Engine, METERS, SYNTHS};
+use crate::mixer::STRIPS;
 use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
@@ -98,6 +99,12 @@ pub extern "C" fn set_param(synth: u32, id: u32, value: f32) {
     if let Some(p) = Param::from_id(id) {
         with_engine(|e| e.set_param(synth as usize, p, value));
     }
+}
+
+/// Strips the mixer holds: the synths, then the group buses.
+#[unsafe(no_mangle)]
+pub extern "C" fn strip_count() -> u32 {
+    STRIPS as u32
 }
 
 /// Number of Mono synths; ids run from 0.
@@ -361,6 +368,7 @@ mod tests {
         process(128);
         assert_eq!(query(0, |e| e.active_voices()), 2);
         assert_eq!(synth_count(), 16);
+        assert_eq!(strip_count(), 24);
         set_param(3, Param::Cutoff as u32, 300.0);
         assert_eq!(param_value(3, Param::Cutoff as u32), 300.0);
         assert_ne!(param_value(0, Param::Cutoff as u32), 300.0);

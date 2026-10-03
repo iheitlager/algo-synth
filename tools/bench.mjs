@@ -25,7 +25,7 @@ const ids = (name) =>
 const Param = ids('Param')
 const Preset = ids('Preset')
 const Waveform = ids('Waveform')
-const DriveMode = ids('DriveMode')
+const InsertType = ids('InsertType')
 
 const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
@@ -96,6 +96,14 @@ function run(setup, lowest) {
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
   // both effects with long feedback and tail.
+  for (let g = 0; g < 8; g++) {
+    w.set_param(16 + g, Param.Send1, 0.2)
+    // Group inserts too: an EQ and a compressor on every group.
+    w.set_param(16 + g, Param.I1Type, InsertType.Eq)
+    w.set_param(16 + g, Param.I1C, 0.7)
+    w.set_param(16 + g, Param.I2Type, InsertType.Comp)
+    w.set_param(16 + g, Param.I2B, 0.6)
+  }
   w.set_param(0, Param.P1Return, 0.5)
   w.set_param(0, Param.P1D, 1)
   w.set_param(0, Param.P1B, 0.7)
@@ -106,9 +114,17 @@ function run(setup, lowest) {
   for (const b of ['Low', 'Mid1', 'Mid2', 'High']) w.set_param(0, Param[`Eq${b}Gain`], 6)
   for (let s = 0; s < w.synth_count(); s++) {
     setup(w, s)
-    w.set_param(s, Param.DriveMode, DriveMode.Fuzz)
-    w.set_param(s, Param.DriveAmount, 1)
+    // Three inserts in series: fuzz, a boosting EQ and a compressor.
+    w.set_param(s, Param.I1Type, InsertType.Fuzz)
+    w.set_param(s, Param.I1A, 1)
+    w.set_param(s, Param.I2Type, InsertType.Eq)
+    w.set_param(s, Param.I2A, 0.9)
+    w.set_param(s, Param.I2C, 0.8)
+    w.set_param(s, Param.I3Type, InsertType.Comp)
+    w.set_param(s, Param.I3B, 0.6)
     w.set_param(s, Param.Pan, s / 7.5 - 1)
+    // Every pair of synths into a group, the groups into the master.
+    w.set_param(s, Param.Out, 1 + (s % 8))
     w.set_param(s, Param.Send1, 0.5)
     w.set_param(s, Param.Send2, 0.5)
   }

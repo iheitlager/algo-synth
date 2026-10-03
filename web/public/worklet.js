@@ -24,7 +24,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.busy = 0
     this.peak = 0
     this.blocks = 0
-    for (let s = 0; s < this.w.synth_count(); s++) this.sendParams(s)
+    for (let s = 0; s < this.w.strip_count(); s++) this.sendParams(s)
     this.port.onmessage = ({ data }) => {
       const w = this.w
       switch (data.t) {

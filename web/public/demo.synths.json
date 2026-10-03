@@ -96,10 +96,6 @@
         "Send2": 0,
         "Mute": 0,
         "Solo": 0,
-        "DriveMode": 0,
-        "DriveAmount": 0.3,
-        "DriveTone": 0.8,
-        "DriveLevel": 0.7,
         "FenvAttack": 0.005,
         "FenvDecay": 0.3,
         "FenvSustain": 0.7,
@@ -118,7 +114,11 @@
         "OscFreq2": 0,
         "EnvPw": 0,
         "OscPw": 0,
-        "OscCutoff": 0
+        "OscCutoff": 0,
+        "I1Type": 0,
+        "I1A": 0.3,
+        "I1B": 0.8,
+        "I1C": 0.7
       }
     },
     {
@@ -191,10 +191,6 @@
         "Send2": 0,
         "Mute": 0,
         "Solo": 0,
-        "DriveMode": 0,
-        "DriveAmount": 0.3,
-        "DriveTone": 0.8,
-        "DriveLevel": 0.7,
         "FenvAttack": 0.005,
         "FenvDecay": 0.3,
         "FenvSustain": 0.7,
@@ -213,7 +209,11 @@
         "OscFreq2": 0,
         "EnvPw": 0,
         "OscPw": 0,
-        "OscCutoff": 0
+        "OscCutoff": 0,
+        "I1Type": 0,
+        "I1A": 0.3,
+        "I1B": 0.8,
+        "I1C": 0.7
       }
     },
     {
@@ -286,10 +286,6 @@
         "Send2": 0,
         "Mute": 0,
         "Solo": 0,
-        "DriveMode": 0,
-        "DriveAmount": 0.3,
-        "DriveTone": 0.8,
-        "DriveLevel": 0.7,
         "FenvAttack": 0.005,
         "FenvDecay": 0.3,
         "FenvSustain": 0.7,
@@ -308,7 +304,11 @@
         "OscFreq2": 0,
         "EnvPw": 0,
         "OscPw": 0,
-        "OscCutoff": 0
+        "OscCutoff": 0,
+        "I1Type": 0,
+        "I1A": 0.3,
+        "I1B": 0.8,
+        "I1C": 0.7
       }
     },
     {
@@ -381,10 +381,6 @@
         "Send2": 0,
         "Mute": 0,
         "Solo": 0,
-        "DriveMode": 0,
-        "DriveAmount": 0.3,
-        "DriveTone": 0.8,
-        "DriveLevel": 0.7,
         "FenvAttack": 0.005,
         "FenvDecay": 0.3,
         "FenvSustain": 0.7,
@@ -403,7 +399,11 @@
         "OscFreq2": 0,
         "EnvPw": 0,
         "OscPw": 0,
-        "OscCutoff": 0
+        "OscCutoff": 0,
+        "I1Type": 0,
+        "I1A": 0.3,
+        "I1B": 0.8,
+        "I1C": 0.7
       }
     }
   ],

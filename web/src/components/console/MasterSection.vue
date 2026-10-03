@@ -3,7 +3,7 @@
 // meter, and the master fader with stereo meters and the limiter light.
 import { computed } from 'vue'
 import { dbText, exp, hzText, levelToPos, lin, posToDb, posToLevel, type EqBand } from '../../audio/console'
-import { getEngine, levels, meter, METER_SYNTHS, params } from '../../audio/engine'
+import { getEngine, levels, meter, METER_STRIPS, params } from '../../audio/engine'
 import { Param, type ParamId } from '../../audio/params'
 import Fader from './Fader.vue'
 import LedMeter from './LedMeter.vue'
@@ -37,8 +37,8 @@ const compKnobs = [
 const pos = computed(() => levelToPos(val(Param.MasterGain)))
 const setPos = (p: number) => getEngine()?.param(0, Param.MasterGain, posToLevel(p))
 const readout = computed(() => `${dbText(posToDb(pos.value))} dB`)
-const left = computed(() => levels.values[METER_SYNTHS] ?? 0)
-const right = computed(() => levels.values[METER_SYNTHS + 1] ?? 0)
+const left = computed(() => levels.values[METER_STRIPS] ?? 0)
+const right = computed(() => levels.values[METER_STRIPS + 1] ?? 0)
 const limiting = computed(() => Math.max(left.value, right.value) > 0.98)
 const grFill = computed(() => `${Math.min(1, Math.max(0, meter.reduction / 20)) * 100}%`)
 </script>

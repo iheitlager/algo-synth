@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-03
+
+### Added
+
+- The flexible console: groups are strips with an **Out** selector on every strip and group, a coloured tag under each tape saying which group it feeds, **+ Group** and remove, and a panel per insert slot. Drag a tape to reorder, collapse a strip to a sliver, hide it and bring it back from the bar. Dimming follows the engine's mute and solo through groups. A setup now also saves the groups on screen with their strip parameters and the console layout; setups without them leave both alone. New export `strip_count` (#61, epic #62).
+- Insert slots on the group buses: the same three slots and six types as a strip's, working on the group's stereo bus (the compressor gives both sides one gain), before the group's fader (#60, epic #62).
+- Group buses: eight stereo groups (strips 16–23) with their own fader, balance, sends, mute, solo and meter, and an `Out` on every strip and group (0 is the master, 1–8 a group). A group feeds only the master or a higher-numbered group, so routes can't loop; a soloed strip stays heard through its groups. Meters grow to 30 (#59, epic #62).
+- Insert slots: three in series on every synth strip, each Off, Overdrive, Distortion, Fuzz, a compact three-band EQ or a Compressor, with a type and five knobs A–E whose meaning depends on the type (`I1Type`…`I3E`, ids 66–83); a slot button on each strip opens a panel with the type and its knobs in real units. Spec 002 Req 2, ADR-0010 (#58, epic #62).
+
+### Changed
+
+- The drive insert is now insert type Overdrive, Distortion or Fuzz: `DriveMode`, `DriveAmount`, `DriveTone` and `DriveLevel` are gone, later parameter ids move up by 14, and an older setup's drive becomes insert slot 1 of its synth (#58, epic #62).
+
 ## [0.11.0] - 2026-10-03
 
 Synth faceplates (epic #67, PR #75).

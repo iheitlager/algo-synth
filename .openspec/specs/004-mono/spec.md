@@ -208,9 +208,9 @@ The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its 
 
 ### Requirement 11: Drive insert [SHOULD]
 
-Each synth's bus SHALL have a drive insert between its voices and its fader, with modes Off, Overdrive (soft, asymmetric), Distortion (hard) and Fuzz, and `DriveAmount`, `DriveTone` (a low-pass after the shaper) and `DriveLevel`. The shapers SHALL use first-order antiderivative anti-aliasing and no per-sample transcendental functions (ADR-0002). Off SHALL pass the bus through bit for bit, and every mode SHALL stay finite and bounded for any input.
+Drive SHALL be an insert type of a strip's insert slots (spec 002 Req 2, ADR-0010): Overdrive (soft, asymmetric), Distortion (hard) and Fuzz, with amount, tone (a low-pass after the shaper) and level as knobs A, B and C. The shapers SHALL use first-order antiderivative anti-aliasing and no per-sample transcendental functions (ADR-0002). An Off slot SHALL pass the bus through bit for bit, and every drive type SHALL stay finite and bounded for any input.
 
-**Implementation:** `crates/dsp/src/fx/drive.rs::Drive` (#25)
+**Implementation:** `crates/dsp/src/fx/drive.rs::Drive`, `crates/dsp/src/fx/insert.rs::Insert` (#25, #58)
 
 #### Scenario: harmonics and aliases
 
