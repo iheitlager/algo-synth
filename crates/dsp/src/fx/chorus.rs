@@ -1,143 +1,102 @@
-//! The stereo chorus of the Juno-106 and the Solina ensemble family (spec 006
-//! Req 7): a mono signal in, two modulated delays out, their triangle LFOs in
-//! opposite phase, mixed with the dry signal.
-//!
-//! Modes I and II are a slow, deep sweep; I+II together a fast, shallow one that
-//! is closer to a vibrato. The delays are read with linear interpolation from a
-//! short ring, the LFO is arithmetic (no `sin` per sample, ADR-0002), and the
-//! wet path passes a one-pole low-pass for the dull top of a bucket-brigade line.
-//! Nothing allocates after `Chorus::new`.
+//! The chorus (spec 002 Req 2): two delay taps per side, a few milliseconds
+//! long, swept in opposite directions by a slow LFO. It returns only the
+//! delayed signal; the dry signal is already in the mix. Stereo in, stereo out.
 
-/// Ring length in samples, a power of two: room for the deepest sweep at 96 kHz.
-const RING: usize = 1024;
-const MASK: usize = RING - 1;
-/// The wet path's low-pass corner, a bucket-brigade line's dull top.
-const WET_HZ: f32 = 9_000.0;
+use super::{Delay, lfo, lowpass};
 
-/// A chorus mode: its LFO rate in Hz, how far the delay sweeps and where it centres, in ms.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Mode {
-    pub rate: f32,
-    pub depth_ms: f32,
-    pub centre_ms: f32,
-}
-
-/// Off, I, II, and I plus II (ids 0..=3, as `Param::ChorusMode`).
-pub const MODES: [Option<Mode>; 4] = [
-    None,
-    Some(Mode {
-        rate: 0.5,
-        depth_ms: 1.2,
-        centre_ms: 3.4,
-    }),
-    Some(Mode {
-        rate: 0.83,
-        depth_ms: 1.2,
-        centre_ms: 3.4,
-    }),
-    Some(Mode {
-        rate: 9.75,
-        depth_ms: 0.18,
-        centre_ms: 3.4,
-    }),
-];
+/// The longest base delay, in seconds.
+const MAX_DELAY: f32 = 0.04;
 
 pub struct Chorus {
+    left: Delay,
+    right: Delay,
     sample_rate: f32,
-    left: Vec<f32>,
-    right: Vec<f32>,
-    write: usize,
-    /// LFO phase 0..1, and its step per sample.
     phase: f32,
+    /// LFO increment per sample, in cycles.
     inc: f32,
-    /// Delay centre and sweep in samples.
-    centre: f32,
+    /// The base delay and the sweep around it, in samples.
+    base: f32,
     depth: f32,
-    mode: usize,
-    /// The wet paths' low-pass state and coefficient.
-    wet: [f32; 2],
-    coef: f32,
+    /// How far the right side's LFO runs ahead of the left's, in cycles.
+    spread: f32,
+    tone: f32,
+    lp: [f32; 2],
 }
 
 impl Chorus {
     pub fn new(sample_rate: f32) -> Chorus {
-        Chorus {
+        let max = (MAX_DELAY * sample_rate) as usize + 2;
+        let mut c = Chorus {
+            left: Delay::new(max),
+            right: Delay::new(max),
             sample_rate,
-            left: vec![0.0; RING],
-            right: vec![0.0; RING],
-            write: 0,
             phase: 0.0,
             inc: 0.0,
-            centre: 0.0,
+            base: 0.0,
             depth: 0.0,
-            mode: 0,
-            wet: [0.0; 2],
-            coef: 1.0 - (-std::f32::consts::TAU * WET_HZ / sample_rate).exp(),
-        }
-    }
-
-    /// Choose a mode by its id; an unknown id is off.
-    pub fn set_mode(&mut self, id: usize) {
-        self.mode = if MODES.get(id).copied().flatten().is_some() {
-            id
-        } else {
-            0
+            spread: 0.0,
+            tone: 1.0,
+            lp: [0.0; 2],
         };
-        if let Some(Some(m)) = MODES.get(self.mode) {
-            self.inc = m.rate / self.sample_rate;
-            self.centre = m.centre_ms * 1.0e-3 * self.sample_rate;
-            self.depth = m.depth_ms * 1.0e-3 * self.sample_rate;
-        }
+        c.set_rate(1.0);
+        c.set_delay(15.0);
+        c.set_depth(0.5);
+        c.set_tone(1.0);
+        c
     }
 
-    /// Whether it changes the signal.
-    pub fn on(&self) -> bool {
-        self.mode != 0
+    /// The LFO rate in Hz.
+    pub fn set_rate(&mut self, hz: f32) {
+        self.inc = hz / self.sample_rate;
     }
 
-    /// Read a delay of `d` samples behind the write head, interpolating.
-    fn tap(line: &[f32], write: usize, d: f32) -> f32 {
-        let d = d.clamp(1.0, (RING - 2) as f32);
-        let whole = d as usize;
-        let frac = d - whole as f32;
-        let a = line
-            .get(write.wrapping_sub(whole) & MASK)
-            .copied()
-            .unwrap_or(0.0);
-        let b = line
-            .get(write.wrapping_sub(whole + 1) & MASK)
-            .copied()
-            .unwrap_or(0.0);
-        a + (b - a) * frac
+    /// The base delay in ms, 1..=40.
+    pub fn set_delay(&mut self, ms: f32) {
+        self.base = (ms * 0.001 * self.sample_rate).clamp(2.0, MAX_DELAY * self.sample_rate);
     }
 
-    /// Chorus `dry` into `left` and `right` (all the same length). Off copies it to both.
-    pub fn process(&mut self, dry: &[f32], left: &mut [f32], right: &mut [f32]) {
-        if !self.on() {
-            for ((x, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
-                *l = *x;
-                *r = *x;
-            }
-            return;
-        }
-        for ((x, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
-            if let Some(s) = self.left.get_mut(self.write) {
-                *s = *x;
-            }
-            if let Some(s) = self.right.get_mut(self.write) {
-                *s = *x;
-            }
-            // A triangle in −1..1; the two sides sweep in opposite directions.
-            let tri = 4.0 * (self.phase - 0.5).abs() - 1.0;
-            let wl = Chorus::tap(&self.left, self.write, self.centre + self.depth * tri);
-            let wr = Chorus::tap(&self.right, self.write, self.centre - self.depth * tri);
-            let [pl, pr] = &mut self.wet;
-            *pl += self.coef * (wl - *pl);
-            *pr += self.coef * (wr - *pr);
-            // Equal power between the dry signal and the wet one.
-            *l = (*x + *pl) * std::f32::consts::FRAC_1_SQRT_2;
-            *r = (*x + *pr) * std::f32::consts::FRAC_1_SQRT_2;
-            self.write = (self.write + 1) & MASK;
+    /// 0..=1 sweeps up to half the base delay either way.
+    pub fn set_depth(&mut self, depth: f32) {
+        self.depth = depth.clamp(0.0, 1.0);
+    }
+
+    /// 0..=1 is 0 to half a cycle between the sides.
+    pub fn set_spread(&mut self, spread: f32) {
+        self.spread = spread.clamp(0.0, 1.0) * 0.5;
+    }
+
+    /// 0..=1 puts the low-pass on the output from 500 Hz to 20 kHz.
+    pub fn set_tone(&mut self, tone: f32) {
+        self.tone = lowpass(500.0 * 40.0_f32.powf(tone), self.sample_rate);
+    }
+
+    /// Forget what the delays hold.
+    pub fn clear(&mut self) {
+        self.left.clear();
+        self.right.clear();
+        self.lp = [0.0; 2];
+    }
+
+    /// Feed `in_l` and `in_r` in and add the delayed signal into `out_l` and `out_r`.
+    pub fn process(&mut self, in_l: &[f32], in_r: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+        let sweep = self.depth * 0.5 * self.base;
+        let frames = in_l
+            .iter()
+            .zip(in_r)
+            .zip(out_l.iter_mut().zip(out_r.iter_mut()));
+        for ((xl, xr), (ol, or)) in frames {
+            self.left.write(*xl);
+            self.right.write(*xr);
+            let (a, b) = (lfo(self.phase), lfo(self.phase + self.spread));
+            let yl = 0.5
+                * (self.left.read(self.base + sweep * a) + self.left.read(self.base - sweep * a));
+            let yr = 0.5
+                * (self.right.read(self.base + sweep * b) + self.right.read(self.base - sweep * b));
+            let [fl, fr] = &mut self.lp;
+            *fl += self.tone * (yl - *fl);
+            *fr += self.tone * (yr - *fr);
+            *ol += *fl;
+            *or += *fr;
             self.phase += self.inc;
             if self.phase >= 1.0 {
                 self.phase -= 1.0;
@@ -149,77 +108,98 @@ impl Chorus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::TAU;
 
     const SR: f32 = 48_000.0;
 
-    fn tone(n: usize, hz: f32) -> Vec<f32> {
+    fn tone(hz: f32, n: usize) -> Vec<f32> {
         (0..n)
-            .map(|i| (std::f32::consts::TAU * hz * i as f32 / SR).sin() * 0.5)
+            .map(|i| 0.5 * (TAU * hz * i as f32 / SR).sin())
             .collect()
     }
 
-    fn run(mode: usize, dry: &[f32]) -> (Vec<f32>, Vec<f32>) {
-        let mut c = Chorus::new(SR);
-        c.set_mode(mode);
-        let (mut l, mut r) = (vec![0.0; dry.len()], vec![0.0; dry.len()]);
-        c.process(dry, &mut l, &mut r);
-        (l, r)
-    }
-
-    /// Spec 006 Req 7: off is the same on both sides; the chorus makes them differ.
-    #[test]
-    fn off_is_identical_on_both_sides_and_the_chorus_widens() {
-        let dry = tone(48_000, 220.0);
-        let (l, r) = run(0, &dry);
-        assert_eq!(l, dry);
-        assert_eq!(r, dry);
-        for mode in 1..=3 {
-            let (l, r) = run(mode, &dry);
-            let diff: f32 = l
-                .iter()
-                .zip(&r)
-                .skip(4_800)
-                .map(|(a, b)| (a - b).abs())
-                .sum();
-            assert!(diff > 50.0, "mode {mode} differs between the sides: {diff}");
+    fn run(c: &mut Chorus, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        let (mut ol, mut or) = (vec![0.0; l.len()], vec![0.0; l.len()]);
+        for (((a, b), x), y) in l
+            .chunks(128)
+            .zip(r.chunks(128))
+            .zip(ol.chunks_mut(128))
+            .zip(or.chunks_mut(128))
+        {
+            c.process(a, b, x, y);
         }
+        (ol, or)
     }
 
-    #[test]
-    fn every_mode_stays_bounded_and_keeps_the_level() {
-        let dry = tone(96_000, 330.0);
-        for mode in 1..=3 {
-            let (l, r) = run(mode, &dry);
-            assert!(
-                l.iter().chain(&r).all(|s| s.is_finite() && s.abs() <= 1.0),
-                "mode {mode}"
-            );
-            let rms = |x: &[f32]| {
-                (x.iter()
-                    .skip(9_600)
-                    .map(|s| f64::from(*s).powi(2))
-                    .sum::<f64>()
-                    / (x.len() - 9_600) as f64)
-                    .sqrt()
-            };
-            let ratio = rms(&l) / rms(&dry);
-            // A tone and its delayed copy add between silence and sqrt 2 times the dry level.
-            assert!((0.3..=1.42).contains(&ratio), "mode {mode} level {ratio}");
+    /// Magnitude of the `hz` component of `x`.
+    fn goertzel(x: &[f32], hz: f32) -> f32 {
+        let w = TAU * hz / SR;
+        let (mut re, mut im) = (0.0_f64, 0.0_f64);
+        for (i, v) in x.iter().enumerate() {
+            re += f64::from(*v) * f64::from((w * i as f32).cos());
+            im += f64::from(*v) * f64::from((w * i as f32).sin());
         }
+        (re.hypot(im) * 2.0 / x.len() as f64) as f32
     }
 
     #[test]
-    fn the_modes_sweep_at_their_own_rates() {
-        // The left channel's instantaneous delay crosses its centre twice a cycle:
-        // count sign changes of (left - dry) energy envelope is fragile, so check the LFO directly.
+    fn sweeping_the_delay_puts_sidebands_at_twice_the_rate() {
+        let x = tone(1_000.0, 96_000);
+        let sidebands = |depth: f32| {
+            let mut c = Chorus::new(SR);
+            c.set_rate(4.0);
+            c.set_depth(depth);
+            let (l, _) = run(&mut c, &x, &x);
+            let tail = &l[48_000..];
+            // The two taps sweep in opposite directions, so the first sidebands cancel
+            // and what is left is at twice the rate.
+            (goertzel(tail, 1_008.0) + goertzel(tail, 992.0)) / goertzel(tail, 1_000.0)
+        };
+        assert!(sidebands(1.0) > 0.05, "swept: {}", sidebands(1.0));
+        assert!(sidebands(0.0) < 0.005, "still: {}", sidebands(0.0));
+    }
+
+    #[test]
+    fn spread_decorrelates_the_sides() {
+        let x = tone(500.0, 48_000);
         let mut c = Chorus::new(SR);
-        c.set_mode(2);
-        let before = c.inc;
-        c.set_mode(3);
-        assert!(c.inc > 10.0 * before, "I+II is much faster");
-        c.set_mode(1);
-        assert!(c.inc < before, "I is slower than II");
-        c.set_mode(9);
-        assert!(!c.on(), "an unknown mode is off");
+        c.set_rate(2.0);
+        c.set_depth(1.0);
+        c.set_spread(0.0);
+        let (l, r) = run(&mut c, &x, &x);
+        assert!(l == r, "no spread, the same on both sides");
+        let mut c = Chorus::new(SR);
+        c.set_rate(2.0);
+        c.set_depth(1.0);
+        c.set_spread(1.0);
+        let (l, r) = run(&mut c, &x, &x);
+        assert!(l != r);
+    }
+
+    #[test]
+    fn is_finite_bounded_and_silent_for_silence() {
+        let mut c = Chorus::new(SR);
+        c.set_depth(1.0);
+        let loud: Vec<f32> = (0..96_000)
+            .map(|i| if (i / 5) % 2 == 0 { 1.0 } else { -1.0 })
+            .collect();
+        let (l, r) = run(&mut c, &loud, &loud);
+        assert!(l.iter().chain(&r).all(|x| x.is_finite() && x.abs() <= 1.01));
+        let mut c = Chorus::new(SR);
+        let z = vec![0.0; 9_600];
+        let (l, r) = run(&mut c, &z, &z);
+        assert!(l.iter().chain(&r).all(|x| *x == 0.0));
+    }
+
+    #[test]
+    fn has_no_dc_from_an_ac_input_and_clears() {
+        let mut c = Chorus::new(SR);
+        let (l, _) = run(&mut c, &tone(300.0, 96_000), &tone(300.0, 96_000));
+        let mean = l[48_000..].iter().sum::<f32>() / 48_000.0;
+        assert!(mean.abs() < 0.01, "dc {mean}");
+        c.clear();
+        let z = vec![0.0; 4_800];
+        let (l, _) = run(&mut c, &z, &z);
+        assert!(l.iter().all(|x| *x == 0.0), "nothing left after a clear");
     }
 }

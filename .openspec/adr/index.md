@@ -6,10 +6,11 @@
 | [0002](0002-real-time-rules.md) | The render loop never allocates, locks or panics; tables and control-rate coefficients instead of per-sample transcendentals | Accepted |
 | [0003](0003-vue-view.md) | A Vue + TypeScript view, separate from the engine; the worklet outside the bundler; the scope on an AnalyserNode | Accepted |
 | [0004](0004-one-parameter-registry.md) | One parameter and source registry in Rust, mirrored in TypeScript, the mirror checked by a test | Accepted |
-| [0005](0005-composition-model.md) | Composition: tracks own one source; fixed insert/send/master mixer; patterns in clips from hand, generator or score; the clock in the engine | Accepted, narrowed by 0008 |
+| [0005](0005-composition-model.md) | Composition: tracks own one source; fixed insert/send/master mixer; patterns in clips from hand, generator or score; the clock in the engine | Accepted, narrowed by 0008, song format superseded by 0012 |
 | [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted |
 | [0007](0007-blep-table-oscillators.md) | Oscillators band-limit every step (wrap, pulse edge, sync reset) with a windowed-sinc BLEP table, not a 2-point polyBLEP | Accepted |
-| [0008](0008-mono-only-to-the-ensemble.md) | Mono only, straight to the ensemble: Wave, Drums, the arrangement and algo loops removed for now | Accepted |
+| [0008](0008-mono-only-to-the-ensemble.md) | Mono only, straight to the ensemble: Wave, Drums, the arrangement and algo loops removed for now | Accepted, deferrals lifted by 0012 |
 | [0009](0009-synth-models.md) | Synth models: one shared voice with a `Model` per slot (enum dispatch) and one data-driven panel per model; six monosynths | Accepted |
 | [0010](0010-mixer-topology.md) | Mixer topology: strips and eight group buses in one index space, `Out` routing that cannot cycle, three insert slots per strip and group with the type as a parameter | Accepted |
 | [0011](0011-polyphony.md) | Polyphony: a voice pool per synth (the Mono voice per note), allocation and stealing, unison, analog variance, a shared LFO and a global voice budget | Accepted |
+| [0012](0012-the-song-is-text.md) | The song is text: a Tidal/Strudel-style notation with classic note names and durations and drum lanes, parsed and printed by the engine; the drum grid and generators edit it; a language model writes it | Accepted |

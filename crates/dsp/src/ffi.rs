@@ -369,6 +369,30 @@ pub extern "C" fn playing() -> u32 {
     query(0, |e| u32::from(e.sequence().playing()))
 }
 
+// --- Clock (spec 002, Req 5) -------------------------------------------------
+
+/// The clock's tempo in BPM, 20..=300.
+#[unsafe(no_mangle)]
+pub extern "C" fn tempo(bpm: f32) {
+    with_engine(|e| e.set_tempo(bpm));
+}
+
+/// The clock's swing in percent: 50 is straight, 75 the most.
+#[unsafe(no_mangle)]
+pub extern "C" fn swing(pct: f32) {
+    with_engine(|e| e.set_swing(pct));
+}
+
+/// The last sixteenth step the clock fired, −1 before the first.
+#[unsafe(no_mangle)]
+pub extern "C" fn clock_step() -> i32 {
+    query(-1, |e| {
+        e.clock()
+            .step()
+            .map_or(-1, |k| i32::try_from(k).unwrap_or(i32::MAX))
+    })
+}
+
 /// Play MIDI `channel` on `synth`; an unknown synth (e.g. 255) mutes it.
 #[unsafe(no_mangle)]
 pub extern "C" fn route(channel: u32, synth: u32) {
@@ -451,6 +475,14 @@ mod tests {
         stop();
         assert_eq!(playing(), 0);
         assert_eq!(part_notes(99), 0);
+        seek(0.0);
+        tempo(120.0);
+        swing(50.0);
+        assert_eq!(clock_step(), -1);
+        play();
+        process(128);
+        assert_eq!(clock_step(), 0);
+        stop();
         assert!(midi_buf(u32::MAX).is_null());
     }
 }

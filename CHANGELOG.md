@@ -11,6 +11,20 @@ All notable changes to this project are documented here. The format is based on 
 - **DX7 SysEx import** (#90): the engine reads single voices and 32-voice banks (framed or bare, any checksum); the faceplate loads a `.syx` file and picks a voice. JavaScript only forwards the bytes (`sysex_buf`, `sysex_load`, `sysex_apply`).
 - `make bench` gains `poly pads` and `poly worst`: 64 voices of chord pads on every polyphonic model, about 19% of a core (#91).
 
+## [0.15.0] - 2026-10-04
+
+### Added
+
+- A sample-accurate clock in the engine: tempo (20–300 BPM), MPC-style swing (50–75%) and sixteenth-note steps whose samples come from their index, so nothing drifts; a tempo change takes effect from the next step. The render loop splits blocks at clock steps, play, stop and seek drive it with the MIDI player, and `tempo`, `swing` and `clock_step` reach it from JavaScript. Tempo and swing are song data (ADR-0012), not registry parameters (#98, epic #97).
+
+## [0.14.0] - 2026-10-03
+
+### Added
+
+- The console's processor rack shows Chorus and Flanger with their knobs in real units, and a "← P1" toggle on P2–P4 that chains a processor to the one before it, drawn as a link between the modules (#94, epic #95).
+- Chained processors: `P2In`, `P3In` and `P4In` (ids 150–152) make a processor hear the one before it as well as its sends, so effects combine in series; a chain cannot loop, the previous processor's return may be 0, and chorus and flanger get its stereo output (#93, epic #95).
+- Chorus and flanger as processor types: a two-tap chorus (rate, depth, delay, spread, tone) and a flanger with feedback of either sign (rate, depth, manual, feedback, tone), stereo in and out, with a parabolic LFO and no transcendental per sample. `ProcType` gains `Chorus` and `Flanger`; the processor's return level now scales the effect's wet signal in the slot, not inside each effect (#92, epic #95).
+
 ## [0.13.0] - 2026-10-03
 
 The ARP Odyssey (#64, PR #76).

@@ -7,9 +7,10 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::clock::Clock;
 use crate::fm::sysex;
-use crate::fx::chorus::Chorus;
 use crate::fx::compressor::Compressor;
+use crate::fx::ensemble::Ensemble;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
@@ -55,12 +56,14 @@ pub struct Engine {
     /// Each synth's voices (spec 006).
     pools: Vec<Pool>,
     /// Counts the notes started, so a pool can tell which voice is oldest.
-    clock: u64,
+    note_count: u64,
     mixer: Mixer,
     /// Each synth's stereo chorus, run after its voices when it is on.
-    chorus: Vec<Chorus>,
+    chorus: Vec<Ensemble>,
     /// The effect processors P1–P4, fed by the mixer's sends.
     procs: [Processor; SENDS],
+    /// Processor n+1 takes processor n's output (P2In…P4In).
+    series: [bool; SENDS],
     eq: Equalizer,
     comp: Compressor,
     limiter: Limiter,
@@ -76,6 +79,8 @@ pub struct Engine {
     sysex: Vec<u8>,
     sysex_voices: Vec<sysex::Voice>,
     sequence: Sequence,
+    /// The transport's tempo and sixteenth steps (spec 002 Req 5).
+    clock: Clock,
     /// The synth each MIDI channel plays on; `None` mutes it.
     route: [Option<usize>; CHANNELS],
 }
@@ -99,10 +104,11 @@ impl Engine {
             pitch: PitchTable::new(sample_rate),
             tables: Tables::shared(sample_rate),
             pools: (0..SYNTHS).map(Pool::new).collect(),
-            clock: 0,
+            note_count: 0,
             mixer: Mixer::new(sample_rate),
-            chorus: (0..SYNTHS).map(|_| Chorus::new(sample_rate)).collect(),
+            chorus: (0..SYNTHS).map(|_| Ensemble::new(sample_rate)).collect(),
             procs: std::array::from_fn(|_| Processor::new(sample_rate)),
+            series: [false; SENDS],
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
             limiter: Limiter::new(sample_rate),
@@ -113,6 +119,7 @@ impl Engine {
             sysex: Vec::new(),
             sysex_voices: Vec::new(),
             sequence: Sequence::default(),
+            clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
         };
         for (p, v) in GLOBAL_DEFAULTS {
@@ -173,6 +180,17 @@ impl Engine {
         }
     }
 
+    /// Processor `i` takes the one before it as input (`v` ≥ 0.5), or not.
+    fn chain(&mut self, i: usize, v: f32) {
+        let on = v >= 0.5;
+        if let Some(s) = self.series.get_mut(i) {
+            *s = on;
+        }
+        if let Some(prev) = i.checked_sub(1).and_then(|k| self.procs.get_mut(k)) {
+            prev.set_feeds_next(on);
+        }
+    }
+
     fn set_global(&mut self, param: Param, v: f32) {
         match param {
             Param::MasterGain => self.master_gain = v,
@@ -191,6 +209,9 @@ impl Engine {
             Param::EqMid2Q => self.eq.set_q(EqBand::Mid2, v),
             Param::EqHighFreq => self.eq.set_freq(EqBand::High, v),
             Param::EqHighGain => self.eq.set_gain(EqBand::High, v),
+            Param::P2In => self.chain(1, v),
+            Param::P3In => self.chain(2, v),
+            Param::P4In => self.chain(3, v),
             _ => {}
         }
         if let Some((slot, field)) = param.processor() {
@@ -274,7 +295,7 @@ impl Engine {
                 pool.release_owner(owner);
             }
         }
-        self.clock += 1;
+        self.note_count += 1;
         // At the voice budget a note takes the oldest voice in release anywhere,
         // else the oldest held note of its own synth; with nothing to take, it is dropped.
         let adds = match (self.pools.get(synth), self.synths.get(synth)) {
@@ -285,7 +306,7 @@ impl Engine {
             return;
         }
         if let (Some(pool), Some(params)) = (self.pools.get_mut(synth), self.synths.get(synth)) {
-            pool.note_on(owner, note.min(127), velocity, params, self.clock);
+            pool.note_on(owner, note.min(127), velocity, params, self.note_count);
         }
     }
 
@@ -410,17 +431,35 @@ impl Engine {
         &self.sequence
     }
 
+    pub fn clock(&self) -> &Clock {
+        &self.clock
+    }
+
+    /// The clock's tempo in BPM; the song sets it (ADR-0012).
+    pub fn set_tempo(&mut self, bpm: f32) {
+        self.clock.set_tempo(bpm);
+    }
+
+    /// The clock's swing in percent, 50 (straight) to 75.
+    pub fn set_swing(&mut self, pct: f32) {
+        self.clock.set_swing(pct);
+    }
+
+    /// Start the transport: the clock, and the MIDI file if one is loaded.
     pub fn play(&mut self) {
         self.sequence.play();
+        self.clock.play();
     }
 
     pub fn stop(&mut self) {
         self.sequence.stop();
+        self.clock.stop();
         self.release_player();
     }
 
     pub fn seek(&mut self, sample: u64) {
         self.sequence.seek(sample);
+        self.clock.seek(sample);
         self.release_player();
     }
 
@@ -451,12 +490,16 @@ impl Engine {
         if self.sequence.finished() {
             self.stop();
         }
+        // Nothing plays on the steps yet: the song (#100) and the
+        // arpeggiator (#110) will.
+        while self.clock.due().is_some() {}
     }
 
     // --- Render ----------------------------------------------------------
 
     /// Render `frames` (at most `BLOCK`) into the output buffer. The block is
-    /// split at player events, so every note starts on its exact sample.
+    /// split at player events and clock steps, so each lands on its exact
+    /// sample.
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
         self.out.fill(0.0);
@@ -464,7 +507,10 @@ impl Engine {
         let mut t = 0;
         while t < n {
             self.fire_due_events();
-            let chunk = self.sequence.frames_until_next(n - t);
+            let chunk = self
+                .sequence
+                .frames_until_next(n - t)
+                .min(self.clock.frames_until_next(n - t));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
                 if pool.active() == 0 {
@@ -482,6 +528,7 @@ impl Engine {
                 }
             }
             self.sequence.advance(chunk);
+            self.clock.advance(chunk);
             t += chunk;
         }
         // A synth with its chorus on is stereo from here on.
@@ -494,10 +541,23 @@ impl Engine {
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);
         if let (Some(l), Some(r)) = (left.get_mut(..n), right.get_mut(..n)) {
-            for (proc, send) in self.procs.iter_mut().zip(self.mixer.sends.iter()) {
-                if let Some(send) = send.get(..n) {
-                    proc.process(send, l, r);
-                }
+            // P1 to P4 in order: a chained one hears the one before it.
+            for (i, send) in self.mixer.sends.iter().enumerate() {
+                let Some(send) = send.get(..n) else {
+                    continue;
+                };
+                let (done, rest) = self.procs.split_at_mut(i);
+                let Some(proc) = rest.first_mut() else {
+                    continue;
+                };
+                let series = if self.series.get(i).copied().unwrap_or(false) {
+                    i.checked_sub(1)
+                        .and_then(|k| done.get(k))
+                        .and_then(|p| p.wet(n))
+                } else {
+                    None
+                };
+                proc.process(send, series, l, r);
             }
             // The master chain: equalizer, compressor, gain, limiter.
             self.eq.process(l, r);
@@ -1980,6 +2040,65 @@ mod tests {
     }
 
     #[test]
+    fn processors_can_be_chained_through_the_engine() {
+        let play = |chained: bool| {
+            let mut e = Engine::new(48_000.0);
+            // P1 an echo with no return, P2 a reverb fed only by P1; the strip sends to P1 only.
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::P1Return, 0.0);
+            e.set_param(0, Param::P2Return, 1.0);
+            e.set_param(0, Param::P2In, if chained { 1.0 } else { 0.0 });
+            // The echo's first repeat comes after 300 ms.
+            e.note_on(0, 57, 1.0);
+            render_out(&mut e, 400)
+        };
+        let alone = play(false);
+        let chained = play(true);
+        assert!(alone != chained, "the chain changes the mix");
+        assert_eq!(Engine::new(48_000.0).param_value(0, Param::P2In), 0.0);
+    }
+
+    #[test]
+    fn chain_parameters_are_global_and_p1_has_none() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(3, Param::P3In, 1.0);
+        assert_eq!(e.param_value(0, Param::P3In), 1.0);
+        e.reset(2);
+        assert_eq!(e.param_value(0, Param::P3In), 1.0, "reset leaves it");
+        e.set_param(0, Param::P4In, 7.0);
+        assert_eq!(e.param_value(0, Param::P4In), 1.0, "clamped");
+        assert!(!Param::ALL.iter().any(|(_, n)| *n == "P1In"));
+    }
+
+    #[test]
+    fn four_chained_processors_stay_bounded() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (i, ty) in [(0, 4.0), (1, 3.0), (2, 1.0), (3, 2.0)] {
+            let p = [Param::P1Type, Param::P2Type, Param::P3Type, Param::P4Type][i];
+            let r = [
+                Param::P1Return,
+                Param::P2Return,
+                Param::P3Return,
+                Param::P4Return,
+            ][i];
+            e.set_param(0, p, ty);
+            e.set_param(0, r, 1.0);
+        }
+        for p in [Param::P2In, Param::P3In, Param::P4In] {
+            e.set_param(0, p, 1.0);
+        }
+        for synth in 0..SYNTHS {
+            e.set_param(synth, Param::Send1, 1.0);
+            e.note_on(synth, 36 + 3 * synth as u8, 1.0);
+        }
+        for _ in 0..400 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        }
+    }
+
+    #[test]
     fn compressor_parameters_are_global() {
         let mut e = Engine::new(48_000.0);
         e.set_param(4, Param::CompRatio, 6.0);
@@ -2026,6 +2145,43 @@ mod tests {
             left[64..64 + LATENCY + 2].iter().any(|s| *s != 0.0),
             "the note should start at frame 64"
         );
+    }
+
+    #[test]
+    fn clock_steps_land_on_their_samples_through_render() {
+        let mut e = Engine::new(48_000.0);
+        e.play();
+        let mut onsets = Vec::new();
+        let mut last = None;
+        // One frame at a time, so the step a frame fires is visible.
+        for s in 0..48_000u64 {
+            e.render(1);
+            if e.clock().step() != last {
+                last = e.clock().step();
+                onsets.push(s);
+            }
+        }
+        let want: Vec<u64> = (0..8).map(|k| k * 6000).collect();
+        assert_eq!(onsets, want);
+    }
+
+    #[test]
+    fn the_transport_drives_the_clock() {
+        let mut e = Engine::new(48_000.0);
+        e.set_tempo(60.0);
+        e.play();
+        for _ in 0..100 {
+            e.render(BLOCK);
+        }
+        // 12_800 samples at 12_000 per step: steps 0 and 1 have fired.
+        assert_eq!(e.clock().step(), Some(1));
+        e.stop();
+        e.render(BLOCK);
+        assert_eq!(e.clock().position(), 12_800);
+        e.seek(36_000);
+        e.play();
+        e.render(BLOCK);
+        assert_eq!(e.clock().step(), Some(3));
     }
 
     #[test]
