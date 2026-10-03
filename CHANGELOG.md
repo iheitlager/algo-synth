@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
 ### Added
 
 - Send effects: a stereo echo (up to 2 s in ms, feedback below 1, tone, ping-pong) and an 8-line Hadamard reverb (size, damping, pre-delay), fed by each synth's sends and returned into the master; nine global parameters (ids 70–78) and a Returns strip. `make bench` now runs the whole chain (#26).
