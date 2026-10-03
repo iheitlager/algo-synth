@@ -279,6 +279,7 @@ export const Model = {
   Cs15: 4,
   Sh101: 5,
   Odyssey: 6,
+  Prophet5: 7,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -316,6 +317,12 @@ export const Preset = {
   Sh101Strings: 30,
   CurrieLead: 31,
   OdysseySync: 32,
+  P5Brass: 33,
+  P5Strings: 34,
+  P5Bass: 35,
+  P5SyncLead: 36,
+  P5Bell: 37,
+  P5Pad: 38,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

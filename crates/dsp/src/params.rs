@@ -688,7 +688,7 @@ impl Param {
             | Param::ModWheel
             | Param::LfoCutoff
             | Param::LfoPw => (0.0, 1.0),
-            Param::Model => (0.0, 6.0),
+            Param::Model => (0.0, (crate::mono::model::Model::ALL.len() - 1) as f32),
             Param::Level | Param::Send1 | Param::Send2 | Param::Send3 | Param::Send4 => (0.0, 1.0),
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),

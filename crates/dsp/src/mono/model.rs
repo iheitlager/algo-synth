@@ -17,11 +17,12 @@ pub enum Model {
     Cs15 = 4,
     Sh101 = 5,
     Odyssey = 6,
+    Prophet5 = 7,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 7] = [
+    pub const ALL: [(Model, &'static str); 8] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -29,6 +30,7 @@ impl Model {
         (Model::Cs15, "Cs15"),
         (Model::Sh101, "Sh101"),
         (Model::Odyssey, "Odyssey"),
+        (Model::Prophet5, "Prophet5"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -120,11 +122,21 @@ pub enum Hp {
 }
 
 impl Model {
+    /// How many voices the instrument has at most (spec 006 Req 1): the
+    /// polyphonic models are limited to their own count, the monosynths to the
+    /// pool's.
+    pub fn voices(self) -> usize {
+        match self {
+            Model::Prophet5 => 5,
+            _ => crate::poly::MAX_VOICES,
+        }
+    }
+
     /// The filter and its voicing.
     pub fn filter(self) -> Filter {
         match self {
             Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
-            Model::ProOne => Filter::Ladder(PRO_ONE),
+            Model::ProOne | Model::Prophet5 => Filter::Ladder(PRO_ONE),
             Model::Sh101 => Filter::Ladder(SH101),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
@@ -137,7 +149,7 @@ impl Model {
         match self {
             Model::Ms20 | Model::Cs15 => Hp::Svf,
             Model::Sh101 | Model::Odyssey => Hp::OnePole,
-            Model::Arp2600 | Model::Minimoog | Model::ProOne => Hp::None,
+            Model::Arp2600 | Model::Minimoog | Model::ProOne | Model::Prophet5 => Hp::None,
         }
     }
 
@@ -191,7 +203,7 @@ mod tests {
             assert_eq!(Model::from_id(*m as u32), Some(*m));
             assert_eq!(*m as usize, i, "ids run from 0 without gaps");
         }
-        assert_eq!(Model::from_id(7), None);
+        assert_eq!(Model::from_id(99), None);
         assert_eq!(Model::default(), Model::Arp2600);
     }
 
@@ -208,6 +220,22 @@ mod tests {
             assert!(CS15.osc_at > 1.0 && CS15.k_min > 0.0);
         }
         assert_eq!(MOOG.comp, 0.0);
+    }
+
+    #[test]
+    fn polyphonic_models_have_their_own_voice_count() {
+        assert_eq!(Model::Prophet5.voices(), 5);
+        for (m, name) in Model::ALL {
+            assert!(
+                m.voices() >= 1 && m.voices() <= crate::poly::MAX_VOICES,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            Model::Minimoog.voices(),
+            crate::poly::MAX_VOICES,
+            "a monosynth is not limited"
+        );
     }
 
     #[test]

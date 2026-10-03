@@ -678,7 +678,11 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(1, Param::Model, 1.0);
         e.set_param(1, Param::Model, 99.0);
-        assert_eq!(e.param_value(1, Param::Model), 6.0, "clamped into range");
+        assert_eq!(
+            e.param_value(1, Param::Model),
+            (Model::ALL.len() - 1) as f32,
+            "clamped into range"
+        );
         e.set_param(1, Param::Model, 1.0);
         assert_eq!(e.param_value(1, Param::Model), 1.0);
         assert_eq!(e.param_value(0, Param::Model), 0.0);
@@ -818,6 +822,39 @@ mod tests {
             gated_notes(&e, 0) == 1,
             "the live key is still held after the chord ends"
         );
+    }
+
+    /// Spec 006 Req 6: the Prophet-5 has five voices; a sixth note steals the oldest.
+    #[test]
+    fn the_prophet_5_has_five_voices_and_the_sixth_steals_one() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::P5Brass);
+        // The model's own count limits a pool set for more.
+        e.set_param(0, Param::Polyphony, 16.0);
+        for n in [60, 64, 67, 71, 74] {
+            e.note_on(0, n, 1.0);
+        }
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 5);
+        e.note_on(0, 77, 1.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 5, "still five");
+        assert_eq!(
+            e.pools[0].held_notes(),
+            vec![64, 67, 71, 74, 77],
+            "the oldest, 60, was stolen"
+        );
+    }
+
+    /// The Prophet bass is unison: one key, every voice.
+    #[test]
+    fn the_prophet_bass_plays_one_note_on_all_five_voices() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::P5Bass);
+        e.note_on(0, 40, 1.0);
+        e.render(BLOCK);
+        assert_eq!(e.active_voices(), 5);
+        assert_eq!(e.pools[0].held_notes(), vec![40; 5]);
     }
 
     /// Notes held on a synth: its voices with a key down.

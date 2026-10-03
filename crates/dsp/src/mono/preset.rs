@@ -45,11 +45,17 @@ pub enum Preset {
     Sh101Strings = 30,
     CurrieLead = 31,
     OdysseySync = 32,
+    P5Brass = 33,
+    P5Strings = 34,
+    P5Bass = 35,
+    P5SyncLead = 36,
+    P5Bell = 37,
+    P5Pad = 38,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 33] = [
+    pub const ALL: [(Preset, &'static str); 39] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -83,6 +89,12 @@ impl Preset {
         (Preset::Sh101Strings, "Sh101Strings"),
         (Preset::CurrieLead, "CurrieLead"),
         (Preset::OdysseySync, "OdysseySync"),
+        (Preset::P5Brass, "P5Brass"),
+        (Preset::P5Strings, "P5Strings"),
+        (Preset::P5Bass, "P5Bass"),
+        (Preset::P5SyncLead, "P5SyncLead"),
+        (Preset::P5Bell, "P5Bell"),
+        (Preset::P5Pad, "P5Pad"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -96,6 +108,12 @@ impl Preset {
     /// The model this preset is for; `changes` sets it.
     pub fn model(self) -> Model {
         match self {
+            Preset::P5Brass
+            | Preset::P5Strings
+            | Preset::P5Bass
+            | Preset::P5SyncLead
+            | Preset::P5Bell
+            | Preset::P5Pad => Model::Prophet5,
             Preset::Bass | Preset::Lead | Preset::SyncLead | Preset::BowedString => Model::Arp2600,
             Preset::MiniBass | Preset::MiniLead => Model::Minimoog,
             Preset::ProLead | Preset::ProBass => Model::ProOne,
@@ -835,6 +853,145 @@ impl Preset {
                 (LfoRate, 0.5),
                 (LfoPw, 0.4),
             ],
+            // Two saws a few cents apart, the filter opened by its envelope on every
+            // note and followed by the key: the Prophet brass. Five voices, a little drift.
+            Preset::P5Brass => &[
+                (Model, 7.0),
+                (Polyphony, 5.0),
+                (Analog, 0.5),
+                (Vco1Level, 0.9),
+                (Vco2Fine, 7.0),
+                (Vco2Level, 0.9),
+                (Cutoff, 1_200.0),
+                (Resonance, 0.25),
+                (AdsrAttack, 0.06),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.25),
+                (FenvAttack, 0.08),
+                (FenvDecay, 0.5),
+                (FenvSustain, 0.6),
+                (FenvRelease, 0.3),
+                (EnvCutoff, 0.55),
+                (KeyTrack, 1.0),
+            ],
+            // A saw and a pulse whose width a slow LFO sweeps, a slow attack and a long
+            // release: the Prophet string pad.
+            Preset::P5Strings => &[
+                (Model, 7.0),
+                (Polyphony, 5.0),
+                (Analog, 0.6),
+                (Vco1Level, 0.8),
+                (Vco1Fine, 6.0),
+                (Vco2Wave, 1.0),
+                (Vco2Level, 0.8),
+                (LfoWave, 2.0),
+                (LfoRate, 0.5),
+                (LfoPw, 0.3),
+                (Cutoff, 2_400.0),
+                (Resonance, 0.1),
+                (AdsrAttack, 0.4),
+                (AdsrDecay, 0.5),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.6),
+                (FenvAttack, 0.4),
+                (FenvSustain, 0.8),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+            ],
+            // Unison on all five voices, two saws an octave down, a snapping filter
+            // envelope: a fat unison bass.
+            Preset::P5Bass => &[
+                (Model, 7.0),
+                (Polyphony, 5.0),
+                (Assign, 1.0),
+                (UnisonDetune, 0.12),
+                (Analog, 0.4),
+                (Vco1Coarse, -12.0),
+                (Vco1Level, 1.0),
+                (Vco2Coarse, -12.0),
+                (Vco2Fine, 4.0),
+                (Vco2Level, 0.9),
+                (Cutoff, 500.0),
+                (Resonance, 0.35),
+                (Drive, 0.3),
+                (AdsrAttack, 0.003),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 0.7),
+                (AdsrRelease, 0.15),
+                (FenvAttack, 0.003),
+                (FenvDecay, 0.3),
+                (FenvSustain, 0.15),
+                (EnvCutoff, 0.6),
+                (KeyTrack, 1.0),
+            ],
+            // A synced to B with the filter envelope sweeping A, in unison with a
+            // little spread: a Prophet sync lead.
+            Preset::P5SyncLead => &[
+                (Model, 7.0),
+                (Polyphony, 5.0),
+                (Assign, 1.0),
+                (UnisonDetune, 0.1),
+                (Analog, 0.4),
+                (Vco1Level, 0.0),
+                (Vco2Coarse, 12.0),
+                (Vco2Level, 1.0),
+                (Vco2Sync, 1.0),
+                (Cutoff, 3_500.0),
+                (Resonance, 0.2),
+                (AdsrAttack, 0.005),
+                (AdsrDecay, 0.4),
+                (AdsrSustain, 0.8),
+                (AdsrRelease, 0.3),
+                (FenvAttack, 0.005),
+                (FenvDecay, 0.7),
+                (FenvSustain, 0.3),
+                (EnvFreq2, 0.35),
+                (EnvCutoff, 0.2),
+                (KeyTrack, 0.5),
+            ],
+            // B frequency-modulating A through poly-mod at an inharmonic ratio, the
+            // sound dying with the loudness: a poly-mod bell, five voices of it.
+            Preset::P5Bell => &[
+                (Model, 7.0),
+                (Polyphony, 5.0),
+                (Analog, 0.3),
+                (Vco1Wave, 3.0),
+                (Vco1Coarse, 22.0),
+                (Vco1Level, 0.0),
+                (Vco2Wave, 3.0),
+                (Vco2Level, 1.0),
+                (OscFreq2, 0.9),
+                (Cutoff, 6_000.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 1.6),
+                (AdsrSustain, 0.0),
+                (AdsrRelease, 1.2),
+                (KeyTrack, 1.0),
+            ],
+            // Two detuned saws, a slow swell and the LFO breathing the filter: a warm pad.
+            Preset::P5Pad => &[
+                (Model, 7.0),
+                (Polyphony, 5.0),
+                (Analog, 0.7),
+                (Vco1Level, 0.8),
+                (Vco1Fine, -8.0),
+                (Vco2Fine, 8.0),
+                (Vco2Level, 0.8),
+                (Cutoff, 1_400.0),
+                (Resonance, 0.2),
+                (AdsrAttack, 0.8),
+                (AdsrDecay, 0.8),
+                (AdsrSustain, 0.85),
+                (AdsrRelease, 1.0),
+                (FenvAttack, 0.9),
+                (FenvSustain, 0.7),
+                (EnvCutoff, 0.25),
+                (LfoWave, 3.0),
+                (LfoRate, 0.3),
+                (LfoCutoff, 0.3),
+                (KeyTrack, 0.5),
+            ],
             // Three detuned saws and a breath of pink noise for the bow,
             // a slow attack and a long release: the ensemble's start.
             Preset::BowedString => &[
@@ -1089,6 +1246,43 @@ mod tests {
             {
                 assert!((g - w).abs() < 2.0e-5, "{preset:?}: {got:?} vs {want:?}");
             }
+        }
+    }
+
+    /// Spec 006 Req 15: every polyphonic preset plays a full chord, bounded,
+    /// audible, and silent once released.
+    #[test]
+    fn every_poly_preset_plays_a_full_chord() {
+        for (preset, name) in Preset::ALL {
+            let mut probe = Engine::new(48_000.0);
+            probe.preset(0, preset);
+            let voices =
+                (probe.param_value(0, Param::Polyphony) as usize).min(preset.model().voices());
+            if voices < 2 {
+                continue;
+            }
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.preset(0, preset);
+            let chord: Vec<u8> = (0..voices).map(|k| (40 + 5 * k).min(100) as u8).collect();
+            for n in &chord {
+                e.note_on(0, *n, 1.0);
+            }
+            let mut heard = 0.0_f32;
+            for i in 0..(48_000 * 5 / BLOCK) {
+                if i == 48_000 / BLOCK {
+                    for n in &chord {
+                        e.note_off(0, *n);
+                    }
+                }
+                e.render(BLOCK);
+                for s in e.output() {
+                    assert!(s.is_finite() && s.abs() <= 1.0, "{name}: {s}");
+                    heard = heard.max(s.abs());
+                }
+            }
+            assert!(heard > 0.05, "{name} is silent");
+            assert_eq!(e.active_voices(), 0, "{name} still sounds");
         }
     }
 

@@ -312,6 +312,70 @@ const proOne: ModelDef = {
   ],
 }
 
+/** What every polyphonic model has: how notes are assigned, the unison spread and the vintage drift. */
+const ASSIGN: Options = [['Poly', 0], ['Unison', 1]]
+const voicesSection = (): Section => ({
+  title: 'Voices',
+  controls: [select('Assign', Param.Assign, ASSIGN), range('Unison detune', Param.UnisonDetune, 0, 1, 0.01), range('Vintage', Param.Analog, 0, 1, 0.01)],
+})
+
+// Five voices of the Pro-One's two-oscillator voice (spec 006 Req 6): A is VCO 2,
+// B is VCO 1, poly-mod from the filter envelope and B, unison and vintage drift.
+const prophet5: ModelDef = {
+  id: Model.Prophet5,
+  name: 'Prophet-5',
+  maker: 'Sequential · five voices, poly-mod',
+  tagline: 'Five voices: two oscillators, poly-mod, a 4-pole filter, two envelopes, unison, vintage drift',
+  theme: { panel: '#1c1b1a', ink: '#f4ead8', soft: '#bfae94', trim: '#3a2a1c', accent: '#f0a73a', wood: '#6e4426' },
+  presets: ['P5Brass', 'P5Strings', 'P5Bass', 'P5SyncLead', 'P5Bell', 'P5Pad'],
+  sections: [
+    {
+      title: 'Oscillator A',
+      controls: [
+        range('Frequency', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), select('Wave', Param.Vco2Wave, WAVES),
+        range('Pulse width', Param.PulseWidth, 0.05, 0.95, 0.01), sw('Sync to B', Param.Vco2Sync),
+      ],
+    },
+    {
+      title: 'Oscillator B',
+      controls: [range('Frequency', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), select('Wave', Param.Vco1Wave, WAVES)],
+    },
+    {
+      title: 'Mixer',
+      controls: [
+        range('Osc A', Param.Vco2Level, 0, 1, 0.01), range('Osc B', Param.Vco1Level, 0, 1, 0.01),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01), select('Noise colour', Param.NoiseColour, NOISES),
+      ],
+    },
+    {
+      title: 'Poly-mod',
+      controls: [
+        range('Filter env → Freq A', Param.EnvFreq2, -1, 1, 0.01), range('Osc B → Freq A', Param.OscFreq2, -1, 1, 0.01),
+        range('Filter env → PW A', Param.EnvPw, -1, 1, 0.01), range('Osc B → PW A', Param.OscPw, -1, 1, 0.01),
+        range('Osc B → Filter', Param.OscCutoff, -1, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Filter',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope amount', Param.EnvCutoff, -1, 1, 0.01), select('Key track', Param.KeyTrack, HALF_FULL),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    {
+      title: 'LFO',
+      controls: [
+        select('Wave', Param.LfoWave, LFO_WAVES), range('Rate', Param.LfoRate, 0, 1, 0.001, 'lfo'),
+        range('→ Freq', Param.Vibrato, 0, 1, 0.01), range('→ Filter', Param.LfoCutoff, 0, 1, 0.01),
+        range('→ PW A', Param.LfoPw, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+      ],
+    },
+    voicesSection(),
+  ],
+}
+
 const ms20: ModelDef = {
   id: Model.Ms20,
   name: 'MS-20',
@@ -551,7 +615,7 @@ const odyssey: ModelDef = {
 }
 
 /** The models the view offers, in the order of the picker. */
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey]
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

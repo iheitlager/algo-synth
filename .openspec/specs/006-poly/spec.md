@@ -84,7 +84,7 @@ At most 64 voices SHALL sound at once across all synths; a note past it SHALL st
 
 The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A synced to B), noise, poly-mod, a 4-pole low-pass in the Pro-One voicing, a filter ADSR and a loudness ADSR, an LFO and unison; `Analog` SHALL default to a clearly audible drift.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Prophet5` *(planned, #82)*
+**Implementation:** `crates/dsp/src/mono/model.rs::Model::Prophet5`, `web/src/audio/models.ts` (#82)
 
 #### Scenario: five voices
 
@@ -92,7 +92,7 @@ The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A 
 - WHEN they are pressed
 - THEN five voices sound and the sixth steals one
 
-**Tests:** *(planned)*
+**Tests:** `crates/dsp/src/engine.rs::tests::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine.rs::tests::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
 
 ### Requirement 7: Juno-106 [MUST]
 

@@ -133,6 +133,20 @@ impl Pool {
         self.voices.iter().filter(|v| v.active()).count()
     }
 
+    /// The notes held on the voices, lowest first (for tests).
+    #[cfg(test)]
+    pub fn held_notes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = self
+            .slots
+            .iter()
+            .zip(&self.voices)
+            .filter(|(_, v)| v.gated())
+            .map(|(s, _)| s.note)
+            .collect();
+        v.sort_unstable();
+        v
+    }
+
     /// Voices with a key held (for tests).
     pub fn held(&self) -> usize {
         self.voices.iter().filter(|v| v.gated()).count()
@@ -192,7 +206,7 @@ impl Pool {
     /// Whether pressing `note` for `owner` would add a sounding voice, rather than
     /// re-use or steal one of this pool's own.
     pub fn adds_a_voice(&self, owner: Owner, note: u8, p: &MonoParams) -> bool {
-        let limit = p.polyphony.clamp(1, MAX_VOICES);
+        let limit = p.voices();
         if limit == 1 {
             return !self
                 .slots
@@ -212,7 +226,7 @@ impl Pool {
     /// Press `note` for `owner`. A monophonic synth keeps the owner's voice and
     /// its key stack; a polyphonic one gives the note a voice of its own.
     pub fn note_on(&mut self, owner: Owner, note: u8, velocity: f32, p: &MonoParams, clock: u64) {
-        let limit = p.polyphony.clamp(1, MAX_VOICES);
+        let limit = p.voices();
         if limit == 1 {
             self.press_mono(owner, note, velocity, p, clock);
         } else if p.unison {
@@ -378,7 +392,7 @@ impl Pool {
     /// Release `note` for `owner`: a monophonic owner's voice falls back to its next
     /// held key; a polyphonic note releases the voice that plays it.
     pub fn note_off(&mut self, owner: Owner, note: u8, p: &MonoParams) {
-        if p.polyphony > 1 && p.unison {
+        if p.voices() > 1 && p.unison {
             self.forget(owner, note);
             let sounding = self
                 .slots
@@ -400,13 +414,13 @@ impl Pool {
             match next {
                 Some((_, n, vel)) => {
                     let age = self.slots.iter().map(|s| s.age).max().unwrap_or(0);
-                    self.sound_unison(owner, n, vel, p, age, p.polyphony.clamp(1, MAX_VOICES));
+                    self.sound_unison(owner, n, vel, p, age, p.voices());
                 }
                 None => self.release_owner(owner),
             }
             return;
         }
-        if p.polyphony <= 1 {
+        if p.voices() <= 1 {
             if let Some(i) = self.slots.iter().position(|s| s.owner == Some(owner)) {
                 if let Some(PolyVoice::Mono(v)) = self.voices.get_mut(i) {
                     v.release(note, p);
@@ -498,7 +512,7 @@ impl Pool {
         pitch: &PitchTable,
         out: &mut [f32],
     ) {
-        let poly = p.polyphony > 1;
+        let poly = p.voices() > 1;
         self.retrim(p, poly);
         if poly {
             self.shared

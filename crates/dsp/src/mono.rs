@@ -95,6 +95,11 @@ impl Default for MonoParams {
 }
 
 impl MonoParams {
+    /// The voices this synth plays at once: `Polyphony`, at most its model's.
+    pub fn voices(&self) -> usize {
+        self.polyphony.clamp(1, self.model.voices())
+    }
+
     /// The voice at `preset::DEFAULTS`: zeroed, then every default set.
     pub fn new(sample_rate: f32) -> MonoParams {
         let off = EnvTimes {
