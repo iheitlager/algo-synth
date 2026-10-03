@@ -23,6 +23,7 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
+use crate::sample::{self, Sample, SampleStore};
 use crate::smf;
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -78,6 +79,9 @@ pub struct Engine {
     /// voices parsed from it.
     sysex: Vec<u8>,
     sysex_voices: Vec<sysex::Voice>,
+    /// A WAV file's bytes, written by JavaScript before `load_sample`.
+    wav: Vec<u8>,
+    samples: SampleStore,
     sequence: Sequence,
     /// The transport's tempo and sixteenth steps (spec 002 Req 5).
     clock: Clock,
@@ -118,6 +122,8 @@ impl Engine {
             midi: Vec::new(),
             sysex: Vec::new(),
             sysex_voices: Vec::new(),
+            wav: Vec::new(),
+            samples: SampleStore::new(),
             sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
@@ -425,6 +431,34 @@ impl Engine {
             }
         }
         Ok(self.sequence.parts().len())
+    }
+
+    // --- Samples ---------------------------------------------------------
+
+    /// Size the WAV buffer for `len` bytes and return it for writing.
+    /// `None` if the file is larger than `sample::MAX_WAV`.
+    pub fn sample_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
+        if len > sample::MAX_WAV {
+            return None;
+        }
+        self.wav.clear();
+        self.wav.resize(len, 0);
+        Some(&mut self.wav)
+    }
+
+    /// Parse the buffer into `slot`, resampled to the engine's rate. Returns
+    /// the frame count.
+    pub fn load_sample(&mut self, slot: usize) -> Result<usize, sample::Error> {
+        let rate = self.sample_rate;
+        self.samples.load(slot, &self.wav, rate).map(Sample::frames)
+    }
+
+    pub fn samples(&self) -> &SampleStore {
+        &self.samples
+    }
+
+    pub fn clear_sample(&mut self, slot: usize) {
+        self.samples.clear(slot);
     }
 
     pub fn sequence(&self) -> &Sequence {
