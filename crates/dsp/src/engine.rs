@@ -6,6 +6,7 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
+use crate::clock::Clock;
 use crate::fx::compressor::Compressor;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
@@ -65,6 +66,8 @@ pub struct Engine {
     /// The MIDI file's bytes, written by JavaScript before `load_midi`.
     midi: Vec<u8>,
     sequence: Sequence,
+    /// The transport's tempo and sixteenth steps (spec 002 Req 5).
+    clock: Clock,
     /// The synth each MIDI channel plays on; `None` mutes it.
     route: [Option<usize>; CHANNELS],
 }
@@ -101,6 +104,7 @@ impl Engine {
             meters: [0.0; METERS],
             midi: Vec::new(),
             sequence: Sequence::default(),
+            clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
         };
         for (p, v) in GLOBAL_DEFAULTS {
@@ -324,17 +328,35 @@ impl Engine {
         &self.sequence
     }
 
+    pub fn clock(&self) -> &Clock {
+        &self.clock
+    }
+
+    /// The clock's tempo in BPM; the song sets it (ADR-0012).
+    pub fn set_tempo(&mut self, bpm: f32) {
+        self.clock.set_tempo(bpm);
+    }
+
+    /// The clock's swing in percent, 50 (straight) to 75.
+    pub fn set_swing(&mut self, pct: f32) {
+        self.clock.set_swing(pct);
+    }
+
+    /// Start the transport: the clock, and the MIDI file if one is loaded.
     pub fn play(&mut self) {
         self.sequence.play();
+        self.clock.play();
     }
 
     pub fn stop(&mut self) {
         self.sequence.stop();
+        self.clock.stop();
         self.release_player();
     }
 
     pub fn seek(&mut self, sample: u64) {
         self.sequence.seek(sample);
+        self.clock.seek(sample);
         self.release_player();
     }
 
@@ -365,12 +387,16 @@ impl Engine {
         if self.sequence.finished() {
             self.stop();
         }
+        // Nothing plays on the steps yet: the song (#100) and the
+        // arpeggiator (#110) will.
+        while self.clock.due().is_some() {}
     }
 
     // --- Render ----------------------------------------------------------
 
     /// Render `frames` (at most `BLOCK`) into the output buffer. The block is
-    /// split at player events, so every note starts on its exact sample.
+    /// split at player events and clock steps, so each lands on its exact
+    /// sample.
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
         self.out.fill(0.0);
@@ -378,7 +404,10 @@ impl Engine {
         let mut t = 0;
         while t < n {
             self.fire_due_events();
-            let chunk = self.sequence.frames_until_next(n - t);
+            let chunk = self
+                .sequence
+                .frames_until_next(n - t)
+                .min(self.clock.frames_until_next(n - t));
             for (m, synth) in self.monos.iter_mut().zip(self.synth_of.iter()) {
                 let Some(params) = self.synths.get(*synth) else {
                     continue;
@@ -397,6 +426,7 @@ impl Engine {
                 }
             }
             self.sequence.advance(chunk);
+            self.clock.advance(chunk);
             t += chunk;
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
@@ -1511,6 +1541,43 @@ mod tests {
             left[64..64 + LATENCY + 2].iter().any(|s| *s != 0.0),
             "the note should start at frame 64"
         );
+    }
+
+    #[test]
+    fn clock_steps_land_on_their_samples_through_render() {
+        let mut e = Engine::new(48_000.0);
+        e.play();
+        let mut onsets = Vec::new();
+        let mut last = None;
+        // One frame at a time, so the step a frame fires is visible.
+        for s in 0..48_000u64 {
+            e.render(1);
+            if e.clock().step() != last {
+                last = e.clock().step();
+                onsets.push(s);
+            }
+        }
+        let want: Vec<u64> = (0..8).map(|k| k * 6000).collect();
+        assert_eq!(onsets, want);
+    }
+
+    #[test]
+    fn the_transport_drives_the_clock() {
+        let mut e = Engine::new(48_000.0);
+        e.set_tempo(60.0);
+        e.play();
+        for _ in 0..100 {
+            e.render(BLOCK);
+        }
+        // 12_800 samples at 12_000 per step: steps 0 and 1 have fired.
+        assert_eq!(e.clock().step(), Some(1));
+        e.stop();
+        e.render(BLOCK);
+        assert_eq!(e.clock().position(), 12_800);
+        e.seek(36_000);
+        e.play();
+        e.render(BLOCK);
+        assert_eq!(e.clock().step(), Some(3));
     }
 
     #[test]

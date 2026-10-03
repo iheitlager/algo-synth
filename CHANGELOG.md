@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-04
+
+### Added
+
+- A sample-accurate clock in the engine: tempo (20–300 BPM), MPC-style swing (50–75%) and sixteenth-note steps whose samples come from their index, so nothing drifts; a tempo change takes effect from the next step. The render loop splits blocks at clock steps, play, stop and seek drive it with the MIDI player, and `tempo`, `swing` and `clock_step` reach it from JavaScript. Tempo and swing are song data (ADR-0012), not registry parameters (#98, epic #97).
+
 ## [0.14.0] - 2026-10-03
 
 ### Added
