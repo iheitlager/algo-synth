@@ -104,6 +104,9 @@ export const params = reactive({ values: [] as number[][] })
  */
 export const synths = reactive({ list: [0] as number[], selected: 0 })
 
+/** Which main view is shown: the synth panels or the mixer console. */
+export const view = reactive({ main: 'synths' as 'synths' | 'mixer' })
+
 /** One hue per synth, so a part's notes match its synth's card. */
 export const synthColour = (s: number) => `hsl(${(12 + 47 * s) % 360} 68% 62%)`
 

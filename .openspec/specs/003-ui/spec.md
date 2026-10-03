@@ -4,7 +4,7 @@ The wide-screen browser view in `web/`. Decision: ADR-0003.
 
 ### Requirement 1: Three-area layout [MUST]
 
-The view SHALL fill the window with a transport bar across the top, the **synths** in the middle, and the **MIDI player** (one row per channel) across the bottom. The algo pane and the arrangement are removed for now (ADR-0008).
+The view SHALL fill the window with a transport bar across the top, the **synths** or the **mixer** in the middle (a Synths | Mixer switch in the transport bar), and the **MIDI player** (one row per channel) across the bottom. The algo pane and the arrangement are removed for now (ADR-0008).
 
 **Implementation:** `web/src/App.vue`
 
@@ -57,3 +57,17 @@ The view SHALL save the synths on screen, each one's kind, model and parameters,
 - THEN the rest applies and each skip is listed once
 
 **Tests:** `web/src/audio/setup.test.ts`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`
+
+### Requirement 8: Mixer console [SHOULD]
+
+The mixer view SHALL be a console: one thin strip per synth side by side (tape with the synth and its model, drive mode and amount, four sends P1–P4, pan, mute, solo, fader with a dB scale and an LED meter, the MIDI channels routed to it), the four effect processors as rack modules (type, the knobs of that type with their real units, return and return meter), and the master section (equalizer with its response curve, compressor with its transfer curve and gain-reduction meter, master fader, stereo meters and a limiter light). Values shown SHALL be those the engine reports, and changes SHALL go out as messages; the meters SHALL come from the engine's peaks (spec 002 Req 2). A knob SHALL turn by dragging up or down (shift for fine), open a slider when clicked, reset on double-click, and move with the wheel and the arrow keys; a fader SHALL do the same with its taper (0 dB at the top). Clicking a strip's tape SHALL select its synth for the keyboard, and double-clicking it SHALL show that synth's panel. The synths SHALL stay mounted in the mixer view so the computer keyboard still plays.
+
+**Implementation:** `web/src/components/ConsolePane.vue`, `web/src/components/console/` (`Knob.vue`, `Fader.vue`, `LedMeter.vue`, `ChannelStrip.vue`, `ProcessorModule.vue`, `MasterSection.vue`), `web/src/audio/console.ts`, `web/src/App.vue`, `web/src/components/TransportBar.vue`
+
+#### Scenario: knob and fader maths
+
+- GIVEN a fader position or a knob drag
+- WHEN it is turned into a value
+- THEN the taper puts 0 dB at the top and a linear level of 1, a drag of 170 px covers the whole range, and the EQ curve reaches each band's gain at its frequency
+
+**Tests:** `web/src/audio/console.test.ts`

@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- The mixer console: a Synths | Mixer switch shows one thin strip per synth side by side (tape, drive, four sends, pan, mute, solo, fader and LED meter), the four processors as a rack and the master section with an EQ curve, a compressor transfer curve and stereo meters. Knobs turn by dragging and open a slider on click; double-click on a strip's tape shows the synth's panel. Replaces the mixer pane. Spec 003 Req 8 (#55, epic #56).
 - Peak meters from the engine: per synth strip (after its fader), master left and right, and each processor's return, read by the worklet about 47 times a second through new exports `meters_ptr`, `meters_len` and `meters_clear` (#53, epic #56).
 - Console primitives for the coming mixer view: rotary knob with a click-to-slider popover, fader with a dB taper, LED meter, bundled Barlow Condensed and IBM Plex Mono fonts (#52, epic #56).
 

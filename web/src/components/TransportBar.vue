@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, status, stop } from '../audio/engine'
+import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, status, stop, view } from '../audio/engine'
 import { Param } from '../audio/params'
 
 // The performance counter: worklet time per block against the budget
@@ -67,6 +67,10 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
     <button :class="{ on: status.running }" @click="onPower">
       {{ status.running ? 'Audio on' : 'Power on' }}
     </button>
+    <span class="seg" role="group" aria-label="View">
+      <button :aria-pressed="view.main === 'synths'" @click="view.main = 'synths'">Synths</button>
+      <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
+    </span>
     <button @click="onDemo">Demo</button>
     <label class="file" title="A MIDI file, its .synths.json setup, or both">
       <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json" @change="onFile" />Open…
@@ -98,6 +102,11 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 .bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; overflow: hidden; }
 .logo { color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
 .on { border-color: var(--accent); color: var(--accent); }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 4px 0 0 4px; }
+.seg button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
+.seg button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: var(--panel); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .gain { width: 180px; }
 .file { border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; background: var(--panel-2); cursor: pointer; white-space: nowrap; }

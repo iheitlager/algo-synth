@@ -75,7 +75,7 @@ function onRemove(s: number) {
     </div>
     <div class="cards">
       <article
-        v-for="{ s, def } in cards" :key="s" class="card"
+        v-for="{ s, def } in cards" :key="s" :id="`synth-${s}`" class="card"
         :class="{ sel: synths.selected === s }" :style="themeOf(def, s)"
         @click="synths.selected = s"
       >

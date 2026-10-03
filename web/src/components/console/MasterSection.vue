@@ -98,7 +98,7 @@ h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.2em; text-transform: up
 .out .fader-wrap { display: flex; gap: 5px; align-items: stretch; height: 300px; }
 .meters { display: flex; gap: 3px; }
 .ch { font-size: 11px; letter-spacing: 0.16em; color: var(--con-silk-dim); text-transform: uppercase; }
-.readout { font: 500 11px var(--con-font-mono); color: var(--con-silk); background: var(--con-inset); border-radius: 3px; padding: 2px 6px; min-width: 52px; text-align: center; }
+.readout { margin-top: 10px; font: 500 11px var(--con-font-mono); color: var(--con-silk); background: var(--con-inset); border-radius: 3px; padding: 2px 6px; min-width: 52px; text-align: center; }
 .lim { font-size: 11px; letter-spacing: 0.16em; color: var(--con-silk-dim); padding: 2px 8px; border-radius: 3px; background: var(--con-inset); border: 1px solid #343b46; text-transform: uppercase; }
 .lim.hit { color: #fff; background: #6a1d14; border-color: var(--con-led-r); box-shadow: 0 0 10px #f0503a88; }
 </style>

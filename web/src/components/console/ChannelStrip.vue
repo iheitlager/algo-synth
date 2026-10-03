@@ -117,6 +117,6 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
 .btn.mute[aria-pressed='true'] { background: #7a2a22; color: #fff; border-color: #e0654f; box-shadow: 0 0 10px #e0654f55; }
 .btn.solo[aria-pressed='true'] { background: #8a6a10; color: #fff; border-color: #f0c23a; box-shadow: 0 0 10px #f0c23a55; }
 .fader-wrap { display: flex; gap: 5px; align-items: stretch; height: 214px; }
-.readout { font: 500 11px var(--con-font-mono); color: var(--con-silk); background: var(--con-inset); border-radius: 3px; padding: 2px 6px; min-width: 52px; text-align: center; }
+.readout { margin-top: 10px; font: 500 11px var(--con-font-mono); color: var(--con-silk); background: var(--con-inset); border-radius: 3px; padding: 2px 6px; min-width: 52px; text-align: center; }
 .ch { font-size: 11px; letter-spacing: 0.16em; color: var(--con-silk-dim); text-transform: uppercase; white-space: nowrap; }
 </style>
