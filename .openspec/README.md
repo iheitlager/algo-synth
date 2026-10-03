@@ -39,7 +39,7 @@ See [adr/index.md](adr/index.md).
 |---|---|
 | [001-engine](specs/001-engine/spec.md) | The wasm engine: C ABI, render loop, voices, parameters |
 | [002-composition](specs/002-composition/spec.md) | Tracks, sources, effects, patterns, clips, algo loops, score import, clock |
-| [003-ui](specs/003-ui/spec.md) | The wide-screen view: transport, algo pane, instruments, arrangement |
+| [003-ui](specs/003-ui/spec.md) | The wide-screen view: transport, synth faceplates, mixer console, MIDI player |
 | [004-mono](specs/004-mono/spec.md) | The Mono voice: VCOs, noise, filters, envelopes, modulation, mono note handling, normalled routing, MIDI input, presets |
 | [005-models](specs/005-models/spec.md) | The synth models: ARP 2600, Minimoog, Pro-One, MS-20, CS-15 and SH-101, each with its own sound, panel and colours |
 

@@ -16,9 +16,9 @@ Audio SHALL start only from a user gesture (the Power button), creating the Audi
 
 ### Requirement 3: Play the synths [MUST]
 
-The view SHALL show one card per Mono synth, each with its own controls and on-screen keyboard; **+ Synth** SHALL add one (up to 16, reset to the default patch) and × SHALL remove one (never the last), muting the parts that played on it. The computer keyboard (`a`…`;`, C4 upward) SHALL play the selected synth, and a held key SHALL release on the synth it started on. Loading a MIDI file SHALL show a synth for each part, and each part SHALL pick its synth or mute.
+The synths view SHALL be a rail of synth tapes beside one faceplate (Req 9): **+ Synth** SHALL add one (up to 16, reset to the default patch) and × SHALL remove one (never the last), muting the parts that played on it. The selected synth's faceplate has an on-screen keyboard; the computer keyboard (`a`…`;`, C4 upward) SHALL play the selected synth, from the mixer view too, and a held key SHALL release on the synth it started on. Loading a MIDI file SHALL show a synth for each part, and each part SHALL pick its synth or mute.
 
-**Implementation:** `web/src/components/InstrumentsPane.vue`
+**Implementation:** `web/src/components/InstrumentsPane.vue`, `web/src/components/synth/` (`SynthRail.vue`, `Keyboard.vue`)
 
 ### Requirement 4: Scope [SHOULD]
 
@@ -71,3 +71,29 @@ The mixer view SHALL be a console: one thin strip per synth side by side (tape w
 - THEN the taper puts 0 dB at the top and a linear level of 1, a drag of 170 px covers the whole range, and the EQ curve reaches each band's gain at its frequency
 
 **Tests:** `web/src/audio/console.test.ts`
+
+### Requirement 9: Synth faceplate [SHOULD]
+
+The selected synth SHALL be drawn as one faceplate in the console's hardware style, in the palette of its model (spec 005 Req 8), with the sections, control names and order of that instrument (`web/src/audio/models.ts`): rotary knobs with the console's popover (drag, click for a slider, double-click to reset, wheel and arrow keys, shift for fine), LED switches, stepped selectors (waveforms with a drawn icon), an envelope drawn as a live curve from its attack, decay, sustain and release, and for the models with a patch panel (ARP 2600, MS-20, CS-15) a patch bay: sources down, destinations across, a lit point per connection, and a knob for the amount of each. A rail of tapes SHALL sit beside it, one per synth: its model and number, an LED meter, mute and solo, and a click to select it; a synth's model and preset are chosen in the faceplate's header. The view SHALL show the values the engine reports, SHALL send only parameter changes (Req 6), and SHALL keep every control reachable by keyboard. Which control sits on which panel, and how a value is scaled and labelled, is data in `models.ts`; the maths of the drawings (curve points, steps, matrix cells) is pure functions in `web/src/audio/faceplate.ts`.
+
+**Implementation:** `web/src/components/SynthFaceplate.vue`, `web/src/components/synth/` (`Switch.vue`, `Selector.vue`, `EnvGraph.vue`, `PatchBay.vue`, `SynthRail.vue`, `Keyboard.vue`), `web/src/audio/faceplate.ts`, `web/src/audio/models.ts`
+
+#### Scenario: six instruments
+
+- GIVEN six synths, one of each model
+- WHEN each is selected
+- THEN its faceplate carries its model's name, palette and sections, every control resolves to a parameter, and an edit sends that parameter
+
+#### Scenario: an envelope curve
+
+- GIVEN an attack, decay, sustain and release
+- WHEN the curve is drawn
+- THEN it rises over the attack to full level, falls over the decay to the sustain level, holds, and falls over the release to zero, longer times drawing longer segments
+
+#### Scenario: a patch cell
+
+- GIVEN a patch with a source and a destination joined in a slot
+- WHEN that cell of the bay is pressed
+- THEN the connection is removed, and pressing an empty cell joins them in the first free slot with a middle amount
+
+**Tests:** `web/src/audio/faceplate.test.ts`, `web/src/audio/models.test.ts`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`
