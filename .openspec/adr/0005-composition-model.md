@@ -1,6 +1,6 @@
 # 0005: The composition model
 
-**Status:** Accepted, scope narrowed by [ADR-0008](0008-mono-only-to-the-ensemble.md) · **Date:** 2026-09-30
+**Status:** Accepted, scope narrowed by [ADR-0008](0008-mono-only-to-the-ensemble.md), song format superseded by [ADR-0012](0012-the-song-is-text.md) · **Date:** 2026-09-30
 
 ## Context
 

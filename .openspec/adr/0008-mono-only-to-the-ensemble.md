@@ -1,6 +1,6 @@
 # 0008: Mono only, straight to the ensemble
 
-**Status:** Accepted · **Date:** 2026-10-03
+**Status:** Accepted, deferrals lifted by [ADR-0012](0012-the-song-is-text.md) · **Date:** 2026-10-03
 
 ## Context
 
