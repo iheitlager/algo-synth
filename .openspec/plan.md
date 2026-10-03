@@ -2,15 +2,17 @@
 
 algo-synth is built **from working to working**: every MVP is something you can open in a browser and play. The route is **one monophonic voice → time → a second base (the ensemble) → more sources → the algorithms**. The algorithms come last on purpose: a generator is only as good as the voice it drives and the clock it runs on.
 
+**Rerouted 2026-10-03 (ADR-0008):** after MVP 2 the road goes straight to **M3, the ensemble**. Wave, Drums, the arrangement and the algo panes are removed for now; M2, M4 and M5 are deferred until the ensemble plays, and the order below is the original one.
+
 **Five milestones, eleven MVPs.** Epics become GitHub issues with the `epic` label; their stories become sub-issues that cite spec requirements (`Refs: 001/Req-3`). Every MVP names a **value signal**: how you know it delivers.
 
 | Milestone | MVPs | Value signal |
 |---|---|---|
 | **M1: A voice** | **MVP 1** the pipeline · **MVP 2** the Mono voice | You play it for ten minutes without wanting a different synth |
-| **M2: Time** | **MVP 3** the step sequencer · **MVP 4** the arrangement | A four-track loop you'd keep |
-| **M3: The ensemble** (second base) | **MVP 5** six 2600s play Vivaldi | RV 269 plays start to finish, six patched voices, no glitches |
-| **M4: More sources** | **MVP 6** Drums · **MVP 7** Wave · **MVP 8** effects | A full track: kit, bass, lead, pad, space |
-| **M5: Algo** | **MVP 9** live loops · **MVP 10** evolving loops · **MVP 11** performance | Ten minutes of music you didn't write note by note, and want to hear again |
+| **M2: Time** *(deferred)* | **MVP 3** the step sequencer · **MVP 4** the arrangement | A four-track loop you'd keep |
+| **M3: The ensemble** (next) | **MVP 5** six 2600s play Vivaldi | RV 269 plays start to finish, six patched voices, no glitches |
+| **M4: More sources** *(deferred)* | **MVP 6** Drums · **MVP 7** Wave · **MVP 8** effects | A full track: kit, bass, lead, pad, space |
+| **M5: Algo** *(deferred)* | **MVP 9** live loops · **MVP 10** evolving loops · **MVP 11** performance | Ten minutes of music you didn't write note by note, and want to hear again |
 
 ## Principles for every MVP
 
@@ -61,13 +63,13 @@ The ARP 2600-style semi-modular voice, monophonic, playable from the on-screen a
 
 ### MVP 5: six 2600s play Vivaldi
 
-The second way into the same model: a score instead of a generator.
+The second way into the same model: a score instead of a generator. With the arrangement deferred (ADR-0008), the MIDI player plays the score directly.
 
-1. **Standard MIDI File parser** in Rust: total (never panics on bad input), tested with malformed files, types 0 and 1, tempo map.
-2. **Import:** each MIDI track becomes a track with a Mono source, its notes become clips on the bar grid, tempo changes become the song's tempo map.
-3. **Six Mono instances**, each with its own patch (and a little detune and timing humanization per voice, the way six real machines drift).
-4. **The score:** a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
-5. The arrangement pane shows the score as `score` clips; they can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
+1. **Standard MIDI File parser** in Rust: total (never panics on bad input), tested with malformed files, types 0 and 1, tempo map. *(Done in v0.2.)*
+2. **Mono only** (#18): Wave, Drums, the algo and arrangement panes removed.
+3. **Up to 16 Mono instances** (#19), each with its own patch, preallocated; a MIDI channel plays on one instance, a loaded file gets one per channel. Then a little detune and timing humanization per instance, the way six real machines drift (#21).
+4. **The score** (#20): a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it.
+5. *(Later, with MVP 4)* Import as tracks and `score` clips that can be edited, muted, or handed to a generator (MVP 10: Markov learned from Vivaldi).
 
 ## M4: More sources
 

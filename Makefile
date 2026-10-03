@@ -70,11 +70,13 @@ deny: ## cargo-deny checks
 image: ## Build the Podman image
 	podman build -t $(IMAGE) -f Containerfile .
 # Localhost is a secure context, so AudioWorklet works without TLS.
+# Replaces a container left over from an earlier serve (running or not).
 serve: image ## Serve on localhost:6340
+	@podman rm -f --ignore $(IMAGE) >/dev/null
 	podman run --rm -d --name $(IMAGE) -p $(PORT):80 $(IMAGE)
 	@echo "http://localhost:$(PORT)"
 stop: ## Stop the running container
-	@podman stop $(IMAGE) 2>/dev/null && echo "stopped $(IMAGE)" || echo "no $(IMAGE) container running"
+	@podman rm -f --ignore $(IMAGE) | grep -q . && echo "stopped $(IMAGE)" || echo "no $(IMAGE) container running"
 
 ##@ Support
 

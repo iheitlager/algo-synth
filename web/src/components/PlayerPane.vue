@@ -1,15 +1,13 @@
 <script setup lang="ts">
 // The loaded MIDI file (spec 002 Req 9): one row per channel with notes, its
 // source, and a piano roll. Drawing and messages only; the engine plays it.
-import { MUTE, player, route, seek, type Part, type Route } from '../audio/engine'
-import { Source } from '../audio/params'
+import { MUTE, PLAY, player, route, seek, type Part, type Route } from '../audio/engine'
 
 const choices: { label: string; value: Route }[] = [
-  ...Object.entries(Source).map(([label, value]) => ({ label, value })),
+  { label: 'Mono', value: PLAY },
   { label: 'Mute', value: MUTE },
 ]
-const colour = (r: Route) =>
-  r === Source.Mono ? 'var(--mono)' : r === Source.Wave ? 'var(--wave)' : r === Source.Drums ? 'var(--drums)' : 'var(--muted)'
+const colour = (r: Route) => (r === PLAY ? 'var(--mono)' : 'var(--muted)')
 
 // Pitch range of a part, padded so a single note still has height.
 function range(p: Part): [number, number] {
@@ -31,10 +29,11 @@ function onSeek(e: MouseEvent) {
 
 <template>
   <section class="pane">
-    <div class="pane-head">
+    <div v-if="player.loaded" class="pane-head">
       <span>{{ player.fileName }}</span>
       <span>{{ player.parts.length }} parts · {{ Math.ceil(player.length / player.bar) }} bars</span>
     </div>
+    <div v-else class="pane-head"><span>MIDI player</span><span>Demo or Open MIDI… to load a file</span></div>
     <div v-for="p in player.parts" :key="p.channel" class="row">
       <div class="track">
         <b>{{ p.name || `Channel ${p.channel + 1}` }}</b>

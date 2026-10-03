@@ -2,9 +2,9 @@
 
 The wide-screen browser view in `web/`. Decision: ADR-0003.
 
-### Requirement 1: Four-pane layout [MUST]
+### Requirement 1: Three-area layout [MUST]
 
-The view SHALL fill the window with a transport bar across the top, the **algo pane** on the left, the **instruments pane** on the right (twice its width), and the **arrangement** (tracks × bars) across the bottom.
+The view SHALL fill the window with a transport bar across the top, the **synths** in the middle, and the **MIDI player** (one row per channel) across the bottom. The algo pane and the arrangement are removed for now (ADR-0008).
 
 **Implementation:** `web/src/App.vue`
 
@@ -14,9 +14,9 @@ Audio SHALL start only from a user gesture (the Power button), creating the Audi
 
 **Implementation:** `web/src/audio/engine.ts::power`, `web/src/components/TransportBar.vue`
 
-### Requirement 3: Play the sources [MUST]
+### Requirement 3: Play the synth [MUST]
 
-Each source card SHALL be playable: an on-screen keyboard for Mono and Wave, eight pads for Drums (GM drum notes), and the computer keyboard (`a`…`;`, C4 upward) on the selected source.
+The Mono card SHALL be playable from its on-screen keyboard and the computer keyboard (`a`…`;`, C4 upward).
 
 **Implementation:** `web/src/components/InstrumentsPane.vue`
 
@@ -28,9 +28,9 @@ The transport bar SHALL draw the output waveform from the AnalyserNode.
 
 ### Requirement 5: Algo loops and arrangement views [MUST]
 
-The algo pane SHALL list loops with generator, parameters, scale, target, seed, mode and a step preview. The arrangement SHALL show one row per track (name, source, inserts) and clips placed by bar, coloured by origin.
+*Deferred (ADR-0008); the mock-up panes are removed.* The algo pane SHALL list loops with generator, parameters, scale, target, seed, mode and a step preview. The arrangement SHALL show one row per track (name, source, inserts) and clips placed by bar, coloured by origin.
 
-**Implementation:** `web/src/components/AlgoPane.vue`, `web/src/components/ArrangePane.vue`, `web/src/model/song.ts`
+**Implementation:** *(planned, plan.md MVP 4 and MVP 9)*
 
 ### Requirement 6: No music logic in the view [MUST]
 

@@ -2,9 +2,8 @@
 """Write web/public/demo.mid: Pachelbel's Canon over its ground bass.
 
 The composition is public domain and this arrangement is written here, so the
-file carries no third-party licence. Five parts on channels 1-4 and 10:
-basso continuo, three violins in canon two bars apart, and a light drum part
-from bar 9 so the Drums source has something to do. Standard library only.
+file carries no third-party licence. Four parts on channels 1-4: basso
+continuo and three violins in canon two bars apart. Standard library only.
 
     python3 tools/make_demo_mid.py      (or: make demo-midi)
 """
@@ -82,27 +81,12 @@ def main() -> None:
         # Final chord: D, F#, A across the three violins.
         violins[-1] += part(ch, end, [((74, 78, 69)[i], 2 * BAR)], 70, 1.0)
 
-    drums = []
-    for bar in range(8, BARS - 2):
-        base = bar * BAR
-        for beat in range(4):
-            t = base + beat * Q
-            if beat in (0, 2):
-                drums.append((t, E, (9 << 8) | 36, 100))
-            if beat in (1, 3):
-                drums.append((t, E, (9 << 8) | 38, 70))
-            drums.append((t, E // 2, (9 << 8) | 42, 55))
-            drums.append((t + E, E // 2, (9 << 8) | 42, 40))
-    drums.append((end, Q, (9 << 8) | 36, 100))
-    drums.append((end, Q, (9 << 8) | 49, 70))
-
     tempo = b"\x00\xff\x51\x03" + TEMPO.to_bytes(3, "big")
     tracks = [
         track("Basso continuo", bass, tempo),
         track("Violino I", violins[0]),
         track("Violino II", violins[1]),
         track("Violino III", violins[2]),
-        track("Drums", drums),
     ]
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), DIV)
     out = Path(__file__).resolve().parent.parent / "web" / "public" / "demo.mid"

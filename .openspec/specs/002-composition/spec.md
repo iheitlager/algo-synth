@@ -1,6 +1,6 @@
 # 002: Composition
 
-Tracks, sources, effects, patterns, clips, algo loops, score import and the clock. Decision: ADR-0005. Draft: every requirement here is planned (plan.md MVP 2-10); paths name where the code will land.
+Tracks, sources, effects, patterns, clips, algo loops, score import and the clock. Decision: ADR-0005. Draft: every requirement here is planned (plan.md MVP 2-10); paths name where the code will land. Req 1-7 are deferred until after the ensemble, and Wave and Drums are removed for now (ADR-0008).
 
 ### Requirement 1: A track owns one source [MUST]
 
@@ -84,7 +84,7 @@ The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on 
 
 ### Requirement 9: MIDI file playback [SHOULD]
 
-Until tracks and clips exist (MVP 4-5), the engine SHALL play a loaded MIDI file directly: ticks SHALL become samples once, at load, through the tempo map, and each note SHALL start on its exact sample in `render`. Each MIDI channel SHALL route to one source or be muted, channel 10 defaulting to Drums. A file that fails to parse SHALL leave the loaded song untouched. Stop SHALL release the player's voices and leave live ones sounding.
+Until tracks and clips exist (MVP 4-5), the engine SHALL play a loaded MIDI file directly: ticks SHALL become samples once, at load, through the tempo map, and each note SHALL start on its exact sample in `render`. Each MIDI channel SHALL play on Mono or be muted; every channel starts playing. A file that fails to parse SHALL leave the loaded song untouched. Stop SHALL release the player's voices and leave live ones sounding.
 
 **Implementation:** `crates/dsp/src/player.rs::Sequence`, `crates/dsp/src/engine.rs::Engine::load_midi`, `crates/dsp/src/ffi.rs` (`midi_buf`, `midi_load`, `part_*`, `event_*`, `song_length`, `song_bar`, `play`, `stop`, `seek`, `position`, `playing`, `route`, `routed`)
 
@@ -94,4 +94,4 @@ Until tracks and clips exist (MVP 4-5), the engine SHALL play a loaded MIDI file
 - WHEN it is played
 - THEN the note starts on the sample the tempo map gives
 
-**Tests:** `crates/dsp/src/player.rs::tests::ticks_become_samples_through_the_tempo_map`, `crates/dsp/src/engine.rs::tests::player_note_starts_on_its_exact_sample`, `crates/dsp/src/engine.rs::tests::channel_ten_is_drums_and_mute_silences`, `crates/dsp/src/engine.rs::tests::bad_files_are_rejected_and_keep_the_old_song`, `crates/dsp/src/engine.rs::tests::stop_releases_player_voices_but_not_live_ones`, `crates/dsp/src/ffi.rs::tests::midi_round_trip_through_the_abi`
+**Tests:** `crates/dsp/src/player.rs::tests::ticks_become_samples_through_the_tempo_map`, `crates/dsp/src/engine.rs::tests::player_note_starts_on_its_exact_sample`, `crates/dsp/src/engine.rs::tests::every_channel_plays_and_mute_silences`, `crates/dsp/src/engine.rs::tests::bad_files_are_rejected_and_keep_the_old_song`, `crates/dsp/src/engine.rs::tests::stop_releases_player_voices_but_not_live_ones`, `crates/dsp/src/ffi.rs::tests::midi_round_trip_through_the_abi`
