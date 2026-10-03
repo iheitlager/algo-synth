@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format is based on 
 - The send effects are four processors P1–P4, each an Off, Echo or Reverb with a return and five 0..1 knobs whose meaning depends on the type. `EchoTime`…`ReverbReturn` (ids 70–78) are replaced by `P1Type`…`P4E`, and later parameter ids move up by 19; setups store names, so only the old effect names need a migration (#46, epic #50).
 - Master compressor (feed-forward, stereo-linked; `CompThreshold`, `CompRatio`, `CompAttack`, `CompRelease`, `CompMakeup`, ids 120–124; ratio 1 is off) with a gain-reduction meter, and a brick-wall limiter in place of the soft clip: master gain now comes after the compressor, and nothing is bent below full scale any more (#47, epic #50).
 - Master equalizer before the compressor: a low shelf, two parametric bands and a high shelf (`EqLowFreq`…`EqHighGain`, ids 125–134, ±15 dB); bands at 0 dB are skipped, so flat is bit-exact (#48, epic #50).
+- Setups carry the whole mixer (strips, sends, processors, EQ, compressor) with no change to the save code, since they are in the registry. A setup from before the mixer was central still loads: `EchoSend` and `ReverbSend` become `Send1` and `Send2`, and the global echo and reverb parameters become the knobs of P1 and P2, with one warning listing what was migrated (#49, epic #50).
 
 ## [0.7.0] - 2026-10-03
 

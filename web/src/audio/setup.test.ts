@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import demoText from '../../public/demo.synths.json?raw'
 import { GlobalParam, Param } from './params'
 import { MUTE, applyPlan, buildSetup, parseSetup, shortF32, type Registry, type State } from './setup'
 
@@ -165,5 +166,84 @@ describe('applyPlan', () => {
       'the setup is for 9 parts (a.mid); this file has 4',
     ])
     expect(applyPlan(setup, reg, { name: 'a.mid', parts: 9 }).warnings).toEqual([])
+  })
+})
+
+describe('the mixer in a setup (#49)', () => {
+  const mixerNames = [
+    'Level', 'Pan', 'Send1', 'Send2', 'Send3', 'Send4', 'Mute', 'Solo',
+  ]
+  const globalNames = [
+    'P1Type', 'P1Return', 'P1A', 'P4E', 'CompThreshold', 'CompRatio', 'EqLowGain', 'EqHighFreq',
+  ]
+
+  it('saves strips per synth and the processors, compressor and EQ once', () => {
+    const s = buildSetup(state, reg)
+    for (const n of mixerNames) {
+      expect(s.synths[0]?.params, n).toHaveProperty(n)
+      expect(s.global, n).not.toHaveProperty(n)
+    }
+    for (const n of globalNames) {
+      expect(s.global, n).toHaveProperty(n)
+      expect(s.synths[0]?.params, n).not.toHaveProperty(n)
+    }
+  })
+
+  it('restores every mixer value exactly', () => {
+    const parsed = parseSetup(JSON.stringify(buildSetup(state, reg)), reg)
+    expect(parsed.ok && parsed.warnings).toEqual([])
+    if (!parsed.ok) return
+    const got: Record<string, number> = {}
+    for (const op of applyPlan(parsed.setup, reg).ops) {
+      if (op.t === 'param' && op.s === 2) got[String(op.id)] = op.v
+    }
+    for (const n of mixerNames) {
+      const id = Param[n as keyof typeof Param]
+      expect(Math.fround(got[String(id)] ?? NaN), n).toBe(Math.fround(state.values[2]?.[id] ?? 0))
+    }
+  })
+
+  it('loads a version 1 file written before the mixer was central', () => {
+    const parsed = parseSetup(
+      JSON.stringify({
+        version: 1,
+        global: {
+          MasterGain: 0.5, EchoTime: 300, EchoFeedback: 0.475, EchoTone: 0.7, EchoPingPong: 1, EchoReturn: 0.3,
+          ReverbSize: 1, ReverbDamping: 0.3, ReverbPreDelay: 50, ReverbReturn: 0.2,
+        },
+        synths: [{ index: 0, params: { Level: 0.8, EchoSend: 0.4, ReverbSend: 0.6 } }],
+        routes: {},
+      }),
+      reg,
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const g = parsed.setup.global
+    expect(g.P1Type).toBe(1)
+    expect(g.P2Type).toBe(2)
+    expect(g.P1A).toBeCloseTo(Math.log(300) / Math.log(2000), 6)
+    expect(g.P1B).toBeCloseTo(0.5, 6)
+    expect(g.P1D).toBe(1)
+    expect(g.P1Return).toBe(0.3)
+    expect(g.P2A).toBeCloseTo(Math.log(10) / Math.log(100), 6)
+    expect(g.P2C).toBeCloseTo(0.5, 6)
+    expect(g.P2Return).toBe(0.2)
+    expect(g).not.toHaveProperty('EchoTime')
+    expect(parsed.setup.synths[0]?.params).toEqual({ Level: 0.8, Send1: 0.4, Send2: 0.6 })
+    expect(parsed.warnings).toHaveLength(1)
+    expect(parsed.warnings[0]).toMatch(/^migrated an older setup: EchoFeedback, EchoPingPong, .*EchoSend/)
+  })
+
+  it('does not let an old name overwrite a new one in the same file', () => {
+    const parsed = parseSetup(
+      JSON.stringify({ version: 1, synths: [{ index: 0, params: { EchoSend: 0.9, Send1: 0.2 } }] }),
+      reg,
+    )
+    expect(parsed.ok && parsed.setup.synths[0]?.params).toEqual({ Send1: 0.2 })
+  })
+
+  it('opens the shipped demo setup without a warning', () => {
+    const parsed = parseSetup(demoText, { ...reg, models: { Arp2600: 0 } })
+    expect(parsed.ok && parsed.warnings).toEqual([])
   })
 })

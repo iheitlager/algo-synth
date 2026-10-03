@@ -102,6 +102,58 @@ export function buildSetup(state: State, reg: Registry): Setup {
   return { version: SETUP_VERSION, ...(state.midi && { midi: state.midi }), global, synths, routes }
 }
 
+// Setups written before the mixer was central (#50) used other names: the
+// per-synth `EchoSend` and `ReverbSend`, and the global echo and reverb
+// parameters in physical units. They become `Send1`, `Send2` and the knobs of
+// processors P1 (echo) and P2 (reverb), which are 0..1 (spec 002 Req 2).
+const logPos = (v: number, lo: number, hi: number) =>
+  Math.min(1, Math.max(0, Math.log(v / lo) / Math.log(hi / lo)))
+const SEND_ALIASES: Record<string, string> = { EchoSend: 'Send1', ReverbSend: 'Send2' }
+const GLOBAL_ALIASES: Record<string, (v: number) => [string, number]> = {
+  EchoTime: (v) => ['P1A', logPos(v, 1, 2000)],
+  EchoFeedback: (v) => ['P1B', Math.min(1, v / 0.95)],
+  EchoTone: (v) => ['P1C', v],
+  EchoPingPong: (v) => ['P1D', v],
+  EchoReturn: (v) => ['P1Return', v],
+  ReverbSize: (v) => ['P2A', logPos(v, 0.1, 10)],
+  ReverbDamping: (v) => ['P2B', v],
+  ReverbPreDelay: (v) => ['P2C', v / 100],
+  ReverbReturn: (v) => ['P2Return', v],
+}
+
+/** Rewrite old names to current ones; `renamed` collects the old names seen. */
+function migrate(from: unknown, aliases: Record<string, string>, renamed: Set<string>): unknown {
+  if (!isObject(from)) return from
+  const out: Record<string, unknown> = {}
+  for (const [name, v] of Object.entries(from)) {
+    const to = aliases[name]
+    if (to === undefined) out[name] = v
+    else {
+      renamed.add(name)
+      if (!(to in from)) out[to] = v
+    }
+  }
+  return out
+}
+
+function migrateGlobal(from: unknown, renamed: Set<string>): unknown {
+  if (!isObject(from)) return from
+  const out: Record<string, unknown> = {}
+  for (const [name, v] of Object.entries(from)) {
+    const convert = GLOBAL_ALIASES[name]
+    if (convert === undefined) out[name] = v
+    else if (finite(v)) {
+      renamed.add(name)
+      const [to, value] = convert(v)
+      if (!(to in from)) out[to] = value
+    } else renamed.add(name)
+  }
+  // An old setup had an echo and a reverb: keep them as P1 and P2.
+  if ([...renamed].some((n) => n.startsWith('Echo') && n in GLOBAL_ALIASES)) out.P1Type ??= 1
+  if ([...renamed].some((n) => n.startsWith('Reverb') && n in GLOBAL_ALIASES)) out.P2Type ??= 2
+  return out
+}
+
 export type Parsed = { ok: true; setup: Setup; warnings: string[] } | { ok: false; error: string }
 
 /**
@@ -131,7 +183,8 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     return out
   }
 
-  const global = values(raw.global, (n) => n in reg.global)
+  const renamed = new Set<string>()
+  const global = values(migrateGlobal(raw.global, renamed), (n) => n in reg.global)
   const synths: SynthSetup[] = []
   for (const entry of raw.synths) {
     if (!isObject(entry) || !Number.isInteger(entry.index)) {
@@ -154,7 +207,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     const synth: SynthSetup = {
       index,
       kind: 'mono',
-      params: values(entry.params, (n) => n in reg.params && !(n in reg.global) && !(n === MODEL && reg.models)),
+      params: values(migrate(entry.params, SEND_ALIASES, renamed), (n) => n in reg.params && !(n in reg.global) && !(n === MODEL && reg.models)),
     }
     if (typeof entry.model === 'string') {
       if (reg.models && entry.model in reg.models) synth.model = entry.model
@@ -162,6 +215,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
     }
     synths.push(synth)
   }
+  if (renamed.size) warnings.push(`migrated an older setup: ${[...renamed].sort().join(', ')} now live on the mixer and processors P1–P2`)
   if (unknown.size) warnings.push(`ignored unknown parameters: ${[...unknown].sort().join(', ')}`)
 
   const routes: Setup['routes'] = {}
