@@ -1,12 +1,12 @@
 # 002: Composition
 
-Tracks, sources, effects, patterns, clips, algo loops, score import and the clock. Decision: ADR-0005. Draft: every requirement here is planned (plan.md MVP 2-10); paths name where the code will land. Req 1-7 are deferred until after the ensemble, and Wave and Drums are removed for now (ADR-0008).
+Tracks, sources, effects, fragments, the arrangement, generators, the song as text, score import and the clock. Decisions: ADR-0005, ADR-0012 (the song is text). Req 1 and 3-7 are planned (plan.md MVP 3-10); paths name where the code will land.
 
 ### Requirement 1: A track owns one source [MUST]
 
-A track SHALL own exactly one source instance (`Mono`, `Wave`, `Drums`), with its own fixed voice pool and parameters. Parameters SHALL be addressed as (track, parameter).
+A track SHALL be a synth slot (strip 0–15) and own exactly one source: a Mono or Poly model (ADR-0009), the Drums kit (MVP 3) or, later, the Sampler (MVP 6), with its own fixed voice pool and parameters. Parameters SHALL be addressed as (track, parameter).
 
-**Implementation:** `crates/dsp/src/track.rs::Track` *(planned, MVP 4)*
+**Implementation:** `crates/dsp/src/track.rs::Track` *(planned, MVP 3)*
 
 **Tests:** `crates/dsp/src/track.rs::tests` *(planned)*
 
@@ -44,15 +44,27 @@ The engine SHALL report peak meters for the view: each synth strip after its fad
 
 **Tests:** `crates/dsp/src/engine.rs::tests::pan_is_equal_power`, `crates/dsp/src/engine.rs::tests::fader_mute_and_solo`, `crates/dsp/src/engine.rs::tests::sends_follow_the_fader_and_leave_the_mix_alone`, `crates/dsp/src/engine.rs::tests::sixteen_full_synths_stay_bounded_in_stereo`
 
-### Requirement 3: Patterns [MUST]
+### Requirement 3: Fragments [MUST]
 
-A pattern SHALL be a list of steps with note, velocity, length, probability and optional parameter locks, of any length in steps.
+A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error.
 
-**Implementation:** `crates/dsp/src/pattern.rs::Pattern` *(planned, MVP 3)*
+**Implementation:** `crates/dsp/src/fragment.rs::Fragment` *(planned, MVP 3-4)*
 
-### Requirement 4: Clips and arrangement [MUST]
+#### Scenario: a drum lane
 
-A clip SHALL place a pattern on a track from a bar for a number of bars, looping the pattern inside its span, and record its origin (`hand`, `algo`, `score`). The origin SHALL NOT change playback.
+- GIVEN `bd x...x...x...x...` at 120 BPM and 48 kHz
+- WHEN one bar is rendered
+- THEN the kick starts on samples 0, 24000, 48000 and 72000
+
+#### Scenario: classic durations
+
+- GIVEN `"c4:4 e4:8 g4:8 c5:2"`
+- WHEN it is compiled
+- THEN the notes start on beats 0, 1, 1.5 and 2, and the fragment is one bar long
+
+### Requirement 4: The arrangement [MUST]
+
+An arrangement SHALL be a list of sections, each a number of bars and the fragments that play in it; a fragment SHALL loop inside its section. A section MAY repeat an earlier one by name. A loop region SHALL repeat a range of bars.
 
 **Implementation:** `crates/dsp/src/arrangement.rs` *(planned, MVP 4)*
 
@@ -70,15 +82,29 @@ The engine SHALL run the transport (tempo, swing, play, stop, position) inside `
 
 **Tests:** `crates/dsp/src/clock.rs::tests::sixteenths_at_120_bpm` *(planned)*
 
-### Requirement 6: Song as data [MUST]
+### Requirement 6: The song is text [MUST]
 
-The UI SHALL send the song to the engine in a versioned binary format written into a buffer the engine allocated at init; `render` SHALL only read it, and a malformed song SHALL be rejected without affecting playback.
+The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL parse and compile it outside `render`; `render` SHALL only read the compiled song. A text that does not parse SHALL be rejected with a line, a column and a message, and the song that is playing SHALL keep playing; a new song SHALL take over at the next bar. The parser SHALL never panic. The engine SHALL print a song canonically, and parsing a printed song SHALL give the same song. Edits from a view (`set_step`) SHALL change the song in the engine, which returns the printed text.
 
 **Implementation:** `crates/dsp/src/song.rs` *(planned, MVP 3)*
 
+#### Scenario: round trip
+
+- GIVEN any song the parser accepts
+- WHEN it is printed and parsed again
+- THEN the result equals the first parse
+
+#### Scenario: a bad edit
+
+- GIVEN a song playing
+- WHEN a text with an error on line 7 is sent
+- THEN the engine reports line 7 and the song plays on unchanged
+
+**Tests:** `crates/dsp/src/song.rs::tests::print_then_parse_is_identity` *(planned)*, `crates/dsp/src/song.rs::tests::never_panics_on_garbage` *(planned)*
+
 ### Requirement 7: Deterministic generators [MUST]
 
-An algo loop SHALL combine a generator (Euclid, walk, arp, Markov, mutate), a scale and a target track. With the same seed and parameters it SHALL produce the same pattern. A live loop SHALL regenerate every cycle; freezing SHALL commit the current pattern as a clip.
+A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `markov`, `mutate`) that produces a fragment's events from its parameters, a scale and an explicit seed. With the same seed and parameters it SHALL produce the same events. A live fragment SHALL regenerate every cycle; freezing SHALL replace the call with the events it produced, in the same notation.
 
 **Implementation:** `crates/dsp/src/algo.rs` *(planned, MVP 9-10)*
 
@@ -92,15 +118,15 @@ An algo loop SHALL combine a generator (Euclid, walk, arp, Markov, mutate), a sc
 
 ### Requirement 8: Score import [SHOULD]
 
-The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on malformed input, and import each track as a track with a Mono source, its notes as `score` clips, and its tempo changes as the song's tempo map.
+The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on malformed input, and MAY convert a file into the notation (ADR-0012): each channel a track, its notes a fragment of classic notes, its tempo changes the song's tempo.
 
-**Implementation:** `crates/dsp/src/smf.rs::parse` (the parser); the import as tracks and clips *(planned, MVP 5)*
+**Implementation:** `crates/dsp/src/smf.rs::parse` (the parser); the conversion into the notation *(planned, MVP 11)*
 
 #### Scenario: the ensemble
 
 - GIVEN a six-part MIDI score
-- WHEN it is imported
-- THEN six Mono tracks exist, each with its own patch, and the arrangement shows their clips
+- WHEN it is converted
+- THEN the song has six tracks, each with a fragment that plays its part
 
 #### Scenario: malformed files
 
@@ -112,7 +138,7 @@ The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on 
 
 ### Requirement 9: MIDI file playback [SHOULD]
 
-Until tracks and clips exist (MVP 4-5), the engine SHALL play a loaded MIDI file directly: ticks SHALL become samples once, at load, through the tempo map, and each note SHALL start on its exact sample in `render`. Each MIDI channel SHALL play on one Mono synth or be muted; loading puts the parts on synths 0, 1, 2… in order (spec 004 Req 10). A file that fails to parse SHALL leave the loaded song untouched. Stop SHALL release the player's voices and leave live ones sounding.
+Separately from the song (ADR-0012), the engine SHALL play a loaded MIDI file directly: ticks SHALL become samples once, at load, through the tempo map, and each note SHALL start on its exact sample in `render`. Each MIDI channel SHALL play on one Mono synth or be muted; loading puts the parts on synths 0, 1, 2… in order (spec 004 Req 10). A file that fails to parse SHALL leave the loaded song untouched. Stop SHALL release the player's voices and leave live ones sounding.
 
 **Implementation:** `crates/dsp/src/player.rs::Sequence`, `crates/dsp/src/engine.rs::Engine::load_midi`, `crates/dsp/src/ffi.rs` (`midi_buf`, `midi_load`, `part_*`, `event_*`, `song_length`, `song_bar`, `play`, `stop`, `seek`, `position`, `playing`, `route`, `routed`)
 
