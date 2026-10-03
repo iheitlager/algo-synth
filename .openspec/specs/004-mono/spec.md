@@ -218,7 +218,7 @@ The voice SHALL have a second ADSR for the filter (`FenvAttack`, `FenvDecay`, `F
 - WHEN a note is held
 - THEN the loudness is full within 5 ms and the cutoff modulation reaches its peak after 1 s ± 1 ms
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::filter_envelope_is_independent`, `crates/dsp/src/mono/voice.rs::tests::arp_cutoff_still_follows_the_adsr`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::filter_envelope_is_independent`, `crates/dsp/src/mono/voice.rs::tests::arp_cutoff_still_follows_the_adsr`, `crates/dsp/src/mono/patch.rs::tests::normalled_cutoff_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::single_envelope_models_follow_the_adsr`
 
 ### Requirement 12: Filter flavours [MUST]
 

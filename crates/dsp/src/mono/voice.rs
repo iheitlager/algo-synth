@@ -21,7 +21,7 @@ use crate::mono::ladder::{Ladder, LadderTables};
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Blep, Osc};
-use crate::mono::patch::{ModDest, ModSource, Mods, Sources, is_taken, modulate};
+use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
 use crate::mono::{MonoParams, VCOS};
 use crate::voice::midi_to_hz;
 
@@ -125,6 +125,7 @@ pub struct MonoVoice {
     ladder: Ladder,
     adsr: Env,
     ar: Env,
+    fadsr: Env,
     lfo: Lfo,
     noise: Noise,
     /// Last sample's VCO outputs, as modulation sources.
@@ -258,7 +259,11 @@ impl MonoVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
         let p = ctx.params;
-        for (env, times) in [(&mut self.adsr, &p.adsr), (&mut self.ar, &p.ar)] {
+        for (env, times) in [
+            (&mut self.adsr, &p.adsr),
+            (&mut self.ar, &p.ar),
+            (&mut self.fadsr, &p.fadsr),
+        ] {
             if self.retrigger || (self.gate && !env.gated()) {
                 env.gate_on(times);
             } else if !self.gate && env.gated() {
@@ -268,6 +273,7 @@ impl MonoVoice {
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
         self.adsr.set_sustain(p.adsr.sustain);
+        self.fadsr.set_sustain(p.fadsr.sustain);
         for (osc, wave) in self.osc.iter_mut().zip(p.wave) {
             osc.wave = wave;
         }
@@ -280,6 +286,7 @@ impl MonoVoice {
         for sample in out.iter_mut() {
             let adsr = self.adsr.step();
             let ar = self.ar.step();
+            let fenv = self.fadsr.step();
             if !self.active() {
                 return;
             }
@@ -296,7 +303,7 @@ impl MonoVoice {
                 .step(lfo_inc, p.lfo_wave, ctx.sine, &mut self.noise);
             let noise = self.noise.sample(colour);
             let key = self.pitch - 60.0;
-            let mut src: Sources = [0.0; 12];
+            let mut src: Sources = [0.0; SOURCES];
             for (s, v) in [
                 (ModSource::Vco1, self.last[0]),
                 (ModSource::Vco2, self.last[1]),
@@ -304,6 +311,7 @@ impl MonoVoice {
                 (ModSource::Noise, noise),
                 (ModSource::Adsr, adsr),
                 (ModSource::Ar, ar),
+                (ModSource::Fenv, fenv),
                 (ModSource::Lfo, lfo),
                 (ModSource::SampleHold, held),
                 (ModSource::ModWheel, p.mod_wheel),
@@ -508,6 +516,53 @@ mod tests {
     }
 
     /// The normals: ADSR → cutoff, key tracking, vibrato through the wheel.
+    /// Spec 004 Req 11: on a model that uses the filter ADSR, the loudness
+    /// and the cutoff have envelopes of their own.
+    #[test]
+    fn filter_envelope_is_independent() {
+        let mut r = Rig::new(&[
+            (Param::Model, 1.0),
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.001),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 1.0),
+            (Param::FenvSustain, 1.0),
+        ]);
+        r.press(60);
+        let mut reached = None;
+        for i in 0..52_000 {
+            r.render(1);
+            let m = r.voice.mods();
+            if i == 240 {
+                assert!(m.vca > 0.99, "loudness is full after 5 ms: {}", m.vca);
+                assert!(m.cutoff < 2.5, "the cutoff has barely moved: {}", m.cutoff);
+            }
+            if reached.is_none() && m.cutoff >= 47.99 {
+                reached = Some(i);
+            }
+        }
+        let at = reached.expect("the filter envelope peaks");
+        assert!(
+            (at as i64 - 48_000).abs() <= 48,
+            "filter attack takes 1 s ± 1 ms, took {at} samples"
+        );
+    }
+
+    /// The ARP 2600 has one envelope: its cutoff follows the ADSR, whatever
+    /// the filter ADSR does.
+    #[test]
+    fn arp_cutoff_still_follows_the_adsr() {
+        let mut r = Rig::new(&[
+            (Param::EnvCutoff, 1.0),
+            (Param::AdsrAttack, 0.001),
+            (Param::AdsrSustain, 1.0),
+            (Param::FenvAttack, 1.0),
+        ]);
+        r.press(60);
+        r.render(2_400);
+        assert!((r.voice.mods().cutoff - 48.0).abs() < 1.0e-3);
+    }
+
     #[test]
     fn normalled_connections_move_their_destinations() {
         let mut r = Rig::new(&[(Param::EnvCutoff, 0.5), (Param::AdsrSustain, 1.0)]);

@@ -65,6 +65,10 @@ export const Param = {
   Vibrato: 58,
   ModWheel: 59,
   Model: 60,
+  FenvAttack: 61,
+  FenvDecay: 62,
+  FenvSustain: 63,
+  FenvRelease: 64,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -120,6 +124,7 @@ export const ModSource = {
   ModWheel: 9,
   Velocity: 10,
   Key: 11,
+  Fenv: 12,
 } as const
 export type ModSourceId = (typeof ModSource)[keyof typeof ModSource]
 

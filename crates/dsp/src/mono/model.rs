@@ -38,6 +38,15 @@ impl Model {
     }
 }
 
+impl Model {
+    /// Whether the normalled cutoff follows the filter ADSR. The ARP 2600
+    /// and the SH-101 have one envelope for filter and loudness, so theirs
+    /// follows the ADSR (spec 004 Req 11).
+    pub fn cutoff_follows_filter_env(self) -> bool {
+        !matches!(self, Model::Arp2600 | Model::Sh101)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +59,13 @@ mod tests {
         }
         assert_eq!(Model::from_id(6), None);
         assert_eq!(Model::default(), Model::Arp2600);
+    }
+
+    #[test]
+    fn single_envelope_models_follow_the_adsr() {
+        for (m, name) in Model::ALL {
+            let single = matches!(m, Model::Arp2600 | Model::Sh101);
+            assert_eq!(m.cutoff_follows_filter_env(), !single, "{name}");
+        }
     }
 }

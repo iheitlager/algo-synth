@@ -53,6 +53,8 @@ pub struct MonoParams {
     sample_rate: f32,
     pub adsr: EnvTimes,
     pub ar: EnvTimes,
+    /// The filter ADSR (spec 004 Req 11).
+    pub fadsr: EnvTimes,
     /// LFO cycles per sample, and its waveform.
     pub lfo_inc: f32,
     pub lfo_wave: Waveform,
@@ -100,6 +102,7 @@ impl MonoParams {
             sample_rate,
             adsr: off,
             ar: off,
+            fadsr: off,
             lfo_inc: 0.0,
             lfo_wave: Waveform::Sine,
             priority: NotePriority::Last,
@@ -154,6 +157,10 @@ impl MonoParams {
             Param::AdsrRelease => self.adsr.release = samples,
             Param::ArAttack => self.ar.attack = samples,
             Param::ArRelease => self.ar.release = samples,
+            Param::FenvAttack => self.fadsr.attack = samples,
+            Param::FenvDecay => self.fadsr.decay = samples,
+            Param::FenvSustain => self.fadsr.sustain = v,
+            Param::FenvRelease => self.fadsr.release = samples,
             Param::LfoRate => self.lfo_inc = v / self.sample_rate,
             Param::LfoWave => {
                 if let Some(w) = Waveform::from_id(v.round() as u32) {
@@ -199,6 +206,7 @@ impl MonoParams {
             Param::Model => {
                 if let Some(m) = Model::from_id(v.round() as u32) {
                     self.model = m;
+                    self.normals.cutoff_from_fenv = m.cutoff_follows_filter_env();
                 }
             }
             Param::MasterGain => {}

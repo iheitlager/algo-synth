@@ -127,11 +127,17 @@ pub enum Param {
     ModWheel = 59,
     /// The synth's model id (`Model`), 0..=5; see spec 005.
     Model = 60,
+    /// Filter ADSR attack, decay and release in seconds, 0.001..=10.
+    FenvAttack = 61,
+    FenvDecay = 62,
+    /// Filter ADSR sustain level, 0..=1.
+    FenvSustain = 63,
+    FenvRelease = 64,
 }
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 61] = [
+    pub const ALL: [(Param, &'static str); 65] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -193,6 +199,10 @@ impl Param {
         (Param::Vibrato, "Vibrato"),
         (Param::ModWheel, "ModWheel"),
         (Param::Model, "Model"),
+        (Param::FenvAttack, "FenvAttack"),
+        (Param::FenvDecay, "FenvDecay"),
+        (Param::FenvSustain, "FenvSustain"),
+        (Param::FenvRelease, "FenvRelease"),
     ];
 
     /// The parameter for a raw id, or `None` for an unknown one.
@@ -215,12 +225,15 @@ impl Param {
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
             Param::Cutoff => (20.0, 20_000.0),
-            Param::Resonance | Param::Drive | Param::AdsrSustain => (0.0, 1.0),
+            Param::Resonance | Param::Drive | Param::AdsrSustain | Param::FenvSustain => (0.0, 1.0),
             Param::AdsrAttack
             | Param::AdsrDecay
             | Param::AdsrRelease
             | Param::ArAttack
-            | Param::ArRelease => (0.001, 10.0),
+            | Param::ArRelease
+            | Param::FenvAttack
+            | Param::FenvDecay
+            | Param::FenvRelease => (0.001, 10.0),
             Param::LfoRate => (0.01, 50.0),
             Param::LfoWave => (0.0, 3.0),
             Param::Priority => (0.0, 2.0),
