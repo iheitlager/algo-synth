@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-03
+
 ### Added
 
 - The flexible console: groups are strips with an **Out** selector on every strip and group, a coloured tag under each tape saying which group it feeds, **+ Group** and remove, and a panel per insert slot. Drag a tape to reorder, collapse a strip to a sliver, hide it and bring it back from the bar. Dimming follows the engine's mute and solo through groups. A setup now also saves the groups on screen with their strip parameters and the console layout; setups without them leave both alone. New export `strip_count` (#61, epic #62).
