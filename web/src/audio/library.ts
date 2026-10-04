@@ -14,6 +14,9 @@ export const library = reactive({
   notice: '',
 })
 
+/** What was copied, per kind: an unnamed preset that Paste applies (#152). */
+export const clipboard = reactive<Partial<Record<Kind, UserPreset>>>({})
+
 const DB = 'algo-synth'
 const STORE = 'library'
 const KEY = 'presets'

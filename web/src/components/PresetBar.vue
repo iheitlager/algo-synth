@@ -5,7 +5,7 @@
 // and Import. Values go out through `applyPreset`; nothing is decided here.
 import { computed, reactive, ref } from 'vue'
 import { applyPreset, capturePreset, presetModified, status } from '../audio/engine'
-import { deletePreset, exportLibrary, importLibrary, library, presetsOf, renamePreset, savePreset } from '../audio/library'
+import { clipboard, deletePreset, exportLibrary, importLibrary, library, presetsOf, renamePreset, savePreset } from '../audio/library'
 import type { Target } from '../audio/presets'
 import EditableName from './EditableName.vue'
 
@@ -57,6 +57,17 @@ function saveAs(name: string) {
   savePreset(p)
   const stored = presetsOf(props.target.kind, props.of ?? {}).find((q) => q.name === p.name)
   if (stored) chosen[key.value] = `u:${stored.id}`
+}
+// Copy and paste: the clipboard holds one of each kind, so a paste can only be
+// of the kind it is pasted on.
+function copy() {
+  menu.value = false
+  clipboard[props.target.kind] = capturePreset('Clipboard', props.target)
+}
+function paste() {
+  menu.value = false
+  const p = clipboard[props.target.kind]
+  if (p && applyPreset(p, props.target)) chosen[key.value] = ''
 }
 function rename(name: string) {
   naming.value = ''
@@ -118,6 +129,8 @@ const chosen = reactive<Record<string, string>>({})
           </template>
           <button role="menuitem" :disabled="!user" @click="menu = false; naming = 'rename'">Rename</button>
           <button role="menuitem" :disabled="!user" @click="remove">Delete</button>
+          <button role="menuitem" :disabled="!status.running" @click="copy">Copy</button>
+          <button role="menuitem" :disabled="!status.running || !clipboard[target.kind]" @click="paste">Paste</button>
           <button role="menuitem" @click="menu = false; exportLibrary()">Export library</button>
           <label class="file" role="menuitem">Import library<input type="file" accept=".json" @change="onImport" /></label>
           <small v-if="!library.persistent">Not stored in this browser; export to keep</small>

@@ -12,6 +12,7 @@ import { modelDef } from '../audio/models'
 import { Param } from '../audio/params'
 import ChannelStrip from './console/ChannelStrip.vue'
 import InsertPanel from './console/InsertPanel.vue'
+import StripPanel from './console/StripPanel.vue'
 import MasterSection from './console/MasterSection.vue'
 import ProcessorModule from './console/ProcessorModule.vue'
 
@@ -81,6 +82,7 @@ const canAdd = computed(() => status.running && layout.groups.length < GROUPS)
       <div class="master"><h2>Master</h2><MasterSection /></div>
     </div>
     <InsertPanel />
+    <StripPanel />
   </section>
 </template>
 
