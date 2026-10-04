@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The composer (spec 003 Req 5, ADR-0012): the song's drum fragments as a step
-// grid and its note fragments as piano rolls beside the song's text. The engine holds the song: a click sends
+// grid and its note fragments as piano rolls beside the song's text (SongEditor). The engine holds the song: a click sends
 // `setStep`, an edited text is sent to be parsed, and both redraw from what the
 // engine sends back. Nothing here parses or plays.
 import { computed, onMounted, watch } from 'vue'
@@ -11,6 +11,7 @@ import {
 import { modelDef } from '../audio/models'
 import { Model, Pad, Param } from '../audio/params'
 import NoteRoll from './NoteRoll.vue'
+import SongEditor from './SongEditor.vue'
 
 // A first beat to start from when the song is empty.
 const STARTER = `tempo 120
@@ -118,10 +119,7 @@ watch(() => status.running, (on) => on && requestSong())
         </div>
       </div>
       <div class="text">
-        <textarea
-          v-model="song.draft" spellcheck="false" :disabled="!status.running"
-          aria-label="Song text" @keydown="onKey"
-        />
+        <SongEditor v-model="song.draft" :disabled="!status.running" :error="song.error" @keydown="onKey" />
         <div class="text-foot">
           <button :disabled="!dirty || !status.running" title="Ctrl+Enter" @click="apply">Apply</button>
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
@@ -143,7 +141,7 @@ watch(() => status.running, (on) => on && requestSong())
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .lane { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
-.pad { width: 2.2em; font-family: var(--mono, monospace); color: var(--muted); }
+.pad { width: 2.2em; font-family: var(--font-mono); color: var(--muted); }
 .steps { display: flex; gap: 3px; }
 .step { width: 26px; height: 26px; padding: 0; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); }
 .step.beat { margin-left: 6px; }
@@ -152,10 +150,6 @@ watch(() => status.running, (on) => on && requestSong())
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .composer:not(.playing) .step.now { outline: none; }
 .text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
-.text textarea {
-  flex: 1; min-height: 160px; resize: none; font-family: var(--mono, monospace); font-size: 13px;
-  background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 8px;
-}
 .text-foot { display: flex; align-items: center; gap: 10px; }
 .error { color: var(--accent); }
 .muted { color: var(--muted); }

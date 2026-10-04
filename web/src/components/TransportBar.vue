@@ -127,7 +127,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 .build { position: relative; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .build summary { cursor: pointer; }
 .build-pop { position: absolute; z-index: 10; top: 24px; left: 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 6px; }
-.build-pop pre { margin: 0; font-family: var(--mono, monospace); color: inherit; }
+.build-pop pre { margin: 0; font-family: var(--font-mono); color: inherit; }
 .on { border-color: var(--accent); color: var(--accent); }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; }

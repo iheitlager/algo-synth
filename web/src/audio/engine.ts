@@ -8,6 +8,7 @@ import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
+import { lexer, wasmLexer } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
 import { cleanName, familyName, names, partName as laneName, renameStrip, setNames, stripName as nameOfStrip } from './names'
@@ -52,6 +53,7 @@ class AudioEngine {
   static async start(): Promise<AudioEngine> {
     const ctx = new AudioContext({ latencyHint: 'interactive' })
     const module = await WebAssembly.compileStreaming(fetch(`${base}dsp.wasm`))
+    lexer.value = wasmLexer(module)
     await ctx.audioWorklet.addModule(`${base}worklet.js`)
     const node = new AudioWorkletNode(ctx, 'algo-synth', {
       numberOfInputs: 0,

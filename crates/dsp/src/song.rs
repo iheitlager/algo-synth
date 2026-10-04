@@ -1346,5 +1346,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     })
 }
 
+pub mod lex;
+
 #[cfg(test)]
 mod tests;
