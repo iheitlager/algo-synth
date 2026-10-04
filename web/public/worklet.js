@@ -19,6 +19,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     const instance = new WebAssembly.Instance(options.processorOptions.module, {})
     this.w = instance.exports
     this.w.init(sampleRate)
+    // How many models this engine knows, so the view can tell when dsp.wasm is older than it is
+    // (an engine without `model_count` is older than any).
+    this.port.postMessage({ t: 'ready', models: typeof this.w.model_count === 'function' ? this.w.model_count() : 0 })
     this.block = this.w.block_len()
     this.tick = 0
     this.busy = 0
