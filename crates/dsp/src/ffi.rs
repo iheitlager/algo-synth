@@ -118,6 +118,50 @@ pub extern "C" fn model_count() -> u32 {
     crate::mono::model::Model::ALL.len() as u32
 }
 
+/// The workspace version as `major * 10000 + minor * 100 + patch`, so the view can show which
+/// build of the engine it got (#197) without a string crossing the ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn version_code() -> u32 {
+    VERSION_CODE
+}
+
+/// The git commit this wasm was built from, its first eight hex digits as a number; 0 when the
+/// build did not say (`ALGO_BUILD_SHA` unset, #197).
+#[unsafe(no_mangle)]
+pub extern "C" fn build_id() -> u32 {
+    BUILD_ID
+}
+
+const VERSION_CODE: u32 = parse(env!("CARGO_PKG_VERSION_MAJOR"), 10) * 10_000
+    + parse(env!("CARGO_PKG_VERSION_MINOR"), 10) * 100
+    + parse(env!("CARGO_PKG_VERSION_PATCH"), 10);
+const BUILD_ID: u32 = match option_env!("ALGO_BUILD_SHA") {
+    Some(sha) => parse(sha, 16),
+    None => 0,
+};
+
+/// The leading digits of `s` in `radix` (at most eight for hex); 0 if a character is not one.
+const fn parse(s: &str, radix: u32) -> u32 {
+    let mut rest = s.as_bytes();
+    let mut v = 0u32;
+    let mut taken = 0;
+    while let [c, tail @ ..] = rest {
+        if radix == 16 && taken == 8 {
+            break;
+        }
+        let d = match *c {
+            c @ b'0'..=b'9' => c - b'0',
+            c @ b'a'..=b'f' if radix == 16 => c - b'a' + 10,
+            c @ b'A'..=b'F' if radix == 16 => c - b'A' + 10,
+            _ => return 0,
+        };
+        v = v * radix + d as u32;
+        rest = tail;
+        taken += 1;
+    }
+    v
+}
+
 /// Number of Mono synths; ids run from 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn synth_count() -> u32 {
@@ -1207,6 +1251,17 @@ mod tests {
     }
 
     #[test]
+    fn a_build_id_is_the_first_eight_hex_digits_or_zero() {
+        assert_eq!(parse("abc12345", 16), 0xabc1_2345);
+        assert_eq!(parse("ABC12345ffff", 16), 0xabc1_2345);
+        assert_eq!(parse("7c6ffe4", 16), 0x07c6_ffe4);
+        assert_eq!(parse("dirty", 16), 0);
+        assert_eq!(parse("", 16), 0);
+        assert_eq!(parse("30", 10), 30);
+        assert_eq!(parse("3a", 10), 0);
+    }
+
+    #[test]
     fn exports_drive_the_engine() {
         init(48_000.0);
         assert!(!out_ptr().is_null());
@@ -1220,6 +1275,14 @@ mod tests {
         assert_eq!(synth_count(), 16);
         assert_eq!(model_count() as usize, crate::mono::model::Model::ALL.len());
         assert_eq!(strip_count(), 24);
+        let [major, minor, patch] = env!("CARGO_PKG_VERSION")
+            .split('.')
+            .map(|n| n.parse::<u32>().unwrap())
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!("a major.minor.patch version")
+        };
+        assert_eq!(version_code(), major * 10_000 + minor * 100 + patch);
         set_param(3, Param::Cutoff as u32, 300.0);
         assert_eq!(param_value(3, Param::Cutoff as u32), 300.0);
         assert_ne!(param_value(0, Param::Cutoff as u32), 300.0);

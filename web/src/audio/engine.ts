@@ -4,6 +4,7 @@
 
 import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
+import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
@@ -77,6 +78,8 @@ class AudioEngine {
 
 // One engine for the app. `status` and `player` are reactive so the UI follows them.
 export const status = reactive({ running: false, error: '', sampleRate: 0 })
+/** Which build of dsp.wasm is running, once the worklet says (#197). */
+export const engineBuild = reactive<Build>({ version: '', build: '' })
 export const player = reactive({
   loaded: false,
   fileName: '',
@@ -667,7 +670,10 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
   } else if (data.t === 'ready') {
     const known = Object.keys(Model).length
     const engineModels = data.models as number
+    engineBuild.version = versionOf(data.version as number)
+    engineBuild.build = buildOf(data.build as number)
     if (engineModels < known) status.error = staleEngine(engineModels, known)
+    else status.error = mismatch(engineBuild) || status.error
   } else if (data.t === 'pads') {
     padState.pads[data.s as number] = decodePads(data.values as Float32Array)
   } else if (data.t === 'zones') {

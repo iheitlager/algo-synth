@@ -32,6 +32,10 @@ version: ## Print the workspace version
 
 ##@ Build
 
+# The commit goes into the wasm and the page, so the page can tell them apart (#197).
+SHA := $(shell git rev-parse --short=8 HEAD 2>/dev/null)
+export ALGO_BUILD_SHA ?= $(SHA)
+
 wasm: ## Build the engine to wasm
 	cargo build --locked --release --target wasm32-unknown-unknown -p algo-dsp
 	cp $(WASM_OUT) web/public/dsp.wasm
@@ -81,7 +85,7 @@ deny: ## cargo-deny checks
 ##@ Container
 
 image: ## Build the Podman image
-	podman build -t $(IMAGE) -f Containerfile .
+	podman build --build-arg ALGO_BUILD_SHA=$(SHA) -t $(IMAGE) -f Containerfile .
 # Localhost is a secure context, so AudioWorklet works without TLS.
 # Replaces a container left over from an earlier serve (running or not).
 serve: image ## Serve on localhost:6340
