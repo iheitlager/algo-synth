@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-04
+
+### Added
+
+- **Save and open the song (#105):** Save song downloads the song as `.song` text, Open… takes a `.song` beside a MIDI file and a setup, and the last song comes back when audio powers on. A file that does not parse shows its error in the composer while the song plays on.
+- **Live arpeggiator (#110):** every Mono and Poly synth has an Arp section on its faceplate: on/off, mode (up, down, up-down, as played, random with a seed), 1–4 octaves, rate (1/8, 1/16, 1/8T, 1/16T), gate and latch. Held keys play as a pattern on the song's clock, starting at the first note on the next step; with the song stopped the arp waits, or plays on its own grid with Free run. The pattern is one function (`arp_note`) shared with the notation's `arp`.
+- **A TR-909** beside the TR-808 in the Drums family: a punchy kick (a fast sweep, a click and drive), a snappy snare, three toms, rimshot, a four-burst clap, metallic hats, crash and ride, synthesized. The same pads as the 808, so a beat plays on either: a pad a machine lacks plays its nearest voice. The kit gains `cr` and `rd` (the 808 plays its cymbal for them); presets 909 Kit and Hard 909 (#148).
+- **Generators for notes (#166):** on a note line, `arp([c4,e4,g4],up,16)` (up, down, updown or random with a seed), `walk(c4,8,1)` (a random walk on the song's scale), `markov(1,riff,3)` (a chain learned from an earlier frag, keeping its rhythm and pitches) and `mutate(riff,30,5)` (change a percent of its notes). All are seeded, bounded and print back canonically.
+- **Live and frozen fragments (#167):** `frag w = lead live` makes a generator call play new notes every bar, the same ones on every run (the base seed mixed with the bar), prepared into buffers reserved at load so `render` does not allocate. `freeze` replaces the call with the bar it was playing, written as mini-notation (`freeze` and `frag_live` join the C ABI).
+- **A piano roll for note fragments (#168):** the composer draws each note fragment as a grid of pitches and sixteenths with the step it plays now. Click to add a sixteenth, click a note to remove it, drag its end to stretch it; every edit goes to the engine, which prints the song back. A written fragment is rewritten as exact mini-notation (`"c4@12 ~@12 g4@24"`) when edited. A generator call shows its call and notes with a **Freeze** button, and is edited once frozen. `frag_events`, `event_*`, `frag_generated`, `note_add`, `note_remove` and `note_len` join the C ABI.
+- **Sections and the arrangement** (#170, spec 002 Req 4, ADR-0015): `section <name> <bars>: <frags>`, `arrange <sections>` and `loop <first> <last>` in the song text. A section plays its own drum and note fragments from its first bar, looping inside it; the song wraps in the loop and stops after its last bar. New ABI calls `song_seek_bar`, `song_bars`, `song_entry`, `song_local`.
+- **The arranger** (#171, spec 003 Req 12): the bottom pane (and under the composer) shows the arrangement as a timeline of sections with fragments, lanes and scenes switched per section, bars, order, loop and seek; every edit goes through the engine (`arr_edit`). The MIDI player is a tab away.
+- **Scenes and automation** (#172, spec 002 Req 10): `auto` lanes (values over bars, or a ramp) and `scene`s for any parameter but the model and `Out`, by name on a track, `strip1`–`16`, `group1`–`8` or `master`. Lanes run once per block and write only changes; scenes land on a section's first step; knobs and faders follow (`auto_touched`).
+- **MIDI import into the song (#173):** "Import as song" in the MIDI player turns the loaded file into song text: a `synth` track per channel, routed as the player had it, fragments of timed notes (`d5@0:6:90`, a third note form, with `frag … bars N`) snapped to the 48-tick grid, cut into 8-bar sections (shorter when a part is dense) with repeats sharing fragments and sections, and an `arrange` line. The demo Canon plays note for note as the player did. Songs may now hold 256 fragments and 256 sections.
+
+### Changed
+
+- **Releases from changelog fragments:** a PR adds `changes/<issue>.<added|changed|fixed>.md` instead of bumping the version, and `make release` collects them into a release, so PRs merged in parallel no longer collide on the version lines (#186).
+- **Drum faceplates laid out like the machines:** the TR-808 and TR-909 show their pads left to right, each a column of knobs, and a pad's out is a pull-down (Master or a group, by its name) instead of a row of buttons (#194).
+
+### Fixed
+
+- **The image build no longer fills the podman disk:** `rust:1` ships its toolchain as a version while `rust-toolchain.toml` asks for `stable`, so rustup installed a second toolchain inside the `cargo build` layer on every `crates/` change (~1 GB a build). The Containerfile now installs the toolchain file's toolchain in its own cached layer (#183).
+
 ## [0.30.0] - 2026-10-04
 
 ### Added
