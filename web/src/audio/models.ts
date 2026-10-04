@@ -23,7 +23,8 @@ export type Control =
       /** Whole steps of this size (coarse and fine tune). */
       step?: number; bipolar?: boolean; def: number; size?: number
     }
-  | { kind: 'select'; label: string; param: ParamId; options: Options }
+  /** A choice; `dropdown` draws it as a pull-down instead of a row of buttons (#194). */
+  | { kind: 'select'; label: string; param: ParamId; options: Options; dropdown?: boolean }
   | { kind: 'switch'; label: string; param: ParamId }
   /** An envelope drawn as its curve with a knob for each time and level it has. */
   | { kind: 'env'; label: string; a: ParamId; d?: ParamId; s?: ParamId; r?: ParamId; decayIsRelease?: boolean }
@@ -46,6 +47,8 @@ export interface Section {
   patch?: boolean
   /** The whole width of the faceplate. */
   wide?: boolean
+  /** Its controls stacked top to bottom, a narrow column (#194). */
+  column?: boolean
 }
 
 /**
@@ -82,6 +85,8 @@ export interface ModelDef {
   sections: Section[]
   /** Patch slots the bay shows (8 unless the model has a modulation matrix). */
   patchSlots?: number
+  /** Its sections side by side in one row that scrolls when narrow, as a drum machine's channels (#194). */
+  row?: boolean
 }
 
 /** Where a double-click puts a knob, in engine units, when it is not the low end (or 0 for a bipolar one). */
@@ -1048,19 +1053,24 @@ const polyMoog: ModelDef = {
 // Sixteen synthesized pads after the TR-808, one voice each: a section per pad with
 // its tune, decay, tone and level, and the kit's accent (#114). Keys play the
 // pads by General MIDI's drum map (C2 kick, D2 snare, F#2 closed hat, ...).
-/** Where a pad goes: the kit's strip, or one of the eight groups. */
-const PAD_OUTS: Options = [['Main', 0], ...Array.from({ length: 8 }, (_, g): [string, number] => [`Group ${g + 1}`, g + 1])]
+/**
+ * Where a pad goes: Master is the kit's own strip (which normally goes to the
+ * master), or one of the eight groups. The faceplate shows a renamed group's name.
+ */
+export const PAD_OUTS: Options = [['Master', 0], ...Array.from({ length: 8 }, (_, g): [string, number] => [`Group ${g + 1}`, g + 1])]
+// A pad is a narrow column, its knobs top to bottom, as a drum machine's channel (#194).
 const pad = (title: string, name: string): Section => {
   const p = (f: string) => Param[`${name}${f}` as keyof typeof Param]
   return {
     title,
+    column: true,
     controls: [
       { kind: 'knob', label: 'Tune', param: p('Tune'), lo: -12, hi: 12, scale: 'lin', unit: 'st', step: 1, bipolar: true, def: 0 },
       { kind: 'knob', label: 'Decay', param: p('Decay'), lo: 0.25, hi: 4, scale: 'exp', unit: 'pct', def: 1 },
       { kind: 'knob', label: 'Tone', param: p('Tone'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
       { kind: 'knob', label: 'Level', param: p('Level'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.8 },
       // Its individual out (#162): the kit's own strip, or a group, panned there.
-      select('Out', p('Out'), PAD_OUTS),
+      { kind: 'select', label: 'Out', param: p('Out'), options: PAD_OUTS, dropdown: true },
       { kind: 'knob', label: 'Pan', param: p('Pan'), lo: -1, hi: 1, scale: 'lin', unit: 'bip', bipolar: true, def: 0 },
     ],
   }
@@ -1073,6 +1083,7 @@ const tr808: ModelDef = {
   tagline: 'Kick, snare, three toms and congas, rimshot, claves, clap, maracas, cowbell, cymbal and hats; the closed hat chokes the open',
   theme: { panel: '#2b2a28', ink: '#f2efe6', soft: '#b9b3a6', trim: '#dcd6c8', accent: '#f0712c' },
   presets: ['Kit808', 'TightKit'],
+  row: true,
   sections: [
     // In the hardware's order, the congas beside the toms they share a switch with.
     pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
@@ -1081,6 +1092,7 @@ const tr808: ModelDef = {
     pad('Closed hat', 'Ch'),
     {
       title: 'Accent',
+      column: true,
       controls: [
         { kind: 'knob', label: 'Amount', param: Param.DrumAccent, lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
         { kind: 'note', text: 'Hits at velocity 115 and up are accented.' },
@@ -1148,12 +1160,14 @@ const tr909: ModelDef = {
   tagline: 'A punchy kick, snappy snare, three toms, rimshot, clap, hats, crash and ride; the closed hat chokes the open',
   theme: { panel: '#d9d6cf', ink: '#1d1c1a', soft: '#5d5a54', trim: '#2a2927', accent: '#e8541e' },
   presets: ['Kit909', 'Hard909'],
+  row: true,
   sections: [
     pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
     pad('Rimshot', 'Rs'), pad('Clap', 'Cp'), pad('Closed hat', 'Ch'), pad('Open hat', 'Oh'), pad('Crash', 'Cr'),
     pad('Ride', 'Rd'),
     {
       title: 'Accent',
+      column: true,
       controls: [
         { kind: 'knob', label: 'Amount', param: Param.DrumAccent, lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
         { kind: 'note', text: 'Hits at velocity 115 and up are accented.' },

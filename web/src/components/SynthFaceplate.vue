@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { exp, lin } from '../audio/console'
 import { stepped } from '../audio/faceplate'
 import { fmtUnit } from '../audio/faceplate'
-import { getEngine, params, status } from '../audio/engine'
+import { getEngine, params, status, stripName } from '../audio/engine'
 import { scaleOf, type Control, type ModelDef } from '../audio/models'
 import type { ParamId } from '../audio/params'
 import ParamKnob from './console/ParamKnob.vue'
@@ -25,6 +25,12 @@ const props = defineProps<{ s: number; def: ModelDef }>()
 
 const val = (id: ParamId) => params.values[props.s]?.[id] ?? 0
 const send = (id: ParamId, v: number) => getEngine()?.param(props.s, id, v)
+// A pull-down names a group as the console does: its own name once renamed (#127).
+const GROUP_BASE = 16
+const optionText = (name: string) => {
+  const g = /^Group (\d)$/.exec(name)
+  return g ? stripName(GROUP_BASE + Number(g[1]) - 1) : name
+}
 
 /** The look of this faceplate: the model's colours, and the console's tokens remapped onto them. */
 const vars = computed(() => {
@@ -64,8 +70,11 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 <template>
   <div class="plate" :class="{ wood: !!def.theme.wood }" :style="vars">
     <i v-if="def.theme.wood" class="cheek l" aria-hidden="true" /><i v-if="def.theme.wood" class="cheek r" aria-hidden="true" />
-    <div class="mods">
-      <section v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide }" :aria-label="sec.title">
+    <div class="mods" :class="{ row: def.row }">
+      <section
+        v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column }"
+        :aria-label="sec.title"
+      >
         <h3>{{ sec.title }}</h3>
         <PatchBay v-if="sec.patch" :s="s" :slots="def.patchSlots ?? 8" />
         <div v-else class="ctls">
@@ -75,6 +84,16 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
               :scale="scaleOf(c)" :def="c.def" :size="c.size ?? 38" :bipolar="c.bipolar" :color="def.theme.accent"
               :text="(v: number) => fmtUnit(c.unit, v)"
             />
+            <label v-else-if="c.kind === 'select' && c.dropdown" class="drop">
+              <span>{{ c.label }}</span>
+              <select
+                :value="Math.round(val(c.param))" :disabled="!status.running" :aria-label="`${def.name} ${sec.title} ${c.label}`"
+                :title="c.options[0]?.[0] === 'Master' ? 'Master: through the kit\'s own strip' : undefined"
+                @change="send(c.param, Number(($event.target as HTMLSelectElement).value))"
+              >
+                <option v-for="[name, v] in c.options" :key="v" :value="v">{{ optionText(name) }}</option>
+              </select>
+            </label>
             <Selector
               v-else-if="c.kind === 'select'" :model-value="val(c.param)" :label="c.label" :options="c.options"
               :name="`${def.name} ${sec.title} ${c.label}`" :disabled="!status.running" @update:model-value="send(c.param, $event)"
@@ -142,6 +161,15 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
   background: color-mix(in srgb, var(--plate) 82%, black 18%); box-shadow: 0 1px 0 #ffffff0d inset; border-top: 2px solid var(--c);
 }
 .mod.wide { flex: 1 1 100%; }
+/* A drum machine: its pads left to right in one row, each a column of knobs (#194). */
+.mods.row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+.mod.column { flex: 0 0 auto; }
+.mod.column .ctls { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.drop { display: grid; gap: 3px; justify-items: center; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+.drop select {
+  max-width: 84px; font: 500 11px var(--con-font-silk); color: var(--con-paper, inherit); padding: 2px 4px;
+  background: color-mix(in srgb, var(--plate) 70%, black 30%); border: 1px solid var(--trim); border-radius: 3px;
+}
 h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c); line-height: 1; }
 .ctls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; }
 .env { display: flex; flex-direction: column; gap: 6px; }
