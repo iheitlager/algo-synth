@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-10-04
+
+### Fixed
+
+- **A stale `dsp.wasm` is reported:** the dev server reloads the JavaScript but only `make wasm` rebuilds the engine, so a newer page left a model the engine did not know as a plain ARP 2600 with no hint why (the Pad Sampler could not be selected). The engine now reports how many models it knows (`model_count`) and the transport bar warns when that is fewer than the page offers.
+- The pad editor sits beside the pad grid, so the pads and their settings are visible together.
+
 ## [0.24.0] - 2026-10-04
 
 User presets (epic #153, PR #158).
