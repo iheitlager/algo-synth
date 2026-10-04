@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-04
+
+### Added
+
+- **The TR-808's sixteen voices:** rimshot and claves (struck resonators that ring at the same level at any tune), maracas, cymbal (a low and a high band of the hat oscillators), a mid tom and three congas join the kit, with tune, decay, tone and level each (ids 398–429; old setups load), their General MIDI notes, their names in the song, and the faceplate in the hardware's order (#140).
+
+### Fixed
+
+- **The 808 cowbell** follows its circuit: two band-limited squares at 540 and 800 Hz through a band-pass near 850 Hz (Q 4.25), with a fast and a slow decay. It was centred near 2.2 kHz (#140).
+
 ## [0.24.1] - 2026-10-04
 
 ### Fixed
