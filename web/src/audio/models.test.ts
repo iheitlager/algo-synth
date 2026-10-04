@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAMILIES, MODELS, familyModels, modelDef, scaleOf, type Control } from './models'
+import { FAMILIES, MODELS, PAD_OUTS, familyModels, modelDef, scaleOf, type Control } from './models'
 import { Model, ModDest, ModSource, Param, Preset } from './params'
 
 const paramIds = new Set<number>(Object.values(Param))
@@ -117,3 +117,29 @@ describe('families (#132)', () => {
     for (const m of MODELS) expect(m.presets.length, m.name).toBeGreaterThan(0)
   })
 })
+
+describe('drum faceplates (#194)', () => {
+  const drums = MODELS.filter((m) => m.family === 'drums' && m.id !== Model.PadSampler)
+
+  it('lay the pads left to right, each a column of knobs, and nothing else', () => {
+    expect(drums.map((m) => m.id)).toEqual([Model.Tr808, Model.Tr909])
+    for (const m of drums) {
+      expect(m.row, m.name).toBe(true)
+      for (const s of m.sections) expect(s.column, `${m.name} ${s.title}`).toBe(true)
+    }
+    for (const m of MODELS.filter((x) => !drums.includes(x))) expect(m.row, m.name).toBeFalsy()
+  })
+
+  it("choose a pad's out from a pull-down: Master or one of the eight groups", () => {
+    for (const m of drums) {
+      for (const s of m.sections.filter((x) => x.title !== 'Accent')) {
+        const out = s.controls.find((c) => c.kind === 'select' && c.label === 'Out')
+        expect(out?.kind === 'select' && out.dropdown, `${m.name} ${s.title}`).toBe(true)
+        expect(out?.kind === 'select' && out.options).toEqual(PAD_OUTS)
+      }
+    }
+    expect(PAD_OUTS.map(([n]) => n)).toEqual(['Master', ...Array.from({ length: 8 }, (_, g) => `Group ${g + 1}`)])
+    expect(PAD_OUTS.map(([, v]) => v)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+  })
+})
+
