@@ -26,3 +26,7 @@ web/dist/
 # built by `make wasm` from crates/dsp
 web/public/dsp.wasm
 AGENTS.md
+# fetched by `make samples`; the packs keep their own licenses
+web/public/samples/
+.cache/
+__pycache__/

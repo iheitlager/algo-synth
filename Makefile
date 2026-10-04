@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt version wasm web install demo-midi test test-rust test-web typecheck bench lint deny image serve stop clean
+.PHONY: help check dev build fmt version wasm web install demo-midi samples test test-rust test-tools test-web typecheck bench lint deny image serve stop clean
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -38,13 +38,21 @@ install: web/node_modules ## Install web dependencies
 # Pachelbel's Canon, written from scratch, so no third-party licence.
 demo-midi: ## Regenerate the demo MIDI file
 	python3 tools/make_demo_mid.py
+# Downloads the CC0 packs in tools/samples/packs.json (checksummed, cached in
+# .cache/samples), converts them to mono WAV and writes web/public/samples/,
+# which is gitignored; the static server ships what is there (ADR-0006).
+# Unpacking .7z needs 7zz (brew install sevenzip); bsdtar reads only newer ones.
+samples: ## Fetch free sample packs
+	python3 tools/fetch_samples.py
 web/node_modules: web/package-lock.json
 	cd web && npm ci
 	@touch web/node_modules
 
 ##@ Tests
 
-test: test-rust test-web typecheck ## Engine and UI tests, typecheck
+test: test-rust test-web test-tools typecheck ## Engine, UI and tool tests, typecheck
+test-tools: ## Python tool tests
+	python3 -m unittest discover -s tools -p 'test_*.py'
 test-rust: ## Engine unit tests (native)
 	cargo test --locked --workspace
 test-web: install ## UI unit tests (vitest)
