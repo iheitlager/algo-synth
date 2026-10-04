@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-04
+
+The drum machine (epic #97, MVP 3).
+
+### Added
+
+- **The song as text** (ADR-0012): `tempo`, `swing`, drum tracks and fragments of lanes (`x` a hit, `X` an accent, `.` a rest, up to 64 steps, each lane looping on its own length), parsed and printed by the engine. A parse error gives its line and column and the playing song plays on; a new song plays from the next clock step. Lanes hit on the clock's exact samples, on the TR-808 slot a track is routed to (#100).
+- **The composer**, a third view beside Synths and Mixer: a 16-step grid per drum fragment (a click cycles off, hit and accent; the playing step is lit), the song's text beside it (Apply or Ctrl+Enter), a synth per track, and BPM and Swing in the transport. Play and Stop work without a MIDI file (#101).
+
 ## [0.21.2] - 2026-10-04
 
 ### Fixed

@@ -50,6 +50,12 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'zone': w.zone_set(data.s, data.zone, data.field, data.v); break
         case 'zonesClear': w.zones_clear(data.s); break
         case 'zonesDump': this.sendZones(data.s); break
+        case 'song': this.loadSong(new Uint8Array(data.bytes)); break
+        case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
+        case 'songRoute': w.song_route(data.track, data.s); this.sendSong(true); break
+        case 'songTempo': w.song_tempo(data.v); this.sendSong(true); break
+        case 'songSwing': w.song_swing(data.v); this.sendSong(true); break
+        case 'songDump': this.sendSong(true); break
       }
     }
   }
@@ -138,6 +144,48 @@ class EngineProcessor extends AudioWorkletProcessor {
     )
   }
 
+  // Copy the song's text into the engine and have it parsed there; the
+  // summary below comes back whether it played or not.
+  loadSong(bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (!ptr) {
+      this.port.postMessage({ t: 'song', ok: false, tooLong: true })
+      return
+    }
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    this.sendSong(w.song_load() === 0)
+  }
+
+  // The song as the engine holds it: its printed text, the tracks and their
+  // synths, every fragment's lanes and steps, and the last load's error.
+  // Text travels as bytes (the worklet has no TextDecoder).
+  sendSong(ok) {
+    const w = this.w
+    const bytes = (ptr, len) => new Uint8Array(w.memory.buffer, ptr, len).slice()
+    const tracks = []
+    for (let t = 0; t < w.song_tracks(); t++) {
+      tracks.push({ name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t) })
+    }
+    const frags = []
+    for (let f = 0; f < w.song_frags(); f++) {
+      const lanes = []
+      for (let l = 0; l < w.frag_lanes(f); l++) {
+        const steps = new Uint8Array(w.lane_steps(f, l))
+        for (let s = 0; s < steps.length; s++) steps[s] = w.step_level(f, l, s)
+        lanes.push({ pad: w.lane_pad(f, l), steps })
+      }
+      frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes })
+    }
+    const error = ok
+      ? null
+      : { line: w.song_error_line(), col: w.song_error_col(), msg: bytes(w.song_error_ptr(), w.song_error_len()) }
+    this.port.postMessage({
+      t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
+      tempo: w.clock_tempo(), swing: w.clock_swing(),
+    })
+  }
+
   // The same for a DX7 SysEx file: the voices' names come back as bytes.
   loadSysex(bytes) {
     const w = this.w
@@ -170,7 +218,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     out[0].set(buf.subarray(0, frames))
     if (out[1]) out[1].set(buf.subarray(this.block, this.block + frames))
     if (++this.tick % POSITION_EVERY === 0) {
-      this.port.postMessage({ t: 'pos', sec: w.position(), playing: w.playing() === 1 })
+      this.port.postMessage({ t: 'pos', sec: w.position(), playing: w.playing() === 1, step: w.clock_step() })
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()

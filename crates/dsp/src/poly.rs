@@ -200,6 +200,7 @@ fn owner_seed(owner: Owner) -> u32 {
     let index = match owner {
         Owner::Live(s) => usize::from(s),
         Owner::Channel(ch) => SYNTHS + usize::from(ch),
+        Owner::Track(t) => SYNTHS + 16 + usize::from(t),
     };
     (index as u32 + 1).wrapping_mul(2_654_435_761)
 }

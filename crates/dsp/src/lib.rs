@@ -19,6 +19,7 @@ pub mod poly;
 pub mod sample;
 pub mod sampler;
 pub mod smf;
+pub mod song;
 pub mod table;
 pub mod voice;
 

@@ -17,6 +17,7 @@ use crate::params::Param;
 use crate::player::Part;
 use crate::sample;
 use crate::sampler::{ZONES, ZoneField};
+use crate::song::Lane;
 
 thread_local! {
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -493,10 +494,219 @@ pub extern "C" fn position() -> f32 {
     query(0.0, |e| seconds(e, e.sequence().position()))
 }
 
-/// 1 while playing.
+/// 1 while the transport plays: the clock, with a MIDI file or a song or neither.
 #[unsafe(no_mangle)]
 pub extern "C" fn playing() -> u32 {
-    query(0, |e| u32::from(e.sequence().playing()))
+    query(0, |e| u32::from(e.clock().playing()))
+}
+
+// --- The song (spec 002, Req 6, ADR-0012) ----------------------------------
+//
+// Loading as a MIDI file: `song_buf(len)`, write the text's UTF-8 bytes,
+// `song_load()`. The engine parses it and prints it back (`song_text_*`); the
+// view draws the grid from the queries below and never parses the text.
+// (`song_length` and `song_bar` above belong to the MIDI file.)
+
+/// Size the song text buffer and return its address; null if too long.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_buf(len: u32) -> *mut u8 {
+    query(std::ptr::null_mut(), |e| {
+        e.song_buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
+    })
+}
+
+/// Parse the buffer: 0 when it plays, −1 when it does not parse (see
+/// `song_error_*`; the old song plays on), −5 before `init`.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_load() -> i32 {
+    query(-5, |e| if e.load_song().is_ok() { 0 } else { -1 })
+}
+
+/// The last failed load's line and column (from 1); 0 when it parsed.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_error_line() -> u32 {
+    query(0, |e| e.song_error().map_or(0, |x| x.line as u32))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_error_col() -> u32 {
+    query(0, |e| e.song_error().map_or(0, |x| x.col as u32))
+}
+
+/// The last failed load's message, as bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_error_ptr() -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song_error().map_or(std::ptr::null(), |x| x.msg.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_error_len() -> u32 {
+    query(0, |e| e.song_error().map_or(0, |x| x.msg.len() as u32))
+}
+
+/// The song as the engine prints it, after the last load or edit.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_text_ptr() -> *const u8 {
+    query(std::ptr::null(), |e| e.song_text().as_ptr())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_text_len() -> u32 {
+    query(0, |e| e.song_text().len() as u32)
+}
+
+/// Set step `step` of lane `lane` of fragment `frag` to `level` (0 off, 1
+/// hit, 2 accent): 0 when done, −1 when there is no such step or level.
+#[unsafe(no_mangle)]
+pub extern "C" fn set_step(frag: u32, lane: u32, step: u32, level: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_step(frag as usize, lane as usize, step as usize, level) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
+fn with_lane<R: Copy>(default: R, f: u32, l: u32, get: impl FnOnce(&Lane) -> R) -> R {
+    query(default, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .and_then(|fr| fr.lanes.get(l as usize))
+            .map_or(default, get)
+    })
+}
+
+/// Set the song's tempo in BPM; the text and the clock follow.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_tempo(bpm: f32) {
+    with_engine(|e| e.set_song_tempo(bpm));
+}
+
+/// Set the song's swing in percent (50 to 75); the text and the clock follow.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_swing(pct: f32) {
+    with_engine(|e| e.set_song_swing(pct));
+}
+
+/// The clock's tempo in BPM and swing in percent, as the song set them.
+#[unsafe(no_mangle)]
+pub extern "C" fn clock_tempo() -> f32 {
+    query(120.0, |e| e.clock().tempo())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn clock_swing() -> f32 {
+    query(50.0, |e| e.clock().swing())
+}
+
+/// Tracks in the song.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_tracks() -> u32 {
+    query(0, |e| e.song().tracks.len() as u32)
+}
+
+/// Address and length of track `t`'s name.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_name_ptr(t: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .tracks
+            .get(t as usize)
+            .map_or(std::ptr::null(), |x| x.name.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn track_name_len(t: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .tracks
+            .get(t as usize)
+            .map_or(0, |x| x.name.len() as u32)
+    })
+}
+
+/// Play song track `t` on `synth`; an unknown synth (e.g. 255) mutes it.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_route(t: u32, synth: u32) {
+    with_engine(|e| e.song_route(t as usize, Some(synth as usize)));
+}
+
+/// The synth track `t` plays on, 255 when muted.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_routed(t: u32) -> u32 {
+    query(255, |e| e.song_routed(t as usize).map_or(255, |s| s as u32))
+}
+
+/// Fragments in the song.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_frags() -> u32 {
+    query(0, |e| e.song().frags.len() as u32)
+}
+
+/// Address and length of fragment `f`'s name.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_name_ptr(f: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .map_or(std::ptr::null(), |x| x.name.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_name_len(f: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .map_or(0, |x| x.name.len() as u32)
+    })
+}
+
+/// The track fragment `f` plays on.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_track(f: u32) -> u32 {
+    query(0, |e| {
+        e.song().frags.get(f as usize).map_or(0, |x| x.track as u32)
+    })
+}
+
+/// Lanes of fragment `f`.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_lanes(f: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .map_or(0, |x| x.lanes.len() as u32)
+    })
+}
+
+/// The pad (`Pad` id) lane `l` of fragment `f` plays.
+#[unsafe(no_mangle)]
+pub extern "C" fn lane_pad(f: u32, l: u32) -> u32 {
+    with_lane(0, f, l, |lane| lane.pad as u32)
+}
+
+/// Steps in lane `l` of fragment `f`.
+#[unsafe(no_mangle)]
+pub extern "C" fn lane_steps(f: u32, l: u32) -> u32 {
+    with_lane(0, f, l, |lane| lane.steps.len() as u32)
+}
+
+/// Step `s` of lane `l` of fragment `f`: 0 off, 1 hit, 2 accent.
+#[unsafe(no_mangle)]
+pub extern "C" fn step_level(f: u32, l: u32, s: u32) -> u32 {
+    with_lane(0, f, l, |lane| {
+        lane.steps.get(s as usize).map_or(0, |st| *st as u32)
+    })
 }
 
 // --- Clock (spec 002, Req 5) -------------------------------------------------
@@ -541,6 +751,7 @@ pub extern "C" fn routed(channel: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drums::Pad;
 
     #[test]
     fn samples_load_through_the_abi() {
@@ -665,5 +876,52 @@ mod tests {
         assert_eq!(clock_step(), 0);
         stop();
         assert!(midi_buf(u32::MAX).is_null());
+    }
+
+    #[test]
+    fn song_round_trip_through_the_abi() {
+        init(48_000.0);
+        let text = b"track kit drums\nfrag b = kit\n  bd x.X.\n";
+        assert!(!song_buf(text.len() as u32).is_null());
+        query((), |e| {
+            e.song_buffer(text.len())
+                .expect("fits")
+                .copy_from_slice(text)
+        });
+        assert_eq!(song_load(), 0);
+        assert_eq!((song_error_line(), song_error_len()), (0, 0));
+        assert_eq!(
+            (song_tracks(), song_frags(), frag_lanes(0), frag_track(0)),
+            (1, 1, 1, 0)
+        );
+        assert_eq!((track_name_len(0), frag_name_len(0)), (3, 1));
+        assert_eq!(lane_pad(0, 0), Pad::Bd as u32);
+        assert_eq!(lane_steps(0, 0), 4);
+        assert_eq!(
+            (
+                step_level(0, 0, 0),
+                step_level(0, 0, 2),
+                step_level(0, 0, 9)
+            ),
+            (1, 2, 0)
+        );
+        assert_eq!(song_routed(0), 255, "no kit yet");
+        song_route(0, 2);
+        assert_eq!(song_routed(0), 2);
+        assert_eq!(set_step(0, 0, 1, 1), 0);
+        assert_eq!(set_step(0, 0, 4, 1), -1);
+        assert_eq!(step_level(0, 0, 1), 1);
+        assert!(song_text_len() > 0 && !song_text_ptr().is_null());
+        query((), |e| {
+            e.song_buffer(4).expect("fits").copy_from_slice(b"loop")
+        });
+        assert_eq!(song_load(), -1);
+        assert_eq!((song_error_line(), song_error_col()), (1, 1));
+        assert!(song_error_len() > 0 && !song_error_ptr().is_null());
+        assert_eq!(song_frags(), 1, "the old song stays");
+        assert!(song_buf(u32::MAX).is_null());
+        song_tempo(97.0);
+        song_swing(99.0);
+        assert_eq!((clock_tempo(), clock_swing()), (97.0, 75.0));
     }
 }

@@ -690,3 +690,15 @@ export const ModDest = {
   Lfo2Rate: 10,
 } as const
 export type ModDestId = (typeof ModDest)[keyof typeof ModDest]
+
+// The drum kit's pads (crates/dsp/src/drums.rs), by their names in the song text.
+export const Pad = {
+  bd: 0,
+  sn: 1,
+  cp: 2,
+  ch: 3,
+  oh: 4,
+  lt: 5,
+  ht: 6,
+  cb: 7,
+} as const

@@ -150,7 +150,7 @@ export function moveStrip(id: number, target: number) {
 }
 
 /** Which main view is shown: the synth panels or the mixer console. */
-export const view = reactive({ main: 'synths' as 'synths' | 'mixer' })
+export const view = reactive({ main: 'synths' as 'synths' | 'mixer' | 'composer' })
 
 /** One hue per synth, so a part's notes match its synth's card. */
 export const synthColour = (s: number) => `hsl(${(12 + 47 * s) % 360} 68% 62%)`
@@ -365,6 +365,49 @@ export function mapSample(s: number, slot: number) {
   requestZones(s)
 }
 
+/** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent. */
+export interface SongLane { pad: number; steps: number[] }
+export interface SongFrag { name: string; track: number; lanes: SongLane[] }
+export interface SongTrack { name: string; synth: Route }
+
+/**
+ * The song (ADR-0012) as the engine holds it: the engine parses the text and
+ * prints it back; the view draws the grid from `frags` and never parses.
+ * `draft` is the text being edited, `error` why the last one did not play.
+ */
+export const song = reactive({
+  text: '',
+  draft: '',
+  tracks: [] as SongTrack[],
+  frags: [] as SongFrag[],
+  error: null as { line: number; col: number; msg: string } | null,
+  tempo: 120,
+  swing: 50,
+  /** The clock's last step, −1 before the first. */
+  step: -1,
+})
+
+/** Send `text` to the engine to parse and play. */
+export function loadSong(text: string) {
+  song.draft = text
+  const bytes = new TextEncoder().encode(text)
+  engine?.post({ t: 'song', bytes: bytes.buffer }, [bytes.buffer])
+}
+
+/** Set one step (0 off, 1 hit, 2 accent); the engine sends the song back. */
+export const setStep = (f: number, l: number, s: number, level: number) =>
+  engine?.post({ t: 'step', f, l, s, level })
+
+/** Play song track `t` on synth `s` (255 mutes). */
+export const routeTrack = (t: number, s: Route) => engine?.post({ t: 'songRoute', track: t, s })
+
+/** The song's tempo (BPM) and swing (percent); the engine updates the text and the clock. */
+export const setSongTempo = (v: number) => engine?.post({ t: 'songTempo', v })
+export const setSongSwing = (v: number) => engine?.post({ t: 'songSwing', v })
+
+/** Ask the engine for the song it holds (when the composer opens). */
+export const requestSong = () => engine?.post({ t: 'songDump' })
+
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
 export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
@@ -383,10 +426,36 @@ interface MidiSummary {
   bar?: number
 }
 
+/** Take the song the worklet sent: decode its text, names and grid into `song`. */
+export function applySong(data: Record<string, unknown>) {
+  const decoder = new TextDecoder('utf-8')
+  if (data.tooLong) {
+    song.error = { line: 1, col: 1, msg: 'the text is too long' }
+    return
+  }
+  const text = decoder.decode(data.text as Uint8Array)
+  const error = data.error as { line: number; col: number; msg: Uint8Array } | null
+  song.error = error ? { line: error.line, col: error.col, msg: decoder.decode(error.msg) } : null
+  // A song that played replaces the draft with its canonical text; a failed one leaves the draft alone.
+  if (data.ok) song.draft = text
+  song.text = text
+  song.tempo = data.tempo as number
+  song.swing = data.swing as number
+  song.tracks = (data.tracks as { name: Uint8Array; synth: number }[]).map((t) => ({ name: decoder.decode(t.name), synth: t.synth }))
+  song.frags = (data.frags as { name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[] }[]).map((f) => ({
+    name: decoder.decode(f.name),
+    track: f.track,
+    lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps) })),
+  }))
+}
+
 function onMessage(data: { t: string } & Record<string, unknown>) {
   if (data.t === 'pos') {
     player.position = data.sec as number
     player.playing = data.playing as boolean
+    song.step = data.step as number
+  } else if (data.t === 'song') {
+    applySong(data)
   } else if (data.t === 'load') {
     meter.load = data.load as number
     meter.peak = data.peak as number | null
