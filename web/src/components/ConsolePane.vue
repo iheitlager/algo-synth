@@ -6,8 +6,7 @@
 // collapsed and hidden strips are layout and live in the setup file.
 import { computed } from 'vue'
 import { GROUPS, groupColour, groupStrip, heardStrips, orderStrips, outChoices, STRIPS } from '../audio/console'
-import { addGroup, layout, moveStrip, params, player, removeGroup, setOut, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
-import { renameStrip } from '../audio/names'
+import { addGroup, layout, moveStrip, params, player, removeGroup, renameSynth, setOut, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { Param } from '../audio/params'
 import ChannelStrip from './console/ChannelStrip.vue'
@@ -72,7 +71,7 @@ const canAdd = computed(() => status.running && layout.groups.length < GROUPS)
           :proc-off="procOff" :outs="t.outs" :feeds="t.feeds" :collapsed="t.collapsed"
           @select="!t.group && (synths.selected = t.id)" @open="!t.group && $emit('open-synth', t.id)"
           @collapse="toggleCollapsed(t.id)" @hide="toggleHidden(t.id)" @remove="removeGroup(t.g)"
-          @move="(from) => moveStrip(from, t.id)" @set-out="(out) => setOut(t.id, out)" @rename="(n) => renameStrip(t.id, n)"
+          @move="(from) => moveStrip(from, t.id)" @set-out="(out) => setOut(t.id, out)" @rename="(n) => renameSynth(t.id, n)"
         />
       </div>
       <div class="rack">

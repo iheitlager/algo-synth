@@ -108,9 +108,9 @@ The selected synth SHALL be drawn as one faceplate in the console's hardware sty
 
 ### Requirement 10: Names [SHOULD]
 
-The user SHALL be able to rename every MIDI lane (by channel), synth and group bus in place (#127). A synth and its console strip SHALL share one name. A synth that is not renamed SHALL take the name of the first lane routed to it, else `Synth N`; a group `Group N`; a lane the file's track name, else `Channel N`. A name SHALL be trimmed and at most 24 characters, and an empty one SHALL restore the default. Every place a strip or lane is labelled (console tapes and feeds tags, the Out selector, the synth rail and faceplate header, the Player's lanes and route choices) SHALL use the same name. Names are labels only: they SHALL be kept in the view and the setup file (`names`), never in the engine (ADR-0001), and a setup without them SHALL load with the defaults.
+The user SHALL be able to rename every MIDI lane (by channel), synth and group bus in place (#127), a synth also from its tape in the synth rail by a double-click, while a single click still selects it (#178). A synth and its console strip SHALL share one name. An instrument added with + Synth SHALL be named by its family when it is added, with the lowest free number: `Drum N` for the drum machines, `Sampler N` for the samplers, `Synth N` for the synths (#177); the name SHALL be kept, so adding, removing or switching other instruments never renames it, and removing an instrument SHALL free its name. A synth that is not named SHALL take the name of the first lane routed to it, else `Synth N`; a group `Group N`; a lane the file's track name, else `Channel N`. A name SHALL be trimmed and at most 24 characters, and an empty one SHALL restore the default (for an instrument, its family's). Every place a strip or lane is labelled (console tapes and feeds tags, the Out selector, the synth rail and faceplate header, the Player's lanes and route choices) SHALL use the same name. Names are labels only: they SHALL be kept in the view and the setup file (`names`), never in the engine (ADR-0001), and a setup without them SHALL load with the defaults.
 
-**Implementation:** `web/src/audio/names.ts`, `web/src/audio/setup.ts::parseNames`, `web/src/components/EditableName.vue`, `web/src/components/ConsolePane.vue`, `web/src/components/console/ChannelStrip.vue`, `web/src/components/InstrumentsPane.vue`, `web/src/components/PlayerPane.vue`
+**Implementation:** `web/src/audio/names.ts`, `web/src/audio/setup.ts::parseNames`, `web/src/components/EditableName.vue`, `web/src/components/ConsolePane.vue`, `web/src/components/console/ChannelStrip.vue`, `web/src/components/InstrumentsPane.vue`, `web/src/components/PlayerPane.vue`, `web/src/audio/engine.ts` (`addSynth`, `removeSynth`, `renameSynth`)
 
 #### Scenario: a loaded file names its synths
 
@@ -124,7 +124,7 @@ The user SHALL be able to rename every MIDI lane (by channel), synth and group b
 - WHEN the setup is saved and opened again
 - THEN the same names are shown; names that are not a strip or channel are dropped with one warning
 
-**Tests:** `web/src/audio/names.test.ts`, `web/src/audio/setup.test.ts`
+**Tests:** `web/src/audio/names.test.ts`, `web/src/audio/setup.test.ts`, `web/src/audio/family-names.test.ts`
 
 ### Requirement 11: User presets [SHOULD]
 

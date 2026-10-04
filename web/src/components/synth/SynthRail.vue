@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The rail of synth tapes beside the faceplate (spec 003 Req 9): one per
 // synth, with its model, its meter, mute and solo. A click selects it for the
-// keyboard. Nothing here is decided: it shows what the engine reports.
+// keyboard; a double-click on its name renames it (#178). Nothing here is
+// decided: it shows what the engine reports.
 // "+ Synth" opens the families and their models (#132).
 import { nextTick, ref } from 'vue'
 import { getEngine, levels, params, status } from '../../audio/engine'
 import { FAMILIES, familyModels, type ModelDef } from '../../audio/models'
 import { Param, type ParamId } from '../../audio/params'
 import LedMeter from '../console/LedMeter.vue'
+import EditableName from '../EditableName.vue'
 
 export interface Tape {
   s: number
@@ -23,7 +25,10 @@ export interface Tape {
 }
 
 defineProps<{ tapes: Tape[]; selected: number; canAdd: boolean }>()
-const emit = defineEmits<{ select: [s: number]; add: [model: ModelDef] }>()
+const emit = defineEmits<{ select: [s: number]; add: [model: ModelDef]; rename: [s: number, name: string] }>()
+// The tape whose name is being edited, or −1. A field cannot sit inside the
+// tape's button, so the button gives way to it while editing.
+const editing = ref(-1)
 
 // The add menu: a family adds its first model, a model itself.
 const open = ref(false)
@@ -62,10 +67,23 @@ const level = (s: number) => levels.values[s] ?? 0
       v-for="t in tapes" :key="t.s" class="tape" :class="{ sel: selected === t.s, silenced: t.silenced }"
       :style="{ '--c': t.accent, '--dot': t.dot }"
     >
-      <button class="pick" :aria-pressed="selected === t.s" :title="`Play ${t.name}`" @click="$emit('select', t.s)">
+      <button
+        v-if="editing !== t.s" class="pick" :aria-pressed="selected === t.s"
+        :title="`Play ${t.name} (double-click to rename)`" @click="$emit('select', t.s)" @dblclick="editing = t.s"
+      >
         <b><i class="dot" aria-hidden="true" />{{ t.name }}</b>
         <span>{{ t.model }} · {{ t.footer }}</span>
       </button>
+      <div v-else class="pick">
+        <b>
+          <i class="dot" aria-hidden="true" />
+          <EditableName
+            :value="t.name" :label="t.name" :editing="true"
+            @rename="emit('rename', t.s, $event)" @update:editing="(on) => { if (!on) editing = -1 }"
+          />
+        </b>
+        <span>{{ t.model }} · {{ t.footer }}</span>
+      </div>
       <div class="side">
         <LedMeter :level="level(t.s)" :height="46" :width="6" :segs="12" />
         <div class="ms">
