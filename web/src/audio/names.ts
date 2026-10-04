@@ -12,6 +12,17 @@ export const names = reactive({ strips: {} as Record<number, string>, parts: {} 
 
 export const defaultStripName = (s: number) => (s < GROUP_BASE ? `Synth ${s + 1}` : `Group ${s - GROUP_BASE + 1}`)
 
+/** The word an instrument of a family is named with (#177): a drum is not a synth. */
+const FAMILY_WORD: Record<string, string> = { drums: 'Drum', samplers: 'Sampler' }
+
+/** `Drum N`, `Sampler N` or `Synth N` with the lowest N none of `taken` has. */
+export function familyName(family: string, taken: readonly string[]): string {
+  const word = FAMILY_WORD[family] ?? 'Synth'
+  let n = 1
+  while (taken.includes(`${word} ${n}`)) n++
+  return `${word} ${n}`
+}
+
 /** A lane as the file names it, or by its channel. */
 export const defaultPartName = (part: { channel: number; name: string }) => cleanName(part.name) || `Channel ${part.channel + 1}`
 

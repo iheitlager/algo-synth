@@ -4,8 +4,7 @@
 // in its model's palette with a keyboard under it. The selected synth gets the
 // keys, the computer keyboard's too.
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
-import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, status, stripName, synthColour, synths } from '../audio/engine'
-import { renameStrip } from '../audio/names'
+import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, renameSynth, status, stripName, synthColour, synths } from '../audio/engine'
 import { MODELS, familyModels, modelDef, type ModelDef } from '../audio/models'
 import { Model, Param, Preset, type PresetId } from '../audio/params'
 import EditableName from './EditableName.vue'
@@ -89,7 +88,7 @@ function onRemove(s: number) {
     <div class="face" :style="accent">
       <header>
         <div class="title">
-          <h2><EditableName :value="stripName(sel)" :label="stripName(sel)" @rename="renameStrip(sel, $event)" /></h2>
+          <h2><EditableName :value="stripName(sel)" :label="stripName(sel)" @rename="renameSynth(sel, $event)" /></h2>
           <span :title="def.tagline">{{ def.name }} · {{ def.maker }}</span>
         </div>
         <div class="pick">

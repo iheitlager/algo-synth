@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { names, partName, renamePart, renameStrip, setNames, stripName } from './names'
+import { familyName, names, partName, renamePart, renameStrip, setNames, stripName } from './names'
 
 const parts = [
   { channel: 0, name: 'Violin I', synth: 0 },
@@ -45,5 +45,13 @@ describe('names (#127)', () => {
     setNames({ strips: { 3: 'Pad' }, parts: { 0: 'Lead' } })
     expect(names.strips).toEqual({ 3: 'Pad' })
     expect(partName(parts[0]!)).toBe('Lead')
+  })
+
+  it('names an instrument by its family with the lowest free number (#177)', () => {
+    expect(familyName('drums', [])).toBe('Drum 1')
+    expect(familyName('drums', ['Drum 1', 'Synth 1', 'Drum 3'])).toBe('Drum 2')
+    expect(familyName('samplers', ['Drum 1'])).toBe('Sampler 1')
+    expect(familyName('mono', ['Synth 1'])).toBe('Synth 2')
+    expect(familyName('poly', ['Synth 1', 'Synth 2'])).toBe('Synth 3')
   })
 })

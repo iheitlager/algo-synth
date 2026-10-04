@@ -5,11 +5,11 @@
 import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
-import type { ModelDef } from './models'
+import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
-import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
+import { cleanName, familyName, names, partName as laneName, renameStrip, setNames, stripName as nameOfStrip } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
@@ -174,6 +174,8 @@ function show(s: number) {
 export function addSynth(model?: ModelDef): boolean {
   const free = Array.from({ length: MAX_SYNTHS }, (_, i) => i).find((i) => !synths.list.includes(i))
   if (free === undefined) return false
+  // Named once, by its family, so adding or removing others never renames it (#177).
+  names.strips[free] = familyName(model?.family ?? 'mono', synths.list.map((s) => stripName(s)))
   show(free)
   const first = model?.presets[0]
   if (first !== undefined) engine?.preset(free, Preset[first])
@@ -181,10 +183,25 @@ export function addSynth(model?: ModelDef): boolean {
   return true
 }
 
+/**
+ * Rename strip `s`. An empty name puts a synth back to its family's default
+ * (`Drum N`, `Sampler N`, `Synth N`, #177) and a group to `Group N`.
+ */
+export function renameSynth(s: number, raw: string) {
+  if (s >= MAX_SYNTHS || cleanName(raw)) {
+    renameStrip(s, raw)
+    return
+  }
+  const family = modelDef(params.values[s]?.[Param.Model] ?? 0).family
+  const others = synths.list.filter((i) => i !== s).map((i) => stripName(i))
+  names.strips[s] = familyName(family, others)
+}
+
 /** Remove synth `s` (never the last one); parts playing on it are muted. */
 export function removeSynth(s: number) {
   if (synths.list.length <= 1) return
   synths.list = synths.list.filter((i) => i !== s)
+  delete names.strips[s]
   for (const p of player.parts) if (p.synth === s) route(p, MUTE)
   if (synths.selected === s) synths.selected = synths.list[0] ?? 0
 }
