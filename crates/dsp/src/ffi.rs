@@ -16,6 +16,7 @@ use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
 use crate::sample;
+use crate::sampler::{ZONES, ZoneField};
 
 thread_local! {
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -314,6 +315,27 @@ pub extern "C" fn sample_used() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn sample_cap() -> u32 {
     sample::MAX_VALUES as u32
+}
+
+/// Set field `field` (see `sampler::ZoneField`) of zone `zone` of `synth`;
+/// unknown synths, zones and fields are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_set(synth: u32, zone: u32, field: u32, value: f32) {
+    if let Some(f) = ZoneField::from_id(field) {
+        with_engine(|e| e.set_zone(synth as usize, zone as usize, f, value));
+    }
+}
+
+/// Empty every zone of `synth`.
+#[unsafe(no_mangle)]
+pub extern "C" fn zones_clear(synth: u32) {
+    with_engine(|e| e.clear_zones(synth as usize));
+}
+
+/// Zones each synth holds.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_count() -> u32 {
+    ZONES as u32
 }
 
 fn seconds(e: &Engine, samples: u64) -> f32 {

@@ -93,11 +93,13 @@ pub enum Preset {
     PolyBrass = 78,
     Kit808 = 79,
     TightKit = 80,
+    SamplerKeys = 81,
+    SamplerPad = 82,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 81] = [
+    pub const ALL: [(Preset, &'static str); 83] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -179,6 +181,8 @@ impl Preset {
         (Preset::PolyBrass, "PolyBrass"),
         (Preset::Kit808, "Kit808"),
         (Preset::TightKit, "TightKit"),
+        (Preset::SamplerKeys, "SamplerKeys"),
+        (Preset::SamplerPad, "SamplerPad"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -208,6 +212,7 @@ impl Preset {
             | Preset::LaRingBell
             | Preset::LaThumpBass
             | Preset::LaChoir => Model::D50,
+            Preset::SamplerKeys | Preset::SamplerPad => Model::Sampler,
             Preset::PpgSweepPad
             | Preset::PpgGlassBell
             | Preset::PpgFormant
@@ -2451,6 +2456,40 @@ impl Preset {
                 (EnvCutoff, 0.6),
                 (KeyTrack, 0.6),
             ],
+            // The filter open and the envelope out of the way: the sample as recorded.
+            Preset::SamplerKeys => &[
+                (Model, 16.0),
+                (Polyphony, 16.0),
+                (Analog, 0.0),
+                (Cutoff, 20_000.0),
+                (Resonance, 0.0),
+                (AdsrAttack, 0.001),
+                (AdsrDecay, 0.3),
+                (AdsrSustain, 1.0),
+                (AdsrRelease, 0.25),
+                (FenvAttack, 0.001),
+                (FenvDecay, 0.3),
+                (FenvSustain, 1.0),
+                (EnvCutoff, 0.0),
+                (KeyTrack, 0.0),
+            ],
+            // A slow swell and a long fall, the filter closing with the note.
+            Preset::SamplerPad => &[
+                (Model, 16.0),
+                (Polyphony, 16.0),
+                (Analog, 0.0),
+                (Cutoff, 6_000.0),
+                (Resonance, 0.1),
+                (AdsrAttack, 0.4),
+                (AdsrDecay, 0.6),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 1.2),
+                (FenvAttack, 0.5),
+                (FenvDecay, 1.0),
+                (FenvSustain, 0.6),
+                (EnvCutoff, 0.4),
+                (KeyTrack, 0.5),
+            ],
             Preset::FmPad => &[
                 (Model, 13.0),
                 (Polyphony, 16.0),
@@ -2955,6 +2994,10 @@ mod tests {
     #[test]
     fn every_preset_is_bounded() {
         for_every_preset(|preset, name| {
+            // A sampler with nothing loaded is silent; `sampler::tests` plays it.
+            if preset.model().uses_sampler() {
+                return;
+            }
             for note in [24, 48, 72, 96] {
                 let mut e = Engine::new(48_000.0);
                 e.set_param(0, Param::MasterGain, 1.0);
@@ -3076,7 +3119,7 @@ mod tests {
             probe.preset(0, preset);
             let voices =
                 (probe.param_value(0, Param::Polyphony) as usize).min(preset.model().voices());
-            if voices < 2 {
+            if voices < 2 || preset.model().uses_sampler() {
                 return;
             }
             let mut e = Engine::new(48_000.0);
