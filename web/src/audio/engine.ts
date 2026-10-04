@@ -15,6 +15,7 @@ import {
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
+import { isSongFile, keepSong, lastSong, songFileName } from './songfile'
 
 const base = import.meta.env.BASE_URL
 
@@ -220,6 +221,9 @@ export async function power(): Promise<void> {
     engine = await AudioEngine.start()
     status.running = true
     status.sampleRate = engine.ctx.sampleRate
+    // The last session's song (#105); a song file opened at the same time follows and replaces it.
+    const kept = lastSong()
+    if (kept) loadSong(kept)
   } catch (e) {
     status.error = e instanceof Error ? e.message : String(e)
   }
@@ -557,7 +561,10 @@ export function applySong(data: Record<string, unknown>) {
   const error = data.error as { line: number; col: number; msg: Uint8Array } | null
   song.error = error ? { line: error.line, col: error.col, msg: decoder.decode(error.msg) } : null
   // A song that played replaces the draft with its canonical text; a failed one leaves the draft alone.
-  if (data.ok) song.draft = text
+  if (data.ok) {
+    song.draft = text
+    keepSong(text)
+  }
   song.text = text
   song.tempo = data.tempo as number
   song.swing = data.swing as number
@@ -765,26 +772,46 @@ function state(): State {
 /** The current setup as the text of a `.synths.json` file. */
 export const setupText = () => `${JSON.stringify(buildSetup(state(), registry), null, 2)}\n`
 
-/** Download the current setup, named after the loaded MIDI file. */
-export function saveSetup() {
-  const stem = player.loaded ? player.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
+function download(text: string, type: string, name: string) {
   const link = document.createElement('a')
-  link.href = URL.createObjectURL(new Blob([setupText()], { type: 'application/json' }))
-  link.download = `${stem}.synths.json`
+  link.href = URL.createObjectURL(new Blob([text], { type }))
+  link.download = name
   link.click()
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
+/** Download the current setup, named after the loaded MIDI file. */
+export function saveSetup() {
+  const stem = player.loaded ? player.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
+  download(setupText(), 'application/json', `${stem}.synths.json`)
+}
+
+/** The song file last opened, so Save song writes it back under its name. */
+let songName = ''
+
+/** Download the song the engine plays as `.song` text (#105), named after the song or MIDI file opened. */
+export function saveSong() {
+  download(song.text, 'text/plain', songFileName(songName || (player.loaded ? player.fileName : 'algo-synth')))
+}
+
 /**
- * Open what the user picked: a MIDI file, a setup, or both in either order.
- * With a MIDI file the setup waits until its parts arrive; alone it applies
- * to the synths on screen.
+ * Open what the user picked: a MIDI file, a setup, a song, or any of them
+ * together. With a MIDI file the setup waits until its parts arrive; alone it
+ * applies to the synths on screen. A song goes to the composer; one that does
+ * not parse shows its error there and the playing song plays on.
  */
 export async function openFiles(files: File[]): Promise<void> {
   const isSetup = (f: File) => /\.json$/i.test(f.name)
   const setupFile = files.find(isSetup)
-  const midiFile = files.find((f) => !isSetup(f))
+  const songFile = files.find((f) => isSongFile(f.name))
+  const midiFile = files.find((f) => !isSetup(f) && !isSongFile(f.name))
   player.notice = ''
+  if (songFile) {
+    await power()
+    songName = songFile.name
+    loadSong(await songFile.text())
+    view.main = 'composer'
+  }
   let parsed: ReturnType<typeof parseSetup> | null = null
   if (setupFile) {
     parsed = parseSetup(await setupFile.text(), registry)

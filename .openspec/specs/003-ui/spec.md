@@ -32,9 +32,23 @@ The composer SHALL show the song (ADR-0012, spec 002 Req 6) as a step grid besid
 
 A note fragment SHALL be shown as a piano roll of its notes (a row per pitch, a column per sixteenth, the bar lines and the step it plays now). A click on empty grid SHALL add a sixteenth note, a click on a note SHALL remove it, and dragging the handle at a note's end SHALL change its length in whole sixteenths; each edit SHALL be a message to the engine, which keeps the note inside its bar and clear of the next one, prints the song back and sends the notes. A fragment that is a generator call SHALL show its call, its events and a Freeze button, and SHALL NOT be edited until frozen.
 
-**Implementation:** `web/src/components/ComposerPane.vue`, `web/src/components/NoteRoll.vue`, `web/src/components/TransportBar.vue`, `web/src/audio/engine.ts` (`song`, `loadSong`, `setStep`, `addNote`, `removeNote`, `setNoteLength`, `freezeFrag`, `routeTrack`, `setSongTempo`, `setSongSwing`, `applySong`), `web/src/audio/roll.ts`; the engine side `crates/dsp/src/notes.rs::edit`, `crates/dsp/src/song.rs::Song::edit_note`, `crates/dsp/src/ffi.rs` (`frag_events`, `event_*`, `frag_generated`, `note_add`, `note_remove`, `note_len`)
+**Save song** SHALL download the text the engine prints as a `.song` file (ADR-0015), named after the song or MIDI file opened, and **Open…** SHALL take a `.song` file beside a MIDI file and a setup, and show it in the composer. A song file that does not parse SHALL show its text with its line, column and message, and the playing song SHALL play on. The last song that played SHALL be kept in `localStorage` and loaded when audio powers on; storage that is unavailable SHALL change nothing else (#105).
 
-**Tests:** `web/src/audio/song.test.ts`, `web/src/audio/roll.test.ts`, `crates/dsp/src/notes/tests.rs::an_added_note_is_a_sixteenth_and_makes_room_for_itself`, `crates/dsp/src/notes/tests.rs::a_length_cannot_run_over_the_next_note_or_the_bar_line`, `crates/dsp/src/notes/tests.rs::every_edit_can_be_written_back_and_plays_the_same`, `crates/dsp/src/song/tests.rs::editing_a_note_rewrites_the_text`, `crates/dsp/src/ffi.rs::tests::notes_are_read_and_edited_through_the_abi`
+#### Scenario: save, reload, open
+
+- GIVEN a song that plays
+- WHEN it is saved, the page reloaded and the file opened
+- THEN the engine parses the same text and the same song plays
+
+#### Scenario: a song file that does not parse
+
+- GIVEN a song that plays
+- WHEN a `.song` file with a bad line is opened
+- THEN the composer shows that file's text with the error, and the song that played before plays on
+
+**Implementation:** `web/src/components/ComposerPane.vue`, `web/src/components/NoteRoll.vue`, `web/src/components/TransportBar.vue`, `web/src/audio/songfile.ts`, `web/src/audio/engine.ts` (`song`, `loadSong`, `saveSong`, `openFiles`, `setStep`, `addNote`, `removeNote`, `setNoteLength`, `freezeFrag`, `routeTrack`, `setSongTempo`, `setSongSwing`, `applySong`), `web/src/audio/roll.ts`; the engine side `crates/dsp/src/notes.rs::edit`, `crates/dsp/src/song.rs::Song::edit_note`, `crates/dsp/src/ffi.rs` (`frag_events`, `event_*`, `frag_generated`, `note_add`, `note_remove`, `note_len`)
+
+**Tests:** `web/src/audio/song.test.ts`, `web/src/audio/songfile.test.ts`, `web/src/audio/roll.test.ts`, `crates/dsp/src/song/tests.rs::print_then_parse_is_identity`, `crates/dsp/src/notes/tests.rs::an_added_note_is_a_sixteenth_and_makes_room_for_itself`, `crates/dsp/src/notes/tests.rs::a_length_cannot_run_over_the_next_note_or_the_bar_line`, `crates/dsp/src/notes/tests.rs::every_edit_can_be_written_back_and_plays_the_same`, `crates/dsp/src/song/tests.rs::editing_a_note_rewrites_the_text`, `crates/dsp/src/ffi.rs::tests::notes_are_read_and_edited_through_the_abi`
 
 ### Requirement 6: No music logic in the view [MUST]
 

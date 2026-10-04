@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, status, stop, view } from '../audio/engine'
+import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, saveSong, song, status, stop, view } from '../audio/engine'
 import { Param } from '../audio/params'
 
 // The performance counter: worklet time per block against the budget
@@ -49,7 +49,7 @@ async function onDemo() {
   await loadDemo()
   await onPower()
 }
-// A MIDI file, a setup (.synths.json), or both at once (#41).
+// A MIDI file, a setup (.synths.json), a song (.song), or several at once (#41, #105).
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files ?? [])
@@ -73,10 +73,11 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
       <button :aria-pressed="view.main === 'composer'" @click="view.main = 'composer'">Composer</button>
     </span>
     <button @click="onDemo">Demo</button>
-    <label class="file" title="A MIDI file, its .synths.json setup, or both">
-      <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json" @change="onFile" />Open…
+    <label class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
+      <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json,.song" @change="onFile" />Open…
     </label>
     <button :disabled="!status.running" title="Download the synths, their patches and routing as .synths.json" @click="saveSetup">Save setup</button>
+    <button :disabled="!status.running || !song.text" title="Download the song as .song text" @click="saveSong">Save song</button>
     <!-- The MIDI file's transport; the composer has its own (spec 003 Req 5). -->
     <button :disabled="!player.loaded" :class="{ on: player.playing }" @click="play">▶ Play</button>
     <button :disabled="!player.loaded" @click="stop">■ Stop</button>
