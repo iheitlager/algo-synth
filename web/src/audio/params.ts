@@ -487,6 +487,14 @@ export const Param = {
   RdLevel: 480,
   RdOut: 481,
   RdPan: 482,
+  ArpOn: 483,
+  ArpMode: 484,
+  ArpOctaves: 485,
+  ArpRate: 486,
+  ArpGate: 487,
+  ArpLatch: 488,
+  ArpFree: 489,
+  ArpSeed: 490,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -771,6 +779,21 @@ export const NotePriority = {
   High: 2,
 } as const
 export type NotePriorityId = (typeof NotePriority)[keyof typeof NotePriority]
+
+export const ArpMode = {
+  Up: 0,
+  Down: 1,
+  UpDown: 2,
+  AsPlayed: 3,
+  Random: 4,
+} as const
+
+export const ArpRate = {
+  Eighth: 0,
+  Sixteenth: 1,
+  EighthTriplet: 2,
+  SixteenthTriplet: 3,
+} as const
 
 export const ModSource = {
   None: 0,

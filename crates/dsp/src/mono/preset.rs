@@ -3070,7 +3070,7 @@ mod tests {
 
     /// The parameters that aren't Mono's: global, or the mixer's.
     fn is_shared(p: Param) -> bool {
-        p.is_global() || p.is_strip()
+        p.is_global() || p.is_strip() || p.is_arp()
     }
 
     #[test]

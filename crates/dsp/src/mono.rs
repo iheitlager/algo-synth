@@ -364,6 +364,14 @@ impl MonoParams {
             | Param::Send3On
             | Param::Send4On
             | Param::Key
+            | Param::ArpOn
+            | Param::ArpMode
+            | Param::ArpOctaves
+            | Param::ArpRate
+            | Param::ArpGate
+            | Param::ArpLatch
+            | Param::ArpFree
+            | Param::ArpSeed
             | Param::P2In
             | Param::P3In
             | Param::P4In

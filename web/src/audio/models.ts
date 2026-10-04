@@ -3,7 +3,7 @@
 // The view only draws this and sends parameter changes; which control belongs
 // on which panel is layout, and every musical decision stays in Rust.
 
-import { Model, ModDest, ModSource, NoiseColour, NotePriority, Param, Preset, Waveform } from './params'
+import { ArpMode, ArpRate, Model, ModDest, ModSource, NoiseColour, NotePriority, Param, Preset, Waveform } from './params'
 import type { ModelId, ParamId } from './params'
 import type { Scale } from './console'
 import { exp, lin } from './console'
@@ -1162,7 +1162,28 @@ const tr909: ModelDef = {
   ],
 }
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909]
+export const ARP_MODES = entries(ArpMode)
+export const ARP_RATES: Options = [['1/8', ArpRate.Eighth], ['1/16', ArpRate.Sixteenth], ['1/8T', ArpRate.EighthTriplet], ['1/16T', ArpRate.SixteenthTriplet]]
+
+/** The live arpeggiator every Mono and Poly synth carries (#110); with the song stopped it holds still unless Free run is on. */
+const ARP_SECTION: Section = {
+  title: 'Arp',
+  controls: [
+    sw('On', Param.ArpOn),
+    select('Mode', Param.ArpMode, ARP_MODES),
+    select('Rate', Param.ArpRate, ARP_RATES),
+    { kind: 'knob', label: 'Octaves', param: Param.ArpOctaves, lo: 1, hi: 4, scale: 'lin', unit: 'int', step: 1, def: 1, size: 32 },
+    { kind: 'knob', label: 'Gate', param: Param.ArpGate, lo: 0.05, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
+    sw('Latch', Param.ArpLatch),
+    sw('Free run', Param.ArpFree),
+    { kind: 'knob', label: 'Seed', param: Param.ArpSeed, lo: 0, hi: 9999, scale: 'lin', unit: 'int', step: 1, def: 1, size: 32 },
+  ],
+}
+
+const withArp = (m: ModelDef): ModelDef =>
+  m.family === 'mono' || m.family === 'poly' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909].map(withArp)
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

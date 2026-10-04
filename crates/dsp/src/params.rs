@@ -969,6 +969,22 @@ pub enum Param {
     RdOut = 481,
     /// Drum kit: the ride's pan into its group, −1..=1.
     RdPan = 482,
+    /// Live arpeggiator on (0/1): held keys play as a pattern with the clock.
+    ArpOn = 483,
+    /// Arp order (`ArpMode`: up, down, up-down, as played, random), 0..=4.
+    ArpMode = 484,
+    /// Arp octaves, 1..=4.
+    ArpOctaves = 485,
+    /// Arp rate id (1/8, 1/16, 1/8T, 1/16T), 0..=3.
+    ArpRate = 486,
+    /// Arp note length as a fraction of the step, 0.05..=1.
+    ArpGate = 487,
+    /// Arp latch (0/1): the chord keeps playing after the keys are released.
+    ArpLatch = 488,
+    /// Arp free run (0/1): plays on its own grid while the song is stopped.
+    ArpFree = 489,
+    /// Seed of the random mode, 0..=9999.
+    ArpSeed = 490,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -1053,7 +1069,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 483] = [
+    pub const ALL: [(Param, &'static str); 491] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1537,7 +1553,31 @@ impl Param {
         (Param::RdLevel, "RdLevel"),
         (Param::RdOut, "RdOut"),
         (Param::RdPan, "RdPan"),
+        (Param::ArpOn, "ArpOn"),
+        (Param::ArpMode, "ArpMode"),
+        (Param::ArpOctaves, "ArpOctaves"),
+        (Param::ArpRate, "ArpRate"),
+        (Param::ArpGate, "ArpGate"),
+        (Param::ArpLatch, "ArpLatch"),
+        (Param::ArpFree, "ArpFree"),
+        (Param::ArpSeed, "ArpSeed"),
     ];
+
+    /// The live arpeggiator's parameters: the engine owns them, not the voice,
+    /// and a preset leaves them alone.
+    pub fn is_arp(self) -> bool {
+        matches!(
+            self,
+            Param::ArpOn
+                | Param::ArpMode
+                | Param::ArpOctaves
+                | Param::ArpRate
+                | Param::ArpGate
+                | Param::ArpLatch
+                | Param::ArpFree
+                | Param::ArpSeed
+        )
+    }
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
     /// mixer owns them; the synth never sees them.
@@ -1700,6 +1740,12 @@ impl Param {
             Param::CrLevel | Param::RdLevel => (0.0, 1.0),
             Param::CrOut | Param::RdOut => (0.0, 8.0),
             Param::CrPan | Param::RdPan => (-1.0, 1.0),
+            Param::ArpOn | Param::ArpLatch | Param::ArpFree => (0.0, 1.0),
+            Param::ArpMode => (0.0, 4.0),
+            Param::ArpOctaves => (1.0, 4.0),
+            Param::ArpRate => (0.0, 3.0),
+            Param::ArpGate => (0.05, 1.0),
+            Param::ArpSeed => (0.0, 9999.0),
             Param::BdOut
             | Param::SnOut
             | Param::CpOut

@@ -7,7 +7,8 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
-use crate::clock::{Clock, TICKS_PER_STEP};
+use crate::arp::{ARP_DEFAULTS, Arp};
+use crate::clock::{Clock, STEPS_PER_BEAT, TICKS_PER_STEP};
 use crate::fm::sysex;
 use crate::fx::compressor::Compressor;
 use crate::fx::ensemble::Ensemble;
@@ -149,6 +150,14 @@ pub struct Engine {
     /// Strips (bit per strip, globals on bit 0) automation changed since the
     /// view last asked, so it can redraw their values.
     touched: u32,
+    /// Each synth's live arpeggiator (spec 002 Req 7).
+    arps: [Arp; SYNTHS],
+    /// The arps' own grid while the song's clock is stopped: ticks fired, the
+    /// sample the next one is on, and the samples run so far. Reset when the
+    /// clock starts or stops.
+    free_tick: u64,
+    free_next: f64,
+    free_pos: u64,
 }
 
 impl Engine {
@@ -200,6 +209,10 @@ impl Engine {
             live: Vec::new(),
             auto_last: [f32::NAN; MAX_AUTOS],
             touched: 0,
+            arps: [Arp::default(); SYNTHS],
+            free_tick: 0,
+            free_next: 0.0,
+            free_pos: 0,
         };
         for (p, v) in GLOBAL_DEFAULTS {
             engine.set_param(0, p, v);
@@ -243,6 +256,10 @@ impl Engine {
             }
             return;
         }
+        if param.is_arp() {
+            self.set_arp(synth, param, v);
+            return;
+        }
         // A synth parameter: groups have none.
         let (Some(values), Some(mono)) = (self.values.get_mut(synth), self.synths.get_mut(synth))
         else {
@@ -258,6 +275,31 @@ impl Engine {
         if param == Param::ChorusMode {
             if let Some(c) = self.chorus.get_mut(synth) {
                 c.set_mode(mono.chorus_mode);
+            }
+        }
+    }
+
+    /// An arp parameter of `synth`; turning the arp on or off hands the live
+    /// voice over, so no key is left sounding.
+    fn set_arp(&mut self, synth: usize, param: Param, v: f32) {
+        let (Some(arp), Some(slot)) = (
+            self.arps.get_mut(synth),
+            self.values
+                .get_mut(synth)
+                .and_then(|r| r.get_mut(param as usize)),
+        ) else {
+            return;
+        };
+        *slot = v;
+        if arp.set(param, v) || param == Param::ArpFree {
+            let sounding = arp.take_sounding();
+            if let (Some(n), Some(s)) = (sounding, live(synth)) {
+                self.stop_note(Owner::Live(s), n);
+            }
+        }
+        if param == Param::ArpOn {
+            for pool in self.pools.iter_mut() {
+                pool.release_owner(Owner::Live(u8::try_from(synth).unwrap_or(u8::MAX)));
             }
         }
     }
@@ -333,11 +375,19 @@ impl Engine {
         for (p, v) in DEFAULTS.iter().chain(STRIP_DEFAULTS.iter()) {
             self.set_param(synth, *p, *v);
         }
+        for (p, v) in ARP_DEFAULTS {
+            self.set_param(synth, p, v);
+        }
     }
 
-    /// Live input: press a key on `synth`'s live voice.
+    /// Live input: press a key on `synth`'s live voice, or, with its arp on,
+    /// add it to the arp's held notes.
     pub fn note_on(&mut self, synth: usize, note: u8, velocity: f32) {
         if let Some(s) = live(synth) {
+            if let Some(arp) = self.arps.get_mut(synth).filter(|a| a.on) {
+                arp.press(note);
+                return;
+            }
             self.start_voice(Owner::Live(s), note, velocity);
         }
     }
@@ -345,12 +395,20 @@ impl Engine {
     /// Live input: release this key on `synth`.
     pub fn note_off(&mut self, synth: usize, note: u8) {
         if let Some(s) = live(synth) {
+            if let Some(arp) = self.arps.get_mut(synth).filter(|a| a.on) {
+                arp.release(note);
+                return;
+            }
             self.stop_note(Owner::Live(s), note);
         }
     }
 
-    /// Release every voice.
+    /// Release every voice, and let go of every arp's keys.
     pub fn all_off(&mut self) {
+        for arp in self.arps.iter_mut() {
+            arp.set(Param::ArpOn, if arp.on { 1.0 } else { 0.0 });
+            arp.take_sounding();
+        }
         for pool in self.pools.iter_mut() {
             pool.release_all();
         }
@@ -647,10 +705,28 @@ impl Engine {
     /// continues from where it stopped; stop goes back to the top, as a
     /// drum machine's does. Hits ring out.
     pub fn song_play(&mut self) {
+        if !self.clock.playing() {
+            self.hand_arps_over();
+        }
         self.clock.play();
     }
 
+    /// The arps change grids with the transport: let their notes go and start
+    /// the free grid again from the top.
+    fn hand_arps_over(&mut self) {
+        for synth in 0..SYNTHS {
+            let sounding = self.arps.get_mut(synth).and_then(Arp::take_sounding);
+            if let (Some(n), Some(s)) = (sounding, live(synth)) {
+                self.stop_note(Owner::Live(s), n);
+            }
+        }
+        self.free_tick = 0;
+        self.free_next = 0.0;
+        self.free_pos = 0;
+    }
+
     pub fn song_stop(&mut self) {
+        self.hand_arps_over();
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
@@ -706,6 +782,60 @@ impl Engine {
         while let Some(j) = self.clock.due_sub() {
             self.play_tick(j);
         }
+        // With the clock stopped, the arps set to free run keep their own grid.
+        if !self.clock.playing() && self.free_arps() {
+            while self.free_next <= self.free_pos as f64 {
+                let j = self.free_tick;
+                self.free_tick += 1;
+                self.free_next += self.free_tick_len();
+                self.arp_tick(j, false);
+            }
+        }
+    }
+
+    fn free_arps(&self) -> bool {
+        self.arps.iter().any(|a| a.on && a.free)
+    }
+
+    /// Samples in one tick at the clock's tempo.
+    fn free_tick_len(&self) -> f64 {
+        f64::from(self.sample_rate) * 60.0
+            / f64::from(self.clock.tempo())
+            / (STEPS_PER_BEAT * TICKS_PER_STEP) as f64
+    }
+
+    /// Frames until the free grid's next tick, when it runs.
+    fn free_frames_until_next(&self, remaining: usize) -> usize {
+        if self.clock.playing() || !self.free_arps() {
+            return remaining;
+        }
+        let gap = (self.free_next - self.free_pos as f64).ceil().max(1.0);
+        (gap as usize).clamp(1, remaining.max(1))
+    }
+
+    /// Tick `j` of an arp grid: the clock's, or with `clocked` false the free
+    /// one, which only the free-run arps follow. A note ends before the next
+    /// starts, so a full gate hands over cleanly.
+    fn arp_tick(&mut self, j: u64, clocked: bool) {
+        for synth in 0..SYNTHS {
+            let Some(arp) = self
+                .arps
+                .get_mut(synth)
+                .filter(|a| a.on && (clocked || a.free))
+            else {
+                continue;
+            };
+            let (off, on) = arp.tick(j);
+            let Some(s) = live(synth) else {
+                continue;
+            };
+            if let Some(n) = off {
+                self.stop_note(Owner::Live(s), n);
+            }
+            if let Some(n) = on {
+                self.start_voice(Owner::Live(s), n, 1.0);
+            }
+        }
     }
 
     /// Tick `j` of the clock: end the notes that are due, then start what
@@ -715,6 +845,7 @@ impl Engine {
     /// Reads the song in place and uses the fixed note-off table: nothing
     /// allocates.
     fn play_tick(&mut self, j: u64) {
+        self.arp_tick(j, true);
         for i in 0..self.note_offs.len() {
             let due = self
                 .note_offs
@@ -1226,7 +1357,8 @@ impl Engine {
             let chunk = self
                 .sequence
                 .frames_until_next(n - t)
-                .min(self.clock.frames_until_next(n - t));
+                .min(self.clock.frames_until_next(n - t))
+                .min(self.free_frames_until_next(n - t));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
                 if pool.active() == 0 {
@@ -1264,6 +1396,9 @@ impl Engine {
             }
             self.sequence.advance(chunk);
             self.clock.advance(chunk);
+            if !self.clock.playing() {
+                self.free_pos += chunk as u64;
+            }
             t += chunk;
         }
         // A synth with its chorus on is stereo from here on.
@@ -4006,5 +4141,159 @@ mod tests {
         assert!(heard > 0.05);
         // One second at 120 BPM is eight sixteenths: each four-step lane twice.
         assert_eq!(e.note_count, 8 * 2, "eight lanes, one hit each per pass");
+    }
+
+    /// Press C-E-G on synth 0 with its arp on, then render one frame at a
+    /// time and return (sample, note) for every gate rising and (sample) for
+    /// every fall.
+    fn arp_run(e: &mut Engine, frames: u64) -> (Vec<(u64, u8)>, Vec<u64>) {
+        let (mut ons, mut offs) = (Vec::new(), Vec::new());
+        let mut gate = false;
+        for s in 0..frames {
+            e.render(1);
+            let v = e.voice(Owner::Live(0));
+            let g = v.is_some_and(|v| v.gated());
+            if g && !gate {
+                ons.push((s, v.map_or(0, |v| v.note())));
+            }
+            if !g && gate {
+                offs.push(s);
+            }
+            gate = g;
+        }
+        (ons, offs)
+    }
+
+    fn arp_on(e: &mut Engine) {
+        e.set_param(0, Param::ArpOn, 1.0);
+        for n in [60, 64, 67] {
+            e.note_on(0, n, 1.0);
+        }
+    }
+
+    #[test]
+    fn the_arp_steps_on_the_clock_from_the_next_step() {
+        let mut e = Engine::new(48_000.0);
+        e.song_play();
+        e.render(1); // step 0 has fired; the next is at 6000
+        arp_on(&mut e);
+        let (ons, _) = arp_run(&mut e, 29_000);
+        let at: Vec<u64> = ons.iter().map(|(s, _)| s + 1).collect();
+        assert_eq!(at, [6000, 12_000, 18_000, 24_000]);
+        let notes: Vec<u8> = ons.iter().map(|(_, n)| *n).collect();
+        assert_eq!(notes, [60, 64, 67, 60]);
+    }
+
+    #[test]
+    fn the_gate_is_a_fraction_of_the_step() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::ArpRate, 0.0); // 1/8: 12000 samples
+        e.set_param(0, Param::ArpGate, 0.5);
+        e.song_play();
+        e.render(1);
+        arp_on(&mut e);
+        let (ons, offs) = arp_run(&mut e, 14_000);
+        assert_eq!(ons.first().map(|(s, _)| s + 1), Some(12_000));
+        assert_eq!(offs.len(), 0, "the first note is still on at 14000");
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::ArpRate, 0.0);
+        e.set_param(0, Param::ArpGate, 0.5);
+        e.song_play();
+        e.render(1);
+        arp_on(&mut e);
+        let (_, offs) = arp_run(&mut e, 24_000);
+        // On at 12000 for half a step: the gate ends 6000 samples later (the
+        // voice's release shows as the gate dropping).
+        assert_eq!(offs.first().map(|s| s + 1), Some(18_000));
+    }
+
+    #[test]
+    fn latch_keeps_playing_after_the_keys_go() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::ArpLatch, 1.0);
+        e.song_play();
+        e.render(1);
+        arp_on(&mut e);
+        for n in [60, 64, 67] {
+            e.note_off(0, n);
+        }
+        let (ons, _) = arp_run(&mut e, 20_000);
+        assert_eq!(ons.len(), 3, "{ons:?}");
+        // A new chord replaces it.
+        e.note_on(0, 72, 1.0);
+        let (ons, _) = arp_run(&mut e, 20_000);
+        // The first entry is the old chord's note still gated when the run begins.
+        assert!(ons.iter().skip(1).all(|(_, n)| *n == 72), "{ons:?}");
+    }
+
+    #[test]
+    fn a_stopped_clock_silences_the_arp_unless_it_runs_free() {
+        let mut e = Engine::new(48_000.0);
+        arp_on(&mut e);
+        let (ons, _) = arp_run(&mut e, 30_000);
+        assert!(ons.is_empty());
+        e.set_param(0, Param::ArpFree, 1.0);
+        let (ons, _) = arp_run(&mut e, 30_000);
+        let gaps: Vec<u64> = ons.windows(2).map(|w| w[1].0 - w[0].0).collect();
+        assert!(ons.len() >= 4);
+        assert!(gaps.iter().all(|g| *g == 6000), "{gaps:?}");
+    }
+
+    #[test]
+    fn turning_the_arp_off_lets_go_and_live_input_plays_again() {
+        let mut e = Engine::new(48_000.0);
+        e.song_play();
+        arp_on(&mut e);
+        for _ in 0..200 {
+            e.render(BLOCK);
+        }
+        e.set_param(0, Param::ArpOn, 0.0);
+        e.render(BLOCK);
+        assert!(!e.voice(Owner::Live(0)).is_some_and(|v| v.gated()));
+        e.note_on(0, 60, 1.0);
+        e.render(BLOCK);
+        assert!(e.voice(Owner::Live(0)).is_some_and(|v| v.gated()));
+    }
+
+    #[test]
+    fn the_arp_does_not_grow_its_buffers() {
+        let mut e = Engine::new(48_000.0);
+        e.song_play();
+        arp_on(&mut e);
+        let before = e.arps.len();
+        for _ in 0..500 {
+            e.render(BLOCK);
+        }
+        assert_eq!(e.arps.len(), before);
+    }
+
+    #[test]
+    fn every_arp_step_retriggers_even_with_legato_and_a_full_gate() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Legato, 1.0);
+        e.set_param(0, Param::AdsrAttack, 0.001);
+        e.set_param(0, Param::AdsrDecay, 0.01);
+        e.set_param(0, Param::AdsrSustain, 0.0);
+        e.set_param(0, Param::ArpGate, 1.0);
+        e.song_play();
+        e.render(1);
+        arp_on(&mut e);
+        // The envelope has died away just before each onset and is back just after.
+        let mut at = 1usize;
+        for onset in [6000usize, 12_000, 18_000] {
+            let mut before = 0.0_f32;
+            let mut after = 0.0_f32;
+            while at < onset + 200 {
+                e.render(1);
+                at += 1;
+                let l = peak(&e);
+                if at == onset - 1 {
+                    before = l;
+                }
+                after = after.max(if at > onset { l } else { 0.0 });
+            }
+            assert!(before < 0.001, "onset {onset}: still sounding ({before})");
+            assert!(after > 0.01, "onset {onset}: not retriggered ({after})");
+        }
     }
 }
