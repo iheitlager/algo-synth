@@ -756,7 +756,7 @@ impl Pool {
                 PolyVoice::Mono(m) => m.render(&ctx, out),
                 PolyVoice::La(l) => l.render(&ctx, out),
                 PolyVoice::Fm(f) => f.render(&ctx, out),
-                PolyVoice::Drum(d) => d.render(ctx.sine, out),
+                PolyVoice::Drum(d) => d.render(ctx.sine, ctx.blep, out),
                 PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}

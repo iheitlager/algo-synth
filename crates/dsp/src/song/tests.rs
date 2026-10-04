@@ -77,7 +77,7 @@ fn every_error_says_where() {
             "track kit drums\nfrag a = kit\n  zz x...",
             3,
             3,
-            "a pad is bd, sn, cp, ch, oh, lt, ht or cb",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
         ),
         (
             "track kit drums\nfrag a = kit\n  bd x..o",

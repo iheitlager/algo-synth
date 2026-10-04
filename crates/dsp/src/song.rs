@@ -353,8 +353,10 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     let Some(first) = ws.first() else {
         return Err(err(1, "a lane is a pad and its steps"));
     };
-    let pad = Pad::from_name(first.text)
-        .ok_or(err(first.col, "a pad is bd, sn, cp, ch, oh, lt, ht or cb"))?;
+    let pad = Pad::from_name(first.text).ok_or(err(
+        first.col,
+        "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
+    ))?;
     let mut steps = Vec::new();
     for w in ws.iter().skip(1) {
         for (k, c) in w.text.chars().enumerate() {
