@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-04
+
+Part of the algorithmic compositions epic (#169): notes and generators in the song text.
+
+### Added
+
+- **Note fragments on `synth` tracks (#163):** a fragment is one line, in mini-notation (`"c4 [e4 g4] ~ <c5 d5>?"`: `[ ]` subdivides, `~` rests, `*n`, `@n`, `<a b>` per bar, `?`, chords `[c4,e4,g4]`, `!` accents) or classic durations (`c4:4 e4:8. r:4`); mixing the two is an error with a line and column. Notes start and end on their exact samples on a grid of 48 ticks to the bar (ADR-0016); the clock fires ticks between steps and the engine ends notes from a fixed table, so `render` still allocates nothing. The composer shows the line.
+- **`sampler` tracks (#164):** pad lanes for a pad sampler, note fragments for a multisampler, never both in one fragment.
+- **`euclid(k,n,rot)` and `scale` (#165):** a drum lane (`bd euclid(3,8)`) or a note line (`euclid(5,8) c4`, `euclid(4,8) scale c4`) with Bjorklund's spreading, and a `scale c minor` line with nine modes. A generated lane keeps its call in the text until a step is edited. `track_kind`, `frag_notes_ptr`, `frag_notes_len` and `frag_bars` join the C ABI.
+
+### Changed
+
+- A `#` starts a comment only at the start of a line or after a space, so `c#4` keeps its sharp.
+
 ## [0.27.0] - 2026-10-04
 
 ### Added
