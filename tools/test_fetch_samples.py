@@ -73,6 +73,33 @@ class Notes(unittest.TestCase):
         self.assertEqual((z["keyLo"], z["keyHi"], z["root"]), (31, 37, 36))
 
 
+H2 = """<?xml version="1.0" encoding="UTF-8"?>
+<drumkit_info xmlns="http://www.hydrogen-music.org/drumkit"><name>K</name><instrumentList>
+ <instrument><id>0</id><name>Kick</name><volume>1</volume><pan_L>1</pan_L><pan_R>1</pan_R><muteGroup>-1</muteGroup>
+  <layer><filename>kick.wav</filename><min>0</min><max>1</max></layer></instrument>
+ <instrument><id>1</id><name>Closed HH</name><volume>0.5</volume><pan_L>0.5</pan_L><pan_R>1</pan_R><muteGroup>-1</muteGroup>
+  <layer><filename>soft.wav</filename><min>0</min><max>0.5</max></layer><layer><filename>hard.wav</filename><min>0.5</min><max>1</max></layer></instrument>
+ <instrument><id>2</id><name>Open HH</name><volume>3</volume><pan_L>1</pan_L><pan_R>0</pan_R><muteGroup>2</muteGroup>
+  <layer><filename>open.wav</filename><min>0</min><max>1</max></layer></instrument>
+ <instrument><id>3</id><name>Empty</name><volume>1</volume></instrument>
+</instrumentList></drumkit_info>"""
+
+
+class Hydrogen(unittest.TestCase):
+    def test_pads_follow_instruments(self):
+        pads = fs.parse_h2(H2, {"Closed HH": 1})
+        self.assertEqual([p["file"] for p in pads], ["kick.wav", "hard.wav", "open.wav"], "the loudest layer; no layers is skipped")
+        self.assertEqual([p["pad"] for p in pads], [0, 1, 2])
+        self.assertEqual((pads[0]["level"], pads[0]["pan"], pads[0]["choke"]), (0.8, 0.0, 0))
+        self.assertEqual((pads[1]["level"], pads[1]["pan"], pads[1]["choke"]), (0.4, 0.5, 1))
+        self.assertEqual((pads[2]["level"], pads[2]["pan"], pads[2]["choke"]), (2.0, -1.0, 3), "level caps at 2, a mute group becomes a choke group")
+        self.assertTrue(all(p["oneShot"] for p in pads))
+
+    def test_at_most_sixteen_pads(self):
+        many = "".join(f"<instrument><name>i{i}</name><layer><filename>f{i}.wav</filename></layer></instrument>" for i in range(20))
+        self.assertEqual(len(fs.parse_h2(f'<drumkit_info xmlns="x"><instrumentList>{many}</instrumentList></drumkit_info>')), 16)
+
+
 class Wav(unittest.TestCase):
     def test_stereo_24_bit_becomes_mono_16_with_a_loop(self):
         # Left +0.5, right -0.5 cancel; second frame both +0.25.
@@ -87,6 +114,24 @@ class Wav(unittest.TestCase):
         i = out.index(b"smpl")
         self.assertEqual(struct.unpack("<I", out[i + 8 + 12 : i + 8 + 16])[0], 60, "root")
         self.assertEqual(struct.unpack("<II", out[i + 8 + 44 : i + 8 + 52]), (0, 1))
+
+    def test_eight_bit_is_unsigned_and_widened(self):
+        # Unsigned: 128 is silence, 255 almost full scale, 0 full negative.
+        raw = bytearray(wav(22_050, 1, 8, [(0,), (0,), (0,)]))
+        i = raw.index(b"data") + 8
+        raw[i : i + 3] = bytes([128, 255, 0])
+        rate, ch, samples = fs.read_wav(bytes(raw))
+        self.assertEqual((rate, ch, list(samples)), (22_050, 1, [0, 127 * 256, -128 * 256]))
+
+    def test_aiff_is_read_like_wav(self):
+        # 22 050 Hz as an 80-bit float: exponent 16397, mantissa 22050 << 49.
+        rate80 = struct.pack(">H", 16397) + struct.pack(">Q", 22_050 << 49)
+        comm = struct.pack(">HIH", 2, 2, 16) + rate80
+        pcm = struct.pack(">hhhh", 100, -100, 32767, -32768)
+        body = (b"AIFF" + b"COMM" + struct.pack(">I", len(comm)) + comm
+                + b"SSND" + struct.pack(">I", 8 + len(pcm)) + struct.pack(">II", 0, 0) + pcm)
+        rate, ch, samples = fs.read_wav(b"FORM" + struct.pack(">I", len(body)) + body)
+        self.assertEqual((rate, ch, list(samples)), (22_050, 2, [100, -100, 32767, -32768]))
 
     def test_unsupported_formats_are_refused(self):
         with self.assertRaises(ValueError):
@@ -103,7 +148,8 @@ class Ledger(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         for p in packs:
             self.assertRegex(p["sha256"], r"^[0-9a-f]{64}$", p["id"])
-            self.assertTrue(p["url"].startswith("https://"), p["id"])
+            # The checksum, not the transport, is what guards a download (one kit is only on http).
+            self.assertTrue(p["url"].startswith(("https://", "http://")), p["id"])
             self.assertTrue(p["license"] and p["credit"], p["id"])
             self.assertIn(p["license"], {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}, p["id"])
 

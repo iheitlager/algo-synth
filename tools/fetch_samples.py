@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the free sample packs listed in tools/samples/packs.json.
+"""Fetch the free sample packs and drum kits listed in tools/samples/packs.json.
 
 Run through `make samples`. For each pack: download (cached in .cache/samples),
 verify the SHA-256, extract with bsdtar, read the SFZ, and write mono 16-bit
@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -124,8 +125,34 @@ def zone_of(region: dict[str, str], sample: str) -> dict[str, object]:
 
 # --- WAV --------------------------------------------------------------------
 
+def read_aiff(data: bytes) -> tuple[int, int, array.array]:
+    """(rate, channels, samples as 16-bit ints, interleaved) of a PCM 16/24 AIFF."""
+    pos, comm, pcm = 12, None, b""
+    while pos + 8 <= len(data):
+        cid, size = data[pos : pos + 4], struct.unpack(">I", data[pos + 4 : pos + 8])[0]
+        body = data[pos + 8 : pos + 8 + size]
+        if cid == b"COMM":
+            channels, _frames, bits = struct.unpack(">HIH", body[:8])
+            exponent = struct.unpack(">H", body[8:10])[0] & 0x7FFF
+            mantissa = struct.unpack(">Q", body[10:18])[0]
+            comm = (channels, bits, round(mantissa * 2.0 ** (exponent - 16383 - 63)))
+        elif cid == b"SSND":
+            offset = struct.unpack(">I", body[:4])[0]
+            pcm = body[8 + offset :]
+        pos += 8 + size + (size & 1)
+    if comm is None or comm[1] not in (16, 24):
+        raise ValueError(f"unsupported AIFF format {comm} (PCM 16/24 only)")
+    channels, bits, rate = comm
+    width = bits // 8
+    samples = array.array("h", (int.from_bytes(pcm[i : i + 2], "big", signed=True)
+                                for i in range(0, len(pcm) - width + 1, width)))
+    return rate, channels, samples
+
+
 def read_wav(data: bytes) -> tuple[int, int, array.array]:
-    """(rate, channels, samples as 16-bit ints, interleaved) of a PCM 16/24 WAV."""
+    """(rate, channels, samples as 16-bit ints, interleaved) of a PCM 8/16/24 WAV or a 16/24 AIFF."""
+    if data[:4] == b"FORM" and data[8:12] == b"AIFF":
+        return read_aiff(data)
     if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise ValueError("not a WAV file")
     pos, fmt, pcm = 12, None, b""
@@ -140,10 +167,13 @@ def read_wav(data: bytes) -> tuple[int, int, array.array]:
         elif cid == b"data":
             pcm = body
         pos += 8 + size + (size & 1)
-    if fmt is None or fmt[0] != 1 or fmt[3] not in (16, 24):
-        raise ValueError(f"unsupported WAV format {fmt} (PCM 16/24 only; FLAC needs ffmpeg)")
+    if fmt is None or fmt[0] != 1 or fmt[3] not in (8, 16, 24):
+        raise ValueError(f"unsupported WAV format {fmt} (PCM 8/16/24 only; FLAC needs ffmpeg)")
     _, channels, rate, bits = fmt
-    if bits == 16:
+    if bits == 8:
+        # Unsigned, silence at 128.
+        samples = array.array("h", ((b - 128) * 256 for b in pcm))
+    elif bits == 16:
         samples = array.array("h")
         samples.frombytes(pcm[: len(pcm) // 2 * 2])
         if sys.byteorder == "big":
@@ -182,9 +212,9 @@ def write_mono_wav(rate: int, channels: int, samples: array.array,
 
 # --- Packs ------------------------------------------------------------------
 
-def download(pack: dict[str, str]) -> Path:
+def download(pack: dict) -> Path:
     CACHE.mkdir(parents=True, exist_ok=True)
-    path = CACHE / f"{pack['id']}.7z"
+    path = CACHE / f"{pack['id']}.{pack.get('ext', '7z')}"
     if not path.exists() or sha256(path) != pack["sha256"]:
         print(f"  downloading {pack['url']}")
         req = urllib.request.Request(pack["url"], headers={"User-Agent": "algo-synth-fetch"})
@@ -223,7 +253,7 @@ def extract(archive: Path, dest: Path) -> None:
     )
 
 
-def build(pack: dict[str, str], archive: Path) -> None:
+def build(pack: dict, archive: Path) -> None:
     """Convert one downloaded pack into OUT/instruments/<id>/."""
     dest = OUT / "instruments" / pack["id"]
     with tempfile.TemporaryDirectory() as tmp:
@@ -275,13 +305,90 @@ def build(pack: dict[str, str], archive: Path) -> None:
         (dest / "instrument.json").write_text(json.dumps(meta, indent=1))
 
 
+# --- Drum kits (Hydrogen .h2drumkit) -------------------------------------------
+
+PADS = 16  # padsampler.rs: pad i plays note 36 + i, which is where Hydrogen puts instrument i
+FIRST_NOTE = 36
+
+
+def parse_h2(xml: str, choke_by_name: dict[str, int] | None = None) -> list[dict[str, object]]:
+    """The pads of a Hydrogen drumkit.xml, in instrument order: pad i is instrument i.
+
+    Of an instrument's velocity layers the loudest is kept. Level is the instrument's
+    volume (0.8 being the pad default), pan the difference of its right and left, and
+    the choke group its mute group, or `choke_by_name` (the kit author's hats
+    do not declare one, though a closed hat should cut an open one).
+    """
+    root = ET.fromstring(xml)
+
+    def text(node: ET.Element, tag: str, default: str = "") -> str:
+        found = node.find(f"{{*}}{tag}")
+        return (found.text or default).strip() if found is not None else default
+
+    pads: list[dict[str, object]] = []
+    for node in root.findall(".//{*}instrument"):
+        if len(pads) >= PADS:
+            break
+        layers = node.findall("{*}layer")
+        if not layers:
+            continue
+        top = max(layers, key=lambda l: float(text(l, "max", "1")))
+        name = text(node, "name")
+        mute = int(text(node, "muteGroup", "-1"))
+        group = (choke_by_name or {}).get(name, mute + 1 if mute >= 0 else 0)
+        pad_l, pad_r = float(text(node, "pan_L", "1")), float(text(node, "pan_R", "1"))
+        pads.append({
+            "pad": len(pads),
+            "name": name,
+            "file": text(top, "filename"),
+            "tune": 0,
+            "level": round(min(2.0, 0.8 * float(text(node, "volume", "1"))), 2),
+            "pan": round(max(-1.0, min(1.0, pad_r - pad_l)), 2),
+            "decay": 0,
+            "choke": max(0, min(8, group)),
+            "velLevel": 1.0,
+            "velStart": 0.0,
+            "oneShot": True,
+        })
+    return pads
+
+
+def build_kit(pack: dict, archive: Path) -> None:
+    """Convert one downloaded Hydrogen kit into OUT/kits/<id>/."""
+    dest = OUT / "kits" / pack["id"]
+    with tempfile.TemporaryDirectory() as tmp:
+        extract(archive, Path(tmp))
+        xmls = sorted(Path(tmp).rglob("drumkit.xml"))
+        if len(xmls) != 1:
+            raise SystemExit(f"{pack['id']}: expected one drumkit.xml, found {len(xmls)}")
+        pads = parse_h2(xmls[0].read_text(encoding="utf-8", errors="replace"), pack.get("choke"))
+        if dest.exists():
+            for old in dest.glob("*"):
+                old.unlink()
+        dest.mkdir(parents=True, exist_ok=True)
+        out = []
+        for pad in pads:
+            src = xmls[0].parent / str(pad.pop("file"))
+            if not src.is_file():
+                raise SystemExit(f"{pack['id']}: missing sample {src.name!r}")
+            rate, channels, samples = read_wav(src.read_bytes())
+            stem = re.sub(r"[^A-Za-z0-9._-]+", "_", str(pad.pop("name")))
+            name = f"{pad['pad'] + 1:02d}-{stem}.wav"
+            (dest / name).write_bytes(write_mono_wav(rate, channels, samples, 60, None))
+            out.append({**pad, "sample": f"kits/{pack['id']}/{name}"})
+        meta = {"id": pack["id"], "name": pack["name"], "license": pack["license"],
+                "credit": pack["credit"], "sha256": pack["sha256"], "pads": out}
+        (dest / "kit.json").write_text(json.dumps(meta, indent=1))
+
+
 def write_manifest() -> None:
-    """The browser's index: every built instrument, and the credits."""
+    """The browser's index: every built instrument and kit, and the credits."""
     base = OUT / "instruments"
     metas = [json.loads(p.read_text()) for p in sorted(base.glob("*/instrument.json"))]
-    (OUT / "manifest.json").write_text(json.dumps({"version": 1, "instruments": metas}))
+    kits = [json.loads(p.read_text()) for p in sorted((OUT / "kits").glob("*/kit.json"))]
+    (OUT / "manifest.json").write_text(json.dumps({"version": 1, "instruments": metas, "kits": kits}))
     credits = ["Sample packs fetched by `make samples`; each is used under its own license.\n"]
-    for m in metas:
+    for m in metas + kits:
         credits.append(f"{m['name']}: {m['license']}. {m['credit']}\n")
     (OUT / "CREDITS.txt").write_text("\n".join(credits))
 
@@ -290,14 +397,16 @@ def main() -> None:
     ledger = json.loads(LEDGER.read_text())
     OUT.mkdir(parents=True, exist_ok=True)
     for pack in ledger["packs"]:
-        if pack.get("kind", "instrument") != "instrument":
+        kind = pack.get("kind", "instrument")
+        if kind not in ("instrument", "drums"):
             continue
-        marker = OUT / "instruments" / pack["id"] / "instrument.json"
+        folder, marker_name = ("instruments", "instrument.json") if kind == "instrument" else ("kits", "kit.json")
+        marker = OUT / folder / pack["id"] / marker_name
         if marker.exists() and json.loads(marker.read_text()).get("sha256") == pack["sha256"]:
             print(f"{pack['id']}: up to date")
             continue
         print(f"{pack['id']}")
-        build(pack, download(pack))
+        (build if kind == "instrument" else build_kit)(pack, download(pack))
     write_manifest()
     print(f"manifest: {OUT / 'manifest.json'}")
 
