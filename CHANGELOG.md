@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-10-04
+
+### Fixed
+
+- **A stale `dsp.wasm` gets a banner:** the warning added in 0.24.1 sat at the right end of the one-row transport bar, which clips it, so with an engine older than the page a new model (the Pad Sampler) still just looked like an ARP 2600. The error now has a full-width row across the top (`role="alert"`).
+
 ## [0.26.0] - 2026-10-04
 
 ### Added
