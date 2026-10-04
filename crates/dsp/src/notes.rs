@@ -786,6 +786,81 @@ pub fn freeze(events: &[Event], bars: u32) -> Option<Notes> {
     (notes.events == events && notes.bars == bars).then_some(notes)
 }
 
+/// An edit from the composer's note view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edit {
+    /// A note of the default length (a sixteenth) at `tick`.
+    Add {
+        tick: u32,
+        note: u8,
+    },
+    Remove {
+        tick: u32,
+        note: u8,
+    },
+    /// Set the length of the notes that start with this one.
+    Len {
+        tick: u32,
+        note: u8,
+        len: u32,
+    },
+}
+
+/// A sixteenth, the length of a note added by a click.
+pub const DEFAULT_LEN: u32 = 3;
+
+/// `events` with `op` done, made writable: notes that start together are a
+/// chord of one length, and a note ends where the next one begins or at its
+/// bar line, so an edit shortens what is in its way. `None` when the edit
+/// names no note or a tick past `bars`.
+pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
+    let mut out = events.to_vec();
+    let end = bars * TICKS_PER_BAR;
+    match op {
+        Edit::Add { tick, note } => {
+            if tick >= end || note > 127 {
+                return None;
+            }
+            if !out.iter().any(|e| e.start == tick && e.note == note) {
+                let len = out
+                    .iter()
+                    .find(|e| e.start == tick)
+                    .map_or(DEFAULT_LEN, |e| e.len);
+                out.push(Event {
+                    start: tick,
+                    len,
+                    note,
+                    accent: false,
+                });
+            }
+        }
+        Edit::Remove { tick, note } => {
+            let at = out.iter().position(|e| e.start == tick && e.note == note)?;
+            out.remove(at);
+        }
+        Edit::Len { tick, note, len } => {
+            if len == 0 || !out.iter().any(|e| e.start == tick && e.note == note) {
+                return None;
+            }
+            for e in out.iter_mut().filter(|e| e.start == tick) {
+                e.len = len;
+            }
+        }
+    }
+    out.sort_unstable_by_key(sort_key);
+    let starts: Vec<u32> = out.iter().map(|e| e.start).collect();
+    for e in out.iter_mut() {
+        let bar_end = (e.start / TICKS_PER_BAR + 1) * TICKS_PER_BAR;
+        let next = starts
+            .iter()
+            .copied()
+            .find(|s| *s > e.start)
+            .unwrap_or(bar_end);
+        e.len = e.len.min(next.min(bar_end) - e.start).max(1);
+    }
+    Some(out)
+}
+
 fn weighted(item: String, ticks: u32) -> String {
     if ticks == 1 {
         item
