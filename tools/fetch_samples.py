@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the free sample packs and drum kits listed in tools/samples/packs.json.
+"""Fetch the free sample packs, drum kits and voices listed in tools/samples/packs.json.
 
 Run through `make samples`. For each pack: download (cached in .cache/samples),
 verify the SHA-256, extract with bsdtar, read the SFZ, and write mono 16-bit
@@ -7,6 +7,9 @@ WAV files with the loop points in a `smpl` chunk, plus a manifest of zones,
 into web/public/samples/ (gitignored; the static server ships it, ADR-0006).
 The engine only reads WAV (#122) and mixes to mono (#123), so nothing is lost
 by converting here. Standard library only; unpacking .7z needs 7zz/7z/7za (bsdtar reads the newer archives).
+
+A "voice" pack (#184) is a list of single WAV files, each with its own URL and
+checksum, built into a kit for the pad sampler: one phrase per pad.
 """
 
 from __future__ import annotations
@@ -381,6 +384,48 @@ def build_kit(pack: dict, archive: Path) -> None:
         (dest / "kit.json").write_text(json.dumps(meta, indent=1))
 
 
+# --- Voices (single files, one phrase per pad) -----------------------------------------
+
+def pinned(pack: dict) -> str:
+    """What a built pack is checked against: its archive's checksum, or for a
+    pack of single files one checksum over all of theirs."""
+    if "files" in pack:
+        joined = "\n".join(f["sha256"] for f in pack["files"])
+        return hashlib.sha256(joined.encode()).hexdigest()
+    return pack["sha256"]
+
+
+def fetch_file(pack: dict, i: int, entry: dict) -> Path:
+    """Download one file of a pack (cached), verified against its own checksum."""
+    return download({"id": f"{pack['id']}-{i + 1:02d}", "ext": "wav", **entry})
+
+
+def build_voice(pack: dict, fetch=fetch_file) -> None:
+    """Convert a pack of single WAV files into OUT/kits/<id>/: pad i plays file i
+    as a one-shot, named after what it says. The pack's notice goes with it."""
+    dest = OUT / "kits" / pack["id"]
+    if dest.exists():
+        for old in dest.glob("*"):
+            old.unlink()
+    dest.mkdir(parents=True, exist_ok=True)
+    pads = []
+    for i, entry in enumerate(pack["files"][:PADS]):
+        rate, channels, samples = read_wav(fetch(pack, i, entry).read_bytes())
+        stem = re.sub(r"[^A-Za-z0-9_-]+", "_", entry["name"]).strip("_")[:32]
+        name = f"{i + 1:02d}-{stem}.wav"
+        (dest / name).write_bytes(write_mono_wav(rate, channels, samples, 60, None))
+        pads.append({
+            "pad": i, "name": entry["name"], "tune": 0, "level": 0.8, "pan": 0.0,
+            "decay": 0, "choke": 0, "velLevel": 1.0, "velStart": 0.0, "oneShot": True,
+            "sample": f"kits/{pack['id']}/{name}",
+        })
+    meta = {"id": pack["id"], "name": pack["name"], "license": pack["license"],
+            "credit": pack["credit"], "sha256": pinned(pack), "pads": pads}
+    if "notice" in pack:
+        meta["notice"] = pack["notice"]
+    (dest / "kit.json").write_text(json.dumps(meta, indent=1))
+
+
 def write_manifest() -> None:
     """The browser's index: every built instrument and kit, and the credits."""
     base = OUT / "instruments"
@@ -390,6 +435,8 @@ def write_manifest() -> None:
     credits = ["Sample packs fetched by `make samples`; each is used under its own license.\n"]
     for m in metas + kits:
         credits.append(f"{m['name']}: {m['license']}. {m['credit']}\n")
+        if "notice" in m:
+            credits.append(m["notice"].rstrip() + "\n")
     (OUT / "CREDITS.txt").write_text("\n".join(credits))
 
 
@@ -398,15 +445,18 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for pack in ledger["packs"]:
         kind = pack.get("kind", "instrument")
-        if kind not in ("instrument", "drums"):
+        if kind not in ("instrument", "drums", "voice"):
             continue
         folder, marker_name = ("instruments", "instrument.json") if kind == "instrument" else ("kits", "kit.json")
         marker = OUT / folder / pack["id"] / marker_name
-        if marker.exists() and json.loads(marker.read_text()).get("sha256") == pack["sha256"]:
+        if marker.exists() and json.loads(marker.read_text()).get("sha256") == pinned(pack):
             print(f"{pack['id']}: up to date")
             continue
         print(f"{pack['id']}")
-        (build if kind == "instrument" else build_kit)(pack, download(pack))
+        if kind == "voice":
+            build_voice(pack)
+        else:
+            (build if kind == "instrument" else build_kit)(pack, download(pack))
     write_manifest()
     print(f"manifest: {OUT / 'manifest.json'}")
 

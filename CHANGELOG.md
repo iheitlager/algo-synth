@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-04
+
+### Added
+
+- **A Voice pack:** sixteen short spoken phrases from the CMU ARCTIC speech databases (two speakers), one per pad of the pad sampler and named by what they say, for a vocoder's modulator or chopped speech. Fetched by `make samples` like every pack: the ledger holds only each file's URL and pinned checksum. Not CC0: the CMU notice, the authors and the conversion go into the kit and `CREDITS.txt` (#184).
+
 ## [0.29.0] - 2026-10-04
 
 ### Added
