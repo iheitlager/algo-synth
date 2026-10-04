@@ -16,3 +16,4 @@
 | [0012](0012-the-song-is-text.md) | The song is text: a Tidal/Strudel-style notation with classic note names and durations and drum lanes, parsed and printed by the engine; the drum grid and generators edit it; a language model writes it | Accepted |
 | [0013](0013-sample-store.md) | The sample store: Rust parses and resamples WAV at load, in bounded memory; fixed slots, a hard cap, errors as codes | Accepted |
 | [0014](0014-user-presets.md) | User presets: synth, insert, processor and strip kinds stored by name, applied on the synth defaults, kept in a browser library with export and import, apart from setups | Accepted |
+| [0015](0015-the-arrangement.md) | The arrangement: sections and an `arrange` order in the song text, drum, synth, sampler and MIDI tracks, scenes and automation lanes for any parameter by name, MIDI files converted into notes, the arranger pane | Accepted |
