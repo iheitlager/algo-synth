@@ -18,6 +18,7 @@ const paramsOf = (c: Control): number[] => {
       return [c.param]
     case 'sysex':
     case 'sampler':
+    case 'pads':
       return []
     default:
       return []

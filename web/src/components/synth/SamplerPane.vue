@@ -4,14 +4,10 @@
 // loop markers. The engine parses the WAV bytes, resamples them and holds the zones; this
 // forwards files and field changes and draws what the engine reports (ADR-0001).
 import { computed, onMounted, ref } from 'vue'
-import {
-  clearSample, clearZones, fetchPacks, loadPack, loadSample, mapSample, packs, requestZones, sampleStore, setZone,
-  status, zonesOf,
-} from '../../audio/engine'
+import { clearZones, fetchPacks, loadPack, mapSample, packs, requestZones, sampleStore, setZone, status, zonesOf } from '../../audio/engine'
 import { LoopMode, ZoneField } from '../../audio/params'
-import {
-  SAMPLE_SLOTS, ZONES, freeSlot, keyName, loopOf, peakPath, zoneRect, type Zone,
-} from '../../audio/sampler'
+import { ZONES, keyName, loopOf, peakPath, zoneRect, type Zone } from '../../audio/sampler'
+import SampleSlots from './SampleSlots.vue'
 
 const props = defineProps<{ s: number }>()
 
@@ -21,8 +17,6 @@ const selected = ref(-1)
 const zone = computed<Zone | null>(() => (used.value.some(([, i]) => i === selected.value) ? (zones.value[selected.value] ?? null) : null))
 const sample = computed(() => (zone.value ? (sampleStore.slots[zone.value.sample] ?? null) : null))
 const loaded = computed(() => sampleStore.slots.flatMap((info, slot) => (info ? [{ slot, info }] : [])))
-const memory = computed(() => Math.min(1, sampleStore.used / sampleStore.cap))
-const over = ref(false)
 
 onMounted(() => {
   if (!packs.loaded) void fetchPacks()
@@ -41,32 +35,15 @@ const loop = computed(() => {
   const l = z && info ? loopOf(z, info) : null
   return l && info ? l.map((f) => (f / info.frames) * WAVE_W) : null
 })
-const seconds = (frames: number) => (frames / (status.sampleRate || 48_000)).toFixed(2)
 const rootName = (z: Zone) => (z.root >= 0 ? keyName(z.root) : sample.value ? keyName(sample.value.root) : '—')
 const field = (f: number, e: Event, int = false) => {
   const v = Number((e.target as HTMLInputElement).value)
   if (Number.isFinite(v)) setZone(props.s, selected.value, f, int ? Math.round(v) : v)
 }
 
-async function addFiles(files: FileList | File[]) {
-  for (const f of Array.from(files)) {
-    const slot = freeSlot(sampleStore.slots)
-    if (slot < 0) { sampleStore.error = 'all sample slots are used; free some'; return }
-    sampleStore.error = ''
-    const code = await loadSample(slot, await f.arrayBuffer(), f.name)
-    // A first sample on an empty map plays across the keys.
-    if (code >= 0 && used.value.length === 0) mapSample(props.s, slot)
-  }
-}
-function onDrop(e: DragEvent) {
-  over.value = false
-  if (e.dataTransfer?.files.length) void addFiles(e.dataTransfer.files)
-}
-async function pick(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files ? Array.from(input.files) : []
-  input.value = ''
-  await addFiles(files)
+// A first sample on an empty map plays across the keys.
+function onAdded(slot: number) {
+  if (used.value.length === 0) mapSample(props.s, slot)
 }
 function addZone(slot: number) {
   mapSample(props.s, slot)
@@ -91,28 +68,9 @@ const inUse = (slot: number) => zones.value.some((z) => z.sample === slot)
         <p v-if="sampleStore.busy" class="hint" role="status">Loading {{ sampleStore.busy }}</p>
       </div>
 
-      <div
-        class="box store" :class="{ over }" @dragover.prevent="over = true" @dragleave="over = false" @drop.prevent="onDrop"
-      >
-        <h4>Samples</h4>
-        <label class="file">
-          Add WAV, or drop it here
-          <input type="file" accept=".wav,audio/wav,audio/x-wav" multiple aria-label="Add WAV samples" @change="pick" />
-        </label>
-        <ul class="slots">
-          <li v-for="{ slot, info } in loaded" :key="slot">
-            <span class="name" :title="info.name">{{ info.name }}</span>
-            <small>{{ seconds(info.frames) }} s</small>
-            <button title="Play it across the keys" :disabled="!status.running" @click="addZone(slot)">+ zone</button>
-            <button :title="inUse(slot) ? 'Used by a zone' : 'Free this sample'" :disabled="inUse(slot)" @click="clearSample(slot)">×</button>
-          </li>
-        </ul>
-        <div class="meter" role="meter" aria-label="Sample store memory" :aria-valuenow="Math.round(memory * 100)" aria-valuemin="0" aria-valuemax="100">
-          <i :style="{ width: `${memory * 100}%` }" />
-        </div>
-        <small>{{ loaded.length }} of {{ SAMPLE_SLOTS }} slots · {{ Math.round(memory * 100) }}% of the store</small>
-        <p v-if="sampleStore.error" class="err" role="alert">{{ sampleStore.error }}</p>
-      </div>
+      <SampleSlots
+        use-label="+ zone" use-title="Play it across the keys" :in-use="inUse" @use="addZone" @added="onAdded"
+      />
     </div>
 
     <div class="box">
@@ -178,16 +136,8 @@ h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.16em; text-transform: u
 h4 small { font-weight: 400; letter-spacing: 0.06em; text-transform: none; color: var(--con-silk-dim); }
 .clear { margin-left: auto; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.slots { flex-direction: column; flex-wrap: nowrap; gap: 3px; max-height: 150px; overflow: auto; margin: 6px 0; }
-.slots li { display: flex; align-items: center; gap: 6px; }
-.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--con-silk); }
 button { font: inherit; color: var(--con-silk); background: var(--plate); border: 1px solid var(--trim); border-radius: 3px; padding: 2px 8px; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
-.file { display: block; cursor: pointer; padding: 6px 8px; text-align: center; border: 1px dashed var(--trim); border-radius: 3px; color: var(--c); }
-.file input { display: none; }
-.store.over { outline: 2px dashed var(--c); }
-.meter { height: 6px; margin: 4px 0; background: var(--plate); border: 1px solid var(--trim); border-radius: 3px; overflow: hidden; }
-.meter i { display: block; height: 100%; background: var(--c); }
 .map, .wave { width: 100%; height: 130px; display: block; background: #0b0d10; border-radius: 3px; }
 .wave { height: 70px; }
 .octaves line { stroke: #ffffff14; stroke-width: 1; vector-effect: non-scaling-stroke; }

@@ -50,6 +50,9 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'zone': w.zone_set(data.s, data.zone, data.field, data.v); break
         case 'zonesClear': w.zones_clear(data.s); break
         case 'zonesDump': this.sendZones(data.s); break
+        case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
+        case 'padsClear': w.pads_clear(data.s); break
+        case 'padsDump': this.sendPads(data.s); break
       }
     }
   }
@@ -87,6 +90,15 @@ class EngineProcessor extends AudioWorkletProcessor {
       },
       [peaks.buffer],
     )
+  }
+
+  // Every field of every pad of synth `s`, pad by pad.
+  sendPads(s) {
+    const pads = this.w.pad_count()
+    const fields = this.w.pad_fields()
+    const values = new Float32Array(pads * fields)
+    for (let p = 0; p < pads; p++) for (let f = 0; f < fields; f++) values[p * fields + f] = this.w.pad_get(s, p, f)
+    this.port.postMessage({ t: 'pads', s, values }, [values.buffer])
   }
 
   // Every field of every zone of synth `s`, zone by zone.

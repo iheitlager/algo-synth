@@ -8,7 +8,10 @@ import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import type { ModelDef } from './models'
 import { GlobalParam, Param, Preset, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
-import { EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodeZones, evictable, freeSlot, packFiles, parseManifest, zoneSets, type Pack, type Zone } from './sampler'
+import {
+  EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
+  parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
+} from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
 const base = import.meta.env.BASE_URL
@@ -282,6 +285,9 @@ export const sampleStore = reactive({
 /** Each synth's zones by engine index, as the engine last reported them. */
 export const zoneState = reactive({ zones: [] as Zone[][] })
 export const zonesOf = (s: number): Zone[] => zoneState.zones[s] ?? Array.from({ length: ZONES }, () => EMPTY_ZONE)
+/** Each pad sampler's pads by engine index, as the engine last reported them. */
+export const padState = reactive({ pads: [] as Pad[][] })
+export const padsOf = (s: number): Pad[] => padState.pads[s] ?? Array.from({ length: 16 }, () => EMPTY_PAD)
 
 const loading = new Map<number, { name: string; done: (code: number) => void }>()
 /** Send a WAV file to the engine for `slot`; resolves with its frame count or a negative error code. */
@@ -295,6 +301,7 @@ export async function loadSample(slot: number, bytes: ArrayBuffer, name: string)
 }
 export const clearSample = (slot: number) => engine?.post({ t: 'sampleClear', slot })
 export const requestZones = (s: number) => engine?.post({ t: 'zonesDump', s })
+export const requestPads = (s: number) => engine?.post({ t: 'padsDump', s })
 /** Set one field of a zone (`ZoneField`); the engine clamps it and the view re-reads the zones. */
 export function setZone(s: number, zone: number, field: number, v: number) {
   engine?.post({ t: 'zone', s, zone, field, v })
@@ -305,14 +312,27 @@ export function clearZones(s: number) {
   requestZones(s)
 }
 
-/** The packs `make samples` fetched, from `samples/manifest.json`; empty when there are none. */
-export const packs = reactive({ list: [] as Pack[], loaded: false })
+/** Set one field of a pad (`PadField`); the engine clamps it and the view re-reads the pads. */
+export function setPad(s: number, pad: number, field: number, v: number) {
+  engine?.post({ t: 'pad', s, pad, field, v })
+  requestPads(s)
+}
+export function clearPads(s: number) {
+  engine?.post({ t: 'padsClear', s })
+  requestPads(s)
+}
+
+/** The packs and kits `make samples` fetched, from `samples/manifest.json`; empty when there are none. */
+export const packs = reactive({ list: [] as Pack[], kits: [] as Kit[], loaded: false })
 export async function fetchPacks(): Promise<void> {
   try {
     const r = await fetch(`${base}samples/manifest.json`)
-    packs.list = r.ok ? parseManifest(await r.json()) : []
+    const json: unknown = r.ok ? await r.json() : null
+    packs.list = parseManifest(json)
+    packs.kits = parseKits(json)
   } catch {
     packs.list = []
+    packs.kits = []
   }
   packs.loaded = true
 }
@@ -320,34 +340,60 @@ export async function fetchPacks(): Promise<void> {
 /** Files already in the store, by their path under `samples/`, so a pack used twice is loaded once. */
 const slotOfFile = new Map<string, number>()
 
+/** Fetch `files` (paths under `samples/`) into free slots, the ones already in the store excepted; throws what went wrong. */
+async function loadFiles(label: string, files: string[]) {
+  for (const [i, file] of files.entries()) {
+    sampleStore.busy = `${label}: ${i + 1} of ${files.length}`
+    const known = slotOfFile.get(file)
+    if (known !== undefined && sampleStore.slots[known]) continue
+    const slot = freeSlot(sampleStore.slots)
+    if (slot < 0) throw new Error('all sample slots are used; free some')
+    const r = await fetch(`${base}samples/${file}`)
+    if (!r.ok) throw new Error(`${file}: ${r.status}`)
+    const code = await loadSample(slot, await r.arrayBuffer(), file.split('/').pop() ?? file)
+    if (code < 0) throw new Error(`${file}: ${SAMPLE_ERRORS[code] ?? code}`)
+    slotOfFile.set(file, slot)
+  }
+}
+
 /** Load a pack's files into free slots and lay its zones out on synth `s`. */
 export async function loadPack(s: number, pack: Pack): Promise<void> {
   sampleStore.error = ''
   const files = packFiles(pack)
   // The store is shared and capped: a pack replaces the one this synth had, keeping what other
-  // synths' zones still use and what this pack shares with it.
+  // synths play and what this pack shares with it.
   engine?.post({ t: 'zonesClear', s })
-  for (const slot of evictable(slotOfFile, s, zoneState.zones, new Set(files))) {
+  for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
   }
   try {
-    for (const [i, file] of files.entries()) {
-      sampleStore.busy = `${pack.name}: ${i + 1} of ${files.length}`
-      const known = slotOfFile.get(file)
-      if (known !== undefined && sampleStore.slots[known]) continue
-      const slot = freeSlot(sampleStore.slots)
-      if (slot < 0) throw new Error('all sample slots are used; free some')
-      const r = await fetch(`${base}samples/${file}`)
-      if (!r.ok) throw new Error(`${file}: ${r.status}`)
-      const code = await loadSample(slot, await r.arrayBuffer(), file.split('/').pop() ?? file)
-      if (code < 0) throw new Error(`${file}: ${SAMPLE_ERRORS[code] ?? code}`)
-      slotOfFile.set(file, slot)
-    }
+    await loadFiles(pack.name, files)
     engine?.post({ t: 'zonesClear', s })
     for (const [zone, field, v] of zoneSets(pack, (f) => slotOfFile.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
     requestZones(s)
+  } catch (e) {
+    sampleStore.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    sampleStore.busy = ''
+  }
+}
+
+/** Load a drum kit's files into free slots and lay its pads out on synth `s`; like `loadPack`, it replaces the kit it follows. */
+export async function loadKit(s: number, kit: Kit): Promise<void> {
+  sampleStore.error = ''
+  const files = kitFiles(kit)
+  engine?.post({ t: 'padsClear', s })
+  for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
+    engine?.post({ t: 'sampleClear', slot })
+    sampleStore.slots[slot] = null
+    for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
+  }
+  try {
+    await loadFiles(kit.name, files)
+    for (const [pad, field, v] of padSets(kit, (f) => slotOfFile.get(f))) engine?.post({ t: 'pad', s, pad, field, v })
+    requestPads(s)
   } catch (e) {
     sampleStore.error = e instanceof Error ? e.message : String(e)
   } finally {
@@ -420,6 +466,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     sampleStore.slots[slot] = null
     sampleStore.used = data.used as number
     for (const [file, s] of slotOfFile) if (s === slot) slotOfFile.delete(file)
+  } else if (data.t === 'pads') {
+    padState.pads[data.s as number] = decodePads(data.values as Float32Array)
   } else if (data.t === 'zones') {
     zoneState.zones[data.s as number] = decodeZones(data.values as Float32Array)
   } else if (data.t === 'sysex') {

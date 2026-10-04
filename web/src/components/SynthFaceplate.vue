@@ -15,6 +15,7 @@ import AlgoDiagram from './synth/AlgoDiagram.vue'
 import Eg4Graph from './synth/Eg4Graph.vue'
 import EnvGraph from './synth/EnvGraph.vue'
 import PatchBay from './synth/PatchBay.vue'
+import PadGrid from './synth/PadGrid.vue'
 import SamplerPane from './synth/SamplerPane.vue'
 import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
@@ -116,6 +117,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
             </div>
             <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
             <SamplerPane v-else-if="c.kind === 'sampler'" :s="s" />
+            <PadGrid v-else-if="c.kind === 'pads'" :s="s" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>
