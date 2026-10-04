@@ -113,6 +113,14 @@ impl Clock {
         self.sub = k * TICKS_PER_STEP;
     }
 
+    /// Jump to step `k` at the current tempo, from the top; it fires next.
+    pub fn seek_step(&mut self, k: u64) {
+        self.anchor_step = 0;
+        self.anchor_sample = 0.0;
+        self.pos = self.step_sample(k);
+        self.next = k;
+    }
+
     /// Position in samples.
     pub fn position(&self) -> u64 {
         self.pos

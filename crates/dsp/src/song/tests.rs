@@ -116,10 +116,10 @@ fn every_error_says_where() {
         ),
         ("  bd x...", 1, 3, "a lane goes under a frag"),
         (
-            "loop a",
+            "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, track or frag",
+            "a line starts with tempo, swing, scale, track, frag, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -646,4 +646,167 @@ fn an_electro_example_parses_and_prints_back() {
     let s = Song::parse(ELECTRO).expect("parses");
     assert_eq!((s.tracks.len(), s.frags.len()), (3, 5));
     assert_eq!(Song::parse(&s.print()), Ok(s));
+}
+
+const ARRANGED: &str = "\
+track kit drums
+frag beat = kit /16
+  bd x...x...x...x...
+frag fill = kit /16
+  sn ..x.
+section intro 2: beat
+section main 4 : beat fill
+section gap 1:
+arrange intro main main gap
+loop 3 6
+";
+
+/// Spec 002 Req 4: sections, the arrangement and a loop region parse and
+/// print canonically.
+#[test]
+fn sections_and_the_arrangement_parse_and_print() {
+    let s = Song::parse(ARRANGED).expect("parses");
+    assert_eq!(s.sections.len(), 3);
+    assert_eq!(
+        s.sections[1],
+        Section {
+            name: "main".into(),
+            bars: 4,
+            frags: vec![0, 1]
+        }
+    );
+    assert_eq!(
+        s.sections[2].frags,
+        Vec::<usize>::new(),
+        "an empty section is silent bars"
+    );
+    assert_eq!(s.arrange, vec![0, 1, 1, 2]);
+    assert_eq!(s.loop_bars, Some((3, 6)));
+    assert_eq!(s.bars(), 11);
+    let text = s.print();
+    assert!(text.ends_with("section intro 2: beat\nsection main 4: beat fill\nsection gap 1:\narrange intro main main gap\nloop 3 6\n"), "{text}");
+    assert_eq!(Song::parse(&text), Ok(s));
+}
+
+#[test]
+fn a_step_falls_in_its_section_and_the_loop_wraps() {
+    let s = Song::parse(ARRANGED).expect("parses");
+    assert_eq!(
+        s.at(0),
+        At::In {
+            entry: 0,
+            section: 0,
+            local: 0
+        }
+    );
+    assert_eq!(
+        s.at(31),
+        At::In {
+            entry: 0,
+            section: 0,
+            local: 31
+        }
+    );
+    assert_eq!(
+        s.at(32),
+        At::In {
+            entry: 1,
+            section: 1,
+            local: 0
+        }
+    );
+    // Bars 3 to 6 are steps 32..96; step 96 wraps back to 32.
+    assert_eq!(
+        s.at(96),
+        At::In {
+            entry: 1,
+            section: 1,
+            local: 0
+        }
+    );
+    assert_eq!(
+        s.at(96 + 63),
+        At::In {
+            entry: 1,
+            section: 1,
+            local: 63
+        }
+    );
+    let mut no_loop = s.clone();
+    no_loop.loop_bars = None;
+    assert_eq!(
+        no_loop.at(96),
+        At::In {
+            entry: 2,
+            section: 1,
+            local: 0
+        },
+        "main again, from its start"
+    );
+    assert_eq!(
+        no_loop.at(160),
+        At::In {
+            entry: 3,
+            section: 2,
+            local: 0
+        }
+    );
+    assert_eq!(no_loop.at(176), At::End);
+    assert_eq!(
+        Song::parse("track kit drums").expect("parses").at(7),
+        At::Free(7)
+    );
+}
+
+#[test]
+fn arrangement_errors_say_where() {
+    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let cases: [(&str, usize, usize, &str); 12] = [
+        (
+            "section 1a 2: b",
+            4,
+            9,
+            "a name is a letter, then letters, digits or _",
+        ),
+        ("section a", 4, 10, "a number of bars and : go here"),
+        ("section a 2 b", 4, 13, ": goes here, after the bars"),
+        ("section a 0: b", 4, 11, "a section is 1 to 256 bars"),
+        ("section a 300: b", 4, 11, "a section is 1 to 256 bars"),
+        ("section a 2: c", 4, 14, "no frag has this name"),
+        (
+            "section a 2: b b",
+            4,
+            16,
+            "this frag is already in the section",
+        ),
+        (
+            "section a 2: b\nsection a 1: b",
+            5,
+            9,
+            "there is already a section with this name",
+        ),
+        ("arrange x", 4, 9, "no section has this name"),
+        (
+            "section a 2: b\narrange",
+            5,
+            8,
+            "sections go here, in the order they play",
+        ),
+        (
+            "section a 2: b\narrange a\nloop 2 3",
+            6,
+            1,
+            "the loop ends after the arrangement",
+        ),
+        ("loop 1 1", 4, 1, "a loop needs an arrange line"),
+    ];
+    for (tail, line, col, msg) in cases {
+        let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
+    }
+    let err =
+        Song::parse(&format!("{head}section a 1:\narrange a\nloop 3 2")).expect_err("backwards");
+    assert_eq!(err.msg, "the last bar comes after the first");
+    let err = Song::parse(&format!("{head}section a 1:\narrange a\narrange a")).expect_err("two");
+    assert_eq!(err.msg, "a song has one arrange line");
 }

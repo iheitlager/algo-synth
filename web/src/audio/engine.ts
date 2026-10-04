@@ -454,6 +454,9 @@ export const song = reactive({
   step: -1,
   /** The song's own transport (the composer's Play and Stop). */
   playing: false,
+  /** With an arrangement (ADR-0015): the entry playing and the steps into it, −1 without. */
+  entry: -1,
+  local: -1,
 })
 
 /** Send `text` to the engine to parse and play. */
@@ -539,6 +542,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     player.playing = data.playing as boolean
     song.step = data.step as number
     song.playing = data.songPlaying as boolean
+    song.entry = (data.entry as number | undefined) ?? -1
+    song.local = (data.local as number | undefined) ?? -1
   } else if (data.t === 'song') {
     applySong(data)
   } else if (data.t === 'load') {

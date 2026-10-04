@@ -240,6 +240,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.port.postMessage({
         t: 'pos', sec: w.position(), playing: w.playing() === 1,
         step: w.clock_step(), songPlaying: w.song_playing() === 1,
+        entry: w.song_entry(), local: w.song_local(),
       })
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()

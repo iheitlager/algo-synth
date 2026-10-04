@@ -62,7 +62,7 @@ use crate::notes::{Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
-use crate::song::{Kind, MAX_TEXT, MAX_TRACKS, Song, SongError, Step};
+use crate::song::{At, Kind, MAX_TEXT, MAX_TRACKS, STEPS_PER_BAR, Song, SongError, Step};
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
 
@@ -646,6 +646,20 @@ impl Engine {
         self.clock.seek(0);
     }
 
+    /// Move the song to the first step of `bar` (from 0); the clock fires it next.
+    pub fn song_seek_bar(&mut self, bar: u64) {
+        self.clock.seek_step(bar.saturating_mul(STEPS_PER_BAR));
+    }
+
+    /// Where the last fired step fell: the arrangement entry and the steps into
+    /// it, or `None` without an arrangement or before the first step.
+    pub fn song_place(&self) -> Option<(usize, u64)> {
+        match self.song.at(self.clock.step()?) {
+            At::In { entry, local, .. } => Some((entry, local)),
+            _ => None,
+        }
+    }
+
     /// Play `channel` on `synth`, or mute it with `None`. An unknown synth
     /// mutes too.
     pub fn route(&mut self, channel: u8, synth: Option<usize>) {
@@ -684,8 +698,10 @@ impl Engine {
 
     /// Tick `j` of the clock: end the notes that are due, then start what
     /// every note fragment has on it (spec 002 Req 3, ADR-0016). Each fragment
-    /// loops on its own length in bars. Reads the song in place and uses the
-    /// fixed note-off table: nothing allocates.
+    /// loops on its own length in bars; with an arrangement only the current
+    /// section's fragments play, counted from its first tick (ADR-0015).
+    /// Reads the song in place and uses the fixed note-off table: nothing
+    /// allocates.
     fn play_tick(&mut self, j: u64) {
         for i in 0..self.note_offs.len() {
             let due = self
@@ -701,7 +717,28 @@ impl Engine {
                 self.stop_note(Owner::Track(track), note);
             }
         }
+        // Where the tick falls in the arrangement: the tick to count from and
+        // the section that plays, if any. Note-offs above use the clock's own
+        // ticks, so a note started in one section ends where it should.
+        let step = j / TICKS_PER_STEP;
+        let (from, section) = match self.song.at(step) {
+            At::Free(_) => (j, None),
+            At::In { section, local, .. } => {
+                (local * TICKS_PER_STEP + j % TICKS_PER_STEP, Some(section))
+            }
+            At::End => return,
+        };
         for f in 0..self.song.frags.len() {
+            if let Some(s) = section {
+                if !self
+                    .song
+                    .sections
+                    .get(s)
+                    .is_some_and(|sec| sec.frags.contains(&f))
+                {
+                    continue;
+                }
+            }
             let Some((track, span, live)) = self
                 .song
                 .frags
@@ -714,9 +751,9 @@ impl Engine {
             else {
                 continue;
             };
-            let local = u32::try_from(j % span).unwrap_or(0);
+            let local = u32::try_from(from % span).unwrap_or(0);
             if live {
-                self.step_live(f, j / span, local);
+                self.step_live(f, from / span, local);
             }
             let first = self.first_event(f, local);
             for k in first.. {
@@ -833,12 +870,33 @@ impl Engine {
     }
 
     /// Hit what every lane of the song has on clock step `k`; each lane loops
-    /// on its own length. Reads the song in place: nothing allocates.
+    /// on its own length. With an arrangement only the current section's
+    /// fragments play, counted from the section's first step, and the song
+    /// stops after its last bar (ADR-0015). Reads the song in place: nothing
+    /// allocates.
     fn play_step(&mut self, k: u64) {
+        let (k, section) = match self.song.at(k) {
+            At::Free(k) => (k, None),
+            At::In { section, local, .. } => (local, Some(section)),
+            At::End => {
+                self.song_stop();
+                return;
+            }
+        };
         for f in 0..self.song.frags.len() {
             let Some(frag) = self.song.frags.get(f) else {
                 continue;
             };
+            if let Some(s) = section {
+                if !self
+                    .song
+                    .sections
+                    .get(s)
+                    .is_some_and(|sec| sec.frags.contains(&f))
+                {
+                    continue;
+                }
+            }
             let owner = Owner::Track(u8::try_from(frag.track).unwrap_or(u8::MAX));
             for l in 0..frag.lanes.len() {
                 let hit = self
@@ -2943,6 +3001,82 @@ mod tests {
         assert_eq!(hits, vec![0, 24_000, 48_000, 72_000]);
     }
 
+    /// The clock steps (at 120 BPM and 48 kHz, 6000 samples each) that start
+    /// a note within `steps` steps, rendered a frame at a time.
+    fn hit_steps(e: &mut Engine, steps: u64) -> Vec<u64> {
+        let mut hits = Vec::new();
+        let mut count = e.note_count;
+        for s in 0..steps * 6000 {
+            e.render(1);
+            if e.note_count != count {
+                for _ in count..e.note_count {
+                    hits.push(s / 6000);
+                }
+                count = e.note_count;
+            }
+        }
+        hits
+    }
+
+    /// Spec 002 Req 4: each section plays its own fragments from its first
+    /// bar, on the exact sample, and the song stops after the last bar.
+    #[test]
+    fn sections_play_in_order_and_the_song_ends() {
+        let mut e = kit(0);
+        let text = "tempo 120\ntrack kit drums\nfrag a = kit\n  bd x...\nfrag b = kit\n  sn x.\n\
+                    section one 1: a\nsection two 1: b\narrange one two\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        let hits = hit_steps(&mut e, 40);
+        assert_eq!(hits, vec![0, 4, 8, 12, 16, 18, 20, 22, 24, 26, 28, 30]);
+        assert!(!e.clock().playing(), "the song stops after its last bar");
+        assert_eq!(e.clock().position(), 0, "and goes back to the top");
+    }
+
+    /// A fragment starts again at each section's first bar: a long one is cut,
+    /// a short one loops inside it.
+    #[test]
+    fn a_fragment_restarts_with_its_section() {
+        let mut e = kit(0);
+        let long = format!("x{}x{}", ".".repeat(19), ".".repeat(11));
+        let text = format!(
+            "track kit drums\nfrag l = kit\n  bd {long}\nfrag s = kit\n  sn x..\nsection a 1: l s\narrange a a\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let hits = hit_steps(&mut e, 32);
+        // l: step 0 of each bar (its 20th step is cut); s: 0, 3, 6, 9, 12, 15 of each bar.
+        let mut want = Vec::new();
+        for bar in [0, 16] {
+            want.extend([bar, bar, bar + 3, bar + 6, bar + 9, bar + 12, bar + 15]);
+        }
+        assert_eq!(hits, want);
+    }
+
+    /// The loop region repeats its bars; seek lands on a bar.
+    #[test]
+    fn the_loop_region_repeats_and_seek_lands_on_a_bar() {
+        let mut e = kit(0);
+        let text = "track kit drums\nfrag a = kit\n  bd x...............\nfrag b = kit\n  sn x...............\n\
+                    section one 1: a\nsection two 1: b\narrange one two one\nloop 2 2\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        hit_steps(&mut e, 16);
+        assert_eq!(e.song_place(), Some((0, 15)));
+        hit_steps(&mut e, 48);
+        assert_eq!(e.song_place(), Some((1, 15)), "bar 2 three times over");
+        assert!(e.clock().playing());
+        e.song_seek_bar(2);
+        let before = e.note_count;
+        e.render(1);
+        assert_eq!(e.note_count, before + 1, "bar 3 starts at once");
+        assert_eq!(
+            e.song_place(),
+            Some((1, 0)),
+            "inside the loop: bar 3 wraps to bar 2"
+        );
+    }
+
     #[test]
     fn each_lane_loops_on_its_own_length() {
         let mut e = kit(0);
@@ -3061,6 +3195,30 @@ mod tests {
                 (120_000, vec![64]),
                 (144_000, vec![67]),
                 (168_000, vec![72]),
+            ]
+        );
+    }
+
+    /// ADR-0015 with ADR-0016: a note fragment plays only in its sections,
+    /// from each section's first bar. Two bars of `c4 e4` (one bar long) in
+    /// `b`, after a silent bar `a`: notes from 96000, starting over at
+    /// 192000 rather than running on from where the line would be.
+    #[test]
+    fn a_note_fragment_plays_in_its_section_from_its_start() {
+        let got = held_changes(
+            "tempo 120\ntrack lead synth\nfrag r = lead\n  c4:2 e4:4 g4:4\nsection a 1:\nsection b 1: r\narrange a b b\n",
+            300_000,
+        );
+        let starts: Vec<(u64, Vec<u8>)> = got.into_iter().filter(|(_, n)| !n.is_empty()).collect();
+        assert_eq!(
+            starts,
+            vec![
+                (96_000, vec![60]),
+                (144_000, vec![64]),
+                (168_000, vec![67]),
+                (192_000, vec![60]),
+                (240_000, vec![64]),
+                (264_000, vec![67]),
             ]
         );
     }

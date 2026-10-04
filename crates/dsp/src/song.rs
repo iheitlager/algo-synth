@@ -9,6 +9,11 @@
 //! frag beat = kit /16
 //!   bd x...x...x...x...
 //!   sn ....X.......X..x
+//!
+//! section intro 4: beat
+//! section main 8: beat fill
+//! arrange intro main main
+//! loop 5 12
 //! ```
 //!
 //! A `synth` track holds note fragments instead (spec 002 Req 3, ADR-0016):
@@ -19,6 +24,12 @@
 //! frag riff = lead
 //!   "c4 [e4 g4] ~ <c5 d5>"      # or classic: c4:4 e4:8 g4:8 c5:2
 //! ```
+//!
+//! Sections and the arrangement (ADR-0015, spec 002 Req 4): a section is a
+//! number of bars and the fragments that play in it, each from the section's
+//! first bar and looping inside it; `arrange` plays sections in order, and
+//! `loop` repeats a range of the arrangement's bars (from 1, inclusive).
+//! Without `arrange` every fragment loops, as before.
 //!
 //! Parsing and printing allocate, so they run when a song is loaded or a step
 //! edited, never in `render`; the engine plays the parsed song in place. Both
@@ -34,6 +45,12 @@ use crate::notes::{self, Notes};
 pub const MAX_TRACKS: usize = 16;
 pub const MAX_FRAGS: usize = 32;
 pub const MAX_STEPS: usize = 64;
+/// Most sections, entries in the arrangement and bars in a section.
+pub const MAX_SECTIONS: usize = 64;
+pub const MAX_ARRANGE: usize = 256;
+pub const MAX_BARS: u32 = 256;
+/// Clock steps (sixteenths) in a bar.
+pub const STEPS_PER_BAR: u64 = 16;
 /// Longest song text accepted, in bytes.
 pub const MAX_TEXT: usize = 1 << 20;
 /// Longest name of a track or fragment.
@@ -128,6 +145,30 @@ impl Kind {
     }
 }
 
+/// Bars of the song and the fragments that play in them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Section {
+    pub name: String,
+    pub bars: u32,
+    /// Indices into `Song::frags`.
+    pub frags: Vec<usize>,
+}
+
+/// Where clock step `k` falls in the song.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum At {
+    /// No arrangement: every fragment loops on the clock's step.
+    Free(u64),
+    /// In arrangement entry `entry`, which plays `section`, `local` steps in.
+    In {
+        entry: usize,
+        section: usize,
+        local: u64,
+    },
+    /// Past the end of the arrangement.
+    End,
+}
+
 /// A track of the song; the engine routes it to a synth.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
@@ -143,6 +184,11 @@ pub struct Song {
     pub scale: Option<Scale>,
     pub tracks: Vec<Track>,
     pub frags: Vec<Fragment>,
+    pub sections: Vec<Section>,
+    /// The order sections play in, by index; empty means no arrangement.
+    pub arrange: Vec<usize>,
+    /// Bars of the arrangement to repeat, from 1 and inclusive.
+    pub loop_bars: Option<(u32, u32)>,
 }
 
 impl Default for Song {
@@ -153,6 +199,9 @@ impl Default for Song {
             scale: None,
             tracks: Vec::new(),
             frags: Vec::new(),
+            sections: Vec::new(),
+            arrange: Vec::new(),
+            loop_bars: None,
         }
     }
 }
@@ -245,6 +294,8 @@ impl Song {
         let mut song = Song::default();
         // The fragment that indented lines add lanes to, and the line it began on.
         let mut open: Option<(usize, usize)> = None;
+        // The line of the `loop`, checked against the arrangement at the end.
+        let mut loop_at: Option<usize> = None;
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
@@ -443,10 +494,97 @@ impl Song {
                     });
                     open = Some((song.frags.len() - 1, line));
                 }
+                "section" => {
+                    let name = arg(1, "a section name goes here")?;
+                    if !is_name(name.text) {
+                        return Err(err(
+                            name.col,
+                            "a name is a letter, then letters, digits or _",
+                        ));
+                    }
+                    if song.sections.iter().any(|s| s.name == name.text) {
+                        return Err(err(name.col, "there is already a section with this name"));
+                    }
+                    let bars_word = arg(2, "a number of bars and : go here")?;
+                    // `8:` or `8 :`.
+                    let (count, mut k) = match bars_word.text.strip_suffix(':') {
+                        Some(n) => (n, 3),
+                        None => {
+                            let colon = arg(3, ": goes here, after the bars")?;
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": goes here, after the bars"));
+                            }
+                            (bars_word.text, 4)
+                        }
+                    };
+                    let bars: u32 = count
+                        .parse()
+                        .ok()
+                        .filter(|b| (1..=MAX_BARS).contains(b))
+                        .ok_or(err(bars_word.col, "a section is 1 to 256 bars"))?;
+                    let mut frags = Vec::new();
+                    while let Some(w) = ws.get(k) {
+                        let Some(f) = song.frags.iter().position(|f| f.name == w.text) else {
+                            return Err(err(w.col, "no frag has this name"));
+                        };
+                        if frags.contains(&f) {
+                            return Err(err(w.col, "this frag is already in the section"));
+                        }
+                        frags.push(f);
+                        k += 1;
+                    }
+                    if song.sections.len() >= MAX_SECTIONS {
+                        return Err(err(first.col, "a song has at most 64 sections"));
+                    }
+                    song.sections.push(Section {
+                        name: name.text.to_string(),
+                        bars,
+                        frags,
+                    });
+                }
+                "arrange" => {
+                    if !song.arrange.is_empty() {
+                        return Err(err(first.col, "a song has one arrange line"));
+                    }
+                    let mut order = Vec::new();
+                    for w in ws.iter().skip(1) {
+                        let Some(s) = song.sections.iter().position(|s| s.name == w.text) else {
+                            return Err(err(w.col, "no section has this name"));
+                        };
+                        if order.len() >= MAX_ARRANGE {
+                            return Err(err(w.col, "an arrangement has at most 256 sections"));
+                        }
+                        order.push(s);
+                    }
+                    if order.is_empty() {
+                        return Err(err(
+                            body.trim_end().chars().count() + 1,
+                            "sections go here, in the order they play",
+                        ));
+                    }
+                    song.arrange = order;
+                }
+                "loop" => {
+                    let bar = |k: usize| -> Result<u32, SongError> {
+                        let w = arg(k, "the first and last bar go here")?;
+                        w.text
+                            .parse()
+                            .ok()
+                            .filter(|b| *b >= 1)
+                            .ok_or(err(w.col, "a bar counts from 1"))
+                    };
+                    let (from, to) = (bar(1)?, bar(2)?);
+                    expect_end(3)?;
+                    if to < from {
+                        return Err(err(first.col, "the last bar comes after the first"));
+                    }
+                    loop_at = Some(line);
+                    song.loop_bars = Some((from, to));
+                }
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, track or frag",
+                        "a line starts with tempo, swing, scale, track, frag, section, arrange or loop",
                     ));
                 }
             }
@@ -454,7 +592,60 @@ impl Song {
         if let Some((f, at)) = open {
             check_lanes(&song, f, at)?;
         }
+        if let (Some(line), Some((_, to))) = (loop_at, song.loop_bars) {
+            let msg = if song.arrange.is_empty() {
+                Some("a loop needs an arrange line")
+            } else if u64::from(to) > song.bars() {
+                Some("the loop ends after the arrangement")
+            } else {
+                None
+            };
+            if let Some(msg) = msg {
+                return Err(SongError { line, col: 1, msg });
+            }
+        }
         Ok(song)
+    }
+
+    /// Bars in the arrangement; 0 without one.
+    pub fn bars(&self) -> u64 {
+        self.arrange
+            .iter()
+            .filter_map(|s| self.sections.get(*s))
+            .map(|s| u64::from(s.bars))
+            .sum()
+    }
+
+    /// Where clock step `k` falls: inside the loop region the song wraps.
+    /// Scans the arrangement (at most `MAX_ARRANGE` entries); never allocates.
+    pub fn at(&self, k: u64) -> At {
+        if self.arrange.is_empty() {
+            return At::Free(k);
+        }
+        let mut s = k;
+        if let Some((from, to)) = self.loop_bars {
+            let start = u64::from(from - 1) * STEPS_PER_BAR;
+            let end = u64::from(to) * STEPS_PER_BAR;
+            if s >= end && end > start {
+                s = start + (s - start) % (end - start);
+            }
+        }
+        let mut begin = 0;
+        for (entry, sec) in self.arrange.iter().enumerate() {
+            let Some(section) = self.sections.get(*sec) else {
+                continue;
+            };
+            let len = u64::from(section.bars) * STEPS_PER_BAR;
+            if s < begin + len {
+                return At::In {
+                    entry,
+                    section: *sec,
+                    local: s - begin,
+                };
+            }
+            begin += len;
+        }
+        At::End
     }
 
     /// The canonical text: parsing it gives this song back.
@@ -495,6 +686,30 @@ impl Song {
                 };
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
+        }
+        if !self.sections.is_empty() {
+            lines.push(String::new());
+        }
+        for s in &self.sections {
+            let mut line = format!("section {} {}:", s.name, s.bars);
+            for f in &s.frags {
+                if let Some(frag) = self.frags.get(*f) {
+                    line.push(' ');
+                    line.push_str(&frag.name);
+                }
+            }
+            lines.push(line);
+        }
+        if !self.arrange.is_empty() {
+            let names: Vec<&str> = self
+                .arrange
+                .iter()
+                .filter_map(|s| self.sections.get(*s).map(|s| s.name.as_str()))
+                .collect();
+            lines.push(format!("arrange {}", names.join(" ")));
+        }
+        if let Some((from, to)) = self.loop_bars {
+            lines.push(format!("loop {from} {to}"));
         }
         lines.push(String::new());
         lines.join("\n")

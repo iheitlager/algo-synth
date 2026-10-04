@@ -641,6 +641,36 @@ pub extern "C" fn song_stop() {
     with_engine(Engine::song_stop);
 }
 
+/// Move the song to bar `bar` (from 0) of its arrangement.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_seek_bar(bar: u32) {
+    with_engine(|e| e.song_seek_bar(u64::from(bar)));
+}
+
+/// Bars in the song's arrangement; 0 without one.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_bars() -> u32 {
+    query(0, |e| u32::try_from(e.song().bars()).unwrap_or(u32::MAX))
+}
+
+/// The arrangement entry the last step fell in, −1 without one.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_entry() -> i32 {
+    query(-1, |e| {
+        e.song_place()
+            .map_or(-1, |(i, _)| i32::try_from(i).unwrap_or(-1))
+    })
+}
+
+/// Steps into that entry, −1 without one.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_local() -> i32 {
+    query(-1, |e| {
+        e.song_place()
+            .map_or(-1, |(_, l)| i32::try_from(l).unwrap_or(-1))
+    })
+}
+
 /// 1 while the song plays.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_playing() -> u32 {
@@ -1057,12 +1087,17 @@ mod tests {
         assert_eq!(step_level(0, 0, 1), 1);
         assert!(song_text_len() > 0 && !song_text_ptr().is_null());
         query((), |e| {
-            e.song_buffer(4).expect("fits").copy_from_slice(b"loop")
+            e.song_buffer(4).expect("fits").copy_from_slice(b"play")
         });
         assert_eq!(song_load(), -1);
         assert_eq!((song_error_line(), song_error_col()), (1, 1));
         assert!(song_error_len() > 0 && !song_error_ptr().is_null());
         assert_eq!(song_frags(), 1, "the old song stays");
+        assert_eq!(
+            (song_bars(), song_entry(), song_local()),
+            (0, -1, -1),
+            "no arrangement"
+        );
         assert!(song_buf(u32::MAX).is_null());
         assert_eq!(song_playing(), 0);
         song_play();
