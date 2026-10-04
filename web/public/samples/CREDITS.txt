@@ -9,3 +9,5 @@ Synth Pad Bowed: CC0-1.0. FreePats, https://freepats.zenvoid.org/Synthesizer/syn
 Synth Pad Choir: CC0-1.0. FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html
 
 Upright Piano KW: CC0-1.0. FreePats, https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html
+
+Audiophob: CC0-1.0. Audiophob (soundcloud.com/audiophobdubstep), Hydrogen drum kit list; the sounds are from freesound.org

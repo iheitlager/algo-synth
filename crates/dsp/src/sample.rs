@@ -531,30 +531,32 @@ mod tests {
         );
     }
 
-    /// What `make samples` wrote (tools/fetch_samples.py) must load: mono, in
-    /// range, with the loop inside the sample. Skipped when nothing was fetched.
+    /// What `make samples` wrote (tools/fetch_samples.py), instruments and drum kits, must
+    /// load: mono, in range, with any loop inside the sample. Skipped when nothing was fetched.
     #[test]
     fn fetched_packs_load() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../web/public/samples/instruments");
-        let Ok(packs) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for pack in packs.flatten() {
-            let Ok(files) = std::fs::read_dir(pack.path()) else {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/public/samples");
+        for kind in ["instruments", "kits"] {
+            let Ok(packs) = std::fs::read_dir(root.join(kind)) else {
                 continue;
             };
-            for file in files.flatten() {
-                let path = file.path();
-                if path.extension().is_none_or(|e| e != "wav") {
+            for pack in packs.flatten() {
+                let Ok(files) = std::fs::read_dir(pack.path()) else {
                     continue;
-                }
-                let bytes = std::fs::read(&path).expect("readable");
-                let s = parse(&bytes, 48_000.0).unwrap_or_else(|e| panic!("{path:?}: {e:?}"));
-                assert_eq!(s.channels, 1, "{path:?}");
-                assert!(s.data.iter().all(|v| v.abs() <= 1.0), "{path:?}");
-                if let Some((a, b)) = s.loop_range {
-                    assert!(a < b && b <= s.frames(), "{path:?} loop {a}..{b}");
+                };
+                for file in files.flatten() {
+                    let path = file.path();
+                    if path.extension().is_none_or(|e| e != "wav") {
+                        continue;
+                    }
+                    let bytes = std::fs::read(&path).expect("readable");
+                    let s = parse(&bytes, 48_000.0).unwrap_or_else(|e| panic!("{path:?}: {e:?}"));
+                    assert_eq!(s.channels, 1, "{path:?}");
+                    assert!(s.data.iter().all(|v| v.abs() <= 1.0), "{path:?}");
+                    if let Some((a, b)) = s.loop_range {
+                        assert!(a < b && b <= s.frames(), "{path:?} loop {a}..{b}");
+                    }
                 }
             }
         }
