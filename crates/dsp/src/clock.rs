@@ -9,6 +9,9 @@
 
 /// Steps per quarter note: the clock counts sixteenths.
 pub const STEPS_PER_BEAT: u64 = 4;
+/// Ticks per step: notes sit on a grid of 48 ticks to a bar, so 3 to a
+/// sixteenth (ADR-0016). Tick 0 of a step is the step itself.
+pub const TICKS_PER_STEP: u64 = 3;
 /// Tempo range, in BPM.
 pub const TEMPO: (f32, f32) = (20.0, 300.0);
 /// Swing range, in percent: 50 is straight, about 67 a triplet feel.
@@ -25,8 +28,13 @@ pub struct Clock {
     /// count from there.
     anchor_step: u64,
     anchor_sample: f64,
+    /// Samples per step before the last re-anchor, for the steps behind it.
+    prev_len: f64,
     /// The next step to fire.
     next: u64,
+    /// The next tick between steps (never a multiple of `TICKS_PER_STEP`). It waits at the
+    /// end of a step until the next step fires.
+    sub: u64,
     pos: u64,
     playing: bool,
 }
@@ -41,11 +49,14 @@ impl Clock {
             step_len: 0.0,
             anchor_step: 0,
             anchor_sample: 0.0,
+            prev_len: 0.0,
             next: 0,
+            sub: 0,
             pos: 0,
             playing: false,
         };
         c.step_len = c.len_at(c.tempo);
+        c.prev_len = c.step_len;
         c
     }
 
@@ -99,6 +110,7 @@ impl Clock {
             k += 1;
         }
         self.next = k;
+        self.sub = k * TICKS_PER_STEP;
     }
 
     /// Position in samples.
@@ -127,7 +139,32 @@ impl Clock {
             return None;
         }
         self.next += 1;
+        self.sub = (self.next - 1) * TICKS_PER_STEP + 1;
         Some(self.next - 1)
+    }
+
+    /// The sample tick `j` fires on: steps are exact, a tick between two steps
+    /// is spaced evenly between them (so swing moves it with its step).
+    pub fn tick_sample(&self, j: u64) -> u64 {
+        let (k, sub) = (j / TICKS_PER_STEP, j % TICKS_PER_STEP);
+        let a = self.step_sample(k);
+        if sub == 0 {
+            return a;
+        }
+        let b = self.step_sample(k + 1);
+        let gap = b.saturating_sub(a) as f64;
+        a + (gap * sub as f64 / TICKS_PER_STEP as f64).round() as u64
+    }
+
+    /// The next tick between steps due at the current position, advancing past
+    /// it. Ticks on a step belong to `due`.
+    pub(crate) fn due_sub(&mut self) -> Option<u64> {
+        if !self.playing || self.sub % TICKS_PER_STEP == 0 || self.tick_sample(self.sub) > self.pos
+        {
+            return None;
+        }
+        self.sub += 1;
+        Some(self.sub - 1)
     }
 
     /// Frames to render before the next step, at least 1, at most `remaining`.
@@ -135,7 +172,10 @@ impl Clock {
         if !self.playing {
             return remaining;
         }
-        let gap = self.step_sample(self.next).saturating_sub(self.pos);
+        let mut gap = self.step_sample(self.next).saturating_sub(self.pos);
+        if self.sub % TICKS_PER_STEP != 0 {
+            gap = gap.min(self.tick_sample(self.sub).saturating_sub(self.pos));
+        }
         usize::try_from(gap)
             .unwrap_or(remaining)
             .clamp(1, remaining.max(1))
@@ -153,13 +193,17 @@ impl Clock {
 
     /// Step `k` on the grid, before swing and rounding.
     fn grid(&self, k: u64) -> f64 {
-        self.anchor_sample + k.saturating_sub(self.anchor_step) as f64 * self.step_len
+        match k.checked_sub(self.anchor_step) {
+            Some(n) => self.anchor_sample + n as f64 * self.step_len,
+            None => self.anchor_sample - (self.anchor_step - k) as f64 * self.prev_len,
+        }
     }
 
     /// Anchor at the next step's grid point, then space later steps by `len`.
     fn reanchor(&mut self, len: f64) {
         self.anchor_sample = self.grid(self.next);
         self.anchor_step = self.next;
+        self.prev_len = self.step_len;
         self.step_len = len;
     }
 }
@@ -257,6 +301,35 @@ mod tests {
         assert_eq!(c.due(), None);
         assert_eq!(run(&mut c, 6000), vec![18_000]);
         assert_eq!(c.step(), Some(3));
+    }
+
+    #[test]
+    fn ticks_split_a_step_in_three() {
+        let mut c = playing(48_000.0);
+        assert_eq!(c.due(), Some(0));
+        let mut ticks = Vec::new();
+        while ticks.len() < 2 {
+            let chunk = c.frames_until_next(128);
+            c.advance(chunk);
+            if let Some(j) = c.due_sub() {
+                ticks.push((j, c.position()));
+            }
+        }
+        assert_eq!(ticks, vec![(1, 2000), (2, 4000)]);
+        assert_eq!(c.due_sub(), None, "the next tick is a step's");
+        assert_eq!(c.tick_sample(3), 6000);
+    }
+
+    #[test]
+    fn a_tempo_change_mid_step_keeps_its_ticks_in_place() {
+        let mut c = playing(48_000.0);
+        c.due();
+        c.advance(1000);
+        c.set_tempo(60.0); // takes hold at step 1
+        assert_eq!(c.tick_sample(1), 2000);
+        assert_eq!(c.tick_sample(2), 4000);
+        assert_eq!(c.step_sample(1), 6000);
+        assert_eq!(c.step_sample(2), 18_000);
     }
 
     #[test]

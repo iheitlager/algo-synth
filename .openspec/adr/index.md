@@ -17,3 +17,4 @@
 | [0013](0013-sample-store.md) | The sample store: Rust parses and resamples WAV at load, in bounded memory; fixed slots, a hard cap, errors as codes | Accepted |
 | [0014](0014-user-presets.md) | User presets: synth, insert, processor and strip kinds stored by name, applied on the synth defaults, kept in a browser library with export and import, apart from setups | Accepted |
 | [0015](0015-the-arrangement.md) | The arrangement: sections and an `arrange` order in the song text, drum, synth, sampler and MIDI tracks, scenes and automation lanes for any parameter by name, MIDI files converted into notes, the arranger pane | Accepted |
+| [0016](0016-note-events-on-a-tick-grid.md) | Note events on a tick grid: 48 ticks per bar, events compiled at load, fired at their tick with a fixed note-off queue, a seeded integer generator per cycle | Accepted |

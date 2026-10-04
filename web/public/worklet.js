@@ -183,7 +183,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     const bytes = (ptr, len) => new Uint8Array(w.memory.buffer, ptr, len).slice()
     const tracks = []
     for (let t = 0; t < w.song_tracks(); t++) {
-      tracks.push({ name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t) })
+      tracks.push({ name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t), kind: w.track_kind(t) })
     }
     const frags = []
     for (let f = 0; f < w.song_frags(); f++) {
@@ -193,7 +193,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         for (let s = 0; s < steps.length; s++) steps[s] = w.step_level(f, l, s)
         lanes.push({ pad: w.lane_pad(f, l), steps })
       }
-      frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes })
+      const notes = w.frag_notes_len(f) ? { text: bytes(w.frag_notes_ptr(f), w.frag_notes_len(f)), bars: w.frag_bars(f) } : null
+      frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes, notes })
     }
     const error = ok
       ? null

@@ -432,8 +432,10 @@ export function mapSample(s: number, slot: number) {
 
 /** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent. */
 export interface SongLane { pad: number; steps: number[] }
-export interface SongFrag { name: string; track: number; lanes: SongLane[] }
-export interface SongTrack { name: string; synth: Route }
+/** A note fragment's line as the engine prints it, and the bars before it repeats. */
+export interface SongNotes { text: string; bars: number }
+export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
+export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler' }
 
 /**
  * The song (ADR-0012) as the engine holds it: the engine parses the text and
@@ -512,11 +514,18 @@ export function applySong(data: Record<string, unknown>) {
   song.text = text
   song.tempo = data.tempo as number
   song.swing = data.swing as number
-  song.tracks = (data.tracks as { name: Uint8Array; synth: number }[]).map((t) => ({ name: decoder.decode(t.name), synth: t.synth }))
-  song.frags = (data.frags as { name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[] }[]).map((f) => ({
+  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number }[]).map((t) => ({
+    name: decoder.decode(t.name),
+    synth: t.synth,
+    kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
+  }))
+  song.frags = (data.frags as {
+    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]; notes: { text: Uint8Array; bars: number } | null
+  }[]).map((f) => ({
     name: decoder.decode(f.name),
     track: f.track,
     lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps) })),
+    notes: f.notes ? { text: decoder.decode(f.notes.text), bars: f.notes.bars } : null,
   }))
 }
 

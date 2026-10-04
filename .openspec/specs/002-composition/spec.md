@@ -58,9 +58,9 @@ The engine SHALL report peak meters for the view: each synth strip after its fad
 
 ### Requirement 3: Fragments [MUST]
 
-A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error.
+A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error. A `sampler` track SHALL take lanes of pad names, as a drum track does, for a pad sampler, or note fragments for a multisampler, never both in one fragment; an unknown pad name SHALL be a parse error.
 
-**Implementation:** drum fragments `crates/dsp/src/song.rs::Fragment` (lanes of up to 64 steps, each lane looping on its own length; `/16` steps for now), played on the clock's steps by `crates/dsp/src/engine.rs::Engine::play_step` (a hit at velocity 0.75, an accent at 1.0); pitched fragments *(planned, MVP 4)*
+**Implementation:** drum fragments `crates/dsp/src/song.rs::Fragment` (lanes of up to 64 steps, each lane looping on its own length; `/16` steps for now), played on the clock's steps by `crates/dsp/src/engine.rs::Engine::play_step` (a hit at velocity 0.75, an accent at 1.0); pitched fragments `crates/dsp/src/notes.rs::Notes` (mini-notation and classic durations parsed, printed and compiled to events on 48 ticks to the bar, ADR-0016), held by `crates/dsp/src/song.rs::Fragment` on a `synth` track and played by `crates/dsp/src/engine.rs::Engine::play_tick` on the clock's ticks (`crates/dsp/src/clock.rs::Clock::due_sub`), with a fixed note-off table
 
 #### Scenario: a drum lane
 
@@ -73,6 +73,8 @@ A fragment SHALL be a loop of events (note or pad, velocity, start, length, prob
 - GIVEN `"c4:4 e4:8 g4:8 c5:2"`
 - WHEN it is compiled
 - THEN the notes start on beats 0, 1, 1.5 and 2, and the fragment is one bar long
+
+**Tests:** `crates/dsp/src/notes/tests.rs::a_quoted_sequence_divides_the_bar`, `crates/dsp/src/notes/tests.rs::brackets_subdivide_and_three_is_a_triplet`, `crates/dsp/src/notes/tests.rs::classic_durations_lay_notes_one_after_another`, `crates/dsp/src/notes/tests.rs::print_then_parse_is_identity`, `crates/dsp/src/notes/tests.rs::every_error_says_where`, `crates/dsp/src/notes/tests.rs::it_never_panics_on_garbage`, `crates/dsp/src/song/tests.rs::note_fragments_parse_and_print_back`, `crates/dsp/src/song/tests.rs::note_errors_say_line_and_column`, `crates/dsp/src/engine.rs::tests::note_fragments_sound_at_their_samples_and_pitches`, `crates/dsp/src/engine.rs::tests::a_note_lasts_its_written_length`, `crates/dsp/src/engine.rs::tests::a_chord_uses_the_voice_pool`, `crates/dsp/src/engine.rs::tests::a_triplet_lands_between_the_sixteenths`, `crates/dsp/src/song/tests.rs::sampler_tracks_hold_lanes_or_notes`, `crates/dsp/src/song/tests.rs::sampler_errors_say_where`, `crates/dsp/src/engine.rs::tests::a_sampler_track_with_lanes_plays_the_pad_sampler`, `crates/dsp/src/engine.rs::tests::a_sampler_track_with_notes_plays_the_multisampler_at_pitch`
 
 ### Requirement 4: The arrangement [MUST]
 
@@ -118,7 +120,7 @@ The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL 
 
 A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `markov`, `mutate`) that produces a fragment's events from its parameters, a scale and an explicit seed. With the same seed and parameters it SHALL produce the same events. A live fragment SHALL regenerate every cycle; freezing SHALL replace the call with the events it produced, in the same notation.
 
-**Implementation:** `crates/dsp/src/algo.rs` *(planned, MVP 9-10)*
+**Implementation:** `crates/dsp/src/algo.rs` (`Rng`, `Euclid`, `Scale`; `euclid(k,n,rot)` for a drum lane and for notes, `scale <root> <mode>`, `scale <note>` walks); `walk`, `arp`, `markov`, `mutate` and live regeneration *(planned)*
 
 #### Scenario: Euclid
 
@@ -126,7 +128,7 @@ A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `marko
 - WHEN it generates
 - THEN the hits are on steps 0, 3 and 6
 
-**Tests:** `crates/dsp/src/algo.rs::tests::euclid_3_8` *(planned)*
+**Tests:** `crates/dsp/src/algo.rs::tests::euclid_3_8`, `crates/dsp/src/algo.rs::tests::the_published_euclidean_rhythms`, `crates/dsp/src/algo.rs::tests::rotation_moves_the_pattern_left`, `crates/dsp/src/algo.rs::tests::a_scale_walk_climbs_the_scale`, `crates/dsp/src/song/tests.rs::generators_and_scales_parse_and_print_back`, `crates/dsp/src/song/tests.rs::generator_errors_say_where`, `crates/dsp/src/engine.rs::tests::a_euclid_lane_plays_like_a_written_one`, `crates/dsp/src/engine.rs::tests::a_euclid_note_line_walks_the_scale_deterministically`
 
 ### Requirement 8: Score import [SHOULD]
 
