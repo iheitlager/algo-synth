@@ -491,3 +491,124 @@ fn freezing_refuses_what_it_cannot_write() {
     assert!(freeze(&[ev(0, 12, 60), ev(0, 6, 64)], 1).is_none());
     assert!(freeze(&[ev(60, 6, 60)], 1).is_none(), "after the last bar");
 }
+
+fn ev3(start: u32, len: u32, note: u8) -> Event {
+    Event {
+        start,
+        len,
+        note,
+        accent: false,
+    }
+}
+
+#[test]
+fn an_added_note_is_a_sixteenth_and_makes_room_for_itself() {
+    let base = [ev3(0, 12, 60), ev3(24, 12, 64)];
+    let got = edit(&base, 1, Edit::Add { tick: 6, note: 67 }).unwrap();
+    assert_eq!(
+        got,
+        [ev3(0, 6, 60), ev3(6, 3, 67), ev3(24, 12, 64)],
+        "the note under it is cut short"
+    );
+    // at the same tick as another it joins it as a chord of the same length
+    let chord = edit(&base, 1, Edit::Add { tick: 24, note: 67 }).unwrap();
+    assert_eq!(chord, [ev3(0, 12, 60), ev3(24, 12, 64), ev3(24, 12, 67)]);
+    // adding the same note again changes nothing
+    assert_eq!(
+        edit(&base, 1, Edit::Add { tick: 0, note: 60 }).unwrap(),
+        base
+    );
+    // one near the next onset is cut to fit
+    let tight = edit(&base, 1, Edit::Add { tick: 22, note: 55 }).unwrap();
+    assert_eq!(tight[1], ev3(22, 2, 55));
+    assert!(
+        edit(&base, 1, Edit::Add { tick: 48, note: 60 }).is_none(),
+        "past the bar"
+    );
+}
+
+#[test]
+fn a_length_cannot_run_over_the_next_note_or_the_bar_line() {
+    let base = [ev3(0, 3, 60), ev3(12, 3, 64)];
+    let got = edit(
+        &base,
+        1,
+        Edit::Len {
+            tick: 0,
+            note: 60,
+            len: 30,
+        },
+    )
+    .unwrap();
+    assert_eq!(got[0].len, 12);
+    let got = edit(
+        &base,
+        1,
+        Edit::Len {
+            tick: 12,
+            note: 64,
+            len: 99,
+        },
+    )
+    .unwrap();
+    assert_eq!(got[1].len, 36, "to the bar line");
+    assert!(
+        edit(
+            &base,
+            1,
+            Edit::Len {
+                tick: 12,
+                note: 65,
+                len: 3
+            }
+        )
+        .is_none()
+    );
+    assert!(
+        edit(
+            &base,
+            1,
+            Edit::Len {
+                tick: 12,
+                note: 64,
+                len: 0
+            }
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn removing_names_a_note() {
+    let base = [ev3(0, 12, 60), ev3(0, 12, 64)];
+    assert_eq!(
+        edit(&base, 1, Edit::Remove { tick: 0, note: 64 }).unwrap(),
+        [ev3(0, 12, 60)]
+    );
+    assert!(edit(&base, 1, Edit::Remove { tick: 0, note: 65 }).is_none());
+}
+
+#[test]
+fn every_edit_can_be_written_back_and_plays_the_same() {
+    let mut r = Rng::new(5);
+    let mut events: Vec<Event> = Vec::new();
+    for _ in 0..400 {
+        let tick = r.next_u32() % 96;
+        let note = 48 + (r.next_u32() % 24) as u8;
+        let op = match r.next_u32() % 3 {
+            0 => Edit::Add { tick, note },
+            1 => Edit::Remove { tick, note },
+            _ => Edit::Len {
+                tick,
+                note,
+                len: 1 + r.next_u32() % 40,
+            },
+        };
+        if let Some(next) = edit(&events, 2, op) {
+            events = next;
+        }
+        let written = freeze(&events, 2).unwrap_or_else(|| panic!("{events:?}"));
+        assert_eq!(written.events, events);
+    }
+    assert!(!events.is_empty());
+}

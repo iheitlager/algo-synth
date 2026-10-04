@@ -12,7 +12,10 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     tracks: [{ name: bytes('kit'), synth: 2, kind: 0 }, { name: bytes('lead'), synth: 0, kind: 1 }],
     frags: [
       { name: bytes('beat'), track: 0, lanes: [{ pad: 0, steps: new Uint8Array([1, 0, 2, 0]) }], notes: null },
-      { name: bytes('riff'), track: 1, lanes: [], notes: { text: bytes('"c4 e4"'), bars: 1 } },
+      {
+        name: bytes('riff'), track: 1, lanes: [],
+        notes: { text: bytes('"c4 e4"'), bars: 1, live: false, generated: false, events: [[0, 24, 60, 0], [24, 24, 64, 1]] },
+      },
     ],
     tempo: 120,
     swing: 50,
@@ -26,7 +29,13 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     expect(song.tracks).toEqual([{ name: 'kit', synth: 2, kind: 'drums' }, { name: 'lead', synth: 0, kind: 'synth' }])
     expect(song.frags).toEqual([
       { name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0] }], notes: null },
-      { name: 'riff', track: 1, lanes: [], notes: { text: '"c4 e4"', bars: 1 } },
+      {
+        name: 'riff', track: 1, lanes: [],
+        notes: {
+          text: '"c4 e4"', bars: 1, live: false, generated: false,
+          events: [{ start: 0, len: 24, note: 60, accent: false }, { start: 24, len: 24, note: 64, accent: true }],
+        },
+      },
     ])
     expect(song.error).toBeNull()
   })

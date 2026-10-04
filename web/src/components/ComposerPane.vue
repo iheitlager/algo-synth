@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The composer (spec 003 Req 5, ADR-0012): the song's drum fragments as a step
-// grid beside the song's text. The engine holds the song: a click sends
+// grid and its note fragments as piano rolls beside the song's text. The engine holds the song: a click sends
 // `setStep`, an edited text is sent to be parsed, and both redraw from what the
 // engine sends back. Nothing here parses or plays.
 import { computed, onMounted, watch } from 'vue'
@@ -10,6 +10,7 @@ import {
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { Model, Pad, Param } from '../audio/params'
+import NoteRoll from './NoteRoll.vue'
 
 // A first beat to start from when the song is empty.
 const STARTER = `tempo 120
@@ -98,10 +99,10 @@ watch(() => status.running, (on) => on && requestSong())
               <option v-for="c in choices" :key="c.value" :value="c.value">{{ c.label }}</option>
             </select>
           </div>
-          <div v-if="frag.notes" class="notes">
-            <code>{{ frag.notes.text }}</code>
-            <span v-if="frag.notes.bars > 1" class="muted">{{ frag.notes.bars }} bars</span>
-          </div>
+          <NoteRoll
+            v-if="frag.notes" :frag="frag" :index="f"
+            :colour="synthColour(song.tracks[frag.track]?.synth ?? 0)"
+          />
           <div v-for="(lane, l) in frag.lanes" :key="l" class="lane">
             <span class="pad">{{ padName(lane.pad) }}</span>
             <div class="steps">
@@ -141,8 +142,6 @@ watch(() => status.running, (on) => on && requestSong())
 .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); gap: 12px; padding: 8px 12px; }
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.notes { display: flex; align-items: baseline; gap: 10px; margin: 3px 0; }
-.notes code { font-family: var(--mono, monospace); }
 .lane { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .pad { width: 2.2em; font-family: var(--mono, monospace); color: var(--muted); }
 .steps { display: flex; gap: 3px; }
