@@ -15,6 +15,8 @@ use crate::mixer::STRIPS;
 use crate::mono::preset::Preset;
 use crate::params::Param;
 use crate::player::Part;
+use crate::sample;
+use crate::sampler::{ZONES, ZoneField};
 
 thread_local! {
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -241,6 +243,134 @@ pub extern "C" fn sysex_apply(synth: u32, i: u32) -> bool {
     query(false, |e| e.apply_sysex(synth as usize, i as usize))
 }
 
+/// Size the WAV buffer for `len` bytes and return its address for writing;
+/// null if `len` is over the cap or before `init`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_buf(len: u32) -> *mut u8 {
+    query(std::ptr::null_mut(), |e| {
+        e.sample_buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
+    })
+}
+
+/// Parse the buffer into `slot`: the frame count at the engine's rate, or a
+/// negative `sample::Error` code (−5 before `init`).
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_load(slot: u32) -> i32 {
+    query(-5, |e| match e.load_sample(slot as usize) {
+        Ok(frames) => i32::try_from(frames).unwrap_or(i32::MAX),
+        Err(err) => err.code(),
+    })
+}
+
+/// Free `slot`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_clear(slot: u32) {
+    with_engine(|e| e.clear_sample(slot as usize));
+}
+
+/// Slots in the sample store.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_slots() -> u32 {
+    sample::SLOTS as u32
+}
+
+/// Frames in `slot`, 0 if empty.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_frames(slot: u32) -> u32 {
+    query(0, |e| {
+        e.samples()
+            .get(slot as usize)
+            .map_or(0, |s| s.frames() as u32)
+    })
+}
+
+/// The sample's MIDI root note, 255 if the slot is empty.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_root(slot: u32) -> u32 {
+    query(255, |e| {
+        e.samples()
+            .get(slot as usize)
+            .map_or(255, |s| u32::from(s.root))
+    })
+}
+
+/// Loop start and end in frames: `which` 0 is the start, 1 the end; both 0
+/// when the sample has no loop.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_loop(slot: u32, which: u32) -> u32 {
+    query(0, |e| {
+        let r = e.samples().get(slot as usize).and_then(|s| s.loop_range);
+        r.map_or(0, |(a, b)| if which == 0 { a as u32 } else { b as u32 })
+    })
+}
+
+/// `f32` values the store holds, against `sample_cap`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_used() -> u32 {
+    query(0, |e| e.samples().values() as u32)
+}
+
+/// The store's cap in `f32` values.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_cap() -> u32 {
+    sample::MAX_VALUES as u32
+}
+
+/// Set field `field` (see `sampler::ZoneField`) of zone `zone` of `synth`;
+/// unknown synths, zones and fields are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_set(synth: u32, zone: u32, field: u32, value: f32) {
+    if let Some(f) = ZoneField::from_id(field) {
+        with_engine(|e| e.set_zone(synth as usize, zone as usize, f, value));
+    }
+}
+
+/// A field of a zone, as `zone_set` takes it (−1 for an empty sample slot or an
+/// unset root); 0 for an unknown synth, zone or field.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_get(synth: u32, zone: u32, field: u32) -> f32 {
+    ZoneField::from_id(field).map_or(0.0, |f| {
+        query(0.0, |e| e.zone_value(synth as usize, zone as usize, f))
+    })
+}
+
+/// Work out `bins` (min, max) pairs for the waveform of `slot`; the number of
+/// values written (twice the bins, 0 for an empty slot). Read them at `peaks_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_peaks(slot: u32, bins: u32) -> u32 {
+    query(0, |e| e.sample_peaks(slot as usize, bins as usize) as u32)
+}
+
+/// Address of the peaks `sample_peaks` computed.
+#[unsafe(no_mangle)]
+pub extern "C" fn peaks_ptr() -> *const f32 {
+    ENGINE.with(|cell| match cell.try_borrow() {
+        Ok(guard) => guard
+            .as_ref()
+            .map_or(std::ptr::null(), |e| e.peaks().as_ptr()),
+        Err(_) => std::ptr::null(),
+    })
+}
+
+/// Empty every zone of `synth`.
+#[unsafe(no_mangle)]
+pub extern "C" fn zones_clear(synth: u32) {
+    with_engine(|e| e.clear_zones(synth as usize));
+}
+
+/// Fields in a zone: the length of `ZoneField`'s id range.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_fields() -> u32 {
+    ZoneField::ALL.len() as u32
+}
+
+/// Zones each synth holds.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_count() -> u32 {
+    ZONES as u32
+}
+
 fn seconds(e: &Engine, samples: u64) -> f32 {
     (samples as f64 / f64::from(e.sample_rate())) as f32
 }
@@ -411,6 +541,57 @@ pub extern "C" fn routed(channel: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn samples_load_through_the_abi() {
+        init(48_000.0);
+        assert!(sample_buf(sample::MAX_WAV as u32 + 1).is_null());
+        // Three 16-bit mono frames.
+        let mut file = b"RIFF".to_vec();
+        let body: Vec<u8> = [
+            &b"WAVEfmt "[..],
+            &16u32.to_le_bytes(),
+            &1u16.to_le_bytes(),
+            &1u16.to_le_bytes(),
+            &48_000u32.to_le_bytes(),
+            &96_000u32.to_le_bytes(),
+            &2u16.to_le_bytes(),
+            &16u16.to_le_bytes(),
+            &b"data"[..],
+            &6u32.to_le_bytes(),
+            &[0, 0, 0, 64, 0, 192],
+        ]
+        .concat();
+        file.extend((body.len() as u32).to_le_bytes());
+        file.extend(body);
+        assert!(!sample_buf(file.len() as u32).is_null());
+        query((), |e| {
+            e.sample_buffer(file.len())
+                .expect("fits")
+                .copy_from_slice(&file)
+        });
+        assert_eq!(sample_load(2), 3);
+        assert_eq!(sample_frames(2), 3);
+        assert_eq!(sample_root(2), 60);
+        assert_eq!(sample_used(), 3);
+        assert_eq!(sample_load(sample_slots()), -7);
+        assert_eq!(sample_peaks(2, 2), 4);
+        assert!(!peaks_ptr().is_null());
+        assert_eq!(sample_peaks(9, 2), 0, "an empty slot has no peaks");
+        zone_set(0, 5, 0, 2.0);
+        zone_set(0, 5, 1, 40.0);
+        assert_eq!(zone_get(0, 5, 0), 2.0);
+        assert_eq!(zone_get(0, 5, 1), 40.0);
+        assert_eq!(zone_get(0, 6, 0), -1.0, "an untouched zone is empty");
+        assert_eq!(zone_get(99, 0, 0), 0.0);
+        assert_eq!(zone_get(0, 0, 99), 0.0);
+        zones_clear(0);
+        assert_eq!(zone_get(0, 5, 0), -1.0);
+        sample_clear(2);
+        assert_eq!(sample_frames(2), 0);
+        assert_eq!(sample_root(2), 255);
+        assert_eq!(sample_used(), 0);
+    }
 
     #[test]
     fn exports_are_no_ops_before_init() {

@@ -6,8 +6,9 @@ import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import type { ModelDef } from './models'
-import { GlobalParam, Param, Preset, StripParam, type ParamId, type PresetId } from './params'
+import { GlobalParam, Param, Preset, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
+import { EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodeZones, freeSlot, packFiles, parseManifest, zoneSets, type Pack, type Zone } from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
 const base = import.meta.env.BASE_URL
@@ -249,6 +250,113 @@ export const applySysex = (s: number, i: number) => engine?.post({ t: 'sysexAppl
 export const stripName = (s: number) => nameOfStrip(s, player.parts)
 export const partName = (p: Part) => laneName(p)
 
+// --- The sampler (#125): the sample store, each synth's zones and the packs on offer -----------
+// The engine parses and holds everything; the view keeps what it reports (the waveform's peaks,
+// the zones) and the names the files had.
+
+export interface SampleInfo {
+  name: string
+  frames: number
+  root: number
+  loopStart: number
+  loopEnd: number
+  /** (min, max) pairs for drawing, computed by the engine. */
+  peaks: Float32Array
+}
+const SAMPLE_ERRORS: Record<number, string> = {
+  [-1]: 'not a WAV file',
+  [-2]: 'the file is truncated',
+  [-3]: 'only 16- and 24-bit PCM or 32-bit float WAV, mono or stereo',
+  [-4]: 'the file has no audio',
+  [-6]: 'too large for the sample store',
+  [-7]: 'no such slot',
+}
+export const sampleStore = reactive({
+  slots: Array.from({ length: SAMPLE_SLOTS }, () => null) as (SampleInfo | null)[],
+  /** `f32` values held and the cap (`MAX_VALUES` in sample.rs; the engine reports it with each load). */
+  used: 0,
+  cap: 16 << 20,
+  error: '',
+  busy: '',
+})
+/** Each synth's zones by engine index, as the engine last reported them. */
+export const zoneState = reactive({ zones: [] as Zone[][] })
+export const zonesOf = (s: number): Zone[] => zoneState.zones[s] ?? Array.from({ length: ZONES }, () => EMPTY_ZONE)
+
+const loading = new Map<number, { name: string; done: (code: number) => void }>()
+/** Send a WAV file to the engine for `slot`; resolves with its frame count or a negative error code. */
+export async function loadSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
+  await power()
+  if (!engine) return -5
+  return new Promise((done) => {
+    loading.set(slot, { name, done })
+    engine?.post({ t: 'sample', slot, bytes }, [bytes])
+  })
+}
+export const clearSample = (slot: number) => engine?.post({ t: 'sampleClear', slot })
+export const requestZones = (s: number) => engine?.post({ t: 'zonesDump', s })
+/** Set one field of a zone (`ZoneField`); the engine clamps it and the view re-reads the zones. */
+export function setZone(s: number, zone: number, field: number, v: number) {
+  engine?.post({ t: 'zone', s, zone, field, v })
+  requestZones(s)
+}
+export function clearZones(s: number) {
+  engine?.post({ t: 'zonesClear', s })
+  requestZones(s)
+}
+
+/** The packs `make samples` fetched, from `samples/manifest.json`; empty when there are none. */
+export const packs = reactive({ list: [] as Pack[], loaded: false })
+export async function fetchPacks(): Promise<void> {
+  try {
+    const r = await fetch(`${base}samples/manifest.json`)
+    packs.list = r.ok ? parseManifest(await r.json()) : []
+  } catch {
+    packs.list = []
+  }
+  packs.loaded = true
+}
+
+/** Files already in the store, by their path under `samples/`, so a pack used twice is loaded once. */
+const slotOfFile = new Map<string, number>()
+
+/** Load a pack's files into free slots and lay its zones out on synth `s`. */
+export async function loadPack(s: number, pack: Pack): Promise<void> {
+  sampleStore.error = ''
+  const files = packFiles(pack)
+  try {
+    for (const [i, file] of files.entries()) {
+      sampleStore.busy = `${pack.name}: ${i + 1} of ${files.length}`
+      const known = slotOfFile.get(file)
+      if (known !== undefined && sampleStore.slots[known]) continue
+      const slot = freeSlot(sampleStore.slots)
+      if (slot < 0) throw new Error('all sample slots are used; free some')
+      const r = await fetch(`${base}samples/${file}`)
+      if (!r.ok) throw new Error(`${file}: ${r.status}`)
+      const code = await loadSample(slot, await r.arrayBuffer(), file.split('/').pop() ?? file)
+      if (code < 0) throw new Error(`${file}: ${SAMPLE_ERRORS[code] ?? code}`)
+      slotOfFile.set(file, slot)
+    }
+    engine?.post({ t: 'zonesClear', s })
+    for (const [zone, field, v] of zoneSets(pack, (f) => slotOfFile.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
+    requestZones(s)
+  } catch (e) {
+    sampleStore.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    sampleStore.busy = ''
+  }
+}
+
+/** Put the sample in `slot` across the keys on the first empty zone of `s`, at its own root. */
+export function mapSample(s: number, slot: number) {
+  const zone = zonesOf(s).findIndex((z) => z.sample < 0)
+  if (zone < 0) return
+  for (const [field, v] of [[ZoneField.Sample, slot], [ZoneField.KeyLo, 0], [ZoneField.KeyHi, 127], [ZoneField.Root, -1]] as const) {
+    engine?.post({ t: 'zone', s, zone, field, v })
+  }
+  requestZones(s)
+}
+
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
 export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
@@ -283,6 +391,29 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
   } else if (data.t === 'midi') {
     onMidi(data as unknown as MidiSummary)
+  } else if (data.t === 'sample') {
+    const slot = data.slot as number
+    const wait = loading.get(slot)
+    loading.delete(slot)
+    const code = data.code as number
+    if (code < 0) {
+      sampleStore.error = `${wait?.name ?? 'sample'}: ${SAMPLE_ERRORS[code] ?? `load failed (${code})`}`
+    } else {
+      sampleStore.slots[slot] = {
+        name: wait?.name ?? `sample ${slot + 1}`, frames: data.frames as number, root: data.root as number,
+        loopStart: data.loopStart as number, loopEnd: data.loopEnd as number, peaks: data.peaks as Float32Array,
+      }
+      sampleStore.used = data.used as number
+      sampleStore.cap = data.cap as number
+    }
+    wait?.done(code)
+  } else if (data.t === 'sampleCleared') {
+    const slot = data.slot as number
+    sampleStore.slots[slot] = null
+    sampleStore.used = data.used as number
+    for (const [file, s] of slotOfFile) if (s === slot) slotOfFile.delete(file)
+  } else if (data.t === 'zones') {
+    zoneState.zones[data.s as number] = decodeZones(data.values as Float32Array)
   } else if (data.t === 'sysex') {
     const code = data.code as number
     if (code < 0) {

@@ -33,6 +33,8 @@ export type Control =
   | { kind: 'algo'; label: string; param: ParamId }
   /** Load DX7 voices from a SysEx file; the engine reads it, the view only forwards the bytes. */
   | { kind: 'sysex' }
+  /** The sampler's pack browser, sample slots, zone map and zone editor (#125). */
+  | { kind: 'sampler' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -40,6 +42,8 @@ export interface Section {
   controls: Control[]
   /** The eight patch slots instead of controls (spec 004 Req 7). */
   patch?: boolean
+  /** The whole width of the faceplate. */
+  wide?: boolean
 }
 
 /**
@@ -59,6 +63,7 @@ export interface Theme {
 export const FAMILIES = [
   { id: 'mono', label: 'Mono' },
   { id: 'poly', label: 'Poly' },
+  { id: 'samplers', label: 'Samplers' },
   { id: 'drums', label: 'Drums' },
 ] as const
 export type FamilyId = (typeof FAMILIES)[number]['id']
@@ -1074,7 +1079,39 @@ const tr808: ModelDef = {
   ],
 }
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808]
+// Sixteen voices playing zones of the sample store (spec 006, #123): each key picks its
+// sample by key range and velocity, plays it at the pitch of the key against the root, through
+// a filter and an envelope of its own. The zone map and the sample browser are the sampler's
+// faceplate (#125); until then the controls are the voice's.
+const sampler: ModelDef = {
+  id: Model.Sampler,
+  family: 'samplers',
+  name: 'Sampler',
+  maker: 'Multisampler · sixteen voices, zones by key and velocity',
+  tagline: 'Sixteen voices: samples by key range and velocity, with a loop, a filter and an envelope per voice',
+  theme: { panel: '#20262b', ink: '#e6ebee', soft: '#9aa6ae', trim: '#3a444c', accent: '#5fb4c9' },
+  presets: ['SamplerKeys', 'SamplerPad'],
+  sections: [
+    { title: 'Samples and zones', wide: true, controls: [{ kind: 'sampler' }] },
+    {
+      title: 'Sample',
+      controls: [range('Level', Param.Vco1Level, 0, 1, 0.01), range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine)],
+    },
+    {
+      title: 'Filter',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Envelope', Param.EnvCutoff, -1, 1, 0.01), range('Key follow', Param.KeyTrack, 0, 1, 0.01),
+      ],
+    },
+    { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
+    { title: 'Amplifier', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
+    { title: 'Ensemble', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
+    voicesSection(),
+  ],
+}
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

@@ -26,6 +26,8 @@ use crate::mono::osc::{Blep, Osc, Waveform};
 use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
+use crate::sample::SampleStore;
+use crate::sampler::ZoneMap;
 use crate::table::{TableOsc, Tables};
 use crate::voice::midi_to_hz;
 
@@ -143,6 +145,9 @@ pub struct Tools<'a> {
     pub ladder: &'a LadderTables,
     pub pitch: &'a PitchTable,
     pub tables: &'a Tables,
+    /// The sample store and this synth's zones, for the sampler's voices.
+    pub samples: &'a SampleStore,
+    pub zones: &'a ZoneMap,
 }
 
 /// What a Mono voice reads from the engine while it renders.

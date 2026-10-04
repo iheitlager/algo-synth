@@ -23,6 +23,8 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
+use crate::sample::{self, Sample, SampleStore};
+use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -78,6 +80,13 @@ pub struct Engine {
     /// voices parsed from it.
     sysex: Vec<u8>,
     sysex_voices: Vec<sysex::Voice>,
+    /// A WAV file's bytes, written by JavaScript before `load_sample`.
+    wav: Vec<u8>,
+    samples: SampleStore,
+    /// The waveform peaks `sample_peaks` last computed, for the view to read.
+    peaks: Vec<f32>,
+    /// Each synth's zones, for when it is a sampler.
+    zones: Vec<ZoneMap>,
     sequence: Sequence,
     /// The transport's tempo and sixteenth steps (spec 002 Req 5).
     clock: Clock,
@@ -118,6 +127,10 @@ impl Engine {
             midi: Vec::new(),
             sysex: Vec::new(),
             sysex_voices: Vec::new(),
+            wav: Vec::new(),
+            samples: SampleStore::new(),
+            peaks: Vec::new(),
+            zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
             sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
@@ -427,6 +440,75 @@ impl Engine {
         Ok(self.sequence.parts().len())
     }
 
+    // --- Samples ---------------------------------------------------------
+
+    /// Size the WAV buffer for `len` bytes and return it for writing.
+    /// `None` if the file is larger than `sample::MAX_WAV`.
+    pub fn sample_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
+        if len > sample::MAX_WAV {
+            return None;
+        }
+        self.wav.clear();
+        self.wav.resize(len, 0);
+        Some(&mut self.wav)
+    }
+
+    /// Parse the buffer into `slot`, resampled to the engine's rate. Returns
+    /// the frame count.
+    pub fn load_sample(&mut self, slot: usize) -> Result<usize, sample::Error> {
+        let rate = self.sample_rate;
+        self.samples.load(slot, &self.wav, rate).map(Sample::frames)
+    }
+
+    pub fn samples(&self) -> &SampleStore {
+        &self.samples
+    }
+
+    pub fn clear_sample(&mut self, slot: usize) {
+        self.samples.clear(slot);
+    }
+
+    /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`).
+    pub fn set_zone(&mut self, synth: usize, zone: usize, field: ZoneField, value: f32) {
+        if let Some(z) = self.zones.get_mut(synth) {
+            z.set(zone, field, value);
+        }
+    }
+
+    /// Empty every zone of `synth`.
+    pub fn clear_zones(&mut self, synth: usize) {
+        if let Some(z) = self.zones.get_mut(synth) {
+            z.clear();
+        }
+    }
+
+    /// A field of one of `synth`'s zones, as `set_zone` would take it back.
+    pub fn zone_value(&self, synth: usize, zone: usize, field: ZoneField) -> f32 {
+        self.zones
+            .get(synth)
+            .and_then(|z| z.get(zone))
+            .map_or(0.0, |z| z.get(field))
+    }
+
+    /// Work out `bins` (min, max) pairs for the sample in `slot` into the peaks
+    /// buffer and return how many values it holds (0 for an empty slot).
+    /// Allocates: a control-thread call, never `render`.
+    pub fn sample_peaks(&mut self, slot: usize, bins: usize) -> usize {
+        self.peaks.clear();
+        if let Some(s) = self.samples.get(slot) {
+            s.peaks(bins.clamp(1, 4096), &mut self.peaks);
+        }
+        self.peaks.len()
+    }
+
+    pub fn peaks(&self) -> &[f32] {
+        &self.peaks
+    }
+
+    pub fn zones(&self, synth: usize) -> Option<&ZoneMap> {
+        self.zones.get(synth)
+    }
+
     pub fn sequence(&self) -> &Sequence {
         &self.sequence
     }
@@ -516,6 +598,9 @@ impl Engine {
                 if pool.active() == 0 {
                     continue;
                 }
+                let Some(zones) = self.zones.get(synth) else {
+                    continue;
+                };
                 if let Some(buf) = self.mixer.bus(synth, t..t + chunk) {
                     let tools = Tools {
                         sine: &self.sine,
@@ -523,6 +608,8 @@ impl Engine {
                         ladder: &self.ladder,
                         pitch: &self.pitch,
                         tables: self.tables,
+                        samples: &self.samples,
+                        zones,
                     };
                     pool.render(params, tools, buf);
                 }
