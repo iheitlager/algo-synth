@@ -1779,6 +1779,7 @@ mod tests {
         use crate::mono::patch::{ModDest, ModSource};
         use crate::mono::preset::Preset;
         use crate::mono::voice::NotePriority;
+        use crate::padsampler::PadField;
         use crate::sampler::ZoneField;
         fn rust<T: Copy>(all: &[(T, &str)], id: impl Fn(T) -> u32) -> Vec<(String, u32)> {
             let mut v: Vec<_> = all.iter().map(|(x, n)| (n.to_string(), id(*x))).collect();
@@ -1813,6 +1814,7 @@ mod tests {
             ("ModDest", rust(&ModDest::ALL, |d| d as u32)),
             ("Pad", rust(&crate::drums::Pad::ALL, |p| p as u32)),
             ("ZoneField", rust(&ZoneField::ALL, |f| f as u32)),
+            ("PadField", rust(&PadField::ALL, |f| f as u32)),
         ];
         for (name, want) in lists {
             assert_eq!(

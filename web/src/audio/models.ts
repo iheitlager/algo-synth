@@ -35,6 +35,8 @@ export type Control =
   | { kind: 'sysex' }
   /** The sampler's pack browser, sample slots, zone map and zone editor (#125). */
   | { kind: 'sampler' }
+  /** The pad sampler's kit browser, 4 x 4 pad grid and pad editor (#125). */
+  | { kind: 'pads' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -1111,7 +1113,24 @@ const sampler: ModelDef = {
   ],
 }
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler]
+// Sixteen pads playing samples of the store, after an Akai MPC (#124): pad i answers note 36 + i,
+// so a MIDI file's drum channel plays it. Each pad has a sample, tune, level, pan, decay, a choke
+// group, velocity amounts and a one-shot switch, set on the pad grid (#125).
+const padSampler: ModelDef = {
+  id: Model.PadSampler,
+  family: 'drums',
+  name: 'Pad Sampler',
+  maker: 'MPC-style · sixteen sample pads',
+  tagline: 'Sixteen pads: one-shots with tune, level, pan, decay, choke groups and velocity, from the sample store',
+  theme: { panel: '#26282c', ink: '#eceae4', soft: '#a9a79f', trim: '#454850', accent: '#e8554a' },
+  presets: ['PadsLoud', 'PadsSoft'],
+  sections: [
+    { title: 'Pads', wide: true, controls: [{ kind: 'pads' }] },
+    { title: 'Kit', controls: [range('Level', Param.Vco1Level, 0, 1, 0.01), { kind: 'note', text: 'Pads answer notes 36–51 (C1 up).' }] },
+  ],
+}
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

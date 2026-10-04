@@ -29,11 +29,13 @@ pub enum Model {
     Tr808 = 15,
     /// The multisampler (`sampler`): zones of the sample store.
     Sampler = 16,
+    /// The drum/pad sampler (`padsampler`): sixteen pads playing samples.
+    PadSampler = 17,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 17] = [
+    pub const ALL: [(Model, &'static str); 18] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -51,6 +53,7 @@ impl Model {
         (Model::PolyMoog, "PolyMoog"),
         (Model::Tr808, "Tr808"),
         (Model::Sampler, "Sampler"),
+        (Model::PadSampler, "PadSampler"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -195,7 +198,7 @@ impl Model {
             Model::Matrix12 => 12,
             Model::PpgWave => 8,
             Model::D50 => 16,
-            Model::Dx7 | Model::PolyMoog | Model::Sampler => 16,
+            Model::Dx7 | Model::PolyMoog | Model::Sampler | Model::PadSampler => 16,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -210,7 +213,9 @@ impl Model {
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
             // The kit has no filter of its own; the ladder's setting goes unused.
-            Model::D50 | Model::Dx7 | Model::Tr808 | Model::Sampler => Filter::Ladder(D50),
+            Model::D50 | Model::Dx7 | Model::Tr808 | Model::Sampler | Model::PadSampler => {
+                Filter::Ladder(D50)
+            }
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -241,6 +246,11 @@ impl Model {
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
     pub fn uses_la(self) -> bool {
         self == Model::D50
+    }
+
+    /// Whether the synth is the drum/pad sampler (#124).
+    pub fn uses_pads(self) -> bool {
+        self == Model::PadSampler
     }
 
     /// Whether the voice is the multisampler's (#123).
@@ -275,7 +285,8 @@ impl Model {
             | Model::Dx7
             | Model::PolyMoog
             | Model::Tr808
-            | Model::Sampler => Hp::None,
+            | Model::Sampler
+            | Model::PadSampler => Hp::None,
         }
     }
 

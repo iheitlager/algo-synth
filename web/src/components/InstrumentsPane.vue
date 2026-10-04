@@ -6,10 +6,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, status, stripName, synthColour, synths } from '../audio/engine'
 import { renameStrip } from '../audio/names'
-import { MODELS, modelDef, type ModelDef } from '../audio/models'
+import { MODELS, familyModels, modelDef, type ModelDef } from '../audio/models'
 import { Model, Param, Preset, type PresetId } from '../audio/params'
 import EditableName from './EditableName.vue'
 import PresetBar from './PresetBar.vue'
+import type { UserPreset } from '../audio/presets'
 import SynthFaceplate from './SynthFaceplate.vue'
 import Keyboard from './synth/Keyboard.vue'
 import SynthRail, { type Tape } from './synth/SynthRail.vue'
@@ -38,6 +39,8 @@ const def = computed(() => defOf(sel.value))
 const accent = computed(() => ({ '--c': def.value.theme.accent }))
 /** The model's name as presets store it (`Model`'s key). */
 const modelName = computed(() => Object.entries(Model).find(([, id]) => id === def.value.id)?.[0])
+/** A synth keeps its family, as the model picker does: only presets of models in it. */
+const sameFamily = (p: UserPreset) => p.model !== undefined && modelDef(Model[p.model as keyof typeof Model]).family === def.value.family
 // Choosing a model loads its first preset, so the synth is one consistent sound.
 function loadModel(s: number, e: Event) {
   const select = e.target as HTMLSelectElement
@@ -92,11 +95,11 @@ function onRemove(s: number) {
         <div class="pick">
           <label>Model
             <select :disabled="!status.running" :value="def.id" @change="loadModel(sel, $event)">
-              <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.name }}</option>
+              <option v-for="m in familyModels(def.family)" :key="m.id" :value="m.id">{{ m.name }}</option>
             </select>
           </label>
           <PresetBar
-            :target="{ kind: 'synth', s: sel }" :of="{ model: modelName }" :factory="def.presets.map((n) => [n, Preset[n]])"
+            :target="{ kind: 'synth', s: sel }" :of="{ model: modelName }" :allow="sameFamily" :factory="def.presets.map((n) => [n, Preset[n]])"
             @factory="(v) => getEngine()?.preset(sel, v as PresetId)"
           />
           <span class="hint">{{ status.running ? 'keys A–; play it' : 'power on to play' }}</span>

@@ -6,13 +6,15 @@
 import { computed, reactive, ref } from 'vue'
 import { applyPreset, capturePreset, presetModified, status } from '../audio/engine'
 import { clipboard, deletePreset, exportLibrary, importLibrary, library, presetsOf, renamePreset, savePreset } from '../audio/library'
-import type { Target } from '../audio/presets'
+import type { Target, UserPreset } from '../audio/presets'
 import EditableName from './EditableName.vue'
 
 const props = defineProps<{
   target: Target
   /** Only presets for this model or effect type. */
   of?: { model?: string; type?: string }
+  /** Which presets of other models or types may be offered (a synth keeps its family). */
+  allow?: (p: UserPreset) => boolean
   /** Factory presets as [label, value]; choosing one emits `factory`. */
   factory?: [string, number][]
   label?: string
@@ -24,7 +26,7 @@ const emit = defineEmits<{ factory: [value: number] }>()
 const key = computed(() => JSON.stringify(props.target))
 const users = computed(() => presetsOf(props.target.kind, props.of ?? {}))
 // The same kind for other models or types: loading one switches the target over.
-const others = computed(() => presetsOf(props.target.kind).filter((p) => !users.value.includes(p)))
+const others = computed(() => presetsOf(props.target.kind).filter((p) => !users.value.includes(p) && (props.allow?.(p) ?? true)))
 const all = computed(() => [...users.value, ...others.value])
 const current = computed(() => chosen[key.value])
 const user = computed(() => (current.value?.startsWith('u:') ? all.value.find((p) => `u:${p.id}` === current.value) : undefined))

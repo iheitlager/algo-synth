@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { LoopMode, ZoneField } from './params'
+import { LoopMode, PadField, ZoneField } from './params'
 import {
-  EMPTY_ZONE, ZONES, evictable, ZONE_FIELDS, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
-  zoneRect, zoneSets, type Pack,
+  EMPTY_PAD, EMPTY_ZONE, PADS, PAD_FIELDS, PAD_ROWS, ZONES, evictable, slotsUsedElsewhere, ZONE_FIELDS, decodePads, kitFiles, padSets, parseKits, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
+  zoneRect, zoneSets, type Kit, type Pack,
 } from './sampler'
 
 const zone = (o: Record<string, unknown> = {}) => ({
@@ -68,21 +68,64 @@ describe('the pack manifest', () => {
   })
 })
 
-describe('replacing a pack', () => {
+describe('replacing a pack or kit', () => {
   const z = (sample: number) => ({ ...EMPTY_ZONE, sample })
+  const pad = (sample: number) => ({ ...EMPTY_PAD, sample })
   const packs = new Map([['a/C2.wav', 0], ['a/F2.wav', 1], ['b/C2.wav', 2], ['b/F2.wav', 3]])
 
-  it("frees the pack's own slots, but not what another synth plays or the new pack reuses", () => {
-    // Synth 1 plays slot 2; synth 0 (the one loading) had slots 0 and 1; the new pack reuses b/F2.
+  it('finds what other synths play, zones and pads alike, but not the synth itself', () => {
     const zones = [[z(0), z(1)], [z(2)]]
-    expect(evictable(packs, 0, zones, new Set(['b/F2.wav']))).toEqual([0, 1])
-    expect(evictable(packs, 0, zones, new Set())).toEqual([0, 1, 3])
-    expect(evictable(packs, 1, zones, new Set())).toEqual([2, 3])
+    const pads = [undefined, undefined, [pad(3), EMPTY_PAD]]
+    expect([...slotsUsedElsewhere(0, zones, pads)].sort()).toEqual([2, 3])
+    expect([...slotsUsedElsewhere(1, zones, pads)].sort()).toEqual([0, 1, 3])
+    expect([...slotsUsedElsewhere(9, [], [])]).toEqual([])
   })
 
-  it('leaves samples that did not come from a pack alone, and copes with synths that have no zones', () => {
-    expect(evictable(new Map(), 0, [[z(5)]], new Set())).toEqual([])
-    expect(evictable(packs, 3, [undefined, [z(0)]], new Set())).toEqual([1, 2, 3])
+  it("frees the pack's own slots, but not what is in use or what the new one reuses", () => {
+    expect(evictable(packs, new Set([2]), new Set(['b/F2.wav']))).toEqual([0, 1])
+    expect(evictable(packs, new Set([2]), new Set())).toEqual([0, 1, 3])
+    expect(evictable(new Map(), new Set(), new Set())).toEqual([])
+  })
+})
+
+describe('pads', () => {
+  it('decodes a dump and knows the grid', () => {
+    expect(PAD_FIELDS).toBe(9)
+    const v = new Float32Array(PADS * PAD_FIELDS)
+    v[3 * PAD_FIELDS + PadField.Sample] = 4
+    v[3 * PAD_FIELDS + PadField.Pan] = -0.5
+    v[3 * PAD_FIELDS + PadField.OneShot] = 1
+    const pads = decodePads(v)
+    expect(pads).toHaveLength(PADS)
+    expect(pads[3]).toMatchObject({ sample: 4, pan: -0.5, oneShot: true })
+    expect(pads[2]?.oneShot).toBe(false)
+    expect(PAD_ROWS.flat().sort((a, b) => a - b)).toEqual(Array.from({ length: PADS }, (_, i) => i))
+    expect(PAD_ROWS[3]).toEqual([0, 1, 2, 3])
+  })
+
+  const kitPad = (o: Record<string, unknown> = {}) => ({
+    pad: 0, sample: 'kits/k/bd.wav', tune: 0, level: 0.8, pan: 0, decay: 0, choke: 0, velLevel: 1, velStart: 0, oneShot: true, ...o,
+  })
+
+  it('keeps well-formed kits and turns pads into pad_set calls', () => {
+    const json = {
+      kits: [
+        { id: 'k', name: 'K', license: 'CC0-1.0', credit: 'x', pads: [kitPad(), kitPad({ pad: 6, sample: 'kits/k/ch.wav', choke: 1 }), kitPad({ pad: 99 })] },
+        { id: 'bad', name: 'B', pads: [kitPad({ sample: '../x' })] },
+        { name: 'no id', pads: [kitPad()] },
+      ],
+    }
+    const kits = parseKits(json)
+    expect(kits.map((k) => k.id)).toEqual(['k'])
+    expect(kits[0]?.pads).toHaveLength(2)
+    expect(parseKits(null)).toEqual([])
+    const kit = kits[0] as Kit
+    expect(kitFiles(kit)).toEqual(['kits/k/bd.wav', 'kits/k/ch.wav'])
+    const sets = padSets(kit, (f) => ({ 'kits/k/bd.wav': 3, 'kits/k/ch.wav': 8 })[f])
+    expect(sets).toHaveLength(2 * PAD_FIELDS)
+    expect(sets).toContainEqual([6, PadField.Sample, 8])
+    expect(sets).toContainEqual([6, PadField.Choke, 1])
+    expect(padSets(kit, () => undefined)).toEqual([])
   })
 })
 

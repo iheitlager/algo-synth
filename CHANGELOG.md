@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format is based on 
 
 - **User presets** (epic #153, ADR-0014, spec 003 Req 11): save, load, rename and delete presets of a synth (model and sound, applied on the synth defaults so the strip stays), an insert slot, a processor and a strip (pan, sends, inserts; never fader, mute, solo or routing). Presets are stored by name in a browser library (IndexedDB) and exported or imported as `algo-synth.presets.json`; setups are unchanged. A picker shows factory and user presets, and those of other models or types; a dot marks a changed target. Copy and Paste in every preset menu, one clipboard per kind; a DX7 SysEx voice can be saved to the library. New ABI call `synth_defaults`.
 
+## [0.23.0] - 2026-10-04
+
+Samplers, second half: the drum/pad sampler (epic #126).
+
+### Added
+
+- **Pad sampler** (#124): the Pad Sampler model, in the Drums family, plays sixteen pads on notes 36–51 (C1 up) from the sample store. Each pad has a sample, tune, level, pan, decay, a choke group, how much velocity moves its level and its start point, and a one-shot switch; a pad is one retriggered voice and a hit chokes the other pads of its group. The synth has a stereo bus so each pad pans (the strip balances). Pads are set through `pad_set` and `pad_get`; a MIDI file's drum channel plays it, and a song's drum track can play it too: its lanes hit the pads their General MIDI notes name on the clock's steps (kick 36, snare 38, clap 39, hats 42 and 46).
+- **Pad grid** (#125): a 4×4 pad grid to play and select, the selected pad's settings and waveform, and a kit browser; the sample slots are now shared with the multisampler panel.
+- **Drum kits** (#130): `make samples` also builds Hydrogen drum kits into the gitignored `web/public/samples/kits` with a kit manifest the pad grid loads (first kit: Audiophob, CC0); the converter reads 8-bit WAV and AIFF.
+
+### Changed
+
+- The model picker offers only the models of the selected synth's family.
+
 ## [0.22.0] - 2026-10-04
 
 The drum machine (epic #97, MVP 3).
