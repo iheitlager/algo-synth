@@ -878,6 +878,70 @@ pub enum Param {
     Send3On = 436,
     /// Send 4 is on (1, the default) or off: silent, keeping its level.
     Send4On = 437,
+    /// Drum kit, bd: where it goes: 0 the kit's strip, 1–8 a group.
+    BdOut = 438,
+    /// Drum kit, bd: pan into its group, −1..=1.
+    BdPan = 439,
+    /// Drum kit, sn: where it goes: 0 the kit's strip, 1–8 a group.
+    SnOut = 440,
+    /// Drum kit, sn: pan into its group, −1..=1.
+    SnPan = 441,
+    /// Drum kit, cp: where it goes: 0 the kit's strip, 1–8 a group.
+    CpOut = 442,
+    /// Drum kit, cp: pan into its group, −1..=1.
+    CpPan = 443,
+    /// Drum kit, ch: where it goes: 0 the kit's strip, 1–8 a group.
+    ChOut = 444,
+    /// Drum kit, ch: pan into its group, −1..=1.
+    ChPan = 445,
+    /// Drum kit, oh: where it goes: 0 the kit's strip, 1–8 a group.
+    OhOut = 446,
+    /// Drum kit, oh: pan into its group, −1..=1.
+    OhPan = 447,
+    /// Drum kit, lt: where it goes: 0 the kit's strip, 1–8 a group.
+    LtOut = 448,
+    /// Drum kit, lt: pan into its group, −1..=1.
+    LtPan = 449,
+    /// Drum kit, ht: where it goes: 0 the kit's strip, 1–8 a group.
+    HtOut = 450,
+    /// Drum kit, ht: pan into its group, −1..=1.
+    HtPan = 451,
+    /// Drum kit, cb: where it goes: 0 the kit's strip, 1–8 a group.
+    CbOut = 452,
+    /// Drum kit, cb: pan into its group, −1..=1.
+    CbPan = 453,
+    /// Drum kit, rs: where it goes: 0 the kit's strip, 1–8 a group.
+    RsOut = 454,
+    /// Drum kit, rs: pan into its group, −1..=1.
+    RsPan = 455,
+    /// Drum kit, cl: where it goes: 0 the kit's strip, 1–8 a group.
+    ClOut = 456,
+    /// Drum kit, cl: pan into its group, −1..=1.
+    ClPan = 457,
+    /// Drum kit, ma: where it goes: 0 the kit's strip, 1–8 a group.
+    MaOut = 458,
+    /// Drum kit, ma: pan into its group, −1..=1.
+    MaPan = 459,
+    /// Drum kit, cy: where it goes: 0 the kit's strip, 1–8 a group.
+    CyOut = 460,
+    /// Drum kit, cy: pan into its group, −1..=1.
+    CyPan = 461,
+    /// Drum kit, mt: where it goes: 0 the kit's strip, 1–8 a group.
+    MtOut = 462,
+    /// Drum kit, mt: pan into its group, −1..=1.
+    MtPan = 463,
+    /// Drum kit, lc: where it goes: 0 the kit's strip, 1–8 a group.
+    LcOut = 464,
+    /// Drum kit, lc: pan into its group, −1..=1.
+    LcPan = 465,
+    /// Drum kit, mc: where it goes: 0 the kit's strip, 1–8 a group.
+    McOut = 466,
+    /// Drum kit, mc: pan into its group, −1..=1.
+    McPan = 467,
+    /// Drum kit, hc: where it goes: 0 the kit's strip, 1–8 a group.
+    HcOut = 468,
+    /// Drum kit, hc: pan into its group, −1..=1.
+    HcPan = 469,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -962,7 +1026,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 438] = [
+    pub const ALL: [(Param, &'static str); 470] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1401,6 +1465,38 @@ impl Param {
         (Param::Send2On, "Send2On"),
         (Param::Send3On, "Send3On"),
         (Param::Send4On, "Send4On"),
+        (Param::BdOut, "BdOut"),
+        (Param::BdPan, "BdPan"),
+        (Param::SnOut, "SnOut"),
+        (Param::SnPan, "SnPan"),
+        (Param::CpOut, "CpOut"),
+        (Param::CpPan, "CpPan"),
+        (Param::ChOut, "ChOut"),
+        (Param::ChPan, "ChPan"),
+        (Param::OhOut, "OhOut"),
+        (Param::OhPan, "OhPan"),
+        (Param::LtOut, "LtOut"),
+        (Param::LtPan, "LtPan"),
+        (Param::HtOut, "HtOut"),
+        (Param::HtPan, "HtPan"),
+        (Param::CbOut, "CbOut"),
+        (Param::CbPan, "CbPan"),
+        (Param::RsOut, "RsOut"),
+        (Param::RsPan, "RsPan"),
+        (Param::ClOut, "ClOut"),
+        (Param::ClPan, "ClPan"),
+        (Param::MaOut, "MaOut"),
+        (Param::MaPan, "MaPan"),
+        (Param::CyOut, "CyOut"),
+        (Param::CyPan, "CyPan"),
+        (Param::MtOut, "MtOut"),
+        (Param::MtPan, "MtPan"),
+        (Param::LcOut, "LcOut"),
+        (Param::LcPan, "LcPan"),
+        (Param::McOut, "McOut"),
+        (Param::McPan, "McPan"),
+        (Param::HcOut, "HcOut"),
+        (Param::HcPan, "HcPan"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -1555,6 +1651,38 @@ impl Param {
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::Out => (0.0, 8.0),
+            Param::BdOut
+            | Param::SnOut
+            | Param::CpOut
+            | Param::ChOut
+            | Param::OhOut
+            | Param::LtOut
+            | Param::HtOut
+            | Param::CbOut
+            | Param::RsOut
+            | Param::ClOut
+            | Param::MaOut
+            | Param::CyOut
+            | Param::MtOut
+            | Param::LcOut
+            | Param::McOut
+            | Param::HcOut => (0.0, 8.0),
+            Param::BdPan
+            | Param::SnPan
+            | Param::CpPan
+            | Param::ChPan
+            | Param::OhPan
+            | Param::LtPan
+            | Param::HtPan
+            | Param::CbPan
+            | Param::RsPan
+            | Param::ClPan
+            | Param::MaPan
+            | Param::CyPan
+            | Param::MtPan
+            | Param::LcPan
+            | Param::McPan
+            | Param::HcPan => (-1.0, 1.0),
             Param::Send1Pre
             | Param::Send2Pre
             | Param::Send3Pre

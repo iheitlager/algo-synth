@@ -1048,6 +1048,8 @@ const polyMoog: ModelDef = {
 // Sixteen synthesized pads after the TR-808, one voice each: a section per pad with
 // its tune, decay, tone and level, and the kit's accent (#114). Keys play the
 // pads by General MIDI's drum map (C2 kick, D2 snare, F#2 closed hat, ...).
+/** Where a pad goes: the kit's strip, or one of the eight groups. */
+const PAD_OUTS: Options = [['Main', 0], ...Array.from({ length: 8 }, (_, g): [string, number] => [`Group ${g + 1}`, g + 1])]
 const pad = (title: string, name: string): Section => {
   const p = (f: string) => Param[`${name}${f}` as keyof typeof Param]
   return {
@@ -1057,6 +1059,9 @@ const pad = (title: string, name: string): Section => {
       { kind: 'knob', label: 'Decay', param: p('Decay'), lo: 0.25, hi: 4, scale: 'exp', unit: 'pct', def: 1 },
       { kind: 'knob', label: 'Tone', param: p('Tone'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
       { kind: 'knob', label: 'Level', param: p('Level'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.8 },
+      // Its individual out (#162): the kit's own strip, or a group, panned there.
+      select('Out', p('Out'), PAD_OUTS),
+      { kind: 'knob', label: 'Pan', param: p('Pan'), lo: -1, hi: 1, scale: 'lin', unit: 'bip', bipolar: true, def: 0 },
     ],
   }
 }

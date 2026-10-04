@@ -159,6 +159,11 @@ pub struct Mixer {
     dry: [f32; BLOCK],
     /// Each group's stereo bus, left then right.
     groups: Box<[[[f32; BLOCK]; 2]; GROUPS]>,
+    /// What voices send straight into a group, before its inserts: a drum
+    /// kit's individual outs (#162). Cleared each block.
+    direct: Box<[[[f32; BLOCK]; 2]; GROUPS]>,
+    /// The groups each synth feeds directly, a bit per group, for the solos.
+    feeds: [u8; SYNTHS],
     strips: [Strip; STRIPS],
     /// Heard, given the solos: a strip is silent when something is soloed and
     /// neither it, nor a group it feeds, nor a strip feeding it is.
@@ -180,6 +185,8 @@ impl Mixer {
             wide: [false; SYNTHS],
             dry: [0.0; BLOCK],
             groups: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
+            direct: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
+            feeds: [0; SYNTHS],
             strips: std::array::from_fn(|i| Strip::new(i >= SYNTHS)),
             heard: [true; STRIPS],
             sends: [[0.0; BLOCK]; SENDS],
@@ -222,6 +229,25 @@ impl Mixer {
         true
     }
 
+    /// The groups `synth` feeds directly (a bit per group, bit 0 for group 1):
+    /// its kit's individual outs. Solos follow them.
+    pub fn set_feeds(&mut self, synth: usize, groups: u8) {
+        if let Some(f) = self.feeds.get_mut(synth) {
+            if *f != groups {
+                *f = groups;
+                self.update_solo();
+            }
+        }
+    }
+
+    /// The groups a strip feeds directly, as indices into the strips.
+    fn fed(&self, strip: usize) -> impl Iterator<Item = usize> + '_ {
+        let mask = self.feeds.get(strip).copied().unwrap_or(0);
+        (0..GROUPS)
+            .filter(move |g| mask & (1 << g) != 0)
+            .map(|g| SYNTHS + g)
+    }
+
     /// The groups a strip's signal passes through, nearest first.
     fn chain(&self, strip: usize) -> impl Iterator<Item = usize> + '_ {
         let mut out = self.strips.get(strip).map_or(0, |s| s.out);
@@ -246,8 +272,17 @@ impl Mixer {
                 *h = true;
             }
             // A soloed strip is heard through every group it passes, and a
-            // group it feeds stays heard.
-            for g in self.chain(j) {
+            // group it feeds stays heard: by its Out, or by its individual outs.
+            let direct: Vec<usize> = self.fed(j).collect();
+            for g in self
+                .chain(j)
+                .chain(
+                    direct
+                        .iter()
+                        .flat_map(|d| std::iter::once(*d).chain(self.chain(*d))),
+                )
+                .collect::<Vec<_>>()
+            {
                 if let Some(h) = heard.get_mut(g) {
                     *h = true;
                 }
@@ -320,11 +355,28 @@ impl Mixer {
         *wide = true;
     }
 
+    /// A drum kit's bus, and every group's direct input from `range.start`,
+    /// for voices that go either way (#162).
+    #[allow(clippy::type_complexity)]
+    pub fn kit_outs(
+        &mut self,
+        synth: usize,
+        range: std::ops::Range<usize>,
+    ) -> Option<(&mut [f32], &mut [[[f32; BLOCK]; 2]; GROUPS])> {
+        let bus = self.bus.get_mut(synth)?.get_mut(range)?;
+        Some((bus, &mut self.direct))
+    }
+
     /// Silence the buses at the start of a block.
     pub fn clear(&mut self, frames: usize) {
         self.wide = [false; SYNTHS];
         for bus in self.bus.iter_mut().chain(self.bus_r.iter_mut()) {
             if let Some(b) = bus.get_mut(..frames) {
+                b.fill(0.0);
+            }
+        }
+        for side in self.direct.iter_mut().flatten() {
+            if let Some(b) = side.get_mut(..frames) {
                 b.fill(0.0);
             }
         }
@@ -345,10 +397,11 @@ impl Mixer {
                 s.fill(0.0);
             }
         }
-        for g in self.groups.iter_mut() {
-            for side in g.iter_mut() {
-                if let Some(s) = side.get_mut(..n) {
-                    s.fill(0.0);
+        // A group starts from what was sent to it directly, else silence.
+        for (g, d) in self.groups.iter_mut().zip(self.direct.iter()) {
+            for (side, from) in g.iter_mut().zip(d.iter()) {
+                if let (Some(s), Some(f)) = (side.get_mut(..n), from.get(..n)) {
+                    s.copy_from_slice(f);
                 }
             }
         }

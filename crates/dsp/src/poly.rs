@@ -17,12 +17,14 @@
 //! heap data, so a model change rebuilds one without allocating.
 
 use crate::drums::{ACCENT_VELOCITY, Pad, PadVoice};
-use crate::engine::SYNTHS;
+use crate::engine::{BLOCK, SYNTHS};
 use crate::fm::FmVoice;
 use crate::la::LaVoice;
+use crate::mixer::GROUPS;
 use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
+use crate::mono::osc::Blep;
 use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools};
 use crate::padsampler::{PadVoice as SampledPad, pad_of};
 use crate::sample::SampleStore;
@@ -234,6 +236,8 @@ pub struct Pool {
     rng: u32,
     /// The keys a unison synth holds, oldest first, to fall back on when the sounding one ends.
     keys: [(Option<Owner>, u8, f32); MAX_VOICES],
+    /// One block for a drum pad that goes to a group (#162), before it is panned there.
+    scratch: [f32; BLOCK],
     nkeys: usize,
 }
 
@@ -250,6 +254,7 @@ impl Pool {
             drift: [0.0; MAX_VOICES],
             rng: seed(MAX_VOICES + 1) | 1,
             keys: [(None, 0, 0.0); MAX_VOICES],
+            scratch: [0.0; BLOCK],
             nkeys: 0,
         }
     }
@@ -538,6 +543,51 @@ impl Pool {
             };
         }
         self.last = i;
+    }
+
+    /// The drum kit's voices (#162): a pad on the kit's own strip adds into
+    /// `bus`; one on a group into that group's direct input from `at`, panned.
+    pub fn render_kit(
+        &mut self,
+        p: &MonoParams,
+        sine: &[f32],
+        blep: &Blep,
+        bus: &mut [f32],
+        direct: &mut [[[f32; BLOCK]; 2]; GROUPS],
+        at: usize,
+    ) {
+        let n = bus.len();
+        for v in self.voices.iter_mut() {
+            let PolyVoice::Drum(d) = v else {
+                continue;
+            };
+            if !d.active() {
+                continue;
+            }
+            let out = p
+                .pad_outs
+                .get(d.pad() as usize)
+                .copied()
+                .unwrap_or_default();
+            let Some(group) = out.group.checked_sub(1) else {
+                d.render(sine, blep, bus);
+                continue;
+            };
+            let (Some(s), Some([gl, gr])) = (self.scratch.get_mut(..n), direct.get_mut(group))
+            else {
+                continue;
+            };
+            let (Some(gl), Some(gr)) = (gl.get_mut(at..at + n), gr.get_mut(at..at + n)) else {
+                continue;
+            };
+            s.fill(0.0);
+            d.render(sine, blep, s);
+            let [pl, pr] = out.gains;
+            for ((x, l), r) in s.iter().zip(gl.iter_mut()).zip(gr.iter_mut()) {
+                *l += x * pl;
+                *r += x * pr;
+            }
+        }
     }
 
     /// Add every sounding pad into `left` and `right` (the drum/pad sampler's stereo bus).

@@ -2637,7 +2637,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 356] = [
+pub const DEFAULTS: [(Param, f32); 388] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -2994,6 +2994,38 @@ pub const DEFAULTS: [(Param, f32); 356] = [
     (Param::HcDecay, 1.0),
     (Param::HcTone, 0.5),
     (Param::HcLevel, 0.8),
+    (Param::BdOut, 0.0),
+    (Param::BdPan, 0.0),
+    (Param::SnOut, 0.0),
+    (Param::SnPan, 0.0),
+    (Param::CpOut, 0.0),
+    (Param::CpPan, 0.0),
+    (Param::ChOut, 0.0),
+    (Param::ChPan, 0.0),
+    (Param::OhOut, 0.0),
+    (Param::OhPan, 0.0),
+    (Param::LtOut, 0.0),
+    (Param::LtPan, 0.0),
+    (Param::HtOut, 0.0),
+    (Param::HtPan, 0.0),
+    (Param::CbOut, 0.0),
+    (Param::CbPan, 0.0),
+    (Param::RsOut, 0.0),
+    (Param::RsPan, 0.0),
+    (Param::ClOut, 0.0),
+    (Param::ClPan, 0.0),
+    (Param::MaOut, 0.0),
+    (Param::MaPan, 0.0),
+    (Param::CyOut, 0.0),
+    (Param::CyPan, 0.0),
+    (Param::MtOut, 0.0),
+    (Param::MtPan, 0.0),
+    (Param::LcOut, 0.0),
+    (Param::LcPan, 0.0),
+    (Param::McOut, 0.0),
+    (Param::McPan, 0.0),
+    (Param::HcOut, 0.0),
+    (Param::HcPan, 0.0),
 ];
 
 #[cfg(test)]
