@@ -241,6 +241,24 @@ impl Mixer {
         self.bus.get_mut(synth)?.get_mut(range)
     }
 
+    /// The left and right buses of `synth` for voices that write both sides (the
+    /// drum/pad sampler's pans); the synth is stereo from here on, so its strip balances.
+    pub fn stereo_bus(
+        &mut self,
+        synth: usize,
+        range: std::ops::Range<usize>,
+    ) -> Option<(&mut [f32], &mut [f32])> {
+        *self.wide.get_mut(synth)? = true;
+        let l = self.bus.get_mut(synth)?.get_mut(range.clone())?;
+        let r = self.bus_r.get_mut(synth)?.get_mut(range)?;
+        Some((l, r))
+    }
+
+    /// Whether `synth` is stereo this block.
+    pub fn is_wide(&self, synth: usize) -> bool {
+        self.wide.get(synth).copied().unwrap_or(false)
+    }
+
     /// Make `synth` stereo for this block: `effect` reads its mono bus and writes
     /// the left and right sides, and the strip then balances them instead of panning.
     pub fn widen(
@@ -269,7 +287,7 @@ impl Mixer {
     /// Silence the buses at the start of a block.
     pub fn clear(&mut self, frames: usize) {
         self.wide = [false; SYNTHS];
-        for bus in self.bus.iter_mut() {
+        for bus in self.bus.iter_mut().chain(self.bus_r.iter_mut()) {
             if let Some(b) = bus.get_mut(..frames) {
                 b.fill(0.0);
             }

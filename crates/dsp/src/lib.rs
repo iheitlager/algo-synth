@@ -13,6 +13,7 @@ pub mod fx;
 pub mod la;
 pub mod mixer;
 pub mod mono;
+pub mod padsampler;
 pub mod params;
 pub mod player;
 pub mod poly;

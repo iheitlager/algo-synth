@@ -20,6 +20,7 @@ use crate::mono::ladder::LadderTables;
 use crate::mono::osc::Blep;
 use crate::mono::preset::{DEFAULTS, Preset};
 use crate::mono::voice::{MonoVoice, PitchTable, Tools};
+use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
@@ -519,6 +520,28 @@ impl Engine {
         &self.peaks
     }
 
+    /// Set a field of one of `synth`'s pads (see `padsampler::PadField`).
+    pub fn set_pad(&mut self, synth: usize, pad: usize, field: PadField, value: f32) {
+        if let Some(p) = self.synths.get_mut(synth) {
+            p.pad_kit.set(pad, field, value);
+        }
+    }
+
+    /// A field of one of `synth`'s pads, as `set_pad` would take it back.
+    pub fn pad_value(&self, synth: usize, pad: usize, field: PadField) -> f32 {
+        self.synths
+            .get(synth)
+            .and_then(|p| p.pad_kit.pad(pad))
+            .map_or(0.0, |c| c.get(field))
+    }
+
+    /// Put every pad of `synth` back to its defaults.
+    pub fn clear_pads(&mut self, synth: usize) {
+        if let Some(p) = self.synths.get_mut(synth) {
+            p.pad_kit.clear();
+        }
+    }
+
     pub fn zones(&self, synth: usize) -> Option<&ZoneMap> {
         self.zones.get(synth)
     }
@@ -632,7 +655,7 @@ impl Engine {
     /// Parse the buffer and play it from the next clock step, keeping each
     /// lane's place against the clock. A text that does not parse leaves the
     /// song playing and is reported (`song_error`). Tempo and swing go to the
-    /// clock; a track keeps its synth, or goes to the first drum kit.
+    /// clock; a track keeps its synth, or goes to the first drum kit (the 808 or a pad sampler).
     pub fn load_song(&mut self) -> Result<(), SongError> {
         let parsed = match std::str::from_utf8(&self.song_buf) {
             Ok(text) => Song::parse(text),
@@ -650,8 +673,11 @@ impl Engine {
             Ok(song) => {
                 self.clock.set_tempo(song.tempo);
                 self.clock.set_swing(song.swing);
-                let kit =
-                    (0..SYNTHS).find(|s| self.synths.get(*s).is_some_and(|p| p.model.uses_drums()));
+                let kit = (0..SYNTHS).find(|s| {
+                    self.synths
+                        .get(*s)
+                        .is_some_and(|p| p.model.uses_drums() || p.model.uses_pads())
+                });
                 for (t, route) in self.song_route.iter_mut().enumerate() {
                     if t >= song.tracks.len() {
                         *route = None;
@@ -745,6 +771,13 @@ impl Engine {
                 if pool.active() == 0 {
                     continue;
                 }
+                if params.model.uses_pads() {
+                    // Pads pan themselves: the synth gets a stereo bus.
+                    if let Some((l, r)) = self.mixer.stereo_bus(synth, t..t + chunk) {
+                        pool.render_pads(&self.samples, l, r);
+                    }
+                    continue;
+                }
                 let Some(zones) = self.zones.get(synth) else {
                     continue;
                 };
@@ -767,7 +800,7 @@ impl Engine {
         }
         // A synth with its chorus on is stereo from here on.
         for (synth, chorus) in self.chorus.iter_mut().enumerate() {
-            if chorus.on() {
+            if chorus.on() && !self.mixer.is_wide(synth) {
                 self.mixer
                     .widen(synth, n, |dry, l, r| chorus.process(dry, l, r));
             }
@@ -2690,5 +2723,64 @@ mod tests {
         assert!(e.song_text().starts_with("tempo 90.5\nswing 75\n"));
         e.set_song_tempo(f32::NAN);
         assert_eq!(e.song().tempo, 90.5, "NaN is ignored");
+    }
+
+    /// #124: a song's drum track finds a pad sampler as it finds the 808, and its lanes
+    /// hit the pads their General MIDI notes name on the clock's steps (bd is note 36).
+    #[test]
+    fn a_song_track_plays_a_pad_sampler_on_the_clock() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(2, Preset::PadsLoud);
+        let tone: Vec<f32> = (0..24_000)
+            .map(|i| (i as f32 / 100.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        let wav = crate::sample::test_wav(48_000, &tone, None);
+        e.sample_buffer(wav.len())
+            .expect("fits")
+            .copy_from_slice(&wav);
+        e.load_sample(0).expect("loads");
+        e.set_pad(2, 0, crate::padsampler::PadField::Sample, 0.0);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        assert_eq!(e.song_routed(0), Some(2), "the pad sampler takes the track");
+        e.play();
+        let heard = run(&mut e, 48_000 / 2 / BLOCK);
+        assert!(heard > 0.05, "the kick lane hits pad 1");
+        assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
+    }
+
+    /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.
+    #[test]
+    fn channel_ten_plays_on_a_pad_sampler_slot() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(2, Preset::PadsLoud);
+        let tone: Vec<f32> = (0..24_000)
+            .map(|i| (i as f32 / 100.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        let wav = crate::sample::test_wav(48_000, &tone, None);
+        e.sample_buffer(wav.len())
+            .expect("fits")
+            .copy_from_slice(&wav);
+        e.load_sample(0).expect("loads");
+        e.set_pad(2, 2, crate::padsampler::PadField::Sample, 0.0);
+        let mut file_bytes = one_note(9);
+        // The note in the file is 60; make it the snare's 38.
+        let at = file_bytes
+            .windows(3)
+            .position(|w| w == [0x99, 60, 100])
+            .expect("note on");
+        file_bytes[at + 1] = 38;
+        let off = file_bytes
+            .windows(3)
+            .position(|w| w == [0x89, 60, 0])
+            .expect("note off");
+        file_bytes[off + 1] = 38;
+        assert_eq!(load(&mut e, &file_bytes), Ok(1));
+        e.route(9, Some(2));
+        e.play();
+        let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
+        assert!(heard > 0.05, "the snare pad at 0.5 s");
+        assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
     }
 }
