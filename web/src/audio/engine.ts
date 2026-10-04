@@ -5,7 +5,8 @@
 import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
-import { GlobalParam, Param, StripParam, type ParamId, type PresetId } from './params'
+import type { ModelDef } from './models'
+import { GlobalParam, Param, Preset, StripParam, type ParamId, type PresetId } from './params'
 import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
@@ -160,11 +161,16 @@ function show(s: number) {
   synths.list = [...synths.list, s].sort((a, b) => a - b)
 }
 
-/** Add a synth on the lowest free index and select it; false when all 16 are shown. */
-export function addSynth(): boolean {
+/**
+ * Add a synth on the lowest free index and select it; false when all 16 are
+ * shown. With a model it starts on that model's first preset (#132).
+ */
+export function addSynth(model?: ModelDef): boolean {
   const free = Array.from({ length: MAX_SYNTHS }, (_, i) => i).find((i) => !synths.list.includes(i))
   if (free === undefined) return false
   show(free)
+  const first = model?.presets[0]
+  if (first !== undefined) engine?.preset(free, Preset[first])
   synths.selected = free
   return true
 }
