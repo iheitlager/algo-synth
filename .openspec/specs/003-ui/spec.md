@@ -125,3 +125,23 @@ The user SHALL be able to rename every MIDI lane (by channel), synth and group b
 - THEN the same names are shown; names that are not a strip or channel are dropped with one warning
 
 **Tests:** `web/src/audio/names.test.ts`, `web/src/audio/setup.test.ts`
+
+### Requirement 11: User presets [SHOULD]
+
+The user SHALL be able to save, load, rename, delete, export and import presets of four kinds (ADR-0014, epic #153): a synth (its model and every synth parameter, loaded on the synth defaults), an insert slot (type and knobs), a processor (type, knobs and return) and a strip (pan, sends and insert slots, never fader, mute, solo or routing). Presets SHALL be stored by name; applying one SHALL touch only its scope; a library file that is not a library SHALL be rejected, and what it cannot place SHALL be dropped with a warning. The library SHALL live in the browser and in `algo-synth.presets.json`, never in a setup.
+
+**Implementation:** `web/src/audio/presets.ts`, `web/src/audio/library.ts`, `web/src/audio/engine.ts::applyPreset`, `crates/dsp/src/engine.rs::Engine::synth_defaults`
+
+#### Scenario: a sound moves to another synth
+
+- GIVEN a Juno-106 pad saved as a synth preset from synth 3
+- WHEN it is loaded on synth 6, which plays an ARP 2600 with its fader at −6 dB
+- THEN synth 6 is a Juno-106 with every value of the pad, any parameter the preset lacks at its default, and its fader still at −6 dB
+
+#### Scenario: an effect moves to another slot
+
+- GIVEN a compressor saved from strip 4's second insert slot
+- WHEN it is loaded into group 3's first slot
+- THEN that slot is a compressor with the same knobs and nothing else changes
+
+**Tests:** `web/src/audio/presets.test.ts`, `crates/dsp/src/mono/preset.rs::tests::synth_defaults_reset_the_sound_not_the_strip`
