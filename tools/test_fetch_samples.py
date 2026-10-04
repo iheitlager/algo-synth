@@ -1,4 +1,5 @@
 import array
+import json
 import struct
 import sys
 import unittest
@@ -156,3 +157,79 @@ class Ledger(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def wav_bytes(n: int = 1600, rate: int = 16000) -> bytes:
+    """A short mono 16-bit WAV, as the CMU ARCTIC files are."""
+    return fs.write_mono_wav(rate, 1, array.array("h", [i % 200 - 100 for i in range(n)]), 60, None)
+
+
+class Voice(unittest.TestCase):
+    """A voice pack (#184): single files, one phrase per pad, with their notice."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.saved = (fs.OUT, fs.CACHE)
+        fs.OUT, fs.CACHE = self.root / "out", self.root / "cache"
+        self.pack = {
+            "id": "voices", "name": "Voices", "kind": "voice", "license": "BSD-style",
+            "credit": "Somebody. Modified: rewritten as mono WAV.", "notice": "Keep this notice.\n",
+            "files": [{"url": f"x{i}", "sha256": f"{i:064x}", "name": f"Phrase {i}, said."} for i in range(18)],
+        }
+
+    def tearDown(self):
+        fs.OUT, fs.CACHE = self.saved
+        self.tmp.cleanup()
+
+    def fake_fetch(self, pack, i, entry):
+        path = self.root / f"in-{i}.wav"
+        path.write_bytes(wav_bytes())
+        return path
+
+    def test_one_phrase_per_pad_named_by_what_it_says(self):
+        fs.build_voice(self.pack, fetch=self.fake_fetch)
+        kit = json.loads((fs.OUT / "kits" / "voices" / "kit.json").read_text())
+        self.assertEqual(len(kit["pads"]), 16, "at most one per pad")
+        first = kit["pads"][0]
+        self.assertEqual((first["pad"], first["name"], first["oneShot"], first["choke"]), (0, "Phrase 0, said.", True, 0))
+        self.assertEqual(first["sample"], "kits/voices/01-Phrase_0_said.wav")
+        self.assertTrue((fs.OUT / first["sample"]).is_file())
+        self.assertEqual(kit["notice"], "Keep this notice.\n")
+        self.assertEqual(kit["sha256"], fs.pinned(self.pack))
+
+    def test_the_notice_and_the_change_reach_the_credits(self):
+        fs.build_voice(self.pack, fetch=self.fake_fetch)
+        fs.write_manifest()
+        credits = (fs.OUT / "CREDITS.txt").read_text()
+        self.assertIn("Voices: BSD-style. Somebody. Modified: rewritten as mono WAV.", credits)
+        self.assertIn("Keep this notice.", credits)
+
+    def test_the_pin_covers_every_file(self):
+        other = json.loads(json.dumps(self.pack))
+        other["files"][5]["sha256"] = "f" * 64
+        self.assertNotEqual(fs.pinned(other), fs.pinned(self.pack))
+        self.assertEqual(fs.pinned({"sha256": "abc"}), "abc", "an archive keeps its own")
+
+    def test_a_wrong_checksum_stops_the_build(self):
+        src = self.root / "a.wav"
+        src.write_bytes(wav_bytes())
+        good = {"url": src.as_uri(), "sha256": fs.sha256(src), "name": "Fine."}
+        self.assertTrue(fs.fetch_file(self.pack, 0, good).is_file())
+        bad = {**good, "sha256": "0" * 64}
+        with self.assertRaises(SystemExit):
+            fs.fetch_file(self.pack, 1, bad)
+
+
+class Ledger(unittest.TestCase):
+    def test_every_voice_file_is_pinned_and_named(self):
+        ledger = json.loads(fs.LEDGER.read_text())
+        voices = [p for p in ledger["packs"] if p.get("kind") == "voice"]
+        self.assertTrue(voices)
+        for p in voices:
+            self.assertIn("notice", p)
+            self.assertLessEqual(len(p["files"]), fs.PADS)
+            for f in p["files"]:
+                self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$")
+                self.assertTrue(f["url"].startswith("http") and f["name"])

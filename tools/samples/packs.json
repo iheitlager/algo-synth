@@ -59,6 +59,96 @@
         "Pedal HH": 1,
         "Open HH": 1
       }
+    },
+    {
+      "id": "cmu-arctic-voices",
+      "name": "CMU Voices",
+      "kind": "voice",
+      "license": "CMU ARCTIC licence (BSD-style, not CC0): keep the notice, mark modifications, keep the authors' names",
+      "credit": "CMU ARCTIC speech databases by John Kominek and Alan W Black, Language Technologies Institute, Carnegie Mellon University, http://www.festvox.org/cmu_arctic/ (speakers slt and bdl). Modified: sixteen phrases rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "notice": "This voice is free for use for any purpose (commercial or otherwise)\nsubject to the pretty light restrictions detailed below.\n\n############################################################################\n###                                                                       ##\n###                     Carnegie Mellon University                        ##\n###                         Copyright (c) 2003                            ##\n###                        All Rights Reserved.                           ##\n###                                                                       ##\n###  Permission to use, copy, modify,  and licence this software and its  ##\n###  documentation for any purpose, is hereby granted without fee,        ##\n###  subject to the following conditions:                                 ##\n###   1. The code must retain the above copyright notice, this list of    ##\n###      conditions and the following disclaimer.                         ##\n###   2. Any modifications must be clearly marked as such.                ##\n###   3. Original authors' names are not deleted.                         ##\n###                                                                       ##\n###  THE AUTHORS OF THIS WORK DISCLAIM ALL WARRANTIES WITH REGARD TO      ##\n###  THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY   ##\n###  AND FITNESS, IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY         ##\n###  SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES            ##\n###  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN   ##\n###  AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,          ##\n###  ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF       ##\n###  THIS SOFTWARE.                                                       ##\n###                                                                       ##\n############################################################################\n###                                                                       ##\n###  See http://www.festvox.org/cmu_arctic/ for more details              ##\n###                                                                       ##\n############################################################################\n",
+      "files": [
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0484.wav",
+          "sha256": "de12c6057f9800f26bbc8aca39d2457c6418fc737fc3da8ea89b8b2e183126ed",
+          "name": "No-sir-ee."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0329.wav",
+          "sha256": "04d7f2d73a3b52f0928aadc23511a0c17b5e1ce9f594452ee13a17407ebd79e5",
+          "name": "Ah, indeed."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0028.wav",
+          "sha256": "5f193320f009c98e468bd77c206722a533db6ebb7393e74370302c8ea4d27cb8",
+          "name": "Robbery, bribery, fraud,"
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0381.wav",
+          "sha256": "701e37bd16d6428a5dd0f8cb346148c1fb6032c7cf8fa714afbde1a829336d35",
+          "name": "My name's Ferguson."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0389.wav",
+          "sha256": "2b6b987e9c198aa6ca8331441f74fec01610f416cb89ea1afcf547c697608915",
+          "name": "Mab, she said."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0562.wav",
+          "sha256": "629cdc78d01190ff69a97ec2291797dcb6c946e64e18aaedf26ad7b7ecb2e812",
+          "name": "What the flaming."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_b0025.wav",
+          "sha256": "711eb80c1e79a7c062f2db19637f519ede6ba8ddc2b4e4b366b770beabf9be68",
+          "name": "Now, you understand."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_b0166.wav",
+          "sha256": "8d53ae15fe14c937fafda91253fe1d3a475c8fcd662fb35390e65cb239c094e9",
+          "name": "Fast, but endure."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_b0228.wav",
+          "sha256": "32dc251a1133666557618575020ab009891d424175df0f38657ed73baa5d9f01",
+          "name": "You were engaged."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_b0454.wav",
+          "sha256": "668d61c82959cac802c0538954f9d531763dd46afbefbe2030f90d338f0dd349",
+          "name": "Eighteen, he added."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0015.wav",
+          "sha256": "800671e8306f9ad34e09476d2fd739eabd7169b159bc067ec04552aa58553ee9",
+          "name": "It's the aurora borealis."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0098.wav",
+          "sha256": "865e6e256478428e2b9588e6fff9e32d31fd92d65aa93742817011673862df91",
+          "name": "Shall I carry you."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0150.wav",
+          "sha256": "8139a54c1eabbcb1b789b26e5b88a689dc9842a07c8f41fc9eb1310a87bf67b8",
+          "name": "Goodbye, Pierre, he shouted."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0158.wav",
+          "sha256": "3b4b5c2c8d5ed3d7f8d2f3e4bee2cb583aac629902937d085f18397647d74c37",
+          "name": "Does that look good."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_slt_arctic/wav/arctic_a0207.wav",
+          "sha256": "019229d3f8b1b77c90be0ae6529c583807620cd59d9ecba6685808adb9456995",
+          "name": "How much was it."
+        },
+        {
+          "url": "http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_bdl_arctic/wav/arctic_a0385.wav",
+          "sha256": "efebacd72eeb5ad6f4d3dcbf26b8000400ec123b7117c3bc2be6fc5af84338e3",
+          "name": "That's what Carnegie did."
+        }
+      ]
     }
   ]
 }
