@@ -69,7 +69,8 @@ const CHOKE_COLOURS = ['', '#e8554a', '#e8a33a', '#7cc46a', '#4fb3c9', '#6f86e0'
       <SampleSlots use-label="→ pad" :use-title="`Put it on pad ${selected + 1}`" :in-use="inUse" @use="assign" @added="onAdded" />
     </div>
 
-    <div class="box">
+    <div class="row work">
+    <div class="box padbox">
       <h4>Pads <small>notes {{ keyName(PAD_FIRST_NOTE) }}–{{ keyName(PAD_FIRST_NOTE + PADS - 1) }}</small></h4>
       <div class="grid" role="group" aria-label="Pads">
         <template v-for="row in PAD_ROWS" :key="row[0]">
@@ -106,6 +107,7 @@ const CHOKE_COLOURS = ['', '#e8554a', '#e8a33a', '#7cc46a', '#4fb3c9', '#6f86e0'
         <label class="check"><input type="checkbox" :checked="pad.oneShot" @change="setPad(s, selected, PadField.OneShot, Number(($event.target as HTMLInputElement).checked))" /> One-shot</label>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -119,9 +121,12 @@ ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; ga
 button { font: inherit; color: var(--con-silk); background: var(--plate); border: 1px solid var(--trim); border-radius: 3px; padding: 2px 8px; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 .clear { margin-top: 8px; }
-.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; max-width: 460px; }
+.work { align-items: flex-start; }
+.padbox { flex: 0 0 auto; width: min(100%, 400px); }
+.edit { flex: 1 1 320px; min-width: 0; }
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .pad {
-  position: relative; aspect-ratio: 1.3; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between;
+  position: relative; aspect-ratio: 1.6; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between;
   padding: 6px 8px; border-radius: 6px; text-align: left; touch-action: none; user-select: none;
   background: linear-gradient(180deg, color-mix(in srgb, var(--plate) 70%, white 10%), color-mix(in srgb, var(--plate) 80%, black 20%));
   box-shadow: 0 2px 0 #0008, 0 1px 0 #ffffff14 inset;

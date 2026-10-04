@@ -111,6 +111,13 @@ pub extern "C" fn strip_count() -> u32 {
     STRIPS as u32
 }
 
+/// Models the engine knows (`Model::ALL`). The view compares it with its own list to catch
+/// a `dsp.wasm` older than the JavaScript (a model it does not know silently stays a Mono).
+#[unsafe(no_mangle)]
+pub extern "C" fn model_count() -> u32 {
+    crate::mono::model::Model::ALL.len() as u32
+}
+
 /// Number of Mono synths; ids run from 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn synth_count() -> u32 {
@@ -878,6 +885,7 @@ mod tests {
         process(128);
         assert_eq!(query(0, |e| e.active_voices()), 2);
         assert_eq!(synth_count(), 16);
+        assert_eq!(model_count() as usize, crate::mono::model::Model::ALL.len());
         assert_eq!(strip_count(), 24);
         set_param(3, Param::Cutoff as u32, 300.0);
         assert_eq!(param_value(3, Param::Cutoff as u32), 300.0);

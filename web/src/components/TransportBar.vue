@@ -102,13 +102,14 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
       <template v-if="meter.peak !== null">· peak {{ pct(meter.peak) }}</template>
       · {{ meter.voices }} {{ meter.voices === 1 ? 'voice' : 'voices' }}
     </span>
-    <span class="field muted">
+    <span class="field muted" :class="{ bad: status.error }" :role="status.error ? 'alert' : undefined">
       {{ status.error || (status.running ? `${status.sampleRate} Hz · wasm worklet` : 'click Power on to start audio') }}
     </span>
   </header>
 </template>
 
 <style scoped>
+.bad { color: #f0866f; }
 .bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; overflow: hidden; }
 .logo { color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
 .on { border-color: var(--accent); color: var(--accent); }

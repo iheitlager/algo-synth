@@ -6,7 +6,7 @@ import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import type { ModelDef } from './models'
-import { GlobalParam, InsertType, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
+import { GlobalParam, InsertType, Model, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
 import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
@@ -497,6 +497,10 @@ export function applySong(data: Record<string, unknown>) {
   }))
 }
 
+/** What to tell the user when the engine knows fewer models than the view offers. */
+export const staleEngine = (engine: number, view: number) =>
+  `dsp.wasm is out of date${engine ? ` (it knows ${engine} models)` : ''}: this page offers ${view}, so a new model stays an ARP 2600. Run make wasm, then hard-refresh.`
+
 function onMessage(data: { t: string } & Record<string, unknown>) {
   if (data.t === 'pos') {
     player.position = data.sec as number
@@ -537,6 +541,10 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     sampleStore.slots[slot] = null
     sampleStore.used = data.used as number
     for (const [file, s] of slotOfFile) if (s === slot) slotOfFile.delete(file)
+  } else if (data.t === 'ready') {
+    const known = Object.keys(Model).length
+    const engineModels = data.models as number
+    if (engineModels < known) status.error = staleEngine(engineModels, known)
   } else if (data.t === 'pads') {
     padState.pads[data.s as number] = decodePads(data.values as Float32Array)
   } else if (data.t === 'zones') {
