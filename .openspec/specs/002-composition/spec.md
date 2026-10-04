@@ -80,7 +80,23 @@ A fragment SHALL be a loop of events (note or pad, velocity, start, length, prob
 
 An arrangement SHALL be a list of sections, each a number of bars and the fragments that play in it; a fragment SHALL loop inside its section. A section MAY repeat an earlier one by name. A loop region SHALL repeat a range of bars.
 
-**Implementation:** `crates/dsp/src/arrangement.rs` *(planned, MVP 4)*
+In the text (ADR-0015): `section <name> <bars>: <frags…>` (1 to 256 bars, the frags defined above it, none for silent bars), one `arrange <sections…>` line, and `loop <first> <last>` over the arrangement's bars, counted from 1 and inclusive. A bar is sixteen clock steps. A fragment SHALL start on its section's first step, each lane looping on its own length and cut at the section's end. Inside a loop region the song SHALL wrap from its last bar to its first; after the arrangement's last bar the song SHALL stop and go back to the top. A song without `arrange` SHALL play every fragment as a loop. The engine SHALL report the entry playing and the steps into it, the arrangement's length in bars, and SHALL seek to a bar.
+
+**Implementation:** `crates/dsp/src/song.rs::Song::at`, `crates/dsp/src/song.rs::Section`, `crates/dsp/src/engine.rs::Engine::play_step`, `crates/dsp/src/ffi.rs` (`song_seek_bar`, `song_bars`, `song_entry`, `song_local`)
+
+#### Scenario: sections in order
+
+- GIVEN `section one 1: a`, `section two 1: b` and `arrange one two`
+- WHEN the song plays
+- THEN `a` plays bar 1 and `b` bar 2, each from its first step on the exact sample, and the song stops after bar 2
+
+#### Scenario: a loop region
+
+- GIVEN `arrange one two one` and `loop 2 2`
+- WHEN the song passes bar 2
+- THEN bar 2 plays again, without end
+
+**Tests:** `crates/dsp/src/song/tests.rs::sections_and_the_arrangement_parse_and_print`, `crates/dsp/src/song/tests.rs::a_step_falls_in_its_section_and_the_loop_wraps`, `crates/dsp/src/song/tests.rs::arrangement_errors_say_where`, `crates/dsp/src/engine.rs::tests::sections_play_in_order_and_the_song_ends`, `crates/dsp/src/engine.rs::tests::a_fragment_restarts_with_its_section`, `crates/dsp/src/engine.rs::tests::the_loop_region_repeats_and_seek_lands_on_a_bar`
 
 ### Requirement 5: Sample-accurate clock in the engine [MUST]
 
@@ -163,3 +179,23 @@ Separately from the song (ADR-0012), the engine SHALL play a loaded MIDI file di
 - THEN the note starts on the sample the tempo map gives
 
 **Tests:** `crates/dsp/src/player.rs::tests::ticks_become_samples_through_the_tempo_map`, `crates/dsp/src/engine.rs::tests::player_note_starts_on_its_exact_sample`, `crates/dsp/src/engine.rs::tests::every_channel_plays_and_mute_silences`, `crates/dsp/src/engine.rs::tests::bad_files_are_rejected_and_keep_the_old_song`, `crates/dsp/src/engine.rs::tests::stop_releases_player_voices_but_not_live_ones`, `crates/dsp/src/ffi.rs::tests::midi_round_trip_through_the_abi`
+
+### Requirement 10: Scenes and automation [SHOULD]
+
+The song SHALL move any parameter but the model and `Out` over time (ADR-0015, #172). `auto <name> = <target>.<Param> <values…> /<bars>` SHALL spread its values evenly over its bars and `… ramp <a> <b> /<bars>` SHALL move linearly between two; a lane SHALL be placed in sections like a fragment and loop inside them, and without an arrangement every lane SHALL loop. `scene <name>: <target>.<Param> <value>, …` SHALL set its values on the first step of a section that lists `[name]`. A target SHALL be a track (its routed synth), `strip1`–`strip16`, `group1`–`group8` or `master`; a parameter that does not belong to its target SHALL be a parse error. The engine SHALL apply lanes once per block through `set_param`, writing a lane only when its value changes, never allocating in `render`; it SHALL report the strips automation changed so the view can show their values.
+
+**Implementation:** `crates/dsp/src/song.rs::Auto`, `crates/dsp/src/song.rs::Scene`, `crates/dsp/src/engine.rs::Engine::run_automation`, `crates/dsp/src/engine.rs::Engine::apply_scenes`, `crates/dsp/src/ffi.rs` (`auto_touched`), `web/public/worklet.js`
+
+#### Scenario: a scene on its bar
+
+- GIVEN `scene s: strip1.Send2 0.25` in the second section of `arrange one two`
+- WHEN the song plays
+- THEN the send changes on the first sample of bar 2
+
+#### Scenario: automation equals a hand
+
+- GIVEN one engine automating `strip1.Level 0.3` and another with the level set to 0.3 by hand
+- WHEN both play the same song
+- THEN their output is bit-identical
+
+**Tests:** `crates/dsp/src/song/tests.rs::automation_and_scenes_parse_and_print`, `crates/dsp/src/song/tests.rs::a_lane_steps_or_ramps_over_its_length_and_loops`, `crates/dsp/src/song/tests.rs::automation_errors_say_where`, `crates/dsp/src/engine.rs::tests::a_scene_lands_on_its_sections_first_sample`, `crates/dsp/src/engine.rs::tests::a_ramp_reaches_its_end_value`, `crates/dsp/src/engine.rs::tests::automation_is_bit_identical_to_a_hand_set_value`

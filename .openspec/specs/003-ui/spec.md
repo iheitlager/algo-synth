@@ -145,3 +145,18 @@ The user SHALL be able to save, load, rename, delete, export and import presets 
 - THEN that slot is a compressor with the same knobs and nothing else changes
 
 **Tests:** `web/src/audio/presets.test.ts`, `crates/dsp/src/mono/preset.rs::tests::synth_defaults_reset_the_sound_not_the_strip`
+
+### Requirement 12: The arranger [SHOULD]
+
+The bottom pane SHALL show the arranger (ADR-0015, #171), with the MIDI file player one tab away, and the arranger SHALL also sit under the composer. Columns SHALL be the arrangement's entries in order, as wide as their bars, each with its section's name and bars; rows SHALL be the song's fragments (in their track's colour), automation lanes and scenes; a lit cell SHALL mean the entry's section plays that row. Clicking a cell SHALL switch the row in that section (so in every entry of it), and a section's bars, the order of entries, adding a section or an entry, and the loop region (shift-click two bars of the ruler; shift-click inside it clears it) SHALL be edits sent to the engine, which changes the song and prints it back. Clicking a bar SHALL move the song there; while the song plays, the current entry SHALL be marked and a playhead SHALL follow it. The arranger SHALL NOT parse the song.
+
+**Implementation:** `web/src/components/ArrangerPane.vue`, `web/src/App.vue`, `web/src/audio/engine.ts` (`arrange`, `applySong`), `web/public/worklet.js` (`arr`, `songSeek`), `crates/dsp/src/song.rs` (`toggle`, `add_section`, `set_bars`, `arrange_insert`, `arrange_remove`, `arrange_move`, `set_loop`), `crates/dsp/src/ffi.rs` (`arr_edit` and the arrangement getters)
+
+#### Scenario: a section gets a fragment
+
+- GIVEN `section intro 2: beat` in the arrangement and a fragment `hats`
+- WHEN the cell of `hats` under `intro` is clicked
+- THEN the engine's text reads `section intro 2: beat hats` and the cell is lit in every `intro` entry
+
+**Tests:** `crates/dsp/src/song/tests.rs::arranger_edits_change_the_song_and_its_text`, `crates/dsp/src/ffi.rs::tests::song_round_trip_through_the_abi`
+

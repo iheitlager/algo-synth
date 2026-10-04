@@ -641,6 +641,165 @@ pub extern "C" fn song_stop() {
     with_engine(Engine::song_stop);
 }
 
+/// Move the song to bar `bar` (from 0) of its arrangement.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_seek_bar(bar: u32) {
+    with_engine(|e| e.song_seek_bar(u64::from(bar)));
+}
+
+/// Bars in the song's arrangement; 0 without one.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_bars() -> u32 {
+    query(0, |e| u32::try_from(e.song().bars()).unwrap_or(u32::MAX))
+}
+
+/// The arrangement entry the last step fell in, −1 without one.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_entry() -> i32 {
+    query(-1, |e| {
+        e.song_place()
+            .map_or(-1, |(i, _)| i32::try_from(i).unwrap_or(-1))
+    })
+}
+
+/// Steps into that entry, −1 without one.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_local() -> i32 {
+    query(-1, |e| {
+        e.song_place()
+            .map_or(-1, |(_, l)| i32::try_from(l).unwrap_or(-1))
+    })
+}
+
+/// The strips the song's automation changed since the last call, a bit per
+/// strip (globals on bit 0), so the view can ask for their values again.
+#[unsafe(no_mangle)]
+pub extern "C" fn auto_touched() -> u32 {
+    query(0, Engine::take_touched)
+}
+
+// --- The arrangement, for the arranger pane (#171) ---------------------------
+
+/// An arranger edit (see `Engine::arrange_edit`): 0 when done, −1 when refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn arr_edit(op: u32, a: u32, b: u32, c: u32) -> i32 {
+    query(-1, |e| if e.arrange_edit(op, a, b, c) { 0 } else { -1 })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_sections() -> u32 {
+    query(0, |e| e.song().sections.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn section_name_ptr(s: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .sections
+            .get(s as usize)
+            .map_or(std::ptr::null(), |x| x.name.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn section_name_len(s: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .sections
+            .get(s as usize)
+            .map_or(0, |x| x.name.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn section_bars(s: u32) -> u32 {
+    query(0, |e| {
+        e.song().sections.get(s as usize).map_or(0, |x| x.bars)
+    })
+}
+
+/// 1 when section `s` holds fragment (`kind` 0), lane (1) or scene (2) `item`.
+#[unsafe(no_mangle)]
+pub extern "C" fn section_has(s: u32, kind: u32, item: u32) -> u32 {
+    query(0, |e| {
+        u32::from(e.song().section_has(s as usize, kind, item as usize))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn arrange_len() -> u32 {
+    query(0, |e| e.song().arrange.len() as u32)
+}
+
+/// The section played at place `i` of the arrangement.
+#[unsafe(no_mangle)]
+pub extern "C" fn arrange_at(i: u32) -> u32 {
+    query(0, |e| {
+        e.song().arrange.get(i as usize).map_or(0, |s| *s as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_autos() -> u32 {
+    query(0, |e| e.song().autos.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn auto_name_ptr(a: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .autos
+            .get(a as usize)
+            .map_or(std::ptr::null(), |x| x.name.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn auto_name_len(a: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .autos
+            .get(a as usize)
+            .map_or(0, |x| x.name.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_scenes() -> u32 {
+    query(0, |e| e.song().scenes.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn scene_name_ptr(c: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .scenes
+            .get(c as usize)
+            .map_or(std::ptr::null(), |x| x.name.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn scene_name_len(c: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .scenes
+            .get(c as usize)
+            .map_or(0, |x| x.name.len() as u32)
+    })
+}
+
+/// The loop's first and last bar (from 1); 0 without a loop.
+#[unsafe(no_mangle)]
+pub extern "C" fn loop_from() -> u32 {
+    query(0, |e| e.song().loop_bars.map_or(0, |l| l.0))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn loop_to() -> u32 {
+    query(0, |e| e.song().loop_bars.map_or(0, |l| l.1))
+}
+
 /// 1 while the song plays.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_playing() -> u32 {
@@ -1057,12 +1216,36 @@ mod tests {
         assert_eq!(step_level(0, 0, 1), 1);
         assert!(song_text_len() > 0 && !song_text_ptr().is_null());
         query((), |e| {
-            e.song_buffer(4).expect("fits").copy_from_slice(b"loop")
+            e.song_buffer(4).expect("fits").copy_from_slice(b"play")
         });
         assert_eq!(song_load(), -1);
         assert_eq!((song_error_line(), song_error_col()), (1, 1));
         assert!(song_error_len() > 0 && !song_error_ptr().is_null());
         assert_eq!(song_frags(), 1, "the old song stays");
+        assert_eq!(
+            (song_bars(), song_entry(), song_local()),
+            (0, -1, -1),
+            "no arrangement"
+        );
+        // The arranger's calls (#171): a section, an entry, a toggle, a loop.
+        assert_eq!(arr_edit(1, 2, 0, 0), 0, "a new section of two bars");
+        assert_eq!(
+            (
+                song_sections(),
+                arrange_len(),
+                arrange_at(0),
+                section_bars(0)
+            ),
+            (1, 1, 0, 2)
+        );
+        assert_eq!(section_name_len(0), 5, "part1");
+        assert_eq!(arr_edit(0, 0, 0, 0), 0, "the frag into it");
+        assert_eq!(section_has(0, 0, 0), 1);
+        assert_eq!(arr_edit(6, 1, 2, 0), 0);
+        assert_eq!((loop_from(), loop_to(), song_bars()), (1, 2, 2));
+        assert_eq!(arr_edit(6, 1, 3, 0), -1, "past the end");
+        assert_eq!(arr_edit(9, 0, 0, 0), -1, "no such edit");
+        assert_eq!((song_autos(), song_scenes()), (0, 0));
         assert!(song_buf(u32::MAX).is_null());
         assert_eq!(song_playing(), 0);
         song_play();

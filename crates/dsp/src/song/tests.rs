@@ -116,10 +116,10 @@ fn every_error_says_where() {
         ),
         ("  bd x...", 1, 3, "a lane goes under a frag"),
         (
-            "loop a",
+            "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, track or frag",
+            "a line starts with tempo, swing, scale, track, frag, auto, scene, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -646,4 +646,363 @@ fn an_electro_example_parses_and_prints_back() {
     let s = Song::parse(ELECTRO).expect("parses");
     assert_eq!((s.tracks.len(), s.frags.len()), (3, 5));
     assert_eq!(Song::parse(&s.print()), Ok(s));
+}
+
+const ARRANGED: &str = "\
+track kit drums
+frag beat = kit /16
+  bd x...x...x...x...
+frag fill = kit /16
+  sn ..x.
+section intro 2: beat
+section main 4 : beat fill
+section gap 1:
+arrange intro main main gap
+loop 3 6
+";
+
+/// Spec 002 Req 4: sections, the arrangement and a loop region parse and
+/// print canonically.
+#[test]
+fn sections_and_the_arrangement_parse_and_print() {
+    let s = Song::parse(ARRANGED).expect("parses");
+    assert_eq!(s.sections.len(), 3);
+    assert_eq!(
+        s.sections[1],
+        Section {
+            name: "main".into(),
+            bars: 4,
+            frags: vec![0, 1],
+            autos: vec![],
+            scenes: vec![],
+        }
+    );
+    assert_eq!(
+        s.sections[2].frags,
+        Vec::<usize>::new(),
+        "an empty section is silent bars"
+    );
+    assert_eq!(s.arrange, vec![0, 1, 1, 2]);
+    assert_eq!(s.loop_bars, Some((3, 6)));
+    assert_eq!(s.bars(), 11);
+    let text = s.print();
+    assert!(text.ends_with("section intro 2: beat\nsection main 4: beat fill\nsection gap 1:\narrange intro main main gap\nloop 3 6\n"), "{text}");
+    assert_eq!(Song::parse(&text), Ok(s));
+}
+
+#[test]
+fn a_step_falls_in_its_section_and_the_loop_wraps() {
+    let s = Song::parse(ARRANGED).expect("parses");
+    assert_eq!(
+        s.at(0),
+        At::In {
+            entry: 0,
+            section: 0,
+            local: 0
+        }
+    );
+    assert_eq!(
+        s.at(31),
+        At::In {
+            entry: 0,
+            section: 0,
+            local: 31
+        }
+    );
+    assert_eq!(
+        s.at(32),
+        At::In {
+            entry: 1,
+            section: 1,
+            local: 0
+        }
+    );
+    // Bars 3 to 6 are steps 32..96; step 96 wraps back to 32.
+    assert_eq!(
+        s.at(96),
+        At::In {
+            entry: 1,
+            section: 1,
+            local: 0
+        }
+    );
+    assert_eq!(
+        s.at(96 + 63),
+        At::In {
+            entry: 1,
+            section: 1,
+            local: 63
+        }
+    );
+    let mut no_loop = s.clone();
+    no_loop.loop_bars = None;
+    assert_eq!(
+        no_loop.at(96),
+        At::In {
+            entry: 2,
+            section: 1,
+            local: 0
+        },
+        "main again, from its start"
+    );
+    assert_eq!(
+        no_loop.at(160),
+        At::In {
+            entry: 3,
+            section: 2,
+            local: 0
+        }
+    );
+    assert_eq!(no_loop.at(176), At::End);
+    assert_eq!(
+        Song::parse("track kit drums").expect("parses").at(7),
+        At::Free(7)
+    );
+}
+
+#[test]
+fn arrangement_errors_say_where() {
+    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let cases: [(&str, usize, usize, &str); 12] = [
+        (
+            "section 1a 2: b",
+            4,
+            9,
+            "a name is a letter, then letters, digits or _",
+        ),
+        ("section a", 4, 10, "a number of bars and : go here"),
+        ("section a 2 b", 4, 13, ": goes here, after the bars"),
+        ("section a 0: b", 4, 11, "a section is 1 to 256 bars"),
+        ("section a 300: b", 4, 11, "a section is 1 to 256 bars"),
+        (
+            "section a 2: c",
+            4,
+            14,
+            "no frag, auto or [scene] has this name",
+        ),
+        (
+            "section a 2: b b",
+            4,
+            16,
+            "this frag is already in the section",
+        ),
+        (
+            "section a 2: b\nsection a 1: b",
+            5,
+            9,
+            "there is already a section with this name",
+        ),
+        ("arrange x", 4, 9, "no section has this name"),
+        (
+            "section a 2: b\narrange",
+            5,
+            8,
+            "sections go here, in the order they play",
+        ),
+        (
+            "section a 2: b\narrange a\nloop 2 3",
+            6,
+            1,
+            "the loop ends after the arrangement",
+        ),
+        ("loop 1 1", 4, 1, "a loop needs an arrange line"),
+    ];
+    for (tail, line, col, msg) in cases {
+        let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
+    }
+    let err =
+        Song::parse(&format!("{head}section a 1:\narrange a\nloop 3 2")).expect_err("backwards");
+    assert_eq!(err.msg, "the last bar comes after the first");
+    let err = Song::parse(&format!("{head}section a 1:\narrange a\narrange a")).expect_err("two");
+    assert_eq!(err.msg, "a song has one arrange line");
+}
+
+const AUTOMATED: &str = "\
+track kit drums
+frag beat = kit /16
+  bd x...
+auto sweep = kit.Cutoff ramp 300 4000 /2
+auto duck = strip3.Level 1 0.5 0.25 1 /1
+auto wet = master.P2Return 0 0.4 /4
+scene drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4
+section a 2: beat sweep [drop]
+section b 1: duck wet
+arrange a b
+";
+
+/// ADR-0015: automation lanes and scenes, by parameter name on a target,
+/// parse and print canonically.
+#[test]
+fn automation_and_scenes_parse_and_print() {
+    let s = Song::parse(AUTOMATED).expect("parses");
+    assert_eq!(s.autos.len(), 3);
+    assert_eq!(s.autos[0].target, Target::Track(0));
+    assert_eq!(s.autos[0].param, Param::Cutoff);
+    assert_eq!(s.autos[0].shape, Shape::Ramp(300.0, 4000.0));
+    assert_eq!(s.autos[1].target, Target::Strip(2));
+    assert_eq!(s.autos[1].shape, Shape::Steps(vec![1.0, 0.5, 0.25, 1.0]));
+    assert_eq!(s.autos[2].target, Target::Master);
+    assert_eq!(
+        s.scenes[0].sets,
+        vec![
+            (Target::Strip(0), Param::Mute, 1.0),
+            (Target::Strip(17), Param::Send1, 0.5),
+            (Target::Master, Param::P2Return, 0.4)
+        ]
+    );
+    assert_eq!(
+        (s.sections[0].autos.clone(), s.sections[0].scenes.clone()),
+        (vec![0], vec![0])
+    );
+    assert_eq!(s.sections[1].autos, vec![1, 2]);
+    let text = s.print();
+    assert!(
+        text.contains("auto sweep = kit.Cutoff ramp 300 4000 /2\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("scene drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4\n"),
+        "{text}"
+    );
+    assert!(text.contains("section a 2: beat sweep [drop]\n"), "{text}");
+    assert_eq!(Song::parse(&text), Ok(s));
+}
+
+#[test]
+fn a_lane_steps_or_ramps_over_its_length_and_loops() {
+    let s = Song::parse(AUTOMATED).expect("parses");
+    let (ramp, steps) = (&s.autos[0], &s.autos[1]);
+    assert_eq!(ramp.value_at(0.0), 300.0);
+    assert_eq!(ramp.value_at(16.0), 2150.0, "half way over two bars");
+    assert!((ramp.value_at(31.999) - 4000.0).abs() < 1.0);
+    assert_eq!(ramp.value_at(32.0), 300.0, "and round again");
+    assert_eq!(
+        [0.0, 3.9, 4.0, 8.0, 12.0, 15.9].map(|t| steps.value_at(t)),
+        [1.0, 1.0, 0.5, 0.25, 1.0, 1.0]
+    );
+}
+
+#[test]
+fn automation_errors_say_where() {
+    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let cases: [(&str, usize, usize, &str); 11] = [
+        (
+            "auto a = strip1.Level 1 /0",
+            4,
+            25,
+            "a length in bars goes last: /1 to /256",
+        ),
+        (
+            "auto a = strip1.Level /1",
+            4,
+            23,
+            "values or a ramp go before the length",
+        ),
+        (
+            "auto a = strip1.Nope 1 /1",
+            4,
+            10,
+            "no parameter has this name",
+        ),
+        (
+            "auto a = strip17.Level 1 /1",
+            4,
+            10,
+            "a target is a track, strip1–16, group1–8 or master",
+        ),
+        (
+            "auto a = group1.Cutoff 1 /1",
+            4,
+            10,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "auto a = master.Level 1 /1",
+            4,
+            10,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "auto a = kit.Model 1 /1",
+            4,
+            10,
+            "the model and the routing can't be automated",
+        ),
+        (
+            "auto a = kit.Cutoff ramp 1 /1",
+            4,
+            21,
+            "a ramp goes from one value to another",
+        ),
+        (
+            "auto b = kit.Cutoff 1 /1",
+            4,
+            6,
+            "there is already a frag or auto with this name",
+        ),
+        (
+            "scene s: strip1.Mute 1 strip2.Mute 1",
+            4,
+            24,
+            "a comma goes between settings",
+        ),
+        ("section a 1: [none]", 4, 14, "no scene has this name"),
+    ];
+    for (tail, line, col, msg) in cases {
+        let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
+    }
+}
+
+/// #171: arranger edits keep the song valid and print back as text.
+#[test]
+fn arranger_edits_change_the_song_and_its_text() {
+    let mut s = Song::parse(AUTOMATED).expect("parses");
+    // Toggle: take the beat out of section a, put the lane duck in, the scene out.
+    assert!(s.toggle(0, 0, 0));
+    assert!(s.toggle(0, 1, 1));
+    assert!(s.toggle(0, 2, 0));
+    assert_eq!(
+        (
+            s.sections[0].frags.clone(),
+            s.sections[0].autos.clone(),
+            s.sections[0].scenes.clone()
+        ),
+        (vec![], vec![0, 1], vec![])
+    );
+    assert!(
+        !s.toggle(0, 0, 9) && !s.toggle(9, 0, 0) && !s.toggle(0, 3, 0),
+        "no such item, section or kind"
+    );
+    // Add a section: named partN, appended to the arrangement.
+    assert_eq!(s.add_section(4), Some(2));
+    assert_eq!(
+        (s.sections[2].name.as_str(), s.arrange.clone()),
+        ("part1", vec![0, 1, 2])
+    );
+    assert_eq!(s.add_section(0), None);
+    // Insert, move and remove entries.
+    assert!(s.arrange_insert(0, 1));
+    assert_eq!(s.arrange, vec![1, 0, 1, 2]);
+    assert!(s.arrange_move(0, 3));
+    assert_eq!(s.arrange, vec![0, 1, 2, 1]);
+    assert!(!s.arrange_insert(9, 0) && !s.arrange_insert(0, 9) && !s.arrange_move(0, 9));
+    assert_eq!(s.bars(), 2 + 1 + 4 + 1);
+    // Loop, then shrink the song under it: the loop goes.
+    assert!(s.set_loop(3, 7) && !s.set_loop(3, 9) && !s.set_loop(0, 2));
+    assert!(s.arrange_remove(2));
+    assert_eq!(s.loop_bars, None, "bar 7 is gone");
+    assert!(s.set_loop(1, 2) && s.set_loop(0, 0));
+    assert_eq!(s.loop_bars, None);
+    assert!(s.set_bars(2, 8) && !s.set_bars(2, 0));
+    // The text says it all, and parses back to the same song.
+    let text = s.print();
+    assert!(
+        text.contains("section a 2: sweep duck\n")
+            && text.contains("section part1 8:\n")
+            && text.contains("arrange a b b\n"),
+        "{text}"
+    );
+    assert_eq!(Song::parse(&text), Ok(s));
 }

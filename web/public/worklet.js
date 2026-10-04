@@ -60,6 +60,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songTempo': w.song_tempo(data.v); this.sendSong(true); break
         case 'songSwing': w.song_swing(data.v); this.sendSong(true); break
         case 'songDump': this.sendSong(true); break
+        case 'arr': w.arr_edit(data.op, data.a ?? 0, data.b ?? 0, data.c ?? 0); this.sendSong(true); break
+        case 'songSeek': w.song_seek_bar(data.bar); break
         case 'songPlay': w.song_play(); break
         case 'songStop': w.song_stop(); break
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
@@ -196,12 +198,26 @@ class EngineProcessor extends AudioWorkletProcessor {
       const notes = w.frag_notes_len(f) ? { text: bytes(w.frag_notes_ptr(f), w.frag_notes_len(f)), bars: w.frag_bars(f) } : null
       frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes, notes })
     }
+    // The arrangement (ADR-0015): sections with what each holds, the order, lanes, scenes, loop.
+    const nF = w.song_frags(), nA = w.song_autos(), nC = w.song_scenes()
+    const has = (s, kind, n) => Array.from({ length: n }, (_, i) => w.section_has(s, kind, i) === 1)
+    const sections = []
+    for (let s = 0; s < w.song_sections(); s++) {
+      sections.push({
+        name: bytes(w.section_name_ptr(s), w.section_name_len(s)), bars: w.section_bars(s),
+        frags: has(s, 0, nF), autos: has(s, 1, nA), scenes: has(s, 2, nC),
+      })
+    }
+    const arrange = Array.from({ length: w.arrange_len() }, (_, i) => w.arrange_at(i))
+    const autos = Array.from({ length: nA }, (_, a) => bytes(w.auto_name_ptr(a), w.auto_name_len(a)))
+    const scenes = Array.from({ length: nC }, (_, c) => bytes(w.scene_name_ptr(c), w.scene_name_len(c)))
     const error = ok
       ? null
       : { line: w.song_error_line(), col: w.song_error_col(), msg: bytes(w.song_error_ptr(), w.song_error_len()) }
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
+      sections, arrange, autos, scenes, loop: [w.loop_from(), w.loop_to()],
     })
   }
 
@@ -240,7 +256,11 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.port.postMessage({
         t: 'pos', sec: w.position(), playing: w.playing() === 1,
         step: w.clock_step(), songPlaying: w.song_playing() === 1,
+        entry: w.song_entry(), local: w.song_local(),
       })
+      // Automation moved these strips' values: show them (ADR-0015).
+      const touched = w.auto_touched()
+      for (let s = 0; s < 32; s++) if ((touched >>> s) & 1) this.sendParams(s)
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()

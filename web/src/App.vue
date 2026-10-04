@@ -3,6 +3,7 @@
 // console with the MIDI player across the bottom, or the composer on a screen
 // of its own.
 import { status, synths, view } from './audio/engine'
+import ArrangerPane from './components/ArrangerPane.vue'
 import ComposerPane from './components/ComposerPane.vue'
 import ConsolePane from './components/ConsolePane.vue'
 import KnobPop from './components/console/KnobPop.vue'
@@ -29,7 +30,15 @@ function openSynth(s: number) {
     <InstrumentsPane v-show="view.main === 'synths'" class="main" />
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <ComposerPane v-if="view.main === 'composer'" class="main" />
-    <PlayerPane v-show="view.main !== 'composer'" class="player" />
+    <!-- The bottom pane: the arranger (also under the composer) or the MIDI file player. -->
+    <div class="player bottom">
+      <nav v-if="view.main !== 'composer'" class="tabs" aria-label="Bottom pane">
+        <button :aria-pressed="view.bottom === 'arranger'" @click="view.bottom = 'arranger'">Arranger</button>
+        <button :aria-pressed="view.bottom === 'player'" @click="view.bottom = 'player'">MIDI player</button>
+      </nav>
+      <ArrangerPane v-if="view.main === 'composer' || view.bottom === 'arranger'" class="fill" />
+      <PlayerPane v-else class="fill" />
+    </div>
     <!-- One popover for every knob, in the synths and in the mixer. -->
     <KnobPop />
   </div>
@@ -49,7 +58,7 @@ function openSynth(s: number) {
     'player';
 }
 .layout.mixer { grid-template-rows: auto minmax(0, 1fr) 200px; }
-.layout.composer { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'transport' 'main'; }
+.layout.composer { grid-template-rows: auto minmax(0, 1fr) minmax(180px, 30vh); }
 .transport { grid-area: transport; display: flex; flex-direction: column; gap: 6px; }
 .banner {
   margin: 0; padding: 8px 14px; border-radius: 4px; border: 1px solid #e0654f; background: #4a1d17; color: #ffd9d0;
@@ -57,4 +66,9 @@ function openSynth(s: number) {
 }
 .main { grid-area: main; }
 .player { grid-area: player; }
+.bottom { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.bottom .fill { flex: 1; }
+.tabs { display: flex; gap: 2px; }
+.tabs button { padding: 2px 10px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tabs button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
 </style>

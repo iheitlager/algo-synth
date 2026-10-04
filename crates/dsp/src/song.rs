@@ -9,6 +9,11 @@
 //! frag beat = kit /16
 //!   bd x...x...x...x...
 //!   sn ....X.......X..x
+//!
+//! section intro 4: beat
+//! section main 8: beat fill
+//! arrange intro main main
+//! loop 5 12
 //! ```
 //!
 //! A `synth` track holds note fragments instead (spec 002 Req 3, ADR-0016):
@@ -20,6 +25,28 @@
 //!   "c4 [e4 g4] ~ <c5 d5>"      # or classic: c4:4 e4:8 g4:8 c5:2
 //! ```
 //!
+//! Sections and the arrangement (ADR-0015, spec 002 Req 4): a section is a
+//! number of bars and the fragments that play in it, each from the section's
+//! first bar and looping inside it; `arrange` plays sections in order, and
+//! `loop` repeats a range of the arrangement's bars (from 1, inclusive).
+//! Without `arrange` every fragment loops, as before.
+//!
+//! Scenes and automation (ADR-0015): any parameter, by its registry name, on a
+//! target: a track (its synth), `strip1`–`strip16`, `group1`–`group8` or
+//! `master` (the global parameters):
+//!
+//! ```text
+//! auto sweep = kit.Cutoff ramp 300 4000 /8
+//! auto duck = strip3.Level 1 0.5 0.25 1 /1
+//! scene drop: strip1.Mute 1, master.P2Return 0.4
+//! section main 8: beat sweep duck [drop]
+//! ```
+//!
+//! A lane of values (spread evenly over its bars) or a ramp is placed in
+//! sections like a fragment and loops inside them; a scene sets its values on
+//! the first step of a section that lists it. Without `arrange` every lane
+//! loops and no scene is applied.
+//!
 //! Parsing and printing allocate, so they run when a song is loaded or a step
 //! edited, never in `render`; the engine plays the parsed song in place. Both
 //! are total: whatever the text, the parser returns a song or an error with a
@@ -29,11 +56,26 @@
 use crate::algo::{Euclid, Mode, Scale};
 use crate::drums::Pad;
 use crate::notes::{self, Notes};
+use crate::params::Param;
 
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
 pub const MAX_FRAGS: usize = 32;
 pub const MAX_STEPS: usize = 64;
+/// Most sections, entries in the arrangement and bars in a section.
+pub const MAX_SECTIONS: usize = 64;
+pub const MAX_ARRANGE: usize = 256;
+pub const MAX_BARS: u32 = 256;
+/// Most automation lanes, values in a lane, scenes and settings in a scene.
+pub const MAX_AUTOS: usize = 32;
+pub const MAX_VALUES: usize = 64;
+pub const MAX_SCENES: usize = 32;
+pub const MAX_SETS: usize = 32;
+/// Synth strips and group buses (ADR-0010).
+const STRIPS: usize = 16;
+const GROUPS: usize = 8;
+/// Clock steps (sixteenths) in a bar.
+pub const STEPS_PER_BAR: u64 = 16;
 /// Longest song text accepted, in bytes.
 pub const MAX_TEXT: usize = 1 << 20;
 /// Longest name of a track or fragment.
@@ -128,6 +170,83 @@ impl Kind {
     }
 }
 
+/// Bars of the song and the fragments that play in them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Section {
+    pub name: String,
+    pub bars: u32,
+    /// Indices into `Song::frags`.
+    pub frags: Vec<usize>,
+    /// Indices into `Song::autos` and `Song::scenes`.
+    pub autos: Vec<usize>,
+    pub scenes: Vec<usize>,
+}
+
+/// What a scene or lane sets: a track's synth, a strip (synths 0–15, groups
+/// 16–23) or the global parameters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Track(usize),
+    Strip(usize),
+    Master,
+}
+
+/// How a lane moves over its length.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Shape {
+    /// Values spread evenly over the lane, each held for its share.
+    Steps(Vec<f32>),
+    /// From the first value to the second, linearly.
+    Ramp(f32, f32),
+}
+
+/// An automation lane: one parameter of one target over `bars` bars.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Auto {
+    pub name: String,
+    pub target: Target,
+    pub param: Param,
+    pub shape: Shape,
+    pub bars: u32,
+}
+
+impl Auto {
+    /// The value `steps` (fractional) into the lane; it loops on its length.
+    pub fn value_at(&self, steps: f64) -> f32 {
+        let len = f64::from(self.bars) * STEPS_PER_BAR as f64;
+        let phase = (steps.rem_euclid(len) / len).clamp(0.0, 1.0);
+        match &self.shape {
+            Shape::Steps(v) => {
+                let i = ((phase * v.len() as f64) as usize).min(v.len().saturating_sub(1));
+                v.get(i).copied().unwrap_or(0.0)
+            }
+            Shape::Ramp(a, b) => a + (b - a) * phase as f32,
+        }
+    }
+}
+
+/// Values set together on the first step of a section.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene {
+    pub name: String,
+    pub sets: Vec<(Target, Param, f32)>,
+}
+
+/// Where clock step `k` falls in the song.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum At {
+    /// No arrangement: every fragment loops on the clock's step.
+    Free(u64),
+    /// In arrangement entry `entry`, which plays `section`, `local` steps in.
+    In {
+        entry: usize,
+        section: usize,
+        local: u64,
+    },
+    /// Past the end of the arrangement.
+    End,
+}
+
 /// A track of the song; the engine routes it to a synth.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
@@ -143,6 +262,13 @@ pub struct Song {
     pub scale: Option<Scale>,
     pub tracks: Vec<Track>,
     pub frags: Vec<Fragment>,
+    pub autos: Vec<Auto>,
+    pub scenes: Vec<Scene>,
+    pub sections: Vec<Section>,
+    /// The order sections play in, by index; empty means no arrangement.
+    pub arrange: Vec<usize>,
+    /// Bars of the arrangement to repeat, from 1 and inclusive.
+    pub loop_bars: Option<(u32, u32)>,
 }
 
 impl Default for Song {
@@ -153,6 +279,11 @@ impl Default for Song {
             scale: None,
             tracks: Vec::new(),
             frags: Vec::new(),
+            autos: Vec::new(),
+            scenes: Vec::new(),
+            sections: Vec::new(),
+            arrange: Vec::new(),
+            loop_bars: None,
         }
     }
 }
@@ -245,6 +376,8 @@ impl Song {
         let mut song = Song::default();
         // The fragment that indented lines add lanes to, and the line it began on.
         let mut open: Option<(usize, usize)> = None;
+        // The line of the `loop`, checked against the arrangement at the end.
+        let mut loop_at: Option<usize> = None;
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
@@ -404,8 +537,13 @@ impl Song {
                             "a name is a letter, then letters, digits or _",
                         ));
                     }
-                    if song.frags.iter().any(|f| f.name == name.text) {
-                        return Err(err(name.col, "there is already a frag with this name"));
+                    if song.frags.iter().any(|f| f.name == name.text)
+                        || song.autos.iter().any(|a| a.name == name.text)
+                    {
+                        return Err(err(
+                            name.col,
+                            "there is already a frag or auto with this name",
+                        ));
                     }
                     let eq = arg(2, "= and a track go here")?;
                     if eq.text != "=" {
@@ -443,10 +581,241 @@ impl Song {
                     });
                     open = Some((song.frags.len() - 1, line));
                 }
+                "section" => {
+                    let name = arg(1, "a section name goes here")?;
+                    if !is_name(name.text) {
+                        return Err(err(
+                            name.col,
+                            "a name is a letter, then letters, digits or _",
+                        ));
+                    }
+                    if song.sections.iter().any(|s| s.name == name.text) {
+                        return Err(err(name.col, "there is already a section with this name"));
+                    }
+                    let bars_word = arg(2, "a number of bars and : go here")?;
+                    // `8:` or `8 :`.
+                    let (count, mut k) = match bars_word.text.strip_suffix(':') {
+                        Some(n) => (n, 3),
+                        None => {
+                            let colon = arg(3, ": goes here, after the bars")?;
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": goes here, after the bars"));
+                            }
+                            (bars_word.text, 4)
+                        }
+                    };
+                    let bars: u32 = count
+                        .parse()
+                        .ok()
+                        .filter(|b| (1..=MAX_BARS).contains(b))
+                        .ok_or(err(bars_word.col, "a section is 1 to 256 bars"))?;
+                    let (mut frags, mut autos, mut scenes) = (Vec::new(), Vec::new(), Vec::new());
+                    while let Some(w) = ws.get(k) {
+                        k += 1;
+                        if let Some(name) =
+                            w.text.strip_prefix('[').and_then(|n| n.strip_suffix(']'))
+                        {
+                            let Some(s) = song.scenes.iter().position(|s| s.name == name) else {
+                                return Err(err(w.col, "no scene has this name"));
+                            };
+                            if scenes.contains(&s) {
+                                return Err(err(w.col, "this scene is already in the section"));
+                            }
+                            scenes.push(s);
+                        } else if let Some(a) = song.autos.iter().position(|a| a.name == w.text) {
+                            if autos.contains(&a) {
+                                return Err(err(w.col, "this auto is already in the section"));
+                            }
+                            autos.push(a);
+                        } else {
+                            let Some(f) = song.frags.iter().position(|f| f.name == w.text) else {
+                                return Err(err(w.col, "no frag, auto or [scene] has this name"));
+                            };
+                            if frags.contains(&f) {
+                                return Err(err(w.col, "this frag is already in the section"));
+                            }
+                            frags.push(f);
+                        }
+                    }
+                    if song.sections.len() >= MAX_SECTIONS {
+                        return Err(err(first.col, "a song has at most 64 sections"));
+                    }
+                    song.sections.push(Section {
+                        name: name.text.to_string(),
+                        bars,
+                        frags,
+                        autos,
+                        scenes,
+                    });
+                }
+                "auto" => {
+                    let name = arg(1, "an auto name goes here")?;
+                    if !is_name(name.text) {
+                        return Err(err(
+                            name.col,
+                            "a name is a letter, then letters, digits or _",
+                        ));
+                    }
+                    if song.autos.iter().any(|a| a.name == name.text)
+                        || song.frags.iter().any(|f| f.name == name.text)
+                    {
+                        return Err(err(
+                            name.col,
+                            "there is already a frag or auto with this name",
+                        ));
+                    }
+                    let eq = arg(2, "= and a target.Param go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a target.Param go here"));
+                    }
+                    let tp = arg(3, "a target.Param goes here")?;
+                    let (target, param) =
+                        target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                    let Some(last) = ws.last() else {
+                        return Err(err(first.col, "a length in bars goes here: /4"));
+                    };
+                    let bars: u32 = last
+                        .text
+                        .strip_prefix('/')
+                        .and_then(|n| n.parse().ok())
+                        .filter(|b| (1..=MAX_BARS).contains(b))
+                        .ok_or(err(last.col, "a length in bars goes last: /1 to /256"))?;
+                    let values = ws.get(4..ws.len().saturating_sub(1)).unwrap_or(&[]);
+                    let number = |w: &Word<'_>| {
+                        w.text
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|v| v.is_finite())
+                            .ok_or(err(w.col, "a value is a number"))
+                    };
+                    let shape = match values.first() {
+                        Some(w) if w.text == "ramp" => {
+                            let (Some(a), Some(b)) = (values.get(1), values.get(2)) else {
+                                return Err(err(w.col, "a ramp goes from one value to another"));
+                            };
+                            if let Some(extra) = values.get(3) {
+                                return Err(err(extra.col, "unexpected text"));
+                            }
+                            Shape::Ramp(number(a)?, number(b)?)
+                        }
+                        Some(_) => {
+                            if values.len() > MAX_VALUES {
+                                return Err(err(tp.col, "a lane has at most 64 values"));
+                            }
+                            Shape::Steps(values.iter().map(number).collect::<Result<_, _>>()?)
+                        }
+                        None => return Err(err(last.col, "values or a ramp go before the length")),
+                    };
+                    if song.autos.len() >= MAX_AUTOS {
+                        return Err(err(first.col, "a song has at most 32 autos"));
+                    }
+                    song.autos.push(Auto {
+                        name: name.text.to_string(),
+                        target,
+                        param,
+                        shape,
+                        bars,
+                    });
+                }
+                "scene" => {
+                    let w = arg(1, "a scene name and : go here")?;
+                    let name = w.text.strip_suffix(':').unwrap_or(w.text);
+                    if !is_name(name) {
+                        return Err(err(w.col, "a name is a letter, then letters, digits or _"));
+                    }
+                    if song.scenes.iter().any(|s| s.name == name) {
+                        return Err(err(w.col, "there is already a scene with this name"));
+                    }
+                    let mut k = 2;
+                    if !w.text.ends_with(':') {
+                        let colon = arg(2, ": goes here, after the name")?;
+                        if colon.text != ":" {
+                            return Err(err(colon.col, ": goes here, after the name"));
+                        }
+                        k = 3;
+                    }
+                    let mut sets = Vec::new();
+                    while let Some(tp) = ws.get(k) {
+                        let (target, param) =
+                            target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let text = v.text.strip_suffix(',').unwrap_or(v.text);
+                        let value = text
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|x| x.is_finite())
+                            .ok_or(err(v.col, "a value is a number"))?;
+                        if sets.len() >= MAX_SETS {
+                            return Err(err(tp.col, "a scene has at most 32 settings"));
+                        }
+                        sets.push((target, param, value));
+                        k += 2;
+                        if !v.text.ends_with(',') {
+                            if let Some(extra) = ws.get(k) {
+                                return Err(err(extra.col, "a comma goes between settings"));
+                            }
+                        }
+                    }
+                    if sets.is_empty() {
+                        return Err(err(
+                            body.trim_end().chars().count() + 1,
+                            "settings go here: target.Param value, …",
+                        ));
+                    }
+                    if song.scenes.len() >= MAX_SCENES {
+                        return Err(err(first.col, "a song has at most 32 scenes"));
+                    }
+                    song.scenes.push(Scene {
+                        name: name.to_string(),
+                        sets,
+                    });
+                }
+                "arrange" => {
+                    if !song.arrange.is_empty() {
+                        return Err(err(first.col, "a song has one arrange line"));
+                    }
+                    let mut order = Vec::new();
+                    for w in ws.iter().skip(1) {
+                        let Some(s) = song.sections.iter().position(|s| s.name == w.text) else {
+                            return Err(err(w.col, "no section has this name"));
+                        };
+                        if order.len() >= MAX_ARRANGE {
+                            return Err(err(w.col, "an arrangement has at most 256 sections"));
+                        }
+                        order.push(s);
+                    }
+                    if order.is_empty() {
+                        return Err(err(
+                            body.trim_end().chars().count() + 1,
+                            "sections go here, in the order they play",
+                        ));
+                    }
+                    song.arrange = order;
+                }
+                "loop" => {
+                    let bar = |k: usize| -> Result<u32, SongError> {
+                        let w = arg(k, "the first and last bar go here")?;
+                        w.text
+                            .parse()
+                            .ok()
+                            .filter(|b| *b >= 1)
+                            .ok_or(err(w.col, "a bar counts from 1"))
+                    };
+                    let (from, to) = (bar(1)?, bar(2)?);
+                    expect_end(3)?;
+                    if to < from {
+                        return Err(err(first.col, "the last bar comes after the first"));
+                    }
+                    loop_at = Some(line);
+                    song.loop_bars = Some((from, to));
+                }
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, track or frag",
+                        "a line starts with tempo, swing, scale, track, frag, auto, scene, section, arrange or loop",
                     ));
                 }
             }
@@ -454,7 +823,60 @@ impl Song {
         if let Some((f, at)) = open {
             check_lanes(&song, f, at)?;
         }
+        if let (Some(line), Some((_, to))) = (loop_at, song.loop_bars) {
+            let msg = if song.arrange.is_empty() {
+                Some("a loop needs an arrange line")
+            } else if u64::from(to) > song.bars() {
+                Some("the loop ends after the arrangement")
+            } else {
+                None
+            };
+            if let Some(msg) = msg {
+                return Err(SongError { line, col: 1, msg });
+            }
+        }
         Ok(song)
+    }
+
+    /// Bars in the arrangement; 0 without one.
+    pub fn bars(&self) -> u64 {
+        self.arrange
+            .iter()
+            .filter_map(|s| self.sections.get(*s))
+            .map(|s| u64::from(s.bars))
+            .sum()
+    }
+
+    /// Where clock step `k` falls: inside the loop region the song wraps.
+    /// Scans the arrangement (at most `MAX_ARRANGE` entries); never allocates.
+    pub fn at(&self, k: u64) -> At {
+        if self.arrange.is_empty() {
+            return At::Free(k);
+        }
+        let mut s = k;
+        if let Some((from, to)) = self.loop_bars {
+            let start = u64::from(from - 1) * STEPS_PER_BAR;
+            let end = u64::from(to) * STEPS_PER_BAR;
+            if s >= end && end > start {
+                s = start + (s - start) % (end - start);
+            }
+        }
+        let mut begin = 0;
+        for (entry, sec) in self.arrange.iter().enumerate() {
+            let Some(section) = self.sections.get(*sec) else {
+                continue;
+            };
+            let len = u64::from(section.bars) * STEPS_PER_BAR;
+            if s < begin + len {
+                return At::In {
+                    entry,
+                    section: *sec,
+                    local: s - begin,
+                };
+            }
+            begin += len;
+        }
+        At::End
     }
 
     /// The canonical text: parsing it gives this song back.
@@ -496,6 +918,71 @@ impl Song {
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
         }
+        if !self.autos.is_empty() || !self.scenes.is_empty() {
+            lines.push(String::new());
+        }
+        for a in &self.autos {
+            let shape = match &a.shape {
+                Shape::Steps(v) => v
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                Shape::Ramp(x, y) => format!("ramp {x} {y}"),
+            };
+            lines.push(format!(
+                "auto {} = {}.{} {} /{}",
+                a.name,
+                self.target_name(a.target),
+                param_name(a.param),
+                shape,
+                a.bars
+            ));
+        }
+        for s in &self.scenes {
+            let sets: Vec<String> = s
+                .sets
+                .iter()
+                .map(|(t, p, v)| format!("{}.{} {}", self.target_name(*t), param_name(*p), v))
+                .collect();
+            lines.push(format!("scene {}: {}", s.name, sets.join(", ")));
+        }
+        if !self.sections.is_empty() {
+            lines.push(String::new());
+        }
+        for s in &self.sections {
+            let mut line = format!("section {} {}:", s.name, s.bars);
+            let names = s
+                .frags
+                .iter()
+                .filter_map(|f| self.frags.get(*f).map(|x| x.name.clone()))
+                .chain(
+                    s.autos
+                        .iter()
+                        .filter_map(|a| self.autos.get(*a).map(|x| x.name.clone())),
+                )
+                .chain(
+                    s.scenes
+                        .iter()
+                        .filter_map(|c| self.scenes.get(*c).map(|x| format!("[{}]", x.name))),
+                );
+            for n in names {
+                line.push(' ');
+                line.push_str(&n);
+            }
+            lines.push(line);
+        }
+        if !self.arrange.is_empty() {
+            let names: Vec<&str> = self
+                .arrange
+                .iter()
+                .filter_map(|s| self.sections.get(*s).map(|s| s.name.as_str()))
+                .collect();
+            lines.push(format!("arrange {}", names.join(" ")));
+        }
+        if let Some((from, to)) = self.loop_bars {
+            lines.push(format!("loop {from} {to}"));
+        }
         lines.push(String::new());
         lines.join("\n")
     }
@@ -524,6 +1011,133 @@ impl Song {
         }
     }
 
+    // --- Arranger edits (#171): each keeps the song valid, false when refused.
+
+    /// Put fragment (`kind` 0), lane (1) or scene (2) `item` in section `s`,
+    /// or take it out.
+    pub fn toggle(&mut self, s: usize, kind: u32, item: usize) -> bool {
+        let exists = match kind {
+            0 => item < self.frags.len(),
+            1 => item < self.autos.len(),
+            2 => item < self.scenes.len(),
+            _ => false,
+        };
+        let Some(sec) = self.sections.get_mut(s) else {
+            return false;
+        };
+        let list = match kind {
+            0 => &mut sec.frags,
+            1 => &mut sec.autos,
+            _ => &mut sec.scenes,
+        };
+        if !exists {
+            return false;
+        }
+        match list.iter().position(|i| *i == item) {
+            Some(at) => {
+                list.remove(at);
+            }
+            None => list.push(item),
+        }
+        true
+    }
+
+    /// A new empty section of `bars` bars named `partN`, added to the end of
+    /// the arrangement; its index.
+    pub fn add_section(&mut self, bars: u32) -> Option<usize> {
+        if self.sections.len() >= MAX_SECTIONS
+            || self.arrange.len() >= MAX_ARRANGE
+            || !(1..=MAX_BARS).contains(&bars)
+        {
+            return None;
+        }
+        let name = (1..)
+            .map(|n| format!("part{n}"))
+            .find(|n| !self.sections.iter().any(|s| &s.name == n))?;
+        self.sections.push(Section {
+            name,
+            bars,
+            frags: Vec::new(),
+            autos: Vec::new(),
+            scenes: Vec::new(),
+        });
+        let s = self.sections.len() - 1;
+        self.arrange.push(s);
+        Some(s)
+    }
+
+    pub fn set_bars(&mut self, s: usize, bars: u32) -> bool {
+        match self.sections.get_mut(s) {
+            Some(sec) if (1..=MAX_BARS).contains(&bars) => {
+                sec.bars = bars;
+                self.fit_loop();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Play section `s` at place `at` of the arrangement (`at` may be its length).
+    pub fn arrange_insert(&mut self, at: usize, s: usize) -> bool {
+        if s >= self.sections.len() || at > self.arrange.len() || self.arrange.len() >= MAX_ARRANGE
+        {
+            return false;
+        }
+        self.arrange.insert(at, s);
+        true
+    }
+
+    pub fn arrange_remove(&mut self, at: usize) -> bool {
+        if at >= self.arrange.len() {
+            return false;
+        }
+        self.arrange.remove(at);
+        self.fit_loop();
+        true
+    }
+
+    /// Move the entry at `from` to `to`, shifting the ones between.
+    pub fn arrange_move(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.arrange.len() || to >= self.arrange.len() {
+            return false;
+        }
+        let s = self.arrange.remove(from);
+        self.arrange.insert(to, s);
+        true
+    }
+
+    /// Loop bars `from` to `to` (from 1, inclusive); `0, 0` clears the loop.
+    pub fn set_loop(&mut self, from: u32, to: u32) -> bool {
+        if from == 0 && to == 0 {
+            self.loop_bars = None;
+            return true;
+        }
+        if from == 0 || to < from || u64::from(to) > self.bars() {
+            return false;
+        }
+        self.loop_bars = Some((from, to));
+        true
+    }
+
+    /// A loop that no longer fits the arrangement is dropped.
+    fn fit_loop(&mut self) {
+        if let Some((_, to)) = self.loop_bars {
+            if u64::from(to) > self.bars() {
+                self.loop_bars = None;
+            }
+        }
+    }
+
+    /// Whether section `s` holds fragment (`kind` 0), lane (1) or scene (2) `item`.
+    pub fn section_has(&self, s: usize, kind: u32, item: usize) -> bool {
+        self.sections.get(s).is_some_and(|sec| match kind {
+            0 => sec.frags.contains(&item),
+            1 => sec.autos.contains(&item),
+            2 => sec.scenes.contains(&item),
+            _ => false,
+        })
+    }
+
     /// Set one step; false when there is no such step.
     pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, to: Step) -> bool {
         let slot = self
@@ -541,6 +1155,71 @@ impl Song {
             }
             None => false,
         }
+    }
+}
+
+impl Song {
+    fn target_name(&self, t: Target) -> String {
+        match t {
+            Target::Track(i) => self
+                .tracks
+                .get(i)
+                .map_or_else(String::new, |t| t.name.clone()),
+            Target::Strip(s) if s < STRIPS => format!("strip{}", s + 1),
+            Target::Strip(s) => format!("group{}", s - STRIPS + 1),
+            Target::Master => "master".to_string(),
+        }
+    }
+}
+
+/// A parameter's registry name (ADR-0004).
+pub fn param_name(p: Param) -> &'static str {
+    Param::ALL
+        .iter()
+        .find(|(q, _)| *q == p)
+        .map_or("", |(_, n)| n)
+}
+
+/// `target.Param`, checked: a track or strip takes its synth's and its strip's
+/// parameters, a group its strip's, `master` the global ones. The model and
+/// the routing can't be automated: they rebuild voices and the mix graph.
+fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str> {
+    let (t, p) = text
+        .split_once('.')
+        .ok_or("target.Param goes here, e.g. strip1.Level")?;
+    let param = Param::ALL
+        .iter()
+        .find(|(_, n)| *n == p)
+        .map(|(q, _)| *q)
+        .ok_or("no parameter has this name")?;
+    if matches!(param, Param::Model | Param::Out) {
+        return Err("the model and the routing can't be automated");
+    }
+    let numbered = |prefix: &str, count: usize| {
+        t.strip_prefix(prefix)
+            .and_then(|n| n.parse::<usize>().ok())
+            .filter(|n| (1..=count).contains(n))
+    };
+    let target = if t == "master" {
+        Target::Master
+    } else if let Some(n) = numbered("strip", STRIPS) {
+        Target::Strip(n - 1)
+    } else if let Some(n) = numbered("group", GROUPS) {
+        Target::Strip(STRIPS + n - 1)
+    } else if let Some(i) = song.tracks.iter().position(|tr| tr.name == t) {
+        Target::Track(i)
+    } else {
+        return Err("a target is a track, strip1–16, group1–8 or master");
+    };
+    let ok = match target {
+        Target::Master => param.is_global(),
+        Target::Strip(s) if s >= STRIPS => param.is_strip(),
+        _ => !param.is_global(),
+    };
+    if ok {
+        Ok((target, param))
+    } else {
+        Err("this parameter does not belong to this target")
     }
 }
 

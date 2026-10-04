@@ -35,8 +35,11 @@ const dirty = computed(() => song.draft !== song.text)
 
 // Off → hit → accent → off.
 const cycle = (f: number, l: number, s: number, level: number) => setStep(f, l, s, (level + 1) % 3)
-// The step a lane plays now: each lane loops on its own length.
-const playing = (len: number) => (song.step < 0 ? -1 : song.step % len)
+// The step a lane plays now, looping on its own length; in an arrangement it counts from the section's start.
+const playing = (len: number) => {
+  const k = song.entry >= 0 ? song.local : song.step
+  return k < 0 ? -1 : k % len
+}
 
 function apply() {
   loadSong(song.draft)
