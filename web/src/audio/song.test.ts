@@ -9,8 +9,11 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     ok: true,
     text: bytes(text),
     error: null,
-    tracks: [{ name: bytes('kit'), synth: 2 }],
-    frags: [{ name: bytes('beat'), track: 0, lanes: [{ pad: 0, steps: new Uint8Array([1, 0, 2, 0]) }] }],
+    tracks: [{ name: bytes('kit'), synth: 2, kind: 0 }, { name: bytes('lead'), synth: 0, kind: 1 }],
+    frags: [
+      { name: bytes('beat'), track: 0, lanes: [{ pad: 0, steps: new Uint8Array([1, 0, 2, 0]) }], notes: null },
+      { name: bytes('riff'), track: 1, lanes: [], notes: { text: bytes('"c4 e4"'), bars: 1 } },
+    ],
     tempo: 120,
     swing: 50,
   }
@@ -20,8 +23,11 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     applySong(summary)
     expect(song.text).toBe(text)
     expect(song.draft).toBe(text)
-    expect(song.tracks).toEqual([{ name: 'kit', synth: 2 }])
-    expect(song.frags).toEqual([{ name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0] }] }])
+    expect(song.tracks).toEqual([{ name: 'kit', synth: 2, kind: 'drums' }, { name: 'lead', synth: 0, kind: 'synth' }])
+    expect(song.frags).toEqual([
+      { name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0] }], notes: null },
+      { name: 'riff', track: 1, lanes: [], notes: { text: '"c4 e4"', bars: 1 } },
+    ])
     expect(song.error).toBeNull()
   })
 
@@ -30,6 +36,6 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     applySong({ ...summary, ok: false, error: { line: 1, col: 1, msg: bytes('a line starts with tempo, swing, track or frag') } })
     expect(song.draft).toBe('loop')
     expect(song.error).toEqual({ line: 1, col: 1, msg: 'a line starts with tempo, swing, track or frag' })
-    expect(song.frags).toHaveLength(1)
+    expect(song.frags).toHaveLength(2)
   })
 })

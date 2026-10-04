@@ -11,6 +11,15 @@
 //!   sn ....X.......X..x
 //! ```
 //!
+//! A `synth` track holds note fragments instead (spec 002 Req 3, ADR-0016):
+//!
+//! ```text
+//! track lead synth
+//!
+//! frag riff = lead
+//!   "c4 [e4 g4] ~ <c5 d5>"      # or classic: c4:4 e4:8 g4:8 c5:2
+//! ```
+//!
 //! Parsing and printing allocate, so they run when a song is loaded or a step
 //! edited, never in `render`; the engine plays the parsed song in place. Both
 //! are total: whatever the text, the parser returns a song or an error with a
@@ -18,6 +27,7 @@
 //! printed song is the canonical form of what was parsed.
 
 use crate::drums::Pad;
+use crate::notes::{self, Notes};
 
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
@@ -84,18 +94,37 @@ pub struct Lane {
     pub steps: Vec<Step>,
 }
 
-/// A loop on a track: one lane per pad.
+/// A loop on a track: one lane per pad on a drum track, one line of notes on
+/// a synth track (the other is then empty).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fragment {
     pub name: String,
     pub track: usize,
     pub lanes: Vec<Lane>,
+    pub notes: Option<Notes>,
+}
+
+/// What a track's fragments hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Drums,
+    Synth,
+}
+
+impl Kind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Drums => "drums",
+            Kind::Synth => "synth",
+        }
+    }
 }
 
 /// A track of the song; the engine routes it to a synth.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
     pub name: String,
+    pub kind: Kind,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -157,6 +186,19 @@ fn words(line: &str) -> Vec<Word<'_>> {
     out
 }
 
+/// The line without its comment: a `#` starts one at the line's start or after
+/// a space, so the sharp in `c#4` stays a sharp.
+fn strip_comment(raw: &str) -> &str {
+    let mut prev_space = true;
+    for (i, c) in raw.char_indices() {
+        if c == '#' && prev_space {
+            return raw.get(..i).unwrap_or(raw);
+        }
+        prev_space = c.is_whitespace();
+    }
+    raw
+}
+
 fn is_name(s: &str) -> bool {
     let mut chars = s.chars();
     s.len() <= MAX_NAME
@@ -173,7 +215,7 @@ impl Song {
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
-            let body = raw.split('#').next().unwrap_or("");
+            let body = strip_comment(raw);
             let ws = words(body);
             let Some(first) = ws.first() else {
                 continue;
@@ -182,6 +224,24 @@ impl Song {
                 let Some((f, _)) = open else {
                     return Err(err(first.col, "a lane goes under a frag"));
                 };
+                let is_synth = song
+                    .frags
+                    .get(f)
+                    .and_then(|fr| song.tracks.get(fr.track))
+                    .is_some_and(|t| t.kind == Kind::Synth);
+                if is_synth {
+                    let frag = song
+                        .frags
+                        .get_mut(f)
+                        .ok_or(err(first.col, "a lane goes under a frag"))?;
+                    if frag.notes.is_some() {
+                        return Err(err(first.col, "a note frag is one line of notes"));
+                    }
+                    let n = notes::parse(body.trim_start(), first.col)
+                        .map_err(|e| err(e.col, e.msg))?;
+                    frag.notes = Some(n);
+                    continue;
+                }
                 let lane = parse_lane(&ws, line)?;
                 let frag = song
                     .frags
@@ -234,16 +294,19 @@ impl Song {
                     if song.tracks.iter().any(|t| t.name == name.text) {
                         return Err(err(name.col, "there is already a track with this name"));
                     }
-                    let kind = arg(2, "a track kind goes here: drums")?;
-                    if kind.text != "drums" {
-                        return Err(err(kind.col, "only drums tracks for now"));
-                    }
+                    let kind = arg(2, "a track kind goes here: drums or synth")?;
+                    let kind = match kind.text {
+                        "drums" => Kind::Drums,
+                        "synth" => Kind::Synth,
+                        _ => return Err(err(kind.col, "a track kind is drums or synth")),
+                    };
                     expect_end(3)?;
                     if song.tracks.len() >= MAX_TRACKS {
                         return Err(err(first.col, "a song has at most 16 tracks"));
                     }
                     song.tracks.push(Track {
                         name: name.text.to_string(),
+                        kind,
                     });
                 }
                 "frag" => {
@@ -265,7 +328,11 @@ impl Song {
                     let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
                         return Err(err(track.col, "no track has this name"));
                     };
+                    let synth = song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth);
                     if let Some(w) = ws.get(4) {
+                        if synth {
+                            return Err(err(w.col, "a note frag has no step grid"));
+                        }
                         if w.text != "/16" {
                             return Err(err(w.col, "only /16 steps for now"));
                         }
@@ -278,6 +345,7 @@ impl Song {
                         name: name.text.to_string(),
                         track: t,
                         lanes: Vec::new(),
+                        notes: None,
                     });
                     open = Some((song.frags.len() - 1, line));
                 }
@@ -304,11 +372,16 @@ impl Song {
         lines.extend(
             self.tracks
                 .iter()
-                .map(|t| format!("track {} drums", t.name)),
+                .map(|t| format!("track {} {}", t.name, t.kind.name())),
         );
         for f in &self.frags {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
+            if let Some(n) = &f.notes {
+                lines.push(format!("frag {} = {}", f.name, track));
+                lines.push(format!("  {}", n.print()));
+                continue;
+            }
             lines.push(format!("frag {} = {} /16", f.name, track));
             for l in &f.lanes {
                 let steps: String = l.steps.iter().map(|st| st.char()).collect();
@@ -338,10 +411,13 @@ impl Song {
 
 fn check_lanes(song: &Song, f: usize, line: usize) -> Result<(), SongError> {
     match song.frags.get(f) {
-        Some(frag) if frag.lanes.is_empty() => Err(SongError {
+        Some(frag) if frag.lanes.is_empty() && frag.notes.is_none() => Err(SongError {
             line,
             col: 1,
-            msg: "a frag needs at least one lane",
+            msg: match song.tracks.get(frag.track).map(|t| t.kind) {
+                Some(Kind::Synth) => "a frag needs a line of notes",
+                _ => "a frag needs at least one lane",
+            },
         }),
         _ => Ok(()),
     }

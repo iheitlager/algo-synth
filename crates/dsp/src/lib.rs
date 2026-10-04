@@ -5,6 +5,7 @@
 //! file player (`smf`, `player`), the clock (`clock`) and the drum kit (`drums`). The JavaScript around it only forwards
 //! messages and copies the output block.
 
+pub mod algo;
 pub mod clock;
 pub mod drums;
 pub mod engine;
@@ -13,6 +14,7 @@ pub mod fx;
 pub mod la;
 pub mod mixer;
 pub mod mono;
+pub mod notes;
 pub mod padsampler;
 pub mod params;
 pub mod player;

@@ -30,7 +30,7 @@ const choices = computed<{ label: string; value: Route }[]>(() => [
   ...synths.list.map((s) => ({ label: `${stripName(s)} (${modelDef(params.values[s]?.[Param.Model] ?? 0).name})`, value: s })),
   { label: 'Mute', value: MUTE },
 ])
-const noKit = computed(() => song.tracks.length > 0 && !synths.list.some(isKit))
+const noKit = computed(() => song.tracks.some((t) => t.kind === 'drums') && !synths.list.some(isKit))
 const dirty = computed(() => song.draft !== song.text)
 
 // Off → hit → accent → off.
@@ -95,6 +95,10 @@ watch(() => status.running, (on) => on && requestSong())
               <option v-for="c in choices" :key="c.value" :value="c.value">{{ c.label }}</option>
             </select>
           </div>
+          <div v-if="frag.notes" class="notes">
+            <code>{{ frag.notes.text }}</code>
+            <span v-if="frag.notes.bars > 1" class="muted">{{ frag.notes.bars }} bars</span>
+          </div>
           <div v-for="(lane, l) in frag.lanes" :key="l" class="lane">
             <span class="pad">{{ padName(lane.pad) }}</span>
             <div class="steps">
@@ -134,6 +138,8 @@ watch(() => status.running, (on) => on && requestSong())
 .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); gap: 12px; padding: 8px 12px; }
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.notes { display: flex; align-items: baseline; gap: 10px; margin: 3px 0; }
+.notes code { font-family: var(--mono, monospace); }
 .lane { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .pad { width: 2.2em; font-family: var(--mono, monospace); color: var(--muted); }
 .steps { display: flex; gap: 3px; }

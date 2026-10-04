@@ -7,7 +7,7 @@
 //! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
 //! blocks (`load_midi`), never inside `render`.
 
-use crate::clock::Clock;
+use crate::clock::{Clock, TICKS_PER_STEP};
 use crate::fm::sysex;
 use crate::fx::compressor::Compressor;
 use crate::fx::ensemble::Ensemble;
@@ -24,10 +24,14 @@ use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
+
+/// Song notes that may sound at once before one is dropped.
+const NOTE_OFFS: usize = 256;
+use crate::notes::TICKS_PER_BAR;
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
-use crate::song::{MAX_TEXT, MAX_TRACKS, Song, SongError, Step};
+use crate::song::{Kind, MAX_TEXT, MAX_TRACKS, Song, SongError, Step};
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
 
@@ -101,6 +105,9 @@ pub struct Engine {
     song_text: String,
     song_error: Option<SongError>,
     song_route: [Option<usize>; MAX_TRACKS],
+    /// Notes of the song waiting for their note-off, as (tick, track, note):
+    /// a fixed table, so the clock can end a note without allocating.
+    note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
 }
 
 impl Engine {
@@ -148,6 +155,7 @@ impl Engine {
             song_text: Song::default().print(),
             song_error: None,
             song_route: [None; MAX_TRACKS],
+            note_offs: [None; NOTE_OFFS],
         };
         for (p, v) in GLOBAL_DEFAULTS {
             engine.set_param(0, p, v);
@@ -596,6 +604,7 @@ impl Engine {
     }
 
     pub fn song_stop(&mut self) {
+        self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
     }
@@ -629,6 +638,74 @@ impl Engine {
         }
         while let Some(k) = self.clock.due() {
             self.play_step(k);
+            self.play_tick(k * TICKS_PER_STEP);
+        }
+        while let Some(j) = self.clock.due_sub() {
+            self.play_tick(j);
+        }
+    }
+
+    /// Tick `j` of the clock: end the notes that are due, then start what
+    /// every note fragment has on it (spec 002 Req 3, ADR-0016). Each fragment
+    /// loops on its own length in bars. Reads the song in place and uses the
+    /// fixed note-off table: nothing allocates.
+    fn play_tick(&mut self, j: u64) {
+        for i in 0..self.note_offs.len() {
+            let due = self
+                .note_offs
+                .get(i)
+                .copied()
+                .flatten()
+                .filter(|(at, _, _)| *at <= j);
+            if let Some((_, track, note)) = due {
+                if let Some(slot) = self.note_offs.get_mut(i) {
+                    *slot = None;
+                }
+                self.stop_note(Owner::Track(track), note);
+            }
+        }
+        for f in 0..self.song.frags.len() {
+            let Some((track, local, first)) = self
+                .song
+                .frags
+                .get(f)
+                .and_then(|fr| Some((fr, fr.notes.as_ref()?)))
+                .map(|(fr, n)| {
+                    let span = u64::from(n.bars * TICKS_PER_BAR);
+                    let local = u32::try_from(j % span.max(1)).unwrap_or(0);
+                    let track = u8::try_from(fr.track).unwrap_or(u8::MAX);
+                    (track, local, n.events.partition_point(|e| e.start < local))
+                })
+            else {
+                continue;
+            };
+            for k in first.. {
+                let Some(ev) = self
+                    .song
+                    .frags
+                    .get(f)
+                    .and_then(|fr| fr.notes.as_ref())
+                    .and_then(|n| n.events.get(k))
+                    .copied()
+                    .filter(|e| e.start == local)
+                else {
+                    break;
+                };
+                let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
+                    continue;
+                };
+                *slot = Some((j + u64::from(ev.len), track, ev.note));
+                self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+            }
+        }
+    }
+
+    /// End every note of the song that is still sounding.
+    fn release_song_notes(&mut self) {
+        for i in 0..self.note_offs.len() {
+            if let Some((_, track, note)) = self.note_offs.get_mut(i).and_then(Option::take) {
+                self.stop_note(Owner::Track(track), note);
+            }
         }
     }
 
@@ -696,11 +773,19 @@ impl Engine {
                         .get(*s)
                         .is_some_and(|p| p.model.uses_drums() || p.model.uses_pads())
                 });
+                let voiced = (0..SYNTHS).find(|s| {
+                    self.synths
+                        .get(*s)
+                        .is_some_and(|p| !p.model.uses_drums() && !p.model.uses_pads())
+                });
                 for (t, route) in self.song_route.iter_mut().enumerate() {
                     if t >= song.tracks.len() {
                         *route = None;
                     } else if route.is_none() {
-                        *route = kit;
+                        *route = match song.tracks.get(t).map(|t| t.kind) {
+                            Some(Kind::Synth) => voiced,
+                            _ => kit,
+                        };
                     }
                 }
                 self.song = song;
@@ -2752,6 +2837,111 @@ mod tests {
         assert!(e.song_text().starts_with("tempo 90.5\nswing 75\n"));
         e.set_song_tempo(f32::NAN);
         assert_eq!(e.song().tempo, 90.5, "NaN is ignored");
+    }
+
+    /// A poly synth on slot 0 with the song loaded, playing; the sample at
+    /// which the held notes change, with what they are, over `frames`.
+    fn held_changes(text: &str, frames: u64) -> Vec<(u64, Vec<u8>)> {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Polyphony, 8.0);
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        assert_eq!(e.song_routed(0), Some(0), "a synth track finds a synth");
+        e.song_play();
+        let mut now: Vec<u8> = Vec::new();
+        let mut out = Vec::new();
+        for s in 0..frames {
+            e.render(1);
+            let held = e.pools[0].held_notes();
+            if held != now {
+                out.push((s, held.clone()));
+                now = held;
+            }
+        }
+        out
+    }
+
+    /// #163: `"c4 e4 g4 c5"` at 120 BPM and 48 kHz starts a note every beat
+    /// (24000 samples), each ending as the next begins.
+    #[test]
+    fn note_fragments_sound_at_their_samples_and_pitches() {
+        let got = held_changes(
+            "tempo 120\ntrack lead synth\nfrag r = lead\n  \"c4 e4 g4 c5\"\n",
+            48_000 * 4,
+        );
+        assert_eq!(
+            got,
+            vec![
+                (0, vec![60]),
+                (24_000, vec![64]),
+                (48_000, vec![67]),
+                (72_000, vec![72]),
+                (96_000, vec![60]),
+                (120_000, vec![64]),
+                (144_000, vec![67]),
+                (168_000, vec![72]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_note_lasts_its_written_length() {
+        // a quarter note, then a rest: held 0 to 24000.
+        let got = held_changes(
+            "tempo 120\ntrack lead synth\nfrag r = lead\n  c4:4 r:4 r:2\n",
+            60_000,
+        );
+        assert_eq!(got, vec![(0, vec![60]), (24_000, vec![])]);
+    }
+
+    #[test]
+    fn a_triplet_lands_between_the_sixteenths() {
+        // three notes in a bar: ticks 0, 16 and 32, at 2000 samples a tick.
+        let got = held_changes(
+            "tempo 120\ntrack lead synth\nfrag r = lead\n  \"c4 d4 e4\"\n",
+            96_000,
+        );
+        let starts: Vec<u64> = got.iter().map(|(s, _)| *s).collect();
+        assert_eq!(starts, vec![0, 32_000, 64_000]);
+    }
+
+    #[test]
+    fn a_chord_uses_the_voice_pool() {
+        let got = held_changes(
+            "tempo 120\ntrack lead synth\nfrag r = lead\n  \"[c4,e4,g4] ~\"\n",
+            60_000,
+        );
+        assert!(got.iter().any(|(s, n)| *s == 0 && n == &vec![60, 64, 67]));
+        assert_eq!(
+            got.last().map(|(s, n)| (*s, n.clone())),
+            Some((48_000, vec![]))
+        );
+    }
+
+    #[test]
+    fn stopping_the_song_ends_its_notes() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Polyphony, 8.0);
+        let text = "track lead synth\nfrag r = lead\n  c4:1\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        for _ in 0..4 {
+            e.render(BLOCK);
+        }
+        assert_eq!(e.pools[0].held(), 1);
+        e.song_stop();
+        assert_eq!(e.pools[0].held(), 0);
+    }
+
+    #[test]
+    fn a_song_load_with_a_bad_note_keeps_the_old_one_playing() {
+        let mut e = Engine::new(48_000.0);
+        let good = "track lead synth\nfrag r = lead\n  c4:4\n";
+        assert_eq!(load_text(&mut e, good), Ok(()));
+        let bad = "track lead synth\nfrag r = lead\n  c4:4 x4:4\n";
+        let err = load_text(&mut e, bad).unwrap_err();
+        assert_eq!((err.line, err.col), (3, 8));
+        assert_eq!(e.song_text(), Song::parse(good).unwrap().print());
     }
 
     /// #124: a song's drum track finds a pad sampler as it finds the 808, and its lanes

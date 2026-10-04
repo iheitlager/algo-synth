@@ -8,9 +8,9 @@ ADR-0012 gave the song drum lanes on sixteenth steps, and the clock fires only o
 
 ## Decision
 
-**A note fragment compiles to events on a grid of 48 ticks per bar (12 per sixteenth); the engine fires each event at its tick inside a block and keeps note-offs in a fixed queue.**
+**A note fragment compiles to events on a grid of 48 ticks per bar (3 per sixteenth); the engine fires each event at its tick inside a block and keeps note-offs in a fixed queue.**
 
-- **Grid.** 48 ticks per 4/4 bar divide exactly into halves, thirds, quarters, sixths, eighths and sixteenths, so straight and triplet subdivisions are exact. A fragment is a whole number of bars of events `{tick, length, note, velocity}`; velocity defaults to 0.75, accent 1.0, as drums.
+- **Grid.** 48 ticks per 4/4 bar divide exactly into halves, thirds, quarters, sixths, eighths, twelfths and sixteenths, so straight and triplet subdivisions down to a triplet of sixteenths are exact; a thirty-second note (a tick and a half) is not on the grid. A fragment is a whole number of bars of events `{tick, length, note, velocity}`; velocity defaults to 0.75, accent 1.0, as drums.
 - **Parse, compile, play.** The parser and printer stay in `song.rs` and are total; the text keeps what was written (mini-notation or durations), never a different form. Compiling to events happens at load, outside `render` (ADR-0002). `render` reads a sorted, preallocated event list per fragment and a fixed-size note-off queue; nothing allocates.
 - **Clock.** The step clock stays. A tick's sample is computed from the same anchor as a step (no drift), and swing delays the ticks of an odd step with it. Drum lanes keep playing on steps and are unchanged.
 - **Cycles.** `<a b>` alternates per cycle and `?` draws per cycle from a small integer generator seeded by the fragment's position and the cycle index, so a run is reproducible. Floating point never decides an event.
@@ -28,4 +28,4 @@ ADR-0012 gave the song drum lanes on sixteenth steps, and the clock fires only o
 
 - **Quantize to sixteenths.** Simple, but triplets, `[ ]` subdivision and exact MIDI import would be lost. Rejected.
 - **A finer global clock (tick as the clock step).** Uniform, but drums, swing and the whole clock tests would move for no gain. Rejected.
-- **960 ticks per beat as in MIDI files.** Exact for import, but nearly every grid note falls on a multiple of 12 per sixteenth anyway and the event lists grow; MIDI import can round to 48 per bar or write `@bar.beat.tick` as ADR-0015 says. Rejected.
+- **960 ticks per beat as in MIDI files.** Exact for import, but a bar of 960×4 ticks would make every event list longer for notes that sit on the sixteenth grid anyway; MIDI import can round to 48 per bar or write `@bar.beat.tick` as ADR-0015 says. Rejected.

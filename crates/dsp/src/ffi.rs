@@ -18,7 +18,7 @@ use crate::params::Param;
 use crate::player::Part;
 use crate::sample;
 use crate::sampler::{ZONES, ZoneField};
-use crate::song::Lane;
+use crate::song::{Kind, Lane};
 
 thread_local! {
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -697,6 +697,17 @@ pub extern "C" fn track_name_len(t: u32) -> u32 {
     })
 }
 
+/// What track `t`'s fragments hold: 0 drum lanes, 1 notes.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_kind(t: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .tracks
+            .get(t as usize)
+            .map_or(0, |x| u32::from(x.kind == Kind::Synth))
+    })
+}
+
 /// Play song track `t` on `synth`; an unknown synth (e.g. 255) mutes it.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_route(t: u32, synth: u32) {
@@ -741,6 +752,41 @@ pub extern "C" fn frag_name_len(f: u32) -> u32 {
 pub extern "C" fn frag_track(f: u32) -> u32 {
     query(0, |e| {
         e.song().frags.get(f as usize).map_or(0, |x| x.track as u32)
+    })
+}
+
+/// Address and length of fragment `f`'s line of notes as printed; empty for a
+/// drum fragment. `frag_bars` is how many bars before it repeats.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_notes_ptr(f: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .and_then(|x| x.notes.as_ref())
+            .map_or(std::ptr::null(), |n| n.text.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_notes_len(f: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .and_then(|x| x.notes.as_ref())
+            .map_or(0, |n| n.text.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_bars(f: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .and_then(|x| x.notes.as_ref())
+            .map_or(0, |n| n.bars)
     })
 }
 
@@ -982,6 +1028,7 @@ mod tests {
             ),
             (1, 2, 0)
         );
+        assert_eq!((track_kind(0), frag_notes_len(0), frag_bars(0)), (0, 0, 0));
         assert_eq!(song_routed(0), 255, "no kit yet");
         song_route(0, 2);
         assert_eq!(song_routed(0), 2);
