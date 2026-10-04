@@ -21,7 +21,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.w.init(sampleRate)
     // How many models this engine knows, so the view can tell when dsp.wasm is older than it is
     // (an engine without `model_count` is older than any).
-    this.port.postMessage({ t: 'ready', models: typeof this.w.model_count === 'function' ? this.w.model_count() : 0 })
+    // The same for its version and the commit it was built from (#197); 0 when there is none to tell.
+    const num = (name) => (typeof this.w[name] === 'function' ? this.w[name]() : 0)
+    this.port.postMessage({ t: 'ready', models: num('model_count'), version: num('version_code'), build: num('build_id') })
     this.block = this.w.block_len()
     this.tick = 0
     this.busy = 0
