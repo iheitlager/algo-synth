@@ -3986,4 +3986,25 @@ mod tests {
         assert!(sent > 0.0, "but the send is fed");
         assert!(meter > 0.0, "and the strip's meter shows it");
     }
+
+    /// #148: a beat written for the 808, pads the 909 lacks included, plays on a
+    /// TR-909 slot; every hit is heard and nothing passes full scale.
+    #[test]
+    fn an_808_beat_plays_on_a_909() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::Kit909);
+        let beat = "tempo 120\ntrack kit drums\nfrag b = kit /16\n  bd x...\n  sn .x..\n  cl ..x.\n  cb ...x\n  ma x...\n  lc .x..\n  cy ..x.\n  cr ...X\n";
+        assert_eq!(load_text(&mut e, beat), Ok(()));
+        assert_eq!(
+            e.song_routed(0),
+            Some(0),
+            "the first kit, a 909, plays the track"
+        );
+        e.song_play();
+        let heard = run(&mut e, 48_000 / BLOCK);
+        assert!(heard > 0.05);
+        // One second at 120 BPM is eight sixteenths: each four-step lane twice.
+        assert_eq!(e.note_count, 8 * 2, "eight lanes, one hit each per pass");
+    }
 }

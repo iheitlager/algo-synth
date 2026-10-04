@@ -49,41 +49,44 @@ fn ms(t: f32) -> usize {
 
 #[test]
 fn every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends() {
-    for (pad, name) in Pad::ALL {
-        for tune in [-12.0, 0.0, 12.0] {
-            for decay in [0.25, 4.0] {
-                for tone in [0.0, 1.0] {
-                    let p = PadParams {
-                        tune,
-                        decay,
-                        tone,
-                        level: 1.0,
-                    };
-                    // The loudest hit: full level, accented by the most.
-                    let mut kit = Kit::new(SR);
-                    kit.set_accent(1.0);
-                    kit.set_params(pad, p);
-                    kit.trigger(pad, 1.0, true);
-                    // Render until the pad falls silent (at most 4 s), then 300 ms more.
-                    let (sine, blep) = (sine_table(), Blep::new());
-                    let mut out = Vec::new();
-                    let mut block = [0.0_f32; 128];
-                    while kit.active() && out.len() < ms(4000.0) {
-                        block.fill(0.0);
-                        kit.render(&sine, &blep, &mut block);
-                        out.extend_from_slice(&block);
+    for machine in [Machine::Tr808, Machine::Tr909] {
+        for (pad, name) in Pad::ALL {
+            for tune in [-12.0, 0.0, 12.0] {
+                for decay in [0.25, 4.0] {
+                    for tone in [0.0, 1.0] {
+                        let p = PadParams {
+                            tune,
+                            decay,
+                            tone,
+                            level: 1.0,
+                        };
+                        // The loudest hit: full level, accented by the most.
+                        let mut kit = Kit::of(machine, SR);
+                        kit.set_accent(1.0);
+                        kit.set_params(machine.voice(pad), p);
+                        kit.trigger(pad, 1.0, true);
+                        // Render until the pad falls silent (at most 4 s), then 300 ms more.
+                        let (sine, blep) = (sine_table(), Blep::new());
+                        let mut out = Vec::new();
+                        let mut block = [0.0_f32; 128];
+                        while kit.active() && out.len() < ms(4000.0) {
+                            block.fill(0.0);
+                            kit.render(&sine, &blep, &mut block);
+                            out.extend_from_slice(&block);
+                        }
+                        let at =
+                            format!("{machine:?} {name} tune {tune} decay {decay} tone {tone}");
+                        assert!(!kit.active(), "{at}: still sounding after 4 s");
+                        let mut tail = vec![0.0_f32; ms(300.0)];
+                        kit.render(&sine, &blep, &mut tail);
+                        assert!(tail.iter().all(|s| *s == 0.0), "{at}: tail");
+                        assert!(out.iter().all(|s| s.is_finite()), "{at}: not finite");
+                        assert!(peak(&out) <= 1.0, "{at}: peak {}", peak(&out));
+                        assert!(peak(&out) > 0.05, "{at}: too quiet");
+                        // The mean over 4 s, as the hit and its silence after.
+                        let mean = out.iter().sum::<f32>() / ms(4000.0) as f32;
+                        assert!(mean.abs() < 1.0e-3, "{at}: DC {mean}");
                     }
-                    let at = format!("{name} tune {tune} decay {decay} tone {tone}");
-                    assert!(!kit.active(), "{at}: still sounding after 4 s");
-                    let mut tail = vec![0.0_f32; ms(300.0)];
-                    kit.render(&sine, &blep, &mut tail);
-                    assert!(tail.iter().all(|s| *s == 0.0), "{at}: tail");
-                    assert!(out.iter().all(|s| s.is_finite()), "{at}: not finite");
-                    assert!(peak(&out) <= 1.0, "{at}: peak {}", peak(&out));
-                    assert!(peak(&out) > 0.05, "{at}: too quiet");
-                    // The mean over 4 s, as the hit and its silence after.
-                    let mean = out.iter().sum::<f32>() / ms(4000.0) as f32;
-                    assert!(mean.abs() < 1.0e-3, "{at}: DC {mean}");
                 }
             }
         }
@@ -232,7 +235,9 @@ fn every_key_plays_a_pad_and_general_midi_its_own() {
     let added = [
         (37, Pad::Rs),
         (47, Pad::Mt),
-        (49, Pad::Cy),
+        (49, Pad::Cr),
+        (51, Pad::Rd),
+        (52, Pad::Cy),
         (62, Pad::Hc),
         (63, Pad::Mc),
         (64, Pad::Lc),
@@ -302,4 +307,83 @@ fn the_congas_sit_above_the_toms() {
         lt < mt && mt < ht && ht < lc && lc < mc && mc < hc,
         "{lt} {mt} {ht} {lc} {mc} {hc}"
     );
+}
+
+fn hit_on(machine: Machine, pad: Pad, seconds: f32) -> Vec<f32> {
+    hit_with(
+        Kit::of(machine, SR),
+        pad,
+        PadParams::default(),
+        false,
+        seconds,
+    )
+    .0
+}
+
+/// The frequency of the first full cycle that starts after `from_ms`.
+fn cycle_hz(x: &[f32], from_ms: f32) -> f32 {
+    let ups: Vec<usize> = x
+        .windows(2)
+        .enumerate()
+        .filter(|(i, w)| *i >= ms(from_ms) && w[0] < 0.0 && w[1] >= 0.0)
+        .map(|(i, _)| i)
+        .take(2)
+        .collect();
+    SR / (ups[1] - ups[0]) as f32
+}
+
+/// #148: the 909's kick reaches its tune sooner than the 808's, and settles there.
+#[test]
+fn the_909_kick_settles_faster_at_its_tune() {
+    let tr808 = hit_on(Machine::Tr808, Pad::Bd, 0.6);
+    let tr909 = hit_on(Machine::Tr909, Pad::Bd, 0.6);
+    let left_808 = cycle_hz(&tr808, 15.0) / 50.0;
+    let left_909 = cycle_hz(&tr909, 15.0) / 52.0;
+    assert!(
+        left_909 < left_808,
+        "less sweep left after 15 ms: {left_909} vs {left_808}"
+    );
+    assert!(left_909 < 1.1, "the 909 is all but there: {left_909}");
+    let late = hz(&tr909[ms(200.0)..ms(600.0)]);
+    assert!((late - 52.0).abs() < 5.0, "settles near 52 Hz, got {late}");
+}
+
+#[test]
+fn the_909s_hats_and_cymbals_sit_high() {
+    for pad in [Pad::Ch, Pad::Oh, Pad::Cr, Pad::Rd] {
+        let x = hit_on(Machine::Tr909, pad, 0.05);
+        let x = &x[..ms(40.0)];
+        assert!(power(x, 8000.0) > 30.0 * power(x, 300.0), "{}", pad.name());
+    }
+}
+
+#[test]
+fn each_machine_stands_in_its_nearest_voice() {
+    assert_eq!(Machine::Tr808.voice(Pad::Cr), Pad::Cy);
+    assert_eq!(Machine::Tr808.voice(Pad::Rd), Pad::Cy);
+    assert_eq!(Machine::Tr909.voice(Pad::Cl), Pad::Rs);
+    assert_eq!(Machine::Tr909.voice(Pad::Lc), Pad::Lt);
+    assert_eq!(Machine::Tr909.voice(Pad::Cy), Pad::Cr);
+    for (pad, name) in Pad::ALL {
+        for machine in [Machine::Tr808, Machine::Tr909] {
+            assert!(
+                peak(&hit_on(machine, pad, 0.3)) > 0.05,
+                "{machine:?} {name} is heard"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_909s_closed_hat_chokes_its_open_hat() {
+    let sine = sine_table();
+    let blep = Blep::new();
+    let mut kit = Kit::of(Machine::Tr909, SR);
+    kit.trigger(Pad::Oh, 1.0, false);
+    let mut buf = vec![0.0; ms(10.0)];
+    kit.render(&sine, &blep, &mut buf);
+    kit.trigger(Pad::Ch, 1.0, false);
+    let mut rest = vec![0.0; ms(200.0)];
+    kit.render(&sine, &blep, &mut rest);
+    assert!(!kit.active(), "only the closed hat's short decay was left");
 }

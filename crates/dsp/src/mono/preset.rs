@@ -97,11 +97,13 @@ pub enum Preset {
     SamplerPad = 82,
     PadsLoud = 83,
     PadsSoft = 84,
+    Kit909 = 85,
+    Hard909 = 86,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 85] = [
+    pub const ALL: [(Preset, &'static str); 87] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -187,6 +189,8 @@ impl Preset {
         (Preset::SamplerPad, "SamplerPad"),
         (Preset::PadsLoud, "PadsLoud"),
         (Preset::PadsSoft, "PadsSoft"),
+        (Preset::Kit909, "Kit909"),
+        (Preset::Hard909, "Hard909"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -210,6 +214,7 @@ impl Preset {
                 Model::PolyMoog
             }
             Preset::Kit808 | Preset::TightKit => Model::Tr808,
+            Preset::Kit909 | Preset::Hard909 => Model::Tr909,
             Preset::LaFantasia
             | Preset::LaPluckPad
             | Preset::LaBreathFlute
@@ -2352,6 +2357,24 @@ impl Preset {
             // The kit as it comes: every pad at its own decay and a middle tone.
             Preset::Kit808 => &[(Model, 15.0)],
             // Short and bright: clipped kick and toms, a snappy snare, closed-in hats.
+            // The 909 as it comes.
+            Preset::Kit909 => &[(Model, 18.0)],
+            // Hard and bright: a driven kick with a loud click, a snappy snare,
+            // short toms, crisp hats and a long ride.
+            Preset::Hard909 => &[
+                (Model, 18.0),
+                (BdTone, 0.9),
+                (BdDecay, 0.7),
+                (SnTone, 0.9),
+                (SnDecay, 0.8),
+                (LtDecay, 0.7),
+                (MtDecay, 0.7),
+                (HtDecay, 0.7),
+                (ChTone, 0.8),
+                (OhTone, 0.8),
+                (RdDecay, 1.3),
+                (DrumAccent, 0.8),
+            ],
             Preset::TightKit => &[
                 (Model, 15.0),
                 (BdDecay, 0.45),
@@ -2637,7 +2660,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 388] = [
+pub const DEFAULTS: [(Param, f32); 400] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -3026,6 +3049,18 @@ pub const DEFAULTS: [(Param, f32); 388] = [
     (Param::McPan, 0.0),
     (Param::HcOut, 0.0),
     (Param::HcPan, 0.0),
+    (Param::CrTune, 0.0),
+    (Param::CrDecay, 1.0),
+    (Param::CrTone, 0.5),
+    (Param::CrLevel, 0.8),
+    (Param::CrOut, 0.0),
+    (Param::CrPan, 0.0),
+    (Param::RdTune, 0.0),
+    (Param::RdDecay, 1.0),
+    (Param::RdTone, 0.5),
+    (Param::RdLevel, 0.8),
+    (Param::RdOut, 0.0),
+    (Param::RdPan, 0.0),
 ];
 
 #[cfg(test)]

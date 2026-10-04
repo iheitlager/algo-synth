@@ -37,9 +37,12 @@ pub enum Pad {
     Lc = 13,
     Mc = 14,
     Hc = 15,
+    /// The 909's crash and ride (#148); the 808 plays its cymbal for them.
+    Cr = 16,
+    Rd = 17,
 }
 
-pub const PADS: usize = 16;
+pub const PADS: usize = 18;
 
 impl Pad {
     pub const ALL: [(Pad, &'static str); PADS] = [
@@ -59,6 +62,8 @@ impl Pad {
         (Pad::Lc, "lc"),
         (Pad::Mc, "mc"),
         (Pad::Hc, "hc"),
+        (Pad::Cr, "cr"),
+        (Pad::Rd, "rd"),
     ];
 
     pub fn name(self) -> &'static str {
@@ -86,11 +91,13 @@ impl Pad {
             Pad::Rs => 37,
             Pad::Cl => 75,
             Pad::Ma => 70,
-            Pad::Cy => 49,
+            Pad::Cy => 52,
             Pad::Mt => 47,
             Pad::Lc => 64,
             Pad::Mc => 63,
             Pad::Hc => 62,
+            Pad::Cr => 49,
+            Pad::Rd => 51,
         }
     }
 
@@ -116,7 +123,9 @@ impl Pad {
             46 => Some(Pad::Oh),
             47 | 48 => Some(Pad::Mt),
             50 => Some(Pad::Ht),
-            49 | 51 | 52 | 53 | 55 | 57 | 59 => Some(Pad::Cy),
+            49 | 55 | 57 => Some(Pad::Cr),
+            52 => Some(Pad::Cy),
+            51 | 53 | 59 => Some(Pad::Rd),
             56 => Some(Pad::Cb),
             60 | 62 => Some(Pad::Hc),
             61 | 63 => Some(Pad::Mc),
@@ -216,10 +225,36 @@ impl PadParams {
     }
 }
 
-/// Eight pads, their knobs and the accent.
+/// Which drum machine a kit is (#148): the same pads, each machine's own sounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Machine {
+    #[default]
+    Tr808,
+    Tr909,
+}
+
+impl Machine {
+    /// The voice a machine plays for `pad`: its own, or its nearest when it
+    /// has none, so a beat written for one machine plays on the other.
+    pub fn voice(self, pad: Pad) -> Pad {
+        match (self, pad) {
+            (Machine::Tr808, Pad::Cr | Pad::Rd) => Pad::Cy,
+            (Machine::Tr909, Pad::Cl | Pad::Cb) => Pad::Rs,
+            (Machine::Tr909, Pad::Ma) => Pad::Ch,
+            (Machine::Tr909, Pad::Lc) => Pad::Lt,
+            (Machine::Tr909, Pad::Mc) => Pad::Mt,
+            (Machine::Tr909, Pad::Hc) => Pad::Ht,
+            (Machine::Tr909, Pad::Cy) => Pad::Cr,
+            _ => pad,
+        }
+    }
+}
+
+/// The pads of one machine, their knobs and the accent.
 #[derive(Clone)]
 pub struct Kit {
     sample_rate: f32,
+    machine: Machine,
     voices: [PadVoice; PADS],
     params: [PadParams; PADS],
     /// How much louder an accented hit is: 0 none, 1 twice as loud.
@@ -228,8 +263,14 @@ pub struct Kit {
 
 impl Kit {
     pub fn new(sample_rate: f32) -> Kit {
+        Kit::of(Machine::Tr808, sample_rate)
+    }
+
+    /// A kit of `machine`.
+    pub fn of(machine: Machine, sample_rate: f32) -> Kit {
         Kit {
             sample_rate,
+            machine,
             voices: Pad::ALL
                 .map(|(pad, _)| PadVoice::new(pad, (pad as u32 + 1).wrapping_mul(0x9E37_79B9))),
             params: [PadParams::default(); PADS],
@@ -258,7 +299,8 @@ impl Kit {
     /// Hit `pad` at `velocity` (0..=1), accented or not. A closed hat
     /// silences the open hat.
     pub fn trigger(&mut self, pad: Pad, velocity: f32, accent: bool) {
-        let p = self.params(pad);
+        // A pad the machine lacks plays its nearest voice, with that voice's knobs.
+        let p = self.params(self.machine.voice(pad));
         let gain = p.gain(velocity, accent, self.accent);
         if pad == Pad::Ch {
             if let Some(oh) = self.voices.get_mut(Pad::Oh as usize) {
@@ -266,6 +308,7 @@ impl Kit {
             }
         }
         if let Some(v) = self.voices.get_mut(pad as usize) {
+            v.set_machine(self.machine);
             v.trigger(&p, gain, self.sample_rate);
         }
     }

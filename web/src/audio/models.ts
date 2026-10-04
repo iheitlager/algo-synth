@@ -1138,7 +1138,31 @@ const padSampler: ModelDef = {
   ],
 }
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler]
+// The TR-909 (#148): the same pads with the 909's sounds, its eleven on the panel;
+// a beat for the 808 plays here too, the 909 standing in its nearest voice.
+const tr909: ModelDef = {
+  id: Model.Tr909,
+  family: 'drums',
+  name: 'TR-909',
+  maker: 'Roland · rhythm composer, eleven voices',
+  tagline: 'A punchy kick, snappy snare, three toms, rimshot, clap, hats, crash and ride; the closed hat chokes the open',
+  theme: { panel: '#d9d6cf', ink: '#1d1c1a', soft: '#5d5a54', trim: '#2a2927', accent: '#e8541e' },
+  presets: ['Kit909', 'Hard909'],
+  sections: [
+    pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
+    pad('Rimshot', 'Rs'), pad('Clap', 'Cp'), pad('Closed hat', 'Ch'), pad('Open hat', 'Oh'), pad('Crash', 'Cr'),
+    pad('Ride', 'Rd'),
+    {
+      title: 'Accent',
+      controls: [
+        { kind: 'knob', label: 'Amount', param: Param.DrumAccent, lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
+        { kind: 'note', text: 'Hits at velocity 115 and up are accented.' },
+      ],
+    },
+  ],
+}
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)
