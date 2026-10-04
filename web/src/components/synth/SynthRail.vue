@@ -8,8 +8,9 @@ import LedMeter from '../console/LedMeter.vue'
 
 export interface Tape {
   s: number
-  /** The model's name, and its accent. */
+  /** The synth's name (#127), its model's name and the model's accent. */
   name: string
+  model: string
   accent: string
   /** The synth's own colour, as on the MIDI player's chips. */
   dot: string
@@ -32,9 +33,9 @@ const level = (s: number) => levels.values[s] ?? 0
       v-for="t in tapes" :key="t.s" class="tape" :class="{ sel: selected === t.s, silenced: t.silenced }"
       :style="{ '--c': t.accent, '--dot': t.dot }"
     >
-      <button class="pick" :aria-pressed="selected === t.s" :title="`Play synth ${t.s + 1}`" @click="$emit('select', t.s)">
+      <button class="pick" :aria-pressed="selected === t.s" :title="`Play ${t.name}`" @click="$emit('select', t.s)">
         <b><i class="dot" aria-hidden="true" />{{ t.name }}</b>
-        <span>Synth {{ t.s + 1 }} · {{ t.footer }}</span>
+        <span>{{ t.model }} · {{ t.footer }}</span>
       </button>
       <div class="side">
         <LedMeter :level="level(t.s)" :height="46" :width="6" :segs="12" />

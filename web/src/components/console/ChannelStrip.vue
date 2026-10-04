@@ -2,10 +2,11 @@
 // One thin channel strip (#54): its tape, drive, four sends, pan, mute and
 // solo, fader and meter. It is described by props, not by "synth", so a group
 // bus can use it later (epic #62).
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { INSERT_SHORT, levelToPos, posToDb, posToLevel, dbText, lin } from '../../audio/console'
 import { getEngine, levels, params, status } from '../../audio/engine'
 import { Param, type ParamId } from '../../audio/params'
+import EditableName from '../EditableName.vue'
 import Fader from './Fader.vue'
 import LedMeter from './LedMeter.vue'
 import { showInsertPanel } from './insertPanel'
@@ -40,7 +41,10 @@ const emit = defineEmits<{
   /** Another strip was dropped on this one: its index. */
   move: [from: number]
   setOut: [out: number]
+  /** The name typed for this strip; '' puts the default back (#127). */
+  rename: [name: string]
 }>()
+const renaming = ref(false)
 
 function onDrop(e: DragEvent) {
   const from = Number(e.dataTransfer?.getData('text/plain'))
@@ -87,10 +91,14 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
     @dragover.prevent @drop.prevent="onDrop"
   >
     <div class="tape-wrap">
-      <button class="tape" :title="`${title}: click to select, double-click for its panel, drag to move`" draggable="true" @dragstart="onDrag" @click="$emit('select')" @dblclick="$emit('open')">
+      <div v-if="renaming" class="tape">
+        <b><EditableName v-model:editing="renaming" :value="title" :label="title" @rename="$emit('rename', $event)" /></b><span>{{ subtitle }}</span>
+      </div>
+      <button v-else class="tape" :title="`${title}: click to select, double-click for its panel, drag to move`" draggable="true" @dragstart="onDrag" @click="$emit('select')" @dblclick="$emit('open')">
         <b>{{ title }}</b><span>{{ subtitle }}</span>
       </button>
-      <span class="tools">
+      <span v-if="!renaming" class="tools">
+        <button title="Rename this strip" :aria-label="`Rename ${title}`" @click="renaming = true">✎</button>
         <button title="Collapse this strip" @click="$emit('collapse')">◂</button>
         <button v-if="kind === 'group'" title="Remove this group; what feeds it goes to the master" @click="$emit('remove')">×</button>
         <button v-else title="Hide this strip from the console" @click="$emit('hide')">×</button>
@@ -153,7 +161,7 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
 .tape-wrap:hover .tools, .tools:focus-within { display: flex; }
 .tools button { width: 16px; height: 16px; padding: 0; border: 0; background: #0009; color: var(--con-silk); border-radius: 3px; font: 12px/1 var(--con-font-silk); cursor: pointer; }
 .tools button:hover { color: #fff; background: #000c; }
-.feeds { align-self: stretch; height: 14px; margin-top: -9px; font: 600 10px/14px var(--con-font-silk); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; color: #101215; }
+.feeds { align-self: stretch; height: 14px; margin-top: -9px; font: 600 10px/14px var(--con-font-silk); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; color: #101215; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
 .feeds.none { background: transparent; color: var(--con-silk-dim); }
 .out { width: 66px; background: var(--con-inset); color: var(--con-silk); border: 1px solid #343b46; border-radius: 3px; font: 500 11px var(--con-font-silk); letter-spacing: 0.06em; padding: 1px 2px; text-transform: uppercase; }
 .strip.collapsed { width: 34px; flex: 0 0 34px; gap: 8px; }
@@ -166,7 +174,7 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
   background: linear-gradient(#262b33, #1f242b); color: inherit; cursor: pointer; font: inherit;
 }
 .tape:hover:not(:disabled) { border-color: var(--c); background: linear-gradient(#2c323b, #232830); }
-.tape b { display: block; font-size: 16px; font-weight: 700; letter-spacing: 0.1em; color: var(--con-paper); text-transform: uppercase; }
+.tape b { display: block; font-size: 16px; font-weight: 700; letter-spacing: 0.1em; color: var(--con-paper); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tape span { display: block; font-size: 11px; letter-spacing: 0.12em; color: var(--con-silk-dim); text-transform: uppercase; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sec { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
 .cap { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--con-silk-dim); }

@@ -6,6 +6,7 @@ import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import { GlobalParam, Param, StripParam, type ParamId, type PresetId } from './params'
+import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
 const base = import.meta.env.BASE_URL
@@ -238,6 +239,10 @@ export async function loadSysex(bytes: ArrayBuffer, fileName: string): Promise<v
 }
 export const applySysex = (s: number, i: number) => engine?.post({ t: 'sysexApply', s, i })
 
+/** A strip's name, a synth's following the lane it plays when not renamed (#127). */
+export const stripName = (s: number) => nameOfStrip(s, player.parts)
+export const partName = (p: Part) => laneName(p)
+
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
 export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
@@ -339,6 +344,7 @@ function state(): State {
     synths: synths.list,
     groups: layout.groups,
     layout: { order: layout.order, collapsed: layout.collapsed, hidden: layout.hidden },
+    names: { strips: names.strips, parts: names.parts },
     values: params.values,
     routes: player.parts.map((p) => ({ channel: p.channel, synth: p.synth })),
     ...(player.loaded && { midi: { name: player.fileName, parts: player.parts.length } }),
@@ -396,6 +402,8 @@ function applySetup(setup: Setup, warnings: string[]) {
       layout.groups = op.groups
     } else if (op.t === 'layout') {
       Object.assign(layout, op.layout)
+    } else if (op.t === 'names') {
+      setNames(op.names)
     } else if (op.t === 'reset') {
       engine.reset(op.s)
     } else if (op.t === 'param') {
@@ -436,7 +444,7 @@ function storedSetup(name: string): typeof pending {
 // convenience only: storage can be unavailable, and the file is the real save.
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 watch(
-  () => [params.values, synths.list, player.parts.map((p) => p.synth)],
+  () => [params.values, synths.list, player.parts.map((p) => p.synth), names.strips, names.parts],
   () => {
     if (!player.loaded || !loadedName) return
     clearTimeout(saveTimer)

@@ -2,11 +2,15 @@
 // The loaded MIDI file (spec 002 Req 9): one row per channel with notes, its
 // source, and a piano roll. Drawing and messages only; the engine plays it.
 import { computed } from 'vue'
-import { MUTE, player, route, seek, synthColour, synths, type Part, type Route } from '../audio/engine'
+import { MUTE, params, partName, player, route, seek, stripName, synthColour, synths, type Part, type Route } from '../audio/engine'
+import { modelDef } from '../audio/models'
+import { renamePart } from '../audio/names'
+import { Param } from '../audio/params'
+import EditableName from './EditableName.vue'
 
 // Each part plays on one of the shown synths, or is muted.
 const choices = computed<{ label: string; value: Route }[]>(() => [
-  ...synths.list.map((s) => ({ label: `Mono ${s + 1}`, value: s })),
+  ...synths.list.map((s) => ({ label: `${stripName(s)} (${modelDef(params.values[s]?.[Param.Model] ?? 0).name})`, value: s })),
   { label: 'Mute', value: MUTE },
 ])
 const colour = (r: Route) => (r === MUTE ? 'var(--muted)' : synthColour(r))
@@ -39,7 +43,7 @@ function onSeek(e: MouseEvent) {
     <p v-if="player.notice" class="notice">{{ player.notice }}</p>
     <div v-for="p in player.parts" :key="p.channel" class="row">
       <div class="track">
-        <b>{{ p.name || `Channel ${p.channel + 1}` }}</b>
+        <b><EditableName :value="partName(p)" :label="partName(p)" @rename="renamePart(p.channel, $event)" /></b>
         <select :value="p.synth" @change="route(p, Number(($event.target as HTMLSelectElement).value) as Route)">
           <option v-for="c in choices" :key="c.value" :value="c.value">{{ c.label }}</option>
         </select>
@@ -66,6 +70,7 @@ function onSeek(e: MouseEvent) {
 <style scoped>
 .row { display: grid; grid-template-columns: 180px minmax(0, 1fr); border-top: 1px solid var(--line); }
 .track { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 6px 10px; align-items: center; }
+.track b { min-width: 0; display: block; }
 .track .muted { grid-column: 1 / -1; color: var(--muted); font-size: 10px; }
 select { font: inherit; font-size: 11px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; }
 .lane { position: relative; min-height: 44px; cursor: pointer; }

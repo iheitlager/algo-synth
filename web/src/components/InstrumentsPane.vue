@@ -4,9 +4,11 @@
 // in its model's palette with a keyboard under it. The selected synth gets the
 // keys, the computer keyboard's too.
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
-import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, status, synthColour, synths } from '../audio/engine'
+import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, status, stripName, synthColour, synths } from '../audio/engine'
+import { renameStrip } from '../audio/names'
 import { MODELS, modelDef, type ModelDef } from '../audio/models'
 import { Param, Preset, type PresetId } from '../audio/params'
+import EditableName from './EditableName.vue'
 import SynthFaceplate from './SynthFaceplate.vue'
 import Keyboard from './synth/Keyboard.vue'
 import SynthRail, { type Tape } from './synth/SynthRail.vue'
@@ -21,7 +23,8 @@ const tapes = computed<Tape[]>(() =>
     const channels = player.parts.filter((p) => p.synth === s).map((p) => p.channel + 1)
     return {
       s,
-      name: defOf(s).name,
+      name: stripName(s),
+      model: defOf(s).name,
       accent: defOf(s).theme.accent,
       dot: synthColour(s),
       footer: channels.length ? `Ch ${channels.join('·')}` : '—',
@@ -86,8 +89,8 @@ function onRemove(s: number) {
     <div class="face" :style="accent">
       <header>
         <div class="title">
-          <h2 :title="def.tagline">{{ def.name }}</h2>
-          <span>{{ def.maker }}</span>
+          <h2><EditableName :value="stripName(sel)" :label="stripName(sel)" @rename="renameStrip(sel, $event)" /></h2>
+          <span :title="def.tagline">{{ def.name }} · {{ def.maker }}</span>
         </div>
         <div class="pick">
           <label>Model
