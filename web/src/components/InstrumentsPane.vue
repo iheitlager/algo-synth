@@ -6,7 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, status, stripName, synthColour, synths } from '../audio/engine'
 import { renameStrip } from '../audio/names'
-import { MODELS, modelDef, type ModelDef } from '../audio/models'
+import { MODELS, familyModels, modelDef, type ModelDef } from '../audio/models'
 import { Param, Preset, type PresetId } from '../audio/params'
 import EditableName from './EditableName.vue'
 import SynthFaceplate from './SynthFaceplate.vue'
@@ -95,7 +95,7 @@ function onRemove(s: number) {
         <div class="pick">
           <label>Model
             <select :disabled="!status.running" :value="def.id" @change="loadModel(sel, $event)">
-              <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.name }}</option>
+              <option v-for="m in familyModels(def.family)" :key="m.id" :value="m.id">{{ m.name }}</option>
             </select>
           </label>
           <label>Preset

@@ -44,6 +44,21 @@
       "sha256": "ffb547fceb91eeb93d78cf8d220d1d5f726dcac891afc15e517805ac48abb39d",
       "license": "CC0-1.0",
       "credit": "FreePats, https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html"
+    },
+    {
+      "id": "audiophob",
+      "name": "Audiophob",
+      "kind": "drums",
+      "ext": "h2drumkit",
+      "url": "http://hydro.smoors.de/Audiophob.h2drumkit",
+      "sha256": "70b71304221a1287f257ed9a03bfb221af6ce335deec3a3385237e6be6fa9e0c",
+      "license": "CC0-1.0",
+      "credit": "Audiophob (soundcloud.com/audiophobdubstep), Hydrogen drum kit list; the sounds are from freesound.org",
+      "choke": {
+        "Closed HH": 1,
+        "Pedal HH": 1,
+        "Open HH": 1
+      }
     }
   ]
 }

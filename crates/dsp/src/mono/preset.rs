@@ -95,11 +95,13 @@ pub enum Preset {
     TightKit = 80,
     SamplerKeys = 81,
     SamplerPad = 82,
+    PadsLoud = 83,
+    PadsSoft = 84,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 83] = [
+    pub const ALL: [(Preset, &'static str); 85] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -183,6 +185,8 @@ impl Preset {
         (Preset::TightKit, "TightKit"),
         (Preset::SamplerKeys, "SamplerKeys"),
         (Preset::SamplerPad, "SamplerPad"),
+        (Preset::PadsLoud, "PadsLoud"),
+        (Preset::PadsSoft, "PadsSoft"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -213,6 +217,7 @@ impl Preset {
             | Preset::LaThumpBass
             | Preset::LaChoir => Model::D50,
             Preset::SamplerKeys | Preset::SamplerPad => Model::Sampler,
+            Preset::PadsLoud | Preset::PadsSoft => Model::PadSampler,
             Preset::PpgSweepPad
             | Preset::PpgGlassBell
             | Preset::PpgFormant
@@ -2456,6 +2461,19 @@ impl Preset {
                 (EnvCutoff, 0.6),
                 (KeyTrack, 0.6),
             ],
+            // The kit at full level; the pads' own settings are not parameters (`padsampler`).
+            Preset::PadsLoud => &[
+                (Model, 17.0),
+                (Polyphony, 16.0),
+                (Analog, 0.0),
+                (Vco1Level, 1.0),
+            ],
+            Preset::PadsSoft => &[
+                (Model, 17.0),
+                (Polyphony, 16.0),
+                (Analog, 0.0),
+                (Vco1Level, 0.6),
+            ],
             // The filter open and the envelope out of the way: the sample as recorded.
             Preset::SamplerKeys => &[
                 (Model, 16.0),
@@ -2994,8 +3012,8 @@ mod tests {
     #[test]
     fn every_preset_is_bounded() {
         for_every_preset(|preset, name| {
-            // A sampler with nothing loaded is silent; `sampler::tests` plays it.
-            if preset.model().uses_sampler() {
+            // A sampler with nothing loaded is silent; `sampler::tests` and `padsampler::tests` play them.
+            if preset.model().uses_sampler() || preset.model().uses_pads() {
                 return;
             }
             for note in [24, 48, 72, 96] {
@@ -3119,7 +3137,7 @@ mod tests {
             probe.preset(0, preset);
             let voices =
                 (probe.param_value(0, Param::Polyphony) as usize).min(preset.model().voices());
-            if voices < 2 || preset.model().uses_sampler() {
+            if voices < 2 || preset.model().uses_sampler() || preset.model().uses_pads() {
                 return;
             }
             let mut e = Engine::new(48_000.0);

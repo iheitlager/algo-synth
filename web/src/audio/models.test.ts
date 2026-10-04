@@ -18,6 +18,7 @@ const paramsOf = (c: Control): number[] => {
       return [c.param]
     case 'sysex':
     case 'sampler':
+    case 'pads':
       return []
     default:
       return []
@@ -105,7 +106,7 @@ describe('families (#132)', () => {
       expect(ms.map((m) => MODELS.indexOf(m))).toEqual([...ms.map((m) => MODELS.indexOf(m))].sort((a, b) => a - b))
     }
     expect(familyModels('mono')[0]?.name).toBe('ARP 2600')
-    expect(familyModels('drums').map((m) => m.id)).toEqual([Model.Tr808])
+    expect(familyModels('drums').map((m) => m.id)).toEqual([Model.Tr808, Model.PadSampler])
     expect(familyModels('samplers').map((m) => m.id)).toEqual([Model.Sampler])
     expect(familyModels('poly').map((m) => m.id)).toEqual([
       Model.Prophet5, Model.Juno106, Model.Jupiter8, Model.Matrix12, Model.PpgWave, Model.D50, Model.Dx7, Model.PolyMoog,
