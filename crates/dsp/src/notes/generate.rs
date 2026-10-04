@@ -12,6 +12,7 @@
 
 use super::{Cursor, Event, NoteError, Pitch, TICKS_PER_BAR, err};
 use crate::algo::{Rng, Scale, mix};
+use crate::arp;
 
 /// Notes of a walk, and of a chord for an arpeggio.
 const MAX_WALK: u32 = 32;
@@ -176,28 +177,33 @@ fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>
     let notes = buf.get_mut(..n).unwrap_or(&mut []);
     notes.copy_from_slice(chord.get(..n).unwrap_or(&[]));
     notes.sort_unstable_by_key(|p| p.note);
+    let mut held = [0u8; MAX_CHORD];
+    for (h, p) in held.iter_mut().zip(notes.iter()) {
+        *h = p.note;
+    }
+    let held = held.get(..n).unwrap_or(&[]);
     let len = TICKS_PER_BAR / u32::from(rate).max(1);
     let count = TICKS_PER_BAR / len.max(1);
     let mut r = rng(seed, 0xA4);
     for i in 0..count {
-        let at = usize::try_from(i).unwrap_or(0);
-        let k = match mode {
-            ArpMode::Up => at % n.max(1),
-            ArpMode::Down => n.saturating_sub(1) - at % n.max(1),
-            ArpMode::UpDown if n > 1 => {
-                let m = 2 * n - 2;
-                let idx = at % m;
-                if idx < n { idx } else { m - idx }
+        // The deterministic modes are the live arp's pattern (spec 002 Req 7).
+        let step = u64::from(i);
+        let note = match mode {
+            ArpMode::Up => arp::arp_note(held, arp::ArpMode::Up, 1, step, seed),
+            ArpMode::Down => arp::arp_note(held, arp::ArpMode::Down, 1, step, seed),
+            ArpMode::UpDown => arp::arp_note(held, arp::ArpMode::UpDown, 1, step, seed),
+            ArpMode::Random => {
+                let k = usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1);
+                notes.get(k).map(|p| p.note)
             }
-            ArpMode::UpDown => 0,
-            ArpMode::Random => usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1),
         };
-        if let Some(p) = notes.get(k) {
+        if let Some(note) = note {
+            let accent = notes.iter().any(|p| p.note == note && p.accent);
             out.push(Event {
                 start: i * len,
                 len,
-                note: p.note,
-                accent: p.accent,
+                note,
+                accent,
                 vel: 0,
             });
         }

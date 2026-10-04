@@ -6,6 +6,7 @@
 //! messages and copies the output block.
 
 pub mod algo;
+pub mod arp;
 pub mod clock;
 pub mod drums;
 pub mod engine;
