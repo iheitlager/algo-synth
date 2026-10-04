@@ -6,7 +6,13 @@ Tracks, sources, effects, fragments, the arrangement, generators, the song as te
 
 A track SHALL be a synth slot (strip 0–15) and own exactly one source: a Mono or Poly model (ADR-0009), the Drums kit (MVP 3) or, later, the Sampler (MVP 6), with its own fixed voice pool and parameters. Parameters SHALL be addressed as (track, parameter).
 
-**Implementation:** `crates/dsp/src/track.rs::Track` *(planned, MVP 3)*; the Drums kit's pads `crates/dsp/src/drums.rs::Kit` (bd, sn, cp, ch, oh, lt, ht, cb: one voice per pad, the closed hat choking the open hat, per-pad tune, decay, tone, level and an accent), in a slot once the voice pool lands (#114)
+**Implementation:** `crates/dsp/src/track.rs::Track` *(planned, MVP 3)*; the Drums kit's pads `crates/dsp/src/drums.rs::Kit` (bd, sn, cp, ch, oh, lt, ht, cb: one voice per pad, the closed hat choking the open hat, per-pad tune, decay, tone, level and an accent); in a synth slot as the TR-808 model, `crates/dsp/src/poly.rs::Pool` (`hit`, `PolyVoice::Drum`): a key plays the pad General MIDI puts there (any other key by its place in the octave from 36), on the voice already playing that pad or a new one; a hit has no note-off; the closed hat chokes the open hat; a hit at velocity 0.9 or more is accented. Per-pad tune, decay, tone, level and the accent are synth parameters (`BdTune` … `CbLevel`, `DrumAccent`)
+
+#### Scenario: a kit slot
+
+- GIVEN a synth slot with the TR-808 model
+- WHEN keys 36, 38 and 42 are pressed, the closed hat ten times, or an open hat then a closed hat
+- THEN three pads sound on three voices and ring out with no note-off, the closed hat keeps one voice, and the open hat is choked
 
 #### Scenario: the loudest hit
 
@@ -14,7 +20,7 @@ A track SHALL be a synth slot (strip 0–15) and own exactly one source: a Mono 
 - WHEN it is rendered offline
 - THEN every sample is finite and within ±1, there is no DC, and it is silent within four seconds
 
-**Tests:** `crates/dsp/src/track.rs::tests` *(planned)*, `crates/dsp/src/drums/tests.rs::every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends`, `crates/dsp/src/drums/tests.rs::the_kick_falls_to_its_tune`, `crates/dsp/src/drums/tests.rs::tune_moves_the_pitch_by_semitones`, `crates/dsp/src/drums/tests.rs::the_hats_sit_high`, `crates/dsp/src/drums/tests.rs::the_closed_hat_chokes_the_open_hat`, `crates/dsp/src/drums/tests.rs::the_clap_comes_in_bursts`, `crates/dsp/src/drums/tests.rs::an_accent_is_louder_by_the_amount`, `crates/dsp/src/drums/tests.rs::the_same_hit_gives_the_same_samples`
+**Tests:** `crates/dsp/src/track.rs::tests` *(planned)*, `crates/dsp/src/drums/tests.rs::every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends`, `crates/dsp/src/drums/tests.rs::the_kick_falls_to_its_tune`, `crates/dsp/src/drums/tests.rs::tune_moves_the_pitch_by_semitones`, `crates/dsp/src/drums/tests.rs::the_hats_sit_high`, `crates/dsp/src/drums/tests.rs::the_closed_hat_chokes_the_open_hat`, `crates/dsp/src/drums/tests.rs::the_clap_comes_in_bursts`, `crates/dsp/src/drums/tests.rs::an_accent_is_louder_by_the_amount`, `crates/dsp/src/drums/tests.rs::the_same_hit_gives_the_same_samples`, `crates/dsp/src/drums/tests.rs::every_key_plays_a_pad_and_general_midi_its_own`, `crates/dsp/src/engine.rs::tests::a_kit_slot_plays_its_pads`, `crates/dsp/src/engine.rs::tests::a_pad_hit_again_retriggers_its_own_voice`, `crates/dsp/src/engine.rs::tests::the_closed_hat_chokes_the_open_hat`, `crates/dsp/src/engine.rs::tests::a_hard_hit_is_accented_and_the_knobs_reach_the_pads`, `crates/dsp/src/engine.rs::tests::channel_ten_plays_on_a_kit_slot`
 
 ### Requirement 2: Fixed mixer [MUST]
 

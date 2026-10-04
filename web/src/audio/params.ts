@@ -369,6 +369,39 @@ export const Param = {
   LfoShape: 362,
   PitchSens: 363,
   Transpose: 364,
+  BdTune: 365,
+  BdDecay: 366,
+  BdTone: 367,
+  BdLevel: 368,
+  SnTune: 369,
+  SnDecay: 370,
+  SnTone: 371,
+  SnLevel: 372,
+  CpTune: 373,
+  CpDecay: 374,
+  CpTone: 375,
+  CpLevel: 376,
+  ChTune: 377,
+  ChDecay: 378,
+  ChTone: 379,
+  ChLevel: 380,
+  OhTune: 381,
+  OhDecay: 382,
+  OhTone: 383,
+  OhLevel: 384,
+  LtTune: 385,
+  LtDecay: 386,
+  LtTone: 387,
+  LtLevel: 388,
+  HtTune: 389,
+  HtDecay: 390,
+  HtTone: 391,
+  HtLevel: 392,
+  CbTune: 393,
+  CbDecay: 394,
+  CbTone: 395,
+  CbLevel: 396,
+  DrumAccent: 397,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -503,6 +536,7 @@ export const Model = {
   D50: 12,
   Dx7: 13,
   PolyMoog: 14,
+  Tr808: 15,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -586,6 +620,8 @@ export const Preset = {
   VoxHumana: 76,
   PolyFunk: 77,
   PolyBrass: 78,
+  Kit808: 79,
+  TightKit: 80,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

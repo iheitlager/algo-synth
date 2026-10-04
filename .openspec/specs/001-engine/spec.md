@@ -38,7 +38,7 @@ The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, e
 
 ### Requirement 3: Voice allocation [MUST]
 
-Each owner (live input, each MIDI channel) SHALL have its own monophonic Mono voice, allocated in `Engine::new` (spec 004 Req 6). `note_off` SHALL release only that owner's key. A released voice SHALL end when its ADSR does (spec 004 Req 4). The shared pool for Wave and Drums is gone with them (ADR-0008).
+Each owner (live input, each MIDI channel) SHALL have its own monophonic Mono voice, allocated in `Engine::new` (spec 004 Req 6). `note_off` SHALL release only that owner's key. A released voice SHALL end when its ADSR does (spec 004 Req 4). Since ADR-0011 every synth owns a voice pool (spec 006); a drum kit's slot hits pads on it instead of holding notes (spec 002 Req 1).
 
 **Implementation:** `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/engine.rs::Engine::note_off`
 

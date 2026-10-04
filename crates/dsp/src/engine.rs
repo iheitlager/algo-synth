@@ -1736,7 +1736,11 @@ mod tests {
             e.render(BLOCK);
             assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
         }
-        assert_eq!(e.active_voices(), SYNTHS);
+        // Every held note sounds; a drum kit's hit is a one-shot and has rung out.
+        let held = (0..SYNTHS)
+            .filter(|s| !Model::ALL[s % Model::ALL.len()].0.uses_drums())
+            .count();
+        assert_eq!(e.active_voices(), held);
     }
 
     /// Peak of a held loud note on synth 0 after `setup`.
@@ -2252,5 +2256,99 @@ mod tests {
             vec![Some(0), Some(1), Some(2), Some(3)],
             "one synth per part"
         );
+    }
+
+    /// A kit on synth `s`, master at full, and the peak of `blocks` rendered.
+    fn kit(s: usize) -> Engine {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(s, Preset::Kit808);
+        e
+    }
+
+    fn run(e: &mut Engine, blocks: usize) -> f32 {
+        let mut heard = 0.0_f32;
+        for _ in 0..blocks {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+            heard = heard.max(peak(e));
+        }
+        heard
+    }
+
+    /// #114: a synth slot holding the TR-808 plays its pads, one voice each,
+    /// and they ring out.
+    #[test]
+    fn a_kit_slot_plays_its_pads() {
+        let mut e = kit(0);
+        for note in [36, 38, 42] {
+            e.note_on(0, note, 0.8);
+        }
+        assert_eq!(e.active_voices(), 3);
+        assert!(run(&mut e, 20) > 0.05);
+        // One-shots: a note-off changes nothing.
+        e.note_off(0, 36);
+        assert_eq!(e.active_voices(), 3);
+        run(&mut e, 48_000 * 3 / BLOCK);
+        assert_eq!(e.active_voices(), 0, "every pad has rung out");
+    }
+
+    #[test]
+    fn a_pad_hit_again_retriggers_its_own_voice() {
+        let mut e = kit(0);
+        for _ in 0..10 {
+            e.note_on(0, 42, 0.8);
+            run(&mut e, 2);
+            assert_eq!(e.active_voices(), 1);
+        }
+        // Any other key with the closed hat's place plays it too.
+        e.note_on(0, 44, 0.8);
+        assert_eq!(e.active_voices(), 1);
+    }
+
+    #[test]
+    fn the_closed_hat_chokes_the_open_hat() {
+        let mut e = kit(0);
+        e.note_on(0, 46, 0.8);
+        run(&mut e, 10);
+        e.note_on(0, 42, 0.8);
+        run(&mut e, 1);
+        assert_eq!(e.active_voices(), 1, "only the closed hat is left");
+        run(&mut e, 48_000 / 5 / BLOCK);
+        assert_eq!(e.active_voices(), 0);
+        // Alone, the open hat is still ringing then.
+        let mut open = kit(0);
+        open.note_on(0, 46, 0.8);
+        run(&mut open, 11 + 48_000 / 5 / BLOCK);
+        assert_eq!(open.active_voices(), 1);
+    }
+
+    #[test]
+    fn a_hard_hit_is_accented_and_the_knobs_reach_the_pads() {
+        let hit = |velocity: f32, level: Option<f32>| {
+            let mut e = kit(0);
+            if let Some(l) = level {
+                e.set_param(0, Param::BdLevel, l);
+            }
+            e.note_on(0, 36, velocity);
+            run(&mut e, 40)
+        };
+        // Accent 0.5 at velocity 1, none at 0.8: 1.5 / 0.8 louder.
+        let ratio = hit(1.0, None) / hit(0.8, None);
+        assert!((ratio - 1.875).abs() < 1.0e-3, "{ratio}");
+        assert_eq!(hit(1.0, Some(0.0)), 0.0, "a pad at level 0 is silent");
+    }
+
+    /// #114: a MIDI file's channel 10 plays on the slot it is routed to, when
+    /// that slot holds the kit.
+    #[test]
+    fn channel_ten_plays_on_a_kit_slot() {
+        let mut e = kit(2);
+        assert_eq!(load(&mut e, &one_note(9)), Ok(1));
+        e.route(9, Some(2));
+        e.play();
+        let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
+        assert!(heard > 0.05, "the kick at 0.5 s");
+        assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
     }
 }

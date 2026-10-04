@@ -1014,7 +1014,42 @@ const polyMoog: ModelDef = {
   ],
 }
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog]
+// Eight synthesized pads after the TR-808, one voice each: a section per pad with
+// its tune, decay, tone and level, and the kit's accent (#114). Keys play the
+// pads by General MIDI's drum map (C2 kick, D2 snare, F#2 closed hat, ...).
+const pad = (title: string, name: string): Section => {
+  const p = (f: string) => Param[`${name}${f}` as keyof typeof Param]
+  return {
+    title,
+    controls: [
+      { kind: 'knob', label: 'Tune', param: p('Tune'), lo: -12, hi: 12, scale: 'lin', unit: 'st', step: 1, bipolar: true, def: 0 },
+      { kind: 'knob', label: 'Decay', param: p('Decay'), lo: 0.25, hi: 4, scale: 'exp', unit: 'pct', def: 1 },
+      { kind: 'knob', label: 'Tone', param: p('Tone'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
+      { kind: 'knob', label: 'Level', param: p('Level'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.8 },
+    ],
+  }
+}
+const tr808: ModelDef = {
+  id: Model.Tr808,
+  name: 'TR-808',
+  maker: 'Roland · rhythm composer, eight pads',
+  tagline: 'Kick, snare, clap, closed and open hats, two toms and a cowbell; the closed hat chokes the open',
+  theme: { panel: '#2b2a28', ink: '#f2efe6', soft: '#b9b3a6', trim: '#dcd6c8', accent: '#f0712c' },
+  presets: ['Kit808', 'TightKit'],
+  sections: [
+    pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Clap', 'Cp'), pad('Closed hat', 'Ch'),
+    pad('Open hat', 'Oh'), pad('Low tom', 'Lt'), pad('High tom', 'Ht'), pad('Cowbell', 'Cb'),
+    {
+      title: 'Accent',
+      controls: [
+        { kind: 'knob', label: 'Amount', param: Param.DrumAccent, lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
+        { kind: 'note', text: 'Hits at velocity 115 and up are accented.' },
+      ],
+    },
+  ],
+}
+
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808]
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

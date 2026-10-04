@@ -2,14 +2,18 @@
 //! spec 002 Req 1).
 //!
 //! Each pad is one voice, retriggered as the hardware's are, and the closed
-//! hat chokes the open hat. The kit adds into a mono buffer; wiring it into a
-//! synth slot's voice pool (ADR-0011) is a later story. Real-time rules
+//! hat chokes the open hat. `Kit` plays the pads on their own; a synth slot
+//! with the TR-808 model plays them as voices of its pool (`poly`, #114).
+//! Real-time rules
 //! (ADR-0002): a trigger computes its coefficients; a sample costs multiplies,
 //! table reads and a filter step.
 
 mod pads;
 
-use pads::PadVoice;
+pub use pads::PadVoice;
+
+/// A hit at this velocity or above is accented (MIDI 115 and up).
+pub const ACCENT_VELOCITY: f32 = 0.9;
 
 /// A pad of the kit. The names are the notation's (ADR-0012); the notes are
 /// General MIDI's.
@@ -70,6 +74,33 @@ impl Pad {
             .find(|(p, _)| p.note() == note)
             .map(|(p, _)| *p)
     }
+
+    /// The pad a key plays: General MIDI's drum map from 35 to 56 (with its
+    /// second kick, snare, pedal hat and the toms between), and every other key
+    /// by its place in the octave from 36, so any octave of a keyboard plays
+    /// the kit.
+    pub fn from_gm(note: u8) -> Pad {
+        let gm = match note {
+            35 | 36 => Some(Pad::Bd),
+            37 | 39 => Some(Pad::Cp),
+            38 | 40 => Some(Pad::Sn),
+            42 | 44 => Some(Pad::Ch),
+            46 => Some(Pad::Oh),
+            41 | 43 | 45 => Some(Pad::Lt),
+            47 | 48 | 50 => Some(Pad::Ht),
+            56 => Some(Pad::Cb),
+            _ => None,
+        };
+        gm.unwrap_or(match note % 12 {
+            0 => Pad::Bd,
+            1 | 3 => Pad::Cp,
+            2 | 4 => Pad::Sn,
+            6 | 8 => Pad::Ch,
+            10 => Pad::Oh,
+            5 | 7 | 9 => Pad::Lt,
+            _ => Pad::Ht,
+        })
+    }
 }
 
 /// A pad's knobs.
@@ -98,6 +129,16 @@ impl Default for PadParams {
 }
 
 impl PadParams {
+    /// The gain of a hit at `velocity` (0..=1), louder by `accent` when accented.
+    pub fn gain(&self, velocity: f32, accented: bool, accent: f32) -> f32 {
+        let v = if velocity.is_nan() {
+            0.0
+        } else {
+            velocity.clamp(0.0, 1.0)
+        };
+        v * self.level * if accented { 1.0 + accent } else { 1.0 }
+    }
+
     fn clamped(self) -> PadParams {
         let c = |v: f32, lo: f32, hi: f32, nan: f32| if v.is_nan() { nan } else { v.clamp(lo, hi) };
         PadParams {
@@ -151,13 +192,8 @@ impl Kit {
     /// Hit `pad` at `velocity` (0..=1), accented or not. A closed hat
     /// silences the open hat.
     pub fn trigger(&mut self, pad: Pad, velocity: f32, accent: bool) {
-        let v = if velocity.is_nan() {
-            0.0
-        } else {
-            velocity.clamp(0.0, 1.0)
-        };
         let p = self.params(pad);
-        let gain = v * p.level * if accent { 1.0 + self.accent } else { 1.0 };
+        let gain = p.gain(velocity, accent, self.accent);
         if pad == Pad::Ch {
             if let Some(oh) = self.voices.get_mut(Pad::Oh as usize) {
                 oh.choke();

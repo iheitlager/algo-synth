@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-04
+
+### Added
+
+- **Drums in a synth slot:** the TR-808 model plays the kit's eight pads as voices of the slot's pool. A key hits the pad General MIDI puts there (any other key by its place in the octave from 36), on the voice already playing that pad, so a pad retriggers as on the 808; hits have no note-off, the closed hat chokes the open hat, and velocity 115 and up is accented. Tune, decay, tone and level per pad and the accent are synth parameters (ids 365–397), with two presets (808 Kit, Tight Kit) and a faceplate. A MIDI file's drum channel plays on a kit slot it is routed to (#114, epic #97).
+
 ## [0.18.0] - 2026-10-04
 
 ### Added
