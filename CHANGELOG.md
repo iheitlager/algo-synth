@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-04
+
+### Added
+
+- **+ Synth chooses a family and model** (#132, spec 003 Req 9): a menu of the families (Mono, Poly, Drums) and their models; a family adds its first model, a model itself, each on its first preset. Models carry a `family`, and `FAMILIES` in `models.ts` lists them.
+
 ## [0.19.0] - 2026-10-04
 
 ### Added
