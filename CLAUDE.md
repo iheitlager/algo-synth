@@ -26,3 +26,11 @@ The `## ...` comment after a target is what `make help` prints; keep it to
 ## Ports
 
 `make serve` → 6340, `make dev` → 6341. Keep new services in the 63xx range.
+
+## Releases
+
+A PR never bumps the version or edits `CHANGELOG.md`: it adds a fragment,
+`changes/<issue>.<added|changed|fixed>.md`, with its changelog bullet(s)
+(see `changes/README.md`). `make release` turns the fragments into a release
+when one is wanted. Merge with `gh pr merge --auto --merge` so a PR merges
+itself when CI is green (#186).

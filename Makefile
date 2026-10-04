@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt version wasm web install demo-midi samples test test-rust test-tools test-web typecheck bench lint deny image serve stop clean
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web typecheck bench lint deny image serve stop clean
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -24,6 +24,9 @@ dev: wasm install ## Dev server on localhost:6341
 build: wasm web ## Build wasm and web into web/dist
 fmt: ## Format the code
 	cargo fmt
+# Collects changes/*.md into CHANGELOG.md and bumps the version (#186).
+release: ## Cut a release from changes/
+	python3 tools/release.py
 version: ## Print the workspace version
 	@sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1
 
