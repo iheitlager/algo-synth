@@ -326,10 +326,43 @@ pub extern "C" fn zone_set(synth: u32, zone: u32, field: u32, value: f32) {
     }
 }
 
+/// A field of a zone, as `zone_set` takes it (−1 for an empty sample slot or an
+/// unset root); 0 for an unknown synth, zone or field.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_get(synth: u32, zone: u32, field: u32) -> f32 {
+    ZoneField::from_id(field).map_or(0.0, |f| {
+        query(0.0, |e| e.zone_value(synth as usize, zone as usize, f))
+    })
+}
+
+/// Work out `bins` (min, max) pairs for the waveform of `slot`; the number of
+/// values written (twice the bins, 0 for an empty slot). Read them at `peaks_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_peaks(slot: u32, bins: u32) -> u32 {
+    query(0, |e| e.sample_peaks(slot as usize, bins as usize) as u32)
+}
+
+/// Address of the peaks `sample_peaks` computed.
+#[unsafe(no_mangle)]
+pub extern "C" fn peaks_ptr() -> *const f32 {
+    ENGINE.with(|cell| match cell.try_borrow() {
+        Ok(guard) => guard
+            .as_ref()
+            .map_or(std::ptr::null(), |e| e.peaks().as_ptr()),
+        Err(_) => std::ptr::null(),
+    })
+}
+
 /// Empty every zone of `synth`.
 #[unsafe(no_mangle)]
 pub extern "C" fn zones_clear(synth: u32) {
     with_engine(|e| e.clear_zones(synth as usize));
+}
+
+/// Fields in a zone: the length of `ZoneField`'s id range.
+#[unsafe(no_mangle)]
+pub extern "C" fn zone_fields() -> u32 {
+    ZoneField::ALL.len() as u32
 }
 
 /// Zones each synth holds.
@@ -542,6 +575,18 @@ mod tests {
         assert_eq!(sample_root(2), 60);
         assert_eq!(sample_used(), 3);
         assert_eq!(sample_load(sample_slots()), -7);
+        assert_eq!(sample_peaks(2, 2), 4);
+        assert!(!peaks_ptr().is_null());
+        assert_eq!(sample_peaks(9, 2), 0, "an empty slot has no peaks");
+        zone_set(0, 5, 0, 2.0);
+        zone_set(0, 5, 1, 40.0);
+        assert_eq!(zone_get(0, 5, 0), 2.0);
+        assert_eq!(zone_get(0, 5, 1), 40.0);
+        assert_eq!(zone_get(0, 6, 0), -1.0, "an untouched zone is empty");
+        assert_eq!(zone_get(99, 0, 0), 0.0);
+        assert_eq!(zone_get(0, 0, 99), 0.0);
+        zones_clear(0);
+        assert_eq!(zone_get(0, 5, 0), -1.0);
         sample_clear(2);
         assert_eq!(sample_frames(2), 0);
         assert_eq!(sample_root(2), 255);

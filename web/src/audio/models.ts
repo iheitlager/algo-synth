@@ -33,6 +33,8 @@ export type Control =
   | { kind: 'algo'; label: string; param: ParamId }
   /** Load DX7 voices from a SysEx file; the engine reads it, the view only forwards the bytes. */
   | { kind: 'sysex' }
+  /** The sampler's pack browser, sample slots, zone map and zone editor (#125). */
+  | { kind: 'sampler' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -40,6 +42,8 @@ export interface Section {
   controls: Control[]
   /** The eight patch slots instead of controls (spec 004 Req 7). */
   patch?: boolean
+  /** The whole width of the faceplate. */
+  wide?: boolean
 }
 
 /**
@@ -1061,6 +1065,7 @@ const sampler: ModelDef = {
   theme: { panel: '#20262b', ink: '#e6ebee', soft: '#9aa6ae', trim: '#3a444c', accent: '#5fb4c9' },
   presets: ['SamplerKeys', 'SamplerPad'],
   sections: [
+    { title: 'Samples and zones', wide: true, controls: [{ kind: 'sampler' }] },
     {
       title: 'Sample',
       controls: [range('Level', Param.Vco1Level, 0, 1, 0.01), range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine)],

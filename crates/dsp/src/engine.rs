@@ -83,6 +83,8 @@ pub struct Engine {
     /// A WAV file's bytes, written by JavaScript before `load_sample`.
     wav: Vec<u8>,
     samples: SampleStore,
+    /// The waveform peaks `sample_peaks` last computed, for the view to read.
+    peaks: Vec<f32>,
     /// Each synth's zones, for when it is a sampler.
     zones: Vec<ZoneMap>,
     sequence: Sequence,
@@ -127,6 +129,7 @@ impl Engine {
             sysex_voices: Vec::new(),
             wav: Vec::new(),
             samples: SampleStore::new(),
+            peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
             sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
@@ -477,6 +480,29 @@ impl Engine {
         if let Some(z) = self.zones.get_mut(synth) {
             z.clear();
         }
+    }
+
+    /// A field of one of `synth`'s zones, as `set_zone` would take it back.
+    pub fn zone_value(&self, synth: usize, zone: usize, field: ZoneField) -> f32 {
+        self.zones
+            .get(synth)
+            .and_then(|z| z.get(zone))
+            .map_or(0.0, |z| z.get(field))
+    }
+
+    /// Work out `bins` (min, max) pairs for the sample in `slot` into the peaks
+    /// buffer and return how many values it holds (0 for an empty slot).
+    /// Allocates: a control-thread call, never `render`.
+    pub fn sample_peaks(&mut self, slot: usize, bins: usize) -> usize {
+        self.peaks.clear();
+        if let Some(s) = self.samples.get(slot) {
+            s.peaks(bins.clamp(1, 4096), &mut self.peaks);
+        }
+        self.peaks.len()
+    }
+
+    pub fn peaks(&self) -> &[f32] {
+        &self.peaks
     }
 
     pub fn zones(&self, synth: usize) -> Option<&ZoneMap> {

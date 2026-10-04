@@ -15,6 +15,7 @@ import AlgoDiagram from './synth/AlgoDiagram.vue'
 import Eg4Graph from './synth/Eg4Graph.vue'
 import EnvGraph from './synth/EnvGraph.vue'
 import PatchBay from './synth/PatchBay.vue'
+import SamplerPane from './synth/SamplerPane.vue'
 import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
 import Switch from './synth/Switch.vue'
@@ -63,7 +64,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
   <div class="plate" :class="{ wood: !!def.theme.wood }" :style="vars">
     <i v-if="def.theme.wood" class="cheek l" aria-hidden="true" /><i v-if="def.theme.wood" class="cheek r" aria-hidden="true" />
     <div class="mods">
-      <section v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch }" :aria-label="sec.title">
+      <section v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide }" :aria-label="sec.title">
         <h3>{{ sec.title }}</h3>
         <PatchBay v-if="sec.patch" :s="s" :slots="def.patchSlots ?? 8" />
         <div v-else class="ctls">
@@ -114,6 +115,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
               />
             </div>
             <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
+            <SamplerPane v-else-if="c.kind === 'sampler'" :s="s" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>

@@ -63,6 +63,27 @@ impl Sample {
         self.data.len() / usize::from(self.channels)
     }
 
+    /// The lowest and highest value in each of `bins` equal runs of frames, as
+    /// (min, max) pairs appended to `out`, for drawing the waveform.
+    pub fn peaks(&self, bins: usize, out: &mut Vec<f32>) {
+        let frames = self.frames();
+        for b in 0..bins {
+            let (from, to) = (
+                b * frames / bins,
+                ((b + 1) * frames / bins).max(b * frames / bins + 1),
+            );
+            let (mut lo, mut hi) = (0.0_f32, 0.0_f32);
+            for i in from..to.min(frames) {
+                let (l, r) = self.frame(i);
+                let m = 0.5 * (l + r);
+                lo = lo.min(m);
+                hi = hi.max(m);
+            }
+            out.push(lo);
+            out.push(hi);
+        }
+    }
+
     /// Frame `i` as (left, right); mono repeats on both sides. Out of range
     /// reads silence.
     pub fn frame(&self, i: usize) -> (f32, f32) {
@@ -388,6 +409,32 @@ mod tests {
         out.extend((c.len() as u32).to_le_bytes());
         out.extend(c);
         out
+    }
+
+    #[test]
+    fn peaks_bracket_each_run() {
+        let s = parse(
+            &wav(
+                1,
+                1,
+                48_000,
+                16,
+                &pcm16(&[0, 16_384, -16_384, 0, 32_767, 0]),
+                &[],
+            ),
+            48_000.0,
+        )
+        .unwrap();
+        let mut p = Vec::new();
+        s.peaks(3, &mut p);
+        assert_eq!(p.len(), 6);
+        assert_eq!((p[0], p[1]), (0.0, 0.5));
+        assert_eq!((p[2], p[3]), (-0.5, 0.0));
+        assert!(p[5] > 0.99);
+        // More bins than frames still gives a pair per bin.
+        p.clear();
+        s.peaks(20, &mut p);
+        assert_eq!(p.len(), 40);
     }
 
     #[test]

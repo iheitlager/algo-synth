@@ -42,6 +42,14 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'preset': w.mono_preset(data.s, data.id); this.sendParams(data.s); break
         case 'reset': w.synth_reset(data.s); this.sendParams(data.s); break
         case 'dump': this.sendParams(data.s); break
+        case 'sample': this.loadSample(data.slot, new Uint8Array(data.bytes)); break
+        case 'sampleClear':
+          w.sample_clear(data.slot)
+          this.port.postMessage({ t: 'sampleCleared', slot: data.slot, used: w.sample_used() })
+          break
+        case 'zone': w.zone_set(data.s, data.zone, data.field, data.v); break
+        case 'zonesClear': w.zones_clear(data.s); break
+        case 'zonesDump': this.sendZones(data.s); break
       }
     }
   }
@@ -52,6 +60,42 @@ class EngineProcessor extends AudioWorkletProcessor {
     const values = new Float32Array(this.w.param_count())
     for (let id = 0; id < values.length; id++) values[id] = this.w.param_value(s, id)
     this.port.postMessage({ t: 'params', s, values }, [values.buffer])
+  }
+
+  // Copy a WAV file into the engine's buffer and have it parsed and resampled into `slot`;
+  // the summary and the waveform's peaks come back (the view only draws them).
+  loadSample(slot, bytes) {
+    const w = this.w
+    const ptr = w.sample_buf(bytes.length)
+    if (!ptr) {
+      this.port.postMessage({ t: 'sample', slot, code: -6 })
+      return
+    }
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    const code = w.sample_load(slot)
+    if (code < 0) {
+      this.port.postMessage({ t: 'sample', slot, code })
+      return
+    }
+    const n = w.sample_peaks(slot, 512)
+    const peaks = new Float32Array(w.memory.buffer, w.peaks_ptr(), n).slice()
+    this.port.postMessage(
+      {
+        t: 'sample', slot, code, frames: code, root: w.sample_root(slot),
+        loopStart: w.sample_loop(slot, 0), loopEnd: w.sample_loop(slot, 1),
+        used: w.sample_used(), cap: w.sample_cap(), peaks,
+      },
+      [peaks.buffer],
+    )
+  }
+
+  // Every field of every zone of synth `s`, zone by zone.
+  sendZones(s) {
+    const zones = this.w.zone_count()
+    const fields = this.w.zone_fields()
+    const values = new Float32Array(zones * fields)
+    for (let z = 0; z < zones; z++) for (let f = 0; f < fields; f++) values[z * fields + f] = this.w.zone_get(s, z, f)
+    this.port.postMessage({ t: 'zones', s, values }, [values.buffer])
   }
 
   // Copy the file into the engine's buffer, parse it there, and send the
