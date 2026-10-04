@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- **User presets** (epic #153, ADR-0014, spec 003 Req 11): save, load, rename and delete presets of a synth (model and sound, applied on the synth defaults so the strip stays), an insert slot, a processor and a strip (pan, sends, inserts; never fader, mute, solo or routing). Presets are stored by name in a browser library (IndexedDB) and exported or imported as `algo-synth.presets.json`; setups are unchanged. A picker shows factory and user presets, and those of other models or types; a dot marks a changed target. Copy and Paste in every preset menu, one clipboard per kind; a DX7 SysEx voice can be saved to the library. New ABI call `synth_defaults`.
+
 ## [0.22.0] - 2026-10-04
 
 The drum machine (epic #97, MVP 3).
