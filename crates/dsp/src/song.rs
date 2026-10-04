@@ -105,6 +105,8 @@ pub struct Fragment {
     pub track: usize,
     pub lanes: Vec<Lane>,
     pub notes: Option<Notes>,
+    /// A generator call that makes new events every cycle (`frag a = t live`).
+    pub live: bool,
 }
 
 /// What a track's fragments hold.
@@ -281,15 +283,30 @@ impl Song {
                     }
                 }
                 if as_notes {
+                    if song.frags.get(f).is_some_and(|fr| fr.notes.is_some()) {
+                        return Err(err(first.col, "a note frag is one line of notes"));
+                    }
+                    let srcs = |name: &str| {
+                        song.frags
+                            .iter()
+                            .find(|f| f.name == name)
+                            .and_then(|f| f.notes.as_ref())
+                            .map(|n| (n.events.clone(), n.bars))
+                    };
+                    let live = song.frags.get(f).is_some_and(|fr| fr.live);
+                    let n =
+                        notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
+                            .map_err(|e| err(e.col, e.msg))?;
+                    if live && !matches!(n.seq, notes::Seq::Generated(_)) {
+                        return Err(err(
+                            first.col,
+                            "a live frag is a call: arp, walk, markov or mutate",
+                        ));
+                    }
                     let frag = song
                         .frags
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a frag"))?;
-                    if frag.notes.is_some() {
-                        return Err(err(first.col, "a note frag is one line of notes"));
-                    }
-                    let n = notes::parse_in(body.trim_start(), first.col, song.scale.as_ref())
-                        .map_err(|e| err(e.col, e.msg))?;
                     frag.notes = Some(n);
                     continue;
                 }
@@ -398,8 +415,14 @@ impl Song {
                     let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
                         return Err(err(track.col, "no track has this name"));
                     };
-                    let synth = song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth);
-                    if let Some(w) = ws.get(4) {
+                    let kind = song.tracks.get(t).map(|t| t.kind);
+                    let synth = kind == Some(Kind::Synth);
+                    let live = ws.get(4).is_some_and(|w| w.text == "live");
+                    if live && kind == Some(Kind::Drums) {
+                        let col = ws.get(4).map_or(first.col, |w| w.col);
+                        return Err(err(col, "only a note frag can be live"));
+                    }
+                    if let Some(w) = ws.get(4).filter(|_| !live) {
                         if synth {
                             return Err(err(w.col, "a note frag has no step grid"));
                         }
@@ -416,6 +439,7 @@ impl Song {
                         track: t,
                         lanes: Vec::new(),
                         notes: None,
+                        live,
                     });
                     open = Some((song.frags.len() - 1, line));
                 }
@@ -458,7 +482,8 @@ impl Song {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
             if let Some(n) = &f.notes {
-                lines.push(format!("frag {} = {}", f.name, track));
+                let live = if f.live { " live" } else { "" };
+                lines.push(format!("frag {} = {}{live}", f.name, track));
                 lines.push(format!("  {}", n.print()));
                 continue;
             }
@@ -473,6 +498,30 @@ impl Song {
         }
         lines.push(String::new());
         lines.join("\n")
+    }
+
+    /// Replace the generator call of note frag `frag` with the events it
+    /// plays (`events`, or its own when `None`), written as mini-notation, and
+    /// make it a fixed frag. False when it is not a generated frag or the
+    /// events cannot be written back exactly.
+    pub fn freeze(&mut self, frag: usize, events: Option<&[notes::Event]>) -> bool {
+        let Some(f) = self.frags.get_mut(frag) else {
+            return false;
+        };
+        let Some(n) = f.notes.as_ref() else {
+            return false;
+        };
+        if !matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) {
+            return false;
+        }
+        match notes::freeze(events.unwrap_or(&n.events), n.bars) {
+            Some(frozen) => {
+                f.notes = Some(frozen);
+                f.live = false;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Set one step; false when there is no such step.

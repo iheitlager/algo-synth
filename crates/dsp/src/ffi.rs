@@ -791,6 +791,25 @@ pub extern "C" fn frag_bars(f: u32) -> u32 {
     })
 }
 
+/// Whether fragment `f` makes new events every cycle.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_live(f: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .map_or(0, |x| u32::from(x.live))
+    })
+}
+
+/// Replace fragment `f`'s generator call with the events it is playing, as
+/// notes: 0 when done, −1 when it is not a generated fragment or the events
+/// do not fit the notation. The song is printed again (`song_text_*`).
+#[unsafe(no_mangle)]
+pub extern "C" fn freeze(f: u32) -> i32 {
+    query(-1, |e| if e.freeze(f as usize) { 0 } else { -1 })
+}
+
 /// Lanes of fragment `f`.
 #[unsafe(no_mangle)]
 pub extern "C" fn frag_lanes(f: u32) -> u32 {

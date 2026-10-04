@@ -167,6 +167,11 @@ pub struct Scale {
 }
 
 impl Scale {
+    /// Notes to the octave.
+    pub fn degrees(&self) -> u32 {
+        u32::try_from(self.mode.intervals().len()).unwrap_or(1)
+    }
+
     /// The note `steps` scale degrees above the scale note at or above
     /// `start`, climbing at most two octaves before it starts over, so a walk
     /// stays in range.
