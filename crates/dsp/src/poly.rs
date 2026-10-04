@@ -179,7 +179,14 @@ impl PolyVoice {
 /// Hit the pad `note` plays on `v` at `velocity`, accented from `ACCENT_VELOCITY` up.
 fn strike(v: &mut PadVoice, note: u8, velocity: f32, p: &MonoParams) {
     let pad = Pad::from_gm(note);
-    let knobs = p.drums.get(pad as usize).copied().unwrap_or_default();
+    // A machine plays its nearest voice for a pad it lacks, with that voice's knobs (#148).
+    let machine = p.model.drum_machine();
+    let knobs = p
+        .drums
+        .get(machine.voice(pad) as usize)
+        .copied()
+        .unwrap_or_default();
+    v.set_machine(machine);
     let gain = knobs.gain(velocity, velocity >= ACCENT_VELOCITY, p.drum_accent);
     v.set_pad(pad);
     v.trigger(&knobs, gain, p.sample_rate());
@@ -566,7 +573,7 @@ impl Pool {
             }
             let out = p
                 .pad_outs
-                .get(d.pad() as usize)
+                .get(p.model.drum_machine().voice(d.pad()) as usize)
                 .copied()
                 .unwrap_or_default();
             let Some(group) = out.group.checked_sub(1) else {

@@ -945,6 +945,30 @@ pub enum Param {
     HcPan = 469,
     /// The synth a strip's vocoder listens to (#161): 0 none, 1–16 that synth's raw signal.
     Key = 470,
+    /// Drum kit: the crash's tune in semitones, −12..=12.
+    CrTune = 471,
+    /// Drum kit: the crash's decay as a factor on its own, 0.25..=4.
+    CrDecay = 472,
+    /// Drum kit: the crash's tone, 0..=1.
+    CrTone = 473,
+    /// Drum kit: the crash's level, 0..=1.
+    CrLevel = 474,
+    /// Drum kit: the crash's where it goes: 0 the kit's strip, 1–8 a group.
+    CrOut = 475,
+    /// Drum kit: the crash's pan into its group, −1..=1.
+    CrPan = 476,
+    /// Drum kit: the ride's tune in semitones, −12..=12.
+    RdTune = 477,
+    /// Drum kit: the ride's decay as a factor on its own, 0.25..=4.
+    RdDecay = 478,
+    /// Drum kit: the ride's tone, 0..=1.
+    RdTone = 479,
+    /// Drum kit: the ride's level, 0..=1.
+    RdLevel = 480,
+    /// Drum kit: the ride's where it goes: 0 the kit's strip, 1–8 a group.
+    RdOut = 481,
+    /// Drum kit: the ride's pan into its group, −1..=1.
+    RdPan = 482,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -1029,7 +1053,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 471] = [
+    pub const ALL: [(Param, &'static str); 483] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1501,6 +1525,18 @@ impl Param {
         (Param::HcOut, "HcOut"),
         (Param::HcPan, "HcPan"),
         (Param::Key, "Key"),
+        (Param::CrTune, "CrTune"),
+        (Param::CrDecay, "CrDecay"),
+        (Param::CrTone, "CrTone"),
+        (Param::CrLevel, "CrLevel"),
+        (Param::CrOut, "CrOut"),
+        (Param::CrPan, "CrPan"),
+        (Param::RdTune, "RdTune"),
+        (Param::RdDecay, "RdDecay"),
+        (Param::RdTone, "RdTone"),
+        (Param::RdLevel, "RdLevel"),
+        (Param::RdOut, "RdOut"),
+        (Param::RdPan, "RdPan"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -1658,6 +1694,12 @@ impl Param {
             // 0 the master, 1–8 a group, 9 nowhere (#161).
             Param::Out => (0.0, 9.0),
             Param::Key => (0.0, 16.0),
+            Param::CrTune | Param::RdTune => (-12.0, 12.0),
+            Param::CrDecay | Param::RdDecay => (0.25, 4.0),
+            Param::CrTone | Param::RdTone => (0.0, 1.0),
+            Param::CrLevel | Param::RdLevel => (0.0, 1.0),
+            Param::CrOut | Param::RdOut => (0.0, 8.0),
+            Param::CrPan | Param::RdPan => (-1.0, 1.0),
             Param::BdOut
             | Param::SnOut
             | Param::CpOut

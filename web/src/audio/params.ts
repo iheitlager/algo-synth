@@ -475,6 +475,18 @@ export const Param = {
   HcOut: 468,
   HcPan: 469,
   Key: 470,
+  CrTune: 471,
+  CrDecay: 472,
+  CrTone: 473,
+  CrLevel: 474,
+  CrOut: 475,
+  CrPan: 476,
+  RdTune: 477,
+  RdDecay: 478,
+  RdTone: 479,
+  RdLevel: 480,
+  RdOut: 481,
+  RdPan: 482,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -622,6 +634,7 @@ export const Model = {
   Tr808: 15,
   Sampler: 16,
   PadSampler: 17,
+  Tr909: 18,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -711,6 +724,8 @@ export const Preset = {
   SamplerPad: 82,
   PadsLoud: 83,
   PadsSoft: 84,
+  Kit909: 85,
+  Hard909: 86,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 
@@ -809,4 +824,6 @@ export const Pad = {
   lc: 13,
   mc: 14,
   hc: 15,
+  cr: 16,
+  rd: 17,
 } as const

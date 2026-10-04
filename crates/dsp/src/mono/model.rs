@@ -31,11 +31,13 @@ pub enum Model {
     Sampler = 16,
     /// The drum/pad sampler (`padsampler`): sixteen pads playing samples.
     PadSampler = 17,
+    /// The TR-909 (#148): the drum kit's pads with the 909's sounds.
+    Tr909 = 18,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 18] = [
+    pub const ALL: [(Model, &'static str); 19] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -54,6 +56,7 @@ impl Model {
         (Model::Tr808, "Tr808"),
         (Model::Sampler, "Sampler"),
         (Model::PadSampler, "PadSampler"),
+        (Model::Tr909, "Tr909"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -213,9 +216,12 @@ impl Model {
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
             // The kit has no filter of its own; the ladder's setting goes unused.
-            Model::D50 | Model::Dx7 | Model::Tr808 | Model::Sampler | Model::PadSampler => {
-                Filter::Ladder(D50)
-            }
+            Model::D50
+            | Model::Dx7
+            | Model::Tr808
+            | Model::Tr909
+            | Model::Sampler
+            | Model::PadSampler => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -240,7 +246,15 @@ impl Model {
 
     /// Whether the synth is the drum kit, whose keys hit pads (#114).
     pub fn uses_drums(self) -> bool {
-        self == Model::Tr808
+        matches!(self, Model::Tr808 | Model::Tr909)
+    }
+
+    /// The drum machine a kit model is; the 808 for any other.
+    pub fn drum_machine(self) -> crate::drums::Machine {
+        match self {
+            Model::Tr909 => crate::drums::Machine::Tr909,
+            _ => crate::drums::Machine::Tr808,
+        }
     }
 
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
@@ -286,7 +300,8 @@ impl Model {
             | Model::PolyMoog
             | Model::Tr808
             | Model::Sampler
-            | Model::PadSampler => Hp::None,
+            | Model::PadSampler
+            | Model::Tr909 => Hp::None,
         }
     }
 
