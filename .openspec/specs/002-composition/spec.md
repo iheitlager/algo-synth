@@ -82,9 +82,9 @@ An arrangement SHALL be a list of sections, each a number of bars and the fragme
 
 ### Requirement 5: Sample-accurate clock in the engine [MUST]
 
-The engine SHALL run the transport (tempo, swing, play, stop, position) inside `render` and fire events on their exact sample. The UI SHALL NOT schedule notes. The clock SHALL count sixteenth steps, compute each step's sample from its index (no drift), take a tempo change from the next step on without moving that step's place on the grid, and delay odd steps by swing (50% straight to 75%). Tempo and swing belong to the song (ADR-0012), not to the parameter registry.
+The engine SHALL run the transport (tempo, swing, play, stop, position) inside `render` and fire events on their exact sample. The UI SHALL NOT schedule notes. The song and the MIDI file SHALL each have their own transport: the clock plays the song (`song_play`, `song_stop`, which goes back to the top) and the MIDI file plays on its own (`play`, `stop`, `seek`); starting or stopping one SHALL leave the other as it is, and both MAY play at once. The clock SHALL count sixteenth steps, compute each step's sample from its index (no drift), take a tempo change from the next step on without moving that step's place on the grid, and delay odd steps by swing (50% straight to 75%). Tempo and swing belong to the song (ADR-0012), not to the parameter registry.
 
-**Implementation:** `crates/dsp/src/clock.rs::Clock`, `crates/dsp/src/engine.rs::Engine::render` (blocks split at clock steps), `crates/dsp/src/ffi.rs` (`tempo`, `swing`, `clock_step`)
+**Implementation:** `crates/dsp/src/clock.rs::Clock`, `crates/dsp/src/engine.rs::Engine::render` (blocks split at clock steps), `crates/dsp/src/ffi.rs` (`tempo`, `swing`, `clock_step`, `song_play`, `song_stop`, `song_playing`)
 
 #### Scenario: tempo accuracy
 
@@ -92,7 +92,7 @@ The engine SHALL run the transport (tempo, swing, play, stop, position) inside `
 - WHEN 4 bars are rendered offline
 - THEN note onsets fall exactly 6000 samples apart
 
-**Tests:** `crates/dsp/src/clock.rs::tests::sixteenths_at_120_bpm`, `crates/dsp/src/clock.rs::tests::swing_delays_the_off_beats`, `crates/dsp/src/clock.rs::tests::a_tempo_change_keeps_the_next_step`, `crates/dsp/src/clock.rs::tests::a_swing_change_moves_the_next_off_beat_not_the_grid`, `crates/dsp/src/clock.rs::tests::no_drift_over_a_thousand_bars`, `crates/dsp/src/clock.rs::tests::seek_lands_on_the_next_step`, `crates/dsp/src/engine.rs::tests::clock_steps_land_on_their_samples_through_render`, `crates/dsp/src/engine.rs::tests::the_transport_drives_the_clock`
+**Tests:** `crates/dsp/src/clock.rs::tests::sixteenths_at_120_bpm`, `crates/dsp/src/clock.rs::tests::swing_delays_the_off_beats`, `crates/dsp/src/clock.rs::tests::a_tempo_change_keeps_the_next_step`, `crates/dsp/src/clock.rs::tests::a_swing_change_moves_the_next_off_beat_not_the_grid`, `crates/dsp/src/clock.rs::tests::no_drift_over_a_thousand_bars`, `crates/dsp/src/clock.rs::tests::seek_lands_on_the_next_step`, `crates/dsp/src/engine.rs::tests::clock_steps_land_on_their_samples_through_render`, `crates/dsp/src/engine.rs::tests::the_song_and_the_file_have_their_own_transports`
 
 ### Requirement 6: The song is text [MUST]
 

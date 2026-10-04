@@ -5,7 +5,8 @@
 // engine sends back. Nothing here parses or plays.
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, loadSong, params, requestSong, routeTrack, setStep, song, status, stripName, synthColour, synths, type Route,
+  MUTE, loadSong, params, playSong, requestSong, routeTrack, setSongSwing, setSongTempo, setStep, song, status, stopSong,
+  stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { Model, Pad, Param } from '../audio/params'
@@ -56,11 +57,25 @@ watch(() => status.running, (on) => on && requestSong())
 </script>
 
 <template>
-  <section class="pane composer">
+  <section class="pane composer" :class="{ playing: song.playing }">
     <div class="pane-head">
       <span>Composer</span>
       <span v-if="!status.running">Power on to compose</span>
-      <span v-else>{{ song.frags.length }} {{ song.frags.length === 1 ? 'frag' : 'frags' }} · {{ song.tempo }} BPM</span>
+      <span v-else>{{ song.frags.length }} {{ song.frags.length === 1 ? 'frag' : 'frags' }}</span>
+    </div>
+    <!-- The song's own transport: apart from the MIDI file's, in the transport bar. -->
+    <div class="controls">
+      <button :disabled="!status.running" :class="{ on: song.playing }" @click="playSong">▶ Play</button>
+      <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
+      <label class="field" title="The song's tempo; its text follows">
+        BPM <input class="num" type="number" min="20" max="300" step="1" :value="song.tempo" :disabled="!status.running"
+          @change="setSongTempo(Number(($event.target as HTMLInputElement).value))" />
+      </label>
+      <label class="field" title="The song's swing: 50 is straight, 75 the most">
+        Swing <input class="num" type="number" min="50" max="75" step="1" :value="song.swing" :disabled="!status.running"
+          @change="setSongSwing(Number(($event.target as HTMLInputElement).value))" />
+      </label>
+      <span v-if="song.playing && song.step >= 0" class="muted">bar {{ Math.floor(song.step / 16) + 1 }} · step {{ (song.step % 16) + 1 }}</span>
     </div>
     <p v-if="noKit" class="notice">No synth is a TR-808: add one with + Synth › Drums, then pick it for the track.</p>
     <div class="body">
@@ -112,6 +127,10 @@ watch(() => status.running, (on) => on && requestSong())
 <style scoped>
 .composer { display: flex; flex-direction: column; min-height: 0; }
 .notice { margin: 4px 12px; color: var(--accent); }
+.controls { display: flex; align-items: center; gap: 12px; padding: 6px 12px 0; }
+.controls .on { border-color: var(--accent); color: var(--accent); }
+.field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.num { width: 4.5em; }
 .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); gap: 12px; padding: 8px 12px; }
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
@@ -123,6 +142,7 @@ watch(() => status.running, (on) => on && requestSong())
 .step.l1 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); }
 .step.l2 { background: var(--hit); }
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
+.composer:not(.playing) .step.now { outline: none; }
 .text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
 .text textarea {
   flex: 1; min-height: 160px; resize: none; font-family: var(--mono, monospace); font-size: 13px;

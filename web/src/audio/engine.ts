@@ -433,6 +433,8 @@ export const song = reactive({
   swing: 50,
   /** The clock's last step, −1 before the first. */
   step: -1,
+  /** The song's own transport (the composer's Play and Stop). */
+  playing: false,
 })
 
 /** Send `text` to the engine to parse and play. */
@@ -452,6 +454,10 @@ export const routeTrack = (t: number, s: Route) => engine?.post({ t: 'songRoute'
 /** The song's tempo (BPM) and swing (percent); the engine updates the text and the clock. */
 export const setSongTempo = (v: number) => engine?.post({ t: 'songTempo', v })
 export const setSongSwing = (v: number) => engine?.post({ t: 'songSwing', v })
+
+/** The song's transport, apart from the MIDI file's. */
+export const playSong = () => engine?.post({ t: 'songPlay' })
+export const stopSong = () => engine?.post({ t: 'songStop' })
 
 /** Ask the engine for the song it holds (when the composer opens). */
 export const requestSong = () => engine?.post({ t: 'songDump' })
@@ -506,6 +512,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     player.position = data.sec as number
     player.playing = data.playing as boolean
     song.step = data.step as number
+    song.playing = data.songPlaying as boolean
   } else if (data.t === 'song') {
     applySong(data)
   } else if (data.t === 'load') {
