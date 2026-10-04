@@ -16,6 +16,8 @@ const props = defineProps<{
   /** Factory presets as [label, value]; choosing one emits `factory`. */
   factory?: [string, number][]
   label?: string
+  /** Picker and menu only: Save and Save as move into the menu, for a narrow rack module. */
+  compact?: boolean
 }>()
 const emit = defineEmits<{ factory: [value: number] }>()
 
@@ -82,9 +84,9 @@ const chosen = reactive<Record<string, string>>({})
 </script>
 
 <template>
-  <div class="presets" @keydown.stop>
-    <label>{{ label ?? 'Preset' }}
-      <select :disabled="!status.running" :value="value" @change="choose">
+  <div class="presets" :class="{ compact }" @keydown.stop>
+    <label><span v-if="!compact">{{ label ?? 'Preset' }}</span>
+      <select :disabled="!status.running" :value="value" :aria-label="compact ? (label ?? 'Preset') : undefined" @change="choose">
         <option value="">—</option>
         <optgroup v-if="factory?.length" label="Factory">
           <option v-for="[name, v] in factory" :key="v" :value="`f:${v}`">{{ name }}</option>
@@ -103,11 +105,17 @@ const chosen = reactive<Record<string, string>>({})
       @rename="naming === 'rename' ? rename($event) : saveAs($event)" @update:editing="(on) => !on && (naming = '')"
     />
     <template v-else>
-      <button :disabled="!status.running || !user" :title="user ? `Save over “${user.name}”` : 'Load a user preset to save over it'" @click="save">Save</button>
-      <button :disabled="!status.running" title="Save as a new user preset" @click="naming = 'save'">Save as…</button>
+      <template v-if="!compact">
+        <button :disabled="!status.running || !user" :title="user ? `Save over “${user.name}”` : 'Load a user preset to save over it'" @click="save">Save</button>
+        <button :disabled="!status.running" title="Save as a new user preset" @click="naming = 'save'">Save as…</button>
+      </template>
       <span class="more">
-        <button :aria-expanded="menu" title="More" @click="menu = !menu">⋯</button>
+        <button :aria-expanded="menu" title="Presets" @click="menu = !menu">⋯</button>
         <span v-if="menu" class="menu" role="menu">
+          <template v-if="compact">
+            <button role="menuitem" :disabled="!status.running || !user" @click="menu = false; save()">Save</button>
+            <button role="menuitem" :disabled="!status.running" @click="menu = false; naming = 'save'">Save as…</button>
+          </template>
           <button role="menuitem" :disabled="!user" @click="menu = false; naming = 'rename'">Rename</button>
           <button role="menuitem" :disabled="!user" @click="remove">Delete</button>
           <button role="menuitem" @click="menu = false; exportLibrary()">Export library</button>
@@ -127,6 +135,8 @@ button, .file { font: 600 11px var(--con-font-silk); letter-spacing: 0.08em; tex
 button:disabled { opacity: 0.45; cursor: default; }
 .dot { color: var(--c, #f0a23b); font-style: normal; font-size: 12px; }
 .naming { width: 150px; }
+.compact select { max-width: 120px; font-size: 12px; padding: 2px 4px; }
+.compact .naming { width: 120px; }
 .more { position: relative; }
 .menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; gap: 2px; min-width: 170px; padding: 4px; background: #0f1217; border: 1px solid #3a424e; border-radius: 4px; box-shadow: 0 10px 24px #000c; }
 .menu button, .menu .file { text-align: left; border: 0; background: none; padding: 5px 8px; }
