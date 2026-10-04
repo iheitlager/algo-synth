@@ -281,15 +281,23 @@ impl Song {
                     }
                 }
                 if as_notes {
+                    if song.frags.get(f).is_some_and(|fr| fr.notes.is_some()) {
+                        return Err(err(first.col, "a note frag is one line of notes"));
+                    }
+                    let srcs = |name: &str| {
+                        song.frags
+                            .iter()
+                            .find(|f| f.name == name)
+                            .and_then(|f| f.notes.as_ref())
+                            .map(|n| (n.events.clone(), n.bars))
+                    };
+                    let n =
+                        notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
+                            .map_err(|e| err(e.col, e.msg))?;
                     let frag = song
                         .frags
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a frag"))?;
-                    if frag.notes.is_some() {
-                        return Err(err(first.col, "a note frag is one line of notes"));
-                    }
-                    let n = notes::parse_in(body.trim_start(), first.col, song.scale.as_ref())
-                        .map_err(|e| err(e.col, e.msg))?;
                     frag.notes = Some(n);
                     continue;
                 }

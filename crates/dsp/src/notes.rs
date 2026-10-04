@@ -18,6 +18,11 @@
 //! Parsing and compiling allocate and happen when a song is loaded, never in
 //! `render`. Both are total: bad text is an error with a column.
 
+mod generate;
+
+use generate::Source;
+pub use generate::{ArpMode, Gen};
+
 use crate::algo::{Euclid, Rng, Scale, mix};
 
 /// Ticks in a bar of four quarters.
@@ -91,6 +96,8 @@ pub enum Seq {
     Classic(Vec<Beat>),
     /// `euclid(5,8) c4`: hits spread over a bar.
     Euclid(Euclid, Fill),
+    /// `arp(...)`, `walk(...)`, `markov(...)` or `mutate(...)`.
+    Generated(Gen),
 }
 
 /// One note to play: where it starts in the loop, how long it lasts, in ticks.
@@ -462,6 +469,17 @@ fn parse_euclid(cur: &mut Cursor<'_>, scale: Option<&Scale>) -> Result<Option<Se
 /// Parse one line of notes. `base` is the column of the first char of `text`;
 /// `scale` is the song's, for walks.
 pub fn parse_in(text: &str, base: usize, scale: Option<&Scale>) -> Result<Notes, NoteError> {
+    parse_with(text, base, scale, &|_| None)
+}
+
+/// As `parse_in`, with `srcs` to find the note fragments `markov` and
+/// `mutate` read.
+pub fn parse_with(
+    text: &str,
+    base: usize,
+    scale: Option<&Scale>,
+    srcs: &dyn Fn(&str) -> Option<Source>,
+) -> Result<Notes, NoteError> {
     let chars: Vec<char> = text.chars().collect();
     let mut cur = Cursor {
         c: &chars,
@@ -472,6 +490,8 @@ pub fn parse_in(text: &str, base: usize, scale: Option<&Scale>) -> Result<Notes,
     cur.skip_ws();
     let seq = if let Some(seq) = parse_euclid(&mut cur, scale)? {
         seq
+    } else if let Some(g) = generate::parse_call(&mut cur, scale, srcs)? {
+        Seq::Generated(g)
     } else if cur.peek() == Some('"') {
         cur.i += 1;
         let mut inner_end = cur.i;
@@ -569,6 +589,7 @@ impl Notes {
     pub fn print(&self) -> String {
         match &self.seq {
             Seq::Mini(slots) => format!("\"{}\"", slots_text(slots)),
+            Seq::Generated(g) => g.print(),
             Seq::Euclid(e, Fill::Pitch(p)) => format!("{} {}", e.print(), pitch_text(p)),
             Seq::Euclid(e, Fill::Walk(n)) => format!("{} scale {}", e.print(), note_name(*n)),
             Seq::Classic(beats) => {
@@ -740,6 +761,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
             }
             (c.events, bars)
         }
+        Seq::Generated(g) => (g.events(g.seed(), scale), g.bars()),
         Seq::Euclid(e, fill) => {
             let mut events = Vec::new();
             let n = u128::from(e.n);

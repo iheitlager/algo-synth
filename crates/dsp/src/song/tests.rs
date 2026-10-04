@@ -496,3 +496,49 @@ fn generator_errors_say_where() {
         );
     }
 }
+
+#[test]
+fn generator_calls_read_earlier_frags_and_print_back() {
+    let text = "\
+scale d dorian
+track lead synth
+
+frag riff = lead
+  d4:4 f4:8 a4:8 c5:2
+frag arp = lead
+  arp([d4,f4,a4],updown,16)
+frag wander = lead
+  walk(d4,8,3)
+frag learned = lead
+  markov(1,riff,9)
+frag changed = lead
+  mutate(riff,40,2)
+";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.frags[3].notes.as_ref().map(|n| n.events.len()), Some(4));
+    let printed = s.print();
+    for call in [
+        "arp([d4,f4,a4],updown,16)",
+        "walk(d4,8,3)",
+        "markov(1,riff,9)",
+        "mutate(riff,40,2)",
+    ] {
+        assert!(printed.contains(call), "{call}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn a_call_cannot_read_a_later_or_missing_frag() {
+    let text = "track t synth\nfrag a = t\n  mutate(b,10,1)\nfrag b = t\n  c4:4\n";
+    assert_eq!(
+        Song::parse(text),
+        Err(SongError {
+            line: 3,
+            col: 10,
+            msg: "no note frag with this name comes before this one"
+        })
+    );
+    let own = "track t synth\nfrag a = t\n  markov(1,a,1)\n";
+    assert!(Song::parse(own).is_err());
+}

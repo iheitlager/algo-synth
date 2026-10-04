@@ -120,7 +120,7 @@ The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL 
 
 A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `markov`, `mutate`) that produces a fragment's events from its parameters, a scale and an explicit seed. With the same seed and parameters it SHALL produce the same events. A live fragment SHALL regenerate every cycle; freezing SHALL replace the call with the events it produced, in the same notation.
 
-**Implementation:** `crates/dsp/src/algo.rs` (`Rng`, `Euclid`, `Scale`; `euclid(k,n,rot)` for a drum lane and for notes, `scale <root> <mode>`, `scale <note>` walks); `walk`, `arp`, `markov`, `mutate` and live regeneration *(planned)*
+**Implementation:** `crates/dsp/src/algo.rs` (`Rng`, `Euclid`, `Scale`; `euclid(k,n,rot)` for a drum lane and for notes, `scale <root> <mode>`, `scale <note>` walks); `arp`, `walk`, `markov` and `mutate` in `crates/dsp/src/notes/generate.rs::Gen` (`arp([c4,e4,g4],up,16)`, `walk(c4,8,1)`, `markov(1,riff,3)`, `mutate(riff,30,5)`: seeded, at most 32 notes in a walk, 8 in a chord, a pitch range of two octaves for walks, pitches of the source for markov); live regeneration *(planned)*
 
 #### Scenario: Euclid
 
@@ -128,7 +128,7 @@ A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `marko
 - WHEN it generates
 - THEN the hits are on steps 0, 3 and 6
 
-**Tests:** `crates/dsp/src/algo.rs::tests::euclid_3_8`, `crates/dsp/src/algo.rs::tests::the_published_euclidean_rhythms`, `crates/dsp/src/algo.rs::tests::rotation_moves_the_pattern_left`, `crates/dsp/src/algo.rs::tests::a_scale_walk_climbs_the_scale`, `crates/dsp/src/song/tests.rs::generators_and_scales_parse_and_print_back`, `crates/dsp/src/song/tests.rs::generator_errors_say_where`, `crates/dsp/src/engine.rs::tests::a_euclid_lane_plays_like_a_written_one`, `crates/dsp/src/engine.rs::tests::a_euclid_note_line_walks_the_scale_deterministically`
+**Tests:** `crates/dsp/src/algo.rs::tests::euclid_3_8`, `crates/dsp/src/algo.rs::tests::the_published_euclidean_rhythms`, `crates/dsp/src/algo.rs::tests::rotation_moves_the_pattern_left`, `crates/dsp/src/algo.rs::tests::a_scale_walk_climbs_the_scale`, `crates/dsp/src/song/tests.rs::generators_and_scales_parse_and_print_back`, `crates/dsp/src/song/tests.rs::generator_errors_say_where`, `crates/dsp/src/engine.rs::tests::a_euclid_lane_plays_like_a_written_one`, `crates/dsp/src/engine.rs::tests::a_euclid_note_line_walks_the_scale_deterministically`, `crates/dsp/src/notes/tests.rs::an_arpeggio_cycles_the_chord_at_its_rate`, `crates/dsp/src/notes/tests.rs::a_walk_stays_on_the_scale_and_in_range`, `crates/dsp/src/notes/tests.rs::markov_keeps_the_rhythm_and_the_pitch_set`, `crates/dsp/src/notes/tests.rs::mutate_changes_about_the_amount`, `crates/dsp/src/notes/tests.rs::generator_errors_say_where`, `crates/dsp/src/notes/tests.rs::damaged_generator_calls_never_panic`, `crates/dsp/src/song/tests.rs::generator_calls_read_earlier_frags_and_print_back`
 
 ### Requirement 8: Score import [SHOULD]
 

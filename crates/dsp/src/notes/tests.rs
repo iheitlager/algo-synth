@@ -239,3 +239,208 @@ fn euclid_errors_say_where() {
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
     }
 }
+
+fn minor() -> crate::algo::Scale {
+    crate::algo::Scale {
+        root: 0,
+        mode: crate::algo::Mode::Minor,
+    }
+}
+
+/// `riff` is `c4:4 e4:4 g4:4 e4:4` for the calls that read a fragment.
+fn with_riff(text: &str) -> Result<Notes, NoteError> {
+    let riff = parse("c4:4 e4:4 g4:4 e4:4 d4:4 f4:4 a4:4 c5:4", 1).unwrap();
+    parse_with(text, 1, Some(&minor()), &|name| {
+        (name == "riff").then(|| (riff.events.clone(), riff.bars))
+    })
+}
+
+fn pitches(n: &Notes) -> Vec<u8> {
+    n.events.iter().map(|e| e.note).collect()
+}
+
+#[test]
+fn an_arpeggio_cycles_the_chord_at_its_rate() {
+    let up = parse("arp([g4,c4,e4],up,8)", 1).unwrap();
+    assert_eq!(up.bars, 1);
+    assert_eq!(pitches(&up), [60, 64, 67, 60, 64, 67, 60, 64]);
+    assert_eq!(up.events[1].start, 6);
+    assert_eq!(up.events[0].len, 6);
+    assert_eq!(
+        pitches(&parse("arp([c4,e4,g4],down,4)", 1).unwrap()),
+        [67, 64, 60, 67]
+    );
+    assert_eq!(
+        pitches(&parse("arp([c4,e4,g4],updown,4)", 1).unwrap()),
+        [60, 64, 67, 64]
+    );
+    let a = parse("arp([c4,e4,g4],random,16,7)", 1).unwrap();
+    let b = parse("arp([c4,e4,g4],random,16,7)", 1).unwrap();
+    let c = parse("arp([c4,e4,g4],random,16,8)", 1).unwrap();
+    assert_eq!((a.events.len(), &a), (16, &b));
+    assert_ne!(pitches(&a), pitches(&c));
+    assert!(pitches(&a).iter().all(|n| [60, 64, 67].contains(n)));
+}
+
+#[test]
+fn a_walk_stays_on_the_scale_and_in_range() {
+    let a = parse_in("walk(c4,16,1)", 1, Some(&minor())).unwrap();
+    assert_eq!(a.events.len(), 16);
+    let again = parse_in("walk(c4,16,1)", 1, Some(&minor())).unwrap();
+    assert_eq!(a, again);
+    let other = parse_in("walk(c4,16,2)", 1, Some(&minor())).unwrap();
+    assert_ne!(pitches(&a), pitches(&other));
+    for seed in 0..50 {
+        let n = parse_in(&format!("walk(c4,32,{seed})"), 1, Some(&minor())).unwrap();
+        assert_eq!(n.events.len(), 32);
+        for e in &n.events {
+            assert!((48..=84).contains(&e.note), "{}", e.note);
+            assert!(
+                [0, 2, 3, 5, 7, 8, 10].contains(&(e.note % 12)),
+                "{}",
+                e.note
+            );
+        }
+        assert_eq!(
+            n.events.first().map(|e| e.note),
+            Some(60),
+            "it starts on the start note"
+        );
+    }
+}
+
+#[test]
+fn markov_keeps_the_rhythm_and_the_pitch_set() {
+    let src = [60u8, 62, 64, 65, 67, 69, 71, 72];
+    let riff = with_riff("markov(1,riff,3)").unwrap();
+    let want = parse("c4:4 e4:4 g4:4 e4:4 d4:4 f4:4 a4:4 c5:4", 1).unwrap();
+    assert_eq!(riff.events.len(), want.events.len());
+    assert!(
+        riff.events
+            .iter()
+            .zip(&want.events)
+            .all(|(a, b)| (a.start, a.len) == (b.start, b.len))
+    );
+    let set: Vec<u8> = pitches(&want);
+    assert!(pitches(&riff).iter().all(|n| set.contains(n)));
+    assert_eq!(riff, with_riff("markov(1,riff,3)").unwrap());
+    let varied =
+        (0..20).any(|s| pitches(&with_riff(&format!("markov(2,riff,{s})")).unwrap()) != set);
+    assert!(varied, "some seed gives a new line");
+    let _ = src;
+}
+
+#[test]
+fn mutate_changes_about_the_amount() {
+    let base = with_riff("mutate(riff,0,1)").unwrap();
+    let want = parse("c4:4 e4:4 g4:4 e4:4 d4:4 f4:4 a4:4 c5:4", 1).unwrap();
+    assert_eq!(base.events, want.events, "0 percent changes nothing");
+    let all = with_riff("mutate(riff,100,1)").unwrap();
+    assert!(all.events.len() <= want.events.len());
+    assert_ne!(all.events, want.events);
+    for e in &all.events {
+        assert!((57..=77).contains(&e.note));
+        assert!(
+            [0, 2, 3, 5, 7, 8, 10].contains(&(e.note % 12)),
+            "snapped to the scale"
+        );
+    }
+    assert_eq!(all, with_riff("mutate(riff,100,1)").unwrap());
+}
+
+#[test]
+fn generator_calls_print_canonically_and_parse_back() {
+    for text in [
+        "arp([c4,e4,g4],up,16)",
+        "arp([c4!,e4],random,8,7)",
+        "walk(c4,8,1)",
+        "markov(2,riff,3)",
+        "mutate(riff,30,5)",
+    ] {
+        let n = with_riff(text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        assert_eq!(n.print(), text);
+        assert_eq!(with_riff(&n.print()).unwrap(), n);
+    }
+    let spaced = with_riff("arp( [c4,e4] , up , 16 )").unwrap();
+    assert_eq!(spaced.print(), "arp([c4,e4],up,16)");
+}
+
+#[test]
+fn generator_errors_say_where() {
+    for (text, col, msg) in [
+        (
+            "arp([c4,e4],up)",
+            1,
+            "arp takes a chord, a mode, a rate and for random a seed: arp([c4,e4,g4],up,16)",
+        ),
+        (
+            "arp([c4,e4],sideways,16)",
+            13,
+            "a mode is up, down, updown or random",
+        ),
+        ("arp([c4,e4],up,5)", 16, "a rate is 2, 4, 8 or 16"),
+        (
+            "arp([c4,e4],up,16,1)",
+            1,
+            "only random takes a seed: arp([c4,e4,g4],random,16,7)",
+        ),
+        (
+            "arp([c4,e4],random,16)",
+            1,
+            "only random takes a seed: arp([c4,e4,g4],random,16,7)",
+        ),
+        ("arp(c4,up,16)", 5, "a chord goes here, as [c4,e4,g4]"),
+        ("walk(c4,0,1)", 9, "a walk is 1 to 32 notes"),
+        ("walk(c4,33,1)", 9, "a walk is 1 to 32 notes"),
+        ("walk(c4,8,x)", 11, "a seed is a number"),
+        ("markov(4,riff,1)", 8, "an order is 1 to 3"),
+        (
+            "markov(1,nope,1)",
+            10,
+            "no note frag with this name comes before this one",
+        ),
+        ("mutate(riff,101,1)", 13, "a percent is 0 to 100"),
+        ("mutate(riff,5,1) x", 18, "nothing goes after a call"),
+        ("walk(c4,8,1", 12, "a call ends with )"),
+    ] {
+        let e = with_riff(text).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+    let e = parse("walk(c4,8,1)", 1).unwrap_err();
+    assert_eq!((e.col, e.msg), (1, "a walk needs a scale line before it"));
+}
+
+#[test]
+fn damaged_generator_calls_never_panic() {
+    let mut rng = Rng::new(99);
+    let seeds = [
+        "arp([c4,e4,g4],random,16,7)",
+        "walk(c4,8,1)",
+        "markov(2,riff,3)",
+        "mutate(riff,30,5)",
+        "euclid(3,8,1) scale c4",
+    ];
+    let alphabet: Vec<char> = "()[],.0123456789 acdefgrwkmuiopltxyz#!".chars().collect();
+    for _ in 0..20_000 {
+        let mut text: Vec<char> = seeds[(rng.next_u32() as usize) % seeds.len()]
+            .chars()
+            .collect();
+        for _ in 0..1 + rng.next_u32() % 3 {
+            let at = (rng.next_u32() as usize) % text.len();
+            match rng.next_u32() % 3 {
+                0 => text[at] = alphabet[(rng.next_u32() as usize) % alphabet.len()],
+                1 => {
+                    text.remove(at);
+                }
+                _ => text.insert(at, alphabet[(rng.next_u32() as usize) % alphabet.len()]),
+            }
+            if text.is_empty() {
+                text.push('(');
+            }
+        }
+        let text: String = text.into_iter().collect();
+        if let Ok(n) = with_riff(&text) {
+            assert_eq!(with_riff(&n.print()).unwrap(), n, "{text}");
+        }
+    }
+}
