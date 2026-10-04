@@ -128,10 +128,12 @@ pub enum Mode {
     Locrian,
     Pentatonic,
     Blues,
+    PhrygianDominant,
+    HarmonicMinor,
 }
 
 impl Mode {
-    const ALL: [(Mode, &'static str, &'static [u8]); 9] = [
+    const ALL: [(Mode, &'static str, &'static [u8]); 11] = [
         (Mode::Major, "major", &[0, 2, 4, 5, 7, 9, 11]),
         (Mode::Minor, "minor", &[0, 2, 3, 5, 7, 8, 10]),
         (Mode::Dorian, "dorian", &[0, 2, 3, 5, 7, 9, 10]),
@@ -141,6 +143,16 @@ impl Mode {
         (Mode::Locrian, "locrian", &[0, 1, 3, 5, 6, 8, 10]),
         (Mode::Pentatonic, "pentatonic", &[0, 2, 4, 7, 9]),
         (Mode::Blues, "blues", &[0, 3, 5, 6, 7, 10]),
+        (
+            Mode::PhrygianDominant,
+            "phrygian-dominant",
+            &[0, 1, 4, 5, 7, 8, 10],
+        ),
+        (
+            Mode::HarmonicMinor,
+            "harmonic-minor",
+            &[0, 2, 3, 5, 7, 8, 11],
+        ),
     ];
 
     pub fn from_name(name: &str) -> Option<Mode> {
@@ -301,5 +313,24 @@ mod tests {
         for i in 0..100 {
             assert!(c_minor.walk(120, i) <= 127);
         }
+    }
+
+    #[test]
+    fn the_raised_modes_walk_their_raised_notes() {
+        let e_phryg_dom = Scale {
+            root: 4,
+            mode: Mode::from_name("phrygian-dominant").unwrap(),
+        };
+        // e f g# a b c d e
+        let walk: Vec<u8> = (0..8).map(|i| e_phryg_dom.walk(64, i)).collect();
+        assert_eq!(walk, [64, 65, 68, 69, 71, 72, 74, 76]);
+        let a_harm = Scale {
+            root: 9,
+            mode: Mode::from_name("harmonic-minor").unwrap(),
+        };
+        // a b c d e f g# a
+        let walk: Vec<u8> = (0..8).map(|i| a_harm.walk(69, i)).collect();
+        assert_eq!(walk, [69, 71, 72, 74, 76, 77, 80, 81]);
+        assert_eq!(e_phryg_dom.mode.name(), "phrygian-dominant");
     }
 }

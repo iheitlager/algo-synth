@@ -467,7 +467,7 @@ fn generator_errors_say_where() {
             "scale c funky",
             1,
             9,
-            "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic or blues",
+            "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, phrygian-dominant or harmonic-minor",
         ),
         ("scale c", 1, 8, "a mode goes here: scale c minor"),
         ("scale c minor\nscale d major", 2, 1, "a song has one scale"),

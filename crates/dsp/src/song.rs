@@ -498,7 +498,7 @@ impl Song {
                     let mode = arg(2, "a mode goes here: scale c minor")?;
                     let m = Mode::from_name(mode.text).ok_or(err(
                         mode.col,
-                        "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic or blues",
+                        "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, phrygian-dominant or harmonic-minor",
                     ))?;
                     expect_end(3)?;
                     if song.scale.is_some() {
