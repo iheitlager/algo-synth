@@ -59,6 +59,7 @@ export interface Theme {
 export const FAMILIES = [
   { id: 'mono', label: 'Mono' },
   { id: 'poly', label: 'Poly' },
+  { id: 'drums', label: 'Drums' },
 ] as const
 export type FamilyId = (typeof FAMILIES)[number]['id']
 
@@ -1054,6 +1055,7 @@ const pad = (title: string, name: string): Section => {
 }
 const tr808: ModelDef = {
   id: Model.Tr808,
+  family: 'drums',
   name: 'TR-808',
   maker: 'Roland · rhythm composer, eight pads',
   tagline: 'Kick, snare, clap, closed and open hats, two toms and a cowbell; the closed hat chokes the open',
