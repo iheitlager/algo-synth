@@ -1115,6 +1115,25 @@ impl Engine {
         }
     }
 
+    /// Turn the loaded MIDI file into the song (#173): its text replaces the
+    /// song's, and each track goes to the synth its channel plays on in the
+    /// player. The number of tracks, or a negative code: the MIDI file's own
+    /// (`smf::Error::code`), `ImportError::code`, or −9 when the text does
+    /// not parse (a bug). Allocates; never called from `render`.
+    pub fn import_midi(&mut self) -> Result<usize, i32> {
+        let smf = smf::parse(&self.midi).map_err(smf::Error::code)?;
+        let imported = crate::midi_import::import(&smf).map_err(|e| e.code())?;
+        self.song_buf = imported.text.into_bytes();
+        self.load_song().map_err(|_| -9)?;
+        for (t, ch) in imported.channels.iter().enumerate() {
+            let synth = self.routed(*ch);
+            if let Some(slot) = self.song_route.get_mut(t) {
+                *slot = synth;
+            }
+        }
+        Ok(imported.channels.len())
+    }
+
     pub fn song(&self) -> &Song {
         &self.song
     }
@@ -1376,6 +1395,59 @@ mod tests {
         assert_eq!(get(&e, Param::Algorithm as u32), 12.0);
         assert_eq!(e.load_sysex_of(b"junk"), Err(sysex::Error::Unsupported));
         assert!(e.sysex_buffer(MAX_SYSEX + 1).is_none());
+    }
+
+    /// Every note a synth starts in `frames` frames, as (frame, synth, note),
+    /// rendered `step` frames at a time (so a frame is known to within `step`).
+    fn note_starts(e: &mut Engine, frames: u64, step: usize) -> Vec<(u64, usize, u8)> {
+        let mut held: Vec<Vec<u8>> = vec![Vec::new(); SYNTHS];
+        let mut out = Vec::new();
+        for f in (0..frames).step_by(step) {
+            e.render(step);
+            for (s, was) in held.iter_mut().enumerate() {
+                let now = e.pools.get(s).map(|p| p.held_notes()).unwrap_or_default();
+                for n in &now {
+                    if !was.contains(n) {
+                        out.push((f, s, *n));
+                    }
+                }
+                *was = now;
+            }
+        }
+        out
+    }
+
+    /// #173: the demo Canon imported as a song starts the same notes on the
+    /// same synths as the MIDI player plays them, at the same time (to the
+    /// eight frames the test renders at once, far finer than a tick).
+    #[test]
+    fn the_demo_imported_plays_like_the_player() {
+        let bytes = include_bytes!("../../../web/public/demo.mid");
+        let fresh = || {
+            let mut e = Engine::new(48_000.0);
+            for s in 0..SYNTHS {
+                e.set_param(s, Param::Polyphony, 8.0);
+            }
+            e
+        };
+        let mut player = fresh();
+        assert!(load(&mut player, bytes).is_ok());
+        player.play();
+        let mut song = fresh();
+        assert!(load(&mut song, bytes).is_ok());
+        let tracks = song.import_midi().expect("the demo imports");
+        assert_eq!(tracks, player.sequence().parts().len());
+        assert!(song.song().arrange.len() > 1, "in sections");
+        song.song_play();
+        let frames = 48_000 * 24;
+        let a = note_starts(&mut player, frames, 8);
+        let b = note_starts(&mut song, frames, 8);
+        assert!(a.len() > 40, "the demo plays: {}", a.len());
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().zip(&b) {
+            assert_eq!((x.1, x.2), (y.1, y.2), "{x:?} {y:?}");
+            assert!(x.0.abs_diff(y.0) <= 8, "{x:?} {y:?}");
+        }
     }
 
     fn load(e: &mut Engine, bytes: &[u8]) -> Result<usize, smf::Error> {

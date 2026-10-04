@@ -60,10 +60,10 @@ use crate::params::Param;
 
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
-pub const MAX_FRAGS: usize = 32;
+pub const MAX_FRAGS: usize = 256;
 pub const MAX_STEPS: usize = 64;
 /// Most sections, entries in the arrangement and bars in a section.
-pub const MAX_SECTIONS: usize = 64;
+pub const MAX_SECTIONS: usize = 256;
 pub const MAX_ARRANGE: usize = 256;
 pub const MAX_BARS: u32 = 256;
 /// Most automation lanes, values in a lane, scenes and settings in a scene.
@@ -376,6 +376,8 @@ impl Song {
         let mut song = Song::default();
         // The fragment that indented lines add lanes to, and the line it began on.
         let mut open: Option<(usize, usize)> = None;
+        // `frag … bars N`: the length the open frag's line of timed notes is given.
+        let mut open_bars: Option<(u32, usize, usize)> = None;
         // The line of the `loop`, checked against the arrangement at the end.
         let mut loop_at: Option<usize> = None;
         for (i, raw) in text.lines().enumerate() {
@@ -427,9 +429,14 @@ impl Song {
                             .map(|n| (n.events.clone(), n.bars))
                     };
                     let live = song.frags.get(f).is_some_and(|fr| fr.live);
-                    let n =
+                    let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
+                    if let Some((bars, col, at)) = open_bars.take() {
+                        n = n
+                            .with_bars(bars)
+                            .map_err(|msg| SongError { line: at, col, msg })?;
+                    }
                     if live && !matches!(n.seq, notes::Seq::Generated(_)) {
                         return Err(err(
                             first.col,
@@ -560,7 +567,22 @@ impl Song {
                         let col = ws.get(4).map_or(first.col, |w| w.col);
                         return Err(err(col, "only a note frag can be live"));
                     }
-                    if let Some(w) = ws.get(4).filter(|_| !live) {
+                    // `bars N` for a line of timed notes (#173).
+                    open_bars = None;
+                    if let Some(w) = ws.get(4).filter(|w| w.text == "bars") {
+                        if kind == Some(Kind::Drums) {
+                            return Err(err(w.col, "bars N is for a line of timed notes"));
+                        }
+                        let n = arg(5, "a number of bars goes here")?;
+                        let bars: u32 = n
+                            .text
+                            .parse()
+                            .ok()
+                            .filter(|b| (1..=notes::MAX_BARS).contains(b))
+                            .ok_or(err(n.col, "a line is 1 to 32 bars"))?;
+                        open_bars = Some((bars, w.col, line));
+                    }
+                    if let Some(w) = ws.get(4).filter(|_| !live && open_bars.is_none()) {
                         if synth {
                             return Err(err(w.col, "a note frag has no step grid"));
                         }
@@ -568,9 +590,9 @@ impl Song {
                             return Err(err(w.col, "only /16 steps for now"));
                         }
                     }
-                    expect_end(5)?;
+                    expect_end(if open_bars.is_some() { 6 } else { 5 })?;
                     if song.frags.len() >= MAX_FRAGS {
-                        return Err(err(first.col, "a song has at most 32 frags"));
+                        return Err(err(first.col, "a song has at most 256 frags"));
                     }
                     song.frags.push(Fragment {
                         name: name.text.to_string(),
@@ -638,7 +660,7 @@ impl Song {
                         }
                     }
                     if song.sections.len() >= MAX_SECTIONS {
-                        return Err(err(first.col, "a song has at most 64 sections"));
+                        return Err(err(first.col, "a song has at most 256 sections"));
                     }
                     song.sections.push(Section {
                         name: name.text.to_string(),
@@ -905,7 +927,12 @@ impl Song {
             lines.push(String::new());
             if let Some(n) = &f.notes {
                 let live = if f.live { " live" } else { "" };
-                lines.push(format!("frag {} = {}{live}", f.name, track));
+                let bars = if matches!(n.seq, notes::Seq::Timed(_)) {
+                    format!(" bars {}", n.bars)
+                } else {
+                    String::new()
+                };
+                lines.push(format!("frag {} = {}{live}{bars}", f.name, track));
                 lines.push(format!("  {}", n.print()));
                 continue;
             }
@@ -1152,7 +1179,15 @@ impl Song {
         if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) {
             return false;
         }
-        match notes::edit(&n.events, n.bars, op).and_then(|ev| notes::freeze(&ev, n.bars)) {
+        // A timed line stays timed: its overlaps and velocities have no
+        // mini-notation (#173).
+        let timed = matches!(n.seq, notes::Seq::Timed(_));
+        let edited = if timed {
+            notes::edit_timed(&n.events, n.bars, op).and_then(|ev| notes::timed(ev, n.bars))
+        } else {
+            notes::edit(&n.events, n.bars, op).and_then(|ev| notes::freeze(&ev, n.bars))
+        };
+        match edited {
             Some(edited) => {
                 f.notes = Some(edited);
                 true

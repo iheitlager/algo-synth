@@ -12,6 +12,7 @@ pub mod engine;
 pub mod fm;
 pub mod fx;
 pub mod la;
+pub mod midi_import;
 pub mod mixer;
 pub mod mono;
 pub mod notes;

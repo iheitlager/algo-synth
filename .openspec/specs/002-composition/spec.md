@@ -148,15 +148,21 @@ A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `marko
 
 ### Requirement 8: Score import [SHOULD]
 
-The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on malformed input, and MAY convert a file into the notation (ADR-0012): each channel a track, its notes a fragment of classic notes, its tempo changes the song's tempo.
+The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on malformed input, and SHALL convert the loaded file into the song text (ADR-0015, #173): each channel with notes a `synth` track named after the file's track it came from, routed to the synth its channel plays on in the player; its notes, snapped to the grid of 48 ticks to the bar, as fragments of timed notes (`pitch@start:length:velocity`, ADR-0016) with their bars given (`bars N`); the song cut into sections of 8 bars (4, 2 or 1 when a chunk holds more than a line's notes or the song more fragments than it may hold), identical chunks sharing a fragment and identical sections a section, played by `arrange`; the tempo the file's first. Bars SHALL be 4/4; a file the song cannot hold, or without notes, SHALL be refused with a code. The converted text SHALL parse and print back unchanged.
 
-**Implementation:** `crates/dsp/src/smf.rs::parse` (the parser); the conversion into the notation *(planned, MVP 11)*
+**Implementation:** `crates/dsp/src/smf.rs::parse` (the parser), `crates/dsp/src/midi_import.rs::import` (the conversion), `crates/dsp/src/engine.rs::Engine::import_midi`, `crates/dsp/src/ffi.rs` (`midi_import`), `crates/dsp/src/notes.rs` (`Seq::Timed`), `web/src/components/PlayerPane.vue` (Import as song)
 
-#### Scenario: the ensemble
+#### Scenario: the demo as a song
 
-- GIVEN a six-part MIDI score
-- WHEN it is converted
-- THEN the song has six tracks, each with a fragment that plays its part
+- GIVEN the demo Canon loaded in the MIDI player
+- WHEN it is imported as the song and the song plays
+- THEN every synth starts the same notes at the same moments as the player plays them
+
+#### Scenario: a repeat
+
+- GIVEN a part whose bars 17–24 repeat bars 1–8
+- WHEN it is imported
+- THEN the two chunks share one fragment and one section, and `arrange` plays it twice
 
 #### Scenario: malformed files
 
@@ -164,7 +170,7 @@ The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on 
 - WHEN they are parsed
 - THEN the parser returns an error and never panics
 
-**Tests:** `crates/dsp/src/smf.rs::tests::never_panics_on_garbage`, `crates/dsp/src/smf.rs::tests::rejects_what_it_cannot_play`, `crates/dsp/src/smf.rs::tests::running_status_and_zero_velocity_off`, `crates/dsp/src/smf.rs::tests::tempo_and_name`
+**Tests:** `crates/dsp/src/smf.rs::tests::never_panics_on_garbage`, `crates/dsp/src/smf.rs::tests::rejects_what_it_cannot_play`, `crates/dsp/src/smf.rs::tests::running_status_and_zero_velocity_off`, `crates/dsp/src/smf.rs::tests::tempo_and_name`, `crates/dsp/src/midi_import/tests.rs::notes_land_on_the_grid_with_their_lengths`, `crates/dsp/src/midi_import/tests.rs::identical_chunks_share_a_fragment_and_a_section`, `crates/dsp/src/midi_import/tests.rs::a_dense_part_gets_shorter_chunks`, `crates/dsp/src/midi_import/tests.rs::no_notes_is_an_error_and_names_are_made_safe`, `crates/dsp/src/midi_import/tests.rs::never_panics_on_odd_files`, `crates/dsp/src/engine.rs::tests::the_demo_imported_plays_like_the_player`, `crates/dsp/src/notes/tests.rs::timed_notes_parse_compile_and_print`
 
 ### Requirement 9: MIDI file playback [SHOULD]
 

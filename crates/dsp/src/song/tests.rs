@@ -1042,3 +1042,36 @@ fn a_generated_frag_is_frozen_before_it_is_edited() {
     assert!(s.freeze(0, None));
     assert!(s.edit_note(0, Edit::Add { tick: 3, note: 60 }));
 }
+
+/// #173 with #168: editing an imported line of timed notes keeps it timed,
+/// with its overlaps, velocities and bars.
+#[test]
+fn an_edit_of_timed_notes_stays_timed() {
+    let text = "track v synth\nfrag a = v bars 2\n  d5@0:48:100 f#5@6:6:64\n";
+    let mut s = Song::parse(text).expect("parses");
+    assert!(s.edit_note(0, notes::Edit::Add { tick: 24, note: 69 }));
+    let printed = s.print();
+    assert!(
+        printed.contains("frag a = v bars 2\n  d5@0:48:100 f#5@6:6:64 a4@24:3\n"),
+        "a sixteenth, nothing shortened: {printed}"
+    );
+    assert!(s.edit_note(
+        0,
+        notes::Edit::Len {
+            tick: 24,
+            note: 69,
+            len: 30
+        }
+    ));
+    assert!(s.edit_note(0, notes::Edit::Remove { tick: 6, note: 78 }));
+    assert!(
+        s.print().contains("  d5@0:48:100 a4@24:30\n"),
+        "{}",
+        s.print()
+    );
+    assert!(
+        !s.edit_note(0, notes::Edit::Add { tick: 96, note: 60 }),
+        "past its bars"
+    );
+    assert_eq!(Song::parse(&s.print()), Ok(s));
+}

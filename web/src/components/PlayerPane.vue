@@ -2,7 +2,7 @@
 // The loaded MIDI file (spec 002 Req 9): one row per channel with notes, its
 // source, and a piano roll. Drawing and messages only; the engine plays it.
 import { computed } from 'vue'
-import { MUTE, params, partName, player, route, seek, stripName, synthColour, synths, type Route } from '../audio/engine'
+import { MUTE, importMidi, params, partName, player, route, seek, stripName, synthColour, synths, type Route } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { renamePart } from '../audio/names'
 import { Param } from '../audio/params'
@@ -28,7 +28,10 @@ function onSeek(e: MouseEvent) {
   <section class="pane">
     <div v-if="player.loaded" class="pane-head">
       <span>{{ player.fileName }}</span>
-      <span>{{ player.parts.length }} parts · {{ Math.ceil(player.length / player.bar) }} bars</span>
+      <span class="head-right">
+        {{ player.parts.length }} parts · {{ Math.ceil(player.length / player.bar) }} bars
+        <button title="Convert this file into the song: tracks, timed-note fragments and sections" @click="importMidi">Import as song</button>
+      </span>
     </div>
     <div v-else class="pane-head"><span>MIDI player</span><span>Demo or Open… to load a file and its setup</span></div>
     <p v-if="player.notice" class="notice">{{ player.notice }}</p>
@@ -60,6 +63,8 @@ select { font: inherit; font-size: 11px; color: var(--text); background: var(--p
 .lane { position: relative; min-height: 44px; cursor: pointer; }
 .lane svg { position: absolute; inset: 4px 0; width: 100%; height: calc(100% - 8px); }
 .rows { position: relative; }
+.head-right { display: flex; gap: 8px; align-items: center; }
+.head-right button { font-size: 11px; padding: 2px 8px; text-transform: none; letter-spacing: 0; }
 .error { color: var(--mono); padding: 0 12px; }
 .notice { color: var(--muted); padding: 4px 12px; margin: 0; font-size: 11px; }
 </style>

@@ -18,6 +18,8 @@ ADR-0012 gave the song drum lanes on sixteenth steps, and the clock fires only o
 - **Limits.** Bounded events per fragment, bars per fragment and fragments per song, like the lane limits; text over the limit is a parse error with line and column.
 - **Names stay free.** The grammar claims `track <name> synth|sampler` and quoted or duration sequences only; `section`, `arrange`, `scene`, `auto` and `midi` stay with ADR-0015.
 
+- **Timed notes (addendum, #173).** A third line form says exactly where each note is: `pitch@start:length[:velocity]` in ticks from the line's start (`d5@0:6 f#5@6:6:90`), notes in any order and overlapping, a length of up to 32 bars, an optional velocity of 1 to 127. The frag line may give its length (`frag v_1 = violin bars 8`), so trailing silence counts; without it the line ends at the bar of its last start. It is what MIDI import writes (ADR-0015); people write the other two. It prints in event order.
+
 ## Consequences
 
 - Notes, chords, triplets and, later, imported MIDI land on exact samples through one path.
