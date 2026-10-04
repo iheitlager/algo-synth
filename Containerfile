@@ -2,9 +2,13 @@
 # Build: make image · Run: make serve
 
 FROM docker.io/library/rust:1 AS wasm
-RUN rustup target add wasm32-unknown-unknown
 WORKDIR /src
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+# Install the rust-toolchain.toml toolchain (with its wasm target) in its own
+# cached layer; otherwise rustup auto-installs it inside the cargo build layer
+# on every crates/ change, adding ~1 GB per build.
+COPY rust-toolchain.toml ./
+RUN rustup toolchain install
+COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo build --locked --release --target wasm32-unknown-unknown -p algo-dsp
 
