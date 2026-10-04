@@ -4266,4 +4266,34 @@ mod tests {
         }
         assert_eq!(e.arps.len(), before);
     }
+
+    #[test]
+    fn every_arp_step_retriggers_even_with_legato_and_a_full_gate() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Legato, 1.0);
+        e.set_param(0, Param::AdsrAttack, 0.001);
+        e.set_param(0, Param::AdsrDecay, 0.01);
+        e.set_param(0, Param::AdsrSustain, 0.0);
+        e.set_param(0, Param::ArpGate, 1.0);
+        e.song_play();
+        e.render(1);
+        arp_on(&mut e);
+        // The envelope has died away just before each onset and is back just after.
+        let mut at = 1usize;
+        for onset in [6000usize, 12_000, 18_000] {
+            let mut before = 0.0_f32;
+            let mut after = 0.0_f32;
+            while at < onset + 200 {
+                e.render(1);
+                at += 1;
+                let l = peak(&e);
+                if at == onset - 1 {
+                    before = l;
+                }
+                after = after.max(if at > onset { l } else { 0.0 });
+            }
+            assert!(before < 0.001, "onset {onset}: still sounding ({before})");
+            assert!(after > 0.01, "onset {onset}: not retriggered ({after})");
+        }
+    }
 }
