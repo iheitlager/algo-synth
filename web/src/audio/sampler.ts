@@ -56,6 +56,19 @@ export const freeSlot = (slots: readonly unknown[]) => {
   return -1
 }
 
+/**
+ * The slots a new pack on synth `s` may free: those that came from a pack (`fromPacks`, file to
+ * slot), that no other synth's zones use and that the new pack does not reuse. The store is
+ * shared by every pack and has a cap, so loading a pack replaces the one it follows.
+ */
+export function evictable(fromPacks: ReadonlyMap<string, number>, s: number, zonesByS: readonly (readonly Zone[] | undefined)[], reuse: ReadonlySet<string>): number[] {
+  const used = new Set<number>()
+  zonesByS.forEach((zones, synth) => {
+    if (synth !== s) for (const z of zones ?? []) if (z.sample >= 0) used.add(z.sample)
+  })
+  return [...fromPacks].filter(([file, slot]) => !used.has(slot) && !reuse.has(file)).map(([, slot]) => slot)
+}
+
 const NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B']
 /** A MIDI note as a name, middle C being C4. */
 export const keyName = (n: number) => `${NAMES[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`
