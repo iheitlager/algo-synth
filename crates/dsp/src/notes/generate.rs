@@ -130,16 +130,36 @@ impl Gen {
     }
 
     /// The events of the call for `seed` (its own, or a cycle's for a live
-    /// fragment), unsorted.
+    /// fragment), sorted.
     pub fn events(&self, seed: u32, scale: Option<&Scale>) -> Vec<Event> {
+        let mut out = Vec::with_capacity(self.max_events());
+        self.events_into(seed, scale, &mut out);
+        out
+    }
+
+    /// The most events a call can make: room to reserve for `events_into`.
+    pub fn max_events(&self) -> usize {
+        match self {
+            Gen::Arp { rate, .. } => usize::from(*rate),
+            Gen::Walk { .. } => MAX_WALK as usize,
+            Gen::Markov { src, .. } | Gen::Mutate { src, .. } => src.len(),
+        }
+    }
+
+    /// As `events`, into `out` (cleared first). With room reserved for
+    /// `max_events` it never allocates, so the engine can run it on the audio
+    /// thread's schedule (ADR-0002).
+    pub fn events_into(&self, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
+        out.clear();
         match self {
             Gen::Arp {
                 chord, mode, rate, ..
-            } => arp(chord, *mode, *rate, seed),
-            Gen::Walk { start, steps, .. } => walk(*start, *steps, seed, scale),
-            Gen::Markov { order, src, .. } => markov(*order, src, seed),
-            Gen::Mutate { amount, src, .. } => mutate(*amount, src, seed, scale),
+            } => arp(chord, *mode, *rate, seed, out),
+            Gen::Walk { start, steps, .. } => walk(*start, *steps, seed, scale, out),
+            Gen::Markov { order, src, .. } => markov(*order, src, seed, out),
+            Gen::Mutate { amount, src, .. } => mutate(*amount, src, seed, scale, out),
         }
+        out.sort_unstable_by_key(super::sort_key);
     }
 }
 
@@ -147,39 +167,45 @@ fn rng(seed: u32, tag: u32) -> Rng {
     Rng::new(mix(seed, tag))
 }
 
-fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32) -> Vec<Event> {
-    let mut notes = chord.to_vec();
-    notes.sort_by_key(|p| p.note);
-    let n = notes.len();
+fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>) {
+    let mut buf = [Pitch {
+        note: 0,
+        accent: false,
+    }; MAX_CHORD];
+    let n = chord.len().min(MAX_CHORD);
+    let notes = buf.get_mut(..n).unwrap_or(&mut []);
+    notes.copy_from_slice(chord.get(..n).unwrap_or(&[]));
+    notes.sort_unstable_by_key(|p| p.note);
     let len = TICKS_PER_BAR / u32::from(rate).max(1);
     let count = TICKS_PER_BAR / len.max(1);
-    let order: Vec<usize> = match mode {
-        ArpMode::Up | ArpMode::Random => (0..n).collect(),
-        ArpMode::Down => (0..n).rev().collect(),
-        ArpMode::UpDown => (0..n).chain((1..n.saturating_sub(1)).rev()).collect(),
-    };
     let mut r = rng(seed, 0xA4);
-    (0..count)
-        .filter_map(|i| {
-            let k = if mode == ArpMode::Random {
-                usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1)
-            } else {
-                *order.get(usize::try_from(i).unwrap_or(0) % order.len().max(1))?
-            };
-            let p = notes.get(k)?;
-            Some(Event {
+    for i in 0..count {
+        let at = usize::try_from(i).unwrap_or(0);
+        let k = match mode {
+            ArpMode::Up => at % n.max(1),
+            ArpMode::Down => n.saturating_sub(1) - at % n.max(1),
+            ArpMode::UpDown if n > 1 => {
+                let m = 2 * n - 2;
+                let idx = at % m;
+                if idx < n { idx } else { m - idx }
+            }
+            ArpMode::UpDown => 0,
+            ArpMode::Random => usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1),
+        };
+        if let Some(p) = notes.get(k) {
+            out.push(Event {
                 start: i * len,
                 len,
                 note: p.note,
                 accent: p.accent,
-            })
-        })
-        .collect()
+            });
+        }
+    }
 }
 
-fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>) -> Vec<Event> {
+fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
     let Some(scale) = scale else {
-        return Vec::new();
+        return;
     };
     let steps = steps.clamp(1, MAX_WALK);
     // Two octaves of degrees, starting one octave up from the lowest.
@@ -187,78 +213,86 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>) -> Vec<Event> {
     let low = start.saturating_sub(12);
     let mut pos = i64::from(scale.degrees());
     let mut r = rng(seed, 0x3A1);
-    (0..steps)
-        .map(|i| {
-            if i > 0 {
-                pos += i64::from(r.next_u32() % 3) - 1;
-                pos = pos.clamp(0, i64::from(span) - 1);
-            }
-            let a = i * TICKS_PER_BAR / steps;
-            let b = (i + 1) * TICKS_PER_BAR / steps;
-            Event {
-                start: a,
-                len: (b - a).max(1),
-                note: scale.walk(low, u32::try_from(pos).unwrap_or(0)),
-                accent: false,
-            }
-        })
-        .collect()
+    for i in 0..steps {
+        if i > 0 {
+            pos += i64::from(r.next_u32() % 3) - 1;
+            pos = pos.clamp(0, i64::from(span) - 1);
+        }
+        let a = i * TICKS_PER_BAR / steps;
+        let b = (i + 1) * TICKS_PER_BAR / steps;
+        out.push(Event {
+            start: a,
+            len: (b - a).max(1),
+            note: scale.walk(low, u32::try_from(pos).unwrap_or(0)),
+            accent: false,
+        });
+    }
 }
 
 /// Pitches follow a chain learned from the source's own order of notes; the
 /// rhythm is the source's. Every note comes from the source's pitch set.
-fn markov(order: u8, src: &[Event], seed: u32) -> Vec<Event> {
-    let pitches: Vec<u8> = src.iter().map(|e| e.note).collect();
+fn markov(order: u8, src: &[Event], seed: u32, out: &mut Vec<Event>) {
+    let m = src.len();
+    if m == 0 {
+        return;
+    }
     let k = usize::from(order.clamp(1, MAX_ORDER));
     let mut r = rng(seed, 0x3A2);
-    let pick = |r: &mut Rng, from: &[u8]| -> Option<u8> {
-        let i = usize::try_from(r.next_u32()).unwrap_or(0) % from.len().max(1);
-        from.get(i).copied()
-    };
+    let note_at = |i: usize| src.get(i).map_or(0, |e| e.note);
     // Start from a window of the source.
-    let first = usize::try_from(r.next_u32()).unwrap_or(0) % pitches.len().max(1);
-    let mut ctx: Vec<u8> = (0..k)
-        .filter_map(|j| pitches.get((first + j) % pitches.len().max(1)).copied())
-        .collect();
-    let mut out = Vec::with_capacity(src.len());
-    for e in src {
-        let next: Vec<u8> = pitches
-            .windows(k + 1)
-            .filter(|w| w.get(..k) == Some(ctx.as_slice()))
-            .filter_map(|w| w.get(k).copied())
-            .collect();
-        let note = pick(&mut r, &next)
-            .or_else(|| pick(&mut r, &pitches))
-            .unwrap_or(e.note);
-        out.push(Event { note, ..*e });
-        ctx.push(note);
-        ctx.remove(0);
+    let first = usize::try_from(r.next_u32()).unwrap_or(0) % m;
+    let mut ctx = [0u8; MAX_ORDER as usize];
+    for (j, c) in ctx.iter_mut().take(k).enumerate() {
+        *c = note_at((first + j) % m);
     }
-    out
+    let follows = |i: usize, ctx: &[u8]| {
+        i + k < m
+            && ctx
+                .iter()
+                .take(k)
+                .enumerate()
+                .all(|(j, c)| note_at(i + j) == *c)
+    };
+    for e in src {
+        let count = (0..m).filter(|i| follows(*i, &ctx)).count();
+        let note = if count > 0 {
+            let nth = usize::try_from(r.next_u32()).unwrap_or(0) % count;
+            (0..m)
+                .filter(|i| follows(*i, &ctx))
+                .nth(nth)
+                .map_or(e.note, |i| note_at(i + k))
+        } else {
+            note_at(usize::try_from(r.next_u32()).unwrap_or(0) % m)
+        };
+        out.push(Event { note, ..*e });
+        ctx.rotate_left(1);
+        if let Some(last) = ctx.get_mut(k - 1) {
+            *last = note;
+        }
+    }
 }
 
 /// Each note changes with the given chance: dropped, or moved a few semitones
 /// and snapped onto the scale when there is one.
-fn mutate(amount: u8, src: &[Event], seed: u32, scale: Option<&Scale>) -> Vec<Event> {
+fn mutate(amount: u8, src: &[Event], seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
     let mut r = rng(seed, 0x3A3);
-    src.iter()
-        .filter_map(|e| {
-            if r.next_u32() % 100 >= u32::from(amount) {
-                return Some(*e);
-            }
-            let d = r.next_u32() % 5;
-            if d == 0 {
-                return None;
-            }
-            let shift = [0i32, -2, -1, 1, 2]
-                .get(usize::try_from(d).unwrap_or(0))
-                .copied()
-                .unwrap_or(0);
-            let moved = u8::try_from((i32::from(e.note) + shift).clamp(0, 127)).unwrap_or(e.note);
-            let note = scale.map_or(moved, |s| s.walk(moved, 0));
-            Some(Event { note, ..*e })
-        })
-        .collect()
+    for e in src {
+        if r.next_u32() % 100 >= u32::from(amount) {
+            out.push(*e);
+            continue;
+        }
+        let d = r.next_u32() % 5;
+        if d == 0 {
+            continue;
+        }
+        let shift = [0i32, -2, -1, 1, 2]
+            .get(usize::try_from(d).unwrap_or(0))
+            .copied()
+            .unwrap_or(0);
+        let moved = u8::try_from((i32::from(e.note) + shift).clamp(0, 127)).unwrap_or(e.note);
+        let note = scale.map_or(moved, |s| s.walk(moved, 0));
+        out.push(Event { note, ..*e });
+    }
 }
 
 // --- Parsing ---------------------------------------------------------------

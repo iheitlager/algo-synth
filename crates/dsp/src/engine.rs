@@ -27,7 +27,38 @@ use crate::poly::{Pool, VOICE_BUDGET};
 
 /// Song notes that may sound at once before one is dropped.
 const NOTE_OFFS: usize = 256;
-use crate::notes::TICKS_PER_BAR;
+
+/// The events of a live fragment: the cycle playing and the next one, made
+/// ahead of time into buffers reserved when the song loads (ADR-0002).
+#[derive(Default)]
+struct Live {
+    cycle: Option<u64>,
+    next: Option<u64>,
+    cur: Vec<Event>,
+    nxt: Vec<Event>,
+}
+
+impl Live {
+    fn with_room(n: usize) -> Live {
+        Live {
+            cycle: None,
+            next: None,
+            cur: Vec::with_capacity(n),
+            nxt: Vec::with_capacity(n),
+        }
+    }
+}
+
+/// The seed of a live fragment's cycle: the base seed mixed with the cycle
+/// counted from the top of the song, so every run plays the same cycles.
+fn cycle_seed(base: u32, cycle: u64) -> u32 {
+    mix(
+        base,
+        u32::try_from(cycle % u64::from(u32::MAX)).unwrap_or(0),
+    )
+}
+use crate::algo::mix;
+use crate::notes::{Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
@@ -108,6 +139,8 @@ pub struct Engine {
     /// Notes of the song waiting for their note-off, as (tick, track, note):
     /// a fixed table, so the clock can end a note without allocating.
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
+    /// One per fragment of the song; empty for all but the live ones.
+    live: Vec<Live>,
 }
 
 impl Engine {
@@ -156,6 +189,7 @@ impl Engine {
             song_error: None,
             song_route: [None; MAX_TRACKS],
             note_offs: [None; NOTE_OFFS],
+            live: Vec::new(),
         };
         for (p, v) in GLOBAL_DEFAULTS {
             engine.set_param(0, p, v);
@@ -668,30 +702,25 @@ impl Engine {
             }
         }
         for f in 0..self.song.frags.len() {
-            let Some((track, local, first)) = self
+            let Some((track, span, live)) = self
                 .song
                 .frags
                 .get(f)
                 .and_then(|fr| Some((fr, fr.notes.as_ref()?)))
                 .map(|(fr, n)| {
-                    let span = u64::from(n.bars * TICKS_PER_BAR);
-                    let local = u32::try_from(j % span.max(1)).unwrap_or(0);
                     let track = u8::try_from(fr.track).unwrap_or(u8::MAX);
-                    (track, local, n.events.partition_point(|e| e.start < local))
+                    (track, u64::from(n.bars * TICKS_PER_BAR).max(1), fr.live)
                 })
             else {
                 continue;
             };
+            let local = u32::try_from(j % span).unwrap_or(0);
+            if live {
+                self.step_live(f, j / span, local);
+            }
+            let first = self.first_event(f, local);
             for k in first.. {
-                let Some(ev) = self
-                    .song
-                    .frags
-                    .get(f)
-                    .and_then(|fr| fr.notes.as_ref())
-                    .and_then(|n| n.events.get(k))
-                    .copied()
-                    .filter(|e| e.start == local)
-                else {
+                let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {
                     break;
                 };
                 let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
@@ -701,6 +730,97 @@ impl Engine {
                 self.start_voice(Owner::Track(track), ev.note, ev.velocity());
             }
         }
+    }
+
+    /// Event `k` of fragment `f` for the cycle now playing.
+    fn note_event(&self, f: usize, k: usize) -> Option<Event> {
+        let fr = self.song.frags.get(f)?;
+        if fr.live {
+            self.live.get(f)?.cur.get(k).copied()
+        } else {
+            fr.notes.as_ref()?.events.get(k).copied()
+        }
+    }
+
+    /// Index of the first event of fragment `f` at or after tick `local`.
+    fn first_event(&self, f: usize, local: u32) -> usize {
+        let Some(fr) = self.song.frags.get(f) else {
+            return 0;
+        };
+        if fr.live {
+            self.live
+                .get(f)
+                .map_or(0, |l| l.cur.partition_point(|e| e.start < local))
+        } else {
+            fr.notes
+                .as_ref()
+                .map_or(0, |n| n.events.partition_point(|e| e.start < local))
+        }
+    }
+
+    /// Have live fragment `f`'s events for `cycle` ready, and, a tick into the
+    /// cycle, those of the next, so the swap at the cycle line is a move and
+    /// not a computation. A seek or a new song makes the cycle on the spot.
+    /// The buffers were sized when the song loaded: nothing allocates.
+    fn step_live(&mut self, f: usize, cycle: u64, local: u32) {
+        let Some(Seq::Generated(call)) = self
+            .song
+            .frags
+            .get(f)
+            .and_then(|fr| fr.notes.as_ref())
+            .map(|n| &n.seq)
+        else {
+            return;
+        };
+        let Some(live) = self.live.get_mut(f) else {
+            return;
+        };
+        let scale = self.song.scale.as_ref();
+        if live.cycle != Some(cycle) {
+            if live.next == Some(cycle) {
+                std::mem::swap(&mut live.cur, &mut live.nxt);
+            } else {
+                call.events_into(cycle_seed(call.seed(), cycle), scale, &mut live.cur);
+            }
+            live.cycle = Some(cycle);
+            live.next = None;
+        }
+        if local > 0 && live.next != Some(cycle + 1) {
+            call.events_into(cycle_seed(call.seed(), cycle + 1), scale, &mut live.nxt);
+            live.next = Some(cycle + 1);
+        }
+    }
+
+    /// One buffer pair per fragment, sized for its call; only live fragments
+    /// get room.
+    fn rebuild_live(&mut self) {
+        self.live = self
+            .song
+            .frags
+            .iter()
+            .map(|fr| match fr.notes.as_ref().map(|n| &n.seq) {
+                Some(Seq::Generated(call)) if fr.live => Live::with_room(call.max_events()),
+                _ => Live::default(),
+            })
+            .collect();
+    }
+
+    /// Replace fragment `frag`'s generator call with the events it is playing
+    /// now (a live one: this cycle's), as notes in the same notation, and
+    /// print the song again. False when it is not a generated fragment or
+    /// the events do not fit the notation.
+    pub fn freeze(&mut self, frag: usize) -> bool {
+        let playing = self
+            .live
+            .get(frag)
+            .filter(|l| l.cycle.is_some())
+            .map(|l| l.cur.clone());
+        if !self.song.freeze(frag, playing.as_deref()) {
+            return false;
+        }
+        self.rebuild_live();
+        self.song_text = self.song.print();
+        true
     }
 
     /// End every note of the song that is still sounding.
@@ -796,6 +916,7 @@ impl Engine {
                     }
                 }
                 self.song = song;
+                self.rebuild_live();
                 self.song_text = self.song.print();
                 self.song_error = None;
                 Ok(())
@@ -3100,6 +3221,105 @@ mod tests {
             .filter(|n| !n.is_empty())
             .collect();
         assert_eq!(notes, vec![vec![60], vec![62], vec![63], vec![65]]);
+    }
+
+    const LIVE: &str =
+        "tempo 120\nscale c minor\ntrack lead synth\nfrag w = lead live\n  walk(c4,8,1)\n";
+
+    /// The notes the song starts, in order, over `frames`: each new entry of
+    /// the note-off table is one start (a repeated note ends at another tick).
+    fn started(e: &mut Engine, frames: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut seen: Vec<(u64, u8, u8)> = e.note_offs.iter().flatten().copied().collect();
+        for _ in 0..frames {
+            e.render(1);
+            for entry in e.note_offs.iter().flatten() {
+                if !seen.contains(entry) {
+                    seen.push(*entry);
+                    out.push(entry.2);
+                }
+            }
+            seen.retain(|s| e.note_offs.iter().flatten().any(|x| x == s));
+        }
+        out
+    }
+
+    fn poly() -> Engine {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Polyphony, 8.0);
+        e
+    }
+
+    /// #167: a live fragment plays a new walk each bar, the same ones every run.
+    #[test]
+    fn a_live_fragment_changes_each_cycle_and_repeats_each_run() {
+        let mut e = poly();
+        assert_eq!(load_text(&mut e, LIVE), Ok(()));
+        e.song_play();
+        let played = started(&mut e, 96_000 * 3);
+        let Some(Seq::Generated(call)) = e.song().frags[0].notes.as_ref().map(|n| n.seq.clone())
+        else {
+            panic!("a generated frag");
+        };
+        let scale = e.song().scale;
+        let mut want = Vec::new();
+        for cycle in 0..3 {
+            let evs = call.events(cycle_seed(call.seed(), cycle), scale.as_ref());
+            want.extend(evs.iter().map(|ev| ev.note));
+        }
+        assert_eq!(played.len(), 24);
+        assert_eq!(played, want);
+        assert_ne!(played[..8], played[8..16], "the bars differ");
+        let mut again = poly();
+        assert_eq!(load_text(&mut again, LIVE), Ok(()));
+        again.song_play();
+        assert_eq!(started(&mut again, 96_000 * 3), played);
+    }
+
+    /// #167: nothing grows in `render`: the buffers keep the room reserved at load.
+    #[test]
+    fn a_live_fragment_does_not_grow_its_buffers() {
+        let mut e = poly();
+        assert_eq!(load_text(&mut e, LIVE), Ok(()));
+        let room = (e.live[0].cur.capacity(), e.live[0].nxt.capacity());
+        assert!(room.0 >= 8 && room.1 >= 8);
+        e.song_play();
+        for _ in 0..(96_000 * 6 / BLOCK) {
+            e.render(BLOCK);
+        }
+        assert_eq!((e.live[0].cur.capacity(), e.live[0].nxt.capacity()), room);
+        assert_eq!(e.live[0].cycle, Some(5));
+    }
+
+    /// #167: freezing prints the bar it was playing; parsing that plays the same.
+    #[test]
+    fn freezing_keeps_the_bar_that_was_playing() {
+        let mut e = poly();
+        assert_eq!(load_text(&mut e, LIVE), Ok(()));
+        e.song_play();
+        let first = started(&mut e, 96_000);
+        let second = started(&mut e, 48_000); // half way into bar 2
+        assert_eq!(first.len() + second.len(), 12);
+        assert!(e.freeze(0));
+        assert!(!e.song().frags[0].live);
+        assert!(!e.song_text().contains("live") && !e.song_text().contains("walk("));
+        let frozen: Vec<u8> = e.song().frags[0]
+            .notes
+            .as_ref()
+            .unwrap()
+            .events
+            .iter()
+            .map(|ev| ev.note)
+            .collect();
+        assert_eq!(&frozen[..4], &second[..], "the notes it had played so far");
+        // Parsing the printed text plays the same bar, every bar.
+        let text = e.song_text().to_string();
+        let mut other = poly();
+        assert_eq!(load_text(&mut other, &text), Ok(()));
+        other.song_play();
+        let again = started(&mut other, 96_000 * 2);
+        assert_eq!([frozen.clone(), frozen].concat(), again);
+        assert!(!e.freeze(0), "a frozen frag has no call to freeze");
     }
 
     /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.

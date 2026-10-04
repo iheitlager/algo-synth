@@ -191,6 +191,7 @@ fn random_song(r: &mut Rng) -> Song {
                 track: 1,
                 lanes: Vec::new(),
                 notes: Some(notes::parse(seq, 1).expect("valid")),
+                live: false,
             });
             continue;
         }
@@ -212,6 +213,7 @@ fn random_song(r: &mut Rng) -> Song {
             track: 0,
             lanes,
             notes: None,
+            live: false,
         });
     }
     song
@@ -541,4 +543,107 @@ fn a_call_cannot_read_a_later_or_missing_frag() {
     );
     let own = "track t synth\nfrag a = t\n  markov(1,a,1)\n";
     assert!(Song::parse(own).is_err());
+}
+
+#[test]
+fn a_live_frag_prints_and_parses_back() {
+    let text = "scale c minor\ntrack lead synth\n\nfrag w = lead live\n  walk(c4,8,1)\nfrag s = lead\n  arp([c4,e4],up,8)\n";
+    let s = Song::parse(text).expect("parses");
+    assert!(s.frags[0].live && !s.frags[1].live);
+    let printed = s.print();
+    assert!(printed.contains("frag w = lead live\n  walk(c4,8,1)\n"));
+    assert!(printed.contains("frag s = lead\n"));
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn live_errors_say_where() {
+    let cases: [(&str, usize, usize, &str); 3] = [
+        (
+            "track k drums\nfrag a = k live\n  bd x",
+            2,
+            12,
+            "only a note frag can be live",
+        ),
+        (
+            "track t synth\nfrag a = t live\n  c4:4",
+            3,
+            3,
+            "a live frag is a call: arp, walk, markov or mutate",
+        ),
+        (
+            "track t synth\nfrag a = t live\n  euclid(3,8) c4",
+            3,
+            3,
+            "a live frag is a call: arp, walk, markov or mutate",
+        ),
+    ];
+    for (text, line, col, msg) in cases {
+        assert_eq!(
+            Song::parse(text),
+            Err(SongError { line, col, msg }),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn freezing_replaces_the_call_with_notes() {
+    let mut s = Song::parse(
+        "scale c minor\ntrack t synth\nfrag w = t live\n  walk(c4,4,1)\nfrag p = t\n  c4:4\n",
+    )
+    .unwrap();
+    assert!(!s.freeze(1, None), "a written frag has no call");
+    assert!(!s.freeze(9, None), "no such frag");
+    let before = s.frags[0].notes.as_ref().unwrap().events.clone();
+    assert!(s.freeze(0, None));
+    assert!(!s.frags[0].live);
+    let printed = s.print();
+    assert!(!printed.contains("walk(") && !printed.contains("live"));
+    assert_eq!(
+        Song::parse(&printed).unwrap().frags[0]
+            .notes
+            .as_ref()
+            .unwrap()
+            .events,
+        before
+    );
+}
+
+/// An electro cut in the spirit of Egyptian Lover, Green Velvet and Drexciya:
+/// an 808 kit, an acid line, chord stabs and a lead that drifts.
+const ELECTRO: &str = "\
+tempo 124
+swing 54
+scale a minor
+
+track kit drums
+track bass synth
+track lead synth
+
+frag beat = kit
+  bd x..x..x...x..x..
+  cp ....x.......x...
+  ch x.x.x.x.x.x.x.x.
+  oh ..x...x...x...x.
+  cb euclid(5,16,2)
+
+frag acid = bass
+  \"a1! a1 [a2 a1] ~ a1! ~ [c2 e2] a1\"
+
+frag stabs = lead
+  \"~ [a3!,c4!,e4!] ~ ~ ~ [a3,c4,e4] ~ ~\"
+
+frag arp = lead
+  arp([a3,c4,e4,g4],updown,16)
+
+frag drift = lead live
+  walk(a3,16,7)
+";
+
+#[test]
+fn an_electro_example_parses_and_prints_back() {
+    let s = Song::parse(ELECTRO).expect("parses");
+    assert_eq!((s.tracks.len(), s.frags.len()), (3, 5));
+    assert_eq!(Song::parse(&s.print()), Ok(s));
 }

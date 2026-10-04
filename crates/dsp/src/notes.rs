@@ -32,7 +32,7 @@ pub const TICKS_PER_BAR: u32 = 48;
 pub const MAX_EVENTS: usize = 512;
 pub const MAX_BARS: u32 = 32;
 /// Most words (slots and notes) in one line.
-const MAX_ITEMS: usize = 128;
+const MAX_ITEMS: usize = 1100;
 /// A line with `?` repeats after this many bars.
 const CHANCE_BARS: u32 = 8;
 /// Nesting of `[ ]` and `< >`.
@@ -194,7 +194,7 @@ impl Cursor<'_> {
     fn count_item(&mut self) -> Result<(), NoteError> {
         self.items += 1;
         if self.items > MAX_ITEMS {
-            return err(self.col(), "a line has at most 128 words");
+            return err(self.col(), "a line has too many words");
         }
         Ok(())
     }
@@ -337,12 +337,12 @@ impl Cursor<'_> {
             match self.peek() {
                 Some('*') if !got_times => {
                     self.i += 1;
-                    times = self.factor(here)?;
+                    times = self.factor(here, MAX_FACTOR)?;
                     got_times = true;
                 }
                 Some('@') if !got_weight => {
                     self.i += 1;
-                    weight = self.factor(here)?;
+                    weight = self.factor(here, TICKS_PER_BAR)?;
                     got_weight = true;
                 }
                 Some('?') if !chance => {
@@ -364,10 +364,17 @@ impl Cursor<'_> {
         })
     }
 
-    fn factor(&mut self, at: usize) -> Result<u32, NoteError> {
+    fn factor(&mut self, at: usize, max: u32) -> Result<u32, NoteError> {
         let n = self.number()?;
-        if n == 0 || n > MAX_FACTOR {
-            return err(at, "a repeat or weight is 1 to 16");
+        if n == 0 || n > max {
+            return err(
+                at,
+                if max == MAX_FACTOR {
+                    "a repeat is 1 to 16"
+                } else {
+                    "a weight is 1 to 48"
+                },
+            );
         }
         Ok(n)
     }
@@ -708,6 +715,85 @@ impl Compiler {
     }
 }
 
+/// The order events are kept in: a total order, so an unstable sort (which
+/// allocates nothing) gives the same list every time.
+pub(crate) fn sort_key(e: &Event) -> (u32, u8, u32, bool) {
+    (e.start, e.note, e.len, e.accent)
+}
+
+/// A line of mini-notation that plays exactly `events` (sorted, within
+/// `bars` bars): every word weighs its length in ticks, a bar to a group when
+/// there is more than one. `None` when the events do not fit that way: a
+/// note over a bar line, overlapping notes, or a chord of different lengths.
+pub fn freeze(events: &[Event], bars: u32) -> Option<Notes> {
+    let bar = TICKS_PER_BAR;
+    let mut texts = Vec::new();
+    for b in 0..bars {
+        let (lo, hi) = (b * bar, (b + 1) * bar);
+        let mut words: Vec<String> = Vec::new();
+        let mut cursor = lo;
+        let mut i = 0;
+        let in_bar: Vec<&Event> = events
+            .iter()
+            .filter(|e| e.start >= lo && e.start < hi)
+            .collect();
+        while let Some(first) = in_bar.get(i) {
+            let same = in_bar.iter().skip(i).take_while(|e| e.start == first.start);
+            let chord: Vec<&&Event> = same.collect();
+            if chord.iter().any(|e| e.len != first.len)
+                || first.start < cursor
+                || first.start + first.len > hi
+            {
+                return None;
+            }
+            if first.start > cursor {
+                words.push(weighted("~".into(), first.start - cursor));
+            }
+            let ps: Vec<String> = chord
+                .iter()
+                .map(|e| {
+                    pitch_text(&Pitch {
+                        note: e.note,
+                        accent: e.accent,
+                    })
+                })
+                .collect();
+            let item = if let [one] = ps.as_slice() {
+                one.clone()
+            } else {
+                format!("[{}]", ps.join(","))
+            };
+            words.push(weighted(item, first.len));
+            cursor = first.start + first.len;
+            i += chord.len();
+        }
+        if cursor < hi {
+            words.push(weighted("~".into(), hi - cursor));
+        }
+        texts.push(words.join(" "));
+    }
+    if events.iter().any(|e| e.start >= bars * bar) {
+        return None;
+    }
+    let line = match texts.as_slice() {
+        [one] => format!("\"{one}\""),
+        many => {
+            let groups: Vec<String> = many.iter().map(|t| format!("[{t}]")).collect();
+            format!("\"<{}>\"", groups.join(" "))
+        }
+    };
+    let notes = parse(&line, 1).ok()?;
+    (notes.events == events && notes.bars == bars).then_some(notes)
+}
+
+fn weighted(item: String, ticks: u32) -> String {
+    if ticks == 1 {
+        item
+    } else {
+        format!("{item}@{ticks}")
+    }
+}
+
 fn lcm(a: u32, b: u32) -> u32 {
     let g = u32::try_from(gcd(u128::from(a), u128::from(b)))
         .unwrap_or(1)
@@ -812,7 +898,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
         }
     };
     let mut events = events;
-    events.sort_by_key(|e| (e.start, e.note));
+    events.sort_unstable_by_key(sort_key);
     Ok(Notes::new(seq, events, bars))
 }
 

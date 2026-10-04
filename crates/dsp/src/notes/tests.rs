@@ -134,7 +134,7 @@ fn every_error_says_where() {
         ),
         ("c4:3", 4, "a duration is 1, 2, 4, 8 or 16"),
         ("c4:16.", 4, "a dotted sixteenth does not fit the grid"),
-        ("\"c4*0\"", 4, "a repeat or weight is 1 to 16"),
+        ("\"c4*0\"", 4, "a repeat is 1 to 16"),
         ("\"[]\"", 3, "nothing between the brackets"),
         ("\"c4\" d4", 6, "one quoted sequence to a line"),
         ("\"[c4,e4\"", 8, "a chord is notes with commas, then ]"),
@@ -148,7 +148,7 @@ fn every_error_says_where() {
 
 #[test]
 fn too_much_is_an_error_not_a_hang() {
-    let long = format!("\"{}\"", "c4 ".repeat(200));
+    let long = format!("\"{}\"", "c4 ".repeat(1200));
     assert!(parse(&long, 1).is_err());
     assert!(parse("\"<a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4>\"", 1).is_err());
     assert!(parse("\"[[[[[c4]]]]]\"", 1).is_err());
@@ -443,4 +443,51 @@ fn damaged_generator_calls_never_panic() {
             assert_eq!(with_riff(&n.print()).unwrap(), n, "{text}");
         }
     }
+}
+
+#[test]
+fn freezing_writes_the_events_back_exactly() {
+    for text in [
+        "arp([c4,e4,g4],updown,16)",
+        "walk(c4,5,1)", // lengths of 9 and 10 ticks: not on a classic grid
+        "walk(c4,32,4)",
+        "arp([c4!,e4],random,8,7)",
+        "mutate(riff,50,2)",
+        "markov(2,riff,6)",
+        "euclid(5,8,2) c4",
+    ] {
+        let n = with_riff(text).unwrap();
+        let frozen = freeze(&n.events, n.bars).unwrap_or_else(|| panic!("{text}"));
+        assert_eq!(frozen.events, n.events, "{text}");
+        assert_eq!(frozen.bars, n.bars);
+        assert!(matches!(frozen.seq, Seq::Mini(_)));
+        // Printed and parsed again, the same events.
+        assert_eq!(parse(&frozen.print(), 1).unwrap(), frozen, "{text}");
+    }
+}
+
+#[test]
+fn freezing_handles_chords_rests_and_several_bars() {
+    let two = parse("[c4,e4,g4]:2 r:2 d4:1", 1).unwrap();
+    assert_eq!(two.bars, 2);
+    let f = freeze(&two.events, two.bars).unwrap();
+    assert_eq!(f.print(), "\"<[[c4,e4,g4]@24 ~@24] [d4@48]>\"");
+    assert_eq!(f.events, two.events);
+    let empty = freeze(&[], 1).unwrap();
+    assert_eq!(empty.print(), "\"~@48\"");
+}
+
+#[test]
+fn freezing_refuses_what_it_cannot_write() {
+    let ev = |start, len, note| Event {
+        start,
+        len,
+        note,
+        accent: false,
+    };
+    // overlapping notes, a note over the bar line, a chord of two lengths
+    assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
+    assert!(freeze(&[ev(40, 20, 60)], 1).is_none());
+    assert!(freeze(&[ev(0, 12, 60), ev(0, 6, 64)], 1).is_none());
+    assert!(freeze(&[ev(60, 6, 60)], 1).is_none(), "after the last bar");
 }
