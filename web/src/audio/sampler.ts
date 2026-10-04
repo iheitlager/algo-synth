@@ -2,7 +2,7 @@
 // that `make samples` writes (#129), and the drawing maths. Nothing here decides anything
 // musical: zones are set through `zone_set`, and the engine clamps them (sampler.rs).
 
-import { LoopMode, ZoneField } from './params'
+import { LoopMode, PadField, ZoneField } from './params'
 
 /** Zones a synth holds (`ZONES` in sampler.rs) and the sample slots of the store (`SLOTS` in sample.rs). */
 export const ZONES = 64
@@ -56,16 +56,26 @@ export const freeSlot = (slots: readonly unknown[]) => {
   return -1
 }
 
-/**
- * The slots a new pack on synth `s` may free: those that came from a pack (`fromPacks`, file to
- * slot), that no other synth's zones use and that the new pack does not reuse. The store is
- * shared by every pack and has a cap, so loading a pack replaces the one it follows.
- */
-export function evictable(fromPacks: ReadonlyMap<string, number>, s: number, zonesByS: readonly (readonly Zone[] | undefined)[], reuse: ReadonlySet<string>): number[] {
+/** The sample slots that the zones or pads of every synth but `except` play. */
+export function slotsUsedElsewhere(
+  except: number, zonesByS: readonly (readonly Zone[] | undefined)[], padsByS: readonly (readonly Pad[] | undefined)[],
+): Set<number> {
   const used = new Set<number>()
   zonesByS.forEach((zones, synth) => {
-    if (synth !== s) for (const z of zones ?? []) if (z.sample >= 0) used.add(z.sample)
+    if (synth !== except) for (const z of zones ?? []) if (z.sample >= 0) used.add(z.sample)
   })
+  padsByS.forEach((pads, synth) => {
+    if (synth !== except) for (const p of pads ?? []) if (p.sample >= 0) used.add(p.sample)
+  })
+  return used
+}
+
+/**
+ * The slots a new pack or kit may free: those that came from a pack (`fromPacks`, file to slot),
+ * that nothing else plays (`used`) and that the new one does not reuse. The store is shared by
+ * every pack and has a cap, so loading one replaces the one it follows.
+ */
+export function evictable(fromPacks: ReadonlyMap<string, number>, used: ReadonlySet<number>, reuse: ReadonlySet<string>): number[] {
   return [...fromPacks].filter(([file, slot]) => !used.has(slot) && !reuse.has(file)).map(([, slot]) => slot)
 }
 
@@ -169,4 +179,96 @@ export function peakPath(peaks: ArrayLike<number>, w: number, h: number): string
 export function loopOf(z: Zone, sample: { loopStart: number; loopEnd: number } | null): [number, number] | null {
   const [a, b] = z.loopStart === 0 && z.loopEnd === 0 ? [sample?.loopStart ?? 0, sample?.loopEnd ?? 0] : [z.loopStart, z.loopEnd]
   return b > a ? [a, b] : null
+}
+
+// --- Pads (the drum/pad sampler, #124) ----------------------------------------------
+
+/** Pads in a kit (`PADS` in padsampler.rs) and the note of the first; pad i answers `PAD_FIRST_NOTE + i`. */
+export const PADS = 16
+export const PAD_FIRST_NOTE = 36
+/** Fields in a pad, the length of `PadField`. */
+export const PAD_FIELDS = Object.keys(PadField).length
+
+/** One pad as the engine holds it: `sample` is -1 when it has none. */
+export interface Pad {
+  sample: number
+  tune: number
+  level: number
+  pan: number
+  decay: number
+  choke: number
+  velLevel: number
+  velStart: number
+  oneShot: boolean
+}
+export const EMPTY_PAD: Pad = { sample: -1, tune: 0, level: 0.8, pan: 0, decay: 0, choke: 0, velLevel: 1, velStart: 0, oneShot: true }
+
+/** The pads from a dump of `PADS * PAD_FIELDS` values, pad by pad. */
+export function decodePads(values: ArrayLike<number>): Pad[] {
+  return Array.from({ length: PADS }, (_, p) => {
+    const at = (f: number) => values[p * PAD_FIELDS + f] ?? 0
+    return {
+      sample: at(PadField.Sample), tune: at(PadField.Tune), level: at(PadField.Level), pan: at(PadField.Pan),
+      decay: at(PadField.Decay), choke: at(PadField.Choke), velLevel: at(PadField.VelLevel),
+      velStart: at(PadField.VelStart), oneShot: at(PadField.OneShot) >= 0.5,
+    }
+  })
+}
+
+/** The pads as a 4 x 4 grid, top row first, pad 1 at the bottom left as on an MPC. */
+export const PAD_ROWS: readonly (readonly number[])[] = [[12, 13, 14, 15], [8, 9, 10, 11], [4, 5, 6, 7], [0, 1, 2, 3]]
+
+/** A drum kit of the manifest: which sample each pad plays and how. */
+export interface KitPad {
+  pad: number
+  sample: string
+  tune: number
+  level: number
+  pan: number
+  decay: number
+  choke: number
+  velLevel: number
+  velStart: number
+  oneShot: boolean
+}
+export interface Kit {
+  id: string
+  name: string
+  license: string
+  credit: string
+  pads: KitPad[]
+}
+
+function validPad(p: unknown): p is KitPad {
+  if (typeof p !== 'object' || p === null) return false
+  const o = p as Record<string, unknown>
+  return typeof o.sample === 'string' && o.sample !== '' && !o.sample.startsWith('/') && !o.sample.includes('..')
+    && num(o.pad, 0, PADS - 1) && Number.isInteger(o.pad) && num(o.tune, -24, 24) && num(o.level, 0, 2) && num(o.pan, -1, 1)
+    && num(o.decay, 0, 10) && num(o.choke, 0, 8) && num(o.velLevel, 0, 1) && num(o.velStart, 0, 1) && typeof o.oneShot === 'boolean'
+}
+
+/** The kits of a manifest (`kits`), leaving out one that is malformed or has no usable pad. */
+export function parseKits(json: unknown): Kit[] {
+  const list = (json as { kits?: unknown } | null)?.kits
+  if (!Array.isArray(list)) return []
+  return list.flatMap((k: Record<string, unknown>) => {
+    const pads = Array.isArray(k?.pads) ? k.pads.filter(validPad) : []
+    if (typeof k?.id !== 'string' || typeof k.name !== 'string' || pads.length === 0) return []
+    return [{ id: k.id, name: k.name, license: String(k.license ?? ''), credit: String(k.credit ?? ''), pads }]
+  })
+}
+
+export const kitFiles = (kit: Kit) => [...new Set(kit.pads.map((p) => p.sample))]
+
+/** The `pad_set` calls that lay a kit out, as [pad, field, value]; `slotOf` finds a file's slot. */
+export function padSets(kit: Kit, slotOf: (file: string) => number | undefined): [number, number, number][] {
+  return kit.pads.flatMap((p) => {
+    const slot = slotOf(p.sample)
+    if (slot === undefined) return []
+    return [
+      [p.pad, PadField.Sample, slot], [p.pad, PadField.Tune, p.tune], [p.pad, PadField.Level, p.level],
+      [p.pad, PadField.Pan, p.pan], [p.pad, PadField.Decay, p.decay], [p.pad, PadField.Choke, p.choke],
+      [p.pad, PadField.VelLevel, p.velLevel], [p.pad, PadField.VelStart, p.velStart], [p.pad, PadField.OneShot, Number(p.oneShot)],
+    ] as [number, number, number][]
+  })
 }

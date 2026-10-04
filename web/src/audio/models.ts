@@ -35,6 +35,8 @@ export type Control =
   | { kind: 'sysex' }
   /** The sampler's pack browser, sample slots, zone map and zone editor (#125). */
   | { kind: 'sampler' }
+  /** The pad sampler's kit browser, 4 x 4 pad grid and pad editor (#125). */
+  | { kind: 'pads' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -1123,6 +1125,7 @@ const padSampler: ModelDef = {
   theme: { panel: '#26282c', ink: '#eceae4', soft: '#a9a79f', trim: '#454850', accent: '#e8554a' },
   presets: ['PadsLoud', 'PadsSoft'],
   sections: [
+    { title: 'Pads', wide: true, controls: [{ kind: 'pads' }] },
     { title: 'Kit', controls: [range('Level', Param.Vco1Level, 0, 1, 0.01), { kind: 'note', text: 'Pads answer notes 36–51 (C1 up).' }] },
   ],
 }
