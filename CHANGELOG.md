@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-04
+
+### Added
+
+- **Names** for MIDI lanes, synths (shared with their console strip) and group buses (#127, spec 003 Req 10): double-click a lane or the faceplate title, or the ✎ on a console tape, to rename in place; empty restores the default. An unnamed synth takes its first lane's name. Every label (tapes, feeds tags, Out selector, synth rail, route choices) follows, and names are saved in the setup's optional `names` field. View only: no engine change.
+
 ## [0.17.0] - 2026-10-04
 
 Polyphonic synths (epic #78, PR #116).
