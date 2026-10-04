@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-04
+
+### Fixed
+
+- **Sample packs fill the store:** the store is shared by every pack and capped at 64 MiB, and nothing freed a pack's samples, so loading one pack after another ended in "too large for the sample store". Loading a pack now clears the synth's zones and frees the pack samples no other synth uses and the new pack does not reuse; the error says what to do.
+
 ## [0.21.0] - 2026-10-04
 
 Samplers, first half (epic #126; the drum/pad sampler is next).

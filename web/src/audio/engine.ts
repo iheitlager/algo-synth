@@ -8,7 +8,7 @@ import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import type { ModelDef } from './models'
 import { GlobalParam, Param, Preset, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
-import { EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodeZones, freeSlot, packFiles, parseManifest, zoneSets, type Pack, type Zone } from './sampler'
+import { EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodeZones, evictable, freeSlot, packFiles, parseManifest, zoneSets, type Pack, type Zone } from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 
 const base = import.meta.env.BASE_URL
@@ -268,7 +268,7 @@ const SAMPLE_ERRORS: Record<number, string> = {
   [-2]: 'the file is truncated',
   [-3]: 'only 16- and 24-bit PCM or 32-bit float WAV, mono or stereo',
   [-4]: 'the file has no audio',
-  [-6]: 'too large for the sample store',
+  [-6]: 'too large, or the sample store is full: free a sample with ×, or load one pack at a time',
   [-7]: 'no such slot',
 }
 export const sampleStore = reactive({
@@ -324,6 +324,14 @@ const slotOfFile = new Map<string, number>()
 export async function loadPack(s: number, pack: Pack): Promise<void> {
   sampleStore.error = ''
   const files = packFiles(pack)
+  // The store is shared and capped: a pack replaces the one this synth had, keeping what other
+  // synths' zones still use and what this pack shares with it.
+  engine?.post({ t: 'zonesClear', s })
+  for (const slot of evictable(slotOfFile, s, zoneState.zones, new Set(files))) {
+    engine?.post({ t: 'sampleClear', slot })
+    sampleStore.slots[slot] = null
+    for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
+  }
   try {
     for (const [i, file] of files.entries()) {
       sampleStore.busy = `${pack.name}: ${i + 1} of ${files.length}`

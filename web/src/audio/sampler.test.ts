@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { LoopMode, ZoneField } from './params'
 import {
-  EMPTY_ZONE, ZONES, ZONE_FIELDS, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
+  EMPTY_ZONE, ZONES, evictable, ZONE_FIELDS, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
   zoneRect, zoneSets, type Pack,
 } from './sampler'
 
@@ -65,6 +65,24 @@ describe('the pack manifest', () => {
     expect(sets).toContainEqual([0, ZoneField.Loop, 1])
     // A file that did not load leaves its zones out.
     expect(zoneSets(pack, (f) => (f.endsWith('C2.wav') ? 4 : undefined)).every(([z]) => z !== 2)).toBe(true)
+  })
+})
+
+describe('replacing a pack', () => {
+  const z = (sample: number) => ({ ...EMPTY_ZONE, sample })
+  const packs = new Map([['a/C2.wav', 0], ['a/F2.wav', 1], ['b/C2.wav', 2], ['b/F2.wav', 3]])
+
+  it("frees the pack's own slots, but not what another synth plays or the new pack reuses", () => {
+    // Synth 1 plays slot 2; synth 0 (the one loading) had slots 0 and 1; the new pack reuses b/F2.
+    const zones = [[z(0), z(1)], [z(2)]]
+    expect(evictable(packs, 0, zones, new Set(['b/F2.wav']))).toEqual([0, 1])
+    expect(evictable(packs, 0, zones, new Set())).toEqual([0, 1, 3])
+    expect(evictable(packs, 1, zones, new Set())).toEqual([2, 3])
+  })
+
+  it('leaves samples that did not come from a pack alone, and copes with synths that have no zones', () => {
+    expect(evictable(new Map(), 0, [[z(5)]], new Set())).toEqual([])
+    expect(evictable(packs, 3, [undefined, [z(0)]], new Set())).toEqual([1, 2, 3])
   })
 })
 
