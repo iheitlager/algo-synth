@@ -148,6 +148,27 @@ impl Zone {
             && (self.vel_lo..=self.vel_hi).contains(&vel)
     }
 
+    /// A field as the view reads it: `set`'s inverse (−1 for an empty sample slot or an
+    /// unset root).
+    pub fn get(&self, field: ZoneField) -> f32 {
+        match field {
+            ZoneField::Sample => self.sample.map_or(-1.0, |s| s as f32),
+            ZoneField::KeyLo => f32::from(self.key_lo),
+            ZoneField::KeyHi => f32::from(self.key_hi),
+            ZoneField::VelLo => f32::from(self.vel_lo),
+            ZoneField::VelHi => f32::from(self.vel_hi),
+            ZoneField::Root => self.root.map_or(-1.0, f32::from),
+            ZoneField::Tune => self.tune,
+            ZoneField::Level => self.level,
+            ZoneField::Loop => self.loop_mode as u32 as f32,
+            ZoneField::LoopStart => self.loop_start as f32,
+            ZoneField::LoopEnd => self.loop_end as f32,
+            ZoneField::SeqLen => f32::from(self.seq_len),
+            ZoneField::SeqPos => f32::from(self.seq_pos),
+            ZoneField::Release => f32::from(u8::from(self.release)),
+        }
+    }
+
     /// Set a field from a view value, clamped into its range.
     pub fn set(&mut self, field: ZoneField, v: f32) {
         let v = if v.is_finite() { v } else { 0.0 };
@@ -476,6 +497,26 @@ mod tests {
         let mut z = z;
         z.set(ZoneField::Sample, 9999.0);
         assert_eq!(z.sample, None, "a slot past the store empties the zone");
+    }
+
+    #[test]
+    fn get_reads_back_what_set_stored() {
+        let mut zone = Zone::default();
+        assert_eq!(zone.get(ZoneField::Sample), -1.0);
+        assert_eq!(zone.get(ZoneField::Root), -1.0);
+        for (field, name) in ZoneField::ALL {
+            let v = match field {
+                ZoneField::Sample => 7.0,
+                ZoneField::Loop => 2.0,
+                ZoneField::SeqLen | ZoneField::SeqPos => 3.0,
+                ZoneField::Release => 1.0,
+                ZoneField::Tune => -35.0,
+                ZoneField::Level => 0.5,
+                _ => 42.0,
+            };
+            zone.set(field, v);
+            assert_eq!(zone.get(field), v, "{name}");
+        }
     }
 
     #[test]
