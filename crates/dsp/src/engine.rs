@@ -698,6 +698,21 @@ impl Engine {
         true
     }
 
+    /// Set the song's tempo (BPM, clamped as the clock clamps it) and print
+    /// it again; the clock follows from the next step.
+    pub fn set_song_tempo(&mut self, bpm: f32) {
+        self.clock.set_tempo(bpm);
+        self.song.tempo = self.clock.tempo();
+        self.song_text = self.song.print();
+    }
+
+    /// Set the song's swing (percent, 50 to 75) and print it again.
+    pub fn set_song_swing(&mut self, pct: f32) {
+        self.clock.set_swing(pct);
+        self.song.swing = self.clock.swing();
+        self.song_text = self.song.print();
+    }
+
     /// Play song track `track` on `synth`, or mute it with `None`.
     pub fn song_route(&mut self, track: usize, synth: Option<usize>) {
         if let Some(slot) = self.song_route.get_mut(track) {
@@ -2663,5 +2678,17 @@ mod tests {
         e.play();
         run(&mut e, 12_001 / BLOCK + 1);
         assert_eq!(e.note_count, 2, "the new step at 12000 plays");
+    }
+
+    #[test]
+    fn tempo_and_swing_change_the_song_and_the_clock() {
+        let mut e = kit(0);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        e.set_song_tempo(90.5);
+        e.set_song_swing(400.0);
+        assert_eq!((e.clock().tempo(), e.clock().swing()), (90.5, 75.0));
+        assert!(e.song_text().starts_with("tempo 90.5\nswing 75\n"));
+        e.set_song_tempo(f32::NAN);
+        assert_eq!(e.song().tempo, 90.5, "NaN is ignored");
     }
 }

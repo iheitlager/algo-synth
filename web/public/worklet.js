@@ -53,6 +53,9 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'song': this.loadSong(new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
         case 'songRoute': w.song_route(data.track, data.s); this.sendSong(true); break
+        case 'songTempo': w.song_tempo(data.v); this.sendSong(true); break
+        case 'songSwing': w.song_swing(data.v); this.sendSong(true); break
+        case 'songDump': this.sendSong(true); break
       }
     }
   }
@@ -177,7 +180,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     const error = ok
       ? null
       : { line: w.song_error_line(), col: w.song_error_col(), msg: bytes(w.song_error_ptr(), w.song_error_len()) }
-    this.port.postMessage({ t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags })
+    this.port.postMessage({
+      t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
+      tempo: w.clock_tempo(), swing: w.clock_swing(),
+    })
   }
 
   // The same for a DX7 SysEx file: the voices' names come back as bytes.

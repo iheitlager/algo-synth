@@ -150,7 +150,7 @@ export function moveStrip(id: number, target: number) {
 }
 
 /** Which main view is shown: the synth panels or the mixer console. */
-export const view = reactive({ main: 'synths' as 'synths' | 'mixer' })
+export const view = reactive({ main: 'synths' as 'synths' | 'mixer' | 'composer' })
 
 /** One hue per synth, so a part's notes match its synth's card. */
 export const synthColour = (s: number) => `hsl(${(12 + 47 * s) % 360} 68% 62%)`
@@ -381,6 +381,8 @@ export const song = reactive({
   tracks: [] as SongTrack[],
   frags: [] as SongFrag[],
   error: null as { line: number; col: number; msg: string } | null,
+  tempo: 120,
+  swing: 50,
   /** The clock's last step, −1 before the first. */
   step: -1,
 })
@@ -398,6 +400,13 @@ export const setStep = (f: number, l: number, s: number, level: number) =>
 
 /** Play song track `t` on synth `s` (255 mutes). */
 export const routeTrack = (t: number, s: Route) => engine?.post({ t: 'songRoute', track: t, s })
+
+/** The song's tempo (BPM) and swing (percent); the engine updates the text and the clock. */
+export const setSongTempo = (v: number) => engine?.post({ t: 'songTempo', v })
+export const setSongSwing = (v: number) => engine?.post({ t: 'songSwing', v })
+
+/** Ask the engine for the song it holds (when the composer opens). */
+export const requestSong = () => engine?.post({ t: 'songDump' })
 
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
@@ -417,7 +426,8 @@ interface MidiSummary {
   bar?: number
 }
 
-function onSong(data: Record<string, unknown>) {
+/** Take the song the worklet sent: decode its text, names and grid into `song`. */
+export function applySong(data: Record<string, unknown>) {
   const decoder = new TextDecoder('utf-8')
   if (data.tooLong) {
     song.error = { line: 1, col: 1, msg: 'the text is too long' }
@@ -429,6 +439,8 @@ function onSong(data: Record<string, unknown>) {
   // A song that played replaces the draft with its canonical text; a failed one leaves the draft alone.
   if (data.ok) song.draft = text
   song.text = text
+  song.tempo = data.tempo as number
+  song.swing = data.swing as number
   song.tracks = (data.tracks as { name: Uint8Array; synth: number }[]).map((t) => ({ name: decoder.decode(t.name), synth: t.synth }))
   song.frags = (data.frags as { name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[] }[]).map((f) => ({
     name: decoder.decode(f.name),
@@ -443,7 +455,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     player.playing = data.playing as boolean
     song.step = data.step as number
   } else if (data.t === 'song') {
-    onSong(data)
+    applySong(data)
   } else if (data.t === 'load') {
     meter.load = data.load as number
     meter.peak = data.peak as number | null

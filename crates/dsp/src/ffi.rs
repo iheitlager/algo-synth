@@ -581,6 +581,29 @@ fn with_lane<R: Copy>(default: R, f: u32, l: u32, get: impl FnOnce(&Lane) -> R) 
     })
 }
 
+/// Set the song's tempo in BPM; the text and the clock follow.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_tempo(bpm: f32) {
+    with_engine(|e| e.set_song_tempo(bpm));
+}
+
+/// Set the song's swing in percent (50 to 75); the text and the clock follow.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_swing(pct: f32) {
+    with_engine(|e| e.set_song_swing(pct));
+}
+
+/// The clock's tempo in BPM and swing in percent, as the song set them.
+#[unsafe(no_mangle)]
+pub extern "C" fn clock_tempo() -> f32 {
+    query(120.0, |e| e.clock().tempo())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn clock_swing() -> f32 {
+    query(50.0, |e| e.clock().swing())
+}
+
 /// Tracks in the song.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_tracks() -> u32 {
@@ -897,5 +920,8 @@ mod tests {
         assert!(song_error_len() > 0 && !song_error_ptr().is_null());
         assert_eq!(song_frags(), 1, "the old song stays");
         assert!(song_buf(u32::MAX).is_null());
+        song_tempo(97.0);
+        song_swing(99.0);
+        assert_eq!((clock_tempo(), clock_swing()), (97.0, 75.0));
     }
 }

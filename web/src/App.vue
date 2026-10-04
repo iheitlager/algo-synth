@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Wide-screen layout (spec 003): transport on top, the synths or the mixer
-// console, the MIDI player across the bottom.
+// Wide-screen layout (spec 003): transport on top, the synths, the mixer
+// console or the composer, the MIDI player across the bottom.
 import { synths, view } from './audio/engine'
+import ComposerPane from './components/ComposerPane.vue'
 import ConsolePane from './components/ConsolePane.vue'
 import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
@@ -21,6 +22,7 @@ function openSynth(s: number) {
     <!-- The synths stay mounted so the computer keyboard plays them from the mixer too. -->
     <InstrumentsPane v-show="view.main === 'synths'" class="main" />
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
+    <ComposerPane v-if="view.main === 'composer'" class="main" />
     <PlayerPane class="player" />
     <!-- One popover for every knob, in the synths and in the mixer. -->
     <KnobPop />

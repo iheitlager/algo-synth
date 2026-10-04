@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, status, stop, view } from '../audio/engine'
+import { getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, setSongSwing, setSongTempo, song, status, stop, view } from '../audio/engine'
 import { Param } from '../audio/params'
 
 // The performance counter: worklet time per block against the budget
@@ -70,14 +70,24 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
     <span class="seg" role="group" aria-label="View">
       <button :aria-pressed="view.main === 'synths'" @click="view.main = 'synths'">Synths</button>
       <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
+      <button :aria-pressed="view.main === 'composer'" @click="view.main = 'composer'">Composer</button>
     </span>
     <button @click="onDemo">Demo</button>
     <label class="file" title="A MIDI file, its .synths.json setup, or both">
       <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json" @change="onFile" />Open…
     </label>
     <button :disabled="!status.running" title="Download the synths, their patches and routing as .synths.json" @click="saveSetup">Save setup</button>
-    <button :disabled="!player.loaded" :class="{ on: player.playing }" @click="play">▶ Play</button>
-    <button :disabled="!player.loaded" @click="stop">■ Stop</button>
+    <!-- The transport plays the song, the MIDI file, or both (spec 002 Req 5). -->
+    <button :disabled="!status.running" :class="{ on: player.playing }" @click="play">▶ Play</button>
+    <button :disabled="!status.running" @click="stop">■ Stop</button>
+    <label class="field" title="The song's tempo; its text follows">
+      BPM <input class="num" type="number" min="20" max="300" step="1" :value="song.tempo" :disabled="!status.running"
+        @change="setSongTempo(Number(($event.target as HTMLInputElement).value))" />
+    </label>
+    <label class="field" title="The song's swing: 50 is straight, 75 the most">
+      Swing <input class="num" type="number" min="50" max="75" step="1" :value="song.swing" :disabled="!status.running"
+        @change="setSongSwing(Number(($event.target as HTMLInputElement).value))" />
+    </label>
     <span v-if="player.loaded" class="field">
       <b>{{ clock(player.position) }}</b> / {{ clock(player.length) }} · bar {{ Math.floor(player.position / player.bar) + 1 }}
     </span>
@@ -109,6 +119,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 .seg button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: var(--panel); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .gain { width: 180px; }
+.num { width: 4.5em; }
 .file { border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; background: var(--panel-2); cursor: pointer; white-space: nowrap; }
 .file:hover { border-color: var(--accent); }
 .file input { display: none; }
