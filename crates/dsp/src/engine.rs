@@ -3010,6 +3010,42 @@ mod tests {
         assert_eq!(e.pools[3].held_notes(), vec![60]);
     }
 
+    /// #165: `bd euclid(3,8)` hits on steps 0, 3 and 6 of each eight, so at 120
+    /// BPM and 48 kHz on samples 0, 18000, 36000, then again from 48000.
+    #[test]
+    fn a_euclid_lane_plays_like_a_written_one() {
+        let mut e = kit(0);
+        let text = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd euclid(3,8)\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        let mut hits = Vec::new();
+        let mut count = e.note_count;
+        for s in 0..60_000u64 {
+            e.render(1);
+            if e.note_count != count {
+                count = e.note_count;
+                hits.push(s);
+            }
+        }
+        assert_eq!(hits, vec![0, 18_000, 36_000, 48_000]);
+    }
+
+    /// #165: a euclid note line plays the same events on every run.
+    #[test]
+    fn a_euclid_note_line_walks_the_scale_deterministically() {
+        let text =
+            "tempo 120\nscale c minor\ntrack lead synth\nfrag r = lead\n  euclid(4,8) scale c4\n";
+        let a = held_changes(text, 96_000);
+        let b = held_changes(text, 96_000);
+        assert_eq!(a, b);
+        let notes: Vec<Vec<u8>> = a
+            .into_iter()
+            .map(|(_, n)| n)
+            .filter(|n| !n.is_empty())
+            .collect();
+        assert_eq!(notes, vec![vec![60], vec![62], vec![63], vec![65]]);
+    }
+
     /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.
     #[test]
     fn channel_ten_plays_on_a_pad_sampler_slot() {

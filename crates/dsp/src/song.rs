@@ -26,6 +26,7 @@
 //! line and a column, and never panics. Comments and layout are not kept: a
 //! printed song is the canonical form of what was parsed.
 
+use crate::algo::{Euclid, Mode, Scale};
 use crate::drums::Pad;
 use crate::notes::{self, Notes};
 
@@ -92,6 +93,8 @@ impl Step {
 pub struct Lane {
     pub pad: Pad,
     pub steps: Vec<Step>,
+    /// The call that made the steps (`euclid(3,8)`); editing a step drops it.
+    pub call: Option<Euclid>,
 }
 
 /// A loop on a track: one lane per pad on a drum track, one line of notes on
@@ -134,6 +137,8 @@ pub struct Track {
 pub struct Song {
     pub tempo: f32,
     pub swing: f32,
+    /// The key generators walk (`scale c minor`); it goes before its first use.
+    pub scale: Option<Scale>,
     pub tracks: Vec<Track>,
     pub frags: Vec<Fragment>,
 }
@@ -143,6 +148,7 @@ impl Default for Song {
         Song {
             tempo: 120.0,
             swing: 50.0,
+            scale: None,
             tracks: Vec::new(),
             frags: Vec::new(),
         }
@@ -200,6 +206,28 @@ fn strip_comment(raw: &str) -> &str {
         prev_space = c.is_whitespace();
     }
     raw
+}
+
+/// `c`, `c#` or `eb`: a pitch class, 0 for c.
+fn pitch_class(s: &str) -> Option<u8> {
+    let mut chars = s.chars();
+    let base = match chars.next()? {
+        'c' => 0,
+        'd' => 2,
+        'e' => 4,
+        'f' => 5,
+        'g' => 7,
+        'a' => 9,
+        'b' => 11,
+        _ => return None,
+    };
+    let semi = match (chars.next(), chars.next()) {
+        (None, _) => base,
+        (Some('#'), None) => base + 1,
+        (Some('b'), None) => base + 11,
+        _ => return None,
+    };
+    Some(semi % 12)
 }
 
 fn is_name(s: &str) -> bool {
@@ -260,7 +288,7 @@ impl Song {
                     if frag.notes.is_some() {
                         return Err(err(first.col, "a note frag is one line of notes"));
                     }
-                    let n = notes::parse(body.trim_start(), first.col)
+                    let n = notes::parse_in(body.trim_start(), first.col, song.scale.as_ref())
                         .map_err(|e| err(e.col, e.msg))?;
                     frag.notes = Some(n);
                     continue;
@@ -305,6 +333,24 @@ impl Song {
                     } else {
                         song.swing = v;
                     }
+                }
+                "scale" => {
+                    let root = arg(1, "a root and a mode go here: scale c minor")?;
+                    let pc = pitch_class(root.text)
+                        .ok_or(err(root.col, "a root is a letter a to g, maybe # or b"))?;
+                    let mode = arg(2, "a mode goes here: scale c minor")?;
+                    let m = Mode::from_name(mode.text).ok_or(err(
+                        mode.col,
+                        "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic or blues",
+                    ))?;
+                    expect_end(3)?;
+                    if song.scale.is_some() {
+                        return Err(err(first.col, "a song has one scale"));
+                    }
+                    if !song.frags.is_empty() {
+                        return Err(err(first.col, "the scale goes before the frags"));
+                    }
+                    song.scale = Some(Scale { root: pc, mode: m });
                 }
                 "track" => {
                     let name = arg(1, "a track name goes here")?;
@@ -376,7 +422,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, track or frag",
+                        "a line starts with tempo, swing, scale, track or frag",
                     ));
                 }
             }
@@ -393,6 +439,16 @@ impl Song {
             format!("tempo {}", self.tempo),
             format!("swing {}", self.swing),
         ];
+        if let Some(s) = &self.scale {
+            lines.push(format!(
+                "scale {} {}",
+                crate::notes::NAMES
+                    .get(usize::from(s.root))
+                    .copied()
+                    .unwrap_or("c"),
+                s.mode.name()
+            ));
+        }
         lines.extend(
             self.tracks
                 .iter()
@@ -408,7 +464,10 @@ impl Song {
             }
             lines.push(format!("frag {} = {} /16", f.name, track));
             for l in &f.lanes {
-                let steps: String = l.steps.iter().map(|st| st.char()).collect();
+                let steps: String = match &l.call {
+                    Some(e) => e.print(),
+                    None => l.steps.iter().map(|st| st.char()).collect(),
+                };
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
         }
@@ -426,6 +485,9 @@ impl Song {
         match slot {
             Some(s) => {
                 *s = to;
+                if let Some(l) = self.frags.get_mut(frag).and_then(|f| f.lanes.get_mut(lane)) {
+                    l.call = None;
+                }
                 true
             }
             None => false,
@@ -458,6 +520,26 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
         first.col,
         "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
     ))?;
+    if let Some(call) = ws
+        .get(1)
+        .and_then(|w| Euclid::parse(w.text).map(|c| (w, c)))
+    {
+        let (w, call) = call;
+        let e = call.map_err(|msg| err(w.col, msg))?;
+        if let Some(x) = ws.get(2) {
+            return Err(err(x.col, "unexpected text"));
+        }
+        let steps = e
+            .pattern()
+            .into_iter()
+            .map(|h| if h { Step::Hit } else { Step::Off })
+            .collect();
+        return Ok(Lane {
+            pad,
+            steps,
+            call: Some(e),
+        });
+    }
     let mut steps = Vec::new();
     for w in ws.iter().skip(1) {
         for (k, c) in w.text.chars().enumerate() {
@@ -471,7 +553,11 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     if steps.is_empty() {
         return Err(err(first.col, "a lane needs its steps: x, X or ."));
     }
-    Ok(Lane { pad, steps })
+    Ok(Lane {
+        pad,
+        steps,
+        call: None,
+    })
 }
 
 #[cfg(test)]

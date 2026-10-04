@@ -119,7 +119,7 @@ fn every_error_says_where() {
             "loop a",
             1,
             1,
-            "a line starts with tempo, swing, track or frag",
+            "a line starts with tempo, swing, scale, track or frag",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -201,7 +201,11 @@ fn random_song(r: &mut Rng) -> Song {
             let steps = (0..1 + r.below(MAX_STEPS))
                 .map(|_| [Step::Off, Step::Hit, Step::Accent][r.below(3)])
                 .collect();
-            lanes.push(Lane { pad, steps });
+            lanes.push(Lane {
+                pad,
+                steps,
+                call: None,
+            });
         }
         song.frags.push(Fragment {
             name: format!("f{f}"),
@@ -225,7 +229,7 @@ fn print_then_parse_is_identity() {
 #[test]
 fn never_panics_on_garbage() {
     let mut r = Rng(0x9E37_79B9);
-    let alphabet = b"tempo swing track frag drums = /16 bd sn ch xX.#\n\t 0123456789-+e\xc3\xa9";
+    let alphabet = b"tempo swing scale c minor track frag drums synth euclid(3,8,1) = /16 bd sn ch c4 xX.#\n\t 0123456789-+e\xc3\xa9";
     for _ in 0..3000 {
         let n = r.below(200);
         let bytes: Vec<u8> = (0..n).map(|_| alphabet[r.below(alphabet.len())]).collect();
@@ -396,6 +400,92 @@ fn sampler_errors_say_where() {
             2,
             1,
             "a frag needs lanes or a line of notes",
+        ),
+    ];
+    for (text, line, col, msg) in cases {
+        assert_eq!(
+            Song::parse(text),
+            Err(SongError { line, col, msg }),
+            "{text:?}"
+        );
+    }
+}
+
+const GENERATED: &str = "\
+tempo 120
+scale c minor
+track kit drums
+track lead synth
+
+frag beat = kit
+  bd euclid(3,8)
+  sn euclid(5,16,2)
+  ch x.x.
+frag line = lead
+  euclid(5,8) scale c4
+frag pulse = lead
+  euclid(3,8,1) g3!
+";
+
+#[test]
+fn generators_and_scales_parse_and_print_back() {
+    let s = Song::parse(GENERATED).expect("parses");
+    assert_eq!(s.scale.map(|k| (k.root, k.mode.name())), Some((0, "minor")));
+    let lanes = &s.frags[0].lanes;
+    assert_eq!(lanes[0].steps.len(), 8);
+    assert_eq!(
+        lanes[0].steps.iter().filter(|x| **x == Step::Hit).count(),
+        3
+    );
+    assert!(lanes[0].call.is_some() && lanes[2].call.is_none());
+    let text = s.print();
+    assert!(text.starts_with("tempo 120\nswing 50\nscale c minor\ntrack kit drums\n"));
+    assert!(text.contains("  bd euclid(3,8)\n  sn euclid(5,16,2)\n  ch x.x.\n"));
+    assert!(text.contains("  euclid(5,8) scale c4\n"));
+    assert_eq!(Song::parse(&text), Ok(s));
+}
+
+#[test]
+fn editing_a_generated_step_turns_it_into_written_steps() {
+    let mut s = Song::parse(GENERATED).expect("parses");
+    assert!(s.set_step(0, 0, 1, Step::Hit));
+    assert!(s.print().contains("  bd xx.x..x.\n"));
+}
+
+#[test]
+fn generator_errors_say_where() {
+    let cases: [(&str, usize, usize, &str); 7] = [
+        (
+            "scale h minor",
+            1,
+            7,
+            "a root is a letter a to g, maybe # or b",
+        ),
+        (
+            "scale c funky",
+            1,
+            9,
+            "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic or blues",
+        ),
+        ("scale c", 1, 8, "a mode goes here: scale c minor"),
+        ("scale c minor\nscale d major", 2, 1, "a song has one scale"),
+        (
+            "track t drums\nfrag a = t\n  bd x\nscale c minor",
+            4,
+            1,
+            "the scale goes before the frags",
+        ),
+        (
+            "track t drums\nfrag a = t\n  bd euclid(9,8)",
+            3,
+            6,
+            "euclid cannot have more hits than steps",
+        ),
+        (
+            "track t synth\nfrag a = t\n  euclid(3,8) scale c4",
+            3,
+            15,
+            "a scale walk needs a scale line before it",
         ),
     ];
     for (text, line, col, msg) in cases {

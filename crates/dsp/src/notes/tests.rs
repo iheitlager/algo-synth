@@ -168,3 +168,74 @@ fn it_never_panics_on_garbage() {
         }
     }
 }
+
+#[test]
+fn euclid_notes_spread_hits_over_the_bar() {
+    // (3,8): hits on eighths 0, 3 and 6 of the bar, each an eighth long.
+    assert_eq!(ev("euclid(3,8) c4"), [(0, 6, 60), (18, 6, 60), (36, 6, 60)]);
+    assert_eq!(ev("euclid(3,8,1) c4!").len(), 3);
+    let n = parse("euclid(5,8) c4", 1).unwrap();
+    assert_eq!((n.bars, n.events.len()), (1, 5));
+}
+
+#[test]
+fn a_scale_walk_follows_the_song_scale() {
+    use crate::algo::{Mode, Scale};
+    let minor = Scale {
+        root: 0,
+        mode: Mode::Minor,
+    };
+    let n = parse_in("euclid(4,8) scale c4", 1, Some(&minor)).unwrap();
+    let notes: Vec<u8> = n.events.iter().map(|e| e.note).collect();
+    assert_eq!(notes, [60, 62, 63, 65]);
+    assert_eq!(n.print(), "euclid(4,8) scale c4");
+    assert_eq!(parse_in(&n.print(), 1, Some(&minor)).unwrap(), n);
+    let e = parse("euclid(4,8) scale c4", 1).unwrap_err();
+    assert_eq!(
+        (e.col, e.msg),
+        (13, "a scale walk needs a scale line before it")
+    );
+}
+
+#[test]
+fn euclid_prints_canonically() {
+    for (text, printed) in [
+        ("euclid(3,8) c4", "euclid(3,8) c4"),
+        ("euclid(3,8,0)   g#3!", "euclid(3,8) g#3!"),
+        ("euclid(3,8,11) c4", "euclid(3,8,3) c4"),
+    ] {
+        let n = parse(text, 1).unwrap();
+        assert_eq!(n.print(), printed);
+        assert_eq!(parse(&n.print(), 1).unwrap(), n);
+    }
+}
+
+#[test]
+fn euclid_errors_say_where() {
+    for (text, col, msg) in [
+        (
+            "euclid(9,8) c4",
+            1,
+            "euclid cannot have more hits than steps",
+        ),
+        (
+            "euclid(3) c4",
+            1,
+            "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)",
+        ),
+        (
+            "euclid(3,8)",
+            12,
+            "a note goes after the call: euclid(3,8) c4",
+        ),
+        (
+            "euclid(3,8) x4",
+            13,
+            "a note is a letter a to g, maybe # or b, and an octave 0 to 9, as c4",
+        ),
+        ("euclid(3,8) c4 e4", 16, "a word ends at a space"),
+    ] {
+        let e = parse(text, 1).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}

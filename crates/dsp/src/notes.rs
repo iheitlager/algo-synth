@@ -18,7 +18,7 @@
 //! Parsing and compiling allocate and happen when a song is loaded, never in
 //! `render`. Both are total: bad text is an error with a column.
 
-use crate::algo::{Rng, mix};
+use crate::algo::{Euclid, Rng, Scale, mix};
 
 /// Ticks in a bar of four quarters.
 pub const TICKS_PER_BAR: u32 = 48;
@@ -76,10 +76,21 @@ pub struct Beat {
     pub dot: bool,
 }
 
+/// What the hits of a generator play.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fill {
+    /// Every hit plays this note.
+    Pitch(Pitch),
+    /// Hit by hit up the song's scale from this note.
+    Walk(u8),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Seq {
     Mini(Vec<Slot>),
     Classic(Vec<Beat>),
+    /// `euclid(5,8) c4`: hits spread over a bar.
+    Euclid(Euclid, Fill),
 }
 
 /// One note to play: where it starts in the loop, how long it lasts, in ticks.
@@ -123,7 +134,7 @@ fn err<T>(col: usize, msg: &'static str) -> Result<T, NoteError> {
     Err(NoteError { col, msg })
 }
 
-const NAMES: [&str; 12] = [
+pub(crate) const NAMES: [&str; 12] = [
     "c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b",
 ];
 
@@ -402,8 +413,55 @@ impl Cursor<'_> {
     }
 }
 
-/// Parse one line of notes. `base` is the column of the first char of `text`.
+/// Parse one line of notes with no scale in force.
 pub fn parse(text: &str, base: usize) -> Result<Notes, NoteError> {
+    parse_in(text, base, None)
+}
+
+/// `euclid(5,8) c4` or `euclid(5,8,2) scale c4`.
+fn parse_euclid(cur: &mut Cursor<'_>, scale: Option<&Scale>) -> Result<Option<Seq>, NoteError> {
+    let at = cur.col();
+    let start = cur.i;
+    while cur.peek().is_some_and(|c| !c.is_whitespace()) {
+        cur.i += 1;
+    }
+    let word: String = cur.c.get(start..cur.i).unwrap_or(&[]).iter().collect();
+    let Some(call) = Euclid::parse(&word) else {
+        cur.i = start;
+        return Ok(None);
+    };
+    let e = call.map_err(|msg| NoteError { col: at, msg })?;
+    cur.skip_ws();
+    let fill_at = cur.col();
+    let walk = cur
+        .c
+        .get(cur.i..cur.i + 5)
+        .is_some_and(|w| w.iter().collect::<String>() == "scale")
+        && cur.c.get(cur.i + 5).is_some_and(|c| c.is_whitespace());
+    let fill = if walk {
+        cur.i += 5;
+        cur.skip_ws();
+        if scale.is_none() {
+            return err(fill_at, "a scale walk needs a scale line before it");
+        }
+        let p = cur.pitch()?;
+        Fill::Walk(p.note)
+    } else {
+        if cur.peek().is_none() {
+            return err(fill_at, "a note goes after the call: euclid(3,8) c4");
+        }
+        Fill::Pitch(cur.pitch()?)
+    };
+    cur.skip_ws();
+    if cur.peek().is_some() {
+        return err(cur.col(), "a word ends at a space");
+    }
+    Ok(Some(Seq::Euclid(e, fill)))
+}
+
+/// Parse one line of notes. `base` is the column of the first char of `text`;
+/// `scale` is the song's, for walks.
+pub fn parse_in(text: &str, base: usize, scale: Option<&Scale>) -> Result<Notes, NoteError> {
     let chars: Vec<char> = text.chars().collect();
     let mut cur = Cursor {
         c: &chars,
@@ -412,7 +470,9 @@ pub fn parse(text: &str, base: usize) -> Result<Notes, NoteError> {
         items: 0,
     };
     cur.skip_ws();
-    let seq = if cur.peek() == Some('"') {
+    let seq = if let Some(seq) = parse_euclid(&mut cur, scale)? {
+        seq
+    } else if cur.peek() == Some('"') {
         cur.i += 1;
         let mut inner_end = cur.i;
         while chars.get(inner_end).is_some_and(|c| *c != '"') {
@@ -452,7 +512,7 @@ pub fn parse(text: &str, base: usize) -> Result<Notes, NoteError> {
         }
         Seq::Classic(beats)
     };
-    compile(seq).map_err(|msg| NoteError { col: base, msg })
+    compile(seq, scale).map_err(|msg| NoteError { col: base, msg })
 }
 
 impl Notes {
@@ -509,6 +569,8 @@ impl Notes {
     pub fn print(&self) -> String {
         match &self.seq {
             Seq::Mini(slots) => format!("\"{}\"", slots_text(slots)),
+            Seq::Euclid(e, Fill::Pitch(p)) => format!("{} {}", e.print(), pitch_text(p)),
+            Seq::Euclid(e, Fill::Walk(n)) => format!("{} scale {}", e.print(), note_name(*n)),
             Seq::Classic(beats) => {
                 let parts: Vec<String> = beats
                     .iter()
@@ -657,7 +719,7 @@ fn classic_ticks(b: &Beat) -> u32 {
     if b.dot { base * 3 / 2 } else { base }
 }
 
-fn compile(seq: Seq) -> Result<Notes, &'static str> {
+fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
     let (events, bars) = match &seq {
         Seq::Mini(slots) => {
             let bars = period(slots);
@@ -677,6 +739,30 @@ fn compile(seq: Seq) -> Result<Notes, &'static str> {
                 return Err("this line has too many notes");
             }
             (c.events, bars)
+        }
+        Seq::Euclid(e, fill) => {
+            let mut events = Vec::new();
+            let n = u128::from(e.n);
+            let mut hit = 0u32;
+            for (i, on) in e.pattern().into_iter().enumerate() {
+                if !on {
+                    continue;
+                }
+                let start = Frac::new(i as u128, n).tick();
+                let end = Frac::new(i as u128 + 1, n).tick().max(start + 1);
+                let (note, accent) = match fill {
+                    Fill::Pitch(p) => (p.note, p.accent),
+                    Fill::Walk(from) => (scale.map_or(*from, |s| s.walk(*from, hit)), false),
+                };
+                hit += 1;
+                events.push(Event {
+                    start,
+                    len: end - start,
+                    note,
+                    accent,
+                });
+            }
+            (events, 1)
         }
         Seq::Classic(beats) => {
             let mut events = Vec::new();
