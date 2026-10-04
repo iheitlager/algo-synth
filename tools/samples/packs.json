@@ -1,0 +1,49 @@
+{
+  "packs": [
+    {
+      "id": "synth-pad-choir",
+      "name": "Synth Pad Choir",
+      "kind": "instrument",
+      "url": "https://github.com/freepats/synth-pad-choir/releases/download/2020-05-16/SynthPadChoir-SFZ+WAV-20200516.7z",
+      "sha256": "19f94afc8aed5e120b444da668a51a1737a1e87b772ae93b495d0fc42ff92a16",
+      "license": "CC0-1.0",
+      "credit": "FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html"
+    },
+    {
+      "id": "sweep-pad",
+      "name": "Sweep Pad",
+      "kind": "instrument",
+      "url": "https://github.com/freepats/sweep-pad/releases/download/2019-08-13/SweepPad-SFZ+WAV-20190813.7z",
+      "sha256": "058ed2102ba4a3ebcc92863168fbdee0ccb78f1e4cd2bef5944f8801b2f14e4c",
+      "license": "CC0-1.0",
+      "credit": "FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html"
+    },
+    {
+      "id": "new-age-pad",
+      "name": "New Age Pad",
+      "kind": "instrument",
+      "url": "https://github.com/freepats/new-age/releases/download/2019-07-30/NewAge-SFZ+WAV-20190730.7z",
+      "sha256": "7725de4769f39e0486c178d62753542144a0511a09bf1ae40cb6f60a36c991c0",
+      "license": "CC0-1.0",
+      "credit": "FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html"
+    },
+    {
+      "id": "synth-pad-bowed",
+      "name": "Synth Pad Bowed",
+      "kind": "instrument",
+      "url": "https://github.com/freepats/synth-pad-bowed/releases/download/2019-07-19/SynthPadBowed-SFZ+WAV-20190719.7z",
+      "sha256": "e9cfcc5710602cc516958d0efdb8a110fdffac5f2bb201bf4c9b0bff346860e9",
+      "license": "CC0-1.0",
+      "credit": "FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html"
+    },
+    {
+      "id": "upright-piano-kw",
+      "name": "Upright Piano KW",
+      "kind": "instrument",
+      "url": "https://freepats.zenvoid.org/Piano/UprightPianoKW/UprightPianoKW-small-SFZ-20190703.7z",
+      "sha256": "ffb547fceb91eeb93d78cf8d220d1d5f726dcac891afc15e517805ac48abb39d",
+      "license": "CC0-1.0",
+      "credit": "FreePats, https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html"
+    }
+  ]
+}

@@ -223,12 +223,14 @@ pub fn parse(bytes: &[u8], target_rate: f32) -> Result<Sample, Error> {
                     decoded.get(j * channels + ch).copied().unwrap_or(0.0)
                 };
                 let (p0, p1, p2, p3) = (at(-1), at(0), at(1), at(2));
+                // The spline can overshoot a full-scale peak; keep the sample bounded.
                 out.push(
-                    p1 + 0.5
+                    (p1 + 0.5
                         * t
                         * (p2 - p0
                             + t * (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3
-                                + t * (3.0 * (p1 - p2) + p3 - p0))),
+                                + t * (3.0 * (p1 - p2) + p3 - p0))))
+                        .clamp(-1.0, 1.0),
                 );
             }
         }
@@ -480,6 +482,35 @@ mod tests {
             parse(&wav(1, 1, 0, 16, &pcm16(&[1]), &[]), 48_000.0),
             Err(Error::Empty)
         );
+    }
+
+    /// What `make samples` wrote (tools/fetch_samples.py) must load: mono, in
+    /// range, with the loop inside the sample. Skipped when nothing was fetched.
+    #[test]
+    fn fetched_packs_load() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/public/samples/instruments");
+        let Ok(packs) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for pack in packs.flatten() {
+            let Ok(files) = std::fs::read_dir(pack.path()) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let path = file.path();
+                if path.extension().is_none_or(|e| e != "wav") {
+                    continue;
+                }
+                let bytes = std::fs::read(&path).expect("readable");
+                let s = parse(&bytes, 48_000.0).unwrap_or_else(|e| panic!("{path:?}: {e:?}"));
+                assert_eq!(s.channels, 1, "{path:?}");
+                assert!(s.data.iter().all(|v| v.abs() <= 1.0), "{path:?}");
+                if let Some((a, b)) = s.loop_range {
+                    assert!(a < b && b <= s.frames(), "{path:?} loop {a}..{b}");
+                }
+            }
+        }
     }
 
     #[test]
