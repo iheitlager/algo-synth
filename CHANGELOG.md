@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-04
+
+Samplers, first half (epic #126; the drum/pad sampler is next).
+
+### Added
+
+- **Sample store** (#122, ADR-0013): the engine parses PCM 16/24 and float WAV files (mono or stereo, root note and loop from the `smpl` chunk) and resamples them at load into 64 slots under a 64 MiB cap; JavaScript only forwards the bytes (`sample_buf`, `sample_load`).
+- **Multisampler** (#123): the Sampler model plays zones of the store as voices of the pool. 64 zones per synth map a key range and velocity range to a sample with root, tune, level, a loop or sustain loop (crossfaded), round-robin turns and release zones; Catmull-Rom playback through the synth's filter and amplifier envelope; two presets (Sampler Keys, Sampler Pad). Zones are set through `zone_set` and read back with `zone_get`.
+- **Sample packs** (#129): `make samples` fetches the CC0 FreePats Synth Pad Choir, Sweep Pad, New Age Pad, Synth Pad Bowed and Upright Piano KW (pinned SHA-256), converts them to mono WAV with their loops, and writes zones and `CREDITS.txt` to the gitignored `web/public/samples/`, which the static server ships.
+- **Sampler faceplate** (#125): the pack browser, WAV drag-and-drop, sample slots with a memory meter, a zone map, a zone editor and the waveform with loop markers. The pad grid waits for the drum sampler.
+
 ## [0.20.0] - 2026-10-04
 
 ### Added
