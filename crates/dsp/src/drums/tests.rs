@@ -1,4 +1,5 @@
 use super::*;
+use crate::mono::osc::Blep;
 use crate::voice::sine_table;
 
 const SR: f32 = 48_000.0;
@@ -14,7 +15,7 @@ fn hit_with(mut kit: Kit, pad: Pad, p: PadParams, accent: bool, seconds: f32) ->
     kit.trigger(pad, 1.0, accent);
     let mut out = vec![0.0; (seconds * SR) as usize];
     for block in out.chunks_mut(128) {
-        kit.render(&sine, block);
+        kit.render(&sine, &Blep::new(), block);
     }
     (out, kit)
 }
@@ -59,20 +60,30 @@ fn every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends() {
                         level: 1.0,
                     };
                     // The loudest hit: full level, accented by the most.
-                    let mut loudest = Kit::new(SR);
-                    loudest.set_accent(1.0);
-                    let (out, kit) = hit_with(loudest, pad, p, true, 4.0);
+                    let mut kit = Kit::new(SR);
+                    kit.set_accent(1.0);
+                    kit.set_params(pad, p);
+                    kit.trigger(pad, 1.0, true);
+                    // Render until the pad falls silent (at most 4 s), then 300 ms more.
+                    let (sine, blep) = (sine_table(), Blep::new());
+                    let mut out = Vec::new();
+                    let mut block = [0.0_f32; 128];
+                    while kit.active() && out.len() < ms(4000.0) {
+                        block.fill(0.0);
+                        kit.render(&sine, &blep, &mut block);
+                        out.extend_from_slice(&block);
+                    }
                     let at = format!("{name} tune {tune} decay {decay} tone {tone}");
+                    assert!(!kit.active(), "{at}: still sounding after 4 s");
+                    let mut tail = vec![0.0_f32; ms(300.0)];
+                    kit.render(&sine, &blep, &mut tail);
+                    assert!(tail.iter().all(|s| *s == 0.0), "{at}: tail");
                     assert!(out.iter().all(|s| s.is_finite()), "{at}: not finite");
                     assert!(peak(&out) <= 1.0, "{at}: peak {}", peak(&out));
                     assert!(peak(&out) > 0.05, "{at}: too quiet");
-                    let mean = out.iter().sum::<f32>() / out.len() as f32;
+                    // The mean over 4 s, as the hit and its silence after.
+                    let mean = out.iter().sum::<f32>() / ms(4000.0) as f32;
                     assert!(mean.abs() < 1.0e-3, "{at}: DC {mean}");
-                    assert!(!kit.active(), "{at}: still sounding after 4 s");
-                    assert!(
-                        out[out.len() - ms(300.0)..].iter().all(|s| *s == 0.0),
-                        "{at}: tail"
-                    );
                 }
             }
         }
@@ -100,7 +111,8 @@ fn tune_moves_the_pitch_by_semitones() {
     assert!((ratio - 2.0).abs() < 0.15, "an octave up, got ×{ratio}");
     let (lt, _) = hit(Pad::Lt, PadParams::default(), false, 0.5);
     let (ht, _) = hit(Pad::Ht, PadParams::default(), false, 0.5);
-    assert!(hz(&ht[ms(150.0)..]) > 1.4 * hz(&lt[ms(150.0)..]));
+    let settled = |x: &[f32]| hz(&x[ms(150.0)..ms(250.0)]);
+    assert!(settled(&ht) > 1.4 * settled(&lt));
 }
 
 #[test]
@@ -118,10 +130,10 @@ fn the_closed_hat_chokes_the_open_hat() {
     let mut kit = Kit::new(SR);
     kit.trigger(Pad::Oh, 1.0, false);
     let mut buf = vec![0.0; ms(10.0)];
-    kit.render(&sine, &mut buf);
+    kit.render(&sine, &Blep::new(), &mut buf);
     kit.trigger(Pad::Ch, 1.0, false);
     let mut rest = vec![0.0; ms(200.0)];
-    kit.render(&sine, &mut rest);
+    kit.render(&sine, &Blep::new(), &mut rest);
     assert!(!kit.active(), "only the closed hat's short decay was left");
     let (alone, open) = hit(Pad::Oh, PadParams::default(), false, 0.21);
     assert!(
@@ -167,10 +179,10 @@ fn silent_hits_and_idle_kits_add_nothing() {
     let sine = sine_table();
     let mut kit = Kit::new(SR);
     let mut out = vec![0.25; 256];
-    kit.render(&sine, &mut out);
+    kit.render(&sine, &Blep::new(), &mut out);
     kit.trigger(Pad::Bd, 0.0, false);
     kit.trigger(Pad::Sn, f32::NAN, true);
-    kit.render(&sine, &mut out);
+    kit.render(&sine, &Blep::new(), &mut out);
     assert!(out.iter().all(|s| *s == 0.25));
     assert!(!kit.active());
 }
@@ -217,8 +229,77 @@ fn every_key_plays_a_pad_and_general_midi_its_own() {
     for (pad, _) in Pad::ALL {
         assert_eq!(Pad::from_gm(pad.note()), pad);
     }
+    let added = [
+        (37, Pad::Rs),
+        (47, Pad::Mt),
+        (49, Pad::Cy),
+        (62, Pad::Hc),
+        (63, Pad::Mc),
+        (64, Pad::Lc),
+        (70, Pad::Ma),
+        (75, Pad::Cl),
+    ];
+    for (note, pad) in added {
+        assert_eq!(Pad::from_gm(note), pad, "note {note}");
+    }
     // Outside the map, the octave from 36 repeats.
     assert_eq!(Pad::from_gm(24), Pad::Bd);
     assert_eq!(Pad::from_gm(66), Pad::Ch);
     assert_eq!(Pad::from_gm(127), Pad::Lt);
+}
+
+/// #140: the 808's cowbell, as its circuit has it: the 540 and 800 Hz squares
+/// through a band-pass near 850 Hz, a fast decay and then a slow one.
+#[test]
+fn the_cowbell_sits_in_its_band_and_falls_in_two_stages() {
+    let (out, _) = hit(Pad::Cb, PadParams::default(), false, 0.6);
+    let body = &out[..ms(60.0)];
+    let band = power(body, 800.0).max(power(body, 540.0));
+    for far in [3000.0, 5000.0, 9000.0] {
+        assert!(band > 1000.0 * power(body, far), "{far} Hz is 30 dB down");
+    }
+    // The first 50 ms fall far faster than the tail does.
+    let at = |t: f32| peak(&out[ms(t)..ms(t + 10.0)]);
+    let fast = at(0.0) / at(45.0);
+    let slow = at(150.0) / at(195.0);
+    assert!(fast > 2.0 * slow, "fast ×{fast}, slow ×{slow}");
+}
+
+#[test]
+fn the_claves_ring_at_their_tune_and_stop_short() {
+    for (tune, hz) in [(0.0, 2500.0), (12.0, 5000.0)] {
+        let p = PadParams {
+            tune,
+            ..PadParams::default()
+        };
+        let (out, kit) = hit(Pad::Cl, p, false, 0.1);
+        let ring = &out[..ms(15.0)];
+        assert!(
+            power(ring, hz) > 30.0 * power(ring, hz * 0.6),
+            "{tune}: rings at {hz} Hz"
+        );
+        assert!(
+            peak(ring) > 0.1,
+            "{tune}: audible, the kHz nulls of a long strike avoided"
+        );
+        assert!(
+            out[ms(60.0)..].iter().all(|s| *s == 0.0),
+            "{tune}: gone within 60 ms"
+        );
+        assert!(!kit.active());
+    }
+}
+
+#[test]
+fn the_congas_sit_above_the_toms() {
+    let pitch = |pad: Pad| {
+        let (out, _) = hit(pad, PadParams::default(), false, 0.3);
+        hz(&out[ms(40.0)..ms(140.0)])
+    };
+    let [lt, mt, ht, lc, mc, hc] =
+        [Pad::Lt, Pad::Mt, Pad::Ht, Pad::Lc, Pad::Mc, Pad::Hc].map(pitch);
+    assert!(
+        lt < mt && mt < ht && ht < lc && lc < mc && mc < hc,
+        "{lt} {mt} {ht} {lc} {mc} {hc}"
+    );
 }

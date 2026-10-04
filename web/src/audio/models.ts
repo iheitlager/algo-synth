@@ -1045,7 +1045,7 @@ const polyMoog: ModelDef = {
   ],
 }
 
-// Eight synthesized pads after the TR-808, one voice each: a section per pad with
+// Sixteen synthesized pads after the TR-808, one voice each: a section per pad with
 // its tune, decay, tone and level, and the kit's accent (#114). Keys play the
 // pads by General MIDI's drum map (C2 kick, D2 snare, F#2 closed hat, ...).
 const pad = (title: string, name: string): Section => {
@@ -1064,13 +1064,16 @@ const tr808: ModelDef = {
   id: Model.Tr808,
   family: 'drums',
   name: 'TR-808',
-  maker: 'Roland · rhythm composer, eight pads',
-  tagline: 'Kick, snare, clap, closed and open hats, two toms and a cowbell; the closed hat chokes the open',
+  maker: 'Roland · rhythm composer, sixteen voices',
+  tagline: 'Kick, snare, three toms and congas, rimshot, claves, clap, maracas, cowbell, cymbal and hats; the closed hat chokes the open',
   theme: { panel: '#2b2a28', ink: '#f2efe6', soft: '#b9b3a6', trim: '#dcd6c8', accent: '#f0712c' },
   presets: ['Kit808', 'TightKit'],
   sections: [
-    pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Clap', 'Cp'), pad('Closed hat', 'Ch'),
-    pad('Open hat', 'Oh'), pad('Low tom', 'Lt'), pad('High tom', 'Ht'), pad('Cowbell', 'Cb'),
+    // In the hardware's order, the congas beside the toms they share a switch with.
+    pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
+    pad('Low conga', 'Lc'), pad('Mid conga', 'Mc'), pad('High conga', 'Hc'), pad('Rimshot', 'Rs'), pad('Claves', 'Cl'),
+    pad('Clap', 'Cp'), pad('Maracas', 'Ma'), pad('Cowbell', 'Cb'), pad('Cymbal', 'Cy'), pad('Open hat', 'Oh'),
+    pad('Closed hat', 'Ch'),
     {
       title: 'Accent',
       controls: [

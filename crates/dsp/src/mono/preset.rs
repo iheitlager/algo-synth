@@ -2637,7 +2637,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 324] = [
+pub const DEFAULTS: [(Param, f32); 356] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -2962,6 +2962,38 @@ pub const DEFAULTS: [(Param, f32); 324] = [
     (Param::CbTone, 0.5),
     (Param::CbLevel, 0.8),
     (Param::DrumAccent, 0.5),
+    (Param::RsTune, 0.0),
+    (Param::RsDecay, 1.0),
+    (Param::RsTone, 0.5),
+    (Param::RsLevel, 0.8),
+    (Param::ClTune, 0.0),
+    (Param::ClDecay, 1.0),
+    (Param::ClTone, 0.5),
+    (Param::ClLevel, 0.8),
+    (Param::MaTune, 0.0),
+    (Param::MaDecay, 1.0),
+    (Param::MaTone, 0.5),
+    (Param::MaLevel, 0.8),
+    (Param::CyTune, 0.0),
+    (Param::CyDecay, 1.0),
+    (Param::CyTone, 0.5),
+    (Param::CyLevel, 0.8),
+    (Param::MtTune, 0.0),
+    (Param::MtDecay, 1.0),
+    (Param::MtTone, 0.5),
+    (Param::MtLevel, 0.8),
+    (Param::LcTune, 0.0),
+    (Param::LcDecay, 1.0),
+    (Param::LcTone, 0.5),
+    (Param::LcLevel, 0.8),
+    (Param::McTune, 0.0),
+    (Param::McDecay, 1.0),
+    (Param::McTone, 0.5),
+    (Param::McLevel, 0.8),
+    (Param::HcTune, 0.0),
+    (Param::HcDecay, 1.0),
+    (Param::HcTone, 0.5),
+    (Param::HcLevel, 0.8),
 ];
 
 #[cfg(test)]

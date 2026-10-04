@@ -12,6 +12,8 @@ mod pads;
 
 pub use pads::PadVoice;
 
+use crate::mono::osc::Blep;
+
 /// A hit at this velocity or above is accented (MIDI 115 and up).
 pub const ACCENT_VELOCITY: f32 = 0.9;
 
@@ -27,9 +29,17 @@ pub enum Pad {
     Lt = 5,
     Ht = 6,
     Cb = 7,
+    Rs = 8,
+    Cl = 9,
+    Ma = 10,
+    Cy = 11,
+    Mt = 12,
+    Lc = 13,
+    Mc = 14,
+    Hc = 15,
 }
 
-pub const PADS: usize = 8;
+pub const PADS: usize = 16;
 
 impl Pad {
     pub const ALL: [(Pad, &'static str); PADS] = [
@@ -41,6 +51,14 @@ impl Pad {
         (Pad::Lt, "lt"),
         (Pad::Ht, "ht"),
         (Pad::Cb, "cb"),
+        (Pad::Rs, "rs"),
+        (Pad::Cl, "cl"),
+        (Pad::Ma, "ma"),
+        (Pad::Cy, "cy"),
+        (Pad::Mt, "mt"),
+        (Pad::Lc, "lc"),
+        (Pad::Mc, "mc"),
+        (Pad::Hc, "hc"),
     ];
 
     pub fn name(self) -> &'static str {
@@ -65,6 +83,14 @@ impl Pad {
             Pad::Lt => 45,
             Pad::Ht => 50,
             Pad::Cb => 56,
+            Pad::Rs => 37,
+            Pad::Cl => 75,
+            Pad::Ma => 70,
+            Pad::Cy => 49,
+            Pad::Mt => 47,
+            Pad::Lc => 64,
+            Pad::Mc => 63,
+            Pad::Hc => 62,
         }
     }
 
@@ -75,30 +101,39 @@ impl Pad {
             .map(|(p, _)| *p)
     }
 
-    /// The pad a key plays: General MIDI's drum map from 35 to 56 (with its
-    /// second kick, snare, pedal hat and the toms between), and every other key
+    /// The pad a key plays: General MIDI's drum map (its second kick and snare,
+    /// pedal hat, the cymbals, congas, maracas and claves), and every other key
     /// by its place in the octave from 36, so any octave of a keyboard plays
     /// the kit.
     pub fn from_gm(note: u8) -> Pad {
         let gm = match note {
             35 | 36 => Some(Pad::Bd),
-            37 | 39 => Some(Pad::Cp),
+            37 => Some(Pad::Rs),
             38 | 40 => Some(Pad::Sn),
+            39 => Some(Pad::Cp),
+            41 | 43 | 45 => Some(Pad::Lt),
             42 | 44 => Some(Pad::Ch),
             46 => Some(Pad::Oh),
-            41 | 43 | 45 => Some(Pad::Lt),
-            47 | 48 | 50 => Some(Pad::Ht),
+            47 | 48 => Some(Pad::Mt),
+            50 => Some(Pad::Ht),
+            49 | 51 | 52 | 53 | 55 | 57 | 59 => Some(Pad::Cy),
             56 => Some(Pad::Cb),
+            60 | 62 => Some(Pad::Hc),
+            61 | 63 => Some(Pad::Mc),
+            64 => Some(Pad::Lc),
+            69 | 70 => Some(Pad::Ma),
+            75..=77 => Some(Pad::Cl),
             _ => None,
         };
         gm.unwrap_or(match note % 12 {
             0 => Pad::Bd,
-            1 | 3 => Pad::Cp,
+            1 => Pad::Rs,
             2 | 4 => Pad::Sn,
+            3 => Pad::Cp,
             6 | 8 => Pad::Ch,
             10 => Pad::Oh,
             5 | 7 | 9 => Pad::Lt,
-            _ => Pad::Ht,
+            _ => Pad::Mt,
         })
     }
 }
@@ -210,9 +245,9 @@ impl Kit {
     }
 
     /// Add the kit's next `out.len()` samples into `out`.
-    pub fn render(&mut self, sine: &[f32], out: &mut [f32]) {
+    pub fn render(&mut self, sine: &[f32], blep: &Blep, out: &mut [f32]) {
         for v in self.voices.iter_mut().filter(|v| v.active()) {
-            v.render(sine, out);
+            v.render(sine, blep, out);
         }
     }
 }

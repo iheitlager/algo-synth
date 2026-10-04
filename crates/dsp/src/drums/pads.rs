@@ -8,15 +8,29 @@
 //! - **Clap**: band-passed noise in three quick bursts, then a tail.
 //! - **Hats**: six square oscillators at the 808's frequencies through a
 //!   band-pass and a high-pass; closed is short, open is long and choked.
-//! - **Toms**: a sine with a small pitch drop.
-//! - **Cowbell**: two squares at 540 and 800 Hz through a band-pass, a fast
-//!   and a slow decay.
+//! - **Cymbal**: the same six oscillators through a low and a high band with
+//!   their own decays; tone moves between them.
+//! - **Toms and congas**: a sine with a small pitch drop; the congas higher and
+//!   shorter.
+//! - **Cowbell**: two band-limited squares at 540 and 800 Hz under a fast and a
+//!   slow decay, through a band-pass near 850 Hz with a Q of about 4, as the
+//!   808's circuit has it (the squares come from the Mono voice's BLEP
+//!   oscillator, ADR-0007, so nothing aliases).
+//! - **Rimshot and claves**: the 808's bridged-T resonators, here a resonant
+//!   band-pass struck by an impulse: two (about 455 Hz and 1.7 kHz) through a
+//!   high-pass for the rimshot, one at about 2.5 kHz for the claves. A
+//!   resonator's Q is worked out from its decay, and the impulse scaled so it
+//!   rings at about unit level whatever its tune and decay. (The hardware's
+//!   1 ms trigger pulse has nulls at every kHz, which would silence a clave
+//!   tuned onto one.)
+//! - **Maracas**: high-passed noise that swells for a few milliseconds and falls.
 
 use super::{Pad, PadParams};
 use crate::mono::noise::Noise;
+use crate::mono::osc::{Blep, Osc as BlOsc, Waveform};
 use crate::voice::{lookup, wrap};
 
-/// The 808's six hi-hat oscillators, in Hz.
+/// The 808's six hi-hat and cymbal oscillators, in Hz.
 const HAT_HZ: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
 /// Below this an envelope counts as silent: −80 dB.
 const SILENT: f32 = 1.0e-4;
@@ -86,6 +100,17 @@ impl Svf {
         self.a3 = g * self.a2;
     }
 
+    /// A resonator at `hz` that rings −60 dB down in `seconds`, cleared;
+    /// returns the impulse that makes it ring at about unit level. (Its
+    /// impulse response peaks at ω/Q per unit area, and ω/Q is 2·6.91/t60.)
+    fn ring(&mut self, hz: f32, seconds: f32, sr: f32) -> f32 {
+        let q = (std::f32::consts::PI * hz * seconds / 6.907_755).max(0.5);
+        self.set(hz, q, sr);
+        self.ic1 = 0.0;
+        self.ic2 = 0.0;
+        seconds * sr / 13.815_51
+    }
+
     /// The band-pass (unity gain at the centre) and the high-pass.
     fn process(&mut self, x: f32) -> (f32, f32) {
         let v3 = x - self.ic2;
@@ -107,12 +132,21 @@ pub struct PadVoice {
     amp: Decay,
     amp2: Decay,
     pitch: Decay,
-    /// The hats use all six oscillators, the other pads the first one or two.
+    /// The hats and cymbal use all six oscillators, the other pads the first one or two.
     osc: [Osc; 6],
+    /// The cowbell's band-limited squares.
+    bell: [BlOsc; 2],
     /// How far above its base the pitch starts, as a factor minus one.
     sweep: f32,
     bp: Svf,
     hp: Svf,
+    /// A second resonator: the rimshot's upper one, the cymbal's high band.
+    res: Svf,
+    /// The impulses that strike the two resonators (`bp`, `res`).
+    ping: [f32; 2],
+    /// The cymbal's high band and its share.
+    hi: Decay,
+    mix: f32,
     noise: Noise,
     /// The clap's burst spacing in samples, and its burst and tail times.
     burst: u32,
@@ -132,9 +166,14 @@ impl PadVoice {
             amp2: Decay::default(),
             pitch: Decay::default(),
             osc: [Osc::default(); 6],
+            bell: [BlOsc::default(); 2],
             sweep: 0.0,
             bp: Svf::default(),
             hp: Svf::default(),
+            res: Svf::default(),
+            ping: [0.0; 2],
+            hi: Decay::default(),
+            mix: 0.0,
             noise: Noise::new(seed),
             burst: 1,
             burst_s: 0.0,
@@ -179,8 +218,8 @@ impl PadVoice {
                 };
                 self.sweep = 1.0 + 4.0 * p.tone;
                 self.pitch.start(1.0, 0.06, sr);
-                self.amp.start(0.44, 0.5 * d, sr);
-                self.amp2.start(0.13 * p.tone, 0.004, sr);
+                self.amp.start(0.42, 0.5 * d, sr);
+                self.amp2.start(0.12 * p.tone, 0.004, sr);
             }
             Pad::Sn => {
                 let [a, b, ..] = &mut self.osc;
@@ -212,34 +251,76 @@ impl PadVoice {
                 self.hp.set(6000.0, 0.7, sr);
                 self.amp.start(0.5, decay * d, sr);
             }
-            Pad::Lt | Pad::Ht => {
-                let hz = if self.pad == Pad::Lt { 95.0 } else { 160.0 };
+            Pad::Cy => {
+                for (o, hz) in self.osc.iter_mut().zip(HAT_HZ) {
+                    o.inc = inc(hz);
+                }
+                // A low band that fades first and a high band that rings on.
+                self.bp.set(3500.0, 1.2, sr);
+                self.res.set(8000.0, 1.0, sr);
+                self.hp.set(2500.0, 0.7, sr);
+                self.mix = p.tone;
+                self.amp.start(0.5, 0.4 * d, sr);
+                self.hi.start(0.5, 0.7 * d, sr);
+            }
+            Pad::Lt | Pad::Mt | Pad::Ht | Pad::Lc | Pad::Mc | Pad::Hc => {
+                let (hz, sweep, decay) = match self.pad {
+                    Pad::Lt => (95.0, 0.1 + 0.5 * p.tone, 0.4),
+                    Pad::Mt => (125.0, 0.1 + 0.5 * p.tone, 0.35),
+                    Pad::Ht => (160.0, 0.1 + 0.5 * p.tone, 0.3),
+                    // The congas: the toms' switch on the hardware, higher and shorter.
+                    Pad::Lc => (165.0, 0.05 + 0.2 * p.tone, 0.2),
+                    Pad::Mc => (250.0, 0.05 + 0.2 * p.tone, 0.18),
+                    _ => (370.0, 0.05 + 0.2 * p.tone, 0.15),
+                };
                 let [o, ..] = &mut self.osc;
                 *o = Osc {
                     phase: 0.0,
                     inc: inc(hz),
                 };
-                self.sweep = 0.1 + 0.5 * p.tone;
+                self.sweep = sweep;
                 self.pitch.start(1.0, 0.1, sr);
-                self.amp.start(0.5, 0.4 * d, sr);
+                self.amp.start(0.475, decay * d, sr);
             }
             Pad::Cb => {
-                let [a, b, ..] = &mut self.osc;
-                a.inc = inc(540.0);
-                b.inc = inc(800.0);
-                self.bp.set((1200.0 + 2000.0 * p.tone) * ratio, 1.5, sr);
-                self.amp.start(0.23, 0.03, sr);
-                self.amp2.start(0.13, 0.35 * d, sr);
+                for (o, hz) in self.bell.iter_mut().zip([540.0, 800.0]) {
+                    o.wave = Waveform::Pulse;
+                    o.set_increment(inc(hz));
+                }
+                // Tone moves the band half an octave either way of 850 Hz.
+                let centre = 850.0 * ratio * (p.tone - 0.5).exp2();
+                self.bp.set(centre, 4.25, sr);
+                self.amp.start(0.5, 0.05, sr);
+                self.amp2.start(0.2, 0.4 * d, sr);
+            }
+            Pad::Rs => {
+                self.ping = [
+                    self.bp.ring(455.0 * ratio, 0.04 * d, sr),
+                    self.res.ring(1667.0 * ratio, 0.03 * d, sr),
+                ];
+                self.hp.set(400.0 + 600.0 * p.tone, 0.7, sr);
+                self.amp.start(1.0, 0.03 * d, sr);
+            }
+            Pad::Cl => {
+                self.ping = [0.0, self.res.ring(2500.0 * ratio, 0.025 * d, sr)];
+                self.amp.start(1.0, 0.03 * d, sr);
+            }
+            Pad::Ma => {
+                self.hp.set(4000.0 + 4000.0 * p.tone, 0.7, sr);
+                // The swell: `amp2` falls from 1, so `1 − amp2` rises.
+                self.amp.start(0.5, 0.07 * d, sr);
+                self.amp2.start(1.0, 0.006, sr);
             }
         }
     }
 
     /// Add this pad's next `out.len()` samples into `out`.
-    pub(crate) fn render(&mut self, sine: &[f32], out: &mut [f32]) {
+    pub(crate) fn render(&mut self, sine: &[f32], blep: &Blep, out: &mut [f32]) {
         for o in out.iter_mut() {
             if !self.active {
                 return;
             }
+            let [ping_lo, ping_hi] = if self.n == 0 { self.ping } else { [0.0; 2] };
             let s = match self.pad {
                 Pad::Bd => {
                     let [o, ..] = &mut self.osc;
@@ -262,7 +343,7 @@ impl PadVoice {
                         self.amp.start(0.5, secs, self.sr);
                     }
                     let (b, _) = self.bp.process(self.noise.white());
-                    1.55 * b * self.amp.next()
+                    1.5 * b * self.amp.next()
                 }
                 Pad::Ch | Pad::Oh => {
                     let sq: f32 = self.osc.iter_mut().map(Osc::square).sum();
@@ -270,22 +351,54 @@ impl PadVoice {
                     let (_, h) = self.hp.process(b);
                     3.0 * h * self.amp.next()
                 }
-                Pad::Lt | Pad::Ht => {
+                Pad::Cy => {
+                    let sq: f32 = self.osc.iter_mut().map(Osc::square).sum::<f32>() / 6.0;
+                    let (low, _) = self.bp.process(sq);
+                    let (high, _) = self.res.process(sq);
+                    let mixed = (1.0 - self.mix) * low * self.amp.next()
+                        + (0.5 + self.mix) * high * self.hi.next();
+                    let (_, h) = self.hp.process(mixed);
+                    1.4 * h
+                }
+                Pad::Lt | Pad::Mt | Pad::Ht | Pad::Lc | Pad::Mc | Pad::Hc => {
                     let [o, ..] = &mut self.osc;
                     let ph = o.tick(1.0 + self.sweep * self.pitch.next());
                     lookup(sine, ph) * self.amp.next()
                 }
                 Pad::Cb => {
-                    let [a, b, ..] = &mut self.osc;
-                    let sq = 0.5 * (a.square() + b.square());
-                    let (b, _) = self.bp.process(sq);
-                    2.0 * b * (self.amp.next() + self.amp2.next())
+                    let [a, b] = &mut self.bell;
+                    let sq = a.step(blep, sine, 0.5, None).0 + b.step(blep, sine, 0.5, None).0;
+                    let (band, _) = self.bp.process(0.5 * sq);
+                    1.2 * band * (self.amp.next() + self.amp2.next())
+                }
+                Pad::Rs => {
+                    let (low, _) = self.bp.process(ping_lo);
+                    let (high, _) = self.res.process(ping_hi);
+                    let (_, h) = self.hp.process(low + high);
+                    0.25 * h * self.amp.next()
+                }
+                Pad::Cl => {
+                    let (ring, _) = self.res.process(ping_hi);
+                    0.45 * ring * self.amp.next()
+                }
+                Pad::Ma => {
+                    let (_, h) = self.hp.process(self.noise.white());
+                    let swell = 1.0 - self.amp2.next();
+                    0.8 * h * swell * self.amp.next()
                 }
             };
             *o += s * self.gain;
             self.n = self.n.saturating_add(1);
             let clap_bursting = self.pad == Pad::Cp && self.n <= 3 * self.burst;
-            if self.amp.silent() && self.amp2.silent() && !clap_bursting {
+            let ringing = self.pad == Pad::Cy && !self.hi.silent();
+            // The maracas' swell envelope falls to 0 while the sound rises.
+            let swelling = self.pad == Pad::Ma && !self.amp.silent();
+            if self.amp.silent()
+                && (self.amp2.silent() || self.pad == Pad::Ma)
+                && !clap_bursting
+                && !ringing
+                && !swelling
+            {
                 self.active = false;
             }
         }

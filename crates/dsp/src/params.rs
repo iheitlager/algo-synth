@@ -798,6 +798,70 @@ pub enum Param {
     CbLevel = 396,
     /// Drum kit: how much louder an accented hit is, 0..=1.
     DrumAccent = 397,
+    /// Drum kit: the rimshot's tune in semitones, −12..=12.
+    RsTune = 398,
+    /// Drum kit: the rimshot's decay as a factor on its own, 0.25..=4.
+    RsDecay = 399,
+    /// Drum kit: the rimshot's tone, 0..=1.
+    RsTone = 400,
+    /// Drum kit: the rimshot's level, 0..=1.
+    RsLevel = 401,
+    /// Drum kit: the claves's tune in semitones, −12..=12.
+    ClTune = 402,
+    /// Drum kit: the claves's decay as a factor on its own, 0.25..=4.
+    ClDecay = 403,
+    /// Drum kit: the claves's tone, 0..=1.
+    ClTone = 404,
+    /// Drum kit: the claves's level, 0..=1.
+    ClLevel = 405,
+    /// Drum kit: the maracas's tune in semitones, −12..=12.
+    MaTune = 406,
+    /// Drum kit: the maracas's decay as a factor on its own, 0.25..=4.
+    MaDecay = 407,
+    /// Drum kit: the maracas's tone, 0..=1.
+    MaTone = 408,
+    /// Drum kit: the maracas's level, 0..=1.
+    MaLevel = 409,
+    /// Drum kit: the cymbal's tune in semitones, −12..=12.
+    CyTune = 410,
+    /// Drum kit: the cymbal's decay as a factor on its own, 0.25..=4.
+    CyDecay = 411,
+    /// Drum kit: the cymbal's tone, 0..=1.
+    CyTone = 412,
+    /// Drum kit: the cymbal's level, 0..=1.
+    CyLevel = 413,
+    /// Drum kit: the mid tom's tune in semitones, −12..=12.
+    MtTune = 414,
+    /// Drum kit: the mid tom's decay as a factor on its own, 0.25..=4.
+    MtDecay = 415,
+    /// Drum kit: the mid tom's tone, 0..=1.
+    MtTone = 416,
+    /// Drum kit: the mid tom's level, 0..=1.
+    MtLevel = 417,
+    /// Drum kit: the low conga's tune in semitones, −12..=12.
+    LcTune = 418,
+    /// Drum kit: the low conga's decay as a factor on its own, 0.25..=4.
+    LcDecay = 419,
+    /// Drum kit: the low conga's tone, 0..=1.
+    LcTone = 420,
+    /// Drum kit: the low conga's level, 0..=1.
+    LcLevel = 421,
+    /// Drum kit: the mid conga's tune in semitones, −12..=12.
+    McTune = 422,
+    /// Drum kit: the mid conga's decay as a factor on its own, 0.25..=4.
+    McDecay = 423,
+    /// Drum kit: the mid conga's tone, 0..=1.
+    McTone = 424,
+    /// Drum kit: the mid conga's level, 0..=1.
+    McLevel = 425,
+    /// Drum kit: the high conga's tune in semitones, −12..=12.
+    HcTune = 426,
+    /// Drum kit: the high conga's decay as a factor on its own, 0.25..=4.
+    HcDecay = 427,
+    /// Drum kit: the high conga's tone, 0..=1.
+    HcTone = 428,
+    /// Drum kit: the high conga's level, 0..=1.
+    HcLevel = 429,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -882,7 +946,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 398] = [
+    pub const ALL: [(Param, &'static str); 430] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1281,6 +1345,38 @@ impl Param {
         (Param::CbTone, "CbTone"),
         (Param::CbLevel, "CbLevel"),
         (Param::DrumAccent, "DrumAccent"),
+        (Param::RsTune, "RsTune"),
+        (Param::RsDecay, "RsDecay"),
+        (Param::RsTone, "RsTone"),
+        (Param::RsLevel, "RsLevel"),
+        (Param::ClTune, "ClTune"),
+        (Param::ClDecay, "ClDecay"),
+        (Param::ClTone, "ClTone"),
+        (Param::ClLevel, "ClLevel"),
+        (Param::MaTune, "MaTune"),
+        (Param::MaDecay, "MaDecay"),
+        (Param::MaTone, "MaTone"),
+        (Param::MaLevel, "MaLevel"),
+        (Param::CyTune, "CyTune"),
+        (Param::CyDecay, "CyDecay"),
+        (Param::CyTone, "CyTone"),
+        (Param::CyLevel, "CyLevel"),
+        (Param::MtTune, "MtTune"),
+        (Param::MtDecay, "MtDecay"),
+        (Param::MtTone, "MtTone"),
+        (Param::MtLevel, "MtLevel"),
+        (Param::LcTune, "LcTune"),
+        (Param::LcDecay, "LcDecay"),
+        (Param::LcTone, "LcTone"),
+        (Param::LcLevel, "LcLevel"),
+        (Param::McTune, "McTune"),
+        (Param::McDecay, "McDecay"),
+        (Param::McTone, "McTone"),
+        (Param::McLevel, "McLevel"),
+        (Param::HcTune, "HcTune"),
+        (Param::HcDecay, "HcDecay"),
+        (Param::HcTone, "HcTone"),
+        (Param::HcLevel, "HcLevel"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -1628,6 +1724,38 @@ impl Param {
             | Param::HtLevel
             | Param::CbLevel
             | Param::DrumAccent => (0.0, 1.0),
+            Param::RsTune
+            | Param::ClTune
+            | Param::MaTune
+            | Param::CyTune
+            | Param::MtTune
+            | Param::LcTune
+            | Param::McTune
+            | Param::HcTune => (-12.0, 12.0),
+            Param::RsDecay
+            | Param::ClDecay
+            | Param::MaDecay
+            | Param::CyDecay
+            | Param::MtDecay
+            | Param::LcDecay
+            | Param::McDecay
+            | Param::HcDecay => (0.25, 4.0),
+            Param::RsTone
+            | Param::ClTone
+            | Param::MaTone
+            | Param::CyTone
+            | Param::MtTone
+            | Param::LcTone
+            | Param::McTone
+            | Param::HcTone
+            | Param::RsLevel
+            | Param::ClLevel
+            | Param::MaLevel
+            | Param::CyLevel
+            | Param::MtLevel
+            | Param::LcLevel
+            | Param::McLevel
+            | Param::HcLevel => (0.0, 1.0),
             Param::Lfo2Rate => (0.01, 50.0),
             Param::Lfo2Wave => (0.0, 3.0),
             Param::RampTime => (0.01, 30.0),
