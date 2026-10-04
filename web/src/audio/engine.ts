@@ -436,8 +436,14 @@ export function mapSample(s: number, slot: number) {
 
 /** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent. */
 export interface SongLane { pad: number; steps: number[] }
-/** A note fragment's line as the engine prints it, and the bars before it repeats. */
-export interface SongNotes { text: string; bars: number }
+/** One note of a fragment: start and length in ticks (48 to a bar, 3 to a sixteenth), MIDI note, accent. */
+export interface SongNote { start: number; len: number; note: number; accent: boolean }
+/**
+ * A note fragment: its line as the engine prints it, the bars before it
+ * repeats, its notes, whether it is a generator call (frozen before it is
+ * edited) and whether that call is live.
+ */
+export interface SongNotes { text: string; bars: number; events: SongNote[]; generated: boolean; live: boolean }
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
 export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler' }
 export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
@@ -480,6 +486,16 @@ export function loadSong(text: string) {
 /** Set one step (0 off, 1 hit, 2 accent); the engine sends the song back. */
 export const setStep = (f: number, l: number, s: number, level: number) =>
   engine?.post({ t: 'step', f, l, s, level })
+
+/** Add a sixteenth note at `tick` of fragment `f`; the engine sends the song back. */
+export const addNote = (f: number, tick: number, note: number) => engine?.post({ t: 'note', f, op: 0, tick, note, len: 0 })
+/** Remove the note that starts at `tick`. */
+export const removeNote = (f: number, tick: number, note: number) => engine?.post({ t: 'note', f, op: 1, tick, note, len: 0 })
+/** Make the note at `tick` `len` ticks long (the engine keeps it inside its bar and clear of the next note). */
+export const setNoteLength = (f: number, tick: number, note: number, len: number) =>
+  engine?.post({ t: 'note', f, op: 2, tick, note, len })
+/** Replace fragment `f`'s generator call with the notes it is playing. */
+export const freezeFrag = (f: number) => engine?.post({ t: 'freeze', f })
 
 /** Play song track `t` on synth `s` (255 mutes). */
 export const routeTrack = (t: number, s: Route) => engine?.post({ t: 'songRoute', track: t, s })
@@ -551,12 +567,21 @@ export function applySong(data: Record<string, unknown>) {
     kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
   }))
   song.frags = (data.frags as {
-    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]; notes: { text: Uint8Array; bars: number } | null
+    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]
+    notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null
   }[]).map((f) => ({
     name: decoder.decode(f.name),
     track: f.track,
     lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps) })),
-    notes: f.notes ? { text: decoder.decode(f.notes.text), bars: f.notes.bars } : null,
+    notes: f.notes
+      ? {
+          text: decoder.decode(f.notes.text),
+          bars: f.notes.bars,
+          generated: f.notes.generated,
+          live: f.notes.live,
+          events: f.notes.events.map(([start, len, note, accent]) => ({ start, len, note, accent: accent === 1 })),
+        }
+      : null,
   }))
   type RawSection = { name: Uint8Array; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
   song.sections = ((data.sections as RawSection[] | undefined) ?? []).map((s) => ({ ...s, name: decoder.decode(s.name) }))

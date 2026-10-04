@@ -56,6 +56,14 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'zonesDump': this.sendZones(data.s); break
         case 'song': this.loadSong(new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
+        case 'note':
+          // op 0 adds a sixteenth at tick, 1 removes the note, 2 sets its length in ticks.
+          if (data.op === 0) w.note_add(data.f, data.tick, data.note)
+          else if (data.op === 1) w.note_remove(data.f, data.tick, data.note)
+          else w.note_len(data.f, data.tick, data.note, data.len)
+          this.sendSong(true)
+          break
+        case 'freeze': w.freeze(data.f); this.sendSong(true); break
         case 'songRoute': w.song_route(data.track, data.s); this.sendSong(true); break
         case 'songTempo': w.song_tempo(data.v); this.sendSong(true); break
         case 'songSwing': w.song_swing(data.v); this.sendSong(true); break
@@ -201,7 +209,18 @@ class EngineProcessor extends AudioWorkletProcessor {
         for (let s = 0; s < steps.length; s++) steps[s] = w.step_level(f, l, s)
         lanes.push({ pad: w.lane_pad(f, l), steps })
       }
-      const notes = w.frag_notes_len(f) ? { text: bytes(w.frag_notes_ptr(f), w.frag_notes_len(f)), bars: w.frag_bars(f) } : null
+      let notes = null
+      if (w.frag_notes_len(f)) {
+        // Each note as [start, length, note, accent]; the start and length are in ticks, 48 to a bar.
+        const events = []
+        for (let k = 0; k < w.frag_events(f); k++) {
+          events.push([w.event_start(f, k), w.event_len(f, k), w.event_note(f, k), w.event_accent(f, k)])
+        }
+        notes = {
+          text: bytes(w.frag_notes_ptr(f), w.frag_notes_len(f)), bars: w.frag_bars(f),
+          live: w.frag_live(f) === 1, generated: w.frag_generated(f) === 1, events,
+        }
+      }
       frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes, notes })
     }
     // The arrangement (ADR-0015): sections with what each holds, the order, lanes, scenes, loop.

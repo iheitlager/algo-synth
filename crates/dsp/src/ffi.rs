@@ -960,6 +960,87 @@ pub extern "C" fn frag_bars(f: u32) -> u32 {
     })
 }
 
+/// Notes fragment `f` plays, and the start (in ticks, 48 to a bar), length,
+/// MIDI note and accent (0 or 1) of note `k`.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_events(f: u32) -> u32 {
+    query(0, |e| e.frag_events(f as usize).len() as u32)
+}
+
+fn with_event(f: u32, k: u32, get: impl FnOnce(&crate::notes::Event) -> u32) -> u32 {
+    query(0, |e| {
+        e.frag_events(f as usize).get(k as usize).map_or(0, get)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn event_start(f: u32, k: u32) -> u32 {
+    with_event(f, k, |ev| ev.start)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn event_len(f: u32, k: u32) -> u32 {
+    with_event(f, k, |ev| ev.len)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn event_note(f: u32, k: u32) -> u32 {
+    with_event(f, k, |ev| u32::from(ev.note))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn event_accent(f: u32, k: u32) -> u32 {
+    with_event(f, k, |ev| u32::from(ev.accent))
+}
+
+/// 1 when fragment `f` is a generator call (euclid, arp, walk, markov, mutate):
+/// its notes cannot be edited until it is frozen.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_generated(f: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .frags
+            .get(f as usize)
+            .and_then(|x| x.notes.as_ref())
+            .map_or(0, |n| {
+                u32::from(matches!(
+                    n.seq,
+                    crate::notes::Seq::Generated(_) | crate::notes::Seq::Euclid(..)
+                ))
+            })
+    })
+}
+
+fn edit(f: u32, op: crate::notes::Edit) -> i32 {
+    query(-1, |e| if e.edit_note(f as usize, op) { 0 } else { -1 })
+}
+
+/// Add a sixteenth note `note` at `tick` of fragment `f`, make its length
+/// `len` ticks, or remove it: 0 when done, −1 when the song does not take it.
+#[unsafe(no_mangle)]
+pub extern "C" fn note_add(f: u32, tick: u32, note: u32) -> i32 {
+    match u8::try_from(note) {
+        Ok(note) => edit(f, crate::notes::Edit::Add { tick, note }),
+        Err(_) => -1,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn note_remove(f: u32, tick: u32, note: u32) -> i32 {
+    match u8::try_from(note) {
+        Ok(note) => edit(f, crate::notes::Edit::Remove { tick, note }),
+        Err(_) => -1,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn note_len(f: u32, tick: u32, note: u32, len: u32) -> i32 {
+    match u8::try_from(note) {
+        Ok(note) => edit(f, crate::notes::Edit::Len { tick, note, len }),
+        Err(_) => -1,
+    }
+}
+
 /// Whether fragment `f` makes new events every cycle.
 #[unsafe(no_mangle)]
 pub extern "C" fn frag_live(f: u32) -> u32 {
@@ -1218,6 +1299,8 @@ mod tests {
             (1, 2, 0)
         );
         assert_eq!((track_kind(0), frag_notes_len(0), frag_bars(0)), (0, 0, 0));
+        assert_eq!((frag_events(0), frag_generated(0), frag_live(0)), (0, 0, 0));
+        assert_eq!(note_add(0, 0, 60), -1, "a drum frag takes no notes");
         assert_eq!(song_routed(0), 255, "no kit yet");
         song_route(0, 2);
         assert_eq!(song_routed(0), 2);
@@ -1265,5 +1348,44 @@ mod tests {
         song_tempo(97.0);
         song_swing(99.0);
         assert_eq!((clock_tempo(), clock_swing()), (97.0, 75.0));
+    }
+    #[test]
+    fn notes_are_read_and_edited_through_the_abi() {
+        init(48_000.0);
+        let text = b"scale c minor\ntrack t synth\nfrag a = t\n  c4:4 e4:4\nfrag g = t\n  euclid(3,8) c4\n";
+        assert!(!song_buf(text.len() as u32).is_null());
+        query((), |e| {
+            e.song_buffer(text.len())
+                .expect("fits")
+                .copy_from_slice(text)
+        });
+        assert_eq!(song_load(), 0);
+        assert_eq!(
+            (frag_events(0), frag_generated(0), frag_generated(1)),
+            (2, 0, 1)
+        );
+        assert_eq!(
+            (
+                event_start(0, 1),
+                event_len(0, 1),
+                event_note(0, 1),
+                event_accent(0, 1)
+            ),
+            (12, 12, 64, 0)
+        );
+        assert_eq!(note_add(0, 24, 67), 0);
+        assert_eq!(frag_events(0), 3);
+        assert_eq!(note_len(0, 24, 67, 9), 0);
+        assert_eq!(event_len(0, 2), 9);
+        assert_eq!(note_remove(0, 0, 60), 0);
+        assert_eq!(note_remove(0, 0, 60), -1);
+        assert_eq!(note_add(1, 0, 60), -1, "frozen first");
+        assert_eq!(freeze(1), 0);
+        assert_eq!((frag_generated(1), note_add(1, 3, 60)), (0, 0));
+        let text = query(String::new(), |e| e.song_text().to_string());
+        assert!(
+            text.contains("frag a = t\n  \"~@12 e4@12 g4@9 ~@15\"\n"),
+            "{text}"
+        );
     }
 }

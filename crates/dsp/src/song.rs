@@ -1165,6 +1165,37 @@ impl Song {
         })
     }
 
+    /// Do `op` on note frag `frag` (from the composer's note view) and write
+    /// it back as notes, whatever notation it was in. False when it is not a
+    /// written note frag (a generated one is frozen first), the edit names no
+    /// note, or the result cannot be written.
+    pub fn edit_note(&mut self, frag: usize, op: notes::Edit) -> bool {
+        let Some(f) = self.frags.get_mut(frag) else {
+            return false;
+        };
+        let Some(n) = f.notes.as_ref() else {
+            return false;
+        };
+        if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) {
+            return false;
+        }
+        // A timed line stays timed: its overlaps and velocities have no
+        // mini-notation (#173).
+        let timed = matches!(n.seq, notes::Seq::Timed(_));
+        let edited = if timed {
+            notes::edit_timed(&n.events, n.bars, op).and_then(|ev| notes::timed(ev, n.bars))
+        } else {
+            notes::edit(&n.events, n.bars, op).and_then(|ev| notes::freeze(&ev, n.bars))
+        };
+        match edited {
+            Some(edited) => {
+                f.notes = Some(edited);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Set one step; false when there is no such step.
     pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, to: Step) -> bool {
         let slot = self

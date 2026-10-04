@@ -1006,3 +1006,72 @@ fn arranger_edits_change_the_song_and_its_text() {
     );
     assert_eq!(Song::parse(&text), Ok(s));
 }
+
+#[test]
+fn editing_a_note_rewrites_the_text() {
+    use crate::notes::Edit;
+    let mut s = Song::parse("track t synth\nfrag a = t\n  c4:4 e4:4 g4:2\n").unwrap();
+    assert!(s.edit_note(0, Edit::Add { tick: 36, note: 72 }));
+    let text = s.print();
+    assert!(
+        text.contains("frag a = t\n  \"c4@12 e4@12 g4@12 c5@3 ~@9\"\n"),
+        "{text}"
+    );
+    assert_eq!(Song::parse(&text), Ok(s.clone()));
+    assert!(s.edit_note(0, Edit::Remove { tick: 0, note: 60 }));
+    assert!(s.print().contains("\"~@12 e4@12 g4@12 c5@3 ~@9\""));
+    assert!(
+        !s.edit_note(0, Edit::Remove { tick: 0, note: 60 }),
+        "no such note"
+    );
+    assert!(
+        !s.edit_note(5, Edit::Add { tick: 0, note: 60 }),
+        "no such frag"
+    );
+}
+
+#[test]
+fn a_generated_frag_is_frozen_before_it_is_edited() {
+    use crate::notes::Edit;
+    let mut s = Song::parse(
+        "scale c minor\ntrack t synth\nfrag a = t\n  euclid(3,8) c4\nfrag b = t\n  walk(c4,4,1)\n",
+    )
+    .unwrap();
+    assert!(!s.edit_note(0, Edit::Add { tick: 3, note: 60 }));
+    assert!(!s.edit_note(1, Edit::Add { tick: 3, note: 60 }));
+    assert!(s.freeze(0, None));
+    assert!(s.edit_note(0, Edit::Add { tick: 3, note: 60 }));
+}
+
+/// #173 with #168: editing an imported line of timed notes keeps it timed,
+/// with its overlaps, velocities and bars.
+#[test]
+fn an_edit_of_timed_notes_stays_timed() {
+    let text = "track v synth\nfrag a = v bars 2\n  d5@0:48:100 f#5@6:6:64\n";
+    let mut s = Song::parse(text).expect("parses");
+    assert!(s.edit_note(0, notes::Edit::Add { tick: 24, note: 69 }));
+    let printed = s.print();
+    assert!(
+        printed.contains("frag a = v bars 2\n  d5@0:48:100 f#5@6:6:64 a4@24:3\n"),
+        "a sixteenth, nothing shortened: {printed}"
+    );
+    assert!(s.edit_note(
+        0,
+        notes::Edit::Len {
+            tick: 24,
+            note: 69,
+            len: 30
+        }
+    ));
+    assert!(s.edit_note(0, notes::Edit::Remove { tick: 6, note: 78 }));
+    assert!(
+        s.print().contains("  d5@0:48:100 a4@24:30\n"),
+        "{}",
+        s.print()
+    );
+    assert!(
+        !s.edit_note(0, notes::Edit::Add { tick: 96, note: 60 }),
+        "past its bars"
+    );
+    assert_eq!(Song::parse(&s.print()), Ok(s));
+}

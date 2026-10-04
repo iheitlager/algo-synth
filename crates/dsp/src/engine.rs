@@ -58,7 +58,7 @@ fn cycle_seed(base: u32, cycle: u64) -> u32 {
     )
 }
 use crate::algo::mix;
-use crate::notes::{Event, Seq, TICKS_PER_BAR};
+use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
@@ -852,6 +852,26 @@ impl Engine {
                 _ => Live::default(),
             })
             .collect();
+    }
+
+    /// The events fragment `frag` is playing: a live one's current cycle, else
+    /// what it was written as (empty for a drum fragment).
+    pub fn frag_events(&self, frag: usize) -> &[Event] {
+        match (self.song.frags.get(frag), self.live.get(frag)) {
+            (Some(fr), Some(l)) if fr.live && l.cycle.is_some() => &l.cur,
+            (Some(fr), _) => fr.notes.as_ref().map_or(&[], |n| &n.events),
+            _ => &[],
+        }
+    }
+
+    /// Edit a note of fragment `frag` and print the song again; false when
+    /// the song does not take it (`Song::edit_note`).
+    pub fn edit_note(&mut self, frag: usize, op: Edit) -> bool {
+        if !self.song.edit_note(frag, op) {
+            return false;
+        }
+        self.song_text = self.song.print();
+        true
     }
 
     /// Replace fragment `frag`'s generator call with the events it is playing
