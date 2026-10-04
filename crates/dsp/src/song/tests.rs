@@ -64,7 +64,12 @@ fn every_error_says_where() {
             7,
             "a name is a letter, then letters, digits or _",
         ),
-        ("track kit bass", 1, 11, "a track kind is drums or synth"),
+        (
+            "track kit bass",
+            1,
+            11,
+            "a track kind is drums, synth or sampler",
+        ),
         (
             "track kit drums\ntrack kit drums",
             2,
@@ -337,4 +342,67 @@ fn a_comment_starts_at_a_space_not_at_a_sharp() {
     assert_eq!(strip_comment("  bd x... # kick"), "  bd x... ");
     assert_eq!(strip_comment("c#4:4 # up"), "c#4:4 ");
     assert_eq!(strip_comment("# all"), "");
+}
+
+const SAMPLED: &str = "\
+track pads sampler
+track keys sampler
+
+frag hits = pads
+  bd x...x...
+  sn ....X...
+frag tune = keys
+  c4:4 e4:8 g4:8
+frag mini = keys
+  \"c4 [e4 g4]\"
+";
+
+#[test]
+fn sampler_tracks_hold_lanes_or_notes() {
+    let s = Song::parse(SAMPLED).expect("parses");
+    assert_eq!(s.tracks[0].kind, Kind::Sampler);
+    assert_eq!(s.frags[0].lanes.len(), 2);
+    assert!(s.frags[0].notes.is_none());
+    assert!(s.frags[1].lanes.is_empty() && s.frags[1].notes.is_some());
+    let text = s.print();
+    assert!(text.contains("track pads sampler\ntrack keys sampler\n"));
+    assert!(text.contains("frag hits = pads /16\n  bd x...x...\n  sn ....X...\n"));
+    assert_eq!(Song::parse(&text), Ok(s));
+}
+
+#[test]
+fn sampler_errors_say_where() {
+    let cases: [(&str, usize, usize, &str); 4] = [
+        (
+            "track p sampler\nfrag a = p\n  zz x...",
+            3,
+            3,
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
+        ),
+        (
+            "track p sampler\nfrag a = p\n  bd x...\n  c4:4",
+            4,
+            3,
+            "a frag holds lanes or notes, not both",
+        ),
+        (
+            "track p sampler\nfrag a = p\n  c4:4\n  bd x...",
+            4,
+            3,
+            "a frag holds lanes or notes, not both",
+        ),
+        (
+            "track p sampler\nfrag a = p\ntempo 120",
+            2,
+            1,
+            "a frag needs lanes or a line of notes",
+        ),
+    ];
+    for (text, line, col, msg) in cases {
+        assert_eq!(
+            Song::parse(text),
+            Err(SongError { line, col, msg }),
+            "{text:?}"
+        );
+    }
 }

@@ -697,14 +697,15 @@ pub extern "C" fn track_name_len(t: u32) -> u32 {
     })
 }
 
-/// What track `t`'s fragments hold: 0 drum lanes, 1 notes.
+/// What track `t`'s fragments hold: 0 drum lanes, 1 notes, 2 lanes or notes (a sampler).
 #[unsafe(no_mangle)]
 pub extern "C" fn track_kind(t: u32) -> u32 {
     query(0, |e| {
-        e.song()
-            .tracks
-            .get(t as usize)
-            .map_or(0, |x| u32::from(x.kind == Kind::Synth))
+        e.song().tracks.get(t as usize).map_or(0, |x| match x.kind {
+            Kind::Drums => 0,
+            Kind::Synth => 1,
+            Kind::Sampler => 2,
+        })
     })
 }
 

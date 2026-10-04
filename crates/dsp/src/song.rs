@@ -109,6 +109,8 @@ pub struct Fragment {
 pub enum Kind {
     Drums,
     Synth,
+    /// Lanes of pads on a pad sampler, notes on a multisampler.
+    Sampler,
 }
 
 impl Kind {
@@ -116,6 +118,7 @@ impl Kind {
         match self {
             Kind::Drums => "drums",
             Kind::Synth => "synth",
+            Kind::Sampler => "sampler",
         }
     }
 }
@@ -224,12 +227,32 @@ impl Song {
                 let Some((f, _)) = open else {
                     return Err(err(first.col, "a lane goes under a frag"));
                 };
-                let is_synth = song
+                let kind = song
                     .frags
                     .get(f)
                     .and_then(|fr| song.tracks.get(fr.track))
-                    .is_some_and(|t| t.kind == Kind::Synth);
-                if is_synth {
+                    .map(|t| t.kind);
+                // A sampler line is a lane unless it is written as notes: quoted,
+                // a chord or with a duration (a bad pad name is then a lane error).
+                let as_notes = match kind {
+                    Some(Kind::Synth) => true,
+                    Some(Kind::Sampler) => {
+                        first.text.starts_with(['"', '[']) || first.text.contains(':')
+                    }
+                    _ => false,
+                };
+                if kind == Some(Kind::Sampler) {
+                    let has = song
+                        .frags
+                        .get(f)
+                        .map(|fr| (fr.notes.is_some(), !fr.lanes.is_empty()));
+                    if (as_notes && has.is_some_and(|h| h.1))
+                        || (!as_notes && has.is_some_and(|h| h.0))
+                    {
+                        return Err(err(first.col, "a frag holds lanes or notes, not both"));
+                    }
+                }
+                if as_notes {
                     let frag = song
                         .frags
                         .get_mut(f)
@@ -294,11 +317,12 @@ impl Song {
                     if song.tracks.iter().any(|t| t.name == name.text) {
                         return Err(err(name.col, "there is already a track with this name"));
                     }
-                    let kind = arg(2, "a track kind goes here: drums or synth")?;
+                    let kind = arg(2, "a track kind goes here: drums, synth or sampler")?;
                     let kind = match kind.text {
                         "drums" => Kind::Drums,
                         "synth" => Kind::Synth,
-                        _ => return Err(err(kind.col, "a track kind is drums or synth")),
+                        "sampler" => Kind::Sampler,
+                        _ => return Err(err(kind.col, "a track kind is drums, synth or sampler")),
                     };
                     expect_end(3)?;
                     if song.tracks.len() >= MAX_TRACKS {
@@ -416,6 +440,7 @@ fn check_lanes(song: &Song, f: usize, line: usize) -> Result<(), SongError> {
             col: 1,
             msg: match song.tracks.get(frag.track).map(|t| t.kind) {
                 Some(Kind::Synth) => "a frag needs a line of notes",
+                Some(Kind::Sampler) => "a frag needs lanes or a line of notes",
                 _ => "a frag needs at least one lane",
             },
         }),

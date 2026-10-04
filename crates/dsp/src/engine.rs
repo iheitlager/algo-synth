@@ -773,6 +773,8 @@ impl Engine {
                         .get(*s)
                         .is_some_and(|p| p.model.uses_drums() || p.model.uses_pads())
                 });
+                let multi = (0..SYNTHS)
+                    .find(|s| self.synths.get(*s).is_some_and(|p| p.model.uses_sampler()));
                 let voiced = (0..SYNTHS).find(|s| {
                     self.synths
                         .get(*s)
@@ -782,8 +784,10 @@ impl Engine {
                     if t >= song.tracks.len() {
                         *route = None;
                     } else if route.is_none() {
+                        let notes = song.frags.iter().any(|f| f.track == t && f.notes.is_some());
                         *route = match song.tracks.get(t).map(|t| t.kind) {
                             Some(Kind::Synth) => voiced,
+                            Some(Kind::Sampler) if notes => multi.or(voiced),
                             _ => kit,
                         };
                     }
@@ -2966,6 +2970,44 @@ mod tests {
         let heard = run(&mut e, 48_000 / 2 / BLOCK);
         assert!(heard > 0.05, "the kick lane hits pad 1");
         assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
+    }
+
+    /// #164: a `sampler` track with lanes goes to the pad sampler and hits its pad.
+    #[test]
+    fn a_sampler_track_with_lanes_plays_the_pad_sampler() {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(2, Preset::PadsLoud);
+        let tone: Vec<f32> = (0..24_000)
+            .map(|i| (i as f32 / 100.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        let wav = crate::sample::test_wav(48_000, &tone, None);
+        e.sample_buffer(wav.len())
+            .expect("fits")
+            .copy_from_slice(&wav);
+        e.load_sample(0).expect("loads");
+        e.set_pad(2, 0, crate::padsampler::PadField::Sample, 0.0);
+        let text = FOUR.replace("track kit drums", "track kit sampler");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        assert_eq!(e.song_routed(0), Some(2));
+        e.song_play();
+        assert!(
+            run(&mut e, 48_000 / 2 / BLOCK) > 0.05,
+            "the kick lane hits pad 1"
+        );
+    }
+
+    /// #164: a `sampler` track with notes goes to the multisampler, at pitch.
+    #[test]
+    fn a_sampler_track_with_notes_plays_the_multisampler_at_pitch() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(3, Preset::SamplerKeys);
+        let text = "track keys sampler\nfrag r = keys\n  c4:1\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        assert_eq!(e.song_routed(0), Some(3));
+        e.song_play();
+        e.render(1);
+        assert_eq!(e.pools[3].held_notes(), vec![60]);
     }
 
     /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.

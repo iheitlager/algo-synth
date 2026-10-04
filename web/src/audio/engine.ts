@@ -435,7 +435,7 @@ export interface SongLane { pad: number; steps: number[] }
 /** A note fragment's line as the engine prints it, and the bars before it repeats. */
 export interface SongNotes { text: string; bars: number }
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
-export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' }
+export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler' }
 
 /**
  * The song (ADR-0012) as the engine holds it: the engine parses the text and
@@ -517,7 +517,7 @@ export function applySong(data: Record<string, unknown>) {
   song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number }[]).map((t) => ({
     name: decoder.decode(t.name),
     synth: t.synth,
-    kind: t.kind === 1 ? 'synth' : 'drums',
+    kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
   }))
   song.frags = (data.frags as {
     name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]; notes: { text: Uint8Array; bars: number } | null
