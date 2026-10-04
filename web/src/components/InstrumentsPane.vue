@@ -84,7 +84,7 @@ function onRemove(s: number) {
 
 <template>
   <section class="pane stage" aria-label="Synths">
-    <SynthRail :tapes="tapes" :selected="sel" :can-add="synths.list.length < MAX_SYNTHS" @select="synths.selected = $event" @add="(m) => addSynth(m)" />
+    <SynthRail :tapes="tapes" :selected="sel" :can-add="synths.list.length < MAX_SYNTHS" @select="synths.selected = $event" @add="(m) => addSynth(m)" @rename="renameSynth" />
     <div class="face" :style="accent">
       <header>
         <div class="title">
