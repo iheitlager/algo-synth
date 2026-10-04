@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-10-04
+
+### Fixed
+
+- The MIDI player re-rendered every note of every lane on each 20 ms playhead update (#137): each lane is now one path built when its notes change, and a single playhead moves by transform. Playing the demo, the player's share of the main thread falls from 6–9% to under 0.2%, and no longer grows with the file's note count.
+
 ## [0.21.1] - 2026-10-04
 
 ### Fixed
