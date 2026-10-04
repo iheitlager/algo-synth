@@ -97,3 +97,23 @@ The selected synth SHALL be drawn as one faceplate in the console's hardware sty
 - THEN the connection is removed, and pressing an empty cell joins them in the first free slot with a middle amount
 
 **Tests:** `web/src/audio/faceplate.test.ts`, `web/src/audio/models.test.ts`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`
+
+### Requirement 10: Names [SHOULD]
+
+The user SHALL be able to rename every MIDI lane (by channel), synth and group bus in place (#127). A synth and its console strip SHALL share one name. A synth that is not renamed SHALL take the name of the first lane routed to it, else `Synth N`; a group `Group N`; a lane the file's track name, else `Channel N`. A name SHALL be trimmed and at most 24 characters, and an empty one SHALL restore the default. Every place a strip or lane is labelled (console tapes and feeds tags, the Out selector, the synth rail and faceplate header, the Player's lanes and route choices) SHALL use the same name. Names are labels only: they SHALL be kept in the view and the setup file (`names`), never in the engine (ADR-0001), and a setup without them SHALL load with the defaults.
+
+**Implementation:** `web/src/audio/names.ts`, `web/src/audio/setup.ts::parseNames`, `web/src/components/EditableName.vue`, `web/src/components/ConsolePane.vue`, `web/src/components/console/ChannelStrip.vue`, `web/src/components/InstrumentsPane.vue`, `web/src/components/PlayerPane.vue`
+
+#### Scenario: a loaded file names its synths
+
+- GIVEN a MIDI file whose first channel is called "Violin I", played on synth 1
+- WHEN it loads
+- THEN synth 1 and its strip are labelled "Violin I" until the user renames them, and clearing the name brings that back
+
+#### Scenario: names travel with the setup
+
+- GIVEN a renamed synth, group and lane
+- WHEN the setup is saved and opened again
+- THEN the same names are shown; names that are not a strip or channel are dropped with one warning
+
+**Tests:** `web/src/audio/names.test.ts`, `web/src/audio/setup.test.ts`

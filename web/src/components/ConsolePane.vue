@@ -6,7 +6,8 @@
 // collapsed and hidden strips are layout and live in the setup file.
 import { computed } from 'vue'
 import { GROUPS, groupColour, groupStrip, heardStrips, orderStrips, outChoices, STRIPS } from '../audio/console'
-import { addGroup, layout, moveStrip, params, player, removeGroup, setOut, status, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
+import { addGroup, layout, moveStrip, params, player, removeGroup, setOut, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
+import { renameStrip } from '../audio/names'
 import { modelDef } from '../audio/models'
 import { Param } from '../audio/params'
 import ChannelStrip from './console/ChannelStrip.vue'
@@ -27,7 +28,7 @@ const heard = computed(() =>
 )
 const members = (g: number) => shown.value.filter((id) => id !== groupStrip(g) && Math.round(val(id, Param.Out)) === g + 1).length
 
-const name = (id: number) => (id < groupStrip(0) ? `Synth ${id + 1}` : `Group ${id - groupStrip(0) + 1}`)
+const name = stripName
 const strips = computed(() =>
   order.value.map((id) => {
     const group = id >= groupStrip(0)
@@ -42,8 +43,8 @@ const strips = computed(() =>
       color: group ? groupColour(g) : synthColour(id),
       footer: group ? `${members(g)} in` : channels.length ? `Ch ${channels.join('·')}` : '—',
       silenced: !heard.value[id],
-      outs: outChoices(id, layout.groups),
-      feeds: out > 0 ? { label: `G${out}`, color: groupColour(out - 1) } : undefined,
+      outs: outChoices(id, layout.groups).map((o) => (o.out > 0 ? { ...o, label: name(groupStrip(o.out - 1)) } : o)),
+      feeds: out > 0 ? { label: name(groupStrip(out - 1)), color: groupColour(out - 1) } : undefined,
       collapsed: layout.collapsed.includes(id),
       g,
     }
@@ -70,7 +71,7 @@ const canAdd = computed(() => status.running && layout.groups.length < GROUPS)
           :proc-off="procOff" :outs="t.outs" :feeds="t.feeds" :collapsed="t.collapsed"
           @select="!t.group && (synths.selected = t.id)" @open="!t.group && $emit('open-synth', t.id)"
           @collapse="toggleCollapsed(t.id)" @hide="toggleHidden(t.id)" @remove="removeGroup(t.g)"
-          @move="(from) => moveStrip(from, t.id)" @set-out="(out) => setOut(t.id, out)"
+          @move="(from) => moveStrip(from, t.id)" @set-out="(out) => setOut(t.id, out)" @rename="(n) => renameStrip(t.id, n)"
         />
       </div>
       <div class="rack">

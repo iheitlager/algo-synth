@@ -8,6 +8,10 @@
 // effects, models) is saved and restored without changes here.
 
 export const SETUP_VERSION = 1
+/** The longest name of a strip or lane (#127). */
+export const MAX_NAME = 24
+/** A name as typed: trimmed, inner runs of space collapsed, at most `MAX_NAME` characters. */
+export const cleanName = (raw: string) => raw.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME).trim()
 /** The strip index of group 0 (ADR-0010). */
 const GROUP_BASE = 16
 const GROUPS = 8
@@ -35,6 +39,12 @@ export interface Layout {
   hidden: number[]
 }
 
+/** Names the user gave (#127): strip index (synths 0–15, groups 16–23) or MIDI channel to a name. */
+export interface Names {
+  strips?: Record<string, string>
+  parts?: Record<string, string>
+}
+
 export interface Setup {
   version: typeof SETUP_VERSION
   /** The MIDI file the setup was made for, to warn on a mismatch. */
@@ -44,6 +54,8 @@ export interface Setup {
   /** The group buses on screen; absent in setups from before groups. */
   groups?: GroupSetup[]
   layout?: Layout
+  /** Names of strips and lanes; absent in setups from before names. */
+  names?: Names
   /** MIDI channel (0-15) to a synth index, or 'mute'. */
   routes: Record<string, number | 'mute'>
 }
@@ -68,6 +80,7 @@ export interface State {
   /** The group buses on screen, 0–7. */
   groups?: number[]
   layout?: Layout
+  names?: { strips: Record<number, string>; parts: Record<number, string> }
   values: number[][]
   routes: { channel: number; synth: number }[]
   midi?: { name: string; parts: number }
@@ -77,6 +90,7 @@ export type Op =
   | { t: 'show'; synths: number[] }
   | { t: 'groups'; groups: number[] }
   | { t: 'layout'; layout: Layout }
+  | { t: 'names'; names: Names }
   | { t: 'reset'; s: number }
   | { t: 'param'; s: number; id: number; v: number }
   | { t: 'route'; channel: number; synth: number }
@@ -141,8 +155,18 @@ export function buildSetup(state: State, reg: Registry): Setup {
     synths,
     groups,
     ...(state.layout && { layout: state.layout }),
+    ...names(state),
     routes,
   }
+}
+
+/** The non-empty name tables, keyed as strings for JSON. */
+function names(state: State): { names?: Names } {
+  const table = (t: Record<number, string> = {}) =>
+    Object.keys(t).length ? Object.fromEntries(Object.entries(t).map(([k, v]) => [String(k), v])) : undefined
+  const strips = table(state.names?.strips)
+  const parts = table(state.names?.parts)
+  return strips || parts ? { names: { ...(strips && { strips }), ...(parts && { parts }) } } : {}
 }
 
 // Setups written before the mixer was central (#50) used other names: the
@@ -247,6 +271,30 @@ function parseLayout(raw: unknown, warnings: string[]): Layout | undefined {
   return layout
 }
 
+/** Names as saved: indices in range, non-empty strings, cleaned as the view cleans them. */
+function parseNames(raw: unknown, reg: Registry, warnings: string[]): Names | undefined {
+  if (!isObject(raw)) return undefined
+  let bad = false
+  const table = (from: unknown, count: number) => {
+    const out: Record<string, string> = {}
+    if (from === undefined) return out
+    if (!isObject(from)) {
+      bad = true
+      return out
+    }
+    for (const [k, v] of Object.entries(from)) {
+      const i = Number(k)
+      const name = typeof v === 'string' ? cleanName(v) : ''
+      if (Number.isInteger(i) && i >= 0 && i < count && name) out[String(i)] = name
+      else bad = true
+    }
+    return out
+  }
+  const names = { strips: table(raw.strips, GROUP_BASE + GROUPS), parts: table(raw.parts, reg.channels) }
+  if (bad) warnings.push('ignored names that are not strips or channels')
+  return names
+}
+
 export type Parsed = { ok: true; setup: Setup; warnings: string[] } | { ok: false; error: string }
 
 /**
@@ -313,6 +361,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
 
   const groups = parseGroups(raw.groups, reg, warnings)
   const layout = parseLayout(raw.layout, warnings)
+  const names = parseNames(raw.names, reg, warnings)
 
   const routes: Setup['routes'] = {}
   if (isObject(raw.routes)) {
@@ -337,7 +386,7 @@ export function parseSetup(text: string, reg: Registry): Parsed {
       : undefined
   return {
     ok: true,
-    setup: { version: SETUP_VERSION, ...(midi && { midi }), global, synths, ...(groups && { groups }), ...(layout && { layout }), routes },
+    setup: { version: SETUP_VERSION, ...(midi && { midi }), global, synths, ...(groups && { groups }), ...(layout && { layout }), ...(names && { names }), routes },
     warnings,
   }
 }
@@ -389,5 +438,7 @@ export function applyPlan(
     if (id !== undefined) ops.push({ t: 'param', s: 0, id, v })
   }
   if (setup.layout) ops.push({ t: 'layout', layout: setup.layout })
+  // A setup replaces the names too: one without them is back to the defaults.
+  ops.push({ t: 'names', names: setup.names ?? {} })
   return { ops, warnings }
 }

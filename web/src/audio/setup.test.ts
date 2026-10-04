@@ -157,6 +157,7 @@ describe('applyPlan', () => {
       { t: 'route', channel: 0, synth: 3 },
       { t: 'route', channel: 1, synth: MUTE },
       { t: 'param', s: 0, id: Param.MasterGain, v: 0.4 },
+      { t: 'names', names: {} },
     ])
   })
 
@@ -322,5 +323,40 @@ describe('groups and layout in a setup (#61)', () => {
     expect(parsed.ok && parsed.setup.groups).toBeUndefined()
     if (!parsed.ok) return
     expect(applyPlan(parsed.setup, reg).ops.some((o) => o.t === 'groups' || o.t === 'layout')).toBe(false)
+  })
+})
+
+describe('names in a setup (#127)', () => {
+  const named: State = { ...state, names: { strips: { 0: 'Violin I', 17: 'Strings bus' }, parts: { 1: 'Cello' } } }
+
+  it('saves only the names given, keyed by strip and channel', () => {
+    expect(buildSetup(named, reg).names).toEqual({ strips: { 0: 'Violin I', 17: 'Strings bus' }, parts: { 1: 'Cello' } })
+    expect(buildSetup({ ...state, names: { strips: {}, parts: {} } }, reg)).not.toHaveProperty('names')
+  })
+
+  it('restores them through a file and applies them as one step', () => {
+    const parsed = parseSetup(JSON.stringify(buildSetup(named, reg)), reg)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.warnings).toEqual([])
+    const ops = applyPlan(parsed.setup, reg).ops.filter((o) => o.t === 'names')
+    expect(ops).toEqual([{ t: 'names', names: { strips: { 0: 'Violin I', 17: 'Strings bus' }, parts: { 1: 'Cello' } } }])
+  })
+
+  it('puts the defaults back for a setup without names', () => {
+    const parsed = parseSetup(JSON.stringify(buildSetup(state, reg)), reg)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(applyPlan(parsed.setup, reg).ops.filter((o) => o.t === 'names')).toEqual([{ t: 'names', names: {} }])
+  })
+
+  it('cleans names and drops what is not a strip or channel, with one warning', () => {
+    const raw = {
+      ...buildSetup(state, reg),
+      names: { strips: { 0: '  Lead   synth  ', 24: 'Nope', x: 'Bad', 3: '', 4: 7, 5: 'A'.repeat(40) }, parts: { 16: 'Too far', 2: 'Bass' } },
+    }
+    const parsed = parseSetup(JSON.stringify(raw), reg)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.setup.names).toEqual({ strips: { 0: 'Lead synth', 5: 'A'.repeat(24) }, parts: { 2: 'Bass' } })
+    expect(parsed.warnings).toEqual(['ignored names that are not strips or channels'])
   })
 })
