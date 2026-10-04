@@ -862,6 +862,22 @@ pub enum Param {
     HcTone = 428,
     /// Drum kit: the high conga's level, 0..=1.
     HcLevel = 429,
+    /// Send 1 taps before the fader (1) or after it (0, the default).
+    Send1Pre = 430,
+    /// Send 2 taps before the fader (1) or after it (0, the default).
+    Send2Pre = 431,
+    /// Send 3 taps before the fader (1) or after it (0, the default).
+    Send3Pre = 432,
+    /// Send 4 taps before the fader (1) or after it (0, the default).
+    Send4Pre = 433,
+    /// Send 1 is on (1, the default) or off: silent, keeping its level.
+    Send1On = 434,
+    /// Send 2 is on (1, the default) or off: silent, keeping its level.
+    Send2On = 435,
+    /// Send 3 is on (1, the default) or off: silent, keeping its level.
+    Send3On = 436,
+    /// Send 4 is on (1, the default) or off: silent, keeping its level.
+    Send4On = 437,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -946,7 +962,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 430] = [
+    pub const ALL: [(Param, &'static str); 438] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1377,6 +1393,14 @@ impl Param {
         (Param::HcDecay, "HcDecay"),
         (Param::HcTone, "HcTone"),
         (Param::HcLevel, "HcLevel"),
+        (Param::Send1Pre, "Send1Pre"),
+        (Param::Send2Pre, "Send2Pre"),
+        (Param::Send3Pre, "Send3Pre"),
+        (Param::Send4Pre, "Send4Pre"),
+        (Param::Send1On, "Send1On"),
+        (Param::Send2On, "Send2On"),
+        (Param::Send3On, "Send3On"),
+        (Param::Send4On, "Send4On"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -1393,6 +1417,14 @@ impl Param {
                 | Param::Mute
                 | Param::Solo
                 | Param::Out
+                | Param::Send1Pre
+                | Param::Send2Pre
+                | Param::Send3Pre
+                | Param::Send4Pre
+                | Param::Send1On
+                | Param::Send2On
+                | Param::Send3On
+                | Param::Send4On
         ) || self.insert().is_some()
     }
 
@@ -1523,6 +1555,14 @@ impl Param {
             Param::Pan => (-1.0, 1.0),
             Param::Mute | Param::Solo => (0.0, 1.0),
             Param::Out => (0.0, 8.0),
+            Param::Send1Pre
+            | Param::Send2Pre
+            | Param::Send3Pre
+            | Param::Send4Pre
+            | Param::Send1On
+            | Param::Send2On
+            | Param::Send3On
+            | Param::Send4On => (0.0, 1.0),
             Param::P2In | Param::P3In | Param::P4In => (0.0, 1.0),
             Param::Polyphony => (1.0, 16.0),
             Param::Assign => (0.0, 1.0),

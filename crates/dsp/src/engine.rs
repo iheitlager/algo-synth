@@ -1902,6 +1902,43 @@ mod tests {
         assert!(peak(e.output()) < peak(&dry));
     }
 
+    /// #144: a send taken before the fader ignores it; one switched off is
+    /// silent and keeps its level; mute silences both kinds.
+    #[test]
+    fn sends_before_the_fader_and_switched_off() {
+        let send = |setup: &dyn Fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::Send1, 1.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            e.render(BLOCK);
+            e.mixer.sends[0].iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+        };
+        let post_full = send(&|_| {});
+        let post_down = send(&|e| e.set_param(0, Param::Level, 0.0));
+        let pre_down = send(&|e| {
+            e.set_param(0, Param::Send1Pre, 1.0);
+            e.set_param(0, Param::Level, 0.0);
+        });
+        assert!(
+            post_full > 0.0 && post_down == 0.0,
+            "post follows the fader"
+        );
+        assert_eq!(pre_down, post_full, "pre ignores it");
+        let off = send(&|e| e.set_param(0, Param::Send1On, 0.0));
+        assert_eq!(off, 0.0, "off is silent");
+        let back = send(&|e| {
+            e.set_param(0, Param::Send1On, 0.0);
+            e.set_param(0, Param::Send1On, 1.0);
+        });
+        assert_eq!(back, post_full, "and keeps its level");
+        let muted = send(&|e| {
+            e.set_param(0, Param::Send1Pre, 1.0);
+            e.set_param(0, Param::Mute, 1.0);
+        });
+        assert_eq!(muted, 0.0, "mute silences a pre send");
+    }
+
     #[test]
     fn each_send_feeds_its_own_processor_bus() {
         for (i, send) in [Param::Send1, Param::Send2, Param::Send3, Param::Send4]
@@ -1924,7 +1961,12 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::Level, 0.25);
         assert_eq!(e.param_value(0, Param::Level), 0.25);
-        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 27);
+        // Every strip parameter has a default, and nothing else is one.
+        assert_eq!(
+            Param::ALL.iter().filter(|(p, _)| p.is_strip()).count(),
+            STRIP_DEFAULTS.len()
+        );
+        assert!(STRIP_DEFAULTS.iter().all(|(p, _)| p.is_strip()));
     }
 
     #[test]

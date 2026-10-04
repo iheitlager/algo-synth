@@ -1,6 +1,6 @@
 //! The mixer (ADR-0005, ADR-0010, spec 002 Req 2): one strip per synth and
 //! eight group buses, each with insert slots, a fader, a pan and four
-//! post-fader sends (P1–P4), routed by `Out` to the stereo master or to a
+//! sends (P1–P4), each after the fader or before it and switched on or off (#144), routed by `Out` to the stereo master or to a
 //! higher-numbered group. It owns every strip parameter (`Param::is_strip`).
 //! Everything is allocated in `Mixer::new` (ADR-0002); gains and the solo
 //! paths are worked out when a parameter changes, never per sample.
@@ -17,7 +17,7 @@ pub const GROUPS: usize = 8;
 pub const STRIPS: usize = SYNTHS + GROUPS;
 
 /// Where a strip starts: full fader, centred, no sends, not muted or soloed.
-pub const STRIP_DEFAULTS: [(Param, f32); 27] = [
+pub const STRIP_DEFAULTS: [(Param, f32); 35] = [
     (Param::Level, 1.0),
     (Param::Pan, 0.0),
     (Param::Send1, 0.0),
@@ -45,6 +45,14 @@ pub const STRIP_DEFAULTS: [(Param, f32); 27] = [
     (Param::I3C, 0.5),
     (Param::I3D, 0.5),
     (Param::I3E, 0.0),
+    (Param::Send1Pre, 0.0),
+    (Param::Send2Pre, 0.0),
+    (Param::Send3Pre, 0.0),
+    (Param::Send4Pre, 0.0),
+    (Param::Send1On, 1.0),
+    (Param::Send2On, 1.0),
+    (Param::Send3On, 1.0),
+    (Param::Send4On, 1.0),
 ];
 
 /// One strip's or group's fader, pan, sends and routing, as set from the view.
@@ -54,6 +62,9 @@ struct Strip {
     /// Left and right gains: an equal-power pan for a synth, a balance for a group.
     pan: [f32; 2],
     send: [f32; SENDS],
+    /// Per send: taken before the fader (#144), and switched on.
+    pre: [bool; SENDS],
+    on: [bool; SENDS],
     mute: bool,
     solo: bool,
     /// Left and right gains for a stereo strip: a balance, unity at the centre.
@@ -70,6 +81,8 @@ impl Strip {
             pan: [0.0; 2],
             balance: [1.0; 2],
             send: [0.0; SENDS],
+            pre: [false; SENDS],
+            on: [true; SENDS],
             mute: false,
             solo: false,
             out: 0,
@@ -103,10 +116,33 @@ impl Strip {
             Param::Send2 => self.send[1] = v,
             Param::Send3 => self.send[2] = v,
             Param::Send4 => self.send[3] = v,
+            Param::Send1Pre => self.pre[0] = v >= 0.5,
+            Param::Send2Pre => self.pre[1] = v >= 0.5,
+            Param::Send3Pre => self.pre[2] = v >= 0.5,
+            Param::Send4Pre => self.pre[3] = v >= 0.5,
+            Param::Send1On => self.on[0] = v >= 0.5,
+            Param::Send2On => self.on[1] = v >= 0.5,
+            Param::Send3On => self.on[2] = v >= 0.5,
+            Param::Send4On => self.on[3] = v >= 0.5,
             Param::Mute => self.mute = v >= 0.5,
             Param::Solo => self.solo = v >= 0.5,
             Param::Out => self.out = v.round() as usize,
             _ => {}
+        }
+    }
+
+    /// What send `k` takes of the strip's signal: its level, times the fader
+    /// unless it is taken before it, and nothing when it is off.
+    fn send_gain(&self, k: usize) -> f32 {
+        let (Some(amount), Some(pre), Some(on)) =
+            (self.send.get(k), self.pre.get(k), self.on.get(k))
+        else {
+            return 0.0;
+        };
+        match (on, pre) {
+            (false, _) => 0.0,
+            (true, true) => *amount,
+            (true, false) => amount * self.level,
         }
     }
 }
@@ -372,8 +408,8 @@ impl Mixer {
                     *l += x * s.level * bl;
                     *r += y * s.level * br;
                 }
-                for (send, amount) in self.sends.iter_mut().zip(s.send) {
-                    let gain = 0.5 * s.level * amount;
+                for (k, send) in self.sends.iter_mut().enumerate() {
+                    let gain = 0.5 * s.send_gain(k);
                     if gain == 0.0 {
                         continue;
                     }
@@ -388,8 +424,8 @@ impl Mixer {
                 *l += x * s.level * pl;
                 *r += x * s.level * pr;
             }
-            for (send, amount) in self.sends.iter_mut().zip(s.send) {
-                let gain = s.level * amount;
+            for (k, send) in self.sends.iter_mut().enumerate() {
+                let gain = s.send_gain(k);
                 if gain == 0.0 {
                     continue;
                 }
@@ -449,8 +485,8 @@ impl Mixer {
                 *ol += l * s.level * bl;
                 *or += r * s.level * br;
             }
-            for (send, amount) in self.sends.iter_mut().zip(s.send) {
-                let gain = 0.5 * s.level * amount;
+            for (k, send) in self.sends.iter_mut().enumerate() {
+                let gain = 0.5 * s.send_gain(k);
                 if gain == 0.0 {
                     continue;
                 }

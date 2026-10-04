@@ -434,6 +434,14 @@ export const Param = {
   HcDecay: 427,
   HcTone: 428,
   HcLevel: 429,
+  Send1Pre: 430,
+  Send2Pre: 431,
+  Send3Pre: 432,
+  Send4Pre: 433,
+  Send1On: 434,
+  Send2On: 435,
+  Send3On: 436,
+  Send4On: 437,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -516,6 +524,14 @@ export const StripParam = {
   Send3: 132,
   Send4: 133,
   Out: 149,
+  Send1Pre: 430,
+  Send2Pre: 431,
+  Send3Pre: 432,
+  Send4Pre: 433,
+  Send1On: 434,
+  Send2On: 435,
+  Send3On: 436,
+  Send4On: 437,
 } as const
 export type StripParamName = keyof typeof StripParam
 

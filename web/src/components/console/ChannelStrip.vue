@@ -63,6 +63,9 @@ const slotTypes = [Param.I1Type, Param.I2Type, Param.I3Type]
 const slots = computed(() => slotTypes.map((id, n) => ({ n, type: Math.round(val(id)), text: INSERT_SHORT[Math.round(val(id))] ?? '—' })))
 const openSlot = (n: number, e: MouseEvent) => showInsertPanel(props.s, n, props.title, e.currentTarget as HTMLElement)
 const sends = [Param.Send1, Param.Send2, Param.Send3, Param.Send4]
+// Per send (#144): taken before the fader, and switched on.
+const sendPre = [Param.Send1Pre, Param.Send2Pre, Param.Send3Pre, Param.Send4Pre]
+const sendOn = [Param.Send1On, Param.Send2On, Param.Send3On, Param.Send4On]
 const pos = computed(() => levelToPos(val(Param.Level)))
 const setPos = (p: number) => send(Param.Level, posToLevel(p))
 const readout = computed(() => `${dbText(posToDb(pos.value))} dB`)
@@ -119,10 +122,22 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
     <div class="sec">
       <div class="cap">Sends</div>
       <div class="sends">
-        <ParamKnob
-          v-for="(id, n) in sends" :key="id" :synth="s" :id="id" :label="`P${n + 1}`" :name="`${title} send to P${n + 1}`"
-          :size="28" :color="`var(--con-p${n + 1})`" no-val :class="{ off: procOff[n] }"
-        />
+        <div v-for="(id, n) in sends" :key="id" class="send" :class="{ off: procOff[n] || val(sendOn[n]!) < 0.5 }">
+          <ParamKnob
+            :synth="s" :id="id" :label="`P${n + 1}`" :name="`${title} send to P${n + 1}`"
+            :size="28" :color="`var(--con-p${n + 1})`" no-val
+          />
+          <div class="sw">
+            <button
+              :aria-pressed="val(sendPre[n]!) >= 0.5" :disabled="!status.running"
+              :title="`P${n + 1}: before the fader (pre) or after it (post)`" @click="toggle(sendPre[n]!)"
+            >P</button>
+            <button
+              :aria-pressed="val(sendOn[n]!) >= 0.5" :disabled="!status.running"
+              :title="`P${n + 1}: on, or off keeping its level`" @click="toggle(sendOn[n]!)"
+            >●</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -182,6 +197,10 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
 .cap { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--con-silk-dim); }
 .sends { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 0; width: 100%; padding-inline: 5px; justify-items: center; }
 .sends .off { opacity: 0.28; }
+.send { display: grid; justify-items: center; gap: 1px; }
+.send .sw { display: flex; gap: 2px; }
+.send .sw button { font-size: 8px; line-height: 1; padding: 1px 3px; min-width: 0; border-radius: 2px; opacity: 0.55; }
+.send .sw button[aria-pressed='true'] { opacity: 1; border-color: var(--con-paper, currentColor); }
 .slot-btn {
   border: 1px solid #343b46; background: var(--con-inset); border-radius: 3px; font: 500 12px var(--con-font-silk);
   letter-spacing: 0.14em; padding: 1px 7px; cursor: pointer; color: var(--con-silk-dim); width: 54px; line-height: 1.2;

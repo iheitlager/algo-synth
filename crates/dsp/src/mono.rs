@@ -352,6 +352,14 @@ impl MonoParams {
             | Param::I3D
             | Param::I3E
             | Param::Out
+            | Param::Send1Pre
+            | Param::Send2Pre
+            | Param::Send3Pre
+            | Param::Send4Pre
+            | Param::Send1On
+            | Param::Send2On
+            | Param::Send3On
+            | Param::Send4On
             | Param::P2In
             | Param::P3In
             | Param::P4In
