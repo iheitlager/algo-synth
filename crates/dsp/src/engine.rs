@@ -1122,6 +1122,29 @@ impl Engine {
         true
     }
 
+    /// An arranger edit (#171): 0 toggle (section, kind, item), 1 add a
+    /// section (bars), 2 set a section's bars (section, bars), 3 insert an
+    /// entry (place, section), 4 remove an entry (place), 5 move an entry
+    /// (from, to), 6 set the loop (first, last; 0 0 clears). The song is
+    /// printed again; false when refused.
+    pub fn arrange_edit(&mut self, op: u32, a: u32, b: u32, c: u32) -> bool {
+        let (a, b, cu) = (a as usize, b as usize, c as usize);
+        let ok = match op {
+            0 => self.song.toggle(a, b as u32, cu),
+            1 => self.song.add_section(a as u32).is_some(),
+            2 => self.song.set_bars(a, b as u32),
+            3 => self.song.arrange_insert(a, b),
+            4 => self.song.arrange_remove(a),
+            5 => self.song.arrange_move(a, b),
+            6 => self.song.set_loop(a as u32, b as u32),
+            _ => false,
+        };
+        if ok {
+            self.song_text = self.song.print();
+        }
+        ok
+    }
+
     /// Set the song's tempo (BPM, clamped as the clock clamps it) and print
     /// it again; the clock follows from the next step.
     pub fn set_song_tempo(&mut self, bpm: f32) {

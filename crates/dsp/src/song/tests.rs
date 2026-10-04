@@ -954,3 +954,55 @@ fn automation_errors_say_where() {
         assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
     }
 }
+
+/// #171: arranger edits keep the song valid and print back as text.
+#[test]
+fn arranger_edits_change_the_song_and_its_text() {
+    let mut s = Song::parse(AUTOMATED).expect("parses");
+    // Toggle: take the beat out of section a, put the lane duck in, the scene out.
+    assert!(s.toggle(0, 0, 0));
+    assert!(s.toggle(0, 1, 1));
+    assert!(s.toggle(0, 2, 0));
+    assert_eq!(
+        (
+            s.sections[0].frags.clone(),
+            s.sections[0].autos.clone(),
+            s.sections[0].scenes.clone()
+        ),
+        (vec![], vec![0, 1], vec![])
+    );
+    assert!(
+        !s.toggle(0, 0, 9) && !s.toggle(9, 0, 0) && !s.toggle(0, 3, 0),
+        "no such item, section or kind"
+    );
+    // Add a section: named partN, appended to the arrangement.
+    assert_eq!(s.add_section(4), Some(2));
+    assert_eq!(
+        (s.sections[2].name.as_str(), s.arrange.clone()),
+        ("part1", vec![0, 1, 2])
+    );
+    assert_eq!(s.add_section(0), None);
+    // Insert, move and remove entries.
+    assert!(s.arrange_insert(0, 1));
+    assert_eq!(s.arrange, vec![1, 0, 1, 2]);
+    assert!(s.arrange_move(0, 3));
+    assert_eq!(s.arrange, vec![0, 1, 2, 1]);
+    assert!(!s.arrange_insert(9, 0) && !s.arrange_insert(0, 9) && !s.arrange_move(0, 9));
+    assert_eq!(s.bars(), 2 + 1 + 4 + 1);
+    // Loop, then shrink the song under it: the loop goes.
+    assert!(s.set_loop(3, 7) && !s.set_loop(3, 9) && !s.set_loop(0, 2));
+    assert!(s.arrange_remove(2));
+    assert_eq!(s.loop_bars, None, "bar 7 is gone");
+    assert!(s.set_loop(1, 2) && s.set_loop(0, 0));
+    assert_eq!(s.loop_bars, None);
+    assert!(s.set_bars(2, 8) && !s.set_bars(2, 0));
+    // The text says it all, and parses back to the same song.
+    let text = s.print();
+    assert!(
+        text.contains("section a 2: sweep duck\n")
+            && text.contains("section part1 8:\n")
+            && text.contains("arrange a b b\n"),
+        "{text}"
+    );
+    assert_eq!(Song::parse(&text), Ok(s));
+}

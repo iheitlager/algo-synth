@@ -155,7 +155,11 @@ export function moveStrip(id: number, target: number) {
 }
 
 /** Which main view is shown: the synth panels or the mixer console. */
-export const view = reactive({ main: 'synths' as 'synths' | 'mixer' | 'composer' })
+export const view = reactive({
+  main: 'synths' as 'synths' | 'mixer' | 'composer',
+  /** The bottom pane: the arranger (ADR-0015) or the MIDI file player, until MIDI import replaces it. */
+  bottom: 'arranger' as 'arranger' | 'player',
+})
 
 /** One hue per synth, so a part's notes match its synth's card. */
 export const synthColour = (s: number) => `hsl(${(12 + 47 * s) % 360} 68% 62%)`
@@ -436,6 +440,7 @@ export interface SongLane { pad: number; steps: number[] }
 export interface SongNotes { text: string; bars: number }
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
 export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler' }
+export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
 
 /**
  * The song (ADR-0012) as the engine holds it: the engine parses the text and
@@ -457,6 +462,12 @@ export const song = reactive({
   /** With an arrangement (ADR-0015): the entry playing and the steps into it, −1 without. */
   entry: -1,
   local: -1,
+  /** The arrangement (ADR-0015): sections with what each holds (by index), their order, lanes, scenes, loop bars (0 0 none). */
+  sections: [] as SongSection[],
+  arrange: [] as number[],
+  autos: [] as string[],
+  scenes: [] as string[],
+  loop: [0, 0] as [number, number],
 })
 
 /** Send `text` to the engine to parse and play. */
@@ -530,6 +541,29 @@ export function applySong(data: Record<string, unknown>) {
     lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps) })),
     notes: f.notes ? { text: decoder.decode(f.notes.text), bars: f.notes.bars } : null,
   }))
+  type RawSection = { name: Uint8Array; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
+  song.sections = ((data.sections as RawSection[] | undefined) ?? []).map((s) => ({ ...s, name: decoder.decode(s.name) }))
+  song.arrange = (data.arrange as number[] | undefined) ?? []
+  song.autos = ((data.autos as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
+  song.scenes = ((data.scenes as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
+  song.loop = (data.loop as [number, number] | undefined) ?? [0, 0]
+}
+
+/**
+ * Arranger edits (#171); the engine changes the song and sends it back as text.
+ * 0 toggle (section, kind 0 frag 1 auto 2 scene, item), 1 add a section (bars),
+ * 2 set bars (section, bars), 3 insert (place, section), 4 remove (place),
+ * 5 move (from, to), 6 loop (first, last; 0 0 clears).
+ */
+export const arrange = {
+  toggle: (s: number, kind: 0 | 1 | 2, item: number) => engine?.post({ t: 'arr', op: 0, a: s, b: kind, c: item }),
+  addSection: (bars = 4) => engine?.post({ t: 'arr', op: 1, a: bars }),
+  setBars: (s: number, bars: number) => engine?.post({ t: 'arr', op: 2, a: s, b: bars }),
+  insert: (at: number, s: number) => engine?.post({ t: 'arr', op: 3, a: at, b: s }),
+  remove: (at: number) => engine?.post({ t: 'arr', op: 4, a: at }),
+  move: (from: number, to: number) => engine?.post({ t: 'arr', op: 5, a: from, b: to }),
+  loop: (first: number, last: number) => engine?.post({ t: 'arr', op: 6, a: first, b: last }),
+  seekBar: (bar: number) => engine?.post({ t: 'songSeek', bar }),
 }
 
 /** What to tell the user when the engine knows fewer models than the view offers. */

@@ -1011,6 +1011,133 @@ impl Song {
         }
     }
 
+    // --- Arranger edits (#171): each keeps the song valid, false when refused.
+
+    /// Put fragment (`kind` 0), lane (1) or scene (2) `item` in section `s`,
+    /// or take it out.
+    pub fn toggle(&mut self, s: usize, kind: u32, item: usize) -> bool {
+        let exists = match kind {
+            0 => item < self.frags.len(),
+            1 => item < self.autos.len(),
+            2 => item < self.scenes.len(),
+            _ => false,
+        };
+        let Some(sec) = self.sections.get_mut(s) else {
+            return false;
+        };
+        let list = match kind {
+            0 => &mut sec.frags,
+            1 => &mut sec.autos,
+            _ => &mut sec.scenes,
+        };
+        if !exists {
+            return false;
+        }
+        match list.iter().position(|i| *i == item) {
+            Some(at) => {
+                list.remove(at);
+            }
+            None => list.push(item),
+        }
+        true
+    }
+
+    /// A new empty section of `bars` bars named `partN`, added to the end of
+    /// the arrangement; its index.
+    pub fn add_section(&mut self, bars: u32) -> Option<usize> {
+        if self.sections.len() >= MAX_SECTIONS
+            || self.arrange.len() >= MAX_ARRANGE
+            || !(1..=MAX_BARS).contains(&bars)
+        {
+            return None;
+        }
+        let name = (1..)
+            .map(|n| format!("part{n}"))
+            .find(|n| !self.sections.iter().any(|s| &s.name == n))?;
+        self.sections.push(Section {
+            name,
+            bars,
+            frags: Vec::new(),
+            autos: Vec::new(),
+            scenes: Vec::new(),
+        });
+        let s = self.sections.len() - 1;
+        self.arrange.push(s);
+        Some(s)
+    }
+
+    pub fn set_bars(&mut self, s: usize, bars: u32) -> bool {
+        match self.sections.get_mut(s) {
+            Some(sec) if (1..=MAX_BARS).contains(&bars) => {
+                sec.bars = bars;
+                self.fit_loop();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Play section `s` at place `at` of the arrangement (`at` may be its length).
+    pub fn arrange_insert(&mut self, at: usize, s: usize) -> bool {
+        if s >= self.sections.len() || at > self.arrange.len() || self.arrange.len() >= MAX_ARRANGE
+        {
+            return false;
+        }
+        self.arrange.insert(at, s);
+        true
+    }
+
+    pub fn arrange_remove(&mut self, at: usize) -> bool {
+        if at >= self.arrange.len() {
+            return false;
+        }
+        self.arrange.remove(at);
+        self.fit_loop();
+        true
+    }
+
+    /// Move the entry at `from` to `to`, shifting the ones between.
+    pub fn arrange_move(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.arrange.len() || to >= self.arrange.len() {
+            return false;
+        }
+        let s = self.arrange.remove(from);
+        self.arrange.insert(to, s);
+        true
+    }
+
+    /// Loop bars `from` to `to` (from 1, inclusive); `0, 0` clears the loop.
+    pub fn set_loop(&mut self, from: u32, to: u32) -> bool {
+        if from == 0 && to == 0 {
+            self.loop_bars = None;
+            return true;
+        }
+        if from == 0 || to < from || u64::from(to) > self.bars() {
+            return false;
+        }
+        self.loop_bars = Some((from, to));
+        true
+    }
+
+    /// A loop that no longer fits the arrangement is dropped.
+    fn fit_loop(&mut self) {
+        if let Some((_, to)) = self.loop_bars {
+            if u64::from(to) > self.bars() {
+                self.loop_bars = None;
+            }
+        }
+    }
+
+    /// Whether section `s` holds fragment (`kind` 0), lane (1) or scene (2) `item`.
+    pub fn section_has(&self, s: usize, kind: u32, item: usize) -> bool {
+        self.sections.get(s).is_some_and(|sec| match kind {
+            0 => sec.frags.contains(&item),
+            1 => sec.autos.contains(&item),
+            2 => sec.scenes.contains(&item),
+            _ => false,
+        })
+    }
+
     /// Set one step; false when there is no such step.
     pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, to: Step) -> bool {
         let slot = self
