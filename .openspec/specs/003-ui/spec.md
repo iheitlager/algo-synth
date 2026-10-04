@@ -74,7 +74,7 @@ The mixer view SHALL be a console: one thin strip per synth side by side (tape w
 
 ### Requirement 9: Synth faceplate [SHOULD]
 
-The selected synth SHALL be drawn as one faceplate in the console's hardware style, in the palette of its model (spec 005 Req 8), with the sections, control names and order of that instrument (`web/src/audio/models.ts`): rotary knobs with the console's popover (drag, click for a slider, double-click to reset, wheel and arrow keys, shift for fine), LED switches, stepped selectors (waveforms with a drawn icon), an envelope drawn as a live curve from its attack, decay, sustain and release, and for the models with a patch panel (ARP 2600, MS-20, CS-15) a patch bay: sources down, destinations across, a lit point per connection, and a knob for the amount of each. A rail of tapes SHALL sit beside it, one per synth: its model and number, an LED meter, mute and solo, and a click to select it; a synth's model and preset are chosen in the faceplate's header. The view SHALL show the values the engine reports, SHALL send only parameter changes (Req 6), and SHALL keep every control reachable by keyboard. Which control sits on which panel, and how a value is scaled and labelled, is data in `models.ts`; the maths of the drawings (curve points, steps, matrix cells) is pure functions in `web/src/audio/faceplate.ts`.
+The selected synth SHALL be drawn as one faceplate in the console's hardware style, in the palette of its model (spec 005 Req 8), with the sections, control names and order of that instrument (`web/src/audio/models.ts`): rotary knobs with the console's popover (drag, click for a slider, double-click to reset, wheel and arrow keys, shift for fine), LED switches, stepped selectors (waveforms with a drawn icon), an envelope drawn as a live curve from its attack, decay, sustain and release, and for the models with a patch panel (ARP 2600, MS-20, CS-15) a patch bay: sources down, destinations across, a lit point per connection, and a knob for the amount of each. A rail of tapes SHALL sit beside it, one per synth: its model and number, an LED meter, mute and solo, and a click to select it; a synth's model and preset are chosen in the faceplate's header. "+ Synth" SHALL offer the instrument families (`FAMILIES` in `models.ts`: Mono, Poly, Drums) and their models; a family adds its first model, a model itself, each on its first preset (#132). The view SHALL show the values the engine reports, SHALL send only parameter changes (Req 6), and SHALL keep every control reachable by keyboard. Which control sits on which panel, and how a value is scaled and labelled, is data in `models.ts`; the maths of the drawings (curve points, steps, matrix cells) is pure functions in `web/src/audio/faceplate.ts`.
 
 **Implementation:** `web/src/components/SynthFaceplate.vue`, `web/src/components/synth/` (`Switch.vue`, `Selector.vue`, `EnvGraph.vue`, `PatchBay.vue`, `SynthRail.vue`, `Keyboard.vue`), `web/src/audio/faceplate.ts`, `web/src/audio/models.ts`
 
@@ -83,6 +83,12 @@ The selected synth SHALL be drawn as one faceplate in the console's hardware sty
 - GIVEN one synth of each model
 - WHEN each is selected
 - THEN its faceplate carries its model's name, palette and sections, every control resolves to a parameter, and an edit sends that parameter
+
+#### Scenario: adding from a family
+
+- GIVEN the "+ Synth" menu
+- WHEN Poly or the Juno-106 is chosen
+- THEN a synth is added on the lowest free index, selected, as the Prophet-5 or the Juno-106 on that model's first preset
 
 #### Scenario: an envelope curve
 
