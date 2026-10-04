@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-04
+
+### Added
+
+- **Rename from the synth list:** a double-click on a synth's name in the rail edits it in place; a single click still selects it (#178).
+
+### Changed
+
+- **Instruments are named by family:** a drum machine added with + Synth is Drum 1, Drum 2…, a sampler Sampler 1…, a synth Synth N, each with the lowest free number. The name is kept when it is added, so adding, removing or switching other instruments never renames it, and an empty name restores the family default (#177).
+
 ## [0.26.1] - 2026-10-04
 
 ### Fixed
