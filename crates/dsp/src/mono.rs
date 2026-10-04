@@ -19,6 +19,7 @@ pub mod voice;
 
 use crate::drums::{PADS, Pad, PadParams};
 use crate::fm::patch::FmPatch;
+use crate::padsampler::PadKit;
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
@@ -72,6 +73,8 @@ pub struct MonoParams {
     /// The drum kit's pads and its accent (`Model::Tr808`).
     pub drums: [PadParams; PADS],
     pub drum_accent: f32,
+    /// The drum/pad sampler's sixteen pads (#124); set through `padsampler::PadField`, not parameters.
+    pub pad_kit: PadKit,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -182,6 +185,7 @@ impl MonoParams {
             fm: FmPatch::default(),
             drums: [PadParams::default(); PADS],
             drum_accent: 0.5,
+            pad_kit: PadKit::default(),
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],

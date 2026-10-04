@@ -285,7 +285,7 @@ fn loop_points(zone: &Zone, s: &Sample, gated: bool) -> Option<(usize, usize)> {
 
 /// Four-point Catmull-Rom read at `pos`; frames outside the sample are
 /// the nearest edge.
-fn read(s: &Sample, pos: f64) -> f32 {
+pub(crate) fn read(s: &Sample, pos: f64) -> f32 {
     let last = s.frames().saturating_sub(1) as isize;
     let i = pos.floor();
     let t = (pos - i) as f32;

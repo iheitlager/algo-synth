@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use crate::engine::{BLOCK, Engine, METERS, SYNTHS};
 use crate::mixer::STRIPS;
 use crate::mono::preset::Preset;
+use crate::padsampler::{PADS, PadField};
 use crate::params::Param;
 use crate::player::Part;
 use crate::sample;
@@ -353,6 +354,41 @@ pub extern "C" fn peaks_ptr() -> *const f32 {
     })
 }
 
+/// Set field `field` (see `padsampler::PadField`) of pad `pad` of `synth`; unknown
+/// synths, pads and fields are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn pad_set(synth: u32, pad: u32, field: u32, value: f32) {
+    if let Some(f) = PadField::from_id(field) {
+        with_engine(|e| e.set_pad(synth as usize, pad as usize, f, value));
+    }
+}
+
+/// A field of a pad, as `pad_set` takes it (−1 for no sample); 0 for an unknown
+/// synth, pad or field.
+#[unsafe(no_mangle)]
+pub extern "C" fn pad_get(synth: u32, pad: u32, field: u32) -> f32 {
+    PadField::from_id(field).map_or(0.0, |f| {
+        query(0.0, |e| e.pad_value(synth as usize, pad as usize, f))
+    })
+}
+
+/// Put every pad of `synth` back to its defaults.
+#[unsafe(no_mangle)]
+pub extern "C" fn pads_clear(synth: u32) {
+    with_engine(|e| e.clear_pads(synth as usize));
+}
+
+/// Pads a kit holds, and fields in a pad.
+#[unsafe(no_mangle)]
+pub extern "C" fn pad_count() -> u32 {
+    PADS as u32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pad_fields() -> u32 {
+    PadField::ALL.len() as u32
+}
+
 /// Empty every zone of `synth`.
 #[unsafe(no_mangle)]
 pub extern "C" fn zones_clear(synth: u32) {
@@ -587,6 +623,16 @@ mod tests {
         assert_eq!(zone_get(0, 0, 99), 0.0);
         zones_clear(0);
         assert_eq!(zone_get(0, 5, 0), -1.0);
+        assert_eq!((pad_count(), pad_fields()), (16, 9));
+        pad_set(1, 3, 0, 2.0);
+        pad_set(1, 3, 3, -0.5);
+        assert_eq!(pad_get(1, 3, 0), 2.0);
+        assert_eq!(pad_get(1, 3, 3), -0.5);
+        assert_eq!(pad_get(1, 4, 0), -1.0, "an untouched pad has no sample");
+        assert_eq!(pad_get(99, 0, 0), 0.0);
+        assert_eq!(pad_get(1, 3, 99), 0.0);
+        pads_clear(1);
+        assert_eq!(pad_get(1, 3, 0), -1.0);
         sample_clear(2);
         assert_eq!(sample_frames(2), 0);
         assert_eq!(sample_root(2), 255);

@@ -538,6 +538,7 @@ export const Model = {
   PolyMoog: 14,
   Tr808: 15,
   Sampler: 16,
+  PadSampler: 17,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -625,6 +626,8 @@ export const Preset = {
   TightKit: 80,
   SamplerKeys: 81,
   SamplerPad: 82,
+  PadsLoud: 83,
+  PadsSoft: 84,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 
@@ -646,6 +649,20 @@ export const ZoneField = {
   Release: 13,
 } as const
 export type ZoneFieldId = (typeof ZoneField)[keyof typeof ZoneField]
+
+/** What `pad_set(synth, pad, field, value)` sets on a drum/pad sampler's pad; see `padsampler.rs`. Pad `i` plays note 36 + i. */
+export const PadField = {
+  Sample: 0,
+  Tune: 1,
+  Level: 2,
+  Pan: 3,
+  Decay: 4,
+  Choke: 5,
+  VelLevel: 6,
+  VelStart: 7,
+  OneShot: 8,
+} as const
+export type PadFieldId = (typeof PadField)[keyof typeof PadField]
 
 /** A zone's loop modes (`Loop` field). */
 export const LoopMode = { Off: 0, Loop: 1, Sustain: 2 } as const

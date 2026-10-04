@@ -24,6 +24,8 @@ use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
 use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools};
+use crate::padsampler::{PadVoice as SampledPad, pad_of};
+use crate::sample::SampleStore;
 use crate::sampler::SamplerVoice;
 use crate::voice::Owner;
 
@@ -47,6 +49,8 @@ pub enum PolyVoice {
     Drum(PadVoice),
     /// The multisampler's voice.
     Sampler(SamplerVoice),
+    /// A pad of the drum/pad sampler.
+    Pad(SampledPad),
 }
 
 impl PolyVoice {
@@ -57,6 +61,7 @@ impl PolyVoice {
             Some(p) if p.model.uses_fm() => PolyVoice::Fm(FmVoice::new(p.sample_rate())),
             Some(p) if p.model.uses_drums() => PolyVoice::Drum(PadVoice::new(Pad::Bd, seed)),
             Some(p) if p.model.uses_sampler() => PolyVoice::Sampler(SamplerVoice::new()),
+            Some(p) if p.model.uses_pads() => PolyVoice::Pad(SampledPad::default()),
             _ => PolyVoice::Mono(MonoVoice::new(seed)),
         }
     }
@@ -69,11 +74,13 @@ impl PolyVoice {
                     && !p.model.uses_fm()
                     && !p.model.uses_drums()
                     && !p.model.uses_sampler()
+                    && !p.model.uses_pads()
             }
             PolyVoice::La(_) => p.model.uses_la(),
             PolyVoice::Fm(_) => p.model.uses_fm(),
             PolyVoice::Drum(_) => p.model.uses_drums(),
             PolyVoice::Sampler(_) => p.model.uses_sampler(),
+            PolyVoice::Pad(_) => p.model.uses_pads(),
         }
     }
 
@@ -85,6 +92,7 @@ impl PolyVoice {
             PolyVoice::Fm(v) => v.active(),
             PolyVoice::Drum(v) => v.active(),
             PolyVoice::Sampler(v) => v.active(),
+            PolyVoice::Pad(v) => v.active(),
         }
     }
 
@@ -97,6 +105,8 @@ impl PolyVoice {
             // A hit has no key to hold.
             PolyVoice::Drum(_) => false,
             PolyVoice::Sampler(v) => v.gated(),
+            // A pad has no key to hold.
+            PolyVoice::Pad(_) => false,
         }
     }
 
@@ -108,6 +118,7 @@ impl PolyVoice {
             // A hit rings out.
             PolyVoice::Drum(_) => {}
             PolyVoice::Sampler(v) => v.release_all(),
+            PolyVoice::Pad(v) => v.release_all(),
         }
     }
 
@@ -122,6 +133,7 @@ impl PolyVoice {
             PolyVoice::Fm(v) => v.press(note, velocity, p),
             PolyVoice::Drum(v) => strike(v, note, velocity, p),
             PolyVoice::Sampler(v) => v.press(note, velocity),
+            PolyVoice::Pad(v) => v.press(note, velocity, &p.pad_kit, p.level[0], p.sample_rate()),
         }
     }
 
@@ -132,6 +144,7 @@ impl PolyVoice {
             PolyVoice::Fm(v) => v.release_all(),
             PolyVoice::Drum(_) => {}
             PolyVoice::Sampler(v) => v.release_all(),
+            PolyVoice::Pad(v) => v.release(note),
         }
     }
 
@@ -155,6 +168,8 @@ impl PolyVoice {
                 v.trim = trim;
                 v.cutoff_trim = cutoff;
             }
+            // A pad is tuned by its own knob.
+            PolyVoice::Pad(_) => {}
         }
     }
 }
@@ -267,9 +282,11 @@ impl Pool {
         let i = self.slots.iter().position(|s| s.owner == Some(owner))?;
         match self.voices.get(i)? {
             PolyVoice::Mono(v) => Some(v),
-            PolyVoice::La(_) | PolyVoice::Fm(_) | PolyVoice::Drum(_) | PolyVoice::Sampler(_) => {
-                None
-            }
+            PolyVoice::La(_)
+            | PolyVoice::Fm(_)
+            | PolyVoice::Drum(_)
+            | PolyVoice::Sampler(_)
+            | PolyVoice::Pad(_) => None,
         }
     }
 
@@ -322,6 +339,9 @@ impl Pool {
         if p.model.uses_drums() {
             return self.playing(Pad::from_gm(note)).is_none();
         }
+        if p.model.uses_pads() {
+            return pad_of(note).is_some_and(|pad| self.playing_pad(pad).is_none());
+        }
         let limit = p.voices();
         if limit == 1 {
             return !self
@@ -345,6 +365,8 @@ impl Pool {
         let limit = p.voices();
         if p.model.uses_drums() {
             self.hit(owner, note, velocity, p, clock);
+        } else if p.model.uses_pads() {
+            self.hit_pad(owner, note, velocity, p, clock);
         } else if limit == 1 {
             self.press_mono(owner, note, velocity, p, clock);
         } else if p.unison {
@@ -478,6 +500,56 @@ impl Pool {
         self.last = i;
     }
 
+    /// The voice sounding sampled pad `pad`, if one is.
+    fn playing_pad(&self, pad: usize) -> Option<usize> {
+        self.voices
+            .iter()
+            .position(|v| matches!(v, PolyVoice::Pad(d) if d.active() && d.pad() == pad))
+    }
+
+    /// Hit the sampled pad `note` plays: again on the voice already playing it, else on
+    /// a new one; the other pads of its choke group fall silent.
+    fn hit_pad(&mut self, owner: Owner, note: u8, velocity: f32, p: &MonoParams, clock: u64) {
+        let Some(pad) = pad_of(note) else {
+            return;
+        };
+        let group = p.pad_kit.pad(pad).map_or(0, |c| c.choke);
+        if group != 0 {
+            for v in self.voices.iter_mut() {
+                if let PolyVoice::Pad(d) = v {
+                    if d.pad() != pad && d.choke_group() == group {
+                        d.choke();
+                    }
+                }
+            }
+        }
+        let i = match self.playing_pad(pad) {
+            Some(i) => i,
+            None => self.allocate(MAX_VOICES),
+        };
+        if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
+            v.press(note, velocity, p, owner_seed(owner));
+            *s = Slot {
+                owner: Some(owner),
+                note,
+                age: clock,
+                cents: 0.0,
+            };
+        }
+        self.last = i;
+    }
+
+    /// Add every sounding pad into `left` and `right` (the drum/pad sampler's stereo bus).
+    pub fn render_pads(&mut self, samples: &SampleStore, left: &mut [f32], right: &mut [f32]) {
+        for v in self.voices.iter_mut() {
+            if let PolyVoice::Pad(d) = v {
+                if d.active() {
+                    d.render(samples, left, right);
+                }
+            }
+        }
+    }
+
     /// The voice sounding `pad`, if one is.
     fn playing(&self, pad: Pad) -> Option<usize> {
         self.voices
@@ -544,6 +616,12 @@ impl Pool {
     /// held key; a polyphonic note releases the voice that plays it.
     pub fn note_off(&mut self, owner: Owner, note: u8, p: &MonoParams) {
         if p.model.uses_drums() {
+            return;
+        }
+        if p.model.uses_pads() {
+            for v in self.voices.iter_mut() {
+                v.release(note, p);
+            }
             return;
         }
         if p.voices() > 1 && p.unison {
@@ -679,6 +757,8 @@ impl Pool {
                 PolyVoice::Fm(f) => f.render(&ctx, out),
                 PolyVoice::Drum(d) => d.render(ctx.sine, out),
                 PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
+                // Pads write both sides: see `render_pads`.
+                PolyVoice::Pad(_) => {}
             }
         }
     }
@@ -915,7 +995,8 @@ mod tests {
                 PolyVoice::La(_)
                 | PolyVoice::Fm(_)
                 | PolyVoice::Drum(_)
-                | PolyVoice::Sampler(_) => 0.0,
+                | PolyVoice::Sampler(_)
+                | PolyVoice::Pad(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -941,6 +1022,7 @@ mod tests {
                 PolyVoice::Fm(f) => f.trim,
                 PolyVoice::Drum(_) => 1.0,
                 PolyVoice::Sampler(v) => v.trim,
+                PolyVoice::Pad(_) => 1.0,
             })
             .collect()
     }
