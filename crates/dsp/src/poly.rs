@@ -8,10 +8,15 @@
 //! note. A voice remembers its owner and note, so a note-off finds its own
 //! voice and live keys and MIDI channels do not release each other.
 //!
+//! A drum kit (`Model::Tr808`) hits pads instead: a key plays the pad General
+//! MIDI puts there, on the voice already playing that pad or a new one, with
+//! no note-off, and the closed hat chokes the open hat.
+//!
 //! A poly synth's pool runs one LFO and one sample-and-hold for all its voices.
 //! Everything is allocated up front (ADR-0002): the voices are an enum with no
 //! heap data, so a model change rebuilds one without allocating.
 
+use crate::drums::{ACCENT_VELOCITY, Pad, PadVoice};
 use crate::engine::SYNTHS;
 use crate::fm::FmVoice;
 use crate::la::LaVoice;
@@ -37,6 +42,8 @@ pub enum PolyVoice {
     La(LaVoice),
     /// The DX7's six-operator FM voice.
     Fm(FmVoice),
+    /// A pad of the drum kit.
+    Drum(PadVoice),
 }
 
 impl PolyVoice {
@@ -45,6 +52,7 @@ impl PolyVoice {
         match p {
             Some(p) if p.model.uses_la() => PolyVoice::La(LaVoice::new()),
             Some(p) if p.model.uses_fm() => PolyVoice::Fm(FmVoice::new(p.sample_rate())),
+            Some(p) if p.model.uses_drums() => PolyVoice::Drum(PadVoice::new(Pad::Bd, seed)),
             _ => PolyVoice::Mono(MonoVoice::new(seed)),
         }
     }
@@ -52,9 +60,10 @@ impl PolyVoice {
     /// Whether this voice is of the kind `p`'s model needs.
     fn fits(&self, p: &MonoParams) -> bool {
         match self {
-            PolyVoice::Mono(_) => !p.model.uses_la() && !p.model.uses_fm(),
+            PolyVoice::Mono(_) => !p.model.uses_la() && !p.model.uses_fm() && !p.model.uses_drums(),
             PolyVoice::La(_) => p.model.uses_la(),
             PolyVoice::Fm(_) => p.model.uses_fm(),
+            PolyVoice::Drum(_) => p.model.uses_drums(),
         }
     }
 
@@ -64,6 +73,7 @@ impl PolyVoice {
             PolyVoice::Mono(v) => v.active(),
             PolyVoice::La(v) => v.active(),
             PolyVoice::Fm(v) => v.active(),
+            PolyVoice::Drum(v) => v.active(),
         }
     }
 
@@ -73,6 +83,8 @@ impl PolyVoice {
             PolyVoice::Mono(v) => v.gated(),
             PolyVoice::La(v) => v.gated(),
             PolyVoice::Fm(v) => v.gated(),
+            // A hit has no key to hold.
+            PolyVoice::Drum(_) => false,
         }
     }
 
@@ -81,6 +93,8 @@ impl PolyVoice {
             PolyVoice::Mono(v) => v.release_all(),
             PolyVoice::La(v) => v.release_all(),
             PolyVoice::Fm(v) => v.release_all(),
+            // A hit rings out.
+            PolyVoice::Drum(_) => {}
         }
     }
 
@@ -93,6 +107,7 @@ impl PolyVoice {
             PolyVoice::Mono(v) => v.press(note, velocity, p),
             PolyVoice::La(v) => v.press(note, velocity),
             PolyVoice::Fm(v) => v.press(note, velocity, p),
+            PolyVoice::Drum(v) => strike(v, note, velocity, p),
         }
     }
 
@@ -101,6 +116,7 @@ impl PolyVoice {
             PolyVoice::Mono(v) => v.release(note, p),
             PolyVoice::La(v) => v.release_all(),
             PolyVoice::Fm(v) => v.release_all(),
+            PolyVoice::Drum(_) => {}
         }
     }
 
@@ -118,8 +134,19 @@ impl PolyVoice {
                 v.trim = trim;
                 v.cutoff_trim = cutoff;
             }
+            // The kit's pads are tuned by their knobs, not by drift.
+            PolyVoice::Drum(_) => {}
         }
     }
+}
+
+/// Hit the pad `note` plays on `v` at `velocity`, accented from `ACCENT_VELOCITY` up.
+fn strike(v: &mut PadVoice, note: u8, velocity: f32, p: &MonoParams) {
+    let pad = Pad::from_gm(note);
+    let knobs = p.drums.get(pad as usize).copied().unwrap_or_default();
+    let gain = knobs.gain(velocity, velocity >= ACCENT_VELOCITY, p.drum_accent);
+    v.set_pad(pad);
+    v.trigger(&knobs, gain, p.sample_rate());
 }
 
 /// Who a voice plays for and what it plays.
@@ -221,7 +248,7 @@ impl Pool {
         let i = self.slots.iter().position(|s| s.owner == Some(owner))?;
         match self.voices.get(i)? {
             PolyVoice::Mono(v) => Some(v),
-            PolyVoice::La(_) | PolyVoice::Fm(_) => None,
+            PolyVoice::La(_) | PolyVoice::Fm(_) | PolyVoice::Drum(_) => None,
         }
     }
 
@@ -271,6 +298,9 @@ impl Pool {
     /// Whether pressing `note` for `owner` would add a sounding voice, rather than
     /// re-use or steal one of this pool's own.
     pub fn adds_a_voice(&self, owner: Owner, note: u8, p: &MonoParams) -> bool {
+        if p.model.uses_drums() {
+            return self.playing(Pad::from_gm(note)).is_none();
+        }
         let limit = p.voices();
         if limit == 1 {
             return !self
@@ -292,7 +322,9 @@ impl Pool {
     /// its key stack; a polyphonic one gives the note a voice of its own.
     pub fn note_on(&mut self, owner: Owner, note: u8, velocity: f32, p: &MonoParams, clock: u64) {
         let limit = p.voices();
-        if limit == 1 {
+        if p.model.uses_drums() {
+            self.hit(owner, note, velocity, p, clock);
+        } else if limit == 1 {
             self.press_mono(owner, note, velocity, p, clock);
         } else if p.unison {
             self.remember(owner, note, velocity);
@@ -425,6 +457,43 @@ impl Pool {
         self.last = i;
     }
 
+    /// The voice sounding `pad`, if one is.
+    fn playing(&self, pad: Pad) -> Option<usize> {
+        self.voices
+            .iter()
+            .position(|v| matches!(v, PolyVoice::Drum(d) if d.active() && d.pad() == pad))
+    }
+
+    /// Hit the pad `note` plays: again on the voice already playing it (a pad
+    /// retriggers, as on the 808), else on a new one. A closed hat chokes the
+    /// open hat.
+    fn hit(&mut self, owner: Owner, note: u8, velocity: f32, p: &MonoParams, clock: u64) {
+        let pad = Pad::from_gm(note);
+        if pad == Pad::Ch {
+            for v in self.voices.iter_mut() {
+                if let PolyVoice::Drum(d) = v {
+                    if d.pad() == Pad::Oh {
+                        d.choke();
+                    }
+                }
+            }
+        }
+        let i = match self.playing(pad) {
+            Some(i) => i,
+            None => self.allocate(MAX_VOICES),
+        };
+        if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
+            v.press(note, velocity, p, owner_seed(owner));
+            *s = Slot {
+                owner: Some(owner),
+                note,
+                age: clock,
+                cents: 0.0,
+            };
+        }
+        self.last = i;
+    }
+
     /// A voice for a new note among the first `limit`: free, rotating on from the
     /// last one used; else the one in release longest; else the oldest held note.
     fn allocate(&mut self, limit: usize) -> usize {
@@ -453,6 +522,9 @@ impl Pool {
     /// Release `note` for `owner`: a monophonic owner's voice falls back to its next
     /// held key; a polyphonic note releases the voice that plays it.
     pub fn note_off(&mut self, owner: Owner, note: u8, p: &MonoParams) {
+        if p.model.uses_drums() {
+            return;
+        }
         if p.voices() > 1 && p.unison {
             self.forget(owner, note);
             let sounding = self
@@ -564,7 +636,7 @@ impl Pool {
 
     /// Add every sounding voice into `out`.
     pub fn render(&mut self, p: &MonoParams, tools: Tools, out: &mut [f32]) {
-        let poly = p.voices() > 1;
+        let poly = p.voices() > 1 && !p.model.uses_drums();
         self.retrim(p, poly);
         if poly {
             self.shared
@@ -584,6 +656,7 @@ impl Pool {
                 PolyVoice::Mono(m) => m.render(&ctx, out),
                 PolyVoice::La(l) => l.render(&ctx, out),
                 PolyVoice::Fm(f) => f.render(&ctx, out),
+                PolyVoice::Drum(d) => d.render(ctx.sine, out),
             }
         }
     }
@@ -809,7 +882,7 @@ mod tests {
             .filter(|v| v.active())
             .map(|v| match v {
                 PolyVoice::Mono(m) => m.mods().pitch[0],
-                PolyVoice::La(_) | PolyVoice::Fm(_) => 0.0,
+                PolyVoice::La(_) | PolyVoice::Fm(_) | PolyVoice::Drum(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -833,6 +906,7 @@ mod tests {
                 PolyVoice::Mono(m) => m.trim,
                 PolyVoice::La(l) => l.trim,
                 PolyVoice::Fm(f) => f.trim,
+                PolyVoice::Drum(_) => 1.0,
             })
             .collect()
     }

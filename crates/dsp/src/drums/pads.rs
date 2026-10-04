@@ -97,8 +97,9 @@ impl Svf {
     }
 }
 
-#[derive(Clone)]
-pub(super) struct PadVoice {
+/// One pad sounding: a pool voice of a TR-808 slot, or one of a `Kit`'s.
+#[derive(Clone, Copy)]
+pub struct PadVoice {
     pad: Pad,
     active: bool,
     /// Samples since the trigger.
@@ -122,7 +123,7 @@ pub(super) struct PadVoice {
 }
 
 impl PadVoice {
-    pub(super) fn new(pad: Pad, seed: u32) -> PadVoice {
+    pub(crate) fn new(pad: Pad, seed: u32) -> PadVoice {
         PadVoice {
             pad,
             active: false,
@@ -143,16 +144,25 @@ impl PadVoice {
         }
     }
 
-    pub(super) fn active(&self) -> bool {
+    pub(crate) fn active(&self) -> bool {
         self.active
     }
 
-    pub(super) fn choke(&mut self) {
+    pub(crate) fn pad(&self) -> Pad {
+        self.pad
+    }
+
+    /// Play `pad` from the next trigger on (a pool voice plays any pad).
+    pub(crate) fn set_pad(&mut self, pad: Pad) {
+        self.pad = pad;
+    }
+
+    pub(crate) fn choke(&mut self) {
         self.active = false;
     }
 
     /// Start a hit: everything the samples need is computed here.
-    pub(super) fn trigger(&mut self, p: &PadParams, gain: f32, sr: f32) {
+    pub(crate) fn trigger(&mut self, p: &PadParams, gain: f32, sr: f32) {
         let ratio = (p.tune / 12.0).exp2();
         let d = p.decay;
         let inc = |hz: f32| hz * ratio / sr;
@@ -225,7 +235,7 @@ impl PadVoice {
     }
 
     /// Add this pad's next `out.len()` samples into `out`.
-    pub(super) fn render(&mut self, sine: &[f32], out: &mut [f32]) {
+    pub(crate) fn render(&mut self, sine: &[f32], out: &mut [f32]) {
         for o in out.iter_mut() {
             if !self.active {
                 return;

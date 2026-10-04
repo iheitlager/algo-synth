@@ -25,11 +25,13 @@ pub enum Model {
     D50 = 12,
     Dx7 = 13,
     PolyMoog = 14,
+    /// The drum kit: eight synthesized pads, one voice each (#114).
+    Tr808 = 15,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 15] = [
+    pub const ALL: [(Model, &'static str); 16] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -45,6 +47,7 @@ impl Model {
         (Model::D50, "D50"),
         (Model::Dx7, "Dx7"),
         (Model::PolyMoog, "PolyMoog"),
+        (Model::Tr808, "Tr808"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -203,7 +206,8 @@ impl Model {
             Model::Jupiter8 => Filter::Ladder(JUPITER),
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
-            Model::D50 | Model::Dx7 => Filter::Ladder(D50),
+            // The kit has no filter of its own; the ladder's setting goes unused.
+            Model::D50 | Model::Dx7 | Model::Tr808 => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -224,6 +228,11 @@ impl Model {
     /// Whether the voice is the DX7's six-operator FM voice (spec 006 Req 13).
     pub fn uses_fm(self) -> bool {
         self == Model::Dx7
+    }
+
+    /// Whether the synth is the drum kit, whose keys hit pads (#114).
+    pub fn uses_drums(self) -> bool {
+        self == Model::Tr808
     }
 
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
@@ -256,7 +265,8 @@ impl Model {
             | Model::PpgWave
             | Model::D50
             | Model::Dx7
-            | Model::PolyMoog => Hp::None,
+            | Model::PolyMoog
+            | Model::Tr808 => Hp::None,
         }
     }
 

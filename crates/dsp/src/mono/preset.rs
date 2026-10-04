@@ -91,11 +91,13 @@ pub enum Preset {
     VoxHumana = 76,
     PolyFunk = 77,
     PolyBrass = 78,
+    Kit808 = 79,
+    TightKit = 80,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 79] = [
+    pub const ALL: [(Preset, &'static str); 81] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -175,6 +177,8 @@ impl Preset {
         (Preset::VoxHumana, "VoxHumana"),
         (Preset::PolyFunk, "PolyFunk"),
         (Preset::PolyBrass, "PolyBrass"),
+        (Preset::Kit808, "Kit808"),
+        (Preset::TightKit, "TightKit"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -197,6 +201,7 @@ impl Preset {
             Preset::PolyStrings | Preset::VoxHumana | Preset::PolyFunk | Preset::PolyBrass => {
                 Model::PolyMoog
             }
+            Preset::Kit808 | Preset::TightKit => Model::Tr808,
             Preset::LaFantasia
             | Preset::LaPluckPad
             | Preset::LaBreathFlute
@@ -2334,6 +2339,25 @@ impl Preset {
                 (Op6RateScale, 0.0),
             ],
             // Slow attacks, detuned carriers and a delayed vibrato from the LFO: a pad.
+            // The kit as it comes: every pad at its own decay and a middle tone.
+            Preset::Kit808 => &[(Model, 15.0)],
+            // Short and bright: clipped kick and toms, a snappy snare, closed-in hats.
+            Preset::TightKit => &[
+                (Model, 15.0),
+                (BdDecay, 0.45),
+                (BdTone, 0.7),
+                (SnDecay, 0.6),
+                (SnTone, 0.85),
+                (CpDecay, 0.6),
+                (ChDecay, 0.6),
+                (ChTone, 0.8),
+                (OhDecay, 0.5),
+                (OhTone, 0.8),
+                (LtDecay, 0.6),
+                (HtDecay, 0.6),
+                (CbDecay, 0.5),
+                (DrumAccent, 0.7),
+            ],
             // The Polymoog's Strings: a saw and a pulse, a slow attack and release, the
             // resonant filter left open, and the ensemble chorus.
             Preset::PolyStrings => &[
@@ -2556,7 +2580,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 291] = [
+pub const DEFAULTS: [(Param, f32); 324] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -2848,6 +2872,39 @@ pub const DEFAULTS: [(Param, f32); 291] = [
     (Param::LfoShape, 0.0),
     (Param::PitchSens, 3.0),
     (Param::Transpose, 24.0),
+    (Param::BdTune, 0.0),
+    (Param::BdDecay, 1.0),
+    (Param::BdTone, 0.5),
+    (Param::BdLevel, 0.8),
+    (Param::SnTune, 0.0),
+    (Param::SnDecay, 1.0),
+    (Param::SnTone, 0.5),
+    (Param::SnLevel, 0.8),
+    (Param::CpTune, 0.0),
+    (Param::CpDecay, 1.0),
+    (Param::CpTone, 0.5),
+    (Param::CpLevel, 0.8),
+    (Param::ChTune, 0.0),
+    (Param::ChDecay, 1.0),
+    (Param::ChTone, 0.5),
+    (Param::ChLevel, 0.8),
+    (Param::OhTune, 0.0),
+    (Param::OhDecay, 1.0),
+    (Param::OhTone, 0.5),
+    (Param::OhLevel, 0.8),
+    (Param::LtTune, 0.0),
+    (Param::LtDecay, 1.0),
+    (Param::LtTone, 0.5),
+    (Param::LtLevel, 0.8),
+    (Param::HtTune, 0.0),
+    (Param::HtDecay, 1.0),
+    (Param::HtTone, 0.5),
+    (Param::HtLevel, 0.8),
+    (Param::CbTune, 0.0),
+    (Param::CbDecay, 1.0),
+    (Param::CbTone, 0.5),
+    (Param::CbLevel, 0.8),
+    (Param::DrumAccent, 0.5),
 ];
 
 #[cfg(test)]

@@ -195,3 +195,30 @@ fn names_notes_and_knobs() {
     let p = kit.params(Pad::Sn);
     assert_eq!((p.tune, p.decay, p.tone, p.level), (12.0, 1.0, 0.0, 1.0));
 }
+
+#[test]
+fn every_key_plays_a_pad_and_general_midi_its_own() {
+    let gm = [
+        (35, Pad::Bd),
+        (36, Pad::Bd),
+        (38, Pad::Sn),
+        (39, Pad::Cp),
+        (40, Pad::Sn),
+        (42, Pad::Ch),
+        (44, Pad::Ch),
+        (46, Pad::Oh),
+        (45, Pad::Lt),
+        (50, Pad::Ht),
+        (56, Pad::Cb),
+    ];
+    for (note, pad) in gm {
+        assert_eq!(Pad::from_gm(note), pad, "note {note}");
+    }
+    for (pad, _) in Pad::ALL {
+        assert_eq!(Pad::from_gm(pad.note()), pad);
+    }
+    // Outside the map, the octave from 36 repeats.
+    assert_eq!(Pad::from_gm(24), Pad::Bd);
+    assert_eq!(Pad::from_gm(66), Pad::Ch);
+    assert_eq!(Pad::from_gm(127), Pad::Lt);
+}

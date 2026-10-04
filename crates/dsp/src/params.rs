@@ -732,6 +732,72 @@ pub enum Param {
     PitchSens = 363,
     /// Transpose, 24 is the middle C, 0..=48.
     Transpose = 364,
+    /// Drum kit: the kick's tune in semitones, −12..=12.
+    BdTune = 365,
+    /// Drum kit: the kick's decay as a factor on its own, 0.25..=4.
+    BdDecay = 366,
+    /// Drum kit: the kick's tone, 0..=1.
+    BdTone = 367,
+    /// Drum kit: the kick's level, 0..=1.
+    BdLevel = 368,
+    /// Drum kit: the snare's tune in semitones, −12..=12.
+    SnTune = 369,
+    /// Drum kit: the snare's decay as a factor on its own, 0.25..=4.
+    SnDecay = 370,
+    /// Drum kit: the snare's tone, 0..=1.
+    SnTone = 371,
+    /// Drum kit: the snare's level, 0..=1.
+    SnLevel = 372,
+    /// Drum kit: the clap's tune in semitones, −12..=12.
+    CpTune = 373,
+    /// Drum kit: the clap's decay as a factor on its own, 0.25..=4.
+    CpDecay = 374,
+    /// Drum kit: the clap's tone, 0..=1.
+    CpTone = 375,
+    /// Drum kit: the clap's level, 0..=1.
+    CpLevel = 376,
+    /// Drum kit: the closed hat's tune in semitones, −12..=12.
+    ChTune = 377,
+    /// Drum kit: the closed hat's decay as a factor on its own, 0.25..=4.
+    ChDecay = 378,
+    /// Drum kit: the closed hat's tone, 0..=1.
+    ChTone = 379,
+    /// Drum kit: the closed hat's level, 0..=1.
+    ChLevel = 380,
+    /// Drum kit: the open hat's tune in semitones, −12..=12.
+    OhTune = 381,
+    /// Drum kit: the open hat's decay as a factor on its own, 0.25..=4.
+    OhDecay = 382,
+    /// Drum kit: the open hat's tone, 0..=1.
+    OhTone = 383,
+    /// Drum kit: the open hat's level, 0..=1.
+    OhLevel = 384,
+    /// Drum kit: the low tom's tune in semitones, −12..=12.
+    LtTune = 385,
+    /// Drum kit: the low tom's decay as a factor on its own, 0.25..=4.
+    LtDecay = 386,
+    /// Drum kit: the low tom's tone, 0..=1.
+    LtTone = 387,
+    /// Drum kit: the low tom's level, 0..=1.
+    LtLevel = 388,
+    /// Drum kit: the high tom's tune in semitones, −12..=12.
+    HtTune = 389,
+    /// Drum kit: the high tom's decay as a factor on its own, 0.25..=4.
+    HtDecay = 390,
+    /// Drum kit: the high tom's tone, 0..=1.
+    HtTone = 391,
+    /// Drum kit: the high tom's level, 0..=1.
+    HtLevel = 392,
+    /// Drum kit: the cowbell's tune in semitones, −12..=12.
+    CbTune = 393,
+    /// Drum kit: the cowbell's decay as a factor on its own, 0.25..=4.
+    CbDecay = 394,
+    /// Drum kit: the cowbell's tone, 0..=1.
+    CbTone = 395,
+    /// Drum kit: the cowbell's level, 0..=1.
+    CbLevel = 396,
+    /// Drum kit: how much louder an accented hit is, 0..=1.
+    DrumAccent = 397,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -816,7 +882,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 365] = [
+    pub const ALL: [(Param, &'static str); 398] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1182,6 +1248,39 @@ impl Param {
         (Param::LfoShape, "LfoShape"),
         (Param::PitchSens, "PitchSens"),
         (Param::Transpose, "Transpose"),
+        (Param::BdTune, "BdTune"),
+        (Param::BdDecay, "BdDecay"),
+        (Param::BdTone, "BdTone"),
+        (Param::BdLevel, "BdLevel"),
+        (Param::SnTune, "SnTune"),
+        (Param::SnDecay, "SnDecay"),
+        (Param::SnTone, "SnTone"),
+        (Param::SnLevel, "SnLevel"),
+        (Param::CpTune, "CpTune"),
+        (Param::CpDecay, "CpDecay"),
+        (Param::CpTone, "CpTone"),
+        (Param::CpLevel, "CpLevel"),
+        (Param::ChTune, "ChTune"),
+        (Param::ChDecay, "ChDecay"),
+        (Param::ChTone, "ChTone"),
+        (Param::ChLevel, "ChLevel"),
+        (Param::OhTune, "OhTune"),
+        (Param::OhDecay, "OhDecay"),
+        (Param::OhTone, "OhTone"),
+        (Param::OhLevel, "OhLevel"),
+        (Param::LtTune, "LtTune"),
+        (Param::LtDecay, "LtDecay"),
+        (Param::LtTone, "LtTone"),
+        (Param::LtLevel, "LtLevel"),
+        (Param::HtTune, "HtTune"),
+        (Param::HtDecay, "HtDecay"),
+        (Param::HtTone, "HtTone"),
+        (Param::HtLevel, "HtLevel"),
+        (Param::CbTune, "CbTune"),
+        (Param::CbDecay, "CbDecay"),
+        (Param::CbTone, "CbTone"),
+        (Param::CbLevel, "CbLevel"),
+        (Param::DrumAccent, "DrumAccent"),
     ];
 
     /// A mixer strip's parameters: the fader, pan, sends, mute and solo. The
@@ -1496,6 +1595,39 @@ impl Param {
             | Param::Op6Detune => (0.0, 14.0),
             Param::LfoShape => (0.0, 5.0),
             Param::Transpose => (0.0, 48.0),
+            Param::BdTune
+            | Param::SnTune
+            | Param::CpTune
+            | Param::ChTune
+            | Param::OhTune
+            | Param::LtTune
+            | Param::HtTune
+            | Param::CbTune => (-12.0, 12.0),
+            Param::BdDecay
+            | Param::SnDecay
+            | Param::CpDecay
+            | Param::ChDecay
+            | Param::OhDecay
+            | Param::LtDecay
+            | Param::HtDecay
+            | Param::CbDecay => (0.25, 4.0),
+            Param::BdTone
+            | Param::SnTone
+            | Param::CpTone
+            | Param::ChTone
+            | Param::OhTone
+            | Param::LtTone
+            | Param::HtTone
+            | Param::CbTone
+            | Param::BdLevel
+            | Param::SnLevel
+            | Param::CpLevel
+            | Param::ChLevel
+            | Param::OhLevel
+            | Param::LtLevel
+            | Param::HtLevel
+            | Param::CbLevel
+            | Param::DrumAccent => (0.0, 1.0),
             Param::Lfo2Rate => (0.01, 50.0),
             Param::Lfo2Wave => (0.0, 3.0),
             Param::RampTime => (0.01, 30.0),

@@ -17,6 +17,7 @@ pub mod preset;
 pub mod svf;
 pub mod voice;
 
+use crate::drums::{PADS, Pad, PadParams};
 use crate::fm::patch::FmPatch;
 use crate::params::Param;
 use env::EnvTimes;
@@ -68,6 +69,9 @@ pub struct MonoParams {
     pub p2_adsr: EnvTimes,
     /// The DX7 voice (spec 006 Req 13).
     pub fm: FmPatch,
+    /// The drum kit's pads and its accent (`Model::Tr808`).
+    pub drums: [PadParams; PADS],
+    pub drum_accent: f32,
     pub wave: [Waveform; VCOS],
     /// Coarse tune in semitones and fine tune in cents, per VCO.
     coarse: [f32; VCOS],
@@ -176,6 +180,8 @@ impl MonoParams {
             p2_fadsr: off,
             p2_adsr: off,
             fm: FmPatch::default(),
+            drums: [PadParams::default(); PADS],
+            drum_accent: 0.5,
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
             fine: [0.0; VCOS],
@@ -597,6 +603,39 @@ impl MonoParams {
             Param::LfoShape => self.fm.set_global(16, v),
             Param::PitchSens => self.fm.set_global(17, v),
             Param::Transpose => self.fm.set_global(18, v),
+            Param::BdTune => self.pad(Pad::Bd, |p| p.tune = v),
+            Param::BdDecay => self.pad(Pad::Bd, |p| p.decay = v),
+            Param::BdTone => self.pad(Pad::Bd, |p| p.tone = v),
+            Param::BdLevel => self.pad(Pad::Bd, |p| p.level = v),
+            Param::SnTune => self.pad(Pad::Sn, |p| p.tune = v),
+            Param::SnDecay => self.pad(Pad::Sn, |p| p.decay = v),
+            Param::SnTone => self.pad(Pad::Sn, |p| p.tone = v),
+            Param::SnLevel => self.pad(Pad::Sn, |p| p.level = v),
+            Param::CpTune => self.pad(Pad::Cp, |p| p.tune = v),
+            Param::CpDecay => self.pad(Pad::Cp, |p| p.decay = v),
+            Param::CpTone => self.pad(Pad::Cp, |p| p.tone = v),
+            Param::CpLevel => self.pad(Pad::Cp, |p| p.level = v),
+            Param::ChTune => self.pad(Pad::Ch, |p| p.tune = v),
+            Param::ChDecay => self.pad(Pad::Ch, |p| p.decay = v),
+            Param::ChTone => self.pad(Pad::Ch, |p| p.tone = v),
+            Param::ChLevel => self.pad(Pad::Ch, |p| p.level = v),
+            Param::OhTune => self.pad(Pad::Oh, |p| p.tune = v),
+            Param::OhDecay => self.pad(Pad::Oh, |p| p.decay = v),
+            Param::OhTone => self.pad(Pad::Oh, |p| p.tone = v),
+            Param::OhLevel => self.pad(Pad::Oh, |p| p.level = v),
+            Param::LtTune => self.pad(Pad::Lt, |p| p.tune = v),
+            Param::LtDecay => self.pad(Pad::Lt, |p| p.decay = v),
+            Param::LtTone => self.pad(Pad::Lt, |p| p.tone = v),
+            Param::LtLevel => self.pad(Pad::Lt, |p| p.level = v),
+            Param::HtTune => self.pad(Pad::Ht, |p| p.tune = v),
+            Param::HtDecay => self.pad(Pad::Ht, |p| p.decay = v),
+            Param::HtTone => self.pad(Pad::Ht, |p| p.tone = v),
+            Param::HtLevel => self.pad(Pad::Ht, |p| p.level = v),
+            Param::CbTune => self.pad(Pad::Cb, |p| p.tune = v),
+            Param::CbDecay => self.pad(Pad::Cb, |p| p.decay = v),
+            Param::CbTone => self.pad(Pad::Cb, |p| p.tone = v),
+            Param::CbLevel => self.pad(Pad::Cb, |p| p.level = v),
+            Param::DrumAccent => self.drum_accent = v,
             Param::Lfo2Rate => self.lfo2_inc = v / self.sample_rate,
             Param::Lfo2Wave => {
                 if let Some(w) = Waveform::from_id(v.round() as u32) {
@@ -621,6 +660,13 @@ impl MonoParams {
         } else {
             self.patch.overridden()
         };
+    }
+
+    /// Change a pad's knobs.
+    fn pad(&mut self, pad: Pad, f: impl FnOnce(&mut PadParams)) {
+        if let Some(p) = self.drums.get_mut(pad as usize) {
+            f(p);
+        }
     }
 
     fn set_wave(&mut self, vco: usize, v: f32) {
