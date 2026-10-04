@@ -8,7 +8,7 @@ import { computed } from 'vue'
 import { GROUPS, groupColour, groupStrip, heardStrips, orderStrips, outChoices, STRIPS } from '../audio/console'
 import { addGroup, layout, moveStrip, params, player, removeGroup, renameSynth, setOut, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
 import { modelDef } from '../audio/models'
-import { Param } from '../audio/params'
+import { Model, Pad, Param, type ParamId } from '../audio/params'
 import ChannelStrip from './console/ChannelStrip.vue'
 import InsertPanel from './console/InsertPanel.vue'
 import StripPanel from './console/StripPanel.vue'
@@ -22,9 +22,17 @@ const shown = computed(() => [...synths.list, ...layout.groups.map(groupStrip)])
 const order = computed(() => orderStrips(layout.order, shown.value).filter((id) => !layout.hidden.includes(id)))
 const hidden = computed(() => shown.value.filter((id) => layout.hidden.includes(id)))
 
+// A drum kit's pads go to groups by their own Out (#162): the groups it feeds.
+const padOuts = Object.keys(Pad).map((n) => Param[`${n[0]?.toUpperCase()}${n.slice(1)}Out` as keyof typeof Param] as ParamId)
+const feeds = (s: number) =>
+  val(s, Param.Model) === Model.Tr808 ? padOuts.map((id) => Math.round(val(s, id))).filter((o) => o >= 1 && o <= GROUPS).map((o) => o - 1) : []
 // Heard or silenced, as the engine's mixer decides it (mute, solo, groups).
 const heard = computed(() =>
-  heardStrips(Array.from({ length: STRIPS }, (_, i) => ({ mute: val(i, Param.Mute) >= 0.5, solo: val(i, Param.Solo) >= 0.5, out: Math.round(val(i, Param.Out)) }))),
+  heardStrips(
+    Array.from({ length: STRIPS }, (_, i) => ({
+      mute: val(i, Param.Mute) >= 0.5, solo: val(i, Param.Solo) >= 0.5, out: Math.round(val(i, Param.Out)), feeds: feeds(i),
+    })),
+  ),
 )
 const members = (g: number) => shown.value.filter((id) => id !== groupStrip(g) && Math.round(val(id, Param.Out)) === g + 1).length
 

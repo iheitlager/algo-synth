@@ -17,7 +17,7 @@ pub mod preset;
 pub mod svf;
 pub mod voice;
 
-use crate::drums::{PADS, Pad, PadParams};
+use crate::drums::{PADS, Pad, PadOut, PadParams};
 use crate::fm::patch::FmPatch;
 use crate::padsampler::PadKit;
 use crate::params::Param;
@@ -73,6 +73,8 @@ pub struct MonoParams {
     /// The drum kit's pads and its accent (`Model::Tr808`).
     pub drums: [PadParams; PADS],
     pub drum_accent: f32,
+    /// Where each pad goes (#162).
+    pub pad_outs: [PadOut; PADS],
     /// The drum/pad sampler's sixteen pads (#124); set through `padsampler::PadField`, not parameters.
     pub pad_kit: PadKit,
     pub wave: [Waveform; VCOS],
@@ -185,6 +187,7 @@ impl MonoParams {
             fm: FmPatch::default(),
             drums: [PadParams::default(); PADS],
             drum_accent: 0.5,
+            pad_outs: [PadOut::default(); PADS],
             pad_kit: PadKit::default(),
             wave: [Waveform::Saw; VCOS],
             coarse: [0.0; VCOS],
@@ -352,6 +355,15 @@ impl MonoParams {
             | Param::I3D
             | Param::I3E
             | Param::Out
+            | Param::Send1Pre
+            | Param::Send2Pre
+            | Param::Send3Pre
+            | Param::Send4Pre
+            | Param::Send1On
+            | Param::Send2On
+            | Param::Send3On
+            | Param::Send4On
+            | Param::Key
             | Param::P2In
             | Param::P3In
             | Param::P4In
@@ -672,6 +684,38 @@ impl MonoParams {
             Param::HcTone => self.pad(Pad::Hc, |p| p.tone = v),
             Param::HcLevel => self.pad(Pad::Hc, |p| p.level = v),
             Param::DrumAccent => self.drum_accent = v,
+            Param::BdOut => self.pad_out(Pad::Bd, |o| o.group = v.round() as usize),
+            Param::BdPan => self.pad_out(Pad::Bd, |o| o.set_pan(v)),
+            Param::SnOut => self.pad_out(Pad::Sn, |o| o.group = v.round() as usize),
+            Param::SnPan => self.pad_out(Pad::Sn, |o| o.set_pan(v)),
+            Param::CpOut => self.pad_out(Pad::Cp, |o| o.group = v.round() as usize),
+            Param::CpPan => self.pad_out(Pad::Cp, |o| o.set_pan(v)),
+            Param::ChOut => self.pad_out(Pad::Ch, |o| o.group = v.round() as usize),
+            Param::ChPan => self.pad_out(Pad::Ch, |o| o.set_pan(v)),
+            Param::OhOut => self.pad_out(Pad::Oh, |o| o.group = v.round() as usize),
+            Param::OhPan => self.pad_out(Pad::Oh, |o| o.set_pan(v)),
+            Param::LtOut => self.pad_out(Pad::Lt, |o| o.group = v.round() as usize),
+            Param::LtPan => self.pad_out(Pad::Lt, |o| o.set_pan(v)),
+            Param::HtOut => self.pad_out(Pad::Ht, |o| o.group = v.round() as usize),
+            Param::HtPan => self.pad_out(Pad::Ht, |o| o.set_pan(v)),
+            Param::CbOut => self.pad_out(Pad::Cb, |o| o.group = v.round() as usize),
+            Param::CbPan => self.pad_out(Pad::Cb, |o| o.set_pan(v)),
+            Param::RsOut => self.pad_out(Pad::Rs, |o| o.group = v.round() as usize),
+            Param::RsPan => self.pad_out(Pad::Rs, |o| o.set_pan(v)),
+            Param::ClOut => self.pad_out(Pad::Cl, |o| o.group = v.round() as usize),
+            Param::ClPan => self.pad_out(Pad::Cl, |o| o.set_pan(v)),
+            Param::MaOut => self.pad_out(Pad::Ma, |o| o.group = v.round() as usize),
+            Param::MaPan => self.pad_out(Pad::Ma, |o| o.set_pan(v)),
+            Param::CyOut => self.pad_out(Pad::Cy, |o| o.group = v.round() as usize),
+            Param::CyPan => self.pad_out(Pad::Cy, |o| o.set_pan(v)),
+            Param::MtOut => self.pad_out(Pad::Mt, |o| o.group = v.round() as usize),
+            Param::MtPan => self.pad_out(Pad::Mt, |o| o.set_pan(v)),
+            Param::LcOut => self.pad_out(Pad::Lc, |o| o.group = v.round() as usize),
+            Param::LcPan => self.pad_out(Pad::Lc, |o| o.set_pan(v)),
+            Param::McOut => self.pad_out(Pad::Mc, |o| o.group = v.round() as usize),
+            Param::McPan => self.pad_out(Pad::Mc, |o| o.set_pan(v)),
+            Param::HcOut => self.pad_out(Pad::Hc, |o| o.group = v.round() as usize),
+            Param::HcPan => self.pad_out(Pad::Hc, |o| o.set_pan(v)),
             Param::Lfo2Rate => self.lfo2_inc = v / self.sample_rate,
             Param::Lfo2Wave => {
                 if let Some(w) = Waveform::from_id(v.round() as u32) {
@@ -696,6 +740,25 @@ impl MonoParams {
         } else {
             self.patch.overridden()
         };
+    }
+
+    /// Change where a pad goes.
+    fn pad_out(&mut self, pad: Pad, f: impl FnOnce(&mut PadOut)) {
+        if let Some(o) = self.pad_outs.get_mut(pad as usize) {
+            f(o);
+        }
+    }
+
+    /// The groups the drum kit's pads go to, as a bit per group (bit 0 is
+    /// group 1); none unless the synth is a kit.
+    pub fn pad_groups(&self) -> u8 {
+        if !self.model.uses_drums() {
+            return 0;
+        }
+        self.pad_outs
+            .iter()
+            .filter(|o| (1..=8).contains(&o.group))
+            .fold(0, |m, o| m | 1 << (o.group - 1))
     }
 
     /// Change a pad's knobs.

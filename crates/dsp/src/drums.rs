@@ -138,6 +138,37 @@ impl Pad {
     }
 }
 
+/// Where a pad goes (#162), as the 808's individual outs: the kit's own
+/// strip, or a group bus, panned there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PadOut {
+    /// 0 is the kit's strip, 1–8 a group.
+    pub group: usize,
+    /// Left and right gains into the group: an equal-power pan, worked out
+    /// when it is set (ADR-0002).
+    pub gains: [f32; 2],
+}
+
+impl Default for PadOut {
+    fn default() -> PadOut {
+        let mut out = PadOut {
+            group: 0,
+            gains: [0.0; 2],
+        };
+        out.set_pan(0.0);
+        out
+    }
+}
+
+impl PadOut {
+    /// Pan into the group: −1 all left, +1 all right, 0 is −3 dB each.
+    pub fn set_pan(&mut self, v: f32) {
+        let v = if v.is_nan() { 0.0 } else { v.clamp(-1.0, 1.0) };
+        let angle = (v + 1.0) * std::f32::consts::FRAC_PI_4;
+        self.gains = [angle.cos(), angle.sin()];
+    }
+}
+
 /// A pad's knobs.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PadParams {

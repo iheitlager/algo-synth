@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-04
+
+### Added
+
+- **Pre/post-fader sends, and an on/off switch per send:** each send can be taken before the fader (washes, throws) and switched off without losing its level. Mute still silences both kinds (#144).
+- **Individual outs for the drum kit:** each pad of a TR-808 goes to the kit's strip or straight into a group bus, panned there, so a clap or snare gets its own EQ, compressor and sends. Soloing the kit keeps its groups heard (#162).
+- **A vocoder insert:** the strip it sits on is the carrier; its Key picks the synth whose raw signal (before its inserts, fader and mute) shapes it, so muting the modulator hides it. Sixteen 4th-order bands, with shift, release, unvoiced noise, width and dry (#161).
+- **Out: None:** a strip can go nowhere, still feeding its sends and any vocoder keyed to it (#161).
+
+### Fixed
+
+- A new insert type was clamped to the compressor: the type's range now follows the list of types.
+
 ## [0.28.0] - 2026-10-04
 
 Part of the algorithmic compositions epic (#169): notes and generators in the song text.

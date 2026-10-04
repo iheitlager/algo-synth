@@ -3,7 +3,7 @@
 // has, with their real units. Mount it once; a slot button opens it.
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { INSERT_KNOBS } from '../../audio/console'
-import { getEngine, params } from '../../audio/engine'
+import { getEngine, params, stripName, synths } from '../../audio/engine'
 import { InsertType, Param } from '../../audio/params'
 import { closeInsertPanel, insertPanel as p } from './insertPanel'
 import PresetBar from '../PresetBar.vue'
@@ -16,6 +16,10 @@ const types = Object.entries(InsertType)
 /** The type's name, as effect presets store it. */
 const typeName = computed(() => types.find(([, t]) => t === type.value)?.[0])
 const pick = (t: number) => getEngine()?.param(p.strip, id('Type'), t)
+// A vocoder follows another synth's raw signal (#161): the strip's Key, 0 none, 1–16 a synth.
+const key = computed(() => Math.round(params.values[p.strip]?.[Param.Key] ?? 0))
+const keys = computed(() => synths.list.filter((s) => s !== p.strip))
+const setKey = (e: Event) => getEngine()?.param(p.strip, Param.Key, Number((e.target as HTMLSelectElement).value))
 
 function onDown(e: PointerEvent) {
   if (!p.open) return
@@ -45,6 +49,14 @@ onBeforeUnmount(() => { removeEventListener('pointerdown', onDown, true); remove
       />
     </div>
     <div v-else class="empty">Empty slot · pick a type</div>
+    <label v-if="type === InsertType.Vocoder" class="key">
+      <span>Modulator</span>
+      <select :value="key" @change="setKey">
+        <option :value="0">None</option>
+        <option v-for="s in keys" :key="s" :value="s + 1">{{ stripName(s) }}</option>
+      </select>
+      <small>its signal before its inserts, fader and mute: mute it to hide it</small>
+    </label>
   </div>
 </template>
 
@@ -62,5 +74,7 @@ header span { font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase
 .seg button[aria-pressed='true'] { background: var(--con-drive); color: #fff; font-weight: 700; }
 .knobs { display: flex; gap: 12px; margin-top: 12px; justify-content: space-between; }
 .preset-row { margin-top: 8px; }
+.key { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin-top: 10px; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--con-silk-dim); }
+.key small { grid-column: 1 / -1; text-transform: none; letter-spacing: 0; }
 .empty { margin-top: 12px; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--con-silk-dim); }
 </style>

@@ -208,6 +208,9 @@ impl Engine {
             *slot = v;
         }
         mono.set(param, v);
+        // A kit's individual outs feed groups directly; the solos follow them.
+        let feeds = mono.pad_groups();
+        self.mixer.set_feeds(synth, feeds);
         if param == Param::ChorusMode {
             if let Some(c) = self.chorus.get_mut(synth) {
                 c.set_mode(mono.chorus_mode);
@@ -876,6 +879,13 @@ impl Engine {
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
                 if pool.active() == 0 {
+                    continue;
+                }
+                if params.model.uses_drums() {
+                    // The kit's pads go to its strip or straight to a group (#162).
+                    if let Some((bus, direct)) = self.mixer.kit_outs(synth, t..t + chunk) {
+                        pool.render_kit(params, &self.sine, &self.blep, bus, direct, t);
+                    }
                     continue;
                 }
                 if params.model.uses_pads() {
@@ -1902,6 +1912,43 @@ mod tests {
         assert!(peak(e.output()) < peak(&dry));
     }
 
+    /// #144: a send taken before the fader ignores it; one switched off is
+    /// silent and keeps its level; mute silences both kinds.
+    #[test]
+    fn sends_before_the_fader_and_switched_off() {
+        let send = |setup: &dyn Fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::Send1, 1.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            e.render(BLOCK);
+            e.mixer.sends[0].iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+        };
+        let post_full = send(&|_| {});
+        let post_down = send(&|e| e.set_param(0, Param::Level, 0.0));
+        let pre_down = send(&|e| {
+            e.set_param(0, Param::Send1Pre, 1.0);
+            e.set_param(0, Param::Level, 0.0);
+        });
+        assert!(
+            post_full > 0.0 && post_down == 0.0,
+            "post follows the fader"
+        );
+        assert_eq!(pre_down, post_full, "pre ignores it");
+        let off = send(&|e| e.set_param(0, Param::Send1On, 0.0));
+        assert_eq!(off, 0.0, "off is silent");
+        let back = send(&|e| {
+            e.set_param(0, Param::Send1On, 0.0);
+            e.set_param(0, Param::Send1On, 1.0);
+        });
+        assert_eq!(back, post_full, "and keeps its level");
+        let muted = send(&|e| {
+            e.set_param(0, Param::Send1Pre, 1.0);
+            e.set_param(0, Param::Mute, 1.0);
+        });
+        assert_eq!(muted, 0.0, "mute silences a pre send");
+    }
+
     #[test]
     fn each_send_feeds_its_own_processor_bus() {
         for (i, send) in [Param::Send1, Param::Send2, Param::Send3, Param::Send4]
@@ -1924,7 +1971,12 @@ mod tests {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::Level, 0.25);
         assert_eq!(e.param_value(0, Param::Level), 0.25);
-        assert!(Param::ALL.iter().filter(|(p, _)| p.is_strip()).count() == 27);
+        // Every strip parameter has a default, and nothing else is one.
+        assert_eq!(
+            Param::ALL.iter().filter(|(p, _)| p.is_strip()).count(),
+            STRIP_DEFAULTS.len()
+        );
+        assert!(STRIP_DEFAULTS.iter().all(|(p, _)| p.is_strip()));
     }
 
     #[test]
@@ -2291,7 +2343,11 @@ mod tests {
         e.set_param(0, Param::Out, 8.0);
         assert_eq!(e.param_value(0, Param::Out), 8.0, "any group for a synth");
         e.set_param(0, Param::Out, 99.0);
-        assert_eq!(e.param_value(0, Param::Out), 8.0, "clamped, not wrapped");
+        assert_eq!(
+            e.param_value(0, Param::Out),
+            9.0,
+            "clamped to nowhere (#161), not wrapped"
+        );
     }
 
     #[test]
@@ -3079,5 +3135,177 @@ mod tests {
         let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
         assert!(heard > 0.05, "the snare pad at 0.5 s");
         assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
+    }
+
+    /// One clap on a kit at synth 0, the meters read after `blocks`.
+    fn clap_meters(setup: &dyn Fn(&mut Engine)) -> (Vec<f32>, Vec<f32>) {
+        let mut e = kit(0);
+        setup(&mut e);
+        e.clear_meters();
+        e.note_on(0, 39, 0.8);
+        let mut out = Vec::new();
+        for _ in 0..20 {
+            e.render(BLOCK);
+            out.extend_from_slice(e.output());
+        }
+        (e.meters().to_vec(), out)
+    }
+
+    const GROUP_3: usize = SYNTHS + 2;
+
+    /// #162: a pad on a group is heard only through that group, and its
+    /// controls apply; a pad on Main sounds exactly as before.
+    #[test]
+    fn a_pad_on_a_group_goes_only_through_that_group() {
+        let (main_meters, main_out) = clap_meters(&|_| {});
+        assert!(main_meters[0] > 0.0 && main_meters[GROUP_3] == 0.0);
+        let (meters, out) = clap_meters(&|e| e.set_param(0, Param::CpOut, 3.0));
+        assert_eq!(meters[0], 0.0, "not on the kit's strip");
+        assert!(meters[GROUP_3] > 0.0, "on group 3");
+        assert!(
+            out.iter().any(|x| *x != 0.0) && out.iter().all(|x| x.is_finite() && x.abs() <= 1.0)
+        );
+        // The group's fader and mute apply; the kit's own mute does not.
+        let (_, down) = clap_meters(&|e| {
+            e.set_param(0, Param::CpOut, 3.0);
+            e.set_param(GROUP_3, Param::Level, 0.0);
+        });
+        assert!(down.iter().all(|x| *x == 0.0));
+        let (_, kit_muted) = clap_meters(&|e| {
+            e.set_param(0, Param::CpOut, 3.0);
+            e.set_param(0, Param::Mute, 1.0);
+        });
+        assert_eq!(kit_muted, out, "an individual out bypasses the kit's strip");
+        // Back on Main, bit for bit as a fresh kit.
+        let (_, back) = clap_meters(&|e| {
+            e.set_param(0, Param::CpOut, 3.0);
+            e.set_param(0, Param::CpOut, 0.0);
+        });
+        assert_eq!(back, main_out);
+    }
+
+    #[test]
+    fn a_pad_is_panned_into_its_group() {
+        let (_, hard_left) = clap_meters(&|e| {
+            e.set_param(0, Param::CpOut, 3.0);
+            e.set_param(0, Param::CpPan, -1.0);
+        });
+        let right: Vec<f32> = hard_left
+            .chunks(BLOCK)
+            .skip(1)
+            .step_by(2)
+            .flatten()
+            .copied()
+            .collect();
+        let left: Vec<f32> = hard_left
+            .chunks(BLOCK)
+            .step_by(2)
+            .flatten()
+            .copied()
+            .collect();
+        assert!(left.iter().any(|x| *x != 0.0));
+        assert!(
+            right.iter().all(|x| x.abs() < 1.0e-6),
+            "nothing on the right"
+        );
+    }
+
+    #[test]
+    fn solos_follow_a_kits_individual_outs() {
+        let heard = |setup: &dyn Fn(&mut Engine)| clap_meters(setup).1.iter().any(|x| *x != 0.0);
+        assert!(
+            heard(&|e| {
+                e.set_param(0, Param::CpOut, 3.0);
+                e.set_param(0, Param::Solo, 1.0);
+            }),
+            "soloing the kit keeps the group its clap goes to"
+        );
+        assert!(
+            !heard(&|e| {
+                e.set_param(0, Param::CpOut, 3.0);
+                e.set_param(1, Param::Solo, 1.0);
+            }),
+            "soloing another synth silences it"
+        );
+        assert!(
+            heard(&|e| {
+                e.set_param(0, Param::CpOut, 3.0);
+                e.set_param(GROUP_3, Param::Solo, 1.0);
+            }),
+            "soloing the group plays it"
+        );
+    }
+
+    /// A carrier on synth 0 with a vocoder keyed to synth 1, both playing.
+    fn vocoded(setup: &dyn Fn(&mut Engine)) -> Vec<f32> {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::I1Type, 6.0);
+        e.set_param(0, Param::Key, 2.0);
+        setup(&mut e);
+        e.note_on(0, 48, 1.0);
+        e.note_on(1, 60, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..40 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|x| x.is_finite()));
+            out.extend_from_slice(e.output());
+        }
+        out
+    }
+
+    fn loud(x: &[f32]) -> f32 {
+        x.iter().fold(0.0_f32, |m, v| m.max(v.abs()))
+    }
+
+    /// #161: the vocoder follows its key's raw signal, which a muted or
+    /// unrouted key strip still gives; without a key, or keyed to itself, it is silent.
+    #[test]
+    fn a_vocoder_follows_its_key_even_muted_or_routed_nowhere() {
+        let both = vocoded(&|_| {});
+        assert!(loud(&both) > 0.01);
+        let muted_key = vocoded(&|e| e.set_param(1, Param::Mute, 1.0));
+        assert!(loud(&muted_key) > 0.01, "the key is read before its mute");
+        let hidden_key = vocoded(&|e| e.set_param(1, Param::Out, 9.0));
+        assert!(loud(&hidden_key) > 0.01, "and before its Out");
+        // With the key muted only the vocoded carrier is heard.
+        let silent_key = vocoded(&|e| {
+            e.set_param(1, Param::Mute, 1.0);
+            e.set_param(0, Param::Key, 0.0);
+        });
+        assert!(silent_key.iter().all(|x| *x == 0.0), "no key, no sound");
+        let own = vocoded(&|e| {
+            e.set_param(1, Param::Mute, 1.0);
+            e.set_param(0, Param::Key, 1.0);
+        });
+        assert!(own.iter().all(|x| *x == 0.0), "a strip cannot key itself");
+    }
+
+    /// #161: Out None takes a strip out of the mix, but not out of its sends.
+    #[test]
+    fn a_strip_routed_nowhere_leaves_no_trace_but_feeds_its_sends() {
+        let render = |setup: &dyn Fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            let mut out = Vec::new();
+            let mut sent = 0.0_f32;
+            for _ in 0..20 {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output());
+                sent = sent.max(loud(&e.mixer.sends[0]));
+            }
+            (out, sent, e.meters()[0])
+        };
+        let (silent, _, _) = render(&|_| {});
+        let (out, sent, meter) = render(&|e| {
+            e.set_param(0, Param::Out, 9.0);
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::P1Type, 0.0);
+        });
+        assert!(loud(&silent) > 0.0);
+        assert!(out.iter().all(|x| *x == 0.0), "nothing reaches the master");
+        assert!(sent > 0.0, "but the send is fed");
+        assert!(meter > 0.0, "and the strip's meter shows it");
     }
 }
