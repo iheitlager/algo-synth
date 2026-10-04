@@ -121,6 +121,12 @@ impl Clock {
         self.next = k;
     }
 
+    /// The position in steps, fractional and without swing: what automation
+    /// reads between steps.
+    pub fn step_position(&self) -> f64 {
+        self.anchor_step as f64 + (self.pos as f64 - self.anchor_sample) / self.step_len
+    }
+
     /// Position in samples.
     pub fn position(&self) -> u64 {
         self.pos

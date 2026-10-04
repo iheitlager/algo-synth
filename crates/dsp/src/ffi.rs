@@ -671,6 +671,13 @@ pub extern "C" fn song_local() -> i32 {
     })
 }
 
+/// The strips the song's automation changed since the last call, a bit per
+/// strip (globals on bit 0), so the view can ask for their values again.
+#[unsafe(no_mangle)]
+pub extern "C" fn auto_touched() -> u32 {
+    query(0, Engine::take_touched)
+}
+
 /// 1 while the song plays.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_playing() -> u32 {

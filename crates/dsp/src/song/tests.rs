@@ -119,7 +119,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, track, frag, section, arrange or loop",
+            "a line starts with tempo, swing, scale, track, frag, auto, scene, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -672,7 +672,9 @@ fn sections_and_the_arrangement_parse_and_print() {
         Section {
             name: "main".into(),
             bars: 4,
-            frags: vec![0, 1]
+            frags: vec![0, 1],
+            autos: vec![],
+            scenes: vec![],
         }
     );
     assert_eq!(
@@ -772,7 +774,12 @@ fn arrangement_errors_say_where() {
         ("section a 2 b", 4, 13, ": goes here, after the bars"),
         ("section a 0: b", 4, 11, "a section is 1 to 256 bars"),
         ("section a 300: b", 4, 11, "a section is 1 to 256 bars"),
-        ("section a 2: c", 4, 14, "no frag has this name"),
+        (
+            "section a 2: c",
+            4,
+            14,
+            "no frag, auto or [scene] has this name",
+        ),
         (
             "section a 2: b b",
             4,
@@ -809,4 +816,141 @@ fn arrangement_errors_say_where() {
     assert_eq!(err.msg, "the last bar comes after the first");
     let err = Song::parse(&format!("{head}section a 1:\narrange a\narrange a")).expect_err("two");
     assert_eq!(err.msg, "a song has one arrange line");
+}
+
+const AUTOMATED: &str = "\
+track kit drums
+frag beat = kit /16
+  bd x...
+auto sweep = kit.Cutoff ramp 300 4000 /2
+auto duck = strip3.Level 1 0.5 0.25 1 /1
+auto wet = master.P2Return 0 0.4 /4
+scene drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4
+section a 2: beat sweep [drop]
+section b 1: duck wet
+arrange a b
+";
+
+/// ADR-0015: automation lanes and scenes, by parameter name on a target,
+/// parse and print canonically.
+#[test]
+fn automation_and_scenes_parse_and_print() {
+    let s = Song::parse(AUTOMATED).expect("parses");
+    assert_eq!(s.autos.len(), 3);
+    assert_eq!(s.autos[0].target, Target::Track(0));
+    assert_eq!(s.autos[0].param, Param::Cutoff);
+    assert_eq!(s.autos[0].shape, Shape::Ramp(300.0, 4000.0));
+    assert_eq!(s.autos[1].target, Target::Strip(2));
+    assert_eq!(s.autos[1].shape, Shape::Steps(vec![1.0, 0.5, 0.25, 1.0]));
+    assert_eq!(s.autos[2].target, Target::Master);
+    assert_eq!(
+        s.scenes[0].sets,
+        vec![
+            (Target::Strip(0), Param::Mute, 1.0),
+            (Target::Strip(17), Param::Send1, 0.5),
+            (Target::Master, Param::P2Return, 0.4)
+        ]
+    );
+    assert_eq!(
+        (s.sections[0].autos.clone(), s.sections[0].scenes.clone()),
+        (vec![0], vec![0])
+    );
+    assert_eq!(s.sections[1].autos, vec![1, 2]);
+    let text = s.print();
+    assert!(
+        text.contains("auto sweep = kit.Cutoff ramp 300 4000 /2\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("scene drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4\n"),
+        "{text}"
+    );
+    assert!(text.contains("section a 2: beat sweep [drop]\n"), "{text}");
+    assert_eq!(Song::parse(&text), Ok(s));
+}
+
+#[test]
+fn a_lane_steps_or_ramps_over_its_length_and_loops() {
+    let s = Song::parse(AUTOMATED).expect("parses");
+    let (ramp, steps) = (&s.autos[0], &s.autos[1]);
+    assert_eq!(ramp.value_at(0.0), 300.0);
+    assert_eq!(ramp.value_at(16.0), 2150.0, "half way over two bars");
+    assert!((ramp.value_at(31.999) - 4000.0).abs() < 1.0);
+    assert_eq!(ramp.value_at(32.0), 300.0, "and round again");
+    assert_eq!(
+        [0.0, 3.9, 4.0, 8.0, 12.0, 15.9].map(|t| steps.value_at(t)),
+        [1.0, 1.0, 0.5, 0.25, 1.0, 1.0]
+    );
+}
+
+#[test]
+fn automation_errors_say_where() {
+    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let cases: [(&str, usize, usize, &str); 11] = [
+        (
+            "auto a = strip1.Level 1 /0",
+            4,
+            25,
+            "a length in bars goes last: /1 to /256",
+        ),
+        (
+            "auto a = strip1.Level /1",
+            4,
+            23,
+            "values or a ramp go before the length",
+        ),
+        (
+            "auto a = strip1.Nope 1 /1",
+            4,
+            10,
+            "no parameter has this name",
+        ),
+        (
+            "auto a = strip17.Level 1 /1",
+            4,
+            10,
+            "a target is a track, strip1–16, group1–8 or master",
+        ),
+        (
+            "auto a = group1.Cutoff 1 /1",
+            4,
+            10,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "auto a = master.Level 1 /1",
+            4,
+            10,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "auto a = kit.Model 1 /1",
+            4,
+            10,
+            "the model and the routing can't be automated",
+        ),
+        (
+            "auto a = kit.Cutoff ramp 1 /1",
+            4,
+            21,
+            "a ramp goes from one value to another",
+        ),
+        (
+            "auto b = kit.Cutoff 1 /1",
+            4,
+            6,
+            "there is already a frag or auto with this name",
+        ),
+        (
+            "scene s: strip1.Mute 1 strip2.Mute 1",
+            4,
+            24,
+            "a comma goes between settings",
+        ),
+        ("section a 1: [none]", 4, 14, "no scene has this name"),
+    ];
+    for (tail, line, col, msg) in cases {
+        let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
+    }
 }

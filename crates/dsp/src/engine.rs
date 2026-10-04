@@ -62,7 +62,9 @@ use crate::notes::{Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
-use crate::song::{At, Kind, MAX_TEXT, MAX_TRACKS, STEPS_PER_BAR, Song, SongError, Step};
+use crate::song::{
+    At, Kind, MAX_AUTOS, MAX_TEXT, MAX_TRACKS, STEPS_PER_BAR, Song, SongError, Step, Target,
+};
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
 
@@ -141,6 +143,12 @@ pub struct Engine {
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
     /// One per fragment of the song; empty for all but the live ones.
     live: Vec<Live>,
+    /// The value each automation lane last wrote, so it writes only changes
+    /// and a hand on a knob holds until the next one (ADR-0015).
+    auto_last: [f32; MAX_AUTOS],
+    /// Strips (bit per strip, globals on bit 0) automation changed since the
+    /// view last asked, so it can redraw their values.
+    touched: u32,
 }
 
 impl Engine {
@@ -190,6 +198,8 @@ impl Engine {
             song_route: [None; MAX_TRACKS],
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
+            auto_last: [f32::NAN; MAX_AUTOS],
+            touched: 0,
         };
         for (p, v) in GLOBAL_DEFAULTS {
             engine.set_param(0, p, v);
@@ -644,6 +654,8 @@ impl Engine {
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
+        // From the top every lane writes again.
+        self.auto_last = [f32::NAN; MAX_AUTOS];
     }
 
     /// Move the song to the first step of `bar` (from 0); the clock fires it next.
@@ -883,6 +895,9 @@ impl Engine {
                 return;
             }
         };
+        if let (Some(s), 0) = (section, k) {
+            self.apply_scenes(s);
+        }
         for f in 0..self.song.frags.len() {
             let Some(frag) = self.song.frags.get(f) else {
                 continue;
@@ -914,6 +929,99 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// Set the values of every scene section `s` lists (ADR-0015).
+    fn apply_scenes(&mut self, s: usize) {
+        let count = self.song.sections.get(s).map_or(0, |sec| sec.scenes.len());
+        for i in 0..count {
+            let Some(scene) = self
+                .song
+                .sections
+                .get(s)
+                .and_then(|sec| sec.scenes.get(i))
+                .copied()
+            else {
+                continue;
+            };
+            let sets = self.song.scenes.get(scene).map_or(0, |sc| sc.sets.len());
+            for j in 0..sets {
+                if let Some((t, p, v)) = self
+                    .song
+                    .scenes
+                    .get(scene)
+                    .and_then(|sc| sc.sets.get(j))
+                    .copied()
+                {
+                    self.automate(t, p, v);
+                }
+            }
+        }
+    }
+
+    /// Write an automated value to its target's strip (a track goes where it
+    /// is routed; an unrouted one is skipped) and mark the strip for the view.
+    fn automate(&mut self, target: Target, param: Param, v: f32) {
+        let strip = match target {
+            Target::Master => 0,
+            Target::Strip(s) => s,
+            Target::Track(t) => match self.song_routed(t) {
+                Some(s) => s,
+                None => return,
+            },
+        };
+        self.set_param(strip, param, v);
+        self.touched |= 1u32.checked_shl(strip as u32).unwrap_or(0);
+    }
+
+    /// The automation lanes at the clock's position, once per block: each
+    /// writes only when its value changed. Lanes of the current section play,
+    /// counted from its first step; without an arrangement every lane loops.
+    fn run_automation(&mut self) {
+        if !self.clock.playing() || self.song.autos.is_empty() {
+            return;
+        }
+        let pos = self.clock.step_position().max(0.0);
+        let whole = pos.floor();
+        let frac = pos - whole;
+        let (local, section) = match self.song.at(whole as u64) {
+            At::Free(k) => (k as f64 + frac, None),
+            At::In { section, local, .. } => (local as f64 + frac, Some(section)),
+            At::End => return,
+        };
+        for a in 0..self.song.autos.len() {
+            if let Some(s) = section {
+                if !self
+                    .song
+                    .sections
+                    .get(s)
+                    .is_some_and(|sec| sec.autos.contains(&a))
+                {
+                    continue;
+                }
+            }
+            let Some((target, param, v)) = self
+                .song
+                .autos
+                .get(a)
+                .map(|auto| (auto.target, auto.param, auto.value_at(local)))
+            else {
+                continue;
+            };
+            let Some(last) = self.auto_last.get_mut(a) else {
+                continue;
+            };
+            if *last == v {
+                continue;
+            }
+            *last = v;
+            self.automate(target, param, v);
+        }
+    }
+
+    /// The strips automation changed since the last call (bit per strip), cleared.
+    pub fn take_touched(&mut self) -> u32 {
+        std::mem::take(&mut self.touched)
     }
 
     // --- The song (spec 002 Req 6, ADR-0012) -------------------------------
@@ -975,6 +1083,7 @@ impl Engine {
                 }
                 self.song = song;
                 self.rebuild_live();
+                self.auto_last = [f32::NAN; MAX_AUTOS];
                 self.song_text = self.song.print();
                 self.song_error = None;
                 Ok(())
@@ -1046,6 +1155,7 @@ impl Engine {
     /// sample.
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
+        self.run_automation();
         self.out.fill(0.0);
         self.mixer.clear(n);
         let mut t = 0;
@@ -3075,6 +3185,81 @@ mod tests {
             Some((1, 0)),
             "inside the loop: bar 3 wraps to bar 2"
         );
+    }
+
+    /// ADR-0015: a scene sets its values on the first sample of its section.
+    #[test]
+    fn a_scene_lands_on_its_sections_first_sample() {
+        let mut e = kit(0);
+        let text = "track kit drums\nfrag b = kit\n  bd x...\nscene s: strip1.Send2 0.25, master.P2Return 0.6\n\
+                    section one 1: b\nsection two 1: b [s]\narrange one two\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        let before = e.param_value(0, Param::Send2);
+        let mut changed = None;
+        for s in 0..120_000u64 {
+            e.render(1);
+            if changed.is_none() && e.param_value(0, Param::Send2) != before {
+                changed = Some(s);
+            }
+        }
+        assert_eq!(changed, Some(96_000), "bar 2 begins at 16 steps of 6000");
+        assert_eq!(e.param_value(0, Param::Send2), 0.25);
+        assert_eq!(
+            e.param_value(5, Param::P2Return),
+            0.6,
+            "a global reaches every row"
+        );
+        assert_eq!(e.take_touched() & 1, 1, "the view is told");
+        assert_eq!(e.take_touched(), 0, "once");
+    }
+
+    /// A ramp climbs over its bars and reaches its end value at its end, a
+    /// block at a time.
+    #[test]
+    fn a_ramp_reaches_its_end_value() {
+        let mut e = kit(0);
+        let text = "track kit drums\nfrag b = kit\n  bd x\nauto r = strip1.Send1 ramp 0 1 /1\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        let mut last = -1.0;
+        for _ in 0..(96_000 / BLOCK) {
+            e.render(BLOCK);
+            let v = e.param_value(0, Param::Send1);
+            assert!(v >= last, "{v} after {last}");
+            last = v;
+        }
+        assert!(last > 0.99, "{last}");
+        e.render(BLOCK);
+        assert!(e.param_value(0, Param::Send1) < 0.01, "and loops");
+    }
+
+    /// Automating a mixer level is the same as setting it by hand at that block.
+    #[test]
+    fn automation_is_bit_identical_to_a_hand_set_value() {
+        let song = |auto: bool| {
+            format!(
+                "track kit drums\nfrag b = kit\n  bd x...\n{}",
+                if auto {
+                    "auto l = strip1.Level 0.3 /1\n"
+                } else {
+                    ""
+                }
+            )
+        };
+        let mut a = kit(0);
+        let mut b = kit(0);
+        assert_eq!(load_text(&mut a, &song(true)), Ok(()));
+        assert_eq!(load_text(&mut b, &song(false)), Ok(()));
+        b.set_param(0, Param::Level, 0.3);
+        a.song_play();
+        b.song_play();
+        for _ in 0..200 {
+            a.render(BLOCK);
+            b.render(BLOCK);
+            assert_eq!(a.output(), b.output());
+        }
+        assert!(a.output().iter().any(|s| *s != 0.0) || a.note_count > 0);
     }
 
     #[test]
