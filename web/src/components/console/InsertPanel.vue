@@ -6,12 +6,15 @@ import { INSERT_KNOBS } from '../../audio/console'
 import { getEngine, params } from '../../audio/engine'
 import { InsertType, Param } from '../../audio/params'
 import { closeInsertPanel, insertPanel as p } from './insertPanel'
+import PresetBar from '../PresetBar.vue'
 import ParamKnob from './ParamKnob.vue'
 
 const id = (field: string) => Param[`I${p.slot + 1}${field}` as keyof typeof Param]
 const type = computed(() => Math.round(params.values[p.strip]?.[id('Type')] ?? 0))
 const knobs = computed(() => (INSERT_KNOBS[type.value] ?? []).map((k, i) => ({ ...k, id: id('ABCDE'[i] ?? 'A') })))
 const types = Object.entries(InsertType)
+/** The type's name, as effect presets store it. */
+const typeName = computed(() => types.find(([, t]) => t === type.value)?.[0])
 const pick = (t: number) => getEngine()?.param(p.strip, id('Type'), t)
 
 function onDown(e: PointerEvent) {
@@ -34,6 +37,7 @@ onBeforeUnmount(() => { removeEventListener('pointerdown', onDown, true); remove
     <div class="seg" role="group" aria-label="Insert type">
       <button v-for="[name, t] in types" :key="t" :aria-pressed="type === t" @click="pick(t)">{{ name }}</button>
     </div>
+    <PresetBar class="preset-row" compact label="Insert preset" :target="{ kind: 'insert', s: p.strip, slot: p.slot }" :of="typeName && typeName !== 'Off' ? { type: typeName } : {}" />
     <div v-if="knobs.length" class="knobs">
       <ParamKnob
         v-for="k in knobs" :key="k.id" :synth="p.strip" :id="k.id" :label="k.label" :name="`${p.title} insert ${p.slot + 1} ${k.label}`"
@@ -57,5 +61,6 @@ header span { font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase
 .seg button + button { border-left: 1px solid #343b46; }
 .seg button[aria-pressed='true'] { background: var(--con-drive); color: #fff; font-weight: 700; }
 .knobs { display: flex; gap: 12px; margin-top: 12px; justify-content: space-between; }
+.preset-row { margin-top: 8px; }
 .empty { margin-top: 12px; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--con-silk-dim); }
 </style>

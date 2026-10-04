@@ -3038,6 +3038,21 @@ mod tests {
         });
     }
 
+    /// ADR-0014: the defaults a user preset starts from leave the strip alone.
+    #[test]
+    fn synth_defaults_reset_the_sound_not_the_strip() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::JunoPad);
+        e.set_param(0, Param::Level, 0.3);
+        e.set_param(0, Param::Send2, 0.6);
+        e.synth_defaults(0);
+        for (p, v) in DEFAULTS {
+            assert_eq!(e.param_value(0, p), v, "{p:?}");
+        }
+        assert_eq!(e.param_value(0, Param::Level), 0.3);
+        assert_eq!(e.param_value(0, Param::Send2), 0.6);
+    }
+
     #[test]
     fn a_preset_sets_every_mono_parameter() {
         let mut e = Engine::new(48_000.0);

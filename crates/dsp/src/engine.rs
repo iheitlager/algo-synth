@@ -265,6 +265,14 @@ impl Engine {
         }
     }
 
+    /// Put `synth`'s sound back to the defaults and leave its strip alone: the
+    /// base a user preset is applied on (ADR-0014).
+    pub fn synth_defaults(&mut self, synth: usize) {
+        for (p, v) in DEFAULTS.iter() {
+            self.set_param(synth, *p, *v);
+        }
+    }
+
     /// Put `synth` back to the defaults, for a newly added synth.
     pub fn reset(&mut self, synth: usize) {
         for (p, v) in DEFAULTS.iter().chain(STRIP_DEFAULTS.iter()) {

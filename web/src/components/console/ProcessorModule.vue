@@ -6,6 +6,7 @@ import { computed } from 'vue'
 import { PROC_KNOBS, clamp01, levelDb } from '../../audio/console'
 import { getEngine, levels, METER_STRIPS, params } from '../../audio/engine'
 import { Param, ProcType, type ParamId } from '../../audio/params'
+import PresetBar from '../PresetBar.vue'
 import ParamKnob from './ParamKnob.vue'
 
 const props = defineProps<{ n: number }>()
@@ -14,6 +15,8 @@ const id = (field: string) => Param[`P${props.n + 1}${field}` as keyof typeof Pa
 const type = computed(() => params.values[0]?.[id('Type')] ?? 0)
 const knobs = computed(() => (PROC_KNOBS[Math.round(type.value)] ?? []).map((k, i) => ({ ...k, id: id('ABCDE'[i] ?? 'A') })))
 const types = Object.entries(ProcType)
+/** The type's name, as effect presets store it. */
+const typeName = computed(() => types.find(([, t]) => t === Math.round(type.value))?.[0])
 const colour = computed(() => `var(--con-p${props.n + 1})`)
 // P2–P4 can take the previous processor's output; P1 has no such setting.
 const chainId = computed(() => (props.n > 0 ? id('In') : undefined))
@@ -50,6 +53,7 @@ const level = computed(() => clamp01((levelDb(levels.values[METER_STRIPS + 2 + p
       <ParamKnob :synth="0" :id="id('Return')" label="Return" :name="`P${n + 1} return`" :size="48" :color="colour" :def="0.4" />
     </div>
     <div v-else class="empty">Empty slot · pick a type</div>
+    <PresetBar class="preset-row" compact :label="`P${n + 1} preset`" :target="{ kind: 'processor', n }" :of="typeName && typeName !== 'Off' ? { type: typeName } : {}" />
   </div>
 </template>
 
@@ -74,4 +78,5 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; marg
 .pp { align-self: center; border: 1px solid #343b46; background: var(--con-inset); border-radius: 3px; padding: 2px 8px; font: 500 12px var(--con-font-silk); letter-spacing: 0.12em; color: var(--con-silk-dim); text-transform: uppercase; cursor: pointer; }
 .pp[aria-pressed='true'] { color: #101215; background: var(--c); border-color: var(--c); font-weight: 700; }
 .empty { font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--con-silk-dim); padding: 14px 0 0; }
+.preset-row { margin-top: 6px; }
 </style>

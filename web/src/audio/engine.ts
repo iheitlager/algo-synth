@@ -6,7 +6,9 @@ import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import type { ModelDef } from './models'
-import { GlobalParam, Param, Preset, StripParam, ZoneField, type ParamId, type PresetId } from './params'
+import { GlobalParam, InsertType, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
+import { loadLibrary } from './library'
+import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
 import { names, partName as laneName, setNames, stripName as nameOfStrip } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
@@ -593,6 +595,29 @@ const registry: Registry = {
   maxSynths: MAX_SYNTHS,
   channels: CHANNELS,
 }
+
+// --- User presets (ADR-0014, epic #153) -----------------------------------------
+
+/** The registry user presets are built from: the setup's and the effect type names. */
+export const presetRegistry: PresetRegistry = { ...registry, insertTypes: InsertType, procTypes: ProcType }
+if (typeof indexedDB !== 'undefined') void loadLibrary(presetRegistry)
+
+/** A preset of what `target` holds now, named `name`. */
+export const capturePreset = (name: string, target: Target, id?: string) => capture(name, target, params.values, presetRegistry, id)
+
+/** Put `preset` on `target`; false when it is of another kind. */
+export function applyPreset(preset: UserPreset, target: Target): boolean {
+  const p = plan(preset, target, presetRegistry)
+  if (!p || !engine) return false
+  if (p.defaults !== undefined) engine.post({ t: 'defaults', s: p.defaults })
+  for (const op of p.ops) engine.param(op.s, op.id as ParamId, op.v)
+  // The values after clamping, and the defaults the plan didn't name.
+  engine.post({ t: 'dump', s: target.kind === 'processor' ? 0 : target.s })
+  return true
+}
+
+/** Whether `target` differs from `preset`. */
+export const presetModified = (preset: UserPreset, target: Target) => modified(preset, target, params.values, presetRegistry)
 
 /** A setup waiting for its MIDI file to load. */
 let pending: { setup: Setup; warnings: string[]; from: 'file' | 'shipped' | 'session' } | null = null

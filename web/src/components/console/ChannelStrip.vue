@@ -10,6 +10,7 @@ import EditableName from '../EditableName.vue'
 import Fader from './Fader.vue'
 import LedMeter from './LedMeter.vue'
 import { showInsertPanel } from './insertPanel'
+import { showStripPanel } from './stripPanel'
 import ParamKnob from './ParamKnob.vue'
 
 const props = defineProps<{
@@ -99,6 +100,7 @@ const toggle = (id: ParamId) => send(id, val(id) >= 0.5 ? 0 : 1)
       </button>
       <span v-if="!renaming" class="tools">
         <button title="Rename this strip" :aria-label="`Rename ${title}`" @click="renaming = true">✎</button>
+        <button class="strip-tool" title="Strip presets, copy and paste" :aria-label="`${title} presets`" @click="showStripPanel(s, title, $event.currentTarget as HTMLElement)">⋯</button>
         <button title="Collapse this strip" @click="$emit('collapse')">◂</button>
         <button v-if="kind === 'group'" title="Remove this group; what feeds it goes to the master" @click="$emit('remove')">×</button>
         <button v-else title="Hide this strip from the console" @click="$emit('hide')">×</button>

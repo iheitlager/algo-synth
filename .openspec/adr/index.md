@@ -15,3 +15,4 @@
 | [0011](0011-polyphony.md) | Polyphony: a voice pool per synth (the Mono voice per note), allocation and stealing, unison, analog variance, a shared LFO and a global voice budget | Accepted |
 | [0012](0012-the-song-is-text.md) | The song is text: a Tidal/Strudel-style notation with classic note names and durations and drum lanes, parsed and printed by the engine; the drum grid and generators edit it; a language model writes it | Accepted |
 | [0013](0013-sample-store.md) | The sample store: Rust parses and resamples WAV at load, in bounded memory; fixed slots, a hard cap, errors as codes | Accepted |
+| [0014](0014-user-presets.md) | User presets: synth, insert, processor and strip kinds stored by name, applied on the synth defaults, kept in a browser library with export and import, apart from setups | Accepted |

@@ -123,6 +123,12 @@ pub extern "C" fn synth_reset(synth: u32) {
     with_engine(|e| e.reset(synth as usize));
 }
 
+/// Put `synth`'s sound back to the defaults, its strip unchanged (ADR-0014).
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_defaults(synth: u32) {
+    with_engine(|e| e.synth_defaults(synth as usize));
+}
+
 /// Number of parameter ids; they run from 0 without gaps.
 #[unsafe(no_mangle)]
 pub extern "C" fn param_count() -> u32 {
