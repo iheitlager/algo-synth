@@ -60,7 +60,7 @@ The engine SHALL report peak meters for the view: each synth strip after its fad
 
 A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error.
 
-**Implementation:** `crates/dsp/src/fragment.rs::Fragment` *(planned, MVP 3-4)*
+**Implementation:** drum fragments `crates/dsp/src/song.rs::Fragment` (lanes of up to 64 steps, each lane looping on its own length; `/16` steps for now), played on the clock's steps by `crates/dsp/src/engine.rs::Engine::play_step` (a hit at velocity 0.75, an accent at 1.0); pitched fragments *(planned, MVP 4)*
 
 #### Scenario: a drum lane
 
@@ -96,9 +96,9 @@ The engine SHALL run the transport (tempo, swing, play, stop, position) inside `
 
 ### Requirement 6: The song is text [MUST]
 
-The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL parse and compile it outside `render`; `render` SHALL only read the compiled song. A text that does not parse SHALL be rejected with a line, a column and a message, and the song that is playing SHALL keep playing; a new song SHALL take over at the next bar. The parser SHALL never panic. The engine SHALL print a song canonically, and parsing a printed song SHALL give the same song. Edits from a view (`set_step`) SHALL change the song in the engine, which returns the printed text.
+The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL parse and compile it outside `render`; `render` SHALL only read the compiled song. A text that does not parse SHALL be rejected with a line, a column and a message, and the song that is playing SHALL keep playing; a new song SHALL play from the next clock step, each lane keeping its place against the clock (taking over at a bar line would free the old song inside `render`, against ADR-0002). The parser SHALL never panic. The engine SHALL print a song canonically, and parsing a printed song SHALL give the same song. Edits from a view (`set_step`) SHALL change the song in the engine, which returns the printed text. A track SHALL be routed to a synth as a MIDI channel is: on load a track without a synth goes to the first drum kit, and the view MAY route it elsewhere or mute it.
 
-**Implementation:** `crates/dsp/src/song.rs` *(planned, MVP 3)*
+**Implementation:** `crates/dsp/src/song.rs::Song` (`parse`, `print`, `set_step`), `crates/dsp/src/engine.rs::Engine::load_song`, `crates/dsp/src/ffi.rs` (`song_buf`, `song_load`, `song_error_*`, `song_text_*`, `set_step`, `song_tracks`, `song_route`, `song_routed`, `song_frags`, `frag_*`, `lane_*`, `step_level`), `web/public/worklet.js` (`loadSong`, `sendSong`)
 
 #### Scenario: round trip
 
@@ -112,7 +112,7 @@ The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL 
 - WHEN a text with an error on line 7 is sent
 - THEN the engine reports line 7 and the song plays on unchanged
 
-**Tests:** `crates/dsp/src/song.rs::tests::print_then_parse_is_identity` *(planned)*, `crates/dsp/src/song.rs::tests::never_panics_on_garbage` *(planned)*
+**Tests:** `crates/dsp/src/song/tests.rs::print_then_parse_is_identity`, `crates/dsp/src/song/tests.rs::never_panics_on_garbage`, `crates/dsp/src/song/tests.rs::every_error_says_where`, `crates/dsp/src/song/tests.rs::the_print_is_canonical_and_parses_back`, `crates/dsp/src/song/tests.rs::set_step_changes_one_step`, `crates/dsp/src/engine.rs::tests::a_drum_lane_hits_on_its_exact_samples`, `crates/dsp/src/engine.rs::tests::each_lane_loops_on_its_own_length`, `crates/dsp/src/engine.rs::tests::a_bad_text_is_reported_and_the_song_plays_on`, `crates/dsp/src/engine.rs::tests::the_song_sets_the_clock_and_tracks_find_a_kit`, `crates/dsp/src/engine.rs::tests::set_step_edits_the_playing_song_and_its_text`, `crates/dsp/src/ffi.rs::tests::song_round_trip_through_the_abi`
 
 ### Requirement 7: Deterministic generators [MUST]
 

@@ -1811,6 +1811,7 @@ mod tests {
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
             ("ModSource", rust(&ModSource::ALL, |s| s as u32)),
             ("ModDest", rust(&ModDest::ALL, |d| d as u32)),
+            ("Pad", rust(&crate::drums::Pad::ALL, |p| p as u32)),
             ("ZoneField", rust(&ZoneField::ALL, |f| f as u32)),
         ];
         for (name, want) in lists {

@@ -26,6 +26,7 @@ use crate::poly::{Pool, VOICE_BUDGET};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
+use crate::song::{MAX_TEXT, MAX_TRACKS, Song, SongError, Step};
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
 
@@ -92,6 +93,13 @@ pub struct Engine {
     clock: Clock,
     /// The synth each MIDI channel plays on; `None` mutes it.
     route: [Option<usize>; CHANNELS],
+    /// The song (ADR-0012), its text as the view wrote it, its canonical
+    /// print, the last load's error, and the synth each track plays on.
+    song: Song,
+    song_buf: Vec<u8>,
+    song_text: String,
+    song_error: Option<SongError>,
+    song_route: [Option<usize>; MAX_TRACKS],
 }
 
 impl Engine {
@@ -134,6 +142,11 @@ impl Engine {
             sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
+            song: Song::default(),
+            song_buf: Vec::new(),
+            song_text: Song::default().print(),
+            song_error: None,
+            song_route: [None; MAX_TRACKS],
         };
         for (p, v) in GLOBAL_DEFAULTS {
             engine.set_param(0, p, v);
@@ -295,6 +308,7 @@ impl Engine {
         match owner {
             Owner::Live(s) => Some(usize::from(s)),
             Owner::Channel(ch) => self.routed(ch),
+            Owner::Track(t) => self.song_routed(usize::from(t)),
         }
     }
 
@@ -572,9 +586,127 @@ impl Engine {
         if self.sequence.finished() {
             self.stop();
         }
-        // Nothing plays on the steps yet: the song (#100) and the
-        // arpeggiator (#110) will.
-        while self.clock.due().is_some() {}
+        while let Some(k) = self.clock.due() {
+            self.play_step(k);
+        }
+    }
+
+    /// Hit what every lane of the song has on clock step `k`; each lane loops
+    /// on its own length. Reads the song in place: nothing allocates.
+    fn play_step(&mut self, k: u64) {
+        for f in 0..self.song.frags.len() {
+            let Some(frag) = self.song.frags.get(f) else {
+                continue;
+            };
+            let owner = Owner::Track(u8::try_from(frag.track).unwrap_or(u8::MAX));
+            for l in 0..frag.lanes.len() {
+                let hit = self
+                    .song
+                    .frags
+                    .get(f)
+                    .and_then(|fr| fr.lanes.get(l))
+                    .and_then(|lane| {
+                        let len = lane.steps.len() as u64;
+                        let step = lane.steps.get(usize::try_from(k % len.max(1)).ok()?)?;
+                        Some((lane.pad.note(), step.velocity()?))
+                    });
+                if let Some((note, velocity)) = hit {
+                    self.start_voice(owner, note, velocity);
+                }
+            }
+        }
+    }
+
+    // --- The song (spec 002 Req 6, ADR-0012) -------------------------------
+
+    /// Size the song text buffer and hand it out; `None` when too long.
+    pub fn song_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
+        if len > MAX_TEXT {
+            return None;
+        }
+        self.song_buf.clear();
+        self.song_buf.resize(len, 0);
+        Some(&mut self.song_buf)
+    }
+
+    /// Parse the buffer and play it from the next clock step, keeping each
+    /// lane's place against the clock. A text that does not parse leaves the
+    /// song playing and is reported (`song_error`). Tempo and swing go to the
+    /// clock; a track keeps its synth, or goes to the first drum kit.
+    pub fn load_song(&mut self) -> Result<(), SongError> {
+        let parsed = match std::str::from_utf8(&self.song_buf) {
+            Ok(text) => Song::parse(text),
+            Err(e) => {
+                let ok = self.song_buf.get(..e.valid_up_to()).unwrap_or(&[]);
+                let ok = std::str::from_utf8(ok).unwrap_or("");
+                Err(SongError {
+                    line: ok.matches('\n').count() + 1,
+                    col: ok.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1,
+                    msg: "the text is not UTF-8",
+                })
+            }
+        };
+        match parsed {
+            Ok(song) => {
+                self.clock.set_tempo(song.tempo);
+                self.clock.set_swing(song.swing);
+                let kit =
+                    (0..SYNTHS).find(|s| self.synths.get(*s).is_some_and(|p| p.model.uses_drums()));
+                for (t, route) in self.song_route.iter_mut().enumerate() {
+                    if t >= song.tracks.len() {
+                        *route = None;
+                    } else if route.is_none() {
+                        *route = kit;
+                    }
+                }
+                self.song = song;
+                self.song_text = self.song.print();
+                self.song_error = None;
+                Ok(())
+            }
+            Err(e) => {
+                self.song_error = Some(e);
+                Err(e)
+            }
+        }
+    }
+
+    pub fn song(&self) -> &Song {
+        &self.song
+    }
+
+    /// The song as the engine prints it, after the last load or edit.
+    pub fn song_text(&self) -> &str {
+        &self.song_text
+    }
+
+    /// Why the last load failed, if it did.
+    pub fn song_error(&self) -> Option<SongError> {
+        self.song_error
+    }
+
+    /// Set one step of the song (level 0 off, 1 hit, 2 accent) and print it
+    /// again; false when there is no such step or level.
+    pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, level: u32) -> bool {
+        let Some(to) = Step::from_level(level) else {
+            return false;
+        };
+        if !self.song.set_step(frag, lane, step, to) {
+            return false;
+        }
+        self.song_text = self.song.print();
+        true
+    }
+
+    /// Play song track `track` on `synth`, or mute it with `None`.
+    pub fn song_route(&mut self, track: usize, synth: Option<usize>) {
+        if let Some(slot) = self.song_route.get_mut(track) {
+            *slot = synth.filter(|s| *s < SYNTHS);
+        }
+    }
+
+    pub fn song_routed(&self, track: usize) -> Option<usize> {
+        self.song_route.get(track).copied().flatten()
     }
 
     // --- Render ----------------------------------------------------------
@@ -2437,5 +2569,99 @@ mod tests {
         let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
         assert!(heard > 0.05, "the kick at 0.5 s");
         assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
+    }
+
+    fn load_text(e: &mut Engine, text: &str) -> Result<(), SongError> {
+        e.song_buffer(text.len())
+            .expect("fits")
+            .copy_from_slice(text.as_bytes());
+        e.load_song()
+    }
+
+    const FOUR: &str = "tempo 120\ntrack kit drums\nfrag b = kit /16\n  bd x...x...x...x...\n";
+
+    /// #100: `bd x...x...x...x...` at 120 BPM and 48 kHz hits on 0, 24000,
+    /// 48000 and 72000, rendered a frame at a time.
+    #[test]
+    fn a_drum_lane_hits_on_its_exact_samples() {
+        let mut e = kit(0);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        assert_eq!(e.song_routed(0), Some(0), "the first kit plays the track");
+        e.play();
+        let mut hits = Vec::new();
+        let mut count = e.note_count;
+        for s in 0..96_000u64 {
+            e.render(1);
+            if e.note_count != count {
+                count = e.note_count;
+                hits.push(s);
+            }
+        }
+        assert_eq!(hits, vec![0, 24_000, 48_000, 72_000]);
+    }
+
+    #[test]
+    fn each_lane_loops_on_its_own_length() {
+        let mut e = kit(0);
+        let text = "track kit drums\nfrag p = kit\n  bd x..\n  sn x...\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.play();
+        // Twelve steps at 6000 samples: the kick on 0, 3, 6, 9; the snare on 0, 4, 8.
+        run(&mut e, 72_000 / BLOCK);
+        assert_eq!(e.note_count, 7);
+    }
+
+    #[test]
+    fn a_bad_text_is_reported_and_the_song_plays_on() {
+        let mut e = kit(0);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        let good = e.song().clone();
+        let bad = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd x..o\n";
+        let err = load_text(&mut e, bad).expect_err("o is not a step");
+        assert_eq!((err.line, err.col), (4, 9));
+        assert_eq!(e.song_error(), Some(err));
+        assert_eq!(e.song(), &good);
+        e.play();
+        assert!(run(&mut e, 40) > 0.05, "the old beat still plays");
+        // Not UTF-8: reported where the bad byte is.
+        e.song_buffer(4).expect("fits").copy_from_slice(b"\n\nab");
+        e.song_buf[3] = 0xff;
+        let err = e.load_song().expect_err("not UTF-8");
+        assert_eq!((err.line, err.col), (3, 2));
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        assert_eq!(e.song_error(), None);
+    }
+
+    #[test]
+    fn the_song_sets_the_clock_and_tracks_find_a_kit() {
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(
+            load_text(&mut e, "tempo 90\nswing 60\ntrack kit drums\n"),
+            Ok(())
+        );
+        assert_eq!((e.clock().tempo(), e.clock().swing()), (90.0, 60.0));
+        assert_eq!(e.song_routed(0), None, "no kit, so the track is muted");
+        e.preset(3, Preset::Kit808);
+        e.song_route(0, None);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        assert_eq!(e.song_routed(0), Some(3));
+        e.song_route(0, Some(5));
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        assert_eq!(e.song_routed(0), Some(5), "a reload keeps the route");
+        e.song_route(0, Some(99));
+        assert_eq!(e.song_routed(0), None, "an unknown synth mutes");
+    }
+
+    #[test]
+    fn set_step_edits_the_playing_song_and_its_text() {
+        let mut e = kit(0);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        assert!(e.set_step(0, 0, 2, 2));
+        assert!(e.song_text().contains("  bd x.X.x...x...x...\n"));
+        assert!(!e.set_step(0, 0, 2, 3), "no level 3");
+        assert!(!e.set_step(0, 1, 0, 1), "no second lane");
+        e.play();
+        run(&mut e, 12_001 / BLOCK + 1);
+        assert_eq!(e.note_count, 2, "the new step at 12000 plays");
     }
 }

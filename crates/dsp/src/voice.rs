@@ -13,6 +13,8 @@ pub enum Owner {
     Live(u8),
     /// The MIDI player, on this channel (0..=15).
     Channel(u8),
+    /// The song, on this track (spec 002 Req 6).
+    Track(u8),
 }
 
 /// Equal temperament, A4 = 440 Hz. Called per note, not per sample.
