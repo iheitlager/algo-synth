@@ -495,6 +495,23 @@ export const stopSong = () => engine?.post({ t: 'songStop' })
 /** Ask the engine for the song it holds (when the composer opens). */
 export const requestSong = () => engine?.post({ t: 'songDump' })
 
+// Turning the loaded MIDI file into the song (#173): the engine converts it;
+// the composer and the arranger show the result.
+const IMPORT_ERRORS: Record<number, string> = {
+  [-7]: 'the file has no notes',
+  [-8]: 'the file has more notes, fragments or sections than a song holds',
+  [-9]: 'the converted text did not parse (a bug)',
+}
+export const importMidi = () => engine?.post({ t: 'midiImport' })
+function onImported(code: number) {
+  if (code < 0) {
+    player.notice = `Import: ${IMPORT_ERRORS[code] ?? LOAD_ERRORS[code] ?? `failed (${code})`}`
+    return
+  }
+  player.notice = `Imported ${player.fileName} as the song: ${code} tracks in sections; edit it in the composer, chain it in the arranger.`
+  view.bottom = 'arranger'
+}
+
 export const play = () => engine?.post({ t: 'play' })
 export const stop = () => engine?.post({ t: 'stop' })
 export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
@@ -590,6 +607,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
+  } else if (data.t === 'imported') {
+    onImported(data.code as number)
   } else if (data.t === 'midi') {
     onMidi(data as unknown as MidiSummary)
   } else if (data.t === 'sample') {

@@ -484,10 +484,80 @@ fn freezing_refuses_what_it_cannot_write() {
         len,
         note,
         accent: false,
+        vel: 0,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
     assert!(freeze(&[ev(40, 20, 60)], 1).is_none());
     assert!(freeze(&[ev(0, 12, 60), ev(0, 6, 64)], 1).is_none());
     assert!(freeze(&[ev(60, 6, 60)], 1).is_none(), "after the last bar");
+}
+
+/// #173: timed notes say exactly where each note is, may overlap and carry a
+/// velocity, and print back in event order.
+#[test]
+fn timed_notes_parse_compile_and_print() {
+    let n = parse("a4@12:24 d5@0:6 f#5!@6:6:90 d5@0:48", 1).expect("parses");
+    assert_eq!(n.bars, 1);
+    assert_eq!(
+        n.events,
+        vec![
+            Event {
+                start: 0,
+                len: 6,
+                note: 74,
+                accent: false,
+                vel: 0
+            },
+            Event {
+                start: 0,
+                len: 48,
+                note: 74,
+                accent: false,
+                vel: 0
+            },
+            Event {
+                start: 6,
+                len: 6,
+                note: 78,
+                accent: true,
+                vel: 90
+            },
+            Event {
+                start: 12,
+                len: 24,
+                note: 69,
+                accent: false,
+                vel: 0
+            },
+        ]
+    );
+    assert_eq!(n.print(), "d5@0:6 d5@0:48 f#5!@6:6:90 a4@12:24");
+    assert_eq!(parse(&n.print(), 1), Ok(n.clone()));
+    assert!((n.events[2].velocity() - 90.0 / 127.0).abs() < 1e-6);
+    // The line ends at the bar of its last start; a note may run past it.
+    let long = parse("c4@50:200", 1).expect("parses");
+    assert_eq!(long.bars, 2);
+    assert_eq!(long.clone().with_bars(4).map(|n| n.bars), Ok(4));
+    assert!(long.clone().with_bars(1).is_err(), "shorter than its notes");
+    assert!(
+        parse("c4:4", 1).expect("classic").with_bars(2).is_err(),
+        "only timed lines"
+    );
+}
+
+#[test]
+fn timed_note_errors_say_where() {
+    let cases: [(&str, usize, &str); 7] = [
+        ("c4@", 4, "a number goes here"),
+        ("c4@0", 5, "a length in ticks goes after :, as d5@0:6"),
+        ("c4@0:0", 6, "a length is 1 to 1536 ticks"),
+        ("c4@0:6:0", 8, "a velocity is 1 to 127"),
+        ("c4@0:6:200", 8, "a velocity is 1 to 127"),
+        ("c4@1536:6", 4, "a timed note starts within 32 bars"),
+        ("c4@0:6x", 7, "a word ends at a space"),
+    ];
+    for (text, col, msg) in cases {
+        assert_eq!(parse(text, 1), Err(NoteError { col, msg }), "{text}");
+    }
 }

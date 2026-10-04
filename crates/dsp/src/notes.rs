@@ -15,6 +15,12 @@
 //! `[c4,e4,g4]` is a chord and `!` accents a note. Classic: `c4:4` is a
 //! quarter, `:1 :2 :4 :8 :16` with a dot for one and a half, and `r:4` rests.
 //!
+//! A third form, timed notes, says exactly where each note is (#173, the
+//! form MIDI import writes): `d5@0:6 f#5@6:6:90 a4@12:24` is a note at tick
+//! 0 for 6 ticks, one at 6 with velocity 90 of 127, one at 12 for a half bar.
+//! Notes may overlap and run past the line's end; the frag line may say how
+//! many bars the line is (`bars 8`), else it ends at the bar of its last start.
+//!
 //! Parsing and compiling allocate and happen when a song is loaded, never in
 //! `render`. Both are total: bad text is an error with a column.
 
@@ -98,6 +104,8 @@ pub enum Seq {
     Euclid(Euclid, Fill),
     /// `arp(...)`, `walk(...)`, `markov(...)` or `mutate(...)`.
     Generated(Gen),
+    /// `d5@0:6:90 …`: notes at their ticks (#173).
+    Timed(Vec<Event>),
 }
 
 /// One note to play: where it starts in the loop, how long it lasts, in ticks.
@@ -107,11 +115,15 @@ pub struct Event {
     pub len: u32,
     pub note: u8,
     pub accent: bool,
+    /// A velocity of 1 to 127 from a timed note; 0 takes it from `accent`.
+    pub vel: u8,
 }
 
 impl Event {
     pub fn velocity(&self) -> f32 {
-        if self.accent {
+        if self.vel > 0 {
+            f32::from(self.vel.min(127)) / 127.0
+        } else if self.accent {
             ACCENT_VELOCITY
         } else {
             HIT_VELOCITY
@@ -240,6 +252,51 @@ impl Cursor<'_> {
             self.i += 1;
         }
         Ok(Pitch { note, accent })
+    }
+
+    /// `d5@0:6` or `d5!@0:6` or `d5@0:6:90`: a note at a tick, its length in
+    /// ticks and maybe a velocity of 1 to 127.
+    fn timed(&mut self) -> Result<Event, NoteError> {
+        let p = self.pitch()?;
+        let expect = |cur: &mut Cursor<'_>, c: char, msg: &'static str| {
+            if cur.peek() == Some(c) {
+                cur.i += 1;
+                Ok(())
+            } else {
+                err(cur.col(), msg)
+            }
+        };
+        expect(self, '@', "a timed note is note@tick:length, as d5@0:6")?;
+        let at = self.col();
+        let start = self.number()?;
+        if start >= MAX_BARS * TICKS_PER_BAR {
+            return err(at, "a timed note starts within 32 bars");
+        }
+        expect(self, ':', "a length in ticks goes after :, as d5@0:6")?;
+        let at = self.col();
+        let len = self.number()?;
+        if len == 0 || len > MAX_BARS * TICKS_PER_BAR {
+            return err(at, "a length is 1 to 1536 ticks");
+        }
+        let mut vel = 0;
+        if self.peek() == Some(':') {
+            self.i += 1;
+            let at = self.col();
+            vel = self.number()?;
+            if !(1..=127).contains(&vel) {
+                return err(at, "a velocity is 1 to 127");
+            }
+        }
+        if self.peek().is_some_and(|c| !c.is_whitespace()) {
+            return err(self.col(), "a word ends at a space");
+        }
+        Ok(Event {
+            start,
+            len,
+            note: p.note,
+            accent: p.accent,
+            vel: u8::try_from(vel).unwrap_or(0),
+        })
     }
 
     /// The inside of `[ ]` that holds commas, after the `[`: a chord.
@@ -525,6 +582,19 @@ pub fn parse_with(
             return err(base + chars.len(), "a sequence needs a word");
         }
         Seq::Mini(slots)
+    } else if chars.contains(&'@') {
+        let mut events = Vec::new();
+        loop {
+            cur.skip_ws();
+            if cur.peek().is_none() {
+                break;
+            }
+            if events.len() >= MAX_EVENTS {
+                return err(cur.col(), "a line has at most 512 notes");
+            }
+            events.push(cur.timed()?);
+        }
+        Seq::Timed(events)
     } else {
         let mut beats = Vec::new();
         loop {
@@ -543,6 +613,19 @@ pub fn parse_with(
 }
 
 impl Notes {
+    /// A timed line made `bars` bars long (`frag … bars N`): at least as long
+    /// as its last start, at most 32 bars. Other lines keep their own length.
+    pub fn with_bars(mut self, bars: u32) -> Result<Notes, &'static str> {
+        if !matches!(self.seq, Seq::Timed(_)) {
+            return Err("bars N is for a line of timed notes");
+        }
+        if bars < self.bars || bars > MAX_BARS {
+            return Err("the bars hold the line's notes, and are at most 32");
+        }
+        self.bars = bars;
+        Ok(self)
+    }
+
     fn new(seq: Seq, events: Vec<Event>, bars: u32) -> Notes {
         let mut n = Notes {
             seq,
@@ -599,6 +682,23 @@ impl Notes {
             Seq::Generated(g) => g.print(),
             Seq::Euclid(e, Fill::Pitch(p)) => format!("{} {}", e.print(), pitch_text(p)),
             Seq::Euclid(e, Fill::Walk(n)) => format!("{} scale {}", e.print(), note_name(*n)),
+            Seq::Timed(events) => {
+                let words: Vec<String> = events
+                    .iter()
+                    .map(|e| {
+                        let p = pitch_text(&Pitch {
+                            note: e.note,
+                            accent: e.accent,
+                        });
+                        if e.vel > 0 {
+                            format!("{p}@{}:{}:{}", e.start, e.len, e.vel)
+                        } else {
+                            format!("{p}@{}:{}", e.start, e.len)
+                        }
+                    })
+                    .collect();
+                words.join(" ")
+            }
             Seq::Classic(beats) => {
                 let parts: Vec<String> = beats
                     .iter()
@@ -711,14 +811,15 @@ impl Compiler {
             len: end - start,
             note: p.note,
             accent: p.accent,
+            vel: 0,
         });
     }
 }
 
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
-pub(crate) fn sort_key(e: &Event) -> (u32, u8, u32, bool) {
-    (e.start, e.note, e.len, e.accent)
+pub(crate) fn sort_key(e: &Event) -> (u32, u8, u32, bool, u8) {
+    (e.start, e.note, e.len, e.accent, e.vel)
 }
 
 /// A line of mini-notation that plays exactly `events` (sorted, within
@@ -827,7 +928,19 @@ fn classic_ticks(b: &Beat) -> u32 {
 }
 
 fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
+    // A timed line is kept in event order, so it prints canonically.
+    let seq = match seq {
+        Seq::Timed(mut events) => {
+            events.sort_unstable_by_key(sort_key);
+            Seq::Timed(events)
+        }
+        other => other,
+    };
     let (events, bars) = match &seq {
+        Seq::Timed(events) => {
+            let last = events.iter().map(|e| e.start).max().unwrap_or(0);
+            (events.clone(), last / TICKS_PER_BAR + 1)
+        }
         Seq::Mini(slots) => {
             let bars = period(slots);
             if bars > MAX_BARS {
@@ -868,6 +981,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     len: end - start,
                     note,
                     accent,
+                    vel: 0,
                 });
             }
             (events, 1)
@@ -883,6 +997,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         len,
                         note: p.note,
                         accent: p.accent,
+                        vel: 0,
                     });
                 }
                 at += len;

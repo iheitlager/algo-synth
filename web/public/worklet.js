@@ -62,6 +62,12 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songDump': this.sendSong(true); break
         case 'arr': w.arr_edit(data.op, data.a ?? 0, data.b ?? 0, data.c ?? 0); this.sendSong(true); break
         case 'songSeek': w.song_seek_bar(data.bar); break
+        case 'midiImport': {
+          const code = w.midi_import()
+          this.sendSong(code >= 0)
+          this.port.postMessage({ t: 'imported', code })
+          break
+        }
         case 'songPlay': w.song_play(); break
         case 'songStop': w.song_stop(); break
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break

@@ -198,6 +198,7 @@ fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>
                 len,
                 note: p.note,
                 accent: p.accent,
+                vel: 0,
             });
         }
     }
@@ -225,6 +226,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             len: (b - a).max(1),
             note: scale.walk(low, u32::try_from(pos).unwrap_or(0)),
             accent: false,
+            vel: 0,
         });
     }
 }

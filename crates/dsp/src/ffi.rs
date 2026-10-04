@@ -800,6 +800,16 @@ pub extern "C" fn loop_to() -> u32 {
     query(0, |e| e.song().loop_bars.map_or(0, |l| l.1))
 }
 
+/// Import the loaded MIDI file as the song (#173): the number of tracks, or a
+/// negative code (−1 to −4 the file's, −7 no notes, −8 too big, −9 a bug).
+#[unsafe(no_mangle)]
+pub extern "C" fn midi_import() -> i32 {
+    query(-5, |e| match e.import_midi() {
+        Ok(n) => i32::try_from(n).unwrap_or(i32::MAX),
+        Err(code) => code,
+    })
+}
+
 /// 1 while the song plays.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_playing() -> u32 {
