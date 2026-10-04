@@ -300,6 +300,45 @@ impl SampleStore {
     }
 }
 
+/// A mono 16-bit WAV of `values` (−1..=1) at `rate`, with a `smpl` chunk of
+/// root note, loop start and loop end when given; for tests that need a
+/// loaded sample.
+#[cfg(test)]
+pub(crate) fn test_wav(rate: u32, values: &[f32], smpl: Option<(u32, u32, u32)>) -> Vec<u8> {
+    let data: Vec<u8> = values
+        .iter()
+        .flat_map(|v| ((v * 32_767.0) as i16).to_le_bytes())
+        .collect();
+    let mut body = b"WAVEfmt ".to_vec();
+    body.extend(16u32.to_le_bytes());
+    for field in [1u16, 1] {
+        body.extend(field.to_le_bytes());
+    }
+    body.extend(rate.to_le_bytes());
+    body.extend((rate * 2).to_le_bytes());
+    body.extend(2u16.to_le_bytes());
+    body.extend(16u16.to_le_bytes());
+    body.extend(b"data");
+    body.extend((data.len() as u32).to_le_bytes());
+    body.extend(data);
+    if let Some((root, start, end)) = smpl {
+        let mut c = vec![0u8; 36];
+        c[12..16].copy_from_slice(&root.to_le_bytes());
+        c[28..32].copy_from_slice(&1u32.to_le_bytes());
+        let mut l = vec![0u8; 24];
+        l[8..12].copy_from_slice(&start.to_le_bytes());
+        l[12..16].copy_from_slice(&end.to_le_bytes());
+        c.extend(l);
+        body.extend(b"smpl");
+        body.extend((c.len() as u32).to_le_bytes());
+        body.extend(c);
+    }
+    let mut out = b"RIFF".to_vec();
+    out.extend((body.len() as u32).to_le_bytes());
+    out.extend(body);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

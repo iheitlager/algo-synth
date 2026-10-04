@@ -1,0 +1,11 @@
+Sample packs fetched by `make samples`; each is used under its own license.
+
+New Age Pad: CC0-1.0. FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html
+
+Sweep Pad: CC0-1.0. FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html
+
+Synth Pad Bowed: CC0-1.0. FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html
+
+Synth Pad Choir: CC0-1.0. FreePats, https://freepats.zenvoid.org/Synthesizer/synth-pad.html
+
+Upright Piano KW: CC0-1.0. FreePats, https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html

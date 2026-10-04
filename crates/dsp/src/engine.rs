@@ -24,6 +24,7 @@ use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
 use crate::poly::{Pool, VOICE_BUDGET};
 use crate::sample::{self, Sample, SampleStore};
+use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -82,6 +83,8 @@ pub struct Engine {
     /// A WAV file's bytes, written by JavaScript before `load_sample`.
     wav: Vec<u8>,
     samples: SampleStore,
+    /// Each synth's zones, for when it is a sampler.
+    zones: Vec<ZoneMap>,
     sequence: Sequence,
     /// The transport's tempo and sixteenth steps (spec 002 Req 5).
     clock: Clock,
@@ -124,6 +127,7 @@ impl Engine {
             sysex_voices: Vec::new(),
             wav: Vec::new(),
             samples: SampleStore::new(),
+            zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
             sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
             route: [Some(0); CHANNELS],
@@ -461,6 +465,24 @@ impl Engine {
         self.samples.clear(slot);
     }
 
+    /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`).
+    pub fn set_zone(&mut self, synth: usize, zone: usize, field: ZoneField, value: f32) {
+        if let Some(z) = self.zones.get_mut(synth) {
+            z.set(zone, field, value);
+        }
+    }
+
+    /// Empty every zone of `synth`.
+    pub fn clear_zones(&mut self, synth: usize) {
+        if let Some(z) = self.zones.get_mut(synth) {
+            z.clear();
+        }
+    }
+
+    pub fn zones(&self, synth: usize) -> Option<&ZoneMap> {
+        self.zones.get(synth)
+    }
+
     pub fn sequence(&self) -> &Sequence {
         &self.sequence
     }
@@ -550,6 +572,9 @@ impl Engine {
                 if pool.active() == 0 {
                     continue;
                 }
+                let Some(zones) = self.zones.get(synth) else {
+                    continue;
+                };
                 if let Some(buf) = self.mixer.bus(synth, t..t + chunk) {
                     let tools = Tools {
                         sine: &self.sine,
@@ -557,6 +582,8 @@ impl Engine {
                         ladder: &self.ladder,
                         pitch: &self.pitch,
                         tables: self.tables,
+                        samples: &self.samples,
+                        zones,
                     };
                     pool.render(params, tools, buf);
                 }

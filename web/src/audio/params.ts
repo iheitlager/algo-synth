@@ -537,6 +537,7 @@ export const Model = {
   Dx7: 13,
   PolyMoog: 14,
   Tr808: 15,
+  Sampler: 16,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -622,8 +623,32 @@ export const Preset = {
   PolyBrass: 78,
   Kit808: 79,
   TightKit: 80,
+  SamplerKeys: 81,
+  SamplerPad: 82,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
+
+/** What `zone_set(synth, zone, field, value)` sets; see `sampler.rs`. A zone maps a key and velocity range to a sample slot. */
+export const ZoneField = {
+  Sample: 0,
+  KeyLo: 1,
+  KeyHi: 2,
+  VelLo: 3,
+  VelHi: 4,
+  Root: 5,
+  Tune: 6,
+  Level: 7,
+  Loop: 8,
+  LoopStart: 9,
+  LoopEnd: 10,
+  SeqLen: 11,
+  SeqPos: 12,
+  Release: 13,
+} as const
+export type ZoneFieldId = (typeof ZoneField)[keyof typeof ZoneField]
+
+/** A zone's loop modes (`Loop` field). */
+export const LoopMode = { Off: 0, Loop: 1, Sustain: 2 } as const
 
 export const NotePriority = {
   Last: 0,

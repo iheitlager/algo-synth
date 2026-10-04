@@ -27,11 +27,13 @@ pub enum Model {
     PolyMoog = 14,
     /// The drum kit: eight synthesized pads, one voice each (#114).
     Tr808 = 15,
+    /// The multisampler (`sampler`): zones of the sample store.
+    Sampler = 16,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 16] = [
+    pub const ALL: [(Model, &'static str); 17] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -48,6 +50,7 @@ impl Model {
         (Model::Dx7, "Dx7"),
         (Model::PolyMoog, "PolyMoog"),
         (Model::Tr808, "Tr808"),
+        (Model::Sampler, "Sampler"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -192,7 +195,7 @@ impl Model {
             Model::Matrix12 => 12,
             Model::PpgWave => 8,
             Model::D50 => 16,
-            Model::Dx7 | Model::PolyMoog => 16,
+            Model::Dx7 | Model::PolyMoog | Model::Sampler => 16,
             _ => crate::poly::MAX_VOICES,
         }
     }
@@ -207,7 +210,7 @@ impl Model {
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
             // The kit has no filter of its own; the ladder's setting goes unused.
-            Model::D50 | Model::Dx7 | Model::Tr808 => Filter::Ladder(D50),
+            Model::D50 | Model::Dx7 | Model::Tr808 | Model::Sampler => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -240,6 +243,11 @@ impl Model {
         self == Model::D50
     }
 
+    /// Whether the voice is the multisampler's (#123).
+    pub fn uses_sampler(self) -> bool {
+        self == Model::Sampler
+    }
+
     /// Whether VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
     pub fn uses_tables(self) -> bool {
         self == Model::PpgWave
@@ -266,7 +274,8 @@ impl Model {
             | Model::D50
             | Model::Dx7
             | Model::PolyMoog
-            | Model::Tr808 => Hp::None,
+            | Model::Tr808
+            | Model::Sampler => Hp::None,
         }
     }
 

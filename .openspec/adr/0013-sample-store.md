@@ -12,6 +12,7 @@ The samplers (epic #126) play recorded audio beside the synths. Samples are larg
 - **Allocation happens at load, never in `render`.** A fixed table of 64 slots holds each sample's `f32` data; a load allocates, a replace or `sample_clear` frees. Playback only reads.
 - **Memory is capped.** A file over 32 MiB is refused before it is copied, and the store holds at most 16 Mi `f32` values (64 MiB) across all slots. A load that would pass either leaves the slot as it was and returns an error code.
 - **Errors are values.** `parse` is total: any byte string gives a sample or a negative code (not WAV, truncated, unsupported, empty, too large, no such slot).
+- **The multisampler is a synth model** (`Model::Sampler`), a variant of the pool's voice beside Mono, LA and FM (ADR-0011), so polyphony, stealing, the MIDI player and the mixer strip are shared. Each synth owns 64 *zones* (key and velocity range, sample slot, root, tune, level, loop mode and points, round-robin position, release flag) in fixed arrays, set field by field through `zone_set`; a voice picks its zone when it starts and reads the store with Catmull-Rom interpolation, through the synth's own filter and amplifier envelope. Sustain loops are crossfaded; a release zone sounds once when the key comes up. Stereo samples are mixed to mono, as strips are mono until the pan (ADR-0010).
 
 ## Consequences
 

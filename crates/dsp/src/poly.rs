@@ -24,6 +24,7 @@ use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
 use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools};
+use crate::sampler::SamplerVoice;
 use crate::voice::Owner;
 
 /// Voices in a pool.
@@ -44,6 +45,8 @@ pub enum PolyVoice {
     Fm(FmVoice),
     /// A pad of the drum kit.
     Drum(PadVoice),
+    /// The multisampler's voice.
+    Sampler(SamplerVoice),
 }
 
 impl PolyVoice {
@@ -53,6 +56,7 @@ impl PolyVoice {
             Some(p) if p.model.uses_la() => PolyVoice::La(LaVoice::new()),
             Some(p) if p.model.uses_fm() => PolyVoice::Fm(FmVoice::new(p.sample_rate())),
             Some(p) if p.model.uses_drums() => PolyVoice::Drum(PadVoice::new(Pad::Bd, seed)),
+            Some(p) if p.model.uses_sampler() => PolyVoice::Sampler(SamplerVoice::new()),
             _ => PolyVoice::Mono(MonoVoice::new(seed)),
         }
     }
@@ -60,10 +64,16 @@ impl PolyVoice {
     /// Whether this voice is of the kind `p`'s model needs.
     fn fits(&self, p: &MonoParams) -> bool {
         match self {
-            PolyVoice::Mono(_) => !p.model.uses_la() && !p.model.uses_fm() && !p.model.uses_drums(),
+            PolyVoice::Mono(_) => {
+                !p.model.uses_la()
+                    && !p.model.uses_fm()
+                    && !p.model.uses_drums()
+                    && !p.model.uses_sampler()
+            }
             PolyVoice::La(_) => p.model.uses_la(),
             PolyVoice::Fm(_) => p.model.uses_fm(),
             PolyVoice::Drum(_) => p.model.uses_drums(),
+            PolyVoice::Sampler(_) => p.model.uses_sampler(),
         }
     }
 
@@ -74,6 +84,7 @@ impl PolyVoice {
             PolyVoice::La(v) => v.active(),
             PolyVoice::Fm(v) => v.active(),
             PolyVoice::Drum(v) => v.active(),
+            PolyVoice::Sampler(v) => v.active(),
         }
     }
 
@@ -85,6 +96,7 @@ impl PolyVoice {
             PolyVoice::Fm(v) => v.gated(),
             // A hit has no key to hold.
             PolyVoice::Drum(_) => false,
+            PolyVoice::Sampler(v) => v.gated(),
         }
     }
 
@@ -95,6 +107,7 @@ impl PolyVoice {
             PolyVoice::Fm(v) => v.release_all(),
             // A hit rings out.
             PolyVoice::Drum(_) => {}
+            PolyVoice::Sampler(v) => v.release_all(),
         }
     }
 
@@ -108,6 +121,7 @@ impl PolyVoice {
             PolyVoice::La(v) => v.press(note, velocity),
             PolyVoice::Fm(v) => v.press(note, velocity, p),
             PolyVoice::Drum(v) => strike(v, note, velocity, p),
+            PolyVoice::Sampler(v) => v.press(note, velocity),
         }
     }
 
@@ -117,6 +131,7 @@ impl PolyVoice {
             PolyVoice::La(v) => v.release_all(),
             PolyVoice::Fm(v) => v.release_all(),
             PolyVoice::Drum(_) => {}
+            PolyVoice::Sampler(v) => v.release_all(),
         }
     }
 
@@ -136,6 +151,10 @@ impl PolyVoice {
             }
             // The kit's pads are tuned by their knobs, not by drift.
             PolyVoice::Drum(_) => {}
+            PolyVoice::Sampler(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
         }
     }
 }
@@ -248,7 +267,9 @@ impl Pool {
         let i = self.slots.iter().position(|s| s.owner == Some(owner))?;
         match self.voices.get(i)? {
             PolyVoice::Mono(v) => Some(v),
-            PolyVoice::La(_) | PolyVoice::Fm(_) | PolyVoice::Drum(_) => None,
+            PolyVoice::La(_) | PolyVoice::Fm(_) | PolyVoice::Drum(_) | PolyVoice::Sampler(_) => {
+                None
+            }
         }
     }
 
@@ -657,6 +678,7 @@ impl Pool {
                 PolyVoice::La(l) => l.render(&ctx, out),
                 PolyVoice::Fm(f) => f.render(&ctx, out),
                 PolyVoice::Drum(d) => d.render(ctx.sine, out),
+                PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
             }
         }
     }
@@ -674,6 +696,8 @@ mod tests {
     use crate::mono::ladder::LadderTables;
     use crate::mono::osc::Blep;
     use crate::mono::voice::PitchTable;
+    use crate::sample::SampleStore;
+    use crate::sampler::ZoneMap;
     use crate::table::Tables;
     use crate::voice::sine_table;
 
@@ -687,6 +711,8 @@ mod tests {
         ladder: LadderTables,
         pitch: PitchTable,
         tables: &'static Tables,
+        samples: SampleStore,
+        zones: ZoneMap,
         clock: u64,
     }
 
@@ -702,6 +728,8 @@ mod tests {
                 ladder: LadderTables::new(SR),
                 pitch: PitchTable::new(SR),
                 tables: Tables::shared(SR),
+                samples: SampleStore::new(),
+                zones: ZoneMap::new(),
                 clock: 0,
             }
         }
@@ -726,6 +754,8 @@ mod tests {
                     ladder: &self.ladder,
                     pitch: &self.pitch,
                     tables: self.tables,
+                    samples: &self.samples,
+                    zones: &self.zones,
                 };
                 self.pool.render(&self.params, tools, &mut out);
                 all.extend(out);
@@ -882,7 +912,10 @@ mod tests {
             .filter(|v| v.active())
             .map(|v| match v {
                 PolyVoice::Mono(m) => m.mods().pitch[0],
-                PolyVoice::La(_) | PolyVoice::Fm(_) | PolyVoice::Drum(_) => 0.0,
+                PolyVoice::La(_)
+                | PolyVoice::Fm(_)
+                | PolyVoice::Drum(_)
+                | PolyVoice::Sampler(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -907,6 +940,7 @@ mod tests {
                 PolyVoice::La(l) => l.trim,
                 PolyVoice::Fm(f) => f.trim,
                 PolyVoice::Drum(_) => 1.0,
+                PolyVoice::Sampler(v) => v.trim,
             })
             .collect()
     }
