@@ -363,6 +363,7 @@ impl MonoParams {
             | Param::Send2On
             | Param::Send3On
             | Param::Send4On
+            | Param::Key
             | Param::P2In
             | Param::P3In
             | Param::P4In

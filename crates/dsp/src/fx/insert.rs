@@ -7,6 +7,10 @@
 //! | Overdrive, Distortion, Fuzz| amount    | tone      | level     | –         | –      |
 //! | EQ (three bands)           | low gain  | mid freq  | mid gain  | high gain | mid Q  |
 //! | Compressor                 | threshold | ratio     | attack    | release   | make-up|
+//! | Vocoder (#161)             | shift     | release   | unvoiced  | width     | dry    |
+//!
+//! A vocoder hears its key: another synth's raw signal, picked by the strip's
+//! `Key`; without one it is silent.
 //!
 //! Every slot holds every type, allocated up front. A new type starts from
 //! rest, the old ones are reset so nothing old comes back, and nothing
@@ -16,6 +20,7 @@
 use super::compressor::Compressor;
 use super::drive::{Drive, DriveMode};
 use super::eq::{EqBand, Equalizer};
+use super::vocoder::Vocoder;
 
 /// What a slot does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,16 +32,18 @@ pub enum InsertType {
     Fuzz = 3,
     Eq = 4,
     Comp = 5,
+    Vocoder = 6,
 }
 
 impl InsertType {
-    pub const ALL: [(InsertType, &'static str); 6] = [
+    pub const ALL: [(InsertType, &'static str); 7] = [
         (InsertType::Off, "Off"),
         (InsertType::Overdrive, "Overdrive"),
         (InsertType::Distortion, "Distortion"),
         (InsertType::Fuzz, "Fuzz"),
         (InsertType::Eq, "Eq"),
         (InsertType::Comp, "Comp"),
+        (InsertType::Vocoder, "Vocoder"),
     ];
 
     pub fn from_id(id: u32) -> Option<InsertType> {
@@ -70,6 +77,7 @@ pub struct Insert {
     drive_r: Drive,
     eq: Equalizer,
     comp: Compressor,
+    vocoder: Vocoder,
 }
 
 impl Insert {
@@ -81,6 +89,7 @@ impl Insert {
             drive_r: Drive::new(sample_rate),
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
+            vocoder: Vocoder::new(sample_rate),
         }
     }
 
@@ -94,6 +103,7 @@ impl Insert {
         self.drive_r.set_mode(DriveMode::Off);
         self.eq.reset();
         self.comp.reset();
+        self.vocoder.reset();
         self.apply();
     }
 
@@ -134,27 +144,31 @@ impl Insert {
                 self.comp.set_release(10.0 * 100.0_f32.powf(d));
                 self.comp.set_makeup(24.0 * e);
             }
+            InsertType::Vocoder => self.vocoder.set([a, b, c, d, e]),
             _ => {}
         }
     }
 
-    /// Process one channel in place; Off leaves it untouched.
-    pub fn process_mono(&mut self, x: &mut [f32]) {
+    /// Process one channel in place; Off leaves it untouched. `key` is the
+    /// side-chain a vocoder follows.
+    pub fn process_mono(&mut self, x: &mut [f32], key: Option<&[f32]>) {
         match self.kind {
             InsertType::Off => {}
             InsertType::Eq => self.eq.process_mono(x),
             InsertType::Comp => self.comp.process_mono(x),
+            InsertType::Vocoder => self.vocoder.process_mono(x, key),
             _ => self.drive.process(x),
         }
     }
 
     /// Process a stereo bus in place: the compressor sees both channels and
     /// gives them one gain; the others treat each side alike.
-    pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32]) {
+    pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], key: Option<&[f32]>) {
         match self.kind {
             InsertType::Off => {}
             InsertType::Eq => self.eq.process(left, right),
             InsertType::Comp => self.comp.process(left, right),
+            InsertType::Vocoder => self.vocoder.process_stereo(left, right, key),
             _ => {
                 self.drive.process(left);
                 self.drive_r.process(right);
@@ -188,7 +202,7 @@ mod tests {
     fn run(s: &mut Insert, x: &[f32]) -> Vec<f32> {
         let mut y = x.to_vec();
         for chunk in y.chunks_mut(128) {
-            s.process_mono(chunk);
+            s.process_mono(chunk, None);
         }
         y
     }
@@ -281,7 +295,7 @@ mod tests {
         let both = |s: &mut Insert| {
             let (mut l, mut r) = (x.clone(), x.clone());
             for (l, r) in l.chunks_mut(128).zip(r.chunks_mut(128)) {
-                s.process_stereo(l, r);
+                s.process_stereo(l, r, None);
             }
             (l, r)
         };
@@ -305,7 +319,7 @@ mod tests {
         let mut s = slot(InsertType::Comp, [0.6, 0.7, 0.1, 0.5, 0.0]);
         let (mut l, mut r) = (loud.clone(), quiet.clone());
         for (l, r) in l.chunks_mut(128).zip(r.chunks_mut(128)) {
-            s.process_stereo(l, r);
+            s.process_stereo(l, r, None);
         }
         let ratio_r = peak(&r) / peak(&quiet);
         let ratio_l = peak(&l) / peak(&loud);
@@ -322,6 +336,7 @@ mod tests {
     #[test]
     fn unknown_type_ids_are_none() {
         assert_eq!(InsertType::from_id(5), Some(InsertType::Comp));
-        assert_eq!(InsertType::from_id(6), None);
+        assert_eq!(InsertType::from_id(6), Some(InsertType::Vocoder));
+        assert_eq!(InsertType::from_id(7), None);
     }
 }

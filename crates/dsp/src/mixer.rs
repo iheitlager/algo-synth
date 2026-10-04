@@ -15,9 +15,11 @@ pub const SENDS: usize = 4;
 pub const GROUPS: usize = 8;
 /// Every strip: the synths, then the groups.
 pub const STRIPS: usize = SYNTHS + GROUPS;
+/// The `Out` that goes nowhere (#161): the strip still feeds its sends and keys.
+pub const OUT_NONE: usize = GROUPS + 1;
 
 /// Where a strip starts: full fader, centred, no sends, not muted or soloed.
-pub const STRIP_DEFAULTS: [(Param, f32); 35] = [
+pub const STRIP_DEFAULTS: [(Param, f32); 36] = [
     (Param::Level, 1.0),
     (Param::Pan, 0.0),
     (Param::Send1, 0.0),
@@ -53,6 +55,7 @@ pub const STRIP_DEFAULTS: [(Param, f32); 35] = [
     (Param::Send2On, 1.0),
     (Param::Send3On, 1.0),
     (Param::Send4On, 1.0),
+    (Param::Key, 0.0),
 ];
 
 /// One strip's or group's fader, pan, sends and routing, as set from the view.
@@ -69,8 +72,10 @@ struct Strip {
     solo: bool,
     /// Left and right gains for a stereo strip: a balance, unity at the centre.
     balance: [f32; 2],
-    /// 0 is the master, 1–8 a group.
+    /// 0 is the master, 1–8 a group, `OUT_NONE` nowhere.
     out: usize,
+    /// The synth (1–16) whose raw signal a vocoder here follows; 0 none.
+    key: usize,
     group: bool,
 }
 
@@ -86,6 +91,7 @@ impl Strip {
             mute: false,
             solo: false,
             out: 0,
+            key: 0,
             group,
         };
         for (p, v) in STRIP_DEFAULTS {
@@ -127,6 +133,7 @@ impl Strip {
             Param::Mute => self.mute = v >= 0.5,
             Param::Solo => self.solo = v >= 0.5,
             Param::Out => self.out = v.round() as usize,
+            Param::Key => self.key = v.round() as usize,
             _ => {}
         }
     }
@@ -157,6 +164,12 @@ pub struct Mixer {
     wide: [bool; SYNTHS],
     /// The dry signal while a stereo effect writes both sides.
     dry: [f32; BLOCK],
+    /// Each synth's raw signal this block, before its inserts: what a
+    /// vocoder keyed to it follows (#161). Copied before any strip is
+    /// processed, so any strip can key any other.
+    raw: Box<[[f32; BLOCK]; SYNTHS]>,
+    /// Where a strip routed nowhere is summed and forgotten, cleared each block.
+    nowhere: Box<[[f32; BLOCK]; 2]>,
     /// Each group's stereo bus, left then right.
     groups: Box<[[[f32; BLOCK]; 2]; GROUPS]>,
     /// What voices send straight into a group, before its inserts: a drum
@@ -184,6 +197,8 @@ impl Mixer {
             bus_r: Box::new([[0.0; BLOCK]; SYNTHS]),
             wide: [false; SYNTHS],
             dry: [0.0; BLOCK],
+            raw: Box::new([[0.0; BLOCK]; SYNTHS]),
+            nowhere: Box::new([[0.0; BLOCK]; 2]),
             groups: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
             direct: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
             feeds: [0; SYNTHS],
@@ -198,7 +213,7 @@ impl Mixer {
     /// a higher-numbered one, so the routes can't loop.
     pub fn route_ok(strip: usize, out: usize) -> bool {
         match out {
-            0 => true,
+            0 | OUT_NONE => true,
             1..=GROUPS => strip < SYNTHS || out - 1 > strip - SYNTHS,
             _ => false,
         }
@@ -252,7 +267,7 @@ impl Mixer {
     fn chain(&self, strip: usize) -> impl Iterator<Item = usize> + '_ {
         let mut out = self.strips.get(strip).map_or(0, |s| s.out);
         std::iter::from_fn(move || {
-            if out == 0 {
+            if out == 0 || out > GROUPS {
                 return None;
             }
             let g = SYNTHS + out - 1;
@@ -375,7 +390,12 @@ impl Mixer {
                 b.fill(0.0);
             }
         }
-        for side in self.direct.iter_mut().flatten() {
+        for side in self
+            .direct
+            .iter_mut()
+            .flatten()
+            .chain(self.nowhere.iter_mut())
+        {
             if let Some(b) = side.get_mut(..frames) {
                 b.fill(0.0);
             }
@@ -395,6 +415,21 @@ impl Mixer {
         for send in self.sends.iter_mut() {
             if let Some(s) = send.get_mut(..n) {
                 s.fill(0.0);
+            }
+        }
+        // The keys: each synth's raw signal, a stereo one as its mid.
+        for (i, raw) in self.raw.iter_mut().enumerate() {
+            let (Some(r), Some(bus)) = (raw.get_mut(..n), self.bus.get(i).and_then(|b| b.get(..n)))
+            else {
+                continue;
+            };
+            r.copy_from_slice(bus);
+            if self.wide.get(i).copied().unwrap_or(false) {
+                if let Some(right) = self.bus_r.get(i).and_then(|b| b.get(..n)) {
+                    for (x, y) in r.iter_mut().zip(right) {
+                        *x = 0.5 * (*x + y);
+                    }
+                }
             }
         }
         // A group starts from what was sent to it directly, else silence.
@@ -424,10 +459,11 @@ impl Mixer {
             } else {
                 None
             };
+            let key = key_of(&self.raw, i, s.key, n);
             for insert in inserts.iter_mut() {
                 match wide_r.as_deref_mut() {
-                    Some(r) => insert.process_stereo(bus, r),
-                    None => insert.process_mono(bus),
+                    Some(r) => insert.process_stereo(bus, r, key),
+                    None => insert.process_mono(bus, key),
                 }
             }
             if let Some(p) = self.peaks.get_mut(i) {
@@ -437,10 +473,11 @@ impl Mixer {
                 }
                 *p = peak * s.level;
             }
-            // Into the master, or a group's stereo bus.
+            // Into the master, a group's stereo bus, or nowhere: a strip routed
+            // nowhere still feeds its sends below.
             let (dl, dr): (&mut [f32], &mut [f32]) = match s.out {
                 0 => (&mut *left, &mut *right),
-                o => {
+                o if o <= GROUPS => {
                     let Some([gl, gr]) = self.groups.get_mut(o - 1) else {
                         continue;
                     };
@@ -448,6 +485,13 @@ impl Mixer {
                         continue;
                     };
                     (gl, gr)
+                }
+                _ => {
+                    let [nl, nr] = &mut *self.nowhere;
+                    let (Some(nl), Some(nr)) = (nl.get_mut(..n), nr.get_mut(..n)) else {
+                        continue;
+                    };
+                    (nl, nr)
                 }
             };
             if let Some(right) = wide_r.as_deref() {
@@ -504,8 +548,9 @@ impl Mixer {
                 continue;
             };
             if let Some(inserts) = self.inserts.get_mut(idx) {
+                let key = key_of(&self.raw, idx, s.key, n);
                 for insert in inserts.iter_mut() {
-                    insert.process_stereo(gl, gr);
+                    insert.process_stereo(gl, gr, key);
                 }
             }
             if let Some(p) = self.peaks.get_mut(idx) {
@@ -517,6 +562,13 @@ impl Mixer {
             }
             let (dl, dr): (&mut [f32], &mut [f32]) = match s.out {
                 0 => (&mut *left, &mut *right),
+                o if o > GROUPS => {
+                    let [nl, nr] = &mut *self.nowhere;
+                    let (Some(nl), Some(nr)) = (nl.get_mut(..n), nr.get_mut(..n)) else {
+                        continue;
+                    };
+                    (nl, nr)
+                }
                 o => {
                     // `route_ok` keeps the destination above this group.
                     let Some([ol, or]) = o.checked_sub(gi + 2).and_then(|k| hi.get_mut(k)) else {
@@ -549,4 +601,14 @@ impl Mixer {
             }
         }
     }
+}
+
+/// The raw signal a strip's vocoder follows: synth `key` (1–16), never the
+/// strip itself; `None` when it has no key.
+fn key_of(raw: &[[f32; BLOCK]; SYNTHS], strip: usize, key: usize, n: usize) -> Option<&[f32]> {
+    let synth = key.checked_sub(1)?;
+    if synth == strip {
+        return None;
+    }
+    raw.get(synth)?.get(..n)
 }

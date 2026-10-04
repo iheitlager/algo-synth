@@ -197,11 +197,14 @@ describe('processor knobs', () => {
 
 describe('insert knobs', () => {
   it('has the knobs of each type and a short name for each', () => {
-    expect(INSERT_SHORT).toHaveLength(6)
+    expect(INSERT_SHORT).toHaveLength(7)
     expect(INSERT_KNOBS[0]).toEqual([])
     for (const t of [1, 2, 3]) expect(INSERT_KNOBS[t]?.map((k) => k.label)).toEqual(['Amount', 'Tone', 'Level'])
     expect(INSERT_KNOBS[4]?.map((k) => k.label)).toEqual(['Low', 'Mid Hz', 'Mid', 'High', 'Mid Q'])
     expect(INSERT_KNOBS[5]?.map((k) => k.label)).toEqual(['Thresh', 'Ratio', 'Attack', 'Release', 'Make-up'])
+    expect(INSERT_KNOBS[6]?.map((k) => k.label)).toEqual(['Shift', 'Release', 'Unvoiced', 'Width', 'Dry'])
+    expect(INSERT_KNOBS[6]?.[0]?.text?.(0.5)).toBe('0 st')
+    expect(INSERT_KNOBS[6]?.[0]?.text?.(1)).toBe('12 st')
   })
 
   it('reads the defaults as neutral', () => {
@@ -227,7 +230,9 @@ describe('routing', () => {
   it('lets a synth go anywhere and a group only up', () => {
     expect(routeOk(0, 0)).toBe(true)
     expect(routeOk(5, 8)).toBe(true)
-    expect(routeOk(5, 9)).toBe(false)
+    expect(routeOk(5, 9)).toBe(true) // nowhere (#161)
+    expect(routeOk(23, 9)).toBe(true)
+    expect(routeOk(5, 10)).toBe(false)
     expect(routeOk(16, 1)).toBe(false) // group 1 to itself
     expect(routeOk(17, 1)).toBe(false) // group 2 to group 1
     expect(routeOk(16, 2)).toBe(true)
@@ -236,14 +241,23 @@ describe('routing', () => {
   })
 
   it('offers the master and the groups a strip can reach', () => {
-    expect(outChoices(0, [0, 2]).map((c) => c.label)).toEqual(['Master', 'Group 1', 'Group 3'])
-    expect(outChoices(17, [0, 1, 2]).map((c) => c.label)).toEqual(['Master', 'Group 3'])
+    expect(outChoices(0, [0, 2]).map((c) => c.label)).toEqual(['Master', 'Group 1', 'Group 3', 'None'])
+    expect(outChoices(17, [0, 1, 2]).map((c) => c.label)).toEqual(['Master', 'Group 3', 'None'])
   })
 })
 
 describe('heardStrips', () => {
   const mk = (over: Partial<Record<number, Partial<{ mute: boolean; solo: boolean; out: number }>>> = {}) =>
     Array.from({ length: STRIPS }, (_, i) => ({ mute: false, solo: false, out: 0, ...over[i] }))
+
+  it("keeps the groups a soloed kit's individual outs feed (#162)", () => {
+    const strips = mk({ 0: { solo: true } }).map((s, i) => (i === 0 ? { ...s, feeds: [2] } : s))
+    const heard = heardStrips(strips)
+    expect(heard[0]).toBe(true)
+    expect(heard[18]).toBe(true)
+    expect(heard[17]).toBe(false)
+    expect(heard[1]).toBe(false)
+  })
 
   it('hears everything with no solo, except what is muted', () => {
     expect(heardStrips(mk({ 3: { mute: true } })).filter((h) => !h)).toHaveLength(1)

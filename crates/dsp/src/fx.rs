@@ -12,6 +12,7 @@ pub mod insert;
 pub mod limiter;
 pub mod processor;
 pub mod reverb;
+pub mod vocoder;
 
 /// A ring buffer read at a distance behind the write position.
 pub(crate) struct Delay {

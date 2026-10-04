@@ -2343,7 +2343,11 @@ mod tests {
         e.set_param(0, Param::Out, 8.0);
         assert_eq!(e.param_value(0, Param::Out), 8.0, "any group for a synth");
         e.set_param(0, Param::Out, 99.0);
-        assert_eq!(e.param_value(0, Param::Out), 8.0, "clamped, not wrapped");
+        assert_eq!(
+            e.param_value(0, Param::Out),
+            9.0,
+            "clamped to nowhere (#161), not wrapped"
+        );
     }
 
     #[test]
@@ -3230,5 +3234,78 @@ mod tests {
             }),
             "soloing the group plays it"
         );
+    }
+
+    /// A carrier on synth 0 with a vocoder keyed to synth 1, both playing.
+    fn vocoded(setup: &dyn Fn(&mut Engine)) -> Vec<f32> {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::I1Type, 6.0);
+        e.set_param(0, Param::Key, 2.0);
+        setup(&mut e);
+        e.note_on(0, 48, 1.0);
+        e.note_on(1, 60, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..40 {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|x| x.is_finite()));
+            out.extend_from_slice(e.output());
+        }
+        out
+    }
+
+    fn loud(x: &[f32]) -> f32 {
+        x.iter().fold(0.0_f32, |m, v| m.max(v.abs()))
+    }
+
+    /// #161: the vocoder follows its key's raw signal, which a muted or
+    /// unrouted key strip still gives; without a key, or keyed to itself, it is silent.
+    #[test]
+    fn a_vocoder_follows_its_key_even_muted_or_routed_nowhere() {
+        let both = vocoded(&|_| {});
+        assert!(loud(&both) > 0.01);
+        let muted_key = vocoded(&|e| e.set_param(1, Param::Mute, 1.0));
+        assert!(loud(&muted_key) > 0.01, "the key is read before its mute");
+        let hidden_key = vocoded(&|e| e.set_param(1, Param::Out, 9.0));
+        assert!(loud(&hidden_key) > 0.01, "and before its Out");
+        // With the key muted only the vocoded carrier is heard.
+        let silent_key = vocoded(&|e| {
+            e.set_param(1, Param::Mute, 1.0);
+            e.set_param(0, Param::Key, 0.0);
+        });
+        assert!(silent_key.iter().all(|x| *x == 0.0), "no key, no sound");
+        let own = vocoded(&|e| {
+            e.set_param(1, Param::Mute, 1.0);
+            e.set_param(0, Param::Key, 1.0);
+        });
+        assert!(own.iter().all(|x| *x == 0.0), "a strip cannot key itself");
+    }
+
+    /// #161: Out None takes a strip out of the mix, but not out of its sends.
+    #[test]
+    fn a_strip_routed_nowhere_leaves_no_trace_but_feeds_its_sends() {
+        let render = |setup: &dyn Fn(&mut Engine)| {
+            let mut e = Engine::new(48_000.0);
+            setup(&mut e);
+            e.note_on(0, 57, 1.0);
+            let mut out = Vec::new();
+            let mut sent = 0.0_f32;
+            for _ in 0..20 {
+                e.render(BLOCK);
+                out.extend_from_slice(e.output());
+                sent = sent.max(loud(&e.mixer.sends[0]));
+            }
+            (out, sent, e.meters()[0])
+        };
+        let (silent, _, _) = render(&|_| {});
+        let (out, sent, meter) = render(&|e| {
+            e.set_param(0, Param::Out, 9.0);
+            e.set_param(0, Param::Send1, 1.0);
+            e.set_param(0, Param::P1Type, 0.0);
+        });
+        assert!(loud(&silent) > 0.0);
+        assert!(out.iter().all(|x| *x == 0.0), "nothing reaches the master");
+        assert!(sent > 0.0, "but the send is fed");
+        assert!(meter > 0.0, "and the strip's meter shows it");
     }
 }

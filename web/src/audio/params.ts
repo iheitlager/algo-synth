@@ -474,6 +474,7 @@ export const Param = {
   McPan: 467,
   HcOut: 468,
   HcPan: 469,
+  Key: 470,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -564,6 +565,7 @@ export const StripParam = {
   Send2On: 435,
   Send3On: 436,
   Send4On: 437,
+  Key: 470,
 } as const
 export type StripParamName = keyof typeof StripParam
 
@@ -582,6 +584,7 @@ export const InsertType = {
   Fuzz: 3,
   Eq: 4,
   Comp: 5,
+  Vocoder: 6,
 } as const
 export type InsertTypeId = (typeof InsertType)[keyof typeof InsertType]
 

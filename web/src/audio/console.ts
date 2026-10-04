@@ -179,7 +179,7 @@ export const PROC_KNOBS: Record<number, ProcKnob[]> = {
 // --- insert slots -----------------------------------------------------------------------
 
 /** The short name a strip shows for an insert type id (`InsertType`). */
-export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP']
+export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP', 'VOC']
 
 const driveKnobs: ProcKnob[] = [
   { label: 'Amount', def: 0.5, text: (t) => `+${Math.round(t * 40)} dB` },
@@ -212,6 +212,14 @@ export const INSERT_KNOBS: Record<number, ProcKnob[]> = {
     { label: 'Release', def: 0.5, text: (t) => `${Math.round(logMap(10, 1000)(t))} ms` },
     { label: 'Make-up', def: 0, text: (t) => `+${(t * 24).toFixed(1)} dB` },
   ],
+  // The vocoder (#161), following the synth its strip's Key names.
+  6: [
+    { label: 'Shift', def: 0.5, text: (t) => `${Math.round((t - 0.5) * 24)} st` },
+    { label: 'Release', def: 0.5, text: (t) => `${Math.round(logMap(20, 500)(t))} ms` },
+    { label: 'Unvoiced', def: 0, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Width', def: 0.5, text: (t) => `Q ${(12 * 0.25 ** t).toFixed(1)}` },
+    { label: 'Dry', def: 0, text: (t) => `${Math.round(t * 100)}%` },
+  ],
 }
 
 // --- groups, routing and layout (ADR-0010) -----------------------------------------------
@@ -223,14 +231,18 @@ export const STRIPS = SYNTH_STRIPS + GROUPS
 /** The strip index of group `g` (0–7). */
 export const groupStrip = (g: number) => SYNTH_STRIPS + g
 
-/** Whether `strip` may go to `out` (0 master, 1–8 a group): a group only to a higher one. */
+/** The `Out` that goes nowhere (#161): the strip still feeds its sends and any vocoder keyed to it. */
+export const OUT_NONE = GROUPS + 1
+
+/** Whether `strip` may go to `out` (0 master, 1–8 a group, 9 nowhere): a group only to a higher one. */
 export const routeOk = (strip: number, out: number) =>
-  out === 0 || (out >= 1 && out <= GROUPS && (strip < SYNTH_STRIPS || out - 1 > strip - SYNTH_STRIPS))
+  out === 0 || out === OUT_NONE || (out >= 1 && out <= GROUPS && (strip < SYNTH_STRIPS || out - 1 > strip - SYNTH_STRIPS))
 
 /** The destinations a strip can pick among the groups on screen, master first. */
 export const outChoices = (strip: number, shownGroups: number[]) => [
   { out: 0, label: 'Master' },
   ...shownGroups.filter((g) => routeOk(strip, g + 1)).map((g) => ({ out: g + 1, label: `Group ${g + 1}` })),
+  { out: OUT_NONE, label: 'None' },
 ]
 
 /** What a strip's routing and solo state is, as the engine reports it. */
@@ -238,13 +250,15 @@ export interface StripState {
   mute: boolean
   solo: boolean
   out: number
+  /** The groups it feeds directly (0–7): a drum kit's individual outs (#162). */
+  feeds?: number[]
 }
 
 /** The groups a strip passes through, nearest first. */
 function chain(strips: StripState[], i: number): number[] {
   const groups: number[] = []
   let out = strips[i]?.out ?? 0
-  while (out !== 0 && groups.length < GROUPS) {
+  while (out !== 0 && out <= GROUPS && groups.length < GROUPS) {
     const g = SYNTH_STRIPS + out - 1
     groups.push(g)
     out = strips[g]?.out ?? 0
@@ -263,6 +277,12 @@ export function heardStrips(strips: StripState[]): boolean[] {
   for (const j of soloed) {
     heard[j] = true
     for (const g of chain(strips, j)) heard[g] = true
+    // A kit's individual outs keep the groups they feed heard, and what those feed.
+    for (const f of strips[j]?.feeds ?? []) {
+      const g = groupStrip(f)
+      heard[g] = true
+      for (const h of chain(strips, g)) heard[h] = true
+    }
   }
   strips.forEach((_, i) => {
     if (chain(strips, i).some((g) => strips[g]?.solo)) heard[i] = true
