@@ -115,10 +115,10 @@ function endDrag() {
 <style scoped>
 .roll { margin: 4px 0 8px; }
 .roll-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
-.roll-head code { font-family: var(--mono, monospace); }
+.roll-head code { font-family: var(--font-mono); }
 .tag { color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px; font-size: 11px; }
 .body { display: flex; gap: 6px; }
-.keys { display: flex; flex-direction: column; width: 2.6em; font-family: var(--mono, monospace); font-size: 10px; color: var(--muted); }
+.keys { display: flex; flex-direction: column; width: 2.6em; font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
 .keys span { flex: 1; min-height: 0; line-height: 1; text-align: right; }
 .grid {
   position: relative; flex: 1; min-width: calc(var(--steps) * 18px); height: calc(var(--rows) * 14px);

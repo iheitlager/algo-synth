@@ -640,6 +640,53 @@ pub extern "C" fn song_error_len() -> u32 {
     query(0, |e| e.song_error().map_or(0, |x| x.msg.len() as u32))
 }
 
+// The song text as coloured spans for the editor (#203). It needs no engine,
+// so the view lexes on its own instance on the main thread, away from the
+// audio: `lex_buf(len)`, write the UTF-8 text, `lex()` for the span count,
+// then `lex_ptr()` holds (start, len, class) triples of u32, in UTF-16 units.
+
+thread_local! {
+    static LEX: RefCell<(Vec<u8>, Vec<u32>)> = const { RefCell::new((Vec::new(), Vec::new())) };
+}
+
+/// Size the text buffer to lex and return its address; null if too long.
+#[unsafe(no_mangle)]
+pub extern "C" fn lex_buf(len: u32) -> *mut u8 {
+    LEX.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lex) if len as usize <= crate::song::MAX_TEXT => {
+            lex.0.clear();
+            lex.0.resize(len as usize, 0);
+            lex.0.as_mut_ptr()
+        }
+        _ => std::ptr::null_mut(),
+    })
+}
+
+/// Lex the buffer; the number of spans, 0 when the text is not UTF-8.
+#[unsafe(no_mangle)]
+pub extern "C" fn lex() -> u32 {
+    LEX.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lex) => {
+            let (text, out) = &mut *lex;
+            out.clear();
+            for s in std::str::from_utf8(text).map_or(Vec::new(), crate::song::lex::lex) {
+                out.extend([s.start, s.len, s.class as u32]);
+            }
+            (out.len() / 3) as u32
+        }
+        Err(_) => 0,
+    })
+}
+
+/// The spans of the last `lex`, three u32 each.
+#[unsafe(no_mangle)]
+pub extern "C" fn lex_ptr() -> *const u32 {
+    LEX.with(|cell| match cell.try_borrow() {
+        Ok(lex) => lex.1.as_ptr(),
+        Err(_) => std::ptr::null(),
+    })
+}
+
 /// The song as the engine prints it, after the last load or edit.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_text_ptr() -> *const u8 {
