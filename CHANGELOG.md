@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-04
+
+### Added
+
+- **The composer on its own screen,** with a Play and Stop of its own (Stop goes back to the top), BPM, Swing and the bar and step it is on. The MIDI player is hidden there.
+
+### Changed
+
+- **Two transports:** the song and the MIDI file play, stop and seek apart. The transport bar's Play and Stop move only the MIDI file again; the composer's move only the song. Both may play at once. `song_play`, `song_stop` and `song_playing` join the C ABI, and `playing()` reports the MIDI file again.
+
 ## [0.25.0] - 2026-10-04
 
 ### Added

@@ -4,7 +4,7 @@ The wide-screen browser view in `web/`. Decision: ADR-0003.
 
 ### Requirement 1: Three-area layout [MUST]
 
-The view SHALL fill the window with a transport bar across the top, the **synths**, the **mixer** or the **composer** in the middle (a Synths | Mixer | Composer switch in the transport bar), and the **MIDI player** (one row per channel) across the bottom.
+The view SHALL fill the window with a transport bar across the top, the **synths** or the **mixer** in the middle with the **MIDI player** (one row per channel) across the bottom, or the **composer** on a screen of its own (a Synths | Mixer | Composer switch in the transport bar). The transport bar's Play and Stop belong to the MIDI file.
 
 **Implementation:** `web/src/App.vue`
 
@@ -28,7 +28,7 @@ The transport bar SHALL draw the output waveform from the AnalyserNode.
 
 ### Requirement 5: Composer [MUST]
 
-The composer SHALL show the song (ADR-0012, spec 002 Req 6) as a step grid beside its text. Each drum fragment SHALL show a row per lane, a button per step (off, hit, accent; a click cycles them and sends `setStep`), the step each lane plays now, and a selector for the synth its track plays on. The text SHALL be editable and sent with Apply or Ctrl+Enter; a text that does not parse SHALL show its line, column and message, and the grid SHALL keep showing the song that plays. The grid and the text SHALL redraw from what the engine sends back, never from the view's own copy. The transport's Play and Stop SHALL work without a MIDI file, and its BPM and Swing SHALL set the song's tempo and swing through the engine. Without a TR-808 synth the composer SHALL say so. Pitched fragments, the arrangement and generators follow (plan.md MVP 4 and 9).
+The composer SHALL show the song (ADR-0012, spec 002 Req 6) as a step grid beside its text. Each drum fragment SHALL show a row per lane, a button per step (off, hit, accent; a click cycles them and sends `setStep`), the step each lane plays now, and a selector for the synth its track plays on. The text SHALL be editable and sent with Apply or Ctrl+Enter; a text that does not parse SHALL show its line, column and message, and the grid SHALL keep showing the song that plays. The grid and the text SHALL redraw from what the engine sends back, never from the view's own copy. The composer SHALL have its own Play and Stop (Stop goes back to the top), apart from the MIDI file's, and its BPM and Swing SHALL set the song's tempo and swing through the engine. Without a TR-808 synth the composer SHALL say so. Pitched fragments, the arrangement and generators follow (plan.md MVP 4 and 9).
 
 **Implementation:** `web/src/components/ComposerPane.vue`, `web/src/components/TransportBar.vue`, `web/src/audio/engine.ts` (`song`, `loadSong`, `setStep`, `routeTrack`, `setSongTempo`, `setSongSwing`, `applySong`)
 

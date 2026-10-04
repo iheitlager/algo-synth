@@ -572,22 +572,32 @@ impl Engine {
         self.clock.set_swing(pct);
     }
 
-    /// Start the transport: the clock, and the MIDI file if one is loaded.
+    /// The MIDI file's transport: play, stop and seek move only the file
+    /// (spec 002 Req 9). The song has its own (`song_play`).
     pub fn play(&mut self) {
         self.sequence.play();
-        self.clock.play();
     }
 
     pub fn stop(&mut self) {
         self.sequence.stop();
-        self.clock.stop();
         self.release_player();
     }
 
     pub fn seek(&mut self, sample: u64) {
         self.sequence.seek(sample);
-        self.clock.seek(sample);
         self.release_player();
+    }
+
+    /// The song's transport: the clock runs its lanes (spec 002 Req 5). Play
+    /// continues from where it stopped; stop goes back to the top, as a
+    /// drum machine's does. Hits ring out.
+    pub fn song_play(&mut self) {
+        self.clock.play();
+    }
+
+    pub fn song_stop(&mut self) {
+        self.clock.stop();
+        self.clock.seek(0);
     }
 
     /// Play `channel` on `synth`, or mute it with `None`. An unknown synth
@@ -2429,7 +2439,7 @@ mod tests {
     #[test]
     fn clock_steps_land_on_their_samples_through_render() {
         let mut e = Engine::new(48_000.0);
-        e.play();
+        e.song_play();
         let mut onsets = Vec::new();
         let mut last = None;
         // One frame at a time, so the step a frame fires is visible.
@@ -2445,22 +2455,33 @@ mod tests {
     }
 
     #[test]
-    fn the_transport_drives_the_clock() {
+    fn the_song_and_the_file_have_their_own_transports() {
         let mut e = Engine::new(48_000.0);
+        load(&mut e, &one_note(0)).expect("loads");
         e.set_tempo(60.0);
-        e.play();
+        // The song plays with the file stopped.
+        e.song_play();
         for _ in 0..100 {
             e.render(BLOCK);
         }
         // 12_800 samples at 12_000 per step: steps 0 and 1 have fired.
         assert_eq!(e.clock().step(), Some(1));
-        e.stop();
-        e.render(BLOCK);
-        assert_eq!(e.clock().position(), 12_800);
-        e.seek(36_000);
+        assert!(!e.sequence().playing());
+        // The file plays and stops without touching the song.
         e.play();
         e.render(BLOCK);
-        assert_eq!(e.clock().step(), Some(3));
+        e.stop();
+        assert!(e.clock().playing());
+        assert_eq!(e.sequence().position(), BLOCK as u64);
+        // Stopping the song goes back to the top and leaves the file alone.
+        e.play();
+        e.song_stop();
+        e.render(BLOCK);
+        assert!(e.sequence().playing());
+        assert_eq!((e.clock().position(), e.clock().step()), (0, None));
+        e.song_play();
+        e.render(BLOCK);
+        assert_eq!(e.clock().step(), Some(0), "from the top again");
     }
 
     #[test]
@@ -2643,7 +2664,7 @@ mod tests {
         let mut e = kit(0);
         assert_eq!(load_text(&mut e, FOUR), Ok(()));
         assert_eq!(e.song_routed(0), Some(0), "the first kit plays the track");
-        e.play();
+        e.song_play();
         let mut hits = Vec::new();
         let mut count = e.note_count;
         for s in 0..96_000u64 {
@@ -2661,7 +2682,7 @@ mod tests {
         let mut e = kit(0);
         let text = "track kit drums\nfrag p = kit\n  bd x..\n  sn x...\n";
         assert_eq!(load_text(&mut e, text), Ok(()));
-        e.play();
+        e.song_play();
         // Twelve steps at 6000 samples: the kick on 0, 3, 6, 9; the snare on 0, 4, 8.
         run(&mut e, 72_000 / BLOCK);
         assert_eq!(e.note_count, 7);
@@ -2677,7 +2698,7 @@ mod tests {
         assert_eq!((err.line, err.col), (4, 9));
         assert_eq!(e.song_error(), Some(err));
         assert_eq!(e.song(), &good);
-        e.play();
+        e.song_play();
         assert!(run(&mut e, 40) > 0.05, "the old beat still plays");
         // Not UTF-8: reported where the bad byte is.
         e.song_buffer(4).expect("fits").copy_from_slice(b"\n\nab");
@@ -2716,7 +2737,7 @@ mod tests {
         assert!(e.song_text().contains("  bd x.X.x...x...x...\n"));
         assert!(!e.set_step(0, 0, 2, 3), "no level 3");
         assert!(!e.set_step(0, 1, 0, 1), "no second lane");
-        e.play();
+        e.song_play();
         run(&mut e, 12_001 / BLOCK + 1);
         assert_eq!(e.note_count, 2, "the new step at 12000 plays");
     }
@@ -2751,7 +2772,7 @@ mod tests {
         e.set_pad(2, 0, crate::padsampler::PadField::Sample, 0.0);
         assert_eq!(load_text(&mut e, FOUR), Ok(()));
         assert_eq!(e.song_routed(0), Some(2), "the pad sampler takes the track");
-        e.play();
+        e.song_play();
         let heard = run(&mut e, 48_000 / 2 / BLOCK);
         assert!(heard > 0.05, "the kick lane hits pad 1");
         assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");

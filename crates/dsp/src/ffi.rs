@@ -543,10 +543,10 @@ pub extern "C" fn position() -> f32 {
     query(0.0, |e| seconds(e, e.sequence().position()))
 }
 
-/// 1 while the transport plays: the clock, with a MIDI file or a song or neither.
+/// 1 while the MIDI file plays.
 #[unsafe(no_mangle)]
 pub extern "C" fn playing() -> u32 {
-    query(0, |e| u32::from(e.clock().playing()))
+    query(0, |e| u32::from(e.sequence().playing()))
 }
 
 // --- The song (spec 002, Req 6, ADR-0012) ----------------------------------
@@ -628,6 +628,23 @@ fn with_lane<R: Copy>(default: R, f: u32, l: u32, get: impl FnOnce(&Lane) -> R) 
             .and_then(|fr| fr.lanes.get(l as usize))
             .map_or(default, get)
     })
+}
+
+/// The song's own transport: play from where it stopped, stop back to the top.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_play() {
+    with_engine(Engine::song_play);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_stop() {
+    with_engine(Engine::song_stop);
+}
+
+/// 1 while the song plays.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_playing() -> u32 {
+    query(0, |e| u32::from(e.clock().playing()))
 }
 
 /// Set the song's tempo in BPM; the text and the clock follow.
@@ -931,10 +948,10 @@ mod tests {
         tempo(120.0);
         swing(50.0);
         assert_eq!(clock_step(), -1);
-        play();
+        song_play();
         process(128);
         assert_eq!(clock_step(), 0);
-        stop();
+        song_stop();
         assert!(midi_buf(u32::MAX).is_null());
     }
 
@@ -980,6 +997,11 @@ mod tests {
         assert!(song_error_len() > 0 && !song_error_ptr().is_null());
         assert_eq!(song_frags(), 1, "the old song stays");
         assert!(song_buf(u32::MAX).is_null());
+        assert_eq!(song_playing(), 0);
+        song_play();
+        assert_eq!((song_playing(), playing()), (1, 0), "the song alone");
+        song_stop();
+        assert_eq!(song_playing(), 0);
         song_tempo(97.0);
         song_swing(99.0);
         assert_eq!((clock_tempo(), clock_swing()), (97.0, 75.0));

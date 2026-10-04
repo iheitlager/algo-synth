@@ -60,6 +60,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songTempo': w.song_tempo(data.v); this.sendSong(true); break
         case 'songSwing': w.song_swing(data.v); this.sendSong(true); break
         case 'songDump': this.sendSong(true); break
+        case 'songPlay': w.song_play(); break
+        case 'songStop': w.song_stop(); break
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
         case 'padsDump': this.sendPads(data.s); break
@@ -234,7 +236,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     out[0].set(buf.subarray(0, frames))
     if (out[1]) out[1].set(buf.subarray(this.block, this.block + frames))
     if (++this.tick % POSITION_EVERY === 0) {
-      this.port.postMessage({ t: 'pos', sec: w.position(), playing: w.playing() === 1, step: w.clock_step() })
+      this.port.postMessage({
+        t: 'pos', sec: w.position(), playing: w.playing() === 1,
+        step: w.clock_step(), songPlaying: w.song_playing() === 1,
+      })
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()
