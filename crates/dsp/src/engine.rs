@@ -64,8 +64,8 @@ use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::song::{
-    At, Kind, MAX_AUTOS, MAX_TEXT, MAX_TRACKS, Mix, MixLine, STEPS_PER_BAR, Song, SongError, Step,
-    Target,
+    At, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine, STEPS_PER_BAR, Song,
+    SongError, Step, Target, signal,
 };
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -150,6 +150,10 @@ pub struct Engine {
     /// The value each automation lane last wrote, so it writes only changes
     /// and a hand on a knob holds until the next one (ADR-0015).
     auto_last: [f32; MAX_AUTOS],
+    /// The same for each modulation (ADR-0019).
+    mod_last: [f32; MAX_MODS],
+    /// The state of the song's `lag` nodes, NaN until each first runs.
+    mod_state: [f32; signal::MAX_NODES],
     /// Strips (bit per strip, globals on bit 0) automation changed since the
     /// view last asked, so it can redraw their values.
     touched: u32,
@@ -212,6 +216,8 @@ impl Engine {
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
             auto_last: [f32::NAN; MAX_AUTOS],
+            mod_last: [f32::NAN; MAX_MODS],
+            mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
             arps: [Arp::default(); SYNTHS],
             free_tick: 0,
@@ -739,8 +745,10 @@ impl Engine {
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
-        // From the top every lane writes again.
+        // From the top every lane and modulation writes again.
         self.auto_last = [f32::NAN; MAX_AUTOS];
+        self.mod_last = [f32::NAN; MAX_MODS];
+        self.mod_state = [f32::NAN; signal::MAX_NODES];
     }
 
     /// Move the song to the first step of `bar` (from 0); the clock fires it next.
@@ -1114,6 +1122,7 @@ impl Engine {
                     .copied()
                 {
                     self.automate(t, p, v);
+                    self.mods_again(t, p);
                 }
             }
         }
@@ -1175,6 +1184,48 @@ impl Engine {
                 continue;
             }
             *last = v;
+            self.automate(target, param, v);
+            self.mods_again(target, param);
+        }
+    }
+
+    /// A modulation of a parameter something else just wrote writes again at
+    /// the next block, even unchanged: it goes last (ADR-0019).
+    fn mods_again(&mut self, target: Target, param: Param) {
+        for (m, last) in self.song.mods.iter().zip(self.mod_last.iter_mut()) {
+            if m.target == target && m.param == param {
+                *last = f32::NAN;
+            }
+        }
+    }
+
+    /// The modulations at the clock's position, once per block, after the
+    /// lanes: each signal is evaluated at the song's position in bars and
+    /// writes only when its value changed (ADR-0019).
+    fn run_mods(&mut self, frames: usize) {
+        if !self.clock.playing() || self.song.mods.is_empty() {
+            return;
+        }
+        let t = self.clock.step_position().max(0.0) / STEPS_PER_BAR as f64;
+        let mut ctx = signal::Ctx {
+            cps: f64::from(self.clock.tempo()) / 240.0,
+            dt: frames as f32 / self.sample_rate,
+            state: &mut self.mod_state,
+        };
+        let mut writes = [(Target::Master, Param::MasterGain, 0.0); MAX_MODS];
+        let mut count = 0;
+        for (m, last) in self.song.mods.iter().zip(self.mod_last.iter_mut()) {
+            let v = m.signal.eval(t, &mut ctx);
+            if *last == v {
+                continue;
+            }
+            *last = v;
+            if let Some(w) = writes.get_mut(count) {
+                *w = (m.target, m.param, v);
+                count += 1;
+            }
+        }
+        for &(target, param, v) in writes.iter().take(count) {
             self.automate(target, param, v);
         }
     }
@@ -1303,6 +1354,8 @@ impl Engine {
                 self.song = song;
                 self.rebuild_live();
                 self.auto_last = [f32::NAN; MAX_AUTOS];
+                self.mod_last = [f32::NAN; MAX_MODS];
+                self.mod_state = [f32::NAN; signal::MAX_NODES];
                 self.song_text = self.song.print();
                 self.song_error = None;
                 Ok(())
@@ -1592,6 +1645,7 @@ impl Engine {
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
         self.run_automation();
+        self.run_mods(n);
         self.out.fill(0.0);
         self.mixer.clear(n);
         let mut t = 0;

@@ -122,7 +122,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -1655,4 +1655,86 @@ fn a_comment_on_the_master_line_stays_with_it() {
         "{}",
         changed.print()
     );
+}
+
+/// ADR-0019: `mod target.param = signal` parses, holds its target and
+/// parameter, and prints canonically, the parameter in lower case.
+#[test]
+fn a_mod_line_parses_and_prints() {
+    let text = "track kit drums\nfrag b = kit\n  bd x\n\
+        mod kit.Cutoff = sine.range(300,3000).slow(4)   # sweep\n\
+        mod master.p2return = lfo(0.2, saw).range(0, 0.5) + perlin * 0.1\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.mods.len(), 2);
+    assert_eq!(
+        (s.mods[0].target, s.mods[0].param),
+        (Target::Track(0), Param::Cutoff)
+    );
+    assert_eq!(
+        (s.mods[1].target, s.mods[1].param),
+        (Target::Master, Param::P2Return)
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("\nmod kit.cutoff = sine.range(300, 3000).slow(4) # sweep\n"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("\nmod master.p2return = lfo(0.2, saw).range(0, 0.5) + perlin * 0.1\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn mod_errors_say_where() {
+    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    for (line, col, msg) in [
+        ("mod", 4, "a target.param goes here"),
+        ("mod kit.nope = 1", 5, "no parameter has this name"),
+        (
+            "mod group1.cutoff = 1",
+            5,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "mod kit.model = 1",
+            5,
+            "the model and the routing can't be automated",
+        ),
+        ("mod kit.cutoff 1", 16, "= and a signal go here"),
+        (
+            "mod kit.cutoff =",
+            17,
+            "a signal goes here, e.g. sine.range(300, 3000)",
+        ),
+        (
+            "mod kit.cutoff =  sine.wobble(2)",
+            24,
+            "no such method: range exprange slow fast segment lag",
+        ),
+        (
+            "mod kit.cutoff = lfo(1, pink)",
+            25,
+            "a shape is sine, saw, tri or square",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}")).expect_err(line);
+        assert_eq!((err.line, err.col, err.msg), (4, col, msg), "{line}");
+    }
+    let twice = format!("{head}mod kit.cutoff = 1\nmod kit.Cutoff = 2");
+    let err = Song::parse(&twice).expect_err("twice");
+    assert_eq!(
+        (err.line, err.col, err.msg),
+        (5, 5, "this parameter already has a mod")
+    );
+    let params = ["level", "pan", "send1"];
+    let many: String = (0..33)
+        .map(|n| format!("mod strip{}.{} = 1\n", n % 16 + 1, params[n / 16]))
+        .collect();
+    let err = Song::parse(&format!("{head}{many}")).expect_err("many");
+    assert_eq!((err.line, err.msg), (36, "a song has at most 32 mods"));
+    let big = format!("{head}mod kit.cutoff = {}1", "1 + ".repeat(130));
+    let err = Song::parse(&big).expect_err("big");
+    assert_eq!(err.msg, "a song's signals have at most 256 nodes");
 }

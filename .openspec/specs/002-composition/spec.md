@@ -240,9 +240,9 @@ A track SHALL name its synth after its kind (#210): `track <name> <kind> <model>
 
 ### Requirement 12: Song limits [MUST]
 
-A song SHALL be bounded so the engine can reserve its memory at load and never allocate in `render` (ADR-0002). A text over 1 MiB SHALL be refused before it is parsed. A name (of a track, frag, section, auto, scene or setting) at most 32 characters, a letter then letters, digits or `_`. A song SHALL hold at most 16 tracks, 16 settings of at most 32 changes each, 256 frags, 256 sections of 1 to 256 bars, 256 entries in its arrangement, 32 automation lanes of at most 64 values, and 32 scenes of at most 32 settings. A drum lane SHALL have at most 64 steps; a note fragment at most 512 events over at most 32 bars, with brackets nested at most four deep; a walk at most 32 notes and a chord at most 8; a Euclid pattern at most 64 pulses. Past any other limit the text SHALL be refused with a line, a column and a message, never truncated, and the playing song SHALL play on (Req 6).
+A song SHALL be bounded so the engine can reserve its memory at load and never allocate in `render` (ADR-0002). A text over 1 MiB SHALL be refused before it is parsed. A name (of a track, frag, section, auto, scene or setting) at most 32 characters, a letter then letters, digits or `_`. A song SHALL hold at most 16 tracks, 16 settings of at most 32 changes each, 256 frags, 256 sections of 1 to 256 bars, 256 entries in its arrangement, 32 automation lanes of at most 64 values, 32 scenes of at most 32 settings, and 32 modulations whose signals hold at most 256 nodes together, nested at most 32 deep. A drum lane SHALL have at most 64 steps; a note fragment at most 512 events over at most 32 bars, with brackets nested at most four deep; a walk at most 32 notes and a chord at most 8; a Euclid pattern at most 64 pulses. Past any other limit the text SHALL be refused with a line, a column and a message, never truncated, and the playing song SHALL play on (Req 6).
 
-**Implementation:** `crates/dsp/src/song.rs` (`MAX_TEXT`, `MAX_TRACKS`, `MAX_FRAGS`, `MAX_STEPS`, `MAX_SECTIONS`, `MAX_ARRANGE`, `MAX_BARS`, `MAX_AUTOS`, `MAX_VALUES`, `MAX_SCENES`, `MAX_SETS`), `crates/dsp/src/notes.rs` (`MAX_EVENTS`, `MAX_BARS`), `crates/dsp/src/notes/generate.rs::Gen`, `crates/dsp/src/algo.rs` (`MAX_PULSES`), `crates/dsp/src/engine.rs::Engine::song_buffer`
+**Implementation:** `crates/dsp/src/song.rs` (`MAX_TEXT`, `MAX_TRACKS`, `MAX_FRAGS`, `MAX_STEPS`, `MAX_SECTIONS`, `MAX_ARRANGE`, `MAX_BARS`, `MAX_AUTOS`, `MAX_VALUES`, `MAX_SCENES`, `MAX_SETS`, `MAX_MODS`), `crates/dsp/src/song/signal.rs` (`MAX_NODES`), `crates/dsp/src/notes.rs` (`MAX_EVENTS`, `MAX_BARS`), `crates/dsp/src/notes/generate.rs::Gen`, `crates/dsp/src/algo.rs` (`MAX_PULSES`), `crates/dsp/src/engine.rs::Engine::song_buffer`
 
 #### Scenario: one track too many
 
@@ -297,3 +297,23 @@ The song SHALL give the mixer its starting values (ADR-0018, #214): `strip <trac
 - THEN the fresh engine has the same mix
 
 **Tests:** `crates/dsp/src/song/tests.rs::mixer_lines_parse_and_print_back`, `crates/dsp/src/song/tests.rs::mixer_errors_say_where`, `crates/dsp/src/song/tests.rs::a_comment_on_the_master_line_stays_with_it`, `crates/dsp/src/engine/tests.rs::mixer_lines_set_the_mix_and_hold_a_hand`, `crates/dsp/src/engine/tests.rs::the_mixer_writes_itself_into_the_song`
+
+### Requirement 15: Modulation by signals [SHOULD]
+
+The song SHALL modulate any parameter that automation reaches (Req 10) with a signal (ADR-0019, #208): `mod <target>.<param> = <signal>` for the whole song. A signal SHALL be a number, a source from 0 to 1 (`sine saw tri square` once per bar, `rand` a new value each sixteenth, `perlin` a smooth random curve, `lfo(rate, shape)` in hertz), combined with `+ - * /` and shaped by `.range(a, b)`, `.exprange(a, b)`, `.slow(n)`, `.fast(n)`, `.segment(n)` and `.lag(seconds)`. A signal SHALL be a function of the song's position, seeded where random (ADR-0005), so a song renders the same every time and after a seek. The parser SHALL compile it into a fixed array of nodes and print it canonically, the parameter in lower case; an unknown word, method or shape, a second `mod` on one parameter, or a limit passed (Req 12) SHALL be a parse error with a line and a column. While the song plays the engine SHALL evaluate every modulation once per block, after the lanes, and write a parameter through `set_param` only when its value changes, or after a lane or a scene wrote it, so the modulation goes last; `render` SHALL not allocate. Sixteen synths, each with two modulations, SHALL stay within the CPU budget of plan.md (`make bench`, `modulated`).
+
+**Implementation:** `crates/dsp/src/song/signal.rs::Signal`, `crates/dsp/src/song.rs::Mod`, `crates/dsp/src/engine.rs::Engine::run_mods`, `crates/dsp/src/engine.rs::Engine::mods_again`, `tools/bench.mjs`
+
+#### Scenario: a filter swept by two LFOs
+
+- GIVEN `mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)` on a Minimoog playing a riff
+- WHEN the song is rendered twice
+- THEN both renders are bit-identical and the cutoff sweeps from below 250 Hz to above 1900 Hz
+
+#### Scenario: a modulation goes last
+
+- GIVEN a lane, a scene and a constant `mod` on `strip1.level`
+- WHEN the song plays
+- THEN the level is the modulation's value from the block after each scene
+
+**Tests:** `crates/dsp/src/song/signal.rs::tests::sources_run_from_0_to_1_once_a_cycle`, `crates/dsp/src/song/signal.rs::tests::range_slow_fast_and_operators_shape_a_signal`, `crates/dsp/src/song/signal.rs::tests::randomness_is_seeded_and_bounded`, `crates/dsp/src/song/signal.rs::tests::lag_follows_its_input_and_keeps_its_state`, `crates/dsp/src/song/signal.rs::tests::printing_is_canonical_and_parses_back`, `crates/dsp/src/song/signal.rs::tests::errors_say_where`, `crates/dsp/src/song/signal.rs::tests::lag_slots_are_unique_across_a_song`, `crates/dsp/src/song/tests.rs::a_mod_line_parses_and_prints`, `crates/dsp/src/song/tests.rs::mod_errors_say_where`, `crates/dsp/src/engine/tests.rs::a_mod_follows_its_signal`, `crates/dsp/src/engine/tests.rs::a_constant_mod_is_bit_identical_to_a_hand_set_value`, `crates/dsp/src/engine/tests.rs::a_mod_writes_after_a_lane_and_a_scene`, `crates/dsp/src/engine/tests.rs::a_swept_filter_renders_deterministically`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`

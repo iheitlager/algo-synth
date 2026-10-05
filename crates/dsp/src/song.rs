@@ -58,6 +58,13 @@
 //! the first step of a section that lists it. Without `arrange` every lane
 //! loops and no scene is applied.
 //!
+//! A modulation (ADR-0019) writes a signal to a parameter for the whole song,
+//! once per block and after lanes and scenes; see `signal` for the language:
+//!
+//! ```text
+//! mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)
+//! ```
+//!
 //! Parsing and printing allocate, so they run when a song is loaded or a step
 //! edited, never in `render`; the engine plays the parsed song in place. Both
 //! are total: whatever the text, the parser returns a song or an error with a
@@ -75,6 +82,7 @@ use crate::notes::{self, Notes};
 use crate::params::Param;
 
 pub use comments::Comments;
+pub use signal::Signal;
 
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
@@ -89,6 +97,8 @@ pub const MAX_AUTOS: usize = 32;
 pub const MAX_VALUES: usize = 64;
 pub const MAX_SCENES: usize = 32;
 pub const MAX_SETS: usize = 32;
+/// Most modulations (`mod` lines); their signals share `signal::MAX_NODES`.
+pub const MAX_MODS: usize = 32;
 /// Synth strips and group buses (ADR-0010).
 const STRIPS: usize = 16;
 const GROUPS: usize = 8;
@@ -245,6 +255,15 @@ impl Auto {
     }
 }
 
+/// A modulation (ADR-0019): a signal written to one parameter of one target
+/// for the whole song, while it plays.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mod {
+    pub target: Target,
+    pub param: Param,
+    pub signal: Signal,
+}
+
 /// Values set together on the first step of a section.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene {
@@ -338,6 +357,7 @@ pub struct Song {
     pub frags: Vec<Fragment>,
     pub autos: Vec<Auto>,
     pub scenes: Vec<Scene>,
+    pub mods: Vec<Mod>,
     pub sections: Vec<Section>,
     /// The order sections play in, by index; empty means no arrangement.
     pub arrange: Vec<usize>,
@@ -359,6 +379,7 @@ impl Default for Song {
             frags: Vec::new(),
             autos: Vec::new(),
             scenes: Vec::new(),
+            mods: Vec::new(),
             sections: Vec::new(),
             arrange: Vec::new(),
             loop_bars: None,
@@ -461,6 +482,8 @@ impl Song {
         let mut loop_at: Option<usize> = None;
         // Tracks given a model and no preset.
         let mut models: Vec<(usize, Model)> = Vec::new();
+        // Nodes in the song's signals so far.
+        let mut nodes = 0;
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
@@ -1020,6 +1043,40 @@ impl Song {
                         sets,
                     });
                 }
+                "mod" => {
+                    let tp = arg(1, "a target.param goes here")?;
+                    let (target, param) =
+                        target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                    if song
+                        .mods
+                        .iter()
+                        .any(|m| m.target == target && m.param == param)
+                    {
+                        return Err(err(tp.col, "this parameter already has a mod"));
+                    }
+                    let eq = arg(2, "= and a signal go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a signal go here"));
+                    }
+                    let at = ws
+                        .get(3)
+                        .map_or(body.trim_end().chars().count() + 1, |w| w.col);
+                    let text = body
+                        .char_indices()
+                        .nth(at - 1)
+                        .and_then(|(b, _)| body.get(b..))
+                        .unwrap_or("");
+                    let signal =
+                        Signal::parse(text, &mut nodes).map_err(|(c, m)| err(at + c - 1, m))?;
+                    if song.mods.len() >= MAX_MODS {
+                        return Err(err(first.col, "a song has at most 32 mods"));
+                    }
+                    song.mods.push(Mod {
+                        target,
+                        param,
+                        signal,
+                    });
+                }
                 "arrange" => {
                     if !song.arrange.is_empty() {
                         return Err(err(first.col, "a song has one arrange line"));
@@ -1062,7 +1119,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
                     ));
                 }
             }
@@ -1229,7 +1286,7 @@ impl Song {
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
         }
-        if !self.autos.is_empty() || !self.scenes.is_empty() {
+        if !self.autos.is_empty() || !self.scenes.is_empty() || !self.mods.is_empty() {
             lines.push(String::new());
         }
         for a in &self.autos {
@@ -1257,6 +1314,14 @@ impl Song {
                 .map(|(t, p, v)| format!("{}.{} {}", self.target_name(*t), param_name(*p), v))
                 .collect();
             lines.push(format!("scene {}: {}", s.name, sets.join(", ")));
+        }
+        for m in &self.mods {
+            lines.push(format!(
+                "mod {}.{} = {}",
+                self.target_name(m.target),
+                param_name(m.param).to_ascii_lowercase(),
+                m.signal
+            ));
         }
         if !self.sections.is_empty() {
             lines.push(String::new());

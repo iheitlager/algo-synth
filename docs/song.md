@@ -413,8 +413,8 @@ like a frag and loops inside them.
 
 The target is a track (its synth and its strip), `strip1`–`strip16`,
 `group1`–`group8` or `master` (master gain, compressor, EQ and the
-processors' `P1A`… `P2Return`…). The parameter is its registry name; it must
-belong to the target. `Model` and `Out` can't be automated.
+processors' `P1A`… `P2Return`…). The parameter is its registry name, in any
+case (`kit.cutoff` is `kit.Cutoff`); it must belong to the target. `Model` and `Out` can't be automated.
 
 ```song
 track kit drums
@@ -448,6 +448,46 @@ arrange main quiet main
 ```
 
 At most 32 scenes, 32 values each. Without `arrange` no scene is applied.
+
+## mod
+
+`mod <target>.<param> = <signal>` moves a parameter with a signal for the
+whole song, while it plays (ADR-0019). Targets and parameters are as for
+`auto`; it prints the parameter in lower case.
+
+A signal is a number, or a source that runs from 0 to 1:
+
+| source | what |
+|---|---|
+| `sine` `saw` `tri` `square` | once per bar |
+| `rand` | a new random value each sixteenth |
+| `perlin` | a smooth random curve, through a new value each bar |
+| `lfo(rate)`, `lfo(rate, shape)` | a `sine` (or `saw`, `tri`, `square`) at `rate` hertz |
+
+Signals combine with `+ - * /` and brackets, and take methods:
+
+| method | what |
+|---|---|
+| `.range(a, b)` | 0..1 onto a..b |
+| `.exprange(a, b)` | the same, exponentially, for hertz; a and b of one sign |
+| `.slow(n)`, `.fast(n)` | n times slower or faster |
+| `.segment(n)` | n steady values per bar |
+| `.lag(s)` | follow the input smoothly, s seconds to get most of the way |
+
+```song
+track lead synth Minimoog
+frag riff = lead
+  "c3 eb3 g3 c4"
+mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)
+mod lead.resonance = perlin.slow(4).range(0.2, 0.8)
+mod strip1.pan = sine.slow(8).range(-1, 1)
+```
+
+A signal follows the song's position, so a song sounds the same every time
+and after a seek; the random ones are seeded. The engine works out each
+modulation once a block (128 samples) and writes it after lanes and scenes,
+so a `mod` wins over an `auto` or a scene on the same parameter. One `mod`
+per parameter.
 
 ## section
 
@@ -494,7 +534,8 @@ to `first` for good. A loop needs an `arrange` line and must end inside it.
 | steps in a lane | 64 |
 | notes a line compiles to | 512 |
 | bars before a line of notes repeats | 32 |
-| autos, scenes | 32 |
+| autos, scenes, mods | 32 |
+| nodes in all signals (numbers, sources, operators, methods) | 256 |
 | values in an auto | 64 |
 | bars in a section or an auto | 256 |
 | tempo, swing | 20–300, 50–75 |
