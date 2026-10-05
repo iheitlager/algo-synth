@@ -332,13 +332,15 @@ export const zonesOf = (s: number): Zone[] => zoneState.zones[s] ?? Array.from({
 export const padState = reactive({ pads: [] as Pad[][] })
 export const padsOf = (s: number): Pad[] => padState.pads[s] ?? Array.from({ length: 16 }, () => EMPTY_PAD)
 
-const loading = new Map<number, { name: string; done: (code: number) => void }>()
+// The loads waiting on each slot, oldest first: the worklet answers in the
+// order it was sent, so a second load for a busy slot waits its turn (#253).
+const loading = new Map<number, { name: string; done: (code: number) => void }[]>()
 /** Send a WAV file to the engine for `slot`; resolves with its frame count or a negative error code. */
 export async function loadSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
   await power()
   if (!engine) return -5
   return new Promise((done) => {
-    loading.set(slot, { name, done })
+    loading.set(slot, [...(loading.get(slot) ?? []), { name, done }])
     engine?.post({ t: 'sample', slot, bytes }, [bytes])
   })
 }
@@ -689,8 +691,9 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     onMidi(data as unknown as MidiSummary)
   } else if (data.t === 'sample') {
     const slot = data.slot as number
-    const wait = loading.get(slot)
-    loading.delete(slot)
+    const queue = loading.get(slot)
+    const wait = queue?.shift()
+    if (!queue?.length) loading.delete(slot)
     const code = data.code as number
     if (code < 0) {
       sampleStore.error = `${wait?.name ?? 'sample'}: ${SAMPLE_ERRORS[code] ?? `load failed (${code})`}`
