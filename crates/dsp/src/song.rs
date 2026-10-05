@@ -261,7 +261,7 @@ pub enum At {
 }
 
 /// A track of the song; the engine routes it to a synth.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Track {
     pub name: String,
     pub kind: Kind,
@@ -271,6 +271,18 @@ pub struct Track {
     pub preset: Option<Preset>,
     /// The song's own setting the track plays, by index into `Song::settings`.
     pub setting: Option<usize>,
+    /// Neither a model nor a setting was written: the preset was picked from
+    /// the role, and the engine may pick again from the synths it has.
+    pub picked: bool,
+}
+
+/// Two tracks are equal by what they play; whether the preset was picked or
+/// written is not part of the song, so a printed song parses back equal.
+impl PartialEq for Track {
+    fn eq(&self, other: &Track) -> bool {
+        (&self.name, self.kind, self.preset, self.setting)
+            == (&other.name, other.kind, other.preset, other.setting)
+    }
 }
 
 /// A synth patch that lives in the song (#210): a factory preset and the
@@ -598,6 +610,7 @@ impl Song {
                         kind,
                         preset,
                         setting,
+                        picked: false,
                     });
                     // A model without a preset: one is picked once the frags are in.
                     if let (Some(m), None) = (model, preset) {
@@ -1016,6 +1029,7 @@ impl Song {
                 let picked = pick(&song, t, model);
                 if let Some(tr) = song.tracks.get_mut(t) {
                     tr.preset = picked;
+                    tr.picked = model.is_none() && tr.setting.is_none();
                 }
             }
         }
@@ -1270,10 +1284,17 @@ impl Song {
         let name = (1..)
             .map(|n| format!("part{n}"))
             .find(|n| !self.sections.iter().any(|s| &s.name == n))?;
+        // The first section holds every frag, so turning the arrangement on
+        // keeps the music that was looping instead of silencing it.
+        let frags = if self.arrange.is_empty() {
+            (0..self.frags.len()).collect()
+        } else {
+            Vec::new()
+        };
         self.sections.push(Section {
             name,
             bars,
-            frags: Vec::new(),
+            frags,
             autos: Vec::new(),
             scenes: Vec::new(),
         });
@@ -1414,6 +1435,15 @@ impl Song {
             .and_then(|i| self.settings.get(i))
             .map_or(&[][..], |st| st.sets.as_slice());
         track.preset.map(|p| (p, sets))
+    }
+
+    /// Pick track `t`'s preset again, on `model`: the engine found a synth of
+    /// that model to play a track whose preset was picked (a drum kit already
+    /// in the rack). The text then names what plays.
+    pub fn pick_on(&mut self, t: usize, model: Model) -> Option<Preset> {
+        let p = pick(self, t, Some(model))?;
+        self.tracks.get_mut(t)?.preset = Some(p);
+        Some(p)
     }
 
     fn target_name(&self, t: Target) -> String {

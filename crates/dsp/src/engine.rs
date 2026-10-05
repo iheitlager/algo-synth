@@ -1208,7 +1208,7 @@ impl Engine {
             }
         };
         match parsed {
-            Ok(song) => {
+            Ok(mut song) => {
                 self.clock.set_tempo(song.tempo);
                 self.clock.set_swing(song.swing);
                 let kit = (0..SYNTHS).find(|s| {
@@ -1228,23 +1228,45 @@ impl Engine {
                         *route = None;
                     }
                 }
-                for (t, track) in song.tracks.iter().enumerate() {
+                for t in 0..song.tracks.len() {
                     let routed = self.song_routed(t);
+                    let free = |s: &usize| !self.song_route.contains(&Some(*s));
+                    let model_of = |s: usize| self.synths.get(s).map(|p| p.model);
+                    // A drum track whose kit was picked plays a kit already in
+                    // the rack (a 909, a pad sampler) before an 808 is made of
+                    // another synth, and the text then names that kit.
+                    let picked_kit = song
+                        .tracks
+                        .get(t)
+                        .is_some_and(|tr| tr.picked && tr.kind == Kind::Drums);
+                    let same = song.patch(t).and_then(|(preset, _)| {
+                        (0..SYNTHS)
+                            .filter(free)
+                            .find(|s| model_of(*s) == Some(preset.model()))
+                    });
+                    if routed.is_none() && same.is_none() && picked_kit {
+                        let rack = (0..SYNTHS).filter(free).find(|s| {
+                            self.synths
+                                .get(*s)
+                                .is_some_and(|p| p.model.uses_drums() || p.model.uses_pads())
+                        });
+                        if let Some(m) = rack.and_then(model_of) {
+                            song.pick_on(t, m);
+                        }
+                    }
+                    let Some(track) = song.tracks.get(t) else {
+                        continue;
+                    };
                     let patch = song.patch(t);
                     // A track with a patch gets a synth of its own and the patch
                     // on it (#210): one already on the patch's model (it keeps its
                     // samples), else the first free one. The patch is set again
                     // only when the text changes it.
                     if let Some((preset, sets)) = patch {
-                        let free = |s: &usize| !self.song_route.contains(&Some(*s));
                         let synth = routed.or_else(|| {
                             (0..SYNTHS)
                                 .filter(free)
-                                .find(|s| {
-                                    self.synths
-                                        .get(*s)
-                                        .is_some_and(|p| p.model == preset.model())
-                                })
+                                .find(|s| model_of(*s) == Some(preset.model()))
                                 .or_else(|| (0..SYNTHS).find(free))
                         });
                         let changed = routed.is_none() || self.song.patch(t) != patch;
@@ -1341,7 +1363,17 @@ impl Engine {
         let (a, b, cu) = (a as usize, b as usize, c as usize);
         let ok = match op {
             0 => self.song.toggle(a, b as u32, cu),
-            1 => self.song.add_section(a as u32).is_some(),
+            1 => {
+                // The first section turns the arrangement on: the clock keeps its
+                // place in the bar instead of landing past the new end and stopping.
+                let first = self.song.arrange.is_empty();
+                let ok = self.song.add_section(a as u32).is_some();
+                if let Some(k) = self.clock.step().filter(|_| ok && first) {
+                    let len = u64::from(a as u32).max(1) * STEPS_PER_BAR;
+                    self.clock.seek_step((k + 1) % len);
+                }
+                ok
+            }
             2 => self.song.set_bars(a, b as u32),
             3 => self.song.arrange_insert(a, b),
             4 => self.song.arrange_remove(a),
@@ -3401,6 +3433,25 @@ mod tests {
         assert_eq!(hits, vec![0, 24_000, 48_000, 72_000]);
     }
 
+    /// The arranger's first "+ Section" on a looping beat keeps it playing: the
+    /// section holds every frag and the clock keeps its place in the bar, even
+    /// when it was already past the new end.
+    #[test]
+    fn the_first_section_keeps_the_beat_playing() {
+        let mut e = kit(0);
+        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        e.song_play();
+        assert_eq!(
+            hit_steps(&mut e, 40),
+            vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36]
+        );
+        assert!(e.arrange_edit(1, 1, 0, 0), "a 1-bar section");
+        assert_eq!(e.song().sections[0].frags, vec![0]);
+        // Step 40 is step 8 of the 1-bar section: hits on 8 and 12, then the
+        // arrangement (without a loop) ends.
+        assert_eq!(hit_steps(&mut e, 16), vec![0, 4]);
+    }
+
     /// The clock steps (at 120 BPM and 48 kHz, 6000 samples each) that start
     /// a note within `steps` steps, rendered a frame at a time.
     fn hit_steps(e: &mut Engine, steps: u64) -> Vec<u64> {
@@ -3586,6 +3637,41 @@ mod tests {
 
     /// #210: each track gets a synth of its own with its patch on it; a
     /// reload leaves the synth alone until the text changes the patch.
+    /// A drum track whose kit was picked plays the kit in the rack, a 909 or a
+    /// pad sampler, and does not turn the lead on synth 0 into an 808.
+    #[test]
+    fn a_picked_drum_track_plays_the_kit_in_the_rack() {
+        for (kit, name) in [
+            (Preset::Kit909, "Tr909"),
+            (Preset::PadsLoud, "PadSampler"),
+            (Preset::Kit808, "Tr808"),
+        ] {
+            let mut e = Engine::new(48_000.0);
+            e.preset(1, kit);
+            let lead = e.param_value(0, Param::Model);
+            assert_eq!(load_text(&mut e, FOUR), Ok(()));
+            assert_eq!(e.song_routed(0), Some(1), "{kit:?}");
+            assert_eq!(
+                e.param_value(0, Param::Model),
+                lead,
+                "{kit:?}: synth 0 is untouched"
+            );
+            assert_eq!(e.param_value(1, Param::Model), kit.model() as u32 as f32);
+            assert!(
+                e.song_text().contains(&format!("track kit drums {name} ")),
+                "{}",
+                e.song_text()
+            );
+        }
+        // A kit written in the text is made, as before.
+        let mut e = Engine::new(48_000.0);
+        e.preset(1, Preset::Kit909);
+        let text = FOUR.replace("track kit drums", "track kit drums Tr808 Kit808");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        assert_eq!(e.song_routed(0), Some(0));
+        assert_eq!(e.param_value(0, Param::Model), Model::Tr808 as u32 as f32);
+    }
+
     #[test]
     fn each_track_gets_its_own_synth_and_patch() {
         let mut e = Engine::new(48_000.0);

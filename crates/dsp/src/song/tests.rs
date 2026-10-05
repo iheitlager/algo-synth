@@ -23,6 +23,7 @@ fn a_beat_parses() {
             kind: Kind::Drums,
             preset: Some(Preset::Kit808),
             setting: None,
+            picked: true,
         }]
     );
     let f = &s.frags[0];
@@ -191,6 +192,7 @@ fn random_song(r: &mut Rng) -> Song {
                 _ => Preset::Hard909,
             }),
             setting: None,
+            picked: false,
         });
     }
     for f in 0..r.below(5) {
