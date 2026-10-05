@@ -25,6 +25,17 @@
 //!   "c4 [e4 g4] ~ <c5 d5>"      # or classic: c4:4 e4:8 g4:8 c5:2
 //! ```
 //!
+//! A track names its synth after its kind (#210): a model and a preset, or a
+//! setting, a patch that lives in the song. Left out, one is picked from the
+//! track's role and printed:
+//!
+//! ```text
+//! setting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5
+//! track lead synth nile
+//! track bass synth Sh101 AcidBass
+//! track pad synth              # prints as: track pad synth Juno106 JunoPad
+//! ```
+//!
 //! Sections and the arrangement (ADR-0015, spec 002 Req 4): a section is a
 //! number of bars and the fragments that play in it, each from the section's
 //! first bar and looping inside it; `arrange` plays sections in order, and
@@ -55,6 +66,8 @@
 
 use crate::algo::{Euclid, Mode, Scale};
 use crate::drums::Pad;
+use crate::mono::model::Model;
+use crate::mono::preset::Preset;
 use crate::notes::{self, Notes};
 use crate::params::Param;
 
@@ -252,6 +265,21 @@ pub enum At {
 pub struct Track {
     pub name: String,
     pub kind: Kind,
+    /// The synth's model and settings (#210): written as `<model> <preset>`
+    /// after the kind, or picked from the track's role when left out. `None`
+    /// only on a sampler track, which plays the samples already loaded.
+    pub preset: Option<Preset>,
+    /// The song's own setting the track plays, by index into `Song::settings`.
+    pub setting: Option<usize>,
+}
+
+/// A synth patch that lives in the song (#210): a factory preset and the
+/// changes made to it, `setting nile = Minimoog MiniLead: Cutoff 0.4, …`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Setting {
+    pub name: String,
+    pub preset: Preset,
+    pub sets: Vec<(Param, f32)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -260,6 +288,7 @@ pub struct Song {
     pub swing: f32,
     /// The key generators walk (`scale c minor`); it goes before its first use.
     pub scale: Option<Scale>,
+    pub settings: Vec<Setting>,
     pub tracks: Vec<Track>,
     pub frags: Vec<Fragment>,
     pub autos: Vec<Auto>,
@@ -277,6 +306,7 @@ impl Default for Song {
             tempo: 120.0,
             swing: 50.0,
             scale: None,
+            settings: Vec::new(),
             tracks: Vec::new(),
             frags: Vec::new(),
             autos: Vec::new(),
@@ -380,6 +410,8 @@ impl Song {
         let mut open_bars: Option<(u32, usize, usize)> = None;
         // The line of the `loop`, checked against the arrangement at the end.
         let mut loop_at: Option<usize> = None;
+        // Tracks given a model and no preset.
+        let mut models: Vec<(usize, Model)> = Vec::new();
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
@@ -527,13 +559,134 @@ impl Song {
                         "sampler" => Kind::Sampler,
                         _ => return Err(err(kind.col, "a track kind is drums, synth or sampler")),
                     };
-                    expect_end(3)?;
+                    // `<setting>`, `<model> <preset>` or `<model>`; nothing picks both.
+                    let mut setting = None;
+                    let mut model = None;
+                    let mut preset = None;
+                    if let Some(w) = ws.get(3) {
+                        if let Some(i) = song.settings.iter().position(|st| st.name == w.text) {
+                            setting = Some(i);
+                            preset = song.settings.get(i).map(|st| st.preset);
+                            expect_end(4)?;
+                        } else {
+                            let m = model_named(w.text).ok_or(err(
+                                w.col,
+                                "a model (as Minimoog or Tr808) or a setting goes here",
+                            ))?;
+                            model = Some(m);
+                            if let Some(p) = ws.get(4) {
+                                let pr = preset_named(p.text).ok_or(err(
+                                    p.col,
+                                    "a preset is a factory preset, as MiniBass",
+                                ))?;
+                                if pr.model() != m {
+                                    return Err(err(p.col, "this preset is for another model"));
+                                }
+                                preset = Some(pr);
+                            }
+                            expect_end(5)?;
+                        }
+                        if !fits(kind, preset.map_or(model, |p| Some(p.model()))) {
+                            return Err(err(w.col, "this model does not play this kind of track"));
+                        }
+                    }
                     if song.tracks.len() >= MAX_TRACKS {
                         return Err(err(first.col, "a song has at most 16 tracks"));
                     }
                     song.tracks.push(Track {
                         name: name.text.to_string(),
                         kind,
+                        preset,
+                        setting,
+                    });
+                    // A model without a preset: one is picked once the frags are in.
+                    if let (Some(m), None) = (model, preset) {
+                        models.push((song.tracks.len() - 1, m));
+                    }
+                }
+                "setting" => {
+                    let name = arg(1, "a setting name goes here")?;
+                    if !is_name(name.text) || model_named(name.text).is_some() {
+                        return Err(err(
+                            name.col,
+                            "a name is a letter, then letters, digits or _, and not a model's",
+                        ));
+                    }
+                    if song.settings.iter().any(|st| st.name == name.text) {
+                        return Err(err(name.col, "there is already a setting with this name"));
+                    }
+                    if !song.tracks.is_empty() {
+                        return Err(err(first.col, "a setting goes before the tracks"));
+                    }
+                    let eq = arg(2, "= and a model go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a model go here"));
+                    }
+                    let m = arg(3, "a model goes here, as Minimoog")?;
+                    let model = model_named(m.text)
+                        .ok_or(err(m.col, "a model is a synth's, as Minimoog or Tr808"))?;
+                    let p = arg(4, "a preset of the model goes here")?;
+                    let preset = preset_named(p.text.strip_suffix(':').unwrap_or(p.text))
+                        .ok_or(err(p.col, "a preset is a factory preset, as MiniBass"))?;
+                    if preset.model() != model {
+                        return Err(err(p.col, "this preset is for another model"));
+                    }
+                    let mut k = 5;
+                    if !p.text.ends_with(':') {
+                        if let Some(colon) = ws.get(5) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the changes go here"));
+                            }
+                            k = 6;
+                        }
+                    }
+                    let mut sets = Vec::new();
+                    while let Some(pw) = ws.get(k) {
+                        let param = Param::ALL
+                            .iter()
+                            .find(|(_, n)| *n == pw.text)
+                            .map(|(q, _)| *q)
+                            .ok_or(err(pw.col, "no parameter has this name"))?;
+                        if param == Param::Model || param.is_global() || param.is_strip() {
+                            return Err(err(
+                                pw.col,
+                                "a setting changes the synth's own parameters",
+                            ));
+                        }
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let text = v.text.strip_suffix(',').unwrap_or(v.text);
+                        let value = text
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|x| x.is_finite())
+                            .ok_or(err(v.col, "a value is a number"))?;
+                        if sets.len() >= MAX_SETS {
+                            return Err(err(pw.col, "a setting has at most 32 changes"));
+                        }
+                        sets.push((param, value));
+                        k += 2;
+                        if !v.text.ends_with(',') {
+                            if let Some(extra) = ws.get(k) {
+                                return Err(err(extra.col, "a comma goes between changes"));
+                            }
+                        }
+                    }
+                    if k > 5 && sets.is_empty() {
+                        return Err(err(
+                            body.trim_end().chars().count() + 1,
+                            "changes go here: Param value, …",
+                        ));
+                    }
+                    if song.settings.len() >= MAX_TRACKS {
+                        return Err(err(first.col, "a song has at most 16 settings"));
+                    }
+                    song.settings.push(Setting {
+                        name: name.text.to_string(),
+                        preset,
+                        sets,
                     });
                 }
                 "frag" => {
@@ -837,7 +990,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, track, frag, auto, scene, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, frag, auto, scene, section, arrange or loop",
                     ));
                 }
             }
@@ -855,6 +1008,15 @@ impl Song {
             };
             if let Some(msg) = msg {
                 return Err(SongError { line, col: 1, msg });
+            }
+        }
+        for t in 0..song.tracks.len() {
+            let model = models.iter().find(|(i, _)| *i == t).map(|(_, m)| *m);
+            if song.tracks.get(t).is_some_and(|tr| tr.preset.is_none()) {
+                let picked = pick(&song, t, model);
+                if let Some(tr) = song.tracks.get_mut(t) {
+                    tr.preset = picked;
+                }
             }
         }
         Ok(song)
@@ -917,11 +1079,38 @@ impl Song {
                 s.mode.name()
             ));
         }
-        lines.extend(
-            self.tracks
+        for st in &self.settings {
+            let mut line = format!(
+                "setting {} = {} {}",
+                st.name,
+                model_name(st.preset.model()),
+                preset_name(st.preset)
+            );
+            let sets: Vec<String> = st
+                .sets
                 .iter()
-                .map(|t| format!("track {} {}", t.name, t.kind.name())),
-        );
+                .map(|(p, v)| format!("{} {}", param_name(*p), v))
+                .collect();
+            if !sets.is_empty() {
+                line.push_str(": ");
+                line.push_str(&sets.join(", "));
+            }
+            lines.push(line);
+        }
+        lines.extend(self.tracks.iter().map(|t| {
+            let setting = t.setting.and_then(|i| self.settings.get(i));
+            match (setting, t.preset) {
+                (Some(st), _) => format!("track {} {} {}", t.name, t.kind.name(), st.name),
+                (None, Some(p)) => format!(
+                    "track {} {} {} {}",
+                    t.name,
+                    t.kind.name(),
+                    model_name(p.model()),
+                    preset_name(p)
+                ),
+                (None, None) => format!("track {} {}", t.name, t.kind.name()),
+            }
+        }));
         for f in &self.frags {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
@@ -1217,6 +1406,16 @@ impl Song {
 }
 
 impl Song {
+    /// The patch track `t` plays: its preset, then its setting's changes.
+    pub fn patch(&self, t: usize) -> Option<(Preset, &[(Param, f32)])> {
+        let track = self.tracks.get(t)?;
+        let sets = track
+            .setting
+            .and_then(|i| self.settings.get(i))
+            .map_or(&[][..], |st| st.sets.as_slice());
+        track.preset.map(|p| (p, sets))
+    }
+
     fn target_name(&self, t: Target) -> String {
         match t {
             Target::Track(i) => self
@@ -1227,6 +1426,208 @@ impl Song {
             Target::Strip(s) => format!("group{}", s - STRIPS + 1),
             Target::Master => "master".to_string(),
         }
+    }
+}
+
+fn model_named(text: &str) -> Option<Model> {
+    Model::ALL.iter().find(|(_, n)| *n == text).map(|(m, _)| *m)
+}
+
+fn preset_named(text: &str) -> Option<Preset> {
+    Preset::ALL
+        .iter()
+        .find(|(_, n)| *n == text)
+        .map(|(p, _)| *p)
+}
+
+fn model_name(m: Model) -> &'static str {
+    Model::ALL
+        .iter()
+        .find(|(q, _)| *q == m)
+        .map_or("", |(_, n)| n)
+}
+
+fn preset_name(p: Preset) -> &'static str {
+    Preset::ALL
+        .iter()
+        .find(|(q, _)| *q == p)
+        .map_or("", |(_, n)| n)
+}
+
+/// Whether `model` (if one is given) plays a track of `kind`.
+fn fits(kind: Kind, model: Option<Model>) -> bool {
+    let Some(m) = model else {
+        return true;
+    };
+    match kind {
+        Kind::Drums => m.uses_drums() || m.uses_pads(),
+        Kind::Sampler => m.uses_sampler() || m.uses_pads(),
+        Kind::Synth => !m.uses_drums() && !m.uses_pads() && !m.uses_sampler(),
+    }
+}
+
+/// What a track plays, for picking its preset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Role {
+    Drums,
+    Bass,
+    Lead,
+    Pad,
+    Arp,
+    Keys,
+}
+
+use Preset as P;
+
+/// The presets for each role, the default first.
+const DRUMS: &[Preset] = &[P::Kit808, P::Kit909, P::TightKit, P::Hard909, P::PadsLoud];
+const BASS: &[Preset] = &[
+    P::MiniBass,
+    P::AcidBass,
+    P::Sh101Bass,
+    P::ProBass,
+    P::Bass,
+    P::FunkBass,
+    P::P5Bass,
+    P::JunoBass,
+    P::JupiterBass,
+    P::PpgPulseBass,
+    P::LaThumpBass,
+    P::FmBass,
+];
+const LEAD: &[Preset] = &[
+    P::ProLead,
+    P::MiniLead,
+    P::Sh101Lead,
+    P::Lead,
+    P::SyncLead,
+    P::Ms20Lead,
+    P::Cs15Lead,
+    P::CurrieLead,
+    P::OdysseySync,
+    P::P5SyncLead,
+    P::MatrixLead,
+    P::JupiterSync,
+    P::LuckyMan,
+];
+const PAD: &[Preset] = &[
+    P::JunoPad,
+    P::P5Pad,
+    P::JupiterPad,
+    P::MatrixPad,
+    P::PpgSweepPad,
+    P::FmPad,
+    P::LaFantasia,
+    P::PolyStrings,
+    P::SolinaStrings,
+    P::MoogStrings,
+    P::ProStrings,
+    P::Ms20Strings,
+    P::Cs15Strings,
+    P::Sh101Strings,
+    P::P5Strings,
+    P::JunoStrings,
+    P::JupiterStrings,
+    P::LaChoir,
+    P::VoxHumana,
+    P::SamplerPad,
+];
+const ARP: &[Preset] = &[
+    P::ShArp,
+    P::JunoPluck,
+    P::PpgDigitalPluck,
+    P::SubPluck,
+    P::FmMarimba,
+    P::LaPluckPad,
+];
+const KEYS: &[Preset] = &[P::FmElectricPiano, P::JunoPoly, P::PolyFunk, P::SamplerKeys];
+
+impl Role {
+    fn presets(self) -> &'static [Preset] {
+        match self {
+            Role::Drums => DRUMS,
+            Role::Bass => BASS,
+            Role::Lead => LEAD,
+            Role::Pad => PAD,
+            Role::Arp => ARP,
+            Role::Keys => KEYS,
+        }
+    }
+}
+
+/// A track's role: its name says it (`bass`, `pad`, `arp`, `keys`, `lead`),
+/// else its notes do: only arps, chords, or mostly below C3 (MIDI 48).
+fn role(song: &Song, t: usize) -> Role {
+    let Some(track) = song.tracks.get(t) else {
+        return Role::Lead;
+    };
+    if track.kind == Kind::Drums {
+        return Role::Drums;
+    }
+    let name = track.name.to_ascii_lowercase();
+    let says = |words: &[&str]| words.iter().any(|w| name.contains(w));
+    if says(&["bass", "sub"]) {
+        return Role::Bass;
+    }
+    if says(&["pad", "chord", "string", "choir"]) {
+        return Role::Pad;
+    }
+    if says(&["arp", "pluck", "seq"]) {
+        return Role::Arp;
+    }
+    if says(&["key", "piano", "organ"]) {
+        return Role::Keys;
+    }
+    if says(&["lead", "melod", "solo"]) {
+        return Role::Lead;
+    }
+    let notes: Vec<&Notes> = song
+        .frags
+        .iter()
+        .filter(|f| f.track == t)
+        .filter_map(|f| f.notes.as_ref())
+        .collect();
+    let arp = |n: &&Notes| matches!(n.seq, notes::Seq::Generated(notes::Gen::Arp { .. }));
+    if !notes.is_empty() && notes.iter().all(arp) {
+        return Role::Arp;
+    }
+    let chords = notes.iter().any(|n| {
+        n.events
+            .windows(2)
+            .any(|w| matches!(w, [a, b] if a.start == b.start))
+    });
+    if chords {
+        return Role::Pad;
+    }
+    let mut pitches: Vec<u8> = notes
+        .iter()
+        .flat_map(|n| n.events.iter().map(|e| e.note))
+        .collect();
+    pitches.sort_unstable();
+    match pitches.get(pitches.len() / 2) {
+        Some(n) if *n < 48 => Role::Bass,
+        _ => Role::Lead,
+    }
+}
+
+/// The preset a track without one plays: its role's, on `model` when one is
+/// given (else that model's first preset). A sampler track keeps the samples
+/// it has unless it names a model.
+fn pick(song: &Song, t: usize, model: Option<Model>) -> Option<Preset> {
+    let kind = song.tracks.get(t)?.kind;
+    if kind == Kind::Sampler && model.is_none() {
+        return None;
+    }
+    let presets = role(song, t).presets();
+    let named_909 = kind == Kind::Drums && song.tracks.get(t)?.name.contains("909");
+    match model {
+        None if named_909 => Some(Preset::Kit909),
+        None => presets.first().copied(),
+        Some(m) => presets
+            .iter()
+            .copied()
+            .find(|p| p.model() == m)
+            .or_else(|| Preset::ALL.iter().map(|(p, _)| *p).find(|p| p.model() == m)),
     }
 }
 

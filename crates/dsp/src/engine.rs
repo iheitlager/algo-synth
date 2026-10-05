@@ -139,6 +139,8 @@ pub struct Engine {
     song_text: String,
     song_error: Option<SongError>,
     song_route: [Option<usize>; MAX_TRACKS],
+    /// While a MIDI file is imported its parts keep the synths they play on.
+    keep_synths: bool,
     /// Notes of the song waiting for their note-off, as (tick, track, note):
     /// a fixed table, so the clock can end a note without allocating.
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
@@ -205,6 +207,7 @@ impl Engine {
             song_text: Song::default().print(),
             song_error: None,
             song_route: [None; MAX_TRACKS],
+            keep_synths: false,
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
             auto_last: [f32::NAN; MAX_AUTOS],
@@ -1220,16 +1223,50 @@ impl Engine {
                         .get(*s)
                         .is_some_and(|p| !p.model.uses_drums() && !p.model.uses_pads())
                 });
-                for (t, route) in self.song_route.iter_mut().enumerate() {
-                    if t >= song.tracks.len() {
+                for t in song.tracks.len()..MAX_TRACKS {
+                    if let Some(route) = self.song_route.get_mut(t) {
                         *route = None;
-                    } else if route.is_none() {
+                    }
+                }
+                for (t, track) in song.tracks.iter().enumerate() {
+                    let routed = self.song_routed(t);
+                    let patch = song.patch(t);
+                    // A track with a patch gets a synth of its own and the patch
+                    // on it (#210): one already on the patch's model (it keeps its
+                    // samples), else the first free one. The patch is set again
+                    // only when the text changes it.
+                    if let Some((preset, sets)) = patch {
+                        let free = |s: &usize| !self.song_route.contains(&Some(*s));
+                        let synth = routed.or_else(|| {
+                            (0..SYNTHS)
+                                .filter(free)
+                                .find(|s| {
+                                    self.synths
+                                        .get(*s)
+                                        .is_some_and(|p| p.model == preset.model())
+                                })
+                                .or_else(|| (0..SYNTHS).find(free))
+                        });
+                        let changed = routed.is_none() || self.song.patch(t) != patch;
+                        if let Some(s) = synth.filter(|_| changed && !self.keep_synths) {
+                            self.preset(s, preset);
+                            for (p, v) in sets {
+                                self.set_param(s, *p, *v);
+                            }
+                        }
+                        if let Some(route) = self.song_route.get_mut(t) {
+                            *route = synth;
+                        }
+                    } else if routed.is_none() {
                         let notes = song.frags.iter().any(|f| f.track == t && f.notes.is_some());
-                        *route = match song.tracks.get(t).map(|t| t.kind) {
-                            Some(Kind::Synth) => voiced,
-                            Some(Kind::Sampler) if notes => multi.or(voiced),
+                        let synth = match track.kind {
+                            Kind::Synth => voiced,
+                            Kind::Sampler if notes => multi.or(voiced),
                             _ => kit,
                         };
+                        if let Some(route) = self.song_route.get_mut(t) {
+                            *route = synth;
+                        }
                     }
                 }
                 self.song = song;
@@ -1255,7 +1292,10 @@ impl Engine {
         let smf = smf::parse(&self.midi).map_err(smf::Error::code)?;
         let imported = crate::midi_import::import(&smf).map_err(|e| e.code())?;
         self.song_buf = imported.text.into_bytes();
-        self.load_song().map_err(|_| -9)?;
+        self.keep_synths = true;
+        let loaded = self.load_song();
+        self.keep_synths = false;
+        loaded.map_err(|_| -9)?;
         for (t, ch) in imported.channels.iter().enumerate() {
             let synth = self.routed(*ch);
             if let Some(slot) = self.song_route.get_mut(t) {
@@ -3544,6 +3584,45 @@ mod tests {
         assert_eq!(e.song_error(), None);
     }
 
+    /// #210: each track gets a synth of its own with its patch on it; a
+    /// reload leaves the synth alone until the text changes the patch.
+    #[test]
+    fn each_track_gets_its_own_synth_and_patch() {
+        let mut e = Engine::new(48_000.0);
+        let text = "setting nile = Minimoog MiniLead: Cutoff 1200\n\
+                    track kit drums\ntrack lead synth nile\ntrack bass synth\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        let routes: Vec<_> = (0..3).map(|t| e.song_routed(t)).collect();
+        assert_eq!(routes, vec![Some(0), Some(1), Some(2)]);
+        let model = |e: &Engine, s| e.param_value(s, Param::Model);
+        assert_eq!(model(&e, 0), Model::Tr808 as u32 as f32);
+        assert_eq!(model(&e, 1), Model::Minimoog as u32 as f32);
+        assert_eq!(model(&e, 2), Model::Minimoog as u32 as f32, "MiniBass");
+        assert_eq!(
+            e.param_value(1, Param::Cutoff),
+            1200.0,
+            "the setting's change"
+        );
+        e.set_param(1, Param::Cutoff, 500.0);
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        assert_eq!(
+            e.param_value(1, Param::Cutoff),
+            500.0,
+            "an unchanged patch keeps the knob"
+        );
+        let changed = text.replace("Cutoff 1200", "Cutoff 2000");
+        assert_eq!(load_text(&mut e, &changed), Ok(()));
+        assert_eq!(
+            e.param_value(1, Param::Cutoff),
+            2000.0,
+            "a changed patch is set again"
+        );
+        let swapped = changed.replace("track bass synth", "track bass synth Sh101 AcidBass");
+        assert_eq!(load_text(&mut e, &swapped), Ok(()));
+        assert_eq!(e.song_routed(2), Some(2), "the track keeps its synth");
+        assert_eq!(model(&e, 2), Model::Sh101 as u32 as f32);
+    }
+
     #[test]
     fn the_song_sets_the_clock_and_tracks_find_a_kit() {
         let mut e = Engine::new(48_000.0);
@@ -3552,11 +3631,21 @@ mod tests {
             Ok(())
         );
         assert_eq!((e.clock().tempo(), e.clock().swing()), (90.0, 60.0));
-        assert_eq!(e.song_routed(0), None, "no kit, so the track is muted");
+        assert_eq!(
+            e.song_routed(0),
+            Some(0),
+            "no kit, so the first synth becomes one"
+        );
+        assert_eq!(e.param_value(0, Param::Model), Model::Tr808 as u32 as f32);
         e.preset(3, Preset::Kit808);
+        e.preset(0, Preset::Lead);
         e.song_route(0, None);
         assert_eq!(load_text(&mut e, FOUR), Ok(()));
-        assert_eq!(e.song_routed(0), Some(3));
+        assert_eq!(
+            e.song_routed(0),
+            Some(3),
+            "a synth on the kit's model takes it"
+        );
         e.song_route(0, Some(5));
         assert_eq!(load_text(&mut e, FOUR), Ok(()));
         assert_eq!(e.song_routed(0), Some(5), "a reload keeps the route");
@@ -3594,9 +3683,10 @@ mod tests {
     fn held_changes(text: &str, frames: u64) -> Vec<(u64, Vec<u8>)> {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::MasterGain, 1.0);
-        e.set_param(0, Param::Polyphony, 8.0);
         assert_eq!(load_text(&mut e, text), Ok(()));
         assert_eq!(e.song_routed(0), Some(0), "a synth track finds a synth");
+        // After the load: the track's preset sets the synth's polyphony.
+        e.set_param(0, Param::Polyphony, 8.0);
         e.song_play();
         let mut now: Vec<u8> = Vec::new();
         let mut out = Vec::new();
@@ -3734,7 +3824,8 @@ mod tests {
             .copy_from_slice(&wav);
         e.load_sample(0).expect("loads");
         e.set_pad(2, 0, crate::padsampler::PadField::Sample, 0.0);
-        assert_eq!(load_text(&mut e, FOUR), Ok(()));
+        let text = FOUR.replace("track kit drums", "track kit drums PadSampler PadsLoud");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
         assert_eq!(e.song_routed(0), Some(2), "the pad sampler takes the track");
         e.song_play();
         let heard = run(&mut e, 48_000 / 2 / BLOCK);

@@ -1411,7 +1411,7 @@ mod tests {
         assert_eq!((track_kind(0), frag_notes_len(0), frag_bars(0)), (0, 0, 0));
         assert_eq!((frag_events(0), frag_generated(0), frag_live(0)), (0, 0, 0));
         assert_eq!(note_add(0, 0, 60), -1, "a drum frag takes no notes");
-        assert_eq!(song_routed(0), 255, "no kit yet");
+        assert_eq!(song_routed(0), 0, "the first synth becomes the kit");
         song_route(0, 2);
         assert_eq!(song_routed(0), 2);
         assert_eq!(set_step(0, 0, 1, 1), 0);
