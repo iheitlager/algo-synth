@@ -2113,6 +2113,7 @@ impl Song {
 }
 
 pub mod lex;
+pub mod signal;
 
 #[cfg(test)]
 mod tests;
