@@ -71,6 +71,8 @@ use crate::mono::preset::Preset;
 use crate::notes::{self, Notes};
 use crate::params::Param;
 
+pub use comments::Comments;
+
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
 pub const MAX_FRAGS: usize = 256;
@@ -310,6 +312,8 @@ pub struct Song {
     pub arrange: Vec<usize>,
     /// Bars of the arrangement to repeat, from 1 and inclusive.
     pub loop_bars: Option<(u32, u32)>,
+    /// The comments of the text, kept to print back (#199).
+    pub comments: Comments,
 }
 
 impl Default for Song {
@@ -326,6 +330,7 @@ impl Default for Song {
             sections: Vec::new(),
             arrange: Vec::new(),
             loop_bars: None,
+            comments: Comments::default(),
         }
     }
 }
@@ -1033,6 +1038,7 @@ impl Song {
                 }
             }
         }
+        song.comments = Comments::collect(text, &song);
         Ok(song)
     }
 
@@ -1213,6 +1219,7 @@ impl Song {
         if let Some((from, to)) = self.loop_bars {
             lines.push(format!("loop {from} {to}"));
         }
+        let mut lines = self.comments.apply(lines, self);
         lines.push(String::new());
         lines.join("\n")
     }
@@ -1777,6 +1784,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     })
 }
 
+mod comments;
 pub mod lex;
 
 #[cfg(test)]

@@ -31,7 +31,7 @@ A binary song format serves the engine but nobody else: not a person reading a s
 - The engine gains a parser and a printer. Both are total: they never panic, whatever the bytes (as `smf.rs`).
 - Spec 002 Req 3, 4, 6 and 7 are rewritten around fragments, the arrangement and the text format; the binary song format of Req 6 is dropped.
 - Parsing allocates, so a song change costs an allocation on the call that loads it, as a MIDI file does today; `render` still never allocates (ADR-0002).
-- A canonical printer means a song's layout (comments, spacing) is not kept across an edit from the grid. Comments may be kept later; the first version does not promise it.
+- A canonical printer means a song's layout (blank lines, spacing) is not kept across an edit from the grid. Comments are kept (#199): the parser ties each `#` comment to the item above or beside it and the printer puts it back, so Apply and grid edits no longer erase them; comments are not music, so they do not count when two songs are compared.
 - The notation is ours, not Strudel's: close enough to read and for a model to write, without promising compatibility.
 
 ## Alternatives considered

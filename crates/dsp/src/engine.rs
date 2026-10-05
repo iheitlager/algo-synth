@@ -3771,6 +3771,23 @@ mod tests {
         assert_eq!(e.note_count, 2, "the new step at 12000 plays");
     }
 
+    /// #199: the text the view gets back after a load, a grid click and a tempo change still has its comments.
+    #[test]
+    fn the_song_text_keeps_its_comments_through_edits() {
+        let mut e = kit(0);
+        let text = "# my beat\ntempo 120 # steady\ntrack kit drums\nfrag b = kit /16\n  # the kick\n  bd x...x...x...x...\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        assert!(e.song_text().starts_with("# my beat\ntempo 120 # steady\n"));
+        assert!(e.set_step(0, 0, 2, 2));
+        e.set_song_tempo(90.0);
+        let out = e.song_text();
+        assert!(out.starts_with("# my beat\ntempo 90 # steady\n"), "{out}");
+        assert!(
+            out.contains("  # the kick\n  bd x.X.x...x...x...\n"),
+            "{out}"
+        );
+    }
+
     #[test]
     fn tempo_and_swing_change_the_song_and_the_clock() {
         let mut e = kit(0);
