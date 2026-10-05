@@ -170,10 +170,10 @@ export const view = reactive({
 /** One hue per synth, so a part's notes match its synth's card. */
 export const synthColour = (s: number) => `hsl(${(12 + 47 * s) % 360} 68% 62%)`
 
-/** Show synth `s`, reset to the default patch unless it is already shown. */
-function show(s: number) {
+/** Show synth `s`, reset to the default patch unless it is already shown or `keep` its patch. */
+function show(s: number, keep = false) {
   if (synths.list.includes(s)) return
-  engine?.reset(s)
+  if (!keep) engine?.reset(s)
   synths.list = [...synths.list, s].sort((a, b) => a - b)
 }
 
@@ -578,6 +578,8 @@ export function applySong(data: Record<string, unknown>) {
     synth: t.synth,
     kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
   }))
+  // The engine put each track on a synth with its preset (#210): show them as they are.
+  if (data.ok) for (const t of song.tracks) if (t.synth !== MUTE) show(t.synth, true)
   song.frags = (data.frags as {
     name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]
     notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null

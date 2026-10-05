@@ -190,7 +190,10 @@ class EngineProcessor extends AudioWorkletProcessor {
       return
     }
     new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
-    this.sendSong(w.song_load() === 0)
+    const ok = w.song_load() === 0
+    this.sendSong(ok)
+    // A track's preset or setting may have just been set on its synth (#210).
+    if (ok) for (let t = 0; t < w.song_tracks(); t++) if (w.song_routed(t) < 255) this.sendParams(w.song_routed(t))
   }
 
   // The song as the engine holds it: its printed text, the tracks and their

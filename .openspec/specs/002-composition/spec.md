@@ -205,3 +205,23 @@ The song SHALL move any parameter but the model and `Out` over time (ADR-0015, #
 - THEN their output is bit-identical
 
 **Tests:** `crates/dsp/src/song/tests.rs::automation_and_scenes_parse_and_print`, `crates/dsp/src/song/tests.rs::a_lane_steps_or_ramps_over_its_length_and_loops`, `crates/dsp/src/song/tests.rs::automation_errors_say_where`, `crates/dsp/src/engine.rs::tests::a_scene_lands_on_its_sections_first_sample`, `crates/dsp/src/engine.rs::tests::a_ramp_reaches_its_end_value`, `crates/dsp/src/engine.rs::tests::automation_is_bit_identical_to_a_hand_set_value`
+
+### Requirement 11: A track picks its synth and settings [SHOULD]
+
+A track SHALL name its synth after its kind (#210): `track <name> <kind> <model> <preset>` with a factory preset of that model, `<model>` alone, or a setting. `setting <name> = <model> <preset>: <Param> <value>, …` SHALL be a patch that lives only in the song: a factory preset and changes to the synth's own parameters, written before the tracks. Without a model the composer SHALL pick one from the track's role: chords make a pad; a name with bass, pad, arp, keys or lead says it; otherwise only arps make an arp, notes mostly below C3 a bass, and anything else a lead. A drum track SHALL get an 808 kit, or a 909 when its name says 909. A sampler track without a model SHALL keep the samples already loaded. The pick SHALL be printed in the canonical text. A model that does not play the track's kind, or a preset of another model, SHALL be a parse error. On load the engine SHALL route each new track to a synth of its own (an unclaimed one already on the patch's model, else the first unclaimed) and set the patch on it; a reload SHALL set it again only when the text changes the patch, and a MIDI import SHALL leave its parts' synths alone.
+
+**Implementation:** `crates/dsp/src/song.rs::Setting`, `crates/dsp/src/song.rs::Song::patch`, `crates/dsp/src/engine.rs::Engine::load_song`, `web/public/worklet.js`, `web/src/audio/engine.ts::applySong`
+
+#### Scenario: a song sets up its synths
+
+- GIVEN `track kit drums`, `track lead synth` and `track bass synth` on a fresh engine
+- WHEN the song loads
+- THEN the tracks play on synths 0, 1 and 2 as an 808 kit, a ProOne lead and a Minimoog bass, and the text says so
+
+#### Scenario: a knob survives a re-parse
+
+- GIVEN a track playing a setting, and its synth's cutoff turned by hand
+- WHEN the same text loads again
+- THEN the cutoff stays, and it is set again only when the setting's text changes
+
+**Tests:** `crates/dsp/src/song/tests.rs::a_track_without_a_model_gets_one_for_its_role`, `crates/dsp/src/song/tests.rs::a_model_alone_gets_its_preset_for_the_role`, `crates/dsp/src/song/tests.rs::settings_parse_and_print_back`, `crates/dsp/src/song/tests.rs::model_and_setting_errors_say_where`, `crates/dsp/src/engine.rs::tests::each_track_gets_its_own_synth_and_patch`

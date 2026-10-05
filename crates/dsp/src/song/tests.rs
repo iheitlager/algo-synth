@@ -20,7 +20,9 @@ fn a_beat_parses() {
         s.tracks,
         vec![Track {
             name: "kit".into(),
-            kind: Kind::Drums
+            kind: Kind::Drums,
+            preset: Some(Preset::Kit808),
+            setting: None,
         }]
     );
     let f = &s.frags[0];
@@ -38,7 +40,7 @@ fn the_print_is_canonical_and_parses_back() {
     let text = s.print();
     assert_eq!(
         text,
-        "tempo 124\nswing 56\ntrack kit drums\n\nfrag beat = kit /16\n  bd x...x...x...x...\n  sn ....X.......X..x\n  ch x.x.x.x.x.x.x.x.\n"
+        "tempo 124\nswing 56\ntrack kit drums Tr808 Kit808\n\nfrag beat = kit /16\n  bd x...x...x...x...\n  sn ....X.......X..x\n  ch x.x.x.x.x.x.x.x.\n"
     );
     assert_eq!(Song::parse(&text), Ok(s));
 }
@@ -119,7 +121,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, track, frag, auto, scene, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, frag, auto, scene, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -181,6 +183,14 @@ fn random_song(r: &mut Rng) -> Song {
         song.tracks.push(Track {
             name: format!("t{t}"),
             kind: if t == 1 { Kind::Synth } else { Kind::Drums },
+            // A written preset prints and parses back as itself.
+            preset: Some(match (t, r.below(2)) {
+                (1, 0) => Preset::MiniLead,
+                (1, _) => Preset::JunoPad,
+                (_, 0) => Preset::Kit808,
+                _ => Preset::Hard909,
+            }),
+            setting: None,
         });
     }
     for f in 0..r.below(5) {
@@ -276,7 +286,7 @@ fn note_fragments_parse_and_print_back() {
     assert!(s.frags[0].lanes.is_empty());
     assert_eq!(s.frags[2].notes, None);
     let text = s.print();
-    assert!(text.contains("track bass synth\ntrack kit drums\n"));
+    assert!(text.contains("track bass synth Minimoog MiniBass\ntrack kit drums Tr808 Kit808\n"));
     assert!(text.contains("frag riff = bass\n  \"c4 [e4 g4] ~ <c5 d5>?\"\n"));
     assert!(text.contains("frag line = bass\n  c#4:4 e4:8. [c4,e4,g4]:2 r:8\n"));
     assert_eq!(Song::parse(&text), Ok(s));
@@ -441,7 +451,7 @@ fn generators_and_scales_parse_and_print_back() {
     );
     assert!(lanes[0].call.is_some() && lanes[2].call.is_none());
     let text = s.print();
-    assert!(text.starts_with("tempo 120\nswing 50\nscale c minor\ntrack kit drums\n"));
+    assert!(text.starts_with("tempo 120\nswing 50\nscale c minor\ntrack kit drums Tr808 Kit808\n"));
     assert!(text.contains("  bd euclid(3,8)\n  sn euclid(5,16,2)\n  ch x.x.\n"));
     assert!(text.contains("  euclid(5,8) scale c4\n"));
     assert_eq!(Song::parse(&text), Ok(s));
@@ -1074,4 +1084,173 @@ fn an_edit_of_timed_notes_stays_timed() {
         "past its bars"
     );
     assert_eq!(Song::parse(&s.print()), Ok(s));
+}
+
+const NILE: &str = "\
+tempo 116
+scale e phrygian
+track kit drums
+track lead synth
+track bass synth
+track pad synth
+track low synth
+
+frag beat = kit /16
+  bd x..x..x...x..x..
+frag sub = bass
+  \"e2 ~ ~ e2\"
+frag nile = lead
+  \"e4 f4 g#4 ~\"
+frag sand = lead live
+  arp([e4,g#4,b4],updown,16)
+frag hold = pad
+  \"[e3,g#3,b3]\"
+frag deep = low
+  \"e1 f1 e2 b1\"
+";
+
+/// #210: a track left without a model is given one from its role.
+#[test]
+fn a_track_without_a_model_gets_one_for_its_role() {
+    let s = Song::parse(NILE).expect("parses");
+    let presets: Vec<Option<Preset>> = s.tracks.iter().map(|t| t.preset).collect();
+    assert_eq!(
+        presets,
+        vec![
+            Some(Preset::Kit808),
+            Some(Preset::ProLead),
+            Some(Preset::MiniBass),
+            Some(Preset::JunoPad),
+            Some(Preset::MiniBass),
+        ],
+        "kit, a lead by name, a bass by name, a pad by name, a bass by register"
+    );
+    let text = s.print();
+    assert!(text.contains("track lead synth ProOne ProLead\ntrack bass synth Minimoog MiniBass\n"));
+    assert_eq!(Song::parse(&text), Ok(s));
+    let roles = Song::parse(
+        "track a synth\ntrack b synth\nfrag x = a\n  \"[c4,e4]\"\nfrag y = b live\n  arp([c4,e4],up,16)\n",
+    )
+    .expect("parses");
+    assert_eq!(roles.tracks[0].preset, Some(Preset::JunoPad), "chords");
+    assert_eq!(roles.tracks[1].preset, Some(Preset::ShArp), "only arps");
+    let drums = Song::parse("track tr909 drums\n").expect("parses");
+    assert_eq!(
+        drums.tracks[0].preset,
+        Some(Preset::Kit909),
+        "the name says 909"
+    );
+    let sampler = Song::parse("track s sampler\n").expect("parses");
+    assert_eq!(
+        sampler.tracks[0].preset, None,
+        "a sampler keeps its samples"
+    );
+    assert_eq!(sampler.print(), "tempo 120\nswing 50\ntrack s sampler\n");
+}
+
+/// #210: a model alone gets its preset for the role, or its first.
+#[test]
+fn a_model_alone_gets_its_preset_for_the_role() {
+    let s =
+        Song::parse("track bass synth Juno106\ntrack lead synth Juno106\ntrack k drums Tr909\n")
+            .expect("parses");
+    assert_eq!(s.tracks[0].preset, Some(Preset::JunoBass));
+    assert_eq!(
+        s.tracks[1].preset,
+        Some(Preset::JunoPad),
+        "no Juno lead: its first"
+    );
+    assert_eq!(s.tracks[2].preset, Some(Preset::Kit909));
+    let s = Song::parse("track lead synth Sh101 AcidBass\n").expect("parses");
+    assert_eq!(
+        s.tracks[0].preset,
+        Some(Preset::AcidBass),
+        "a written preset wins"
+    );
+}
+
+/// #210: a setting is a preset with changes; a track plays it by name.
+#[test]
+fn settings_parse_and_print_back() {
+    let text = "\
+setting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5
+setting plain = Tr909 Hard909
+track lead synth nile
+track kit drums plain
+track bass synth
+";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.settings.len(), 2);
+    assert_eq!(s.settings[0].preset, Preset::MiniLead);
+    assert_eq!(
+        s.settings[0].sets,
+        vec![(Param::Cutoff, 1200.0), (Param::Resonance, 0.5)]
+    );
+    assert_eq!(
+        (s.tracks[0].setting, s.tracks[0].preset),
+        (Some(0), Some(Preset::MiniLead))
+    );
+    assert_eq!(
+        s.patch(0),
+        Some((Preset::MiniLead, &s.settings[0].sets[..]))
+    );
+    assert_eq!(s.patch(1), Some((Preset::Hard909, &[][..])));
+    let printed = s.print();
+    assert!(printed.starts_with(
+        "tempo 120\nswing 50\nsetting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5\nsetting plain = Tr909 Hard909\ntrack lead synth nile\ntrack kit drums plain\ntrack bass synth Minimoog MiniBass\n"
+    ));
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn model_and_setting_errors_say_where() {
+    let at = |text: &str| {
+        Song::parse(text)
+            .map(|_| ())
+            .map_err(|e| (e.line, e.col, e.msg))
+    };
+    assert_eq!(
+        at("track a synth Moog\n"),
+        Err((
+            1,
+            15,
+            "a model (as Minimoog or Tr808) or a setting goes here"
+        ))
+    );
+    assert_eq!(
+        at("track a synth Minimoog ProLead\n"),
+        Err((1, 24, "this preset is for another model"))
+    );
+    assert_eq!(
+        at("track a synth Tr808\n"),
+        Err((1, 15, "this model does not play this kind of track"))
+    );
+    assert_eq!(
+        at("track a synth Minimoog MiniLead x\n"),
+        Err((1, 33, "unexpected text"))
+    );
+    assert_eq!(
+        at("setting s = Minimoog MiniLead: Level 1\n"),
+        Err((1, 32, "a setting changes the synth's own parameters"))
+    );
+    assert_eq!(
+        at("setting s = Minimoog MiniLead: Cutoff 1 Resonance 1\n"),
+        Err((1, 41, "a comma goes between changes"))
+    );
+    assert_eq!(
+        at("track a synth\nsetting s = Minimoog MiniLead\n"),
+        Err((2, 1, "a setting goes before the tracks"))
+    );
+    assert_eq!(
+        at("setting s = Tr808 Kit808\ntrack a synth s\n"),
+        Err((2, 15, "this model does not play this kind of track"))
+    );
+    assert_eq!(
+        at("setting Minimoog = Minimoog MiniLead\n"),
+        Err((
+            1,
+            9,
+            "a name is a letter, then letters, digits or _, and not a model's"
+        ))
+    );
 }
