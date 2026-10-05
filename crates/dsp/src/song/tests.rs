@@ -699,7 +699,7 @@ fn the_example_songs_parse_and_print_back() {
         );
         seen += 1;
     }
-    assert_eq!(seen, 5, "five examples");
+    assert_eq!(seen, 6, "six examples");
 }
 
 const ARRANGED: &str = "\
