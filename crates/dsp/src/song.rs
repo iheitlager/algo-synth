@@ -701,10 +701,7 @@ impl Song {
                     }
                     let mut sets = Vec::new();
                     while let Some(pw) = ws.get(k) {
-                        let param = Param::ALL
-                            .iter()
-                            .find(|(_, n)| *n == pw.text)
-                            .map(|(q, _)| *q)
+                        let param = Param::by_name(pw.text)
                             .ok_or(err(pw.col, "no parameter has this name"))?;
                         if param == Param::Model || param.is_global() || param.is_strip() {
                             return Err(err(
@@ -1822,11 +1819,7 @@ fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str
     let (t, p) = text
         .split_once('.')
         .ok_or("target.Param goes here, e.g. strip1.Level")?;
-    let param = Param::ALL
-        .iter()
-        .find(|(_, n)| *n == p)
-        .map(|(q, _)| *q)
-        .ok_or("no parameter has this name")?;
+    let param = Param::by_name(p).ok_or("no parameter has this name")?;
     if matches!(param, Param::Model | Param::Out) {
         return Err("the model and the routing can't be automated");
     }
@@ -2057,11 +2050,7 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
     let mut sets: Vec<(Param, f32)> = Vec::new();
     let mut k = colon + 1;
     while let Some(pw) = ws.get(k) {
-        let param = Param::ALL
-            .iter()
-            .find(|(_, n)| *n == pw.text)
-            .map(|(p, _)| *p)
-            .ok_or(err(pw.col, "no parameter has this name"))?;
+        let param = Param::by_name(pw.text).ok_or(err(pw.col, "no parameter has this name"))?;
         let ok = if at == Mix::Master {
             param.is_global()
         } else {

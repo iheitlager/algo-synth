@@ -923,6 +923,16 @@ fn automation_and_scenes_parse_and_print() {
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
+/// ADR-0019: a parameter is named in any case, as `kit.cutoff` or
+/// `kit.Cutoff`, and prints by its registry name.
+#[test]
+fn a_parameter_name_is_read_in_any_case() {
+    let lower = AUTOMATED
+        .replace("kit.Cutoff", "kit.cutoff")
+        .replace("master.P2Return 0.4", "master.p2return 0.4");
+    assert_eq!(Song::parse(&lower), Song::parse(AUTOMATED));
+}
+
 #[test]
 fn a_lane_steps_or_ramps_over_its_length_and_loops() {
     let s = Song::parse(AUTOMATED).expect("parses");
