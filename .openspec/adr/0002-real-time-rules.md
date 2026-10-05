@@ -8,7 +8,7 @@
 
 ## Decision
 
-1. **`render` never allocates.** Everything is allocated in `Engine::new` (voice pools, tables, buffers, the song buffer). Pools are fixed-size; when full, the oldest voice is stolen.
+1. **`render` never allocates.** Everything is allocated in `Engine::new` (voice pools, tables, buffers, the song buffer). Pools are fixed-size; when full, the oldest voice is stolen. A test counts every allocation while a busy song renders and fails on any (`crates/dsp/tests/render_no_alloc.rs`, #233).
 2. **`render` never panics.** Clippy denies `unwrap`, `expect`, `panic!` and indexing; lookups use `get` with a fallback. The release profile is `panic = "abort"`, so a panic that slips through at least doesn't grow the module with unwinding tables.
 3. **No transcendentals per sample.** Oscillators read tables; coefficients (envelope rates, filter `g`, pitch increments) are computed when a parameter or note changes, and smoothed at control rate.
 4. **Inputs are clamped at the edge.** Every parameter has a range; NaN becomes the lower bound. Unknown ids are ignored.
