@@ -28,11 +28,10 @@ frag tick = bass
   "e1! ~ ~ e1 ~ ~ e1! ~ ~ e1 ~ ~ ~ ~ g1 ~"
 frag acid = bass
   "e1! e1 e2 e1 ~ e1! g1 e1 e2! e1 ~ e1 a1 e1 g1! e1"
-# Timed notes (start:length:velocity, 3 ticks to a sixteenth): a note one tick
-# longer than its slot overlaps the next, and with the preset's legato and glide
-# that is a slide. 127 is an accent, 95 a plain hit.
-frag slides = bass bars 2
-  e1@0:3:127 e1@3:3:95 e2@6:4:95 e1@9:3:95 e1@15:3:127 g1@18:4:95 e1@21:3:95 e2@24:4:127 e1@27:3:95 e1@33:3:95 a1@36:4:95 e1@39:3:95 g1@42:4:127 e1@45:3:95 e1@48:3:127 e2@54:4:95 e1@57:3:95 e1@63:3:127 b1@66:4:95 e1@69:3:95 e2@72:3:127 g2@78:4:95 e2@81:4:95 d2@84:4:95 b1@87:4:95 a1@90:4:95 g1@93:3:127
+# A trailing & makes a note run into the next one: with the preset's legato
+# and glide that is a slide.
+frag slides = bass
+  "<[e1! e1 e2& e1 ~ e1! g1& e1 e2!& e1 ~ e1 a1& e1 g1!& e1] [e1! ~ e2& e1 ~ e1! b1& e1 e2! ~ g2& e2& d2& b1& a1& g1!]>"
 frag hold = bass
   "<[e1*8] [g1*8] [a1*8] [b1*4 d2*4]>"
 
