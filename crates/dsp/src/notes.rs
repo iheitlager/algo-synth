@@ -12,8 +12,10 @@
 //! divides a word's share again, `~` rests, `*n` repeats within the share,
 //! `@n` gives a word n shares, `<a b>` plays one option per bar, `?` plays a
 //! word on half the bars (drawn from a fixed seed, so a run is repeatable),
-//! `[c4,e4,g4]` is a chord and `!` accents a note. Classic: `c4:4` is a
-//! quarter, `:1 :2 :4 :8 :16` with a dot for one and a half, and `r:4` rests.
+//! `[c4,e4,g4]` is a chord and `!` accents a note. A trailing `&` makes a note
+//! (or chord) run one tick into the next, so a legato synth with glide slides
+//! to it (#241). Classic: `c4:4` is a quarter, `:1 :2 :4 :8 :16` with a dot
+//! for one and a half, `r:4` rests, and `c4:8&` slides.
 //!
 //! A third form, timed notes, says exactly where each note is (#173, the
 //! form MIDI import writes): `d5@0:6 f#5@6:6:90 a4@12:24` is a note at tick
@@ -86,6 +88,8 @@ pub struct Slot {
     pub weight: u32,
     /// `?`: plays on some bars only.
     pub chance: bool,
+    /// `&`: the note runs one tick into the next, so a legato synth slides.
+    pub slide: bool,
 }
 
 /// A classic note: pitches (none for a rest) and a length.
@@ -97,6 +101,8 @@ pub struct Beat {
     /// 1, 2, 4, 8 or 16: a whole, half, quarter, eighth or sixteenth note.
     pub div: u8,
     pub dot: bool,
+    /// `&`: as a mini word's, the note runs one tick into the next.
+    pub slide: bool,
 }
 
 /// What the hits of a generator play.
@@ -422,7 +428,7 @@ impl Cursor<'_> {
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['*', '@', '?', ']', '>']);
+                let end = self.word_end(&['*', '@', '?', '&', ']', '>']);
                 if chord::is_note(self.c.get(self.i..end).unwrap_or(&[])) {
                     Item::Note(self.pitch()?)
                 } else {
@@ -430,7 +436,7 @@ impl Cursor<'_> {
                 }
             }
         };
-        let (mut times, mut weight, mut chance) = (1, 1, false);
+        let (mut times, mut weight, mut chance, mut slide) = (1, 1, false, false);
         let (mut got_times, mut got_weight) = (false, false);
         loop {
             let here = self.col();
@@ -449,6 +455,13 @@ impl Cursor<'_> {
                     self.i += 1;
                     chance = true;
                 }
+                Some('&') if !slide => {
+                    if !matches!(item, Item::Note(_) | Item::Chord(_) | Item::Symbol(_)) {
+                        return err(here, "only a note or a chord slides");
+                    }
+                    self.i += 1;
+                    slide = true;
+                }
                 Some(':') => return err(here, "durations go outside the quotes, as c4:4"),
                 Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>') => {
                     return err(here, "a word ends at a space");
@@ -461,6 +474,7 @@ impl Cursor<'_> {
             times,
             weight,
             chance,
+            slide,
         })
     }
 
@@ -494,7 +508,7 @@ impl Cursor<'_> {
                 self.i += 1;
                 self.chord()?
             }
-            Some('"' | '~' | '<' | '*' | '@' | '?') => {
+            Some('"' | '~' | '<' | '*' | '@' | '?' | '&') => {
                 return err(
                     at,
                     "mini-notation goes inside quotes, classic notes outside",
@@ -536,6 +550,13 @@ impl Cursor<'_> {
                 return err(dat, "a dotted sixteenth does not fit the grid");
             }
         }
+        let slide = self.peek() == Some('&');
+        if slide {
+            if pitches.is_empty() {
+                return err(self.col(), "only a note or a chord slides");
+            }
+            self.i += 1;
+        }
         if self.peek().is_some_and(|c| !c.is_whitespace()) {
             return err(self.col(), "a word ends at a space");
         }
@@ -544,6 +565,7 @@ impl Cursor<'_> {
             symbol,
             div,
             dot,
+            slide,
         })
     }
 }
@@ -736,6 +758,9 @@ fn slot_text(s: &Slot) -> String {
         Item::Group(g) => format!("[{}]", slots_text(g)),
         Item::Alt(g) => format!("<{}>", slots_text(g)),
     };
+    if s.slide {
+        out.push('&');
+    }
     if s.times != 1 {
         out.push_str(&format!("*{}", s.times));
     }
@@ -783,7 +808,12 @@ impl Notes {
                             (None, [p]) => pitch_text(p),
                             (None, ps) => chord_text(ps),
                         };
-                        format!("{what}:{}{}", b.div, if b.dot { "." } else { "" })
+                        format!(
+                            "{what}:{}{}{}",
+                            b.div,
+                            if b.dot { "." } else { "" },
+                            if b.slide { "&" } else { "" }
+                        )
                     })
                     .collect();
                 parts.join(" ")
@@ -850,17 +880,17 @@ impl Compiler {
         let times = u128::from(s.times);
         for r in 0..times {
             let start = at.add(span.scale(r, times));
-            self.item(&s.item, start, span.scale(1, times), bar);
+            self.item(&s.item, start, span.scale(1, times), bar, s.slide);
         }
     }
 
-    fn item(&mut self, item: &Item, at: Frac, span: Frac, bar: u32) {
+    fn item(&mut self, item: &Item, at: Frac, span: Frac, bar: u32, slide: bool) {
         match item {
             Item::Rest => {}
-            Item::Note(p) => self.note(*p, at, span, bar),
+            Item::Note(p) => self.note(*p, at, span, bar, slide),
             Item::Chord(ps) | Item::Symbol(Symbol { pitches: ps, .. }) => {
                 for p in ps {
-                    self.note(*p, at, span, bar);
+                    self.note(*p, at, span, bar, slide);
                 }
             }
             Item::Group(g) => self.slots(g, at, span, bar),
@@ -874,7 +904,7 @@ impl Compiler {
         }
     }
 
-    fn note(&mut self, p: Pitch, at: Frac, span: Frac, bar: u32) {
+    fn note(&mut self, p: Pitch, at: Frac, span: Frac, bar: u32, slide: bool) {
         if self.events.len() >= MAX_EVENTS {
             self.full = true;
             return;
@@ -883,7 +913,7 @@ impl Compiler {
         let end = at.add(span).tick().max(start + 1);
         self.events.push(Event {
             start: bar * TICKS_PER_BAR + start,
-            len: end - start,
+            len: end - start + u32::from(slide),
             note: p.note,
             accent: p.accent,
             vel: 0,
@@ -1189,7 +1219,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                 for p in &b.pitches {
                     events.push(Event {
                         start: at,
-                        len,
+                        len: len + u32::from(b.slide),
                         note: p.note,
                         accent: p.accent,
                         vel: 0,

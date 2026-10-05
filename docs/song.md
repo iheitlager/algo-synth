@@ -216,8 +216,16 @@ at most 512 notes and repeats after at most 32 bars.
 | `c4*4` | four times in its share (1 to 16) |
 | `c4@3` | three shares of the bar instead of one (1 to 48) |
 | `c4?` | plays on some bars only, the same bars every run (repeats after 8) |
+| `c4&` | slides into the next note (a note or a chord, not a rest or a group) |
 
 Brackets nest at most 4 deep.
+
+A **slide** is a note that runs one tick into the next, so the next note starts
+while it is still held. On a synth with Legato on and a Glide time above 0 (the
+SH-101's `AcidBass` has both) the pitch glides to the next note without a new
+attack; on any other patch the overlap changes little. `&` goes after the note
+and its other suffixes in any order (`c2&*2`), and in classic notation after
+the duration (`c2:8&`). Editing a line in the piano roll drops its slides.
 
 ```song
 track lead synth
@@ -231,7 +239,7 @@ frag hats = lead
 
 **Classic:** notes one after another, each with a duration: `:1` whole, `:2`
 half, `:4` quarter, `:8` eighth, `:16` sixteenth, a `.` after it for one and a
-half (not on a sixteenth). `r:4` rests, `[c4,e4,g4]:2` is a chord. The line
+half (not on a sixteenth), a `&` last for a slide. `r:4` rests, `[c4,e4,g4]:2` is a chord. The line
 runs as many bars as its notes fill.
 
 ```song

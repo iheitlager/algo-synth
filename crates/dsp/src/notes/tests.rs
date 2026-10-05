@@ -89,6 +89,20 @@ fn accents_set_the_velocity() {
 }
 
 #[test]
+fn a_slide_runs_one_tick_into_the_next_note() {
+    // Sixteenths are 3 ticks: the first note is 4 long and ends after the second starts.
+    assert_eq!(ev("\"c2& e2 ~ g2\"")[..2], [(0, 13, 36), (12, 12, 40)]);
+    // Classic: the next note still starts where the plain length says.
+    assert_eq!(
+        ev("c2:8& e2:8 g2:4&"),
+        [(0, 7, 36), (6, 6, 40), (12, 13, 43)]
+    );
+    // A chord slides as a whole; a repeat slides every time.
+    assert_eq!(ev("\"[c2,e2]&\""), [(0, 49, 36), (0, 49, 40)]);
+    assert_eq!(ev("\"c2&*2\""), [(0, 25, 36), (24, 25, 36)]);
+}
+
+#[test]
 fn note_names_cover_sharps_flats_and_octaves() {
     let n: Vec<u8> = ev("\"c4 c#4 db4 bb3 b3 a4 g9\"")
         .iter()
@@ -106,6 +120,10 @@ fn print_then_parse_is_identity() {
         "\"[c4,e4!,g4]@2 d#3\"",
         "c4:4 e4:8. [c4,e4,g4]:2 r:4",
         "\"c4\"",
+        "\"c2& e2 [g2,b2]&@2 a2&*2?\"",
+        "c2:8& e2:8 [c2,e2]:4.& r:4",
+        "\"c:m7& f:maj7*2&\"",
+        "c:m7:4& f:maj7:4",
     ] {
         let n = parse(text, 1).unwrap();
         let printed = n.print();
@@ -140,6 +158,15 @@ fn every_error_says_where() {
         ("\"[c4,e4\"", 8, "a chord is notes with commas, then ]"),
         ("\"\"", 3, "a sequence needs a word"),
         ("\"g9 a9\"", 5, "this note is out of range"),
+        ("\"c4 ~&\"", 6, "only a note or a chord slides"),
+        ("\"c4 [e4 g4]&\"", 12, "only a note or a chord slides"),
+        ("r:4&", 4, "only a note or a chord slides"),
+        ("\"c4&&\"", 5, "a word ends at a space"),
+        (
+            "c4:4 &",
+            6,
+            "mini-notation goes inside quotes, classic notes outside",
+        ),
     ] {
         let e = parse(text, 1).unwrap_err();
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
@@ -157,7 +184,7 @@ fn too_much_is_an_error_not_a_hang() {
 #[test]
 fn it_never_panics_on_garbage() {
     let mut rng = Rng::new(42);
-    let alphabet: Vec<char> = "\"[]<>~*@?!,:.#abcdefgr0123456789 émIViv+o"
+    let alphabet: Vec<char> = "\"[]<>~*@?&!,:.#abcdefgr0123456789 émIViv+o"
         .chars()
         .collect();
     let minor = Scale {
