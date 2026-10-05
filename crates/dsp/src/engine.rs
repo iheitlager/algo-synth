@@ -64,7 +64,8 @@ use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::song::{
-    At, Kind, MAX_AUTOS, MAX_TEXT, MAX_TRACKS, STEPS_PER_BAR, Song, SongError, Step, Target,
+    At, Kind, MAX_AUTOS, MAX_TEXT, MAX_TRACKS, Mix, MixLine, STEPS_PER_BAR, Song, SongError, Step,
+    Target,
 };
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -1214,6 +1215,8 @@ impl Engine {
         };
         match parsed {
             Ok(mut song) => {
+                // Where each track played before, to know which strips are new to a track.
+                let before = self.song_route;
                 self.clock.set_tempo(song.tempo);
                 self.clock.set_swing(song.swing);
                 let kit = (0..SYNTHS).find(|s| {
@@ -1296,6 +1299,7 @@ impl Engine {
                         }
                     }
                 }
+                self.apply_mix(&song, &before);
                 self.song = song;
                 self.rebuild_live();
                 self.auto_last = [f32::NAN; MAX_AUTOS];
@@ -1357,6 +1361,111 @@ impl Engine {
         }
         self.song_text = self.song.print();
         true
+    }
+
+    /// Set the mixer lines of `song` (ADR-0018) that are new: a value whose
+    /// text changed since the song playing, or on a strip its track has just
+    /// moved to. A value the text keeps is left as it is, so a fader moved by
+    /// hand holds; a line taken out changes nothing.
+    fn apply_mix(&mut self, song: &Song, before: &[Option<usize>; MAX_TRACKS]) {
+        for line in &song.mix {
+            let (strip, moved) = match line.at {
+                Mix::Track(t) => {
+                    let now = self.song_route.get(t).copied().flatten();
+                    (now, before.get(t).copied().flatten() != now)
+                }
+                Mix::Strip(i) => (Some(i), false),
+                Mix::Group(g) => (Some(SYNTHS + g), false),
+                Mix::Master => (Some(0), false),
+            };
+            let Some(strip) = strip else {
+                continue;
+            };
+            for (p, v) in &line.sets {
+                let was = match line.at {
+                    // A track's old line, if it is the same track.
+                    Mix::Track(t) => self
+                        .song
+                        .tracks
+                        .get(t)
+                        .filter(|old| song.tracks.get(t).is_some_and(|new| new.name == old.name))
+                        .and_then(|_| self.song.mix_value(line.at, *p)),
+                    at => self.song.mix_value(at, *p),
+                };
+                if moved || was != Some(*v) {
+                    self.set_param(strip, *p, *v);
+                }
+            }
+        }
+    }
+
+    /// Print the mixer as it is into the song (ADR-0018, Write mixer to
+    /// song): a line for each track's strip, each other strip and group, and
+    /// the master, holding what differs from the defaults. The song's old
+    /// mixer lines are replaced; a group keeps its name.
+    pub fn write_mixer(&mut self) {
+        let differs = |e: &Engine, strip: usize, defaults: &[(Param, f32)]| -> Vec<(Param, f32)> {
+            defaults
+                .iter()
+                .filter_map(|(p, d)| {
+                    let v = e.param_value(strip, *p);
+                    ((v - p.clamp(*d)).abs() > 1e-6).then_some((*p, v))
+                })
+                .collect()
+        };
+        let mut mix = Vec::new();
+        let mut claimed = [false; SYNTHS];
+        for t in 0..self.song.tracks.len() {
+            if let Some(s) = self.song_routed(t).filter(|s| *s < SYNTHS) {
+                if let Some(c) = claimed.get_mut(s) {
+                    *c = true;
+                }
+                let sets = differs(self, s, &STRIP_DEFAULTS);
+                if !sets.is_empty() {
+                    mix.push(MixLine {
+                        at: Mix::Track(t),
+                        name: None,
+                        sets,
+                    });
+                }
+            }
+        }
+        for (s, taken) in claimed.iter().enumerate() {
+            let sets = differs(self, s, &STRIP_DEFAULTS);
+            if !taken && !sets.is_empty() {
+                mix.push(MixLine {
+                    at: Mix::Strip(s),
+                    name: None,
+                    sets,
+                });
+            }
+        }
+        for g in 0..crate::mixer::GROUPS {
+            let name = self
+                .song
+                .mix
+                .iter()
+                .find(|m| m.at == Mix::Group(g))
+                .and_then(|m| m.name.clone());
+            let sets = differs(self, SYNTHS + g, &STRIP_DEFAULTS);
+            if !sets.is_empty() || name.is_some() {
+                mix.push(MixLine {
+                    at: Mix::Group(g),
+                    name,
+                    sets,
+                });
+            }
+        }
+        let sets = differs(self, 0, &GLOBAL_DEFAULTS);
+        if !sets.is_empty() {
+            mix.push(MixLine {
+                at: Mix::Master,
+                name: None,
+                sets,
+            });
+        }
+        self.song.mix = mix;
+        self.song_text = self.song.print();
     }
 
     /// A track edit from the composer (#213): 0 plays factory preset `a`, 1

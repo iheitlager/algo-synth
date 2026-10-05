@@ -69,7 +69,10 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
             let name = words.next().map(|n| n.trim_end_matches(':'));
             frag = if first == "frag" { name } else { None };
             Some(match first {
-                "tempo" | "swing" | "scale" | "arrange" | "loop" => first.to_string(),
+                // `master:` has no name before its colon.
+                "tempo" | "swing" | "scale" | "arrange" | "loop" | "master" | "master:" => {
+                    first.trim_end_matches(':').to_string()
+                }
                 _ => format!("{first} {}", name.unwrap_or("")),
             })
         })

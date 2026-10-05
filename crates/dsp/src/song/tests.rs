@@ -122,7 +122,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, frag, auto, scene, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -1467,4 +1467,147 @@ fn a_progression_feeds_pad_bass_and_arp() {
         );
         assert!(e.note < 48, "below C3");
     }
+}
+
+// --- Mixer lines (ADR-0018) -----------------------------------------------------
+
+const MIXED: &str = "track kit drums\ntrack bass synth\n\
+    strip bass: Level 0.8, Pan -0.2, I1Type Overdrive, I1A 0.6, Out group1\n\
+    strip strip5: Mute 1\n\
+    group 1 drums: Level 0.9, Out group3\n\
+    group 3: Out none\n\
+    master: MasterGain 0.6, P1Type Echo, P1Return 0.25, P3Type Chorus\n";
+
+#[test]
+fn mixer_lines_parse_and_print_back() {
+    let s = Song::parse(MIXED).expect("parses");
+    assert_eq!(s.mix.len(), 5);
+    assert_eq!(s.mix[0].at, Mix::Track(1));
+    assert_eq!(s.mix[1].at, Mix::Strip(4));
+    assert_eq!(
+        (s.mix[2].at, s.mix[2].name.as_deref()),
+        (Mix::Group(0), Some("drums"))
+    );
+    assert_eq!(
+        s.mix_value(Mix::Track(1), Param::I1Type),
+        Some(1.0),
+        "Overdrive"
+    );
+    assert_eq!(s.mix_value(Mix::Track(1), Param::Out), Some(1.0), "group1");
+    assert_eq!(s.mix_value(Mix::Group(2), Param::Out), Some(9.0), "none");
+    assert_eq!(s.mix_value(Mix::Master, Param::P3Type), Some(3.0), "Chorus");
+    let printed = s.print();
+    for line in [
+        "strip bass: Level 0.8, Pan -0.2, I1Type Overdrive, I1A 0.6, Out group1",
+        "strip strip5: Mute 1",
+        "group 1 drums: Level 0.9, Out group3",
+        "group 3: Out none",
+        "master: MasterGain 0.6, P1Type Echo, P1Return 0.25, P3Type Chorus",
+    ] {
+        assert!(printed.contains(line), "{line}\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+    // `master :` and `strip bass :` read the same.
+    let spaced = Song::parse("track bass synth\nstrip bass : Level 0.5\nmaster : MasterGain 0.4\n");
+    assert_eq!(spaced.expect("parses").mix.len(), 2);
+}
+
+#[test]
+fn mixer_errors_say_where() {
+    let head = "track bass synth\n";
+    for (line, col, msg) in [
+        (
+            "strip nope: Level 1",
+            7,
+            "a strip is a track's name or strip1 to strip16",
+        ),
+        (
+            "strip strip17: Level 1",
+            7,
+            "a strip is a track's name or strip1 to strip16",
+        ),
+        (
+            "group 9: Level 1",
+            7,
+            "a group is 1 to 8, then maybe its name",
+        ),
+        (
+            "group 2 my group: Level 1",
+            7,
+            "a group is 1 to 8, then maybe its name",
+        ),
+        (
+            "strip bass: Cutoff 300",
+            13,
+            "a strip or group takes its strip's parameters",
+        ),
+        (
+            "master: Level 1",
+            9,
+            "the master takes the global parameters",
+        ),
+        ("strip bass: Lvl 1", 13, "no parameter has this name"),
+        (
+            "strip bass: I1Type Delay",
+            20,
+            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp or Vocoder",
+        ),
+        (
+            "master: P1Type Delay",
+            16,
+            "a processor is Off, Echo, Reverb, Chorus or Flanger",
+        ),
+        (
+            "strip bass: Out bus2",
+            17,
+            "an out is master, group1 to group8 or none",
+        ),
+        (
+            "group 3: Out group2",
+            14,
+            "a group goes only to a higher group or the master",
+        ),
+        (
+            "strip bass: Level 1, Level 2",
+            22,
+            "this parameter is already on the line",
+        ),
+        (
+            "strip bass: Level 1 Pan 0",
+            21,
+            "a comma goes between values",
+        ),
+        ("strip bass: Level", 18, "a value goes here"),
+        ("strip bass:", 12, "values go here: Param value, …"),
+        ("strip bass Level 1", 19, ": goes here, then Param value, …"),
+    ] {
+        let text = format!("{head}{line}\n");
+        assert_eq!(
+            Song::parse(&text),
+            Err(SongError { line: 2, col, msg }),
+            "{line}"
+        );
+    }
+    let twice = format!("{head}strip bass: Level 1\nstrip bass: Pan 0\n");
+    assert_eq!(
+        Song::parse(&twice),
+        Err(SongError {
+            line: 3,
+            col: 1,
+            msg: "this strip already has a line"
+        })
+    );
+}
+
+#[test]
+fn a_comment_on_the_master_line_stays_with_it() {
+    let text = "track bass synth\nmaster: MasterGain 0.6 # louder\n";
+    let s = Song::parse(text).expect("parses");
+    let mut changed = s.clone();
+    changed.mix[0].sets[0].1 = 0.7;
+    assert!(
+        changed.print().contains("master: MasterGain 0.7 # louder"),
+        "{}",
+        changed.print()
+    );
 }

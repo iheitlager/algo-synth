@@ -3089,3 +3089,82 @@ fn a_setting_past_its_room_is_refused() {
     assert!(!e.track_edit(2, 0, 0));
     assert!(e.song().settings.is_empty());
 }
+
+/// ADR-0018: mixer lines set the strips, groups and master on load; a value
+/// the text keeps holds a hand-moved fader, a changed one is set again.
+#[test]
+fn mixer_lines_set_the_mix_and_hold_a_hand() {
+    let mut e = Engine::new(48_000.0);
+    let text = "track bass synth\n\
+                strip bass: Level 0.8, I1Type Overdrive, Out group1\n\
+                group 1 drums: Level 0.7\n\
+                master: MasterGain 0.6, P3Type Chorus\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Level), 0.8);
+    assert_eq!(e.param_value(s, Param::I1Type), 1.0);
+    assert_eq!(e.param_value(s, Param::Out), 1.0);
+    assert_eq!(e.param_value(SYNTHS, Param::Level), 0.7, "group 1");
+    assert_eq!(e.param_value(0, Param::MasterGain), 0.6);
+    assert_eq!(e.param_value(0, Param::P3Type), 3.0);
+    // A fader moved by hand holds through an Apply that keeps its value...
+    e.set_param(s, Param::Level, 0.3);
+    assert_eq!(
+        load_text(&mut e, &text.replace("MasterGain 0.6", "MasterGain 0.5")),
+        Ok(())
+    );
+    assert_eq!(e.param_value(s, Param::Level), 0.3);
+    assert_eq!(
+        e.param_value(0, Param::MasterGain),
+        0.5,
+        "the changed value is set"
+    );
+    // ...and is set again when its own value changes.
+    assert_eq!(
+        load_text(&mut e, &text.replace("Level 0.8", "Level 0.9")),
+        Ok(())
+    );
+    assert_eq!(e.param_value(s, Param::Level), 0.9);
+}
+
+/// Write mixer to song prints the mixer as lines that load back to the same mix.
+#[test]
+fn the_mixer_writes_itself_into_the_song() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track bass synth\ntrack kit drums\ngroup 2 verb: Level 1\n"
+        ),
+        Ok(())
+    );
+    let bass = e.song_routed(0).expect("routed");
+    e.set_param(bass, Param::Pan, -0.25);
+    e.set_param(bass, Param::I2Type, 5.0);
+    e.set_param(9, Param::Mute, 1.0);
+    e.set_param(SYNTHS + 1, Param::Out, 3.0);
+    e.set_param(0, Param::P2Return, 0.4);
+    e.write_mixer();
+    let text = e.song_text().to_string();
+    for line in [
+        "strip bass: Pan -0.25, I2Type Comp",
+        "strip strip10: Mute 1",
+        "group 2 verb: Out group3",
+        "master: P2Return 0.4",
+    ] {
+        assert!(text.contains(line), "{line}\n{text}");
+    }
+    assert!(
+        !text.contains("strip kit"),
+        "an untouched strip has no line"
+    );
+    // A fresh engine loads it to the same mix.
+    let mut f = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut f, &text), Ok(()));
+    let fb = f.song_routed(0).expect("routed");
+    assert_eq!(f.param_value(fb, Param::Pan), -0.25);
+    assert_eq!(f.param_value(fb, Param::I2Type), 5.0);
+    assert_eq!(f.param_value(9, Param::Mute), 1.0);
+    assert_eq!(f.param_value(SYNTHS + 1, Param::Out), 3.0);
+    assert_eq!(f.param_value(0, Param::P2Return), 0.4);
+}

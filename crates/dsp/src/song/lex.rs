@@ -43,9 +43,9 @@ pub struct Span {
     pub class: Class,
 }
 
-const KEYWORDS: [&str; 11] = [
+const KEYWORDS: [&str; 14] = [
     "tempo", "swing", "scale", "setting", "track", "frag", "section", "arrange", "loop", "auto",
-    "scene",
+    "scene", "strip", "group", "master",
 ];
 const WORDS: [&str; 7] = [
     "live", "bars", "ramp", "drums", "synth", "sampler", "voicing",

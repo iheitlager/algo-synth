@@ -998,6 +998,12 @@ pub extern "C" fn model_fits(kind: u32, model: u32) -> u32 {
     )
 }
 
+/// Print the mixer as it is into the song as mixer lines (ADR-0018).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_write_mixer() {
+    with_engine(Engine::write_mixer);
+}
+
 /// A track edit (see `Engine::track_edit`): 0 when done, −1 when refused.
 #[unsafe(no_mangle)]
 pub extern "C" fn track_edit(op: u32, t: u32, a: u32) -> i32 {

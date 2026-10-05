@@ -66,6 +66,9 @@
 
 use crate::algo::{Euclid, Mode, Scale};
 use crate::drums::Pad;
+use crate::fx::insert::InsertType;
+use crate::fx::processor::ProcType;
+use crate::mixer::OUT_NONE;
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
 use crate::notes::{self, Notes};
@@ -249,6 +252,30 @@ pub struct Scene {
     pub sets: Vec<(Target, Param, f32)>,
 }
 
+/// What a mixer line sets (ADR-0018): the strip of a track's synth, a strip
+/// by number, a group bus or the master's global parameters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mix {
+    Track(usize),
+    /// A synth strip, 0–15.
+    Strip(usize),
+    /// A group bus, 0–7.
+    Group(usize),
+    Master,
+}
+
+/// A mixer line: starting values for one strip, group or the master,
+/// `strip bass: Level 0.8, I1Type Overdrive`. A group may carry a name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MixLine {
+    pub at: Mix,
+    pub name: Option<String>,
+    pub sets: Vec<(Param, f32)>,
+}
+
+/// Most values on one mixer line: every parameter of a strip or the master.
+pub const MAX_MIX: usize = 48;
+
 /// Where clock step `k` falls in the song.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum At {
@@ -306,6 +333,8 @@ pub struct Song {
     pub scale: Option<Scale>,
     pub settings: Vec<Setting>,
     pub tracks: Vec<Track>,
+    /// Starting values for strips, groups and the master (ADR-0018).
+    pub mix: Vec<MixLine>,
     pub frags: Vec<Fragment>,
     pub autos: Vec<Auto>,
     pub scenes: Vec<Scene>,
@@ -326,6 +355,7 @@ impl Default for Song {
             scale: None,
             settings: Vec::new(),
             tracks: Vec::new(),
+            mix: Vec::new(),
             frags: Vec::new(),
             autos: Vec::new(),
             scenes: Vec::new(),
@@ -930,6 +960,13 @@ impl Song {
                         bars,
                     });
                 }
+                "strip" | "group" | "master" | "master:" => {
+                    let line = parse_mix(&song, &ws, line, body)?;
+                    if song.mix.iter().any(|m| m.at == line.at) {
+                        return Err(err(first.col, "this strip already has a line"));
+                    }
+                    song.mix.push(line);
+                }
                 "scene" => {
                     let w = arg(1, "a scene name and : go here")?;
                     let name = w.text.strip_suffix(':').unwrap_or(w.text);
@@ -1028,7 +1065,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, frag, auto, scene, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, section, arrange or loop",
                     ));
                 }
             }
@@ -1151,6 +1188,26 @@ impl Song {
                 (None, None) => format!("track {} {}", t.name, t.kind.name()),
             }
         }));
+        for m in &self.mix {
+            let at = match m.at {
+                Mix::Track(t) => format!(
+                    "strip {}",
+                    self.tracks.get(t).map_or("", |x| x.name.as_str())
+                ),
+                Mix::Strip(i) => format!("strip strip{}", i + 1),
+                Mix::Group(g) => match &m.name {
+                    Some(n) => format!("group {} {n}", g + 1),
+                    None => format!("group {}", g + 1),
+                },
+                Mix::Master => "master".to_string(),
+            };
+            let sets: Vec<String> = m
+                .sets
+                .iter()
+                .map(|(p, v)| format!("{} {}", param_name(*p), mix_text(*p, *v)))
+                .collect();
+            lines.push(format!("{at}: {}", sets.join(", ")));
+        }
         for f in &self.frags {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
@@ -1867,6 +1924,205 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
 }
 
 mod comments;
+// --- Mixer lines (ADR-0018) ------------------------------------------------
+
+/// The value a mixer line writes for `param`: a name for an insert or a
+/// processor type and for `Out`, else the number.
+fn mix_text(param: Param, v: f32) -> String {
+    let id = v.round().max(0.0) as u32;
+    if param
+        .insert()
+        .is_some_and(|(_, k)| k == crate::params::InsertField::Type)
+    {
+        if let Some((_, n)) = InsertType::ALL.iter().find(|(t, _)| *t as u32 == id) {
+            return (*n).to_string();
+        }
+    }
+    if param
+        .processor()
+        .is_some_and(|(_, k)| k == crate::params::ProcField::Type)
+    {
+        if let Some((_, n)) = ProcType::ALL.iter().find(|(t, _)| *t as u32 == id) {
+            return (*n).to_string();
+        }
+    }
+    if param == Param::Out {
+        return match id as usize {
+            0 => "master".to_string(),
+            OUT_NONE => "none".to_string(),
+            g => format!("group{g}"),
+        };
+    }
+    format!("{v}")
+}
+
+/// A mixer value as written: a number, or a type or route by name.
+fn mix_value(param: Param, text: &str) -> Result<f32, &'static str> {
+    if param
+        .insert()
+        .is_some_and(|(_, k)| k == crate::params::InsertField::Type)
+    {
+        if let Some((t, _)) = InsertType::ALL.iter().find(|(_, n)| *n == text) {
+            return Ok(*t as u32 as f32);
+        }
+        if text.parse::<f32>().is_err() {
+            return Err("an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp or Vocoder");
+        }
+    }
+    if param
+        .processor()
+        .is_some_and(|(_, k)| k == crate::params::ProcField::Type)
+    {
+        if let Some((t, _)) = ProcType::ALL.iter().find(|(_, n)| *n == text) {
+            return Ok(*t as u32 as f32);
+        }
+        if text.parse::<f32>().is_err() {
+            return Err("a processor is Off, Echo, Reverb, Chorus or Flanger");
+        }
+    }
+    if param == Param::Out {
+        let g = text
+            .strip_prefix("group")
+            .and_then(|n| n.parse::<usize>().ok());
+        return match (text, g) {
+            ("master", _) => Ok(0.0),
+            ("none", _) => Ok(OUT_NONE as f32),
+            (_, Some(g)) if (1..=GROUPS).contains(&g) => Ok(g as f32),
+            _ => Err("an out is master, group1 to group8 or none"),
+        };
+    }
+    text.parse::<f32>()
+        .ok()
+        .filter(|v| v.is_finite())
+        .ok_or("a value is a number")
+}
+
+/// `strip <track|stripN>: …`, `group <n> [name]: …` or `master: …`.
+fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<MixLine, SongError> {
+    let err = |col: usize, msg: &'static str| SongError { line, col, msg };
+    let end = body.trim_end().chars().count() + 1;
+    let first = ws.first().ok_or(err(1, "a mixer line goes here"))?;
+    // The words up to the one that ends with `:` (or a lone `:`) name the target.
+    let colon = ws
+        .iter()
+        .position(|w| w.text.ends_with(':'))
+        .ok_or(err(end, ": goes here, then Param value, …"))?;
+    let head: Vec<&str> = ws
+        .get(1..=colon)
+        .unwrap_or(&[])
+        .iter()
+        .map(|w| w.text.trim_end_matches(':'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    let at_col = ws.get(1).map_or(end, |w| w.col);
+    let (at, name) = match (first.text.trim_end_matches(':'), head.as_slice()) {
+        ("master", []) => (Mix::Master, None),
+        ("strip", [t]) => {
+            let n = t
+                .strip_prefix("strip")
+                .and_then(|n| n.parse::<usize>().ok());
+            match (n, song.tracks.iter().position(|x| x.name == *t)) {
+                (Some(n), _) if (1..=STRIPS).contains(&n) => (Mix::Strip(n - 1), None),
+                (_, Some(i)) => (Mix::Track(i), None),
+                _ => {
+                    return Err(err(
+                        at_col,
+                        "a strip is a track's name or strip1 to strip16",
+                    ));
+                }
+            }
+        }
+        ("group", [n, rest @ ..]) => {
+            let g = n
+                .parse::<usize>()
+                .ok()
+                .filter(|g| (1..=GROUPS).contains(g))
+                .ok_or(err(at_col, "a group is 1 to 8, then maybe its name"))?;
+            let name = match rest {
+                [] => None,
+                [n] if is_name(n) => Some((*n).to_string()),
+                _ => return Err(err(at_col, "a group is 1 to 8, then maybe its name")),
+            };
+            (Mix::Group(g - 1), name)
+        }
+        ("strip", _) => {
+            return Err(err(
+                at_col,
+                "a strip is a track's name or strip1 to strip16",
+            ));
+        }
+        ("group", _) => return Err(err(at_col, "a group is 1 to 8, then maybe its name")),
+        _ => return Err(err(at_col, ": goes here, then Param value, …")),
+    };
+    let mut sets: Vec<(Param, f32)> = Vec::new();
+    let mut k = colon + 1;
+    while let Some(pw) = ws.get(k) {
+        let param = Param::ALL
+            .iter()
+            .find(|(_, n)| *n == pw.text)
+            .map(|(p, _)| *p)
+            .ok_or(err(pw.col, "no parameter has this name"))?;
+        let ok = if at == Mix::Master {
+            param.is_global()
+        } else {
+            param.is_strip()
+        };
+        if !ok {
+            return Err(err(
+                pw.col,
+                if at == Mix::Master {
+                    "the master takes the global parameters"
+                } else {
+                    "a strip or group takes its strip's parameters"
+                },
+            ));
+        }
+        let vw = ws.get(k + 1).ok_or(err(end, "a value goes here"))?;
+        let text = vw.text.strip_suffix(',').unwrap_or(vw.text);
+        let v = mix_value(param, text).map_err(|m| err(vw.col, m))?;
+        if param == Param::Out {
+            let strip = match at {
+                Mix::Group(g) => STRIPS + g,
+                _ => 0,
+            };
+            if !crate::mixer::Mixer::route_ok(strip, v as usize) {
+                return Err(err(
+                    vw.col,
+                    "a group goes only to a higher group or the master",
+                ));
+            }
+        }
+        if sets.iter().any(|(p, _)| *p == param) {
+            return Err(err(pw.col, "this parameter is already on the line"));
+        }
+        if sets.len() >= MAX_MIX {
+            return Err(err(pw.col, "a mixer line has at most 48 values"));
+        }
+        sets.push((param, v));
+        k += 2;
+        if !vw.text.ends_with(',') {
+            if let Some(extra) = ws.get(k) {
+                return Err(err(extra.col, "a comma goes between values"));
+            }
+        }
+    }
+    if sets.is_empty() {
+        return Err(err(end, "values go here: Param value, …"));
+    }
+    Ok(MixLine { at, name, sets })
+}
+
+impl Song {
+    /// The value a mixer line gives `param` on `at`, if one does.
+    pub fn mix_value(&self, at: Mix, param: Param) -> Option<f32> {
+        self.mix
+            .iter()
+            .find(|m| m.at == at)
+            .and_then(|m| m.sets.iter().find(|(p, _)| *p == param))
+            .map(|(_, v)| *v)
+    }
+}
+
 pub mod lex;
 
 #[cfg(test)]

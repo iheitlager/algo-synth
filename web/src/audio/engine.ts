@@ -536,6 +536,8 @@ export const stopSong = () => engine?.post({ t: 'songStop' })
 
 /** Ask the engine for the song it holds (when the composer opens). */
 export const requestSong = () => engine?.post({ t: 'songDump' })
+/** Print the mixer as it is into the song as `strip`, `group` and `master` lines (ADR-0018). */
+export const writeMixerToSong = () => engine?.post({ t: 'mixWrite' })
 
 // Turning the loaded MIDI file into the song (#173): the engine converts it;
 // the composer and the arranger show the result.
