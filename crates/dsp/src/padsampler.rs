@@ -48,11 +48,13 @@ pub enum PadField {
     VelStart = 7,
     /// Plays through regardless of the key coming up.
     OneShot = 8,
+    /// Where the pad goes: 0 the sampler's own strip, 1–8 straight into that group (#220).
+    Out = 9,
 }
 
 impl PadField {
     /// Every field with the name the TypeScript mirror uses.
-    pub const ALL: [(PadField, &'static str); 9] = [
+    pub const ALL: [(PadField, &'static str); 10] = [
         (PadField::Sample, "Sample"),
         (PadField::Tune, "Tune"),
         (PadField::Level, "Level"),
@@ -62,6 +64,7 @@ impl PadField {
         (PadField::VelLevel, "VelLevel"),
         (PadField::VelStart, "VelStart"),
         (PadField::OneShot, "OneShot"),
+        (PadField::Out, "Out"),
     ];
 
     pub fn from_id(id: u32) -> Option<PadField> {
@@ -84,6 +87,8 @@ pub struct PadCfg {
     pub vel_level: f32,
     pub vel_start: f32,
     pub one_shot: bool,
+    /// 0 is the sampler's strip, 1–8 a group (#220).
+    pub out: u8,
 }
 
 impl Default for PadCfg {
@@ -98,6 +103,7 @@ impl Default for PadCfg {
             vel_level: 1.0,
             vel_start: 0.0,
             one_shot: true,
+            out: 0,
         }
     }
 }
@@ -120,6 +126,7 @@ impl PadCfg {
             PadField::VelLevel => self.vel_level = v.clamp(0.0, 1.0),
             PadField::VelStart => self.vel_start = v.clamp(0.0, 1.0),
             PadField::OneShot => self.one_shot = v >= 0.5,
+            PadField::Out => self.out = v.round().clamp(0.0, 8.0) as u8,
         }
     }
 
@@ -135,6 +142,7 @@ impl PadCfg {
             PadField::VelLevel => self.vel_level,
             PadField::VelStart => self.vel_start,
             PadField::OneShot => f32::from(u8::from(self.one_shot)),
+            PadField::Out => f32::from(self.out),
         }
     }
 }
@@ -211,6 +219,11 @@ impl PadVoice {
 
     pub fn choke_group(&self) -> u8 {
         self.cfg.choke
+    }
+
+    /// Where it goes: 0 the sampler's strip, 1–8 a group (#220).
+    pub fn out(&self) -> usize {
+        usize::from(self.cfg.out)
     }
 
     /// Hit the pad `note` plays at `velocity` (0..=1); `master` is the kit's own level.
@@ -314,6 +327,7 @@ mod tests {
     use super::*;
     use crate::engine::{BLOCK, Engine};
     use crate::mono::preset::Preset;
+    use crate::params::Param;
     use crate::sample::test_wav;
 
     const SR: f32 = 48_000.0;
@@ -341,6 +355,7 @@ mod tests {
                 PadField::VelLevel => 0.5,
                 PadField::VelStart => 0.75,
                 PadField::OneShot => 0.0,
+                PadField::Out => 5.0,
             };
             c.set(field, v);
             assert_eq!(c.get(field), v, "{name}");
@@ -567,5 +582,90 @@ mod tests {
         let (l, r) = stereo(&mut e, 30);
         assert!(l.iter().chain(&r).all(|v| v.is_finite() && v.abs() <= 1.0));
         assert!(e.active_voices() <= PADS);
+    }
+
+    // --- a pad's own out (#220) ----------------------------------------------
+
+    const GROUP_3: usize = crate::engine::SYNTHS + 2;
+
+    /// One hit on pad 0 of a pad sampler at synth 0, after `setup`: the meters, then both channels.
+    fn pad_hit(setup: &dyn Fn(&mut Engine)) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+        let mut e = rig(&[sine(24_000, 100.0)]);
+        set(&mut e, 0, PadField::Sample, 0.0);
+        setup(&mut e);
+        e.clear_meters();
+        e.note_on(0, 36, 0.8);
+        let (l, r) = stereo(&mut e, 20);
+        (e.meters().to_vec(), l, r)
+    }
+
+    /// The same, with the two channels as one.
+    fn pad_meters(setup: &dyn Fn(&mut Engine)) -> (Vec<f32>, Vec<f32>) {
+        let (meters, l, r) = pad_hit(setup);
+        (meters, [l, r].concat())
+    }
+
+    #[test]
+    fn a_pad_on_a_group_goes_only_through_that_group() {
+        let (main_meters, main_out) = pad_meters(&|_| {});
+        assert!(main_meters[0] > 0.0 && main_meters[GROUP_3] == 0.0);
+        let (meters, out) = pad_meters(&|e| set(e, 0, PadField::Out, 3.0));
+        assert_eq!(meters[0], 0.0, "not on the sampler's strip");
+        assert!(meters[GROUP_3] > 0.0, "on group 3");
+        assert!(
+            out.iter().any(|x| *x != 0.0) && out.iter().all(|x| x.is_finite() && x.abs() <= 1.0)
+        );
+        // The group's fader applies; the sampler's own mute does not.
+        let (_, down) = pad_meters(&|e| {
+            set(e, 0, PadField::Out, 3.0);
+            e.set_param(GROUP_3, Param::Level, 0.0);
+        });
+        assert!(down.iter().all(|x| *x == 0.0));
+        let (_, strip_muted) = pad_meters(&|e| {
+            set(e, 0, PadField::Out, 3.0);
+            e.set_param(0, Param::Mute, 1.0);
+        });
+        assert_eq!(
+            strip_muted, out,
+            "an individual out bypasses the sampler's strip"
+        );
+        // Back on the strip, bit for bit as a fresh pad.
+        let (_, back) = pad_meters(&|e| {
+            set(e, 0, PadField::Out, 3.0);
+            set(e, 0, PadField::Out, 0.0);
+        });
+        assert_eq!(back, main_out);
+    }
+
+    #[test]
+    fn a_pad_keeps_its_pan_into_its_group() {
+        let (_, left, right) = pad_hit(&|e| {
+            set(e, 0, PadField::Out, 3.0);
+            set(e, 0, PadField::Pan, -1.0);
+        });
+        assert!(left.iter().any(|x| *x != 0.0));
+        assert!(
+            right.iter().all(|x| x.abs() < 1.0e-6),
+            "nothing on the right"
+        );
+    }
+
+    #[test]
+    fn solos_follow_a_pad_samplers_outs() {
+        let heard = |setup: &dyn Fn(&mut Engine)| pad_meters(setup).1.iter().any(|x| *x != 0.0);
+        assert!(
+            heard(&|e| {
+                set(e, 0, PadField::Out, 3.0);
+                e.set_param(0, Param::Solo, 1.0);
+            }),
+            "soloing the sampler keeps the group its pad goes to"
+        );
+        assert!(
+            !heard(&|e| {
+                set(e, 0, PadField::Out, 3.0);
+                e.set_param(1, Param::Solo, 1.0);
+            }),
+            "soloing another synth silences it"
+        );
     }
 }

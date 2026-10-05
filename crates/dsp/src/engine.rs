@@ -648,6 +648,10 @@ impl Engine {
     pub fn set_pad(&mut self, synth: usize, pad: usize, field: PadField, value: f32) {
         if let Some(p) = self.synths.get_mut(synth) {
             p.pad_kit.set(pad, field, value);
+            // The pads' outs feed groups directly; the solos follow them (#220).
+            if field == PadField::Out {
+                self.mixer.set_feeds(synth, p.pad_groups());
+            }
         }
     }
 
@@ -663,6 +667,7 @@ impl Engine {
     pub fn clear_pads(&mut self, synth: usize) {
         if let Some(p) = self.synths.get_mut(synth) {
             p.pad_kit.clear();
+            self.mixer.set_feeds(synth, p.pad_groups());
         }
     }
 
@@ -1444,9 +1449,10 @@ impl Engine {
                     continue;
                 }
                 if params.model.uses_pads() {
-                    // Pads pan themselves: the synth gets a stereo bus.
-                    if let Some((l, r)) = self.mixer.stereo_bus(synth, t..t + chunk) {
-                        pool.render_pads(&self.samples, l, r);
+                    // Pads pan themselves: the synth gets a stereo bus, and a pad may go
+                    // straight to a group (#220).
+                    if let Some((l, r, direct)) = self.mixer.pad_outs(synth, t..t + chunk) {
+                        pool.render_pads(&self.samples, l, r, direct, t);
                     }
                     continue;
                 }
@@ -4234,6 +4240,18 @@ mod tests {
             right.iter().all(|x| x.abs() < 1.0e-6),
             "nothing on the right"
         );
+    }
+
+    /// #220: the groups a pad sampler's pads go to are what the solos follow; clearing the pads clears them.
+    #[test]
+    fn a_pad_samplers_outs_are_reported_for_the_solos() {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::PadsLoud);
+        e.set_pad(0, 0, PadField::Out, 3.0);
+        e.set_pad(0, 4, PadField::Out, 1.0);
+        assert_eq!(e.synths[0].pad_groups(), 0b101);
+        e.clear_pads(0);
+        assert_eq!(e.synths[0].pad_groups(), 0);
     }
 
     #[test]

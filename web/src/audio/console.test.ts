@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  INSERT_KNOBS, INSERT_SHORT, STRIPS, feedsOf, feedsTag, heardStrips, moveBefore, namedOuts, orderStrips, outChoices, outGroup, routeOk, visibleOuts, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
+  INSERT_KNOBS, INSERT_SHORT, STRIPS, feedsOf, feedsTag, heardStrips, moveBefore, namedOuts, orderStrips, outChoices, outGroup, padsOnGroup, routeOk, visibleOuts, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
   logMap, logPos, polar, posToDb, posToLevel,
 } from './console'
 
@@ -283,6 +283,15 @@ describe('a pad out and what feeds a group (#218)', () => {
     // Group 2 (g = 1): strips 0 and 16 by Out, kit 2's bass drum. Synth 1's bass drum is not read (not a kit),
     // and group 2's own strip (17) is left out: its Out is not a feed.
     expect(feedsOf(1, [0, 1, 2, 16, 17], [2], [BD, SN], OUT, value)).toEqual([[0, OUT], [16, OUT], [2, BD]])
+  })
+})
+
+describe('a pad sampler on a group that goes (#220)', () => {
+  it('finds the pads that went to the removed group', () => {
+    const pads = [0, 3, 1, 3, 0].map((out) => ({ out }))
+    expect(padsOnGroup(2, pads)).toEqual([1, 3]) // group 3 is out 3
+    expect(padsOnGroup(0, pads)).toEqual([2])
+    expect(padsOnGroup(7, pads)).toEqual([])
   })
 })
 

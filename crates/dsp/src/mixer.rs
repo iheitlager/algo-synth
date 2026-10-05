@@ -337,6 +337,21 @@ impl Mixer {
         Some((l, r))
     }
 
+    /// The left and right buses of `synth` and every group's direct input from `range.start`,
+    /// for a pad sampler whose pads go to its strip or straight to a group (#220); stereo as
+    /// `stereo_bus` is.
+    #[allow(clippy::type_complexity)]
+    pub fn pad_outs(
+        &mut self,
+        synth: usize,
+        range: std::ops::Range<usize>,
+    ) -> Option<(&mut [f32], &mut [f32], &mut [[[f32; BLOCK]; 2]; GROUPS])> {
+        *self.wide.get_mut(synth)? = true;
+        let l = self.bus.get_mut(synth)?.get_mut(range.clone())?;
+        let r = self.bus_r.get_mut(synth)?.get_mut(range)?;
+        Some((l, r, &mut self.direct))
+    }
+
     /// Whether `synth` is stereo this block.
     pub fn is_wide(&self, synth: usize) -> bool {
         self.wide.get(synth).copied().unwrap_or(false)
