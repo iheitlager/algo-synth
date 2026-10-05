@@ -491,6 +491,8 @@ impl Song {
         let mut models: Vec<(usize, Model)> = Vec::new();
         // Nodes in the song's signals so far.
         let mut nodes = 0;
+        // Whether a `tempo` and a `swing` line were read: one of each (#251).
+        let (mut has_tempo, mut has_swing) = (false, false);
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
@@ -524,11 +526,12 @@ impl Song {
                     .and_then(|fr| song.tracks.get(fr.track))
                     .map(|t| t.kind);
                 // A sampler line is a lane unless it is written as notes: quoted,
-                // a chord or with a duration (a bad pad name is then a lane error).
+                // a chord, with a duration or a call such as `arp(` or `euclid(`
+                // (#251); no pad has a `(`. A bad pad name is then a lane error.
                 let as_notes = match kind {
                     Some(Kind::Synth) => true,
                     Some(Kind::Sampler) => {
-                        first.text.starts_with(['"', '[']) || first.text.contains(':')
+                        first.text.starts_with(['"', '[']) || first.text.contains([':', '('])
                     }
                     _ => false,
                 };
@@ -577,6 +580,13 @@ impl Song {
                     frag.notes = Some(if voiced { n.voiced() } else { n });
                     continue;
                 }
+                if let Some((_, col, at)) = open_bars {
+                    return Err(SongError {
+                        line: at,
+                        col,
+                        msg: "bars N is for a line of timed notes",
+                    });
+                }
                 let lane = parse_lane(&ws, line)?;
                 let frag = song
                     .frags
@@ -612,11 +622,16 @@ impl Song {
                         return Err(err(w.col, msg));
                     }
                     expect_end(2)?;
-                    if first.text == "tempo" {
-                        song.tempo = v;
+                    let (has, field, once) = if first.text == "tempo" {
+                        (&mut has_tempo, &mut song.tempo, "a song has one tempo")
                     } else {
-                        song.swing = v;
+                        (&mut has_swing, &mut song.swing, "a song has one swing")
+                    };
+                    if *has {
+                        return Err(err(first.col, once));
                     }
+                    *has = true;
+                    *field = v;
                 }
                 "scale" => {
                     let root = arg(1, "a root and a mode go here: scale c minor")?;
@@ -2089,7 +2104,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     };
     let pad = Pad::from_name(first.text).ok_or(err(
         first.col,
-        "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
+        "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
     ))?;
     if let Some(call) = ws
         .get(1)

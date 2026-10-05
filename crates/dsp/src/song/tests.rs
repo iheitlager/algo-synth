@@ -91,7 +91,7 @@ fn every_error_says_where() {
             "track kit drums\nfrag a = kit\n  zz x...",
             3,
             3,
-            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
         ),
         (
             "track kit drums\nfrag a = kit\n  bd x..o",
@@ -350,7 +350,7 @@ fn note_errors_say_line_and_column() {
             "track b drums\nfrag a = b\n  c4:4",
             3,
             3,
-            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -402,7 +402,7 @@ fn sampler_errors_say_where() {
             "track p sampler\nfrag a = p\n  zz x...",
             3,
             3,
-            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc or hc",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
         ),
         (
             "track p sampler\nfrag a = p\n  bd x...\n  c4:4",
@@ -427,6 +427,53 @@ fn sampler_errors_say_where() {
         assert_eq!(
             Song::parse(text),
             Err(SongError { line, col, msg }),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn sampler_tracks_hold_generators() {
+    // #251: a call is notes on a sampler track too, never a lane.
+    let text = "scale c minor\ntrack keys sampler\n\nfrag w = keys live\n  walk(c4,8,1)\nfrag a = keys\n  arp([c4,e4,g4],up,16)\nfrag e = keys\n  euclid(3,8) c4\n";
+    let s = Song::parse(text).expect("parses");
+    assert!(
+        s.frags
+            .iter()
+            .all(|f| f.notes.is_some() && f.lanes.is_empty())
+    );
+    assert!(s.frags[0].live);
+    let printed = s.print();
+    assert!(printed.contains("frag w = keys live\n  walk(c4,8,1)\n"));
+    assert!(printed.contains("  euclid(3,8) c4\n"));
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn bars_is_not_for_lanes() {
+    // #251: `bars N` before lanes was dropped; it is an error at the `bars`.
+    assert_eq!(
+        Song::parse("track p sampler\nfrag a = p bars 2\n  bd x..."),
+        Err(SongError {
+            line: 2,
+            col: 12,
+            msg: "bars N is for a line of timed notes"
+        })
+    );
+}
+
+#[test]
+fn a_song_has_one_tempo_and_one_swing() {
+    // #251: as with scale and arrange, a second line is an error, not a winner.
+    let cases = [
+        ("tempo 120\ntempo 130", "a song has one tempo"),
+        ("swing 50\ntempo 120\nswing 60", "a song has one swing"),
+    ];
+    for (text, msg) in cases {
+        let line = text.lines().count();
+        assert_eq!(
+            Song::parse(text),
+            Err(SongError { line, col: 1, msg }),
             "{text:?}"
         );
     }
