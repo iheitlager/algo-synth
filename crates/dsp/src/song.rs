@@ -164,6 +164,8 @@ pub struct Fragment {
     pub notes: Option<Notes>,
     /// A generator call that makes new events every cycle (`frag a = t live`).
     pub live: bool,
+    /// Chords moved to the inversion nearest the one before (`frag a = t voicing`, #103).
+    pub voicing: bool,
 }
 
 /// What a track's fragments hold.
@@ -433,7 +435,15 @@ impl Song {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
             let body = strip_comment(raw);
-            let ws = words(body);
+            let mut ws = words(body);
+            // `frag a = t … voicing` (#103): the last word, taken off before the rest is read.
+            let mut voicing = None;
+            if ws.len() > 4
+                && ws.first().is_some_and(|w| w.text == "frag")
+                && ws.last().is_some_and(|w| w.text == "voicing")
+            {
+                voicing = ws.pop().map(|w| w.col);
+            }
             let Some(first) = ws.first() else {
                 continue;
             };
@@ -478,6 +488,7 @@ impl Song {
                             .map(|n| (n.events.clone(), n.bars))
                     };
                     let live = song.frags.get(f).is_some_and(|fr| fr.live);
+                    let voiced = song.frags.get(f).is_some_and(|fr| fr.voicing);
                     let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
@@ -496,7 +507,7 @@ impl Song {
                         .frags
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a frag"))?;
-                    frag.notes = Some(n);
+                    frag.notes = Some(if voiced { n.voiced() } else { n });
                     continue;
                 }
                 let lane = parse_lane(&ws, line)?;
@@ -734,6 +745,14 @@ impl Song {
                     let kind = song.tracks.get(t).map(|t| t.kind);
                     let synth = kind == Some(Kind::Synth);
                     let live = ws.get(4).is_some_and(|w| w.text == "live");
+                    if let Some(col) = voicing {
+                        if kind == Some(Kind::Drums) {
+                            return Err(err(col, "voicing is for a frag of notes"));
+                        }
+                        if live {
+                            return Err(err(col, "a live frag is not voiced"));
+                        }
+                    }
                     if live && kind == Some(Kind::Drums) {
                         let col = ws.get(4).map_or(first.col, |w| w.col);
                         return Err(err(col, "only a note frag can be live"));
@@ -771,6 +790,7 @@ impl Song {
                         lanes: Vec::new(),
                         notes: None,
                         live,
+                        voicing: voicing.is_some(),
                     });
                     open = Some((song.frags.len() - 1, line));
                 }
@@ -1141,7 +1161,8 @@ impl Song {
                 } else {
                     String::new()
                 };
-                lines.push(format!("frag {} = {}{live}{bars}", f.name, track));
+                let voicing = if f.voicing { " voicing" } else { "" };
+                lines.push(format!("frag {} = {}{live}{bars}{voicing}", f.name, track));
                 lines.push(format!("  {}", n.print()));
                 continue;
             }

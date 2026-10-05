@@ -240,6 +240,37 @@ frag tune = lead
   c4:4 e4:8 g4:8 [c4,e4,g4]:2 r:4. c5!:8
 ```
 
+**Chords by name** (#103), in mini-notation and classic notes alike. A
+symbol is a root, a letter with maybe `#` or `b` and an octave (4 when left
+out), then `:` and a quality: `maj m 7 maj7 m7 m7b5 dim dim7 aug sus2 sus4 6
+m6 9 m9 add9`. A bare root is a major chord; with an octave and no quality it
+stays one note (`c3`), so write `c3:maj` for the chord. In classic notes the
+last `:` is the duration: `c:m7:2`.
+
+A roman numeral is a degree of the song's `scale` (it needs one with seven
+notes). Its case is its quality, upper major and lower minor, then `o`
+(diminished), `o7`, `+` (augmented), `7` or `maj7`; a `b` or `#` before it
+shifts the root, for borrowed chords. Change the `scale` line and the whole
+progression moves with it: `"<i VI III VII>"` plays Cm Ab Eb Bb in C minor,
+Am F C G in A minor.
+
+`voicing` at the end of the frag line moves each chord to the notes nearest
+the chord before it, between C3 and C6, so the hands stay close. `arp` takes a
+chord by name as well. A name prints back as written.
+
+```song
+scale c minor
+track pad synth
+frag prog = pad voicing
+  "<i VI III VII>"
+frag jazz = pad
+  c:m7:2 f:7:2 bb:maj7:2 eb:maj7:2
+frag turn = pad voicing
+  "<ii7 V7 i bVII>"
+frag ripple = pad
+  arp(c:m9,updown,16)
+```
+
 **Timed:** `pitch@start:length[:velocity]` puts each note at a tick, 48 to the
 bar, for a number of ticks, with an optional velocity of 1 to 127. Notes may
 overlap. It is the form MIDI import writes. A start is under 32 bars (1536

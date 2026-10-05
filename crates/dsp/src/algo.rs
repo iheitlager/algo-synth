@@ -184,6 +184,16 @@ impl Scale {
         u32::try_from(self.mode.intervals().len()).unwrap_or(1)
     }
 
+    /// The pitch class of degree `d` (0 is the root) of a seven-note scale,
+    /// for roman numerals; `None` for a pentatonic or blues scale.
+    pub fn degree(&self, d: usize) -> Option<u8> {
+        let iv = self.mode.intervals();
+        if iv.len() != 7 {
+            return None;
+        }
+        iv.get(d).map(|i| (self.root + i) % 12)
+    }
+
     /// The note `steps` scale degrees above the scale note at or above
     /// `start`, climbing at most two octaves before it starts over, so a walk
     /// stays in range.

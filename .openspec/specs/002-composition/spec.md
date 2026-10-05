@@ -249,3 +249,23 @@ A song SHALL be bounded so the engine can reserve its memory at load and never a
 - THEN it is refused with "a lane has at most 64 steps"
 
 **Tests:** `crates/dsp/src/song/tests.rs::limits_hold`, `crates/dsp/src/notes/tests.rs::too_much_is_an_error_not_a_hang`, `crates/dsp/src/engine/tests.rs::a_live_fragment_does_not_grow_its_buffers`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
+
+### Requirement 12: Chords by name [SHOULD]
+
+A pitched fragment SHALL take chords by name (#103), in mini-notation and in classic notes. A symbol is a root `a`–`g` with `#` or `b`, an optional octave (4 when left out) and `:quality`, one of `maj m 7 maj7 m7 m7b5 dim dim7 aug sus2 sus4 6 m6 9 m9 add9`; a bare root SHALL be a major triad, and a root with an octave and no quality SHALL stay a single note (`c3`). In classic notes the last `:` SHALL be the duration's (`c:m7:2`). A roman numeral SHALL be a degree of the song's seven-note scale, shifted by `b` or `#`, its case the quality (upper major, lower minor), then `o`, `o7`, `+`, `7` or `maj7`; without such a scale it SHALL be a parse error. `arp` SHALL take a chord by name. A name SHALL print back as written. `frag … voicing` SHALL move each chord to the octave of each note nearest the previous chord, within C3–C6, keeping its pitch classes; it is for written notes, not drum or live frags.
+
+**Implementation:** `crates/dsp/src/notes/chord.rs`, `crates/dsp/src/notes.rs::Symbol`, `crates/dsp/src/algo.rs::Scale::degree`, `crates/dsp/src/song.rs::Fragment` (`voicing`), `crates/dsp/src/song/lex.rs`
+
+#### Scenario: a progression follows the key
+
+- GIVEN `"<i VI III VII>"` after `scale c minor`
+- WHEN it is compiled
+- THEN it plays Cm, Ab, Eb and Bb, one a bar; after `scale a minor` the same text plays Am, F, C and G
+
+#### Scenario: voicing keeps the hands close
+
+- GIVEN `"<I vi IV V7 iii vi ii7 V>"` in C major on a frag with `voicing`
+- WHEN it is compiled
+- THEN every note of each chord is within a fifth of a note of the chord before, between C3 and C6
+
+**Tests:** `crates/dsp/src/notes/tests.rs::chord_symbols_play_their_notes`, `crates/dsp/src/notes/tests.rs::a_classic_chord_takes_its_duration_last`, `crates/dsp/src/notes/tests.rs::chord_names_print_as_written`, `crates/dsp/src/notes/tests.rs::numerals_follow_the_song_key`, `crates/dsp/src/notes/tests.rs::a_numeral_says_its_quality_in_its_case`, `crates/dsp/src/notes/tests.rs::chord_errors_say_where`, `crates/dsp/src/notes/tests.rs::voicing_moves_each_chord_to_the_nearest_inversion`, `crates/dsp/src/notes/tests.rs::an_arp_takes_a_chord_by_name`, `crates/dsp/src/song/tests.rs::a_voiced_progression_in_the_key_prints_back`, `crates/dsp/src/song/tests.rs::voicing_errors_say_where`, `crates/dsp/src/song/lex.rs::tests::chord_names_are_notes`

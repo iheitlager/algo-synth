@@ -364,6 +364,7 @@ fn pitch_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Pitch, NoteError> {
         i: 0,
         base: cur.base + r.0,
         items: 0,
+        scale: cur.scale,
     };
     let p = sub.pitch()?;
     if sub.peek().is_some() {
@@ -379,9 +380,14 @@ fn chord_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Vec<Pitch>, NoteErro
         i: 0,
         base: cur.base + r.0,
         items: 0,
+        scale: cur.scale,
     };
     if sub.peek() != Some('[') {
-        return err(sub.col(), "a chord goes here, as [c4,e4,g4]");
+        // A chord by name (#103): `arp(c:m7,up,16)`, `arp(V7,up,16)`.
+        if sub.peek().is_some_and(char::is_alphabetic) && !super::chord::is_note(slice) {
+            return super::chord::notes_of(slice, sub.col(), cur.scale);
+        }
+        return err(sub.col(), "a chord goes here, as [c4,e4,g4] or c:m7");
     }
     sub.i += 1;
     let chord = sub.chord()?;

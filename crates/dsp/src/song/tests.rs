@@ -207,6 +207,7 @@ fn random_song(r: &mut Rng) -> Song {
                 lanes: Vec::new(),
                 notes: Some(notes::parse(seq, 1).expect("valid")),
                 live: false,
+                voicing: false,
             });
             continue;
         }
@@ -229,6 +230,7 @@ fn random_song(r: &mut Rng) -> Song {
             lanes,
             notes: None,
             live: false,
+            voicing: false,
         });
     }
     song
@@ -1377,6 +1379,55 @@ fn the_song_reference_examples_parse() {
             Song::parse(&printed),
             Ok(s),
             "docs/song.md:{at}:\n{printed}"
+        );
+    }
+}
+
+/// #103: a chord frag in the song's key, voiced, prints back as written.
+#[test]
+fn a_voiced_progression_in_the_key_prints_back() {
+    let text =
+        "scale a minor\ntrack chords synth\n\nfrag prog = chords voicing\n  \"<i VI III VII>\"\n";
+    let s = Song::parse(text).expect("parses");
+    let f = &s.frags[0];
+    assert!(f.voicing);
+    assert!(s.print().contains("frag prog = chords"));
+    assert!(s.print().contains("voicing\n  \"<i VI III VII>\""));
+    assert_eq!(Song::parse(&s.print()).expect("parses back"), s);
+    // Voiced: every chord within C3 to C6, the first Am around middle C.
+    let notes: Vec<u8> = f
+        .notes
+        .as_ref()
+        .unwrap()
+        .events
+        .iter()
+        .map(|e| e.note)
+        .collect();
+    assert!(notes.iter().all(|n| (48..=84).contains(n)), "{notes:?}");
+    // Chords make the track a pad (spec 002 Req 11).
+    assert_eq!(s.tracks[0].preset, Some(Preset::JunoPad));
+}
+
+#[test]
+fn voicing_errors_say_where() {
+    for (text, line, col, msg) in [
+        (
+            "track kit drums\nfrag b = kit /16 voicing\n  bd x...\n",
+            2,
+            18,
+            "voicing is for a frag of notes",
+        ),
+        (
+            "scale c minor\ntrack l synth\nfrag w = l live voicing\n  walk(c4,8,1)\n",
+            3,
+            17,
+            "a live frag is not voiced",
+        ),
+    ] {
+        assert_eq!(
+            Song::parse(text),
+            Err(SongError { line, col, msg }),
+            "{text}"
         );
     }
 }
