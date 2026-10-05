@@ -1,6 +1,6 @@
 # 006: Polyphony
 
-Epic #78: each synth owns a voice pool, and seven polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7 and the Polymoog. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011.
+Epic #78: each synth owns a voice pool, and eight polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7 and the Polymoog. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011.
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have and is tested on that. Tests render offline at 48 kHz.
 
