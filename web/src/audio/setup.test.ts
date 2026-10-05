@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import demoText from '../../public/demo.synths.json?raw'
 import { GlobalParam, Param, StripParam } from './params'
-import { MUTE, applyPlan, buildSetup, parseSetup, shortF32, type Registry, type State } from './setup'
+import { MUTE, applyPlan, buildSetup, parseSetup, shortF32, type Registry, type Setup, type State } from './setup'
 
 const reg: Registry = { params: Param, global: GlobalParam, strip: StripParam, maxSynths: 16, channels: 16 }
 // The registry once synth models exist (epic #28): a `Model` parameter and names.
@@ -358,5 +358,40 @@ describe('names in a setup (#127)', () => {
     if (!parsed.ok) throw new Error(parsed.error)
     expect(parsed.setup.names).toEqual({ strips: { 0: 'Lead synth', 5: 'A'.repeat(24) }, parts: { 2: 'Bass' } })
     expect(parsed.warnings).toEqual(['ignored names that are not strips or channels'])
+  })
+})
+
+describe('an Out to a group the setup does not have (#218)', () => {
+  const setup = (groups: number[]): Setup => ({
+    version: 1,
+    global: {},
+    routes: {},
+    synths: [
+      { index: 0, kind: 'mono', params: { Out: 1, Level: 0.5 } },
+      { index: 3, kind: 'mono', params: { Out: 3, BdOut: 3, SnOut: 1, CpOut: 9 } },
+    ],
+    groups: groups.map((index) => ({ index, params: { Out: 5 } })),
+  })
+  const outs = (ops: ReturnType<typeof applyPlan>['ops'], s: number, name: keyof typeof Param) =>
+    ops.flatMap((o) => (o.t === 'param' && o.s === s && o.id === Param[name] ? [o.v] : []))
+
+  it('sends it to the master, with a warning for each', () => {
+    const { ops, warnings } = applyPlan(setup([0]), reg)
+    expect(outs(ops, 0, 'Out')).toEqual([1]) // group 1 is there
+    expect(outs(ops, 3, 'Out')).toEqual([0])
+    expect(outs(ops, 3, 'BdOut')).toEqual([0])
+    expect(outs(ops, 3, 'SnOut')).toEqual([1])
+    expect(outs(ops, 3, 'CpOut')).toEqual([9]) // None is not a group
+    expect(outs(ops, 16, 'Out')).toEqual([0]) // group 1's own Out, to a group 5 that is not there
+    expect(warnings).toHaveLength(3)
+    expect(warnings[0]).toMatch(/synth 4: Out went to group 3, which the setup does not have/)
+  })
+
+  it('keeps every Out when the groups are there', () => {
+    const { ops, warnings } = applyPlan(setup([0, 2, 4]), reg)
+    expect(outs(ops, 3, 'Out')).toEqual([3])
+    expect(outs(ops, 3, 'BdOut')).toEqual([3])
+    expect(outs(ops, 16, 'Out')).toEqual([5])
+    expect(warnings).toEqual([])
   })
 })

@@ -71,6 +71,8 @@ use crate::mono::preset::Preset;
 use crate::notes::{self, Notes};
 use crate::params::Param;
 
+pub use comments::Comments;
+
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
 pub const MAX_FRAGS: usize = 256;
@@ -162,6 +164,8 @@ pub struct Fragment {
     pub notes: Option<Notes>,
     /// A generator call that makes new events every cycle (`frag a = t live`).
     pub live: bool,
+    /// Chords moved to the inversion nearest the one before (`frag a = t voicing`, #103).
+    pub voicing: bool,
 }
 
 /// What a track's fragments hold.
@@ -261,7 +265,7 @@ pub enum At {
 }
 
 /// A track of the song; the engine routes it to a synth.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Track {
     pub name: String,
     pub kind: Kind,
@@ -271,6 +275,18 @@ pub struct Track {
     pub preset: Option<Preset>,
     /// The song's own setting the track plays, by index into `Song::settings`.
     pub setting: Option<usize>,
+    /// Neither a model nor a setting was written: the preset was picked from
+    /// the role, and the engine may pick again from the synths it has.
+    pub picked: bool,
+}
+
+/// Two tracks are equal by what they play; whether the preset was picked or
+/// written is not part of the song, so a printed song parses back equal.
+impl PartialEq for Track {
+    fn eq(&self, other: &Track) -> bool {
+        (&self.name, self.kind, self.preset, self.setting)
+            == (&other.name, other.kind, other.preset, other.setting)
+    }
 }
 
 /// A synth patch that lives in the song (#210): a factory preset and the
@@ -298,6 +314,8 @@ pub struct Song {
     pub arrange: Vec<usize>,
     /// Bars of the arrangement to repeat, from 1 and inclusive.
     pub loop_bars: Option<(u32, u32)>,
+    /// The comments of the text, kept to print back (#199).
+    pub comments: Comments,
 }
 
 impl Default for Song {
@@ -314,6 +332,7 @@ impl Default for Song {
             sections: Vec::new(),
             arrange: Vec::new(),
             loop_bars: None,
+            comments: Comments::default(),
         }
     }
 }
@@ -416,7 +435,15 @@ impl Song {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
             let body = strip_comment(raw);
-            let ws = words(body);
+            let mut ws = words(body);
+            // `frag a = t … voicing` (#103): the last word, taken off before the rest is read.
+            let mut voicing = None;
+            if ws.len() > 4
+                && ws.first().is_some_and(|w| w.text == "frag")
+                && ws.last().is_some_and(|w| w.text == "voicing")
+            {
+                voicing = ws.pop().map(|w| w.col);
+            }
             let Some(first) = ws.first() else {
                 continue;
             };
@@ -461,6 +488,7 @@ impl Song {
                             .map(|n| (n.events.clone(), n.bars))
                     };
                     let live = song.frags.get(f).is_some_and(|fr| fr.live);
+                    let voiced = song.frags.get(f).is_some_and(|fr| fr.voicing);
                     let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
@@ -472,14 +500,14 @@ impl Song {
                     if live && !matches!(n.seq, notes::Seq::Generated(_)) {
                         return Err(err(
                             first.col,
-                            "a live frag is a call: arp, walk, markov or mutate",
+                            "a live frag is a call: arp, walk, markov, mutate, root or prog",
                         ));
                     }
                     let frag = song
                         .frags
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a frag"))?;
-                    frag.notes = Some(n);
+                    frag.notes = Some(if voiced { n.voiced() } else { n });
                     continue;
                 }
                 let lane = parse_lane(&ws, line)?;
@@ -598,6 +626,7 @@ impl Song {
                         kind,
                         preset,
                         setting,
+                        picked: false,
                     });
                     // A model without a preset: one is picked once the frags are in.
                     if let (Some(m), None) = (model, preset) {
@@ -716,6 +745,14 @@ impl Song {
                     let kind = song.tracks.get(t).map(|t| t.kind);
                     let synth = kind == Some(Kind::Synth);
                     let live = ws.get(4).is_some_and(|w| w.text == "live");
+                    if let Some(col) = voicing {
+                        if kind == Some(Kind::Drums) {
+                            return Err(err(col, "voicing is for a frag of notes"));
+                        }
+                        if live {
+                            return Err(err(col, "a live frag is not voiced"));
+                        }
+                    }
                     if live && kind == Some(Kind::Drums) {
                         let col = ws.get(4).map_or(first.col, |w| w.col);
                         return Err(err(col, "only a note frag can be live"));
@@ -753,6 +790,7 @@ impl Song {
                         lanes: Vec::new(),
                         notes: None,
                         live,
+                        voicing: voicing.is_some(),
                     });
                     open = Some((song.frags.len() - 1, line));
                 }
@@ -1016,9 +1054,11 @@ impl Song {
                 let picked = pick(&song, t, model);
                 if let Some(tr) = song.tracks.get_mut(t) {
                     tr.preset = picked;
+                    tr.picked = model.is_none() && tr.setting.is_none();
                 }
             }
         }
+        song.comments = Comments::collect(text, &song);
         Ok(song)
     }
 
@@ -1121,7 +1161,8 @@ impl Song {
                 } else {
                     String::new()
                 };
-                lines.push(format!("frag {} = {}{live}{bars}", f.name, track));
+                let voicing = if f.voicing { " voicing" } else { "" };
+                lines.push(format!("frag {} = {}{live}{bars}{voicing}", f.name, track));
                 lines.push(format!("  {}", n.print()));
                 continue;
             }
@@ -1199,6 +1240,7 @@ impl Song {
         if let Some((from, to)) = self.loop_bars {
             lines.push(format!("loop {from} {to}"));
         }
+        let mut lines = self.comments.apply(lines, self);
         lines.push(String::new());
         lines.join("\n")
     }
@@ -1270,10 +1312,17 @@ impl Song {
         let name = (1..)
             .map(|n| format!("part{n}"))
             .find(|n| !self.sections.iter().any(|s| &s.name == n))?;
+        // The first section holds every frag, so turning the arrangement on
+        // keeps the music that was looping instead of silencing it.
+        let frags = if self.arrange.is_empty() {
+            (0..self.frags.len()).collect()
+        } else {
+            Vec::new()
+        };
         self.sections.push(Section {
             name,
             bars,
-            frags: Vec::new(),
+            frags,
             autos: Vec::new(),
             scenes: Vec::new(),
         });
@@ -1414,6 +1463,15 @@ impl Song {
             .and_then(|i| self.settings.get(i))
             .map_or(&[][..], |st| st.sets.as_slice());
         track.preset.map(|p| (p, sets))
+    }
+
+    /// Pick track `t`'s preset again, on `model`: the engine found a synth of
+    /// that model to play a track whose preset was picked (a drum kit already
+    /// in the rack). The text then names what plays.
+    pub fn pick_on(&mut self, t: usize, model: Model) -> Option<Preset> {
+        let p = pick(self, t, Some(model))?;
+        self.tracks.get_mut(t)?.preset = Some(p);
+        Some(p)
     }
 
     fn target_name(&self, t: Target) -> String {
@@ -1587,7 +1645,12 @@ fn role(song: &Song, t: usize) -> Role {
         .filter(|f| f.track == t)
         .filter_map(|f| f.notes.as_ref())
         .collect();
-    let arp = |n: &&Notes| matches!(n.seq, notes::Seq::Generated(notes::Gen::Arp { .. }));
+    let arp = |n: &&Notes| {
+        matches!(
+            n.seq,
+            notes::Seq::Generated(notes::Gen::Arp { .. } | notes::Gen::ArpProg { .. })
+        )
+    };
     if !notes.is_empty() && notes.iter().all(arp) {
         return Role::Arp;
     }
@@ -1747,6 +1810,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     })
 }
 
+mod comments;
 pub mod lex;
 
 #[cfg(test)]

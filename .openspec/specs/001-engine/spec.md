@@ -34,13 +34,13 @@ The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, e
 - WHEN `render(64)` is called
 - THEN samples 64..128 of each channel are zero
 
-**Tests:** `crates/dsp/src/engine.rs::tests::short_blocks_leave_the_tail_silent`
+**Tests:** `crates/dsp/src/engine/tests.rs::short_blocks_leave_the_tail_silent`
 
 ### Requirement 3: Voice allocation [MUST]
 
-Each owner (live input, each MIDI channel) SHALL have its own monophonic Mono voice, allocated in `Engine::new` (spec 004 Req 6). `note_off` SHALL release only that owner's key. A released voice SHALL end when its ADSR does (spec 004 Req 4). Since ADR-0011 every synth owns a voice pool (spec 006); a drum kit's slot hits pads on it instead of holding notes (spec 002 Req 1).
+Every synth SHALL own a pool of voices, allocated in `Engine::new` (ADR-0011, spec 006 Req 1). On a monophonic model each owner (live input, each MIDI channel, each song track) SHALL have one voice of that pool (spec 004 Req 6); a polyphonic model SHALL press each note on a voice of its own; a drum kit or pad sampler SHALL hit pads on it instead of holding notes (spec 002 Req 1, spec 007). `note_off` SHALL release only that owner's key. A released voice SHALL end when its envelope does (spec 004 Req 4).
 
-**Implementation:** `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/engine.rs::Engine::note_off`
+**Implementation:** `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/engine.rs::Engine::note_off`, `crates/dsp/src/poly.rs::Pool`
 
 #### Scenario: note sounds then releases
 
@@ -54,35 +54,59 @@ Each owner (live input, each MIDI channel) SHALL have its own monophonic Mono vo
 - WHEN channel 3's note is released
 - THEN the live and channel 4 voices stay gated
 
-**Tests:** `crates/dsp/src/engine.rs::tests::mono_follows_its_adsr`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent`
+**Tests:** `crates/dsp/src/engine/tests.rs::mono_follows_its_adsr`, `crates/dsp/src/engine/tests.rs::mono_owners_are_independent`
 
 ### Requirement 4: Bounded, finite output [MUST]
 
-Output SHALL be finite and bounded by the voice count times the master gain, whatever the input. Parameters SHALL be clamped into range and NaN mapped to the lower bound; unknown parameter and source ids SHALL be ignored; an invalid sample rate SHALL fall back to 48 kHz. (ADR-0002)
+Output SHALL be finite and within ±1, whatever the input: the master limiter is the last stage (spec 002 Req 2) and turns NaN and infinity into silence. Parameters SHALL be clamped into range and NaN mapped to the lower bound; unknown parameter and source ids SHALL be ignored; an invalid sample rate SHALL fall back to 48 kHz. (ADR-0002)
 
-**Implementation:** `crates/dsp/src/params.rs::Param::clamp`, `crates/dsp/src/engine.rs::Engine::new`
+**Implementation:** `crates/dsp/src/params.rs::Param::clamp`, `crates/dsp/src/engine.rs::Engine::new`, `crates/dsp/src/fx/limiter.rs::Limiter`
 
-#### Scenario: full pool
+#### Scenario: sixteen loud voices
 
-- GIVEN 40 notes on a 16-voice pool at full gain
-- WHEN a block is rendered
-- THEN every sample is finite and within ±16
+- GIVEN 16 voices at full master gain, resonance, drive and level
+- WHEN 200 blocks are rendered
+- THEN every sample is finite and within ±1, and the limiter is reached
 
-**Tests:** `crates/dsp/src/engine.rs::tests::output_stays_finite_and_bounded_when_the_pool_is_full`, `crates/dsp/src/params.rs::tests::clamp_rejects_nan_and_out_of_range`, `crates/dsp/src/engine.rs::tests::bad_sample_rate_falls_back`
+#### Scenario: a full pool
+
+- GIVEN 24 notes on one 16-voice pool
+- WHEN it renders
+- THEN all 16 voices sound and every sample of the pool's output is finite and within ±16, before the mixer
+
+**Tests:** `crates/dsp/src/engine/tests.rs::loud_patches_are_limited_to_full_scale`, `crates/dsp/src/poly.rs::tests::every_sample_is_finite_and_bounded_at_full_polyphony`, `crates/dsp/src/fx/limiter.rs::tests::nothing_passes_full_scale_and_it_recovers`, `crates/dsp/src/params.rs::tests::clamp_rejects_nan_and_out_of_range`, `crates/dsp/src/engine/tests.rs::bad_sample_rate_falls_back`
 
 ### Requirement 5: No allocation or panic in render [MUST]
 
 `render` SHALL NOT allocate, lock or panic, and SHALL NOT call transcendental functions per sample. Clippy SHALL deny `unwrap`, `expect`, `panic` and indexing in the engine. (ADR-0002)
 
-**Implementation:** `Cargo.toml` (`[workspace.lints.clippy]`), `crates/dsp/src/engine.rs::lookup`
+**Implementation:** `Cargo.toml` (`[workspace.lints.clippy]`), `crates/dsp/src/voice.rs::lookup` (table lookups instead of per-sample transcendentals)
 
-**Tests:** `make lint`
+#### Scenario: a busy song allocates nothing
+
+- GIVEN a song with drum lanes, chords, a live arp, automation and scenes, loaded and playing
+- WHEN six bars are rendered under a counting allocator
+- THEN `render` makes no allocation, reallocation or deallocation, and the song is heard
+
+#### Scenario: the lints hold
+
+- GIVEN the workspace
+- WHEN `make lint` runs clippy natively and for `wasm32-unknown-unknown`
+- THEN no `unwrap`, `expect`, `panic` or indexing is found
+
+**Tests:** `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating` (#233), `make lint`
 
 ### Requirement 6: Parameter registry mirrored [MUST]
 
-Every `Param` and `Source` id SHALL appear in `web/src/audio/params.ts` as a `Name: id,` line. (ADR-0004)
+Every id list the engine exposes SHALL appear in `web/src/audio/params.ts` as a block of `Name: id,` lines with the same names and ids: `Param` (and its `GlobalParam` and `StripParam` subsets), the models, presets, waveforms, noise colours, note priorities, modulation sources and destinations, insert and processor types, the drum pads, and the sampler's zone and pad fields. (ADR-0004)
 
-**Implementation:** `crates/dsp/src/params.rs::Param::ALL`, `crates/dsp/src/source.rs::Source::ALL`
+**Implementation:** `crates/dsp/src/params.rs::Param::ALL`, `crates/dsp/src/mono/patch.rs::ModSource::ALL`, `crates/dsp/src/mono/model.rs::Model::ALL`, `crates/dsp/src/sampler.rs::ZoneField::ALL`, `crates/dsp/src/padsampler.rs::PadField::ALL`
+
+#### Scenario: a new parameter
+
+- GIVEN a `Param` added in Rust but not in `params.ts`
+- WHEN `cargo test` runs
+- THEN `typescript_mirror_matches` fails and names the list
 
 **Tests:** `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/params.rs::tests::ids_round_trip`
 
@@ -90,6 +114,12 @@ Every `Param` and `Source` id SHALL appear in `web/src/audio/params.ts` as a `Na
 
 MIDI note *n* SHALL sound at 440 · 2^((n − 69)/12) Hz.
 
-**Implementation:** `crates/dsp/src/engine.rs::midi_to_hz`
+**Implementation:** `crates/dsp/src/voice.rs::midi_to_hz`, `crates/dsp/src/mono/voice.rs::PitchTable` (per-sample pitch from a table, spec 004 Req 6)
 
-**Tests:** `crates/dsp/src/engine.rs::tests::a4_is_440`
+#### Scenario: A4 and A5
+
+- GIVEN notes 69 and 81
+- WHEN they are turned into frequencies
+- THEN they are 440 Hz and 880 Hz
+
+**Tests:** `crates/dsp/src/voice.rs::tests::a4_is_440`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`

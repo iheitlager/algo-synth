@@ -767,6 +767,7 @@ export const PadField = {
   VelLevel: 6,
   VelStart: 7,
   OneShot: 8,
+  Out: 9,
 } as const
 export type PadFieldId = (typeof PadField)[keyof typeof PadField]
 

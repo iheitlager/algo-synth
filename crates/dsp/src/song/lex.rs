@@ -43,10 +43,13 @@ pub struct Span {
     pub class: Class,
 }
 
-const KEYWORDS: [&str; 10] = [
-    "tempo", "swing", "scale", "track", "frag", "section", "arrange", "loop", "auto", "scene",
+const KEYWORDS: [&str; 11] = [
+    "tempo", "swing", "scale", "setting", "track", "frag", "section", "arrange", "loop", "auto",
+    "scene",
 ];
-const WORDS: [&str; 6] = ["live", "bars", "ramp", "drums", "synth", "sampler"];
+const WORDS: [&str; 7] = [
+    "live", "bars", "ramp", "drums", "synth", "sampler", "voicing",
+];
 
 /// What the indented lines under the open frag hold.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -191,6 +194,36 @@ fn is_note(w: &[char]) -> bool {
     !rest.is_empty() && rest.iter().all(char::is_ascii_digit)
 }
 
+/// `c`, `bb`, `f#3`: a chord's root, maybe with an octave (#103).
+fn is_root(w: &[char]) -> bool {
+    let rest = match w {
+        [l, r @ ..] if ('a'..='g').contains(l) => r,
+        _ => return false,
+    };
+    let rest = match rest {
+        ['#' | 'b', r @ ..] => r,
+        r => r,
+    };
+    matches!(rest, [] | [_]) && rest.iter().all(char::is_ascii_digit)
+}
+
+/// `VI`, `bVII`, `viio7`, `V7`, `ivmaj7`: a roman numeral (#103).
+fn is_roman(w: &[char]) -> bool {
+    let w = match w {
+        ['b', r @ ..] => r,
+        r => r,
+    };
+    let n = w
+        .iter()
+        .take_while(|c| matches!(c, 'i' | 'v' | 'I' | 'V'))
+        .count();
+    let (roman, suffix) = w.split_at(n);
+    let one_case =
+        roman.iter().all(char::is_ascii_uppercase) || roman.iter().all(char::is_ascii_lowercase);
+    let suffix: String = suffix.iter().collect();
+    (1..=4).contains(&n) && one_case && matches!(suffix.as_str(), "" | "o" | "o7" | "7" | "maj7")
+}
+
 struct Line<'a> {
     chars: &'a [char],
     pos: &'a [u32],
@@ -208,6 +241,30 @@ impl Line<'_> {
                 len: b - a,
                 class,
             });
+        }
+    }
+
+    /// Is char `s` just after the `:` of a chord's root (`c:m7`)?
+    fn quality_at(&self, s: usize) -> bool {
+        let (Some(colon), Some(here)) = (
+            s.checked_sub(1).and_then(|k| self.pos.get(k)),
+            self.pos.get(s),
+        ) else {
+            return false;
+        };
+        let n = self.out.len();
+        match (
+            n.checked_sub(2).and_then(|k| self.out.get(k)),
+            self.out.last(),
+        ) {
+            (Some(root), Some(p)) => {
+                p.class == Class::Punct
+                    && p.start == *colon
+                    && p.start + p.len == *here
+                    && root.class == Class::Note
+                    && root.start + root.len == p.start
+            }
+            _ => false,
         }
     }
 
@@ -266,7 +323,7 @@ impl Line<'_> {
                     Class::Call
                 } else if param {
                     Class::Param
-                } else if notes && is_note(w) {
+                } else if notes && (is_note(w) || is_root(w) || is_roman(w) || self.quality_at(s)) {
                     Class::Note
                 } else if notes && word == "r" {
                     Class::Rest
@@ -289,7 +346,7 @@ impl Line<'_> {
                 let class = match c {
                     '~' => Some(Class::Rest),
                     '=' | ':' | '"' | '[' | ']' | '<' | '>' | '(' | ')' | ',' | '*' | '@' | '?'
-                    | '!' | '/' => Some(Class::Punct),
+                    | '!' | '/' | '+' => Some(Class::Punct),
                     _ => None,
                 };
                 if let Some(class) = class {
@@ -334,6 +391,7 @@ frag beat = kit /16
   ch euclid(3,8)
 frag riff = lead
   \"c4 [e4 g4] ~ <c5 f#3>*2\"
+setting nile = Minimoog MiniLead: Cutoff 1200
 auto sweep = kit.Cutoff ramp 300 4000 /8
 scene drop: strip1.Mute 1, master.P2Return 0.4
 section main 8: beat riff sweep [drop]
@@ -345,7 +403,7 @@ arrange main main
         let k = of(SONG, Class::Keyword);
         for w in [
             "tempo", "track", "drums", "synth", "frag", "auto", "ramp", "scene", "section",
-            "arrange",
+            "arrange", "setting",
         ] {
             assert!(k.contains(&w.to_string()), "{w} is a keyword: {k:?}");
         }
@@ -378,6 +436,18 @@ arrange main main
         assert_eq!(of(text, Class::Note), ["c4", "g4"]);
         assert_eq!(of(text, Class::Rest), [".", ".", "r"]);
         assert!(of(text, Class::Number).contains(&"8.".to_string()));
+    }
+
+    #[test]
+    fn chord_names_are_notes() {
+        let text = "scale c minor\ntrack k synth\nfrag p = k voicing\n  \"<c:m7 bb3:sus4 i VI bVII viio7> f\"\n";
+        assert_eq!(
+            of(text, Class::Note),
+            ["c", "m7", "bb3", "sus4", "i", "VI", "bVII", "viio7", "f"]
+        );
+        assert!(of(text, Class::Keyword).contains(&"voicing".to_string()));
+        let classic = "track k synth\nfrag p = k\n  c:maj7:2 V7:4\n";
+        assert_eq!(of(classic, Class::Note), ["c", "maj7", "V7"]);
     }
 
     #[test]

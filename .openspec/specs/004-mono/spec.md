@@ -1,6 +1,6 @@
 # 004: The Mono voice
 
-The ARP 2600-style semi-modular monophonic voice in `crates/dsp/src/mono/`: oscillators, noise, filter, modulation, note handling, normalled routing, MIDI input and presets. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0007. Draft: requirements marked *(planned)* are not built yet (plan.md MVP 2, epic #2); paths name where the code will land.
+The ARP 2600-style semi-modular monophonic voice in `crates/dsp/src/mono/`: oscillators, noise, filter, modulation, note handling, normalled routing, MIDI input and presets. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0007. Every requirement is built except Req 8 (MIDI input), which is planned (plan.md MVP 11) and names no code yet. Since ADR-0011 the voice is also the per-note voice of the polyphonic models (spec 006).
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every new parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and parameters are Mono-wide until tracks address them as (track, parameter) in MVP 4 (spec 002 Req 1). Tests render offline at 48 kHz.
 
@@ -82,7 +82,7 @@ The voice SHALL have an ADSR and an AR envelope; the ADSR SHALL drive the VCA. E
 - WHEN the ADSR is gated, held and released offline
 - THEN each segment reaches its target within ±1 ms of its set time
 
-**Tests:** `crates/dsp/src/mono/env.rs::tests::segment_times`, `crates/dsp/src/mono/env.rs::tests::retrigger_does_not_jump`, `crates/dsp/src/mono/env.rs::tests::ar_holds_at_full_level`, `crates/dsp/src/engine.rs::tests::mono_follows_its_adsr`, `crates/dsp/src/engine.rs::tests::a_mono_tap_shorter_than_a_block_sounds`, `crates/dsp/src/engine.rs::tests::mono_sustain_moves_a_held_note`, `crates/dsp/src/mono/env.rs::tests::sustain_follows_while_held`
+**Tests:** `crates/dsp/src/mono/env.rs::tests::segment_times`, `crates/dsp/src/mono/env.rs::tests::retrigger_does_not_jump`, `crates/dsp/src/mono/env.rs::tests::ar_holds_at_full_level`, `crates/dsp/src/engine/tests.rs::mono_follows_its_adsr`, `crates/dsp/src/engine/tests.rs::a_mono_tap_shorter_than_a_block_sounds`, `crates/dsp/src/engine/tests.rs::mono_sustain_moves_a_held_note`, `crates/dsp/src/mono/env.rs::tests::sustain_follows_while_held`
 
 ### Requirement 5: LFO and sample-and-hold [MUST]
 
@@ -100,9 +100,9 @@ The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz,
 
 ### Requirement 6: Mono note handling and glide [MUST]
 
-Each owner (live input, and each MIDI channel of the player) SHALL have one monophonic Mono voice, allocated in `Engine::new`; Mono SHALL NOT take voices from the shared pool. Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s, in a straight line of semitones; it applies when a key arrives while another is held. A voice SHALL remember up to 16 held keys, forgetting the oldest. Pitch SHALL come from a table, so it can move every sample without per-sample `exp2` (ADR-0002).
+On a monophonic model, each owner (live input, each MIDI channel of the player, each song track) SHALL have one voice of its synth's pool, allocated in `Engine::new` (ADR-0011, spec 006 Req 1). Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s, in a straight line of semitones; it applies when a key arrives while another is held. A voice SHALL remember up to 16 held keys, forgetting the oldest. Pitch SHALL come from a table, so it can move every sample without per-sample `exp2` (ADR-0002).
 
-**Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/mono/voice.rs::PitchTable`, `crates/dsp/src/engine.rs::Engine::note_on` (#8)
+**Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/mono/voice.rs::PitchTable`, `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/poly.rs::Pool` (#8)
 
 #### Scenario: fall back on release
 
@@ -126,9 +126,9 @@ Each owner (live input, and each MIDI channel of the player) SHALL have one mono
 
 - GIVEN MIDI channels 3 and 4 playing on synth 0, and live input on synth 0
 - WHEN each plays a note
-- THEN three Mono voices sound, and a note off on one leaves the others gated
+- THEN three voices of synth 0's pool sound, and a note off on one leaves the others gated
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::priority_falls_back_on_release`, `crates/dsp/src/mono/voice.rs::tests::legato_keeps_the_envelope`, `crates/dsp/src/mono/voice.rs::tests::glide_time`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`, `crates/dsp/src/mono/voice.rs::tests::tune_is_heard_within_a_cent`, `crates/dsp/src/mono/voice.rs::tests::a_full_key_stack_forgets_the_oldest`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::priority_falls_back_on_release`, `crates/dsp/src/mono/voice.rs::tests::legato_keeps_the_envelope`, `crates/dsp/src/mono/voice.rs::tests::glide_time`, `crates/dsp/src/engine/tests.rs::mono_owners_are_independent`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`, `crates/dsp/src/mono/voice.rs::tests::tune_is_heard_within_a_cent`, `crates/dsp/src/mono/voice.rs::tests::a_full_key_stack_forgets_the_oldest`
 
 ### Requirement 7: Normalled routing and patches [MUST]
 
@@ -156,7 +156,7 @@ A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount
 
 The engine SHALL take raw MIDI channel messages through one export, `midi_in(status, d1, d2)`, and interpret them in Rust; JavaScript SHALL only forward the bytes it gets from Web MIDI. Note on and off SHALL carry velocity, and a note on with velocity 0 SHALL be a note off. Pitch bend SHALL be read as 14 bits, with its range a parameter (default ±2 semitones). The mod wheel (CC 1) SHALL be a modulation source (Req 7). Other messages SHALL be ignored.
 
-**Implementation:** `crates/dsp/src/midi.rs`, `crates/dsp/src/ffi.rs::midi_in` *(planned, #10; moved to plan.md MVP 11)*
+**Implementation:** (planned, #10, plan.md MVP 11) a MIDI message parser in Rust behind one `midi_in` export; not built. The player and the song already play notes through `Engine::note_on` (Req 10).
 
 #### Scenario: bend
 
@@ -164,7 +164,7 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 - WHEN pitch bend 0x3FFF arrives
 - THEN the voice sounds B4 within 1 cent
 
-**Tests:** `crates/dsp/src/midi.rs::tests::zero_velocity_is_note_off`, `crates/dsp/src/midi.rs::tests::bend_is_14_bit`, `crates/dsp/src/midi.rs::tests::unknown_messages_are_ignored` *(planned)*
+**Tests:** (planned) a velocity-0 note on is a note off, bend is read as 14 bits, unknown messages are ignored.
 
 ### Requirement 9: Presets [SHOULD]
 
@@ -182,7 +182,7 @@ The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead
 
 ### Requirement 10: Independent synths [MUST]
 
-The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its own parameters, values, patch and model (spec 005; plan.md MVP 5); `set_param`, `param_value`, `mono_preset`, `note_on` and `note_off` SHALL name the synth, and `synth_reset` SHALL put one back to the defaults. `MasterGain` SHALL stay global. Each synth SHALL have its own live voice; each MIDI channel SHALL play on one synth or be muted, and loading a file SHALL put its parts on synths 0, 1, 2… in order. A voice SHALL keep the synth its note started on, and SHALL follow that synth's parameters while it sounds. An unknown synth SHALL be ignored (or mute, as a route), and a live note SHALL never reach a channel's voice.
+The engine SHALL hold 16 synths, allocated in `Engine::new`, each with its own parameters, values, patch and model (spec 005; plan.md MVP 5); `set_param`, `param_value`, `mono_preset`, `note_on` and `note_off` SHALL name the synth, and `synth_reset` SHALL put one back to the defaults. `MasterGain` SHALL stay global. Each synth SHALL have its own live keys; each MIDI channel SHALL play on one synth or be muted, and loading a file SHALL put its parts on synths 0, 1, 2… in order. A voice SHALL keep the synth its note started on, and SHALL follow that synth's parameters while it sounds. An unknown synth SHALL be ignored (or mute, as a route), and a live note SHALL never reach a channel's voice.
 
 **Implementation:** `crates/dsp/src/engine.rs::Engine` (`SYNTHS`, `set_param`, `preset`, `reset`, `route`), `crates/dsp/src/ffi.rs` (`synth_count`, `synth_reset`), `web/src/audio/engine.ts::addSynth` (#19)
 
@@ -204,7 +204,7 @@ The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its 
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::synths_have_their_own_parameters`, `crates/dsp/src/engine.rs::tests::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine.rs::tests::master_gain_is_global`, `crates/dsp/src/engine.rs::tests::unknown_synths_are_ignored`, `crates/dsp/src/engine.rs::tests::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine.rs::tests::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine.rs::tests::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine.rs::tests::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
+**Tests:** `crates/dsp/src/engine/tests.rs::synths_have_their_own_parameters`, `crates/dsp/src/engine/tests.rs::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine/tests.rs::master_gain_is_global`, `crates/dsp/src/engine/tests.rs::unknown_synths_are_ignored`, `crates/dsp/src/engine/tests.rs::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine/tests.rs::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine/tests.rs::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine/tests.rs::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
 
 ### Requirement 11: Drive insert [SHOULD]
 
@@ -218,7 +218,7 @@ Drive SHALL be an insert type of a strip's insert slots (spec 002 Req 2, ADR-001
 - WHEN the drive goes up
 - THEN its harmonics grow, and a 4.7 kHz sine at full drive keeps the alias at 19.8 kHz below 1% of the fundamental
 
-**Tests:** `crates/dsp/src/fx/drive.rs::tests::off_is_bit_exact`, `crates/dsp/src/fx/drive.rs::tests::every_mode_is_finite_and_bounded_for_any_input`, `crates/dsp/src/fx/drive.rs::tests::more_drive_means_more_harmonics`, `crates/dsp/src/fx/drive.rs::tests::a_high_sine_at_full_drive_keeps_its_aliases_low`, `crates/dsp/src/engine.rs::tests::drive_shapes_the_synth_bus_only`
+**Tests:** `crates/dsp/src/fx/drive.rs::tests::off_is_bit_exact`, `crates/dsp/src/fx/drive.rs::tests::every_mode_is_finite_and_bounded_for_any_input`, `crates/dsp/src/fx/drive.rs::tests::more_drive_means_more_harmonics`, `crates/dsp/src/fx/drive.rs::tests::a_high_sine_at_full_drive_keeps_its_aliases_low`, `crates/dsp/src/engine/tests.rs::drive_shapes_the_synth_bus_only`
 
 ### Requirement 12: Filter envelope [MUST]
 

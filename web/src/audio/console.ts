@@ -245,6 +245,46 @@ export const outChoices = (strip: number, shownGroups: number[]) => [
   { out: OUT_NONE, label: 'None' },
 ]
 
+/** The group (0–7) an `Out` names: only 1–8 are groups, master (0) and None (9) are not. */
+export const outGroup = (out: number) => (out >= 1 && out <= GROUPS ? out - 1 : -1)
+
+/** `outChoices` with each group under its own name; Master and None keep their words (#217). */
+export const namedOuts = (strip: number, shownGroups: number[], name: (strip: number) => string) =>
+  outChoices(strip, shownGroups).map((o) => (outGroup(o.out) >= 0 ? { ...o, label: name(groupStrip(outGroup(o.out))) } : o))
+
+/** The coloured tag under a strip's tape: the group it feeds, none for master or None. */
+export const feedsTag = (out: number, name: (strip: number) => string) => {
+  const g = outGroup(out)
+  return g >= 0 ? { label: name(groupStrip(g)), color: groupColour(g) } : undefined
+}
+
+/** A pad's Out choices: Master and the groups on screen, and the one it has now so the pull-down never goes blank (#218). */
+export const visibleOuts = <T extends readonly [string, number]>(options: readonly T[], shownGroups: readonly number[], current: number) =>
+  options.filter(([, v]) => v === 0 || v === current || shownGroups.includes(v - 1))
+
+/**
+ * What feeds group `g` (0–7), for when it is removed and has to go back to the master: each of `strips` whose
+ * `Out` (parameter `stripOut`) is the group, and each of `outIds` (a kit's pad outs) on the `kits`, as
+ * `[strip, parameter id]`. `value` reads a strip's parameter.
+ */
+export function feedsOf(
+  g: number,
+  strips: readonly number[],
+  kits: readonly number[],
+  outIds: readonly number[],
+  stripOut: number,
+  value: (strip: number, id: number) => number | undefined,
+) {
+  const found: [number, number][] = []
+  for (const s of strips) if (s !== groupStrip(g) && value(s, stripOut) === g + 1) found.push([s, stripOut])
+  for (const s of kits) for (const id of outIds) if (value(s, id) === g + 1) found.push([s, id])
+  return found
+}
+
+/** The pads (by index) of a pad sampler that go to group `g` (0–7), for when it is removed (#220). */
+export const padsOnGroup = (g: number, pads: readonly { out: number }[]) =>
+  pads.flatMap((p, i) => (p.out === g + 1 ? [i] : []))
+
 /** What a strip's routing and solo state is, as the engine reports it. */
 export interface StripState {
   mute: boolean

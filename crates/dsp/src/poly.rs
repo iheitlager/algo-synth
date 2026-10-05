@@ -598,13 +598,34 @@ impl Pool {
     }
 
     /// Add every sounding pad into `left` and `right` (the drum/pad sampler's stereo bus).
-    pub fn render_pads(&mut self, samples: &SampleStore, left: &mut [f32], right: &mut [f32]) {
+    pub fn render_pads(
+        &mut self,
+        samples: &SampleStore,
+        left: &mut [f32],
+        right: &mut [f32],
+        direct: &mut [[[f32; BLOCK]; 2]; GROUPS],
+        at: usize,
+    ) {
+        let n = left.len();
         for v in self.voices.iter_mut() {
-            if let PolyVoice::Pad(d) = v {
-                if d.active() {
-                    d.render(samples, left, right);
-                }
+            let PolyVoice::Pad(d) = v else {
+                continue;
+            };
+            if !d.active() {
+                continue;
             }
+            // A pad with a group as its out goes straight in, panned as it is (#220).
+            let Some(group) = d.out().checked_sub(1) else {
+                d.render(samples, left, right);
+                continue;
+            };
+            let Some([gl, gr]) = direct.get_mut(group) else {
+                continue;
+            };
+            let (Some(gl), Some(gr)) = (gl.get_mut(at..at + n), gr.get_mut(at..at + n)) else {
+                continue;
+            };
+            d.render(samples, gl, gr);
         }
     }
 

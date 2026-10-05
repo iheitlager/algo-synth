@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-05
+
+### Added
+
+- **Build details in the UI:** the transport bar shows the page version and the engine's, a click lists both with their commits, and a banner says when the page and `dsp.wasm` are from different builds (#197).
+- **Two more scale modes:** `scale e phrygian-dominant` and `scale a harmonic-minor`, so walks play the raised third or seventh (#201).
+- **A song editor with line numbers and highlighting (#203):** the composer's song text has a line-number gutter and colours keywords, names, numbers, notes, pads, steps, rests, generator calls, `target.Param`s and comments. The engine lexes (`song::lex`, exports `lex_buf`, `lex`, `lex_ptr`) on a second instance of `dsp.wasm` on the main thread, away from the audio. A parse error marks its line and column. Tab indents.
+- **The composer sets up its synths:** `track bass synth Minimoog MiniBass` names a track's model and preset; left out, they are picked from the track's role (bass, lead, pad, arp, keys or drums) and written into the text, and each track plays on a synth of its own (#210).
+- **Settings in the song:** `setting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5` is a patch that lives only in the composer; `track lead synth nile` plays it (#210).
+
+### Fixed
+
+- **Monospace text where it was meant:** the song text, pad names, piano-roll keys and build details asked for `var(--mono, monospace)`, but `--mono` is a colour, so they fell back to the sans-serif font. They use a new `--font-mono` (IBM Plex Mono) (#203).
+- **`setting` is highlighted:** the song editor colours the new `setting` keyword like `track` and `scene` (#210).
+
 ## [0.31.0] - 2026-10-04
 
 ### Added

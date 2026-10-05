@@ -200,8 +200,10 @@ export interface Pad {
   velLevel: number
   velStart: number
   oneShot: boolean
+  /** 0 the sampler's own strip, 1–8 a group (#220). */
+  out: number
 }
-export const EMPTY_PAD: Pad = { sample: -1, tune: 0, level: 0.8, pan: 0, decay: 0, choke: 0, velLevel: 1, velStart: 0, oneShot: true }
+export const EMPTY_PAD: Pad = { sample: -1, tune: 0, level: 0.8, pan: 0, decay: 0, choke: 0, velLevel: 1, velStart: 0, oneShot: true, out: 0 }
 
 /** The pads from a dump of `PADS * PAD_FIELDS` values, pad by pad. */
 export function decodePads(values: ArrayLike<number>): Pad[] {
@@ -210,7 +212,7 @@ export function decodePads(values: ArrayLike<number>): Pad[] {
     return {
       sample: at(PadField.Sample), tune: at(PadField.Tune), level: at(PadField.Level), pan: at(PadField.Pan),
       decay: at(PadField.Decay), choke: at(PadField.Choke), velLevel: at(PadField.VelLevel),
-      velStart: at(PadField.VelStart), oneShot: at(PadField.OneShot) >= 0.5,
+      velStart: at(PadField.VelStart), oneShot: at(PadField.OneShot) >= 0.5, out: at(PadField.Out),
     }
   })
 }

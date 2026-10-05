@@ -240,7 +240,11 @@ impl Mixer {
                 }
             }
         }
-        self.update_solo();
+        // Only a solo or a route changes who is heard; automation sets the
+        // others from `render`, and the solo pass is not for every block.
+        if matches!(param, Param::Solo | Param::Out) {
+            self.update_solo();
+        }
         true
     }
 
@@ -277,30 +281,23 @@ impl Mixer {
         .take(GROUPS)
     }
 
+    /// Who is heard under the solos; fixed-size, so it never allocates (ADR-0002).
     fn update_solo(&mut self) {
-        let soloed: Vec<usize> = (0..STRIPS)
-            .filter(|i| self.strips.get(*i).is_some_and(|s| s.solo))
-            .collect();
-        let mut heard = [soloed.is_empty(); STRIPS];
-        for &j in &soloed {
-            if let Some(h) = heard.get_mut(j) {
+        let soloed = |i: usize| self.strips.get(i).is_some_and(|s| s.solo);
+        let mut heard = [!(0..STRIPS).any(soloed); STRIPS];
+        let mut hear = |g: usize| {
+            if let Some(h) = heard.get_mut(g) {
                 *h = true;
             }
+        };
+        for j in (0..STRIPS).filter(|j| soloed(*j)) {
+            hear(j);
             // A soloed strip is heard through every group it passes, and a
             // group it feeds stays heard: by its Out, or by its individual outs.
-            let direct: Vec<usize> = self.fed(j).collect();
-            for g in self
-                .chain(j)
-                .chain(
-                    direct
-                        .iter()
-                        .flat_map(|d| std::iter::once(*d).chain(self.chain(*d))),
-                )
-                .collect::<Vec<_>>()
-            {
-                if let Some(h) = heard.get_mut(g) {
-                    *h = true;
-                }
+            self.chain(j).for_each(&mut hear);
+            for d in self.fed(j) {
+                hear(d);
+                self.chain(d).for_each(&mut hear);
             }
         }
         // Whatever feeds a soloed group is heard too.
@@ -338,6 +335,21 @@ impl Mixer {
         let l = self.bus.get_mut(synth)?.get_mut(range.clone())?;
         let r = self.bus_r.get_mut(synth)?.get_mut(range)?;
         Some((l, r))
+    }
+
+    /// The left and right buses of `synth` and every group's direct input from `range.start`,
+    /// for a pad sampler whose pads go to its strip or straight to a group (#220); stereo as
+    /// `stereo_bus` is.
+    #[allow(clippy::type_complexity)]
+    pub fn pad_outs(
+        &mut self,
+        synth: usize,
+        range: std::ops::Range<usize>,
+    ) -> Option<(&mut [f32], &mut [f32], &mut [[[f32; BLOCK]; 2]; GROUPS])> {
+        *self.wide.get_mut(synth)? = true;
+        let l = self.bus.get_mut(synth)?.get_mut(range.clone())?;
+        let r = self.bus_r.get_mut(synth)?.get_mut(range)?;
+        Some((l, r, &mut self.direct))
     }
 
     /// Whether `synth` is stereo this block.
@@ -611,4 +623,32 @@ fn key_of(raw: &[[f32; BLOCK]; SYNTHS], strip: usize, key: usize, n: usize) -> O
         return None;
     }
     raw.get(synth)?.get(..n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #225: automation sets strip parameters from `render`; only a solo or a
+    /// route reworks who is heard, so a fader move leaves it alone.
+    #[test]
+    fn only_solo_and_out_rework_who_is_heard() {
+        let mut m = Mixer::new(48_000.0);
+        assert!(m.set(1, Param::Solo, 1.0));
+        assert!(m.silenced(0) && !m.silenced(1), "solo hears only itself");
+        let before = m.heard;
+        for p in [Param::Level, Param::Pan, Param::Send1, Param::Mute] {
+            m.set(0, p, 0.5);
+            m.set(1, p, 0.0);
+        }
+        assert_eq!(
+            m.heard, before,
+            "faders, pans, sends and mutes keep the solo"
+        );
+        let group = SYNTHS;
+        assert!(m.set(1, Param::Out, 1.0));
+        assert!(!m.silenced(group), "the soloed strip's group is heard");
+        assert!(m.set(1, Param::Solo, 0.0));
+        assert_eq!(m.heard, [true; STRIPS], "no solo hears everyone");
+    }
 }

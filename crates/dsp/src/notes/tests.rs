@@ -157,7 +157,13 @@ fn too_much_is_an_error_not_a_hang() {
 #[test]
 fn it_never_panics_on_garbage() {
     let mut rng = Rng::new(42);
-    let alphabet: Vec<char> = "\"[]<>~*@?!,:.#abcdefgr0123456789 é".chars().collect();
+    let alphabet: Vec<char> = "\"[]<>~*@?!,:.#abcdefgr0123456789 émIViv+o"
+        .chars()
+        .collect();
+    let minor = Scale {
+        root: 9,
+        mode: crate::algo::Mode::Minor,
+    };
     for _ in 0..20_000 {
         let n = rng.next_u32() % 24;
         let text: String = (0..n)
@@ -165,6 +171,11 @@ fn it_never_panics_on_garbage() {
             .collect();
         if let Ok(notes) = parse(&text, 1) {
             assert_eq!(parse(&notes.print(), 1).unwrap(), notes, "{text}");
+        }
+        // With a key, roman numerals resolve too.
+        if let Ok(notes) = parse_in(&text, 1, Some(&minor)) {
+            let again = parse_in(&notes.print(), 1, Some(&minor)).unwrap();
+            assert_eq!(again, notes, "{text}");
         }
     }
 }
@@ -389,7 +400,11 @@ fn generator_errors_say_where() {
             1,
             "only random takes a seed: arp([c4,e4,g4],random,16,7)",
         ),
-        ("arp(c4,up,16)", 5, "a chord goes here, as [c4,e4,g4]"),
+        (
+            "arp(c4,up,16)",
+            5,
+            "a chord goes here, as [c4,e4,g4] or c:m7",
+        ),
         ("walk(c4,0,1)", 9, "a walk is 1 to 32 notes"),
         ("walk(c4,33,1)", 9, "a walk is 1 to 32 notes"),
         ("walk(c4,8,x)", 11, "a seed is a number"),
@@ -682,4 +697,400 @@ fn every_edit_can_be_written_back_and_plays_the_same() {
         assert_eq!(written.events, events);
     }
     assert!(!events.is_empty());
+}
+
+/// #233: every call, for every seed, fits the room `max_events` reserves, so
+/// a live fragment's buffers never grow on the audio thread (ADR-0002).
+#[test]
+fn every_call_fits_the_room_it_reserves() {
+    let notes = ["c4", "e4", "g4", "b4", "d5", "f5", "a5", "c6"];
+    let mut calls = Vec::new();
+    for n in 1..=notes.len() {
+        let chord = notes.get(..n).unwrap_or(&[]).join(",");
+        for mode in ["up", "down", "updown", "random"] {
+            for rate in [2, 4, 8, 16] {
+                let seed = if mode == "random" { ",1" } else { "" };
+                calls.push(format!("arp([{chord}],{mode},{rate}{seed})"));
+            }
+        }
+    }
+    for steps in 1..=32 {
+        calls.push(format!("walk(c4,{steps},1)"));
+    }
+    for order in 1..=3 {
+        calls.push(format!("markov({order},riff,1)"));
+    }
+    for amount in [0, 25, 50, 100] {
+        calls.push(format!("mutate(riff,{amount},1)"));
+    }
+    // #103: progressions and what they feed.
+    for bars in 1..=16 {
+        calls.push(format!("prog({bars},1)"));
+    }
+    calls.push("root(riff)".to_string());
+    for mode in ["up", "down", "updown", "random"] {
+        for rate in [2, 4, 8, 16] {
+            let seed = if mode == "random" { ",1" } else { "" };
+            calls.push(format!("arp(riff,{mode},{rate}{seed})"));
+        }
+    }
+    for text in &calls {
+        let n = with_riff(text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        let Seq::Generated(call) = &n.seq else {
+            panic!("{text} is a call");
+        };
+        let mut out = Vec::with_capacity(call.max_events());
+        let room = out.capacity();
+        for seed in 0..64 {
+            call.events_into(seed, Some(&minor()), &mut out);
+            assert!(out.len() <= call.max_events(), "{text} seed {seed}");
+            assert_eq!(out.capacity(), room, "{text} seed {seed} grew its buffer");
+        }
+    }
+}
+
+// --- Chords by name (#103) -----------------------------------------------------
+
+/// The notes starting at each tick, in order of start.
+fn chords_of(n: &Notes) -> Vec<(u32, Vec<u8>)> {
+    let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+    for e in &n.events {
+        match out.last_mut() {
+            Some((s, notes)) if *s == e.start => notes.push(e.note),
+            _ => out.push((e.start, vec![e.note])),
+        }
+    }
+    for (_, notes) in &mut out {
+        notes.sort_unstable();
+    }
+    out
+}
+
+fn key(root: u8, mode: crate::algo::Mode) -> Scale {
+    Scale { root, mode }
+}
+
+#[test]
+fn chord_symbols_play_their_notes() {
+    let n = parse("\"<c:m7 f:maj7>\"", 1).unwrap();
+    assert_eq!(n.bars, 2);
+    assert_eq!(
+        chords_of(&n),
+        [(0, vec![60, 63, 67, 70]), (48, vec![65, 69, 72, 76])]
+    );
+    let n = parse("\"c bb:sus4 g3:7 d:m7b5 e:dim f#:aug a:sus2 c3:maj\"", 1).unwrap();
+    let got: Vec<Vec<u8>> = chords_of(&n).into_iter().map(|(_, c)| c).collect();
+    assert_eq!(
+        got,
+        [
+            vec![60, 64, 67],
+            vec![70, 75, 77],
+            vec![55, 59, 62, 65],
+            vec![62, 65, 68, 72],
+            vec![64, 67, 70],
+            vec![66, 70, 74],
+            vec![69, 71, 76],
+            vec![48, 52, 55],
+        ]
+    );
+}
+
+#[test]
+fn a_classic_chord_takes_its_duration_last() {
+    let n = parse("c:m7:2 g:7:4 c3:4 r:4", 1).unwrap();
+    assert_eq!(
+        chords_of(&n),
+        [
+            (0, vec![60, 63, 67, 70]),
+            (24, vec![67, 71, 74, 77]),
+            (36, vec![48])
+        ]
+    );
+    assert_eq!(n.events[0].len, 24);
+}
+
+#[test]
+fn chord_names_print_as_written() {
+    let minor = key(0, crate::algo::Mode::Minor);
+    for text in [
+        "\"c:m7 bb [f:maj7 eb3:6]*2 ~\"",
+        "c:m7:2 bb:4. V7:8 [c4,e4]:8",
+        "\"<i VI III VII> bVII viio7 III+ ivmaj7\"",
+    ] {
+        let n = parse_in(text, 1, Some(&minor)).unwrap();
+        assert_eq!(n.print(), text);
+        assert_eq!(parse_in(&n.print(), 1, Some(&minor)).unwrap(), n);
+    }
+}
+
+#[test]
+fn numerals_follow_the_song_key() {
+    use crate::algo::Mode;
+    let prog = "\"<i VI III VII>\"";
+    let cm = parse_in(prog, 1, Some(&key(0, Mode::Minor))).unwrap();
+    assert_eq!(
+        chords_of(&cm),
+        [
+            (0, vec![60, 63, 67]),
+            (48, vec![68, 72, 75]),
+            (96, vec![63, 67, 70]),
+            (144, vec![70, 74, 77]),
+        ],
+        "Cm Ab Eb Bb"
+    );
+    let am = parse_in(prog, 1, Some(&key(9, Mode::Minor))).unwrap();
+    assert_eq!(
+        chords_of(&am),
+        [
+            (0, vec![69, 72, 76]),
+            (48, vec![65, 69, 72]),
+            (96, vec![60, 64, 67]),
+            (144, vec![67, 71, 74]),
+        ],
+        "Am F C G"
+    );
+}
+
+#[test]
+fn a_numeral_says_its_quality_in_its_case() {
+    // In C major: a borrowed minor iv, a flat VII, a dominant V7, a diminished viio.
+    let n = parse_in(
+        "\"iv bVII V7 viio\"",
+        1,
+        Some(&key(0, crate::algo::Mode::Major)),
+    )
+    .unwrap();
+    let got: Vec<Vec<u8>> = chords_of(&n).into_iter().map(|(_, c)| c).collect();
+    assert_eq!(
+        got,
+        [
+            vec![65, 68, 72],
+            vec![70, 74, 77],
+            vec![67, 71, 74, 77],
+            vec![71, 74, 77],
+        ]
+    );
+}
+
+#[test]
+fn chord_errors_say_where() {
+    use crate::algo::Mode;
+    let quality =
+        "a quality is maj, m, 7, maj7, m7, m7b5, dim, dim7, aug, sus2, sus4, 6, m6, 9, m9 or add9";
+    for (text, scale, col, msg) in [
+        ("\"c4 c:m13\"", None, 7, quality),
+        ("c:m13:4", None, 3, quality),
+        (
+            "\"I\"",
+            None,
+            2,
+            "a roman numeral needs a scale line with seven notes, as scale c minor",
+        ),
+        (
+            "\"V\"",
+            Some(key(0, Mode::Pentatonic)),
+            2,
+            "a roman numeral needs a scale line with seven notes, as scale c minor",
+        ),
+        (
+            "\"Iv\"",
+            Some(key(0, Mode::Major)),
+            2,
+            "a numeral is all upper case (major) or all lower case (minor)",
+        ),
+        (
+            "\"VIII\"",
+            Some(key(0, Mode::Major)),
+            2,
+            "a numeral is I to VII, maybe b or #, then o, o7, +, 7 or maj7",
+        ),
+        (
+            "\"V9\"",
+            Some(key(0, Mode::Major)),
+            3,
+            "a numeral is I to VII, maybe b or #, then o, o7, +, 7 or maj7",
+        ),
+        (
+            "\"c:m7:4\"",
+            None,
+            6,
+            "durations go outside the quotes, as c4:4",
+        ),
+        ("c:m7", None, 3, "a number goes here"),
+    ] {
+        let e = parse_in(text, 1, scale.as_ref()).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}
+
+#[test]
+fn voicing_moves_each_chord_to_the_nearest_inversion() {
+    use crate::algo::Mode;
+    let text = "\"<I vi IV V7 iii vi ii7 V>\"";
+    let n = parse_in(text, 1, Some(&key(0, Mode::Major))).unwrap();
+    let voiced = n.clone().voiced();
+    assert_eq!(voiced.text, n.text, "the text stays as written");
+    let chords = chords_of(&voiced);
+    assert_eq!(chords.len(), 8);
+    for pair in chords.windows(2) {
+        let (prev, next) = (&pair[0].1, &pair[1].1);
+        for note in next {
+            let step = prev
+                .iter()
+                .map(|p| (i32::from(*note) - i32::from(*p)).abs())
+                .min()
+                .unwrap();
+            assert!(step <= 7, "{note} jumps {step} from {prev:?} to {next:?}");
+        }
+        assert!(next.iter().all(|n| (48..=84).contains(n)));
+    }
+    // The same pitch classes, only moved.
+    for ((_, a), (_, b)) in chords_of(&n).iter().zip(&chords) {
+        let pcs = |c: &Vec<u8>| {
+            let mut v: Vec<u8> = c.iter().map(|n| n % 12).collect();
+            v.sort_unstable();
+            v
+        };
+        assert_eq!(pcs(a), pcs(b));
+    }
+}
+
+#[test]
+fn an_arp_takes_a_chord_by_name() {
+    let n = parse("arp(c:m7,up,16)", 1).unwrap();
+    let first: Vec<u8> = n.events.iter().take(4).map(|e| e.note).collect();
+    assert_eq!(first, [60, 63, 67, 70]);
+    let k = key(0, crate::algo::Mode::Minor);
+    let n = parse_in("arp(VI,down,8)", 1, Some(&k)).unwrap();
+    assert_eq!(n.events.first().map(|e| e.note), Some(75));
+    assert_eq!(n.print(), "arp([g#4,c5,d#5],down,8)");
+}
+
+// --- Progressions feed other parts (#103) --------------------------------------
+
+/// A line read with frag `prog` (Cm Ab Eb Bb, a bar each) in scope, in C minor.
+fn with_prog(text: &str) -> Result<Notes, NoteError> {
+    let prog = parse_in("\"<i VI III VII>\"", 1, Some(&minor())).unwrap();
+    parse_with(text, 1, Some(&minor()), &|name| {
+        (name == "prog").then(|| (prog.events.clone(), prog.bars))
+    })
+}
+
+#[test]
+fn root_plays_the_bass_of_each_chord() {
+    let n = with_prog("root(prog)").unwrap();
+    assert_eq!(n.bars, 4);
+    let got: Vec<(u32, u32, u8)> = n.events.iter().map(|e| (e.start, e.len, e.note)).collect();
+    // C2, Ab2, Eb2, Bb2, a whole bar each.
+    assert_eq!(
+        got,
+        [(0, 48, 36), (48, 48, 44), (96, 48, 39), (144, 48, 46)]
+    );
+    let up = with_prog("root(prog,3)").unwrap();
+    assert_eq!(up.events[0].note, 48);
+    for text in ["root(prog)", "root(prog,3)"] {
+        assert_eq!(with_prog(text).unwrap().print(), text);
+    }
+}
+
+#[test]
+fn an_arp_over_a_progression_follows_its_chords() {
+    let n = with_prog("arp(prog,up,4)").unwrap();
+    assert_eq!(n.bars, 4);
+    assert_eq!(
+        pitches(&n),
+        [
+            60, 63, 67, 60, 68, 72, 75, 68, 63, 67, 70, 63, 70, 74, 77, 70
+        ],
+        "each chord from its bottom, a quarter a note"
+    );
+    for text in ["arp(prog,updown,16)", "arp(prog,random,8,3)"] {
+        let a = with_prog(text).unwrap();
+        assert_eq!(a.print(), text);
+        if let Seq::Generated(g) = &a.seq {
+            assert!(a.events.len() <= g.max_events());
+        }
+    }
+    // A chord by name still works where no frag has the name.
+    assert_eq!(
+        pitches(&with_prog("arp(c:m,up,4)").unwrap()),
+        [60, 63, 67, 60]
+    );
+}
+
+#[test]
+fn a_prog_walks_the_functions_from_tonic_to_dominant() {
+    for seed in 0..50 {
+        let text = format!("prog(8,{seed})");
+        let n = parse_in(&text, 1, Some(&minor())).unwrap();
+        assert_eq!((n.bars, n.events.len(), n.print()), (8, 24, text.clone()));
+        let chords: Vec<Vec<u8>> = (0..8)
+            .map(|b| {
+                let mut c: Vec<u8> = n
+                    .events
+                    .iter()
+                    .filter(|e| e.start == b * 48)
+                    .map(|e| e.note)
+                    .collect();
+                c.sort_unstable();
+                c
+            })
+            .collect();
+        assert_eq!(chords[0], [60, 63, 67], "seed {seed}: starts on i");
+        assert_eq!(chords[7], [67, 70, 74], "seed {seed}: ends on v");
+        // Every chord is a triad of the scale.
+        let scale = [0u8, 2, 3, 5, 7, 8, 10];
+        assert!(
+            chords.iter().flatten().all(|n| scale.contains(&(n % 12))),
+            "seed {seed}"
+        );
+        assert_eq!(
+            parse_in(&text, 1, Some(&minor())).unwrap(),
+            n,
+            "deterministic"
+        );
+    }
+    let a = parse_in("prog(8,1)", 1, Some(&minor())).unwrap();
+    let b = parse_in("prog(8,2)", 1, Some(&minor())).unwrap();
+    assert_ne!(a.events, b.events, "the seed changes the progression");
+}
+
+#[test]
+fn progression_errors_say_where() {
+    for (text, col, msg) in [
+        (
+            "root(nope)",
+            6,
+            "no note frag with this name comes before this one",
+        ),
+        ("root(prog,9)", 11, "an octave is 0 to 7"),
+        (
+            "root()",
+            6,
+            "no note frag with this name comes before this one",
+        ),
+        (
+            "root(prog,2,1)",
+            1,
+            "root takes a frag and maybe an octave: root(prog) or root(prog,3)",
+        ),
+        ("prog(0,1)", 6, "a prog is 1 to 16 bars"),
+        ("prog(17,1)", 6, "a prog is 1 to 16 bars"),
+        (
+            "prog(4)",
+            1,
+            "prog takes a number of bars and a seed: prog(4,7)",
+        ),
+    ] {
+        let e = with_prog(text).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+    let e = parse("prog(4,1)", 1).unwrap_err();
+    assert_eq!(
+        (e.col, e.msg),
+        (
+            1,
+            "a prog needs a scale line with seven notes, as scale c minor"
+        )
+    );
 }
