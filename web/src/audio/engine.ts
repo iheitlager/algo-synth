@@ -5,7 +5,7 @@
 import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
-import { GROUPS, groupStrip, moveBefore, orderStrips, routeOk } from './console'
+import { GROUPS, feedsOf, groupStrip, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { lexer, wasmLexer } from './lex'
@@ -135,12 +135,15 @@ export function addGroup(): boolean {
   return true
 }
 
+/** The `Out` of each of a drum kit's pads (`BdOut`, `SnOut`, …; #162). */
+const PAD_OUT_IDS = Object.entries(Param).filter(([name]) => /^[A-Z][a-z]Out$/.test(name)).map(([, id]) => id as number)
+
 /** Remove group `g`: what fed it goes to the master, and the group goes back to its defaults. */
 export function removeGroup(g: number) {
   const strip = groupStrip(g)
-  for (const s of [...synths.list, ...layout.groups.map(groupStrip)]) {
-    if (s !== strip && params.values[s]?.[Param.Out] === g + 1) engine?.param(s, Param.Out, 0)
-  }
+  // A kit's pads have outs of their own (#162): they go back to the master too (#218).
+  const feeds = feedsOf(g, [...synths.list, ...layout.groups.map(groupStrip)], synths.list, PAD_OUT_IDS, Param.Out, (s, id) => params.values[s]?.[id])
+  for (const [s, id] of feeds) engine?.param(s, id as ParamId, 0)
   engine?.reset(strip)
   layout.groups = layout.groups.filter((x) => x !== g)
   layout.order = layout.order.filter((x) => x !== strip)

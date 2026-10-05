@@ -1202,5 +1202,12 @@ export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101,
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)
 
-/** The models of a family, in `MODELS` order; the first is the family's default. */
-export const familyModels = (family: FamilyId) => MODELS.filter((m) => m.family === family)
+/** Families listed in another order than `MODELS` (the Model order, which setups depend on): the drum machines, then the sampler (#218). */
+const LISTED: Partial<Record<FamilyId, readonly ModelId[]>> = { drums: [Model.Tr808, Model.Tr909, Model.PadSampler] }
+
+/** The models of a family, in the order they are listed; the first is the family's default. */
+export const familyModels = (family: FamilyId) => {
+  const all = MODELS.filter((m) => m.family === family)
+  const order = LISTED[family]
+  return order ? all.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)) : all
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  INSERT_KNOBS, INSERT_SHORT, STRIPS, feedsTag, heardStrips, moveBefore, namedOuts, orderStrips, outChoices, outGroup, routeOk, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
+  INSERT_KNOBS, INSERT_SHORT, STRIPS, feedsOf, feedsTag, heardStrips, moveBefore, namedOuts, orderStrips, outChoices, outGroup, routeOk, visibleOuts, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
   logMap, logPos, polar, posToDb, posToLevel,
 } from './console'
 
@@ -262,6 +262,27 @@ describe('routing', () => {
     expect(feedsTag(9, name)).toBeUndefined()
     expect(feedsTag(3, name)?.label).toBe('G3')
     expect(feedsTag(8, name)?.label).toBe('G8')
+  })
+})
+
+describe('a pad out and what feeds a group (#218)', () => {
+  const OUTS = [['Master', 0], ['Group 1', 1], ['Group 2', 2], ['Group 3', 3]] as const
+
+  it('lists Master and the groups on screen, and the one a pad has now', () => {
+    expect(visibleOuts(OUTS, [], 0).map(([n]) => n)).toEqual(['Master'])
+    expect(visibleOuts(OUTS, [0, 2], 0).map(([n]) => n)).toEqual(['Master', 'Group 1', 'Group 3'])
+    // Routed to a group that is not shown: it stays, so the pull-down does not go blank.
+    expect(visibleOuts(OUTS, [0], 2).map(([n]) => n)).toEqual(['Master', 'Group 1', 'Group 2'])
+  })
+
+  it('finds the strips and the kit pads that feed a group', () => {
+    const OUT = 149
+    const [BD, SN] = [438, 440]
+    const have: Record<string, number> = { '0:149': 2, '1:149': 1, '16:149': 2, '17:149': 2, '2:438': 2, '2:440': 1, '1:438': 2 }
+    const value = (s: number, id: number) => have[`${s}:${id}`]
+    // Group 2 (g = 1): strips 0 and 16 by Out, kit 2's bass drum. Synth 1's bass drum is not read (not a kit),
+    // and group 2's own strip (17) is left out: its Out is not a feed.
+    expect(feedsOf(1, [0, 1, 2, 16, 17], [2], [BD, SN], OUT, value)).toEqual([[0, OUT], [16, OUT], [2, BD]])
   })
 })
 
