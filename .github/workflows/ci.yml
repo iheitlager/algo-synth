@@ -59,6 +59,16 @@ jobs:
       - run: cd web && npm test
       - run: cd web && npm run build
 
+  tools:
+    name: tools (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Standard library only: the runner's python3 is enough.
+      - run: make test-tools
+
   deny:
     name: cargo deny
     runs-on: ubuntu-latest
