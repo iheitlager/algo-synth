@@ -1,0 +1,50 @@
+# Deep techno with 909 kick and 808 drums, a funky SH-101 bass in F minor.
+# The bass alternates between a punchy sequence and a rolling low-end groove.
+# Filter sweeps open and close, resonance builds for tension.
+tempo 124
+swing 52
+scale f minor
+
+track kit drums Tr909 Kit909
+track perc drums Tr808 Kit808
+track bass synth Sh101 Sh101Bass
+
+frag kick = kit /16
+  bd x...x...x...x...
+frag hats = kit /16
+  ch x.x.x.x.x.x.x.x.
+  oh ..x.....x.....x.
+frag snare = kit /16
+  sn ....x.......x...
+frag clap = perc /16
+  cp ....x.......x...
+  cb ...............x
+frag perc_fills = perc /16
+  ma ......x.......x.
+  cb x...............
+
+frag bass_punch = bass
+  "f1! ~ [f1 g1] ~ ab1! ~ [f1 c2] ~"
+frag bass_roll = bass
+  "<[f1! f1 g1 ab1 ~ f1! c2 ab1] [f1! f1 eb2 c2 db2 c2 ab1! f1]>"
+frag bass_deep = bass
+  "[f1*4] [ab1*2 c2 db2]"
+frag bass_breakdown = bass
+  "~ f2! ~ ab2 ~ ~ f2 ~"
+
+auto cut_low = bass.Cutoff 400 /8
+auto cut_open = bass.Cutoff ramp 500 2400 /8
+auto cut_sweep = bass.Cutoff ramp 300 3200 /8
+auto cut_peak = bass.Cutoff 1800 2800 /4
+auto res_tight = bass.Resonance 0.25 /8
+auto res_build = bass.Resonance ramp 0.3 0.75 /8
+auto res_peak = bass.Resonance 0.65 /4
+
+section intro 4: kick hats bass_punch cut_low res_tight
+section groove 8: kick hats snare perc_fills bass_roll cut_open res_tight
+section build 8: kick hats clap bass_roll cut_sweep res_build
+section drop 8: kick hats snare clap perc_fills bass_punch cut_peak res_peak
+section breakdown 4: hats bass_breakdown cut_sweep
+section outro 8: kick hats snare bass_deep cut_low res_tight
+arrange intro groove build drop breakdown drop outro
+loop 5 32

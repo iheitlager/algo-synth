@@ -1,0 +1,39 @@
+# Half-time dub: a sparse 808 beat and a long SH-101 sub in classic notation
+# (durations rather than a mini-notation cycle). The bass barely moves; the
+# cutoff stepping through the sections does the work. Slow tempo, so bars are long.
+tempo 72
+swing 58
+
+track kit drums Tr808 Kit808
+track bass synth Sh101 Sh101Bass
+
+frag skeleton = kit /16
+  bd x...........x...
+  rs ............x...
+frag beat = kit /16
+  bd x...........x...
+  sn ........x.......
+  ch x.x.x.x.x.x.x.x.
+  cl ..............x.
+frag echo = kit /16
+  cp ........x...............x...x...
+
+# Classic notes: :1 whole, :2 half, :4 quarter, :8 eighth, a dot lengthens by half.
+frag sub = bass
+  c1:2. c1:8 r:8 eb1:1
+frag walk = bass
+  c1:4 r:4 c1:8 r:8 eb1:4 f1:2. g1:4 r:4 bb0:2
+frag drone = bass
+  c1:1 c1:1 ab0:1 bb0:1
+
+auto cut_sub = bass.Cutoff 300 400 300 500 /4
+auto cut_walk = bass.Cutoff 500 900 700 1400 /4
+auto cut_drone = bass.Cutoff ramp 200 1200 /8
+auto res_dub = bass.Resonance 0.25 0.5 /4
+
+section intro 4: skeleton sub cut_sub
+section dub 8: beat echo sub cut_walk res_dub
+section walk 8: beat echo walk cut_walk res_dub
+section drone 8: skeleton drone cut_drone res_dub
+arrange intro dub walk drone dub
+loop 5 36
