@@ -1442,7 +1442,10 @@ mod tests {
             (1, 1, 0, 2)
         );
         assert_eq!(section_name_len(0), 5, "part1");
-        assert_eq!(arr_edit(0, 0, 0, 0), 0, "the frag into it");
+        assert_eq!(section_has(0, 0, 0), 1, "the first section holds the frag");
+        assert_eq!(arr_edit(0, 0, 0, 0), 0, "the frag out of it");
+        assert_eq!(section_has(0, 0, 0), 0);
+        assert_eq!(arr_edit(0, 0, 0, 0), 0, "and back");
         assert_eq!(section_has(0, 0, 0), 1);
         assert_eq!(arr_edit(6, 1, 2, 0), 0);
         assert_eq!((loop_from(), loop_to(), song_bars()), (1, 2, 2));

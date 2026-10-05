@@ -25,7 +25,9 @@ frag beat = kit /16
 `
 
 const padName = (id: number) => Object.entries(Pad).find(([, v]) => v === id)?.[0] ?? '?'
-const isKit = (s: number) => params.values[s]?.[Param.Model] === Model.Tr808
+// A drum track plays on a drum machine or a pad sampler.
+const KITS: number[] = [Model.Tr808, Model.Tr909, Model.PadSampler]
+const isKit = (s: number) => KITS.includes(params.values[s]?.[Param.Model] ?? -1)
 
 // A track plays on one of the shown synths, or is muted.
 const choices = computed<{ label: string; value: Route }[]>(() => [
@@ -37,11 +39,21 @@ const dirty = computed(() => song.draft !== song.text)
 
 // Off → hit → accent → off.
 const cycle = (f: number, l: number, s: number, level: number) => setStep(f, l, s, (level + 1) % 3)
-// The step a lane plays now, looping on its own length; in an arrangement it counts from the section's start.
-const playing = (len: number) => {
+// The section playing now, in an arrangement.
+const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[song.entry]] : undefined))
+// The step a lane plays now, looping on its own length; in an arrangement it counts from the section's start,
+// and a frag the section does not play has none.
+const playing = (f: number, len: number) => {
+  if (song.entry >= 0 && !section.value?.frags[f]) return -1
   const k = song.entry >= 0 ? song.local : song.step
   return k < 0 ? -1 : k % len
 }
+// Where the song is: in an arrangement the bar counts from the top of the arrangement, so it follows the loop.
+const position = computed(() => {
+  if (song.entry < 0) return song.step
+  const start = song.arrange.slice(0, song.entry).reduce((n, s) => n + (song.sections[s]?.bars ?? 0), 0)
+  return song.local < 0 ? -1 : start * 16 + song.local
+})
 
 function apply() {
   loadSong(song.draft)
@@ -80,9 +92,9 @@ watch(() => status.running, (on) => on && requestSong())
         Swing <input class="num" type="number" min="50" max="75" step="1" :value="song.swing" :disabled="!status.running"
           @change="setSongSwing(Number(($event.target as HTMLInputElement).value))" />
       </label>
-      <span v-if="song.playing && song.step >= 0" class="muted">bar {{ Math.floor(song.step / 16) + 1 }} · step {{ (song.step % 16) + 1 }}</span>
+      <span v-if="song.playing && position >= 0" class="muted">bar {{ Math.floor(position / 16) + 1 }} · step {{ (position % 16) + 1 }}</span>
     </div>
-    <p v-if="noKit" class="notice">No synth is a TR-808: add one with + Synth › Drums, then pick it for the track.</p>
+    <p v-if="noKit" class="notice">No synth is a drum kit: add one with + Synth › Drums, then pick it for the track.</p>
     <div class="body">
       <div class="grid">
         <p v-if="status.running && !song.frags.length" class="muted">
@@ -109,7 +121,7 @@ watch(() => status.running, (on) => on && requestSong())
             <div class="steps">
               <button
                 v-for="(level, s) in lane.steps" :key="s"
-                class="step" :class="[`l${level}`, { beat: s % 4 === 0, now: s === playing(lane.steps.length) }]"
+                class="step" :class="[`l${level}`, { beat: s % 4 === 0, now: s === playing(f, lane.steps.length) }]"
                 :style="{ '--hit': synthColour(song.tracks[frag.track]?.synth ?? 0) }"
                 :title="`${padName(lane.pad)} step ${s + 1}`"
                 @click="cycle(f, l, s, level)"

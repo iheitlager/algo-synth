@@ -22,7 +22,13 @@ const rows = computed(() => {
   return out
 })
 const steps = computed(() => bars.value * (TICKS_PER_BAR / TICKS_PER_STEP))
-const now = computed(() => (song.playing ? stepIn(song.step, bars.value) : -1))
+// In an arrangement a frag counts from its section's start, and has no step when the section does not play it.
+const now = computed(() => {
+  if (!song.playing) return -1
+  if (song.entry < 0) return stepIn(song.step, bars.value)
+  const on = song.sections[song.arrange[song.entry]]?.frags[props.index]
+  return on ? stepIn(song.local, bars.value) : -1
+})
 
 // A drag in progress: the note and the length it would have.
 const drag = ref<{ start: number; note: number; len: number } | null>(null)
