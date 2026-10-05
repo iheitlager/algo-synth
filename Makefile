@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web typecheck bench lint deny image serve stop clean
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench lint deny image serve stop clean
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -64,6 +64,9 @@ test-rust: ## Engine unit tests (native)
 	cargo test --locked --workspace
 test-web: install ## UI unit tests (vitest)
 	cd web && npm test
+# Line coverage of the UI (vitest, v8); the HTML report is web/coverage/index.html.
+coverage-web: install ## UI test coverage
+	cd web && npm run test:coverage
 typecheck: install ## vue-tsc over the UI
 	cd web && npm run typecheck
 # 16 Mono voices in Node's V8 against the 25% budget (plan.md); confirm with

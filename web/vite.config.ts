@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -26,4 +27,13 @@ export default defineConfig({
   // 63xx range (Makefile DEV_PORT); `make serve` uses 6340.
   server: { port: 6341, strictPort: true },
   preview: { port: 6341, strictPort: true },
+  // `npm run test:coverage` (make coverage-web): the summary prints, the HTML report goes to coverage/.
+  test: {
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.vue'],
+      exclude: ['src/**/*.test.ts'],
+      reporter: ['text-summary', 'html'],
+    },
+  },
 })
