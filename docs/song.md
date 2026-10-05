@@ -463,6 +463,8 @@ A signal is a number, or a source that runs from 0 to 1:
 | `rand` | a new random value each sixteenth |
 | `perlin` | a smooth random curve, through a new value each bar |
 | `lfo(rate)`, `lfo(rate, shape)` | a `sine` (or `saw`, `tri`, `square`) at `rate` hertz |
+| `"<300 800 1200>"` | numbers in mini-notation, one per bar |
+| `"0 0.5 1 0.5"` | numbers sharing each bar |
 
 Signals combine with `+ - * /` and brackets, and take methods:
 
@@ -503,7 +505,7 @@ frag beat = kit /16 .send1(0.3)
   bd x...x...x...x...
 frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
   "c2 c2 eb2 <g2 bb1>"
-frag plain = bass
+frag plain = bass .cutoff("<400 900>")
   "c2 ~ c2 ~"
 section a 4: beat acid
 section b 4: beat plain

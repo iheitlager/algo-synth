@@ -1746,7 +1746,7 @@ fn fragment_methods_parse_and_print() {
     let text = "track kit drums\ntrack lead synth\ntrack pad synth\n\
         frag b = kit /16 .Level(0.5)\n  bd x...\n\
         frag r = lead live  .cutoff(sine.slow(4).range(300,3000)) .resonance( 0.7 )   # acid\n  arp([c4,e4,g4],up,8)\n\
-        frag p = pad voicing .pan(lfo(0.25).range(-1, 1))\n  \"[c3,e3,g3] [f3,a3,c4]\"\n\
+        frag p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff( \"<300  800>\" )\n  \"[c3,e3,g3] [f3,a3,c4]\"\n\
         mod lead.cutoff = 900\n";
     let s = Song::parse(text).expect("parses");
     let scoped: Vec<_> = s.mods.iter().map(|m| (m.target, m.param, m.frag)).collect();
@@ -1757,6 +1757,7 @@ fn fragment_methods_parse_and_print() {
             (Target::Track(1), Param::Cutoff, Some(1)),
             (Target::Track(1), Param::Resonance, Some(1)),
             (Target::Track(2), Param::Pan, Some(2)),
+            (Target::Track(2), Param::Cutoff, Some(2)),
             (Target::Track(1), Param::Cutoff, None),
         ]
     );
@@ -1765,7 +1766,7 @@ fn fragment_methods_parse_and_print() {
     for line in [
         "frag b = kit /16 .level(0.5)\n",
         "frag r = lead live .cutoff(sine.slow(4).range(300, 3000)) .resonance(0.7) # acid\n",
-        "frag p = pad voicing .pan(lfo(0.25).range(-1, 1))\n",
+        "frag p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff(\"<300 800>\")\n",
         "\nmod lead.cutoff = 900\n",
     ] {
         assert!(printed.contains(line), "{line}in\n{printed}");

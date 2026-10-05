@@ -10,7 +10,9 @@
 //! bar), so it is deterministic and lands in the same place after a seek. The
 //! sources run from 0 to 1: `sine saw tri square` once per cycle, `rand` a new
 //! value every sixteenth, `perlin` a smooth random curve through one value per
-//! cycle, `lfo(rate, shape)` at a rate in hertz. `+ - * /` combine them;
+//! cycle, `lfo(rate, shape)` at a rate in hertz. A sequence of numbers in
+//! mini-notation is a signal too: `"<300 800 1200>"` one value per cycle,
+//! `"0 0.5 1 0.5"` the cycle shared between them. `+ - * /` combine them;
 //! `.range(a, b)` and `.exprange(a, b)` map 0..1 onto a..b, linearly or
 //! exponentially; `.slow(n)` and `.fast(n)` stretch time; `.segment(n)` holds
 //! n values per cycle; `.lag(s)` follows its input with a time constant of s
@@ -26,6 +28,8 @@ use std::fmt::{self, Write};
 pub const MAX_NODES: usize = 256;
 /// Deepest nesting of brackets and minus signs.
 const MAX_DEPTH: usize = 32;
+/// Most numbers in one sequence.
+const MAX_SEQ: usize = 64;
 /// The value `rand` takes changes this often per cycle: once a sixteenth.
 const RAND_PER_CYCLE: f64 = 16.0;
 
@@ -125,12 +129,21 @@ pub enum Node {
         secs: f32,
         slot: usize,
     },
+    /// `len` numbers from `from` in the signal's values: one per cycle
+    /// (`"<a b>"`), or sharing each cycle (`"a b"`).
+    Seq {
+        from: usize,
+        len: usize,
+        per_cycle: bool,
+    },
 }
 
 /// A compiled expression: its nodes, the last one the result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Signal {
     nodes: Vec<Node>,
+    /// The numbers of its sequences.
+    values: Vec<f32>,
 }
 
 /// What `eval` needs besides the position.
@@ -154,6 +167,7 @@ impl Signal {
             at: 0,
             end: text.chars().count() + 1,
             nodes: Vec::new(),
+            values: Vec::new(),
             base: *nodes,
             depth: 0,
         };
@@ -162,7 +176,10 @@ impl Signal {
             return Err((t.col, "unexpected text"));
         }
         *nodes += p.nodes.len();
-        Ok(Signal { nodes: p.nodes })
+        Ok(Signal {
+            nodes: p.nodes,
+            values: p.values,
+        })
     }
 
     /// The value at `t` cycles. Never allocates.
@@ -213,6 +230,19 @@ impl Signal {
             Node::Segment(a, n) => {
                 let n = f64::from(n);
                 self.at(a, (t * n).floor() / n, ctx)
+            }
+            Node::Seq {
+                from,
+                len,
+                per_cycle,
+            } => {
+                let k = if per_cycle {
+                    t.floor().rem_euclid(len as f64)
+                } else {
+                    ((t - t.floor()) * len as f64).floor()
+                };
+                let k = (k as usize).min(len.saturating_sub(1));
+                self.values.get(from + k).copied().map_or(0.0, f64::from)
             }
             Node::Lag { of, secs, slot } => {
                 let x = self.at(of, t, ctx);
@@ -286,6 +316,26 @@ impl Signal {
             Node::Fast(a, n) => method(out, a, "fast", &[n]),
             Node::Segment(a, n) => method(out, a, "segment", &[n]),
             Node::Lag { of, secs, .. } => method(out, of, "lag", &[secs]),
+            Node::Seq {
+                from,
+                len,
+                per_cycle,
+            } => {
+                let (open, close) = if per_cycle {
+                    ("\"<", ">\"")
+                } else {
+                    ("\"", "\"")
+                };
+                out.push_str(open);
+                for (k, v) in self.values.iter().skip(from).take(len).enumerate() {
+                    if k > 0 {
+                        out.push(' ');
+                    }
+                    write!(out, "{v}")?;
+                }
+                out.push_str(close);
+                Ok(())
+            }
         }
     }
 }
@@ -317,6 +367,8 @@ enum Tok<'a> {
     Num(f32),
     Word(&'a str),
     Punct(char),
+    /// The text between double quotes, and the column after the first.
+    Quote(&'a str, usize),
 }
 
 struct Token<'a> {
@@ -382,6 +434,16 @@ fn lex(text: &str) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
                 tok: Tok::Punct(c),
             });
             i += 1;
+        } else if c == '"' {
+            let j = run(i + 1, &|c| c != '"');
+            if chars.get(j).is_none() {
+                return Err((col, "this \" is not closed"));
+            }
+            out.push(Token {
+                col,
+                tok: Tok::Quote(text.get(byte_at(i + 1)..byte_at(j)).unwrap_or(""), col + 1),
+            });
+            i = j + 1;
         } else if c == '[' {
             return Err((col, "a list of channels is not supported yet"));
         } else {
@@ -397,6 +459,7 @@ struct Parser<'a, 'b> {
     /// The column just past the text, for errors at its end.
     end: usize,
     nodes: Vec<Node>,
+    values: Vec<f32>,
     /// Nodes the song had before this signal.
     base: usize,
     depth: usize,
@@ -569,6 +632,10 @@ impl<'a> Parser<'a, '_> {
                 self.depth -= 1;
                 Ok(a)
             }
+            Some(Tok::Quote(q, at)) => {
+                self.at += 1;
+                self.seq(q, at)
+            }
             Some(Tok::Word(w)) => {
                 self.at += 1;
                 if let Some(wave) = Wave::named(w) {
@@ -586,6 +653,49 @@ impl<'a> Parser<'a, '_> {
             }
             _ => Err((col, "a signal goes here, e.g. sine.range(300, 3000)")),
         }
+    }
+
+    /// `"<a b c>"` or `"a b c"`: numbers in mini-notation; `at` is the
+    /// column of the text's first char.
+    fn seq(&mut self, text: &str, at: usize) -> Res<usize> {
+        let inner = text.trim();
+        let (per_cycle, inner) = match inner.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
+            Some(t) => (true, t),
+            None => (false, inner),
+        };
+        if inner.contains(['<', '>']) {
+            return Err((at - 1, "a sequence holds numbers, e.g. \"<300 800>\""));
+        }
+        let from = self.values.len();
+        let mut start: Option<(usize, usize)> = None;
+        // Each number and its column; a space after the last ends it.
+        for (col, (b, c)) in text.char_indices().chain([(text.len(), ' ')]).enumerate() {
+            match (c.is_whitespace() || c == '<' || c == '>', start) {
+                (false, None) => start = Some((b, col)),
+                (true, Some((s, k))) => {
+                    let v = text
+                        .get(s..b)
+                        .and_then(|w| w.parse::<f32>().ok())
+                        .filter(|v| v.is_finite())
+                        .ok_or((at + k, "a sequence holds numbers, e.g. \"<300 800>\""))?;
+                    if self.values.len() - from >= MAX_SEQ {
+                        return Err((at + k, "a sequence has at most 64 numbers"));
+                    }
+                    self.values.push(v);
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        let len = self.values.len() - from;
+        if len == 0 {
+            return Err((at - 1, "a sequence holds numbers, e.g. \"<300 800>\""));
+        }
+        self.push(Node::Seq {
+            from,
+            len,
+            per_cycle,
+        })
     }
 
     /// `lfo(rate)` or `lfo(rate, shape)`.
@@ -671,6 +781,23 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_steps_per_cycle_or_within_one() {
+        let alt = sig("\"<300 800 1200>\"");
+        let vals: Vec<f32> = [0.0, 0.9, 1.5, 2.2, 3.0]
+            .iter()
+            .map(|t| val(&alt, *t))
+            .collect();
+        assert_eq!(vals, vec![300.0, 300.0, 800.0, 1200.0, 300.0]);
+        let fast = sig("\"0 0.5 1 -0.5\"");
+        let vals: Vec<f32> = [0.0, 0.3, 0.5, 0.99, 1.1]
+            .iter()
+            .map(|t| val(&fast, *t))
+            .collect();
+        assert_eq!(vals, vec![0.0, 0.5, 1.0, -0.5, 0.0]);
+        assert!(close(val(&sig("\"<1 2>\" * 100"), 1.0), 200.0));
+    }
+
+    #[test]
     fn randomness_is_seeded_and_bounded() {
         let (r, p) = (sig("rand"), sig("perlin"));
         let mut distinct = 0;
@@ -733,6 +860,8 @@ mod tests {
             ("-2.slow(2)", "-2.slow(2)"),
             ("(saw+1).lag(0.05)", "(saw + 1).lag(0.05)"),
             ("2e3", "2000"),
+            ("\" < 300  800 > \"", "\"<300 800>\""),
+            ("\"1 2\".slow(2)", "\"1 2\".slow(2)"),
         ] {
             let s = sig(text);
             assert_eq!(s.to_string(), canon, "{text}");
@@ -774,6 +903,14 @@ mod tests {
             ("sine sine", 6, "unexpected text"),
             ("sine $", 6, "a signal has no such character"),
             ("1e99", 1, "a number is too large"),
+            ("\"1 2", 1, "this \" is not closed"),
+            ("\"1 x\"", 4, "a sequence holds numbers, e.g. \"<300 800>\""),
+            ("\"\"", 1, "a sequence holds numbers, e.g. \"<300 800>\""),
+            (
+                "\"<1 <2>>\"",
+                1,
+                "a sequence holds numbers, e.g. \"<300 800>\"",
+            ),
         ] {
             let mut n = 0;
             assert_eq!(Signal::parse(text, &mut n), Err((col, msg)), "{text}");
