@@ -21,7 +21,7 @@ import { isSongFile, keepSong, lastSong, songFileName } from './songfile'
 
 const base = import.meta.env.BASE_URL
 
-/** Mono synths the engine holds (`SYNTHS` in engine.rs). */
+/** Synth slots the engine holds, each any model (`SYNTHS` in engine.rs). */
 export const MAX_SYNTHS = 16
 /** A routing choice for a MIDI part: a synth index, or MUTE. */
 export { MUTE }

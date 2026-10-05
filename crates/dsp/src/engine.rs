@@ -74,7 +74,7 @@ use crate::voice::{Owner, sine_table};
 pub const BLOCK: usize = 128;
 /// MIDI channels the player routes.
 pub const CHANNELS: usize = 16;
-/// Mono synths, each with its own parameters (plan.md MVP 5).
+/// Synth slots, each any model, with its own parameters.
 pub const SYNTHS: usize = 16;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
