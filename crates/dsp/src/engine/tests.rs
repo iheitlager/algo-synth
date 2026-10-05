@@ -2306,6 +2306,35 @@ fn a_note_fragment_plays_in_its_section_from_its_start() {
     );
 }
 
+/// #241: a slid note overlaps the next, so a legato glide patch slides to it
+/// on one gate; without the `&` the pitch jumps.
+#[test]
+fn a_slide_glides_into_the_next_note() {
+    let run = |line: &str| {
+        let mut e = Engine::new(48_000.0);
+        let text = format!("tempo 120\ntrack b synth Sh101 AcidBass\nfrag r = b\n  {line}\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let (mut rises, mut gate, mut between) = (0, false, false);
+        for _ in 0..30_000 {
+            e.render(1);
+            let v = e.voice(Owner::Track(0));
+            let g = v.is_some_and(|v| v.gated());
+            rises += usize::from(g && !gate);
+            gate = g;
+            // E1 is 28, G1 is 31: a pitch between them is a glide.
+            between |= v.is_some_and(|v| (28.5..30.5).contains(&v.pitch()));
+        }
+        (rises, between)
+    };
+    assert_eq!(
+        run("e1:8& g1:8 r:4 r:2"),
+        (1, true),
+        "slid: one gate, a glide"
+    );
+    assert!(!run("e1:8 g1:8 r:4 r:2").1, "plain: the pitch jumps");
+}
+
 #[test]
 fn a_note_lasts_its_written_length() {
     // a quarter note, then a rest: held 0 to 24000.

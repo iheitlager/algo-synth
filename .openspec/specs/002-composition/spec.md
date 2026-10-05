@@ -56,7 +56,7 @@ The engine SHALL report peak meters for the view: each synth strip after its fad
 
 ### Requirement 3: Fragments [MUST]
 
-A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error. A `sampler` track SHALL take lanes of pad names, as a drum track does, for a pad sampler, or note fragments for a multisampler, never both in one fragment; an unknown pad name SHALL be a parse error.
+A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability, `&` slides into the next note) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error. A `sampler` track SHALL take lanes of pad names, as a drum track does, for a pad sampler, or note fragments for a multisampler, never both in one fragment; an unknown pad name SHALL be a parse error.
 
 **Implementation:** drum fragments `crates/dsp/src/song.rs::Fragment` (lanes of up to 64 steps, each lane looping on its own length; `/16` steps for now), played on the clock's steps by `crates/dsp/src/engine.rs::Engine::play_step` (a hit at velocity 0.75, an accent at 1.0); pitched fragments `crates/dsp/src/notes.rs::Notes` (mini-notation and classic durations parsed, printed and compiled to events on 48 ticks to the bar, ADR-0016), held by `crates/dsp/src/song.rs::Fragment` on a `synth` track and played by `crates/dsp/src/engine.rs::Engine::play_tick` on the clock's ticks (`crates/dsp/src/clock.rs::Clock::due_sub`), with a fixed note-off table
 
@@ -65,6 +65,14 @@ A fragment SHALL be a loop of events (note or pad, velocity, start, length, prob
 - GIVEN `bd x...x...x...x...` at 120 BPM and 48 kHz
 - WHEN one bar is rendered
 - THEN the kick starts on samples 0, 24000, 48000 and 72000
+
+#### Scenario: a slide
+
+- GIVEN `"c2& e2"` on a legato synth with glide
+- WHEN it is compiled and played
+- THEN the first note is one tick longer than its share, so it is still held when the second starts, and the pitch glides to it on one gate
+
+**Tests:** `crates/dsp/src/notes/tests.rs::a_slide_runs_one_tick_into_the_next_note`, `crates/dsp/src/engine/tests.rs::a_slide_glides_into_the_next_note`
 
 #### Scenario: classic durations
 

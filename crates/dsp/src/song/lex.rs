@@ -346,7 +346,7 @@ impl Line<'_> {
                 let class = match c {
                     '~' => Some(Class::Rest),
                     '=' | ':' | '"' | '[' | ']' | '<' | '>' | '(' | ')' | ',' | '*' | '@' | '?'
-                    | '!' | '/' | '+' => Some(Class::Punct),
+                    | '&' | '!' | '/' | '+' => Some(Class::Punct),
                     _ => None,
                 };
                 if let Some(class) = class {
