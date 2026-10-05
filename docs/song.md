@@ -306,9 +306,28 @@ call gives the same notes every run.
 | `walk(c4,8,1)` | 8 notes (1 to 32) on a random walk on the song's scale, seed 1; needs a `scale` line |
 | `markov(1,riff,3)` | a chain of order 1 to 3 learned from frag `riff`, keeping its rhythm and pitches, seed 3 |
 | `mutate(riff,30,5)` | `riff` with 30 percent (0 to 100) of its notes moved or dropped, seed 5 |
+| `prog(4,7)` | 4 bars (1 to 16) of triads in the song's key, seed 7: it starts on the tonic, ends on the dominant, and moves between tonic, subdominant and dominant chords as common practice does; needs a `scale` line with seven notes |
+| `root(chords)` | the root of each chord of frag `chords`, in octave 2, as a bass line; `root(chords,3)` for another octave |
+| `arp(chords,up,16)` | frag `chords` arpeggiated chord by chord, each from its own start (a frag's name wins over a chord name) |
 
-A chord has at most 8 notes. `markov` and `mutate` read a note frag written
-above them.
+A chord has at most 8 notes. `markov`, `mutate`, `root` and `arp` over a frag
+read a note frag written above them, as it was when the song loaded: over a
+`live` frag they follow its first bar's notes.
+
+One progression can feed the pad, the bass and the arp:
+
+```song
+scale c minor
+track pad synth
+track bass synth
+track arp synth
+frag chords = pad voicing
+  prog(4,7)
+frag low = bass
+  root(chords)
+frag ripple = arp
+  arp(chords,updown,16)
+```
 
 ```song
 scale c minor
