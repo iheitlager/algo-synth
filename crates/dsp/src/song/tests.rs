@@ -1350,3 +1350,33 @@ fn a_song_without_comments_prints_as_before() {
         "tempo 100\nswing 50\ntrack k drums Tr808 Kit808\n\nfrag a = k /16\n  bd x...\n"
     );
 }
+
+/// #226: every ```song block of the reference parses, and its print parses back.
+#[test]
+fn the_song_reference_examples_parse() {
+    const DOC: &str = include_str!("../../../../docs/song.md");
+    let mut blocks = Vec::new();
+    let mut open: Option<(usize, String)> = None;
+    for (i, line) in DOC.lines().enumerate() {
+        match (&mut open, line.trim_end()) {
+            (None, "```song") => open = Some((i + 1, String::new())),
+            (Some(_), "```") => blocks.extend(open.take()),
+            (Some((_, text)), l) => {
+                text.push_str(l);
+                text.push('\n');
+            }
+            _ => {}
+        }
+    }
+    assert!(open.is_none(), "a song block is not closed");
+    assert!(blocks.len() >= 10, "{} song blocks", blocks.len());
+    for (at, text) in &blocks {
+        let s = Song::parse(text).unwrap_or_else(|e| panic!("docs/song.md:{at}: {e:?}"));
+        let printed = s.print();
+        assert_eq!(
+            Song::parse(&printed),
+            Ok(s),
+            "docs/song.md:{at}:\n{printed}"
+        );
+    }
+}
