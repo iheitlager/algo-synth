@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { exp, lin, visibleOuts } from '../audio/console'
 import { stepped } from '../audio/faceplate'
 import { fmtUnit } from '../audio/faceplate'
-import { getEngine, layout, params, status, stripName } from '../audio/engine'
+import { getEngine, layout, outText, params, status } from '../audio/engine'
 import { PAD_OUTS, scaleOf, type Control, type ModelDef } from '../audio/models'
 import type { ParamId } from '../audio/params'
 import ParamKnob from './console/ParamKnob.vue'
@@ -25,15 +25,9 @@ const props = defineProps<{ s: number; def: ModelDef }>()
 
 const val = (id: ParamId) => params.values[props.s]?.[id] ?? 0
 const send = (id: ParamId, v: number) => getEngine()?.param(props.s, id, v)
-// A pull-down names a group as the console does: its own name once renamed (#127).
-const GROUP_BASE = 16
 // A pad's Out lists the groups that exist, as a strip's does (#218).
 const optionsOf = (c: { options: readonly (readonly [string, number])[]; param: ParamId }) =>
   c.options === PAD_OUTS ? visibleOuts(c.options, layout.groups, val(c.param)) : c.options
-const optionText = (name: string) => {
-  const g = /^Group (\d)$/.exec(name)
-  return g ? stripName(GROUP_BASE + Number(g[1]) - 1) : name
-}
 
 /** The look of this faceplate: the model's colours, and the console's tokens remapped onto them. */
 const vars = computed(() => {
@@ -94,7 +88,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
                 :title="c.options[0]?.[0] === 'Master' ? 'Master: through the kit\'s own strip' : undefined"
                 @change="send(c.param, Number(($event.target as HTMLSelectElement).value))"
               >
-                <option v-for="[name, v] in optionsOf(c)" :key="v" :value="v">{{ optionText(name) }}</option>
+                <option v-for="[name, v] in optionsOf(c)" :key="v" :value="v">{{ outText(name) }}</option>
               </select>
             </label>
             <Selector

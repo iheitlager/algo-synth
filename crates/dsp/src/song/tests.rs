@@ -41,7 +41,7 @@ fn the_print_is_canonical_and_parses_back() {
     let text = s.print();
     assert_eq!(
         text,
-        "tempo 124\nswing 56\ntrack kit drums Tr808 Kit808\n\nfrag beat = kit /16\n  bd x...x...x...x...\n  sn ....X.......X..x\n  ch x.x.x.x.x.x.x.x.\n"
+        "# a comment\ntempo 124\nswing 56\ntrack kit drums Tr808 Kit808\n\nfrag beat = kit /16\n  bd x...x...x...x... # four on the floor\n  sn ....X.......X..x\n  ch x.x.x.x.x.x.x.x.\n"
     );
     assert_eq!(Song::parse(&text), Ok(s));
 }
@@ -152,7 +152,10 @@ fn limits_hold() {
 fn set_step_changes_one_step() {
     let mut s = Song::parse(BEAT).expect("parses");
     assert!(s.set_step(0, 0, 1, Step::Accent));
-    assert!(s.print().contains("  bd xX..x...x...x...\n"));
+    assert!(
+        s.print()
+            .contains("  bd xX..x...x...x... # four on the floor\n")
+    );
     assert!(!s.set_step(0, 0, 16, Step::Hit), "past the lane");
     assert!(!s.set_step(0, 3, 0, Step::Hit), "no fourth lane");
     assert!(!s.set_step(1, 0, 0, Step::Hit), "no second frag");
@@ -291,7 +294,9 @@ fn note_fragments_parse_and_print_back() {
     assert_eq!(s.frags[2].notes, None);
     let text = s.print();
     assert!(text.contains("track bass synth Minimoog MiniBass\ntrack kit drums Tr808 Kit808\n"));
-    assert!(text.contains("frag riff = bass\n  \"c4 [e4 g4] ~ <c5 d5>?\"\n"));
+    assert!(text.contains(
+        "frag riff = bass\n  \"c4 [e4 g4] ~ <c5 d5>?\" # a sharp is not a comment: c#4\n"
+    ));
     assert!(text.contains("frag line = bass\n  c#4:4 e4:8. [c4,e4,g4]:2 r:8\n"));
     assert_eq!(Song::parse(&text), Ok(s));
 }
@@ -1257,6 +1262,125 @@ fn model_and_setting_errors_say_where() {
             "a name is a letter, then letters, digits or _, and not a model's"
         ))
     );
+}
+
+// --- comments are kept (#199) -------------------------------------------------
+
+const REMARKED: &str = "\
+# Voodoo, after Gerald
+tempo 118   # not too fast
+scale a minor
+track kit drums
+# the bass
+track bass synth
+
+# the beat
+frag beat = kit /16
+  # four on the floor
+  bd x...x...x...x...
+  cp ....x.......x...   # clap on 2 and 4
+
+frag line = bass
+  # a sharp stays a sharp: c#4
+  \"a2 ~ a2 [a2 c3]\"   # root and fifth
+
+# the arrangement
+section intro 4: beat line   # four bars
+arrange intro
+# the end
+";
+
+#[test]
+fn comments_survive_print_and_parse() {
+    let s = Song::parse(REMARKED).expect("parses");
+    let text = s.print();
+    for kept in [
+        "# Voodoo, after Gerald\ntempo 118 # not too fast\n",
+        "# the bass\ntrack bass synth",
+        "# the beat\nfrag beat = kit /16\n",
+        "  # four on the floor\n  bd x...x...x...x...\n",
+        "  cp ....x.......x... # clap on 2 and 4\n",
+        "frag line = bass\n  # a sharp stays a sharp: c#4\n  \"a2 ~ a2 [a2 c3]\" # root and fifth\n",
+        "# the arrangement\nsection intro 4: beat line # four bars\n",
+    ] {
+        assert!(text.contains(kept), "{kept:?} in\n{text}");
+    }
+    assert!(text.ends_with("arrange intro\n\n# the end\n"), "{text}");
+    // Printing is stable: what is printed prints the same, and is the same song.
+    let again = Song::parse(&text).expect("parses back");
+    assert_eq!(again.print(), text);
+    assert_eq!(again, s);
+}
+
+#[test]
+fn a_comment_stays_with_its_item_through_an_edit() {
+    let mut s = Song::parse(REMARKED).expect("parses");
+    assert!(s.set_step(0, 0, 1, Step::Accent));
+    assert!(s.set_step(0, 1, 0, Step::Accent));
+    let text = s.print();
+    assert!(
+        text.contains("  # four on the floor\n  bd xX..x...x...x...\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  cp X...x.......x... # clap on 2 and 4\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_comment_whose_item_is_gone_moves_to_the_end() {
+    let with =
+        Song::parse("track k drums\nfrag a = k\n  # the kick\n  bd x...\n  sn ..x. # snare\n")
+            .expect("parses");
+    let without = Song::parse("track k drums\nfrag a = k\n  sn ..x.\n").expect("parses");
+    let text = Comments::apply(
+        &with.comments,
+        without.print().lines().map(String::from).collect(),
+        &without,
+    )
+    .join("\n");
+    assert!(text.contains("  sn ..x. # snare\n"), "{text}");
+    assert!(text.ends_with("\n\n# the kick"), "{text}");
+}
+
+#[test]
+fn a_song_without_comments_prints_as_before() {
+    let s = Song::parse("tempo 100\ntrack k drums\nfrag a = k\n  bd x...\n").expect("parses");
+    assert_eq!(
+        s.print(),
+        "tempo 100\nswing 50\ntrack k drums Tr808 Kit808\n\nfrag a = k /16\n  bd x...\n"
+    );
+}
+
+/// #226: every ```song block of the reference parses, and its print parses back.
+#[test]
+fn the_song_reference_examples_parse() {
+    const DOC: &str = include_str!("../../../../docs/song.md");
+    let mut blocks = Vec::new();
+    let mut open: Option<(usize, String)> = None;
+    for (i, line) in DOC.lines().enumerate() {
+        match (&mut open, line.trim_end()) {
+            (None, "```song") => open = Some((i + 1, String::new())),
+            (Some(_), "```") => blocks.extend(open.take()),
+            (Some((_, text)), l) => {
+                text.push_str(l);
+                text.push('\n');
+            }
+            _ => {}
+        }
+    }
+    assert!(open.is_none(), "a song block is not closed");
+    assert!(blocks.len() >= 10, "{} song blocks", blocks.len());
+    for (at, text) in &blocks {
+        let s = Song::parse(text).unwrap_or_else(|e| panic!("docs/song.md:{at}: {e:?}"));
+        let printed = s.print();
+        assert_eq!(
+            Song::parse(&printed),
+            Ok(s),
+            "docs/song.md:{at}:\n{printed}"
+        );
+    }
 }
 
 /// #103: a chord frag in the song's key, voiced, prints back as written.

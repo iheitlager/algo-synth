@@ -161,6 +161,8 @@ impl Gen {
             Gen::Mutate { amount, src, .. } => mutate(*amount, src, seed, scale, out),
         }
         out.sort_unstable_by_key(super::sort_key);
+        // Past the room reserved, a push would allocate on the audio thread (#233).
+        debug_assert!(out.len() <= self.max_events(), "{} events", out.len());
     }
 }
 

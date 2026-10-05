@@ -1271,7 +1271,7 @@ mod tests {
         assert_eq!(zone_get(0, 0, 99), 0.0);
         zones_clear(0);
         assert_eq!(zone_get(0, 5, 0), -1.0);
-        assert_eq!((pad_count(), pad_fields()), (16, 9));
+        assert_eq!((pad_count(), pad_fields()), (16, 10));
         pad_set(1, 3, 0, 2.0);
         pad_set(1, 3, 3, -0.5);
         assert_eq!(pad_get(1, 3, 0), 2.0);

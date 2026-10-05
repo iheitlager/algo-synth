@@ -699,6 +699,45 @@ fn every_edit_can_be_written_back_and_plays_the_same() {
     assert!(!events.is_empty());
 }
 
+/// #233: every call, for every seed, fits the room `max_events` reserves, so
+/// a live fragment's buffers never grow on the audio thread (ADR-0002).
+#[test]
+fn every_call_fits_the_room_it_reserves() {
+    let notes = ["c4", "e4", "g4", "b4", "d5", "f5", "a5", "c6"];
+    let mut calls = Vec::new();
+    for n in 1..=notes.len() {
+        let chord = notes.get(..n).unwrap_or(&[]).join(",");
+        for mode in ["up", "down", "updown", "random"] {
+            for rate in [2, 4, 8, 16] {
+                let seed = if mode == "random" { ",1" } else { "" };
+                calls.push(format!("arp([{chord}],{mode},{rate}{seed})"));
+            }
+        }
+    }
+    for steps in 1..=32 {
+        calls.push(format!("walk(c4,{steps},1)"));
+    }
+    for order in 1..=3 {
+        calls.push(format!("markov({order},riff,1)"));
+    }
+    for amount in [0, 25, 50, 100] {
+        calls.push(format!("mutate(riff,{amount},1)"));
+    }
+    for text in &calls {
+        let n = with_riff(text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        let Seq::Generated(call) = &n.seq else {
+            panic!("{text} is a call");
+        };
+        let mut out = Vec::with_capacity(call.max_events());
+        let room = out.capacity();
+        for seed in 0..64 {
+            call.events_into(seed, Some(&minor()), &mut out);
+            assert!(out.len() <= call.max_events(), "{text} seed {seed}");
+            assert_eq!(out.capacity(), room, "{text} seed {seed} grew its buffer");
+        }
+    }
+}
+
 // --- Chords by name (#103) -----------------------------------------------------
 
 /// The notes starting at each tick, in order of start.

@@ -4,7 +4,9 @@
 // pad's settings with its waveform. The engine holds the pads and plays them (padsampler.rs);
 // this forwards hits, files and field changes and draws what it reports (ADR-0001).
 import { computed, onMounted, ref } from 'vue'
-import { clearPads, fetchPacks, getEngine, loadKit, packs, padsOf, requestPads, sampleStore, setPad, status } from '../../audio/engine'
+import { clearPads, fetchPacks, getEngine, layout, loadKit, outText, packs, padsOf, requestPads, sampleStore, setPad, status } from '../../audio/engine'
+import { visibleOuts } from '../../audio/console'
+import { PAD_OUTS } from '../../audio/models'
 import { PadField } from '../../audio/params'
 import { PADS, PAD_FIRST_NOTE, PAD_ROWS, keyName, peakPath, type Pad } from '../../audio/sampler'
 import SampleSlots from './SampleSlots.vue'
@@ -14,6 +16,8 @@ const props = defineProps<{ s: number }>()
 const pads = computed(() => padsOf(props.s))
 const selected = ref(0)
 const pad = computed<Pad | undefined>(() => pads.value[selected.value])
+// Master, and the groups that exist (#220); a pad on a group that is gone still shows it.
+const outs = computed(() => visibleOuts(PAD_OUTS, layout.groups, pad.value?.out ?? 0))
 const sample = computed(() => (pad.value && pad.value.sample >= 0 ? (sampleStore.slots[pad.value.sample] ?? null) : null))
 const loaded = computed(() => sampleStore.slots.flatMap((info, slot) => (info ? [{ slot, info }] : [])))
 const WAVE_W = 640
@@ -104,6 +108,11 @@ const CHOKE_COLOURS = ['', '#e8554a', '#e8a33a', '#7cc46a', '#4fb3c9', '#6f86e0'
         <label>Choke <input type="number" min="0" max="8" step="1" :value="pad.choke" title="Pads of the same group cut each other off; 0 is none" @change="field(PadField.Choke, $event)" /></label>
         <label>Vel → level <input type="number" min="0" max="1" step="0.1" :value="pad.velLevel" @change="field(PadField.VelLevel, $event)" /></label>
         <label>Vel → start <input type="number" min="0" max="1" step="0.1" :value="pad.velStart" title="How much a soft hit starts later in the sample" @change="field(PadField.VelStart, $event)" /></label>
+        <label>Out
+          <select :value="pad.out" title="The sampler's own strip, or straight into a group" @change="field(PadField.Out, $event)">
+            <option v-for="[name, v] in outs" :key="v" :value="v">{{ outText(name) }}</option>
+          </select>
+        </label>
         <label class="check"><input type="checkbox" :checked="pad.oneShot" @change="setPad(s, selected, PadField.OneShot, Number(($event.target as HTMLInputElement).checked))" /> One-shot</label>
       </div>
     </div>
