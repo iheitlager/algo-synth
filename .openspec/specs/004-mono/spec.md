@@ -82,7 +82,7 @@ The voice SHALL have an ADSR and an AR envelope; the ADSR SHALL drive the VCA. E
 - WHEN the ADSR is gated, held and released offline
 - THEN each segment reaches its target within ±1 ms of its set time
 
-**Tests:** `crates/dsp/src/mono/env.rs::tests::segment_times`, `crates/dsp/src/mono/env.rs::tests::retrigger_does_not_jump`, `crates/dsp/src/mono/env.rs::tests::ar_holds_at_full_level`, `crates/dsp/src/engine.rs::tests::mono_follows_its_adsr`, `crates/dsp/src/engine.rs::tests::a_mono_tap_shorter_than_a_block_sounds`, `crates/dsp/src/engine.rs::tests::mono_sustain_moves_a_held_note`, `crates/dsp/src/mono/env.rs::tests::sustain_follows_while_held`
+**Tests:** `crates/dsp/src/mono/env.rs::tests::segment_times`, `crates/dsp/src/mono/env.rs::tests::retrigger_does_not_jump`, `crates/dsp/src/mono/env.rs::tests::ar_holds_at_full_level`, `crates/dsp/src/engine/tests.rs::mono_follows_its_adsr`, `crates/dsp/src/engine/tests.rs::a_mono_tap_shorter_than_a_block_sounds`, `crates/dsp/src/engine/tests.rs::mono_sustain_moves_a_held_note`, `crates/dsp/src/mono/env.rs::tests::sustain_follows_while_held`
 
 ### Requirement 5: LFO and sample-and-hold [MUST]
 
@@ -128,7 +128,7 @@ Each owner (live input, and each MIDI channel of the player) SHALL have one mono
 - WHEN each plays a note
 - THEN three Mono voices sound, and a note off on one leaves the others gated
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::priority_falls_back_on_release`, `crates/dsp/src/mono/voice.rs::tests::legato_keeps_the_envelope`, `crates/dsp/src/mono/voice.rs::tests::glide_time`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`, `crates/dsp/src/mono/voice.rs::tests::tune_is_heard_within_a_cent`, `crates/dsp/src/mono/voice.rs::tests::a_full_key_stack_forgets_the_oldest`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::priority_falls_back_on_release`, `crates/dsp/src/mono/voice.rs::tests::legato_keeps_the_envelope`, `crates/dsp/src/mono/voice.rs::tests::glide_time`, `crates/dsp/src/engine/tests.rs::mono_owners_are_independent`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`, `crates/dsp/src/mono/voice.rs::tests::tune_is_heard_within_a_cent`, `crates/dsp/src/mono/voice.rs::tests::a_full_key_stack_forgets_the_oldest`
 
 ### Requirement 7: Normalled routing and patches [MUST]
 
@@ -204,7 +204,7 @@ The engine SHALL hold 16 Mono synths, allocated in `Engine::new`, each with its 
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::synths_have_their_own_parameters`, `crates/dsp/src/engine.rs::tests::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine.rs::tests::master_gain_is_global`, `crates/dsp/src/engine.rs::tests::unknown_synths_are_ignored`, `crates/dsp/src/engine.rs::tests::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine.rs::tests::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine.rs::tests::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine.rs::tests::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
+**Tests:** `crates/dsp/src/engine/tests.rs::synths_have_their_own_parameters`, `crates/dsp/src/engine/tests.rs::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine/tests.rs::master_gain_is_global`, `crates/dsp/src/engine/tests.rs::unknown_synths_are_ignored`, `crates/dsp/src/engine/tests.rs::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine/tests.rs::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine/tests.rs::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine/tests.rs::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
 
 ### Requirement 11: Drive insert [SHOULD]
 
@@ -218,7 +218,7 @@ Drive SHALL be an insert type of a strip's insert slots (spec 002 Req 2, ADR-001
 - WHEN the drive goes up
 - THEN its harmonics grow, and a 4.7 kHz sine at full drive keeps the alias at 19.8 kHz below 1% of the fundamental
 
-**Tests:** `crates/dsp/src/fx/drive.rs::tests::off_is_bit_exact`, `crates/dsp/src/fx/drive.rs::tests::every_mode_is_finite_and_bounded_for_any_input`, `crates/dsp/src/fx/drive.rs::tests::more_drive_means_more_harmonics`, `crates/dsp/src/fx/drive.rs::tests::a_high_sine_at_full_drive_keeps_its_aliases_low`, `crates/dsp/src/engine.rs::tests::drive_shapes_the_synth_bus_only`
+**Tests:** `crates/dsp/src/fx/drive.rs::tests::off_is_bit_exact`, `crates/dsp/src/fx/drive.rs::tests::every_mode_is_finite_and_bounded_for_any_input`, `crates/dsp/src/fx/drive.rs::tests::more_drive_means_more_harmonics`, `crates/dsp/src/fx/drive.rs::tests::a_high_sine_at_full_drive_keeps_its_aliases_low`, `crates/dsp/src/engine/tests.rs::drive_shapes_the_synth_bus_only`
 
 ### Requirement 12: Filter envelope [MUST]
 

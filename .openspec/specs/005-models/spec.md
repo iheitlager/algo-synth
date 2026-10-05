@@ -22,7 +22,7 @@ Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`,
 - WHEN a note across the keyboard is held and released
 - THEN every sample is finite and bounded, and the voice falls silent after its release
 
-**Tests:** `crates/dsp/src/mono/model.rs::tests::ids_round_trip`, `crates/dsp/src/engine.rs::tests::models_are_per_synth`, `crates/dsp/src/engine.rs::tests::models_sound_different`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_preset_sets_its_model`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
+**Tests:** `crates/dsp/src/mono/model.rs::tests::ids_round_trip`, `crates/dsp/src/engine/tests.rs::models_are_per_synth`, `crates/dsp/src/engine/tests.rs::models_sound_different`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_preset_sets_its_model`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
 
 ### Requirement 2: ARP 2600 [MUST]
 
@@ -146,7 +146,7 @@ Sixteen synths across all the models SHALL render within the performance budget 
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `all models` and `family worst`, 5.5% and 6.6% of a core on an Apple M4 Pro with seven models, the flexible mixer and effects)
+**Tests:** `crates/dsp/src/engine/tests.rs::sixteen_synths_of_every_model_play_together`, `make bench` (scenarios `all models` and `family worst`, 5.5% and 6.6% of a core on an Apple M4 Pro with seven models, the flexible mixer and effects)
 
 ### Requirement 10: ARP Odyssey [MUST]
 

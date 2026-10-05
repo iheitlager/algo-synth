@@ -22,7 +22,7 @@ Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a
 - WHEN the channel releases a note the live keys also hold
 - THEN only the channel's voice is released
 
-**Tests:** `crates/dsp/src/poly.rs::tests::a_chord_sounds_one_voice_per_note_and_releases_its_own`, `crates/dsp/src/poly.rs::tests::a_monophonic_synth_keeps_one_voice_per_owner`, `crates/dsp/src/poly.rs::tests::owners_do_not_release_each_other`, `crates/dsp/src/engine.rs::tests::a_poly_synth_plays_chords_from_live_keys_and_a_channel`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
+**Tests:** `crates/dsp/src/poly.rs::tests::a_chord_sounds_one_voice_per_note_and_releases_its_own`, `crates/dsp/src/poly.rs::tests::a_monophonic_synth_keeps_one_voice_per_owner`, `crates/dsp/src/poly.rs::tests::owners_do_not_release_each_other`, `crates/dsp/src/engine/tests.rs::a_poly_synth_plays_chords_from_live_keys_and_a_channel`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
 
 ### Requirement 2: Allocation and stealing [MUST]
 
@@ -78,7 +78,7 @@ At most 64 voices SHALL sound at once across all synths; a note past it SHALL st
 - WHEN the chords are held
 - THEN no more than 64 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine.rs::tests::the_voice_budget_caps_the_voices_across_synths`, `crates/dsp/src/engine.rs::tests::a_note_at_the_budget_takes_a_released_voice_first`
+**Tests:** `crates/dsp/src/engine/tests.rs::the_voice_budget_caps_the_voices_across_synths`, `crates/dsp/src/engine/tests.rs::a_note_at_the_budget_takes_a_released_voice_first`
 
 ### Requirement 6: Prophet-5 [MUST]
 
@@ -92,7 +92,7 @@ The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A 
 - WHEN they are pressed
 - THEN five voices sound and the sixth steals one
 
-**Tests:** `crates/dsp/src/engine.rs::tests::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine.rs::tests::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
+**Tests:** `crates/dsp/src/engine/tests.rs::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine/tests.rs::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
 
 ### Requirement 7: Juno-106 [MUST]
 
@@ -106,7 +106,7 @@ The Juno-106 SHALL have 6 voices of one DCO (saw and pulse with pulse-width modu
 - WHEN left and right are compared
 - THEN off is identical on both sides and the chorus makes them differ
 
-**Tests:** `crates/dsp/src/fx/ensemble.rs::tests::off_is_identical_on_both_sides_and_the_chorus_widens`, `crates/dsp/src/fx/ensemble.rs::tests::every_mode_stays_bounded_and_keeps_the_level`, `crates/dsp/src/fx/ensemble.rs::tests::the_modes_sweep_at_their_own_rates`, `crates/dsp/src/engine.rs::tests::the_juno_chorus_makes_the_two_sides_differ`, `crates/dsp/src/engine.rs::tests::the_juno_106_has_six_voices`, `crates/dsp/src/mono/voice.rs::tests::juno_high_pass_steps_thin_the_bass`, `crates/dsp/src/mono/voice.rs::tests::sh101_saw_and_pulse_add_up`
+**Tests:** `crates/dsp/src/fx/ensemble.rs::tests::off_is_identical_on_both_sides_and_the_chorus_widens`, `crates/dsp/src/fx/ensemble.rs::tests::every_mode_stays_bounded_and_keeps_the_level`, `crates/dsp/src/fx/ensemble.rs::tests::the_modes_sweep_at_their_own_rates`, `crates/dsp/src/engine/tests.rs::the_juno_chorus_makes_the_two_sides_differ`, `crates/dsp/src/engine/tests.rs::the_juno_106_has_six_voices`, `crates/dsp/src/mono/voice.rs::tests::juno_high_pass_steps_thin_the_bass`, `crates/dsp/src/mono/voice.rs::tests::sh101_saw_and_pulse_add_up`
 
 ### Requirement 8: Jupiter-8 [MUST]
 
@@ -120,7 +120,7 @@ The Jupiter-8 SHALL have 8 voices of two VCOs (VCO 2 synced to VCO 1) with cross
 - WHEN the response is measured two and three octaves above the cutoff
 - THEN it falls by about 12 and 24 dB per octave
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::jupiter_slope_switch_is_12_or_24_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::cross_mod_moves_vco1_from_vco2`, `crates/dsp/src/engine.rs::tests::the_jupiter_8_has_eight_voices`, `crates/dsp/src/mono/model.rs::tests::only_the_jupiter_has_a_slope_switch`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::jupiter_slope_switch_is_12_or_24_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::cross_mod_moves_vco1_from_vco2`, `crates/dsp/src/engine/tests.rs::the_jupiter_8_has_eight_voices`, `crates/dsp/src/mono/model.rs::tests::only_the_jupiter_has_a_slope_switch`
 
 ### Requirement 9: Matrix-12 [MUST]
 
@@ -134,7 +134,7 @@ The Matrix-12 SHALL have 12 voices of two oscillators with sync, a filter with a
 - WHEN a note is held
 - THEN each destination receives the sum of its slots
 
-**Tests:** `crates/dsp/src/mono/patch.rs::tests::twenty_slots_add_up_per_destination`, `crates/dsp/src/mono/voice.rs::tests::the_ramp_runs_over_its_time_and_restarts`, `crates/dsp/src/mono/voice.rs::tests::the_second_lfo_moves_what_it_is_patched_to`, `crates/dsp/src/engine.rs::tests::the_matrix_12_has_twelve_voices`
+**Tests:** `crates/dsp/src/mono/patch.rs::tests::twenty_slots_add_up_per_destination`, `crates/dsp/src/mono/voice.rs::tests::the_ramp_runs_over_its_time_and_restarts`, `crates/dsp/src/mono/voice.rs::tests::the_second_lfo_moves_what_it_is_patched_to`, `crates/dsp/src/engine/tests.rs::the_matrix_12_has_twelve_voices`
 
 ### Requirement 10: Table oscillator [MUST]
 
@@ -162,7 +162,7 @@ The PPG Wave SHALL have 8 voices of two wavetable oscillators whose wave positio
 - WHEN a note is held
 - THEN the spectrum changes over the envelope
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::ppg_envelope_sweeps_the_wave_position`, `crates/dsp/src/mono/voice.rs::tests::only_the_ppg_reads_wavetables`, `crates/dsp/src/engine.rs::tests::the_ppg_wave_has_eight_voices`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::ppg_envelope_sweeps_the_wave_position`, `crates/dsp/src/mono/voice.rs::tests::only_the_ppg_reads_wavetables`, `crates/dsp/src/engine/tests.rs::the_ppg_wave_has_eight_voices`
 
 ### Requirement 12: Roland D-50 [MUST]
 
@@ -176,7 +176,7 @@ The D-50 SHALL have 16 voices of two partials, each a synthesised oscillator (sa
 - WHEN a note is held
 - THEN the transient sounds in the first tens of milliseconds and the body carries on
 
-**Tests:** `crates/dsp/src/engine.rs::tests::the_d50_attack_sounds_first_and_the_body_carries_on`, `crates/dsp/src/engine.rs::tests::the_d50_partials_add_ring_and_sync`, `crates/dsp/src/engine.rs::tests::the_d50_has_sixteen_voices`, `crates/dsp/src/engine.rs::tests::a_model_change_replaces_the_voices`, `crates/dsp/src/la.rs::tests::a_voice_is_idle_until_pressed`
+**Tests:** `crates/dsp/src/engine/tests.rs::the_d50_attack_sounds_first_and_the_body_carries_on`, `crates/dsp/src/engine/tests.rs::the_d50_partials_add_ring_and_sync`, `crates/dsp/src/engine/tests.rs::the_d50_has_sixteen_voices`, `crates/dsp/src/engine/tests.rs::a_model_change_replaces_the_voices`, `crates/dsp/src/la.rs::tests::a_voice_is_idle_until_pressed`
 
 ### Requirement 13: FM voice and DX7 [MUST]
 
@@ -190,7 +190,7 @@ The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or
 - WHEN a note renders
 - THEN the carriers sound at the played pitch, and the modulators add partials only through their routes
 
-**Tests:** `crates/dsp/src/fm.rs::tests::a_carrier_sounds_at_the_played_pitch`, `crates/dsp/src/fm.rs::tests::modulators_add_partials_only_through_their_routes`, `crates/dsp/src/fm.rs::tests::feedback_adds_harmonics_to_operator_6`, `crates/dsp/src/fm.rs::tests::every_algorithm_stays_bounded_at_full_modulation`, `crates/dsp/src/fm.rs::tests::velocity_sensitivity_shapes_the_level`, `crates/dsp/src/fm.rs::tests::a_released_voice_falls_silent_and_ends`, `crates/dsp/src/fm.rs::tests::the_pitch_envelope_bends_the_note`, `crates/dsp/src/fm.rs::tests::key_scaling_follows_the_curves`, `crates/dsp/src/fm/envelope.rs::tests::decay_rates_follow_the_hardware`, `crates/dsp/src/fm/algorithms.rs::tests::every_algorithm_is_a_sound_routing`, `crates/dsp/src/fm/algorithms.rs::tests::the_typescript_copy_matches`, `crates/dsp/src/engine.rs::tests::the_dx7_has_sixteen_voices`, `web/src/audio/dx7.test.ts`
+**Tests:** `crates/dsp/src/fm.rs::tests::a_carrier_sounds_at_the_played_pitch`, `crates/dsp/src/fm.rs::tests::modulators_add_partials_only_through_their_routes`, `crates/dsp/src/fm.rs::tests::feedback_adds_harmonics_to_operator_6`, `crates/dsp/src/fm.rs::tests::every_algorithm_stays_bounded_at_full_modulation`, `crates/dsp/src/fm.rs::tests::velocity_sensitivity_shapes_the_level`, `crates/dsp/src/fm.rs::tests::a_released_voice_falls_silent_and_ends`, `crates/dsp/src/fm.rs::tests::the_pitch_envelope_bends_the_note`, `crates/dsp/src/fm.rs::tests::key_scaling_follows_the_curves`, `crates/dsp/src/fm/envelope.rs::tests::decay_rates_follow_the_hardware`, `crates/dsp/src/fm/algorithms.rs::tests::every_algorithm_is_a_sound_routing`, `crates/dsp/src/fm/algorithms.rs::tests::the_typescript_copy_matches`, `crates/dsp/src/engine/tests.rs::the_dx7_has_sixteen_voices`, `web/src/audio/dx7.test.ts`
 
 ### Requirement 14: DX7 SysEx import [SHOULD]
 
@@ -204,7 +204,7 @@ The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (pac
 - WHEN they are parsed
 - THEN the first yields 32 voices and the second an error without panic
 
-**Tests:** `crates/dsp/src/fm/sysex.rs::tests::a_bank_and_a_single_voice_are_read`, `crates/dsp/src/fm/sysex.rs::tests::bad_input_is_an_error_not_a_panic`, `crates/dsp/src/engine.rs::tests::a_sysex_voice_sets_the_dx7_parameters`
+**Tests:** `crates/dsp/src/fm/sysex.rs::tests::a_bank_and_a_single_voice_are_read`, `crates/dsp/src/fm/sysex.rs::tests::bad_input_is_an_error_not_a_panic`, `crates/dsp/src/engine/tests.rs::a_sysex_voice_sets_the_dx7_parameters`
 
 ### Requirement 15: Polyphonic budget [MUST]
 
@@ -232,4 +232,4 @@ The Polymoog model SHALL play sixteen voices, each with its own resonant filter 
 - WHEN the filter envelope falls from its peak to its sustain
 - THEN the most prominent harmonic stands out by several dB and moves down
 
-**Tests:** `crates/dsp/src/engine.rs::tests::the_polymoog_has_sixteen_voices`, `crates/dsp/src/engine.rs::tests::the_vox_humana_resonance_peak_follows_the_filter_envelope`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`
+**Tests:** `crates/dsp/src/engine/tests.rs::the_polymoog_has_sixteen_voices`, `crates/dsp/src/engine/tests.rs::the_vox_humana_resonance_peak_follows_the_filter_envelope`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`
