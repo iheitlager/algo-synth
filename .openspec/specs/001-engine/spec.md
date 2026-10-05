@@ -34,7 +34,7 @@ The engine SHALL compile to a `wasm32-unknown-unknown` module with no imports, e
 - WHEN `render(64)` is called
 - THEN samples 64..128 of each channel are zero
 
-**Tests:** `crates/dsp/src/engine.rs::tests::short_blocks_leave_the_tail_silent`
+**Tests:** `crates/dsp/src/engine/tests.rs::short_blocks_leave_the_tail_silent`
 
 ### Requirement 3: Voice allocation [MUST]
 
@@ -54,7 +54,7 @@ Each owner (live input, each MIDI channel) SHALL have its own monophonic Mono vo
 - WHEN channel 3's note is released
 - THEN the live and channel 4 voices stay gated
 
-**Tests:** `crates/dsp/src/engine.rs::tests::mono_follows_its_adsr`, `crates/dsp/src/engine.rs::tests::mono_owners_are_independent`
+**Tests:** `crates/dsp/src/engine/tests.rs::mono_follows_its_adsr`, `crates/dsp/src/engine/tests.rs::mono_owners_are_independent`
 
 ### Requirement 4: Bounded, finite output [MUST]
 
@@ -68,7 +68,7 @@ Output SHALL be finite and bounded by the voice count times the master gain, wha
 - WHEN a block is rendered
 - THEN every sample is finite and within ±16
 
-**Tests:** `crates/dsp/src/engine.rs::tests::output_stays_finite_and_bounded_when_the_pool_is_full`, `crates/dsp/src/params.rs::tests::clamp_rejects_nan_and_out_of_range`, `crates/dsp/src/engine.rs::tests::bad_sample_rate_falls_back`
+**Tests:** `crates/dsp/src/engine/tests.rs::output_stays_finite_and_bounded_when_the_pool_is_full`, `crates/dsp/src/params.rs::tests::clamp_rejects_nan_and_out_of_range`, `crates/dsp/src/engine/tests.rs::bad_sample_rate_falls_back`
 
 ### Requirement 5: No allocation or panic in render [MUST]
 
@@ -92,4 +92,4 @@ MIDI note *n* SHALL sound at 440 · 2^((n − 69)/12) Hz.
 
 **Implementation:** `crates/dsp/src/engine.rs::midi_to_hz`
 
-**Tests:** `crates/dsp/src/engine.rs::tests::a4_is_440`
+**Tests:** `crates/dsp/src/engine/tests.rs::a4_is_440`
