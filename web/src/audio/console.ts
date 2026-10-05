@@ -245,6 +245,19 @@ export const outChoices = (strip: number, shownGroups: number[]) => [
   { out: OUT_NONE, label: 'None' },
 ]
 
+/** The group (0–7) an `Out` names: only 1–8 are groups, master (0) and None (9) are not. */
+export const outGroup = (out: number) => (out >= 1 && out <= GROUPS ? out - 1 : -1)
+
+/** `outChoices` with each group under its own name; Master and None keep their words (#217). */
+export const namedOuts = (strip: number, shownGroups: number[], name: (strip: number) => string) =>
+  outChoices(strip, shownGroups).map((o) => (outGroup(o.out) >= 0 ? { ...o, label: name(groupStrip(outGroup(o.out))) } : o))
+
+/** The coloured tag under a strip's tape: the group it feeds, none for master or None. */
+export const feedsTag = (out: number, name: (strip: number) => string) => {
+  const g = outGroup(out)
+  return g >= 0 ? { label: name(groupStrip(g)), color: groupColour(g) } : undefined
+}
+
 /** What a strip's routing and solo state is, as the engine reports it. */
 export interface StripState {
   mute: boolean

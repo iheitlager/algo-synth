@@ -5,7 +5,7 @@
 // The view only sends values and draws what the engine reports; the order,
 // collapsed and hidden strips are layout and live in the setup file.
 import { computed } from 'vue'
-import { GROUPS, groupColour, groupStrip, heardStrips, orderStrips, outChoices, STRIPS } from '../audio/console'
+import { feedsTag, GROUPS, groupColour, groupStrip, heardStrips, namedOuts, orderStrips, STRIPS } from '../audio/console'
 import { addGroup, layout, moveStrip, params, player, removeGroup, renameSynth, setOut, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { Model, Pad, Param, type ParamId } from '../audio/params'
@@ -51,8 +51,8 @@ const strips = computed(() =>
       color: group ? groupColour(g) : synthColour(id),
       footer: group ? `${members(g)} in` : channels.length ? `Ch ${channels.join('·')}` : '—',
       silenced: !heard.value[id],
-      outs: outChoices(id, layout.groups).map((o) => (o.out > 0 ? { ...o, label: name(groupStrip(o.out - 1)) } : o)),
-      feeds: out > 0 ? { label: name(groupStrip(out - 1)), color: groupColour(out - 1) } : undefined,
+      outs: namedOuts(id, layout.groups, name),
+      feeds: feedsTag(out, name),
       collapsed: layout.collapsed.includes(id),
       g,
     }
