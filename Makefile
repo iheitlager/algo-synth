@@ -84,6 +84,9 @@ deny: ## cargo-deny checks
 
 ##@ Container
 
+# The commit goes in as ALGO_BUILD_SHA, declared after the source copies in
+# Containerfile, so a new commit rebuilds the wasm and the page instead of
+# reusing a cached layer from older sources (#198); no --no-cache needed.
 image: ## Build the Podman image
 	podman build --build-arg ALGO_BUILD_SHA=$(SHA) -t $(IMAGE) -f Containerfile .
 # Localhost is a secure context, so AudioWorklet works without TLS.
