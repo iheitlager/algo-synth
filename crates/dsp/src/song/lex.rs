@@ -43,8 +43,9 @@ pub struct Span {
     pub class: Class,
 }
 
-const KEYWORDS: [&str; 10] = [
-    "tempo", "swing", "scale", "track", "frag", "section", "arrange", "loop", "auto", "scene",
+const KEYWORDS: [&str; 11] = [
+    "tempo", "swing", "scale", "setting", "track", "frag", "section", "arrange", "loop", "auto",
+    "scene",
 ];
 const WORDS: [&str; 6] = ["live", "bars", "ramp", "drums", "synth", "sampler"];
 
@@ -334,6 +335,7 @@ frag beat = kit /16
   ch euclid(3,8)
 frag riff = lead
   \"c4 [e4 g4] ~ <c5 f#3>*2\"
+setting nile = Minimoog MiniLead: Cutoff 1200
 auto sweep = kit.Cutoff ramp 300 4000 /8
 scene drop: strip1.Mute 1, master.P2Return 0.4
 section main 8: beat riff sweep [drop]
@@ -345,7 +347,7 @@ arrange main main
         let k = of(SONG, Class::Keyword);
         for w in [
             "tempo", "track", "drums", "synth", "frag", "auto", "ramp", "scene", "section",
-            "arrange",
+            "arrange", "setting",
         ] {
             assert!(k.contains(&w.to_string()), "{w} is a keyword: {k:?}");
         }
