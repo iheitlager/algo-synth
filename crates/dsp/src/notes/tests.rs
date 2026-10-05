@@ -723,6 +723,17 @@ fn every_call_fits_the_room_it_reserves() {
     for amount in [0, 25, 50, 100] {
         calls.push(format!("mutate(riff,{amount},1)"));
     }
+    // #103: progressions and what they feed.
+    for bars in 1..=16 {
+        calls.push(format!("prog({bars},1)"));
+    }
+    calls.push("root(riff)".to_string());
+    for mode in ["up", "down", "updown", "random"] {
+        for rate in [2, 4, 8, 16] {
+            let seed = if mode == "random" { ",1" } else { "" };
+            calls.push(format!("arp(riff,{mode},{rate}{seed})"));
+        }
+    }
     for text in &calls {
         let n = with_riff(text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
         let Seq::Generated(call) = &n.seq else {
@@ -953,4 +964,133 @@ fn an_arp_takes_a_chord_by_name() {
     let n = parse_in("arp(VI,down,8)", 1, Some(&k)).unwrap();
     assert_eq!(n.events.first().map(|e| e.note), Some(75));
     assert_eq!(n.print(), "arp([g#4,c5,d#5],down,8)");
+}
+
+// --- Progressions feed other parts (#103) --------------------------------------
+
+/// A line read with frag `prog` (Cm Ab Eb Bb, a bar each) in scope, in C minor.
+fn with_prog(text: &str) -> Result<Notes, NoteError> {
+    let prog = parse_in("\"<i VI III VII>\"", 1, Some(&minor())).unwrap();
+    parse_with(text, 1, Some(&minor()), &|name| {
+        (name == "prog").then(|| (prog.events.clone(), prog.bars))
+    })
+}
+
+#[test]
+fn root_plays_the_bass_of_each_chord() {
+    let n = with_prog("root(prog)").unwrap();
+    assert_eq!(n.bars, 4);
+    let got: Vec<(u32, u32, u8)> = n.events.iter().map(|e| (e.start, e.len, e.note)).collect();
+    // C2, Ab2, Eb2, Bb2, a whole bar each.
+    assert_eq!(
+        got,
+        [(0, 48, 36), (48, 48, 44), (96, 48, 39), (144, 48, 46)]
+    );
+    let up = with_prog("root(prog,3)").unwrap();
+    assert_eq!(up.events[0].note, 48);
+    for text in ["root(prog)", "root(prog,3)"] {
+        assert_eq!(with_prog(text).unwrap().print(), text);
+    }
+}
+
+#[test]
+fn an_arp_over_a_progression_follows_its_chords() {
+    let n = with_prog("arp(prog,up,4)").unwrap();
+    assert_eq!(n.bars, 4);
+    assert_eq!(
+        pitches(&n),
+        [
+            60, 63, 67, 60, 68, 72, 75, 68, 63, 67, 70, 63, 70, 74, 77, 70
+        ],
+        "each chord from its bottom, a quarter a note"
+    );
+    for text in ["arp(prog,updown,16)", "arp(prog,random,8,3)"] {
+        let a = with_prog(text).unwrap();
+        assert_eq!(a.print(), text);
+        if let Seq::Generated(g) = &a.seq {
+            assert!(a.events.len() <= g.max_events());
+        }
+    }
+    // A chord by name still works where no frag has the name.
+    assert_eq!(
+        pitches(&with_prog("arp(c:m,up,4)").unwrap()),
+        [60, 63, 67, 60]
+    );
+}
+
+#[test]
+fn a_prog_walks_the_functions_from_tonic_to_dominant() {
+    for seed in 0..50 {
+        let text = format!("prog(8,{seed})");
+        let n = parse_in(&text, 1, Some(&minor())).unwrap();
+        assert_eq!((n.bars, n.events.len(), n.print()), (8, 24, text.clone()));
+        let chords: Vec<Vec<u8>> = (0..8)
+            .map(|b| {
+                let mut c: Vec<u8> = n
+                    .events
+                    .iter()
+                    .filter(|e| e.start == b * 48)
+                    .map(|e| e.note)
+                    .collect();
+                c.sort_unstable();
+                c
+            })
+            .collect();
+        assert_eq!(chords[0], [60, 63, 67], "seed {seed}: starts on i");
+        assert_eq!(chords[7], [67, 70, 74], "seed {seed}: ends on v");
+        // Every chord is a triad of the scale.
+        let scale = [0u8, 2, 3, 5, 7, 8, 10];
+        assert!(
+            chords.iter().flatten().all(|n| scale.contains(&(n % 12))),
+            "seed {seed}"
+        );
+        assert_eq!(
+            parse_in(&text, 1, Some(&minor())).unwrap(),
+            n,
+            "deterministic"
+        );
+    }
+    let a = parse_in("prog(8,1)", 1, Some(&minor())).unwrap();
+    let b = parse_in("prog(8,2)", 1, Some(&minor())).unwrap();
+    assert_ne!(a.events, b.events, "the seed changes the progression");
+}
+
+#[test]
+fn progression_errors_say_where() {
+    for (text, col, msg) in [
+        (
+            "root(nope)",
+            6,
+            "no note frag with this name comes before this one",
+        ),
+        ("root(prog,9)", 11, "an octave is 0 to 7"),
+        (
+            "root()",
+            6,
+            "no note frag with this name comes before this one",
+        ),
+        (
+            "root(prog,2,1)",
+            1,
+            "root takes a frag and maybe an octave: root(prog) or root(prog,3)",
+        ),
+        ("prog(0,1)", 6, "a prog is 1 to 16 bars"),
+        ("prog(17,1)", 6, "a prog is 1 to 16 bars"),
+        (
+            "prog(4)",
+            1,
+            "prog takes a number of bars and a seed: prog(4,7)",
+        ),
+    ] {
+        let e = with_prog(text).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+    let e = parse("prog(4,1)", 1).unwrap_err();
+    assert_eq!(
+        (e.col, e.msg),
+        (
+            1,
+            "a prog needs a scale line with seven notes, as scale c minor"
+        )
+    );
 }

@@ -500,7 +500,7 @@ impl Song {
                     if live && !matches!(n.seq, notes::Seq::Generated(_)) {
                         return Err(err(
                             first.col,
-                            "a live frag is a call: arp, walk, markov or mutate",
+                            "a live frag is a call: arp, walk, markov, mutate, root or prog",
                         ));
                     }
                     let frag = song
@@ -1645,7 +1645,12 @@ fn role(song: &Song, t: usize) -> Role {
         .filter(|f| f.track == t)
         .filter_map(|f| f.notes.as_ref())
         .collect();
-    let arp = |n: &&Notes| matches!(n.seq, notes::Seq::Generated(notes::Gen::Arp { .. }));
+    let arp = |n: &&Notes| {
+        matches!(
+            n.seq,
+            notes::Seq::Generated(notes::Gen::Arp { .. } | notes::Gen::ArpProg { .. })
+        )
+    };
     if !notes.is_empty() && notes.iter().all(arp) {
         return Role::Arp;
     }

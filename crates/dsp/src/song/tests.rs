@@ -588,13 +588,13 @@ fn live_errors_say_where() {
             "track t synth\nfrag a = t live\n  c4:4",
             3,
             3,
-            "a live frag is a call: arp, walk, markov or mutate",
+            "a live frag is a call: arp, walk, markov, mutate, root or prog",
         ),
         (
             "track t synth\nfrag a = t live\n  euclid(3,8) c4",
             3,
             3,
-            "a live frag is a call: arp, walk, markov or mutate",
+            "a live frag is a call: arp, walk, markov, mutate, root or prog",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -1429,5 +1429,42 @@ fn voicing_errors_say_where() {
             Err(SongError { line, col, msg }),
             "{text}"
         );
+    }
+}
+
+/// #103: one progression feeds the pad, the bass and the arp, and each track
+/// picks a synth for its role.
+#[test]
+fn a_progression_feeds_pad_bass_and_arp() {
+    let text = "scale c minor\ntrack pad synth\ntrack bass synth\ntrack arp synth\n\n\
+                frag chords = pad voicing\n  prog(4,7)\n\
+                frag low = bass\n  root(chords)\n\
+                frag ripple = arp\n  arp(chords,updown,16)\n";
+    let s = Song::parse(text).expect("parses");
+    let printed = s.print();
+    for line in [
+        "  prog(4,7)",
+        "  root(chords)",
+        "  arp(chords,updown,16)",
+        "frag chords = pad",
+    ] {
+        assert!(printed.contains(line), "{line} in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let bars: Vec<u32> = s
+        .frags
+        .iter()
+        .map(|f| f.notes.as_ref().unwrap().bars)
+        .collect();
+    assert_eq!(bars, [4, 4, 4]);
+    // The bass plays the roots of the voiced chords: the same pitch classes.
+    let chords = &s.frags[0].notes.as_ref().unwrap().events;
+    for e in &s.frags[1].notes.as_ref().unwrap().events {
+        assert!(
+            chords
+                .iter()
+                .any(|c| c.start == e.start && c.note % 12 == e.note % 12)
+        );
+        assert!(e.note < 48, "below C3");
     }
 }
