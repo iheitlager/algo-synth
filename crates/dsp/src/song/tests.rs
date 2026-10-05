@@ -122,7 +122,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -923,6 +923,16 @@ fn automation_and_scenes_parse_and_print() {
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
+/// ADR-0019: a parameter is named in any case, as `kit.cutoff` or
+/// `kit.Cutoff`, and prints by its registry name.
+#[test]
+fn a_parameter_name_is_read_in_any_case() {
+    let lower = AUTOMATED
+        .replace("kit.Cutoff", "kit.cutoff")
+        .replace("master.P2Return 0.4", "master.p2return 0.4");
+    assert_eq!(Song::parse(&lower), Song::parse(AUTOMATED));
+}
+
 #[test]
 fn a_lane_steps_or_ramps_over_its_length_and_loops() {
     let s = Song::parse(AUTOMATED).expect("parses");
@@ -1645,4 +1655,173 @@ fn a_comment_on_the_master_line_stays_with_it() {
         "{}",
         changed.print()
     );
+}
+
+/// ADR-0019: `mod target.param = signal` parses, holds its target and
+/// parameter, and prints canonically, the parameter in lower case.
+#[test]
+fn a_mod_line_parses_and_prints() {
+    let text = "track kit drums\nfrag b = kit\n  bd x\n\
+        mod kit.Cutoff = sine.range(300,3000).slow(4)   # sweep\n\
+        mod master.p2return = lfo(0.2, saw).range(0, 0.5) + perlin * 0.1\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.mods.len(), 2);
+    assert_eq!(
+        (s.mods[0].target, s.mods[0].param),
+        (Target::Track(0), Param::Cutoff)
+    );
+    assert_eq!(
+        (s.mods[1].target, s.mods[1].param),
+        (Target::Master, Param::P2Return)
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("\nmod kit.cutoff = sine.range(300, 3000).slow(4) # sweep\n"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("\nmod master.p2return = lfo(0.2, saw).range(0, 0.5) + perlin * 0.1\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn mod_errors_say_where() {
+    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    for (line, col, msg) in [
+        ("mod", 4, "a target.param goes here"),
+        ("mod kit.nope = 1", 5, "no parameter has this name"),
+        (
+            "mod group1.cutoff = 1",
+            5,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "mod kit.model = 1",
+            5,
+            "the model and the routing can't be automated",
+        ),
+        ("mod kit.cutoff 1", 16, "= and a signal go here"),
+        (
+            "mod kit.cutoff =",
+            17,
+            "a signal goes here, e.g. sine.range(300, 3000)",
+        ),
+        (
+            "mod kit.cutoff =  sine.wobble(2)",
+            24,
+            "no such method: range exprange slow fast segment lag",
+        ),
+        (
+            "mod kit.cutoff = lfo(1, pink)",
+            25,
+            "a shape is sine, saw, tri or square",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}")).expect_err(line);
+        assert_eq!((err.line, err.col, err.msg), (4, col, msg), "{line}");
+    }
+    let twice = format!("{head}mod kit.cutoff = 1\nmod kit.Cutoff = 2");
+    let err = Song::parse(&twice).expect_err("twice");
+    assert_eq!(
+        (err.line, err.col, err.msg),
+        (5, 5, "this parameter already has a mod")
+    );
+    let params = ["level", "pan", "send1"];
+    let many: String = (0..33)
+        .map(|n| format!("mod strip{}.{} = 1\n", n % 16 + 1, params[n / 16]))
+        .collect();
+    let err = Song::parse(&format!("{head}{many}")).expect_err("many");
+    assert_eq!((err.line, err.msg), (36, "a song has at most 32 mods"));
+    let big = format!("{head}mod kit.cutoff = {}1", "1 + ".repeat(130));
+    let err = Song::parse(&big).expect_err("big");
+    assert_eq!(err.msg, "a song's signals have at most 256 nodes");
+}
+
+/// #204: parameter methods on a fragment's line parse with it, belong to its
+/// track, and print after the rest of the line.
+#[test]
+fn fragment_methods_parse_and_print() {
+    let text = "track kit drums\ntrack lead synth\ntrack pad synth\n\
+        frag b = kit /16 .Level(0.5)\n  bd x...\n\
+        frag r = lead live  .cutoff(sine.slow(4).range(300,3000)) .resonance( 0.7 )   # acid\n  arp([c4,e4,g4],up,8)\n\
+        frag p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff( \"<300  800>\" )\n  \"[c3,e3,g3] [f3,a3,c4]\"\n\
+        mod lead.cutoff = 900\n";
+    let s = Song::parse(text).expect("parses");
+    let scoped: Vec<_> = s.mods.iter().map(|m| (m.target, m.param, m.frag)).collect();
+    assert_eq!(
+        scoped,
+        vec![
+            (Target::Track(0), Param::Level, Some(0)),
+            (Target::Track(1), Param::Cutoff, Some(1)),
+            (Target::Track(1), Param::Resonance, Some(1)),
+            (Target::Track(2), Param::Pan, Some(2)),
+            (Target::Track(2), Param::Cutoff, Some(2)),
+            (Target::Track(1), Param::Cutoff, None),
+        ]
+    );
+    assert!(s.frags[1].live && s.frags[2].voicing);
+    let printed = s.print();
+    for line in [
+        "frag b = kit /16 .level(0.5)\n",
+        "frag r = lead live .cutoff(sine.slow(4).range(300, 3000)) .resonance(0.7) # acid\n",
+        "frag p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff(\"<300 800>\")\n",
+        "\nmod lead.cutoff = 900\n",
+    ] {
+        assert!(printed.contains(line), "{line}in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn fragment_method_errors_say_where() {
+    let head = "track kit drums\n";
+    for (line, col, msg) in [
+        ("frag b = kit .nope(1)", 15, "no parameter has this name"),
+        (
+            "frag b = kit .mastergain(1)",
+            15,
+            "this parameter does not belong to this target",
+        ),
+        (
+            "frag b = kit .model(1)",
+            15,
+            "the model and the routing can't be automated",
+        ),
+        (
+            "frag b = kit .cutoff",
+            21,
+            "( and a value go here, e.g. .cutoff(800)",
+        ),
+        (
+            "frag b = kit .(1)",
+            15,
+            "a parameter name goes here, e.g. .cutoff(800)",
+        ),
+        ("frag b = kit .cutoff(sine", 21, "this ( is not closed"),
+        (
+            "frag b = kit .cutoff(sine.wobble(1))",
+            27,
+            "no such method: range exprange slow fast segment lag",
+        ),
+        (
+            "frag b = kit .cutoff()",
+            22,
+            "a signal goes here, e.g. sine.range(300, 3000)",
+        ),
+        (
+            "frag b = kit .cutoff(1) x",
+            25,
+            "a parameter method goes here, e.g. .cutoff(800)",
+        ),
+        (
+            "frag b = kit .cutoff(1) .Cutoff(2)",
+            26,
+            "this parameter already has a method",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}\n  bd x")).expect_err(line);
+        assert_eq!((err.line, err.col, err.msg), (2, col, msg), "{line}");
+    }
 }

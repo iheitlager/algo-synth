@@ -58,6 +58,17 @@
 //! the first step of a section that lists it. Without `arrange` every lane
 //! loops and no scene is applied.
 //!
+//! A modulation (ADR-0019) writes a signal to a parameter for the whole song,
+//! once per block and after lanes and scenes; see `signal` for the language:
+//!
+//! ```text
+//! mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)
+//! frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
+//! ```
+//!
+//! A method on a fragment's line writes to its track while the fragment plays
+//! (#204).
+//!
 //! Parsing and printing allocate, so they run when a song is loaded or a step
 //! edited, never in `render`; the engine plays the parsed song in place. Both
 //! are total: whatever the text, the parser returns a song or an error with a
@@ -75,6 +86,7 @@ use crate::notes::{self, Notes};
 use crate::params::Param;
 
 pub use comments::Comments;
+pub use signal::Signal;
 
 /// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
@@ -89,6 +101,8 @@ pub const MAX_AUTOS: usize = 32;
 pub const MAX_VALUES: usize = 64;
 pub const MAX_SCENES: usize = 32;
 pub const MAX_SETS: usize = 32;
+/// Most modulations (`mod` lines); their signals share `signal::MAX_NODES`.
+pub const MAX_MODS: usize = 32;
 /// Synth strips and group buses (ADR-0010).
 const STRIPS: usize = 16;
 const GROUPS: usize = 8;
@@ -245,6 +259,18 @@ impl Auto {
     }
 }
 
+/// A modulation (ADR-0019): a signal written to one parameter of one target
+/// while the song plays: a `mod` line for the whole song, or a parameter
+/// method on a fragment (`frag a = t .cutoff(…)`, #204) while it plays.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mod {
+    pub target: Target,
+    pub param: Param,
+    pub signal: Signal,
+    /// The fragment a method belongs to; `None` for a `mod` line.
+    pub frag: Option<usize>,
+}
+
 /// Values set together on the first step of a section.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene {
@@ -338,6 +364,7 @@ pub struct Song {
     pub frags: Vec<Fragment>,
     pub autos: Vec<Auto>,
     pub scenes: Vec<Scene>,
+    pub mods: Vec<Mod>,
     pub sections: Vec<Section>,
     /// The order sections play in, by index; empty means no arrangement.
     pub arrange: Vec<usize>,
@@ -359,6 +386,7 @@ impl Default for Song {
             frags: Vec::new(),
             autos: Vec::new(),
             scenes: Vec::new(),
+            mods: Vec::new(),
             sections: Vec::new(),
             arrange: Vec::new(),
             loop_bars: None,
@@ -461,10 +489,19 @@ impl Song {
         let mut loop_at: Option<usize> = None;
         // Tracks given a model and no preset.
         let mut models: Vec<(usize, Model)> = Vec::new();
+        // Nodes in the song's signals so far.
+        let mut nodes = 0;
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
             let body = strip_comment(raw);
+            // `frag … .cutoff(…) .resonance(…)` (#204): parameter methods from
+            // the first word that starts with a dot, taken off and read with
+            // the frag.
+            let (body, methods) = match body.trim_start().starts_with("frag ") {
+                true => split_methods(body),
+                false => (body, None),
+            };
             let mut ws = words(body);
             // `frag a = t … voicing` (#103): the last word, taken off before the rest is read.
             let mut voicing = None;
@@ -701,10 +738,7 @@ impl Song {
                     }
                     let mut sets = Vec::new();
                     while let Some(pw) = ws.get(k) {
-                        let param = Param::ALL
-                            .iter()
-                            .find(|(_, n)| *n == pw.text)
-                            .map(|(q, _)| *q)
+                        let param = Param::by_name(pw.text)
                             .ok_or(err(pw.col, "no parameter has this name"))?;
                         if param == Param::Model || param.is_global() || param.is_strip() {
                             return Err(err(
@@ -822,7 +856,38 @@ impl Song {
                         live,
                         voicing: voicing.is_some(),
                     });
-                    open = Some((song.frags.len() - 1, line));
+                    let f = song.frags.len() - 1;
+                    if let Some((at, text)) = methods {
+                        for (name, ncol, sig, scol) in
+                            parse_methods(text).map_err(|(c, m)| err(at + c - 1, m))?
+                        {
+                            let target = Target::Track(t);
+                            let param =
+                                param_for(target, name).map_err(|m| err(at + ncol - 1, m))?;
+                            if song
+                                .mods
+                                .iter()
+                                .any(|m| m.frag == Some(f) && m.param == param)
+                            {
+                                return Err(err(
+                                    at + ncol - 1,
+                                    "this parameter already has a method",
+                                ));
+                            }
+                            let signal = Signal::parse(sig, &mut nodes)
+                                .map_err(|(c, m)| err(at + scol + c - 2, m))?;
+                            if song.mods.len() >= MAX_MODS {
+                                return Err(err(at + ncol - 1, "a song has at most 32 mods"));
+                            }
+                            song.mods.push(Mod {
+                                target,
+                                param,
+                                signal,
+                                frag: Some(f),
+                            });
+                        }
+                    }
+                    open = Some((f, line));
                 }
                 "section" => {
                     let name = arg(1, "a section name goes here")?;
@@ -1023,6 +1088,41 @@ impl Song {
                         sets,
                     });
                 }
+                "mod" => {
+                    let tp = arg(1, "a target.param goes here")?;
+                    let (target, param) =
+                        target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                    if song
+                        .mods
+                        .iter()
+                        .any(|m| m.frag.is_none() && m.target == target && m.param == param)
+                    {
+                        return Err(err(tp.col, "this parameter already has a mod"));
+                    }
+                    let eq = arg(2, "= and a signal go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a signal go here"));
+                    }
+                    let at = ws
+                        .get(3)
+                        .map_or(body.trim_end().chars().count() + 1, |w| w.col);
+                    let text = body
+                        .char_indices()
+                        .nth(at - 1)
+                        .and_then(|(b, _)| body.get(b..))
+                        .unwrap_or("");
+                    let signal =
+                        Signal::parse(text, &mut nodes).map_err(|(c, m)| err(at + c - 1, m))?;
+                    if song.mods.len() >= MAX_MODS {
+                        return Err(err(first.col, "a song has at most 32 mods"));
+                    }
+                    song.mods.push(Mod {
+                        target,
+                        param,
+                        signal,
+                        frag: None,
+                    });
+                }
                 "arrange" => {
                     if !song.arrange.is_empty() {
                         return Err(err(first.col, "a song has one arrange line"));
@@ -1065,7 +1165,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
                     ));
                 }
             }
@@ -1208,7 +1308,7 @@ impl Song {
                 .collect();
             lines.push(format!("{at}: {}", sets.join(", ")));
         }
-        for f in &self.frags {
+        for (fi, f) in self.frags.iter().enumerate() {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
             if let Some(n) = &f.notes {
@@ -1219,11 +1319,21 @@ impl Song {
                     String::new()
                 };
                 let voicing = if f.voicing { " voicing" } else { "" };
-                lines.push(format!("frag {} = {}{live}{bars}{voicing}", f.name, track));
+                lines.push(format!(
+                    "frag {} = {}{live}{bars}{voicing}{}",
+                    f.name,
+                    track,
+                    self.methods_of(fi)
+                ));
                 lines.push(format!("  {}", n.print()));
                 continue;
             }
-            lines.push(format!("frag {} = {} /16", f.name, track));
+            lines.push(format!(
+                "frag {} = {} /16{}",
+                f.name,
+                track,
+                self.methods_of(fi)
+            ));
             for l in &f.lanes {
                 let steps: String = match &l.call {
                     Some(e) => e.print(),
@@ -1232,7 +1342,8 @@ impl Song {
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
         }
-        if !self.autos.is_empty() || !self.scenes.is_empty() {
+        let mod_lines = self.mods.iter().any(|m| m.frag.is_none());
+        if !self.autos.is_empty() || !self.scenes.is_empty() || mod_lines {
             lines.push(String::new());
         }
         for a in &self.autos {
@@ -1260,6 +1371,14 @@ impl Song {
                 .map(|(t, p, v)| format!("{}.{} {}", self.target_name(*t), param_name(*p), v))
                 .collect();
             lines.push(format!("scene {}: {}", s.name, sets.join(", ")));
+        }
+        for m in self.mods.iter().filter(|m| m.frag.is_none()) {
+            lines.push(format!(
+                "mod {}.{} = {}",
+                self.target_name(m.target),
+                param_name(m.param).to_ascii_lowercase(),
+                m.signal
+            ));
         }
         if !self.sections.is_empty() {
             lines.push(String::new());
@@ -1587,6 +1706,21 @@ impl Song {
         Some(i)
     }
 
+    /// ` .cutoff(…) .resonance(…)`: the parameter methods of fragment `f`.
+    fn methods_of(&self, f: usize) -> String {
+        self.mods
+            .iter()
+            .filter(|m| m.frag == Some(f))
+            .map(|m| {
+                format!(
+                    " .{}({})",
+                    param_name(m.param).to_ascii_lowercase(),
+                    m.signal
+                )
+            })
+            .collect()
+    }
+
     fn target_name(&self, t: Target) -> String {
         match t {
             Target::Track(i) => self
@@ -1822,14 +1956,6 @@ fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str
     let (t, p) = text
         .split_once('.')
         .ok_or("target.Param goes here, e.g. strip1.Level")?;
-    let param = Param::ALL
-        .iter()
-        .find(|(_, n)| *n == p)
-        .map(|(q, _)| *q)
-        .ok_or("no parameter has this name")?;
-    if matches!(param, Param::Model | Param::Out) {
-        return Err("the model and the routing can't be automated");
-    }
     let numbered = |prefix: &str, count: usize| {
         t.strip_prefix(prefix)
             .and_then(|n| n.parse::<usize>().ok())
@@ -1846,16 +1972,98 @@ fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str
     } else {
         return Err("a target is a track, strip1–16, group1–8 or master");
     };
+    Ok((target, param_for(target, p)?))
+}
+
+/// The parameter named `name` (in any case) of `target`, checked as
+/// `target_param` says.
+fn param_for(target: Target, name: &str) -> Result<Param, &'static str> {
+    let param = Param::by_name(name).ok_or("no parameter has this name")?;
+    if matches!(param, Param::Model | Param::Out) {
+        return Err("the model and the routing can't be automated");
+    }
     let ok = match target {
         Target::Master => param.is_global(),
         Target::Strip(s) if s >= STRIPS => param.is_strip(),
         _ => !param.is_global(),
     };
     if ok {
-        Ok((target, param))
+        Ok(param)
     } else {
         Err("this parameter does not belong to this target")
     }
+}
+
+/// A frag line split before its parameter methods: the line up to the first
+/// word that starts with a dot, and the methods with their column.
+fn split_methods(body: &str) -> (&str, Option<(usize, &str)>) {
+    let mut prev_space = false;
+    for (col, (i, c)) in body.char_indices().enumerate() {
+        if c == '.' && prev_space {
+            return (
+                body.get(..i).unwrap_or(body),
+                body.get(i..).map(|m| (col + 1, m)),
+            );
+        }
+        prev_space = c.is_whitespace();
+    }
+    (body, None)
+}
+
+/// `.name(signal) .name(signal) …`: each method's name and the text of its
+/// signal, with their columns in `text` (from 1).
+#[allow(clippy::type_complexity)]
+fn parse_methods(text: &str) -> Result<Vec<(&str, usize, &str, usize)>, (usize, &'static str)> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let byte = |j: usize| chars.get(j).map_or(text.len(), |&(b, _)| b);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(&(_, c)) = chars.get(i) {
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        if c != '.' {
+            return Err((i + 1, "a parameter method goes here, e.g. .cutoff(800)"));
+        }
+        let start = i + 1;
+        let mut j = start;
+        while chars
+            .get(j)
+            .is_some_and(|&(_, c)| c.is_ascii_alphanumeric())
+        {
+            j += 1;
+        }
+        if j == start {
+            return Err((start + 1, "a parameter name goes here, e.g. .cutoff(800)"));
+        }
+        if chars.get(j).map(|&(_, c)| c) != Some('(') {
+            return Err((j + 1, "( and a value go here, e.g. .cutoff(800)"));
+        }
+        let (open, mut depth, mut k) = (j, 0usize, j);
+        loop {
+            match chars.get(k).map(|&(_, c)| c) {
+                Some('(') => depth += 1,
+                Some(')') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                None => return Err((open + 1, "this ( is not closed")),
+                _ => {}
+            }
+            k += 1;
+        }
+        out.push((
+            text.get(byte(start)..byte(j)).unwrap_or(""),
+            start + 1,
+            text.get(byte(open + 1)..byte(k)).unwrap_or(""),
+            open + 2,
+        ));
+        i = k + 1;
+    }
+    Ok(out)
 }
 
 fn check_lanes(song: &Song, f: usize, line: usize) -> Result<(), SongError> {
@@ -2057,11 +2265,7 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
     let mut sets: Vec<(Param, f32)> = Vec::new();
     let mut k = colon + 1;
     while let Some(pw) = ws.get(k) {
-        let param = Param::ALL
-            .iter()
-            .find(|(_, n)| *n == pw.text)
-            .map(|(p, _)| *p)
-            .ok_or(err(pw.col, "no parameter has this name"))?;
+        let param = Param::by_name(pw.text).ok_or(err(pw.col, "no parameter has this name"))?;
         let ok = if at == Mix::Master {
             param.is_global()
         } else {
@@ -2124,6 +2328,7 @@ impl Song {
 }
 
 pub mod lex;
+pub mod signal;
 
 #[cfg(test)]
 mod tests;

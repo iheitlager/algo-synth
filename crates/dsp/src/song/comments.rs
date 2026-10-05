@@ -73,6 +73,8 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
                 "tempo" | "swing" | "scale" | "arrange" | "loop" | "master" | "master:" => {
                     first.trim_end_matches(':').to_string()
                 }
+                // `mod kit.Cutoff` prints as `mod kit.cutoff`.
+                "mod" => format!("mod {}", name.unwrap_or("").to_ascii_lowercase()),
                 _ => format!("{first} {}", name.unwrap_or("")),
             })
         })

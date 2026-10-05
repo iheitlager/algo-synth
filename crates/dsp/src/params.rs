@@ -1667,9 +1667,24 @@ impl Param {
             .map(|(p, _)| *p)
     }
 
+    /// The parameter for a registry name in any case: `cutoff` and `Cutoff`
+    /// both name `Param::Cutoff` (ADR-0019).
+    pub fn by_name(name: &str) -> Option<Param> {
+        Self::ALL
+            .iter()
+            .find(|(_, n)| n.eq_ignore_ascii_case(name))
+            .map(|(p, _)| *p)
+    }
+
     /// Clamp a value into this parameter's range.
     pub fn clamp(self, v: f32) -> f32 {
-        let (lo, hi) = match self {
+        let (lo, hi) = self.range();
+        if v.is_nan() { lo } else { v.clamp(lo, hi) }
+    }
+
+    /// The lowest and highest value this parameter takes.
+    pub fn range(self) -> (f32, f32) {
+        match self {
             Param::MasterGain => (0.0, 1.0),
             Param::Vco1Wave | Param::Vco2Wave | Param::Vco3Wave => (0.0, 3.0),
             Param::Vco1Coarse | Param::Vco2Coarse | Param::Vco3Coarse => (-24.0, 24.0),
@@ -2115,8 +2130,7 @@ impl Param {
             Param::P4C => (0.0, 1.0),
             Param::P4D => (0.0, 1.0),
             Param::P4E => (0.0, 1.0),
-        };
-        if v.is_nan() { lo } else { v.clamp(lo, hi) }
+        }
     }
 }
 
@@ -2140,6 +2154,16 @@ mod tests {
         assert_eq!(Param::MasterGain.clamp(f32::NAN), 0.0);
         assert_eq!(Param::MasterGain.clamp(7.0), 1.0);
         assert_eq!(Param::Cutoff.clamp(0.0), 20.0);
+    }
+
+    #[test]
+    fn names_are_found_in_any_case_and_never_collide() {
+        assert_eq!(Param::by_name("cutoff"), Some(Param::Cutoff));
+        assert_eq!(Param::by_name("P2RETURN"), Some(Param::P2Return));
+        assert_eq!(Param::by_name("nope"), None);
+        for (p, n) in Param::ALL.iter() {
+            assert_eq!(Param::by_name(&n.to_lowercase()), Some(*p), "{n}");
+        }
     }
 
     /// The `Name: id` entries of `export const {name} = { ... }`.

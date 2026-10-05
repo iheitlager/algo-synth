@@ -37,6 +37,13 @@ const module = await WebAssembly.compile(bytes)
 // Pro-One, MS-20, CS-15, SH-101, Odyssey.
 const family = ['Bass', 'MiniLead', 'ProLead', 'Ms20Lead', 'Cs15Brass', 'Sh101Lead', 'CurrieLead']
 
+// Two mod lines per synth, by strip so no track claims a synth: each a sum of
+// two LFOs through a lag, the deepest a song is likely to write.
+const MODS = Array.from({ length: VOICES }, (_, s) => [
+  `mod strip${s + 1}.cutoff = (lfo(${0.3 + s / 10}).exprange(200, 6000) + lfo(5, tri).range(0, 400)).lag(0.02)`,
+  `mod strip${s + 1}.resonance = perlin.fast(${1 + s}).range(0.2, 0.9)`,
+]).flat().join('\n')
+
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
 // there. Each MIDI channel plays its own synth, all set up the same.
 const scenarios = {
@@ -79,6 +86,9 @@ const scenarios = {
     w.set_param(s, Param.Resonance, 1)
     w.set_param(s, Param.Drive, 1)
   }, 72],
+  // The family worst case with its cutoff and resonance modulated on every
+  // synth by a song of mod lines (ADR-0019, #208), evaluated once a block.
+  modulated: [(w, s) => scenarios['family worst'][0](w, s), 72, [0], MODS],
 }
 
 // The pad of each polyphonic model, so the ensemble is all of them: Prophet-5,
@@ -117,7 +127,7 @@ function sixteenChannels(lowest, chord = [0]) {
   ])
 }
 
-function run(setup, lowest, chord) {
+function run(setup, lowest, chord, song) {
   const w = new WebAssembly.Instance(module, {}).exports
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
@@ -167,12 +177,20 @@ function run(setup, lowest, chord) {
   new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
   if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')
   w.play()
+  if (song) {
+    const text = new TextEncoder().encode(song)
+    new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
+    if (w.song_load() < 0) throw new Error('the bench song did not load')
+    w.song_play()
+  }
   const block = w.block_len()
   for (let i = 0; i < WARMUP; i++) w.process(block)
   const t0 = process.hrtime.bigint()
   for (let i = 0; i < BLOCKS; i++) w.process(block)
   const ns = Number(process.hrtime.bigint() - t0)
   const voices = w.active_voices()
+  // The song of modulations still plays at the end.
+  if (song && !w.song_playing()) throw new Error('the bench song stopped')
   // Every sample stays within ±1 (untimed: reading the output costs).
   let peak = 0
   for (let i = 0; i < 500; i++) {
@@ -186,8 +204,8 @@ function run(setup, lowest, chord) {
 
 console.log(`${cpus()[0]?.model ?? 'unknown CPU'} · Node ${process.version} · V8 ${process.versions.v8}`)
 let over = false
-for (const [name, [setup, lowest, chord]] of Object.entries(scenarios)) {
-  const r = run(setup, lowest, chord)
+for (const [name, [setup, lowest, chord, song]] of Object.entries(scenarios)) {
+  const r = run(setup, lowest, chord, song)
   const pct = (100 * r.load).toFixed(1)
   const ok = r.load <= BUDGET && r.peak <= 1
   over ||= !ok

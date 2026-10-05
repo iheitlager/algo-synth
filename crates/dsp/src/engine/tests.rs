@@ -2058,6 +2058,193 @@ fn automation_is_bit_identical_to_a_hand_set_value() {
     assert!(a.output().iter().any(|s| *s != 0.0) || a.note_count > 0);
 }
 
+/// ADR-0019: a modulation writes its signal once per block, at the song's
+/// position in bars (a bar is 96000 samples at 120 BPM).
+#[test]
+fn a_mod_follows_its_signal() {
+    let mut e = kit(0);
+    let text = "track kit drums\nfrag b = kit\n  bd x...\nmod strip1.send1 = saw.range(0, 0.5)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.render(BLOCK);
+    assert_eq!(e.param_value(0, Param::Send1), 0.0, "stopped, nothing runs");
+    e.song_play();
+    for k in 0..(96_000 / BLOCK) {
+        e.render(BLOCK);
+        let want = 0.5 * (k * BLOCK) as f32 / 96_000.0;
+        let v = e.param_value(0, Param::Send1);
+        assert!((v - want).abs() < 1e-4, "block {k}: {v} for {want}");
+    }
+    assert!(e.take_touched() & 1 == 1, "the view hears of it");
+}
+
+/// A constant modulation is the same as setting the value by hand.
+#[test]
+fn a_constant_mod_is_bit_identical_to_a_hand_set_value() {
+    let song = |m: &str| format!("track kit drums\nfrag b = kit\n  bd x...\n{m}");
+    let mut a = kit(0);
+    let mut b = kit(0);
+    assert_eq!(load_text(&mut a, &song("mod strip1.level = 0.3\n")), Ok(()));
+    assert_eq!(load_text(&mut b, &song("")), Ok(()));
+    b.set_param(0, Param::Level, 0.3);
+    a.song_play();
+    b.song_play();
+    for _ in 0..200 {
+        a.render(BLOCK);
+        b.render(BLOCK);
+        assert_eq!(a.output(), b.output());
+    }
+    assert!(a.output().iter().any(|s| *s != 0.0) || a.note_count > 0);
+}
+
+/// ADR-0019: scenes, then lanes, then modulations; the last write wins, so a
+/// modulation holds its parameter against a lane and a scene on it.
+#[test]
+fn a_mod_writes_after_a_lane_and_a_scene() {
+    let mut e = kit(0);
+    let text = "track kit drums\nfrag b = kit\n  bd x...\n\
+        auto l = strip1.Level 0.9 0.8 /1\nscene s: strip1.Level 1\n\
+        mod strip1.level = 0.3\nsection a 1: b l [s]\narrange a a\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    for k in 0..(2 * 96_000 / BLOCK) {
+        e.render(BLOCK);
+        // A scene lands inside a block; the modulation takes over at the next.
+        if k % (96_000 / BLOCK) != 0 {
+            assert_eq!(e.param_value(0, Param::Level), 0.3, "block {k}");
+        }
+    }
+}
+
+/// #208's acceptance: the SuperCollider example on a fixed synth, a filter
+/// swept by an LFO, renders the same twice and stays bounded.
+#[test]
+fn a_swept_filter_renders_deterministically() {
+    let text = "tempo 120\ntrack lead synth Minimoog\nfrag r = lead\n  \"c3 eb3 g3 c4\"\n\
+        mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)\n";
+    let render = || {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        e.song_play();
+        let mut out = Vec::new();
+        let mut cutoffs = Vec::new();
+        let strip = e.song_routed(0).expect("routed");
+        for _ in 0..(96_000 / BLOCK) {
+            e.render(BLOCK);
+            assert!(e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+            out.extend_from_slice(e.output());
+            cutoffs.push(e.param_value(strip, Param::Cutoff));
+        }
+        (out, cutoffs)
+    };
+    let (a, cut) = render();
+    assert_eq!(a, render().0);
+    assert!(a.iter().any(|s| *s != 0.0));
+    let (lo, hi) = cut
+        .iter()
+        .fold((f32::MAX, 0.0_f32), |(l, h), c| (l.min(*c), h.max(*c)));
+    assert!(lo < 250.0 && hi > 1900.0, "swept from {lo} to {hi}");
+}
+
+/// #208: a song loaded while the song plays takes over at the next bar;
+/// until then the old one plays on. Loaded while stopped, it is there at once.
+#[test]
+fn a_song_loaded_while_playing_takes_over_at_the_next_bar() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    e.song_play();
+    // The kick of FOUR on 0 and 24000; then a song with one kick a bar.
+    run(&mut e, 30_000 / BLOCK);
+    assert_eq!(e.note_count, 2);
+    let one = FOUR.replace("x...x...x...x...", "x...............");
+    assert_eq!(load_text(&mut e, &one), Ok(()));
+    assert!(
+        e.song_text().contains("x..............."),
+        "the text is the new one"
+    );
+    // FOUR plays on to the bar line (48000, 72000), then the new song (96000).
+    run(&mut e, (96_000 - 30_000) / BLOCK);
+    assert_eq!(e.note_count, 4, "the old song to the bar");
+    assert!(!e.take_taken());
+    run(&mut e, 30_000 / BLOCK);
+    assert_eq!(e.note_count, 5, "the new song from the bar");
+    assert!(e.take_taken(), "the view hears of it");
+    assert!(!e.take_taken());
+    e.song_stop();
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    assert_eq!(
+        e.song().frags[0].lanes[0].steps[4],
+        Step::Hit,
+        "stopped: at once"
+    );
+}
+
+/// An edit while a song waits for the bar line edits the waiting song.
+#[test]
+fn an_edit_before_the_bar_line_edits_the_new_song() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    let two = FOUR.replace("frag b", "frag c");
+    assert_eq!(load_text(&mut e, &two), Ok(()));
+    assert!(e.set_step(0, 0, 1, 1));
+    assert_eq!(e.song().frags[0].name, "c");
+    assert!(
+        e.song_text()
+            .contains("frag c = kit /16\n  bd xx..x...x...x..."),
+        "{}",
+        e.song_text()
+    );
+}
+
+/// #204: a fragment's method writes while the fragment plays, and the value
+/// it found comes back when the fragment stops (ADR-0019).
+#[test]
+fn a_fragment_method_writes_while_its_fragment_plays() {
+    let mut e = kit(0);
+    let text = "track kit drums\nfrag b = kit /16 .send1(0.5)\n  bd x...\n\
+        frag q = kit\n  sn x...\nsection one 1: b\nsection two 1: q\narrange one two one\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let bar = 96_000 / BLOCK;
+    run(&mut e, bar - 1);
+    assert_eq!(e.param_value(0, Param::Send1), 0.5, "in its section");
+    run(&mut e, 2);
+    assert_eq!(e.param_value(0, Param::Send1), 0.0, "the value it found");
+    run(&mut e, bar);
+    assert_eq!(e.param_value(0, Param::Send1), 0.5, "and again");
+}
+
+/// A modulation puts back the value it found when the song stops, and one a
+/// reload keeps keeps that value through the takeover.
+#[test]
+fn a_mod_puts_back_the_value_it_found() {
+    let mut e = kit(0);
+    e.set_param(0, Param::Send1, 0.1);
+    let song =
+        |v: f32| format!("track kit drums\nfrag b = kit\n  bd x...\nmod strip1.send1 = {v}\n");
+    assert_eq!(load_text(&mut e, &song(0.4)), Ok(()));
+    e.song_play();
+    run(&mut e, 10);
+    assert_eq!(e.param_value(0, Param::Send1), 0.4);
+    assert_eq!(load_text(&mut e, &song(0.3)), Ok(()));
+    run(&mut e, 96_000 / BLOCK);
+    assert_eq!(e.param_value(0, Param::Send1), 0.3, "the new song's");
+    e.song_stop();
+    assert_eq!(
+        e.param_value(0, Param::Send1),
+        0.1,
+        "not 0.4: the value first found"
+    );
+    // A reload that drops the modulation puts the value back on the bar line.
+    e.song_play();
+    run(&mut e, 10);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    run(&mut e, 96_000 / BLOCK);
+    assert_eq!(e.param_value(0, Param::Send1), 0.1);
+}
+
 #[test]
 fn each_lane_loops_on_its_own_length() {
     let mut e = kit(0);

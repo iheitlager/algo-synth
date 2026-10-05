@@ -769,6 +769,13 @@ pub extern "C" fn auto_touched() -> u32 {
     query(0, Engine::take_touched)
 }
 
+/// 1 when a song loaded while playing took over on a bar line since the last
+/// call (#208), so the view can ask for the song again.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_taken() -> u32 {
+    query(0, |e| u32::from(e.take_taken()))
+}
+
 // --- The arrangement, for the arranger pane (#171) ---------------------------
 
 /// An arranger edit (see `Engine::arrange_edit`): 0 when done, −1 when refused.
