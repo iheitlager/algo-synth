@@ -15,6 +15,8 @@ export const cleanName = (raw: string) => raw.trim().replace(/\s+/g, ' ').slice(
 /** The strip index of group 0 (ADR-0010). */
 const GROUP_BASE = 16
 const GROUPS = 8
+/** The names of an output: a strip's `Out`, or a drum kit's pad (`BdOut`, `SnOut`, …; #162). */
+const OUT_PARAM = /^(?:[A-Z][a-z])?Out$/
 /** A route to no synth: the channel is muted. Matches `MUTE` in engine.ts. */
 export const MUTE = 255
 
@@ -407,6 +409,13 @@ export function applyPlan(
     warnings.push(`the setup is for ${setup.midi.parts} parts (${setup.midi.name}); this file has ${midi.parts}`)
   }
   const ops: Op[] = []
+  // An Out (a strip's, or a kit's pad's) to a group the setup does not have goes to the master (#218).
+  const have = new Set((setup.groups ?? []).map((g) => g.index))
+  const value = (who: string, name: string, v: number) => {
+    if (!OUT_PARAM.test(name) || v < 1 || v > GROUPS || have.has(v - 1)) return v
+    warnings.push(`${who}: ${name} went to group ${v}, which the setup does not have; it goes to the master`)
+    return 0
+  }
   if (setup.synths.length) ops.push({ t: 'show', synths: setup.synths.map((s) => s.index).sort((a, b) => a - b) })
   const modelId = reg.params[MODEL]
   for (const synth of setup.synths) {
@@ -416,7 +425,7 @@ export function applyPlan(
     if (modelId !== undefined && model !== undefined) ops.push({ t: 'param', s, id: modelId, v: model })
     for (const [name, v] of Object.entries(synth.params)) {
       const id = reg.params[name]
-      if (id !== undefined) ops.push({ t: 'param', s, id, v })
+      if (id !== undefined) ops.push({ t: 'param', s, id, v: value(`synth ${s + 1}`, name, v) })
     }
   }
   if (setup.groups) {
@@ -426,7 +435,7 @@ export function applyPlan(
       ops.push({ t: 'reset', s })
       for (const [name, v] of Object.entries(group.params)) {
         const id = reg.params[name]
-        if (id !== undefined) ops.push({ t: 'param', s, id, v })
+        if (id !== undefined) ops.push({ t: 'param', s, id, v: value(`group ${group.index + 1}`, name, v) })
       }
     }
   }

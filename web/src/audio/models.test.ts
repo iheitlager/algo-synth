@@ -98,15 +98,15 @@ describe('model descriptions', () => {
 })
 
 describe('families (#132)', () => {
-  it('puts every model in exactly one listed family, in MODELS order', () => {
+  it('puts every model in exactly one listed family, in MODELS order (the drums listed apart, #218)', () => {
     expect(FAMILIES.flatMap((f) => familyModels(f.id))).toHaveLength(MODELS.length)
     for (const f of FAMILIES) {
       const ms = familyModels(f.id)
       expect(ms.length, f.label).toBeGreaterThan(0)
-      expect(ms.map((m) => MODELS.indexOf(m))).toEqual([...ms.map((m) => MODELS.indexOf(m))].sort((a, b) => a - b))
+      if (f.id !== 'drums') expect(ms.map((m) => MODELS.indexOf(m))).toEqual([...ms.map((m) => MODELS.indexOf(m))].sort((a, b) => a - b))
     }
     expect(familyModels('mono')[0]?.name).toBe('ARP 2600')
-    expect(familyModels('drums').map((m) => m.id)).toEqual([Model.Tr808, Model.PadSampler, Model.Tr909])
+    expect(familyModels('drums').map((m) => m.id)).toEqual([Model.Tr808, Model.Tr909, Model.PadSampler])
     expect(familyModels('samplers').map((m) => m.id)).toEqual([Model.Sampler])
     expect(familyModels('poly').map((m) => m.id)).toEqual([
       Model.Prophet5, Model.Juno106, Model.Jupiter8, Model.Matrix12, Model.PpgWave, Model.D50, Model.Dx7, Model.PolyMoog,

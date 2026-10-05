@@ -245,6 +245,29 @@ export const outChoices = (strip: number, shownGroups: number[]) => [
   { out: OUT_NONE, label: 'None' },
 ]
 
+/** A pad's Out choices: Master and the groups on screen, and the one it has now so the pull-down never goes blank (#218). */
+export const visibleOuts = <T extends readonly [string, number]>(options: readonly T[], shownGroups: readonly number[], current: number) =>
+  options.filter(([, v]) => v === 0 || v === current || shownGroups.includes(v - 1))
+
+/**
+ * What feeds group `g` (0–7), for when it is removed and has to go back to the master: each of `strips` whose
+ * `Out` (parameter `stripOut`) is the group, and each of `outIds` (a kit's pad outs) on the `kits`, as
+ * `[strip, parameter id]`. `value` reads a strip's parameter.
+ */
+export function feedsOf(
+  g: number,
+  strips: readonly number[],
+  kits: readonly number[],
+  outIds: readonly number[],
+  stripOut: number,
+  value: (strip: number, id: number) => number | undefined,
+) {
+  const found: [number, number][] = []
+  for (const s of strips) if (s !== groupStrip(g) && value(s, stripOut) === g + 1) found.push([s, stripOut])
+  for (const s of kits) for (const id of outIds) if (value(s, id) === g + 1) found.push([s, id])
+  return found
+}
+
 /** What a strip's routing and solo state is, as the engine reports it. */
 export interface StripState {
   mute: boolean
