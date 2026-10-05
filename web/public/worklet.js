@@ -80,6 +80,7 @@ class EngineProcessor extends AudioWorkletProcessor {
           break
         }
         case 'songSeek': w.song_seek_bar(data.bar); break
+        case 'mixWrite': w.song_write_mixer(); this.sendSong(true); break
         case 'midiImport': {
           const code = w.midi_import()
           this.sendSong(code >= 0)
@@ -200,8 +201,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
     const ok = w.song_load() === 0
     this.sendSong(ok)
-    // A track's preset or setting may have just been set on its synth (#210).
-    if (ok) for (let t = 0; t < w.song_tracks(); t++) if (w.song_routed(t) < 255) this.sendParams(w.song_routed(t))
+    // A track's preset or setting (#210) and the mixer lines (ADR-0018) may have
+    // just been set: every strip and group the view shows follows.
+    if (ok) for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
   }
 
   // The song as the engine holds it: its printed text, the tracks and their

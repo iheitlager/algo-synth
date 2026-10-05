@@ -12,7 +12,8 @@ checks that its printed form parses back the same
 ## The basics
 
 One item to a line. A line starts with a keyword: `tempo`, `swing`, `scale`,
-`setting`, `track`, `frag`, `auto`, `scene`, `section`, `arrange` or `loop`.
+`setting`, `track`, `strip`, `group`, `master`, `frag`, `auto`, `scene`,
+`section`, `arrange` or `loop`.
 An indented line belongs to the `frag` above it: a lane of pads, or a line of
 notes.
 
@@ -30,8 +31,8 @@ notes.
   problem found, with a line and a column, and the song that was playing plays
   on.
 - **Canonical form:** the engine prints the song back in a fixed order and
-  layout: tempo, swing, scale, settings, tracks, frags, autos, scenes,
-  sections, arrange, loop. Blank lines and alignment are not kept, and flats
+  layout: tempo, swing, scale, settings, tracks, mixer lines, frags, autos,
+  scenes, sections, arrange, loop. Blank lines and alignment are not kept, and flats
   print as sharps (`eb4` as `d#4`).
 
 An empty text is a song too: 120 BPM, no swing, silence.
@@ -156,6 +157,41 @@ FmElectricPiano` and `track low synth Minimoog MiniBass` (a bass by register).
 
 At most 16 tracks. Errors: a model that does not play the kind (`track kit
 drums Minimoog`), a preset of another model, an unknown model or setting.
+
+## strip, group, master
+
+Mixer lines give the mix its starting values (ADR-0018), so a song carries its
+mix. Each is a target, a `:`, then `Param value` pairs by registry name,
+separated by commas:
+
+- `strip <track>:` the strip of the synth a track plays on, or `strip stripN:`
+  a strip by number (1 to 16): `Level Pan Send1`–`Send4` (with `Send1Pre`,
+  `Send1On` …) `Mute Solo Out Key` and the inserts `I1Type I1A`–`I1E`,
+  `I2…`, `I3…`.
+- `group <n> [name]:` group bus 1 to 8, maybe named: the same parameters.
+- `master:` the global ones: `MasterGain`, the compressor and EQ, the
+  processors `P1Type P1Return P1A`–`P1E` … and `P2In`–`P4In`.
+
+Insert types are `Off Overdrive Distortion Fuzz Eq Comp Vocoder`, processor
+types `Off Echo Reverb Chorus Flanger`, and `Out` is `master`, `group1` to
+`group8` or `none`; a group only goes to a higher group. The values are set
+when the song loads, and again only when their text changes, so a fader moved
+by hand holds through an Apply that does not touch it; taking a line out
+leaves the mix as it is. **Write mixer to song** in the composer prints the
+mixer as it is into these lines, values that differ from the defaults only.
+
+```song
+track kit drums
+track bass synth
+strip kit: Level 0.9, Out group1
+strip bass: Level 0.8, Pan -0.2, I1Type Overdrive, I1A 0.6, Send2 0.3
+group 1 drums: Level 0.85, I1Type Comp
+master: MasterGain 0.6, P2Type Reverb, P2Return 0.3
+frag beat = kit /16
+  bd x...x...x...x...
+frag low = bass
+  "c2 ~ c2 g1"
+```
 
 ## frag
 
@@ -453,6 +489,7 @@ to `first` for good. A loop needs an `arrange` line and must end inside it.
 |---|---|
 | tracks, settings | 16 |
 | changes in a setting, values in a scene | 32 |
+| values on a mixer line | 48 |
 | frags, sections, entries in `arrange` | 256 |
 | steps in a lane | 64 |
 | notes a line compiles to | 512 |

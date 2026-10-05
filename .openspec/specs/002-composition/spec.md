@@ -277,3 +277,23 @@ A pitched fragment SHALL take chords by name (#103), in mini-notation and in cla
 - THEN every note of each chord is within a fifth of a note of the chord before, between C3 and C6
 
 **Tests:** `crates/dsp/src/notes/tests.rs::chord_symbols_play_their_notes`, `crates/dsp/src/notes/tests.rs::a_classic_chord_takes_its_duration_last`, `crates/dsp/src/notes/tests.rs::chord_names_print_as_written`, `crates/dsp/src/notes/tests.rs::numerals_follow_the_song_key`, `crates/dsp/src/notes/tests.rs::a_numeral_says_its_quality_in_its_case`, `crates/dsp/src/notes/tests.rs::chord_errors_say_where`, `crates/dsp/src/notes/tests.rs::voicing_moves_each_chord_to_the_nearest_inversion`, `crates/dsp/src/notes/tests.rs::an_arp_takes_a_chord_by_name`, `crates/dsp/src/song/tests.rs::a_voiced_progression_in_the_key_prints_back`, `crates/dsp/src/song/tests.rs::voicing_errors_say_where`, `crates/dsp/src/song/lex.rs::tests::chord_names_are_notes`, `crates/dsp/src/notes/tests.rs::root_plays_the_bass_of_each_chord`, `crates/dsp/src/notes/tests.rs::an_arp_over_a_progression_follows_its_chords`, `crates/dsp/src/notes/tests.rs::a_prog_walks_the_functions_from_tonic_to_dominant`, `crates/dsp/src/notes/tests.rs::progression_errors_say_where`, `crates/dsp/src/song/tests.rs::a_progression_feeds_pad_bass_and_arp`
+
+### Requirement 13: The song sets the mix [SHOULD]
+
+The song SHALL give the mixer its starting values (ADR-0018, #214): `strip <track|stripN>: <Param> <value>, …` for the strip of a track's synth or a strip by number, `group <n> [name]: …` for a group bus and `master: …` for the global parameters, by registry name. Insert and processor types and `Out` SHALL take their names (`I1Type Overdrive`, `P1Type Echo`, `Out group2`); a parameter of another owner, an unknown name, a group routed to a lower group or a second line for one strip SHALL be a parse error with a line and a column. On load the engine SHALL set a value when its text differs from the playing song's, or on a strip its track has just moved to, and leave the others as they are; a line taken out SHALL change nothing. The printer SHALL write the lines after the tracks, and `write_mixer` SHALL print the mixer as these lines, the values that differ from the defaults, a group keeping its name.
+
+**Implementation:** `crates/dsp/src/song.rs::MixLine`, `crates/dsp/src/song.rs::Mix`, `crates/dsp/src/engine.rs::Engine::apply_mix`, `crates/dsp/src/engine.rs::Engine::write_mixer`, `web/src/components/ComposerPane.vue` (Write mixer to song)
+
+#### Scenario: a fader moved by hand holds
+
+- GIVEN a song with `strip bass: Level 0.8` playing, and the bass fader moved to 0.3
+- WHEN the text is applied again with only the master gain changed
+- THEN the fader stays at 0.3 and the master gain takes its new value
+
+#### Scenario: the mix writes itself into the song
+
+- GIVEN a mix changed by hand on a track's strip, another strip, a group and the master
+- WHEN Write mixer to song is pressed and the text is loaded on a fresh engine
+- THEN the fresh engine has the same mix
+
+**Tests:** `crates/dsp/src/song/tests.rs::mixer_lines_parse_and_print_back`, `crates/dsp/src/song/tests.rs::mixer_errors_say_where`, `crates/dsp/src/song/tests.rs::a_comment_on_the_master_line_stays_with_it`, `crates/dsp/src/engine/tests.rs::mixer_lines_set_the_mix_and_hold_a_hand`, `crates/dsp/src/engine/tests.rs::the_mixer_writes_itself_into_the_song`

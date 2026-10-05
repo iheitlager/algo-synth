@@ -5,7 +5,7 @@
 // engine sends back. Nothing here parses or plays.
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, loadSong, params, playSong, requestSong, routeTrack, setSongSwing, setSongTempo, setStep, song, status, stopSong,
+  MUTE, loadSong, params, playSong, requestSong, writeMixerToSong, routeTrack, setSongSwing, setSongTempo, setStep, song, status, stopSong,
   stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -85,6 +85,10 @@ watch(() => status.running, (on) => on && requestSong())
     <div class="controls">
       <button :disabled="!status.running" :class="{ on: song.playing }" @click="playSong">▶ Play</button>
       <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
+      <button
+        :disabled="!status.running" title="Write the mixer as it is into the song: strip, group and master lines"
+        @click="writeMixerToSong"
+      >Write mixer to song</button>
       <label class="field" title="The song's tempo; its text follows">
         BPM <input class="num" type="number" min="20" max="300" step="1" :value="song.tempo" :disabled="!status.running"
           @change="setSongTempo(Number(($event.target as HTMLInputElement).value))" />
