@@ -667,6 +667,41 @@ fn an_electro_example_parses_and_prints_back() {
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
+/// The songs in `examples/` parse, print back equal, are arranged, and play an
+/// SH-101 bass whose filter has automation lanes.
+#[test]
+fn the_example_songs_parse_and_print_back() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&dir).expect("examples dir") {
+        let path = entry.expect("entry").path();
+        if path.extension().is_none_or(|e| e != "song") {
+            continue;
+        }
+        let name = path.display().to_string();
+        let text = std::fs::read_to_string(&path).expect("reads");
+        let s = Song::parse(&text).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{name}");
+        assert!(!s.arrange.is_empty(), "{name}: arranged");
+        assert!(
+            s.tracks
+                .iter()
+                .any(|t| t.preset.is_some_and(|p| p.model() == Model::Sh101)),
+            "{name}: an SH-101 track"
+        );
+        assert!(
+            s.autos.iter().any(|a| a.param == Param::Cutoff),
+            "{name}: cutoff lanes"
+        );
+        assert!(
+            s.autos.iter().any(|a| a.param == Param::Resonance),
+            "{name}: resonance lanes"
+        );
+        seen += 1;
+    }
+    assert_eq!(seen, 5, "five examples");
+}
+
 const ARRANGED: &str = "\
 track kit drums
 frag beat = kit /16

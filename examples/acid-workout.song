@@ -1,0 +1,55 @@
+# Sixteenth-note acid in E minor on the SH-101's AcidBass. Accents (!) drive the
+# filter envelope; the peak's bass slides between notes, longer each bar; the resonance climbs
+# through the arrangement and the break strips back to long notes so the cutoff
+# sweep carries it.
+tempo 128
+swing 50
+
+track kit drums Tr909 Kit909
+track bass synth Sh101 AcidBass
+
+frag kick = kit /16
+  bd x...x...x...x...
+frag beat = kit /16
+  bd x...x...x...x...
+  cp ....x.......x...
+  oh ..x...x...x...x.
+frag hats = kit /16
+  ch x.xxx.xxx.xxx.xx
+frag rim = kit /16
+  rs ..x..x..x..x..x.
+frag fill = kit /16
+  sn ................................................x.x.x.x.xxxxxxXX
+  mt ..........................................................x.x.x.
+frag crash = kit /16
+  cr X...............................................................
+
+frag tick = bass
+  "e1! ~ ~ e1 ~ ~ e1! ~ ~ e1 ~ ~ ~ ~ g1 ~"
+frag acid = bass
+  "e1! e1 e2 e1 ~ e1! g1 e1 e2! e1 ~ e1 a1 e1 g1! e1"
+# Timed notes (start:length:velocity, 3 ticks to a sixteenth): a note one tick
+# longer than its slot overlaps the next, and with the preset's legato and glide
+# that is a slide. 127 is an accent, 95 a plain hit.
+frag slides = bass bars 2
+  e1@0:3:127 e1@3:3:95 e2@6:4:95 e1@9:3:95 e1@15:3:127 g1@18:4:95 e1@21:3:95 e2@24:4:127 e1@27:3:95 e1@33:3:95 a1@36:4:95 e1@39:3:95 g1@42:4:127 e1@45:3:95 e1@48:3:127 e2@54:4:95 e1@57:3:95 e1@63:3:127 b1@66:4:95 e1@69:3:95 e2@72:3:127 g2@78:4:95 e2@81:4:95 d2@84:4:95 b1@87:4:95 a1@90:4:95 g1@93:3:127
+frag hold = bass
+  "<[e1*8] [g1*8] [a1*8] [b1*4 d2*4]>"
+
+auto cut_tick = bass.Cutoff ramp 300 600 /4
+auto cut_acid = bass.Cutoff ramp 500 2200 /8
+auto cut_hold = bass.Cutoff ramp 200 3800 /8
+auto cut_peak = bass.Cutoff 2500 900 3200 1200 /4
+auto res_acid = bass.Resonance ramp 0.35 0.65 /8
+auto res_break = bass.Resonance 0.2 0.5 0.7 0.9 /8
+auto res_peak = bass.Resonance 0.7 0.85 /2
+# Glide time in seconds: how long each slide takes, changing bar by bar.
+auto glide_peak = bass.Glide 0.04 0.07 0.12 0.2 /4
+
+section intro 4: kick hats tick cut_tick
+section groove 8: beat hats acid fill cut_acid res_acid
+section break 8: rim hold cut_hold res_break
+section peak 8: beat hats slides fill crash cut_peak res_peak glide_peak
+section outro 4: kick hats tick cut_tick
+arrange intro groove break peak groove outro
+loop 5 28

@@ -1,0 +1,44 @@
+# Fast breakbeat on a 909 kit with a rolling SH-101 sub in A minor. The break is
+# an Amen-style pattern; the bass keeps long notes against it, with a Euclidean
+# line from the scale for the busy section.
+tempo 170
+swing 50
+scale a minor
+
+track kit drums Tr909 Kit909
+track bass synth Sh101 Sh101Bass
+
+frag break = kit /16
+  bd x.x.......xx....x.x.......xx....
+  sn ....X..x.x..X....x..X..x.x..X...
+  ch x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.
+frag half = kit /16
+  bd x.........x.....
+  sn ........x.......
+  ch x.x.x.x.x.x.x.x.
+frag roll = kit /16
+  sn ................................................x.x.x.xxxxxxXXXX
+  ht ..........................................................x.x.x.
+frag crash = kit /16
+  cr X...............................................................
+
+frag sub = bass
+  "<[a1@6 ~@2 c2@4 e2@2 ~@2] [a1@6 ~@2 g1@4 ~@2 a1@2]>"
+frag rumble = bass
+  "<[a1@10 ~@2 a1@4] [g1@10 ~@2 e1@4]>"
+frag busy = bass
+  euclid(7,16,2) scale a1
+
+auto cut_sub = bass.Cutoff ramp 300 900 /8
+auto cut_rumble = bass.Cutoff 250 350 250 500 /8
+auto cut_busy = bass.Cutoff 1200 2600 1800 3200 /8
+auto res_sub = bass.Resonance 0.3 0.5 /8
+auto res_busy = bass.Resonance ramp 0.4 0.9 /8
+
+section intro 4: half rumble cut_rumble
+section rolling 8: break sub roll cut_sub res_sub
+section breakdown 8: half rumble cut_rumble
+section rolling2 8: break busy roll crash cut_busy res_busy
+section tail 4: half sub cut_sub
+arrange intro rolling breakdown rolling2 tail
+loop 5 28

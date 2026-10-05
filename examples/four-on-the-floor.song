@@ -1,0 +1,51 @@
+# 909 house with an SH-101 off-beat bass. The bass has a phrase per section
+# (sparse, pumping, held sub, busy) and its cutoff and resonance move on their
+# own lanes, so each section opens the filter a little further than the last.
+tempo 124
+swing 52
+
+track kit drums Tr909 Kit909
+track bass synth Sh101 Sh101Bass
+
+frag kick = kit /16
+  bd x...x...x...x...
+frag beat = kit /16
+  bd x...x...x...x...
+  cp ....x.......x...
+  oh ..x...x...x...x.
+frag hats = kit /16
+  ch x.xxx.xxx.xxx.xx
+frag air = kit /16
+  ch ..x...x...x...x.
+frag fill = kit /16
+  sn ..................................................x.x.x.xxxxXXXX
+  lt ............................................................x.x.
+frag crash = kit /16
+  cr X...............................................................
+
+# One bar per quote; <a b> alternates bars.
+frag root = bass
+  "f1! ~ ~ ~ f1 ~ ~ ~"
+frag pump = bass
+  "<[~ f1! ~ f1 ~ f1! ~ f1] [~ f1! ~ f1 ~ f1! ~ [ab1 c2]]>"
+frag sub = bass
+  "<f1 ab1>"
+frag busy = bass
+  "<[f1! f1 [f2 f1] f1 ab1! f1 [c2 bb1] f1] [f1! f1 [f2 f1] f1 c2! f1 [eb2 c2] bb1]>"
+
+auto cut_in = bass.Cutoff ramp 250 700 /4
+auto cut_build = bass.Cutoff ramp 700 1800 /4
+auto cut_main = bass.Cutoff ramp 900 2400 /8
+auto cut_rise = bass.Cutoff ramp 300 4200 /4
+auto cut_drop = bass.Cutoff 3000 1500 3500 1800 /8
+auto res_main = bass.Resonance 0.3 0.4 0.55 0.4 /4
+auto res_rise = bass.Resonance ramp 0.2 0.85 /4
+
+section intro 4: kick hats root cut_in
+section build 4: beat hats pump cut_build
+section main 8: beat hats pump fill crash cut_main res_main
+section break 4: air sub cut_rise res_rise
+section drop 8: beat hats busy fill crash cut_drop res_main
+section outro 4: kick hats root cut_in
+arrange intro build main break drop outro
+loop 9 28
