@@ -248,6 +248,37 @@ frag tune = lead
   c4:4 e4:8 g4:8 [c4,e4,g4]:2 r:4. c5!:8
 ```
 
+**Chords by name** (#103), in mini-notation and classic notes alike. A
+symbol is a root, a letter with maybe `#` or `b` and an octave (4 when left
+out), then `:` and a quality: `maj m 7 maj7 m7 m7b5 dim dim7 aug sus2 sus4 6
+m6 9 m9 add9`. A bare root is a major chord; with an octave and no quality it
+stays one note (`c3`), so write `c3:maj` for the chord. In classic notes the
+last `:` is the duration: `c:m7:2`.
+
+A roman numeral is a degree of the song's `scale` (it needs one with seven
+notes). Its case is its quality, upper major and lower minor, then `o`
+(diminished), `o7`, `+` (augmented), `7` or `maj7`; a `b` or `#` before it
+shifts the root, for borrowed chords. Change the `scale` line and the whole
+progression moves with it: `"<i VI III VII>"` plays Cm Ab Eb Bb in C minor,
+Am F C G in A minor.
+
+`voicing` at the end of the frag line moves each chord to the notes nearest
+the chord before it, between C3 and C6, so the hands stay close. `arp` takes a
+chord by name as well. A name prints back as written.
+
+```song
+scale c minor
+track pad synth
+frag prog = pad voicing
+  "<i VI III VII>"
+frag jazz = pad
+  c:m7:2 f:7:2 bb:maj7:2 eb:maj7:2
+frag turn = pad voicing
+  "<ii7 V7 i bVII>"
+frag ripple = pad
+  arp(c:m9,updown,16)
+```
+
 **Timed:** `pitch@start:length[:velocity]` puts each note at a tick, 48 to the
 bar, for a number of ticks, with an optional velocity of 1 to 127. Notes may
 overlap. It is the form MIDI import writes. A start is under 32 bars (1536
@@ -283,9 +314,28 @@ call gives the same notes every run.
 | `walk(c4,8,1)` | 8 notes (1 to 32) on a random walk on the song's scale, seed 1; needs a `scale` line |
 | `markov(1,riff,3)` | a chain of order 1 to 3 learned from frag `riff`, keeping its rhythm and pitches, seed 3 |
 | `mutate(riff,30,5)` | `riff` with 30 percent (0 to 100) of its notes moved or dropped, seed 5 |
+| `prog(4,7)` | 4 bars (1 to 16) of triads in the song's key, seed 7: it starts on the tonic, ends on the dominant, and moves between tonic, subdominant and dominant chords as common practice does; needs a `scale` line with seven notes |
+| `root(chords)` | the root of each chord of frag `chords`, in octave 2, as a bass line; `root(chords,3)` for another octave |
+| `arp(chords,up,16)` | frag `chords` arpeggiated chord by chord, each from its own start (a frag's name wins over a chord name) |
 
-A chord has at most 8 notes. `markov` and `mutate` read a note frag written
-above them.
+A chord has at most 8 notes. `markov`, `mutate`, `root` and `arp` over a frag
+read a note frag written above them, as it was when the song loaded: over a
+`live` frag they follow its first bar's notes.
+
+One progression can feed the pad, the bass and the arp:
+
+```song
+scale c minor
+track pad synth
+track bass synth
+track arp synth
+frag chords = pad voicing
+  prog(4,7)
+frag low = bass
+  root(chords)
+frag ripple = arp
+  arp(chords,updown,16)
+```
 
 ```song
 scale c minor

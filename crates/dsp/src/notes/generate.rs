@@ -8,6 +8,9 @@
 //! walk(c4,8,1)                   8 notes, a random walk on the song's scale
 //! markov(1,riff,3)               learn order 1 from the frag riff, seed 3
 //! mutate(riff,30,5)              change 30 percent of riff's notes, seed 5
+//! prog(4,7)                      four bars of chords in the song's key, seed 7
+//! root(prog)                     the root of each chord of prog, as a bass line
+//! arp(prog,up,16)                prog's chords arpeggiated, each from its start
 //! ```
 
 use super::{Cursor, Event, NoteError, Pitch, TICKS_PER_BAR, err};
@@ -79,7 +82,32 @@ pub enum Gen {
         bars: u32,
         seed: u32,
     },
+    /// The chords of an earlier frag, each arpeggiated from where it starts (#103).
+    ArpProg {
+        from: String,
+        src: Vec<Event>,
+        bars: u32,
+        mode: ArpMode,
+        rate: u8,
+        seed: u32,
+    },
+    /// The lowest note of each chord of an earlier frag, moved to `octave` (#103).
+    Root {
+        from: String,
+        src: Vec<Event>,
+        bars: u32,
+        octave: u8,
+    },
+    /// A progression in the song's key, a triad a bar (#103).
+    Prog {
+        bars: u32,
+        seed: u32,
+    },
 }
+
+/// Bars a progression may have, and the octave `root` plays in by default.
+const MAX_PROG: u32 = 16;
+const ROOT_OCTAVE: u8 = 2;
 
 /// A fragment a call may read: its events and bars.
 pub type Source = (Vec<Event>, u32);
@@ -90,7 +118,10 @@ impl Gen {
             Gen::Arp { seed, .. }
             | Gen::Walk { seed, .. }
             | Gen::Markov { seed, .. }
-            | Gen::Mutate { seed, .. } => *seed,
+            | Gen::Mutate { seed, .. }
+            | Gen::ArpProg { seed, .. }
+            | Gen::Prog { seed, .. } => *seed,
+            Gen::Root { .. } => 0,
         }
     }
 
@@ -98,7 +129,11 @@ impl Gen {
     pub fn bars(&self) -> u32 {
         match self {
             Gen::Arp { .. } | Gen::Walk { .. } => 1,
-            Gen::Markov { bars, .. } | Gen::Mutate { bars, .. } => *bars,
+            Gen::Markov { bars, .. }
+            | Gen::Mutate { bars, .. }
+            | Gen::ArpProg { bars, .. }
+            | Gen::Root { bars, .. }
+            | Gen::Prog { bars, .. } => *bars,
         }
     }
 
@@ -127,6 +162,23 @@ impl Gen {
             Gen::Mutate {
                 from, amount, seed, ..
             } => format!("mutate({from},{amount},{seed})"),
+            Gen::ArpProg {
+                from,
+                mode,
+                rate,
+                seed,
+                ..
+            } => {
+                let seed = if *mode == ArpMode::Random {
+                    format!(",{seed}")
+                } else {
+                    String::new()
+                };
+                format!("arp({from},{},{rate}{seed})", mode.name())
+            }
+            Gen::Root { from, octave, .. } if *octave == ROOT_OCTAVE => format!("root({from})"),
+            Gen::Root { from, octave, .. } => format!("root({from},{octave})"),
+            Gen::Prog { bars, seed } => format!("prog({bars},{seed})"),
         }
     }
 
@@ -143,7 +195,9 @@ impl Gen {
         match self {
             Gen::Arp { rate, .. } => usize::from(*rate),
             Gen::Walk { .. } => MAX_WALK as usize,
-            Gen::Markov { src, .. } | Gen::Mutate { src, .. } => src.len(),
+            Gen::Markov { src, .. } | Gen::Mutate { src, .. } | Gen::Root { src, .. } => src.len(),
+            Gen::ArpProg { rate, bars, .. } => usize::from(*rate) * *bars as usize,
+            Gen::Prog { bars, .. } => 3 * *bars as usize,
         }
     }
 
@@ -159,6 +213,15 @@ impl Gen {
             Gen::Walk { start, steps, .. } => walk(*start, *steps, seed, scale, out),
             Gen::Markov { order, src, .. } => markov(*order, src, seed, out),
             Gen::Mutate { amount, src, .. } => mutate(*amount, src, seed, scale, out),
+            Gen::ArpProg {
+                src,
+                bars,
+                mode,
+                rate,
+                ..
+            } => arp_prog(src, *bars, *mode, *rate, seed, out),
+            Gen::Root { src, octave, .. } => root(src, *octave, out),
+            Gen::Prog { bars, .. } => prog(*bars, seed, scale, out),
         }
         out.sort_unstable_by_key(super::sort_key);
         // Past the room reserved, a push would allocate on the audio thread (#233).
@@ -305,6 +368,142 @@ fn mutate(amount: u8, src: &[Event], seed: u32, scale: Option<&Scale>, out: &mut
     }
 }
 
+/// The notes of the chord sounding at tick `t` in `src`: those starting at
+/// the latest start at or before `t`, lowest first, into `buf`. Its start and
+/// the number of notes, or `None` before the first chord.
+fn chord_at(src: &[Event], t: u32, buf: &mut [u8; MAX_CHORD]) -> Option<(u32, usize)> {
+    let start = src.iter().map(|e| e.start).filter(|s| *s <= t).max()?;
+    let mut n = 0;
+    for e in src.iter().filter(|e| e.start == start) {
+        if let Some(slot) = buf.get_mut(n) {
+            *slot = e.note;
+            n += 1;
+        }
+    }
+    if let Some(notes) = buf.get_mut(..n) {
+        notes.sort_unstable();
+    }
+    Some((start, n))
+}
+
+/// `arp(prog,…)`: at each step, the chord of `src` sounding then, played from
+/// its first step as the arp plays a held chord.
+fn arp_prog(src: &[Event], bars: u32, mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>) {
+    let len = TICKS_PER_BAR / u32::from(rate).max(1);
+    let count = bars * TICKS_PER_BAR / len.max(1);
+    let mut r = rng(seed, 0xA5);
+    let mut buf = [0u8; MAX_CHORD];
+    for i in 0..count {
+        let t = i * len;
+        let Some((start, n)) = chord_at(src, t, &mut buf) else {
+            continue;
+        };
+        let held = buf.get(..n).unwrap_or(&[]);
+        let step = u64::from((t - start) / len.max(1));
+        let note = match mode {
+            ArpMode::Up => arp::arp_note(held, arp::ArpMode::Up, 1, step, seed),
+            ArpMode::Down => arp::arp_note(held, arp::ArpMode::Down, 1, step, seed),
+            ArpMode::UpDown => arp::arp_note(held, arp::ArpMode::UpDown, 1, step, seed),
+            ArpMode::Random => {
+                let k = usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1);
+                held.get(k).copied()
+            }
+        };
+        if let Some(note) = note {
+            out.push(Event {
+                start: t,
+                len,
+                note,
+                accent: false,
+                vel: 0,
+            });
+        }
+    }
+}
+
+/// `root(prog)`: for each start in `src`, its lowest note's pitch class in
+/// `octave`, as long as the longest note there.
+fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
+    let mut i = 0;
+    while let Some(first) = src.get(i) {
+        let mut low = first.note;
+        let mut len = first.len;
+        let mut j = i;
+        while let Some(e) = src.get(j).filter(|e| e.start == first.start) {
+            low = low.min(e.note);
+            len = len.max(e.len);
+            j += 1;
+        }
+        let note = (u16::from(octave) + 1) * 12 + u16::from(low % 12);
+        out.push(Event {
+            start: first.start,
+            len,
+            note: u8::try_from(note.min(127)).unwrap_or(127),
+            accent: false,
+            vel: 0,
+        });
+        i = j.max(i + 1);
+    }
+}
+
+/// Degrees by function: tonic (I vi iii), subdominant (IV ii), dominant (V vii).
+const FUNCTIONS: [&[usize]; 3] = [&[0, 5, 2], &[3, 1], &[4, 6]];
+/// The chance (of 8) of each next function after tonic, subdominant, dominant.
+const MOVES: [[u32; 3]; 3] = [[1, 4, 3], [1, 2, 5], [6, 0, 2]];
+
+/// `prog(bars,seed)`: a triad a bar on the song's scale, starting on the
+/// tonic (I) and ending on the dominant (V), moving between functions as
+/// common practice does: tonic to anything, subdominant towards the
+/// dominant, the dominant home.
+fn prog(bars: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
+    let Some(scale) = scale.filter(|s| s.degree(0).is_some()) else {
+        return;
+    };
+    let mut r = rng(seed, 0x9C0);
+    let mut function = 0usize;
+    for bar in 0..bars.min(MAX_PROG) {
+        let degree = if bar == 0 {
+            0
+        } else if bar + 1 == bars {
+            function = 2;
+            4
+        } else {
+            let pick = r.next_u32() % 8;
+            let moves = MOVES.get(function).copied().unwrap_or([8, 0, 0]);
+            let mut acc = 0;
+            for (f, w) in moves.iter().enumerate() {
+                acc += w;
+                if pick < acc {
+                    function = f;
+                    break;
+                }
+            }
+            let choices = FUNCTIONS.get(function).copied().unwrap_or(&[0]);
+            choices
+                .get(usize::try_from(r.next_u32()).unwrap_or(0) % choices.len().max(1))
+                .copied()
+                .unwrap_or(0)
+        };
+        // Root, third and fifth stacked from the degree, in octave 4.
+        let mut below = 59u8;
+        for k in [0, 2, 4] {
+            let pc = scale.degree((degree + k) % 7).unwrap_or(0);
+            let mut note = 60 + pc;
+            while note <= below {
+                note += 12;
+            }
+            below = note;
+            out.push(Event {
+                start: bar * TICKS_PER_BAR,
+                len: TICKS_PER_BAR,
+                note,
+                accent: false,
+                vel: 0,
+            });
+        }
+    }
+}
+
 // --- Parsing ---------------------------------------------------------------
 
 /// The arguments of the call at the cursor: each a trimmed range of chars.
@@ -364,6 +563,7 @@ fn pitch_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Pitch, NoteError> {
         i: 0,
         base: cur.base + r.0,
         items: 0,
+        scale: cur.scale,
     };
     let p = sub.pitch()?;
     if sub.peek().is_some() {
@@ -379,9 +579,14 @@ fn chord_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Vec<Pitch>, NoteErro
         i: 0,
         base: cur.base + r.0,
         items: 0,
+        scale: cur.scale,
     };
     if sub.peek() != Some('[') {
-        return err(sub.col(), "a chord goes here, as [c4,e4,g4]");
+        // A chord by name (#103): `arp(c:m7,up,16)`, `arp(V7,up,16)`.
+        if sub.peek().is_some_and(char::is_alphabetic) && !super::chord::is_note(slice) {
+            return super::chord::notes_of(slice, sub.col(), cur.scale);
+        }
+        return err(sub.col(), "a chord goes here, as [c4,e4,g4] or c:m7");
     }
     sub.i += 1;
     let chord = sub.chord()?;
@@ -422,7 +627,8 @@ pub(super) fn parse_call(
         name.push(c);
         cur.i += 1;
     }
-    if cur.peek() != Some('(') || !["arp", "walk", "markov", "mutate"].contains(&name.as_str()) {
+    let names = ["arp", "walk", "markov", "mutate", "root", "prog"];
+    if cur.peek() != Some('(') || !names.contains(&name.as_str()) {
         cur.i = start;
         return Ok(None);
     }
@@ -448,7 +654,15 @@ pub(super) fn parse_call(
                 &[3, 4],
                 "arp takes a chord, a mode, a rate and for random a seed: arp([c4,e4,g4],up,16)",
             )?;
-            let chord = chord_arg(cur, arg(0))?;
+            // A frag's name: its progression, chord by chord (#103).
+            let prog = Some(text(cur, arg(0)))
+                .filter(|t| !t.starts_with('['))
+                .and_then(|t| srcs(&t).map(|s| (t, s)));
+            let chord = if prog.is_some() {
+                Vec::new()
+            } else {
+                chord_arg(cur, arg(0))?
+            };
             let m = text(cur, arg(1));
             let mode = ArpMode::from_name(&m).ok_or(NoteError {
                 col: cur.base + arg(1).0,
@@ -468,11 +682,56 @@ pub(super) fn parse_call(
                 );
             }
             let seed = if list.len() == 4 { seed_at(3)? } else { 0 };
-            Gen::Arp {
-                chord,
-                mode,
-                rate,
-                seed,
+            match prog {
+                Some((from, (src, bars))) => Gen::ArpProg {
+                    from,
+                    src,
+                    bars,
+                    mode,
+                    rate,
+                    seed,
+                },
+                None => Gen::Arp {
+                    chord,
+                    mode,
+                    rate,
+                    seed,
+                },
+            }
+        }
+        "root" => {
+            want(
+                &[1, 2],
+                "root takes a frag and maybe an octave: root(prog) or root(prog,3)",
+            )?;
+            let (from, (src, bars)) = source(cur, arg(0), srcs)?;
+            let octave = if list.len() == 2 {
+                number(cur, arg(1), 7, "an octave is 0 to 7")?
+            } else {
+                u32::from(ROOT_OCTAVE)
+            };
+            Gen::Root {
+                from,
+                src,
+                bars,
+                octave: u8::try_from(octave).unwrap_or(ROOT_OCTAVE),
+            }
+        }
+        "prog" => {
+            want(&[2], "prog takes a number of bars and a seed: prog(4,7)")?;
+            if scale.and_then(|s| s.degree(0)).is_none() {
+                return err(
+                    cur.base + at,
+                    "a prog needs a scale line with seven notes, as scale c minor",
+                );
+            }
+            let bars = number(cur, arg(0), MAX_PROG, "a prog is 1 to 16 bars")?;
+            if bars == 0 {
+                return err(cur.base + arg(0).0, "a prog is 1 to 16 bars");
+            }
+            Gen::Prog {
+                bars,
+                seed: seed_at(1)?,
             }
         }
         "walk" => {

@@ -26,6 +26,7 @@
 //! Parsing and compiling allocate and happen when a song is loaded, never in
 //! `render`. Both are total: bad text is an error with a column.
 
+mod chord;
 mod generate;
 
 use generate::Source;
@@ -62,10 +63,19 @@ pub enum Item {
     Rest,
     Note(Pitch),
     Chord(Vec<Pitch>),
+    /// `c:m7` or `VI`: a chord by name, kept as written (#103).
+    Symbol(Symbol),
     /// `[ ... ]`: its words share the slot.
     Group(Vec<Slot>),
     /// `< ... >`: one option per bar.
     Alt(Vec<Slot>),
+}
+
+/// A chord written by name and the notes it names in the song's key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Symbol {
+    pub text: String,
+    pub pitches: Vec<Pitch>,
 }
 
 /// A word of a mini-notation line with its suffixes.
@@ -86,6 +96,8 @@ pub struct Slot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Beat {
     pub pitches: Vec<Pitch>,
+    /// The chord's name when written as one (`c:m7:2`), printed as written.
+    pub symbol: Option<String>,
     /// 1, 2, 4, 8 or 16: a whole, half, quarter, eighth or sixteenth note.
     pub div: u8,
     pub dot: bool,
@@ -177,9 +189,33 @@ struct Cursor<'a> {
     /// Column of `c[0]`.
     base: usize,
     items: usize,
+    /// The song's key, for roman numerals.
+    scale: Option<&'a Scale>,
 }
 
 impl Cursor<'_> {
+    /// The end of the word at the cursor: the next space, or a char in `stop`.
+    fn word_end(&self, stop: &[char]) -> usize {
+        let mut j = self.i;
+        while self
+            .c
+            .get(j)
+            .is_some_and(|c| !c.is_whitespace() && !stop.contains(c))
+        {
+            j += 1;
+        }
+        j
+    }
+
+    /// A chord by name from the cursor to `end`.
+    fn symbol(&mut self, end: usize) -> Result<Symbol, NoteError> {
+        let w = self.c.get(self.i..end).unwrap_or(&[]);
+        let pitches = chord::notes_of(w, self.col(), self.scale)?;
+        let text = w.iter().collect();
+        self.i = end;
+        Ok(Symbol { text, pitches })
+    }
+
     fn col(&self) -> usize {
         self.base + self.i
     }
@@ -391,7 +427,14 @@ impl Cursor<'_> {
             }
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
-            _ => Item::Note(self.pitch()?),
+            _ => {
+                let end = self.word_end(&['*', '@', '?', '&', ']', '>']);
+                if chord::is_note(self.c.get(self.i..end).unwrap_or(&[])) {
+                    Item::Note(self.pitch()?)
+                } else {
+                    Item::Symbol(self.symbol(end)?)
+                }
+            }
         };
         let (mut times, mut weight, mut chance, mut slide) = (1, 1, false, false);
         let (mut got_times, mut got_weight) = (false, false);
@@ -413,7 +456,7 @@ impl Cursor<'_> {
                     chance = true;
                 }
                 Some('&') if !slide => {
-                    if !matches!(item, Item::Note(_) | Item::Chord(_)) {
+                    if !matches!(item, Item::Note(_) | Item::Chord(_) | Item::Symbol(_)) {
                         return err(here, "only a note or a chord slides");
                     }
                     self.i += 1;
@@ -450,10 +493,12 @@ impl Cursor<'_> {
         Ok(n)
     }
 
-    /// A classic note: `c4:4`, `[c4,e4]:2` or `r:8`, with a dot for a dotted note.
+    /// A classic note: `c4:4`, `[c4,e4]:2`, `c:m7:2`, `V7:4` or `r:8`, with a
+    /// dot for a dotted note. The last `:` is the duration's.
     fn beat(&mut self) -> Result<Beat, NoteError> {
         self.count_item()?;
         let at = self.col();
+        let mut symbol = None;
         let pitches = match self.peek() {
             Some('r') => {
                 self.i += 1;
@@ -469,7 +514,21 @@ impl Cursor<'_> {
                     "mini-notation goes inside quotes, classic notes outside",
                 );
             }
-            _ => vec![self.pitch()?],
+            _ => {
+                let end = self.word_end(&[]);
+                let word = self.c.get(self.i..end).unwrap_or(&[]);
+                let head = word
+                    .iter()
+                    .rposition(|c| *c == ':')
+                    .map_or(end, |k| self.i + k);
+                if chord::is_note(self.c.get(self.i..head).unwrap_or(&[])) || head == self.i {
+                    vec![self.pitch()?]
+                } else {
+                    let s = self.symbol(head)?;
+                    symbol = Some(s.text);
+                    s.pitches
+                }
+            }
         };
         if self.peek() != Some(':') {
             return err(self.col(), "a classic note has a duration, as c4:4");
@@ -503,6 +562,7 @@ impl Cursor<'_> {
         }
         Ok(Beat {
             pitches,
+            symbol,
             div,
             dot,
             slide,
@@ -576,6 +636,7 @@ pub fn parse_with(
         i: 0,
         base,
         items: 0,
+        scale,
     };
     cur.skip_ws();
     let seq = if let Some(seq) = parse_euclid(&mut cur, scale)? {
@@ -597,6 +658,7 @@ pub fn parse_with(
             i: 0,
             base: cur.col(),
             items: 0,
+            scale,
         };
         let slots = sub.slots(None, 0)?;
         cur.i = inner_end + 1;
@@ -652,6 +714,13 @@ impl Notes {
         Ok(self)
     }
 
+    /// Each chord moved to the inversion nearest the one before (#103): the
+    /// frag line's `voicing`. The text stays as written.
+    pub fn voiced(mut self) -> Notes {
+        chord::voice(&mut self.events);
+        self
+    }
+
     fn new(seq: Seq, events: Vec<Event>, bars: u32) -> Notes {
         let mut n = Notes {
             seq,
@@ -685,6 +754,7 @@ fn slot_text(s: &Slot) -> String {
         Item::Rest => "~".to_string(),
         Item::Note(p) => pitch_text(p),
         Item::Chord(ps) => chord_text(ps),
+        Item::Symbol(sym) => sym.text.clone(),
         Item::Group(g) => format!("[{}]", slots_text(g)),
         Item::Alt(g) => format!("<{}>", slots_text(g)),
     };
@@ -732,10 +802,11 @@ impl Notes {
                 let parts: Vec<String> = beats
                     .iter()
                     .map(|b| {
-                        let what = match b.pitches.as_slice() {
-                            [] => "r".to_string(),
-                            [p] => pitch_text(p),
-                            ps => chord_text(ps),
+                        let what = match (&b.symbol, b.pitches.as_slice()) {
+                            (Some(sym), _) => sym.clone(),
+                            (None, []) => "r".to_string(),
+                            (None, [p]) => pitch_text(p),
+                            (None, ps) => chord_text(ps),
                         };
                         format!(
                             "{what}:{}{}{}",
@@ -817,7 +888,7 @@ impl Compiler {
         match item {
             Item::Rest => {}
             Item::Note(p) => self.note(*p, at, span, bar, slide),
-            Item::Chord(ps) => {
+            Item::Chord(ps) | Item::Symbol(Symbol { pitches: ps, .. }) => {
                 for p in ps {
                     self.note(*p, at, span, bar, slide);
                 }

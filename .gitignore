@@ -23,6 +23,7 @@ target
 # web
 web/node_modules/
 web/dist/
+web/coverage/
 # built by `make wasm` from crates/dsp
 web/public/dsp.wasm
 AGENTS.md
