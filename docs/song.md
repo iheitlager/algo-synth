@@ -39,7 +39,8 @@ An empty text is a song too: 120 BPM, no swing, silence.
 
 ## tempo
 
-`tempo <bpm>`, 20 to 300. Without it the song is at 120.
+`tempo <bpm>`, 20 to 300. Without it the song is at 120. A song has one
+`tempo` line.
 
 ```song
 tempo 124
@@ -48,7 +49,8 @@ tempo 124
 ## swing
 
 `swing <percent>`, 50 (straight) to 75. It moves the off-beat sixteenths
-later; about 67 is a triplet feel. Without it the song is at 50.
+later; about 67 is a triplet feel. Without it the song is at 50. A song has
+one `swing` line.
 
 ```song
 tempo 96
@@ -233,8 +235,8 @@ frag beat = kit /16
 
 On a `synth` track the frag holds one indented line of notes, in one of five
 forms, never mixed in a line. A `sampler` track reads a line as notes when it
-is quoted, a chord or has a `:` (mini-notation, classic or timed); anything
-else there is a lane.
+is quoted, a chord, has a `:` (mini-notation, classic or timed) or is a call
+(`arp(…)`, `euclid(…)` and the other generators); anything else there is a lane.
 
 Notes are a letter, maybe `#` or `b`, and an octave 0 to 9: `c4` is middle C (MIDI
 60), `f#2`, `eb5`. A `!` after a note accents it: `c4!`. A line compiles to
@@ -319,7 +321,8 @@ frag ripple = pad
 bar, for a number of ticks, with an optional velocity of 1 to 127. Notes may
 overlap. It is the form MIDI import writes. A start is under 32 bars (1536
 ticks), a length 1 to 1536 ticks. The line ends at the bar of its last start,
-or say how long it is with `bars <n>` (1 to 32) on the frag line.
+or say how long it is with `bars <n>` (1 to 32) on the frag line; `bars` is
+for timed notes only, never lanes.
 
 ```song
 track v synth
