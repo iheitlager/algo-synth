@@ -302,6 +302,19 @@ describe('samples', () => {
     expect([mod.sampleStore.used, mod.sampleStore.cap]).toEqual([200, 1000])
   })
 
+  it('a second load for a busy slot waits its turn; both resolve, the last fills the slot (#253)', async () => {
+    const { mod, send } = await boot()
+    const first = mod.loadSample(3, new ArrayBuffer(8), 'one.wav')
+    const second = mod.loadSample(3, new ArrayBuffer(8), 'two.wav')
+    await new Promise((r) => setTimeout(r))
+    send(loaded(3, { code: 50 }))
+    await expect(first).resolves.toBe(50)
+    expect(mod.sampleStore.slots[3]?.name).toBe('one.wav')
+    send(loaded(3, { code: 70 }))
+    await expect(second).resolves.toBe(70)
+    expect(mod.sampleStore.slots[3]?.name).toBe('two.wav')
+  })
+
   it('a failed load says why and resolves with the error', async () => {
     const { mod, send } = await boot()
     const done = mod.loadSample(1, new ArrayBuffer(8), 'bad.wav')

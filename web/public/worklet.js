@@ -310,6 +310,11 @@ class EngineProcessor extends AudioWorkletProcessor {
       // Automation moved these strips' values: show them (ADR-0015).
       const touched = w.auto_touched()
       for (let s = 0; s < 32; s++) if ((touched >>> s) & 1) this.sendParams(s)
+      // A song loaded while playing took over on the bar line (#208): show it.
+      if (w.song_taken()) {
+        this.sendSong(true)
+        for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
+      }
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()

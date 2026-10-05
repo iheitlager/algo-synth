@@ -64,8 +64,8 @@ use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::song::{
-    At, Kind, MAX_AUTOS, MAX_TEXT, MAX_TRACKS, Mix, MixLine, STEPS_PER_BAR, Song, SongError, Step,
-    Target,
+    At, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine, STEPS_PER_BAR, Song,
+    SongError, Step, Target, signal,
 };
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -74,7 +74,7 @@ use crate::voice::{Owner, sine_table};
 pub const BLOCK: usize = 128;
 /// MIDI channels the player routes.
 pub const CHANNELS: usize = 16;
-/// Mono synths, each with its own parameters (plan.md MVP 5).
+/// Synth slots, each any model, with its own parameters.
 pub const SYNTHS: usize = 16;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
@@ -83,6 +83,13 @@ pub const METERS: usize = STRIPS + 2 + SENDS;
 pub const MAX_MIDI: usize = 16 << 20;
 /// The largest SysEx file taken: a bank is 4 104 bytes, so this leaves room for many.
 pub const MAX_SYSEX: usize = 1 << 20;
+
+/// A parsed song waiting for the bar line (`Engine::load_song`).
+struct Pending {
+    song: Song,
+    live: Vec<Live>,
+    route: [Option<usize>; MAX_TRACKS],
+}
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -147,9 +154,24 @@ pub struct Engine {
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
     /// One per fragment of the song; empty for all but the live ones.
     live: Vec<Live>,
+    /// A song loaded while the song plays, ready to take over at the next
+    /// bar with its live buffers and track routes (#208).
+    pending: Option<Pending>,
+    /// The song and live buffers it replaced, kept so `render` never frees
+    /// them; the next load drops them.
+    spent: Option<(Song, Vec<Live>)>,
+    /// A pending song took over on a bar line since the view last asked.
+    taken: bool,
     /// The value each automation lane last wrote, so it writes only changes
     /// and a hand on a knob holds until the next one (ADR-0015).
     auto_last: [f32; MAX_AUTOS],
+    /// The same for each modulation (ADR-0019).
+    mod_last: [f32; MAX_MODS],
+    /// The value each modulation found when it began to write, to put back
+    /// when it stops; `None` while it is not writing (ADR-0019).
+    mod_base: [Option<f32>; MAX_MODS],
+    /// The state of the song's `lag` nodes, NaN until each first runs.
+    mod_state: [f32; signal::MAX_NODES],
     /// Strips (bit per strip, globals on bit 0) automation changed since the
     /// view last asked, so it can redraw their values.
     touched: u32,
@@ -211,7 +233,13 @@ impl Engine {
             keep_synths: false,
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
+            pending: None,
+            spent: None,
+            taken: false,
             auto_last: [f32::NAN; MAX_AUTOS],
+            mod_last: [f32::NAN; MAX_MODS],
+            mod_base: [None; MAX_MODS],
+            mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
             arps: [Arp::default(); SYNTHS],
             free_tick: 0,
@@ -735,12 +763,23 @@ impl Engine {
     }
 
     pub fn song_stop(&mut self) {
+        self.commit_song();
         self.hand_arps_over();
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
-        // From the top every lane writes again.
+        // Each modulation puts back the value it found.
+        for m in 0..MAX_MODS {
+            let target = self.song.mods.get(m).map(|md| (md.target, md.param));
+            let base = self.mod_base.get_mut(m).and_then(Option::take);
+            if let (Some((t, p)), Some(base)) = (target, base) {
+                self.automate(t, p, base);
+            }
+        }
+        // From the top every lane and modulation writes again.
         self.auto_last = [f32::NAN; MAX_AUTOS];
+        self.mod_last = [f32::NAN; MAX_MODS];
+        self.mod_state = [f32::NAN; signal::MAX_NODES];
     }
 
     /// Move the song to the first step of `bar` (from 0); the clock fires it next.
@@ -785,6 +824,9 @@ impl Engine {
             self.stop();
         }
         while let Some(k) = self.clock.due() {
+            if k % STEPS_PER_BAR == 0 {
+                self.commit_song();
+            }
             self.play_step(k);
             self.play_tick(k * TICKS_PER_STEP);
         }
@@ -983,15 +1025,18 @@ impl Engine {
     /// One buffer pair per fragment, sized for its call; only live fragments
     /// get room.
     fn rebuild_live(&mut self) {
-        self.live = self
-            .song
-            .frags
+        self.live = Self::live_for(&self.song);
+    }
+
+    /// The live buffers of `song`'s fragments, sized for their generators.
+    fn live_for(song: &Song) -> Vec<Live> {
+        song.frags
             .iter()
             .map(|fr| match fr.notes.as_ref().map(|n| &n.seq) {
                 Some(Seq::Generated(call)) if fr.live => Live::with_room(call.max_events()),
                 _ => Live::default(),
             })
-            .collect();
+            .collect()
     }
 
     /// The events fragment `frag` is playing: a live one's current cycle, else
@@ -1007,6 +1052,7 @@ impl Engine {
     /// Edit a note of fragment `frag` and print the song again; false when
     /// the song does not take it (`Song::edit_note`).
     pub fn edit_note(&mut self, frag: usize, op: Edit) -> bool {
+        self.commit_song();
         if !self.song.edit_note(frag, op) {
             return false;
         }
@@ -1019,6 +1065,7 @@ impl Engine {
     /// print the song again. False when it is not a generated fragment or
     /// the events do not fit the notation.
     pub fn freeze(&mut self, frag: usize) -> bool {
+        self.commit_song();
         let playing = self
             .live
             .get(frag)
@@ -1114,6 +1161,7 @@ impl Engine {
                     .copied()
                 {
                     self.automate(t, p, v);
+                    self.mods_again(t, p);
                 }
             }
         }
@@ -1176,7 +1224,86 @@ impl Engine {
             }
             *last = v;
             self.automate(target, param, v);
+            self.mods_again(target, param);
         }
+    }
+
+    /// A modulation of a parameter something else just wrote writes again at
+    /// the next block, even unchanged: it goes last (ADR-0019).
+    fn mods_again(&mut self, target: Target, param: Param) {
+        for (m, last) in self.song.mods.iter().zip(self.mod_last.iter_mut()) {
+            if m.target == target && m.param == param {
+                *last = f32::NAN;
+            }
+        }
+    }
+
+    /// The modulations at the clock's position, once per block, after the
+    /// lanes: each signal is evaluated at the song's position in bars and
+    /// writes only when its value changed (ADR-0019). A fragment's methods
+    /// write while it plays (#204); a modulation that begins to write keeps
+    /// the value it found and puts it back when it stops.
+    fn run_mods(&mut self, frames: usize) {
+        if !self.clock.playing() || self.song.mods.is_empty() {
+            return;
+        }
+        let pos = self.clock.step_position().max(0.0);
+        let section = match self.song.at(pos.floor() as u64) {
+            At::Free(_) => None,
+            At::In { section, .. } => Some(section),
+            At::End => return,
+        };
+        let t = pos / STEPS_PER_BAR as f64;
+        let cps = f64::from(self.clock.tempo()) / 240.0;
+        let dt = frames as f32 / self.sample_rate;
+        for m in 0..self.song.mods.len().min(MAX_MODS) {
+            let Some(md) = self.song.mods.get(m) else {
+                continue;
+            };
+            let (target, param) = (md.target, md.param);
+            let playing = md.frag.is_none_or(|f| {
+                section.is_none_or(|s| {
+                    self.song
+                        .sections
+                        .get(s)
+                        .is_some_and(|sec| sec.frags.contains(&f))
+                })
+            });
+            if !playing {
+                if let Some(base) = self.mod_base.get_mut(m).and_then(Option::take) {
+                    if let Some(last) = self.mod_last.get_mut(m) {
+                        *last = f32::NAN;
+                    }
+                    self.automate(target, param, base);
+                }
+                continue;
+            }
+            let found = self.target_value(target, param);
+            if let Some(base @ None) = self.mod_base.get_mut(m) {
+                *base = Some(found);
+            }
+            let mut ctx = signal::Ctx {
+                cps,
+                dt,
+                state: &mut self.mod_state,
+            };
+            let v = md.signal.eval(t, &mut ctx);
+            match self.mod_last.get_mut(m) {
+                Some(last) if *last != v => *last = v,
+                _ => continue,
+            }
+            self.automate(target, param, v);
+        }
+    }
+
+    /// The value a target's parameter has now; 0 for an unrouted track.
+    fn target_value(&self, target: Target, param: Param) -> f32 {
+        let strip = match target {
+            Target::Master => Some(0),
+            Target::Strip(s) => Some(s),
+            Target::Track(t) => self.song_routed(t),
+        };
+        strip.map_or(0.0, |s| self.param_value(s, param))
     }
 
     /// The strips automation changed since the last call (bit per strip), cleared.
@@ -1185,6 +1312,57 @@ impl Engine {
     }
 
     // --- The song (spec 002 Req 6, ADR-0012) -------------------------------
+
+    /// Take over the pending song, if any: only moves and copies, so `render`
+    /// may call it on a bar line (ADR-0002). The old song waits in `spent`.
+    fn commit_song(&mut self) {
+        let Some(p) = self.pending.take() else {
+            return;
+        };
+        let song = std::mem::replace(&mut self.song, p.song);
+        let live = std::mem::replace(&mut self.live, p.live);
+        self.spent = Some((song, live));
+        self.taken = true;
+        self.song_route = p.route;
+        self.clock.set_tempo(self.song.tempo);
+        self.clock.set_swing(self.song.swing);
+        self.auto_last = [f32::NAN; MAX_AUTOS];
+        self.mod_last = [f32::NAN; MAX_MODS];
+        self.mod_state = [f32::NAN; signal::MAX_NODES];
+        // A modulation the new song keeps keeps the value it found; one it
+        // drops puts that value back.
+        let old = std::mem::replace(&mut self.mod_base, [None; MAX_MODS]);
+        let mut restore = [None; MAX_MODS];
+        if let Some((spent, _)) = &self.spent {
+            for (o, md) in spent.mods.iter().enumerate() {
+                let Some(base) = old.get(o).copied().flatten() else {
+                    continue;
+                };
+                let kept = self.song.mods.iter().position(|n| {
+                    n.target == md.target
+                        && n.param == md.param
+                        && n.frag.is_some() == md.frag.is_some()
+                });
+                match kept.and_then(|n| self.mod_base.get_mut(n)) {
+                    Some(slot) if slot.is_none() => *slot = Some(base),
+                    _ => {
+                        if let Some(r) = restore.get_mut(o) {
+                            *r = Some((md.target, md.param, base));
+                        }
+                    }
+                }
+            }
+        }
+        for (t, p, v) in restore.into_iter().flatten() {
+            self.automate(t, p, v);
+        }
+    }
+
+    /// Whether a song loaded while playing took over since the last call, so
+    /// the view can draw it; cleared.
+    pub fn take_taken(&mut self) -> bool {
+        std::mem::take(&mut self.taken)
+    }
 
     /// Size the song text buffer and hand it out; `None` when too long.
     pub fn song_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
@@ -1196,10 +1374,13 @@ impl Engine {
         Some(&mut self.song_buf)
     }
 
-    /// Parse the buffer and play it from the next clock step, keeping each
-    /// lane's place against the clock. A text that does not parse leaves the
-    /// song playing and is reported (`song_error`). Tempo and swing go to the
-    /// clock; a track keeps its synth, or goes to the first drum kit (the 808 or a pad sampler).
+    /// Parse the buffer and play it: at once when the song is stopped, else
+    /// from the next bar (#208), keeping each lane's place against the clock.
+    /// A text that does not parse leaves the song playing and is reported
+    /// (`song_error`). Tempo and swing go to the clock with the song; a track
+    /// keeps its synth, or goes to the first drum kit (the 808 or a pad
+    /// sampler). Patches and mixer lines are set at once: they go to synths
+    /// the old song does not play, or are a hand on a knob.
     pub fn load_song(&mut self) -> Result<(), SongError> {
         let parsed = match std::str::from_utf8(&self.song_buf) {
             Ok(text) => Song::parse(text),
@@ -1217,8 +1398,8 @@ impl Engine {
             Ok(mut song) => {
                 // Where each track played before, to know which strips are new to a track.
                 let before = self.song_route;
-                self.clock.set_tempo(song.tempo);
-                self.clock.set_swing(song.swing);
+                // The routes the new song takes over with.
+                let mut route = self.song_route;
                 let kit = (0..SYNTHS).find(|s| {
                     self.synths
                         .get(*s)
@@ -1232,13 +1413,13 @@ impl Engine {
                         .is_some_and(|p| !p.model.uses_drums() && !p.model.uses_pads())
                 });
                 for t in song.tracks.len()..MAX_TRACKS {
-                    if let Some(route) = self.song_route.get_mut(t) {
-                        *route = None;
+                    if let Some(r) = route.get_mut(t) {
+                        *r = None;
                     }
                 }
                 for t in 0..song.tracks.len() {
-                    let routed = self.song_routed(t);
-                    let free = |s: &usize| !self.song_route.contains(&Some(*s));
+                    let routed = route.get(t).copied().flatten();
+                    let free = |s: &usize| !route.contains(&Some(*s));
                     let model_of = |s: usize| self.synths.get(s).map(|p| p.model);
                     // A drum track whose kit was picked plays a kit already in
                     // the rack (a 909, a pad sampler) before an 808 is made of
@@ -1284,8 +1465,8 @@ impl Engine {
                                 self.set_param(s, *p, *v);
                             }
                         }
-                        if let Some(route) = self.song_route.get_mut(t) {
-                            *route = synth;
+                        if let Some(r) = route.get_mut(t) {
+                            *r = synth;
                         }
                     } else if routed.is_none() {
                         let notes = song.frags.iter().any(|f| f.track == t && f.notes.is_some());
@@ -1294,17 +1475,25 @@ impl Engine {
                             Kind::Sampler if notes => multi.or(voiced),
                             _ => kit,
                         };
-                        if let Some(route) = self.song_route.get_mut(t) {
-                            *route = synth;
+                        if let Some(r) = route.get_mut(t) {
+                            *r = synth;
                         }
                     }
                 }
-                self.apply_mix(&song, &before);
-                self.song = song;
-                self.rebuild_live();
-                self.auto_last = [f32::NAN; MAX_AUTOS];
-                self.song_text = self.song.print();
+                self.apply_mix(&song, &before, &route);
+                self.song_text = song.print();
                 self.song_error = None;
+                self.spent = None;
+                self.pending = Some(Pending {
+                    live: Self::live_for(&song),
+                    song,
+                    route,
+                });
+                if !self.clock.playing() {
+                    self.commit_song();
+                    // The view hears of this load from its answer.
+                    self.taken = false;
+                }
                 Ok(())
             }
             Err(e) => {
@@ -1327,6 +1516,7 @@ impl Engine {
         let loaded = self.load_song();
         self.keep_synths = false;
         loaded.map_err(|_| -9)?;
+        self.commit_song();
         for (t, ch) in imported.channels.iter().enumerate() {
             let synth = self.routed(*ch);
             if let Some(slot) = self.song_route.get_mut(t) {
@@ -1353,6 +1543,7 @@ impl Engine {
     /// Set one step of the song (level 0 off, 1 hit, 2 accent) and print it
     /// again; false when there is no such step or level.
     pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, level: u32) -> bool {
+        self.commit_song();
         let Some(to) = Step::from_level(level) else {
             return false;
         };
@@ -1367,11 +1558,16 @@ impl Engine {
     /// text changed since the song playing, or on a strip its track has just
     /// moved to. A value the text keeps is left as it is, so a fader moved by
     /// hand holds; a line taken out changes nothing.
-    fn apply_mix(&mut self, song: &Song, before: &[Option<usize>; MAX_TRACKS]) {
+    fn apply_mix(
+        &mut self,
+        song: &Song,
+        before: &[Option<usize>; MAX_TRACKS],
+        route: &[Option<usize>; MAX_TRACKS],
+    ) {
         for line in &song.mix {
             let (strip, moved) = match line.at {
                 Mix::Track(t) => {
-                    let now = self.song_route.get(t).copied().flatten();
+                    let now = route.get(t).copied().flatten();
                     (now, before.get(t).copied().flatten() != now)
                 }
                 Mix::Strip(i) => (Some(i), false),
@@ -1404,6 +1600,7 @@ impl Engine {
     /// the master, holding what differs from the defaults. The song's old
     /// mixer lines are replaced; a group keeps its name.
     pub fn write_mixer(&mut self) {
+        self.commit_song();
         let differs = |e: &Engine, strip: usize, defaults: &[(Param, f32)]| -> Vec<(Param, f32)> {
             defaults
                 .iter()
@@ -1474,6 +1671,7 @@ impl Engine {
     /// (a reload sets a patch only when its text changes) and the song is
     /// printed again; false when refused.
     pub fn track_edit(&mut self, op: u32, t: u32, a: u32) -> bool {
+        self.commit_song();
         let t = t as usize;
         let ok = match op {
             0 => Preset::from_id(a).is_some_and(|p| self.song.set_track_preset(t, p)),
@@ -1531,6 +1729,7 @@ impl Engine {
     /// (from, to), 6 set the loop (first, last; 0 0 clears). The song is
     /// printed again; false when refused.
     pub fn arrange_edit(&mut self, op: u32, a: u32, b: u32, c: u32) -> bool {
+        self.commit_song();
         let (a, b, cu) = (a as usize, b as usize, c as usize);
         let ok = match op {
             0 => self.song.toggle(a, b as u32, cu),
@@ -1561,6 +1760,7 @@ impl Engine {
     /// Set the song's tempo (BPM, clamped as the clock clamps it) and print
     /// it again; the clock follows from the next step.
     pub fn set_song_tempo(&mut self, bpm: f32) {
+        self.commit_song();
         self.clock.set_tempo(bpm);
         self.song.tempo = self.clock.tempo();
         self.song_text = self.song.print();
@@ -1568,6 +1768,7 @@ impl Engine {
 
     /// Set the song's swing (percent, 50 to 75) and print it again.
     pub fn set_song_swing(&mut self, pct: f32) {
+        self.commit_song();
         self.clock.set_swing(pct);
         self.song.swing = self.clock.swing();
         self.song_text = self.song.print();
@@ -1592,6 +1793,7 @@ impl Engine {
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
         self.run_automation();
+        self.run_mods(n);
         self.out.fill(0.0);
         self.mixer.clear(n);
         let mut t = 0;

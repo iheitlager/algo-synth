@@ -14,6 +14,8 @@ import NoteRoll from './NoteRoll.vue'
 import SongEditor from './SongEditor.vue'
 import TrackStrip from './TrackStrip.vue'
 
+const SONG_REFERENCE = 'https://github.com/iheitlager/algo-synth/blob/main/docs/song.md'
+
 // A first beat to start from when the song is empty.
 const STARTER = `tempo 120
 swing 50
@@ -78,8 +80,12 @@ watch(() => status.running, (on) => on && requestSong())
   <section class="pane composer" :class="{ playing: song.playing }">
     <div class="pane-head">
       <span>Composer</span>
-      <span v-if="!status.running">Power on to compose</span>
-      <span v-else>{{ song.frags.length }} {{ song.frags.length === 1 ? 'frag' : 'frags' }}</span>
+      <span class="head-right">
+        <span v-if="!status.running">Power on to compose</span>
+        <span v-else>{{ song.frags.length }} {{ song.frags.length === 1 ? 'frag' : 'frags' }}</span>
+        <!-- The song language's reference (#250), on GitHub: rendered, and one copy to keep current. -->
+        <a class="ref" :href="SONG_REFERENCE" target="_blank" rel="noopener" title="The song language: every line, with examples">Song reference ↗</a>
+      </span>
     </div>
     <!-- The song's own transport: apart from the MIDI file's, in the transport bar. -->
     <div class="controls">
@@ -151,6 +157,9 @@ watch(() => status.running, (on) => on && requestSong())
 <style scoped>
 .composer { display: flex; flex-direction: column; min-height: 0; }
 .notice { margin: 4px 12px; color: var(--accent); }
+.head-right { display: flex; align-items: center; gap: 12px; }
+.ref { color: var(--accent); text-decoration: none; }
+.ref:hover { text-decoration: underline; }
 .controls { display: flex; align-items: center; gap: 12px; padding: 6px 12px 0; }
 .controls .on { border-color: var(--accent); color: var(--accent); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
