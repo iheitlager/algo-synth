@@ -691,7 +691,14 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
   } else if (data.t === 'meters') {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {
-    params.values[data.s as number] = Array.from(data.values as Float32Array)
+    const s = data.s as number
+    params.values[s] = Array.from(data.values as Float32Array)
+    // Name shown synths that loaded from a song (#210): when params arrive, name by family if unnamed.
+    if (synths.list.includes(s) && names.strips[s] === undefined) {
+      const family = modelDef(params.values[s]?.[Param.Model] ?? 0).family
+      const others = synths.list.filter((i) => i !== s).map((i) => stripName(i))
+      names.strips[s] = familyName(family, others)
+    }
   } else if (data.t === 'mods') {
     modulated.keys = new Set(data.keys as number[])
   } else if (data.t === 'imported') {
