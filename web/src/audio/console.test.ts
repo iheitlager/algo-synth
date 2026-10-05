@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  INSERT_KNOBS, INSERT_SHORT, STRIPS, heardStrips, moveBefore, orderStrips, outChoices, routeOk, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
+  INSERT_KNOBS, INSERT_SHORT, STRIPS, feedsTag, heardStrips, moveBefore, namedOuts, orderStrips, outChoices, outGroup, routeOk, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
   logMap, logPos, polar, posToDb, posToLevel,
 } from './console'
 
@@ -243,6 +243,25 @@ describe('routing', () => {
   it('offers the master and the groups a strip can reach', () => {
     expect(outChoices(0, [0, 2]).map((c) => c.label)).toEqual(['Master', 'Group 1', 'Group 3', 'None'])
     expect(outChoices(17, [0, 1, 2]).map((c) => c.label)).toEqual(['Master', 'Group 3', 'None'])
+  })
+
+  // #217: None is out 9, one past the eight groups, and was named as the group after the last.
+  it('names only the groups, not Master or None', () => {
+    expect(outGroup(0)).toBe(-1)
+    expect(outGroup(1)).toBe(0)
+    expect(outGroup(8)).toBe(7)
+    expect(outGroup(9)).toBe(-1)
+    const name = (s: number) => (s === 16 ? 'Drums' : `G${s - 15}`)
+    expect(namedOuts(0, [0, 2], name).map((c) => c.label)).toEqual(['Master', 'Drums', 'G3', 'None'])
+    expect(namedOuts(0, [0], name).every((c) => c.label !== 'Group 9' && c.label !== 'G9')).toBe(true)
+  })
+
+  it('tags the group a strip feeds, and nothing for Master or None', () => {
+    const name = (s: number) => `G${s - 15}`
+    expect(feedsTag(0, name)).toBeUndefined()
+    expect(feedsTag(9, name)).toBeUndefined()
+    expect(feedsTag(3, name)?.label).toBe('G3')
+    expect(feedsTag(8, name)?.label).toBe('G8')
   })
 })
 
