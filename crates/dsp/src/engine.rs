@@ -3555,6 +3555,25 @@ mod tests {
         assert_eq!(e.take_touched(), 0, "once");
     }
 
+    /// #225: a scene's solo still reworks who is heard, now that only a
+    /// solo or a route does; synth 1's strip falls silent at bar 2.
+    #[test]
+    fn a_scene_solo_silences_the_other_strips() {
+        let mut e = kit(0);
+        e.note_on(1, 64, 1.0);
+        let text = "track kit drums\nfrag b = kit\n  bd x...\nscene s: strip1.Solo 1\n\
+                    section one 1: b\nsection two 1: b [s]\narrange one two\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        assert_eq!(e.song_routed(0), Some(0), "the kit plays the track");
+        e.song_play();
+        run(&mut e, 90_000 / BLOCK);
+        assert!(e.meters()[1] > 0.0, "synth 1 is heard before the scene");
+        run(&mut e, 10_000 / BLOCK);
+        e.clear_meters();
+        run(&mut e, 4_000 / BLOCK);
+        assert_eq!(e.meters()[1], 0.0, "the scene soloed strip 1 only");
+    }
+
     /// A ramp climbs over its bars and reaches its end value at its end, a
     /// block at a time.
     #[test]
