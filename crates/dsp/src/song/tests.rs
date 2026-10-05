@@ -208,6 +208,7 @@ fn random_song(r: &mut Rng) -> Song {
                 notes: Some(notes::parse(seq, 1).expect("valid")),
                 live: false,
                 voicing: false,
+                pattern: Vec::new(),
             });
             continue;
         }
@@ -231,6 +232,7 @@ fn random_song(r: &mut Rng) -> Song {
             notes: None,
             live: false,
             voicing: false,
+            pattern: Vec::new(),
         });
     }
     song
@@ -1871,4 +1873,88 @@ fn fragment_method_errors_say_where() {
         let err = Song::parse(&format!("{head}{line}\n  bd x")).expect_err(line);
         assert_eq!((err.line, err.col, err.msg), (2, col, msg), "{line}");
     }
+}
+
+/// ADR-0019, #215: pattern methods on a frag's line transform its notes when
+/// the song loads, and print before its parameter methods.
+#[test]
+fn pattern_methods_transform_a_frags_notes() {
+    let text = "track lead synth\n\
+        frag r = lead .cutoff(900) .fast(2) .every(2, rev) .off( 0.125 ,add(12))\n  \"c4 d4 e4 f4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let f = &s.frags[0];
+    assert_eq!(f.pattern.len(), 3);
+    let n = f.notes.as_ref().expect("notes");
+    assert_eq!(n.text, "\"c4 d4 e4 f4\"", "the line stays as written");
+    assert_eq!(n.bars, 2);
+    assert_eq!(n.events.len(), 32);
+    // Bar 0 reversed in eighths: f4 then e4, each with the octave of the
+    // note an eighth before (the last of bar 1 wraps round); bar 1 as written.
+    let at = |t: u32| {
+        n.events
+            .iter()
+            .filter(|e| e.start == t)
+            .map(|e| e.note)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!((at(0), at(6)), (vec![65, 77], vec![64, 77]));
+    assert_eq!(at(48), vec![60, 72]);
+    let printed = s.print();
+    assert!(
+        printed.contains("frag r = lead .fast(2) .every(2, rev) .off(1/8, add(12)) .cutoff(900)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn pattern_method_errors_say_where() {
+    for (text, line, col, msg) in [
+        (
+            "track kit drums\nfrag b = kit .fast(2)\n  bd x",
+            2,
+            15,
+            "pattern methods are for a frag of notes",
+        ),
+        (
+            "track l synth\nfrag w = l live .rev()\n  walk(c4,8,1)",
+            2,
+            18,
+            "a live frag takes no pattern methods yet",
+        ),
+        (
+            "track l synth\nfrag r = l .fast(0)\n  \"c4\"",
+            2,
+            13,
+            "this takes a whole number from 1 to 16",
+        ),
+        (
+            "track l synth\nfrag r = l .every(4, cutoff)\n  \"c4\"",
+            2,
+            13,
+            "a pattern method goes here, e.g. rev or fast(2)",
+        ),
+        (
+            "track l synth\nfrag r = l .slow(16) .slow(4)\n  \"c4\"",
+            3,
+            3,
+            "the pattern runs past 32 bars",
+        ),
+    ] {
+        let err = Song::parse(text).expect_err(text);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+    }
+    // No pattern method is also a parameter's name.
+    for name in Pattern::NAMES {
+        assert_eq!(Param::by_name(name), None, "{name}");
+    }
+}
+
+/// A note edit from the grid can't bake a pattern into the line.
+#[test]
+fn a_patterned_frag_refuses_a_note_edit() {
+    let mut s = Song::parse("track l synth\nfrag r = l .rev()\n  \"c4 d4\"\n").expect("parses");
+    let before = s.clone();
+    assert!(!s.edit_note(0, notes::Edit::Add { tick: 6, note: 64 }));
+    assert_eq!(s, before);
 }

@@ -329,3 +329,17 @@ The song SHALL modulate any parameter that automation reaches (Req 10) with a si
 - THEN the level is the modulation's value from the block after each scene
 
 **Tests:** `crates/dsp/src/song/signal.rs::tests::sources_run_from_0_to_1_once_a_cycle`, `crates/dsp/src/song/signal.rs::tests::range_slow_fast_and_operators_shape_a_signal`, `crates/dsp/src/song/signal.rs::tests::randomness_is_seeded_and_bounded`, `crates/dsp/src/song/signal.rs::tests::a_sequence_steps_per_cycle_or_within_one`, `crates/dsp/src/song/signal.rs::tests::lag_follows_its_input_and_keeps_its_state`, `crates/dsp/src/song/signal.rs::tests::printing_is_canonical_and_parses_back`, `crates/dsp/src/song/signal.rs::tests::errors_say_where`, `crates/dsp/src/song/signal.rs::tests::lag_slots_are_unique_across_a_song`, `crates/dsp/src/song/tests.rs::a_mod_line_parses_and_prints`, `crates/dsp/src/song/tests.rs::mod_errors_say_where`, `crates/dsp/src/engine/tests.rs::a_mod_follows_its_signal`, `crates/dsp/src/engine/tests.rs::a_constant_mod_is_bit_identical_to_a_hand_set_value`, `crates/dsp/src/engine/tests.rs::a_mod_writes_after_a_lane_and_a_scene`, `crates/dsp/src/engine/tests.rs::a_swept_filter_renders_deterministically`, `crates/dsp/src/song/tests.rs::fragment_methods_parse_and_print`, `crates/dsp/src/song/tests.rs::fragment_method_errors_say_where`, `crates/dsp/src/engine/tests.rs::a_fragment_method_writes_while_its_fragment_plays`, `crates/dsp/src/engine/tests.rs::a_mod_puts_back_the_value_it_found`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
+
+### Requirement 16: Pattern methods [SHOULD]
+
+A frag of notes SHALL take Strudel's pattern methods on its line (ADR-0019, #215): `.fast(n)`, `.slow(n)`, `.rev()`, `.palindrome()`, `.add(n)`, `.sub(n)`, `.ply(n)`, `.iter(n)`, `.degrade(p)`, `.every(n, m)` and `.off(t, m)`, with a bar as the cycle. They SHALL transform its events in order when the song loads, never in `render`, randomness from a fixed seed (ADR-0005), and print canonically before its parameter methods; the line SHALL stay as written. A pattern SHALL make at most 512 events over at most 32 bars. A pattern method on a live frag or a frag of lanes, an unknown method or a bad value SHALL be a parse error with a line and a column; a note edit of a patterned frag SHALL be refused.
+
+**Implementation:** `crates/dsp/src/notes/pattern.rs::Pattern`, `crates/dsp/src/song.rs::Fragment` (`pattern`)
+
+#### Scenario: a riff twice as fast with a reversed bar
+
+- GIVEN `frag r = lead .fast(2) .every(2, rev)` over `"c4 d4 e4 f4"`
+- WHEN the song loads
+- THEN the frag plays eight eighths a bar for two bars, the first reversed
+
+**Tests:** `crates/dsp/src/notes/pattern.rs::tests::fast_and_slow_squeeze_and_stretch`, `crates/dsp/src/notes/pattern.rs::tests::rev_and_palindrome_turn_bars_round`, `crates/dsp/src/notes/pattern.rs::tests::add_sub_and_ply_change_notes`, `crates/dsp/src/notes/pattern.rs::tests::iter_starts_each_bar_further_in`, `crates/dsp/src/notes/pattern.rs::tests::every_and_off_layer_a_method`, `crates/dsp/src/notes/pattern.rs::tests::degrade_is_seeded`, `crates/dsp/src/notes/pattern.rs::tests::methods_print_as_they_parse`, `crates/dsp/src/notes/pattern.rs::tests::bad_methods_say_why`, `crates/dsp/src/song/tests.rs::pattern_methods_transform_a_frags_notes`, `crates/dsp/src/song/tests.rs::pattern_method_errors_say_where`, `crates/dsp/src/song/tests.rs::a_patterned_frag_refuses_a_note_edit`, `crates/dsp/src/engine/tests.rs::a_patterned_frag_plays_its_transformed_notes`

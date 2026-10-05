@@ -82,6 +82,7 @@ use crate::fx::processor::ProcType;
 use crate::mixer::OUT_NONE;
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
+use crate::notes::pattern::{self, Line, Pattern};
 use crate::notes::{self, Notes};
 use crate::params::Param;
 
@@ -183,6 +184,8 @@ pub struct Fragment {
     pub live: bool,
     /// Chords moved to the inversion nearest the one before (`frag a = t voicing`, #103).
     pub voicing: bool,
+    /// Pattern methods (`.fast(2) .rev()`, ADR-0019), applied to its notes in order.
+    pub pattern: Vec<Pattern>,
 }
 
 /// What a track's fragments hold.
@@ -577,7 +580,17 @@ impl Song {
                         .frags
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a frag"))?;
-                    frag.notes = Some(if voiced { n.voiced() } else { n });
+                    let mut n = if voiced { n.voiced() } else { n };
+                    if !frag.pattern.is_empty() {
+                        let line = Line {
+                            events: std::mem::take(&mut n.events),
+                            bars: n.bars,
+                        };
+                        let line = pattern::apply_all(&frag.pattern, line)
+                            .map_err(|m| err(first.col, m))?;
+                        (n.events, n.bars) = (line.events, line.bars);
+                    }
+                    frag.notes = Some(n);
                     continue;
                 }
                 if let Some((_, col, at)) = open_bars {
@@ -592,6 +605,9 @@ impl Song {
                     .frags
                     .get_mut(f)
                     .ok_or(err(first.col, "a lane goes under a frag"))?;
+                if !frag.pattern.is_empty() {
+                    return Err(err(first.col, "pattern methods are for a frag of notes"));
+                }
                 if frag.lanes.iter().any(|l| l.pad == lane.pad) {
                     return Err(err(first.col, "this pad already has a lane"));
                 }
@@ -870,12 +886,31 @@ impl Song {
                         notes: None,
                         live,
                         voicing: voicing.is_some(),
+                        pattern: Vec::new(),
                     });
                     let f = song.frags.len() - 1;
                     if let Some((at, text)) = methods {
                         for (name, ncol, sig, scol) in
                             parse_methods(text).map_err(|(c, m)| err(at + c - 1, m))?
                         {
+                            if Pattern::NAMES.contains(&name) {
+                                let msg = if kind == Some(Kind::Drums) {
+                                    Some("pattern methods are for a frag of notes")
+                                } else if live {
+                                    Some("a live frag takes no pattern methods yet")
+                                } else {
+                                    None
+                                };
+                                let p = match msg {
+                                    Some(m) => Err(m),
+                                    None => Pattern::parse(name, sig),
+                                }
+                                .map_err(|m| err(at + ncol - 1, m))?;
+                                if let Some(frag) = song.frags.get_mut(f) {
+                                    frag.pattern.push(p);
+                                }
+                                continue;
+                            }
                             let target = Target::Track(t);
                             let param =
                                 param_for(target, name).map_err(|m| err(at + ncol - 1, m))?;
@@ -1605,7 +1640,11 @@ impl Song {
         let Some(n) = f.notes.as_ref() else {
             return false;
         };
-        if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) {
+        // A patterned line's events are not its text: an edit would bake the
+        // pattern in (ADR-0019).
+        if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..))
+            || !f.pattern.is_empty()
+        {
             return false;
         }
         // A timed line stays timed: its overlaps and velocities have no
@@ -1721,19 +1760,24 @@ impl Song {
         Some(i)
     }
 
-    /// ` .cutoff(…) .resonance(…)`: the parameter methods of fragment `f`.
+    /// ` .fast(2) .cutoff(…)`: the pattern methods of fragment `f`, then its
+    /// parameter methods.
     fn methods_of(&self, f: usize) -> String {
-        self.mods
+        let patterns = self
+            .frags
+            .get(f)
+            .map(|fr| fr.pattern.as_slice())
+            .unwrap_or(&[])
             .iter()
-            .filter(|m| m.frag == Some(f))
-            .map(|m| {
-                format!(
-                    " .{}({})",
-                    param_name(m.param).to_ascii_lowercase(),
-                    m.signal
-                )
-            })
-            .collect()
+            .map(|p| format!(" .{}", p.print()));
+        let params = self.mods.iter().filter(|m| m.frag == Some(f)).map(|m| {
+            format!(
+                " .{}({})",
+                param_name(m.param).to_ascii_lowercase(),
+                m.signal
+            )
+        });
+        patterns.chain(params).collect()
     }
 
     fn target_name(&self, t: Target) -> String {

@@ -2245,6 +2245,22 @@ fn a_mod_puts_back_the_value_it_found() {
     assert_eq!(e.param_value(0, Param::Send1), 0.1);
 }
 
+/// #215: a frag plays the notes its pattern methods make, not its line.
+#[test]
+fn a_patterned_frag_plays_its_transformed_notes() {
+    let count = |methods: &str| {
+        let mut e = Engine::new(48_000.0);
+        let text = format!("tempo 120\ntrack lead synth\nfrag r = lead{methods}\n  \"c4 ~\"\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        run(&mut e, 2 * 96_000 / BLOCK);
+        e.note_count
+    };
+    assert_eq!(count(""), 2);
+    assert_eq!(count(" .fast(2)"), 4);
+    assert_eq!(count(" .ply(3) .off(1/8, add(7))"), 12);
+}
+
 #[test]
 fn each_lane_loops_on_its_own_length() {
     let mut e = kit(0);
