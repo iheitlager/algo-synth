@@ -194,7 +194,7 @@ The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or
 
 ### Requirement 14: DX7 SysEx import [SHOULD]
 
-The engine SHOULD parse a DX7 single-voice SysEx message and a 32-voice bank (packed format) into the DX7 parameters, total over any input (it never panics, and reports an error for what it cannot read), and JavaScript SHOULD only forward the bytes.
+The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (packed format) into the DX7 parameters, total over any input (it never panics, and reports an error for what it cannot read), and JavaScript SHALL only forward the bytes.
 
 **Implementation:** `crates/dsp/src/fm/sysex.rs`, `crates/dsp/src/engine.rs`, `crates/dsp/src/ffi.rs`, `web/src/components/synth/SysexLoader.vue`
 
@@ -222,7 +222,7 @@ Chord pads on every poly model SHALL render within the performance budget, and e
 
 ### Requirement 16: Polymoog [SHOULD]
 
-The Polymoog model SHOULD play sixteen voices, each with its own resonant filter and envelopes, and ship the Strings, Vox Humana, Funk and Brass registrations as presets. The Vox Humana's resonance peak SHOULD move with the filter envelope.
+The Polymoog model SHALL play sixteen voices, each with its own resonant filter and envelopes, and ship the Strings, Vox Humana, Funk and Brass registrations as presets. The Vox Humana's resonance peak SHALL move with the filter envelope.
 
 **Implementation:** `crates/dsp/src/mono/model.rs`, `crates/dsp/src/mono/preset.rs`, `web/src/audio/models.ts`
 

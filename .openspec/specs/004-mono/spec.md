@@ -168,7 +168,7 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 
 ### Requirement 9: Presets [SHOULD]
 
-The engine SHOULD ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHOULD set the Mono parameters, the normalled amounts and the patch (Req 7); the preset ids SHOULD be mirrored in `params.ts`. A preset SHOULD set every Mono parameter, starting from the defaults, so none is left over from the last one. The engine SHOULD report each parameter's current value (`param_value`), so the view shows what a preset set.
+The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead, sync lead and bowed string (the starting patch for the MVP 5 ensemble). Selecting a preset SHALL set the Mono parameters, the normalled amounts and the patch (Req 7); the preset ids SHALL be mirrored in `params.ts`. A preset SHALL set every Mono parameter, starting from the defaults, so none is left over from the last one. The engine SHALL report each parameter's current value (`param_value`), so the view shows what a preset set.
 
 **Implementation:** `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/engine.rs::Engine::preset`, `crates/dsp/src/ffi.rs::mono_preset`, `crates/dsp/src/ffi.rs::param_value` (#11)
 
@@ -208,7 +208,7 @@ The engine SHALL hold 16 synths, allocated in `Engine::new`, each with its own p
 
 ### Requirement 11: Drive insert [SHOULD]
 
-Drive SHOULD be an insert type of a strip's insert slots (spec 002 Req 2, ADR-0010): Overdrive (soft, asymmetric), Distortion (hard) and Fuzz, with amount, tone (a low-pass after the shaper) and level as knobs A, B and C. The shapers SHOULD use first-order antiderivative anti-aliasing and no per-sample transcendental functions (ADR-0002). An Off slot SHOULD pass the bus through bit for bit, and every drive type SHOULD stay finite and bounded for any input.
+Drive SHALL be an insert type of a strip's insert slots (spec 002 Req 2, ADR-0010): Overdrive (soft, asymmetric), Distortion (hard) and Fuzz, with amount, tone (a low-pass after the shaper) and level as knobs A, B and C. The shapers SHALL use first-order antiderivative anti-aliasing and no per-sample transcendental functions (ADR-0002). An Off slot SHALL pass the bus through bit for bit, and every drive type SHALL stay finite and bounded for any input.
 
 **Implementation:** `crates/dsp/src/fx/drive.rs::Drive`, `crates/dsp/src/fx/insert.rs::Insert` (#25, #58)
 
