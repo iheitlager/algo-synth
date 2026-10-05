@@ -1,17 +1,20 @@
 # algo-synth
 
-An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. For now it is a family of six monosynths (ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101) and a MIDI player, on the way to six different synths playing Vivaldi; the sequencer, more sources and algo loops come after (ADR-0008).
+An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. Up to sixteen synths (monosynths, polysynths, drum machines and samplers) play through a mixer with groups and effects. A song written as text, with generators and an arranger, plays them, and so does a MIDI player.
 
 ## Version: 0.32.0
 
 - **Mono:** one shared voice: three band-limited VCOs, ring mod and sub, noise, a 4-pole ladder or a 12 dB high-pass/low-pass pair, ADSR, filter ADSR and AR, LFO, normalled routing with patch overrides, poly-mod.
-- **Up to 16 synths, seven models:** add synths as you need them, each an ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 or Odyssey with its own faceplate (knobs, envelope curves, patch bay), colours and patch. A MIDI file plays each part on its own synth, on the way to six different synths playing Vivaldi.
+- **Up to 16 synths, nineteen models:** add synths as you need them. Seven are monosynths: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 and Odyssey, each with its own faceplate (knobs, envelope curves, patch bay), colours and presets. A MIDI file plays each part on its own synth.
 - **Polyphony:** each synth owns a pool of up to 16 voices (a global budget of 64) with unison, analog drift and a stereo chorus. Eight polyphonic models join the family: Prophet-5, Juno-106, Jupiter-8, Matrix-12 (with its modulation matrix), PPG Wave (wavetables), Roland D-50 (LA synthesis), Yamaha DX7 (six-operator FM, loads `.syx` voices and banks) and the Polymoog, each with presets and its own faceplate.
 - **Drums:** a synth slot can be a TR-808 or a TR-909, the same pads with each machine's sounds, so a beat plays on either. The TR-808: its sixteen voices (kick, snare, three toms and three congas, rimshot, claves, clap, maracas, cowbell, cymbal, closed and open hats), synthesized, with tune, decay, tone and level per pad and an accent. Keys play the pads by General MIDI's drum map, so a MIDI file's drum channel plays on it.
-- **Setups:** save the synths, their models, patches and routing as `<song>.synths.json` next to the MIDI file, and open both together.
+- **Samplers:** a multisampler that maps WAV samples across keys and velocities, with loops and round robin, and a pad sampler of sixteen MPC-style pads. `make samples` fetches free packs, kits and a voice pack.
+- **Mixer:** a console with three insert slots per strip (drive, EQ, compressor, vocoder), four sends into four processors (echo, reverb, chorus, flanger), eight group buses, and a master EQ, compressor and limiter.
+- **The song is text:** drum lanes, notes in mini-notation or classic durations, generators (`euclid`, `walk`, `arp`, `markov`, `mutate`, live or frozen), sections and an arrangement, automation and scenes, in a highlighting editor beside a step grid, piano roll and arranger. A MIDI file converts into a song.
+- **Setups and presets:** save the synths, their models, patches, mixer and routing as `<song>.synths.json` next to the MIDI file, and keep presets of synths, inserts, processors and strips in a library.
 - **No backend:** the container serves static files.
 
-The base (v0.1.0) is the pipeline: a test voice from Rust through the AudioWorklet, in the four-pane layout. v0.2.0 adds a MIDI file player in the engine, each channel routed to a source with a first timbre of its own. v0.3.0 is the Mono voice (MVP 2): three band-limited VCOs, noise, a 4-pole ladder, ADSR, LFO and four presets. v0.4.0 makes it playable: note priority, legato and glide, and normalled routing with an 8-slot patch. v0.5.0 adds a mixer, a drive insert and send effects. v0.6.0 is the family of monosynths: up to 16 synths, each an ARP 2600, Minimoog, Pro-One, MS-20, CS-15 or SH-101. v0.7.0 saves a setup (synths, models, patches, routing, effects) as `<song>.synths.json` next to the MIDI file. See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
+What changed in each version is in [CHANGELOG.md](CHANGELOG.md). See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
 
 ## Quick start
 
@@ -28,8 +31,11 @@ Needs Rust (stable, the `wasm32-unknown-unknown` target comes from `rust-toolcha
 ## Layout
 
 ```
-crates/dsp/     the engine (cdylib → dsp.wasm): C ABI, voices, params; later sequencer, generators
+crates/dsp/     the engine (cdylib → dsp.wasm): C ABI, voices, mixer, song, generators, samplers
 web/            Vue view; public/worklet.js is the audio-thread shim
+tools/          bench, demo MIDI, sample fetcher, release script, spec link check
+changes/        changelog fragments, one per PR, collected by make release
+docs/           the song language
 .openspec/      vision, plan, ADRs, specs
 Containerfile   wasm → web → Caddy
 ```

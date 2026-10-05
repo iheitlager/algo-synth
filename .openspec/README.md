@@ -8,8 +8,8 @@ A synth you compose *with*, not just play: sound sources, a sequencer and algori
 
 - **Everything musical is wasm.** Sources, mixer, sequencer, generators and the song model are Rust compiled to one wasm module, running on the browser's audio thread (ADR-0001). JavaScript only forwards messages and draws.
 - **Real time, no excuses.** The render loop never allocates, locks or panics (ADR-0002).
-- **Three ways to fill a clip.** By hand, by a generator (an algo loop), or from a score (a MIDI file played by an ensemble of mono voices), all in one composition model (ADR-0005).
-- **Mono first.** One good monophonic voice, then time, then more sources, then the algorithms ([plan.md](plan.md)).
+- **The song is text.** A fragment is written by hand, by a generator (an algo loop), or converted from a score (a MIDI file), all in one song the engine parses and prints (ADR-0005, ADR-0012, ADR-0015).
+- **Working to working.** One good monophonic voice, then the ensemble, then time, then more sources, then the algorithms ([plan.md](plan.md)).
 
 ## Architecture
 
@@ -17,7 +17,7 @@ A synth you compose *with*, not just play: sound sources, a sequencer and algori
  Browser, main thread                         Browser, audio thread
  ┌──────────────────────────────┐   port     ┌──────────────────────────────┐
  │ Vue view (web/src)           │ ─────────▶ │ worklet.js  (shim, no logic) │
- │  algo · instruments · bars   │  messages  │   └─ dsp.wasm  (crates/dsp)  │
+ │  synths · mixer · composer   │  messages  │   └─ dsp.wasm  (crates/dsp)  │
  │ AnalyserNode → scope         │ ◀───────── │      sources · mixer ·       │
  └──────────────────────────────┘   audio    │      sequencer · generators  │
                                               └──────────────────────────────┘
@@ -26,7 +26,7 @@ A synth you compose *with*, not just play: sound sources, a sequencer and algori
 
 ## Vision and plan
 
-- [vision.md](vision.md): what algo-synth is, the three sources, the composition model, and what it is not.
+- [vision.md](vision.md): what algo-synth is, the instruments, the song as text, the sound path, and what it is not.
 - [plan.md](plan.md): from a sine through one monophonic voice to a true algo synth, working to working.
 
 ## Decisions
