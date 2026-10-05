@@ -25,7 +25,7 @@ pub enum Model {
     D50 = 12,
     Dx7 = 13,
     PolyMoog = 14,
-    /// The drum kit: eight synthesized pads, one voice each (#114).
+    /// The drum kit: eighteen synthesized pads, one voice each (#114, #148).
     Tr808 = 15,
     /// The multisampler (`sampler`): zones of the sample store.
     Sampler = 16,

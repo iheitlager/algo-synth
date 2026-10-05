@@ -1,6 +1,6 @@
 # 006: Polyphony
 
-Epic #78: each synth owns a voice pool, and seven polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7 and the Polymoog. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011.
+Epic #78: each synth owns a voice pool, and eight polyphonic instruments join the models of spec 005: Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7 and the Polymoog. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009, ADR-0011.
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have and is tested on that. Tests render offline at 48 kHz.
 
@@ -194,7 +194,7 @@ The DX7 SHALL have 16 voices of 6 sine operators, each with a frequency ratio or
 
 ### Requirement 14: DX7 SysEx import [SHOULD]
 
-The engine SHALL parse a DX7 single-voice SysEx message and a 32-voice bank (packed format) into the DX7 parameters, total over any input (it never panics, and reports an error for what it cannot read), and JavaScript SHALL only forward the bytes.
+The engine SHOULD parse a DX7 single-voice SysEx message and a 32-voice bank (packed format) into the DX7 parameters, total over any input (it never panics, and reports an error for what it cannot read), and JavaScript SHOULD only forward the bytes.
 
 **Implementation:** `crates/dsp/src/fm/sysex.rs`, `crates/dsp/src/engine.rs`, `crates/dsp/src/ffi.rs`, `web/src/components/synth/SysexLoader.vue`
 
@@ -222,7 +222,7 @@ Chord pads on every poly model SHALL render within the performance budget, and e
 
 ### Requirement 16: Polymoog [SHOULD]
 
-The Polymoog model SHALL play sixteen voices, each with its own resonant filter and envelopes, and ship the Strings, Vox Humana, Funk and Brass registrations as presets. The Vox Humana's resonance peak SHALL move with the filter envelope.
+The Polymoog model SHOULD play sixteen voices, each with its own resonant filter and envelopes, and ship the Strings, Vox Humana, Funk and Brass registrations as presets. The Vox Humana's resonance peak SHOULD move with the filter envelope.
 
 **Implementation:** `crates/dsp/src/mono/model.rs`, `crates/dsp/src/mono/preset.rs`, `web/src/audio/models.ts`
 

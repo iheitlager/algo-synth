@@ -1,12 +1,12 @@
 # 005: Synth models
 
-The family of monosynths (epic #28): each of the 16 synth slots is one of seven instruments, built from the shared Mono modules of spec 004. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009. Built in epic #28; every requirement names its code and tests.
+The family of monosynths (epic #28): seven of the nineteen models a synth slot can be, built from the shared Mono modules of spec 004. The others are the polyphonic models of spec 006, the drum machines of spec 002 Req 1 and the samplers of spec 007. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0009. Built in epic #28; every requirement names its code and tests.
 
 Common to every requirement: `render` follows ADR-0002, every parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and a model's sound is an interpretation of the instrument: each requirement names the property it must have, and is tested on that. Tests render offline at 48 kHz.
 
 ### Requirement 1: Models [MUST]
 
-Every synth SHALL have a model, `Param::Model` (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), held with the synth's parameters; a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
+Every synth SHALL have a model, `Param::Model`, held with the synth's parameters: one of the monosynths here (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), the polysynths of spec 006 (`Prophet5`, `Juno106`, `Jupiter8`, `Matrix12`, `PpgWave`, `D50`, `Dx7`, `PolyMoog`), the drum machines (`Tr808`, `Tr909`, spec 002 Req 1) or the samplers (`Sampler`, `PadSampler`, spec 007); a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model`, `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/mono.rs::MonoParams` (#30)
 
@@ -122,13 +122,13 @@ The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, lo
 
 ### Requirement 8: Panels and colours [MUST]
 
-The view SHALL draw each synth with a panel of its model: the sections, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the seven are told apart at a glance. A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
+The view SHALL draw each synth with a panel of its model: the sections, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the models are told apart at a glance. A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
 
 **Implementation:** `web/src/audio/models.ts`, `web/src/components/SynthFaceplate.vue`, `web/src/components/InstrumentsPane.vue` (#30, drawn as faceplates by spec 003 Req 9)
 
 #### Scenario: every instrument
 
-- GIVEN seven synths, one of each model
+- GIVEN one synth of each model
 - WHEN the view is drawn
 - THEN each card carries its model's name and palette, and the controls of its panel
 
