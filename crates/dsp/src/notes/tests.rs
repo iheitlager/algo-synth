@@ -122,8 +122,8 @@ fn print_then_parse_is_identity() {
         "\"c4\"",
         "\"c2& e2 [g2,b2]&@2 a2&*2?\"",
         "c2:8& e2:8 [c2,e2]:4.& r:4",
-        "\"Am& F*2&\"",
-        "Am:4& F:4",
+        "\"c:m7& f:maj7*2&\"",
+        "c:m7:4& f:maj7:4",
     ] {
         let n = parse(text, 1).unwrap();
         let printed = n.print();
