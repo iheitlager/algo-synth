@@ -1389,9 +1389,40 @@ mod tests {
         process(128);
         note_on(0, 60, 1.0);
         set_param(0, 0, 1.0);
+        mono_preset(0, 1);
+        assert_eq!(param_value(0, Param::Cutoff as u32), 0.0);
+        assert_eq!(active_voices(), 0);
         assert!(out_ptr().is_null());
         assert!(meters_ptr().is_null());
         meters_clear();
+    }
+
+    #[test]
+    fn parameters_and_presets_through_the_abi() {
+        init(48_000.0);
+        assert_eq!(param_count() as usize, Param::ALL.len());
+        let cutoff = Param::Cutoff as u32;
+        set_param(0, cutoff, 1.0e9);
+        assert_eq!(param_value(0, cutoff), 20_000.0, "clamped");
+        set_param(0, cutoff, f32::NAN);
+        assert_eq!(param_value(0, cutoff), 20.0, "NaN is the lower bound");
+        assert_eq!(param_value(0, u32::MAX), 0.0, "unknown id");
+        let all = |synth| {
+            Param::ALL
+                .iter()
+                .map(|(p, _)| param_value(synth, *p as u32))
+                .collect::<Vec<_>>()
+        };
+        let before = all(0);
+        mono_preset(0, u32::MAX);
+        assert_eq!(all(0), before, "an unknown preset is ignored");
+        mono_preset(0, Preset::Lead as u32);
+        assert_ne!(all(0), before);
+        assert_eq!(active_voices(), 0);
+        note_on(0, 60, 1.0);
+        note_on(1, 64, 1.0);
+        process(128);
+        assert_eq!(active_voices(), 2);
     }
 
     #[test]

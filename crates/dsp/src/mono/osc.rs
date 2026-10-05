@@ -281,12 +281,16 @@ mod tests {
     const SYNC_PEAK: f32 = 1.5;
 
     fn render(wave: Waveform, hz: f32, pw: f32, n: usize) -> Vec<f32> {
+        render_at(SR, wave, hz, pw, n)
+    }
+
+    fn render_at(sr: f32, wave: Waveform, hz: f32, pw: f32, n: usize) -> Vec<f32> {
         let (blep, table) = (Blep::new(), sine());
         let mut osc = Osc {
             wave,
             ..Osc::default()
         };
-        osc.set_increment(hz / SR);
+        osc.set_increment(hz / sr);
         (0..n)
             .map(|_| osc.step(&blep, &table, pw, None).0)
             .collect()
@@ -305,8 +309,8 @@ mod tests {
     }
 
     /// Magnitude of `x` at `hz`, by a direct DFT.
-    fn magnitude(x: &[f32], hz: f64) -> f64 {
-        let w = std::f64::consts::TAU * hz / f64::from(SR);
+    fn magnitude_at(sr: f32, x: &[f32], hz: f64) -> f64 {
+        let w = std::f64::consts::TAU * hz / f64::from(sr);
         let (re, im) = x.iter().enumerate().fold((0.0, 0.0), |(re, im), (i, s)| {
             let a = w * i as f64;
             (re + f64::from(*s) * a.cos(), im - f64::from(*s) * a.sin())
@@ -326,20 +330,24 @@ mod tests {
         }
     }
 
-    /// 5 kHz at 48 kHz repeats every 48 samples, so every component, a
-    /// harmonic or an alias, sits on a multiple of 1 kHz.
+    /// 5/48 of the rate (5 kHz at 48 kHz) repeats every 48 samples, so
+    /// every component, a harmonic or an alias, sits on a multiple of
+    /// rate/48. The BLEP works in samples, so it holds at any rate.
     #[test]
     fn saw_aliasing_below_60_db() {
-        let x = render(Waveform::Saw, 5_000.0, 0.5, 4_800 + 48 * 200);
-        let x = &x[4_800..];
-        let fundamental = magnitude(x, 5_000.0);
-        for k in 1..24 {
-            let hz = f64::from(k * 1_000);
-            if k % 5 == 0 {
-                continue;
+        for sr in [44_100.0, SR, 96_000.0] {
+            let bin = f64::from(sr) / 48.0;
+            let x = render_at(sr, Waveform::Saw, sr * 5.0 / 48.0, 0.5, 4_800 + 48 * 200);
+            let x = &x[4_800..];
+            let fundamental = magnitude_at(sr, x, 5.0 * bin);
+            for k in 1..24 {
+                if k % 5 == 0 {
+                    continue;
+                }
+                let hz = f64::from(k) * bin;
+                let db = 20.0 * (magnitude_at(sr, x, hz) / fundamental).log10();
+                assert!(db < -60.0, "alias at {hz} Hz, rate {sr}: {db:.1} dB");
             }
-            let db = 20.0 * (magnitude(x, hz) / fundamental).log10();
-            assert!(db < -60.0, "alias at {hz} Hz: {db:.1} dB");
         }
     }
 

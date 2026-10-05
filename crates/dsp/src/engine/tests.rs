@@ -240,6 +240,60 @@ fn loud_patches_are_limited_to_full_scale() {
     assert!(peak_seen > 0.9, "the limiter is reached, peak {peak_seen}");
 }
 
+/// The same events give the same output, bit for bit: noise, the LFO and
+/// the sample-and-hold are seeded, not random.
+#[test]
+fn the_same_events_render_bit_identical_output() {
+    let play = || {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, Preset::Lead);
+        e.set_param(0, Param::NoiseLevel, 0.5);
+        e.preset(1, Preset::BowedString);
+        let mut out = Vec::new();
+        for block in 0..400 {
+            match block {
+                10 => e.note_on(0, 60, 0.9),
+                30 => e.note_on(1, 48, 0.7),
+                100 => e.set_param(0, Param::Cutoff, 500.0),
+                200 => e.note_off(0, 60),
+                300 => e.note_off(1, 48),
+                _ => {}
+            }
+            e.render(BLOCK);
+            out.extend_from_slice(e.output());
+        }
+        out
+    };
+    let (a, b) = (play(), play());
+    assert!(a.iter().any(|s| *s != 0.0));
+    assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+}
+
+/// A Mono voice playing only noise has no DC.
+#[test]
+fn a_noise_only_voice_has_no_dc() {
+    let mut e = Engine::new(48_000.0);
+    silence(&mut e, 0);
+    for (p, v) in [
+        (Param::MasterGain, 1.0),
+        (Param::NoiseLevel, 1.0),
+        (Param::Cutoff, 20_000.0),
+        (Param::AdsrSustain, 1.0),
+    ] {
+        e.set_param(0, p, v);
+    }
+    e.note_on(0, 60, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..(48_000 * 4 / BLOCK) {
+        e.render(BLOCK);
+        out.extend(e.output().iter().map(|s| f64::from(*s)));
+    }
+    let mean = out.iter().sum::<f64>() / out.len() as f64;
+    let rms = (out.iter().map(|s| s * s).sum::<f64>() / out.len() as f64).sqrt();
+    assert!(rms > 0.05, "noise is heard: {rms}");
+    assert!(mean.abs() < 0.01 * rms, "DC {mean} at rms {rms}");
+}
+
 /// Mute `synth` at its mixer: every VCO and the noise at level 0.
 fn silence(e: &mut Engine, synth: usize) {
     for p in [
