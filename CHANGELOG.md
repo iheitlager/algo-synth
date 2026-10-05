@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-05
+
+### Added
+
+- **Example songs:** six arranged drum loops with SH-101 bass lines in `examples/` (house, acid, electro, dub, jungle, deep techno), with cutoff, resonance and glide automation (#249).
+
 ## [0.33.0] - 2026-10-05
 
 ### Added
