@@ -61,8 +61,8 @@
 //! Parsing and printing allocate, so they run when a song is loaded or a step
 //! edited, never in `render`; the engine plays the parsed song in place. Both
 //! are total: whatever the text, the parser returns a song or an error with a
-//! line and a column, and never panics. Comments and layout are not kept: a
-//! printed song is the canonical form of what was parsed.
+//! line and a column, and never panics. Comments are kept (#199); layout is
+//! not: a printed song is the canonical form of what was parsed.
 
 use crate::algo::{Euclid, Mode, Scale};
 use crate::drums::Pad;
