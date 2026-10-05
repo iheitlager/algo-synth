@@ -957,6 +957,90 @@ pub extern "C" fn track_name_len(t: u32) -> u32 {
     })
 }
 
+// Each track's patch and the song's settings (#213), for the composer's picker.
+
+/// Track `t`'s factory preset (its setting's, when it plays one), −1 without.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_preset(t: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .tracks
+            .get(t as usize)
+            .and_then(|x| x.preset)
+            .map_or(-1, |p| p as i32)
+    })
+}
+
+/// The song setting track `t` plays, −1 without.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_setting(t: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .tracks
+            .get(t as usize)
+            .and_then(|x| x.setting)
+            .map_or(-1, |i| i32::try_from(i).unwrap_or(-1))
+    })
+}
+
+/// 1 when `model` plays a track of `kind` (0 drums, 1 synth, 2 sampler), the
+/// rule a track line is checked by; the picker offers only those (#213).
+#[unsafe(no_mangle)]
+pub extern "C" fn model_fits(kind: u32, model: u32) -> u32 {
+    let kind = match kind {
+        0 => Kind::Drums,
+        1 => Kind::Synth,
+        2 => Kind::Sampler,
+        _ => return 0,
+    };
+    u32::from(
+        crate::mono::model::Model::from_id(model).is_some_and(|m| crate::song::fits(kind, Some(m))),
+    )
+}
+
+/// A track edit (see `Engine::track_edit`): 0 when done, −1 when refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_edit(op: u32, t: u32, a: u32) -> i32 {
+    query(-1, |e| if e.track_edit(op, t, a) { 0 } else { -1 })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_settings() -> u32 {
+    query(0, |e| e.song().settings.len() as u32)
+}
+
+/// Address and length of setting `i`'s name.
+#[unsafe(no_mangle)]
+pub extern "C" fn setting_name_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .settings
+            .get(i as usize)
+            .map_or(std::ptr::null(), |x| x.name.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn setting_name_len(i: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .settings
+            .get(i as usize)
+            .map_or(0, |x| x.name.len() as u32)
+    })
+}
+
+/// The factory preset setting `i` starts from, −1 without.
+#[unsafe(no_mangle)]
+pub extern "C" fn setting_preset(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .settings
+            .get(i as usize)
+            .map_or(-1, |x| x.preset as i32)
+    })
+}
+
 /// What track `t`'s fragments hold: 0 drum lanes, 1 notes, 2 lanes or notes (a sampler).
 #[unsafe(no_mangle)]
 pub extern "C" fn track_kind(t: u32) -> u32 {
@@ -1379,6 +1463,43 @@ mod tests {
         assert_eq!(clock_step(), 0);
         song_stop();
         assert!(midi_buf(u32::MAX).is_null());
+    }
+
+    /// #213: a track's patch and the song's settings through the ABI.
+    #[test]
+    fn track_patches_through_the_abi() {
+        use crate::mono::model::Model;
+        init(48_000.0);
+        let text = b"track lead synth\n";
+        query((), |e| {
+            e.song_buffer(text.len())
+                .expect("fits")
+                .copy_from_slice(text)
+        });
+        assert_eq!(song_load(), 0);
+        assert!(track_preset(0) >= 0, "a picked preset");
+        assert_eq!((track_setting(0), song_settings()), (-1, 0));
+        assert_eq!(track_edit(0, 0, Preset::MiniBass as u32), 0);
+        assert_eq!(track_preset(0), Preset::MiniBass as i32);
+        assert_eq!(
+            track_edit(0, 0, Preset::Kit808 as u32),
+            -1,
+            "not on a synth track"
+        );
+        assert_eq!(track_edit(2, 0, 0), 0, "saved as a setting");
+        assert_eq!((song_settings(), track_setting(0)), (1, 0));
+        assert_eq!(setting_name_len(0), 4, "lead");
+        assert!(!setting_name_ptr(0).is_null());
+        assert_eq!(setting_preset(0), Preset::MiniBass as i32);
+        assert_eq!(
+            (setting_preset(5), track_preset(9), track_setting(9)),
+            (-1, -1, -1)
+        );
+        assert_eq!(model_fits(1, Model::Minimoog as u32), 1);
+        assert_eq!(model_fits(0, Model::Minimoog as u32), 0);
+        assert_eq!(model_fits(0, Model::Tr909 as u32), 1);
+        assert_eq!(model_fits(2, Model::PadSampler as u32), 1);
+        assert_eq!((model_fits(3, 0), model_fits(1, 999)), (0, 0));
     }
 
     #[test]

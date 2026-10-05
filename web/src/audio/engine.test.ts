@@ -117,6 +117,8 @@ describe('applySong', () => {
       arrange: [0, 0],
       autos: [enc('cutoff')],
       scenes: [enc('dark')],
+      settings: [{ name: enc('nile'), preset: Preset.MiniLead }],
+      fits: [[true], [false], [false]],
       loop: [1, 2],
     })
     expect(mod.song.error).toBeNull()
@@ -125,10 +127,10 @@ describe('applySong', () => {
     expect(storage.map.get('algo-synth:song')).toBe('tempo 100\n')
     expect([mod.song.tempo, mod.song.swing]).toEqual([100, 55])
     expect(mod.song.tracks).toEqual([
-      { name: 'kick', synth: 0, kind: 'drums' },
-      { name: 'bass', synth: 3, kind: 'synth' },
-      { name: 'pads', synth: 5, kind: 'sampler' },
-      { name: 'odd', synth: MUTE, kind: 'drums' },
+      { name: 'kick', synth: 0, kind: 'drums', preset: -1, setting: -1 },
+      { name: 'bass', synth: 3, kind: 'synth', preset: -1, setting: -1 },
+      { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1 },
+      { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1 },
     ])
     expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0] }], notes: null })
     expect(mod.song.frags[1]?.notes).toEqual({
@@ -138,6 +140,8 @@ describe('applySong', () => {
     expect(mod.song.sections).toEqual([{ name: 'intro', bars: 4, frags: [true, false], autos: [], scenes: [] }])
     expect(mod.song.arrange).toEqual([0, 0])
     expect(mod.song.autos).toEqual(['cutoff'])
+    expect(mod.song.settings).toEqual([{ name: 'nile', preset: Preset.MiniLead }])
+    expect(mod.song.fits).toEqual([[true], [false], [false]])
     expect(mod.song.scenes).toEqual(['dark'])
     expect(mod.song.loop).toEqual([1, 2])
   })
@@ -411,6 +415,9 @@ describe('posting', () => {
     mod.arrange.move(1, 3)
     mod.arrange.loop(0, 2)
     mod.arrange.seekBar(5)
+    mod.trackEdit.preset(1, Preset.MiniBass)
+    mod.trackEdit.setting(0, 2)
+    mod.trackEdit.save(3)
     expect(take()).toEqual([
       { t: 'arr', op: 0, a: 1, b: 2, c: 3 },
       { t: 'arr', op: 1, a: 4 },
@@ -421,6 +428,9 @@ describe('posting', () => {
       { t: 'arr', op: 5, a: 1, b: 3 },
       { t: 'arr', op: 6, a: 0, b: 2 },
       { t: 'songSeek', bar: 5 },
+      { t: 'track', op: 0, track: 1, a: Preset.MiniBass },
+      { t: 'track', op: 1, track: 0, a: 2 },
+      { t: 'track', op: 2, track: 3 },
     ])
   })
 

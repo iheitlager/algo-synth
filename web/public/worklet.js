@@ -71,6 +71,14 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songSwing': w.song_swing(data.v); this.sendSong(true); break
         case 'songDump': this.sendSong(true); break
         case 'arr': w.arr_edit(data.op, data.a ?? 0, data.b ?? 0, data.c ?? 0); this.sendSong(true); break
+        case 'track': {
+          // A preset or setting picked in the composer is set on the track's synth (#213).
+          const ok = w.track_edit(data.op, data.track, data.a ?? 0) === 0
+          this.sendSong(true)
+          const s = w.song_routed(data.track)
+          if (ok && s < 255) this.sendParams(s)
+          break
+        }
         case 'songSeek': w.song_seek_bar(data.bar); break
         case 'midiImport': {
           const code = w.midi_import()
@@ -204,7 +212,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     const bytes = (ptr, len) => new Uint8Array(w.memory.buffer, ptr, len).slice()
     const tracks = []
     for (let t = 0; t < w.song_tracks(); t++) {
-      tracks.push({ name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t), kind: w.track_kind(t) })
+      tracks.push({
+        name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t), kind: w.track_kind(t),
+        preset: w.track_preset(t), setting: w.track_setting(t),
+      })
     }
     const frags = []
     for (let f = 0; f < w.song_frags(); f++) {
@@ -241,13 +252,19 @@ class EngineProcessor extends AudioWorkletProcessor {
     const arrange = Array.from({ length: w.arrange_len() }, (_, i) => w.arrange_at(i))
     const autos = Array.from({ length: nA }, (_, a) => bytes(w.auto_name_ptr(a), w.auto_name_len(a)))
     const scenes = Array.from({ length: nC }, (_, c) => bytes(w.scene_name_ptr(c), w.scene_name_len(c)))
+    // The song's own settings (#210) and, per track kind, the models that play it (#213).
+    const settings = Array.from({ length: w.song_settings() }, (_, i) => ({
+      name: bytes(w.setting_name_ptr(i), w.setting_name_len(i)), preset: w.setting_preset(i),
+    }))
+    const models = w.model_count ? w.model_count() : 0
+    const fits = [0, 1, 2].map((k) => Array.from({ length: models }, (_, m) => w.model_fits(k, m) === 1))
     const error = ok
       ? null
       : { line: w.song_error_line(), col: w.song_error_col(), msg: bytes(w.song_error_ptr(), w.song_error_len()) }
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      sections, arrange, autos, scenes, loop: [w.loop_from(), w.loop_to()],
+      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()],
     })
   }
 

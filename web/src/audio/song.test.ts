@@ -26,7 +26,7 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     applySong(summary)
     expect(song.text).toBe(text)
     expect(song.draft).toBe(text)
-    expect(song.tracks).toEqual([{ name: 'kit', synth: 2, kind: 'drums' }, { name: 'lead', synth: 0, kind: 'synth' }])
+    expect(song.tracks).toEqual([{ name: 'kit', synth: 2, kind: 'drums', preset: -1, setting: -1 }, { name: 'lead', synth: 0, kind: 'synth', preset: -1, setting: -1 }])
     expect(song.frags).toEqual([
       { name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0] }], notes: null },
       {

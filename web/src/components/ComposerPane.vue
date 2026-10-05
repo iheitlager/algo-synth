@@ -12,6 +12,7 @@ import { modelDef } from '../audio/models'
 import { Model, Pad, Param } from '../audio/params'
 import NoteRoll from './NoteRoll.vue'
 import SongEditor from './SongEditor.vue'
+import TrackStrip from './TrackStrip.vue'
 
 // A first beat to start from when the song is empty.
 const STARTER = `tempo 120
@@ -95,6 +96,7 @@ watch(() => status.running, (on) => on && requestSong())
       <span v-if="song.playing && position >= 0" class="muted">bar {{ Math.floor(position / 16) + 1 }} · step {{ (position % 16) + 1 }}</span>
     </div>
     <p v-if="noKit" class="notice">No synth is a drum kit: add one with + Synth › Drums, then pick it for the track.</p>
+    <TrackStrip v-if="status.running && song.tracks.length" :synths="choices" />
     <div class="body">
       <div class="grid">
         <p v-if="status.running && !song.frags.length" class="muted">
