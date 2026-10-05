@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-05
+
+### Added
+
+- **Chords by name (#103):** note fragments take chord symbols (`"c:m7 f:maj7 bb:sus4 g3:7"`, a bare root a major triad, `c:m7:2` in classic notes) and roman numerals in the song's key (`"<i VI III VII>"` plays Cm Ab Eb Bb after `scale c minor`, Am F C G after `scale a minor`), with explicit case (upper major, lower minor, then `o`, `o7`, `+`, `7`, `maj7`, `b`/`#` for borrowed chords). `arp(c:m7,up,16)` takes a chord by name, names print back as written, and the editor colours them. `frag … voicing` moves each chord to the inversion nearest the one before, within C3–C6.
+- **Progressions feed other parts (#103):** `prog(4,7)` writes a seeded progression of triads in the song's key (tonic first, dominant last, moving by function), `root(chords)` plays the root of each chord of a frag as a bass line, and `arp(chords,updown,16)` arpeggiates a frag's chords one after another. One progression feeds the pad, the bass and the arp.
+- **Comments in the song text are kept:** a `#` comment above an item or after it (a lane, a frag, a section, the tempo) comes back when the text is applied or a step is edited on the grid; before, they were erased. A comment whose item is gone moves to the end (#199).
+- **Pad Sampler outs:** each pad has an Out, the sampler's own strip or straight into a group (the groups on the console), panned there as the pad is; soloing the sampler keeps the groups its pads go to, and removing a group sends its pads back to the strip (#220).
+- **A reference for the song language:** `docs/song.md` lists every keyword (tempo, swing, scale, setting, track, frag, lanes and notes, generators, live, auto, scene, section, arrange, loop) with its syntax, limits and errors, and ends with a worked song; a test parses every example in it (#226).
+
+### Changed
+
+- **Drum outs:** the Drums menu lists the TR-808, TR-909 and Pad Sampler in that order; a drum pad's Out lists only the groups on the console; removing a group, or loading a setup that routes to a group it does not have, sends the strips and the kit pads that fed it to the master (#218).
+- **Plan, vision and README:** `plan.md` marks what is built per MVP with its issues, `vision.md` describes the nineteen models, the song as text and the actual mixer, and the README lists the samplers, mixer and song, the `tools/`, `changes/` and `docs/` folders, and points to `CHANGELOG.md` for the version history (#230).
+- **CI runs the tool tests:** `make test-tools` (the release and sample-fetch scripts) is a CI job, as `make check` already ran it (#231).
+- **Tests for the engine bridge and the preset library:** `engine.ts` is tested against a fake AudioWorklet port (song decoding, every worklet message, the messages the view posts, setups and presets) and `library.ts` against an in-memory IndexedDB (#232).
+- **UI test coverage:** `make coverage-web` reports line coverage of the UI (vitest with v8), with an HTML report in `web/coverage/` (#232).
+- **A test proves `render` never allocates:** `crates/dsp/tests/render_no_alloc.rs` counts every allocation while a busy song plays (automation, scenes, live generators, chords) and fails on any; live generators assert they stay within the room they reserve (#233).
+- **The engine tests live in `crates/dsp/src/engine/tests.rs`:** `engine.rs` keeps the engine (about 1 600 lines), as `song`, `notes` and `drums` already do (#234).
+- **`make image` explains why it rebuilds:** the Makefile comment on `image` says how the commit in `ALGO_BUILD_SHA` keeps the image from shipping an old wasm (#198, #235).
+
+### Fixed
+
+- **No "Group 9":** the mixer's Out pull-down labelled None as "Group 9", and a strip sent to None showed a "feeds Group 9" tag; None is now None, with no tag (#217).
+- **Drums keep playing with the loop (#223):** a drum track plays the TR-909 or pad sampler already in the rack instead of turning the first synth into an 808 (a regression of #210), and the text names that kit. The arranger's first section holds every frag and keeps the clock's place, so it no longer silences or stops the beat. The composer's bar and step readout and the step and piano-roll playheads follow the arrangement and its loop, and light only frags the section plays. The kit notice knows the 909 and the pad sampler.
+- **Automation no longer allocates on the audio thread:** a song lane or scene on a strip parameter (fader, pan, send, mute) reworked the solos, which built vectors inside `render`; now only a solo or a route does, without allocating (#225).
+- **Specs:** every `Implementation` and `Tests` reference resolves again, and `make test-tools` checks it; specs 001–006 match the code (voice pools, eighteen pads, three insert slots, nineteen models), a new spec 007 covers the samplers, and the song editor, build info, scale modes and song limits are specified (#229).
+
 ## [0.32.0] - 2026-10-05
 
 ### Added
