@@ -2954,3 +2954,109 @@ fn every_arp_step_retriggers_even_with_legato_and_a_full_gate() {
         assert!(after > 0.01, "onset {onset}: not retriggered ({after})");
     }
 }
+
+/// #213: the composer picks a track's preset; the synth takes it at once and
+/// the text names it.
+#[test]
+fn a_track_takes_a_preset_from_the_composer() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, "track lead synth\n"), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert!(e.track_edit(0, 0, Preset::MiniBass as u32));
+    assert_eq!(
+        e.param_value(s, Param::Model),
+        Model::Minimoog as u32 as f32
+    );
+    assert!(
+        e.song_text().contains("track lead synth Minimoog MiniBass"),
+        "{}",
+        e.song_text()
+    );
+    assert!(
+        !e.track_edit(0, 0, Preset::Kit808 as u32),
+        "an 808 does not play a synth track"
+    );
+    assert!(
+        !e.track_edit(0, 3, Preset::MiniBass as u32),
+        "no such track"
+    );
+    assert!(!e.track_edit(9, 0, 0), "no such edit");
+    // The text loads back as the same song, and keeps the synth as it is.
+    let text = e.song_text().to_string();
+    e.set_param(s, Param::Cutoff, 777.0);
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    assert_eq!(e.param_value(s, Param::Cutoff), 777.0);
+}
+
+/// #213: Save as setting writes the synth's changes into the song, and a
+/// track can then play that setting.
+#[test]
+fn a_tracks_sound_saves_as_a_setting() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track bass synth Minimoog MiniBass\ntrack lead synth\n"
+        ),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    e.set_param(s, Param::Cutoff, 1234.0);
+    e.set_param(s, Param::Level, 0.3); // a strip parameter stays out of the setting
+    assert!(e.track_edit(2, 0, 0));
+    let st = &e.song().settings[0];
+    assert_eq!((st.name.as_str(), st.preset), ("bass", Preset::MiniBass));
+    assert_eq!(st.sets, vec![(Param::Cutoff, 1234.0)]);
+    assert!(
+        e.song_text()
+            .contains("setting bass = Minimoog MiniBass: Cutoff 1234")
+    );
+    assert!(e.song_text().contains("track bass synth bass"));
+    assert_eq!(
+        Song::parse(e.song_text()).map(|x| x.print()),
+        Ok(e.song_text().to_string())
+    );
+    // Saved again: a second setting, named apart.
+    assert!(e.track_edit(2, 0, 0));
+    assert_eq!(e.song().settings[1].name, "bass2");
+    // The lead plays the first setting: a Minimoog with that cutoff.
+    let lead = e.song_routed(1).expect("routed");
+    assert!(e.track_edit(1, 1, 0));
+    assert_eq!(
+        e.param_value(lead, Param::Model),
+        Model::Minimoog as u32 as f32
+    );
+    assert_eq!(e.param_value(lead, Param::Cutoff), 1234.0);
+    assert!(e.song_text().contains("track lead synth bass"));
+    assert!(!e.track_edit(1, 1, 7), "no such setting");
+}
+
+/// A setting holds at most 32 changes; a synth changed further does not save.
+#[test]
+fn a_setting_past_its_room_is_refused() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track lead synth Minimoog MiniLead\n"),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    let sound: Vec<Param> = DEFAULTS
+        .iter()
+        .map(|(p, _)| *p)
+        .filter(|p| *p != Param::Model && !p.is_strip() && !p.is_global())
+        .collect();
+    let mut moved = 0;
+    for p in sound {
+        let before = e.param_value(s, p);
+        e.set_param(s, p, before + 0.37);
+        if e.param_value(s, p) != before {
+            moved += 1;
+        }
+        if moved > crate::song::MAX_SETS {
+            break;
+        }
+    }
+    assert!(moved > crate::song::MAX_SETS);
+    assert!(!e.track_edit(2, 0, 0));
+    assert!(e.song().settings.is_empty());
+}

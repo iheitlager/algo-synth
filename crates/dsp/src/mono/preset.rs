@@ -3066,6 +3066,45 @@ pub const DEFAULTS: [(Param, f32); 400] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-0004: the view's preset list per model (`ModelDef.presets` in
+    /// `web/src/audio/models.ts`, which the composer's picker offers, #213)
+    /// holds exactly the presets of that model, in the engine's order.
+    #[test]
+    fn the_views_presets_per_model_match() {
+        let ts = include_str!("../../../../web/src/audio/models.ts");
+        let mut model: Option<&str> = None;
+        let mut seen = Vec::new();
+        for line in ts.lines() {
+            if let Some(m) = line.trim().strip_prefix("id: Model.") {
+                model = Some(m.trim_end_matches(','));
+            }
+            let Some(list) = line.trim().strip_prefix("presets: [") else {
+                continue;
+            };
+            let Some(m) = model.take() else {
+                continue;
+            };
+            let view: Vec<&str> = list
+                .trim_end_matches("],")
+                .split(',')
+                .map(|w| w.trim().trim_matches('\''))
+                .filter(|w| !w.is_empty())
+                .collect();
+            let engine: Vec<&str> = Preset::ALL
+                .iter()
+                .filter(|(p, _)| Model::ALL.iter().any(|(q, n)| *n == m && p.model() == *q))
+                .map(|(_, n)| *n)
+                .collect();
+            assert_eq!(view, engine, "{m}");
+            seen.push(m);
+        }
+        assert_eq!(
+            seen.len(),
+            Model::ALL.len(),
+            "every model lists its presets"
+        );
+    }
     use crate::engine::{BLOCK, Engine};
 
     /// The parameters that aren't Mono's: global, or the mixer's.

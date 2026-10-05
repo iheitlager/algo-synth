@@ -1474,6 +1474,62 @@ impl Song {
         Some(p)
     }
 
+    // --- Track edits from the composer (#213) ---------------------------------
+
+    /// Track `t` plays factory preset `preset`, without a setting; refused when
+    /// the preset's model does not play the track's kind.
+    pub fn set_track_preset(&mut self, t: usize, preset: Preset) -> bool {
+        match self.tracks.get_mut(t) {
+            Some(tr) if fits(tr.kind, Some(preset.model())) => {
+                tr.preset = Some(preset);
+                tr.setting = None;
+                tr.picked = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Track `t` plays the song's setting `i`.
+    pub fn set_track_setting(&mut self, t: usize, i: usize) -> bool {
+        let Some(preset) = self.settings.get(i).map(|st| st.preset) else {
+            return false;
+        };
+        match self.tracks.get_mut(t) {
+            Some(tr) if fits(tr.kind, Some(preset.model())) => {
+                tr.preset = Some(preset);
+                tr.setting = Some(i);
+                tr.picked = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A new setting of track `t`'s preset and `sets`, named after the track
+    /// (`bass`, else `bass2`, …), which the track then plays. `None` when the
+    /// track has no preset, the song has 16 settings or `sets` is more than a
+    /// setting holds.
+    pub fn add_setting(&mut self, t: usize, sets: Vec<(Param, f32)>) -> Option<usize> {
+        if sets.len() > MAX_SETS || self.settings.len() >= MAX_TRACKS {
+            return None;
+        }
+        let track = self.tracks.get(t)?;
+        let preset = track.preset?;
+        let base: String = track.name.chars().take(MAX_NAME - 2).collect();
+        let taken =
+            |n: &str| self.settings.iter().any(|st| st.name == n) || model_named(n).is_some();
+        let name = std::iter::once(base.clone())
+            .chain((2..=MAX_TRACKS + 1).map(|k| format!("{base}{k}")))
+            .find(|n| !taken(n))?;
+        self.settings.push(Setting { name, preset, sets });
+        let i = self.settings.len() - 1;
+        let tr = self.tracks.get_mut(t)?;
+        tr.setting = Some(i);
+        tr.picked = false;
+        Some(i)
+    }
+
     fn target_name(&self, t: Target) -> String {
         match t {
             Target::Track(i) => self
@@ -1513,7 +1569,7 @@ fn preset_name(p: Preset) -> &'static str {
 }
 
 /// Whether `model` (if one is given) plays a track of `kind`.
-fn fits(kind: Kind, model: Option<Model>) -> bool {
+pub(crate) fn fits(kind: Kind, model: Option<Model>) -> bool {
     let Some(m) = model else {
         return true;
     };

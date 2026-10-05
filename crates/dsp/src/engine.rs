@@ -1359,6 +1359,63 @@ impl Engine {
         true
     }
 
+    /// A track edit from the composer (#213): 0 plays factory preset `a`, 1
+    /// plays the song's setting `a`, 2 saves the synth's sound as a new
+    /// setting that the track plays. The track's synth takes the patch at once
+    /// (a reload sets a patch only when its text changes) and the song is
+    /// printed again; false when refused.
+    pub fn track_edit(&mut self, op: u32, t: u32, a: u32) -> bool {
+        let t = t as usize;
+        let ok = match op {
+            0 => Preset::from_id(a).is_some_and(|p| self.song.set_track_preset(t, p)),
+            1 => self.song.set_track_setting(t, a as usize),
+            2 => {
+                let sets = self.changed_params(t);
+                sets.is_some_and(|sets| self.song.add_setting(t, sets).is_some())
+            }
+            _ => false,
+        };
+        if !ok {
+            return false;
+        }
+        if op != 2 {
+            if let (Some(s), Some((preset, sets))) = (self.song_routed(t), self.song.patch(t)) {
+                let sets = sets.to_vec();
+                self.preset(s, preset);
+                for (p, v) in sets {
+                    self.set_param(s, p, v);
+                }
+            }
+        }
+        self.song_text = self.song.print();
+        true
+    }
+
+    /// The parameters of track `t`'s synth that differ from its preset, as a
+    /// setting holds them: the sound only, no model, strip, global or arp
+    /// parameters. `None` without a synth or a preset, or past a setting's room.
+    fn changed_params(&self, t: usize) -> Option<Vec<(Param, f32)>> {
+        let s = self.song_routed(t)?;
+        let preset = self.song.tracks.get(t)?.preset?;
+        let mut sets = Vec::new();
+        for (p, d) in DEFAULTS.iter() {
+            if *p == Param::Model || p.is_strip() || p.is_global() || p.is_arp() {
+                continue;
+            }
+            let base = preset
+                .changes()
+                .iter()
+                .rev()
+                .find(|(q, _)| q == p)
+                .map_or(*d, |(_, v)| *v);
+            let now = self.param_value(s, *p);
+            if (now - p.clamp(base)).abs() > 1e-6 {
+                sets.push((*p, now));
+            }
+        }
+        (sets.len() <= crate::song::MAX_SETS).then_some(sets)
+    }
+
     /// An arranger edit (#171): 0 toggle (section, kind, item), 1 add a
     /// section (bars), 2 set a section's bars (section, bars), 3 insert an
     /// entry (place, section), 4 remove an entry (place), 5 move an entry

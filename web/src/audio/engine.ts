@@ -465,7 +465,10 @@ export interface SongNote { start: number; len: number; note: number; accent: bo
  */
 export interface SongNotes { text: string; bars: number; events: SongNote[]; generated: boolean; live: boolean }
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
-export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler' }
+/** A song track (#210, #213): its synth, kind, factory preset and the song setting it plays (−1 for none). */
+export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number }
+/** A setting of the song (#210): a factory preset and changes, named. */
+export interface SongSetting { name: string; preset: number }
 export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
 
 /**
@@ -493,6 +496,9 @@ export const song = reactive({
   arrange: [] as number[],
   autos: [] as string[],
   scenes: [] as string[],
+  settings: [] as SongSetting[],
+  /** Per track kind (drums, synth, sampler), which models play it: the engine's rule (#213). */
+  fits: [[], [], []] as boolean[][],
   loop: [0, 0] as [number, number],
 })
 
@@ -584,11 +590,18 @@ export function applySong(data: Record<string, unknown>) {
   song.text = text
   song.tempo = data.tempo as number
   song.swing = data.swing as number
-  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number }[]).map((t) => ({
+  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number }[]).map((t) => ({
     name: decoder.decode(t.name),
     synth: t.synth,
     kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
+    preset: t.preset ?? -1,
+    setting: t.setting ?? -1,
   }))
+  song.settings = ((data.settings ?? []) as { name: Uint8Array; preset: number }[]).map((st) => ({
+    name: decoder.decode(st.name),
+    preset: st.preset,
+  }))
+  song.fits = (data.fits as boolean[][] | undefined) ?? [[], [], []]
   // The engine put each track on a synth with its preset (#210): show them as they are.
   if (data.ok) for (const t of song.tracks) if (t.synth !== MUTE) show(t.synth, true)
   song.frags = (data.frags as {
@@ -631,6 +644,17 @@ export const arrange = {
   move: (from: number, to: number) => engine?.post({ t: 'arr', op: 5, a: from, b: to }),
   loop: (first: number, last: number) => engine?.post({ t: 'arr', op: 6, a: first, b: last }),
   seekBar: (bar: number) => engine?.post({ t: 'songSeek', bar }),
+}
+
+/**
+ * A track's patch from the composer (#213): a factory preset, one of the song's
+ * settings, or the synth's sound saved as a new setting. The engine rewrites
+ * the track line, sets the synth and prints the song back.
+ */
+export const trackEdit = {
+  preset: (t: number, preset: number) => engine?.post({ t: 'track', op: 0, track: t, a: preset }),
+  setting: (t: number, i: number) => engine?.post({ t: 'track', op: 1, track: t, a: i }),
+  save: (t: number) => engine?.post({ t: 'track', op: 2, track: t }),
 }
 
 /** What to tell the user when the engine knows fewer models than the view offers. */
