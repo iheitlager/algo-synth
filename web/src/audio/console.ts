@@ -281,6 +281,10 @@ export function feedsOf(
   return found
 }
 
+/** The pads (by index) of a pad sampler that go to group `g` (0–7), for when it is removed (#220). */
+export const padsOnGroup = (g: number, pads: readonly { out: number }[]) =>
+  pads.flatMap((p, i) => (p.out === g + 1 ? [i] : []))
+
 /** What a strip's routing and solo state is, as the engine reports it. */
 export interface StripState {
   mute: boolean

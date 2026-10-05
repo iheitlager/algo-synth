@@ -5,9 +5,9 @@
 import { reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
-import { GROUPS, feedsOf, groupStrip, moveBefore, orderStrips, routeOk } from './console'
+import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
-import { GlobalParam, InsertType, Model, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
+import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
 import { lexer, wasmLexer } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
@@ -138,12 +138,20 @@ export function addGroup(): boolean {
 /** The `Out` of each of a drum kit's pads (`BdOut`, `SnOut`, …; #162). */
 const PAD_OUT_IDS = Object.entries(Param).filter(([name]) => /^[A-Z][a-z]Out$/.test(name)).map(([, id]) => id as number)
 
+/** A pad's or strip's Out option named as the console names it: a group by its own name (#127). */
+export const outText = (name: string) => {
+  const g = /^Group (\d)$/.exec(name)
+  return g ? nameOfStrip(16 + Number(g[1]) - 1) : name
+}
+
 /** Remove group `g`: what fed it goes to the master, and the group goes back to its defaults. */
 export function removeGroup(g: number) {
   const strip = groupStrip(g)
   // A kit's pads have outs of their own (#162): they go back to the master too (#218).
   const feeds = feedsOf(g, [...synths.list, ...layout.groups.map(groupStrip)], synths.list, PAD_OUT_IDS, Param.Out, (s, id) => params.values[s]?.[id])
   for (const [s, id] of feeds) engine?.param(s, id as ParamId, 0)
+  // A pad sampler's pads too (#220).
+  for (const s of synths.list) for (const i of padsOnGroup(g, padsOf(s))) setPad(s, i, PadField.Out, 0)
   engine?.reset(strip)
   layout.groups = layout.groups.filter((x) => x !== g)
   layout.order = layout.order.filter((x) => x !== strip)

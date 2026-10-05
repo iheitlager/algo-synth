@@ -769,9 +769,16 @@ impl MonoParams {
         }
     }
 
-    /// The groups the drum kit's pads go to, as a bit per group (bit 0 is
-    /// group 1); none unless the synth is a kit.
+    /// The groups the drum kit's or pad sampler's pads go to, as a bit per group (bit 0 is
+    /// group 1); none unless the synth is one of them.
     pub fn pad_groups(&self) -> u8 {
+        if self.model.uses_pads() {
+            // A pad sampler's pads (#220).
+            return (0..crate::padsampler::PADS)
+                .filter_map(|i| self.pad_kit.pad(i))
+                .filter(|c| (1..=8).contains(&c.out))
+                .fold(0, |m, c| m | 1 << (c.out - 1));
+        }
         if !self.model.uses_drums() {
             return 0;
         }

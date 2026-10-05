@@ -90,14 +90,16 @@ describe('replacing a pack or kit', () => {
 
 describe('pads', () => {
   it('decodes a dump and knows the grid', () => {
-    expect(PAD_FIELDS).toBe(9)
+    expect(PAD_FIELDS).toBe(10)
     const v = new Float32Array(PADS * PAD_FIELDS)
     v[3 * PAD_FIELDS + PadField.Sample] = 4
     v[3 * PAD_FIELDS + PadField.Pan] = -0.5
     v[3 * PAD_FIELDS + PadField.OneShot] = 1
+    v[3 * PAD_FIELDS + PadField.Out] = 3
     const pads = decodePads(v)
     expect(pads).toHaveLength(PADS)
-    expect(pads[3]).toMatchObject({ sample: 4, pan: -0.5, oneShot: true })
+    expect(pads[3]).toMatchObject({ sample: 4, pan: -0.5, oneShot: true, out: 3 })
+    expect(pads[2]?.out).toBe(0)
     expect(pads[2]?.oneShot).toBe(false)
     expect(PAD_ROWS.flat().sort((a, b) => a - b)).toEqual(Array.from({ length: PADS }, (_, i) => i))
     expect(PAD_ROWS[3]).toEqual([0, 1, 2, 3])
@@ -122,7 +124,9 @@ describe('pads', () => {
     const kit = kits[0] as Kit
     expect(kitFiles(kit)).toEqual(['kits/k/bd.wav', 'kits/k/ch.wav'])
     const sets = padSets(kit, (f) => ({ 'kits/k/bd.wav': 3, 'kits/k/ch.wav': 8 })[f])
-    expect(sets).toHaveLength(2 * PAD_FIELDS)
+    // A kit lays out the nine sound fields, not Out: loading one does not undo the routing (#220).
+    expect(sets).toHaveLength(2 * (PAD_FIELDS - 1))
+    expect(sets.some(([, f]) => f === PadField.Out)).toBe(false)
     expect(sets).toContainEqual([6, PadField.Sample, 8])
     expect(sets).toContainEqual([6, PadField.Choke, 1])
     expect(padSets(kit, () => undefined)).toEqual([])
