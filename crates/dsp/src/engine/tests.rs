@@ -2146,6 +2146,58 @@ fn a_swept_filter_renders_deterministically() {
     assert!(lo < 250.0 && hi > 1900.0, "swept from {lo} to {hi}");
 }
 
+/// #208: a song loaded while the song plays takes over at the next bar;
+/// until then the old one plays on. Loaded while stopped, it is there at once.
+#[test]
+fn a_song_loaded_while_playing_takes_over_at_the_next_bar() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    e.song_play();
+    // The kick of FOUR on 0 and 24000; then a song with one kick a bar.
+    run(&mut e, 30_000 / BLOCK);
+    assert_eq!(e.note_count, 2);
+    let one = FOUR.replace("x...x...x...x...", "x...............");
+    assert_eq!(load_text(&mut e, &one), Ok(()));
+    assert!(
+        e.song_text().contains("x..............."),
+        "the text is the new one"
+    );
+    // FOUR plays on to the bar line (48000, 72000), then the new song (96000).
+    run(&mut e, (96_000 - 30_000) / BLOCK);
+    assert_eq!(e.note_count, 4, "the old song to the bar");
+    assert!(!e.take_taken());
+    run(&mut e, 30_000 / BLOCK);
+    assert_eq!(e.note_count, 5, "the new song from the bar");
+    assert!(e.take_taken(), "the view hears of it");
+    assert!(!e.take_taken());
+    e.song_stop();
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    assert_eq!(
+        e.song().frags[0].lanes[0].steps[4],
+        Step::Hit,
+        "stopped: at once"
+    );
+}
+
+/// An edit while a song waits for the bar line edits the waiting song.
+#[test]
+fn an_edit_before_the_bar_line_edits_the_new_song() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    let two = FOUR.replace("frag b", "frag c");
+    assert_eq!(load_text(&mut e, &two), Ok(()));
+    assert!(e.set_step(0, 0, 1, 1));
+    assert_eq!(e.song().frags[0].name, "c");
+    assert!(
+        e.song_text()
+            .contains("frag c = kit /16\n  bd xx..x...x...x..."),
+        "{}",
+        e.song_text()
+    );
+}
+
 #[test]
 fn each_lane_loops_on_its_own_length() {
     let mut e = kit(0);

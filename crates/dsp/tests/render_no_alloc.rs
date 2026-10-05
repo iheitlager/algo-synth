@@ -1,6 +1,7 @@
 //! `render` never allocates (ADR-0002, #233), checked by counting every
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
-//! walk, strip and synth automation, and scenes that solo, mute and send.
+//! walk, strip and synth automation, scenes that solo, mute and send,
+//! modulations, and a new song taking over on a bar line.
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
@@ -70,4 +71,28 @@ fn a_busy_song_renders_without_allocating() {
         "render allocated: {change:?}"
     );
     assert!(e.meters().iter().any(|m| *m > 0.0), "the song was heard");
+
+    // A song loaded while playing takes over on the next bar line, inside
+    // `render`: that too only moves what the load prepared (#208).
+    let edited = SONG.replace("tempo 180", "tempo 160");
+    e.song_buffer(edited.len())
+        .expect("the song fits")
+        .copy_from_slice(edited.as_bytes());
+    e.load_song().expect("the edit parses");
+    assert_eq!(e.song().tempo, 180.0, "not before the bar");
+    let region = Region::new(GLOBAL);
+    for _ in 0..blocks / 3 {
+        e.render(128);
+    }
+    let change = region.change();
+    assert_eq!(
+        (
+            change.allocations,
+            change.reallocations,
+            change.deallocations
+        ),
+        (0, 0, 0),
+        "taking over allocated: {change:?}"
+    );
+    assert_eq!(e.song().tempo, 160.0, "taken over");
 }

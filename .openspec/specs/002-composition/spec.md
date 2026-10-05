@@ -120,9 +120,9 @@ The engine SHALL run the transport (tempo, swing, play, stop, position) inside `
 
 ### Requirement 6: The song is text [MUST]
 
-The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL parse and compile it outside `render`; `render` SHALL only read the compiled song. A text that does not parse SHALL be rejected with a line, a column and a message, and the song that is playing SHALL keep playing; a new song SHALL play from the next clock step, each lane keeping its place against the clock (taking over at a bar line would free the old song inside `render`, against ADR-0002). The parser SHALL never panic. The engine SHALL print a song canonically, and parsing a printed song SHALL give the same song. The printed text SHALL keep the song's `#` comments, each with the item it is above or beside (`crates/dsp/src/song/comments.rs::Comments`, #199); a comment whose item is gone SHALL move to the end, never be lost. Edits from a view (`set_step`) SHALL change the song in the engine, which returns the printed text. A track SHALL be routed to a synth as a MIDI channel is: on load a track without a synth goes to the first drum kit, and the view MAY route it elsewhere or mute it.
+The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL parse and compile it outside `render`; `render` SHALL only read the compiled song. A text that does not parse SHALL be rejected with a line, a column and a message, and the song that is playing SHALL keep playing; a new song SHALL play at once when the song is stopped, and from the next bar line while it plays (#208, Sonic Pi's `live_loop`), each lane keeping its place against the clock; the old song SHALL play on until then. The load SHALL prepare the new song, its live buffers and track routes outside `render`, so taking over on the bar line only moves them, and the old song SHALL be freed at the next load, never in `render` (ADR-0002); an edit from a view before the bar line SHALL edit the new song. The engine SHALL report the takeover (`song_taken`) so the view draws the song that plays. The parser SHALL never panic. The engine SHALL print a song canonically, and parsing a printed song SHALL give the same song. The printed text SHALL keep the song's `#` comments, each with the item it is above or beside (`crates/dsp/src/song/comments.rs::Comments`, #199); a comment whose item is gone SHALL move to the end, never be lost. Edits from a view (`set_step`) SHALL change the song in the engine, which returns the printed text. A track SHALL be routed to a synth as a MIDI channel is: on load a track without a synth goes to the first drum kit, and the view MAY route it elsewhere or mute it.
 
-**Implementation:** `crates/dsp/src/song.rs::Song` (`parse`, `print`, `set_step`), `crates/dsp/src/engine.rs::Engine::load_song`, `crates/dsp/src/ffi.rs` (`song_buf`, `song_load`, `song_error_*`, `song_text_*`, `set_step`, `song_tracks`, `song_route`, `song_routed`, `song_frags`, `frag_*`, `lane_*`, `step_level`), `web/public/worklet.js` (`loadSong`, `sendSong`)
+**Implementation:** `crates/dsp/src/song.rs::Song` (`parse`, `print`, `set_step`), `crates/dsp/src/engine.rs::Engine::load_song`, `crates/dsp/src/ffi.rs` (`song_buf`, `song_load`, `song_error_*`, `song_text_*`, `set_step`, `song_tracks`, `song_route`, `song_routed`, `song_frags`, `frag_*`, `lane_*`, `step_level`, `song_taken`), `crates/dsp/src/engine.rs::Engine::commit_song`, `web/public/worklet.js` (`loadSong`, `sendSong`)
 
 #### Scenario: round trip
 
@@ -130,13 +130,19 @@ The view SHALL send the song to the engine as text (ADR-0012). The engine SHALL 
 - WHEN it is printed and parsed again
 - THEN the result equals the first parse
 
+#### Scenario: an edit takes over at the bar
+
+- GIVEN a song with four kicks a bar playing, a third of the way into its first bar
+- WHEN a song with one kick a bar is loaded
+- THEN the four kicks play to the end of the bar and the new song plays from the next
+
 #### Scenario: a bad edit
 
 - GIVEN a song playing
 - WHEN a text with an error on line 7 is sent
 - THEN the engine reports line 7 and the song plays on unchanged
 
-**Tests:** `crates/dsp/src/song/tests.rs::print_then_parse_is_identity`, `crates/dsp/src/song/tests.rs::never_panics_on_garbage`, `crates/dsp/src/song/tests.rs::every_error_says_where`, `crates/dsp/src/song/tests.rs::the_print_is_canonical_and_parses_back`, `crates/dsp/src/song/tests.rs::set_step_changes_one_step`, `crates/dsp/src/song/tests.rs::comments_survive_print_and_parse`, `crates/dsp/src/song/tests.rs::a_comment_stays_with_its_item_through_an_edit`, `crates/dsp/src/song/tests.rs::a_comment_whose_item_is_gone_moves_to_the_end`, `crates/dsp/src/engine/tests.rs::a_drum_lane_hits_on_its_exact_samples`, `crates/dsp/src/engine/tests.rs::each_lane_loops_on_its_own_length`, `crates/dsp/src/engine/tests.rs::a_bad_text_is_reported_and_the_song_plays_on`, `crates/dsp/src/engine/tests.rs::the_song_sets_the_clock_and_tracks_find_a_kit`, `crates/dsp/src/engine/tests.rs::set_step_edits_the_playing_song_and_its_text`, `crates/dsp/src/ffi.rs::tests::song_round_trip_through_the_abi`
+**Tests:** `crates/dsp/src/song/tests.rs::print_then_parse_is_identity`, `crates/dsp/src/song/tests.rs::never_panics_on_garbage`, `crates/dsp/src/song/tests.rs::every_error_says_where`, `crates/dsp/src/song/tests.rs::the_print_is_canonical_and_parses_back`, `crates/dsp/src/song/tests.rs::set_step_changes_one_step`, `crates/dsp/src/song/tests.rs::comments_survive_print_and_parse`, `crates/dsp/src/song/tests.rs::a_comment_stays_with_its_item_through_an_edit`, `crates/dsp/src/song/tests.rs::a_comment_whose_item_is_gone_moves_to_the_end`, `crates/dsp/src/engine/tests.rs::a_drum_lane_hits_on_its_exact_samples`, `crates/dsp/src/engine/tests.rs::each_lane_loops_on_its_own_length`, `crates/dsp/src/engine/tests.rs::a_bad_text_is_reported_and_the_song_plays_on`, `crates/dsp/src/engine/tests.rs::the_song_sets_the_clock_and_tracks_find_a_kit`, `crates/dsp/src/engine/tests.rs::set_step_edits_the_playing_song_and_its_text`, `crates/dsp/src/engine/tests.rs::a_song_loaded_while_playing_takes_over_at_the_next_bar`, `crates/dsp/src/engine/tests.rs::an_edit_before_the_bar_line_edits_the_new_song`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`, `crates/dsp/src/ffi.rs::tests::song_round_trip_through_the_abi`
 
 ### Requirement 7: Deterministic generators [MUST]
 
