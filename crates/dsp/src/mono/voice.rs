@@ -566,7 +566,11 @@ mod tests {
 
     impl Rig {
         fn new(settings: &[(Param, f32)]) -> Rig {
-            let mut params = MonoParams::new(SR);
+            Rig::at(SR, settings)
+        }
+
+        fn at(sr: f32, settings: &[(Param, f32)]) -> Rig {
+            let mut params = MonoParams::new(sr);
             for (p, v) in settings {
                 params.set(*p, p.clamp(*v));
             }
@@ -574,9 +578,9 @@ mod tests {
                 params,
                 sine: sine_table(),
                 blep: Blep::new(),
-                ladder: LadderTables::new(SR),
-                pitch: PitchTable::new(SR),
-                tables: Tables::shared(SR),
+                ladder: LadderTables::new(sr),
+                pitch: PitchTable::new(sr),
+                tables: Tables::shared(sr),
                 voice: MonoVoice::new(1),
             }
         }
@@ -1524,5 +1528,123 @@ mod tests {
         let want = 440.0 * (7.5_f64 / 12.0).exp2();
         let cents = 1200.0 * (hz / want).log2();
         assert!(cents.abs() < 1.0, "{hz} Hz, {cents} cents");
+    }
+
+    /// Pitch from rising zero crossings, interpolated, at `sr`.
+    fn heard_hz(y: &[f32], sr: f32) -> f64 {
+        let c: Vec<f64> = y
+            .windows(2)
+            .enumerate()
+            .filter(|(_, w)| w[0] < 0.0 && w[1] >= 0.0)
+            .map(|(i, w)| i as f64 + f64::from(w[0] / (w[0] - w[1])))
+            .collect();
+        (c.len() - 1) as f64 * f64::from(sr) / (c[c.len() - 1] - c[0])
+    }
+
+    fn cents(hz: f64, want: f64) -> f64 {
+        1200.0 * (hz / want).log2()
+    }
+
+    /// The band-limited pulse and triangle keep their pitch at the ends of
+    /// the keyboard, where the BLEP corrections are largest or longest.
+    #[test]
+    fn pulse_and_triangle_pitch_at_notes_24_and_108() {
+        for wave in [Waveform::Pulse, Waveform::Triangle] {
+            for note in [24_u8, 108] {
+                let mut r = Rig::new(&[
+                    (Param::Vco1Wave, wave as u32 as f32),
+                    (Param::Cutoff, 20_000.0),
+                    (Param::AdsrSustain, 1.0),
+                ]);
+                r.press(note);
+                let y = r.render(SR as usize);
+                let want = 440.0 * ((f64::from(note) - 69.0) / 12.0).exp2();
+                let off = cents(heard_hz(&y[4_800..], SR), want);
+                assert!(off.abs() < 1.0, "{wave:?} note {note}: {off} cents");
+            }
+        }
+    }
+
+    /// Turning knobs on a sounding voice every block keeps it bounded.
+    #[test]
+    fn parameters_changed_every_block_stay_bounded() {
+        let knobs = [
+            Param::Vco1Wave,
+            Param::Vco2Wave,
+            Param::Vco1Coarse,
+            Param::Vco2Fine,
+            Param::Vco2Level,
+            Param::PulseWidth,
+            Param::NoiseLevel,
+            Param::Cutoff,
+            Param::Resonance,
+            Param::Drive,
+            Param::AdsrSustain,
+            Param::FenvSustain,
+            Param::LfoRate,
+            Param::LfoWave,
+        ];
+        let mut r = Rig::new(&[(Param::AdsrSustain, 1.0)]);
+        r.press(48);
+        let mut seed = 1_u32;
+        for block in 0..2_000 {
+            for p in knobs {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                let (lo, hi) = (p.clamp(f32::MIN), p.clamp(f32::MAX));
+                let v = lo + (hi - lo) * (seed >> 8) as f32 / (1 << 24) as f32;
+                r.params.set(p, v);
+            }
+            for s in r.render(128) {
+                assert!(s.is_finite() && s.abs() <= 2.0, "block {block}: {s}");
+            }
+        }
+    }
+
+    /// A coarse change on a held note is heard from the next block.
+    #[test]
+    fn coarse_change_applies_on_the_next_block() {
+        let mut r = Rig::new(&[
+            (Param::Vco1Wave, 3.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(69);
+        r.render(4_800);
+        r.params.set(Param::Vco1Coarse, 12.0);
+        let y = r.render(128);
+        let off = cents(heard_hz(&y, SR), 880.0);
+        assert!(off.abs() < 5.0, "{off} cents off 880 Hz");
+    }
+
+    /// The pitch table, the BLEP and the envelope's seconds-to-samples all
+    /// depend on the rate: spot checks at 44.1 and 96 kHz.
+    #[test]
+    fn pitch_and_envelope_at_other_sample_rates() {
+        for sr in [44_100.0, 96_000.0] {
+            let mut r = Rig::at(
+                sr,
+                &[
+                    (Param::Vco1Wave, 0.0),
+                    (Param::Cutoff, 20_000.0),
+                    (Param::AdsrAttack, 0.1),
+                    (Param::AdsrSustain, 1.0),
+                ],
+            );
+            r.press(69);
+            let y = r.render(sr as usize);
+            let off = cents(heard_hz(&y[(sr * 0.2) as usize..], sr), 440.0);
+            assert!(off.abs() < 1.0, "A4 at {sr}: {off} cents");
+            // The attack is about 60% up half way and arrives 100 ms in
+            // (its concave curve, checked in `env`).
+            let peak = |from: f32, to: f32| {
+                y[(from * sr) as usize..(to * sr) as usize]
+                    .iter()
+                    .fold(0.0_f32, |m, s| m.max(s.abs()))
+            };
+            let full = peak(0.15, 0.2);
+            let (half, end) = (peak(0.04, 0.05) / full, peak(0.09, 0.1) / full);
+            assert!(half > 0.5 && half < 0.75, "{sr}: {half} half way");
+            assert!(end > 0.95, "{sr}: {end} at the end");
+        }
     }
 }

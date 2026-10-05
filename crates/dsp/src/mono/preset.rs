@@ -3154,7 +3154,7 @@ mod tests {
             if preset.model().uses_sampler() || preset.model().uses_pads() {
                 return;
             }
-            for note in [24, 48, 72, 96] {
+            for note in [24, 48, 72, 96, 108] {
                 let mut e = Engine::new(48_000.0);
                 e.set_param(0, Param::MasterGain, 1.0);
                 e.preset(0, preset);
@@ -3245,11 +3245,13 @@ mod tests {
     fn arp_presets_keep_their_sound() {
         let gold: [(Preset, [f64; 4]); 4] = [
             (Preset::Bass, [0.117948, 0.479209, 0.040528, 0.162096]),
-            (Preset::Lead, [0.169469, 0.478455, -0.246227, -0.055599]),
+            // The last samples of the two with vibrato moved when the LFO
+            // phase went to f64 (#16): it no longer drifts with rounding.
+            (Preset::Lead, [0.169469, 0.478455, -0.246227, -0.055413]),
             (Preset::SyncLead, [0.150151, 0.386691, -0.188180, -0.129467]),
             (
                 Preset::BowedString,
-                [0.093402, 0.229120, -0.096020, 0.048850],
+                [0.093402, 0.229120, -0.096020, 0.048816],
             ),
         ];
         for (preset, want) in gold {
@@ -3361,5 +3363,24 @@ mod tests {
     #[test]
     fn unknown_ids_are_none() {
         assert_eq!(Preset::from_id(99), None);
+    }
+
+    /// A four-note chord at the default master gain stays bounded: the voices
+    /// sum before the strip, so a hot preset times four must not clip.
+    #[test]
+    fn a_chord_at_default_gain_stays_bounded() {
+        for preset in [Preset::SyncLead, Preset::BowedString] {
+            let mut e = Engine::new(48_000.0);
+            e.preset(0, preset);
+            for note in [48, 52, 55, 60] {
+                e.note_on(0, note, 1.0);
+            }
+            for _ in 0..(48_000 / BLOCK) {
+                e.render(BLOCK);
+                for s in e.output() {
+                    assert!(s.is_finite() && s.abs() <= 1.0, "{preset:?}: {s}");
+                }
+            }
+        }
     }
 }

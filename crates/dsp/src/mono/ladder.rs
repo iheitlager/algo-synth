@@ -160,23 +160,33 @@ mod tests {
 
     const SR: f32 = 48_000.0;
 
-    /// Gain of the filter for a small sine at `hz`, after it settles.
-    fn gain(cutoff_hz: f32, hz: f32) -> f64 {
+    /// The filter's output for a sine at `hz`, after a second to settle.
+    fn settled(cutoff_hz: f32, hz: f32, amp: f32, k: f32, drive: f32) -> Vec<f32> {
         let t = LadderTables::new(SR);
         let mut f = Ladder::default();
         let cutoff = hz_to_note(cutoff_hz);
-        let (amp, n) = (0.01, SR as usize);
+        let n = SR as usize;
+        let w = std::f64::consts::TAU * f64::from(hz) / f64::from(SR);
+        (0..2 * n)
+            .map(|i| f.process(&t, amp * (w * i as f64).sin() as f32, cutoff, k, drive))
+            .skip(n)
+            .collect()
+    }
+
+    /// Amplitude of the partial at `hz` in `y`.
+    fn partial(y: &[f32], hz: f32) -> f64 {
         let w = std::f64::consts::TAU * f64::from(hz) / f64::from(SR);
         let (mut re, mut im) = (0.0, 0.0);
-        for i in 0..2 * n {
-            let a = w * i as f64;
-            let y = f.process(&t, amp * a.sin() as f32, cutoff, 0.0, 1.0);
-            if i >= n {
-                re += f64::from(y) * a.sin();
-                im += f64::from(y) * a.cos();
-            }
+        for (i, s) in y.iter().enumerate() {
+            re += f64::from(*s) * (w * i as f64).sin();
+            im += f64::from(*s) * (w * i as f64).cos();
         }
-        2.0 * (re * re + im * im).sqrt() / n as f64 / f64::from(amp)
+        2.0 * (re * re + im * im).sqrt() / y.len() as f64
+    }
+
+    /// Gain of the filter for a small sine at `hz`, after it settles.
+    fn gain(cutoff_hz: f32, hz: f32) -> f64 {
+        partial(&settled(cutoff_hz, hz, 0.01, 0.0, 1.0), hz) / 0.01
     }
 
     fn db(x: f64) -> f64 {
@@ -275,6 +285,146 @@ mod tests {
             let exact = (std::f32::consts::PI * hz / SR).tan();
             let got = t.g_at(hz_to_note(hz));
             assert!((got / exact - 1.0).abs() < 1.0e-3, "{hz}: {got} vs {exact}");
+        }
+    }
+
+    #[test]
+    fn table_matches_tan_at_different_sample_rates() {
+        for sr in [44_100.0, 96_000.0] {
+            let t = LadderTables::new(sr);
+            for hz in [30.0, 440.0, 5_000.0, 15_000.0] {
+                let exact = (std::f32::consts::PI * hz / sr).tan();
+                let got = t.g_at(hz_to_note(hz));
+                assert!(
+                    (got / exact - 1.0).abs() < 1.0e-3,
+                    "{hz} at {sr}: {got} vs {exact}"
+                );
+            }
+        }
+    }
+
+    /// Below the k = 4 threshold the peak at the cutoff grows with k.
+    #[test]
+    fn gain_at_cutoff_rises_with_resonance() {
+        let gains: Vec<f64> = (0..=6)
+            .map(|i| {
+                let k = i as f32 * 0.5;
+                partial(&settled(1_000.0, 1_000.0, 0.01, k, 1.0), 1_000.0) / 0.01
+            })
+            .collect();
+        assert!(gains.windows(2).all(|g| g[1] > g[0]), "{gains:?}");
+        // Four poles at the cutoff: 1/4 open, 1 at k = 3 (1 / (4 - k)).
+        assert!((gains[6] / gains[0] - 4.0).abs() < 0.4, "{gains:?}");
+    }
+
+    /// Peak of |y| over `samples` from the start of a ladder hit by an
+    /// impulse, and over the same length a second later.
+    fn impulse_peaks(k: f32, samples: usize) -> (f32, f32) {
+        let t = LadderTables::new(SR);
+        let mut f = Ladder::default();
+        let cutoff = hz_to_note(2_000.0);
+        let y: Vec<f32> = (0..SR as usize + samples)
+            .map(|i| f.process(&t, if i == 0 { 1.0 } else { 0.0 }, cutoff, k, 1.0))
+            .collect();
+        let peak = |s: &[f32]| s.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        (peak(&y[..samples]), peak(&y[SR as usize..]))
+    }
+
+    #[test]
+    fn an_impulse_decays_below_the_threshold_and_rings_above() {
+        let (start, late) = impulse_peaks(3.5, 480);
+        assert!(late < 1.0e-3 * start, "k 3.5: {start} then {late}");
+        let (start, late) = impulse_peaks(4.5, 480);
+        assert!(
+            late > 0.1 && late > 0.5 * start,
+            "k 4.5: {start} then {late}"
+        );
+    }
+
+    #[test]
+    fn saturate_is_an_odd_monotonic_tanh() {
+        let xs: Vec<f32> = (-400..=400).map(|i| i as f32 / 100.0).collect();
+        for x in &xs {
+            assert_eq!(saturate(-x), -saturate(*x), "odd at {x}");
+            if x.abs() <= 3.0 {
+                assert!((saturate(*x) - x.tanh()).abs() < 0.03, "near tanh at {x}");
+            }
+        }
+        for w in xs.windows(2) {
+            let (a, b) = (saturate(w[0]), saturate(w[1]));
+            // Within an f32 ulp: the curve is flat at the knee, where
+            // 1 - f(x) = (3 - x)^3 / (27 + 9x^2) rounds either way.
+            assert!(
+                b >= a - f32::EPSILON,
+                "monotonic: {} -> {a}, {} -> {b}",
+                w[0],
+                w[1]
+            );
+        }
+        assert!(
+            xs.windows(2)
+                .filter(|w| w[1] <= 2.5 && w[0] >= -2.5)
+                .all(|w| saturate(w[1]) > saturate(w[0])),
+            "strictly rising inside the knee"
+        );
+        let h = 1.0e-3;
+        let slope = (saturate(h) - saturate(-h)) / (2.0 * h);
+        assert!((slope - 1.0).abs() < 1.0e-3, "slope at 0: {slope}");
+    }
+
+    #[test]
+    fn drive_adds_harmonics() {
+        let third = |drive: f32| {
+            let y = settled(20_000.0, 200.0, 0.3, 0.0, drive);
+            partial(&y, 600.0) / partial(&y, 200.0)
+        };
+        let (clean, driven) = (third(1.0), third(8.0));
+        assert!(
+            driven > 0.05 && driven > 10.0 * clean,
+            "{clean} -> {driven}"
+        );
+    }
+
+    #[test]
+    fn bad_input_and_k_stay_finite() {
+        let t = LadderTables::new(SR);
+        let cutoff = hz_to_note(1_000.0);
+        for k in [-1.0, 0.0, MAX_K, MAX_K + 2.0, 100.0] {
+            let mut f = Ladder::new();
+            let mut tail = 0.0_f32;
+            for i in 0..4_800 {
+                let x = match i {
+                    100 => f32::NAN,
+                    200 => f32::INFINITY,
+                    300 => f32::NEG_INFINITY,
+                    _ if i % 96 < 48 => 0.5,
+                    _ => -0.5,
+                };
+                let y = f.process(&t, x, cutoff, k, 1.0);
+                assert!(y.is_finite() && y.abs() <= 2.0, "k {k}, sample {i}: {y}");
+                if i > 4_000 {
+                    tail = tail.max(y.abs());
+                }
+            }
+            // And it still passes sound after the bad samples.
+            assert!(tail > 0.01, "k {k} went quiet");
+        }
+    }
+
+    /// The cutoff glides with a 2 ms time constant: 1/e of the way is left
+    /// after 2 ms, up or down.
+    #[test]
+    fn smoothing_time_constant() {
+        let t = LadderTables::new(SR);
+        let (lo, hi) = (hz_to_note(200.0), hz_to_note(8_000.0));
+        for (from, to) in [(lo, hi), (hi, lo)] {
+            let mut f = Ladder::new();
+            f.process(&t, 0.0, from, 0.0, 1.0);
+            for _ in 0..(SMOOTH_SECONDS * SR) as usize {
+                f.process(&t, 0.0, to, 0.0, 1.0);
+            }
+            let left = (to - f.note.unwrap_or(from)) / (to - from);
+            assert!((left - (-1.0_f32).exp()).abs() < 1.0e-3, "{left} left");
         }
     }
 }

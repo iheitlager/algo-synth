@@ -161,10 +161,12 @@ impl Env {
 /// `to` in `samples`. Per gate change, so `ln` and `exp` are fine.
 fn coef(from: f64, to: f64, target: f64, samples: f32) -> f64 {
     let ratio = (to - target) / (from - target);
-    if !(ratio > 0.0 && ratio < 1.0) {
+    // A segment of one sample or less jumps to its target, which lies past
+    // its end: rounding cannot leave it a hair short and a sample late.
+    if !(ratio > 0.0 && ratio < 1.0) || samples <= 1.0 {
         return 0.0;
     }
-    (ratio.ln() / f64::from(samples.max(1.0))).exp()
+    (ratio.ln() / f64::from(samples)).exp()
 }
 
 #[cfg(test)]
@@ -298,5 +300,88 @@ mod tests {
         let mut env = Env::default();
         env.gate_off(&times(0.01, 0.01, 0.5, 0.01));
         assert_eq!((env.stage, env.step()), (Stage::Idle, 0.0));
+    }
+
+    /// Samples per millisecond: the tolerance on a segment time.
+    const MS: usize = SR as usize / 1000;
+
+    fn assert_takes(got: usize, secs: f32) {
+        let want = (secs * SR) as usize;
+        assert!(got.abs_diff(want) <= MS, "{got} samples, wanted {want}");
+    }
+
+    #[test]
+    fn ten_second_attack_and_decay() {
+        let t = times(10.0, 10.0, 0.5, 0.1);
+        let mut env = Env::default();
+        env.gate_on(&t);
+        assert_takes(time_in(&mut env, Stage::Attack), 10.0);
+        assert_takes(time_in(&mut env, Stage::Decay), 10.0);
+        assert!((env.level() - 0.5).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn sustain_at_zero_and_near_full() {
+        for s in [0.0, 0.95] {
+            let t = times(0.01, 0.05, s, 0.1);
+            let mut env = Env::default();
+            env.gate_on(&t);
+            time_in(&mut env, Stage::Attack);
+            assert_takes(time_in(&mut env, Stage::Decay), 0.05);
+            assert_eq!(env.stage, Stage::Sustain);
+            assert!((env.step() - s).abs() < 1.0e-6, "sustain {s}");
+            env.gate_off(&t);
+            let release = time_in(&mut env, Stage::Release);
+            // From 0 there is nothing to release.
+            if s > 0.0 {
+                assert_takes(release, 0.1);
+            }
+            assert_eq!((env.stage, env.level()), (Stage::Idle, 0.0));
+        }
+    }
+
+    #[test]
+    fn release_from_mid_attack_or_mid_decay_takes_its_time() {
+        let t = times(0.2, 0.2, 0.3, 0.15);
+        for (stage, after) in [(Stage::Attack, 0.1), (Stage::Decay, 0.3)] {
+            let mut env = Env::default();
+            env.gate_on(&t);
+            for _ in 0..(after * SR) as usize {
+                env.step();
+            }
+            assert_eq!(env.stage, stage);
+            env.gate_off(&t);
+            assert_takes(time_in(&mut env, Stage::Release), 0.15);
+            assert_eq!(env.level(), 0.0);
+        }
+    }
+
+    #[test]
+    fn gate_on_in_decay_or_sustain_attacks_from_there() {
+        let t = times(0.1, 0.1, 0.5, 0.1);
+        for (stage, after) in [(Stage::Decay, 0.15), (Stage::Sustain, 0.3)] {
+            let mut env = Env::default();
+            env.gate_on(&t);
+            for _ in 0..(after * SR) as usize {
+                env.step();
+            }
+            assert_eq!(env.stage, stage);
+            let before = env.level();
+            env.gate_on(&t);
+            assert_eq!(env.stage, Stage::Attack, "from {stage:?}");
+            let next = env.step();
+            assert!(next > before && next - before < 0.01, "{before} -> {next}");
+        }
+    }
+
+    #[test]
+    fn zero_length_segments_arrive_in_one_sample() {
+        let t = times(0.0, 0.0, 0.5, 0.0);
+        let mut env = Env::default();
+        env.gate_on(&t);
+        assert_eq!((env.step(), env.stage), (1.0, Stage::Decay));
+        assert_eq!((env.step(), env.stage), (0.5, Stage::Sustain));
+        env.gate_off(&t);
+        assert_eq!((env.step(), env.stage), (0.0, Stage::Idle));
     }
 }
