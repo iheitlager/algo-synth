@@ -487,7 +487,30 @@ A signal follows the song's position, so a song sounds the same every time
 and after a seek; the random ones are seeded. The engine works out each
 modulation once a block (128 samples) and writes it after lanes and scenes,
 so a `mod` wins over an `auto` or a scene on the same parameter. One `mod`
-per parameter.
+per parameter. When a modulation stops (the song stops, or an edit takes it
+out) the parameter goes back to the value it had before.
+
+### Parameter methods
+
+The same, written on a frag's line after everything else: `.<param>(<signal>)`
+sets a parameter of the frag's track (its synth and its strip) while the frag
+plays, and puts it back when the frag leaves the section.
+
+```song
+track kit drums
+track bass synth Sh101
+frag beat = kit /16 .send1(0.3)
+  bd x...x...x...x...
+frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
+  "c2 c2 eb2 <g2 bb1>"
+frag plain = bass
+  "c2 ~ c2 ~"
+section a 4: beat acid
+section b 4: beat plain
+arrange a b
+```
+
+Methods and `mod` lines share the limit of 32.
 
 ## section
 

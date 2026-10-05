@@ -167,6 +167,9 @@ pub struct Engine {
     auto_last: [f32; MAX_AUTOS],
     /// The same for each modulation (ADR-0019).
     mod_last: [f32; MAX_MODS],
+    /// The value each modulation found when it began to write, to put back
+    /// when it stops; `None` while it is not writing (ADR-0019).
+    mod_base: [Option<f32>; MAX_MODS],
     /// The state of the song's `lag` nodes, NaN until each first runs.
     mod_state: [f32; signal::MAX_NODES],
     /// Strips (bit per strip, globals on bit 0) automation changed since the
@@ -235,6 +238,7 @@ impl Engine {
             taken: false,
             auto_last: [f32::NAN; MAX_AUTOS],
             mod_last: [f32::NAN; MAX_MODS],
+            mod_base: [None; MAX_MODS],
             mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
             arps: [Arp::default(); SYNTHS],
@@ -764,6 +768,14 @@ impl Engine {
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
+        // Each modulation puts back the value it found.
+        for m in 0..MAX_MODS {
+            let target = self.song.mods.get(m).map(|md| (md.target, md.param));
+            let base = self.mod_base.get_mut(m).and_then(Option::take);
+            if let (Some((t, p)), Some(base)) = (target, base) {
+                self.automate(t, p, base);
+            }
+        }
         // From the top every lane and modulation writes again.
         self.auto_last = [f32::NAN; MAX_AUTOS];
         self.mod_last = [f32::NAN; MAX_MODS];
@@ -1228,33 +1240,70 @@ impl Engine {
 
     /// The modulations at the clock's position, once per block, after the
     /// lanes: each signal is evaluated at the song's position in bars and
-    /// writes only when its value changed (ADR-0019).
+    /// writes only when its value changed (ADR-0019). A fragment's methods
+    /// write while it plays (#204); a modulation that begins to write keeps
+    /// the value it found and puts it back when it stops.
     fn run_mods(&mut self, frames: usize) {
         if !self.clock.playing() || self.song.mods.is_empty() {
             return;
         }
-        let t = self.clock.step_position().max(0.0) / STEPS_PER_BAR as f64;
-        let mut ctx = signal::Ctx {
-            cps: f64::from(self.clock.tempo()) / 240.0,
-            dt: frames as f32 / self.sample_rate,
-            state: &mut self.mod_state,
+        let pos = self.clock.step_position().max(0.0);
+        let section = match self.song.at(pos.floor() as u64) {
+            At::Free(_) => None,
+            At::In { section, .. } => Some(section),
+            At::End => return,
         };
-        let mut writes = [(Target::Master, Param::MasterGain, 0.0); MAX_MODS];
-        let mut count = 0;
-        for (m, last) in self.song.mods.iter().zip(self.mod_last.iter_mut()) {
-            let v = m.signal.eval(t, &mut ctx);
-            if *last == v {
+        let t = pos / STEPS_PER_BAR as f64;
+        let cps = f64::from(self.clock.tempo()) / 240.0;
+        let dt = frames as f32 / self.sample_rate;
+        for m in 0..self.song.mods.len().min(MAX_MODS) {
+            let Some(md) = self.song.mods.get(m) else {
+                continue;
+            };
+            let (target, param) = (md.target, md.param);
+            let playing = md.frag.is_none_or(|f| {
+                section.is_none_or(|s| {
+                    self.song
+                        .sections
+                        .get(s)
+                        .is_some_and(|sec| sec.frags.contains(&f))
+                })
+            });
+            if !playing {
+                if let Some(base) = self.mod_base.get_mut(m).and_then(Option::take) {
+                    if let Some(last) = self.mod_last.get_mut(m) {
+                        *last = f32::NAN;
+                    }
+                    self.automate(target, param, base);
+                }
                 continue;
             }
-            *last = v;
-            if let Some(w) = writes.get_mut(count) {
-                *w = (m.target, m.param, v);
-                count += 1;
+            let found = self.target_value(target, param);
+            if let Some(base @ None) = self.mod_base.get_mut(m) {
+                *base = Some(found);
             }
-        }
-        for &(target, param, v) in writes.iter().take(count) {
+            let mut ctx = signal::Ctx {
+                cps,
+                dt,
+                state: &mut self.mod_state,
+            };
+            let v = md.signal.eval(t, &mut ctx);
+            match self.mod_last.get_mut(m) {
+                Some(last) if *last != v => *last = v,
+                _ => continue,
+            }
             self.automate(target, param, v);
         }
+    }
+
+    /// The value a target's parameter has now; 0 for an unrouted track.
+    fn target_value(&self, target: Target, param: Param) -> f32 {
+        let strip = match target {
+            Target::Master => Some(0),
+            Target::Strip(s) => Some(s),
+            Target::Track(t) => self.song_routed(t),
+        };
+        strip.map_or(0.0, |s| self.param_value(s, param))
     }
 
     /// The strips automation changed since the last call (bit per strip), cleared.
@@ -1280,6 +1329,33 @@ impl Engine {
         self.auto_last = [f32::NAN; MAX_AUTOS];
         self.mod_last = [f32::NAN; MAX_MODS];
         self.mod_state = [f32::NAN; signal::MAX_NODES];
+        // A modulation the new song keeps keeps the value it found; one it
+        // drops puts that value back.
+        let old = std::mem::replace(&mut self.mod_base, [None; MAX_MODS]);
+        let mut restore = [None; MAX_MODS];
+        if let Some((spent, _)) = &self.spent {
+            for (o, md) in spent.mods.iter().enumerate() {
+                let Some(base) = old.get(o).copied().flatten() else {
+                    continue;
+                };
+                let kept = self.song.mods.iter().position(|n| {
+                    n.target == md.target
+                        && n.param == md.param
+                        && n.frag.is_some() == md.frag.is_some()
+                });
+                match kept.and_then(|n| self.mod_base.get_mut(n)) {
+                    Some(slot) if slot.is_none() => *slot = Some(base),
+                    _ => {
+                        if let Some(r) = restore.get_mut(o) {
+                            *r = Some((md.target, md.param, base));
+                        }
+                    }
+                }
+            }
+        }
+        for (t, p, v) in restore.into_iter().flatten() {
+            self.automate(t, p, v);
+        }
     }
 
     /// Whether a song loaded while playing took over since the last call, so

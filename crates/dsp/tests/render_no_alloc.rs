@@ -25,7 +25,7 @@ frag beat = kit /16
   bd x..x..x...x..x..
   sn ....x.......X...
   cl euclid(7,16,2)
-frag hold = pad
+frag hold = pad .cutoff(saw.exprange(200, 2000))
   \"[e3,g#3,b3] [f3,a3,c4]\"
 frag sand = lead live
   arp([e4,g#4,b4,d5],random,16,3)

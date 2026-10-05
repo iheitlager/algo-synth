@@ -2198,6 +2198,53 @@ fn an_edit_before_the_bar_line_edits_the_new_song() {
     );
 }
 
+/// #204: a fragment's method writes while the fragment plays, and the value
+/// it found comes back when the fragment stops (ADR-0019).
+#[test]
+fn a_fragment_method_writes_while_its_fragment_plays() {
+    let mut e = kit(0);
+    let text = "track kit drums\nfrag b = kit /16 .send1(0.5)\n  bd x...\n\
+        frag q = kit\n  sn x...\nsection one 1: b\nsection two 1: q\narrange one two one\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let bar = 96_000 / BLOCK;
+    run(&mut e, bar - 1);
+    assert_eq!(e.param_value(0, Param::Send1), 0.5, "in its section");
+    run(&mut e, 2);
+    assert_eq!(e.param_value(0, Param::Send1), 0.0, "the value it found");
+    run(&mut e, bar);
+    assert_eq!(e.param_value(0, Param::Send1), 0.5, "and again");
+}
+
+/// A modulation puts back the value it found when the song stops, and one a
+/// reload keeps keeps that value through the takeover.
+#[test]
+fn a_mod_puts_back_the_value_it_found() {
+    let mut e = kit(0);
+    e.set_param(0, Param::Send1, 0.1);
+    let song =
+        |v: f32| format!("track kit drums\nfrag b = kit\n  bd x...\nmod strip1.send1 = {v}\n");
+    assert_eq!(load_text(&mut e, &song(0.4)), Ok(()));
+    e.song_play();
+    run(&mut e, 10);
+    assert_eq!(e.param_value(0, Param::Send1), 0.4);
+    assert_eq!(load_text(&mut e, &song(0.3)), Ok(()));
+    run(&mut e, 96_000 / BLOCK);
+    assert_eq!(e.param_value(0, Param::Send1), 0.3, "the new song's");
+    e.song_stop();
+    assert_eq!(
+        e.param_value(0, Param::Send1),
+        0.1,
+        "not 0.4: the value first found"
+    );
+    // A reload that drops the modulation puts the value back on the bar line.
+    e.song_play();
+    run(&mut e, 10);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    run(&mut e, 96_000 / BLOCK);
+    assert_eq!(e.param_value(0, Param::Send1), 0.1);
+}
+
 #[test]
 fn each_lane_loops_on_its_own_length() {
     let mut e = kit(0);
