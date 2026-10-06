@@ -474,7 +474,7 @@ impl Engine {
     /// takes it when it starts.
     pub fn set_graph(&mut self, synth: usize, graph: Program) {
         if let Some(pool) = self.pools.get_mut(synth) {
-            pool.size_graph(&graph);
+            pool.size_graph(&graph, self.sample_rate);
         }
         if let Some(p) = self.synths.get_mut(synth) {
             p.graph_cap = graph.voice_cap();
@@ -2015,6 +2015,22 @@ impl Engine {
                 let Some(zones) = self.zones.get(synth) else {
                     continue;
                 };
+                // A stereo Modular program writes both sides of its bus.
+                if params.model.uses_graph() && params.graph.is_stereo() {
+                    if let Some((l, r)) = self.mixer.stereo_bus(synth, t..t + chunk) {
+                        let tools = Tools {
+                            sine: &self.sine,
+                            blep: &self.blep,
+                            ladder: &self.ladder,
+                            pitch: &self.pitch,
+                            tables: self.tables,
+                            samples: &self.samples,
+                            zones,
+                        };
+                        pool.render_into(params, tools, l, Some(r));
+                    }
+                    continue;
+                }
                 if let Some(buf) = self.mixer.bus(synth, t..t + chunk) {
                     let tools = Tools {
                         sine: &self.sine,

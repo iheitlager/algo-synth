@@ -3998,6 +3998,46 @@ fn the_supercollider_hoover_plays_mono() {
     assert!((2..=6).contains(&cap), "a few voices: {cap}");
 }
 
+/// #216's target: the SuperCollider hoover exactly as pasted, Splay and
+/// FreeVerb2 included, plays a held chord on two different sides, bounded
+/// and the same twice, and ends after its release (ADR-0024).
+#[test]
+fn the_supercollider_hoover_plays_as_pasted() {
+    let play = || {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, crate::mono::preset::Preset::ModularBasic);
+        assert_eq!(e.set_code(0, crate::modular::sc::hoover::HOOVER), Ok(()));
+        for n in [57, 64] {
+            e.note_on(0, n, 1.0);
+        }
+        let mut sides = (Vec::new(), Vec::new());
+        for _ in 0..(48_000 / BLOCK) {
+            e.render(BLOCK);
+            sides.0.extend_from_slice(&e.output()[..BLOCK]);
+            sides.1.extend_from_slice(&e.output()[BLOCK..]);
+        }
+        for n in [57, 64] {
+            e.note_off(0, n);
+        }
+        left_of(&mut e, 6.0);
+        (sides, e.active_voices())
+    };
+    let ((l, r), after) = play();
+    assert_eq!((l.clone(), r.clone()), play().0, "deterministic");
+    assert!(l.iter().chain(&r).all(|v| v.is_finite() && v.abs() <= 1.0));
+    let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+    assert!(
+        rms(&l[24_000..]) > 0.003 && rms(&r[24_000..]) > 0.003,
+        "both sides: {} {}",
+        rms(&l[24_000..]),
+        rms(&r[24_000..])
+    );
+    let diff: f32 = l.iter().zip(&r).map(|(a, b)| (a - b).abs()).sum::<f32>() / l.len() as f32;
+    assert!(diff > 1e-4, "wide, not mono: {diff}");
+    assert_eq!(after, 0, "it ends after its release");
+}
+
 /// #308: A-440 sounds a 440 Hz tone with no key held, and stops when off.
 #[test]
 fn a440_sounds_with_no_key_held() {

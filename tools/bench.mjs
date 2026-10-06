@@ -62,16 +62,17 @@ const LARGEST = [
 
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
 // there. Each song track plays its own synth, all set up the same.
-// The SuperCollider hoover of #216 (ADR-0024), its Splay folded to a Mix and
-// no reverb yet: 40 saws and 20 delays a voice.
+// The SuperCollider hoover of #216 (ADR-0024), as pasted: 40 saws, 20
+// delays, a Splay and a FreeVerb2 a voice, on a stereo bus.
 const HOOVER = String.raw`SynthDef(\hoover, {
     var snd, freq, bw, delay, decay;
     freq = \freq.kr(440);
     freq = freq * Env([-5, 6, 0], [0.1, 1.7], [\lin, -4]).kr.midiratio;
     bw = 1.035;
     snd = { DelayN.ar(Saw.ar(freq * ExpRand(bw, 1 / bw)) + Saw.ar(freq * 0.5 * ExpRand(bw, 1 / bw)), 0.01, Rand(0, 0.01)) }.dup(20);
-    snd = (Mix(snd) * 3 * 0.2236).atan;
+    snd = (Splay.ar(snd) * 3).atan;
     snd = snd * Env.asr(0.01, 1.0, 1.0).kr(0, \gate.kr(1));
+    snd = FreeVerb2.ar(snd[0], snd[1], 0.3, 0.9);
     snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
     Out.ar(\out.kr(0), snd * \amp.kr(0.1));
 }).add;`

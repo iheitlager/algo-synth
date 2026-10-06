@@ -111,7 +111,8 @@ fn a_busy_song_renders_without_allocating() {
 
     // A SuperCollider hoover set on a free synth (ADR-0024): its state was
     // sized when the code was set, so its notes start and play without
-    // allocating: 40 saws, 20 delays, numbers drawn per note.
+    // allocating: 40 saws, 20 delays, numbers drawn per note, Splay and a
+    // FreeVerb2 on a stereo bus.
     e.preset(15, algo_dsp::mono::preset::Preset::ModularBasic);
     e.set_code(15, HOOVER).expect("the hoover builds");
     let region = Region::new(GLOBAL);
@@ -138,13 +139,14 @@ fn a_busy_song_renders_without_allocating() {
 }
 
 const HOOVER: &str = r"SynthDef(\hoover, {
-    var snd, freq, bw;
+    var snd, freq, bw, delay, decay;
     freq = \freq.kr(440);
     freq = freq * Env([-5, 6, 0], [0.1, 1.7], [\lin, -4]).kr.midiratio;
     bw = 1.035;
     snd = { DelayN.ar(Saw.ar(freq * ExpRand(bw, 1 / bw)) + Saw.ar(freq * 0.5 * ExpRand(bw, 1 / bw)), 0.01, Rand(0, 0.01)) }.dup(20);
-    snd = (Mix(snd) * 3 * 0.2236).atan;
+    snd = (Splay.ar(snd) * 3).atan;
     snd = snd * Env.asr(0.01, 1.0, 1.0).kr(0, \gate.kr(1));
+    snd = FreeVerb2.ar(snd[0], snd[1], 0.3, 0.9);
     snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
     Out.ar(\out.kr(0), snd * \amp.kr(0.1));
 }).add;";

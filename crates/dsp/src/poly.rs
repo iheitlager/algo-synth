@@ -336,9 +336,9 @@ impl Pool {
 
     /// Room in every slot for a Modular program's state; allocates, so it
     /// runs when the program is set, never in `render`.
-    pub fn size_graph(&mut self, prog: &crate::modular::Program) {
+    pub fn size_graph(&mut self, prog: &crate::modular::Program, sample_rate: f32) {
         for st in self.graph.iter_mut() {
-            st.grow(prog);
+            st.grow(prog, sample_rate);
         }
     }
 
@@ -887,6 +887,18 @@ impl Pool {
 
     /// Add every sounding voice into `out`.
     pub fn render(&mut self, p: &MonoParams, tools: Tools, out: &mut [f32]) {
+        self.render_into(p, tools, out, None);
+    }
+
+    /// The same into two sides: a stereo Modular program's voices write
+    /// both, every other voice the left (ADR-0024).
+    pub fn render_into(
+        &mut self,
+        p: &MonoParams,
+        tools: Tools,
+        out: &mut [f32],
+        mut right: Option<&mut [f32]>,
+    ) {
         let poly = p.voices() > 1 && !p.model.uses_drums();
         self.retrim(p, poly);
         if poly {
@@ -927,7 +939,7 @@ impl Pool {
                 PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
-                PolyVoice::Graph(g) => g.render(&ctx, st, out),
+                PolyVoice::Graph(g) => g.render(&ctx, st, out, right.as_deref_mut()),
             }
         }
         // The reference tone joins past the voices and their VCA, key or not.
