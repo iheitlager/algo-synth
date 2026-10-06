@@ -126,6 +126,8 @@ pub struct MonoParams {
     /// A Modular synth's voice (ADR-0020): a preset's or the song's; each
     /// note takes a copy when it starts.
     pub graph: crate::modular::Program,
+    /// The values of a Modular voice's controls (`Param::Ctl1`…), in their own units.
+    pub ctl: [f32; crate::params::CTLS],
 }
 
 impl Default for MonoParams {
@@ -213,6 +215,7 @@ impl MonoParams {
             drive: 1.0,
             sample_rate,
             graph: crate::modular::Program::default(),
+            ctl: [0.0; crate::params::CTLS],
             adsr: off,
             ar: off,
             fadsr: off,
@@ -238,6 +241,26 @@ impl MonoParams {
     pub fn set(&mut self, param: Param, v: f32) {
         let samples = v * self.sample_rate;
         match param {
+            Param::Ctl1
+            | Param::Ctl2
+            | Param::Ctl3
+            | Param::Ctl4
+            | Param::Ctl5
+            | Param::Ctl6
+            | Param::Ctl7
+            | Param::Ctl8
+            | Param::Ctl9
+            | Param::Ctl10
+            | Param::Ctl11
+            | Param::Ctl12
+            | Param::Ctl13
+            | Param::Ctl14
+            | Param::Ctl15
+            | Param::Ctl16 => {
+                if let Some(c) = param.ctl().and_then(|i| self.ctl.get_mut(i)) {
+                    *c = v;
+                }
+            }
             Param::Vco1Wave => self.set_wave(0, v),
             Param::Vco2Wave => self.set_wave(1, v),
             Param::Vco3Wave => self.set_wave(2, v),

@@ -1,6 +1,6 @@
 # 0019: One language for patterns, signals and parameters
 
-**Status:** Proposed · **Date:** 2026-10-05
+**Status:** Accepted · **Date:** 2026-10-05 · built in #270, #272, #276
 
 ## Context
 

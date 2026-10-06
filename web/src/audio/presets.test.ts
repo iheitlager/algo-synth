@@ -10,7 +10,6 @@ const reg: PresetRegistry = {
   strip: StripParam,
   models: (tables as unknown as Record<string, Record<string, number>>).Model,
   maxSynths: 16,
-  channels: 16,
   insertTypes: InsertType,
   procTypes: ProcType,
 }

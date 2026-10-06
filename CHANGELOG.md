@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-06
+
+### Added
+
+- **Modulation by signals:** `mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)` moves any parameter while the song plays, in SuperCollider's and Strudel's terms: `sine saw tri square rand perlin lfo(rate, shape)`, numbers in mini-notation (`"<300 800 1200>"`), `+ - * /`, `.range .exprange .slow .fast .segment .lag`. A signal follows the song's position, so a song renders the same every time; it is compiled at load and evaluated once a block, after lanes and scenes (ADR-0019, #208, #215).
+- **Parameter names in any case:** `kit.cutoff` is `kit.Cutoff` in automation, scenes, settings and mixer lines (ADR-0019, #208).
+- **Parameter methods on a fragment:** `frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)` sets its track's parameters while the fragment plays; when a modulation stops, its parameter goes back to the value it had (ADR-0019, #204).
+- **Pick each track's instrument in the composer (#213):** a Tracks strip above the grid shows every song track with its synth, its model (only the models that play the track's kind) and its preset (the model's factory presets, then the song's own settings on that model). A pick sets the synth at once and the engine rewrites the track line. **Save as setting** writes the synth's sound, what differs from its preset, into the song as a `setting` the track then plays. A test now checks the view's preset list per model against the engine's.
+- **The song sets the mix (#214, ADR-0018):** `strip <track|stripN>:`, `group <n> [name]:` and `master:` lines give strips, groups and the master their starting values by parameter name, with insert, processor and route names (`I1Type Overdrive`, `P1Type Echo`, `Out group2`). A value is set when the song loads and again only when its text changes, so a fader moved by hand holds. **Write mixer to song** in the composer prints the mixer as it is into these lines.
+- **Pattern methods:** a frag of notes takes Strudel's transformations on its line, `frag riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))`: `fast slow rev palindrome add sub ply iter degrade every off`, applied when the song loads, the line kept as written (ADR-0019, #215).
+- **More pattern methods:** `.struct("x ~ x x")` puts a frag's notes on a rhythm, `.sometimes(m)` applies a method to about half its moments (seeded), and `.scale(c minor)` moves each note to the nearest note of a scale (ADR-0019, #215).
+- **A modulated knob is marked:** a knob a `mod` line or a fragment method drives shows a dashed ring and follows the value the engine writes (ADR-0019, #208, #215).
+- **The Modular synth:** a voice written in the song as a graph of unit generators, `voice hoover = { (pulse(freq * 0.995) + saw(freq * 0.5)) |> svf(lp, lfo(0.3).exprange(400, 3000)) * env(adsr) }`, played per note by `track lead synth Modular hoover`: `sin saw tri pulse noise lfo svf env`, `freq gate vel`, `+ - * /`, `.range`, `.exprange` and `|>`, compiled once and run without allocating (ADR-0020, ADR-0021, #216). Presets `ModularBasic` and `ModularHoover`.
+- **Voice controls:** a voice's indented `ctl cutoff = 800 [100 8000 exp]` lines are parameters of its track by name, in their own units, for `mod` lines, frag methods, lanes and scenes (ADR-0020, ADR-0021, #216).
+- **More Modular units:** `fm`, `ladder`, `delay` (a comb), `drive`, `mix` and lists `[a, b]` that give each voice its own number; `.range` reads an envelope from 0, as SuperCollider's does; a `ModularKick` gabber preset. Sixteen voices of the largest allowed voice take 14% of a core (ADR-0021, #216).
+- **The Sound screen:** a fourth main view designs the song's Modular voices: the voice's text with highlighting, applied into the song by the engine (on the bar line), a knob per control, scope, spectrum and a keyboard (ADR-0020, #216).
+- **Slides:** a trailing `&` on a note or chord (`c2&`, `c2:8&`) runs it one tick into the next, so a legato synth with glide slides to it (#241).
+- **Example songs:** six arranged drum loops with SH-101 bass lines in `examples/` (house, acid, electro, dub, jungle, deep techno), with cutoff, resonance and glide automation (#249).
+- **Song reference link:** the composer's header links the song-language reference, `docs/song.md` (#250).
+- **Heavy drum kits:** `Heavy808` and `Heavy909`, kits with a kick tuned down to about 44–46 Hz, longer, driven and at full level, and a louder, snappier snare and clap (#264).
+- **Kick drive:** a Drive knob on the 808 and 909 kicks, a soft clip that holds the kick's body up for the same peak; off at 0, so the stock kits sound as before (#264).
+- **Heavy kicks example:** `examples/heavy-kicks.song`, a Heavy909 kick tuned and driven in a setting, the Heavy808 beside it, and the kick's drive automated up through the build (#264).
+
+### Changed
+
+- **An edit takes over at the bar:** a song applied while it plays now plays on to the end of the bar and the new one takes over on the bar line, as Sonic Pi's `live_loop` does; stopped, it takes over at once. The takeover only moves what the load prepared, so `render` still never allocates or frees (#208).
+
+### Fixed
+
+- **LFO rate:** the Mono LFO keeps its rate at the slowest settings; its f32 phase made a 0.01 Hz cycle 8% long and the sample-and-hold drift by a few samples per cycle (#16).
+- **Zero-length envelope segments:** a 0 ms attack, decay or release now arrives in exactly one sample instead of sometimes two (#16).
+- **Song parser quirks:** a sampler track takes generator calls (`arp(…)`, `euclid(…) c4`, a `live` frag) as notes; the pad error lists `cr` and `rd`; `bars N` before lanes is an error instead of being dropped; a second `tempo` or `swing` line is an error, as a second `scale` or `arrange` already was (#251).
+- **Loading two samples into one slot:** a second load for a slot still loading waits its turn, so both resolve instead of the first never answering (#253).
+
 ## [0.34.0] - 2026-10-05
 
 ### Added

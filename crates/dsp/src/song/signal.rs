@@ -161,7 +161,7 @@ impl Signal {
     /// limit holds for all of its signals and each `lag` gets its own slot.
     /// An error's column counts in chars from 1.
     pub fn parse(text: &str, nodes: &mut usize) -> Result<Signal, (usize, &'static str)> {
-        let toks = lex(text)?;
+        let toks = lex(text, false)?;
         let mut p = Parser {
             toks: &toks,
             at: 0,
@@ -367,7 +367,8 @@ fn unit(h: u32) -> f64 {
 pub(crate) enum Tok<'a> {
     Num(f32),
     Word(&'a str),
-    /// `( ) + - * / . ,`, and `|` standing for `|>` (ADR-0020).
+    /// `( ) + - * / . ,`, `|` standing for `|>` and, in a voice, `[ ]`
+    /// (ADR-0020).
     Punct(char),
     /// The text between double quotes, and the column after the first.
     Quote(&'a str, usize),
@@ -378,7 +379,9 @@ pub(crate) struct Token<'a> {
     pub(crate) tok: Tok<'a>,
 }
 
-pub(crate) fn lex(text: &str) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
+/// The words of `text`; `lists` reads `[` and `]`, which only a voice has
+/// (ADR-0021: a list gives each voice its own value).
+pub(crate) fn lex(text: &str, lists: bool) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -452,6 +455,12 @@ pub(crate) fn lex(text: &str) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
                 tok: Tok::Quote(text.get(byte_at(i + 1)..byte_at(j)).unwrap_or(""), col + 1),
             });
             i = j + 1;
+        } else if lists && (c == '[' || c == ']') {
+            out.push(Token {
+                col,
+                tok: Tok::Punct(c),
+            });
+            i += 1;
         } else if c == '[' {
             return Err((col, "a list of channels is not supported yet"));
         } else {

@@ -103,11 +103,12 @@ pub enum Preset {
     ModularHoover = 88,
     Heavy808 = 89,
     Heavy909 = 90,
+    ModularKick = 91,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 91] = [
+    pub const ALL: [(Preset, &'static str); 92] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -199,6 +200,7 @@ impl Preset {
         (Preset::ModularHoover, "ModularHoover"),
         (Preset::Heavy808, "Heavy808"),
         (Preset::Heavy909, "Heavy909"),
+        (Preset::ModularKick, "ModularKick"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -223,7 +225,7 @@ impl Preset {
             }
             Preset::Kit808 | Preset::TightKit | Preset::Heavy808 => Model::Tr808,
             Preset::Kit909 | Preset::Hard909 | Preset::Heavy909 => Model::Tr909,
-            Preset::ModularBasic | Preset::ModularHoover => Model::Modular,
+            Preset::ModularBasic | Preset::ModularHoover | Preset::ModularKick => Model::Modular,
             Preset::LaFantasia
             | Preset::LaPluckPad
             | Preset::LaBreathFlute
@@ -286,6 +288,11 @@ impl Preset {
             // octave down: the rave hoover's buzz.
             Preset::ModularHoover => Some(
                 "(pulse(freq * 0.995, lfo(5).range(0.1, 0.4)) + pulse(freq * 1.005, lfo(4.3).range(0.2, 0.5)) + saw(freq * 0.5)) |> svf(lp, 2500, 0.3)",
+            ),
+            // A gabber kick: a sine swept from 900 Hz down to 48 in a tenth of
+            // a second, under a short decay, driven hard into a square-ish boom.
+            Preset::ModularKick => Some(
+                "(sin(env(0.001, 0.12, 0, 0.12).exprange(48, 900)) * env(0.001, 0.45, 0, 0.1)) |> drive(12)",
             ),
             _ => None,
         }
@@ -2398,6 +2405,7 @@ impl Preset {
                 (AdsrSustain, 0.9),
                 (AdsrRelease, 0.4),
             ],
+            Preset::ModularKick => &[(Model, 19.0), (Polyphony, 4.0)],
             Preset::Hard909 => &[
                 (Model, 18.0),
                 (BdTone, 0.9),
@@ -2724,7 +2732,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 401] = [
+pub const DEFAULTS: [(Param, f32); 417] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -3021,6 +3029,22 @@ pub const DEFAULTS: [(Param, f32); 401] = [
     (Param::BdTone, 0.5),
     (Param::BdLevel, 0.8),
     (Param::BdDrive, 0.0),
+    (Param::Ctl1, 0.0),
+    (Param::Ctl2, 0.0),
+    (Param::Ctl3, 0.0),
+    (Param::Ctl4, 0.0),
+    (Param::Ctl5, 0.0),
+    (Param::Ctl6, 0.0),
+    (Param::Ctl7, 0.0),
+    (Param::Ctl8, 0.0),
+    (Param::Ctl9, 0.0),
+    (Param::Ctl10, 0.0),
+    (Param::Ctl11, 0.0),
+    (Param::Ctl12, 0.0),
+    (Param::Ctl13, 0.0),
+    (Param::Ctl14, 0.0),
+    (Param::Ctl15, 0.0),
+    (Param::Ctl16, 0.0),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
     (Param::SnTone, 0.5),

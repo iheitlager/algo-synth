@@ -1,6 +1,6 @@
 # 0020: A modular voice in the song, and a Sound screen
 
-**Status:** Proposed · **Date:** 2026-10-05
+**Status:** Accepted · **Date:** 2026-10-05 · built in #277, #282, #286, #287; `pan` is #288
 
 ## Context
 

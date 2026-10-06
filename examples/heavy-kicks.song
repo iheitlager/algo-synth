@@ -1,0 +1,45 @@
+# Heavy kicks (#264): the Heavy909 kick tuned a step deeper and driven harder
+# in a setting, the Heavy808 as it comes for the claps and toms, and a rolling
+# SH-101 bass in A minor kept above the kick. The build turns the kick's drive
+# up from clean to full while the bass filter opens.
+tempo 128
+swing 50
+scale a minor
+
+setting thump = Tr909 Heavy909: BdTune -3, BdDrive 0.8
+track kit drums thump
+track boom drums Tr808 Heavy808
+track bass synth Sh101 Sh101Bass
+
+frag kick = kit /16
+  bd x...x...x...x...
+frag hats = kit /16
+  ch ..x...x...x...x.
+  oh ......x.......x.
+frag snare = kit /16
+  sn ....x.......x...
+frag clap = boom /16
+  cp ....x.......x...
+frag boom_roll = boom /16
+  bd x.........x.....
+  lt ..............x.
+  ht ...............x
+
+frag bass_off = bass
+  "~ a1 ~ a1 ~ a1 ~ [a1 c2]"
+frag bass_roll = bass
+  "<[~ a1 a1 ~ ~ a1 e2 a1] [~ a1 a1 ~ ~ g1 c2 a1]>"
+
+auto drive_up = kit.BdDrive ramp 0 1 /8
+auto cut_low = bass.Cutoff 600 /8
+auto cut_open = bass.Cutoff ramp 600 2600 /8
+auto res_low = bass.Resonance 0.3 /8
+auto res_build = bass.Resonance ramp 0.3 0.7 /8
+
+section intro 4: kick hats bass_off cut_low res_low
+section groove 8: kick hats snare clap bass_roll cut_low res_low
+section build 8: kick hats clap bass_roll drive_up cut_open res_build
+section drop 8: kick hats snare clap boom_roll bass_roll cut_open res_build
+section outro 4: kick hats bass_off cut_low res_low
+arrange intro groove build drop drop outro
+loop 3 28

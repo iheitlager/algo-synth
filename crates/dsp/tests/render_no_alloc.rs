@@ -16,12 +16,15 @@ static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 const SONG: &str = "\
 tempo 180
 scale e phrygian
-voice buzz = { (pulse(freq, lfo(3).range(0.2, 0.6)) + saw(freq * 0.5) + noise() * 0.05) |> svf(lp, lfo(0.2).exprange(300, 3000), 0.4) * env(0.005, 0.2, 0.6, 0.3) }
+voice buzz = { (pulse(freq, lfo(3).range(0.2, 0.6)) + saw(freq * 0.5) + noise() * 0.05) |> svf(lp, lfo(0.2).exprange(300, bright), 0.4) * env(0.005, 0.2, 0.6, 0.3) }
+  ctl bright = 3000 [300 6000 exp]
+voice metal = { mix(fm(freq, freq * [1.5, 2], env(perc).range(0, 4)), sin(freq) * 0.2) |> ladder(2000, 0.4) |> delay(0.002, 0.5) |> drive(2) }
 track kit drums
 track lead synth
 track pad synth
 track bass synth
 track buzzer synth Modular buzz
+track bell synth Modular metal
 
 frag beat = kit /16
   bd x..x..x...x..x..
@@ -33,6 +36,8 @@ frag sand = lead live
   arp([e4,g#4,b4,d5],random,16,3)
 frag roam = bass live
   walk(e2,16,5)
+frag ring = bell
+  \"[e4,b4] ~ g#4 ~\"
 frag zap = buzzer
   \"e3 [g3 b3] ~ <e4 d4>\"
 
@@ -43,8 +48,9 @@ scene solo: strip1.Solo 1, strip2.Mute 1, strip3.Send1 0.5
 scene open: strip1.Solo 0, strip2.Mute 0, master.P2Return 0.4
 mod lead.resonance = lfo(0.5, tri).range(0.1, 0.6).lag(0.05)
 mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
+mod buzzer.bright = sine.slow(2).exprange(800, 5000)
 
-section a 2: beat hold sand roam zap fade pan sweep [open]
+section a 2: beat hold sand roam zap ring fade pan sweep [open]
 section b 1: beat sand roam zap [solo]
 arrange a b a b
 ";

@@ -6,7 +6,7 @@ Common to every requirement: `render` follows ADR-0002 (no allocation, no panic,
 
 ### Requirement 1: Voice pool [MUST]
 
-Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a model uses `Model::voices()`. A monosynth model SHALL keep one voice per owner with note priority, legato and glide on that voice (spec 004 Req 6), so every monosynth renders exactly as it did before the pool. A poly model SHALL press each note on a voice of its own. A voice SHALL remember its owner (live keys or a MIDI channel) and its note, so a note-off releases its own voice, and live keys and MIDI channels on one synth SHALL NOT release each other. Rerouting a channel or `all_off` SHALL release its voices.
+Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a model uses `Model::voices()`. A monosynth model SHALL keep one voice per owner with note priority, legato and glide on that voice (spec 004 Req 6), so every monosynth renders exactly as it did before the pool. A poly model SHALL press each note on a voice of its own. A voice is of the kind its model plays (Mono, LA, FM, a drum pad, the samplers' or the Modular graph voice of spec 005 Req 11), and a voice of another kind SHALL be rebuilt when a note presses it. A voice SHALL remember its owner (live keys or a song track) and its note, so a note-off releases its own voice, and live keys and song tracks on one synth SHALL NOT release each other. Rerouting a channel or `all_off` SHALL release its voices.
 
 **Implementation:** `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/engine.rs::Engine` (#80)
 
@@ -18,11 +18,11 @@ Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a
 
 #### Scenario: owners do not mix
 
-- GIVEN live keys and a MIDI channel both playing a poly synth
-- WHEN the channel releases a note the live keys also hold
-- THEN only the channel's voice is released
+- GIVEN live keys and a song track both playing a poly synth
+- WHEN the track releases a note the live keys also hold
+- THEN only the track's voice is released
 
-**Tests:** `crates/dsp/src/poly.rs::tests::a_chord_sounds_one_voice_per_note_and_releases_its_own`, `crates/dsp/src/poly.rs::tests::a_monophonic_synth_keeps_one_voice_per_owner`, `crates/dsp/src/poly.rs::tests::owners_do_not_release_each_other`, `crates/dsp/src/engine/tests.rs::a_poly_synth_plays_chords_from_live_keys_and_a_channel`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
+**Tests:** `crates/dsp/src/poly.rs::tests::a_chord_sounds_one_voice_per_note_and_releases_its_own`, `crates/dsp/src/poly.rs::tests::a_monophonic_synth_keeps_one_voice_per_owner`, `crates/dsp/src/poly.rs::tests::owners_do_not_release_each_other`, `crates/dsp/src/engine/tests.rs::a_poly_synth_plays_chords_from_live_keys_and_a_track`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
 
 ### Requirement 2: Allocation and stealing [MUST]
 

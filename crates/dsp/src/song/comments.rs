@@ -46,6 +46,8 @@ impl PartialEq for Comments {
 fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
     // The frag the indented lines belong to.
     let mut frag: Option<&str> = None;
+    // The voice the indented `ctl` lines belong to.
+    let mut voice: Option<&str> = None;
     lines
         .iter()
         .map(|raw| {
@@ -53,6 +55,9 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
             let mut words = body.split_whitespace();
             let first = words.next()?;
             if body.starts_with([' ', '\t']) {
+                if let Some(v) = voice {
+                    return Some(format!("ctl {v} {}", words.next().unwrap_or("")));
+                }
                 let f = frag?;
                 let notes = song
                     .frags
@@ -68,6 +73,7 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
             // `scene drop: …` names its scene up to the colon.
             let name = words.next().map(|n| n.trim_end_matches(':'));
             frag = if first == "frag" { name } else { None };
+            voice = if first == "voice" { name } else { None };
             Some(match first {
                 // `master:` has no name before its colon.
                 "tempo" | "swing" | "scale" | "arrange" | "loop" | "master" | "master:" => {

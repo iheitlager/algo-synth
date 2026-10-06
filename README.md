@@ -1,8 +1,8 @@
 # algo-synth
 
-An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. Up to sixteen synths (monosynths, polysynths, drum machines and samplers) play through a mixer with groups and effects. A song written as text, with generators and an arranger, plays them, and so does a MIDI player.
+An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. Up to sixteen synths (monosynths, polysynths, drum machines and samplers) play through a mixer with groups and effects. A song written as text, with generators and an arranger, plays them from one transport; a MIDI file opens as a song.
 
-## Version: 0.34.0
+## Version: 0.35.0
 
 - **Mono:** one shared voice: three band-limited VCOs, ring mod and sub, noise, a 4-pole ladder or a 12 dB high-pass/low-pass pair, ADSR, filter ADSR and AR, LFO, normalled routing with patch overrides, poly-mod.
 - **Up to 16 synths, nineteen models:** add synths as you need them. Seven are monosynths: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 and Odyssey, each with its own faceplate (knobs, envelope curves, patch bay), colours and presets. A MIDI file plays each part on its own synth.
@@ -10,8 +10,8 @@ An algorithmic synthesizer that runs entirely in the browser, with the whole eng
 - **Drums:** a synth slot can be a TR-808 or a TR-909, the same pads with each machine's sounds, so a beat plays on either. The TR-808: its sixteen voices (kick, snare, three toms and three congas, rimshot, claves, clap, maracas, cowbell, cymbal, closed and open hats), synthesized, with tune, decay, tone and level per pad and an accent. Keys play the pads by General MIDI's drum map, so a MIDI file's drum channel plays on it.
 - **Samplers:** a multisampler that maps WAV samples across keys and velocities, with loops and round robin, and a pad sampler of sixteen MPC-style pads. `make samples` fetches free packs, kits and a voice pack.
 - **Mixer:** a console with three insert slots per strip (drive, EQ, compressor, vocoder), four sends into four processors (echo, reverb, chorus, flanger), eight group buses, and a master EQ, compressor and limiter.
-- **The song is text:** drum lanes, notes in mini-notation or classic durations, generators (`euclid`, `walk`, `arp`, `markov`, `mutate`, live or frozen), sections and an arrangement, automation and scenes, in a highlighting editor beside a step grid, piano roll and arranger. A MIDI file converts into a song.
-- **Setups and presets:** save the synths, their models, patches, mixer and routing as `<song>.synths.json` next to the MIDI file, and keep presets of synths, inserts, processors and strips in a library.
+- **The song is text:** drum lanes, notes in mini-notation or classic durations, generators (`euclid`, `walk`, `arp`, `markov`, `mutate`, live or frozen), sections and an arrangement, automation and scenes, in a highlighting editor beside a step grid, piano roll and arranger. Opening a MIDI file converts it into a song.
+- **Setups and presets:** save the synths, their models, patches and mixer as `<song>.synths.json`, and keep presets of synths, inserts, processors and strips in a library.
 - **No backend:** the container serves static files.
 
 What changed in each version is in [CHANGELOG.md](CHANGELOG.md). See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
