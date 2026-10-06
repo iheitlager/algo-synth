@@ -25,9 +25,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{
-    MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NO_VOICING, NONE,
-    Op, Program, Shape, Ugen,
+    LADDERS, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NONE, Op,
+    Program, SVFS, Shape, Ugen,
 };
+use crate::mono::model::Filter;
 use crate::mono::osc::Waveform;
 use crate::params::CTLS;
 
@@ -978,6 +979,13 @@ impl Builder {
             self.consts.insert(v.to_bits(), n);
         }
         Ok(n)
+    }
+
+    /// Filter slot `slot` takes `voicing`, if one was named.
+    fn voice(&mut self, slot: u8, voicing: Option<Filter>) {
+        if let (Some(f), Some(v)) = (voicing, self.prog.voicings.get_mut(usize::from(slot))) {
+            *v = f;
+        }
     }
 
     fn slot(count: &mut u8, limit: usize, at: Pos, msg: &'static str) -> R<u8> {
@@ -2147,11 +2155,25 @@ impl Builder {
 
     /// A UGen by class: its arguments bound by position and name, expanded
     /// over arrays, its literal numbers knobs on its module.
-    fn ugen(&mut self, c: &str, kr: bool, args: Vec<V>, kws: Vec<(String, V)>, at: Pos) -> R<V> {
+    fn ugen(
+        &mut self,
+        c: &str,
+        kr: bool,
+        args: Vec<V>,
+        mut kws: Vec<(String, V)>,
+        at: Pos,
+    ) -> R<V> {
         let err = |msg| CodeError {
             line: at.0,
             col: at.1,
             msg,
+        };
+        // A filter may take a synth's voicing (#307, #316): `voicing: \sh101`.
+        let voicing = match kws.iter().position(|(k, _)| k == "voicing") {
+            Some(i) if matches!(c, "RLPF" | "RHPF" | "LPF" | "HPF" | "MoogFF") => {
+                Some(voicing_of(c, &kws.remove(i).1).map_err(err)?)
+            }
+            _ => None,
         };
         let (names, defaults, specs): (&[&str], &[Option<f64>], &[Spec]) = match c {
             "SinOsc" => (
@@ -2195,8 +2217,9 @@ impl Builder {
                 &[None, Some(440.0), Some(1.0), Some(0.0)],
                 &[ANY, FREQ, MUL, ADD],
             ),
+            // `drive` is ours: the ladder's drive, 0..1 as `Param::Drive`.
             "MoogFF" => (
-                &["in", "freq", "gain", "reset", "mul", "add"],
+                &["in", "freq", "gain", "reset", "mul", "add", "drive"],
                 &[
                     None,
                     Some(100.0),
@@ -2204,8 +2227,9 @@ impl Builder {
                     Some(0.0),
                     Some(1.0),
                     Some(0.0),
+                    Some(0.0),
                 ],
-                &[ANY, FREQ, GAIN, ANY, MUL, ADD],
+                &[ANY, FREQ, GAIN, ANY, MUL, ADD, UNIT],
             ),
             "CombL" | "CombN" | "CombC" => (
                 &["in", "maxdelaytime", "delaytime", "decaytime", "mul", "add"],
@@ -2354,6 +2378,7 @@ impl Builder {
                         "a voice has at most 8 filters",
                     )?;
                     let high = c.ends_with("HPF");
+                    b.voice(slot, voicing);
                     (
                         b.push(
                             Ugen::Svf {
@@ -2363,7 +2388,6 @@ impl Builder {
                                 res,
                                 slot,
                                 rq: resonant,
-                                voicing: NO_VOICING,
                             },
                             at,
                         )?,
@@ -2373,12 +2397,14 @@ impl Builder {
                 }
                 "MoogFF" => {
                     let (x, f, g) = (inp(b, 0)?, inp(b, 1)?, inp(b, 2)?);
+                    let drive = inp(b, 6)?;
                     let slot = Self::slot(
                         &mut b.prog.counts.filters,
                         MAX_FILTERS,
                         at,
                         "a voice has at most 8 filters",
                     )?;
+                    b.voice(slot, voicing);
                     (
                         b.push(
                             Ugen::Ladder {
@@ -2387,8 +2413,7 @@ impl Builder {
                                 res: g,
                                 slot,
                                 gain: true,
-                                voicing: NO_VOICING,
-                                drive: NONE,
+                                drive,
                             },
                             at,
                         )?,
@@ -2460,6 +2485,28 @@ fn args_given(args: &[V], kws: &[(String, V)], names: &[&str], k: usize) -> bool
 }
 
 /// Arguments bound to `names` by position, then by keyword, then defaults.
+/// The voicing `v` names for filter class `c` (#307, #316): a synth's
+/// ladder for `MoogFF`, a synth's 12 dB filter (its two-pole setting where
+/// it has a slope switch) for the others.
+fn voicing_of(c: &str, v: &V) -> Result<Filter, &'static str> {
+    let ladder = c == "MoogFF";
+    let words = if ladder {
+        "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 or \\odyssey"
+    } else {
+        "a filter voicing is \\ms20 \\cs15 \\polymoog \\jupiter8 or \\matrix12"
+    };
+    let V::Sym(w) = v else {
+        return Err(words);
+    };
+    let table = if ladder { &LADDERS[..] } else { &SVFS[..] };
+    let (_, m) = table.iter().find(|(word, _)| word == w).ok_or(words)?;
+    Ok(if ladder {
+        m.filter()
+    } else {
+        m.filter_12db().unwrap_or(m.filter())
+    })
+}
+
 fn bind(
     names: &[&str],
     defaults: &[Option<f64>],

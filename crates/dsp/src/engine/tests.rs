@@ -3550,13 +3550,13 @@ fn a_modular_voice_sounds_bounded_deterministic_and_ends() {
     }
 }
 
-/// `sin(freq)` plays the note's pitch: note 69 crosses zero upward 440 times
-/// a second.
+/// `SinOsc.ar(freq)` plays the note's pitch: note 69 crosses zero upward
+/// 440 times a second.
 #[test]
 fn a_modular_sine_plays_its_pitch() {
     let mut e = Engine::new(48_000.0);
     e.preset(0, crate::mono::preset::Preset::ModularBasic);
-    e.set_graph(0, Program::parse("sin(freq)").expect("parses"));
+    assert_eq!(e.set_code(0, &synthdef("SinOsc.ar(freq)")), Ok(()));
     e.note_on(0, 69, 1.0);
     render_out(&mut e, 40);
     let mut left = Vec::new();
@@ -3575,12 +3575,18 @@ fn a_modular_sine_plays_its_pitch() {
     );
 }
 
-/// A voice with its own `env` ends by it, a held key or not.
+/// A SynthDef with its own envelope ends by it, a held key or not.
 #[test]
 fn a_modular_voice_with_a_percussive_env_ends_while_held() {
     let mut e = Engine::new(48_000.0);
     e.preset(0, crate::mono::preset::Preset::ModularBasic);
-    e.set_graph(0, Program::parse("tri(freq) * env(perc)").expect("parses"));
+    assert_eq!(
+        e.set_code(
+            0,
+            &synthdef("LFTri.ar(freq) * EnvGen.kr(Env.perc(0.002, 0.3))")
+        ),
+        Ok(())
+    );
     e.note_on(0, 60, 1.0);
     let early = render_out(&mut e, 20);
     assert!(early.iter().any(|s| s.abs() > 0.01));
@@ -3641,12 +3647,17 @@ fn a_setting_knob_starts_and_holds() {
     assert_eq!(e.param_value(s, mul), 0.9, "changed code starts again");
 }
 
-/// A Modular synth playing `graph`, note `note` held for `secs`: the left
-/// channel.
-fn graph_out(graph: &str, note: u8, secs: f32) -> Vec<f32> {
+/// A SynthDef of `body`, with `freq` and `gate` arguments.
+fn synthdef(body: &str) -> String {
+    format!("SynthDef(\\t, {{ |freq = 440, gate = 1| {body} }}).add;")
+}
+
+/// A Modular synth playing a SynthDef of `body`, note `note` held for
+/// `secs`: the left channel.
+fn graph_out(body: &str, note: u8, secs: f32) -> Vec<f32> {
     let mut e = Engine::new(48_000.0);
     e.preset(0, crate::mono::preset::Preset::ModularBasic);
-    e.set_graph(0, Program::parse(graph).expect("parses"));
+    assert_eq!(e.set_code(0, &synthdef(body)), Ok(()), "{body}");
     e.note_on(0, note, 1.0);
     left_of(&mut e, secs)
 }
@@ -3668,54 +3679,37 @@ fn level(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len().max(1) as f32).sqrt()
 }
 
-/// ADR-0021: `fm` at index 0 is its carrier; `drive` squares a sine;
-/// `ladder` darkens a saw; `delay` combs a pulse and stays bounded.
+/// `PMOsc` at index 0 is its carrier; `softclip` squares a driven sine;
+/// `MoogFF` darkens a saw; `CombN` combs a pulse and stays bounded.
 #[test]
 fn the_modular_units_do_what_they_say() {
-    let fm = graph_out("fm(freq, freq * 2, 0)", 69, 1.0);
+    let fm = graph_out("PMOsc.ar(freq, freq * 2, 0)", 69, 1.0);
     assert!(
         (ups(&fm[4800..]) as f32 - 396.0).abs() <= 2.0,
         "{}",
         ups(&fm[4800..])
     );
-    let wide = graph_out("fm(freq, freq * 2, 3)", 69, 1.0);
+    let wide = graph_out("PMOsc.ar(freq, freq * 2, 3)", 69, 1.0);
     assert!(
         ups(&wide[4800..]) > 420,
         "fm adds partials: {}",
         ups(&wide[4800..])
     );
-    let sine = graph_out("sin(freq)", 69, 0.5);
-    let driven = graph_out("sin(freq) |> drive(20)", 69, 0.5);
+    let sine = graph_out("SinOsc.ar(freq)", 69, 0.5);
+    let driven = graph_out("(SinOsc.ar(freq) * 20).softclip", 69, 0.5);
     let crest = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs())) / level(x);
     assert!(crest(&sine[4800..]) > 1.35 && crest(&driven[4800..]) < 1.15);
-    let saw = graph_out("saw(freq)", 69, 0.5);
-    let dark = graph_out("saw(freq) |> ladder(300, 0)", 69, 0.5);
+    let saw = graph_out("Saw.ar(freq)", 69, 0.5);
+    let dark = graph_out("MoogFF.ar(Saw.ar(freq), 300, 0)", 69, 0.5);
     assert!(level(&dark[4800..]) < 0.6 * level(&saw[4800..]));
-    let pulse = graph_out("pulse(freq)", 57, 0.5);
-    let comb = graph_out("pulse(freq) |> delay(0.002, 0.7)", 57, 0.5);
+    let pulse = graph_out("Pulse.ar(freq)", 57, 0.5);
+    let comb = graph_out(
+        "Pulse.ar(freq) + CombN.ar(Pulse.ar(freq), 0.01, 0.002, 0.04)",
+        57,
+        0.5,
+    );
     assert_ne!(pulse, comb);
     assert!(comb.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
-}
-
-/// ADR-0019/0021: a list gives each voice slot its own number.
-#[test]
-fn a_list_gives_each_voice_its_own_value() {
-    let mut e = Engine::new(48_000.0);
-    e.preset(0, crate::mono::preset::Preset::ModularBasic);
-    e.set_graph(0, Program::parse("sin([220, 330])").expect("parses"));
-    let mut heard = Vec::new();
-    for _ in 0..2 {
-        e.note_on(0, 60, 1.0);
-        let out = left_of(&mut e, 0.5);
-        heard.push(ups(&out[4800..]));
-        e.note_off(0, 60);
-        left_of(&mut e, 1.0);
-    }
-    // 0.4 s at 220 and 330 hertz.
-    assert!(
-        (heard[0] as f32 - 88.0).abs() <= 2.0 && (heard[1] as f32 - 132.0).abs() <= 2.0,
-        "{heard:?}"
-    );
 }
 
 /// #216's acceptance: the gabber kick falls in pitch, is driven square, ends
