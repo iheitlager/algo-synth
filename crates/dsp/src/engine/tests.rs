@@ -3572,3 +3572,44 @@ fn a_song_voice_plays_on_its_track() {
     assert!(ups > 50, "{ups}");
     assert!(left[44_000..].iter().all(|s| s.abs() < 1e-3));
 }
+
+/// A voice's control starts at its value when the voice is new or changed,
+/// holds a hand on its knob through an unchanged reload, and drives the
+/// sound, held in its range.
+#[test]
+fn a_voice_control_starts_holds_and_drives_the_sound() {
+    let song = |v: &str| {
+        format!(
+            "voice v = {{ sin(freq) * gain }}\n  ctl gain = {v} [0 1]\ntrack l synth Modular v\nfrag r = l\n  \"a4\"\n"
+        )
+    };
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    assert_eq!(load_text(&mut e, &song("0.5")), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Ctl1), 0.5);
+    e.set_param(s, Param::Ctl1, 0.2);
+    assert_eq!(load_text(&mut e, &song("0.5")), Ok(()));
+    assert_eq!(e.param_value(s, Param::Ctl1), 0.2, "a hand holds");
+    let level = |e: &mut Engine, gain: f32| {
+        e.set_param(s, Param::Ctl1, gain);
+        e.note_on(s, 69, 1.0);
+        let out = render_out(e, 40);
+        e.note_off(s, 69);
+        render_out(e, 200);
+        out.iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+    };
+    let (half, none, over) = (level(&mut e, 0.5), level(&mut e, 0.0), level(&mut e, 7.0));
+    let full = level(&mut e, 1.0);
+    assert!(half > 0.05 && none < 1e-4, "{half} {none}");
+    assert!(
+        (over - full).abs() < 1e-4,
+        "held in its range: {over} {full}"
+    );
+    // A changed voice starts its control at the new value.
+    assert_eq!(
+        load_text(&mut e, &song("0.9").replace("sin", "tri")),
+        Ok(())
+    );
+    assert_eq!(e.param_value(s, Param::Ctl1), 0.9);
+}

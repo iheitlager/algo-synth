@@ -124,6 +124,13 @@ pub enum Ugen {
     Env {
         slot: u8,
     },
+    /// A control of the voice (`ctl`): the synth's `Param::Ctl1`… value,
+    /// held in its range.
+    Ctl {
+        index: u8,
+        lo: f32,
+        hi: f32,
+    },
     Neg(u8),
     Bin(Op, u8, u8),
     Range {
@@ -180,6 +187,11 @@ impl Program {
     /// Compile `text`, the inside of a voice's braces. An error's column
     /// counts in chars from 1.
     pub fn parse(text: &str) -> Result<Program, (usize, &'static str)> {
+        Program::parse_with(text, &[])
+    }
+
+    /// Compile `text` with the voice's controls, by name and range.
+    pub fn parse_with(text: &str, ctls: &[Control<'_>]) -> Result<Program, (usize, &'static str)> {
         let toks = lex(text)?;
         let mut p = Parser {
             toks: &toks,
@@ -192,6 +204,7 @@ impl Program {
                 counts: Counts::default(),
             },
             depth: 0,
+            ctls,
         };
         // Children go before parents, so the root is the last node.
         p.sum()?;
@@ -210,7 +223,7 @@ impl Program {
         self.counts.envs > 0
     }
 
-    fn write(&self, out: &mut String, i: u8, prec: u8) -> std::fmt::Result {
+    fn write(&self, out: &mut String, names: &[&str], i: u8, prec: u8) -> std::fmt::Result {
         let Some(node) = self.node(i) else {
             return Ok(());
         };
@@ -226,6 +239,10 @@ impl Program {
             Ugen::Freq => out.write_str("freq"),
             Ugen::Gate => out.write_str("gate"),
             Ugen::Vel => out.write_str("vel"),
+            Ugen::Ctl { index, .. } => match names.get(usize::from(index)) {
+                Some(n) => out.write_str(n),
+                None => write!(out, "ctl{}", index + 1),
+            },
             Ugen::Noise => out.write_str("noise()"),
             Ugen::Osc {
                 wave: w,
@@ -234,23 +251,23 @@ impl Program {
                 ..
             } => {
                 write!(out, "{}(", wave(w))?;
-                self.write(out, freq, 0)?;
+                self.write(out, names, freq, 0)?;
                 if width != NONE {
                     out.push_str(", ");
-                    self.write(out, width, 0)?;
+                    self.write(out, names, width, 0)?;
                 }
                 out.push(')');
                 Ok(())
             }
             Ugen::Sin { freq, .. } => {
                 out.push_str("sin(");
-                self.write(out, freq, 0)?;
+                self.write(out, names, freq, 0)?;
                 out.push(')');
                 Ok(())
             }
             Ugen::Lfo { rate, wave: w, .. } => {
                 out.push_str("lfo(");
-                self.write(out, rate, 0)?;
+                self.write(out, names, rate, 0)?;
                 if w != Waveform::Sine {
                     let name = if w == Waveform::Pulse {
                         "square"
@@ -269,12 +286,12 @@ impl Program {
                 res,
                 ..
             } => {
-                self.write(out, input, 4)?;
+                self.write(out, names, input, 4)?;
                 write!(out, " |> svf({}, ", if high { "hp" } else { "lp" })?;
-                self.write(out, cutoff, 0)?;
+                self.write(out, names, cutoff, 0)?;
                 if res != NONE {
                     out.push_str(", ");
-                    self.write(out, res, 0)?;
+                    self.write(out, names, res, 0)?;
                 }
                 out.push(')');
                 Ok(())
@@ -289,7 +306,7 @@ impl Program {
                     out.push('(');
                 }
                 out.push('-');
-                self.write(out, a, 3)?;
+                self.write(out, names, a, 3)?;
                 if prec > 3 {
                     out.push(')');
                 }
@@ -300,20 +317,20 @@ impl Program {
                 if p < prec {
                     out.push('(');
                 }
-                self.write(out, a, p)?;
+                self.write(out, names, a, p)?;
                 write!(out, " {} ", op.char())?;
-                self.write(out, b, p + 1)?;
+                self.write(out, names, b, p + 1)?;
                 if p < prec {
                     out.push(')');
                 }
                 Ok(())
             }
             Ugen::Range { of, lo, hi, exp } => {
-                self.write(out, of, 4)?;
+                self.write(out, names, of, 4)?;
                 out.push_str(if exp { ".exprange(" } else { ".range(" });
-                self.write(out, lo, 0)?;
+                self.write(out, names, lo, 0)?;
                 out.push_str(", ");
-                self.write(out, hi, 0)?;
+                self.write(out, names, hi, 0)?;
                 out.push(')');
                 Ok(())
             }
@@ -321,14 +338,24 @@ impl Program {
     }
 }
 
-impl std::fmt::Display for Program {
-    /// The canonical text, without the braces.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Program {
+    /// The canonical text, without the braces, naming the controls `names`.
+    pub fn print(&self, names: &[&str]) -> String {
         let mut out = String::new();
         if let Some(root) = self.len.checked_sub(1) {
-            self.write(&mut out, root, 0)?;
+            // Writing into a `String` does not fail.
+            if self.write(&mut out, names, root, 0).is_err() {
+                out.clear();
+            }
         }
-        f.write_str(&out)
+        out
+    }
+}
+
+impl std::fmt::Display for Program {
+    /// The canonical text of a voice without controls.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.print(&[]))
     }
 }
 
@@ -338,6 +365,15 @@ struct Parser<'a, 'b> {
     end: usize,
     prog: Program,
     depth: usize,
+    ctls: &'b [Control<'b>],
+}
+
+/// A control as the parser sees it: its name and range.
+#[derive(Clone, Copy, Debug)]
+pub struct Control<'a> {
+    pub name: &'a str,
+    pub lo: f32,
+    pub hi: f32,
 }
 
 type Res<T> = Result<T, (usize, &'static str)>;
@@ -503,7 +539,18 @@ impl<'a> Parser<'a, '_> {
                     "freq" => self.push(Ugen::Freq),
                     "gate" => self.push(Ugen::Gate),
                     "vel" => self.push(Ugen::Vel),
-                    _ => self.call(w, col),
+                    _ => match self.ctls.iter().position(|c| c.name == w) {
+                        Some(i) => {
+                            let c = self.ctls.get(i).copied();
+                            let (lo, hi) = c.map_or((0.0, 0.0), |c| (c.lo, c.hi));
+                            self.push(Ugen::Ctl {
+                                index: u8::try_from(i).unwrap_or(0),
+                                lo,
+                                hi,
+                            })
+                        }
+                        None => self.call(w, col),
+                    },
                 }
             }
             _ => Err((col, "a signal goes here, e.g. saw(freq)")),
@@ -958,6 +1005,13 @@ impl GraphVoice {
                 if high { o.hp } else { o.lp }
             }
             Ugen::Env { slot } => self.env_vals.get(usize::from(slot)).copied().unwrap_or(0.0),
+            Ugen::Ctl { index, lo, hi } => ctx
+                .params
+                .ctl
+                .get(usize::from(index))
+                .copied()
+                .unwrap_or(lo)
+                .clamp(lo, hi),
             Ugen::Neg(a) => -self.val(a),
             Ugen::Bin(op, a, b) => {
                 let (x, y) = (self.val(a), self.val(b));

@@ -16,7 +16,8 @@ static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 const SONG: &str = "\
 tempo 180
 scale e phrygian
-voice buzz = { (pulse(freq, lfo(3).range(0.2, 0.6)) + saw(freq * 0.5) + noise() * 0.05) |> svf(lp, lfo(0.2).exprange(300, 3000), 0.4) * env(0.005, 0.2, 0.6, 0.3) }
+voice buzz = { (pulse(freq, lfo(3).range(0.2, 0.6)) + saw(freq * 0.5) + noise() * 0.05) |> svf(lp, lfo(0.2).exprange(300, bright), 0.4) * env(0.005, 0.2, 0.6, 0.3) }
+  ctl bright = 3000 [300 6000 exp]
 track kit drums
 track lead synth
 track pad synth
@@ -43,6 +44,7 @@ scene solo: strip1.Solo 1, strip2.Mute 1, strip3.Send1 0.5
 scene open: strip1.Solo 0, strip2.Mute 0, master.P2Return 0.4
 mod lead.resonance = lfo(0.5, tri).range(0.1, 0.6).lag(0.05)
 mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
+mod buzzer.bright = sine.slow(2).exprange(800, 5000)
 
 section a 2: beat hold sand roam zap fade pan sweep [open]
 section b 1: beat sand roam zap [solo]
