@@ -171,6 +171,28 @@ impl Mode {
     }
 }
 
+/// `c`, `c#` or `eb`: a pitch class, 0 for c.
+pub fn pitch_class(s: &str) -> Option<u8> {
+    let mut chars = s.chars();
+    let base = match chars.next()? {
+        'c' => 0,
+        'd' => 2,
+        'e' => 4,
+        'f' => 5,
+        'g' => 7,
+        'a' => 9,
+        'b' => 11,
+        _ => return None,
+    };
+    let semi = match (chars.next(), chars.next()) {
+        (None, _) => base,
+        (Some('#'), None) => base + 1,
+        (Some('b'), None) => base + 11,
+        _ => return None,
+    };
+    Some(semi % 12)
+}
+
 /// A key: a root pitch class (0 is c) and a mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scale {
@@ -192,6 +214,23 @@ impl Scale {
             return None;
         }
         iv.get(d).map(|i| (self.root + i) % 12)
+    }
+
+    /// The note of the scale nearest `note`, the lower one on a tie.
+    pub fn snap(&self, note: u8) -> u8 {
+        let iv = self.mode.intervals();
+        let rel = (i32::from(note) - i32::from(self.root)).rem_euclid(12);
+        let dist = |i: &u8| {
+            let d = (i32::from(*i) - rel).rem_euclid(12);
+            // Up by d, or down by 12 - d: the shorter way, down on a tie.
+            if d * 2 < 12 { d } else { d - 12 }
+        };
+        let best = iv
+            .iter()
+            .map(dist)
+            .min_by_key(|d| (d.abs(), *d > 0))
+            .unwrap_or(0);
+        u8::try_from((i32::from(note) + best).clamp(0, 127)).unwrap_or(127)
     }
 
     /// The note `steps` scale degrees above the scale note at or above

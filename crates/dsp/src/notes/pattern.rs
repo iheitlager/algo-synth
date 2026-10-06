@@ -11,18 +11,23 @@
 //! its own length; `iter(n)` starts each bar a further 1/n in; `degrade(p)`
 //! drops each note with chance p, from a fixed seed (ADR-0005); `every(n, m)`
 //! applies method m on every nth bar, from the first; `off(t, m)` layers a
-//! copy t of a bar later with m applied.
+//! copy t of a bar later with m applied; `struct("x ~ x x")` plays the notes
+//! sounding at each hit of a rhythm, each bar; `sometimes(m)` takes about half
+//! the moments from the line with m applied, from a fixed seed; `scale(c minor)`
+//! moves each note to the nearest note of the scale.
 //!
 //! Every method maps a line (events and a length in bars) to a line, so
 //! nothing happens in `render`. The result is held to `MAX_EVENTS` events and
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
 use super::{Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
-use crate::algo::mix;
+use crate::algo::{Mode, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
 /// Largest factor of `fast`, `slow`, `ply`, `iter` and `every`.
 const MAX_FACTOR: u32 = 16;
+/// Most steps in a `struct` rhythm: one a tick.
+const MAX_STEPS: usize = BAR as usize;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
@@ -39,6 +44,10 @@ pub enum Pattern {
     Every(u32, Box<Pattern>),
     /// A shift in ticks and the method on the copy.
     Off(u32, Box<Pattern>),
+    /// Hits and rests sharing each bar.
+    Struct(Vec<bool>),
+    Sometimes(Box<Pattern>),
+    Scale(Scale),
 }
 
 /// A line of events looping over `bars` bars.
@@ -74,7 +83,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 11] = [
+    pub const NAMES: [&'static str; 14] = [
         "fast",
         "slow",
         "rev",
@@ -86,6 +95,9 @@ impl Pattern {
         "degrade",
         "every",
         "off",
+        "struct",
+        "sometimes",
+        "scale",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -150,6 +162,38 @@ impl Pattern {
                     Ok(Pattern::Off(ticks(a)?, inner))
                 }
             }
+            "struct" => {
+                let bad = "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")";
+                let text = one()?
+                    .trim()
+                    .strip_prefix('"')
+                    .and_then(|t| t.strip_suffix('"'))
+                    .ok_or(bad)?;
+                let steps = text
+                    .split_whitespace()
+                    .map(|w| match w {
+                        "x" => Ok(true),
+                        "~" => Ok(false),
+                        _ => Err(bad),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if steps.is_empty() || steps.len() > MAX_STEPS {
+                    return Err("a rhythm has 1 to 48 steps");
+                }
+                Ok(Pattern::Struct(steps))
+            }
+            "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?)?))),
+            "scale" => {
+                let bad = "this takes a root and a mode, e.g. scale(c minor)";
+                let mut words = one()?.split_whitespace();
+                let (Some(root), Some(mode), None) = (words.next(), words.next(), words.next())
+                else {
+                    return Err(bad);
+                };
+                let root = pitch_class(root).ok_or("a root is a letter a to g, maybe # or b")?;
+                let mode = Mode::from_name(mode).ok_or("no scale has this mode")?;
+                Ok(Pattern::Scale(Scale { root, mode }))
+            }
             _ => Err("no such pattern method"),
         }
     }
@@ -176,6 +220,19 @@ impl Pattern {
                 let g = gcd(*t, BAR);
                 format!("off({}/{}, {})", t / g, BAR / g, bare(m))
             }
+            Pattern::Struct(steps) => {
+                let words: Vec<&str> = steps.iter().map(|h| if *h { "x" } else { "~" }).collect();
+                format!("struct(\"{}\")", words.join(" "))
+            }
+            Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
+            Pattern::Scale(sc) => format!(
+                "scale({} {})",
+                super::NAMES
+                    .get(usize::from(sc.root))
+                    .copied()
+                    .unwrap_or("c"),
+                sc.mode.name()
+            ),
         }
     }
 
@@ -226,6 +283,33 @@ impl Pattern {
                 out.events.extend(copy.repeat(bars).events);
                 out
             }
+            Pattern::Struct(steps) => structure(line, steps),
+            Pattern::Sometimes(m) => {
+                let other = m.apply(line)?;
+                let bars = lcm(line.bars, other.bars);
+                check(bars, line.events.len() * (bars / line.bars) as usize)?;
+                // One coin per moment, so a chord goes one way.
+                let heads = |e: &Event| mix(0x50E7_1AE5 ^ e.start, 0x2B) & 1 == 1;
+                let mut events: Vec<Event> = line
+                    .repeat(bars)
+                    .events
+                    .into_iter()
+                    .filter(|e| !heads(e))
+                    .collect();
+                events.extend(other.repeat(bars).events.into_iter().filter(heads));
+                Line { events, bars }
+            }
+            Pattern::Scale(sc) => Line {
+                events: line
+                    .events
+                    .iter()
+                    .map(|e| Event {
+                        note: sc.snap(e.note),
+                        ..*e
+                    })
+                    .collect(),
+                bars: line.bars,
+            },
         };
         check(out.bars, out.events.len())?;
         Ok(out.sorted())
@@ -366,6 +450,34 @@ fn alternate(line: &Line, n: u32, phase: u32, m: &Pattern) -> Result<Line, &'sta
         .collect();
     events.extend(changed.repeat(bars).events.into_iter().filter(on));
     Ok(Line { events, bars })
+}
+
+/// Each bar on a rhythm: at every hit, the notes sounding there, held to the
+/// next step.
+fn structure(line: &Line, steps: &[bool]) -> Line {
+    let n = u32::try_from(steps.len()).unwrap_or(1).max(1);
+    let total = line.len().max(1);
+    let mut events = Vec::new();
+    for m in 0..line.bars {
+        for (k, _) in (0..n).zip(steps).filter(|(_, hit)| **hit) {
+            let at = m * BAR + div_round(k * BAR, n);
+            let len = (m * BAR + div_round((k + 1) * BAR, n) - at).max(1);
+            events.extend(
+                line.events
+                    .iter()
+                    .filter(|e| (at + total - e.start) % total < e.len)
+                    .map(|e| Event {
+                        start: at,
+                        len,
+                        ..*e
+                    }),
+            );
+        }
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
 }
 
 /// `1/8`, `3/16` or `0.25` of a bar, in ticks.
@@ -560,6 +672,45 @@ mod tests {
     }
 
     #[test]
+    fn struct_plays_the_notes_sounding_at_each_hit() {
+        // c d e f in quarters, on a rhythm of eighths: hits on 1, 1+, 3.
+        let s = run("struct(\"x x ~ ~ x ~ ~ ~\")", &four());
+        assert_eq!(starts(&s), vec![(0, 60), (6, 60), (24, 64)]);
+        assert!(s.events.iter().all(|e| e.len == 6));
+        // A rest under a hit plays nothing.
+        let one = Line {
+            events: vec![ev(0, 12, 60)],
+            bars: 1,
+        };
+        assert_eq!(starts(&run("struct(\"x x x x\")", &one)), vec![(0, 60)]);
+    }
+
+    #[test]
+    fn sometimes_takes_about_half_from_the_method() {
+        let line = run("ply(8)", &four());
+        let s = run("sometimes(add(12))", &line);
+        assert_eq!(s.events.len(), line.events.len());
+        let up = s.events.iter().filter(|e| e.note >= 72).count();
+        assert!(up > 8 && up < 24, "{up} of 32");
+        assert_eq!(s, run("sometimes(add(12))", &line), "seeded");
+    }
+
+    #[test]
+    fn scale_moves_notes_to_the_nearest_scale_note() {
+        let chromatic = Line {
+            events: (0..12).map(|k| ev(k * 4, 4, 60 + k as u8)).collect(),
+            bars: 1,
+        };
+        let notes: Vec<u8> = run("scale(c minor)", &chromatic)
+            .events
+            .iter()
+            .map(|e| e.note)
+            .collect();
+        // c minor: c d eb f g ab bb; a tie (e, a, b between two) goes down.
+        assert_eq!(notes, vec![60, 60, 62, 63, 63, 65, 65, 67, 68, 68, 70, 70]);
+    }
+
+    #[test]
     fn degrade_is_seeded() {
         let line = run("ply(16)", &four());
         let a = run("degrade(0.5)", &line);
@@ -584,6 +735,9 @@ mod tests {
             ("off", "0.125, add(12)", "off(1/8, add(12))"),
             ("off", "3/16,palindrome", "off(3/16, palindrome)"),
             ("sub", "-3", "sub(-3)"),
+            ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
+            ("sometimes", "fast(2)", "sometimes(fast(2))"),
+            ("scale", " eb  minor ", "scale(d# minor)"),
         ] {
             let p = Pattern::parse(name, args).expect(name);
             assert_eq!(p.print(), printed);
@@ -620,6 +774,33 @@ mod tests {
                 "a time is between 0 and 1 bar, at least a tick",
             ),
             ("off", "x, rev", "a time is a fraction of a bar, e.g. 1/8"),
+            (
+                "struct",
+                "x ~ x",
+                "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")",
+            ),
+            (
+                "struct",
+                "\"x o\"",
+                "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")",
+            ),
+            ("struct", "\"\"", "a rhythm has 1 to 48 steps"),
+            (
+                "sometimes",
+                "cutoff",
+                "a pattern method goes here, e.g. rev or fast(2)",
+            ),
+            (
+                "scale",
+                "c",
+                "this takes a root and a mode, e.g. scale(c minor)",
+            ),
+            (
+                "scale",
+                "h minor",
+                "a root is a letter a to g, maybe # or b",
+            ),
+            ("scale", "c weird", "no scale has this mode"),
         ] {
             assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
         }

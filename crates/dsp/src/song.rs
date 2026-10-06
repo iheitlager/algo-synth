@@ -75,7 +75,7 @@
 //! line and a column, and never panics. Comments are kept (#199); layout is
 //! not: a printed song is the canonical form of what was parsed.
 
-use crate::algo::{Euclid, Mode, Scale};
+use crate::algo::{Euclid, Mode, Scale, pitch_class};
 use crate::drums::Pad;
 use crate::fx::insert::InsertType;
 use crate::fx::processor::ProcType;
@@ -449,28 +449,6 @@ fn strip_comment(raw: &str) -> &str {
         prev_space = c.is_whitespace();
     }
     raw
-}
-
-/// `c`, `c#` or `eb`: a pitch class, 0 for c.
-fn pitch_class(s: &str) -> Option<u8> {
-    let mut chars = s.chars();
-    let base = match chars.next()? {
-        'c' => 0,
-        'd' => 2,
-        'e' => 4,
-        'f' => 5,
-        'g' => 7,
-        'a' => 9,
-        'b' => 11,
-        _ => return None,
-    };
-    let semi = match (chars.next(), chars.next()) {
-        (None, _) => base,
-        (Some('#'), None) => base + 1,
-        (Some('b'), None) => base + 11,
-        _ => return None,
-    };
-    Some(semi % 12)
 }
 
 fn is_name(s: &str) -> bool {
