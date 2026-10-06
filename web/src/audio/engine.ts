@@ -180,7 +180,7 @@ export function moveStrip(id: number, target: number) {
 
 /** Which main view is shown: the synth panels or the mixer console. */
 export const view = reactive({
-  main: 'synths' as 'synths' | 'mixer' | 'composer',
+  main: 'synths' as 'synths' | 'mixer' | 'composer' | 'sound',
   /** The bottom pane: the arranger (ADR-0015) or the MIDI file player, until MIDI import replaces it. */
   bottom: 'arranger' as 'arranger' | 'player',
 })
@@ -475,7 +475,9 @@ export interface SongNote { start: number; len: number; note: number; accent: bo
 export interface SongNotes { text: string; bars: number; events: SongNote[]; generated: boolean; live: boolean }
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
 /** A song track (#210, #213): its synth, kind, factory preset and the song setting it plays (−1 for none). */
-export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number }
+export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number; voice: number }
+/** A Modular voice of the song (ADR-0020): its text and controls, in their units. */
+export interface SongVoice { name: string; text: string; ctls: { name: string; lo: number; hi: number; def: number; exp: boolean }[] }
 /** A setting of the song (#210): a factory preset and changes, named. */
 export interface SongSetting { name: string; preset: number }
 export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
@@ -509,7 +511,16 @@ export const song = reactive({
   /** Per track kind (drums, synth, sampler), which models play it: the engine's rule (#213). */
   fits: [[], [], []] as boolean[][],
   loop: [0, 0] as [number, number],
+  /** The song's Modular voices, and why the last voice edit did not play (in its own lines). */
+  voices: [] as SongVoice[],
+  voiceError: null as { line: number; col: number; msg: string } | null,
 })
+
+/** Replace voice `i` with `text`, its voice line and ctl lines (the Sound screen, ADR-0020). */
+export function editVoice(i: number, text: string) {
+  const bytes = new TextEncoder().encode(text)
+  engine?.post({ t: 'voice', i, bytes: bytes.buffer }, [bytes.buffer])
+}
 
 /** Send `text` to the engine to parse and play. */
 export function loadSong(text: string) {
@@ -601,12 +612,19 @@ export function applySong(data: Record<string, unknown>) {
   song.text = text
   song.tempo = data.tempo as number
   song.swing = data.swing as number
-  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number }[]).map((t) => ({
+  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number; voice?: number }[]).map((t) => ({
     name: decoder.decode(t.name),
     synth: t.synth,
     kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
     preset: t.preset ?? -1,
     setting: t.setting ?? -1,
+    voice: t.voice ?? -1,
+  }))
+  type RawVoice = { name: Uint8Array; text: Uint8Array; ctls: { name: Uint8Array; lo: number; hi: number; def: number; exp: boolean }[] }
+  song.voices = ((data.voices as RawVoice[] | undefined) ?? []).map((v) => ({
+    name: decoder.decode(v.name),
+    text: decoder.decode(v.text),
+    ctls: v.ctls.map((c) => ({ ...c, name: decoder.decode(c.name) })),
   }))
   song.settings = ((data.settings ?? []) as { name: Uint8Array; preset: number }[]).map((st) => ({
     name: decoder.decode(st.name),
@@ -692,6 +710,9 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
+  } else if (data.t === 'voice') {
+    const e = data.error as { line: number; col: number; msg: Uint8Array } | null
+    song.voiceError = e ? { line: e.line, col: e.col, msg: new TextDecoder('utf-8').decode(e.msg) } : null
   } else if (data.t === 'mods') {
     modulated.keys = new Set(data.keys as number[])
   } else if (data.t === 'imported') {
