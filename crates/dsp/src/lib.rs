@@ -1,8 +1,8 @@
 //! algo-synth engine.
 //!
 //! Everything musical runs here, as wasm inside the browser's AudioWorklet
-//! (ADR-0001): the ARP 2600-style Mono voice (`mono`), its voice pool (`poly`), the mixer, the MIDI
-//! file player (`smf`, `player`), the clock (`clock`) and the drum kit (`drums`). The JavaScript around it only forwards
+//! (ADR-0001): the ARP 2600-style Mono voice (`mono`), its voice pool (`poly`), the mixer, MIDI
+//! file import (`smf`, `midi_import`), the clock (`clock`) and the drum kit (`drums`). The JavaScript around it only forwards
 //! messages and copies the output block.
 
 pub mod algo;
@@ -20,7 +20,6 @@ pub mod mono;
 pub mod notes;
 pub mod padsampler;
 pub mod params;
-pub mod player;
 pub mod poly;
 pub mod sample;
 pub mod sampler;

@@ -45,7 +45,7 @@ impl ImportError {
 }
 
 /// The song text and, for each of its tracks in order, the MIDI channel it
-/// came from, so the engine can route it as the player did.
+/// came from; the engine puts them on synths 0, 1, 2… (ADR-0022).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Imported {
     pub text: String,
