@@ -2734,7 +2734,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 433] = [
+pub const DEFAULTS: [(Param, f32); 442] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -3063,6 +3063,15 @@ pub const DEFAULTS: [(Param, f32); 433] = [
     (Param::Ctl30, 0.0),
     (Param::Ctl31, 0.0),
     (Param::Ctl32, 0.0),
+    (Param::Vco1On, 1.0),
+    (Param::Vco2On, 1.0),
+    (Param::Vco3On, 1.0),
+    (Param::NoiseOn, 1.0),
+    (Param::GlideOn, 1.0),
+    (Param::DecayRelease, 1.0),
+    (Param::OscModOn, 1.0),
+    (Param::FilterModOn, 1.0),
+    (Param::A440, 0.0),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
     (Param::SnTone, 0.5),

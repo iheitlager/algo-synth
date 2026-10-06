@@ -38,6 +38,8 @@ pub const KEYS: usize = 16;
 /// Mono's level after the ladder: one VCO at full level comes out near the
 /// previous preview voice's 0.35.
 const MONO_GAIN: f32 = 0.7;
+/// The release in seconds of a contour whose Decay switch is off (#308).
+const QUICK_RELEASE: f32 = 0.01;
 
 /// Which held key sounds; the ids are mirrored in `web/src/audio/params.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -417,11 +419,16 @@ impl MonoVoice {
         // one ramps to them (#271).
         let sounding =
             self.adsr.stage != Stage::Idle || (self.vca_patched && self.ar.stage != Stage::Idle);
-        // Where a model's contours have no release knob, decay is the release.
+        // Where a model's contours have no release knob, decay is the release,
+        // or with its Decay switch off a quick one (#308).
         let times = |t: &EnvTimes| {
             if p.model.decay_is_release() {
                 EnvTimes {
-                    release: t.decay,
+                    release: if p.decay_release {
+                        t.decay
+                    } else {
+                        QUICK_RELEASE * p.sample_rate()
+                    },
                     ..*t
                 }
             } else {
@@ -462,11 +469,13 @@ impl MonoVoice {
         let [_, sync2, sync3] = p.sync;
         let own = self.set;
         let [v1, v2, v3] = p.level;
+        // A mixer switch that is off silences a voice's own level too (#308).
+        let [g1, g2, g3, gn] = p.mixer_on();
         let levels = [
-            own.or(2, v1),
-            own.or(3, v2),
-            own.or(4, v3),
-            own.or(5, p.noise_level),
+            own.or(2, v1) * g1,
+            own.or(3, v2) * g2,
+            own.or(4, v3) * g3,
+            own.or(5, p.noise_level) * gn,
             own.or(6, p.ring_level),
             own.or(7, p.sub_level),
         ];
@@ -1396,6 +1405,46 @@ mod tests {
         };
         assert!(!fall(1.0), "the Minimoog has fallen silent within 0.3 s");
         assert!(fall(0.0), "the ARP 2600 is still releasing");
+    }
+
+    /// #308: with the Decay switch off the Minimoog releases at once,
+    /// whatever the decay.
+    #[test]
+    fn minimoog_decay_switch_off_releases_at_once() {
+        let fall = |decay_release: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 1.0),
+                (Param::AdsrDecay, 2.0),
+                (Param::AdsrSustain, 0.5),
+                (Param::DecayRelease, decay_release),
+            ]);
+            r.press(60);
+            r.render(4_800);
+            r.release(60);
+            r.render(2_400);
+            r.voice.active()
+        };
+        assert!(!fall(0.0), "off: silent within 50 ms");
+        assert!(fall(1.0), "on: the 2 s decay is the release");
+    }
+
+    /// #308: a mixer switch that is off silences its oscillator.
+    #[test]
+    fn mixer_switch_silences_its_source() {
+        let peak = |on: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 1.0),
+                (Param::Vco1Level, 1.0),
+                (Param::Vco2Level, 0.0),
+                (Param::Vco3Level, 0.0),
+                (Param::Vco1On, on),
+                (Param::Cutoff, 20_000.0),
+            ]);
+            r.press(60);
+            r.render(4_800).iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+        };
+        assert!(peak(1.0) > 0.1, "on sounds");
+        assert!(peak(0.0) < 1e-4, "off is silent");
     }
 
     /// Spec 005 Req 3: the loudness is full at once while a slow filter

@@ -128,6 +128,24 @@ pub struct MonoParams {
     pub graph: crate::modular::Program,
     /// The values of a Modular voice's controls (`Param::Ctl1`…), in their own units.
     pub ctl: [f32; crate::params::CTLS],
+    /// The knobs under the Minimoog's on/off switches (#308): `level`,
+    /// `noise_level`, `glide` and the vibrato and filter modulation normals
+    /// are these, or 0 where their switch is off.
+    knob_level: [f32; VCOS],
+    knob_noise: f32,
+    knob_glide: f32,
+    knob_vibrato: f32,
+    knob_lfo_cutoff: f32,
+    vco_on: [bool; VCOS],
+    noise_on: bool,
+    glide_on: bool,
+    osc_mod_on: bool,
+    filter_mod_on: bool,
+    /// Whether decay is the release where `Model::decay_is_release`; off, the
+    /// contours release at once.
+    pub decay_release: bool,
+    /// The 440 Hz reference tone at the synth's output.
+    pub a440: bool,
 }
 
 impl Default for MonoParams {
@@ -216,6 +234,18 @@ impl MonoParams {
             sample_rate,
             graph: crate::modular::Program::default(),
             ctl: [0.0; crate::params::CTLS],
+            knob_level: [0.0; VCOS],
+            knob_noise: 0.0,
+            knob_glide: 0.0,
+            knob_vibrato: 0.0,
+            knob_lfo_cutoff: 0.0,
+            vco_on: [true; VCOS],
+            noise_on: true,
+            glide_on: true,
+            osc_mod_on: true,
+            filter_mod_on: true,
+            decay_release: true,
+            a440: false,
             adsr: off,
             ar: off,
             fadsr: off,
@@ -236,9 +266,35 @@ impl MonoParams {
     }
 
     /// Apply an already clamped value; parameters that aren't Mono's are
-    /// ignored. The match is exhaustive on purpose: a new `Param` doesn't
-    /// compile until it is handled here.
+    /// ignored.
     pub fn set(&mut self, param: Param, v: f32) {
+        self.set_one(param, v);
+        self.apply_switches();
+    }
+
+    /// The mixer switches of VCO 1, 2, 3 and noise as gains, 1 or 0 (#308).
+    pub fn mixer_on(&self) -> [f32; 4] {
+        let on = |b: bool| if b { 1.0 } else { 0.0 };
+        let [a, b, c] = self.vco_on;
+        [on(a), on(b), on(c), on(self.noise_on)]
+    }
+
+    /// What sounds of the knobs under the on/off switches (#308).
+    fn apply_switches(&mut self) {
+        let on = |b: bool| if b { 1.0 } else { 0.0 };
+        for ((level, knob), &is_on) in self.level.iter_mut().zip(self.knob_level).zip(&self.vco_on)
+        {
+            *level = knob * on(is_on);
+        }
+        self.noise_level = self.knob_noise * on(self.noise_on);
+        self.glide = self.knob_glide * on(self.glide_on);
+        self.normals.vibrato = self.knob_vibrato * on(self.osc_mod_on);
+        self.normals.lfo_cutoff = self.knob_lfo_cutoff * on(self.filter_mod_on);
+    }
+
+    /// The match is exhaustive on purpose: a new `Param` doesn't compile
+    /// until it is handled here.
+    fn set_one(&mut self, param: Param, v: f32) {
         let samples = v * self.sample_rate;
         match param {
             Param::Ctl1
@@ -286,13 +342,17 @@ impl MonoParams {
             Param::Vco1Fine => self.set_tune(0, None, Some(v)),
             Param::Vco2Fine => self.set_tune(1, None, Some(v)),
             Param::Vco3Fine => self.set_tune(2, None, Some(v)),
-            Param::Vco1Level => self.level[0] = v,
-            Param::Vco2Level => self.level[1] = v,
-            Param::Vco3Level => self.level[2] = v,
+            Param::Vco1Level => self.knob_level[0] = v,
+            Param::Vco2Level => self.knob_level[1] = v,
+            Param::Vco3Level => self.knob_level[2] = v,
+            Param::Vco1On => self.vco_on[0] = v >= 0.5,
+            Param::Vco2On => self.vco_on[1] = v >= 0.5,
+            Param::Vco3On => self.vco_on[2] = v >= 0.5,
             Param::PulseWidth => self.pulse_width = v,
             Param::Vco2Sync => self.sync[1] = v >= 0.5,
             Param::Vco3Sync => self.sync[2] = v >= 0.5,
-            Param::NoiseLevel => self.noise_level = v,
+            Param::NoiseLevel => self.knob_noise = v,
+            Param::NoiseOn => self.noise_on = v >= 0.5,
             Param::RingLevel => self.ring_level = v,
             Param::SubLevel => self.sub_level = v,
             Param::SubOctave => self.sub_ratio = if v >= 0.5 { 0.25 } else { 0.5 },
@@ -332,7 +392,10 @@ impl MonoParams {
                 }
             }
             Param::Legato => self.legato = v >= 0.5,
-            Param::Glide => self.glide = samples,
+            Param::Glide => self.knob_glide = samples,
+            Param::GlideOn => self.glide_on = v >= 0.5,
+            Param::DecayRelease => self.decay_release = v >= 0.5,
+            Param::A440 => self.a440 = v >= 0.5,
             Param::Patch1Source => self.patch.set_source(0, v),
             Param::Patch1Dest => self.patch.set_dest(0, v),
             Param::Patch1Amount => self.patch.set_amount(0, v),
@@ -361,8 +424,10 @@ impl MonoParams {
             Param::EnvCutoff => self.normals.env_cutoff = 48.0 * v,
             Param::EnvHpCutoff => self.normals.env_hp_cutoff = 48.0 * v,
             Param::KeyTrack => self.normals.key_track = v,
-            Param::Vibrato => self.normals.vibrato = 2.0 * v,
-            Param::LfoCutoff => self.normals.lfo_cutoff = 24.0 * v,
+            Param::Vibrato => self.knob_vibrato = 2.0 * v,
+            Param::LfoCutoff => self.knob_lfo_cutoff = 24.0 * v,
+            Param::OscModOn => self.osc_mod_on = v >= 0.5,
+            Param::FilterModOn => self.filter_mod_on = v >= 0.5,
             Param::LfoPw => self.normals.lfo_pw = 0.45 * v,
             Param::EnvFreq2 => self.normals.env_freq2 = 24.0 * v,
             Param::OscFreq2 => self.normals.osc_freq2 = 24.0 * v,
@@ -865,6 +930,55 @@ impl MonoParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #308: an on/off switch zeroes what its knob sets and gives it back.
+    #[test]
+    fn switches_gate_their_knobs() {
+        let mut p = MonoParams::new(48_000.0);
+        let mut set = |param: Param, v: f32| p.set(param, param.clamp(v));
+        set(Param::Vco2Level, 0.6);
+        set(Param::NoiseLevel, 0.4);
+        set(Param::Glide, 0.5);
+        set(Param::Vibrato, 0.5);
+        set(Param::LfoCutoff, 0.5);
+        for (switch, v) in [
+            (Param::Vco2On, 0.0),
+            (Param::NoiseOn, 0.0),
+            (Param::GlideOn, 0.0),
+            (Param::OscModOn, 0.0),
+            (Param::FilterModOn, 0.0),
+        ] {
+            set(switch, v);
+        }
+        let off = (
+            p.level[1],
+            p.noise_level,
+            p.glide,
+            p.normals.vibrato,
+            p.normals.lfo_cutoff,
+        );
+        assert_eq!(off, (0.0, 0.0, 0.0, 0.0, 0.0));
+        let mut set = |param: Param, v: f32| p.set(param, param.clamp(v));
+        for switch in [
+            Param::Vco2On,
+            Param::NoiseOn,
+            Param::GlideOn,
+            Param::OscModOn,
+            Param::FilterModOn,
+        ] {
+            set(switch, 1.0);
+        }
+        assert_eq!(
+            (
+                p.level[1],
+                p.noise_level,
+                p.glide,
+                p.normals.vibrato,
+                p.normals.lfo_cutoff
+            ),
+            (0.6, 0.4, 24_000.0, 1.0, 12.0)
+        );
+    }
 
     /// Each parameter lands in the voice in the units `render` uses.
     #[test]
