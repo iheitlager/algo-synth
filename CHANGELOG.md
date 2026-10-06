@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-06
+
+### Added
+
+- **SuperCollider voices on the Modular synth:** a Modular synth plays a SynthDef, built once with a subset of sclang (functions, `var`, `dup`, `Array.fill`, `Mix.fill`, `if`) onto `SinOsc Saw Pulse LFTri LFSaw LFPulse WhiteNoise PMOsc RLPF RHPF LPF HPF MoogFF CombL DelayN Rand ExpRand EnvGen` with `Env.adsr/perc/asr` and `Env(levels, times, curves)`; every number a UGen takes is a live knob, and the code shows the knobs' values (ADR-0024, #216).
+- **Room for big voices:** a Modular program's state is sized for its synth when its code is set, up to 64 oscillators and 32 delays a voice, with a voice cap from its cost: the SuperCollider hoover plays four voices at about 3% of a core each (#216).
+- **Stereo Modular voices:** a SynthDef that ends in two channels plays on a stereo bus, with `Pan2`, `Splay`, `FreeVerb2` and `FreeVerb`; the SuperCollider hoover plays exactly as written (ADR-0024, #216, #288).
+- **Per-voice values on Mono and Poly synths:** a `mod` line or method with `env(adsr)`, `env(perc)`, `env(a, d, s, r)` or a list `[a, b]` (also `lfo([1, 3])`) gives each voice its own cutoff, resonance or oscillator, noise, ring or sub level: `mod lead.cutoff = env(perc).exprange(200, 4000)` restarts with every note of a chord (ADR-0023, #273).
+- **Favicon:** the tab shows an amber waveform over four steps, and the page no longer requests a missing `/favicon.ico` (#289).
+- **Code on the Modular faceplate:** the synth pane shows a Modular synth's SynthDef, its knobs' values in its numbers, with Apply (Ctrl+Enter) and errors at line and column; a bad edit leaves the synth playing as it was (ADR-0024, #292).
+- **Minimoog Model D panel:** the Minimoog faceplate in the Model D's order with its rocker switches in their colours, and the switches it lacked: mixer on/off per source, Glide, Decay, oscillator and filter modulation, two keyboard control switches and an A-440 reference tone (#308).
+
+### Changed
+
+- **A Modular synth's code lives in a setting:** a song holds a SynthDef on the indented lines under a `Modular` setting (`setting acid = Modular ModularBasic`), kept as written, built when the song loads and reported at the song's line and column; saving a track's sound as a setting writes the code with its knobs' values. Setup files and user synth presets keep the code too (ADR-0024, #216).
+- **Removed: `voice` and `ctl` lines and the Sound screen.** The song's one-line voices of ADR-0020, `track … synth Modular <voice>` and the fourth main view are gone; a Modular voice is a SuperCollider SynthDef. A song with a `voice` line no longer loads: write its voice as a SynthDef under a setting (ADR-0024, #216).
+- **No zipper on moving gains:** a fader, pan or send, and a Mono or Poly oscillator, noise, ring or sub level, now ramp in a line across each block instead of stepping at its edge, so `mod strip1.pan = lfo(4).range(-1, 1)` and fast lanes on levels are smooth; a strip or voice starting from silence takes its values at once (#271).
+- **One transport:** the top bar's Play, Pause and Stop play the song, and show its bar, step and section; the composer and the arranger no longer have their own, and Pause holds the place where Stop goes back to the top (ADR-0022, #283).
+- **A MIDI file opens as the song:** opening one imports it, its channels on synths 0, 1, 2…; the MIDI player, its pane, lane names, per-file sessions and the channel routes in setups are gone. An older setup with routes still opens, with a notice (#283).
+- **Roland OTA filter:** the SH-101, the Juno-106 (now voiced apart, a little hotter) and the Jupiter-8's four-pole saturate each OTA of an IR3109-style cascade: a hot input's edges round off darker than through the plain ladder; in the modular voice, `ladder(sh101, …)`, `ladder(juno106, …)` or `ladder(jupiter8, …)` (#305).
+- **Moog transistor ladder:** the Minimoog, the ARP 2600, the modular `ladder` and imported `MoogFF` saturate each of the ladder's four stages, as the transistor ladder does: a hot input fattens and keeps its grit under resonance, and self-oscillation is a little softer (#306).
+- **Synth voicings on SuperCollider filters:** `MoogFF` takes any synth's ladder and `RLPF`, `RHPF`, `LPF` and `HPF` any synth's 12 dB filter by name, `MoogFF.ar(sig, 800, 2, voicing: \sh101, drive: 0.3)`, rendering as that synth's filter; the old lowercase voice language, its parser and its `hp1`, `drive` and per-voice lists are removed (#307, #316).
+
+### Fixed
+
+- **Song synths named by kind:** a song's drum track on synth 0 is `Drum 1`, not `Synth 1`; a sampler track's synth is `Sampler N`. Names you typed stay (#284).
+- **MIDI import keeps time:** a note held past the last start rings out instead of being cut, and a tempo change keeps every later note at its moment in the file; spec 002 Req 8 now states the import's limits (#295).
+- **The composer shows the current step again:** the step grid's marker was hidden by a style that matched the page layout since the composer got its own screen (#303).
+- **Faceplate colours:** the TR-808's pads in its step buttons' red, orange, yellow and off-white, the Jupiter-8's and Juno-106's sections in their button colours, the PPG Wave in ultramarine, the DX7 in dark brown and DX green, and the Pro-One without wood cheeks (#312).
+
 ## [0.35.0] - 2026-10-06
 
 ### Added
