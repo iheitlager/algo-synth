@@ -1643,7 +1643,7 @@ impl Builder {
             }
             ("Out" | "OffsetOut" | "ReplaceOut", "ar" | "kr") => {
                 let bound =
-                    bind(&["bus", "channelsArray"], &[None, None], &args, &kws).map_err(&err)?;
+                    bind(&["bus", "channelsArray"], &[None, None], &args, &kws).map_err(err)?;
                 Ok(bound.get(1).cloned().flatten().unwrap_or(V::Nil))
             }
             ("Pan2" | "Splay" | "FreeVerb2" | "FreeVerb", _) => {
@@ -1666,7 +1666,7 @@ impl Builder {
                     &args,
                     &kws,
                 )
-                .map_err(&err)?;
+                .map_err(err)?;
                 match bound.first().cloned().flatten() {
                     Some(V::Env(spec)) => {
                         let env = self.envgen(&spec, bound.get(1).cloned().flatten(), at)?;
@@ -1842,7 +1842,7 @@ impl Builder {
             ),
             _ => return Err(err("this UGen is not part of a SynthDef here")),
         };
-        let bound = bind(names, defaults, &args, &kws).map_err(&err)?;
+        let bound = bind(names, defaults, &args, &kws).map_err(err)?;
         let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
         let freq_spec = if kr { RATE } else { FREQ };
         let c = c.to_string();
