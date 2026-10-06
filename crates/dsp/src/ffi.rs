@@ -978,6 +978,55 @@ pub extern "C" fn voice_error_len() -> u32 {
     query(0, |e| e.voice_error().map_or(0, |x| x.msg.len() as u32))
 }
 
+// A Modular synth's SuperCollider code (ADR-0024): written into `song_buf`,
+// set with `code_set`; its text with the knobs' values from `code_text`.
+
+/// Give synth `s` the SynthDef in `song_buf`: 0 when it builds, −1 when it
+/// does not (see `code_error_*`), −5 before `init`.
+#[unsafe(no_mangle)]
+pub extern "C" fn code_set(s: u32) -> i32 {
+    query(-5, |e| {
+        if e.set_code_from_buffer(s as usize).is_ok() {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn code_error_line() -> u32 {
+    query(0, |e| e.code_error().map_or(0, |x| x.line as u32))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn code_error_col() -> u32 {
+    query(0, |e| e.code_error().map_or(0, |x| x.col as u32))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn code_error_ptr() -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.code_error().map_or(std::ptr::null(), |x| x.msg.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn code_error_len() -> u32 {
+    query(0, |e| e.code_error().map_or(0, |x| x.msg.len() as u32))
+}
+
+/// Synth `s`'s code (0 bytes for none); its length, then `code_text_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn code_text(s: u32) -> u32 {
+    query(0, |e| e.code_text(s as usize).len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn code_text_ptr() -> *const u8 {
+    query(std::ptr::null(), |e| e.code_text_buf().as_ptr())
+}
+
 /// Address and length of track `t`'s name.
 #[unsafe(no_mangle)]
 pub extern "C" fn track_name_ptr(t: u32) -> *const u8 {

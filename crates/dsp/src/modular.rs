@@ -344,7 +344,7 @@ impl Program {
     /// work per synth over a rough cost per voice (a band-limited oscillator
     /// the unit), from 1 to 16; `make bench` checks it.
     pub fn voice_cap(&self) -> usize {
-        const BUDGET: f32 = 240.0;
+        const BUDGET: f32 = 1000.0;
         let c = self.counts;
         let cost = 4.0 * f32::from(c.oscs)
             + 2.0 * f32::from(c.filters)
@@ -1179,8 +1179,10 @@ pub struct VoiceState {
     /// The delays' lines, `MAX_DELAY` each, and where each writes next.
     lines: Vec<f32>,
     writes: Vec<usize>,
-    /// The numbers drawn when the note started.
+    /// The numbers drawn when the note started, and how many notes this
+    /// slot has started: a voice is rebuilt per note, its slot's state is not.
     rands: Vec<f32>,
+    notes: u32,
 }
 
 impl VoiceState {
@@ -1377,6 +1379,7 @@ impl GraphVoice {
     /// afresh on a silent voice, and the note's random numbers drawn.
     fn start(&mut self, ctx: &MonoCtx, st: &mut VoiceState) {
         st.prog = ctx.params.graph;
+        st.notes = st.notes.wrapping_add(1);
         if self.fresh {
             st.oscs.iter_mut().for_each(|o| *o = Osc::default());
             st.phases.iter_mut().for_each(|p| *p = 0.0);
@@ -1396,7 +1399,9 @@ impl GraphVoice {
                     }
                 }
                 Some(Ugen::Rand { lo, hi, exp, slot }) => {
-                    let h = crate::algo::mix(self.seed ^ self.presses.wrapping_mul(0x9E37_79B9), k);
+                    let note_seed =
+                        self.seed ^ st.notes.wrapping_mul(0x9E37_79B9) ^ (self.slot as u32);
+                    let h = crate::algo::mix(note_seed, k);
                     k += 1;
                     let u = h as f32 / (u32::MAX as f32 + 1.0);
                     let (l, hh) = (st.fixed(lo, ctx), st.fixed(hi, ctx));

@@ -62,6 +62,27 @@ const LARGEST = [
 
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
 // there. Each song track plays its own synth, all set up the same.
+// The SuperCollider hoover of #216 (ADR-0024), its Splay folded to a Mix and
+// no reverb yet: 40 saws and 20 delays a voice.
+const HOOVER = String.raw`SynthDef(\hoover, {
+    var snd, freq, bw, delay, decay;
+    freq = \freq.kr(440);
+    freq = freq * Env([-5, 6, 0], [0.1, 1.7], [\lin, -4]).kr.midiratio;
+    bw = 1.035;
+    snd = { DelayN.ar(Saw.ar(freq * ExpRand(bw, 1 / bw)) + Saw.ar(freq * 0.5 * ExpRand(bw, 1 / bw)), 0.01, Rand(0, 0.01)) }.dup(20);
+    snd = (Mix(snd) * 3 * 0.2236).atan;
+    snd = snd * Env.asr(0.01, 1.0, 1.0).kr(0, \gate.kr(1));
+    snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
+    Out.ar(\out.kr(0), snd * \amp.kr(0.1));
+}).add;`
+
+/** Give synth `s` a SynthDef, as the panel's Apply does. */
+function setCode(w, s, code) {
+  const text = new TextEncoder().encode(code)
+  new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
+  if (w.code_set(s) < 0) throw new Error(`the SynthDef did not build: line ${w.code_error_line()}, column ${w.code_error_col()}`)
+}
+
 const scenarios = {
   // Three saws and pink noise, in a string section's range.
   'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
@@ -105,6 +126,14 @@ const scenarios = {
   // The largest voice the limits allow (ADR-0021): eight oscillators, four
   // filters and the delay, a note on each of the 16 synths.
   'modular max': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48, [0], LARGEST],
+  // The basic Modular voice (a filtered saw) on all 16 synths, and the
+  // SuperCollider hoover on four of them: the difference is four hoover voices.
+  'modular basic': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48],
+  // The code goes in after the song loads, which picks the tracks' presets.
+  'sc hoover x4': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48, [0], '', (w, s) => {
+    w.mono_preset(s, Preset.ModularBasic)
+    if (s < 4) setCode(w, s, HOOVER)
+  }],
   // The Modular hoover (ADR-0020), a chord on every synth: 64 graph voices of
   // three oscillators, two LFOs and a filter.
   'modular': [(w, s) => w.mono_preset(s, Preset.ModularHoover), 48, CHORD],
@@ -140,7 +169,7 @@ function heldSong(lowest, chord = [0], song = '') {
   return lines.join('\n')
 }
 
-function run(setup, lowest, chord, song) {
+function run(setup, lowest, chord, song, after) {
   const w = new WebAssembly.Instance(module, {}).exports
   w.init(SR)
   // The whole chain: every synth through Fuzz, panned, into both sends and
@@ -191,6 +220,7 @@ function run(setup, lowest, chord, song) {
   new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
   if (w.song_load() < 0) throw new Error('the bench song did not load')
   for (let t = 0; t < VOICES; t++) w.song_route(t, t)
+  if (after) for (let s = 0; s < w.synth_count(); s++) after(w, s)
   w.song_play()
   const block = w.block_len()
   for (let i = 0; i < WARMUP; i++) w.process(block)
@@ -213,8 +243,8 @@ function run(setup, lowest, chord, song) {
 
 console.log(`${cpus()[0]?.model ?? 'unknown CPU'} · Node ${process.version} · V8 ${process.versions.v8}`)
 let over = false
-for (const [name, [setup, lowest, chord, song]] of Object.entries(scenarios)) {
-  const r = run(setup, lowest, chord, song)
+for (const [name, [setup, lowest, chord, song, after]] of Object.entries(scenarios)) {
+  const r = run(setup, lowest, chord, song, after)
   const pct = (100 * r.load).toFixed(1)
   const ok = r.load <= BUDGET && r.peak <= 1
   over ||= !ok

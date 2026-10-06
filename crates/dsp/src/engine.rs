@@ -148,6 +148,9 @@ pub struct Engine {
     voice_text: String,
     /// Each Modular synth's SynthDef: its code, knobs and modules (ADR-0024).
     codes: Vec<Option<Patch>>,
+    /// The last code that did not build, and a code's text handed out.
+    code_error: Option<CodeError>,
+    code_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
     /// While a MIDI file is imported its parts keep the synths they play on.
     keep_synths: bool,
@@ -232,6 +235,8 @@ impl Engine {
             voice_error: None,
             voice_text: String::new(),
             codes: vec![None; SYNTHS],
+            code_error: None,
+            code_text: String::new(),
             song_route: [None; MAX_TRACKS],
             keep_synths: false,
             note_offs: [None; NOTE_OFFS],
@@ -426,6 +431,29 @@ impl Engine {
             *slot = Some(patch);
         }
         Ok(())
+    }
+
+    /// Give Modular `synth` the SynthDef written into the song buffer (the
+    /// panel's Apply); an error is kept for `code_error`.
+    pub fn set_code_from_buffer(&mut self, synth: usize) -> Result<(), CodeError> {
+        let code = String::from_utf8_lossy(&self.song_buf).into_owned();
+        let result = self.set_code(synth, &code);
+        self.code_error = result.err();
+        result
+    }
+
+    pub fn code_error(&self) -> Option<CodeError> {
+        self.code_error
+    }
+
+    /// Modular `synth`'s code, kept for the C ABI until the next call.
+    pub fn code_text(&mut self, synth: usize) -> &str {
+        self.code_text = self.code(synth).unwrap_or_default();
+        &self.code_text
+    }
+
+    pub fn code_text_buf(&self) -> &str {
+        &self.code_text
     }
 
     /// Modular `synth`'s code as it plays: its numbers are its knobs' values.
