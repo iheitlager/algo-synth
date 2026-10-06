@@ -29,6 +29,7 @@ use crate::mono::{MonoParams, VCOS};
 use crate::sample::SampleStore;
 use crate::sampler::ZoneMap;
 use crate::table::{TableOsc, Tables};
+use crate::voice::Gains;
 use crate::voice::midi_to_hz;
 
 /// Keys a voice remembers; pressing one more forgets the oldest.
@@ -210,6 +211,9 @@ pub struct MonoVoice {
     /// A patch drives the VCA, so the AR (not only the ADSR) can keep the
     /// voice sounding.
     vca_patched: bool,
+    /// The VCO, noise, ring and sub levels, ramping from one block's to the
+    /// next so a modulated level does not zipper (#271).
+    levels: Gains<6>,
 }
 
 impl MonoVoice {
@@ -339,6 +343,10 @@ impl MonoVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
         let p = ctx.params;
+        // A voice starting from silence takes its levels at once; a sounding
+        // one ramps to them (#271).
+        let sounding =
+            self.adsr.stage != Stage::Idle || (self.vca_patched && self.ar.stage != Stage::Idle);
         // Where a model's contours have no release knob, decay is the release.
         let times = |t: &EnvTimes| {
             if p.model.decay_is_release() {
@@ -382,12 +390,18 @@ impl MonoVoice {
         let tables = p.model.uses_tables();
         let [t1, t2, t3] = p.tune;
         let [_, sync2, sync3] = p.sync;
-        let [l1, l2, l3] = p.level;
-        let (noise_level, colour) = (p.noise_level, p.noise_colour);
-        let (ring_level, sub_level) = (p.ring_level, p.sub_level);
+        let [v1, v2, v3] = p.level;
+        let levels = [v1, v2, v3, p.noise_level, p.ring_level, p.sub_level];
+        let colour = p.noise_colour;
+        if !sounding {
+            self.levels.jump(levels);
+        }
+        let moving = self.levels.aim(levels, out.len());
         let hp = p.model.hp();
         let filter_env_is_adsr = p.model.filter_env_is_adsr();
         for (i, sample) in out.iter_mut().enumerate() {
+            let [l1, l2, l3, noise_level, ring_level, sub_level] =
+                if moving { self.levels.tick() } else { levels };
             let adsr = self.adsr.step();
             let ar = self.ar.step();
             let fenv = self.fadsr.step();
@@ -543,6 +557,7 @@ impl MonoVoice {
             self.last = [y1, y2, y3];
             self.mods = m;
         }
+        self.levels.settle();
     }
 }
 
@@ -609,6 +624,36 @@ mod tests {
             }
             out
         }
+    }
+
+    /// #271: an oscillator level written every block, as a `mod` line or a
+    /// lane writes it, ramps inside the voice. On a sine through an open
+    /// filter, a smooth signal, a moving level jumps no more than a steady one.
+    #[test]
+    fn a_level_moved_every_block_does_not_step() {
+        let largest = |moving: bool| {
+            let mut rig = Rig::new(&[
+                (Param::Vco1Wave, 3.0),
+                (Param::Vco2Level, 0.0),
+                (Param::Vco3Level, 0.0),
+                (Param::NoiseLevel, 0.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            rig.press(45);
+            rig.render(SR as usize / 2);
+            let mut out = Vec::new();
+            for block in 0..40 {
+                let level = if moving && block % 2 == 1 { 0.1 } else { 1.0 };
+                rig.params.set(Param::Vco1Level, level);
+                out.extend(rig.render(128));
+            }
+            out.windows(2)
+                .fold(0.0_f32, |m, w| m.max((w[1] - w[0]).abs()))
+        };
+        let (steady, moving) = (largest(false), largest(true));
+        assert!(steady > 0.0);
+        assert!(moving <= 1.2 * steady, "moving {moving} vs steady {steady}");
     }
 
     #[test]

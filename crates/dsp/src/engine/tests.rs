@@ -968,6 +968,8 @@ fn fader_mute_and_solo() {
     assert!(heard(&mut e, 40) > 0.05);
     e.set_param(0, Param::Level, 0.0);
     e.set_param(1, Param::Mute, 1.0);
+    // A fader closing on a sounding synth ramps down across one block (#271).
+    heard(&mut e, 1);
     assert_eq!(heard(&mut e, 10), 0.0, "fader 0 and a mute are silent");
     e.set_param(1, Param::Mute, 0.0);
     assert!(heard(&mut e, 10) > 0.05, "synth 1 unmuted");
