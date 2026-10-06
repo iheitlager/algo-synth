@@ -1,6 +1,6 @@
 # 0021: The modular voice's language and how it runs
 
-**Status:** Proposed · **Date:** 2026-10-06
+**Status:** Accepted · **Date:** 2026-10-06
 
 ## Context
 
@@ -27,7 +27,7 @@ ADR-0020 decides that a Modular synth's voice is a graph of unit generators writ
 - PR 3 of #216 measured 16 voices of the largest voice the limits allow (eight oscillators, four filters, the delay, 30 nodes) at 14% of one core (`make bench`, `modular max`): ADR-0020's acceptance, 16 voices of a stated graph size within the budget, holds with these limits.
 - PR 1 of #216 measured 64 voices of the hoover preset (three band-limited oscillators, two LFOs, a filter) at 22% of one core against plan.md's 25% budget (`make bench`, `modular`). The limits above are an upper bound on a single voice, not a promise that 64 voices of the largest graph fit; the bench of the largest graph sets the limit before the language grows (#216, PR 3).
 - A graph's state is reset when a silent voice starts a note, not when the program changes under a sounding one.
-- `pan` waits for a stereo synth bus (the synth buses are mono; the pad sampler's stereo path is the model), since a voice can only pan what reaches its strip in stereo.
+- `pan` waits for a stereo synth bus (the synth buses are mono; the pad sampler's stereo path is the model), since a voice can only pan what reaches its strip in stereo (#288).
 
 ## Alternatives considered
 
