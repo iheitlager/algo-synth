@@ -24,7 +24,7 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::player::Sequence;
-use crate::poly::{Pool, VOICE_BUDGET};
+use crate::poly::{MAX_VOICES, Pool, VOICE_BUDGET};
 
 /// Song notes that may sound at once before one is dropped.
 const NOTE_OFFS: usize = 256;
@@ -787,13 +787,22 @@ impl Engine {
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
-        // Each modulation puts back the value it found.
+        // Each modulation puts back the value it found; a per-voice one never
+        // wrote the synth's, so its voices just go back to it (ADR-0023).
         for m in 0..MAX_MODS {
-            let target = self.song.mods.get(m).map(|md| (md.target, md.param));
+            let target = self
+                .song
+                .mods
+                .get(m)
+                .filter(|md| !md.signal.per_voice())
+                .map(|md| (md.target, md.param));
             let base = self.mod_base.get_mut(m).and_then(Option::take);
             if let (Some((t, p)), Some(base)) = (target, base) {
                 self.automate(t, p, base);
             }
+        }
+        for pool in self.pools.iter_mut() {
+            pool.clear_all_voices();
         }
         // From the top every lane and modulation writes again.
         self.auto_last = [f32::NAN; MAX_AUTOS];
@@ -1288,6 +1297,56 @@ impl Engine {
                         .is_some_and(|sec| sec.frags.contains(&f))
                 })
             });
+            if md.signal.per_voice() {
+                // A value per voice of the track's Mono or Poly synth (ADR-0023).
+                let Target::Track(track) = target else {
+                    continue;
+                };
+                let Some((s, pool)) = self
+                    .song_route
+                    .get(track)
+                    .copied()
+                    .flatten()
+                    .and_then(|s| Some((s, self.pools.get_mut(s)?)))
+                else {
+                    continue;
+                };
+                let Some(base) = self.mod_base.get_mut(m) else {
+                    continue;
+                };
+                if !playing {
+                    if base.take().is_some() {
+                        pool.clear_voices(param);
+                    }
+                    continue;
+                }
+                // Marks the knob as modulated; nothing is put back.
+                *base = Some(0.0);
+                let sr = self.sample_rate;
+                let adsr = self.synths.get(s).map_or([0.0; 4], |p| {
+                    let t = p.adsr;
+                    [t.attack / sr, t.decay / sr, t.sustain, t.release / sr]
+                });
+                for slot in 0..MAX_VOICES {
+                    let Some((on, off)) = pool.voice_times(slot, sr) else {
+                        continue;
+                    };
+                    let mut ctx = signal::Ctx {
+                        cps,
+                        dt,
+                        state: &mut self.mod_state,
+                        voice: Some(signal::Voice {
+                            slot,
+                            on,
+                            off,
+                            adsr,
+                        }),
+                    };
+                    let v = md.signal.eval(t, &mut ctx);
+                    pool.set_voice(slot, param, v);
+                }
+                continue;
+            }
             if !playing {
                 if let Some(base) = self.mod_base.get_mut(m).and_then(Option::take) {
                     if let Some(last) = self.mod_last.get_mut(m) {
@@ -1305,6 +1364,7 @@ impl Engine {
                 cps,
                 dt,
                 state: &mut self.mod_state,
+                voice: None,
             };
             let v = md.signal.eval(t, &mut ctx);
             match self.mod_last.get_mut(m) {
@@ -1372,11 +1432,18 @@ impl Engine {
         // drops puts that value back.
         let old = std::mem::replace(&mut self.mod_base, [None; MAX_MODS]);
         let mut restore = [None; MAX_MODS];
+        // Per-voice values come back from the new song's signals next block.
+        for pool in self.pools.iter_mut() {
+            pool.clear_all_voices();
+        }
         if let Some((spent, _)) = &self.spent {
             for (o, md) in spent.mods.iter().enumerate() {
                 let Some(base) = old.get(o).copied().flatten() else {
                     continue;
                 };
+                if md.signal.per_voice() {
+                    continue;
+                }
                 let kept = self.song.mods.iter().position(|n| {
                     n.target == md.target
                         && n.param == md.param

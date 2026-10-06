@@ -18,7 +18,7 @@
 use crate::engine::BLOCK;
 use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::MAX_K;
-use crate::mono::ladder::{Ladder, LadderTables};
+use crate::mono::ladder::{Ladder, LadderTables, hz_to_note};
 use crate::mono::lfo::Lfo;
 use crate::mono::model::{Filter, Hp};
 use crate::mono::noise::Noise;
@@ -26,6 +26,7 @@ use crate::mono::osc::{Blep, Osc, Waveform};
 use crate::mono::patch::{ModDest, ModSource, Mods, SOURCES, Sources, is_taken, modulate};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::{MonoParams, VCOS};
+use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::ZoneMap;
 use crate::table::{TableOsc, Tables};
@@ -214,6 +215,75 @@ pub struct MonoVoice {
     /// The VCO, noise, ring and sub levels, ramping from one block's to the
     /// next so a modulated level does not zipper (#271).
     levels: Gains<6>,
+    /// Its own values, which the pool sets each block (ADR-0023).
+    pub set: VoiceSet,
+}
+
+/// The parameters a voice can hold a value of its own for (ADR-0023), in the
+/// order of `VoiceSet`'s slots.
+pub const VOICE_PARAMS: [Param; 8] = [
+    Param::Cutoff,
+    Param::Resonance,
+    Param::Vco1Level,
+    Param::Vco2Level,
+    Param::Vco3Level,
+    Param::NoiseLevel,
+    Param::RingLevel,
+    Param::SubLevel,
+];
+
+/// One voice's own values (ADR-0023): a per-voice signal writes them, and the
+/// voice reads one instead of the synth's while it is set. Stored as the
+/// voice reads them: the cutoff as a note, the resonance as a feedback.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct VoiceSet {
+    mask: u8,
+    v: [f32; VOICE_PARAMS.len()],
+}
+
+impl VoiceSet {
+    /// Hold `value` (clamped, in the parameter's units) for `param`; false
+    /// for a parameter a voice has no slot for.
+    pub fn write(&mut self, param: Param, value: f32) -> bool {
+        let Some(k) = VOICE_PARAMS.iter().position(|p| *p == param) else {
+            return false;
+        };
+        let v = param.clamp(value);
+        let v = match param {
+            Param::Cutoff => hz_to_note(v),
+            Param::Resonance => v * MAX_K,
+            _ => v,
+        };
+        if let Some(slot) = self.v.get_mut(k) {
+            *slot = v;
+            self.mask |= 1 << k;
+        }
+        true
+    }
+
+    /// Go back to the synth's value for `param`.
+    pub fn clear(&mut self, param: Param) {
+        if let Some(k) = VOICE_PARAMS.iter().position(|p| *p == param) {
+            self.mask &= !(1 << k);
+        }
+    }
+
+    /// The value held for `param`, as the voice reads it; `None` when it
+    /// follows the synth's.
+    pub fn get(&self, param: Param) -> Option<f32> {
+        let k = VOICE_PARAMS.iter().position(|p| *p == param)?;
+        (self.mask & (1 << k) != 0)
+            .then(|| self.v.get(k).copied())
+            .flatten()
+    }
+
+    /// The value held for slot `k`, else `synth`'s.
+    fn or(&self, k: usize, synth: f32) -> f32 {
+        match self.v.get(k) {
+            Some(v) if self.mask & (1 << k) != 0 => *v,
+            _ => synth,
+        }
+    }
 }
 
 impl MonoVoice {
@@ -390,8 +460,17 @@ impl MonoVoice {
         let tables = p.model.uses_tables();
         let [t1, t2, t3] = p.tune;
         let [_, sync2, sync3] = p.sync;
+        let own = self.set;
         let [v1, v2, v3] = p.level;
-        let levels = [v1, v2, v3, p.noise_level, p.ring_level, p.sub_level];
+        let levels = [
+            own.or(2, v1),
+            own.or(3, v2),
+            own.or(4, v3),
+            own.or(5, p.noise_level),
+            own.or(6, p.ring_level),
+            own.or(7, p.sub_level),
+        ];
+        let (cutoff, feedback) = (own.or(0, p.cutoff), own.or(1, p.k));
         let colour = p.noise_colour;
         if !sounding {
             self.levels.jump(levels);
@@ -527,26 +606,20 @@ impl MonoVoice {
             }
             let mut y = match filter {
                 Filter::Ladder(v) => {
-                    let k = (p.k + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
+                    let k = (feedback + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
                     let x = x * (1.0 + v.comp * k);
                     self.ladder.process(
                         ctx.ladder,
                         x,
-                        p.cutoff + m.cutoff + self.cutoff_trim,
+                        cutoff + m.cutoff + self.cutoff_trim,
                         k,
                         p.drive * v.drive,
                     )
                 }
                 Filter::Svf(v) => {
-                    let res = p.k / MAX_K + m.resonance;
+                    let res = feedback / MAX_K + m.resonance;
                     self.svf_lp
-                        .process(
-                            ctx.ladder,
-                            &v,
-                            x,
-                            p.cutoff + m.cutoff + self.cutoff_trim,
-                            res,
-                        )
+                        .process(ctx.ladder, &v, x, cutoff + m.cutoff + self.cutoff_trim, res)
                         .lp
                 }
             };

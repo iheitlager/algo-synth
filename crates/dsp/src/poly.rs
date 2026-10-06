@@ -26,8 +26,9 @@ use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
 use crate::mono::osc::Blep;
-use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools};
+use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools, VoiceSet};
 use crate::padsampler::{PadVoice as SampledPad, pad_of};
+use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::SamplerVoice;
 use crate::voice::Owner;
@@ -217,6 +218,9 @@ struct Slot {
     age: u64,
     /// This voice's unison detune in cents (0 outside unison).
     cents: f32,
+    /// Frames since its note began, and since its key was let go (ADR-0023).
+    since: u32,
+    released: Option<u32>,
 }
 
 /// A number in −1..=1 that depends only on `i` and `salt`: a voice's own, repeatable offset.
@@ -262,6 +266,8 @@ pub struct Pool {
     /// One block for a drum pad that goes to a group (#162), before it is panned there.
     scratch: [f32; BLOCK],
     nkeys: usize,
+    /// Each voice slot's own values, from per-voice signals (ADR-0023).
+    sets: [VoiceSet; MAX_VOICES],
 }
 
 impl Pool {
@@ -279,7 +285,43 @@ impl Pool {
             keys: [(None, 0, 0.0); MAX_VOICES],
             scratch: [0.0; BLOCK],
             nkeys: 0,
+            sets: [VoiceSet::default(); MAX_VOICES],
         }
+    }
+
+    /// Voice slot `i` while it sounds: seconds since its note began, and
+    /// since its key was let go (ADR-0023).
+    pub fn voice_times(&self, i: usize, sample_rate: f32) -> Option<(f32, Option<f32>)> {
+        let (v, s) = (self.voices.get(i)?, self.slots.get(i)?);
+        if !v.active() {
+            return None;
+        }
+        let secs = |n: u32| n as f32 / sample_rate;
+        Some((secs(s.since), s.released.map(secs)))
+    }
+
+    /// Give voice slot `i` its own value of `param`; false for a parameter a
+    /// voice has no slot for.
+    pub fn set_voice(&mut self, i: usize, param: Param, value: f32) -> bool {
+        self.sets.get_mut(i).is_some_and(|s| s.write(param, value))
+    }
+
+    /// Voice slot `i`'s own value of `param`, as the voice reads it.
+    #[cfg(test)]
+    pub fn voice_value(&self, i: usize, param: Param) -> Option<f32> {
+        self.sets.get(i)?.get(param)
+    }
+
+    /// Every voice goes back to the synth's value of `param`.
+    pub fn clear_voices(&mut self, param: Param) {
+        for s in self.sets.iter_mut() {
+            s.clear(param);
+        }
+    }
+
+    /// Every voice goes back to the synth's values.
+    pub fn clear_all_voices(&mut self) {
+        self.sets = [VoiceSet::default(); MAX_VOICES];
     }
 
     /// Voices sounding now.
@@ -458,6 +500,7 @@ impl Pool {
                     note,
                     age: clock,
                     cents,
+                    ..Slot::default()
                 };
             }
         }
@@ -489,6 +532,7 @@ impl Pool {
                 note,
                 age: clock,
                 cents: 0.0,
+                ..Slot::default()
             };
         }
     }
@@ -525,6 +569,7 @@ impl Pool {
                 note,
                 age: clock,
                 cents: 0.0,
+                ..Slot::default()
             };
         }
         self.last = i;
@@ -564,6 +609,7 @@ impl Pool {
                 note,
                 age: clock,
                 cents: 0.0,
+                ..Slot::default()
             };
         }
         self.last = i;
@@ -678,6 +724,7 @@ impl Pool {
                 note,
                 age: clock,
                 cents: 0.0,
+                ..Slot::default()
             };
         }
         self.last = i;
@@ -846,9 +893,24 @@ impl Pool {
             shared: if poly { Some(&self.shared) } else { None },
             tables: tools.tables,
         };
-        for v in self.voices.iter_mut().filter(|v| v.active()) {
+        let n = out.len() as u32;
+        for ((v, s), set) in self
+            .voices
+            .iter_mut()
+            .zip(self.slots.iter_mut())
+            .zip(self.sets.iter())
+            .filter(|((v, _), _)| v.active())
+        {
+            // How long the note has sounded, and since its key was let go.
+            s.since = s.since.saturating_add(n);
+            if !v.gated() {
+                s.released = Some(s.released.map_or(0, |r| r.saturating_add(n)));
+            }
             match v {
-                PolyVoice::Mono(m) => m.render(&ctx, out),
+                PolyVoice::Mono(m) => {
+                    m.set = *set;
+                    m.render(&ctx, out);
+                }
                 PolyVoice::La(l) => l.render(&ctx, out),
                 PolyVoice::Fm(f) => f.render(&ctx, out),
                 PolyVoice::Drum(d) => d.render(ctx.sine, ctx.blep, out),

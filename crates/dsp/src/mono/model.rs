@@ -271,6 +271,17 @@ impl Model {
         self == Model::Modular
     }
 
+    /// Whether its voices are the Mono voice, monophonic or in a poly pool:
+    /// the voices that read per-voice values (ADR-0023).
+    pub fn uses_mono_voice(self) -> bool {
+        !(self.uses_la()
+            || self.uses_fm()
+            || self.uses_drums()
+            || self.uses_sampler()
+            || self.uses_pads()
+            || self.uses_graph())
+    }
+
     /// Whether the synth is the drum/pad sampler (#124).
     pub fn uses_pads(self) -> bool {
         self == Model::PadSampler
