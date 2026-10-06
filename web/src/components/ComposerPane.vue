@@ -167,7 +167,6 @@ watch(() => status.running, (on) => on && requestSong())
 .step.l1 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); }
 .step.l2 { background: var(--hit); }
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
-.composer:not(.playing) .step.now { outline: none; }
 .text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
 .text-foot { display: flex; align-items: center; gap: 10px; }
 .error { color: var(--accent); }
