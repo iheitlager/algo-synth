@@ -155,6 +155,20 @@ describe('applySong', () => {
     expect(take().filter((m) => m.t === 'reset')).toEqual([])
   })
 
+  it('names a song track\'s synth by its kind: a drum on synth 0 is not Synth 1 (#177)', async () => {
+    const { mod } = await boot()
+    const { names } = await import('./names')
+    names.strips[5] = 'Strings'
+    mod.applySong({
+      ...ok, ok: true, text: enc('x'), error: null,
+      tracks: [track('kit', 0, 0), track('bass', 3, 1), track('loop', 4, 2), track('pads', 5, 1)],
+    })
+    expect([0, 3, 4, 5].map((s) => mod.stripName(s))).toEqual(['Drum 1', 'Synth 1', 'Sampler 1', 'Strings'])
+    // Played again, the names that fit stay as they are.
+    mod.applySong({ ...ok, ok: true, text: enc('x'), error: null, tracks: [track('kit', 0, 0), track('bass', 3, 1)] })
+    expect([0, 3].map((s) => mod.stripName(s))).toEqual(['Drum 1', 'Synth 1'])
+  })
+
   it('keeps the draft and shows the error of a song that failed', async () => {
     const { mod, storage } = await boot()
     mod.song.draft = 'my edit'

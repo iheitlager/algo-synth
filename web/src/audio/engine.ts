@@ -11,7 +11,7 @@ import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, Stri
 import { lexer, wasmLexer } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
-import { cleanName, familyName, names, partName as laneName, renameStrip, setNames, stripName as nameOfStrip } from './names'
+import { cleanName, familyName, isFamilyName, names, partName as laneName, renameStrip, setNames, stripName as nameOfStrip } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
@@ -223,6 +223,20 @@ export function renameSynth(s: number, raw: string) {
   const family = modelDef(params.values[s]?.[Param.Model] ?? 0).family
   const others = synths.list.filter((i) => i !== s).map((i) => stripName(i))
   names.strips[s] = familyName(family, others)
+}
+
+const KIND_FAMILY = { drums: 'drums', synth: 'mono', sampler: 'samplers' } as const
+
+/**
+ * Name a song track's synth by its kind (#177), so a 909 on synth 0 is `Drum 1`
+ * and not `Synth 1`. A name the user typed stays, and so does a family name
+ * it was given that already fits.
+ */
+function nameByKind(s: number, kind: SongTrack['kind']) {
+  const own = names.strips[s]
+  const family = KIND_FAMILY[kind]
+  if (own !== undefined && (!isFamilyName(own) || own.startsWith(familyName(family, []).split(' ')[0]))) return
+  names.strips[s] = familyName(family, synths.list.filter((i) => i !== s).map((i) => stripName(i)))
 }
 
 /** Remove synth `s` (never the last one); parts playing on it are muted. */
@@ -614,7 +628,10 @@ export function applySong(data: Record<string, unknown>) {
   }))
   song.fits = (data.fits as boolean[][] | undefined) ?? [[], [], []]
   // The engine put each track on a synth with its preset (#210): show them as they are.
-  if (data.ok) for (const t of song.tracks) if (t.synth !== MUTE) show(t.synth, true)
+  if (data.ok) for (const t of song.tracks) if (t.synth !== MUTE) {
+    show(t.synth, true)
+    nameByKind(t.synth, t.kind)
+  }
   song.frags = (data.frags as {
     name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]
     notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null
