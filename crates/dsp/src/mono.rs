@@ -631,6 +631,7 @@ impl MonoParams {
             Param::BdDecay => self.pad(Pad::Bd, |p| p.decay = v),
             Param::BdTone => self.pad(Pad::Bd, |p| p.tone = v),
             Param::BdLevel => self.pad(Pad::Bd, |p| p.level = v),
+            Param::BdDrive => self.pad(Pad::Bd, |p| p.drive = v),
             Param::SnTune => self.pad(Pad::Sn, |p| p.tune = v),
             Param::SnDecay => self.pad(Pad::Sn, |p| p.decay = v),
             Param::SnTone => self.pad(Pad::Sn, |p| p.tone = v),

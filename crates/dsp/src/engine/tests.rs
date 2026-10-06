@@ -1881,6 +1881,36 @@ fn a_hard_hit_is_accented_and_the_knobs_reach_the_pads() {
     assert_eq!(hit(1.0, Some(0.0)), 0.0, "a pad at level 0 is silent");
 }
 
+/// #264: the Heavy kits are their machine with a kick tuned down, driven and
+/// louder in its tail.
+#[test]
+fn the_heavy_kits_have_a_deeper_louder_kick() {
+    let tail = |preset: Preset| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, preset);
+        e.note_on(0, 36, 0.8);
+        run(&mut e, 48_000 / 5 / BLOCK);
+        (run(&mut e, 48_000 / 5 / BLOCK), e)
+    };
+    for (stock, heavy) in [
+        (Preset::Kit808, Preset::Heavy808),
+        (Preset::Kit909, Preset::Heavy909),
+    ] {
+        assert_eq!(stock.model(), heavy.model());
+        let ((quiet, _), (loud, e)) = (tail(stock), tail(heavy));
+        assert!(loud > 1.5 * quiet, "{heavy:?}: tail {loud} vs {quiet}");
+        assert!(
+            e.param_value(0, Param::BdTune) < 0.0,
+            "{heavy:?} is tuned down"
+        );
+        assert!(
+            e.param_value(0, Param::BdDrive) > 0.0,
+            "{heavy:?} is driven"
+        );
+    }
+}
+
 /// #114: a MIDI file's channel 10 plays on the slot it is routed to, when
 /// that slot holds the kit.
 #[test]

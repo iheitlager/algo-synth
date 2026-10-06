@@ -985,6 +985,8 @@ pub enum Param {
     ArpFree = 489,
     /// Seed of the random mode, 0..=9999.
     ArpSeed = 490,
+    /// Drum kit: the kick's drive into a soft clip, 0..=1 (#264).
+    BdDrive = 491,
 }
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
@@ -1069,7 +1071,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 491] = [
+    pub const ALL: [(Param, &'static str); 492] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1561,6 +1563,7 @@ impl Param {
         (Param::ArpLatch, "ArpLatch"),
         (Param::ArpFree, "ArpFree"),
         (Param::ArpSeed, "ArpSeed"),
+        (Param::BdDrive, "BdDrive"),
     ];
 
     /// The live arpeggiator's parameters: the engine owns them, not the voice,
@@ -1994,6 +1997,7 @@ impl Param {
             | Param::HtTone
             | Param::CbTone
             | Param::BdLevel
+            | Param::BdDrive
             | Param::SnLevel
             | Param::CpLevel
             | Param::ChLevel

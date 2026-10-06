@@ -159,8 +159,11 @@ pub struct PadVoice {
     tail_s: f32,
     /// How many bursts the clap has before its tail: 3 on the 808, 4 on the 909.
     bursts: u32,
-    /// The 909 kick's drive into its soft clip; the level of its metal voices.
+    /// The kicks' drive into their soft clip (the 808's off at 0); the level
+    /// of the 909's metal voices.
     drive: f32,
+    /// The kicks' gain after their clip, back to their undriven peak.
+    makeup: f32,
     gain: f32,
     sr: f32,
 }
@@ -191,6 +194,7 @@ impl PadVoice {
             tail_s: 0.0,
             bursts: 3,
             drive: 0.0,
+            makeup: 0.0,
             gain: 0.0,
             sr: 48_000.0,
         }
@@ -244,6 +248,11 @@ impl PadVoice {
                 self.pitch.start(1.0, 0.06, sr);
                 self.amp.start(0.42, 0.5 * d, sr);
                 self.amp2.start(0.12 * p.tone, 0.004, sr);
+                // Drive (#264): the body, at 1 on its peak, into `k·x/(1 + |k·x|)`
+                // and back to its peak of 0.42, so the tail holds up and the hit
+                // is louder for the same headroom.
+                self.drive = 10.0 * p.drive;
+                self.makeup = 0.42 * (1.0 + self.drive) / self.drive.max(1.0e-6);
             }
             Pad::Sn => {
                 let [a, b, ..] = &mut self.osc;
@@ -353,7 +362,12 @@ impl PadVoice {
                     Pad::Bd => {
                         let [o, ..] = &mut self.osc;
                         let ph = o.tick(1.0 + self.sweep * self.pitch.next());
-                        lookup(sine, ph) * self.amp.next() + self.noise.white() * self.amp2.next()
+                        let mut body = lookup(sine, ph) * self.amp.next();
+                        if self.drive > 0.0 {
+                            let x = self.drive * body / 0.42;
+                            body = self.makeup * x / (1.0 + x.abs());
+                        }
+                        body + self.noise.white() * self.amp2.next()
                     }
                     Pad::Sn => {
                         let [a, b, ..] = &mut self.osc;
@@ -457,7 +471,11 @@ impl PadVoice {
                 self.amp.start(0.5, 0.45 * d, sr);
                 self.amp2.start(0.13 + 0.2 * p.tone, 0.003, sr);
                 self.hp.set(3_000.0, 0.7, sr);
-                self.drive = 1.0 + 4.0 * p.tone;
+                // Drive (#264) on top of the tone's, back to the tone's peak.
+                let sat = |k: f32| 0.5 * k / (1.0 + 0.5 * k);
+                let toned = 1.0 + 4.0 * p.tone;
+                self.drive = toned + 8.0 * p.drive;
+                self.makeup = sat(toned) / sat(self.drive);
             }
             Pad::Sn => {
                 let [a, b, ..] = &mut self.osc;
@@ -539,7 +557,7 @@ impl PadVoice {
                 let body = lookup(sine, ph) * self.amp.next();
                 let driven = self.drive * body;
                 let (_, click) = self.hp.process(self.noise.white());
-                0.4 * driven / (1.0 + driven.abs()) + click * self.amp2.next()
+                0.4 * self.makeup * driven / (1.0 + driven.abs()) + click * self.amp2.next()
             }
             Pad::Sn => {
                 let drop = 1.0 + self.sweep * self.pitch.next();

@@ -1822,7 +1822,15 @@ enum Role {
 use Preset as P;
 
 /// The presets for each role, the default first.
-const DRUMS: &[Preset] = &[P::Kit808, P::Kit909, P::TightKit, P::Hard909, P::PadsLoud];
+const DRUMS: &[Preset] = &[
+    P::Kit808,
+    P::Kit909,
+    P::TightKit,
+    P::Hard909,
+    P::PadsLoud,
+    P::Heavy808,
+    P::Heavy909,
+];
 const BASS: &[Preset] = &[
     P::MiniBass,
     P::AcidBass,

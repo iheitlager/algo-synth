@@ -190,6 +190,8 @@ pub struct PadParams {
     pub tone: f32,
     /// 0..=1.
     pub level: f32,
+    /// 0..=1: the kick's drive into a soft clip (#264); the other pads ignore it.
+    pub drive: f32,
 }
 
 impl Default for PadParams {
@@ -199,6 +201,7 @@ impl Default for PadParams {
             decay: 1.0,
             tone: 0.5,
             level: 0.8,
+            drive: 0.0,
         }
     }
 }
@@ -221,6 +224,7 @@ impl PadParams {
             decay: c(self.decay, 0.25, 4.0, 1.0),
             tone: c(self.tone, 0.0, 1.0, 0.5),
             level: c(self.level, 0.0, 1.0, 0.0),
+            drive: c(self.drive, 0.0, 1.0, 0.0),
         }
     }
 }

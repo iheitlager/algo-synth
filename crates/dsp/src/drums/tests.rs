@@ -59,6 +59,8 @@ fn every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends() {
                             decay,
                             tone,
                             level: 1.0,
+                            // The kick's drive at its extremes with the tone's.
+                            drive: tone,
                         };
                         // The loudest hit: full level, accented by the most.
                         let mut kit = Kit::of(machine, SR);
@@ -205,10 +207,14 @@ fn names_notes_and_knobs() {
         decay: f32::NAN,
         tone: -1.0,
         level: 7.0,
+        drive: 3.0,
     };
     kit.set_params(Pad::Sn, wild);
     let p = kit.params(Pad::Sn);
-    assert_eq!((p.tune, p.decay, p.tone, p.level), (12.0, 1.0, 0.0, 1.0));
+    assert_eq!(
+        (p.tune, p.decay, p.tone, p.level, p.drive),
+        (12.0, 1.0, 0.0, 1.0, 1.0)
+    );
 }
 
 #[test]
@@ -386,4 +392,47 @@ fn the_909s_closed_hat_chokes_its_open_hat() {
     let mut rest = vec![0.0; ms(200.0)];
     kit.render(&sine, &blep, &mut rest);
     assert!(!kit.active(), "only the closed hat's short decay was left");
+}
+
+fn rms(x: &[f32]) -> f32 {
+    (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt()
+}
+
+/// #264: drive holds the kick's body up, louder in its tail for no more peak,
+/// at the same pitch; at 0 the kick is the one it always was.
+#[test]
+fn a_driven_kick_is_louder_in_its_tail_not_its_peak() {
+    for machine in [Machine::Tr808, Machine::Tr909] {
+        let kick = |drive: f32| {
+            let p = PadParams {
+                drive,
+                ..PadParams::default()
+            };
+            hit_with(Kit::of(machine, SR), Pad::Bd, p, false, 0.6).0
+        };
+        let (clean, driven) = (kick(0.0), kick(0.6));
+        assert_eq!(
+            clean,
+            hit_on(machine, Pad::Bd, 0.6),
+            "{machine:?}: drive 0 is the stock kick"
+        );
+        let tail = |x: &[f32]| rms(&x[ms(100.0)..ms(400.0)]);
+        assert!(
+            tail(&driven) > 1.3 * tail(&clean),
+            "{machine:?}: tail {} vs {}",
+            tail(&driven),
+            tail(&clean)
+        );
+        assert!(
+            peak(&driven) <= 1.1 * peak(&clean),
+            "{machine:?}: peak {} vs {}",
+            peak(&driven),
+            peak(&clean)
+        );
+        let late = |x: &[f32]| hz(&x[ms(200.0)..ms(600.0)]);
+        assert!(
+            (late(&driven) - late(&clean)).abs() < 3.0,
+            "{machine:?}: same pitch"
+        );
+    }
 }
