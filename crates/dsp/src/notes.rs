@@ -28,6 +28,7 @@
 
 mod chord;
 mod generate;
+pub mod pattern;
 
 use generate::Source;
 pub use generate::{ArpMode, Gen};

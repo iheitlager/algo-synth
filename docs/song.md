@@ -406,6 +406,35 @@ frag sand = lead live
   walk(e4,16,7)
 ```
 
+### Pattern methods
+
+Strudel's transformations, written on a frag of notes after everything else
+on its line (ADR-0019). They change what the line plays, in order, when the
+song loads; the line itself stays as written. A cycle is a bar.
+
+| method | what |
+|---|---|
+| `.fast(n)`, `.slow(n)` | play the line n times faster or slower (n from 1 to 16) |
+| `.rev()` | each bar backwards |
+| `.palindrome()` | every other bar backwards |
+| `.add(n)`, `.sub(n)` | transpose by n semitones |
+| `.ply(n)` | each note n times in its own length |
+| `.iter(n)` | each bar starts a further 1/n of a bar in |
+| `.degrade(p)` | drop each note with chance p (0.5 if left out), the same every time |
+| `.every(n, m)` | method `m` on every nth bar, from the first: `every(4, rev)` |
+| `.off(t, m)` | a copy `t` of a bar later, with `m`: `off(1/8, add(12))` |
+
+```song
+track lead synth
+frag riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))
+  "c4 eb4 g4 bb4"
+```
+
+Times round to the 48-tick grid. A pattern makes at most 512 notes over at
+most 32 bars. A live frag or a frag of drum lanes takes no pattern methods
+yet, and the grid does not edit the notes of a patterned frag (edit its
+line).
+
 ## auto
 
 `auto <name> = <target>.<Param> <values…> /<bars>` or
