@@ -15,6 +15,9 @@ export const defaultStripName = (s: number) => (s < GROUP_BASE ? `Synth ${s + 1}
 /** The word an instrument of a family is named with (#177): a drum is not a synth. */
 const FAMILY_WORD: Record<string, string> = { drums: 'Drum', samplers: 'Sampler' }
 
+/** A name the app gave (`Drum N`, `Sampler N`, `Synth N`), not one the user typed. */
+export const isFamilyName = (name: string) => /^(Drum|Sampler|Synth) \d+$/.test(name)
+
 /** `Drum N`, `Sampler N` or `Synth N` with the lowest N none of `taken` has. */
 export function familyName(family: string, taken: readonly string[]): string {
   const word = FAMILY_WORD[family] ?? 'Synth'
