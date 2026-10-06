@@ -123,6 +123,9 @@ pub struct MonoParams {
     pub taken: [bool; DESTS],
     pub normals: Normals,
     pub mod_wheel: f32,
+    /// A Modular synth's voice (ADR-0020): a preset's or the song's; each
+    /// note takes a copy when it starts.
+    pub graph: crate::modular::Program,
 }
 
 impl Default for MonoParams {
@@ -209,6 +212,7 @@ impl MonoParams {
             hp_res: 0.0,
             drive: 1.0,
             sample_rate,
+            graph: crate::modular::Program::default(),
             adsr: off,
             ar: off,
             fadsr: off,

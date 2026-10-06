@@ -21,6 +21,7 @@ use crate::engine::{BLOCK, SYNTHS};
 use crate::fm::FmVoice;
 use crate::la::LaVoice;
 use crate::mixer::GROUPS;
+use crate::modular::GraphVoice;
 use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
@@ -53,6 +54,8 @@ pub enum PolyVoice {
     Sampler(SamplerVoice),
     /// A pad of the drum/pad sampler.
     Pad(SampledPad),
+    /// A Modular synth's voice: a graph of unit generators (ADR-0020).
+    Graph(GraphVoice),
 }
 
 impl PolyVoice {
@@ -64,6 +67,7 @@ impl PolyVoice {
             Some(p) if p.model.uses_drums() => PolyVoice::Drum(PadVoice::new(Pad::Bd, seed)),
             Some(p) if p.model.uses_sampler() => PolyVoice::Sampler(SamplerVoice::new()),
             Some(p) if p.model.uses_pads() => PolyVoice::Pad(SampledPad::default()),
+            Some(p) if p.model.uses_graph() => PolyVoice::Graph(GraphVoice::new(seed)),
             _ => PolyVoice::Mono(MonoVoice::new(seed)),
         }
     }
@@ -77,12 +81,14 @@ impl PolyVoice {
                     && !p.model.uses_drums()
                     && !p.model.uses_sampler()
                     && !p.model.uses_pads()
+                    && !p.model.uses_graph()
             }
             PolyVoice::La(_) => p.model.uses_la(),
             PolyVoice::Fm(_) => p.model.uses_fm(),
             PolyVoice::Drum(_) => p.model.uses_drums(),
             PolyVoice::Sampler(_) => p.model.uses_sampler(),
             PolyVoice::Pad(_) => p.model.uses_pads(),
+            PolyVoice::Graph(_) => p.model.uses_graph(),
         }
     }
 
@@ -95,6 +101,7 @@ impl PolyVoice {
             PolyVoice::Drum(v) => v.active(),
             PolyVoice::Sampler(v) => v.active(),
             PolyVoice::Pad(v) => v.active(),
+            PolyVoice::Graph(v) => v.active(),
         }
     }
 
@@ -109,6 +116,7 @@ impl PolyVoice {
             PolyVoice::Sampler(v) => v.gated(),
             // A pad has no key to hold.
             PolyVoice::Pad(_) => false,
+            PolyVoice::Graph(v) => v.gated(),
         }
     }
 
@@ -121,6 +129,7 @@ impl PolyVoice {
             PolyVoice::Drum(_) => {}
             PolyVoice::Sampler(v) => v.release_all(),
             PolyVoice::Pad(v) => v.release_all(),
+            PolyVoice::Graph(v) => v.release_all(),
         }
     }
 
@@ -136,6 +145,7 @@ impl PolyVoice {
             PolyVoice::Drum(v) => strike(v, note, velocity, p),
             PolyVoice::Sampler(v) => v.press(note, velocity),
             PolyVoice::Pad(v) => v.press(note, velocity, &p.pad_kit, p.level[0], p.sample_rate()),
+            PolyVoice::Graph(v) => v.press(note, velocity, &p.graph, p.sample_rate()),
         }
     }
 
@@ -147,6 +157,7 @@ impl PolyVoice {
             PolyVoice::Drum(_) => {}
             PolyVoice::Sampler(v) => v.release_all(),
             PolyVoice::Pad(v) => v.release(note),
+            PolyVoice::Graph(v) => v.release_all(),
         }
     }
 
@@ -172,6 +183,10 @@ impl PolyVoice {
             }
             // A pad is tuned by its own knob.
             PolyVoice::Pad(_) => {}
+            PolyVoice::Graph(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
         }
     }
 }
@@ -299,7 +314,8 @@ impl Pool {
             | PolyVoice::Fm(_)
             | PolyVoice::Drum(_)
             | PolyVoice::Sampler(_)
-            | PolyVoice::Pad(_) => None,
+            | PolyVoice::Pad(_)
+            | PolyVoice::Graph(_) => None,
         }
     }
 
@@ -838,6 +854,7 @@ impl Pool {
                 PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
+                PolyVoice::Graph(g) => g.render(&ctx, out),
             }
         }
     }
@@ -1075,7 +1092,8 @@ mod tests {
                 | PolyVoice::Fm(_)
                 | PolyVoice::Drum(_)
                 | PolyVoice::Sampler(_)
-                | PolyVoice::Pad(_) => 0.0,
+                | PolyVoice::Pad(_)
+                | PolyVoice::Graph(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -1102,6 +1120,7 @@ mod tests {
                 PolyVoice::Drum(_) => 1.0,
                 PolyVoice::Sampler(v) => v.trim,
                 PolyVoice::Pad(_) => 1.0,
+                PolyVoice::Graph(g) => g.trim,
             })
             .collect()
     }

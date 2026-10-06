@@ -643,6 +643,7 @@ export const Model = {
   Sampler: 16,
   PadSampler: 17,
   Tr909: 18,
+  Modular: 19,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -734,6 +735,8 @@ export const Preset = {
   PadsSoft: 84,
   Kit909: 85,
   Hard909: 86,
+  ModularBasic: 87,
+  ModularHoover: 88,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

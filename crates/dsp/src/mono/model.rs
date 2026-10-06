@@ -33,11 +33,13 @@ pub enum Model {
     PadSampler = 17,
     /// The TR-909 (#148): the drum kit's pads with the 909's sounds.
     Tr909 = 18,
+    /// A voice written in the song as a graph of unit generators (ADR-0020).
+    Modular = 19,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 19] = [
+    pub const ALL: [(Model, &'static str); 20] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -57,6 +59,7 @@ impl Model {
         (Model::Sampler, "Sampler"),
         (Model::PadSampler, "PadSampler"),
         (Model::Tr909, "Tr909"),
+        (Model::Modular, "Modular"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -221,7 +224,8 @@ impl Model {
             | Model::Tr808
             | Model::Tr909
             | Model::Sampler
-            | Model::PadSampler => Filter::Ladder(D50),
+            | Model::PadSampler
+            | Model::Modular => Filter::Ladder(D50),
             Model::Odyssey => Filter::Ladder(ODYSSEY),
             Model::Ms20 => Filter::Svf(MS20),
             Model::Cs15 => Filter::Svf(CS15),
@@ -260,6 +264,11 @@ impl Model {
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
     pub fn uses_la(self) -> bool {
         self == Model::D50
+    }
+
+    /// Whether the voice is a graph of unit generators (ADR-0020).
+    pub fn uses_graph(self) -> bool {
+        self == Model::Modular
     }
 
     /// Whether the synth is the drum/pad sampler (#124).
@@ -301,7 +310,8 @@ impl Model {
             | Model::Tr808
             | Model::Sampler
             | Model::PadSampler
-            | Model::Tr909 => Hp::None,
+            | Model::Tr909
+            | Model::Modular => Hp::None,
         }
     }
 
