@@ -4,7 +4,7 @@ Tracks, sources, effects, fragments, the arrangement, generators, the song as te
 
 ### Requirement 1: A track owns one source [MUST]
 
-A track SHALL play on one synth slot (0–15, strip 0–15), routed as a MIDI channel is (Req 6, Req 11). Each slot SHALL hold exactly one source, chosen by its model: a Mono or Poly model (ADR-0009, specs 005 and 006), a drum machine (the TR-808 or TR-909, below) or a sampler (spec 007), with its own fixed voice pool (ADR-0011) and parameters. Parameters SHALL be addressed as (synth, parameter).
+A track SHALL play on one synth slot (0–15, strip 0–15), routed by the song (Req 6, Req 11). Each slot SHALL hold exactly one source, chosen by its model: a Mono or Poly model (ADR-0009, specs 005 and 006), a drum machine (the TR-808 or TR-909, below) or a sampler (spec 007), with its own fixed voice pool (ADR-0011) and parameters. Parameters SHALL be addressed as (synth, parameter).
 
 **Implementation:** `crates/dsp/src/song.rs::Track` (a track in the text), `crates/dsp/src/engine.rs::Engine::song_route` (its synth), `crates/dsp/src/poly.rs::Pool` (each synth's voices); the drum machines' pads `crates/dsp/src/drums.rs::Kit` (eighteen pads: bd sn lt mt ht lc mc hc rs cl cp ma cb cy oh ch, the TR-808's sixteen voices, and cr rd, the TR-909's crash and ride; the cowbell two band-limited squares through a band-pass near 850 Hz, the rimshot and claves struck resonators; one voice per pad, the closed hat choking the open hat, per-pad tune, decay, tone, level and an accent); in a synth slot as the TR-808 or the TR-909 model (#148: the same pads, each machine's own sounds; a pad a machine lacks plays its nearest voice with that voice's knobs, so a beat for one plays on the other; `cr` and `rd`, the 909's crash and ride, play the 808's cymbal), `crates/dsp/src/poly.rs::Pool` (`hit`, `PolyVoice::Drum`): a key plays the pad General MIDI puts there (any other key by its place in the octave from 36), on the voice already playing that pad or a new one; a hit has no note-off; the closed hat chokes the open hat; a hit at velocity 0.9 or more is accented. Per-pad tune, decay, tone, level and the accent are synth parameters (`BdTune` … `CbLevel`, `DrumAccent`). Each pad SHALL have an individual out, as the 808's back panel does (#162): `Out` 0 plays it on the kit's strip, 1–8 sends it straight into that group bus, before the group's inserts and panned by its `Pan` (equal power), bypassing the kit's strip (its inserts, fader and mute); soloing the kit SHALL keep the groups its pads go to heard
 
@@ -106,9 +106,9 @@ In the text (ADR-0015): `section <name> <bars>: <frags…>` (1 to 256 bars, the 
 
 ### Requirement 5: Sample-accurate clock in the engine [MUST]
 
-The engine SHALL run the transport (tempo, swing, play, stop, position) inside `render` and fire events on their exact sample. The UI SHALL NOT schedule notes. The song and the MIDI file SHALL each have their own transport: the clock plays the song (`song_play`, `song_stop`, which goes back to the top) and the MIDI file plays on its own (`play`, `stop`, `seek`); starting or stopping one SHALL leave the other as it is, and both MAY play at once. The clock SHALL count sixteenth steps, compute each step's sample from its index (no drift), take a tempo change from the next step on without moving that step's place on the grid, and delay odd steps by swing (50% straight to 75%). Tempo and swing belong to the song (ADR-0012), not to the parameter registry.
+The engine SHALL run the transport (tempo, swing, play, pause, stop, position) inside `render` and fire events on their exact sample. The UI SHALL NOT schedule notes. The clock SHALL be the only clock and play the song (ADR-0022): `song_play` SHALL go on from where the song paused or stopped, `song_pause` SHALL hold the place and release the song's notes, and `song_stop` SHALL go back to the top. The clock SHALL count sixteenth steps, compute each step's sample from its index (no drift), take a tempo change from the next step on without moving that step's place on the grid, and delay odd steps by swing (50% straight to 75%). Tempo and swing belong to the song (ADR-0012), not to the parameter registry.
 
-**Implementation:** `crates/dsp/src/clock.rs::Clock`, `crates/dsp/src/engine.rs::Engine::render` (blocks split at clock steps), `crates/dsp/src/ffi.rs` (`tempo`, `swing`, `clock_step`, `song_play`, `song_stop`, `song_playing`)
+**Implementation:** `crates/dsp/src/clock.rs::Clock`, `crates/dsp/src/engine.rs::Engine::render` (blocks split at clock steps), `crates/dsp/src/ffi.rs` (`tempo`, `swing`, `clock_step`, `song_play`, `song_pause`, `song_stop`, `song_playing`)
 
 #### Scenario: tempo accuracy
 
@@ -116,7 +116,7 @@ The engine SHALL run the transport (tempo, swing, play, stop, position) inside `
 - WHEN 4 bars are rendered offline
 - THEN note onsets fall exactly 6000 samples apart
 
-**Tests:** `crates/dsp/src/clock.rs::tests::sixteenths_at_120_bpm`, `crates/dsp/src/clock.rs::tests::swing_delays_the_off_beats`, `crates/dsp/src/clock.rs::tests::a_tempo_change_keeps_the_next_step`, `crates/dsp/src/clock.rs::tests::a_swing_change_moves_the_next_off_beat_not_the_grid`, `crates/dsp/src/clock.rs::tests::no_drift_over_a_thousand_bars`, `crates/dsp/src/clock.rs::tests::seek_lands_on_the_next_step`, `crates/dsp/src/engine/tests.rs::clock_steps_land_on_their_samples_through_render`, `crates/dsp/src/engine/tests.rs::the_song_and_the_file_have_their_own_transports`
+**Tests:** `crates/dsp/src/clock.rs::tests::sixteenths_at_120_bpm`, `crates/dsp/src/clock.rs::tests::swing_delays_the_off_beats`, `crates/dsp/src/clock.rs::tests::a_tempo_change_keeps_the_next_step`, `crates/dsp/src/clock.rs::tests::a_swing_change_moves_the_next_off_beat_not_the_grid`, `crates/dsp/src/clock.rs::tests::no_drift_over_a_thousand_bars`, `crates/dsp/src/clock.rs::tests::seek_lands_on_the_next_step`, `crates/dsp/src/engine/tests.rs::clock_steps_land_on_their_samples_through_render`, `crates/dsp/src/engine/tests.rs::pause_holds_the_place_and_stop_goes_to_the_top`, `crates/dsp/src/engine/tests.rs::pause_releases_song_voices_but_not_live_ones`, `crates/dsp/src/ffi.rs::tests::midi_import_and_the_transport_through_the_abi`
 
 ### Requirement 6: The song is text [MUST]
 
@@ -166,15 +166,15 @@ A generator SHALL be a function in the notation (`euclid`, `walk`, `arp`, `marko
 
 ### Requirement 8: Score import [SHOULD]
 
-The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on malformed input, and SHALL convert the loaded file into the song text (ADR-0015, #173): each channel with notes a `synth` track named after the file's track it came from, routed to the synth its channel plays on in the player; its notes, snapped to the grid of 48 ticks to the bar, as fragments of timed notes (`pitch@start:length:velocity`, ADR-0016) with their bars given (`bars N`); the song cut into sections of 8 bars (4, 2 or 1 when a chunk holds more than a line's notes or the song more fragments than it may hold), identical chunks sharing a fragment and identical sections a section, played by `arrange`; the tempo the file's first. Bars SHALL be 4/4; a file the song cannot hold, or without notes, SHALL be refused with a code. The converted text SHALL parse and print back unchanged.
+The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on malformed input, and SHALL convert the loaded file into the song text (ADR-0015, #173): each channel with notes a `synth` track named after the file's track it came from, the tracks in channel order on synths 0, 1, 2… (ADR-0022); its notes, snapped to the grid of 48 ticks to the bar, as fragments of timed notes (`pitch@start:length:velocity`, ADR-0016) with their bars given (`bars N`); the song cut into sections of 8 bars (4, 2 or 1 when a chunk holds more than a line's notes or the song more fragments than it may hold), identical chunks sharing a fragment and identical sections a section, played by `arrange`; the tempo the file's first. Bars SHALL be 4/4; a file the song cannot hold, or without notes, SHALL be refused with a code. The converted text SHALL parse and print back unchanged.
 
-**Implementation:** `crates/dsp/src/smf.rs::parse` (the parser), `crates/dsp/src/midi_import.rs::import` (the conversion), `crates/dsp/src/engine.rs::Engine::import_midi`, `crates/dsp/src/ffi.rs` (`midi_import`), `crates/dsp/src/notes.rs` (`Seq::Timed`), `web/src/components/PlayerPane.vue` (Import as song)
+**Implementation:** `crates/dsp/src/smf.rs::parse` (the parser), `crates/dsp/src/midi_import.rs::import` (the conversion), `crates/dsp/src/engine.rs::Engine::import_midi`, `crates/dsp/src/ffi.rs` (`midi_import`), `crates/dsp/src/notes.rs` (`Seq::Timed`), `web/src/audio/engine.ts::loadMidi` (opening a file imports it)
 
 #### Scenario: the demo as a song
 
-- GIVEN the demo Canon loaded in the MIDI player
+- GIVEN the demo Canon
 - WHEN it is imported as the song and the song plays
-- THEN every synth starts the same notes at the same moments as the player plays them
+- THEN the synth of each channel starts every note of the file at its time in the file
 
 #### Scenario: a repeat
 
@@ -188,21 +188,21 @@ The engine SHALL parse Standard MIDI Files (types 0 and 1) without panicking on 
 - WHEN they are parsed
 - THEN the parser returns an error and never panics
 
-**Tests:** `crates/dsp/src/smf.rs::tests::never_panics_on_garbage`, `crates/dsp/src/smf.rs::tests::rejects_what_it_cannot_play`, `crates/dsp/src/smf.rs::tests::running_status_and_zero_velocity_off`, `crates/dsp/src/smf.rs::tests::tempo_and_name`, `crates/dsp/src/midi_import/tests.rs::notes_land_on_the_grid_with_their_lengths`, `crates/dsp/src/midi_import/tests.rs::identical_chunks_share_a_fragment_and_a_section`, `crates/dsp/src/midi_import/tests.rs::a_dense_part_gets_shorter_chunks`, `crates/dsp/src/midi_import/tests.rs::no_notes_is_an_error_and_names_are_made_safe`, `crates/dsp/src/midi_import/tests.rs::never_panics_on_odd_files`, `crates/dsp/src/engine/tests.rs::the_demo_imported_plays_like_the_player`, `crates/dsp/src/notes/tests.rs::timed_notes_parse_compile_and_print`
+**Tests:** `crates/dsp/src/smf.rs::tests::never_panics_on_garbage`, `crates/dsp/src/smf.rs::tests::rejects_what_it_cannot_play`, `crates/dsp/src/smf.rs::tests::running_status_and_zero_velocity_off`, `crates/dsp/src/smf.rs::tests::tempo_and_name`, `crates/dsp/src/midi_import/tests.rs::notes_land_on_the_grid_with_their_lengths`, `crates/dsp/src/midi_import/tests.rs::identical_chunks_share_a_fragment_and_a_section`, `crates/dsp/src/midi_import/tests.rs::a_dense_part_gets_shorter_chunks`, `crates/dsp/src/midi_import/tests.rs::no_notes_is_an_error_and_names_are_made_safe`, `crates/dsp/src/midi_import/tests.rs::never_panics_on_odd_files`, `crates/dsp/src/engine/tests.rs::the_demo_imported_plays_the_file`, `crates/dsp/src/engine/tests.rs::demo_file_imports`, `crates/dsp/src/notes/tests.rs::timed_notes_parse_compile_and_print`
 
-### Requirement 9: MIDI file playback [SHOULD]
+### Requirement 9: A MIDI file is imported, not played [SHOULD]
 
-Separately from the song (ADR-0012), the engine SHALL play a loaded MIDI file directly: ticks SHALL become samples once, at load, through the tempo map, and each note SHALL start on its exact sample in `render`. Each MIDI channel SHALL play on one synth, of any model, or be muted; loading puts the parts on synths 0, 1, 2… in order (spec 004 Req 10). A file that fails to parse SHALL leave the loaded song untouched. Stop SHALL release the player's voices and leave live ones sounding.
+There SHALL be no MIDI player beside the song (ADR-0022): opening a MIDI file SHALL import it as the song (Req 8) and it SHALL play from the one transport (Req 5), each note starting on its exact sample. A file that fails to parse or import SHALL leave the loaded song untouched. A track SHALL play on one synth, of any model, or be muted.
 
-**Implementation:** `crates/dsp/src/player.rs::Sequence`, `crates/dsp/src/engine.rs::Engine::load_midi`, `crates/dsp/src/ffi.rs` (`midi_buf`, `midi_load`, `part_*`, `event_*`, `song_length`, `song_bar`, `play`, `stop`, `seek`, `position`, `playing`, `route`, `routed`)
+**Implementation:** `crates/dsp/src/engine.rs::Engine::import_midi`, `crates/dsp/src/ffi.rs` (`midi_buf`, `midi_import`), `web/public/worklet.js` (`importMidi`)
 
 #### Scenario: sample-accurate start
 
 - GIVEN a file with a note at a known tick
-- WHEN it is played
-- THEN the note starts on the sample the tempo map gives
+- WHEN it is imported and the song plays
+- THEN the note starts on the sample its tick gives at the file's tempo
 
-**Tests:** `crates/dsp/src/player.rs::tests::ticks_become_samples_through_the_tempo_map`, `crates/dsp/src/engine/tests.rs::player_note_starts_on_its_exact_sample`, `crates/dsp/src/engine/tests.rs::every_channel_plays_and_mute_silences`, `crates/dsp/src/engine/tests.rs::bad_files_are_rejected_and_keep_the_old_song`, `crates/dsp/src/engine/tests.rs::stop_releases_player_voices_but_not_live_ones`, `crates/dsp/src/ffi.rs::tests::midi_round_trip_through_the_abi`
+**Tests:** `crates/dsp/src/engine/tests.rs::an_imported_note_starts_on_its_exact_sample`, `crates/dsp/src/engine/tests.rs::an_imported_track_plays_on_its_routed_synth`, `crates/dsp/src/engine/tests.rs::bad_files_are_rejected_and_keep_the_old_song`, `crates/dsp/src/ffi.rs::tests::midi_import_and_the_transport_through_the_abi`
 
 ### Requirement 10: Scenes and automation [SHOULD]
 

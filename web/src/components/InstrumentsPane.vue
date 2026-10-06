@@ -4,7 +4,7 @@
 // in its model's palette with a keyboard under it. The selected synth gets the
 // keys, the computer keyboard's too.
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
-import { MAX_SYNTHS, addSynth, getEngine, params, player, removeSynth, renameSynth, status, stripName, synthColour, synths } from '../audio/engine'
+import { MAX_SYNTHS, addSynth, getEngine, params, removeSynth, renameSynth, song, status, stripName, synthColour, synths } from '../audio/engine'
 import { MODELS, familyModels, modelDef, type ModelDef } from '../audio/models'
 import { Model, Param, Preset, type PresetId } from '../audio/params'
 import EditableName from './EditableName.vue'
@@ -21,14 +21,14 @@ const defOf = (s: number): ModelDef => modelDef(val(s, Param.Model))
 const anySolo = computed(() => synths.list.some((s) => val(s, Param.Solo) >= 0.5))
 const tapes = computed<Tape[]>(() =>
   synths.list.map((s) => {
-    const channels = player.parts.filter((p) => p.synth === s).map((p) => p.channel + 1)
+    const tracks = song.tracks.filter((t) => t.synth === s).map((t) => t.name)
     return {
       s,
       name: stripName(s),
       model: defOf(s).name,
       accent: defOf(s).theme.accent,
       dot: synthColour(s),
-      footer: channels.length ? `Ch ${channels.join('·')}` : '—',
+      footer: tracks.length ? tracks.join('·') : '—',
       silenced: val(s, Param.Mute) >= 0.5 || (anySolo.value && val(s, Param.Solo) < 0.5),
     }
   }),

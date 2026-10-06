@@ -1,9 +1,5 @@
 {
   "version": 1,
-  "midi": {
-    "name": "Canon in D (demo)",
-    "parts": 4
-  },
   "global": {
     "MasterGain": 0.5,
     "P1Type": 1,
@@ -406,11 +402,5 @@
         "I1C": 0.7
       }
     }
-  ],
-  "routes": {
-    "0": 0,
-    "1": 1,
-    "2": 2,
-    "3": 3
-  }
+  ]
 }

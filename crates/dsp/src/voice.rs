@@ -11,8 +11,6 @@ pub const TABLE: usize = 2048;
 pub enum Owner {
     /// The on-screen or computer keyboard, playing this synth.
     Live(u8),
-    /// The MIDI player, on this channel (0..=15).
-    Channel(u8),
     /// The song, on this track (spec 002 Req 6).
     Track(u8),
 }

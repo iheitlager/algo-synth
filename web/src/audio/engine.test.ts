@@ -155,6 +155,20 @@ describe('applySong', () => {
     expect(take().filter((m) => m.t === 'reset')).toEqual([])
   })
 
+  it('names a song track\'s synth by its kind: a drum on synth 0 is not Synth 1 (#177)', async () => {
+    const { mod } = await boot()
+    const { names } = await import('./names')
+    names.strips[5] = 'Strings'
+    mod.applySong({
+      ...ok, ok: true, text: enc('x'), error: null,
+      tracks: [track('kit', 0, 0), track('bass', 3, 1), track('loop', 4, 2), track('pads', 5, 1)],
+    })
+    expect([0, 3, 4, 5].map((s) => mod.stripName(s))).toEqual(['Drum 1', 'Synth 1', 'Sampler 1', 'Strings'])
+    // Played again, the names that fit stay as they are.
+    mod.applySong({ ...ok, ok: true, text: enc('x'), error: null, tracks: [track('kit', 0, 0), track('bass', 3, 1)] })
+    expect([0, 3].map((s) => mod.stripName(s))).toEqual(['Drum 1', 'Synth 1'])
+  })
+
   it('keeps the draft and shows the error of a song that failed', async () => {
     const { mod, storage } = await boot()
     mod.song.draft = 'my edit'
@@ -189,13 +203,12 @@ describe('applySong', () => {
 })
 
 describe('onMessage', () => {
-  it('pos: the player and the song clock', async () => {
+  it('pos: the song clock', async () => {
     const { mod, send } = await boot()
-    send({ t: 'pos', sec: 1.5, playing: true, step: 12, songPlaying: true, entry: 2, local: 5 })
-    expect([mod.player.position, mod.player.playing]).toEqual([1.5, true])
+    send({ t: 'pos', step: 12, songPlaying: true, entry: 2, local: 5 })
     expect([mod.song.step, mod.song.playing, mod.song.entry, mod.song.local]).toEqual([12, true, 2, 5])
     // Without an arrangement the engine leaves entry and local out.
-    send({ t: 'pos', sec: 0, playing: false, step: -1, songPlaying: false })
+    send({ t: 'pos', step: -1, songPlaying: false })
     expect([mod.song.entry, mod.song.local]).toEqual([-1, -1])
   })
 
@@ -285,19 +298,17 @@ describe('onMessage', () => {
     expect(same.mod.status.error).toBe('')
   })
 
-  it('imported: the notice and the arranger, or why it failed', async () => {
+  it('imported: the notice, or why it failed', async () => {
     const { mod, send } = await boot()
-    mod.player.fileName = 'tune.mid'
-    mod.view.bottom = 'player'
+    mod.files.fileName = 'tune.mid'
     send({ t: 'imported', code: 3 })
-    expect(mod.player.notice).toContain('Imported tune.mid as the song: 3 tracks')
-    expect(mod.view.bottom).toBe('arranger')
+    expect(mod.files.notice).toContain('Imported tune.mid as the song: 3 tracks')
     send({ t: 'imported', code: -7 })
-    expect(mod.player.notice).toBe('Import: the file has no notes')
+    expect(mod.files.notice).toBe('tune.mid: the file has no notes')
     send({ t: 'imported', code: -1 })
-    expect(mod.player.notice).toBe('Import: not a MIDI file')
+    expect(mod.files.notice).toBe('tune.mid: not a MIDI file')
     send({ t: 'imported', code: -99 })
-    expect(mod.player.notice).toBe('Import: failed (-99)')
+    expect(mod.files.notice).toBe('tune.mid: import failed (-99)')
   })
 
   it('sysex: the voice names, or why it failed', async () => {
@@ -313,7 +324,7 @@ describe('onMessage', () => {
   it('ignores a message it does not know', async () => {
     const { mod, send } = await boot()
     send({ t: 'nonsense' })
-    expect(mod.player.error).toBe('')
+    expect(mod.files.notice).toBe('')
   })
 })
 
@@ -417,6 +428,7 @@ describe('posting', () => {
     mod.setSongTempo(140)
     mod.setSongSwing(60)
     mod.playSong()
+    mod.pauseSong()
     mod.stopSong()
     mod.requestSong()
     mod.setStep(1, 2, 3, 2)
@@ -424,16 +436,13 @@ describe('posting', () => {
     mod.removeNote(0, 6, 60)
     mod.setNoteLength(0, 6, 60, 9)
     mod.freezeFrag(3)
-    mod.importMidi()
-    mod.play()
-    mod.stop()
-    mod.seek(2.5)
     mod.applySysex(1, 4)
     expect(take()).toEqual([
       { t: 'songRoute', track: 2, s: 5 },
       { t: 'songTempo', v: 140 },
       { t: 'songSwing', v: 60 },
       { t: 'songPlay' },
+      { t: 'songPause' },
       { t: 'songStop' },
       { t: 'songDump' },
       { t: 'step', f: 1, l: 2, s: 3, level: 2 },
@@ -441,10 +450,6 @@ describe('posting', () => {
       { t: 'note', f: 0, op: 1, tick: 6, note: 60, len: 0 },
       { t: 'note', f: 0, op: 2, tick: 6, note: 60, len: 9 },
       { t: 'freeze', f: 3 },
-      { t: 'midiImport' },
-      { t: 'play' },
-      { t: 'stop' },
-      { t: 'seek', sec: 2.5 },
       { t: 'sysexApply', s: 1, i: 4 },
     ])
   })
@@ -508,18 +513,14 @@ describe('synths and groups', () => {
     expect(mod.addSynth()).toBe(false)
   })
 
-  it('removeSynth mutes its parts and never removes the last', async () => {
-    const { mod, take } = await boot()
+  it('removeSynth never removes the last', async () => {
+    const { mod } = await boot()
     mod.removeSynth(0)
     expect(mod.synths.list).toEqual([0])
     mod.addSynth()
-    mod.player.parts = [{ channel: 3, name: 'x', notes: 1, start: 0, end: 1, synth: 1, roll: [] }]
-    take()
     mod.removeSynth(1)
     expect(mod.synths.list).toEqual([0])
     expect(mod.synths.selected).toBe(0)
-    expect(mod.player.parts[0]?.synth).toBe(MUTE)
-    expect(take()).toEqual([{ t: 'route', ch: 3, s: MUTE }])
   })
 
   it('addGroup and removeGroup; what fed a removed group goes to the master', async () => {
@@ -546,77 +547,58 @@ describe('synths and groups', () => {
 describe('MIDI files and setups', () => {
   const reg: Registry = {
     params: Param, global: GlobalParam, strip: StripParam,
-    models: Model as unknown as Record<string, number>, maxSynths: 16, channels: 16,
+    models: Model as unknown as Record<string, number>, maxSynths: 16,
   }
-  /** Note on (bit 15), channel and note packed as the engine packs them. */
-  const pack = (on: boolean, ch: number, note: number) => (on ? 1 << 15 : 0) | (ch << 8) | note
-  const summary = (parts: { channel: number; synth: number }[]) => ({
-    t: 'midi',
-    code: 0,
-    parts: parts.map((p) => ({ ...p, name: enc(`ch ${p.channel}`), notes: 2, start: 0, end: 2 })),
-    packed: new Uint32Array([pack(true, 0, 60), pack(false, 0, 60), pack(false, 1, 61)]),
-    times: new Float32Array([0, 0.5, 0.7]),
-    length: 4,
-    bar: 0,
-  })
 
-  it('a loaded file shows its parts, pairs their notes and shows their synths', async () => {
+  it('a MIDI file is sent to be imported as the song (ADR-0022)', async () => {
     const { mod, send, take } = await boot()
     take()
     const bytes = new ArrayBuffer(4)
     await mod.loadMidi(bytes, 'tune.mid')
     expect(take()).toEqual([{ t: 'midi', bytes }])
-    send(summary([{ channel: 0, synth: 0 }, { channel: 1, synth: 2 }, { channel: 9, synth: MUTE }]))
-    expect(mod.player.loaded).toBe(true)
-    expect(mod.player.length).toBe(4)
-    expect(mod.player.bar).toBe(2)
-    expect(mod.player.parts.map((p) => p.name)).toEqual(['ch 0', 'ch 1', 'ch 9'])
-    expect(mod.player.parts[0]?.roll).toEqual([[0, 0.5, 60]])
-    // An off without its on draws nothing.
-    expect(mod.player.parts[1]?.roll).toEqual([])
-    expect(mod.synths.list).toEqual([0, 2])
-    expect(mod.stripName(2)).toBeTypeOf('string')
-    expect(mod.partName(mod.player.parts[0]!)).toBeTypeOf('string')
+    send({ t: 'imported', code: 2 })
+    expect(mod.files.notice).toContain('Imported tune.mid as the song: 2 tracks')
   })
 
-  it('a file the engine refused says why', async () => {
-    const { mod, send } = await boot()
-    send({ t: 'midi', code: -3 })
-    expect(mod.player.error).toBe('SMPTE timing is not supported')
-    send({ t: 'midi', code: -50 })
-    expect(mod.player.error).toBe('load failed (-50)')
-    expect(mod.player.loaded).toBe(false)
-  })
-
-  it('a setup picked with its MIDI file applies once the parts arrive', async () => {
+  it('a setup picked with its MIDI file applies once the file is imported', async () => {
     const { mod, send, take } = await boot()
-    const setup = buildSetup({
-      synths: [0, 3], values: [[], [], [], []], routes: [{ channel: 0, synth: 3 }],
-    }, reg)
-    const files = [new File([JSON.stringify(setup)], 'tune.synths.json'), new File([new Uint8Array(4)], 'tune.mid')]
-    await mod.openFiles(files)
+    const setup = buildSetup({ synths: [0, 3], values: [[], [], [], []] }, reg)
+    const picked = [new File([JSON.stringify(setup)], 'tune.synths.json'), new File([new Uint8Array(4)], 'tune.mid')]
+    await mod.openFiles(picked)
     take()
-    send(summary([{ channel: 0, synth: 0 }]))
+    send({ t: 'imported', code: 1 })
     expect(mod.synths.list).toEqual([0, 3])
-    expect(mod.player.parts[0]?.synth).toBe(3)
-    const posted = take()
-    expect(posted).toContainEqual({ t: 'route', ch: 0, s: 3 })
-    expect(posted.filter((m) => m.t === 'dump').map((m) => m.s)).toEqual([0, 3])
+    expect(take().filter((m) => m.t === 'dump').map((m) => m.s)).toEqual([0, 3])
     // The setup round-trips through setupText.
     expect(JSON.parse(mod.setupText()).synths.map((s: { index: number }) => s.index)).toEqual([0, 3])
   })
 
+  it('a setup waiting for a file that does not import is dropped', async () => {
+    const { mod, send } = await boot()
+    const setup = buildSetup({ synths: [0, 3], values: [[], [], [], []] }, reg)
+    await mod.openFiles([new File([JSON.stringify(setup)], 'tune.synths.json'), new File([new Uint8Array(4)], 'tune.mid')])
+    send({ t: 'imported', code: -7 })
+    expect(mod.synths.list).toEqual([0])
+    send({ t: 'imported', code: 1 })
+    expect(mod.synths.list).toEqual([0])
+  })
+
   it('a setup alone applies to the synths on screen; a bad one says so', async () => {
-    const { mod, take } = await boot()
-    take()
+    const { mod } = await boot()
     await mod.openFiles([new File(['{not json'], 'x.synths.json')])
-    expect(mod.player.notice).toMatch(/^x\.synths\.json: .*; nothing applied$/)
-    const setup = buildSetup({ synths: [1], values: [[], []], routes: [{ channel: 4, synth: 1 }] }, reg)
+    expect(mod.files.notice).toMatch(/^x\.synths\.json: .*; nothing applied$/)
+    const setup = buildSetup({ synths: [1], values: [[], []] }, reg)
     await mod.openFiles([new File([JSON.stringify(setup)], 'y.synths.json')])
     expect(mod.synths.list).toEqual([1])
     expect(mod.synths.selected).toBe(1)
-    // No part on channel 4: the route goes to the engine as it is.
-    expect(take()).toContainEqual({ t: 'route', ch: 4, s: 1 })
+  })
+
+  it('a setup keeps a song track\'s synth on screen', async () => {
+    const { mod } = await boot()
+    mod.applySong({ ...ok, ok: true, text: enc('x'), error: null, tracks: [track('bass', 4, 1)] })
+    const setup = buildSetup({ synths: [1], values: [[], []] }, reg)
+    await mod.openFiles([new File([JSON.stringify(setup)], 'y.synths.json')])
+    expect(mod.synths.list).toEqual([1, 4])
   })
 
   it('a song file goes to the composer', async () => {
@@ -628,42 +610,17 @@ describe('MIDI files and setups', () => {
     expect(take().map((m) => m.t)).toEqual(['song'])
   })
 
-  it('the last session`s setup for a file applies when it loads again', async () => {
-    const setup = buildSetup({ synths: [0, 5], values: [], routes: [{ channel: 0, synth: 5 }] }, reg)
-    const { mod, send } = await boot({ storage: { 'algo-synth:setup:tune.mid': JSON.stringify(setup) } })
-    await mod.loadMidi(new ArrayBuffer(4), 'tune.mid')
-    send(summary([{ channel: 0, synth: 0 }]))
-    expect(mod.synths.list).toEqual([0, 5])
-    expect(mod.player.parts[0]?.synth).toBe(5)
-  })
-
-  it('the session is kept a moment after a change', async () => {
-    vi.useFakeTimers()
-    try {
-      const { mod, send, storage } = await boot()
-      await mod.loadMidi(new ArrayBuffer(4), 'tune.mid')
-      send(summary([{ channel: 0, synth: 0 }]))
-      await vi.advanceTimersByTimeAsync(600)
-      mod.route(mod.player.parts[0]!, MUTE)
-      await vi.advanceTimersByTimeAsync(600)
-      const kept = JSON.parse(storage.map.get('algo-synth:setup:tune.mid') ?? '{}')
-      expect(kept.routes).toEqual({ '0': 'mute' })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('the demo loads its MIDI file with the shipped setup', async () => {
-    const setup = buildSetup({ synths: [0, 1], values: [], routes: [] }, reg)
+  it('the demo imports its MIDI file, then applies the shipped setup', async () => {
+    const setup = buildSetup({ synths: [0, 1], values: [] }, reg)
     const { mod, send, take } = await boot({
       fetch: async (url) =>
         url.endsWith('.json') ? new Response(JSON.stringify(setup)) : new Response(new Uint8Array(4)),
     })
     take()
     await mod.loadDemo()
-    expect(mod.player.fileName).toBe('Canon in D (demo)')
+    expect(mod.files.fileName).toBe('Canon in D (demo)')
     expect(take().map((m) => m.t)).toEqual(['midi'])
-    send(summary([{ channel: 0, synth: 0 }]))
+    send({ t: 'imported', code: 4 })
     expect(mod.synths.list).toEqual([0, 1])
   })
 })

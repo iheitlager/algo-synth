@@ -6,7 +6,7 @@
 // collapsed and hidden strips are layout and live in the setup file.
 import { computed } from 'vue'
 import { feedsTag, GROUPS, groupColour, groupStrip, heardStrips, namedOuts, orderStrips, STRIPS } from '../audio/console'
-import { addGroup, layout, moveStrip, params, player, removeGroup, renameSynth, setOut, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
+import { addGroup, layout, moveStrip, params, removeGroup, renameSynth, setOut, song, status, stripName, synthColour, synths, toggleCollapsed, toggleHidden } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { Model, Pad, Param, type ParamId } from '../audio/params'
 import ChannelStrip from './console/ChannelStrip.vue'
@@ -42,14 +42,14 @@ const strips = computed(() =>
     const group = id >= groupStrip(0)
     const g = id - groupStrip(0)
     const out = Math.round(val(id, Param.Out))
-    const channels = group ? [] : player.parts.filter((p) => p.synth === id).map((p) => p.channel + 1)
+    const tracks = group ? [] : song.tracks.filter((t) => t.synth === id).map((t) => t.name)
     return {
       id,
       group,
       title: name(id),
       subtitle: group ? 'Bus' : modelDef(val(id, Param.Model)).name,
       color: group ? groupColour(g) : synthColour(id),
-      footer: group ? `${members(g)} in` : channels.length ? `Ch ${channels.join('·')}` : '—',
+      footer: group ? `${members(g)} in` : tracks.length ? tracks.join('·') : '—',
       silenced: !heard.value[id],
       outs: namedOuts(id, layout.groups, name),
       feeds: feedsTag(out, name),
