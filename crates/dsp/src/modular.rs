@@ -8,8 +8,11 @@
 //!
 //! Unit generators are calls and run at audio rate, bipolar (−1..1) and in
 //! hertz: `sin(f) saw(f) tri(f) pulse(f, width) noise() lfo(rate, shape)`,
-//! the shared state-variable filter `svf(mode, cutoff, res)` (`lp` or `hp`)
-//! and `env(adsr)`, `env(perc)` or `env(a, d, s, r)`. `freq gate vel` come
+//! the shared state-variable filter `svf(mode, cutoff, res)` (`lp` or `hp`),
+//! the ladder `ladder(cutoff, res, drive)`, the one-pole high-pass
+//! `hp1(cutoff)` and `env(adsr)`, `env(perc)` or `env(a, d, s, r)`. A filter
+//! may name a synth's voicing first, `ladder(sh101, …)` or
+//! `svf(ms20, lp, …)`, and then sounds as that synth's (#307). `freq gate vel` come
 //! from the note. `+ - * /` combine signals; `.range(a, b)` and
 //! `.exprange(a, b)` map −1..1 onto a..b, as SuperCollider's do; `x |> f(…)`
 //! passes `x` into a filter as its input. A voice without `env` sounds
@@ -27,10 +30,10 @@ use std::fmt::Write;
 
 use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::{Ladder, MAX_K};
-use crate::mono::model::SvfVoicing;
+use crate::mono::model::{Filter, MOOG, Model, SvfVoicing};
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Osc, Waveform, naive};
-use crate::mono::svf::Svf;
+use crate::mono::svf::{OnePole, Svf};
 use crate::mono::voice::MonoCtx;
 use crate::song::signal::{Tok, Token, lex};
 use crate::voice::lookup;
@@ -68,6 +71,8 @@ const MAX_DEPTH: usize = 16;
 const NONE: u16 = u16::MAX;
 /// No release node in a breakpoint envelope.
 const NO_RELEASE: u8 = u8::MAX;
+/// A filter that names no synth's voicing.
+const NO_VOICING: u8 = u8::MAX;
 /// Output level, as the other voices'.
 const OUT_GAIN: f32 = 0.5;
 /// The resonance of a filter that names none.
@@ -79,7 +84,36 @@ const VOICING: SvfVoicing = SvfVoicing {
     ceiling: 1.0,
 };
 /// What a voice is made of, for the error that names it.
-const UNITS: &str = "a voice is made of sin saw tri pulse noise lfo fm svf ladder delay drive mix env, numbers, lists and freq gate vel";
+const UNITS: &str = "a voice is made of sin saw tri pulse noise lfo fm svf ladder hp1 delay drive mix env, numbers, lists and freq gate vel";
+/// The synths whose ladder a modular `ladder` can take, by the word that
+/// names it (#307).
+const LADDERS: [(&str, Model); 11] = [
+    ("arp2600", Model::Arp2600),
+    ("minimoog", Model::Minimoog),
+    ("proone", Model::ProOne),
+    ("prophet5", Model::Prophet5),
+    ("sh101", Model::Sh101),
+    ("juno106", Model::Juno106),
+    ("jupiter8", Model::Jupiter8),
+    ("matrix12", Model::Matrix12),
+    ("ppgwave", Model::PpgWave),
+    ("d50", Model::D50),
+    ("odyssey", Model::Odyssey),
+];
+const LADDER_WORDS: &str = "a ladder voicing is arp2600 minimoog proone prophet5 sh101 juno106 jupiter8 matrix12 ppgwave d50 odyssey";
+/// The synths whose 12 dB filter a modular `svf` can take: their two-pole
+/// setting where they have a slope switch.
+const SVFS: [(&str, Model); 5] = [
+    ("ms20", Model::Ms20),
+    ("cs15", Model::Cs15),
+    ("polymoog", Model::PolyMoog),
+    ("jupiter8", Model::Jupiter8),
+    ("matrix12", Model::Matrix12),
+];
+const SVF_WORDS: &str =
+    "a filter mode is lp or hp, after a voicing if any: ms20 cs15 polymoog jupiter8 matrix12";
+/// The `drive` of a ladder that names none: unity, as `Param::Drive` at 0.
+const DRIVE: f32 = 0.0;
 
 /// `env(perc)`: a click of attack, a third of a second to nothing.
 const PERC: Shape = Shape::Times(0.002, 0.3, 0.0, 0.3);
@@ -170,6 +204,8 @@ pub enum Ugen {
         slot: u8,
         /// `res` is SuperCollider's `rq` (bandwidth over cutoff): small is sharp.
         rq: bool,
+        /// The entry of `SVFS` it is voiced as, or `NONE`.
+        voicing: u8,
     },
     Env {
         slot: u8,
@@ -182,6 +218,16 @@ pub enum Ugen {
         slot: u8,
         /// `res` is `MoogFF`'s gain, 0..4, the feedback itself.
         gain: bool,
+        /// The entry of `LADDERS` it is voiced as, or `NONE`.
+        voicing: u8,
+        /// 0..1, 0 to +18 dB into the saturator, as `Param::Drive`.
+        drive: u16,
+    },
+    /// The one-pole high-pass, 6 dB per octave.
+    Hp1 {
+        input: u16,
+        cutoff: u16,
+        slot: u8,
     },
     /// A sine phase-modulated by a sine: `index` in radians. Two phases.
     Fm {
@@ -289,6 +335,8 @@ pub struct Program {
     envs: [Shape; MAX_ENVS],
     /// The numbers of the voice's lists.
     lists: [f32; MAX_LIST],
+    /// Each filter slot's voicing, chosen when the voice is parsed.
+    voicings: [Filter; MAX_FILTERS],
     counts: Counts,
 }
 
@@ -324,6 +372,7 @@ impl Default for Program {
             right: NONE,
             envs: [Shape::Adsr; MAX_ENVS],
             lists: [0.0; MAX_LIST],
+            voicings: [Filter::Ladder(MOOG); MAX_FILTERS],
             counts: Counts {
                 oscs: 1,
                 ..Counts::default()
@@ -353,6 +402,7 @@ impl Program {
                 right: NONE,
                 envs: [Shape::Adsr; MAX_ENVS],
                 lists: [0.0; MAX_LIST],
+                voicings: [Filter::Ladder(MOOG); MAX_FILTERS],
                 counts: Counts::default(),
             },
             depth: 0,
@@ -458,10 +508,15 @@ impl Program {
                 high,
                 cutoff,
                 res,
+                voicing,
                 ..
             } => {
                 self.write(out, names, input, 4)?;
-                write!(out, " |> svf({}, ", if high { "hp" } else { "lp" })?;
+                out.push_str(" |> svf(");
+                if let Some((word, _)) = SVFS.get(usize::from(voicing)) {
+                    write!(out, "{word}, ")?;
+                }
+                write!(out, "{}, ", if high { "hp" } else { "lp" })?;
                 self.write(out, names, cutoff, 0)?;
                 if res != NONE {
                     out.push_str(", ");
@@ -477,15 +532,32 @@ impl Program {
                 Some(Shape::Nodes(_) | Shape::Brk(_)) => out.write_str("env(adsr)"),
             },
             Ugen::Ladder {
-                input, cutoff, res, ..
+                input,
+                cutoff,
+                res,
+                voicing,
+                drive,
+                ..
             } => {
                 self.write(out, names, input, 4)?;
                 out.push_str(" |> ladder(");
-                self.write(out, names, cutoff, 0)?;
-                if res != NONE {
-                    out.push_str(", ");
-                    self.write(out, names, res, 0)?;
+                if let Some((word, _)) = LADDERS.get(usize::from(voicing)) {
+                    write!(out, "{word}, ")?;
                 }
+                self.write(out, names, cutoff, 0)?;
+                for arg in [res, drive] {
+                    if arg != NONE {
+                        out.push_str(", ");
+                        self.write(out, names, arg, 0)?;
+                    }
+                }
+                out.push(')');
+                Ok(())
+            }
+            Ugen::Hp1 { input, cutoff, .. } => {
+                self.write(out, names, input, 4)?;
+                out.push_str(" |> hp1(");
+                self.write(out, names, cutoff, 0)?;
                 out.push(')');
                 Ok(())
             }
@@ -785,11 +857,11 @@ impl<'a> Parser<'a, '_> {
                 self.at += 1;
                 a = match name {
                     "svf" => self.svf(Some(a), col)?,
-                    "ladder" | "delay" | "drive" => self.effect(name, Some(a), col)?,
+                    "ladder" | "hp1" | "delay" | "drive" => self.effect(name, Some(a), col)?,
                     _ => {
                         return Err((
                             col,
-                            "only svf, ladder, delay and drive take a signal through |>",
+                            "only svf, ladder, hp1, delay and drive take a signal through |>",
                         ));
                     }
                 };
@@ -861,6 +933,7 @@ impl<'a> Parser<'a, '_> {
                 | "svf"
                 | "env"
                 | "ladder"
+                | "hp1"
                 | "delay"
                 | "drive"
                 | "fm"
@@ -875,7 +948,7 @@ impl<'a> Parser<'a, '_> {
             self.depth -= 1;
             return r;
         }
-        if matches!(name, "ladder" | "delay" | "drive") {
+        if matches!(name, "ladder" | "hp1" | "delay" | "drive") {
             self.depth += 1;
             let r = self.effect(name, None, col);
             self.depth -= 1;
@@ -998,8 +1071,9 @@ impl<'a> Parser<'a, '_> {
         self.push(node)
     }
 
-    /// `ladder(cutoff, res)`, `delay(time, feedback)` or `drive(amount)`
-    /// after `|>`, or with the input first; the `(` is read when not piped.
+    /// `ladder(voicing, cutoff, res, drive)` (all but the cutoff optional),
+    /// `hp1(cutoff)`, `delay(time, feedback)` or `drive(amount)` after `|>`,
+    /// or with the input first; the `(` is read when not piped.
     fn effect(&mut self, name: &str, piped: Option<u16>, col: usize) -> Res<u16> {
         if piped.is_some() {
             self.expect('(', "( goes here")?;
@@ -1012,25 +1086,43 @@ impl<'a> Parser<'a, '_> {
                 i
             }
         };
+        let voicing = if name == "ladder" {
+            self.voicing(&LADDERS, LADDER_WORDS)?
+        } else {
+            None
+        };
         let first = self.sum()?;
-        let second = if name != "drive" && self.eat(',') {
+        let second = if !matches!(name, "drive" | "hp1") && self.eat(',') {
+            self.sum()?
+        } else {
+            NONE
+        };
+        let third = if name == "ladder" && second != NONE && self.eat(',') {
             self.sum()?
         } else {
             NONE
         };
         self.expect(')', ") goes here")?;
         let node = match name {
-            "ladder" => Ugen::Ladder {
+            "ladder" => {
+                let slot = self.filter_slot(col)?;
+                if let Some((_, m)) = voicing.and_then(|i| LADDERS.get(usize::from(i))) {
+                    self.set_voicing(slot, m.filter());
+                }
+                Ugen::Ladder {
+                    input,
+                    cutoff: first,
+                    res: second,
+                    gain: false,
+                    slot,
+                    voicing: voicing.unwrap_or(NO_VOICING),
+                    drive: third,
+                }
+            }
+            "hp1" => Ugen::Hp1 {
                 input,
                 cutoff: first,
-                res: second,
-                gain: false,
-                slot: Self::slot(
-                    &mut self.prog.counts.filters,
-                    OLD_FILTERS,
-                    col,
-                    "a voice has at most 4 filters",
-                )?,
+                slot: self.filter_slot(col)?,
             },
             "delay" => {
                 let slot = Self::slot(
@@ -1054,6 +1146,40 @@ impl<'a> Parser<'a, '_> {
             },
         };
         self.push(node)
+    }
+
+    /// A voicing word from `table` and the comma after it, if one comes
+    /// next: its entry. A word that is no signal is taken for a misspelt
+    /// voicing, and `words` names the right ones.
+    fn voicing(&mut self, table: &[(&str, Model)], words: &'static str) -> Res<Option<u8>> {
+        let c = self.col();
+        let Some(Tok::Word(w)) = self.peek() else {
+            return Ok(None);
+        };
+        if let Some(i) = table.iter().position(|(word, _)| *word == w) {
+            self.at += 1;
+            self.expect(',', ", and a cutoff in hertz go here")?;
+            return Ok(u8::try_from(i).ok());
+        }
+        let signal = matches!(w, "freq" | "gate" | "vel" | "lp" | "hp")
+            || self.ctls.iter().any(|c| c.name == w)
+            || matches!(self.toks.get(self.at + 1), Some(t) if t.tok == Tok::Punct('('));
+        if signal { Ok(None) } else { Err((c, words)) }
+    }
+
+    fn filter_slot(&mut self, col: usize) -> Res<u8> {
+        Self::slot(
+            &mut self.prog.counts.filters,
+            OLD_FILTERS,
+            col,
+            "a voice has at most 4 filters",
+        )
+    }
+
+    fn set_voicing(&mut self, slot: u8, f: Filter) {
+        if let Some(v) = self.prog.voicings.get_mut(usize::from(slot)) {
+            *v = f;
+        }
     }
 
     /// `[a, b, …]`: numbers, one for each voice slot in turn; the `[` is read.
@@ -1096,23 +1222,22 @@ impl<'a> Parser<'a, '_> {
                 i
             }
         };
+        let voicing = self.voicing(&SVFS, SVF_WORDS)?;
         let c = self.col();
         let high = match self.peek() {
             Some(Tok::Word("lp")) => false,
             Some(Tok::Word("hp")) => true,
-            _ => return Err((c, "a filter mode is lp or hp")),
+            _ => return Err((c, SVF_WORDS)),
         };
         self.at += 1;
         self.expect(',', ", and a cutoff in hertz go here")?;
         let cutoff = self.sum()?;
         let res = if self.eat(',') { self.sum()? } else { NONE };
         self.expect(')', ") goes here")?;
-        let slot = Self::slot(
-            &mut self.prog.counts.filters,
-            OLD_FILTERS,
-            col,
-            "a voice has at most 4 filters",
-        )?;
+        let slot = self.filter_slot(col)?;
+        if let Some((_, m)) = voicing.and_then(|i| SVFS.get(usize::from(i))) {
+            self.set_voicing(slot, m.filter_12db().unwrap_or(m.filter()));
+        }
         self.push(Ugen::Svf {
             input,
             high,
@@ -1120,6 +1245,7 @@ impl<'a> Parser<'a, '_> {
             res,
             slot,
             rq: false,
+            voicing: voicing.unwrap_or(NO_VOICING),
         })
     }
 
@@ -1211,6 +1337,7 @@ pub struct VoiceState {
     phases: Vec<f32>,
     filters: Vec<Svf>,
     ladders: Vec<Ladder>,
+    poles: Vec<OnePole>,
     /// Each filter's last cutoff in hertz and as a note, so a steady
     /// cutoff is converted once.
     cutoffs: Vec<(f32, f32)>,
@@ -1251,6 +1378,7 @@ impl VoiceState {
         let f = up(usize::from(c.filters), self.filters.len());
         self.filters.resize(f, Svf::new());
         self.ladders.resize(f, Ladder::new());
+        self.poles.resize(f, OnePole::default());
         self.cutoffs.resize(f, (f32::NAN, 0.0));
         let d = up(usize::from(c.delays), self.writes.len());
         self.writes.resize(d, 0);
@@ -1430,6 +1558,7 @@ impl GraphVoice {
             st.phases.iter_mut().for_each(|p| *p = 0.0);
             st.filters.iter_mut().for_each(|f| *f = Svf::new());
             st.ladders.iter_mut().for_each(|l| *l = Ladder::new());
+            st.poles.iter_mut().for_each(|p| *p = OnePole::default());
             st.cutoffs.iter_mut().for_each(|c| *c = (f32::NAN, 0.0));
             if st.prog.counts.delays > 0 {
                 st.lines.iter_mut().for_each(|x| *x = 0.0);
@@ -1627,6 +1756,7 @@ impl GraphVoice {
                 res,
                 slot,
                 rq,
+                ..
             } => {
                 let x = st.val(input);
                 let c = st.val(cutoff).max(1.0);
@@ -1637,10 +1767,14 @@ impl GraphVoice {
                     (false, true) => 1.0 - st.val(res).clamp(0.0, 1.0),
                     (false, false) => st.val(res),
                 };
+                let v = match st.prog.voicings.get(usize::from(slot)) {
+                    Some(Filter::Svf(v)) => *v,
+                    _ => VOICING,
+                };
                 let Some(f) = st.filters.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
-                let o = f.process(ctx.ladder, &VOICING, x, note, r);
+                let o = f.process(ctx.ladder, &v, x, note, r);
                 if high { o.hp } else { o.lp }
             }
             Ugen::Env { slot } => self.env_vals.get(usize::from(slot)).copied().unwrap_or(0.0),
@@ -1689,6 +1823,8 @@ impl GraphVoice {
                 res,
                 slot,
                 gain,
+                drive,
+                ..
             } => {
                 let x = st.val(input);
                 let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
@@ -1698,10 +1834,27 @@ impl GraphVoice {
                 } else {
                     r.clamp(0.0, 1.0) * MAX_K
                 };
+                let d = if drive == NONE { DRIVE } else { st.val(drive) };
+                let v = match st.prog.voicings.get(usize::from(slot)) {
+                    Some(Filter::Ladder(v)) => *v,
+                    _ => MOOG,
+                };
                 let Some(l) = st.ladders.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
-                l.process(ctx.ladder, x, note, k, 1.0)
+                l.voiced(ctx.ladder, &v, x, note, k, 1.0 + 7.0 * d.clamp(0.0, 1.0))
+            }
+            Ugen::Hp1 {
+                input,
+                cutoff,
+                slot,
+            } => {
+                let x = st.val(input);
+                let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
+                let Some(p) = st.poles.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                p.process(ctx.ladder, x, note)
             }
             Ugen::Fm {
                 carrier,
@@ -2045,6 +2198,23 @@ mod tests {
                 "mix(saw(freq), tri(freq * 2), noise())",
             ),
             ("sin([220, 330, -1])", "sin([220, 330, -1])"),
+            (
+                "saw(freq) |> ladder(sh101, 800, 0.5, 0.3)",
+                "saw(freq) |> ladder(sh101, 800, 0.5, 0.3)",
+            ),
+            (
+                "ladder(saw(freq), minimoog, freq * 4)",
+                "saw(freq) |> ladder(minimoog, freq * 4)",
+            ),
+            (
+                "svf(saw(freq), ms20, lp, 800, 0.9)",
+                "saw(freq) |> svf(ms20, lp, 800, 0.9)",
+            ),
+            (
+                "saw(freq) |> svf(jupiter8, hp, 300)",
+                "saw(freq) |> svf(jupiter8, hp, 300)",
+            ),
+            ("hp1(saw(freq), 200)", "saw(freq) |> hp1(200)"),
         ] {
             let p = prog(text);
             assert_eq!(p.to_string(), canon, "{text}");
@@ -2059,15 +2229,20 @@ mod tests {
             (
                 "square(freq)",
                 1,
-                "a voice is made of sin saw tri pulse noise lfo fm svf ladder delay drive mix env, numbers, lists and freq gate vel",
+                "a voice is made of sin saw tri pulse noise lfo fm svf ladder hp1 delay drive mix env, numbers, lists and freq gate vel",
             ),
             ("saw(freq", 9, ") goes here"),
             (
                 "saw(freq) |> sin(3)",
                 14,
-                "only svf, ladder, delay and drive take a signal through |>",
+                "only svf, ladder, hp1, delay and drive take a signal through |>",
             ),
-            ("saw(freq) |> svf(bp, 3)", 18, "a filter mode is lp or hp"),
+            ("saw(freq) |> svf(bp, 3)", 18, SVF_WORDS),
+            ("saw(freq) |> svf(ms21, lp, 3)", 18, SVF_WORDS),
+            ("saw(freq) |> svf(minimoog, lp, 3)", 18, SVF_WORDS),
+            ("saw(freq) |> ladder(sh1o1, 800)", 21, LADDER_WORDS),
+            ("saw(freq) |> ladder(ms20, 800)", 21, LADDER_WORDS),
+            ("saw(freq) |> hp1(200, 0.5)", 21, ") goes here"),
             ("saw(freq).wobble(1)", 11, "a method is range or exprange"),
             (
                 "saw(freq).exprange(0, 10)",
@@ -2090,7 +2265,7 @@ mod tests {
             (
                 "saw(freq) |> sin(3)",
                 14,
-                "only svf, ladder, delay and drive take a signal through |>",
+                "only svf, ladder, hp1, delay and drive take a signal through |>",
             ),
             ("mix(1, 2, 3, 4, 5)", 1, "mix takes at most 4 inputs"),
             (
@@ -2138,6 +2313,150 @@ mod tests {
         assert_eq!(
             Program::parse(&format!("sin([{long}])")).map_err(|e| e.1),
             Err("a voice's lists hold at most 16 numbers")
+        );
+    }
+
+    /// #307: the voicing words are the synths' names, each naming a filter
+    /// of the kind it is given to, and the errors list them all.
+    #[test]
+    fn voicing_words_name_the_synths() {
+        let named = |m: Model| {
+            Model::ALL
+                .iter()
+                .find(|(n, _)| *n == m)
+                .map(|(_, name)| name.to_ascii_lowercase())
+        };
+        for (word, m) in LADDERS {
+            assert_eq!(named(m).as_deref(), Some(word));
+            assert!(matches!(m.filter(), Filter::Ladder(_)), "{word}");
+            assert!(LADDER_WORDS.split(' ').any(|w| w == word), "{word}");
+        }
+        for (word, m) in SVFS {
+            assert_eq!(named(m).as_deref(), Some(word));
+            assert!(
+                matches!(m.filter_12db().unwrap_or(m.filter()), Filter::Svf(_)),
+                "{word}"
+            );
+            assert!(SVF_WORDS.split(' ').any(|w| w == word), "{word}");
+        }
+    }
+
+    /// A voice with nothing but filters on one input, rendered with
+    /// `MonoCtx` at 48 kHz.
+    struct Bench {
+        params: crate::mono::MonoParams,
+        sine: Vec<f32>,
+        blep: crate::mono::osc::Blep,
+        ladder: crate::mono::ladder::LadderTables,
+        pitch: crate::mono::voice::PitchTable,
+        tables: &'static crate::table::Tables,
+    }
+
+    impl Bench {
+        fn new() -> Bench {
+            Bench {
+                params: crate::mono::MonoParams::new(48_000.0),
+                sine: crate::voice::sine_table(),
+                blep: crate::mono::osc::Blep::new(),
+                ladder: crate::mono::ladder::LadderTables::new(48_000.0),
+                pitch: crate::mono::voice::PitchTable::new(48_000.0),
+                tables: crate::table::Tables::shared(48_000.0),
+            }
+        }
+
+        /// Each sample's value of node `input` and of the voice's last
+        /// node, with the note held.
+        fn nodes(&self, text: &str, input: usize, n: usize) -> Vec<(f32, f32)> {
+            let ctx = MonoCtx {
+                params: &self.params,
+                sine: &self.sine,
+                blep: &self.blep,
+                ladder: &self.ladder,
+                pitch: &self.pitch,
+                shared: None,
+                tables: self.tables,
+            };
+            let p = prog(text);
+            let mut v = GraphVoice::new(1);
+            v.press(45, 1.0, &p, 48_000.0, 0);
+            let mut st = VoiceState::for_program(&p);
+            st.prog = p;
+            let len = usize::from(p.len);
+            (0..n)
+                .map(|_| {
+                    for i in 0..len {
+                        let y = v.eval(&mut st, i, 110.0, 1.0 / 48_000.0, true, &ctx);
+                        st.vals[i] = y;
+                    }
+                    (st.vals[input], st.vals[len - 1])
+                })
+                .collect()
+        }
+    }
+
+    /// #307: a voiced modular filter is the fixed synth's filter: the same
+    /// samples out for the same samples in. With no voicing the ladder is
+    /// the Moog's at unity drive, per-stage saturation and all (#306).
+    #[test]
+    fn a_voiced_filter_renders_as_the_synths() {
+        let b = Bench::new();
+        let note = 69.0 + 12.0 * fast_log2(800.0 / 440.0);
+        for (word, m) in LADDERS {
+            let Filter::Ladder(v) = m.filter() else {
+                panic!("{word}");
+            };
+            let text = format!("saw(freq) |> ladder({word}, 800, 0.9, 0.5)");
+            let mut l = Ladder::new();
+            for (i, (x, y)) in b.nodes(&text, 1, 4_800).into_iter().enumerate() {
+                let want = l.voiced(&b.ladder, &v, x, note, 0.9 * MAX_K, 4.5);
+                assert_eq!(y, want, "{word} at {i}");
+            }
+        }
+        let mut l = Ladder::new();
+        for (x, y) in b.nodes("saw(freq) |> ladder(800, 0.9)", 1, 4_800) {
+            assert_eq!(y, l.voiced(&b.ladder, &MOOG, x, note, 0.9 * MAX_K, 1.0));
+        }
+        for (word, m) in SVFS {
+            let Some(Filter::Svf(v)) = m.filter_12db().or(Some(m.filter())) else {
+                panic!("{word}");
+            };
+            for (mode, high) in [("lp", false), ("hp", true)] {
+                let text = format!("saw(freq) |> svf({word}, {mode}, 800, 0.9)");
+                let mut f = Svf::new();
+                for (x, y) in b.nodes(&text, 1, 4_800) {
+                    let o = f.process(&b.ladder, &v, x, note, 0.9);
+                    assert_eq!(y, if high { o.hp } else { o.lp }, "{word} {mode}");
+                }
+            }
+        }
+    }
+
+    /// The ladder's drive adds harmonics; `hp1` takes the lows out.
+    #[test]
+    fn drive_and_the_one_pole_high_pass_shape_the_sound() {
+        let b = Bench::new();
+        let rms = |text: &str| {
+            let y: Vec<f32> = b
+                .nodes(text, 0, 24_000)
+                .into_iter()
+                .map(|(_, y)| y)
+                .collect();
+            assert!(y.iter().all(|s| s.is_finite() && s.abs() <= 2.0), "{text}");
+            let tail = &y[4_800..];
+            (tail.iter().map(|s| s * s).sum::<f32>() / tail.len() as f32).sqrt()
+        };
+        let (soft, hot) = (
+            rms("sin(freq) * 0.1 |> ladder(minimoog, 5000, 0, 0)"),
+            rms("sin(freq) * 0.1 |> ladder(minimoog, 5000, 0, 1)"),
+        );
+        assert!(
+            hot > 4.0 * soft,
+            "drive raises the level into the knee: {soft} -> {hot}"
+        );
+        let (open, cut) = (rms("sin(freq) |> hp1(20)"), rms("sin(freq) |> hp1(2000)"));
+        assert!(
+            cut < 0.1 * open,
+            "hp1 at 2 kHz takes out 110 Hz: {open} -> {cut}"
         );
     }
 

@@ -52,9 +52,9 @@ The voice SHALL have a white and a pink noise source from a seeded generator, wi
 
 ### Requirement 3: Ladder filter [MUST]
 
-The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-delay-feedback ladder low-pass with cutoff, resonance and drive. Cutoff SHALL be smoothed at control rate and the filter coefficient recomputed only when the smoothed cutoff changes. Drive SHALL saturate without a per-sample `tanh` (a rational approximation or a table). The filter coefficient SHALL come from a table built in `Engine::new`, so modulating the cutoff costs no transcendental math either. Resonance SHALL self-oscillate from 0.8 of its range.
+The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-delay-feedback ladder low-pass with cutoff, resonance and drive. Cutoff SHALL be smoothed at control rate and the filter coefficient recomputed only when the smoothed cutoff changes. Drive SHALL saturate without a per-sample `tanh` (a rational approximation or a table). The filter coefficient SHALL come from a table built in `Engine::new`, so modulating the cutoff costs no transcendental math either. Resonance SHALL self-oscillate from 0.8 of its range. A voicing MAY also saturate each stage (Req 13); each stage's saturator SHALL then be taken at the previous sample's level, so the loop is still solved exactly with no iteration and no per-sample transcendental, a small signal SHALL pass as through the linear ladder, and every scenario here SHALL hold for it too.
 
-**Implementation:** `crates/dsp/src/mono/ladder.rs::Ladder`, `crates/dsp/src/mono/ladder.rs::LadderTables` (#6)
+**Implementation:** `crates/dsp/src/mono/ladder.rs::Ladder`, `crates/dsp/src/mono/ladder.rs::LadderTables`, `crates/dsp/src/mono/model.rs::Stages` (#6, #306)
 
 #### Scenario: slope
 
@@ -68,7 +68,7 @@ The voice SHALL filter the mixed oscillators and noise through a 4-pole zero-del
 - WHEN a cutoff sweep from 20 Hz to 20 kHz is rendered
 - THEN the filter oscillates near the cutoff and every sample is finite and within ±2
 
-**Tests:** `crates/dsp/src/mono/ladder.rs::tests::falls_24_db_per_octave`, `crates/dsp/src/mono/ladder.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/ladder.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/ladder.rs::tests::cutoff_is_smoothed`, `crates/dsp/src/mono/ladder.rs::tests::table_matches_tan`
+**Tests:** `crates/dsp/src/mono/ladder.rs::tests::falls_24_db_per_octave`, `crates/dsp/src/mono/ladder.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/ladder.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/ladder.rs::tests::cutoff_is_smoothed`, `crates/dsp/src/mono/ladder.rs::tests::table_matches_tan`, `crates/dsp/src/mono/ladder.rs::tests::soft_input_matches_the_linear_ladder`, `crates/dsp/src/mono/ladder.rs::tests::an_impulse_decays_below_the_threshold_and_rings_above`, `crates/dsp/src/mono/ladder.rs::tests::sat_gain_is_saturate_over_x`
 
 ### Requirement 4: Envelopes [MUST]
 
@@ -236,7 +236,7 @@ The voice SHALL have a second ADSR for the filter (`FenvAttack`, `FenvDecay`, `F
 
 ### Requirement 13: Filter flavours [MUST]
 
-The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter with a saturating state, giving a low-pass and a high-pass output, and a one-pole high-pass. The ladder SHALL have three voicings (Moog, Pro-One, SH-101) differing in drive, resonance and bass compensation; the 12 dB filter two (MS-20, CS-15) differing in the resonance at which it self-oscillates and in its saturation ceiling. The high-pass stage SHALL have its own cutoff (`HpCutoff`), resonance (`HpResonance`) and envelope amount (`EnvHpCutoff`). Coefficients SHALL come from the table of Req 3, so nothing costs a transcendental per sample.
+The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter with a saturating state, giving a low-pass and a high-pass output, and a one-pole high-pass. The ladder SHALL have three voicings (Moog, Pro-One, SH-101) differing in drive, resonance and bass compensation, and in what saturates inside it: the Moog voicing (Minimoog, ARP 2600) SHALL saturate each stage's differential pair, `g·(tanh(in) − tanh(out))`, as the transistor ladder does (#306), and the Roland voicings (SH-101, Juno-106 with its own trim, Jupiter-8) SHALL saturate each OTA's input, `g·tanh(in − out)`, as the IR3109 cascade does (#305); the 12 dB filter two (MS-20, CS-15) differing in the resonance at which it self-oscillates and in its saturation ceiling. The high-pass stage SHALL have its own cutoff (`HpCutoff`), resonance (`HpResonance`) and envelope amount (`EnvHpCutoff`). Coefficients SHALL come from the table of Req 3, so nothing costs a transcendental per sample.
 
 **Implementation:** `crates/dsp/src/mono/svf.rs::Svf`, `crates/dsp/src/mono/svf.rs::OnePole`, `crates/dsp/src/mono/model.rs::LadderVoicing`, `crates/dsp/src/mono/model.rs::SvfVoicing` (#32)
 
@@ -252,7 +252,19 @@ The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter wi
 - WHEN a cutoff sweep from 20 Hz to 20 kHz is rendered
 - THEN every sample is finite and within ±2, and the CS-15 voicing at maximum resonance does not oscillate without input
 
-**Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/patch.rs::tests::high_pass_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::models_pair_their_filters_and_stages`
+#### Scenario: the transistor ladder saturates per stage
+
+- GIVEN a hot 200 Hz sine into a 1 kHz ladder at full drive and resonance short of oscillation
+- WHEN the transistor ladder and the single-saturator ladder are measured
+- THEN the transistor ladder's 3rd and 5th harmonics stand more than three times higher against the fundamental
+
+#### Scenario: the OTA cascade rounds a hot input's edges
+
+- GIVEN a hot 100 Hz square into a 1 kHz OTA ladder at full drive with some resonance
+- WHEN it is measured against the single-saturator ladder
+- THEN the 3rd harmonic is the same within 3%, and the 9th and 15th come out lower, the 15th by more than a fifth
+
+**Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/patch.rs::tests::high_pass_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::models_pair_their_filters_and_stages`, `crates/dsp/src/mono/ladder.rs::tests::hot_transistor_stages_saturate_differently`, `crates/dsp/src/mono/model.rs::tests::moog_ladders_saturate_per_stage`, `crates/dsp/src/mono/ladder.rs::tests::hot_ota_stages_round_the_edges`, `crates/dsp/src/mono/model.rs::tests::roland_ladders_are_ota_cascades`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
 
 ### Requirement 14: Ring modulator, sub-oscillator, Osc 3 as modulator [MUST]
 

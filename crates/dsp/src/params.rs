@@ -1021,6 +1021,23 @@ pub enum Param {
     Ctl30 = 521,
     Ctl31 = 522,
     Ctl32 = 523,
+    /// The Minimoog's mixer switches: VCO 1, 2, 3 and noise sound when ≥ 0.5,
+    /// whatever their level (#308).
+    Vco1On = 524,
+    Vco2On = 525,
+    Vco3On = 526,
+    NoiseOn = 527,
+    /// Glide sounds when ≥ 0.5; off keeps the time but plays no glide.
+    GlideOn = 528,
+    /// Where a model's contours have no release (the Minimoog), ≥ 0.5 makes
+    /// the decay the release, as its Decay switch does; off releases at once.
+    DecayRelease = 529,
+    /// Oscillator modulation (vibrato) and filter modulation (`LfoCutoff`)
+    /// reach their destinations when ≥ 0.5.
+    OscModOn = 530,
+    FilterModOn = 531,
+    /// A 440 Hz reference tone at the synth's output when ≥ 0.5, key or not.
+    A440 = 532,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1108,7 +1125,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 524] = [
+    pub const ALL: [(Param, &'static str); 533] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1633,6 +1650,15 @@ impl Param {
         (Param::Ctl30, "Ctl30"),
         (Param::Ctl31, "Ctl31"),
         (Param::Ctl32, "Ctl32"),
+        (Param::Vco1On, "Vco1On"),
+        (Param::Vco2On, "Vco2On"),
+        (Param::Vco3On, "Vco3On"),
+        (Param::NoiseOn, "NoiseOn"),
+        (Param::GlideOn, "GlideOn"),
+        (Param::DecayRelease, "DecayRelease"),
+        (Param::OscModOn, "OscModOn"),
+        (Param::FilterModOn, "FilterModOn"),
+        (Param::A440, "A440"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -1778,6 +1804,15 @@ impl Param {
             Param::Vco2Sync | Param::Vco3Sync => (0.0, 1.0),
             Param::RingLevel | Param::SubLevel | Param::SubOctave => (0.0, 1.0),
             Param::Vco3KeyFollow | Param::Vco3Low => (0.0, 1.0),
+            Param::Vco1On
+            | Param::Vco2On
+            | Param::Vco3On
+            | Param::NoiseOn
+            | Param::GlideOn
+            | Param::DecayRelease
+            | Param::OscModOn
+            | Param::FilterModOn
+            | Param::A440 => (0.0, 1.0),
             Param::NoiseLevel | Param::NoiseColour => (0.0, 1.0),
             Param::Cutoff | Param::HpCutoff => (20.0, 20_000.0),
             Param::Resonance

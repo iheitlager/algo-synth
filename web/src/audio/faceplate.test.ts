@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  NEW_AMOUNT, amountToPos, playedVoice, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
+  NEW_AMOUNT, amountToPos, playedVoice, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, keySwitches, keyTrackOf, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
   type PatchSlot,
 } from './faceplate'
 
@@ -175,5 +175,13 @@ describe('modular voice', () => {
     expect(playedVoice(tracks, 3)).toBe(0)
     expect(playedVoice(tracks, 0)).toBe(-1)
     expect(playedVoice(tracks, 5)).toBe(-1)
+  })
+})
+
+describe('Minimoog keyboard control', () => {
+  it('reads the four key-track steps as two switches and back (#308)', () => {
+    const steps = [0, Math.fround(1 / 3), Math.fround(2 / 3), 1]
+    expect(steps.map(keySwitches)).toEqual([[false, false], [true, false], [false, true], [true, true]])
+    for (const v of steps) expect(keyTrackOf(...keySwitches(v))).toBe(v)
   })
 })

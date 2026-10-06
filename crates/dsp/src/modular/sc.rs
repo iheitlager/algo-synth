@@ -25,8 +25,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{
-    MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NONE, Op, Program,
-    Shape, Ugen,
+    MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NO_VOICING, NONE,
+    Op, Program, Shape, Ugen,
 };
 use crate::mono::osc::Waveform;
 use crate::params::CTLS;
@@ -2363,6 +2363,7 @@ impl Builder {
                                 res,
                                 slot,
                                 rq: resonant,
+                                voicing: NO_VOICING,
                             },
                             at,
                         )?,
@@ -2386,6 +2387,8 @@ impl Builder {
                                 res: g,
                                 slot,
                                 gain: true,
+                                voicing: NO_VOICING,
+                                drive: NONE,
                             },
                             at,
                         )?,

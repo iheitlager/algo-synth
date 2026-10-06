@@ -221,3 +221,21 @@ export const posToAmount = (p: number) => clamp(p * 2 - 1, -1, 1)
 /** The song voice the first track on synth `s` plays (#292), or −1 when it plays a factory voice. */
 export const playedVoice = (tracks: readonly { synth: number; voice: number }[], s: number): number =>
   tracks.find((t) => t.synth === s && t.voice >= 0)?.voice ?? -1
+
+// --- the Minimoog's keyboard control -------------------------------------------------
+
+const THIRD = Math.fround(1 / 3)
+const TWO_THIRDS = Math.fround(2 / 3)
+
+/**
+ * The Minimoog's two keyboard control switches for a key-track amount (#308):
+ * switch 1 adds a third, switch 2 two thirds, both together full tracking.
+ */
+export function keySwitches(v: number): [boolean, boolean] {
+  const n = Math.round(clamp01(v) * 3)
+  return [n === 1 || n === 3, n >= 2]
+}
+
+/** The key-track amount the two keyboard control switches give. */
+export const keyTrackOf = (one: boolean, two: boolean): number =>
+  one && two ? 1 : two ? TWO_THIRDS : one ? THIRD : 0
