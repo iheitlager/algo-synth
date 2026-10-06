@@ -142,10 +142,6 @@ pub struct Engine {
     song_buf: Vec<u8>,
     song_text: String,
     song_error: Option<SongError>,
-    /// The last voice edit's error, in the voice's own lines (`edit_voice`).
-    voice_error: Option<SongError>,
-    /// A voice's printed text, handed out by `voice_text`.
-    voice_text: String,
     /// Each Modular synth's SynthDef: its code, knobs and modules (ADR-0024).
     codes: Vec<Option<Patch>>,
     /// The last code that did not build, and a code's text handed out.
@@ -232,8 +228,6 @@ impl Engine {
             song_buf: Vec::new(),
             song_text: Song::default().print(),
             song_error: None,
-            voice_error: None,
-            voice_text: String::new(),
             codes: vec![None; SYNTHS],
             code_error: None,
             code_text: String::new(),
@@ -458,16 +452,18 @@ impl Engine {
 
     /// Modular `synth`'s code as it plays: its numbers are its knobs' values.
     pub fn code(&self, synth: usize) -> Option<String> {
-        let patch = self.codes.get(synth)?.as_ref()?;
+        let patch = self.patch(synth)?;
         let values: Vec<f32> = (0..crate::params::CTLS)
             .map(|i| Param::ctl_param(i).map_or(0.0, |p| self.param_value(synth, p)))
             .collect();
         Some(patch.text(&values))
     }
 
-    /// Modular `synth`'s knobs and modules, for its panel.
+    /// Modular `synth`'s knobs and modules, for its panel; none once the
+    /// synth is another model.
     pub fn patch(&self, synth: usize) -> Option<&Patch> {
-        self.codes.get(synth)?.as_ref()
+        let modular = self.synths.get(synth)?.model.uses_graph();
+        self.codes.get(synth)?.as_ref().filter(|_| modular)
     }
 
     /// Give `synth` the voice a Modular synth plays (ADR-0020); each note
@@ -1573,9 +1569,16 @@ impl Engine {
                                 .find(|s| model_of(*s) == Some(preset.model()))
                                 .or_else(|| (0..SYNTHS).find(free))
                         });
-                        let changed = routed.is_none() || self.song.patch(t) != patch;
+                        let code = song.code(t);
+                        let changed = routed.is_none()
+                            || self.song.patch(t) != patch
+                            || self.song.code(t) != code;
                         if let Some(s) = synth.filter(|_| changed && !self.keep_synths) {
                             self.preset(s, preset);
+                            // The parser built it already, so it builds here.
+                            if let Some(code) = code {
+                                self.set_code(s, code).ok();
+                            }
                             for (p, v) in sets {
                                 self.set_param(s, *p, *v);
                             }
@@ -1592,23 +1595,6 @@ impl Engine {
                         };
                         if let Some(r) = route.get_mut(t) {
                             *r = synth;
-                        }
-                    }
-                }
-                // A Modular track's voice goes to its synth now, as patches do;
-                // each note takes it when it starts (ADR-0020).
-                for (t, track) in song.tracks.iter().enumerate() {
-                    let voice = track.voice.and_then(|i| song.voices.get(i));
-                    if let (Some(v), Some(Some(s))) = (voice, route.get(t)) {
-                        // A new or changed voice starts its controls at their
-                        // values; an unchanged one keeps a knob turned by hand.
-                        if self.synths.get(*s).is_some_and(|p| p.graph != v.program) {
-                            self.set_graph(*s, v.program);
-                            for (i, c) in v.ctls.iter().enumerate() {
-                                if let Some(p) = Param::ctl_param(i) {
-                                    self.set_param(*s, p, c.default);
-                                }
-                            }
                         }
                     }
                 }
@@ -1669,63 +1655,6 @@ impl Engine {
     /// Why the last load failed, if it did.
     pub fn song_error(&self) -> Option<SongError> {
         self.song_error
-    }
-
-    /// Replace voice `i` with the voice in the song buffer, its `voice` line
-    /// and `ctl` lines, and load the song again (the Sound screen, ADR-0020):
-    /// the edit goes through `load_song`, so it takes over on the bar line.
-    /// An error is in the voice's own lines (`voice_error`); the song plays on.
-    /// Allocates; never called from `render`.
-    pub fn edit_voice(&mut self, i: usize) -> Result<(), SongError> {
-        let result = self.voice_edited(i);
-        self.voice_error = result.as_ref().err().copied();
-        result
-    }
-
-    fn voice_edited(&mut self, i: usize) -> Result<(), SongError> {
-        let one = |msg| SongError {
-            line: 1,
-            col: 1,
-            msg,
-        };
-        let text = std::str::from_utf8(&self.song_buf).map_err(|_| one("the text is not UTF-8"))?;
-        let parsed = Song::parse(text)?;
-        let mut rest = parsed.clone();
-        rest.voices.clear();
-        let [voice] = parsed.voices.as_slice() else {
-            return Err(one(
-                "the Sound screen edits one voice: its voice line and its ctl lines",
-            ));
-        };
-        if rest != Song::default() {
-            return Err(one(
-                "the Sound screen edits one voice: its voice line and its ctl lines",
-            ));
-        }
-        let mut song = Song::parse(&self.song_text).map_err(|_| one("the song does not parse"))?;
-        let slot = song
-            .voices
-            .get_mut(i)
-            .ok_or(one("the song has no such voice"))?;
-        *slot = voice.clone();
-        self.song_buf = song.print().into_bytes();
-        self.load_song()
-            .map_err(|_| one("the voice does not fit the song: a name it shares?"))
-    }
-
-    pub fn voice_error(&self) -> Option<SongError> {
-        self.voice_error
-    }
-
-    /// The text the last `voice_text` printed.
-    pub fn voice_text_buf(&self) -> &str {
-        &self.voice_text
-    }
-
-    /// Voice `i`'s printed text, kept until the next call.
-    pub fn voice_text(&mut self, i: usize) -> &str {
-        self.voice_text = self.song.voice_text(i).unwrap_or_default();
-        &self.voice_text
     }
 
     /// Set one step of the song (level 0 off, 1 hit, 2 accent) and print it
@@ -1866,7 +1795,8 @@ impl Engine {
             1 => self.song.set_track_setting(t, a as usize),
             2 => {
                 let sets = self.changed_params(t);
-                sets.is_some_and(|sets| self.song.add_setting(t, sets).is_some())
+                let code = self.changed_code(t);
+                sets.is_some_and(|sets| self.song.add_setting(t, sets, code).is_some())
             }
             _ => false,
         };
@@ -1876,7 +1806,11 @@ impl Engine {
         if op != 2 {
             if let (Some(s), Some((preset, sets))) = (self.song_routed(t), self.song.patch(t)) {
                 let sets = sets.to_vec();
+                let code = self.song.code(t).map(str::to_string);
                 self.preset(s, preset);
+                if let Some(code) = code {
+                    self.set_code(s, &code).ok();
+                }
                 for (p, v) in sets {
                     self.set_param(s, p, v);
                 }
@@ -1886,15 +1820,29 @@ impl Engine {
         true
     }
 
+    /// Track `t`'s Modular synth's code as it plays, its knobs' values in
+    /// place of its numbers, when it is not its preset's (ADR-0024).
+    fn changed_code(&self, t: usize) -> Option<String> {
+        let s = self.song_routed(t)?;
+        let preset = self.song.tracks.get(t)?.preset?;
+        let code = self.code(s)?;
+        (Some(code.as_str()) != preset.code()).then_some(code)
+    }
+
     /// The parameters of track `t`'s synth that differ from its preset, as a
     /// setting holds them: the sound only, no model, strip, global or arp
-    /// parameters. `None` without a synth or a preset, or past a setting's room.
+    /// parameters, and no knob of a Modular synth with code, which its code
+    /// holds. `None` without a synth or a preset, or past a setting's room.
     fn changed_params(&self, t: usize) -> Option<Vec<(Param, f32)>> {
         let s = self.song_routed(t)?;
         let preset = self.song.tracks.get(t)?.preset?;
+        let coded = self.patch(s).is_some();
         let mut sets = Vec::new();
         for (p, d) in DEFAULTS.iter() {
             if *p == Param::Model || p.is_strip() || p.is_global() || p.is_arp() {
+                continue;
+            }
+            if coded && p.ctl().is_some() {
                 continue;
             }
             let base = preset

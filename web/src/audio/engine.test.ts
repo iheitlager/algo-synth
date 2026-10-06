@@ -127,10 +127,10 @@ describe('applySong', () => {
     expect(storage.map.get('algo-synth:song')).toBe('tempo 100\n')
     expect([mod.song.tempo, mod.song.swing]).toEqual([100, 55])
     expect(mod.song.tracks).toEqual([
-      { name: 'kick', synth: 0, kind: 'drums', preset: -1, setting: -1, voice: -1 },
-      { name: 'bass', synth: 3, kind: 'synth', preset: -1, setting: -1, voice: -1 },
-      { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1, voice: -1 },
-      { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1, voice: -1 },
+      { name: 'kick', synth: 0, kind: 'drums', preset: -1, setting: -1 },
+      { name: 'bass', synth: 3, kind: 'synth', preset: -1, setting: -1 },
+      { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1 },
+      { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1 },
     ])
     expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0] }], notes: null })
     expect(mod.song.frags[1]?.notes).toEqual({
@@ -238,27 +238,18 @@ describe('onMessage', () => {
     expect(mod.modulated.keys.size).toBe(0)
   })
 
-  it('decodes the voices, sends a voice edit and keeps its error (ADR-0020)', async () => {
+  it('sends a SynthDef and keeps the code of each synth and its error (ADR-0024)', async () => {
     const { mod, send, take } = await boot()
-    mod.applySong({
-      ok: true, text: enc('voice v = { saw(freq) }\n'), error: null, tempo: 120, swing: 50,
-      tracks: [{ ...track('lead', 2, 1), voice: 0 }], frags: [],
-      voices: [{ name: enc('v'), text: enc('voice v = { saw(freq) }\n'), ctls: [{ name: enc('cut'), lo: 100, hi: 8000, def: 800, exp: true }] }],
-    })
-    expect(mod.song.voices).toEqual([
-      { name: 'v', text: 'voice v = { saw(freq) }\n', ctls: [{ name: 'cut', lo: 100, hi: 8000, def: 800, exp: true }] },
-    ])
-    expect(mod.song.tracks[0]?.voice).toBe(0)
     take()
-    mod.editVoice(0, 'voice v = { tri(freq) }\n')
+    mod.setCode(2, 'SynthDef(\\a, { Saw.ar(440) }).add;')
     const [msg] = take()
-    expect(msg?.t).toBe('voice')
-    expect(msg?.i).toBe(0)
-    expect(new TextDecoder().decode(msg?.bytes as ArrayBuffer)).toBe('voice v = { tri(freq) }\n')
-    send({ t: 'voice', ok: false, error: { line: 1, col: 13, msg: enc('a signal goes here') } })
-    expect(mod.song.voiceError).toEqual({ line: 1, col: 13, msg: 'a signal goes here' })
-    send({ t: 'voice', ok: true, error: null })
-    expect(mod.song.voiceError).toBeNull()
+    expect(msg?.t).toBe('code')
+    expect(msg?.s).toBe(2)
+    expect(new TextDecoder().decode(msg?.bytes as ArrayBuffer)).toBe('SynthDef(\\a, { Saw.ar(440) }).add;')
+    send({ t: 'code', s: 2, text: enc('SynthDef(\\a, { Saw.ar(440) }).add;'), error: { line: 1, col: 17, msg: enc('no such UGen') } })
+    expect(mod.codes[2]).toEqual({ text: 'SynthDef(\\a, { Saw.ar(440) }).add;', error: { line: 1, col: 17, msg: 'no such UGen' } })
+    send({ t: 'code', s: 2, text: enc('x'), error: null })
+    expect(mod.codes[2]).toEqual({ text: 'x', error: null })
   })
 
   it('pads and zones are decoded per synth', async () => {

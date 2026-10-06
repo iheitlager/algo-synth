@@ -54,10 +54,15 @@ const PER_VOICE = Array.from({ length: VOICES }, (_, s) => [
   `mod t${s}.resonance = lfo([0.5, 1, 2, 3]).range(0.2, 0.9)`,
 ]).flat()).join('\n')
 
-// A song giving every synth the largest Modular voice: 30 of its 32 nodes.
+// A song giving every synth a big SynthDef in a setting (ADR-0024): eight
+// oscillators, three ladders, a filter and a comb.
 const LARGEST = [
-  'voice big = { (mix(saw(freq), saw(freq), pulse(freq), tri(freq)) + mix(saw(freq), pulse(freq), saw(freq), tri(freq))) |> ladder(3000) |> ladder(2000) |> ladder(1500) |> svf(lp, 1000) |> delay(0.003, 0.5) }',
-  ...Array.from({ length: VOICES }, (_, s) => `track t${s} synth Modular big`),
+  'setting big = Modular ModularBasic',
+  String.raw`  SynthDef(\big, { |freq = 440|`,
+  '      var sig = Mix([Saw.ar(freq), Saw.ar(freq), Pulse.ar(freq), LFTri.ar(freq), Saw.ar(freq), Pulse.ar(freq), Saw.ar(freq), LFTri.ar(freq)]);',
+  '      CombN.ar(RLPF.ar(MoogFF.ar(MoogFF.ar(MoogFF.ar(sig, 3000), 2000), 1500), 1000), 0.01, 0.003, 0.5)',
+  '  }).add;',
+  ...Array.from({ length: VOICES }, (_, s) => `track t${s} synth big`),
 ].join('\n')
 
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
@@ -80,7 +85,8 @@ const HOOVER = String.raw`SynthDef(\hoover, {
 /** Give synth `s` a SynthDef, as the panel's Apply does. */
 function setCode(w, s, code) {
   const text = new TextEncoder().encode(code)
-  new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
+  const ptr = w.song_buf(text.length) // may grow the memory: take its buffer after
+  new Uint8Array(w.memory.buffer, ptr, text.length).set(text)
   if (w.code_set(s) < 0) throw new Error(`the SynthDef did not build: line ${w.code_error_line()}, column ${w.code_error_col()}`)
 }
 
@@ -124,8 +130,8 @@ const scenarios = {
     w.set_param(s, Param.Resonance, 1)
     w.set_param(s, Param.Drive, 1)
   }, 72],
-  // The largest voice the limits allow (ADR-0021): eight oscillators, four
-  // filters and the delay, a note on each of the 16 synths.
+  // A big SynthDef (eight oscillators, four filters and a comb), a note on
+  // each of the 16 synths.
   'modular max': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48, [0], LARGEST],
   // The basic Modular voice (a filtered saw) on all 16 synths, and the
   // SuperCollider hoover on four of them: the difference is four hoover voices.
@@ -218,7 +224,8 @@ function run(setup, lowest, chord, song, after) {
   }
   // The held notes and the mod lines are one song: one transport.
   const text = new TextEncoder().encode(`${heldSong(lowest, chord, song)}\n`)
-  new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
+  const ptr = w.song_buf(text.length) // may grow the memory: take its buffer after
+  new Uint8Array(w.memory.buffer, ptr, text.length).set(text)
   if (w.song_load() < 0) throw new Error('the bench song did not load')
   for (let t = 0; t < VOICES; t++) w.song_route(t, t)
   if (after) for (let s = 0; s < w.synth_count(); s++) after(w, s)

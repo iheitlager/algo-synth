@@ -216,12 +216,6 @@ export function pressCell(slots: readonly PatchSlot[], source: number, dest: num
 export const amountToPos = (a: number) => clamp01((a + 1) / 2)
 export const posToAmount = (p: number) => clamp(p * 2 - 1, -1, 1)
 
-// --- modular voice -----------------------------------------------------------------
-
-/** The song voice the first track on synth `s` plays (#292), or −1 when it plays a factory voice. */
-export const playedVoice = (tracks: readonly { synth: number; voice: number }[], s: number): number =>
-  tracks.find((t) => t.synth === s && t.voice >= 0)?.voice ?? -1
-
 // --- the Minimoog's keyboard control -------------------------------------------------
 
 const THIRD = Math.fround(1 / 3)

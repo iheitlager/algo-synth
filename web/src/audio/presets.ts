@@ -26,6 +26,8 @@ export interface UserPreset {
   /** An insert or processor preset's type, by name (`InsertType`, `ProcType`). */
   type?: string
   params: Record<string, number>
+  /** A Modular synth preset's SuperCollider SynthDef (ADR-0024). */
+  code?: string
 }
 
 export interface Library {
@@ -46,13 +48,16 @@ export type Target =
   | { kind: 'processor'; n: number }
   | { kind: 'strip'; s: number }
 
-/** What applying a preset sends: optionally the synth defaults first, then values. */
+/** What applying a preset sends: optionally the synth defaults first, then values, then a Modular synth's code. */
 export interface Plan {
   defaults?: number
   ops: { s: number; id: number; v: number }[]
+  code?: string
 }
 
 const MODEL = 'Model'
+/** The model whose synth presets hold code (ADR-0024). */
+const MODULAR = 'Modular'
 const KNOBS = ['A', 'B', 'C', 'D', 'E'] as const
 const PROC_FIELDS = [...KNOBS, 'Return']
 const STRIP_FIELDS = [
@@ -94,13 +99,16 @@ export const newId = () => `${Date.now().toString(36)}-${Math.random().toString(
  * A preset of what `target` holds now. `values` are the engine's values by
  * strip and id; a processor reads the globals from synth 0.
  */
-export function capture(name: string, target: Target, values: readonly (readonly number[])[], reg: PresetRegistry, id = newId()): UserPreset {
+export function capture(
+  name: string, target: Target, values: readonly (readonly number[])[], reg: PresetRegistry, id = newId(), code?: string,
+): UserPreset {
   const clean = cleanName(name) || 'Preset'
   if (target.kind === 'synth') {
     const row = values[target.s] ?? []
     const modelId = reg.params[MODEL]
     const model = modelId !== undefined && reg.models ? nameOf(reg.models, row[modelId] ?? 0) : undefined
-    return { id, kind: 'synth', name: clean, ...(model && { model }), params: pick(row, synthNames(reg).map((n) => [n, n]), reg) }
+    const own = model === MODULAR && code ? { code } : {}
+    return { id, kind: 'synth', name: clean, ...(model && { model }), params: pick(row, synthNames(reg).map((n) => [n, n]), reg), ...own }
   }
   if (target.kind === 'insert') {
     const row = values[target.s] ?? []
@@ -136,7 +144,7 @@ export function plan(preset: UserPreset, target: Target, reg: PresetRegistry): P
     const model = preset.model !== undefined ? reg.models?.[preset.model] : undefined
     if (model !== undefined) put(target.s, MODEL, model)
     for (const [n, v] of Object.entries(preset.params)) put(target.s, n, v)
-    return { defaults: target.s, ops }
+    return { defaults: target.s, ops, ...(preset.code !== undefined && { code: preset.code }) }
   }
   if (target.kind === 'insert' || target.kind === 'processor') {
     const [s, field, types] =
@@ -200,6 +208,7 @@ export function parseLibrary(text: string, reg: PresetRegistry): ParsedLibrary {
         continue
       }
       preset.model = entry.model
+      if (typeof entry.code === 'string' && entry.model === MODULAR) preset.code = entry.code
     }
     if (kind === 'insert' || kind === 'processor') {
       const types = kind === 'insert' ? reg.insertTypes : reg.procTypes

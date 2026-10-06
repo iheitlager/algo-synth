@@ -44,7 +44,7 @@ export type Control =
   /** The pad sampler's kit browser, 4 x 4 pad grid and pad editor (#125). */
   | { kind: 'pads' }
   /** The Modular synth's song voice, written as text, with its ctl knobs (#292). */
-  | { kind: 'voice' }
+  | { kind: 'code' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -1210,20 +1210,20 @@ const tr909: ModelDef = {
   ],
 }
 
-// A voice written in the song as a graph of unit generators (ADR-0020): its
-// sound is its text, so the panel has only the envelope a voice without `env`
-// sounds through. Its own controls come with the Sound screen (#216).
+// A SuperCollider SynthDef on the synth (ADR-0024): its sound is its code, so
+// the panel has the code and the envelope a SynthDef without one sounds
+// through.
 const modular: ModelDef = {
   id: Model.Modular,
   family: 'modular',
   name: 'Modular',
-  maker: 'algo-synth · a voice written in the song',
-  tagline: 'sin saw tri pulse noise lfo fm svf ladder hp1 delay drive mix env, patched in a line of text and played per note',
+  maker: 'algo-synth · a SuperCollider SynthDef',
+  tagline: 'Oscillators, filters, envelopes, delays and reverb, written as a SynthDef and played per note',
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
   presets: ['ModularBasic', 'ModularHoover', 'ModularKick'],
   sections: [
     { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
-    { title: 'Voice', wide: true, controls: [{ kind: 'voice' }] },
+    { title: 'Code', wide: true, controls: [{ kind: 'code' }] },
   ],
 }
 

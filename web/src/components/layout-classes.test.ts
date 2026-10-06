@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 // Vue scopes only a selector's last part, so `.composer .x` in a component also
 // matches through any ancestor with that class, and App's layout div carries
 // the view's name. That hid the composer's current step whenever it was open.
-const LAYOUT = ['composer', 'mixer', 'sound']
+const LAYOUT = ['composer', 'mixer']
 
 const sources = import.meta.glob<string>('./**/*.vue', { query: '?raw', import: 'default', eager: true })
 

@@ -80,7 +80,6 @@ use crate::drums::Pad;
 use crate::fx::insert::InsertType;
 use crate::fx::processor::ProcType;
 use crate::mixer::OUT_NONE;
-use crate::modular::Program;
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
 use crate::notes::pattern::{self, Line, Pattern};
@@ -105,8 +104,6 @@ pub const MAX_SCENES: usize = 32;
 pub const MAX_SETS: usize = 32;
 /// Most modulations (`mod` lines); their signals share `signal::MAX_NODES`.
 pub const MAX_MODS: usize = 32;
-/// Most voices a song writes for its Modular synths (ADR-0020).
-pub const MAX_VOICES: usize = 16;
 /// Synth strips and group buses (ADR-0010).
 const STRIPS: usize = 16;
 const GROUPS: usize = 8;
@@ -337,69 +334,35 @@ pub struct Track {
     /// Neither a model nor a setting was written: the preset was picked from
     /// the role, and the engine may pick again from the synths it has.
     pub picked: bool,
-    /// The song's voice a Modular track plays, by index into `Song::voices`.
-    pub voice: Option<usize>,
 }
 
 /// Two tracks are equal by what they play; whether the preset was picked or
 /// written is not part of the song, so a printed song parses back equal.
 impl PartialEq for Track {
     fn eq(&self, other: &Track) -> bool {
-        (&self.name, self.kind, self.preset, self.setting, self.voice)
-            == (
-                &other.name,
-                other.kind,
-                other.preset,
-                other.setting,
-                other.voice,
-            )
+        (&self.name, self.kind, self.preset, self.setting)
+            == (&other.name, other.kind, other.preset, other.setting)
     }
 }
 
-/// A voice a Modular synth plays (ADR-0020): `voice hoover = { … }`, with
-/// its controls on the indented `ctl` lines under it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Voice {
-    pub name: String,
-    pub program: Program,
-    pub ctls: Vec<Ctl>,
-}
-
-/// A voice's control (ADR-0020): `ctl cutoff = 800 [100 8000 exp]`, a value
-/// in its own units in a range, exponential on a knob when `exp`. Control
-/// `i` is `Param::Ctl1` + `i` on the voice's synth.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Ctl {
-    pub name: String,
-    pub default: f32,
-    pub lo: f32,
-    pub hi: f32,
-    pub exp: bool,
-}
-
-/// A voice whose `ctl` lines are still being read; it compiles when they end.
-struct OpenVoice {
-    name: String,
-    text: String,
-    /// The column of its `{` and its line.
-    col: usize,
-    line: usize,
-    ctls: Vec<Ctl>,
-}
-
-/// Words a control may not be named: the voice language's own.
-const VOICE_WORDS: [&str; 20] = [
-    "freq", "gate", "vel", "sin", "saw", "tri", "pulse", "noise", "lfo", "svf", "env", "lp", "hp",
-    "adsr", "perc", "sine", "square", "range", "exprange", "ctl",
-];
-
 /// A synth patch that lives in the song (#210): a factory preset and the
 /// changes made to it, `setting nile = Minimoog MiniLead: Cutoff 0.4, …`.
+/// A Modular setting may hold its SynthDef on the indented lines under it
+/// (ADR-0024).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Setting {
     pub name: String,
     pub preset: Preset,
     pub sets: Vec<(Param, f32)>,
+    pub code: Option<String>,
+}
+
+/// A Modular setting whose code lines are still being read: its index, the
+/// line of its first code line and the lines so far.
+struct OpenCode {
+    setting: usize,
+    line: usize,
+    lines: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -409,8 +372,6 @@ pub struct Song {
     /// The key generators walk (`scale c minor`); it goes before its first use.
     pub scale: Option<Scale>,
     pub settings: Vec<Setting>,
-    /// Voices for Modular synths, written as graphs (ADR-0020).
-    pub voices: Vec<Voice>,
     pub tracks: Vec<Track>,
     /// Starting values for strips, groups and the master (ADR-0018).
     pub mix: Vec<MixLine>,
@@ -434,7 +395,6 @@ impl Default for Song {
             swing: 50.0,
             scale: None,
             settings: Vec::new(),
-            voices: Vec::new(),
             tracks: Vec::new(),
             mix: Vec::new(),
             frags: Vec::new(),
@@ -523,13 +483,24 @@ impl Song {
         let mut models: Vec<(usize, Model)> = Vec::new();
         // Nodes in the song's signals so far.
         let mut nodes = 0;
-        // The voice whose `ctl` lines come next.
-        let mut open_voice: Option<OpenVoice> = None;
+        // The Modular setting whose code lines come next.
+        let mut open_code: Option<OpenCode> = None;
         // Whether a `tempo` and a `swing` line were read: one of each (#251).
         let (mut has_tempo, mut has_swing) = (false, false);
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let err = |col: usize, msg: &'static str| SongError { line, col, msg };
+            // A Modular setting's code is its indented lines as written,
+            // blank lines and all, `#` included (ADR-0024).
+            if let Some(c) = open_code.as_mut() {
+                if raw.starts_with([' ', '\t']) || raw.trim().is_empty() {
+                    c.lines.push(dedent(raw).to_string());
+                    continue;
+                }
+            }
+            if let Some(c) = open_code.take() {
+                close_code(&mut song, c)?;
+            }
             let body = strip_comment(raw);
             // `frag … .cutoff(…) .resonance(…)` (#204): parameter methods from
             // the first word that starts with a dot, taken off and read with
@@ -551,10 +522,6 @@ impl Song {
                 continue;
             };
             if body.starts_with([' ', '\t']) {
-                if let Some(v) = open_voice.as_mut() {
-                    ctl_line(&ws, v, line)?;
-                    continue;
-                }
                 let Some((f, _)) = open else {
                     return Err(err(first.col, "a lane goes under a frag"));
                 };
@@ -652,9 +619,6 @@ impl Song {
             if let Some((f, at)) = open.take() {
                 check_lanes(&song, f, at)?;
             }
-            if let Some(v) = open_voice.take() {
-                close_voice(&mut song, v)?;
-            }
             let arg = |k: usize, msg: &'static str| {
                 ws.get(k)
                     .ok_or(err(body.trim_end().chars().count() + 1, msg))
@@ -705,45 +669,6 @@ impl Song {
                     }
                     song.scale = Some(Scale { root: pc, mode: m });
                 }
-                "voice" => {
-                    let name = arg(1, "a voice name goes here")?;
-                    if !is_name(name.text) {
-                        return Err(err(
-                            name.col,
-                            "a name is a letter, then letters, digits or _",
-                        ));
-                    }
-                    if song.voices.iter().any(|v| v.name == name.text) {
-                        return Err(err(name.col, "there is already a voice with this name"));
-                    }
-                    let eq = arg(2, "= and a voice in braces go here")?;
-                    if eq.text != "=" {
-                        return Err(err(eq.col, "= and a voice in braces go here"));
-                    }
-                    let braces = "a voice goes in braces: voice lead = { saw(freq) }";
-                    let open = arg(3, braces)?;
-                    let rest = body
-                        .char_indices()
-                        .nth(open.col - 1)
-                        .and_then(|(b, _)| body.get(b..))
-                        .unwrap_or("")
-                        .trim_end();
-                    let inner = rest
-                        .strip_prefix('{')
-                        .and_then(|t| t.strip_suffix('}'))
-                        .ok_or(err(open.col, braces))?;
-                    if song.voices.len() >= MAX_VOICES {
-                        return Err(err(first.col, "a song has at most 16 voices"));
-                    }
-                    // It compiles once its `ctl` lines are read.
-                    open_voice = Some(OpenVoice {
-                        name: name.text.to_string(),
-                        text: inner.to_string(),
-                        col: open.col,
-                        line,
-                        ctls: Vec::new(),
-                    });
-                }
                 "track" => {
                     let name = arg(1, "a track name goes here")?;
                     if !is_name(name.text) {
@@ -766,7 +691,6 @@ impl Song {
                     let mut setting = None;
                     let mut model = None;
                     let mut preset = None;
-                    let mut voice = None;
                     if let Some(w) = ws.get(3) {
                         if let Some(i) = song.settings.iter().position(|st| st.name == w.text) {
                             setting = Some(i);
@@ -778,23 +702,10 @@ impl Song {
                                 "a model (as Minimoog or Tr808) or a setting goes here",
                             ))?;
                             model = Some(m);
-                            let own = ws
-                                .get(4)
-                                .filter(|_| m.uses_graph())
-                                .and_then(|p| song.voices.iter().position(|v| v.name == p.text));
-                            if let Some(v) = own {
-                                // A Modular track playing the song's voice: the
-                                // basic preset sets the rest of the synth.
-                                voice = Some(v);
-                                preset = Some(Preset::ModularBasic);
-                            } else if let Some(p) = ws.get(4) {
+                            if let Some(p) = ws.get(4) {
                                 let pr = preset_named(p.text).ok_or(err(
                                     p.col,
-                                    if m.uses_graph() {
-                                        "a voice of the song or a Modular preset goes here"
-                                    } else {
-                                        "a preset is a factory preset, as MiniBass"
-                                    },
+                                    "a preset is a factory preset, as MiniBass",
                                 ))?;
                                 if pr.model() != m {
                                     return Err(err(p.col, "this preset is for another model"));
@@ -816,7 +727,6 @@ impl Song {
                         preset,
                         setting,
                         picked: false,
-                        voice,
                     });
                     // A model without a preset: one is picked once the frags are in.
                     if let (Some(m), None) = (model, preset) {
@@ -903,7 +813,15 @@ impl Song {
                         name: name.text.to_string(),
                         preset,
                         sets,
+                        code: None,
                     });
+                    if model.uses_graph() {
+                        open_code = Some(OpenCode {
+                            setting: song.settings.len() - 1,
+                            line: line + 1,
+                            lines: Vec::new(),
+                        });
+                    }
                 }
                 "frag" => {
                     let name = arg(1, "a fragment name goes here")?;
@@ -1004,12 +922,8 @@ impl Song {
                                 continue;
                             }
                             let target = Target::Track(t);
-                            let param = match voice_ctl(&song, target, name) {
-                                Some(p) => p,
-                                None => {
-                                    param_for(target, name).map_err(|m| err(at + ncol - 1, m))?
-                                }
-                            };
+                            let param =
+                                param_for(target, name).map_err(|m| err(at + ncol - 1, m))?;
                             if song
                                 .mods
                                 .iter()
@@ -1314,7 +1228,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, voice, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
                     ));
                 }
             }
@@ -1322,8 +1236,8 @@ impl Song {
         if let Some((f, at)) = open {
             check_lanes(&song, f, at)?;
         }
-        if let Some(v) = open_voice {
-            close_voice(&mut song, v)?;
+        if let Some(c) = open_code {
+            close_code(&mut song, c)?;
         }
         if let (Some(line), Some((_, to))) = (loop_at, song.loop_bars) {
             let msg = if song.arrange.is_empty() {
@@ -1425,20 +1339,18 @@ impl Song {
                 line.push_str(&sets.join(", "));
             }
             lines.push(line);
-        }
-        for i in 0..self.voices.len() {
-            lines.extend(
-                self.voice_text(i)
-                    .unwrap_or_default()
-                    .lines()
-                    .map(String::from),
-            );
+            if let Some(code) = &st.code {
+                lines.extend(code.lines().map(|l| {
+                    if l.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  {l}")
+                    }
+                }));
+            }
         }
         lines.extend(self.tracks.iter().map(|t| {
             let setting = t.setting.and_then(|i| self.settings.get(i));
-            if let Some(v) = t.voice.and_then(|i| self.voices.get(i)) {
-                return format!("track {} {} Modular {}", t.name, t.kind.name(), v.name);
-            }
             match (setting, t.preset) {
                 (Some(st), _) => format!("track {} {} {}", t.name, t.kind.name(), st.name),
                 (None, Some(p)) => format!(
@@ -1805,6 +1717,12 @@ impl Song {
 }
 
 impl Song {
+    /// The SuperCollider code of the setting track `t` plays, if it has one.
+    pub fn code(&self, t: usize) -> Option<&str> {
+        let i = self.tracks.get(t)?.setting?;
+        self.settings.get(i)?.code.as_deref()
+    }
+
     /// The patch track `t` plays: its preset, then its setting's changes.
     pub fn patch(&self, t: usize) -> Option<(Preset, &[(Param, f32)])> {
         let track = self.tracks.get(t)?;
@@ -1856,11 +1774,16 @@ impl Song {
         }
     }
 
-    /// A new setting of track `t`'s preset and `sets`, named after the track
-    /// (`bass`, else `bass2`, …), which the track then plays. `None` when the
-    /// track has no preset, the song has 16 settings or `sets` is more than a
-    /// setting holds.
-    pub fn add_setting(&mut self, t: usize, sets: Vec<(Param, f32)>) -> Option<usize> {
+    /// A new setting of track `t`'s preset, `sets` and a Modular synth's
+    /// `code`, named after the track (`bass`, else `bass2`, …), which the
+    /// track then plays. `None` when the track has no preset, the song has 16
+    /// settings or `sets` is more than a setting holds.
+    pub fn add_setting(
+        &mut self,
+        t: usize,
+        sets: Vec<(Param, f32)>,
+        code: Option<String>,
+    ) -> Option<usize> {
         if sets.len() > MAX_SETS || self.settings.len() >= MAX_TRACKS {
             return None;
         }
@@ -1872,28 +1795,17 @@ impl Song {
         let name = std::iter::once(base.clone())
             .chain((2..=MAX_TRACKS + 1).map(|k| format!("{base}{k}")))
             .find(|n| !taken(n))?;
-        self.settings.push(Setting { name, preset, sets });
+        self.settings.push(Setting {
+            name,
+            preset,
+            sets,
+            code,
+        });
         let i = self.settings.len() - 1;
         let tr = self.tracks.get_mut(t)?;
         tr.setting = Some(i);
         tr.picked = false;
         Some(i)
-    }
-
-    /// Voice `i` as the song prints it: its `voice` line and its `ctl` lines
-    /// (the Sound screen's text, ADR-0020).
-    pub fn voice_text(&self, i: usize) -> Option<String> {
-        let v = self.voices.get(i)?;
-        let names: Vec<&str> = v.ctls.iter().map(|c| c.name.as_str()).collect();
-        let mut out = format!("voice {} = {{ {} }}\n", v.name, v.program.print(&names));
-        for c in &v.ctls {
-            let exp = if c.exp { " exp" } else { "" };
-            out.push_str(&format!(
-                "  ctl {} = {} [{} {}{exp}]\n",
-                c.name, c.default, c.lo, c.hi
-            ));
-        }
-        Some(out)
     }
 
     /// ` .fast(2) .cutoff(…)`: the pattern methods of fragment `f`, then its
@@ -1916,23 +1828,13 @@ impl Song {
         patterns.chain(params).collect()
     }
 
-    /// A parameter as the text names it on `target`: a Modular track's
-    /// control by the voice's name for it, else its registry name (lower
-    /// case where `lower`).
-    fn param_label(&self, target: Target, p: Param, lower: bool) -> String {
-        let ctl = match (target, p.ctl()) {
-            (Target::Track(t), Some(i)) => self
-                .tracks
-                .get(t)
-                .and_then(|tr| tr.voice)
-                .and_then(|v| self.voices.get(v))
-                .and_then(|v| v.ctls.get(i)),
-            _ => None,
-        };
-        match ctl {
-            Some(c) => c.name.clone(),
-            None if lower => param_name(p).to_ascii_lowercase(),
-            None => param_name(p).to_string(),
+    /// A parameter as the text names it: its registry name (lower case
+    /// where `lower`).
+    fn param_label(&self, _target: Target, p: Param, lower: bool) -> String {
+        if lower {
+            param_name(p).to_ascii_lowercase()
+        } else {
+            param_name(p).to_string()
         }
     }
 
@@ -2195,127 +2097,36 @@ fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str
     } else {
         return Err("a target is a track, strip1–16, group1–8 or master");
     };
-    if let Some(c) = voice_ctl(song, target, p) {
-        return Ok((target, c));
-    }
     Ok((target, param_for(target, p)?))
 }
 
-/// The parameter of a Modular track's control named `name` (ADR-0020): a
-/// voice's own names come before the registry's.
-fn voice_ctl(song: &Song, target: Target, name: &str) -> Option<Param> {
-    let Target::Track(t) = target else {
-        return None;
-    };
-    let voice = song.voices.get(song.tracks.get(t)?.voice?)?;
-    Param::ctl_param(voice.ctls.iter().position(|c| c.name == name)?)
+/// A code line under a Modular setting without its indent of two spaces
+/// or a tab.
+fn dedent(raw: &str) -> &str {
+    raw.strip_prefix("  ")
+        .or_else(|| raw.strip_prefix('\t'))
+        .unwrap_or_else(|| raw.trim_start())
+        .trim_end()
 }
 
-/// One `ctl <name> = <default> [<lo> <hi>]` (or `[<lo> <hi> exp]`) line
-/// under a voice.
-fn ctl_line(ws: &[Word<'_>], v: &mut OpenVoice, line: usize) -> Result<(), SongError> {
-    let err = |col: usize, msg: &'static str| SongError { line, col, msg };
-    let end = ws.last().map_or(1, |w| w.col + w.text.chars().count());
-    let first = ws.first().ok_or(err(1, "a ctl line goes here"))?;
-    if first.text != "ctl" {
-        return Err(err(
-            first.col,
-            "under a voice go its controls: ctl cutoff = 800 [100 8000 exp]",
-        ));
+/// The code of a Modular setting, now that its lines are read: built once
+/// here so a mistake is the song's, at its line and column (ADR-0024).
+fn close_code(song: &mut Song, mut c: OpenCode) -> Result<(), SongError> {
+    while c.lines.last().is_some_and(String::is_empty) {
+        c.lines.pop();
     }
-    let name = ws.get(1).ok_or(err(end, "a control name goes here"))?;
-    if !is_name(name.text) {
-        return Err(err(
-            name.col,
-            "a name is a letter, then letters, digits or _",
-        ));
+    if c.lines.is_empty() {
+        return Ok(());
     }
-    if VOICE_WORDS.contains(&name.text) {
-        return Err(err(name.col, "this word is the voice language's own"));
-    }
-    if v.ctls.iter().any(|c| c.name == name.text) {
-        return Err(err(
-            name.col,
-            "this voice already has a control with this name",
-        ));
-    }
-    if v.ctls.len() >= crate::params::CTLS {
-        return Err(err(first.col, "a voice has at most 32 controls"));
-    }
-    match ws.get(2) {
-        Some(w) if w.text == "=" => {}
-        Some(w) => return Err(err(w.col, "= and a value go here")),
-        None => return Err(err(end, "= and a value go here")),
-    }
-    let number = |w: Option<&Word<'_>>, msg: &'static str| {
-        let w = w.ok_or(err(end, msg))?;
-        w.text
-            .parse::<f32>()
-            .ok()
-            .filter(|x| x.is_finite())
-            .ok_or(err(w.col, msg))
-    };
-    let default = number(ws.get(3), "a value goes here")?;
-    let range = "a range goes here: [low high] or [low high exp]";
-    let at = ws.get(4).map_or(end, |w| w.col);
-    let rest: Vec<&str> = ws.get(4..).unwrap_or(&[]).iter().map(|w| w.text).collect();
-    let rest = rest.join(" ");
-    let inner = rest
-        .strip_prefix('[')
-        .and_then(|t| t.strip_suffix(']'))
-        .ok_or(err(at, range))?;
-    let parts: Vec<&str> = inner.split_whitespace().collect();
-    let (lo, hi, exp) = match parts.as_slice() {
-        [lo, hi] => (lo, hi, false),
-        [lo, hi, "exp"] => (lo, hi, true),
-        _ => return Err(err(at, range)),
-    };
-    let (Ok(lo), Ok(hi)) = (lo.parse::<f32>(), hi.parse::<f32>()) else {
-        return Err(err(at, range));
-    };
-    if !(lo.is_finite() && hi.is_finite() && lo < hi) {
-        return Err(err(at, "a range goes from low to high"));
-    }
-    if exp && lo <= 0.0 {
-        return Err(err(at, "an exp range starts above 0"));
-    }
-    if !(lo..=hi).contains(&default) {
-        return Err(err(
-            ws.get(3).map_or(at, |w| w.col),
-            "the value is in the range",
-        ));
-    }
-    v.ctls.push(Ctl {
-        name: name.text.to_string(),
-        default,
-        lo,
-        hi,
-        exp,
-    });
-    Ok(())
-}
-
-/// Compile a voice now that its controls are known.
-fn close_voice(song: &mut Song, v: OpenVoice) -> Result<(), SongError> {
-    let ctls: Vec<crate::modular::Control<'_>> = v
-        .ctls
-        .iter()
-        .map(|c| crate::modular::Control {
-            name: &c.name,
-            lo: c.lo,
-            hi: c.hi,
-        })
-        .collect();
-    let program = Program::parse_with(&v.text, &ctls).map_err(|(c, msg)| SongError {
-        line: v.line,
-        col: v.col + c,
-        msg,
+    let code = c.lines.join("\n");
+    crate::modular::sc::compile(&code).map_err(|e| SongError {
+        line: c.line + e.line.saturating_sub(1),
+        col: e.col + 2,
+        msg: e.msg,
     })?;
-    song.voices.push(Voice {
-        name: v.name,
-        program,
-        ctls: v.ctls,
-    });
+    if let Some(st) = song.settings.get_mut(c.setting) {
+        st.code = Some(code);
+    }
     Ok(())
 }
 
@@ -2701,10 +2512,7 @@ fn per_voice_fits(
     let model = track.and_then(|tr| tr.preset).map(Preset::model);
     // A drum or sampler track never plays Mono voices, whatever it picks later.
     let kind = track.is_some_and(|tr| tr.kind != Kind::Synth);
-    if kind
-        || track.is_some_and(|tr| tr.voice.is_some())
-        || model.is_some_and(|m| !m.uses_mono_voice())
-    {
+    if kind || model.is_some_and(|m| !m.uses_mono_voice()) {
         return Err(
             "env and lists need a Mono or Poly synth; a Modular voice writes them in its graph",
         );
