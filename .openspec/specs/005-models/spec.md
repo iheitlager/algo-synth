@@ -40,9 +40,9 @@ The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs,
 
 ### Requirement 3: Minimoog [MUST]
 
-The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, low note priority, and Osc 3 usable as a modulator (spec 004 Req 14). It has no LFO: Osc 3 SHALL be the source of its vibrato and of `LfoCutoff` (the modulation normals), and its panel SHALL have no patch panel. Its normalled cutoff SHALL follow the filter ADSR, with key tracking in steps of off, 1/3, 2/3 and full.
+The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, low note priority, and Osc 3 usable as a modulator (spec 004 Req 14). It has no LFO: Osc 3 SHALL be the source of its vibrato and of `LfoCutoff` (the modulation normals), and its panel SHALL have no patch panel. Its normalled cutoff SHALL follow the filter ADSR, with key tracking in steps of off, 1/3, 2/3 and full, set by two keyboard control switches. It SHALL have the Model D's on/off switches as parameters: a mixer switch per oscillator and for noise (`Vco1On`…`NoiseOn`), Glide (`GlideOn`), Decay (`DecayRelease`; off, the contours release at once), oscillator and filter modulation (`OscModOn`, `FilterModOn`), and an A-440 reference tone at the synth's output that sounds with no key held (`A440`). A switch that is off SHALL zero what its knob sets without losing the knob's value, and every switch but A-440 SHALL default to on (#308).
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Minimoog`, `crates/dsp/src/mono/voice.rs::MonoVoice::render` (#35)
+**Implementation:** `crates/dsp/src/mono/model.rs::Model::Minimoog`, `crates/dsp/src/mono/voice.rs::MonoVoice::render`, `crates/dsp/src/mono.rs::MonoParams::set`, `crates/dsp/src/poly.rs::Pool::render` (#35, #308)
 
 #### Scenario: decay is release
 
@@ -56,7 +56,13 @@ The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive i
 - WHEN a note is held
 - THEN the loudness is full at once while the spectrum brightens over the filter attack
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::minimoog_decay_is_release`, `crates/dsp/src/mono/voice.rs::tests::minimoog_filter_contour_brightens_a_held_note`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`
+#### Scenario: the switches
+
+- GIVEN a Minimoog with Osc 1 at full level and its mixer switch off, or Decay off with a 2 s decay, or A-440 on and no key held
+- WHEN it renders
+- THEN Osc 1 is silent, a released note is silent within 50 ms, and a 440 Hz tone sounds
+
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::minimoog_decay_switch_off_releases_at_once`, `crates/dsp/src/mono/voice.rs::tests::mixer_switch_silences_its_source`, `crates/dsp/src/mono.rs::tests::switches_gate_their_knobs`, `crates/dsp/src/engine/tests.rs::a440_sounds_with_no_key_held`, `crates/dsp/src/mono/voice.rs::tests::minimoog_decay_is_release`, `crates/dsp/src/mono/voice.rs::tests::minimoog_filter_contour_brightens_a_held_note`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`
 
 ### Requirement 4: Pro-One [MUST]
 

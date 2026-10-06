@@ -3997,3 +3997,26 @@ fn the_supercollider_hoover_plays_mono() {
         .voice_cap();
     assert!((2..=6).contains(&cap), "a few voices: {cap}");
 }
+
+/// #308: A-440 sounds a 440 Hz tone with no key held, and stops when off.
+#[test]
+fn a440_sounds_with_no_key_held() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::Model, Model::Minimoog as u32 as f32);
+    e.set_param(0, Param::A440, 1.0);
+    let mut left: Vec<f32> = Vec::new();
+    while left.len() < 48_000 {
+        e.render(BLOCK);
+        left.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let rising = left
+        .windows(2)
+        .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+        .count();
+    assert!((438..=442).contains(&rising), "{rising} cycles in a second");
+    e.set_param(0, Param::A440, 0.0);
+    for _ in 0..8 {
+        e.render(BLOCK);
+    }
+    assert!(peak(&e) < 1e-4, "off is silent: {}", peak(&e));
+}

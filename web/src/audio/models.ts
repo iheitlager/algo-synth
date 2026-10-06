@@ -12,6 +12,9 @@ import { stepped } from './faceplate'
 
 type Options = readonly (readonly [string, number])[]
 
+/** The colours of the Minimoog's rocker switches (#308). */
+export type RockerColour = 'orange' | 'blue' | 'white' | 'black'
+
 /**
  * A control and how it is drawn (spec 003 Req 9). A knob keeps its range, its
  * scale and its unit here, so the view only draws and sends; `def` is where a
@@ -25,7 +28,9 @@ export type Control =
     }
   /** A choice; `dropdown` draws it as a pull-down instead of a row of buttons (#194). */
   | { kind: 'select'; label: string; param: ParamId; options: Options; dropdown?: boolean }
-  | { kind: 'switch'; label: string; param: ParamId }
+  | { kind: 'switch'; label: string; param: ParamId; rocker?: RockerColour }
+  /** The Minimoog's keyboard control: two switches over a key-track amount (#308). */
+  | { kind: 'keyctl'; label: string; param: ParamId }
   /** An envelope drawn as its curve with a knob for each time and level it has. */
   | { kind: 'env'; label: string; a: ParamId; d?: ParamId; s?: ParamId; r?: ParamId; decayIsRelease?: boolean }
   /** A DX7 envelope of four rates and four levels, drawn as its curve. */
@@ -134,6 +139,7 @@ const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: Param
   ({ kind: 'env', label, a, d, s, r, decayIsRelease })
 const select = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options })
 const sw = (label: string, param: ParamId): Control => ({ kind: 'switch', label, param })
+const rocker = (label: string, param: ParamId, colour: RockerColour): Control => ({ kind: 'switch', label, param, rocker: colour })
 
 const entries = (o: Record<string, number>): Options => Object.entries(o)
 export const WAVES = entries(Waveform)
@@ -214,9 +220,10 @@ const arp2600: ModelDef = {
   ],
 }
 
-/** Key tracking in steps, as f32 values so the engine's report selects the step. */
-const KEY_STEPS: Options = [['Off', 0], ['⅓', Math.fround(1 / 3)], ['⅔', Math.fround(2 / 3)], ['Full', 1]]
-
+// The Model D's panel, left to right (#308): its rocker switches in their
+// colours, orange for modulation and keyboard control, blue for the mixer,
+// noise and output, white for glide and decay. Black, as on the reissue, is
+// for what the original has not: legato, Osc 3's low range as a switch.
 const minimoog: ModelDef = {
   id: Model.Minimoog,
   family: 'mono',
@@ -229,9 +236,10 @@ const minimoog: ModelDef = {
     {
       title: 'Controllers',
       controls: [
-        range('Glide', Param.Glide, 0, 2, 0.01),
-        select('Note priority', Param.Priority, PRIORITIES),
-        sw('Legato', Param.Legato),
+        range('Glide', Param.Glide, 0, 2, 0.01), rocker('Glide', Param.GlideOn, 'white'), rocker('Decay', Param.DecayRelease, 'white'),
+        rocker('Oscillator modulation', Param.OscModOn, 'orange'), range('Osc mod amount', Param.Vibrato, 0, 1, 0.01),
+        rocker('Osc 3 control', Param.Vco3KeyFollow, 'orange'), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
+        select('Note priority', Param.Priority, PRIORITIES), rocker('Legato', Param.Legato, 'black'),
       ],
     },
     {
@@ -248,24 +256,27 @@ const minimoog: ModelDef = {
       title: 'Oscillator 3',
       controls: [
         range('Range', Param.Vco3Coarse, -24, 24, 1), fine(Param.Vco3Fine), select('Waveform', Param.Vco3Wave, WAVES),
-        sw('Low frequency', Param.Vco3Low), sw('Keyboard control', Param.Vco3KeyFollow),
+        rocker('Lo', Param.Vco3Low, 'black'),
       ],
     },
     { title: 'Pulse', controls: [range('Width', Param.PulseWidth, 0.05, 0.95, 0.01)] },
     {
       title: 'Mixer',
       controls: [
-        range('Osc 1', Param.Vco1Level, 0, 1, 0.01), range('Osc 2', Param.Vco2Level, 0, 1, 0.01),
-        range('Osc 3', Param.Vco3Level, 0, 1, 0.01), range('Noise', Param.NoiseLevel, 0, 1, 0.01),
-        select('Noise colour', Param.NoiseColour, NOISES), range('Overdrive', Param.Drive, 0, 1, 0.01),
+        range('Osc 1', Param.Vco1Level, 0, 1, 0.01), rocker('On', Param.Vco1On, 'blue'),
+        range('Osc 2', Param.Vco2Level, 0, 1, 0.01), rocker('On', Param.Vco2On, 'blue'),
+        range('Osc 3', Param.Vco3Level, 0, 1, 0.01), rocker('On', Param.Vco3On, 'blue'),
+        range('Noise', Param.NoiseLevel, 0, 1, 0.01), rocker('On', Param.NoiseOn, 'blue'),
+        rocker('Pink', Param.NoiseColour, 'blue'), range('Overdrive', Param.Drive, 0, 1, 0.01),
       ],
     },
     {
       title: 'Filter',
       controls: [
+        rocker('Filter modulation', Param.FilterModOn, 'orange'), range('Filter mod amount', Param.LfoCutoff, 0, 1, 0.01),
+        { kind: 'keyctl', label: 'Keyboard control', param: Param.KeyTrack },
         range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Emphasis', Param.Resonance, 0, 1, 0.01),
-        range('Contour amount', Param.EnvCutoff, -1, 1, 0.01), select('Keyboard control', Param.KeyTrack, KEY_STEPS),
-        range('Filter modulation', Param.LfoCutoff, 0, 1, 0.01),
+        range('Amount of contour', Param.EnvCutoff, -1, 1, 0.01),
       ],
     },
     {
@@ -277,10 +288,10 @@ const minimoog: ModelDef = {
       controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, undefined, true)],
     },
     {
-      title: 'Modulation',
+      title: 'Output',
       controls: [
-        range('Oscillator modulation', Param.Vibrato, 0, 1, 0.01), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
-        { kind: 'note', text: 'Osc 3 is the modulation source; decay is also the release.' },
+        rocker('A-440', Param.A440, 'blue'),
+        { kind: 'note', text: 'Osc 3 is the modulation source; with Decay on, decay is also the release.' },
       ],
     },
   ],

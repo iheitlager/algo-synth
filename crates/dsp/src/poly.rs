@@ -31,10 +31,12 @@ use crate::padsampler::{PadVoice as SampledPad, pad_of};
 use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::SamplerVoice;
-use crate::voice::Owner;
+use crate::voice::{Owner, lookup, wrap};
 
 /// Voices in a pool.
 pub const MAX_VOICES: usize = 16;
+/// Level of the A-440 reference tone (#308): a sine well under one VCO.
+const A440_LEVEL: f32 = 0.25;
 /// Voices that may sound at once across every synth (spec 006 Req 5).
 pub const VOICE_BUDGET: usize = 64;
 
@@ -271,6 +273,8 @@ pub struct Pool {
     nkeys: usize,
     /// Each voice slot's own values, from per-voice signals (ADR-0023).
     sets: [VoiceSet; MAX_VOICES],
+    /// Phase of the A-440 reference tone (#308).
+    a440: f32,
 }
 
 impl Pool {
@@ -291,6 +295,7 @@ impl Pool {
             graph: vec![VoiceState::for_program(&crate::modular::Program::default()); MAX_VOICES],
             nkeys: 0,
             sets: [VoiceSet::default(); MAX_VOICES],
+            a440: 0.0,
         }
     }
 
@@ -923,6 +928,14 @@ impl Pool {
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
                 PolyVoice::Graph(g) => g.render(&ctx, st, out),
+            }
+        }
+        // The reference tone joins past the voices and their VCA, key or not.
+        if p.a440 {
+            let inc = 440.0 / p.sample_rate();
+            for x in out.iter_mut() {
+                *x += A440_LEVEL * lookup(tools.sine, self.a440);
+                self.a440 = wrap(self.a440 + inc);
             }
         }
     }

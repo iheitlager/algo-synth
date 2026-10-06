@@ -528,6 +528,15 @@ export const Param = {
   Ctl30: 521,
   Ctl31: 522,
   Ctl32: 523,
+  Vco1On: 524,
+  Vco2On: 525,
+  Vco3On: 526,
+  NoiseOn: 527,
+  GlideOn: 528,
+  DecayRelease: 529,
+  OscModOn: 530,
+  FilterModOn: 531,
+  A440: 532,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

@@ -9,6 +9,7 @@ const paramsOf = (c: Control): number[] => {
     case 'knob':
     case 'select':
     case 'switch':
+    case 'keyctl':
       return [c.param]
     case 'env':
       return [c.a, c.d, c.s, c.r].filter((p) => p !== undefined) as number[]
