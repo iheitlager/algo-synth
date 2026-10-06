@@ -18,6 +18,12 @@
 //! n values per cycle; `.lag(s)` follows its input with a time constant of s
 //! seconds, the only node that keeps state.
 //!
+//! Two sources have a value per voice (ADR-0023): `env(adsr)`, `env(perc)` or
+//! `env(a, d, s, r)`, an envelope from 0 to 1 that restarts with each note,
+//! and a list `[a, b, …]`, number *i* for voice slot *i* round the list, also
+//! as `lfo([1, 3])`'s rates. A signal that uses either is per voice: the
+//! engine evaluates it for each voice of a Mono or Poly synth.
+//!
 //! The parser compiles an expression into a flat array of nodes, children
 //! before parents, and prints it back canonically. Parsing allocates, so it
 //! runs at load; `eval` doesn't, so it runs in `render` (ADR-0002).
@@ -32,6 +38,12 @@ const MAX_DEPTH: usize = 32;
 const MAX_SEQ: usize = 64;
 /// The value `rand` takes changes this often per cycle: once a sixteenth.
 const RAND_PER_CYCLE: f64 = 16.0;
+/// Most numbers in one list, as in the Modular voice (ADR-0021).
+const MAX_LIST: usize = 16;
+/// `env(perc)`: attack, decay, sustain and release, as the Modular voice's (ADR-0021).
+const PERC: [f32; 4] = [0.002, 0.3, 0.0, 0.3];
+/// A decay or release falls 60 dB over its time.
+const FALL: f64 = 6.907_755;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wave {
@@ -111,6 +123,20 @@ pub enum Node {
     Num(f32),
     Wave(Wave),
     Lfo(f32, Wave),
+    /// `lfo([a, b])`: `len` rates from `from` in the values, one per voice.
+    LfoList {
+        from: usize,
+        len: usize,
+        wave: Wave,
+    },
+    /// `[a, b]`: `len` numbers from `from` in the values, one per voice.
+    List {
+        from: usize,
+        len: usize,
+    },
+    /// An envelope per voice: the synth's ADSR (`None`), or attack, decay,
+    /// sustain and release in seconds.
+    Env(Option<[f32; 4]>),
     Rand,
     Perlin,
     Neg(usize),
@@ -154,6 +180,52 @@ pub struct Ctx<'a> {
     pub dt: f32,
     /// The song's `lag` slots, NaN until a lag first runs.
     pub state: &'a mut [f32],
+    /// The voice a per-voice signal is evaluated for (ADR-0023); `None` per synth.
+    pub voice: Option<Voice>,
+}
+
+/// One voice of a pool, for `env` and lists.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Voice {
+    /// Its slot in the pool: list number `slot` round the list.
+    pub slot: usize,
+    /// Seconds since its note began, and since its key was let go.
+    pub on: f32,
+    pub off: Option<f32>,
+    /// The synth's amplifier ADSR in seconds (sustain a level), for `env(adsr)`.
+    pub adsr: [f32; 4],
+}
+
+impl Voice {
+    /// The envelope `times` at this voice's moment, from 0 to 1: a straight
+    /// attack, then decay and release that fall 60 dB over their times. It is
+    /// a function of the times since the note, so it needs no state.
+    fn env(&self, times: [f32; 4]) -> f64 {
+        let [a, d, s, r] = times.map(f64::from);
+        let s = s.clamp(0.0, 1.0);
+        let gated = |t: f64| {
+            if t < a {
+                t / a
+            } else if d > 0.0 {
+                s + (1.0 - s) * (-FALL * (t - a) / d).exp()
+            } else {
+                s
+            }
+        };
+        let on = f64::from(self.on.max(0.0));
+        match self.off {
+            None => gated(on),
+            Some(off) => {
+                let off = f64::from(off.max(0.0));
+                let held = gated((on - off).max(0.0));
+                if r > 0.0 {
+                    held * (-FALL * off / r).exp()
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
 }
 
 impl Signal {
@@ -161,7 +233,7 @@ impl Signal {
     /// limit holds for all of its signals and each `lag` gets its own slot.
     /// An error's column counts in chars from 1.
     pub fn parse(text: &str, nodes: &mut usize) -> Result<Signal, (usize, &'static str)> {
-        let toks = lex(text, false)?;
+        let toks = lex(text, true)?;
         let mut p = Parser {
             toks: &toks,
             at: 0,
@@ -182,6 +254,18 @@ impl Signal {
         })
     }
 
+    /// Whether this signal has a value per voice: it uses `env` or a list.
+    pub fn per_voice(&self) -> bool {
+        self.nodes
+            .iter()
+            .any(|n| matches!(n, Node::Env(_) | Node::List { .. } | Node::LfoList { .. }))
+    }
+
+    /// Whether it uses `.lag`, whose state is one for the song.
+    pub fn lags(&self) -> bool {
+        self.nodes.iter().any(|n| matches!(n, Node::Lag { .. }))
+    }
+
     /// The value at `t` cycles. Never allocates.
     pub fn eval(&self, t: f64, ctx: &mut Ctx<'_>) -> f32 {
         match self.nodes.len().checked_sub(1) {
@@ -198,6 +282,12 @@ impl Signal {
             Node::Num(v) => f64::from(v),
             Node::Wave(w) => w.at(t),
             Node::Lfo(rate, w) => w.at(t / ctx.cps * f64::from(rate)),
+            Node::LfoList { from, len, wave } => {
+                let rate = self.listed(from, len, ctx);
+                wave.at(t / ctx.cps * rate)
+            }
+            Node::List { from, len } => self.listed(from, len, ctx),
+            Node::Env(times) => ctx.voice.map_or(0.0, |v| v.env(times.unwrap_or(v.adsr))),
             Node::Rand => unit(hash((t * RAND_PER_CYCLE).floor())),
             Node::Perlin => {
                 let (k, f) = (t.floor(), t - t.floor());
@@ -259,6 +349,24 @@ impl Signal {
         }
     }
 
+    /// Number `slot` round the list of `len` from `from`; the first per synth.
+    fn listed(&self, from: usize, len: usize, ctx: &Ctx<'_>) -> f64 {
+        let k = ctx.voice.map_or(0, |v| v.slot) % len.max(1);
+        self.values.get(from + k).copied().map_or(0.0, f64::from)
+    }
+
+    fn list(&self, out: &mut String, from: usize, len: usize) -> fmt::Result {
+        out.push('[');
+        for (k, v) in self.values.iter().skip(from).take(len).enumerate() {
+            if k > 0 {
+                out.push_str(", ");
+            }
+            write!(out, "{v}")?;
+        }
+        out.push(']');
+        Ok(())
+    }
+
     fn write(&self, out: &mut String, i: usize, prec: u8) -> fmt::Result {
         let Some(node) = self.nodes.get(i) else {
             return Ok(());
@@ -282,6 +390,19 @@ impl Signal {
             Node::Wave(w) => out.write_str(w.name()),
             Node::Lfo(rate, Wave::Sine) => write!(out, "lfo({rate})"),
             Node::Lfo(rate, w) => write!(out, "lfo({rate}, {})", w.name()),
+            Node::LfoList { from, len, wave } => {
+                out.push_str("lfo(");
+                self.list(out, from, len)?;
+                if wave != Wave::Sine {
+                    write!(out, ", {}", wave.name())?;
+                }
+                out.push(')');
+                Ok(())
+            }
+            Node::List { from, len } => self.list(out, from, len),
+            Node::Env(None) => out.write_str("env(adsr)"),
+            Node::Env(Some(t)) if t == PERC => out.write_str("env(perc)"),
+            Node::Env(Some([a, d, s, r])) => write!(out, "env({a}, {d}, {s}, {r})"),
             Node::Rand => out.write_str("rand"),
             Node::Perlin => out.write_str("perlin"),
             Node::Neg(a) => {
@@ -662,11 +783,16 @@ impl<'a> Parser<'a, '_> {
                     "rand" => self.push(Node::Rand),
                     "perlin" => self.push(Node::Perlin),
                     "lfo" => self.lfo(),
+                    "env" => self.env(),
                     _ => Err((
                         col,
-                        "a signal is a number, sine saw tri square rand perlin or lfo(…)",
+                        "a signal is a number, sine saw tri square rand perlin, lfo(…), env(…) or [a, b]",
                     )),
                 }
+            }
+            Some(Tok::Punct('[')) => {
+                let (from, len) = self.list()?;
+                self.push(Node::List { from, len })
             }
             _ => Err((col, "a signal goes here, e.g. sine.range(300, 3000)")),
         }
@@ -715,16 +841,84 @@ impl<'a> Parser<'a, '_> {
         })
     }
 
-    /// `lfo(rate)` or `lfo(rate, shape)`.
+    /// `[a, b, …]`: numbers, maybe negative, into the values; the `[` is next.
+    fn list(&mut self) -> Res<(usize, usize)> {
+        self.expect('[', "[ goes here")?;
+        let from = self.values.len();
+        loop {
+            let col = self.col();
+            let neg = self.eat('-');
+            let Some(Tok::Num(v)) = self.peek() else {
+                return Err((self.col(), "a number goes here"));
+            };
+            self.at += 1;
+            if self.values.len() - from >= MAX_LIST {
+                return Err((col, "a list has at most 16 numbers"));
+            }
+            self.values.push(if neg { -v } else { v });
+            if self.eat(']') {
+                return Ok((from, self.values.len() - from));
+            }
+            self.expect(',', ", or ] goes here")?;
+        }
+    }
+
+    /// `env(adsr)`, `env(perc)` or `env(a, d, s, r)` in seconds.
+    fn env(&mut self) -> Res<usize> {
+        self.expect('(', "( goes here: env(adsr), env(perc) or env(a, d, s, r)")?;
+        let col = self.col();
+        let times = match self.peek() {
+            Some(Tok::Word("adsr")) => {
+                self.at += 1;
+                self.expect(')', ") goes here")?;
+                None
+            }
+            Some(Tok::Word("perc")) => {
+                self.at += 1;
+                self.expect(')', ") goes here")?;
+                Some(PERC)
+            }
+            _ => {
+                self.at -= 1;
+                let args = self.numbers()?;
+                let [a, d, s, r] = args.as_slice() else {
+                    return Err((col, "an envelope is adsr, perc or four times: a, d, s, r"));
+                };
+                if [a, d, r].iter().any(|t| **t < 0.0) || !(0.0..=1.0).contains(s) {
+                    return Err((col, "times are 0 or more, the sustain from 0 to 1"));
+                }
+                Some([*a, *d, *s, *r])
+            }
+        };
+        self.push(Node::Env(times))
+    }
+
+    /// `lfo(rate)`, `lfo(rate, shape)`, or a rate per voice, `lfo([a, b])`.
     fn lfo(&mut self) -> Res<usize> {
         self.expect('(', "( goes here: lfo(rate, shape)")?;
-        let Some(Tok::Num(rate)) = self.peek() else {
-            return Err((self.col(), "a rate in hertz goes here"));
+        let list = if self.peek() == Some(Tok::Punct('[')) {
+            let col = self.col();
+            let (from, len) = self.list()?;
+            if self.values.iter().skip(from).take(len).any(|r| *r <= 0.0) {
+                return Err((col, "a rate is above 0"));
+            }
+            Some((from, len))
+        } else {
+            None
         };
-        if rate <= 0.0 {
-            return Err((self.col(), "a rate is above 0"));
-        }
-        self.at += 1;
+        let rate = match list {
+            Some(_) => 0.0,
+            None => {
+                let Some(Tok::Num(rate)) = self.peek() else {
+                    return Err((self.col(), "a rate in hertz goes here"));
+                };
+                if rate <= 0.0 {
+                    return Err((self.col(), "a rate is above 0"));
+                }
+                self.at += 1;
+                rate
+            }
+        };
         let wave = if self.eat(',') {
             let c = self.col();
             let wave = match self.peek() {
@@ -738,7 +932,10 @@ impl<'a> Parser<'a, '_> {
             Wave::Sine
         };
         self.expect(')', ") goes here")?;
-        self.push(Node::Lfo(rate, wave))
+        match list {
+            Some((from, len)) => self.push(Node::LfoList { from, len, wave }),
+            None => self.push(Node::Lfo(rate, wave)),
+        }
     }
 }
 
@@ -759,6 +956,90 @@ mod tests {
                 cps: 0.5,
                 dt: 0.01,
                 state: &mut state,
+                voice: None,
+            },
+        )
+    }
+
+    /// The value for one voice: slot `slot`, `on` seconds into its note,
+    /// let go `off` seconds ago.
+    fn voice_val(s: &Signal, slot: usize, on: f32, off: Option<f32>) -> f32 {
+        let mut state = [f32::NAN; MAX_NODES];
+        s.eval(
+            0.0,
+            &mut Ctx {
+                cps: 0.5,
+                dt: 0.01,
+                state: &mut state,
+                voice: Some(Voice {
+                    slot,
+                    on,
+                    off,
+                    adsr: [0.01, 0.1, 0.5, 0.2],
+                }),
+            },
+        )
+    }
+
+    /// ADR-0023: `env` and lists print back, make a signal per voice, and
+    /// give each voice its own value.
+    #[test]
+    fn env_and_lists_are_per_voice() {
+        for text in [
+            "env(perc)",
+            "env(adsr).range(200, 4000)",
+            "env(0.01, 0.2, 0.5, 0.3)",
+            "[1, -2, 3]",
+            "lfo([1, 3])",
+            "lfo([1, 3], saw).exprange(200, 4000)",
+        ] {
+            let s = sig(text);
+            assert_eq!(s.to_string(), text);
+            assert!(s.per_voice(), "{text}");
+        }
+        assert!(!sig("lfo(1) + sine").per_voice());
+        let list = sig("[10, 20, 30]");
+        let by_slot: Vec<f32> = (0..4).map(|i| voice_val(&list, i, 0.0, None)).collect();
+        assert_eq!(
+            by_slot,
+            vec![10.0, 20.0, 30.0, 10.0],
+            "round the list by slot"
+        );
+        assert_eq!(val(&list, 0.0), 10.0, "per synth, the first");
+        // The envelope: up through the attack, down to the sustain, released to nothing.
+        let adsr = sig("env(adsr)");
+        assert!(close(voice_val(&adsr, 0, 0.005, None), 0.5));
+        assert!(close(voice_val(&adsr, 0, 0.01, None), 1.0));
+        assert!(close(voice_val(&adsr, 0, 2.0, None), 0.5));
+        assert!(
+            voice_val(&adsr, 0, 2.2, Some(0.2)) < 0.001,
+            "released over its time"
+        );
+        let perc = sig("env(perc)");
+        assert!(voice_val(&perc, 0, 0.002, None) > 0.99);
+        assert!(
+            voice_val(&perc, 0, 0.3, None) < 0.002,
+            "a percussive one falls held"
+        );
+        assert_eq!(val(&perc, 0.0), 0.0, "no voice, no envelope");
+        // lfo([1, 3]): each voice at its own rate.
+        let lfo = sig("lfo([1, 3])");
+        let mut state = [f32::NAN; MAX_NODES];
+        let mut at = |slot| sig_at(&lfo, 0.125, slot, &mut state);
+        assert!((at(0) - at(1)).abs() > 0.1);
+    }
+
+    fn sig_at(s: &Signal, t: f64, slot: usize, state: &mut [f32]) -> f32 {
+        s.eval(
+            t,
+            &mut Ctx {
+                cps: 0.5,
+                dt: 0.01,
+                state,
+                voice: Some(Voice {
+                    slot,
+                    ..Voice::default()
+                }),
             },
         )
     }
@@ -841,6 +1122,7 @@ mod tests {
             cps: 0.5,
             dt: 0.01,
             state: &mut state,
+            voice: None,
         };
         assert_eq!(s.eval(0.0, &mut ctx), 0.0);
         let first = s.eval(0.6, &mut ctx);
@@ -898,7 +1180,7 @@ mod tests {
             (
                 "cosine",
                 1,
-                "a signal is a number, sine saw tri square rand perlin or lfo(…)",
+                "a signal is a number, sine saw tri square rand perlin, lfo(…), env(…) or [a, b]",
             ),
             (
                 "sine.wobble(1)",
@@ -915,7 +1197,19 @@ mod tests {
             ("sine.segment(0)", 6, "this takes a number above 0"),
             ("lfo(0)", 5, "a rate is above 0"),
             ("lfo(1, pink)", 8, "a shape is sine, saw, tri or square"),
-            ("lfo([1, 3])", 5, "a list of channels is not supported yet"),
+            ("lfo([1, 0])", 5, "a rate is above 0"),
+            ("[1, x]", 5, "a number goes here"),
+            ("[1 2]", 4, ", or ] goes here"),
+            (
+                "env(1, 2)",
+                5,
+                "an envelope is adsr, perc or four times: a, d, s, r",
+            ),
+            (
+                "env(0, 0.1, 2, 0)",
+                5,
+                "times are 0 or more, the sustain from 0 to 1",
+            ),
             ("(sine", 6, ") goes here"),
             ("sine sine", 6, "unexpected text"),
             ("sine $", 6, "a signal has no such character"),

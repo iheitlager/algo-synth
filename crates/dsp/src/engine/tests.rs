@@ -3828,3 +3828,64 @@ fn a_voice_is_edited_on_its_own_lines() {
     assert_eq!(edit(&mut e, "voice v = { sin(freq) }\n"), Ok(()));
     assert_eq!(e.voice_error(), None);
 }
+
+/// The cutoffs in hertz the sounding voices of the track's synth hold (ADR-0023).
+fn voice_cutoffs(e: &Engine, track: usize) -> Vec<f32> {
+    let s = e.song_routed(track).expect("routed");
+    (0..MAX_VOICES)
+        .filter_map(|i| e.pools[s].voice_value(i, Param::Cutoff))
+        .map(|n| 440.0 * ((n - 69.0) / 12.0).exp2())
+        .collect()
+}
+
+/// #273's acceptance: `env(perc)` on a Poly synth's cutoff restarts with each
+/// note, each voice its own, while the synth's own cutoff is left alone.
+#[test]
+fn an_envelope_on_the_cutoff_restarts_with_each_note_of_a_poly_synth() {
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nfrag r = lead\n  \"c3 ~ e3 ~\"\n\
+        mod lead.cutoff = env(perc).exprange(200, 4000)\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let own = e.param_value(s, Param::Cutoff);
+    e.song_play();
+    // Up to `secs` into the song, then the brightest voice.
+    let mut at = 0.0;
+    let mut brightest = |e: &mut Engine, secs: f32| {
+        while at < secs {
+            e.render(BLOCK);
+            at += BLOCK as f32 / 48_000.0;
+        }
+        voice_cutoffs(e, 0).into_iter().fold(0.0_f32, f32::max)
+    };
+    let first = brightest(&mut e, 0.01);
+    assert!(first > 2500.0, "c3 starts bright: {first}");
+    let late = brightest(&mut e, 0.9);
+    assert!(late < 300.0, "and falls: {late}");
+    let second = brightest(&mut e, 1.01);
+    assert!(second > 2500.0, "e3 starts bright again: {second}");
+    assert_eq!(
+        e.param_value(s, Param::Cutoff),
+        own,
+        "the synth's cutoff is its own"
+    );
+    e.song_stop();
+    assert!(
+        voice_cutoffs(&e, 0).is_empty(),
+        "stopped, the voices follow the synth"
+    );
+}
+
+/// #273's acceptance: `lfo([1, 3])` runs each voice of a chord at its own rate.
+#[test]
+fn a_list_gives_two_held_voices_their_own_values() {
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nfrag r = lead\n  \"[c3,e3]\"\n\
+        mod lead.cutoff = lfo([1, 3]).exprange(200, 4000)\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    run(&mut e, 48_000 / 5 / BLOCK);
+    let cut = voice_cutoffs(&e, 0);
+    assert_eq!(cut.len(), 2, "two voices: {cut:?}");
+    assert!((cut[0] / cut[1] - 1.0).abs() > 0.1, "each its own: {cut:?}");
+}

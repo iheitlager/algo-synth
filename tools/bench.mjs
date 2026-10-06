@@ -44,6 +44,16 @@ const MODS = Array.from({ length: VOICES }, (_, s) => [
   `mod strip${s + 1}.resonance = perlin.fast(${1 + s}).range(0.2, 0.9)`,
 ]).flat().join('\n')
 
+// Per-voice values (ADR-0023): a Juno-106 track on every synth, its cutoff
+// following an envelope and its resonance a rate per voice, so each of the
+// 64 voices evaluates two signals every block.
+const PER_VOICE = Array.from({ length: VOICES }, (_, s) => [
+  `track t${s} synth Juno106 JunoPad`,
+]).flat().concat(Array.from({ length: VOICES }, (_, s) => [
+  `mod t${s}.cutoff = env(adsr).exprange(200, 6000)`,
+  `mod t${s}.resonance = lfo([0.5, 1, 2, 3]).range(0.2, 0.9)`,
+]).flat()).join('\n')
+
 // A song giving every synth the largest Modular voice: 30 of its 32 nodes.
 const LARGEST = [
   'voice big = { (mix(saw(freq), saw(freq), pulse(freq), tri(freq)) + mix(saw(freq), pulse(freq), saw(freq), tri(freq))) |> ladder(3000) |> ladder(2000) |> ladder(1500) |> svf(lp, 1000) |> delay(0.003, 0.5) }',
@@ -101,6 +111,8 @@ const scenarios = {
   // The family worst case with its cutoff and resonance modulated on every
   // synth by a song of mod lines (ADR-0019, #208), evaluated once a block.
   modulated: [(w, s) => scenarios['family worst'][0](w, s), 72, [0], MODS],
+  // A chord on every Juno-106 with two per-voice mod lines each (ADR-0023, #273).
+  'per-voice': [(w, s) => w.mono_preset(s, Preset.JunoPad), 48, CHORD, PER_VOICE],
 }
 
 // The pad of each polyphonic model, so the ensemble is all of them: Prophet-5,

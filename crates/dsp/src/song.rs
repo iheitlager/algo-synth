@@ -1022,6 +1022,8 @@ impl Song {
                             }
                             let signal = Signal::parse(sig, &mut nodes)
                                 .map_err(|(c, m)| err(at + scol + c - 2, m))?;
+                            per_voice_fits(&song, target, param, &signal)
+                                .map_err(|m| err(at + scol - 1, m))?;
                             if song.mods.len() >= MAX_MODS {
                                 return Err(err(at + ncol - 1, "a song has at most 32 mods"));
                             }
@@ -1259,6 +1261,7 @@ impl Song {
                         .unwrap_or("");
                     let signal =
                         Signal::parse(text, &mut nodes).map_err(|(c, m)| err(at + c - 1, m))?;
+                    per_voice_fits(&song, target, param, &signal).map_err(|m| err(at, m))?;
                     if song.mods.len() >= MAX_MODS {
                         return Err(err(first.col, "a song has at most 32 mods"));
                     }
@@ -2670,6 +2673,44 @@ impl Song {
 
 pub mod lex;
 pub mod signal;
+
+/// A signal with `env` or a list has a value per voice (ADR-0023): it goes
+/// on a track's Mono or Poly synth, onto a parameter a voice holds, without
+/// `.lag`. A per-synth signal always fits.
+fn per_voice_fits(
+    song: &Song,
+    target: Target,
+    param: Param,
+    signal: &Signal,
+) -> Result<(), &'static str> {
+    if !signal.per_voice() {
+        return Ok(());
+    }
+    let Target::Track(t) = target else {
+        return Err("env and lists give each voice its own value: they modulate a track");
+    };
+    if !crate::mono::voice::VOICE_PARAMS.contains(&param) {
+        return Err(
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+        );
+    }
+    if signal.lags() {
+        return Err(".lag follows one value for the song, not one per voice");
+    }
+    let track = song.tracks.get(t);
+    let model = track.and_then(|tr| tr.preset).map(Preset::model);
+    // A drum or sampler track never plays Mono voices, whatever it picks later.
+    let kind = track.is_some_and(|tr| tr.kind != Kind::Synth);
+    if kind
+        || track.is_some_and(|tr| tr.voice.is_some())
+        || model.is_some_and(|m| !m.uses_mono_voice())
+    {
+        return Err(
+            "env and lists need a Mono or Poly synth; a Modular voice writes them in its graph",
+        );
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests;
