@@ -3740,3 +3740,50 @@ fn the_hoover_sounds_right() {
     assert!(mean > 0.02, "heard: {mean}");
     assert!(var.sqrt() / mean > 0.05, "it beats: {}", var.sqrt() / mean);
 }
+
+/// ADR-0020's Sound screen: a voice is edited on its own lines; the song
+/// takes it through a load, and an error is in the voice's lines while the
+/// song plays on.
+#[test]
+fn a_voice_is_edited_on_its_own_lines() {
+    let mut e = Engine::new(48_000.0);
+    let song = "voice v = { saw(freq) }\ntrack l synth Modular v   # lead\nfrag r = l\n  \"c3\"\n";
+    assert_eq!(load_text(&mut e, song), Ok(()));
+    assert_eq!(e.voice_text(0), "voice v = { saw(freq) }\n");
+    let edit = |e: &mut Engine, text: &str| {
+        e.song_buffer(text.len())
+            .expect("fits")
+            .copy_from_slice(text.as_bytes());
+        e.edit_voice(0)
+    };
+    assert_eq!(
+        edit(
+            &mut e,
+            "voice v = { tri(freq) |> svf(lp, cut) }\n  ctl cut = 900 [100 5000 exp]\n"
+        ),
+        Ok(())
+    );
+    assert!(
+        e.song_text()
+            .contains("voice v = { tri(freq) |> svf(lp, cut) }\n  ctl cut = 900 [100 5000 exp]\n")
+    );
+    assert!(
+        e.song_text().contains("track l synth Modular v # lead\n"),
+        "the rest stays: {}",
+        e.song_text()
+    );
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Ctl1), 900.0);
+    let before = e.song_text().to_string();
+    let err = edit(&mut e, "voice v = { tri(freq }\n").expect_err("bad");
+    assert_eq!((err.line, err.col, err.msg), (1, 22, ") goes here"));
+    assert_eq!(e.voice_error(), Some(err));
+    assert_eq!(e.song_text(), before, "the song plays on");
+    let err = edit(&mut e, "voice v = { saw(freq) }\ntrack x synth\n").expect_err("more");
+    assert_eq!(
+        err.msg,
+        "the Sound screen edits one voice: its voice line and its ctl lines"
+    );
+    assert_eq!(edit(&mut e, "voice v = { sin(freq) }\n"), Ok(()));
+    assert_eq!(e.voice_error(), None);
+}
