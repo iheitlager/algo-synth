@@ -3588,16 +3588,18 @@ fn a_modular_voice_with_a_percussive_env_ends_while_held() {
     assert_eq!(e.active_voices(), 0);
 }
 
-/// A song's voice plays on the synth its Modular track is routed to.
+/// ADR-0024: a Modular setting's code plays on the synth its track is
+/// routed to.
 #[test]
-fn a_song_voice_plays_on_its_track() {
-    let text = "tempo 120\nvoice beep = { sin(freq) * env(perc) }\ntrack lead synth Modular beep\n\
-        frag r = lead\n  \"a4 ~ ~ ~\"\n";
+fn a_setting_code_plays_on_its_track() {
+    let text = "tempo 120\nsetting beep = Modular ModularBasic\n  SynthDef(\\beep, { |freq = 440|\n    SinOsc.ar(freq) * EnvGen.kr(Env.perc(0.01, 0.3))\n  }).add;\n\
+        track lead synth beep\nfrag r = lead\n  \"a4 ~ ~ ~\"\n";
     let mut e = Engine::new(48_000.0);
     e.set_param(0, Param::MasterGain, 1.0);
     assert_eq!(load_text(&mut e, text), Ok(()));
     let s = e.song_routed(0).expect("routed");
     assert_eq!(e.param_value(s, Param::Model), 19.0);
+    assert!(e.code(s).is_some_and(|c| c.contains("SinOsc.ar(freq)")));
     e.song_play();
     let out = render_out(&mut e, 48_000 / BLOCK);
     let left: Vec<f32> = out
@@ -3614,45 +3616,29 @@ fn a_song_voice_plays_on_its_track() {
     assert!(left[44_000..].iter().all(|s| s.abs() < 1e-3));
 }
 
-/// A voice's control starts at its value when the voice is new or changed,
-/// holds a hand on its knob through an unchanged reload, and drives the
-/// sound, held in its range.
+/// ADR-0024: a setting's knobs start at its code's numbers when the code is
+/// new or changed, and a hand on a knob holds through an unchanged reload.
 #[test]
-fn a_voice_control_starts_holds_and_drives_the_sound() {
+fn a_setting_knob_starts_and_holds() {
     let song = |v: &str| {
         format!(
-            "voice v = {{ sin(freq) * gain }}\n  ctl gain = {v} [0 1]\ntrack l synth Modular v\nfrag r = l\n  \"a4\"\n"
+            "setting s = Modular ModularBasic\n  SynthDef(\\s, {{ |freq = 440| SinOsc.ar(freq, 0, {v}) }}).add;\ntrack l synth s\nfrag r = l\n  \"a4\"\n"
         )
     };
     let mut e = Engine::new(48_000.0);
-    e.set_param(0, Param::MasterGain, 1.0);
     assert_eq!(load_text(&mut e, &song("0.5")), Ok(()));
     let s = e.song_routed(0).expect("routed");
-    assert_eq!(e.param_value(s, Param::Ctl1), 0.5);
-    e.set_param(s, Param::Ctl1, 0.2);
+    let mul = e
+        .patch(s)
+        .and_then(|p| p.knobs.iter().find(|k| k.name == "mul"))
+        .and_then(|k| Param::ctl_param(k.ctl))
+        .expect("a knob for mul");
+    assert_eq!(e.param_value(s, mul), 0.5);
+    e.set_param(s, mul, 0.2);
     assert_eq!(load_text(&mut e, &song("0.5")), Ok(()));
-    assert_eq!(e.param_value(s, Param::Ctl1), 0.2, "a hand holds");
-    let level = |e: &mut Engine, gain: f32| {
-        e.set_param(s, Param::Ctl1, gain);
-        e.note_on(s, 69, 1.0);
-        let out = render_out(e, 40);
-        e.note_off(s, 69);
-        render_out(e, 200);
-        out.iter().fold(0.0_f32, |m, x| m.max(x.abs()))
-    };
-    let (half, none, over) = (level(&mut e, 0.5), level(&mut e, 0.0), level(&mut e, 7.0));
-    let full = level(&mut e, 1.0);
-    assert!(half > 0.05 && none < 1e-4, "{half} {none}");
-    assert!(
-        (over - full).abs() < 1e-4,
-        "held in its range: {over} {full}"
-    );
-    // A changed voice starts its control at the new value.
-    assert_eq!(
-        load_text(&mut e, &song("0.9").replace("sin", "tri")),
-        Ok(())
-    );
-    assert_eq!(e.param_value(s, Param::Ctl1), 0.9);
+    assert_eq!(e.param_value(s, mul), 0.2, "a hand holds");
+    assert_eq!(load_text(&mut e, &song("0.9")), Ok(()));
+    assert_eq!(e.param_value(s, mul), 0.9, "changed code starts again");
 }
 
 /// A Modular synth playing `graph`, note `note` held for `secs`: the left
@@ -3782,51 +3768,34 @@ fn the_hoover_sounds_right() {
     assert!(var.sqrt() / mean > 0.05, "it beats: {}", var.sqrt() / mean);
 }
 
-/// ADR-0020's Sound screen: a voice is edited on its own lines; the song
-/// takes it through a load, and an error is in the voice's lines while the
-/// song plays on.
+/// ADR-0024: saving a Modular track's sound as a setting keeps its code,
+/// the knobs' values in it, and the song plays the same code back.
 #[test]
-fn a_voice_is_edited_on_its_own_lines() {
+fn a_saved_setting_keeps_the_code() {
     let mut e = Engine::new(48_000.0);
-    let song = "voice v = { saw(freq) }\ntrack l synth Modular v   # lead\nfrag r = l\n  \"c3\"\n";
+    let song = "track l synth Modular ModularBasic\nfrag r = l\n  \"c3\"\n";
     assert_eq!(load_text(&mut e, song), Ok(()));
-    assert_eq!(e.voice_text(0), "voice v = { saw(freq) }\n");
-    let edit = |e: &mut Engine, text: &str| {
-        e.song_buffer(text.len())
-            .expect("fits")
-            .copy_from_slice(text.as_bytes());
-        e.edit_voice(0)
-    };
-    assert_eq!(
-        edit(
-            &mut e,
-            "voice v = { tri(freq) |> svf(lp, cut) }\n  ctl cut = 900 [100 5000 exp]\n"
-        ),
-        Ok(())
-    );
-    assert!(
-        e.song_text()
-            .contains("voice v = { tri(freq) |> svf(lp, cut) }\n  ctl cut = 900 [100 5000 exp]\n")
-    );
-    assert!(
-        e.song_text().contains("track l synth Modular v # lead\n"),
-        "the rest stays: {}",
-        e.song_text()
-    );
     let s = e.song_routed(0).expect("routed");
-    assert_eq!(e.param_value(s, Param::Ctl1), 900.0);
-    let before = e.song_text().to_string();
-    let err = edit(&mut e, "voice v = { tri(freq }\n").expect_err("bad");
-    assert_eq!((err.line, err.col, err.msg), (1, 22, ") goes here"));
-    assert_eq!(e.voice_error(), Some(err));
-    assert_eq!(e.song_text(), before, "the song plays on");
-    let err = edit(&mut e, "voice v = { saw(freq) }\ntrack x synth\n").expect_err("more");
-    assert_eq!(
-        err.msg,
-        "the Sound screen edits one voice: its voice line and its ctl lines"
+    let code = "SynthDef(\\b, { |freq = 440| RLPF.ar(Saw.ar(freq), 900, 0.5) }).add;";
+    assert_eq!(e.set_code(s, code), Ok(()));
+    let cutoff = e
+        .patch(s)
+        .and_then(|p| p.knobs.iter().find(|k| k.default == 900.0))
+        .and_then(|k| Param::ctl_param(k.ctl))
+        .expect("a knob for the cutoff");
+    e.set_param(s, cutoff, 1500.0);
+    assert!(e.track_edit(2, 0, 0));
+    let text = e.song_text().to_string();
+    assert!(
+        text.contains("setting l = Modular ModularBasic\n  SynthDef(\\b, { |freq = 440| RLPF.ar(Saw.ar(freq), 1500, 0.5) }).add;\n"),
+        "{text}"
     );
-    assert_eq!(edit(&mut e, "voice v = { sin(freq) }\n"), Ok(()));
-    assert_eq!(e.voice_error(), None);
+    assert!(!text.contains("Ctl"), "the code holds the knobs: {text}");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    // Another model has no code to show or save.
+    e.set_param(s, Param::Model, Model::Minimoog as u32 as f32);
+    assert_eq!((e.code(s), e.patch(s).is_some()), (None, false));
 }
 
 /// ADR-0024: a SynthDef set on a synth plays, its numbers are live knobs on

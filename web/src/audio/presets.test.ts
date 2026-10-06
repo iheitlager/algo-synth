@@ -141,3 +141,23 @@ describe('the library file', () => {
     expect(out.map((p) => p.name)).toEqual(['Pad v2', 'Glue', 'Hall', 'Bus', 'Glue 2'])
   })
 })
+
+describe('Modular synth presets (ADR-0024)', () => {
+  const code = 'SynthDef(\\a, { Saw.ar(440) }).add;'
+  const modular = values()
+  modular[4]![Param.Model] = reg.models!.Modular!
+
+  it('hold the code of a Modular synth, and no other', () => {
+    const p = capture('Buzz', { kind: 'synth', s: 4 }, modular, reg, 'id', code)
+    expect(p.code).toBe(code)
+    expect(capture('Pad', { kind: 'synth', s: 2 }, vals, reg, 'id', code)).not.toHaveProperty('code')
+    expect(plan(p, { kind: 'synth', s: 5 }, reg)?.code).toBe(code)
+  })
+
+  it('keep the code through a library file', () => {
+    const p = capture('Buzz', { kind: 'synth', s: 4 }, modular, reg, 'id', code)
+    const parsed = parseLibrary(libraryText([p]), reg)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.library.presets[0]?.code).toBe(code)
+  })
+})

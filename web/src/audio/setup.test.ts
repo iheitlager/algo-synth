@@ -376,3 +376,34 @@ describe('an Out to a group the setup does not have (#218)', () => {
     expect(warnings).toEqual([])
   })
 })
+
+describe('Modular code (ADR-0024)', () => {
+  const modular: Registry = { ...reg, params: { ...Param, Model: 999 }, models: { Minimoog: 1, Modular: 19 } }
+  const code = 'SynthDef(\\a, { Saw.ar(440) }).add;'
+  const row = (model: number) => ({ ...values(1), 999: model })
+
+  it('saves a Modular synth with its code, and only a Modular one', () => {
+    const s = buildSetup({ synths: [0, 1], values: [row(19), row(1)], codes: { 0: code, 1: code } }, modular)
+    expect(s.synths[0]?.code).toBe(code)
+    expect(s.synths[1]).not.toHaveProperty('code')
+  })
+
+  it('reads the code back and builds it after the parameters', () => {
+    const text = JSON.stringify(buildSetup({ synths: [0], values: [row(19)], codes: { 0: code } }, modular))
+    const parsed = parseSetup(text, modular)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.setup.synths[0]?.code).toBe(code)
+    const { ops } = applyPlan(parsed.setup, modular)
+    const at = ops.findIndex((o) => o.t === 'code')
+    expect(ops[at]).toEqual({ t: 'code', s: 0, text: code })
+    expect(ops.slice(0, at).filter((o) => o.t === 'param').length).toBeGreaterThan(1)
+  })
+
+  it('ignores code on a synth that is not Modular', () => {
+    const text = JSON.stringify({ version: 1, global: {}, synths: [{ index: 0, model: 'Minimoog', params: {}, code }] })
+    const parsed = parseSetup(text, modular)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.setup.synths[0]).not.toHaveProperty('code')
+    expect(parsed.warnings).toContain('synth 1: ignored code on a synth that is not Modular')
+  })
+})

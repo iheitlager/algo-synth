@@ -110,77 +110,29 @@ track kit drums plain
 - Settings go before the tracks; a name may not be a model's.
 - At most 16 settings, 32 changes each.
 
-## voice
+### Modular code
 
-`voice <name> = { <graph> }` writes a voice for a `Modular` synth (ADR-0020,
-ADR-0021): a graph of unit generators, played per note. A track plays it as
-`track <name> synth Modular <voice>`.
+A `Modular` setting may hold its synth's voice: a SuperCollider SynthDef on
+the indented lines under it (ADR-0024). The code is kept as written, comments
+and blank lines too, and built when the song loads; a mistake is the song's,
+at its line and column. Every number a UGen takes is a knob of the synth, and
+saving a track's sound as a setting writes the knobs' values into its code.
 
 ```song
-voice hoover = { (pulse(freq * 0.995, lfo(5).range(0.1, 0.4)) + pulse(freq * 1.005) + saw(freq * 0.5)) |> svf(lp, lfo(0.3).exprange(400, 3000), 0.3) * env(adsr) }
-voice blip = { sin(freq * 2) * env(perc) }
-track lead synth Modular hoover
-track bell synth Modular blip
+setting hoover = Modular ModularBasic
+  SynthDef(\hoover, { |freq = 440, gate = 1|
+      var sig = Pulse.ar(freq * [0.995, 1.005], SinOsc.kr([5, 4.3]).range(0.1, 0.4));
+      RLPF.ar(Mix(sig) + Saw.ar(freq * 0.5), 2500, 0.7)
+          * EnvGen.kr(Env.adsr(0.01, 0.3, 0.7, 0.4), gate)
+  }).add;
+track lead synth hoover
 frag r = lead
   "c3 eb3 g3 <bb3 c4>"
 ```
 
-Unit generators are calls; they run every sample, from −1 to 1, in hertz:
-
-| unit | what |
-|---|---|
-| `sin(f)`, `saw(f)`, `tri(f)` | oscillators at `f` hertz; saw and tri are band-limited |
-| `pulse(f)`, `pulse(f, width)` | a band-limited pulse, `width` 0.05 to 0.95 (a half if left out) |
-| `noise()` | white noise |
-| `lfo(rate)`, `lfo(rate, shape)` | an unsmoothed `sine` (or `saw`, `tri`, `square`) at `rate` hertz |
-| `fm(carrier, modulator, index)` | a sine at `carrier` hertz phase-modulated by one at `modulator`, `index` in radians |
-| `x \|> svf(lp, cutoff)`, `svf(lp, cutoff, res)` | a resonant 12 dB filter, `lp` or `hp`, cutoff in hertz, res 0 to 1 |
-| `x \|> ladder(cutoff, res)` | the 24 dB ladder, res 0 to 1 (it sings near 1) |
-| `x \|> delay(time, feedback)` | a comb: `x` plus its own output `time` seconds ago (at most 0.02) times `feedback`; one a voice |
-| `x \|> drive(amount)` | a soft clip that keeps full scale at full scale; more `amount` is squarer |
-| `mix(a, b, …)` | the mean of up to four signals |
-| `[220, 330, 440]` | a list: each voice takes its own number, in turn |
-| `env(adsr)`, `env(perc)`, `env(a, d, s, r)` | an envelope: the synth's ADSR, a short hit, or times in seconds |
-| `freq`, `gate`, `vel` | the note's pitch in hertz, 1 while its key is held, its velocity |
-
-They combine with `+ - * /` and brackets; `.range(a, b)` and `.exprange(a, b)`
-map −1..1 onto a..b (the bounds may be signals: `saw(freq).range(freq, freq *
-3)`), or 0..1 for `env`, `gate` and `vel`, which run from 0 (so
-`env(perc).exprange(48, 900)` sweeps a kick's pitch down), and `x |> svf(…)`
-passes `x` through a filter or an effect. A voice ends with its envelopes, so
-a delay's tail stops with it. A voice that uses `env`
-ends when its envelopes do; one without sounds through the synth's ADSR.
-Without a voice, a `Modular` track plays a preset: `ModularBasic`,
+The UGens, methods and limits are spec 005's (Requirement 11). Without code a
+`Modular` setting or track plays its preset's: `ModularBasic`,
 `ModularHoover` or `ModularKick` (a gabber kick).
-
-### Controls
-
-A voice's controls are the indented `ctl` lines under it:
-`ctl <name> = <value> [<low> <high>]`, or `[<low> <high> exp]` for a knob that
-turns exponentially (a cutoff in hertz). The voice uses a control by its name.
-On a track that plays the voice, the control is a parameter like any other, by
-that name and in its own units: a `mod` line, a frag's method, an `auto` lane
-or a scene moves it, and the voice holds it in its range. A voice's name for a
-control comes before the registry's, so `lead.cutoff` below is the voice's.
-
-```song
-voice acid = { saw(freq) |> svf(lp, cutoff, res) * env(adsr) }
-  ctl cutoff = 800 [100 8000 exp]
-  ctl res = 0.3 [0 1]
-track lead synth Modular acid
-frag r = lead .res(0.7)
-  "c2 c2 eb2 <g2 bb1>"
-mod lead.cutoff = sine.slow(4).exprange(200, 3000)
-```
-
-A control starts at its value when the voice is new or changed; a knob turned
-by hand holds through a reload that leaves the voice as it was.
-
-At most 16 voices in a song; in one voice, at most 32 nodes (numbers, units,
-operators, methods), 8 of `saw`, `tri` and `pulse`, 8 of `sin` and `lfo`, 4
-filters (`svf` and `ladder`), 4 envelopes, one `delay`, 16 numbers in lists
-and 16 controls; an `fm` counts as two of `sin`. Voices go before the tracks that play
-them, each on one line with its `ctl` lines under it.
 
 ## track
 
@@ -197,8 +149,7 @@ After the kind comes the synth (#210): a model and a preset, a model alone, a
 setting, or nothing.
 
 - **Model and preset:** `track bass synth Sh101 AcidBass`. A `Modular` track
-  names the song's voice in the preset's place: `track lead synth Modular
-  hoover`.
+  with its own code plays a setting that holds it.
 - **Model alone:** the preset is the track's role's on that model, else the
   model's first.
 - **Nothing:** a model and preset are picked from the track's role and written
@@ -621,7 +572,7 @@ mod lead.resonance = lfo([1, 3, 5]).range(0.1, 0.6)
 
 A signal that uses one of them is per voice. It goes on a track whose synth
 is a Mono or Poly one (not FM, LA, a drum machine, a sampler or a Modular
-synth, whose voice writes `env` and lists in its graph), on one of the
+synth, whose code writes its own envelopes), on one of the
 parameters a voice holds: `cutoff`, `resonance`, `vco1level`, `vco2level`,
 `vco3level`, `noiselevel`, `ringlevel` or `sublevel`. It can't use `.lag`.
 Each voice is worked out once a block, so a note takes its own value within
@@ -696,8 +647,6 @@ to `first` for good. A loop needs an `arrange` line and must end inside it.
 | notes a line compiles to | 512 |
 | bars before a line of notes repeats | 32 |
 | autos, scenes, mods | 32 |
-| voices | 16 |
-| nodes in a voice | 32 |
 | nodes in all signals (numbers, sources, operators, methods) | 256 |
 | values in an auto | 64 |
 | bars in a section or an auto | 256 |

@@ -156,7 +156,7 @@ export function moveStrip(id: number, target: number) {
 
 /** Which main view is shown: the synth panels or the mixer console. */
 export const view = reactive({
-  main: 'synths' as 'synths' | 'mixer' | 'composer' | 'sound',
+  main: 'synths' as 'synths' | 'mixer' | 'composer',
 })
 
 /** One hue per synth, so a part's notes match its synth's card. */
@@ -459,9 +459,7 @@ export interface SongNote { start: number; len: number; note: number; accent: bo
 export interface SongNotes { text: string; bars: number; events: SongNote[]; generated: boolean; live: boolean }
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
 /** A song track (#210, #213): its synth, kind, factory preset and the song setting it plays (−1 for none). */
-export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number; voice: number }
-/** A Modular voice of the song (ADR-0020): its text and controls, in their units. */
-export interface SongVoice { name: string; text: string; ctls: { name: string; lo: number; hi: number; def: number; exp: boolean }[] }
+export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number }
 /** A setting of the song (#210): a factory preset and changes, named. */
 export interface SongSetting { name: string; preset: number }
 export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
@@ -495,15 +493,18 @@ export const song = reactive({
   /** Per track kind (drums, synth, sampler), which models play it: the engine's rule (#213). */
   fits: [[], [], []] as boolean[][],
   loop: [0, 0] as [number, number],
-  /** The song's Modular voices, and why the last voice edit did not play (in its own lines). */
-  voices: [] as SongVoice[],
-  voiceError: null as { line: number; col: number; msg: string } | null,
 })
 
-/** Replace voice `i` with `text`, its voice line and ctl lines (the Sound screen, ADR-0020). */
-export function editVoice(i: number, text: string) {
+/**
+ * Each Modular synth's SuperCollider code (ADR-0024) as the engine hands it
+ * out, its knobs' values in its numbers, and why the last edit did not build.
+ */
+export const codes = reactive({} as Record<number, { text: string; error: { line: number; col: number; msg: string } | null }>)
+
+/** Give Modular synth `s` the SynthDef `text`; the engine builds it, or says where it does not. */
+export function setCode(s: number, text: string) {
   const bytes = new TextEncoder().encode(text)
-  engine?.post({ t: 'voice', i, bytes: bytes.buffer }, [bytes.buffer])
+  engine?.post({ t: 'code', s, bytes: bytes.buffer }, [bytes.buffer])
 }
 
 /** Send `text` to the engine to parse and play. */
@@ -587,19 +588,12 @@ export function applySong(data: Record<string, unknown>) {
   song.text = text
   song.tempo = data.tempo as number
   song.swing = data.swing as number
-  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number; voice?: number }[]).map((t) => ({
+  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number }[]).map((t) => ({
     name: decoder.decode(t.name),
     synth: t.synth,
     kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
     preset: t.preset ?? -1,
     setting: t.setting ?? -1,
-    voice: t.voice ?? -1,
-  }))
-  type RawVoice = { name: Uint8Array; text: Uint8Array; ctls: { name: Uint8Array; lo: number; hi: number; def: number; exp: boolean }[] }
-  song.voices = ((data.voices as RawVoice[] | undefined) ?? []).map((v) => ({
-    name: decoder.decode(v.name),
-    text: decoder.decode(v.text),
-    ctls: v.ctls.map((c) => ({ ...c, name: decoder.decode(c.name) })),
   }))
   song.settings = ((data.settings ?? []) as { name: Uint8Array; preset: number }[]).map((st) => ({
     name: decoder.decode(st.name),
@@ -686,9 +680,13 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
-  } else if (data.t === 'voice') {
+  } else if (data.t === 'code') {
     const e = data.error as { line: number; col: number; msg: Uint8Array } | null
-    song.voiceError = e ? { line: e.line, col: e.col, msg: new TextDecoder('utf-8').decode(e.msg) } : null
+    const decoder = new TextDecoder('utf-8')
+    codes[data.s as number] = {
+      text: decoder.decode(data.text as Uint8Array),
+      error: e ? { line: e.line, col: e.col, msg: decoder.decode(e.msg) } : null,
+    }
   } else if (data.t === 'mods') {
     modulated.keys = new Set(data.keys as number[])
   } else if (data.t === 'imported') {
@@ -755,7 +753,8 @@ export const presetRegistry: PresetRegistry = { ...registry, insertTypes: Insert
 if (typeof indexedDB !== 'undefined') void loadLibrary(presetRegistry)
 
 /** A preset of what `target` holds now, named `name`. */
-export const capturePreset = (name: string, target: Target, id?: string) => capture(name, target, params.values, presetRegistry, id)
+export const capturePreset = (name: string, target: Target, id?: string) =>
+  capture(name, target, params.values, presetRegistry, id, target.kind === 'synth' ? codes[target.s]?.text : undefined)
 
 /** Put `preset` on `target`; false when it is of another kind. */
 export function applyPreset(preset: UserPreset, target: Target): boolean {
@@ -763,6 +762,7 @@ export function applyPreset(preset: UserPreset, target: Target): boolean {
   if (!p || !engine) return false
   if (p.defaults !== undefined) engine.post({ t: 'defaults', s: p.defaults })
   for (const op of p.ops) engine.param(op.s, op.id as ParamId, op.v)
+  if (p.code !== undefined && target.kind === 'synth') setCode(target.s, p.code)
   // The values after clamping, and the defaults the plan didn't name.
   engine.post({ t: 'dump', s: target.kind === 'processor' ? 0 : target.s })
   return true
@@ -780,6 +780,7 @@ function state(): State {
     layout: { order: layout.order, collapsed: layout.collapsed, hidden: layout.hidden },
     names: { strips: names.strips },
     values: params.values,
+    codes: Object.fromEntries(Object.entries(codes).filter(([, c]) => c.text).map(([s, c]) => [s, c.text])),
   }
 }
 
@@ -856,6 +857,8 @@ function applySetup(setup: Setup, warnings: string[]) {
       setNames(op.names)
     } else if (op.t === 'reset') {
       engine.reset(op.s)
+    } else if (op.t === 'code') {
+      setCode(op.s, op.text)
     } else {
       engine.param(op.s, op.id as ParamId, op.v)
     }

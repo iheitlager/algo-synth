@@ -84,10 +84,10 @@ describe('model descriptions', () => {
     }
   })
 
-  it('writes the voice as text on the Modular faceplate only (#292)', () => {
+  it('writes the code on the Modular faceplate only (ADR-0024)', () => {
     for (const m of MODELS) {
-      const voice = controls(m).some((c) => c.kind === 'voice')
-      expect(voice, m.name).toBe(m.id === Model.Modular)
+      const code = controls(m).some((c) => c.kind === 'code')
+      expect(code, m.name).toBe(m.id === Model.Modular)
     }
   })
 

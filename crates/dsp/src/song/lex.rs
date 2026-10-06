@@ -43,9 +43,9 @@ pub struct Span {
     pub class: Class,
 }
 
-const KEYWORDS: [&str; 16] = [
-    "tempo", "swing", "scale", "setting", "voice", "track", "frag", "section", "arrange", "loop",
-    "auto", "scene", "mod", "strip", "group", "master",
+const KEYWORDS: [&str; 15] = [
+    "tempo", "swing", "scale", "setting", "track", "frag", "section", "arrange", "loop", "auto",
+    "scene", "mod", "strip", "group", "master",
 ];
 const WORDS: [&str; 7] = [
     "live", "bars", "ramp", "drums", "synth", "sampler", "voicing",
@@ -59,8 +59,8 @@ enum Under {
     Notes,
     /// A sampler frag: lanes, or notes when written as notes.
     Either,
-    /// A voice's `ctl` lines (ADR-0020).
-    Voice,
+    /// A Modular setting's SuperCollider code (ADR-0024).
+    Code,
 }
 
 /// The spans of `text`.
@@ -85,8 +85,13 @@ pub fn lex(text: &str) -> Vec<Span> {
             pos: &pos,
             out: &mut out,
         };
-        let body = comment_at(&line);
         let indented = line.first().is_some_and(|c| *c == ' ' || *c == '\t');
+        // Code has no song comments: a `#` there is SuperCollider's.
+        let body = if indented && under == Under::Code {
+            line.len()
+        } else {
+            comment_at(&line)
+        };
         let words = words(line.get(..body).unwrap_or(&[]));
         if let Some(&(s, e)) = words.first() {
             let first: String = line.get(s..e).unwrap_or(&[]).iter().collect();
@@ -96,9 +101,8 @@ pub fn lex(text: &str) -> Vec<Span> {
                     Under::Either => first.starts_with(['"', '[']) || first.contains(':'),
                     _ => false,
                 };
-                if under == Under::Voice {
-                    l.push(s, e, Class::Keyword);
-                    l.tokens(e, body, false);
+                if under == Under::Code {
+                    l.tokens(s, body, false);
                 } else if notes {
                     l.tokens(s, body, true);
                 } else {
@@ -118,7 +122,7 @@ pub fn lex(text: &str) -> Vec<Span> {
                             tracks.push((n, k));
                         }
                     }
-                    "voice" => under = Under::Voice,
+                    "setting" if word(3) == Some("Modular") => under = Under::Code,
                     "frag" => {
                         let kind = word(3)
                             .and_then(|t| tracks.iter().rev().find(|(n, _)| *n == t))
@@ -435,17 +439,15 @@ arrange main main
         assert!(of(SONG, Class::Rest).contains(&"...".to_string()));
     }
 
-    /// ADR-0020: a voice's `ctl` lines are not lanes.
+    /// ADR-0024: a Modular setting's code lines are not lanes, and a `#`
+    /// in them is no comment.
     #[test]
-    fn a_voice_and_its_controls() {
-        let text = "voice v = { saw(freq) |> svf(lp, cut) }\n  ctl cut = 800 [100 8000 exp]\n";
-        let k = of(text, Class::Keyword);
-        assert!(
-            k.contains(&"voice".to_string()) && k.contains(&"ctl".to_string()),
-            "{k:?}"
-        );
+    fn a_setting_and_its_code() {
+        let text = "setting s = Modular ModularBasic\n  SynthDef(\\a, { Saw.ar(440) * #[1] })\n";
+        assert_eq!(of(text, Class::Keyword), ["setting"]);
         assert!(of(text, Class::Pad).is_empty());
-        assert!(of(text, Class::Call).contains(&"saw".to_string()));
+        assert!(of(text, Class::Comment).is_empty());
+        assert!(of(text, Class::Number).contains(&"440".to_string()));
     }
 
     #[test]

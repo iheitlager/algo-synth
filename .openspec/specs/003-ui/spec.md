@@ -4,7 +4,7 @@ The wide-screen browser view in `web/`. Decision: ADR-0003.
 
 ### Requirement 1: Three-area layout [MUST]
 
-The view SHALL fill the window with a transport bar across the top and a Synths | Mixer | Composer | Sound switch in it. **Synths**, **Mixer**, **Composer** or **Sound** (Req 15) SHALL fill the middle, with the **arranger** (Req 12) in a bottom pane under each. The transport bar's Play (Pause while the song plays) and Stop SHALL be the app's only transport (ADR-0022), with the song's position as bar, step and, in an arrangement, section.
+The view SHALL fill the window with a transport bar across the top and a Synths | Mixer | Composer switch in it. **Synths**, **Mixer** or **Composer** SHALL fill the middle, with the **arranger** (Req 12) in a bottom pane under each. The transport bar's Play (Pause while the song plays) and Stop SHALL be the app's only transport (ADR-0022), with the song's position as bar, step and, in an arrangement, section.
 
 **Implementation:** `web/src/App.vue`, `web/src/components/TransportBar.vue`
 
@@ -250,16 +250,16 @@ The transport bar SHALL show which build is running (#197): the page's version, 
 
 **Tests:** `web/src/audio/buildinfo.test.ts`, `crates/dsp/src/ffi.rs::tests::a_build_id_is_the_first_eight_hex_digits_or_zero`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
 
-### Requirement 15: The Sound screen [SHOULD]
+### Requirement 15: The Modular code [SHOULD]
 
-A **Sound** view SHALL design the song's Modular voices (ADR-0020, #216): a choice of the song's voices, the chosen voice's text (its `voice` line and `ctl` lines) in the song editor with its highlighting, applied with Apply or Ctrl+Enter, a knob for each of its controls on the synth its track plays (`Param::Ctl1`…, its range and taper from the `ctl` line), a scope and a spectrum of the output, and a keyboard that plays that synth. An applied voice SHALL be a message to the engine, which puts it into the song in place of the old one and loads the song (so it takes over on the bar line, spec 002 Req 6); the view SHALL redraw from what the engine sends back and never splice the song text itself. A voice that does not parse SHALL show its line, column and message in the voice's own lines while the song plays on. Without a voice in the song, the view SHALL say how to write one; without a track playing the voice, how to add one.
+The Modular faceplate SHALL show its synth's SuperCollider SynthDef (ADR-0024, superseding the Sound screen of ADR-0020) as the engine hands it out, its knobs' values in its numbers, applied with Apply or Ctrl+Enter. An applied SynthDef SHALL be a message to the engine, which builds it on the synth; one that does not build SHALL show its line, column and message, and the synth SHALL play on as it was. A preset or a song that changes the synth's code SHALL change the text shown. The code SHALL live on the synth like a patch: saving the track's sound as a setting (Req 13) SHALL put it into the song. A setup file and a user synth preset SHALL keep a Modular synth's code and build it after its parameters; code on another model SHALL be ignored with a warning.
 
-**Implementation:** `web/src/components/SoundPane.vue`, `web/src/audio/engine.ts` (`editVoice`, `song.voices`, `song.voiceError`), `web/public/worklet.js` (`editVoice`, voices in `sendSong`), `crates/dsp/src/engine.rs::Engine::edit_voice`, `crates/dsp/src/ffi.rs` (`voice_*`, `track_voice`)
+**Implementation:** `web/src/components/synth/CodeEditor.vue`, `web/src/audio/engine.ts` (`setCode`, `codes`), `web/src/audio/setup.ts` (`code`), `web/src/audio/presets.ts` (`code`), `web/public/worklet.js` (`setCode`, code in `sendParams`), `crates/dsp/src/engine.rs::Engine::set_code_from_buffer`, `crates/dsp/src/ffi.rs` (`code_*`)
 
-#### Scenario: a voice edited on its own lines
+#### Scenario: a SynthDef saved into the song
 
-- GIVEN a song with `voice acid = { … }` and its two `ctl` lines, played by a Modular track
-- WHEN the Sound screen's text changes its filter to a ladder and is applied
-- THEN the song text holds the new voice, the track line is unchanged, and the two controls are knobs
+- GIVEN a Modular track whose synth has code, a knob of it turned
+- WHEN the track's sound is saved as a setting
+- THEN the song holds the setting with the code under it, the turned knob's value in place of its number
 
-**Tests:** `crates/dsp/src/engine/tests.rs::a_voice_is_edited_on_its_own_lines`, `web/src/audio/engine.test.ts` (voices decoded, a voice edit sent, its error kept)
+**Tests:** `crates/dsp/src/engine/tests.rs::a_saved_setting_keeps_the_code`, `web/src/audio/engine.test.ts` (a SynthDef sent, the code of each synth and its error kept), `web/src/audio/setup.test.ts` (Modular code), `web/src/audio/presets.test.ts` (Modular synth presets)

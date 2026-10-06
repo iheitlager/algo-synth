@@ -24,7 +24,6 @@ fn a_beat_parses() {
             preset: Some(Preset::Kit808),
             setting: None,
             picked: true,
-            voice: None,
         }]
     );
     let f = &s.frags[0];
@@ -123,7 +122,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, voice, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -197,7 +196,6 @@ fn random_song(r: &mut Rng) -> Song {
             }),
             setting: None,
             picked: false,
-            voice: None,
         });
     }
     for f in 0..r.below(5) {
@@ -1795,7 +1793,7 @@ fn mod_errors_say_where() {
 #[test]
 fn per_voice_mod_errors_say_where() {
     let head = "track kit drums\ntrack lead synth Juno106 JunoPad\n\
-        voice buzz = { saw(freq) }\ntrack buzzer synth Modular buzz\nfrag b = kit\n  bd x\n";
+        track buzzer synth Modular ModularBasic\nfrag b = kit\n  bd x\n";
     for (line, col, msg) in [
         (
             "mod strip1.level = [0.5, 1]",
@@ -1824,7 +1822,7 @@ fn per_voice_mod_errors_say_where() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}")).expect_err(line);
-        assert_eq!((err.line, err.col, err.msg), (7, col, msg), "{line}");
+        assert_eq!((err.line, err.col, err.msg), (6, col, msg), "{line}");
     }
     // On the track's voice parameters it parses, and so does a method.
     let ok = format!(
@@ -2030,185 +2028,72 @@ fn struct_sometimes_and_scale_print_back() {
     assert_eq!(Song::parse(&printed), Ok(s));
 }
 
-/// ADR-0020: a voice line holds a graph, a Modular track plays it, and both
-/// print back canonically.
+/// ADR-0024: a Modular setting holds its SynthDef on the indented lines
+/// under it, as written, comments, `#` and blank lines too; a track plays it
+/// by the setting's name, and the song prints it back the same.
 #[test]
-fn a_voice_line_and_a_modular_track_parse_and_print() {
-    let text = "voice hoover = {sin(saw(freq*0.5).range(freq, freq*3)) |> svf(lp, lfo(0.3).exprange(300,3000)) * env(adsr)}\n\
-        track lead synth Modular hoover\ntrack pad synth Modular ModularHoover\n\
-        frag r = lead\n  \"c3 e3\"\n";
+fn a_setting_holds_its_code() {
+    let text = r#"setting buzz = Modular ModularBasic   # a buzz
+  SynthDef(\buzz, { |freq = 440|
+      // a saw, #1
+
+      RLPF.ar(Saw.ar(freq), 1200, 0.5)
+  }).add;
+
+track lead synth buzz
+track pad synth Modular ModularHoover
+frag r = lead
+  "c3 e3"
+"#;
     let s = Song::parse(text).expect("parses");
-    assert_eq!(s.voices.len(), 1);
-    assert_eq!(
-        (s.tracks[0].voice, s.tracks[0].preset),
-        (Some(0), Some(Preset::ModularBasic))
-    );
-    assert_eq!(
-        (s.tracks[1].voice, s.tracks[1].preset),
-        (None, Some(Preset::ModularHoover))
-    );
+    let code = "SynthDef(\\buzz, { |freq = 440|\n    // a saw, #1\n\n    RLPF.ar(Saw.ar(freq), 1200, 0.5)\n}).add;";
+    assert_eq!(s.settings[0].code.as_deref(), Some(code));
+    assert_eq!((s.code(0), s.code(1)), (Some(code), None));
     let printed = s.print();
-    for line in [
-        "voice hoover = { sin(saw(freq * 0.5).range(freq, freq * 3)) |> svf(lp, lfo(0.3).exprange(300, 3000)) * env(adsr) }\n",
-        "track lead synth Modular hoover\n",
-        "track pad synth Modular ModularHoover\n",
-    ] {
-        assert!(printed.contains(line), "{line}in\n{printed}");
-    }
+    assert!(
+        printed.starts_with(
+            "tempo 120\nswing 50\nsetting buzz = Modular ModularBasic # a buzz\n  SynthDef(\\buzz, { |freq = 440|\n      // a saw, #1\n\n      RLPF.ar"
+        ),
+        "{printed}"
+    );
     assert_eq!(Song::parse(&printed), Ok(s));
+    // A Modular setting may have no code, and plays its preset's.
+    let plain =
+        Song::parse("setting p = Modular ModularHoover\ntrack l synth p\n").expect("parses");
+    assert_eq!(plain.settings[0].code, None);
 }
 
+/// ADR-0024: a mistake in a setting's code is the song's, at its line and
+/// column; only a Modular setting has code.
 #[test]
-fn voice_errors_say_where() {
+fn setting_code_errors_say_where() {
     for (text, line, col, msg) in [
         (
-            "voice v = saw(freq)",
-            1,
-            11,
-            "a voice goes in braces: voice lead = { saw(freq) }",
-        ),
-        ("voice v = { saw(freq }", 1, 22, ") goes here"),
-        (
-            "voice v = { cosine(freq) }",
-            1,
-            13,
-            "a voice is made of sin saw tri pulse noise lfo fm svf ladder hp1 delay drive mix env, numbers, lists and freq gate vel",
+            "tempo 120\nsetting v = Modular ModularBasic\n  SynthDef(\\v, {\n    Saw.ar(440) +\n  }).add;\n",
+            5,
+            3,
+            "an expression goes here",
         ),
         (
-            "voice v = { saw(freq) }\nvoice v = { tri(freq) }",
+            "setting v = Modular ModularBasic\n  SynthDef(\\v, { Cosine.ar(440) }).add;\n",
             2,
-            7,
-            "there is already a voice with this name",
+            18,
+            "this UGen is not part of a SynthDef here",
+        ),
+        (
+            "setting v = Minimoog MiniLead\n  SynthDef(\\v, { Saw.ar(440) }).add;\n",
+            2,
+            3,
+            "a lane goes under a frag",
         ),
         (
             "track l synth Modular nope",
             1,
             23,
-            "a voice of the song or a Modular preset goes here",
-        ),
-        (
-            "voice v = { saw(freq) }\ntrack l synth Minimoog v",
-            2,
-            24,
             "a preset is a factory preset, as MiniBass",
         ),
     ] {
         let err = Song::parse(text).expect_err(text);
         assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
     }
-}
-
-/// ADR-0020: a voice's controls are its indented `ctl` lines; on its track
-/// a control is a parameter by its own name, printed back as written.
-#[test]
-fn voice_controls_parse_resolve_and_print() {
-    let text = "voice v = { saw(freq) |> svf(lp, cutoff, res) }   # bright\n\
-        \x20 ctl cutoff = 800 [100  8000 exp]   # Hz\n\
-        \x20 ctl res = 0.3 [0 1]\n\
-        track lead synth Modular v\n\
-        frag r = lead .res(0.6)\n  \"c3\"\n\
-        auto up = lead.cutoff ramp 200 4000 /2\n\
-        scene s: lead.res 0.1\n\
-        mod lead.cutoff = sine.exprange(300, 3000)\n";
-    let s = Song::parse(text).expect("parses");
-    let v = &s.voices[0];
-    assert_eq!(v.ctls.len(), 2);
-    assert_eq!(
-        (v.ctls[0].default, v.ctls[0].lo, v.ctls[0].hi, v.ctls[0].exp),
-        (800.0, 100.0, 8000.0, true)
-    );
-    assert_eq!(s.autos[0].param, Param::Ctl1);
-    assert_eq!(s.scenes[0].sets[0].1, Param::Ctl2);
-    assert_eq!(
-        s.mods.iter().map(|m| m.param).collect::<Vec<_>>(),
-        vec![Param::Ctl2, Param::Ctl1]
-    );
-    let printed = s.print();
-    for line in [
-        "voice v = { saw(freq) |> svf(lp, cutoff, res) } # bright\n",
-        "  ctl cutoff = 800 [100 8000 exp] # Hz\n",
-        "  ctl res = 0.3 [0 1]\n",
-        "frag r = lead .res(0.6)\n",
-        "auto up = lead.cutoff ramp 200 4000 /2\n",
-        "scene s: lead.res 0.1\n",
-        "mod lead.cutoff = sine.exprange(300, 3000)\n",
-    ] {
-        assert!(printed.contains(line), "{line}in\n{printed}");
-    }
-    assert_eq!(Song::parse(&printed), Ok(s));
-    // On a track without the voice, `cutoff` is the registry's.
-    let plain = Song::parse("track l synth Minimoog\nmod l.cutoff = 900\n").expect("parses");
-    assert_eq!(plain.mods[0].param, Param::Cutoff);
-}
-
-#[test]
-fn control_errors_say_where() {
-    for (text, line, col, msg) in [
-        (
-            "voice v = { saw(freq) }\n  cut = 3",
-            2,
-            3,
-            "under a voice go its controls: ctl cutoff = 800 [100 8000 exp]",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl freq = 3 [0 9]",
-            2,
-            7,
-            "this word is the voice language's own",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a = 3 [0 9]\n  ctl a = 3 [0 9]",
-            3,
-            7,
-            "this voice already has a control with this name",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a 3 [0 9]",
-            2,
-            9,
-            "= and a value go here",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a = x [0 9]",
-            2,
-            11,
-            "a value goes here",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a = 3",
-            2,
-            12,
-            "a range goes here: [low high] or [low high exp]",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a = 3 [9 0]",
-            2,
-            13,
-            "a range goes from low to high",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a = 3 [0 9 exp]",
-            2,
-            13,
-            "an exp range starts above 0",
-        ),
-        (
-            "voice v = { saw(freq) }\n  ctl a = 30 [0 9]",
-            2,
-            11,
-            "the value is in the range",
-        ),
-        (
-            "voice v = { saw(freq) * gain }\n  ctl a = 1 [0 9]",
-            1,
-            25,
-            "a voice is made of sin saw tri pulse noise lfo fm svf ladder hp1 delay drive mix env, numbers, lists and freq gate vel",
-        ),
-    ] {
-        let err = Song::parse(text).expect_err(text);
-        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
-    }
-    let many: String = (0..33).map(|i| format!("  ctl c{i} = 0 [0 1]\n")).collect();
-    let err = Song::parse(&format!("voice v = {{ saw(freq) }}\n{many}")).expect_err("many");
-    assert_eq!((err.line, err.msg), (34, "a voice has at most 32 controls"));
 }

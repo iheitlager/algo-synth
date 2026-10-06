@@ -7,7 +7,6 @@ import ComposerPane from './components/ComposerPane.vue'
 import ConsolePane from './components/ConsolePane.vue'
 import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
-import SoundPane from './components/SoundPane.vue'
 import TransportBar from './components/TransportBar.vue'
 
 // A strip's faceplate is one double-click away: select the synth and show the synths.
@@ -18,7 +17,7 @@ function openSynth(s: number) {
 </script>
 
 <template>
-  <div class="layout" :class="{ mixer: view.main === 'mixer', composer: view.main === 'composer' || view.main === 'sound' }">
+  <div class="layout" :class="{ mixer: view.main === 'mixer', composer: view.main === 'composer' }">
     <div class="transport">
       <TransportBar />
       <!-- Whatever stops the engine working (a dsp.wasm older than the page, say) gets a row of its own:
@@ -29,7 +28,6 @@ function openSynth(s: number) {
     <InstrumentsPane v-show="view.main === 'synths'" class="main" />
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <ComposerPane v-if="view.main === 'composer'" class="main" />
-    <SoundPane v-if="view.main === 'sound'" class="main" />
     <!-- The bottom pane: the arranger, under every view (ADR-0015, ADR-0022). -->
     <div class="foot bottom">
       <ArrangerPane class="fill" />

@@ -19,7 +19,7 @@ import PadGrid from './synth/PadGrid.vue'
 import SamplerPane from './synth/SamplerPane.vue'
 import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
-import VoiceEditor from './synth/VoiceEditor.vue'
+import CodeEditor from './synth/CodeEditor.vue'
 import Rocker from './synth/Rocker.vue'
 import Switch from './synth/Switch.vue'
 
@@ -156,7 +156,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
             <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
             <SamplerPane v-else-if="c.kind === 'sampler'" :s="s" />
             <PadGrid v-else-if="c.kind === 'pads'" :s="s" />
-            <VoiceEditor v-else-if="c.kind === 'voice'" :s="s" />
+            <CodeEditor v-else-if="c.kind === 'code'" :s="s" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>

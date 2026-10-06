@@ -26,6 +26,8 @@ export interface SynthSetup {
   /** The synth model by name, once the registry has models (epic #28). */
   model?: string
   params: Record<string, number>
+  /** A Modular synth's SuperCollider SynthDef (ADR-0024), its knobs' values in its numbers. */
+  code?: string
 }
 
 /** A group bus (ADR-0010): its number 0–7 and its strip parameters by name. */
@@ -78,6 +80,8 @@ export interface State {
   layout?: Layout
   names?: { strips: Record<number, string> }
   values: number[][]
+  /** Each Modular synth's code, by synth. */
+  codes?: Record<number, string>
 }
 
 export type Op =
@@ -87,9 +91,12 @@ export type Op =
   | { t: 'names'; names: Names }
   | { t: 'reset'; s: number }
   | { t: 'param'; s: number; id: number; v: number }
+  | { t: 'code'; s: number; text: string }
 
 /** The parameter that selects a synth's model; stored as `model` by name. */
 const MODEL = 'Model'
+/** The model whose synth holds code (ADR-0024). */
+const MODULAR = 'Modular'
 
 const isObject = (x: unknown): x is Record<string, unknown> =>
   typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -128,7 +135,8 @@ export function buildSetup(state: State, reg: Registry): Setup {
       if (id === modelId && reg.models) model = nameOf(reg.models, v)
       else params[name] = shortF32(v)
     }
-    return { index, kind: 'mono', ...(model !== undefined && { model }), params }
+    const code = model === MODULAR ? state.codes?.[index] : undefined
+    return { index, kind: 'mono', ...(model !== undefined && { model }), params, ...(code && { code }) }
   })
   const groups = (state.groups ?? []).map((g): GroupSetup => {
     const values = state.values[GROUP_BASE + g] ?? []
@@ -343,6 +351,8 @@ export function parseSetup(text: string, reg: Registry): Parsed {
       if (reg.models && entry.model in reg.models) synth.model = entry.model
       else warnings.push(`synth ${index + 1}: unknown model ${entry.model}`)
     }
+    if (typeof entry.code === 'string' && synth.model === MODULAR) synth.code = entry.code
+    else if (entry.code !== undefined) warnings.push(`synth ${index + 1}: ignored code on a synth that is not Modular`)
     synths.push(synth)
   }
   if (renamed.size) warnings.push(`migrated an older setup: ${[...renamed].sort().join(', ')} now live on the mixer, the insert slots and processors P1–P2`)
@@ -387,6 +397,7 @@ export function applyPlan(setup: Setup, reg: Registry): { ops: Op[]; warnings: s
       const id = reg.params[name]
       if (id !== undefined) ops.push({ t: 'param', s, id, v: value(`synth ${s + 1}`, name, v) })
     }
+    if (synth.code !== undefined) ops.push({ t: 'code', s, text: synth.code })
   }
   if (setup.groups) {
     ops.push({ t: 'groups', groups: setup.groups.map((g) => g.index).sort((a, b) => a - b) })

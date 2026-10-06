@@ -46,18 +46,20 @@ impl PartialEq for Comments {
 fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
     // The frag the indented lines belong to.
     let mut frag: Option<&str> = None;
-    // The voice the indented `ctl` lines belong to.
-    let mut voice: Option<&str> = None;
+    // Whether the indented lines are a Modular setting's code.
+    let mut code = false;
     lines
         .iter()
         .map(|raw| {
+            if code && (raw.starts_with([' ', '\t']) || raw.trim().is_empty()) {
+                return Some(CODE.to_string());
+            }
+            // A comment line at the margin ends the code, as any line there does.
+            code = false;
             let body = strip_comment(raw);
             let mut words = body.split_whitespace();
             let first = words.next()?;
             if body.starts_with([' ', '\t']) {
-                if let Some(v) = voice {
-                    return Some(format!("ctl {v} {}", words.next().unwrap_or("")));
-                }
                 let f = frag?;
                 let notes = song
                     .frags
@@ -73,7 +75,7 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
             // `scene drop: …` names its scene up to the colon.
             let name = words.next().map(|n| n.trim_end_matches(':'));
             frag = if first == "frag" { name } else { None };
-            voice = if first == "voice" { name } else { None };
+            code = first == "setting" && body.split_whitespace().nth(3) == Some("Modular");
             Some(match first {
                 // `master:` has no name before its colon.
                 "tempo" | "swing" | "scale" | "arrange" | "loop" | "master" | "master:" => {
@@ -86,6 +88,10 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
         })
         .collect()
 }
+
+/// The key of a line of a Modular setting's code: its own, with no comment
+/// in it, since a `#` there is SuperCollider's (ADR-0024).
+const CODE: &str = "code";
 
 /// The comment on `raw`, from its `#`.
 fn comment_of(raw: &str) -> Option<String> {
@@ -100,6 +106,9 @@ impl Comments {
         let mut found = Comments::default();
         let mut pending: Vec<String> = Vec::new();
         for (raw, key) in lines.iter().zip(keys(&lines, song)) {
+            if key.as_deref() == Some(CODE) {
+                continue;
+            }
             let side = comment_of(raw);
             match key {
                 None => pending.extend(side),
@@ -128,6 +137,7 @@ impl Comments {
         for (line, key) in printed.iter().zip(keys) {
             let remark = key
                 .as_ref()
+                .filter(|k| *k != CODE)
                 .and_then(|k| self.items.get_key_value(k.as_str()));
             let Some((k, r)) = remark else {
                 out.push(line.clone());
