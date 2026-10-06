@@ -605,17 +605,14 @@ impl MonoVoice {
                     .hp;
             }
             let mut y = match filter {
-                Filter::Ladder(v) => {
-                    let k = (feedback + m.resonance * MAX_K).clamp(0.0, MAX_K) * v.k_scale;
-                    let x = x * (1.0 + v.comp * k);
-                    self.ladder.process(
-                        ctx.ladder,
-                        x,
-                        cutoff + m.cutoff + self.cutoff_trim,
-                        k,
-                        p.drive * v.drive,
-                    )
-                }
+                Filter::Ladder(v) => self.ladder.voiced(
+                    ctx.ladder,
+                    &v,
+                    x,
+                    cutoff + m.cutoff + self.cutoff_trim,
+                    feedback + m.resonance * MAX_K,
+                    p.drive,
+                ),
                 Filter::Svf(v) => {
                     let res = feedback / MAX_K + m.resonance;
                     self.svf_lp

@@ -1190,7 +1190,7 @@ const modular: ModelDef = {
   family: 'modular',
   name: 'Modular',
   maker: 'algo-synth · a voice written in the song',
-  tagline: 'sin saw tri pulse noise lfo fm svf ladder delay drive mix env, patched in a line of text and played per note',
+  tagline: 'sin saw tri pulse noise lfo fm svf ladder hp1 delay drive mix env, patched in a line of text and played per note',
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
   presets: ['ModularBasic', 'ModularHoover', 'ModularKick'],
   sections: [

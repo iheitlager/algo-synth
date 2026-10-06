@@ -8,6 +8,7 @@
 //! and `g` comes from a table built in `Engine::new`, read only while the
 //! smoothed cutoff moves; `render` does no transcendental math.
 
+use crate::mono::model::LadderVoicing;
 use crate::voice::midi_to_hz;
 
 /// Table range in MIDI notes: 8 Hz to above any cutoff the clamp allows.
@@ -145,6 +146,24 @@ impl Ladder {
             self.s = [0.0; 4];
             0.0
         }
+    }
+
+    /// Filter one sample as `v` voices the ladder: `k` the feedback
+    /// (0..=`MAX_K`) before the voicing scales it, `drive` the input gain
+    /// before the voicing's. The Mono voice and the modular `ladder` share
+    /// it, so a voicing sounds the same in both (#307).
+    pub fn voiced(
+        &mut self,
+        t: &LadderTables,
+        v: &LadderVoicing,
+        x: f32,
+        cutoff: f32,
+        k: f32,
+        drive: f32,
+    ) -> f32 {
+        let k = k.clamp(0.0, MAX_K) * v.k_scale;
+        let x = x * (1.0 + v.comp * k);
+        self.process(t, x, cutoff, k, drive * v.drive)
     }
 
     fn retune(&mut self, t: &LadderTables, note: f32) {
