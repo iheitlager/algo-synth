@@ -99,13 +99,15 @@ pub enum Preset {
     PadsSoft = 84,
     Kit909 = 85,
     Hard909 = 86,
-    Heavy808 = 87,
-    Heavy909 = 88,
+    ModularBasic = 87,
+    ModularHoover = 88,
+    Heavy808 = 89,
+    Heavy909 = 90,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 89] = [
+    pub const ALL: [(Preset, &'static str); 91] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -193,6 +195,8 @@ impl Preset {
         (Preset::PadsSoft, "PadsSoft"),
         (Preset::Kit909, "Kit909"),
         (Preset::Hard909, "Hard909"),
+        (Preset::ModularBasic, "ModularBasic"),
+        (Preset::ModularHoover, "ModularHoover"),
         (Preset::Heavy808, "Heavy808"),
         (Preset::Heavy909, "Heavy909"),
     ];
@@ -219,6 +223,7 @@ impl Preset {
             }
             Preset::Kit808 | Preset::TightKit | Preset::Heavy808 => Model::Tr808,
             Preset::Kit909 | Preset::Hard909 | Preset::Heavy909 => Model::Tr909,
+            Preset::ModularBasic | Preset::ModularHoover => Model::Modular,
             Preset::LaFantasia
             | Preset::LaPluckPad
             | Preset::LaBreathFlute
@@ -270,6 +275,19 @@ impl Preset {
             Preset::BladeBrass | Preset::Cs15Strings => Model::Cs15,
             Preset::AcidBass | Preset::SubPluck | Preset::Sh101Strings => Model::Sh101,
             Preset::CurrieLead | Preset::OdysseySync => Model::Odyssey,
+        }
+    }
+
+    /// A Modular preset's voice, in the song's voice language (ADR-0020).
+    pub fn voice_text(self) -> Option<&'static str> {
+        match self {
+            Preset::ModularBasic => Some("saw(freq) |> svf(lp, 1800, 0.3)"),
+            // Two detuned pulses whose widths an LFO each moves, and a saw an
+            // octave down: the rave hoover's buzz.
+            Preset::ModularHoover => Some(
+                "(pulse(freq * 0.995, lfo(5).range(0.1, 0.4)) + pulse(freq * 1.005, lfo(4.3).range(0.2, 0.5)) + saw(freq * 0.5)) |> svf(lp, 2500, 0.3)",
+            ),
+            _ => None,
         }
     }
 
@@ -2365,6 +2383,21 @@ impl Preset {
             Preset::Kit909 => &[(Model, 18.0)],
             // Hard and bright: a driven kick with a loud click, a snappy snare,
             // short toms, crisp hats and a long ride.
+            // A Modular synth's sound is its voice (`voice_text`); the ADSR
+            // shapes a voice without `env`.
+            Preset::ModularBasic => &[
+                (Model, 19.0),
+                (Polyphony, 8.0),
+                (AdsrAttack, 0.005),
+                (AdsrRelease, 0.25),
+            ],
+            Preset::ModularHoover => &[
+                (Model, 19.0),
+                (Polyphony, 8.0),
+                (AdsrAttack, 0.02),
+                (AdsrSustain, 0.9),
+                (AdsrRelease, 0.4),
+            ],
             Preset::Hard909 => &[
                 (Model, 18.0),
                 (BdTone, 0.9),
@@ -3366,6 +3399,24 @@ mod tests {
     }
 
     /// Spec 005 Req 1: every model has at least two presets of its own.
+    /// Every Modular preset's voice compiles (ADR-0020).
+    #[test]
+    fn every_modular_voice_compiles() {
+        for (p, name) in Preset::ALL {
+            assert_eq!(
+                p.voice_text().is_some(),
+                p.model() == Model::Modular,
+                "{name}"
+            );
+            if let Some(text) = p.voice_text() {
+                assert!(
+                    crate::modular::Program::parse(text).is_ok(),
+                    "{name}: {text}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_model_has_at_least_two_presets() {
         for (model, name) in Model::ALL {

@@ -362,21 +362,23 @@ fn unit(h: u32) -> f64 {
     f64::from(h) / (f64::from(u32::MAX) + 1.0)
 }
 
+/// A word of an expression; shared with the modular voice's parser.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Tok<'a> {
+pub(crate) enum Tok<'a> {
     Num(f32),
     Word(&'a str),
+    /// `( ) + - * / . ,`, and `|` standing for `|>` (ADR-0020).
     Punct(char),
     /// The text between double quotes, and the column after the first.
     Quote(&'a str, usize),
 }
 
-struct Token<'a> {
-    col: usize,
-    tok: Tok<'a>,
+pub(crate) struct Token<'a> {
+    pub(crate) col: usize,
+    pub(crate) tok: Tok<'a>,
 }
 
-fn lex(text: &str) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
+pub(crate) fn lex(text: &str) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -428,6 +430,12 @@ fn lex(text: &str) -> Result<Vec<Token<'_>>, (usize, &'static str)> {
                 tok: Tok::Word(text.get(byte..byte_at(j)).unwrap_or("")),
             });
             i = j;
+        } else if c == '|' && chars.get(i + 1).is_some_and(|&(_, c)| c == '>') {
+            out.push(Token {
+                col,
+                tok: Tok::Punct('|'),
+            });
+            i += 2;
         } else if "()+-*/.,".contains(c) {
             out.push(Token {
                 col,

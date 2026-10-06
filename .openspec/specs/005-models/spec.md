@@ -6,7 +6,7 @@ Common to every requirement: `render` follows ADR-0002, every parameter and id i
 
 ### Requirement 1: Models [MUST]
 
-Every synth SHALL have a model, `Param::Model`, held with the synth's parameters: one of the monosynths here (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), the polysynths of spec 006 (`Prophet5`, `Juno106`, `Jupiter8`, `Matrix12`, `PpgWave`, `D50`, `Dx7`, `PolyMoog`), the drum machines (`Tr808`, `Tr909`, spec 002 Req 1) or the samplers (`Sampler`, `PadSampler`, spec 007); a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
+Every synth SHALL have a model, `Param::Model`, held with the synth's parameters: one of the monosynths here (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), the polysynths of spec 006 (`Prophet5`, `Juno106`, `Jupiter8`, `Matrix12`, `PpgWave`, `D50`, `Dx7`, `PolyMoog`), the drum machines (`Tr808`, `Tr909`, spec 002 Req 1), the samplers (`Sampler`, `PadSampler`, spec 007) or `Modular` (Req 11); a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model`, `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/mono.rs::MonoParams` (#30)
 
@@ -167,3 +167,23 @@ The Odyssey (the Mk II and III of about 1975-81) SHALL be two VCOs (saw, pulse w
 - THEN the cutoff follows the loudness at every point, and the filter ADSR plays no part
 
 **Tests:** `crates/dsp/src/mono/voice.rs::tests::odyssey_high_pass_takes_out_the_lows`, `crates/dsp/src/mono/voice.rs::tests::odyssey_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/model.rs::tests::single_envelope_models_follow_the_adsr`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`
+
+### Requirement 11: Modular [SHOULD]
+
+A `Modular` synth's voice SHALL be a graph of unit generators written in the song (ADR-0020, ADR-0021, #216): `voice <name> = { … }` on one line, played by `track <name> synth Modular <voice>`, or a preset's voice (`ModularBasic`, `ModularHoover`). Unit generators SHALL be calls, bipolar and in hertz: `sin saw tri pulse noise lfo svf env`, with `freq gate vel`, `+ - * /`, `.range`, `.exprange` and `|>`. The parser SHALL compile a voice into a fixed program of at most 32 nodes, 8 band-limited oscillators, 8 phases, 4 filters and 4 envelopes, print it canonically, and refuse anything else with a line, a column and a message. Each note SHALL copy the program when it starts, so a changed voice takes the next note. `render` SHALL evaluate the program once a sample without allocating or calling a transcendental function (ADR-0002). A voice with `env` SHALL end when its envelopes do; one without SHALL sound through the synth's ADSR.
+
+**Implementation:** `crates/dsp/src/modular.rs::Program`, `crates/dsp/src/modular.rs::GraphVoice`, `crates/dsp/src/poly.rs::PolyVoice` (`Graph`), `crates/dsp/src/song.rs::Voice`, `crates/dsp/src/mono/preset.rs::Preset::voice_text`, `web/src/audio/models.ts` (Modular)
+
+#### Scenario: a sine plays its pitch
+
+- GIVEN a Modular synth with the voice `sin(freq)`
+- WHEN note 69 is held for a second
+- THEN the output crosses zero upward 440 times, within two
+
+#### Scenario: a song's voice on its track
+
+- GIVEN `voice beep = { sin(freq) * env(perc) }` and `track lead synth Modular beep` playing `a4`
+- WHEN the song plays
+- THEN the note sounds and dies away while its key is held
+
+**Tests:** `crates/dsp/src/modular.rs::tests::fast_math_is_close`, `crates/dsp/src/modular.rs::tests::a_voice_prints_canonically_and_parses_back`, `crates/dsp/src/modular.rs::tests::errors_say_where`, `crates/dsp/src/modular.rs::tests::the_default_program_is_a_saw`, `crates/dsp/src/mono/preset.rs::tests::every_modular_voice_compiles`, `crates/dsp/src/engine/tests.rs::a_modular_voice_sounds_bounded_deterministic_and_ends`, `crates/dsp/src/engine/tests.rs::a_modular_sine_plays_its_pitch`, `crates/dsp/src/engine/tests.rs::a_modular_voice_with_a_percussive_env_ends_while_held`, `crates/dsp/src/engine/tests.rs::a_song_voice_plays_on_its_track`, `crates/dsp/src/song/tests.rs::a_voice_line_and_a_modular_track_parse_and_print`, `crates/dsp/src/song/tests.rs::voice_errors_say_where`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`

@@ -80,6 +80,7 @@ use crate::drums::Pad;
 use crate::fx::insert::InsertType;
 use crate::fx::processor::ProcType;
 use crate::mixer::OUT_NONE;
+use crate::modular::Program;
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
 use crate::notes::pattern::{self, Line, Pattern};
@@ -104,6 +105,8 @@ pub const MAX_SCENES: usize = 32;
 pub const MAX_SETS: usize = 32;
 /// Most modulations (`mod` lines); their signals share `signal::MAX_NODES`.
 pub const MAX_MODS: usize = 32;
+/// Most voices a song writes for its Modular synths (ADR-0020).
+pub const MAX_VOICES: usize = 16;
 /// Synth strips and group buses (ADR-0010).
 const STRIPS: usize = 16;
 const GROUPS: usize = 8;
@@ -334,15 +337,30 @@ pub struct Track {
     /// Neither a model nor a setting was written: the preset was picked from
     /// the role, and the engine may pick again from the synths it has.
     pub picked: bool,
+    /// The song's voice a Modular track plays, by index into `Song::voices`.
+    pub voice: Option<usize>,
 }
 
 /// Two tracks are equal by what they play; whether the preset was picked or
 /// written is not part of the song, so a printed song parses back equal.
 impl PartialEq for Track {
     fn eq(&self, other: &Track) -> bool {
-        (&self.name, self.kind, self.preset, self.setting)
-            == (&other.name, other.kind, other.preset, other.setting)
+        (&self.name, self.kind, self.preset, self.setting, self.voice)
+            == (
+                &other.name,
+                other.kind,
+                other.preset,
+                other.setting,
+                other.voice,
+            )
     }
+}
+
+/// A voice a Modular synth plays (ADR-0020): `voice hoover = { … }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Voice {
+    pub name: String,
+    pub program: Program,
 }
 
 /// A synth patch that lives in the song (#210): a factory preset and the
@@ -361,6 +379,8 @@ pub struct Song {
     /// The key generators walk (`scale c minor`); it goes before its first use.
     pub scale: Option<Scale>,
     pub settings: Vec<Setting>,
+    /// Voices for Modular synths, written as graphs (ADR-0020).
+    pub voices: Vec<Voice>,
     pub tracks: Vec<Track>,
     /// Starting values for strips, groups and the master (ADR-0018).
     pub mix: Vec<MixLine>,
@@ -384,6 +404,7 @@ impl Default for Song {
             swing: 50.0,
             scale: None,
             settings: Vec::new(),
+            voices: Vec::new(),
             tracks: Vec::new(),
             mix: Vec::new(),
             frags: Vec::new(),
@@ -645,6 +666,42 @@ impl Song {
                     }
                     song.scale = Some(Scale { root: pc, mode: m });
                 }
+                "voice" => {
+                    let name = arg(1, "a voice name goes here")?;
+                    if !is_name(name.text) {
+                        return Err(err(
+                            name.col,
+                            "a name is a letter, then letters, digits or _",
+                        ));
+                    }
+                    if song.voices.iter().any(|v| v.name == name.text) {
+                        return Err(err(name.col, "there is already a voice with this name"));
+                    }
+                    let eq = arg(2, "= and a voice in braces go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a voice in braces go here"));
+                    }
+                    let braces = "a voice goes in braces: voice lead = { saw(freq) }";
+                    let open = arg(3, braces)?;
+                    let rest = body
+                        .char_indices()
+                        .nth(open.col - 1)
+                        .and_then(|(b, _)| body.get(b..))
+                        .unwrap_or("")
+                        .trim_end();
+                    let inner = rest
+                        .strip_prefix('{')
+                        .and_then(|t| t.strip_suffix('}'))
+                        .ok_or(err(open.col, braces))?;
+                    let program = Program::parse(inner).map_err(|(c, m)| err(open.col + c, m))?;
+                    if song.voices.len() >= MAX_VOICES {
+                        return Err(err(first.col, "a song has at most 16 voices"));
+                    }
+                    song.voices.push(Voice {
+                        name: name.text.to_string(),
+                        program,
+                    });
+                }
                 "track" => {
                     let name = arg(1, "a track name goes here")?;
                     if !is_name(name.text) {
@@ -667,6 +724,7 @@ impl Song {
                     let mut setting = None;
                     let mut model = None;
                     let mut preset = None;
+                    let mut voice = None;
                     if let Some(w) = ws.get(3) {
                         if let Some(i) = song.settings.iter().position(|st| st.name == w.text) {
                             setting = Some(i);
@@ -678,10 +736,23 @@ impl Song {
                                 "a model (as Minimoog or Tr808) or a setting goes here",
                             ))?;
                             model = Some(m);
-                            if let Some(p) = ws.get(4) {
+                            let own = ws
+                                .get(4)
+                                .filter(|_| m.uses_graph())
+                                .and_then(|p| song.voices.iter().position(|v| v.name == p.text));
+                            if let Some(v) = own {
+                                // A Modular track playing the song's voice: the
+                                // basic preset sets the rest of the synth.
+                                voice = Some(v);
+                                preset = Some(Preset::ModularBasic);
+                            } else if let Some(p) = ws.get(4) {
                                 let pr = preset_named(p.text).ok_or(err(
                                     p.col,
-                                    "a preset is a factory preset, as MiniBass",
+                                    if m.uses_graph() {
+                                        "a voice of the song or a Modular preset goes here"
+                                    } else {
+                                        "a preset is a factory preset, as MiniBass"
+                                    },
                                 ))?;
                                 if pr.model() != m {
                                     return Err(err(p.col, "this preset is for another model"));
@@ -703,6 +774,7 @@ impl Song {
                         preset,
                         setting,
                         picked: false,
+                        voice,
                     });
                     // A model without a preset: one is picked once the frags are in.
                     if let (Some(m), None) = (model, preset) {
@@ -1193,7 +1265,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, voice, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
                     ));
                 }
             }
@@ -1302,8 +1374,14 @@ impl Song {
             }
             lines.push(line);
         }
+        for v in &self.voices {
+            lines.push(format!("voice {} = {{ {} }}", v.name, v.program));
+        }
         lines.extend(self.tracks.iter().map(|t| {
             let setting = t.setting.and_then(|i| self.settings.get(i));
+            if let Some(v) = t.voice.and_then(|i| self.voices.get(i)) {
+                return format!("track {} {} Modular {}", t.name, t.kind.name(), v.name);
+            }
             match (setting, t.preset) {
                 (Some(st), _) => format!("track {} {} {}", t.name, t.kind.name(), st.name),
                 (None, Some(p)) => format!(

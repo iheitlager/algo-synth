@@ -24,6 +24,7 @@ fn a_beat_parses() {
             preset: Some(Preset::Kit808),
             setting: None,
             picked: true,
+            voice: None,
         }]
     );
     let f = &s.frags[0];
@@ -122,7 +123,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, voice, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -196,6 +197,7 @@ fn random_song(r: &mut Rng) -> Song {
             }),
             setting: None,
             picked: false,
+            voice: None,
         });
     }
     for f in 0..r.below(5) {
@@ -1980,4 +1982,72 @@ fn struct_sometimes_and_scale_print_back() {
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// ADR-0020: a voice line holds a graph, a Modular track plays it, and both
+/// print back canonically.
+#[test]
+fn a_voice_line_and_a_modular_track_parse_and_print() {
+    let text = "voice hoover = {sin(saw(freq*0.5).range(freq, freq*3)) |> svf(lp, lfo(0.3).exprange(300,3000)) * env(adsr)}\n\
+        track lead synth Modular hoover\ntrack pad synth Modular ModularHoover\n\
+        frag r = lead\n  \"c3 e3\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.voices.len(), 1);
+    assert_eq!(
+        (s.tracks[0].voice, s.tracks[0].preset),
+        (Some(0), Some(Preset::ModularBasic))
+    );
+    assert_eq!(
+        (s.tracks[1].voice, s.tracks[1].preset),
+        (None, Some(Preset::ModularHoover))
+    );
+    let printed = s.print();
+    for line in [
+        "voice hoover = { sin(saw(freq * 0.5).range(freq, freq * 3)) |> svf(lp, lfo(0.3).exprange(300, 3000)) * env(adsr) }\n",
+        "track lead synth Modular hoover\n",
+        "track pad synth Modular ModularHoover\n",
+    ] {
+        assert!(printed.contains(line), "{line}in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn voice_errors_say_where() {
+    for (text, line, col, msg) in [
+        (
+            "voice v = saw(freq)",
+            1,
+            11,
+            "a voice goes in braces: voice lead = { saw(freq) }",
+        ),
+        ("voice v = { saw(freq }", 1, 22, ") goes here"),
+        (
+            "voice v = { cosine(freq) }",
+            1,
+            13,
+            "a voice is made of sin saw tri pulse noise lfo svf env, numbers and freq gate vel",
+        ),
+        (
+            "voice v = { saw(freq) }\nvoice v = { tri(freq) }",
+            2,
+            7,
+            "there is already a voice with this name",
+        ),
+        (
+            "track l synth Modular nope",
+            1,
+            23,
+            "a voice of the song or a Modular preset goes here",
+        ),
+        (
+            "voice v = { saw(freq) }\ntrack l synth Minimoog v",
+            2,
+            24,
+            "a preset is a factory preset, as MiniBass",
+        ),
+    ] {
+        let err = Song::parse(text).expect_err(text);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+    }
 }

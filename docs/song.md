@@ -101,7 +101,7 @@ track kit drums plain
 - The preset must be one of the model's. Models: `Arp2600`, `Minimoog`,
   `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`, `Prophet5`, `Juno106`,
   `Jupiter8`, `Matrix12`, `PpgWave`, `D50`, `Dx7`, `PolyMoog`, `Tr808`,
-  `Tr909`, `Sampler`, `PadSampler`. Presets are the factory names, as
+  `Tr909`, `Sampler`, `PadSampler`, `Modular`. Presets are the factory names, as
   `MiniBass` or `JunoPad`.
 - The changes are the synth's own parameters by their registry name (ADR-0004),
   as `Cutoff` or `AdsrRelease`, in the parameter's units (Hz, seconds, 0–1);
@@ -109,6 +109,45 @@ track kit drums plain
   (`Level`, `Pan`, `MasterGain`…) and `Model` are refused.
 - Settings go before the tracks; a name may not be a model's.
 - At most 16 settings, 32 changes each.
+
+## voice
+
+`voice <name> = { <graph> }` writes a voice for a `Modular` synth (ADR-0020,
+ADR-0021): a graph of unit generators, played per note. A track plays it as
+`track <name> synth Modular <voice>`.
+
+```song
+voice hoover = { (pulse(freq * 0.995, lfo(5).range(0.1, 0.4)) + pulse(freq * 1.005) + saw(freq * 0.5)) |> svf(lp, lfo(0.3).exprange(400, 3000), 0.3) * env(adsr) }
+voice blip = { sin(freq * 2) * env(perc) }
+track lead synth Modular hoover
+track bell synth Modular blip
+frag r = lead
+  "c3 eb3 g3 <bb3 c4>"
+```
+
+Unit generators are calls; they run every sample, from −1 to 1, in hertz:
+
+| unit | what |
+|---|---|
+| `sin(f)`, `saw(f)`, `tri(f)` | oscillators at `f` hertz; saw and tri are band-limited |
+| `pulse(f)`, `pulse(f, width)` | a band-limited pulse, `width` 0.05 to 0.95 (a half if left out) |
+| `noise()` | white noise |
+| `lfo(rate)`, `lfo(rate, shape)` | an unsmoothed `sine` (or `saw`, `tri`, `square`) at `rate` hertz |
+| `x \|> svf(lp, cutoff)`, `svf(lp, cutoff, res)` | a resonant 12 dB filter, `lp` or `hp`, cutoff in hertz, res 0 to 1 |
+| `env(adsr)`, `env(perc)`, `env(a, d, s, r)` | an envelope: the synth's ADSR, a short hit, or times in seconds |
+| `freq`, `gate`, `vel` | the note's pitch in hertz, 1 while its key is held, its velocity |
+
+They combine with `+ - * /` and brackets; `.range(a, b)` and `.exprange(a, b)`
+map −1..1 onto a..b (the bounds may be signals: `saw(freq).range(freq, freq *
+3)`), and `x |> svf(…)` passes `x` through a filter. A voice that uses `env`
+ends when its envelopes do; one without sounds through the synth's ADSR.
+Without a voice, a `Modular` track plays a preset: `ModularBasic` or
+`ModularHoover`.
+
+At most 16 voices in a song; in one voice, at most 32 nodes (numbers, units,
+operators, methods), 8 of `saw`, `tri` and `pulse`, 8 of `sin` and `lfo`, 4
+filters and 4 envelopes. Voices go before the tracks that play them, all on
+one line.
 
 ## track
 
@@ -124,7 +163,9 @@ track's frags hold:
 After the kind comes the synth (#210): a model and a preset, a model alone, a
 setting, or nothing.
 
-- **Model and preset:** `track bass synth Sh101 AcidBass`.
+- **Model and preset:** `track bass synth Sh101 AcidBass`. A `Modular` track
+  names the song's voice in the preset's place: `track lead synth Modular
+  hoover`.
 - **Model alone:** the preset is the track's role's on that model, else the
   model's first.
 - **Nothing:** a model and preset are picked from the track's role and written
@@ -595,6 +636,8 @@ to `first` for good. A loop needs an `arrange` line and must end inside it.
 | notes a line compiles to | 512 |
 | bars before a line of notes repeats | 32 |
 | autos, scenes, mods | 32 |
+| voices | 16 |
+| nodes in a voice | 32 |
 | nodes in all signals (numbers, sources, operators, methods) | 256 |
 | values in an auto | 64 |
 | bars in a section or an auto | 256 |
