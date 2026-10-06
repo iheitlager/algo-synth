@@ -769,6 +769,34 @@ pub extern "C" fn auto_touched() -> u32 {
     query(0, Engine::take_touched)
 }
 
+/// How many (strip, parameter) pairs the song's modulations write now
+/// (ADR-0019), for the view to mark their knobs.
+#[unsafe(no_mangle)]
+pub extern "C" fn mod_count() -> u32 {
+    query(0, |e| {
+        let n = (0..).take_while(|i| e.modulated(*i).is_some()).count();
+        u32::try_from(n).unwrap_or(0)
+    })
+}
+
+/// The strip of the `i`th modulated pair, or −1 past the last.
+#[unsafe(no_mangle)]
+pub extern "C" fn mod_strip(i: u32) -> i32 {
+    query(-1, |e| {
+        e.modulated(i as usize)
+            .and_then(|(s, _)| i32::try_from(s).ok())
+            .unwrap_or(-1)
+    })
+}
+
+/// The parameter id of the `i`th modulated pair, or `u32::MAX` past the last.
+#[unsafe(no_mangle)]
+pub extern "C" fn mod_param(i: u32) -> u32 {
+    query(u32::MAX, |e| {
+        e.modulated(i as usize).map_or(u32::MAX, |(_, p)| p as u32)
+    })
+}
+
 /// 1 when a song loaded while playing took over on a bar line since the last
 /// call (#208), so the view can ask for the song again.
 #[unsafe(no_mangle)]

@@ -113,6 +113,13 @@ export const levels = shallowReactive<{ values: Float32Array }>({ values: new Fl
 export const params = reactive({ values: [] as number[][] })
 
 /**
+ * The knobs a modulation of the song drives now (ADR-0019, #208), as
+ * `strip * 1024 + id`; the engine sends the set when it changes.
+ */
+export const modulated = shallowReactive<{ keys: Set<number> }>({ keys: new Set() })
+export const modKey = (strip: number, id: number) => strip * 1024 + id
+
+/**
  * The synths on screen, by engine index, and the one the keyboard plays. The
  * engine always holds `MAX_SYNTHS`; adding one shows a free index, reset to
  * the default patch.
@@ -685,6 +692,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
+  } else if (data.t === 'mods') {
+    modulated.keys = new Set(data.keys as number[])
   } else if (data.t === 'imported') {
     onImported(data.code as number)
   } else if (data.t === 'midi') {

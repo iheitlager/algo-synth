@@ -423,6 +423,9 @@ song loads; the line itself stays as written. A cycle is a bar.
 | `.degrade(p)` | drop each note with chance p (0.5 if left out), the same every time |
 | `.every(n, m)` | method `m` on every nth bar, from the first: `every(4, rev)` |
 | `.off(t, m)` | a copy `t` of a bar later, with `m`: `off(1/8, add(12))` |
+| `.struct("x ~ x x")` | each bar on a rhythm: at each `x`, the notes sounding there, to the next step |
+| `.sometimes(m)` | method `m` on about half the moments, the same every time |
+| `.scale(c minor)` | each note moved to the nearest note of the scale (down on a tie) |
 
 ```song
 track lead synth

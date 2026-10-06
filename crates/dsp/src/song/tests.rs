@@ -1958,3 +1958,26 @@ fn a_patterned_frag_refuses_a_note_edit() {
     assert!(!s.edit_note(0, notes::Edit::Add { tick: 6, note: 64 }));
     assert_eq!(s, before);
 }
+
+/// #215: struct, sometimes and scale on a frag line print back as written.
+#[test]
+fn struct_sometimes_and_scale_print_back() {
+    let text = "track lead synth\n\
+        frag r = lead .struct(\"x ~ x x\") .sometimes(add(12)) .scale(eb minor)\n  \"c4 e4 g4 b4\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.frags[0].pattern.len(), 3);
+    let notes = s.frags[0].notes.as_ref().expect("notes");
+    assert!(
+        notes
+            .events
+            .iter()
+            .all(|e| [3, 5, 6, 8, 10, 11, 1].contains(&(e.note % 12)))
+    );
+    let printed = s.print();
+    assert!(
+        printed
+            .contains("frag r = lead .struct(\"x ~ x x\") .sometimes(add(12)) .scale(d# minor)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}

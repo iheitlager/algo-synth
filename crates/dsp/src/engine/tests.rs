@@ -2315,6 +2315,30 @@ fn a_patterned_frag_plays_its_transformed_notes() {
     assert_eq!(count(" .ply(3) .off(1/8, add(7))"), 12);
 }
 
+/// #208 stage 5: the engine names the parameters its modulations write, a
+/// fragment's only while it plays, so the view can mark their knobs.
+#[test]
+fn the_engine_names_what_its_modulations_write() {
+    let mut e = kit(0);
+    let text = "track kit drums\nfrag b = kit /16 .send1(0.5)\n  bd x...\n\
+        frag q = kit\n  sn x...\nmod master.p2return = 0.3\n\
+        section one 1: b\nsection two 1: q\narrange one two\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.modulated(0), None, "nothing while stopped");
+    e.song_play();
+    run(&mut e, 2);
+    let all = |e: &Engine| (0..).map_while(|i| e.modulated(i)).collect::<Vec<_>>();
+    assert_eq!(all(&e), vec![(0, Param::Send1), (0, Param::P2Return)]);
+    run(&mut e, 96_000 / BLOCK);
+    assert_eq!(
+        all(&e),
+        vec![(0, Param::P2Return)],
+        "the frag's section is over"
+    );
+    e.song_stop();
+    assert_eq!(all(&e), vec![]);
+}
+
 #[test]
 fn each_lane_loops_on_its_own_length() {
     let mut e = kit(0);
