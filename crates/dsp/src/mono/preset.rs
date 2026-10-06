@@ -3347,18 +3347,17 @@ mod tests {
     /// The ARP 2600 voice sounds as it did before models (spec 005 Req 2):
     /// rms, peak and two samples of half a second of A3, per preset, from the
     /// last release before the model was added, then scaled by the mixer's
-    /// centre pan.
+    /// centre pan. Re-taken when the ladder's stages began to saturate
+    /// (#306), which rounds the peaks.
     #[test]
     fn arp_presets_keep_their_sound() {
         let gold: [(Preset, [f64; 4]); 4] = [
-            (Preset::Bass, [0.117948, 0.479209, 0.040528, 0.162096]),
-            // The last samples of the two with vibrato moved when the LFO
-            // phase went to f64 (#16): it no longer drifts with rounding.
-            (Preset::Lead, [0.169469, 0.478455, -0.246227, -0.055413]),
-            (Preset::SyncLead, [0.150151, 0.386691, -0.188180, -0.129467]),
+            (Preset::Bass, [0.111419, 0.445526, 0.038502, 0.151381]),
+            (Preset::Lead, [0.166608, 0.448171, -0.250129, -0.074438]),
+            (Preset::SyncLead, [0.144039, 0.329408, -0.216896, -0.148365]),
             (
                 Preset::BowedString,
-                [0.093402, 0.229120, -0.096020, 0.048816],
+                [0.092574, 0.223146, -0.097959, 0.053156],
             ),
         ];
         for (preset, want) in gold {

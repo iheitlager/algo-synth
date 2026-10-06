@@ -4,11 +4,15 @@
 //! Zero-delay feedback after Zavalishin ("The Art of VA Filter Design"):
 //! four trapezoidal one-poles, the feedback loop solved for the input each
 //! sample, then the input saturated by a rational `tanh` approximation, which
-//! also bounds self-oscillation. ADR-0002: the cutoff is smoothed in pitch
+//! also bounds self-oscillation. A voicing may saturate each stage as well
+//! (`Stages`, #306): each stage's `tanh(v)` is taken as `v · saturate(v₀)/v₀`
+//! at the previous sample's `v₀`, which keeps the loop linear in the input,
+//! so it is still solved exactly, with no iteration (Mystran's cheap
+//! zero-delay method). ADR-0002: the cutoff is smoothed in pitch
 //! and `g` comes from a table built in `Engine::new`, read only while the
 //! smoothed cutoff moves; `render` does no transcendental math.
 
-use crate::mono::model::LadderVoicing;
+use crate::mono::model::{LadderVoicing, Stages};
 use crate::voice::midi_to_hz;
 
 /// Table range in MIDI notes: 8 Hz to above any cutoff the clamp allows.
@@ -104,14 +108,28 @@ pub fn saturate(x: f32) -> f32 {
     x * (27.0 + x * x) / (27.0 + 9.0 * x * x)
 }
 
+/// `saturate(x) / x`, 1 at 0: the saturator as a gain at `x`.
+fn sat_gain(x: f32) -> f32 {
+    let x2 = x * x;
+    if x2 < 9.0 {
+        (27.0 + x2) / (27.0 + 9.0 * x2)
+    } else {
+        1.0 / x.abs()
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct Ladder {
     s: [f32; 4],
     /// Smoothed cutoff as a MIDI note; `None` until the first sample.
     note: Option<f32>,
-    /// One-pole gain g/(1+g) and 1/(1+g) at `note`.
+    /// The prewarped gain g, g/(1+g) and 1/(1+g) at `note`.
+    g: f32,
     big_g: f32,
     inv: f32,
+    /// The loop input and each stage's output last sample, where a
+    /// saturating stage takes its gain.
+    last: [f32; 5],
 }
 
 impl Ladder {
@@ -125,8 +143,23 @@ impl Ladder {
     /// Filter one sample. `cutoff` is a MIDI note, `k` the feedback
     /// (0..=`MAX_K`), `drive` the input gain into the saturator.
     pub fn process(&mut self, t: &LadderTables, x: f32, cutoff: f32, k: f32, drive: f32) -> f32 {
+        self.run(t, Stages::Linear, x, cutoff, k, drive)
+    }
+
+    fn run(
+        &mut self,
+        t: &LadderTables,
+        stages: Stages,
+        x: f32,
+        cutoff: f32,
+        k: f32,
+        drive: f32,
+    ) -> f32 {
         if let Some(note) = t.follow(&mut self.note, cutoff) {
             self.retune(t, note);
+        }
+        if stages != Stages::Linear {
+            return self.saturating(stages, x, k, drive);
         }
         let (g, inv) = (self.big_g, self.inv);
         let [s1, s2, s3, s4] = self.s;
@@ -148,6 +181,44 @@ impl Ladder {
         }
     }
 
+    /// One sample with saturating stages. Stage `i` is
+    /// `y = s + g·(a·x − b·y)`, so `y = α·x + β` with `α = g·a/(1 + g·b)`
+    /// and `β = s/(1 + g·b)`; `a` and `b` are the saturator's gain at last
+    /// sample's input and output.
+    fn saturating(&mut self, stages: Stages, x: f32, k: f32, drive: f32) -> f32 {
+        let g = self.g;
+        let (a, b) = match stages {
+            // A stage's input is the last one's output: five gains for eight.
+            Stages::Transistor => {
+                let [g0, g1, g2, g3, g4] = self.last.map(sat_gain);
+                ([g0, g1, g2, g3], [g1, g2, g3, g4])
+            }
+            Stages::Linear => ([1.0; 4], [1.0; 4]),
+        };
+        let [d1, d2, d3, d4] = b.map(|b| 1.0 / (1.0 + g * b));
+        let [a1, a2, a3, a4] = a;
+        let [s1, s2, s3, s4] = self.s;
+        let (a1, a2, a3, a4) = (g * a1 * d1, g * a2 * d2, g * a3 * d3, g * a4 * d4);
+        let (b1, b2, b3, b4) = (s1 * d1, s2 * d2, s3 * d3, s4 * d4);
+        // The last stage's output is A·u + B; solve the loop for u.
+        let big_a = a1 * a2 * a3 * a4;
+        let big_b = ((b1 * a2 + b2) * a3 + b3) * a4 + b4;
+        let u = saturate((x * drive - k * big_b) / (1.0 + k * big_a));
+        let y1 = a1 * u + b1;
+        let y2 = a2 * y1 + b2;
+        let y3 = a3 * y2 + b3;
+        let y4 = a4 * y3 + b4;
+        self.s = [2.0 * y1 - s1, 2.0 * y2 - s2, 2.0 * y3 - s3, 2.0 * y4 - s4];
+        self.last = [u, y1, y2, y3, y4];
+        if y4.is_finite() {
+            y4
+        } else {
+            self.s = [0.0; 4];
+            self.last = [0.0; 5];
+            0.0
+        }
+    }
+
     /// Filter one sample as `v` voices the ladder: `k` the feedback
     /// (0..=`MAX_K`) before the voicing scales it, `drive` the input gain
     /// before the voicing's. The Mono voice and the modular `ladder` share
@@ -163,11 +234,12 @@ impl Ladder {
     ) -> f32 {
         let k = k.clamp(0.0, MAX_K) * v.k_scale;
         let x = x * (1.0 + v.comp * k);
-        self.process(t, x, cutoff, k, drive * v.drive)
+        self.run(t, v.stages, x, cutoff, k, drive * v.drive)
     }
 
     fn retune(&mut self, t: &LadderTables, note: f32) {
         let g = t.g_at(note);
+        self.g = g;
         self.inv = 1.0 / (1.0 + g);
         self.big_g = g * self.inv;
     }
@@ -178,16 +250,32 @@ mod tests {
     use super::*;
 
     const SR: f32 = 48_000.0;
+    /// Every stage type, for the tests every ladder must pass.
+    const STAGES: [Stages; 2] = [Stages::Linear, Stages::Transistor];
 
     /// The filter's output for a sine at `hz`, after a second to settle.
     fn settled(cutoff_hz: f32, hz: f32, amp: f32, k: f32, drive: f32) -> Vec<f32> {
+        settled_as(Stages::Linear, cutoff_hz, hz, amp, k, drive)
+    }
+
+    fn settled_as(
+        stages: Stages,
+        cutoff_hz: f32,
+        hz: f32,
+        amp: f32,
+        k: f32,
+        drive: f32,
+    ) -> Vec<f32> {
         let t = LadderTables::new(SR);
         let mut f = Ladder::default();
         let cutoff = hz_to_note(cutoff_hz);
         let n = SR as usize;
         let w = std::f64::consts::TAU * f64::from(hz) / f64::from(SR);
         (0..2 * n)
-            .map(|i| f.process(&t, amp * (w * i as f64).sin() as f32, cutoff, k, drive))
+            .map(|i| {
+                let x = amp * (w * i as f64).sin() as f32;
+                f.run(&t, stages, x, cutoff, k, drive)
+            })
             .skip(n)
             .collect()
     }
@@ -205,7 +293,11 @@ mod tests {
 
     /// Gain of the filter for a small sine at `hz`, after it settles.
     fn gain(cutoff_hz: f32, hz: f32) -> f64 {
-        partial(&settled(cutoff_hz, hz, 0.01, 0.0, 1.0), hz) / 0.01
+        gain_as(Stages::Linear, cutoff_hz, hz)
+    }
+
+    fn gain_as(stages: Stages, cutoff_hz: f32, hz: f32) -> f64 {
+        partial(&settled_as(stages, cutoff_hz, hz, 0.01, 0.0, 1.0), hz) / 0.01
     }
 
     fn db(x: f64) -> f64 {
@@ -235,30 +327,40 @@ mod tests {
     #[test]
     fn self_oscillation_is_bounded() {
         let t = LadderTables::new(SR);
-        // Near the cutoff at fixed settings.
-        for cutoff_hz in [110.0, 500.0, 2_000.0, 8_000.0] {
+        for stages in STAGES {
+            // Near the cutoff at fixed settings; saturating stages ring
+            // softer.
+            let least = if stages == Stages::Linear { 0.2 } else { 0.1 };
+            for cutoff_hz in [110.0, 500.0, 2_000.0, 8_000.0] {
+                let mut f = Ladder::new();
+                let cutoff = hz_to_note(cutoff_hz);
+                let y: Vec<f32> = (0..SR as usize)
+                    .map(|_| f.run(&t, stages, 0.0, cutoff, MAX_K, 8.0))
+                    .collect();
+                let tail = &y[y.len() / 2..];
+                let peak = tail.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+                assert!(
+                    peak > least,
+                    "{stages:?} {cutoff_hz} Hz rings at only {peak}"
+                );
+                let hz = measured_hz(tail);
+                assert!(
+                    (hz / cutoff_hz - 1.0).abs() < 0.03,
+                    "{stages:?} {cutoff_hz} Hz rings at {hz}"
+                );
+            }
+            // And bounded through a sweep from 20 Hz to 20 kHz.
             let mut f = Ladder::new();
-            let cutoff = hz_to_note(cutoff_hz);
-            let y: Vec<f32> = (0..SR as usize)
-                .map(|_| f.process(&t, 0.0, cutoff, MAX_K, 8.0))
-                .collect();
-            let tail = &y[y.len() / 2..];
-            let peak = tail.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
-            assert!(peak > 0.2, "{cutoff_hz} Hz rings at only {peak}");
-            let hz = measured_hz(tail);
-            assert!(
-                (hz / cutoff_hz - 1.0).abs() < 0.03,
-                "{cutoff_hz} Hz rings at {hz}"
-            );
-        }
-        // And bounded through a sweep from 20 Hz to 20 kHz.
-        let mut f = Ladder::new();
-        let n = 2 * SR as usize;
-        let (lo, hi) = (hz_to_note(20.0), hz_to_note(20_000.0));
-        for i in 0..n {
-            let cutoff = lo + (hi - lo) * i as f32 / n as f32;
-            let y = f.process(&t, 0.0, cutoff, MAX_K, 8.0);
-            assert!(y.is_finite() && y.abs() <= 2.0, "{y} at sample {i}");
+            let n = 2 * SR as usize;
+            let (lo, hi) = (hz_to_note(20.0), hz_to_note(20_000.0));
+            for i in 0..n {
+                let cutoff = lo + (hi - lo) * i as f32 / n as f32;
+                let y = f.run(&t, stages, 0.0, cutoff, MAX_K, 8.0);
+                assert!(
+                    y.is_finite() && y.abs() <= 2.0,
+                    "{stages:?}: {y} at sample {i}"
+                );
+            }
         }
     }
 
@@ -266,15 +368,18 @@ mod tests {
     fn any_parameters_stay_finite() {
         let t = LadderTables::new(SR);
         let cutoffs = [f32::NAN, -100.0, 0.0, 60.0, 135.0, 500.0, f32::INFINITY];
-        for cutoff in cutoffs {
+        for (stages, cutoff) in STAGES.into_iter().flat_map(|s| cutoffs.map(|c| (s, c))) {
             for k in [0.0, 2.0, MAX_K] {
                 for drive in [1.0, 8.0] {
                     let mut f = Ladder::new();
                     for i in 0..4_800 {
                         // A loud square, well past the saturator's knee.
                         let x = if i % 37 < 18 { 4.0 } else { -4.0 };
-                        let y = f.process(&t, x, cutoff, k, drive);
-                        assert!(y.is_finite() && y.abs() <= 2.0, "{cutoff} {k} {drive}: {y}");
+                        let y = f.run(&t, stages, x, cutoff, k, drive);
+                        assert!(
+                            y.is_finite() && y.abs() <= 2.0,
+                            "{stages:?} {cutoff} {k} {drive}: {y}"
+                        );
                     }
                 }
             }
@@ -282,6 +387,47 @@ mod tests {
     }
 
     /// A jump in cutoff glides over a few milliseconds instead of stepping.
+    /// A small signal does not reach the stages' saturators: every stage
+    /// type has the linear ladder's response, 24 dB per octave.
+    #[test]
+    fn soft_input_matches_the_linear_ladder() {
+        for stages in STAGES {
+            for hz in [100.0, 1_000.0, 4_000.0, 8_000.0] {
+                let (want, got) = (gain(1_000.0, hz), gain_as(stages, 1_000.0, hz));
+                assert!(
+                    (db(got) - db(want)).abs() < 0.1,
+                    "{stages:?} at {hz} Hz: {got} vs {want}"
+                );
+            }
+        }
+    }
+
+    /// Odd harmonics against the fundamental of a hot sine at 200 Hz into
+    /// a 1 kHz cutoff with resonance.
+    fn hot_profile(stages: Stages) -> [f64; 2] {
+        let y = settled_as(stages, 1_000.0, 200.0, 0.5, 3.8, 8.0);
+        let f1 = partial(&y, 200.0);
+        [partial(&y, 600.0) / f1, partial(&y, 1_000.0) / f1]
+    }
+
+    /// #306: saturating each stage, the transistor ladder keeps its
+    /// distortion under resonance, where the single input saturator's is
+    /// filtered away: the 3rd and 5th harmonics stand several times higher.
+    #[test]
+    fn hot_transistor_stages_saturate_differently() {
+        let [h3, h5] = hot_profile(Stages::Linear);
+        let [t3, t5] = hot_profile(Stages::Transistor);
+        assert!(t3 > 3.0 * h3 && t5 > 3.0 * h5, "{h3} {h5} -> {t3} {t5}");
+    }
+
+    #[test]
+    fn sat_gain_is_saturate_over_x() {
+        assert_eq!(sat_gain(0.0), 1.0);
+        for x in [-5.0_f32, -3.0, -1.0, 0.1, 0.5, 2.9, 3.0, 4.0] {
+            assert!((sat_gain(x) - saturate(x) / x).abs() < 1.0e-6, "{x}");
+        }
+    }
+
     #[test]
     fn cutoff_is_smoothed() {
         let t = LadderTables::new(SR);
@@ -338,12 +484,12 @@ mod tests {
 
     /// Peak of |y| over `samples` from the start of a ladder hit by an
     /// impulse, and over the same length a second later.
-    fn impulse_peaks(k: f32, samples: usize) -> (f32, f32) {
+    fn impulse_peaks(stages: Stages, k: f32, samples: usize) -> (f32, f32) {
         let t = LadderTables::new(SR);
         let mut f = Ladder::default();
         let cutoff = hz_to_note(2_000.0);
         let y: Vec<f32> = (0..SR as usize + samples)
-            .map(|i| f.process(&t, if i == 0 { 1.0 } else { 0.0 }, cutoff, k, 1.0))
+            .map(|i| f.run(&t, stages, if i == 0 { 1.0 } else { 0.0 }, cutoff, k, 1.0))
             .collect();
         let peak = |s: &[f32]| s.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
         (peak(&y[..samples]), peak(&y[SR as usize..]))
@@ -351,13 +497,18 @@ mod tests {
 
     #[test]
     fn an_impulse_decays_below_the_threshold_and_rings_above() {
-        let (start, late) = impulse_peaks(3.5, 480);
-        assert!(late < 1.0e-3 * start, "k 3.5: {start} then {late}");
-        let (start, late) = impulse_peaks(4.5, 480);
-        assert!(
-            late > 0.1 && late > 0.5 * start,
-            "k 4.5: {start} then {late}"
-        );
+        for stages in STAGES {
+            let (start, late) = impulse_peaks(stages, 3.5, 480);
+            assert!(
+                late < 1.0e-3 * start,
+                "{stages:?} k 3.5: {start} then {late}"
+            );
+            let (start, late) = impulse_peaks(stages, 4.5, 480);
+            assert!(
+                late > 0.1 && late > 0.5 * start,
+                "{stages:?} k 4.5: {start} then {late}"
+            );
+        }
     }
 
     #[test]
@@ -408,7 +559,10 @@ mod tests {
     fn bad_input_and_k_stay_finite() {
         let t = LadderTables::new(SR);
         let cutoff = hz_to_note(1_000.0);
-        for k in [-1.0, 0.0, MAX_K, MAX_K + 2.0, 100.0] {
+        for (stages, k) in STAGES
+            .into_iter()
+            .flat_map(|s| [-1.0, 0.0, MAX_K, MAX_K + 2.0, 100.0].map(|k| (s, k)))
+        {
             let mut f = Ladder::new();
             let mut tail = 0.0_f32;
             for i in 0..4_800 {
@@ -419,14 +573,17 @@ mod tests {
                     _ if i % 96 < 48 => 0.5,
                     _ => -0.5,
                 };
-                let y = f.process(&t, x, cutoff, k, 1.0);
-                assert!(y.is_finite() && y.abs() <= 2.0, "k {k}, sample {i}: {y}");
+                let y = f.run(&t, stages, x, cutoff, k, 1.0);
+                assert!(
+                    y.is_finite() && y.abs() <= 2.0,
+                    "{stages:?} k {k}, sample {i}: {y}"
+                );
                 if i > 4_000 {
                     tail = tail.max(y.abs());
                 }
             }
             // And it still passes sound after the bad samples.
-            assert!(tail > 0.01, "k {k} went quiet");
+            assert!(tail > 0.01, "{stages:?} k {k} went quiet");
         }
     }
 

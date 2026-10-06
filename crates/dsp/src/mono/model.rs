@@ -83,6 +83,18 @@ pub struct LadderVoicing {
     /// Multiplies the feedback, so a voicing can stop short of the full
     /// resonance range.
     pub k_scale: f32,
+    /// Where the ladder saturates besides its input.
+    pub stages: Stages,
+}
+
+/// What saturates inside a 4-pole ladder's stages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stages {
+    /// Nothing: four linear one-poles after the input saturator.
+    Linear,
+    /// Each stage's differential pair, `g·(tanh(in) − tanh(out))`: the Moog
+    /// transistor ladder (Huovilainen, DAFx 2004; #306).
+    Transistor,
 }
 
 /// How a 12 dB state-variable filter is voiced.
@@ -102,16 +114,19 @@ pub const MOOG: LadderVoicing = LadderVoicing {
     drive: 1.0,
     comp: 0.0,
     k_scale: 1.0,
+    stages: Stages::Transistor,
 };
 pub const PRO_ONE: LadderVoicing = LadderVoicing {
     drive: 1.1,
     comp: 0.3,
     k_scale: 1.0,
+    stages: Stages::Linear,
 };
 pub const SH101: LadderVoicing = LadderVoicing {
     drive: 0.7,
     comp: 0.15,
     k_scale: 0.95,
+    stages: Stages::Linear,
 };
 /// The ARP 4035/4075 of the later Odysseys: brighter and cleaner than the
 /// Moog, a little bass kept under resonance, short of the full range.
@@ -119,12 +134,14 @@ pub const ODYSSEY: LadderVoicing = LadderVoicing {
     drive: 0.85,
     comp: 0.2,
     k_scale: 0.97,
+    stages: Stages::Linear,
 };
 /// The Jupiter-8's four-pole: clean and a little bass kept under resonance.
 pub const JUPITER: LadderVoicing = LadderVoicing {
     drive: 0.9,
     comp: 0.25,
     k_scale: 0.98,
+    stages: Stages::Linear,
 };
 /// Its two-pole setting: resonant but short of oscillating.
 pub const JUPITER12: SvfVoicing = SvfVoicing {
@@ -137,6 +154,7 @@ pub const MATRIX: LadderVoicing = LadderVoicing {
     drive: 1.0,
     comp: 0.35,
     k_scale: 1.0,
+    stages: Stages::Linear,
 };
 /// Its two-pole setting: smooth, short of oscillating.
 pub const MATRIX12: SvfVoicing = SvfVoicing {
@@ -149,12 +167,14 @@ pub const PPG: LadderVoicing = LadderVoicing {
     drive: 1.0,
     comp: 0.2,
     k_scale: 1.0,
+    stages: Stages::Linear,
 };
 /// The D-50's partial filters: clean, a little bass kept.
 pub const D50: LadderVoicing = LadderVoicing {
     drive: 1.0,
     comp: 0.2,
     k_scale: 0.98,
+    stages: Stages::Linear,
 };
 /// The Polymoog's resonator filter: strongly resonant, vocal rather than screaming.
 pub const POLYMOOG: SvfVoicing = SvfVoicing {
@@ -396,6 +416,19 @@ mod tests {
             assert!(CS15.osc_at > 1.0 && CS15.k_min > 0.0);
         }
         assert_eq!(MOOG.comp, 0.0);
+    }
+
+    /// #306: the Minimoog and the ARP 2600 (whose 4012 copied the Moog
+    /// ladder) saturate each stage of their ladder.
+    #[test]
+    fn moog_ladders_saturate_per_stage() {
+        for m in [Model::Minimoog, Model::Arp2600] {
+            let Filter::Ladder(v) = m.filter() else {
+                panic!("{m:?}");
+            };
+            assert_eq!(v.stages, Stages::Transistor, "{m:?}");
+        }
+        assert_eq!(MOOG.stages, Stages::Transistor);
     }
 
     #[test]

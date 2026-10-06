@@ -1997,8 +1997,8 @@ mod tests {
     }
 
     /// #307: a voiced modular filter is the fixed synth's filter: the same
-    /// samples out for the same samples in; with no voicing it is the plain
-    /// ladder at unity drive, as before.
+    /// samples out for the same samples in. With no voicing the ladder is
+    /// the Moog's at unity drive, per-stage saturation and all (#306).
     #[test]
     fn a_voiced_filter_renders_as_the_synths() {
         let b = Bench::new();
@@ -2016,7 +2016,7 @@ mod tests {
         }
         let mut l = Ladder::new();
         for (x, y) in b.nodes("saw(freq) |> ladder(800, 0.9)", 1, 4_800) {
-            assert_eq!(y, l.process(&b.ladder, x, note, 0.9 * MAX_K, 1.0));
+            assert_eq!(y, l.voiced(&b.ladder, &MOOG, x, note, 0.9 * MAX_K, 1.0));
         }
         for (word, m) in SVFS {
             let Some(Filter::Svf(v)) = m.filter_12db().or(Some(m.filter())) else {
