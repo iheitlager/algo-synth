@@ -36,6 +36,8 @@ const FLOOR: f32 = 1.0e-3;
 /// At 1 a full-resonance whistle runs 4% flat; at 0.7 it stays within 2%,
 /// and a hot input's edges are still rounded audibly.
 const OTA_GAIN: f32 = 0.7;
+/// The SSM2040's cells run cleaner: a wider linear range than the IR3109's.
+const SSM_GAIN: f32 = 0.45;
 
 /// What every ladder shares: the `g` table and the smoothing coefficient.
 pub struct LadderTables {
@@ -199,8 +201,13 @@ impl Ladder {
                 let [g0, g1, g2, g3, g4] = self.last.map(sat_gain);
                 ([g0, g1, g2, g3], [g1, g2, g3, g4])
             }
-            Stages::Ota => {
-                let d = [u0 - o1, o1 - o2, o2 - o3, o3 - o4].map(|v| sat_gain(v * OTA_GAIN));
+            Stages::Ota | Stages::Cem3320 | Stages::Ssm2040 => {
+                let gain = if stages == Stages::Ssm2040 {
+                    SSM_GAIN
+                } else {
+                    OTA_GAIN
+                };
+                let d = [u0 - o1, o1 - o2, o2 - o3, o3 - o4].map(|v| sat_gain(v * gain));
                 (d, d)
             }
             Stages::Linear => ([1.0; 4], [1.0; 4]),
@@ -213,7 +220,14 @@ impl Ladder {
         // The last stage's output is A·u + B; solve the loop for u.
         let big_a = a1 * a2 * a3 * a4;
         let big_b = ((b1 * a2 + b2) * a3 + b3) * a4 + b4;
-        let u = saturate((x * drive - k * big_b) / (1.0 + k * big_a));
+        let u = if stages == Stages::Cem3320 {
+            // The input clips on its own; the feedback through the VCA, at
+            // its gain at last sample's output.
+            let k = k * sat_gain(k * o4);
+            (saturate(x * drive) - k * big_b) / (1.0 + k * big_a)
+        } else {
+            saturate((x * drive - k * big_b) / (1.0 + k * big_a))
+        };
         let y1 = a1 * u + b1;
         let y2 = a2 * y1 + b2;
         let y3 = a3 * y2 + b3;
@@ -261,7 +275,13 @@ mod tests {
 
     const SR: f32 = 48_000.0;
     /// Every stage type, for the tests every ladder must pass.
-    const STAGES: [Stages; 3] = [Stages::Linear, Stages::Transistor, Stages::Ota];
+    const STAGES: [Stages; 5] = [
+        Stages::Linear,
+        Stages::Transistor,
+        Stages::Ota,
+        Stages::Cem3320,
+        Stages::Ssm2040,
+    ];
 
     /// The filter's output for a sine at `hz`, after a second to settle.
     fn settled(cutoff_hz: f32, hz: f32, amp: f32, k: f32, drive: f32) -> Vec<f32> {
@@ -459,6 +479,46 @@ mod tests {
             o9 < 0.95 * l9 && o15 < 0.8 * l15,
             "{l9} {l15} -> {o9} {o15}"
         );
+    }
+
+    /// The fundamental of a hot 200 Hz sine into a 1 kHz cutoff, at
+    /// resonance `k` against none.
+    fn hot_resonance_keeps(stages: Stages) -> f64 {
+        let f1 = |k| partial(&settled_as(stages, 1_000.0, 200.0, 0.5, k, 8.0), 200.0);
+        f1(3.8) / f1(0.0)
+    }
+
+    /// #321: where the input saturator takes the feedback with it, a hot
+    /// input pushes through the resonance; the CEM3320 clips its input and
+    /// its feedback apart, so resonance takes the bass as it does softly.
+    #[test]
+    fn cem_resonance_takes_the_bass_of_a_hot_input() {
+        let moog = hot_resonance_keeps(Stages::Transistor);
+        let cem = hot_resonance_keeps(Stages::Cem3320);
+        assert!(cem < 0.5 * moog, "{moog} vs {cem}");
+    }
+
+    /// #321: the Prophet-5's SSM2040 (Rev 1/2) keeps more bass under
+    /// resonance than its CEM3320 (Rev 3).
+    #[test]
+    fn ssm_keeps_more_bass_than_cem() {
+        use crate::mono::model::{PROPHET5_REV3, PROPHET5_REV12};
+        let t = LadderTables::new(SR);
+        let bass = |v: &LadderVoicing| {
+            let mut f = Ladder::new();
+            let w = std::f64::consts::TAU * 100.0 / f64::from(SR);
+            let n = SR as usize;
+            let y: Vec<f32> = (0..2 * n)
+                .map(|i| {
+                    let x = 0.01 * (w * i as f64).sin() as f32;
+                    f.voiced(&t, v, x, hz_to_note(1_000.0), 3.5, 1.0)
+                })
+                .skip(n)
+                .collect();
+            partial(&y, 100.0)
+        };
+        let (cem, ssm) = (bass(&PROPHET5_REV3), bass(&PROPHET5_REV12));
+        assert!(ssm > 1.3 * cem, "{cem} vs {ssm}");
     }
 
     #[test]

@@ -537,6 +537,7 @@ export const Param = {
   OscModOn: 530,
   FilterModOn: 531,
   A440: 532,
+  FilterRev: 533,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

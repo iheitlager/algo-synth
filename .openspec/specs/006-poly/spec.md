@@ -82,7 +82,7 @@ At most 64 voices SHALL sound at once across all synths; a note past it SHALL st
 
 ### Requirement 6: Prophet-5 [MUST]
 
-The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A synced to B), noise, poly-mod, a 4-pole low-pass in the Pro-One voicing, a filter ADSR and a loudness ADSR, an LFO and unison; `Analog` SHALL default to a clearly audible drift.
+The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A synced to B), noise, poly-mod, a 4-pole low-pass on the CEM3320 of Rev 3 with the Rev 4's switch to the SSM2040 of Rev 1/2 (#321), a filter ADSR and a loudness ADSR, an LFO and unison; `Analog` SHALL default to a clearly audible drift.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model::Prophet5`, `web/src/audio/models.ts` (#82)
 

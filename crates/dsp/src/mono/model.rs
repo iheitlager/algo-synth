@@ -98,6 +98,15 @@ pub enum Stages {
     /// Each OTA's input pair, `g·tanh(in − out)`: Roland's IR3109 cascade
     /// (#305).
     Ota,
+    /// The CEM3320 (#321): transconductance stages as `Ota`, and resonance
+    /// through its own VCA, which clips the feedback instead of the input.
+    /// Input and resonance no longer squash each other, and that VCA sets
+    /// the level of the self-oscillation.
+    Cem3320,
+    /// The SSM2040 (#321): transconductance stages with a wider linear
+    /// range than the IR3109's, the feedback summed into the input as the
+    /// external op-amp does.
+    Ssm2040,
 }
 
 /// How a 12 dB state-variable filter is voiced.
@@ -119,11 +128,27 @@ pub const MOOG: LadderVoicing = LadderVoicing {
     k_scale: 1.0,
     stages: Stages::Transistor,
 };
+/// The Pro-One's CEM3320.
 pub const PRO_ONE: LadderVoicing = LadderVoicing {
     drive: 1.1,
     comp: 0.3,
     k_scale: 1.0,
-    stages: Stages::Linear,
+    stages: Stages::Cem3320,
+};
+/// The Prophet-5 Rev 3's CEM3320: a little cleaner than the Pro-One's.
+pub const PROPHET5_REV3: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.25,
+    k_scale: 1.0,
+    stages: Stages::Cem3320,
+};
+/// The Prophet-5 Rev 1/2's SSM2040: fat, the bass kept under resonance,
+/// a softer resonance short of the full range.
+pub const PROPHET5_REV12: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.5,
+    k_scale: 0.94,
+    stages: Stages::Ssm2040,
 };
 /// Roland's IR3109 OTA cascade: soft, a little bass kept, short of the full
 /// range.
@@ -141,8 +166,8 @@ pub const JUNO106: LadderVoicing = LadderVoicing {
     k_scale: 0.97,
     stages: Stages::Ota,
 };
-/// The ARP 4035/4075 of the later Odysseys: brighter and cleaner than the
-/// Moog, a little bass kept under resonance, short of the full range.
+/// The Odyssey Rev 3's ARP 4075: brighter and cleaner than the Moog, a
+/// little bass kept under resonance, short of the full range.
 pub const ODYSSEY: LadderVoicing = LadderVoicing {
     drive: 0.85,
     comp: 0.2,
@@ -202,6 +227,20 @@ pub const MS20: SvfVoicing = SvfVoicing {
     k_min: -0.06,
     ceiling: 0.5,
 };
+/// The Odyssey Rev 1's ARP 4023, a two-pole: resonant, short of
+/// oscillating.
+pub const ODYSSEY_REV1: SvfVoicing = SvfVoicing {
+    osc_at: 1.08,
+    k_min: 0.06,
+    ceiling: 1.0,
+};
+/// The Odyssey Rev 2's ARP 4035, a copy of the Moog transistor ladder.
+pub const ODYSSEY_REV2: LadderVoicing = LadderVoicing {
+    drive: 1.0,
+    comp: 0.0,
+    k_scale: 1.0,
+    stages: Stages::Transistor,
+};
 /// Resonant and smooth, never quite oscillating.
 pub const CS15: SvfVoicing = SvfVoicing {
     osc_at: 1.15,
@@ -247,7 +286,8 @@ impl Model {
     pub fn filter(self) -> Filter {
         match self {
             Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
-            Model::ProOne | Model::Prophet5 => Filter::Ladder(PRO_ONE),
+            Model::ProOne => Filter::Ladder(PRO_ONE),
+            Model::Prophet5 => Filter::Ladder(PROPHET5_REV3),
             Model::Sh101 => Filter::Ladder(SH101),
             Model::Juno106 => Filter::Ladder(JUNO106),
             Model::Jupiter8 => Filter::Ladder(JUPITER),
@@ -274,6 +314,19 @@ impl Model {
         match self {
             Model::Jupiter8 => Some(Filter::Svf(JUPITER12)),
             Model::Matrix12 => Some(Filter::Svf(MATRIX12)),
+            _ => None,
+        }
+    }
+
+    /// The low-pass of a model with the filter revision switch at `rev`
+    /// (`Param::FilterRev`, 1..=3), where it differs from `filter`: the
+    /// Prophet-5 Rev 4's SSM2040 for Rev 1/2, the Odyssey reissue's 4023 and
+    /// 4035 for Rev 1 and 2 (#321).
+    pub fn filter_rev(self, rev: u8) -> Option<Filter> {
+        match (self, rev) {
+            (Model::Prophet5, 1 | 2) => Some(Filter::Ladder(PROPHET5_REV12)),
+            (Model::Odyssey, 1) => Some(Filter::Svf(ODYSSEY_REV1)),
+            (Model::Odyssey, 2) => Some(Filter::Ladder(ODYSSEY_REV2)),
             _ => None,
         }
     }
@@ -342,10 +395,10 @@ impl Model {
     pub fn hp(self) -> Hp {
         match self {
             Model::Ms20 | Model::Cs15 => Hp::Svf,
-            Model::Sh101 | Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => {
-                Hp::OnePole
-            }
-            Model::Arp2600
+            Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => Hp::OnePole,
+            // The SH-101 has no high-pass (#321).
+            Model::Sh101
+            | Model::Arp2600
             | Model::Minimoog
             | Model::ProOne
             | Model::Prophet5
@@ -492,6 +545,49 @@ mod tests {
             Model::Jupiter8.filter_12db(),
             Some(Filter::Svf(_))
         ));
+    }
+
+    /// #321: the Sequential four-poles are their chips: the CEM3320 in the
+    /// Pro-One and the Prophet-5 Rev 3, the SSM2040 in its Rev 1/2.
+    #[test]
+    fn sequential_ladders_are_their_chips() {
+        let stages = |f: Filter| match f {
+            Filter::Ladder(v) => v.stages,
+            Filter::Svf(_) => panic!("{f:?}"),
+        };
+        assert_eq!(stages(Model::ProOne.filter()), Stages::Cem3320);
+        assert_eq!(stages(Model::Prophet5.filter()), Stages::Cem3320);
+        for rev in [1, 2] {
+            let f = Model::Prophet5.filter_rev(rev).expect("Rev 1/2");
+            assert_eq!(stages(f), Stages::Ssm2040);
+        }
+        assert_eq!(Model::Prophet5.filter_rev(3), None, "Rev 3 is its own");
+    }
+
+    /// Only the Prophet-5 and the Odyssey have the revision switch; the
+    /// Odyssey's Rev 1 is the 4023's two poles, its Rev 2 the 4035's ladder.
+    #[test]
+    fn only_the_prophet_and_odyssey_have_a_rev_switch() {
+        for (m, name) in Model::ALL {
+            let any = (1..=3).any(|r| m.filter_rev(r).is_some());
+            assert_eq!(any, matches!(m, Model::Prophet5 | Model::Odyssey), "{name}");
+        }
+        assert_eq!(
+            Model::Odyssey.filter_rev(1),
+            Some(Filter::Svf(ODYSSEY_REV1))
+        );
+        assert_eq!(
+            Model::Odyssey.filter_rev(2),
+            Some(Filter::Ladder(ODYSSEY_REV2))
+        );
+        assert_eq!(ODYSSEY_REV2.stages, Stages::Transistor);
+        assert_eq!(Model::Odyssey.filter_rev(3), None);
+    }
+
+    /// #321: the SH-101 has no high-pass.
+    #[test]
+    fn sh101_has_no_high_pass() {
+        assert_eq!(Model::Sh101.hp(), Hp::None);
     }
 
     #[test]

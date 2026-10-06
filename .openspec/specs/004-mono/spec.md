@@ -236,9 +236,9 @@ The voice SHALL have a second ADSR for the filter (`FenvAttack`, `FenvDecay`, `F
 
 ### Requirement 13: Filter flavours [MUST]
 
-The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter with a saturating state, giving a low-pass and a high-pass output, and a one-pole high-pass. The ladder SHALL have three voicings (Moog, Pro-One, SH-101) differing in drive, resonance and bass compensation, and in what saturates inside it: the Moog voicing (Minimoog, ARP 2600) SHALL saturate each stage's differential pair, `g·(tanh(in) − tanh(out))`, as the transistor ladder does (#306), and the Roland voicings (SH-101, Juno-106 with its own trim, Jupiter-8) SHALL saturate each OTA's input, `g·tanh(in − out)`, as the IR3109 cascade does (#305); the 12 dB filter two (MS-20, CS-15) differing in the resonance at which it self-oscillates and in its saturation ceiling. The high-pass stage SHALL have its own cutoff (`HpCutoff`), resonance (`HpResonance`) and envelope amount (`EnvHpCutoff`). Coefficients SHALL come from the table of Req 3, so nothing costs a transcendental per sample.
+The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter with a saturating state, giving a low-pass and a high-pass output, and a one-pole high-pass. The ladder SHALL have three voicings (Moog, Pro-One, SH-101) differing in drive, resonance and bass compensation, and in what saturates inside it: the Moog voicing (Minimoog, ARP 2600) SHALL saturate each stage's differential pair, `g·(tanh(in) − tanh(out))`, as the transistor ladder does (#306), and the Roland voicings (SH-101, Juno-106 with its own trim, Jupiter-8) SHALL saturate each OTA's input, `g·tanh(in − out)`, as the IR3109 cascade does (#305). The Sequential voicings SHALL be their chips (#321): the CEM3320 (Pro-One, Prophet-5 Rev 3) SHALL take OTA stages and clip its input and its feedback apart, the feedback at its gain at the previous sample's output, as its resonance VCA does, so resonance takes the bass of a hot input as of a soft one; the SSM2040 (Prophet-5 Rev 1/2) SHALL take OTA stages with a wider linear range, and keep more bass under resonance than the CEM3320. A model with a revision switch (`FilterRev`, 1..=3, default 3) SHALL take that revision's filter: the Prophet-5 the SSM2040 at Rev 1 and 2, the Odyssey the 4023's two poles at Rev 1 and the 4035's transistor ladder at Rev 2; the 12 dB filter two (MS-20, CS-15) differing in the resonance at which it self-oscillates and in its saturation ceiling. The high-pass stage SHALL have its own cutoff (`HpCutoff`), resonance (`HpResonance`) and envelope amount (`EnvHpCutoff`). Coefficients SHALL come from the table of Req 3, so nothing costs a transcendental per sample.
 
-**Implementation:** `crates/dsp/src/mono/svf.rs::Svf`, `crates/dsp/src/mono/svf.rs::OnePole`, `crates/dsp/src/mono/model.rs::LadderVoicing`, `crates/dsp/src/mono/model.rs::SvfVoicing` (#32)
+**Implementation:** `crates/dsp/src/mono/svf.rs::Svf`, `crates/dsp/src/mono/svf.rs::OnePole`, `crates/dsp/src/mono/model.rs::LadderVoicing`, `crates/dsp/src/mono/model.rs::SvfVoicing`, `crates/dsp/src/mono/model.rs::Model::filter_rev` (#32, #321)
 
 #### Scenario: slope
 
@@ -264,7 +264,25 @@ The voice SHALL have, besides the Req 3 ladder, a 12 dB state-variable filter wi
 - WHEN it is measured against the single-saturator ladder
 - THEN the 3rd harmonic is the same within 3%, and the 9th and 15th come out lower, the 15th by more than a fifth
 
-**Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/patch.rs::tests::high_pass_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::models_pair_their_filters_and_stages`, `crates/dsp/src/mono/ladder.rs::tests::hot_transistor_stages_saturate_differently`, `crates/dsp/src/mono/model.rs::tests::moog_ladders_saturate_per_stage`, `crates/dsp/src/mono/ladder.rs::tests::hot_ota_stages_round_the_edges`, `crates/dsp/src/mono/model.rs::tests::roland_ladders_are_ota_cascades`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
+#### Scenario: the CEM3320's resonance takes the bass of a hot input
+
+- GIVEN a hot 200 Hz sine into a 1 kHz ladder at full drive
+- WHEN resonance is turned from none to just short of oscillation
+- THEN the CEM3320's fundamental keeps less than half of what the transistor ladder's keeps
+
+#### Scenario: the SSM2040 keeps more bass than the CEM3320
+
+- GIVEN the Prophet-5's Rev 1/2 and Rev 3 voicings at 1 kHz with strong resonance
+- WHEN a soft 100 Hz sine is measured through each
+- THEN the SSM2040 passes more than 1.3 times as much of it
+
+#### Scenario: the revision switch
+
+- GIVEN the Odyssey at 1 kHz with no resonance
+- WHEN `FilterRev` is 1, then 3
+- THEN it falls 12 dB per octave at Rev 1 and much faster at Rev 3, and turning the switch while a resonant note sounds stays finite and within ±2
+
+**Tests:** `crates/dsp/src/mono/svf.rs::tests::falls_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::high_pass_rises_12_db_per_octave`, `crates/dsp/src/mono/svf.rs::tests::self_oscillation_is_bounded`, `crates/dsp/src/mono/svf.rs::tests::any_parameters_stay_finite`, `crates/dsp/src/mono/svf.rs::tests::one_pole_rises_6_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/patch.rs::tests::high_pass_follows_the_chosen_envelope`, `crates/dsp/src/mono/model.rs::tests::models_pair_their_filters_and_stages`, `crates/dsp/src/mono/ladder.rs::tests::hot_transistor_stages_saturate_differently`, `crates/dsp/src/mono/model.rs::tests::moog_ladders_saturate_per_stage`, `crates/dsp/src/mono/ladder.rs::tests::hot_ota_stages_round_the_edges`, `crates/dsp/src/mono/model.rs::tests::roland_ladders_are_ota_cascades`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`, `crates/dsp/src/mono/ladder.rs::tests::cem_resonance_takes_the_bass_of_a_hot_input`, `crates/dsp/src/mono/ladder.rs::tests::ssm_keeps_more_bass_than_cem`, `crates/dsp/src/mono/model.rs::tests::sequential_ladders_are_their_chips`, `crates/dsp/src/mono/model.rs::tests::only_the_prophet_and_odyssey_have_a_rev_switch`, `crates/dsp/src/mono/voice.rs::tests::odyssey_rev_switch_is_12_or_24_db_per_octave`, `crates/dsp/src/mono/voice.rs::tests::filter_rev_switch_while_a_note_sounds`
 
 ### Requirement 14: Ring modulator, sub-oscillator, Osc 3 as modulator [MUST]
 

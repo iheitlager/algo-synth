@@ -1038,6 +1038,10 @@ pub enum Param {
     FilterModOn = 531,
     /// A 440 Hz reference tone at the synth's output when ≥ 0.5, key or not.
     A440 = 532,
+    /// The filter revision on the models with the switch, 1..=3 (#321): the
+    /// Prophet-5's SSM2040 at 1 and 2, its CEM3320 at 3; the Odyssey's
+    /// 4023, 4035 and 4075.
+    FilterRev = 533,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1125,7 +1129,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 533] = [
+    pub const ALL: [(Param, &'static str); 534] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1659,6 +1663,7 @@ impl Param {
         (Param::OscModOn, "OscModOn"),
         (Param::FilterModOn, "FilterModOn"),
         (Param::A440, "A440"),
+        (Param::FilterRev, "FilterRev"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -1957,6 +1962,7 @@ impl Param {
             Param::Assign => (0.0, 1.0),
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),
+            Param::FilterRev => (1.0, 3.0),
             Param::Wt1Table | Param::Wt2Table => (0.0, 7.0),
             Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),
             Param::WtSteps => (0.0, 1.0),
