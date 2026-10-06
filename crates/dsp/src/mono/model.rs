@@ -95,6 +95,9 @@ pub enum Stages {
     /// Each stage's differential pair, `g·(tanh(in) − tanh(out))`: the Moog
     /// transistor ladder (Huovilainen, DAFx 2004; #306).
     Transistor,
+    /// Each OTA's input pair, `g·tanh(in − out)`: Roland's IR3109 cascade
+    /// (#305).
+    Ota,
 }
 
 /// How a 12 dB state-variable filter is voiced.
@@ -122,11 +125,21 @@ pub const PRO_ONE: LadderVoicing = LadderVoicing {
     k_scale: 1.0,
     stages: Stages::Linear,
 };
+/// Roland's IR3109 OTA cascade: soft, a little bass kept, short of the full
+/// range.
 pub const SH101: LadderVoicing = LadderVoicing {
     drive: 0.7,
     comp: 0.15,
     k_scale: 0.95,
-    stages: Stages::Linear,
+    stages: Stages::Ota,
+};
+/// The Juno-106's 80017A: the IR3109's die trimmed a little hotter, with
+/// more of the bass kept and a stronger whistle.
+pub const JUNO106: LadderVoicing = LadderVoicing {
+    drive: 0.75,
+    comp: 0.2,
+    k_scale: 0.97,
+    stages: Stages::Ota,
 };
 /// The ARP 4035/4075 of the later Odysseys: brighter and cleaner than the
 /// Moog, a little bass kept under resonance, short of the full range.
@@ -136,12 +149,13 @@ pub const ODYSSEY: LadderVoicing = LadderVoicing {
     k_scale: 0.97,
     stages: Stages::Linear,
 };
-/// The Jupiter-8's four-pole: clean and a little bass kept under resonance.
+/// The Jupiter-8's four-pole, an IR3109: clean and a little bass kept under
+/// resonance.
 pub const JUPITER: LadderVoicing = LadderVoicing {
     drive: 0.9,
     comp: 0.25,
     k_scale: 0.98,
-    stages: Stages::Linear,
+    stages: Stages::Ota,
 };
 /// Its two-pole setting: resonant but short of oscillating.
 pub const JUPITER12: SvfVoicing = SvfVoicing {
@@ -234,7 +248,8 @@ impl Model {
         match self {
             Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
             Model::ProOne | Model::Prophet5 => Filter::Ladder(PRO_ONE),
-            Model::Sh101 | Model::Juno106 => Filter::Ladder(SH101),
+            Model::Sh101 => Filter::Ladder(SH101),
+            Model::Juno106 => Filter::Ladder(JUNO106),
             Model::Jupiter8 => Filter::Ladder(JUPITER),
             Model::Matrix12 => Filter::Ladder(MATRIX),
             Model::PpgWave => Filter::Ladder(PPG),
@@ -429,6 +444,20 @@ mod tests {
             assert_eq!(v.stages, Stages::Transistor, "{m:?}");
         }
         assert_eq!(MOOG.stages, Stages::Transistor);
+    }
+
+    /// #305: the Roland four-poles are IR3109 OTA cascades, the Juno-106's
+    /// voiced apart from the SH-101's; the Jupiter-8 keeps its 12 dB SVF.
+    #[test]
+    fn roland_ladders_are_ota_cascades() {
+        for m in [Model::Sh101, Model::Juno106, Model::Jupiter8] {
+            let Filter::Ladder(v) = m.filter() else {
+                panic!("{m:?}");
+            };
+            assert_eq!(v.stages, Stages::Ota, "{m:?}");
+        }
+        assert_ne!(Model::Juno106.filter(), Model::Sh101.filter());
+        assert_eq!(Model::Jupiter8.filter_12db(), Some(Filter::Svf(JUPITER12)));
     }
 
     #[test]

@@ -31,6 +31,11 @@ pub const MAX_K: f32 = 5.0;
 /// Initial state, standing in for an analog noise floor, so full resonance
 /// rings up even with no input.
 const FLOOR: f32 = 1.0e-3;
+/// The OTA stages take their difference at this fraction of the ladder's
+/// level: their linear range is a little wider than the input saturator's.
+/// At 1 a full-resonance whistle runs 4% flat; at 0.7 it stays within 2%,
+/// and a hot input's edges are still rounded audibly.
+const OTA_GAIN: f32 = 0.7;
 
 /// What every ladder shares: the `g` table and the smoothing coefficient.
 pub struct LadderTables {
@@ -187,11 +192,16 @@ impl Ladder {
     /// sample's input and output.
     fn saturating(&mut self, stages: Stages, x: f32, k: f32, drive: f32) -> f32 {
         let g = self.g;
+        let [u0, o1, o2, o3, o4] = self.last;
         let (a, b) = match stages {
             // A stage's input is the last one's output: five gains for eight.
             Stages::Transistor => {
                 let [g0, g1, g2, g3, g4] = self.last.map(sat_gain);
                 ([g0, g1, g2, g3], [g1, g2, g3, g4])
+            }
+            Stages::Ota => {
+                let d = [u0 - o1, o1 - o2, o2 - o3, o3 - o4].map(|v| sat_gain(v * OTA_GAIN));
+                (d, d)
             }
             Stages::Linear => ([1.0; 4], [1.0; 4]),
         };
@@ -251,7 +261,7 @@ mod tests {
 
     const SR: f32 = 48_000.0;
     /// Every stage type, for the tests every ladder must pass.
-    const STAGES: [Stages; 2] = [Stages::Linear, Stages::Transistor];
+    const STAGES: [Stages; 3] = [Stages::Linear, Stages::Transistor, Stages::Ota];
 
     /// The filter's output for a sine at `hz`, after a second to settle.
     fn settled(cutoff_hz: f32, hz: f32, amp: f32, k: f32, drive: f32) -> Vec<f32> {
@@ -418,6 +428,37 @@ mod tests {
         let [h3, h5] = hot_profile(Stages::Linear);
         let [t3, t5] = hot_profile(Stages::Transistor);
         assert!(t3 > 3.0 * h3 && t5 > 3.0 * h5, "{h3} {h5} -> {t3} {t5}");
+    }
+
+    /// Odd harmonics of a hot 100 Hz square into a 1 kHz cutoff with some
+    /// resonance, against the fundamental: the 3rd, 9th and 15th.
+    fn hot_square(stages: Stages) -> [f64; 3] {
+        let t = LadderTables::new(SR);
+        let mut f = Ladder::new();
+        let n = SR as usize;
+        let y: Vec<f32> = (0..2 * n)
+            .map(|i| {
+                let x = if (i / 240) % 2 == 0 { 0.5 } else { -0.5 };
+                f.run(&t, stages, x, hz_to_note(1_000.0), 3.0, 8.0)
+            })
+            .skip(n)
+            .collect();
+        let f1 = partial(&y, 100.0);
+        [3.0, 9.0, 15.0].map(|h| partial(&y, h * 100.0) / f1)
+    }
+
+    /// #305: the OTAs slew on a hot input's edges, so the harmonics at and
+    /// above the cutoff come out lower than through the linear ladder,
+    /// while those well below it stay.
+    #[test]
+    fn hot_ota_stages_round_the_edges() {
+        let [l3, l9, l15] = hot_square(Stages::Linear);
+        let [o3, o9, o15] = hot_square(Stages::Ota);
+        assert!((o3 / l3 - 1.0).abs() < 0.03, "3rd: {l3} vs {o3}");
+        assert!(
+            o9 < 0.95 * l9 && o15 < 0.8 * l15,
+            "{l9} {l15} -> {o9} {o15}"
+        );
     }
 
     #[test]
