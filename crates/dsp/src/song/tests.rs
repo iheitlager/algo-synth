@@ -2208,7 +2208,7 @@ fn control_errors_say_where() {
         let err = Song::parse(text).expect_err(text);
         assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
     }
-    let many: String = (0..17).map(|i| format!("  ctl c{i} = 0 [0 1]\n")).collect();
+    let many: String = (0..33).map(|i| format!("  ctl c{i} = 0 [0 1]\n")).collect();
     let err = Song::parse(&format!("voice v = {{ saw(freq) }}\n{many}")).expect_err("many");
-    assert_eq!((err.line, err.msg), (18, "a voice has at most 16 controls"));
+    assert_eq!((err.line, err.msg), (34, "a voice has at most 32 controls"));
 }

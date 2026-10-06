@@ -3829,6 +3829,43 @@ fn a_voice_is_edited_on_its_own_lines() {
     assert_eq!(e.voice_error(), None);
 }
 
+/// ADR-0024: a SynthDef set on a synth plays, its numbers are live knobs on
+/// a held note, the code shows their values, and a bad edit changes nothing.
+#[test]
+fn a_synthdef_plays_with_live_knobs() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    let code = "SynthDef(\\s, { |freq = 440, gate = 1|\n    SinOsc.ar(freq, 0, 0.5)\n}).add;\n";
+    assert_eq!(e.set_code(0, code), Ok(()));
+    assert_eq!(e.code(0).as_deref(), Some(code));
+    let mul = Param::Ctl1;
+    assert_eq!(e.param_value(0, mul), 0.5);
+    e.note_on(0, 69, 1.0);
+    let loud = left_of(&mut e, 0.3);
+    e.set_param(0, mul, 0.1);
+    let soft = left_of(&mut e, 0.3);
+    let peak = |x: &[f32]| x[x.len() / 2..].iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+    assert!(
+        peak(&soft) < 0.3 * peak(&loud),
+        "live on the held note: {} {}",
+        peak(&soft),
+        peak(&loud)
+    );
+    assert_eq!(
+        e.code(0).as_deref(),
+        Some(code.replace("0.5)", "0.1)").as_str())
+    );
+    let err = e.set_code(0, "{ Saw.ar(440 }").expect_err("bad");
+    assert_eq!((err.line, err.col), (1, 14));
+    assert!(
+        e.code(0).is_some_and(|c| c.contains("0.1)")),
+        "the synth plays on as it was"
+    );
+    // Another model's preset drops the code.
+    e.preset(0, crate::mono::preset::Preset::MiniLead);
+    assert_eq!(e.code(0), None);
+}
+
 /// The cutoffs in hertz the sounding voices of the track's synth hold (ADR-0023).
 fn voice_cutoffs(e: &Engine, track: usize) -> Vec<f32> {
     let s = e.song_routed(track).expect("routed");

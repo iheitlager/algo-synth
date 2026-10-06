@@ -256,7 +256,23 @@ impl MonoParams {
             | Param::Ctl13
             | Param::Ctl14
             | Param::Ctl15
-            | Param::Ctl16 => {
+            | Param::Ctl16
+            | Param::Ctl17
+            | Param::Ctl18
+            | Param::Ctl19
+            | Param::Ctl20
+            | Param::Ctl21
+            | Param::Ctl22
+            | Param::Ctl23
+            | Param::Ctl24
+            | Param::Ctl25
+            | Param::Ctl26
+            | Param::Ctl27
+            | Param::Ctl28
+            | Param::Ctl29
+            | Param::Ctl30
+            | Param::Ctl31
+            | Param::Ctl32 => {
                 if let Some(c) = param.ctl().and_then(|i| self.ctl.get_mut(i)) {
                     *c = v;
                 }

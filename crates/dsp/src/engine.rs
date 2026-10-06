@@ -59,6 +59,7 @@ fn cycle_seed(base: u32, cycle: u64) -> u32 {
 }
 use crate::algo::mix;
 use crate::modular::Program;
+use crate::modular::sc::{CodeError, Patch, compile};
 use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
@@ -145,6 +146,8 @@ pub struct Engine {
     voice_error: Option<SongError>,
     /// A voice's printed text, handed out by `voice_text`.
     voice_text: String,
+    /// Each Modular synth's SynthDef: its code, knobs and modules (ADR-0024).
+    codes: Vec<Option<Patch>>,
     song_route: [Option<usize>; MAX_TRACKS],
     /// While a MIDI file is imported its parts keep the synths they play on.
     keep_synths: bool,
@@ -228,6 +231,7 @@ impl Engine {
             song_error: None,
             voice_error: None,
             voice_text: String::new(),
+            codes: vec![None; SYNTHS],
             song_route: [None; MAX_TRACKS],
             keep_synths: false,
             note_offs: [None; NOTE_OFFS],
@@ -391,10 +395,51 @@ impl Engine {
         for (p, v) in DEFAULTS.iter().chain(preset.changes()) {
             self.set_param(synth, *p, *v);
         }
-        // A Modular preset's voice; parsing allocates, so never from `render`.
-        if let Some(text) = preset.voice_text() {
-            self.set_graph(synth, Program::parse(text).unwrap_or_default());
+        // A Modular preset's code; building allocates, so never from `render`.
+        match preset.code() {
+            Some(code) => {
+                // A preset's code is the engine's own and always builds.
+                if self.set_code(synth, code).is_err() {
+                    self.set_graph(synth, Program::default());
+                }
+            }
+            None => {
+                if let Some(c) = self.codes.get_mut(synth) {
+                    *c = None;
+                }
+            }
         }
+    }
+
+    /// Give Modular `synth` a SuperCollider SynthDef (ADR-0024): built here,
+    /// outside `render`, its knobs set to the numbers as written. An error
+    /// leaves the synth as it was.
+    pub fn set_code(&mut self, synth: usize, code: &str) -> Result<(), CodeError> {
+        let patch = compile(code)?;
+        self.set_graph(synth, patch.program);
+        for k in &patch.knobs {
+            if let Some(p) = Param::ctl_param(k.ctl) {
+                self.set_param(synth, p, k.default);
+            }
+        }
+        if let Some(slot) = self.codes.get_mut(synth) {
+            *slot = Some(patch);
+        }
+        Ok(())
+    }
+
+    /// Modular `synth`'s code as it plays: its numbers are its knobs' values.
+    pub fn code(&self, synth: usize) -> Option<String> {
+        let patch = self.codes.get(synth)?.as_ref()?;
+        let values: Vec<f32> = (0..crate::params::CTLS)
+            .map(|i| Param::ctl_param(i).map_or(0.0, |p| self.param_value(synth, p)))
+            .collect();
+        Some(patch.text(&values))
+    }
+
+    /// Modular `synth`'s knobs and modules, for its panel.
+    pub fn patch(&self, synth: usize) -> Option<&Patch> {
+        self.codes.get(synth)?.as_ref()
     }
 
     /// Give `synth` the voice a Modular synth plays (ADR-0020); each note

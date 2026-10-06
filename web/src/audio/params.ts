@@ -512,6 +512,22 @@ export const Param = {
   Ctl14: 505,
   Ctl15: 506,
   Ctl16: 507,
+  Ctl17: 508,
+  Ctl18: 509,
+  Ctl19: 510,
+  Ctl20: 511,
+  Ctl21: 512,
+  Ctl22: 513,
+  Ctl23: 514,
+  Ctl24: 515,
+  Ctl25: 516,
+  Ctl26: 517,
+  Ctl27: 518,
+  Ctl28: 519,
+  Ctl29: 520,
+  Ctl30: 521,
+  Ctl31: 522,
+  Ctl32: 523,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

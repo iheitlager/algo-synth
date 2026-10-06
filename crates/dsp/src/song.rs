@@ -2240,7 +2240,7 @@ fn ctl_line(ws: &[Word<'_>], v: &mut OpenVoice, line: usize) -> Result<(), SongE
         ));
     }
     if v.ctls.len() >= crate::params::CTLS {
-        return Err(err(first.col, "a voice has at most 16 controls"));
+        return Err(err(first.col, "a voice has at most 32 controls"));
     }
     match ws.get(2) {
         Some(w) if w.text == "=" => {}
