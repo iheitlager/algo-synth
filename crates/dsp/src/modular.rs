@@ -36,15 +36,18 @@ use crate::song::signal::{Tok, Token, lex};
 use crate::voice::lookup;
 
 pub mod sc;
+pub mod verb;
 
 /// Most nodes in a voice, and most of each kind of state it may hold.
-pub const MAX_NODES: usize = 250;
+pub const MAX_NODES: usize = 512;
 pub const MAX_OSCS: usize = 64;
 pub const MAX_PHASES: usize = 32;
 pub const MAX_FILTERS: usize = 8;
 pub const MAX_ENVS: usize = 8;
 /// Most random numbers a voice draws when its note starts (`Rand`, `ExpRand`).
 pub const MAX_RANDS: usize = 64;
+/// Most reverbs a voice runs (`FreeVerb2`): each holds about 100 KB.
+pub const MAX_VERBS: usize = 2;
 /// The old voice language's limits (ADR-0021), until it goes (ADR-0024).
 const OLD_NODES: usize = 32;
 const OLD_OSCS: usize = 8;
@@ -62,7 +65,9 @@ const MAX_MIX: usize = 8;
 /// Deepest nesting of brackets and minus signs.
 const MAX_DEPTH: usize = 16;
 /// No input: an optional argument left out.
-const NONE: u8 = u8::MAX;
+const NONE: u16 = u16::MAX;
+/// No release node in a breakpoint envelope.
+const NO_RELEASE: u8 = u8::MAX;
 /// Output level, as the other voices'.
 const OUT_GAIN: f32 = 0.5;
 /// The resonance of a filter that names none.
@@ -113,7 +118,7 @@ pub enum Shape {
     /// Attack, decay, sustain and release from nodes (numbers or controls),
     /// read when the gate moves, so a knob changes the next note's shape
     /// (ADR-0024).
-    Nodes([u8; 4]),
+    Nodes([u16; 4]),
     /// SuperCollider's `Env(levels, times, curves, releaseNode)`.
     Brk(Brk),
 }
@@ -122,14 +127,14 @@ pub enum Shape {
 /// a time and a curve; levels and times are nodes (numbers or knobs).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Brk {
-    pub levels: [u8; 8],
-    pub times: [u8; 7],
+    pub levels: [u16; 8],
+    pub times: [u16; 7],
     /// Each segment's curve: 0 linear, 1 a curvature (`curves`), 2
     /// exponential, 3 a step.
     pub kinds: [u8; 7],
     pub curves: [f32; 7],
     pub n: u8,
-    /// The node it holds at while the gate is open, `NONE` for none.
+    /// The node it holds at while the gate is open, `NO_RELEASE` for none.
     pub release: u8,
 }
 
@@ -143,25 +148,25 @@ pub enum Ugen {
     /// A band-limited saw, triangle or pulse; `width` is `NONE` for a half.
     Osc {
         wave: Waveform,
-        freq: u8,
-        width: u8,
+        freq: u16,
+        width: u16,
         slot: u8,
     },
     Sin {
-        freq: u8,
+        freq: u16,
         slot: u8,
     },
     Lfo {
-        rate: u8,
+        rate: u16,
         wave: Waveform,
         slot: u8,
     },
     Noise,
     Svf {
-        input: u8,
+        input: u16,
         high: bool,
-        cutoff: u8,
-        res: u8,
+        cutoff: u16,
+        res: u16,
         slot: u8,
         /// `res` is SuperCollider's `rq` (bandwidth over cutoff): small is sharp.
         rq: bool,
@@ -171,26 +176,26 @@ pub enum Ugen {
     },
     /// The shared 24 dB ladder: `res` 0..1 up to self-oscillation.
     Ladder {
-        input: u8,
-        cutoff: u8,
-        res: u8,
+        input: u16,
+        cutoff: u16,
+        res: u16,
         slot: u8,
         /// `res` is `MoogFF`'s gain, 0..4, the feedback itself.
         gain: bool,
     },
     /// A sine phase-modulated by a sine: `index` in radians. Two phases.
     Fm {
-        carrier: u8,
-        modulator: u8,
-        index: u8,
+        carrier: u16,
+        modulator: u16,
+        index: u16,
         slot: u8,
     },
     /// A feedback comb: the input plus the output `time` seconds ago times
     /// `feedback`.
     Delay {
-        input: u8,
-        time: u8,
-        feedback: u8,
+        input: u16,
+        time: u16,
+        feedback: u16,
         /// `feedback` is a `CombL` decay time in seconds: the echoes fall
         /// 60 dB in it.
         decay: bool,
@@ -202,17 +207,17 @@ pub enum Ugen {
     },
     /// SuperCollider's shapers on a signal: 0 `tanh`, 1 `softclip`, 2 `distort`.
     Clip {
-        input: u8,
+        input: u16,
         kind: u8,
     },
     /// A soft clip that keeps a full-scale input at full scale.
     Drive {
-        input: u8,
-        amount: u8,
+        input: u16,
+        amount: u16,
     },
     /// Up to eight inputs added (SuperCollider's `Mix`), or their mean.
     Mix {
-        inputs: [u8; MAX_MIX],
+        inputs: [u16; MAX_MIX],
         n: u8,
         mean: bool,
     },
@@ -224,13 +229,32 @@ pub enum Ugen {
     /// A number drawn when the note starts, between `lo` and `hi`
     /// (SuperCollider's `Rand` and `ExpRand`), from a seeded generator.
     Rand {
-        lo: u8,
-        hi: u8,
+        lo: u16,
+        hi: u16,
         exp: bool,
         slot: u8,
     },
     /// Semitones as a frequency ratio, `2^(x/12)`.
-    MidiRatio(u8),
+    MidiRatio(u16),
+    /// One side of an equal-power pan (`Pan2`), `pos` −1 left to 1 right.
+    Pan {
+        input: u16,
+        pos: u16,
+        right: bool,
+    },
+    /// A stereo reverb (`FreeVerb2`): this node is its left side and keeps
+    /// the right for its `VerbR`.
+    Verb {
+        left: u16,
+        right: u16,
+        mix: u16,
+        room: u16,
+        damp: u16,
+        slot: u8,
+    },
+    VerbR {
+        slot: u8,
+    },
     /// A control of the voice (`ctl`): the synth's `Param::Ctl1`… value,
     /// held in its range.
     Ctl {
@@ -238,14 +262,14 @@ pub enum Ugen {
         lo: f32,
         hi: f32,
     },
-    Neg(u8),
-    Bin(Op, u8, u8),
+    Neg(u16),
+    Bin(Op, u16, u16),
     /// `of` mapped onto lo..hi from −1..1, or from 0..1 when `uni` (an
     /// envelope, the gate, the velocity), as SuperCollider's `range`.
     Range {
-        of: u8,
-        lo: u8,
-        hi: u8,
+        of: u16,
+        lo: u16,
+        hi: u16,
         exp: bool,
         uni: bool,
     },
@@ -255,10 +279,13 @@ pub enum Ugen {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Program {
     nodes: [Ugen; MAX_NODES],
-    len: u8,
+    len: u16,
     /// The voice sets its own level (a SuperCollider `amp`): no velocity
     /// and output gain on top.
     own_amp: bool,
+    /// The right side's node of a stereo program (the last node is the
+    /// left), `NONE` for a mono one.
+    right: u16,
     envs: [Shape; MAX_ENVS],
     /// The numbers of the voice's lists.
     lists: [f32; MAX_LIST],
@@ -275,6 +302,7 @@ struct Counts {
     delays: u8,
     lists: u8,
     rands: u8,
+    verbs: u8,
 }
 
 impl Default for Program {
@@ -293,6 +321,7 @@ impl Default for Program {
             nodes,
             len: 2,
             own_amp: false,
+            right: NONE,
             envs: [Shape::Adsr; MAX_ENVS],
             lists: [0.0; MAX_LIST],
             counts: Counts {
@@ -321,6 +350,7 @@ impl Program {
                 nodes: [Ugen::Num(0.0); MAX_NODES],
                 len: 0,
                 own_amp: false,
+                right: NONE,
                 envs: [Shape::Adsr; MAX_ENVS],
                 lists: [0.0; MAX_LIST],
                 counts: Counts::default(),
@@ -336,8 +366,13 @@ impl Program {
         Ok(p.prog)
     }
 
-    fn node(&self, i: u8) -> Option<Ugen> {
+    fn node(&self, i: u16) -> Option<Ugen> {
         self.nodes.get(usize::from(i)).copied()
+    }
+
+    /// Whether the program has two sides: its synth plays a stereo bus.
+    pub fn is_stereo(&self) -> bool {
+        self.right != NONE
     }
 
     /// The most voices of this program a synth sounds at once: a budget of
@@ -347,6 +382,7 @@ impl Program {
         const BUDGET: f32 = 1000.0;
         let c = self.counts;
         let cost = 4.0 * f32::from(c.oscs)
+            + 12.0 * f32::from(c.verbs)
             + 2.0 * f32::from(c.filters)
             + f32::from(c.phases)
             + 1.5 * f32::from(c.delays)
@@ -354,7 +390,7 @@ impl Program {
         ((BUDGET / cost.max(1.0)) as usize).clamp(1, crate::poly::MAX_VOICES)
     }
 
-    fn write(&self, out: &mut String, names: &[&str], i: u8, prec: u8) -> std::fmt::Result {
+    fn write(&self, out: &mut String, names: &[&str], i: u16, prec: u8) -> std::fmt::Result {
         let Some(node) = self.node(i) else {
             return Ok(());
         };
@@ -371,6 +407,8 @@ impl Program {
             Ugen::Gate => out.write_str("gate"),
             Ugen::Vel => out.write_str("vel"),
             Ugen::Rand { .. } => out.write_str("rand"),
+            Ugen::Pan { .. } => out.write_str("pan"),
+            Ugen::Verb { .. } | Ugen::VerbR { .. } => out.write_str("verb"),
             Ugen::MidiRatio(x) => {
                 self.write(out, names, x, 4)?;
                 out.write_str(".midiratio")
@@ -630,7 +668,7 @@ impl<'a> Parser<'a, '_> {
         }
     }
 
-    fn push(&mut self, u: Ugen) -> Res<u8> {
+    fn push(&mut self, u: Ugen) -> Res<u16> {
         let len = usize::from(self.prog.len);
         let Some(slot) = self.prog.nodes.get_mut(len).filter(|_| len < OLD_NODES) else {
             return Err((self.col(), "a voice has at most 32 nodes"));
@@ -640,7 +678,7 @@ impl<'a> Parser<'a, '_> {
         Ok(self.prog.len - 1)
     }
 
-    fn num(&mut self, v: f32) -> Res<u8> {
+    fn num(&mut self, v: f32) -> Res<u16> {
         self.push(Ugen::Num(v))
     }
 
@@ -661,7 +699,7 @@ impl<'a> Parser<'a, '_> {
         Ok(())
     }
 
-    fn sum(&mut self) -> Res<u8> {
+    fn sum(&mut self) -> Res<u16> {
         let mut a = self.product()?;
         loop {
             let op = match self.peek() {
@@ -675,7 +713,7 @@ impl<'a> Parser<'a, '_> {
         }
     }
 
-    fn product(&mut self) -> Res<u8> {
+    fn product(&mut self) -> Res<u16> {
         let mut a = self.unary()?;
         loop {
             let op = match self.peek() {
@@ -689,7 +727,7 @@ impl<'a> Parser<'a, '_> {
         }
     }
 
-    fn unary(&mut self) -> Res<u8> {
+    fn unary(&mut self) -> Res<u16> {
         if !self.eat('-') {
             return self.postfix();
         }
@@ -705,7 +743,7 @@ impl<'a> Parser<'a, '_> {
     }
 
     /// Methods and `|>` after a primary, left to right.
-    fn postfix(&mut self) -> Res<u8> {
+    fn postfix(&mut self) -> Res<u16> {
         let mut a = self.primary()?;
         loop {
             if self.eat('.') {
@@ -761,7 +799,7 @@ impl<'a> Parser<'a, '_> {
         }
     }
 
-    fn primary(&mut self) -> Res<u8> {
+    fn primary(&mut self) -> Res<u16> {
         let col = self.col();
         match self.peek() {
             Some(Tok::Num(v)) => {
@@ -805,7 +843,7 @@ impl<'a> Parser<'a, '_> {
     }
 
     /// `name(…)`: a unit generator.
-    fn call(&mut self, name: &str, col: usize) -> Res<u8> {
+    fn call(&mut self, name: &str, col: usize) -> Res<u16> {
         let wave = match name {
             "saw" => Some(Waveform::Saw),
             "tri" => Some(Waveform::Triangle),
@@ -868,7 +906,7 @@ impl<'a> Parser<'a, '_> {
         }
         if name == "mix" {
             self.deeper()?;
-            let mut inputs = [0u8; MAX_MIX];
+            let mut inputs = [0u16; MAX_MIX];
             let mut n = 0usize;
             loop {
                 let a = self.sum()?;
@@ -962,7 +1000,7 @@ impl<'a> Parser<'a, '_> {
 
     /// `ladder(cutoff, res)`, `delay(time, feedback)` or `drive(amount)`
     /// after `|>`, or with the input first; the `(` is read when not piped.
-    fn effect(&mut self, name: &str, piped: Option<u8>, col: usize) -> Res<u8> {
+    fn effect(&mut self, name: &str, piped: Option<u16>, col: usize) -> Res<u16> {
         if piped.is_some() {
             self.expect('(', "( goes here")?;
         }
@@ -1019,7 +1057,7 @@ impl<'a> Parser<'a, '_> {
     }
 
     /// `[a, b, …]`: numbers, one for each voice slot in turn; the `[` is read.
-    fn list(&mut self, col: usize) -> Res<u8> {
+    fn list(&mut self, col: usize) -> Res<u16> {
         let from = self.prog.counts.lists;
         loop {
             let neg = self.eat('-');
@@ -1046,7 +1084,7 @@ impl<'a> Parser<'a, '_> {
 
     /// `svf(mode, cutoff, res)` after `|>`, or `svf(input, mode, cutoff, res)`;
     /// the `(` is read.
-    fn svf(&mut self, piped: Option<u8>, col: usize) -> Res<u8> {
+    fn svf(&mut self, piped: Option<u16>, col: usize) -> Res<u16> {
         if piped.is_some() {
             self.expect('(', "( goes here")?;
         }
@@ -1086,7 +1124,7 @@ impl<'a> Parser<'a, '_> {
     }
 
     /// `env(adsr)`, `env(perc)` or `env(a, d, s, r)`; the `(` is read.
-    fn env(&mut self, col: usize) -> Res<u8> {
+    fn env(&mut self, col: usize) -> Res<u16> {
         let shape = match self.peek() {
             Some(Tok::Word("adsr")) => {
                 self.at += 1;
@@ -1183,19 +1221,26 @@ pub struct VoiceState {
     /// slot has started: a voice is rebuilt per note, its slot's state is not.
     rands: Vec<f32>,
     notes: u32,
+    /// The reverbs, and the right side each left node keeps for its partner.
+    verbs: Vec<verb::FreeVerb>,
+    verb_r: Vec<f32>,
 }
 
 impl VoiceState {
     /// State with room for `prog`.
     pub fn for_program(prog: &Program) -> VoiceState {
         let mut st = VoiceState::default();
-        st.grow(prog);
+        st.grow(prog, 48_000.0);
         st
     }
 
     /// Room for `prog`, keeping what is there.
-    pub fn grow(&mut self, prog: &Program) {
+    pub fn grow(&mut self, prog: &Program, sample_rate: f32) {
         let c = prog.counts;
+        while self.verbs.len() < usize::from(c.verbs) {
+            self.verbs.push(verb::FreeVerb::new(sample_rate));
+        }
+        self.verb_r.resize(self.verbs.len(), 0.0);
         let up = |n: usize, now: usize| n.max(now);
         self.vals
             .resize(up(usize::from(prog.len), self.vals.len()), 0.0);
@@ -1214,13 +1259,13 @@ impl VoiceState {
             .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
     }
 
-    fn val(&self, i: u8) -> f32 {
+    fn val(&self, i: u16) -> f32 {
         self.vals.get(usize::from(i)).copied().unwrap_or(0.0)
     }
 
     /// The value of a number or a control node, read outside the sample loop
     /// (an envelope's times, a random number's bounds).
-    fn fixed(&self, i: u8, ctx: &MonoCtx) -> f32 {
+    fn fixed(&self, i: u16, ctx: &MonoCtx) -> f32 {
         match self.prog.node(i) {
             Some(Ugen::Num(v)) => v,
             Some(Ugen::Ctl { index, lo, hi }) => ctx
@@ -1389,6 +1434,9 @@ impl GraphVoice {
             if st.prog.counts.delays > 0 {
                 st.lines.iter_mut().for_each(|x| *x = 0.0);
             }
+            for v in st.verbs.iter_mut().take(usize::from(st.prog.counts.verbs)) {
+                v.clear();
+            }
         }
         let mut k = 0u32;
         for i in 0..usize::from(st.prog.len) {
@@ -1420,7 +1468,13 @@ impl GraphVoice {
     }
 
     /// Add this voice into `out`, advancing its state in `st`.
-    pub fn render(&mut self, ctx: &MonoCtx, st: &mut VoiceState, out: &mut [f32]) {
+    pub fn render(
+        &mut self,
+        ctx: &MonoCtx,
+        st: &mut VoiceState,
+        out: &mut [f32],
+        mut right: Option<&mut [f32]>,
+    ) {
         let p = ctx.params;
         let sr = p.sample_rate();
         let inv = 1.0 / sr.max(1.0);
@@ -1467,7 +1521,7 @@ impl GraphVoice {
         let hz = ctx.pitch.at(self.note + self.trim) * sr;
         let len = usize::from(st.prog.len).min(st.vals.len());
         let _ = NO_TIMES;
-        for sample in out.iter_mut() {
+        for (frame, sample) in out.iter_mut().enumerate() {
             for k in 0..used {
                 let v = match self.shapes.get(k) {
                     Some(Shape::Brk(b)) => match self.brks.get_mut(k) {
@@ -1490,15 +1544,26 @@ impl GraphVoice {
                     *slot = v;
                 }
             }
-            let y = len.checked_sub(1).map_or(0.0, |i| st.val(i as u8)) * amp;
+            let y = len.checked_sub(1).map_or(0.0, |i| st.val(i as u16)) * amp;
+            // A SynthDef with its own `amp` plays at its own level.
+            let gain = if st.prog.own_amp {
+                1.0
+            } else {
+                OUT_GAIN * self.velocity
+            };
             if y.is_finite() {
-                // A SynthDef with its own `amp` plays at its own level.
-                let gain = if st.prog.own_amp {
-                    1.0
-                } else {
-                    OUT_GAIN * self.velocity
-                };
                 *sample += y.clamp(-4.0, 4.0) * gain;
+            }
+            if let Some(r) = right.as_deref_mut().and_then(|r| r.get_mut(frame)) {
+                // A stereo program's right side; a mono one in a stereo bus sounds on both.
+                let yr = if st.prog.is_stereo() {
+                    st.val(st.prog.right) * amp
+                } else {
+                    y
+                };
+                if yr.is_finite() {
+                    *r += yr.clamp(-4.0, 4.0) * gain;
+                }
             }
         }
     }
@@ -1588,6 +1653,36 @@ impl GraphVoice {
                 .clamp(lo, hi),
             Ugen::Rand { slot, .. } => st.rands.get(usize::from(slot)).copied().unwrap_or(0.0),
             Ugen::MidiRatio(x) => fast_exp2(st.val(x) * (1.0 / 12.0)),
+            Ugen::Pan { input, pos, right } => {
+                // Equal power: cos and sin of (pos + 1)·π/4, from the sine table.
+                let phase = (st.val(pos).clamp(-1.0, 1.0) + 1.0) * 0.125;
+                let g = if right {
+                    lookup(ctx.sine, phase)
+                } else {
+                    lookup(ctx.sine, phase + 0.25)
+                };
+                st.val(input) * g
+            }
+            Ugen::Verb {
+                left,
+                right,
+                mix,
+                room,
+                damp,
+                slot,
+            } => {
+                let (l, r) = (st.val(left), st.val(right));
+                let (m, rm, d) = (st.val(mix), st.val(room), st.val(damp));
+                let Some(v) = st.verbs.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                let (yl, yr) = v.process(l, r, m, rm, d);
+                if let Some(keep) = st.verb_r.get_mut(usize::from(slot)) {
+                    *keep = yr;
+                }
+                yl
+            }
+            Ugen::VerbR { slot } => st.verb_r.get(usize::from(slot)).copied().unwrap_or(0.0),
             Ugen::Ladder {
                 input,
                 cutoff,
@@ -1785,7 +1880,7 @@ fn brk_gate(
     if !gate && s.holding {
         s.holding = false;
         brk_segment(s, b, st, ctx, sr);
-    } else if !gate && b.release != NONE && s.seg < b.release && !s.done {
+    } else if !gate && b.release != NO_RELEASE && s.seg < b.release && !s.done {
         // Released before the release node: on from there, from where it is.
         s.seg = b.release;
         brk_segment(s, b, st, ctx, sr);
@@ -1857,7 +1952,7 @@ fn brk_step(s: &mut BrkState, b: &Brk, st: &VoiceState, ctx: &MonoCtx, sr: f32) 
     if s.left == 0 {
         s.level = s.target;
         s.seg += 1;
-        if b.release != NONE && s.seg == b.release {
+        if b.release != NO_RELEASE && s.seg == b.release {
             s.holding = true;
         } else {
             brk_segment(s, b, st, ctx, sr);

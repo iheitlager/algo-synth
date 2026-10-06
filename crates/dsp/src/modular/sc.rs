@@ -143,11 +143,22 @@ pub fn compile(source: &str) -> Result<Patch, CodeError> {
         }
     };
     let out = b.build(&def, at)?;
-    let root = b.output(&out, at)?;
+    // Two channels play on a stereo bus; one, or more summed, on one side.
+    let (root, right) = match &out {
+        V::Arr(sides) if sides.len() == 2 => {
+            let l = b.output(sides.first().unwrap_or(&V::Nil), at)?;
+            let r = b.output(sides.get(1).unwrap_or(&V::Nil), at)?;
+            (l, Some(r))
+        }
+        other => (b.output(other, at)?, None),
+    };
     // The output is the last node.
     if usize::from(root) + 1 != usize::from(b.prog.len) {
         let zero = b.push(Ugen::Num(0.0), at)?;
         b.push(Ugen::Bin(Op::Add, root, zero), at)?;
+    }
+    if let Some(r) = right {
+        b.prog.right = r;
     }
     Ok(Patch {
         program: b.prog,
@@ -727,7 +738,7 @@ enum V {
     /// A number and the token it was written as, if a literal.
     Num(f64, Option<usize>),
     /// A node of the graph; `uni` when it runs 0..1 (an envelope, the gate).
-    Sig(u8, bool),
+    Sig(u16, bool),
     Arr(Vec<V>),
     Func(Rc<Closure>),
     Def(Rc<Closure>),
@@ -912,7 +923,7 @@ struct Builder {
     prog: Program,
     knobs: Vec<Knob>,
     /// The knob of each literal token.
-    knob_of: HashMap<usize, (usize, u8)>,
+    knob_of: HashMap<usize, (usize, u16)>,
     modules: Vec<Module>,
     module_at: HashMap<Pos, usize>,
     /// Controls by name (`\freq.kr`, `|cutoff|`), built once.
@@ -922,7 +933,7 @@ struct Builder {
     steps: usize,
     calls: usize,
     /// The node of each number in the graph, by its bits.
-    consts: HashMap<u32, u8>,
+    consts: HashMap<u32, u16>,
 }
 
 impl Builder {
@@ -945,7 +956,7 @@ impl Builder {
         }
     }
 
-    fn push(&mut self, u: Ugen, at: Pos) -> R<u8> {
+    fn push(&mut self, u: Ugen, at: Pos) -> R<u16> {
         // A number already in the graph is shared, not repeated per copy.
         if let Ugen::Num(v) = u {
             if let Some(n) = self.consts.get(&v.to_bits()) {
@@ -998,7 +1009,7 @@ impl Builder {
 
     /// The node for `v` as UGen input `name` of `module`: a literal number
     /// becomes a knob (one per literal, however often it is built).
-    fn input(&mut self, v: &V, module: usize, name: &str, spec: Spec, at: Pos) -> R<u8> {
+    fn input(&mut self, v: &V, module: usize, name: &str, spec: Spec, at: Pos) -> R<u16> {
         match v {
             V::Num(x, Some(tok)) => self.knob(*tok, *x as f32, module, name, spec, at),
             V::Num(x, None) => self.push(Ugen::Num(*x as f32), at),
@@ -1025,7 +1036,7 @@ impl Builder {
         name: &str,
         spec: Spec,
         at: Pos,
-    ) -> R<u8> {
+    ) -> R<u16> {
         if let Some((_, node)) = self.knob_of.get(&tok) {
             return Ok(*node);
         }
@@ -1478,7 +1489,7 @@ impl Builder {
     }
 
     /// A number or a signal as a node, without a knob.
-    fn node(&mut self, v: &V, at: Pos) -> R<u8> {
+    fn node(&mut self, v: &V, at: Pos) -> R<u16> {
         match v {
             V::Num(x, _) => self.push(Ugen::Num(*x as f32), at),
             V::Sig(n, _) => Ok(*n),
@@ -1536,7 +1547,7 @@ impl Builder {
     }
 
     /// The node the voice plays: a signal, a number, or an array summed.
-    fn output(&mut self, v: &V, at: Pos) -> R<u8> {
+    fn output(&mut self, v: &V, at: Pos) -> R<u16> {
         match v {
             V::Sig(n, _) => Ok(*n),
             V::Num(x, _) => self.push(Ugen::Num(*x as f32), at),
@@ -1556,7 +1567,7 @@ impl Builder {
     fn mix(&mut self, items: Vec<V>, at: Pos) -> R<V> {
         let mut flat = Vec::new();
         flatten(items, &mut flat);
-        let mut nodes: Vec<u8> = flat.iter().map(|v| self.node(v, at)).collect::<R<_>>()?;
+        let mut nodes: Vec<u16> = flat.iter().map(|v| self.node(v, at)).collect::<R<_>>()?;
         if nodes.is_empty() {
             return Ok(V::Num(0.0, None));
         }
@@ -1567,7 +1578,7 @@ impl Builder {
                     next.push(*one);
                     continue;
                 }
-                let mut inputs = [0u8; MAX_MIX];
+                let mut inputs = [0u16; MAX_MIX];
                 for (slot, n) in inputs.iter_mut().zip(chunk) {
                     *slot = *n;
                 }
@@ -1688,8 +1699,134 @@ impl Builder {
                     bind(&["bus", "channelsArray"], &[None, None], &args, &kws).map_err(err)?;
                 Ok(bound.get(1).cloned().flatten().unwrap_or(V::Nil))
             }
-            ("Pan2" | "Splay" | "FreeVerb2" | "FreeVerb", _) => {
-                Err(err("this UGen needs the stereo synth bus (#288)"))
+            ("Pan2", "ar" | "kr") => {
+                let names = ["in", "pos", "level"];
+                let bound =
+                    bind(&names, &[None, Some(0.0), Some(1.0)], &args, &kws).map_err(err)?;
+                let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
+                let level_given = args_given(&args, &kws, &names, 2);
+                self.expand(&inputs, &mut |b, v| {
+                    let module = b.module("Pan2", at);
+                    let x = b.input(v.first().unwrap_or(&V::Nil), module, "in", ANY, at)?;
+                    let pos = b.input(v.get(1).unwrap_or(&V::Nil), module, "pos", ANY, at)?;
+                    let mut sides = Vec::with_capacity(2);
+                    for right in [false, true] {
+                        let mut n = b.push(
+                            Ugen::Pan {
+                                input: x,
+                                pos,
+                                right,
+                            },
+                            at,
+                        )?;
+                        if level_given {
+                            let l =
+                                b.input(v.get(2).unwrap_or(&V::Nil), module, "level", UNIT, at)?;
+                            n = b.push(Ugen::Bin(Op::Mul, n, l), at)?;
+                        }
+                        sides.push(V::Sig(n, false));
+                    }
+                    Ok(V::Arr(sides))
+                })
+            }
+            ("Splay", "ar" | "kr") => {
+                let bound = bind(
+                    &["inArray", "spread", "level", "center", "levelComp"],
+                    &[None, Some(1.0), Some(1.0), Some(0.0), None],
+                    &args,
+                    &kws,
+                )
+                .map_err(err)?;
+                let mut flat = Vec::new();
+                match bound.first().cloned().flatten() {
+                    Some(V::Arr(items)) => flatten(items, &mut flat),
+                    Some(v) => flat.push(v),
+                    None => return Err(err("Splay takes an array")),
+                }
+                let number = |k: usize, d: f64| match bound.get(k).cloned().flatten() {
+                    Some(V::Num(x, _)) => Ok(x),
+                    None => Ok(d),
+                    Some(V::Bool(b)) => Ok(f64::from(u8::from(b))),
+                    _ => Err(err("Splay's spread, level and center are numbers here")),
+                };
+                let (spread, level, center) = (number(1, 1.0)?, number(2, 1.0)?, number(3, 0.0)?);
+                let comp = !matches!(bound.get(4).cloned().flatten(), Some(V::Bool(false)));
+                let n = flat.len().max(1);
+                let scale = level * if comp { (1.0 / n as f64).sqrt() } else { 1.0 };
+                let mut sides: [Vec<V>; 2] = [Vec::new(), Vec::new()];
+                for (i, x) in flat.iter().enumerate() {
+                    let pos = if n == 1 {
+                        center
+                    } else {
+                        (i as f64 / (n - 1) as f64 * 2.0 - 1.0) * spread + center
+                    };
+                    let angle = (pos.clamp(-1.0, 1.0) + 1.0) * std::f64::consts::FRAC_PI_4;
+                    for (side, g) in [(0usize, angle.cos()), (1, angle.sin())] {
+                        let x = self.node(x, at)?;
+                        let k = self.push(Ugen::Num((g * scale) as f32), at)?;
+                        let y = self.push(Ugen::Bin(Op::Mul, x, k), at)?;
+                        if let Some(list) = sides.get_mut(side) {
+                            list.push(V::Sig(y, false));
+                        }
+                    }
+                }
+                let [l, r] = sides;
+                Ok(V::Arr(vec![self.mix(l, at)?, self.mix(r, at)?]))
+            }
+            ("FreeVerb2" | "FreeVerb", "ar") => {
+                let stereo = c == "FreeVerb2";
+                let names: &[&str] = if stereo {
+                    &["in", "in2", "mix", "room", "damp", "mul", "add"]
+                } else {
+                    &["in", "mix", "room", "damp", "mul", "add"]
+                };
+                let defaults: &[Option<f64>] = if stereo {
+                    &[
+                        None,
+                        None,
+                        Some(0.33),
+                        Some(0.5),
+                        Some(0.5),
+                        Some(1.0),
+                        Some(0.0),
+                    ]
+                } else {
+                    &[None, Some(0.33), Some(0.5), Some(0.5), Some(1.0), Some(0.0)]
+                };
+                let bound = bind(names, defaults, &args, &kws).map_err(err)?;
+                let get = |k: usize| bound.get(k).cloned().flatten().unwrap_or(V::Nil);
+                let module = self.module(c, at);
+                let l = self.input(&get(0), module, "in", ANY, at)?;
+                let (r, off) = if stereo {
+                    (self.input(&get(1), module, "in2", ANY, at)?, 1)
+                } else {
+                    (l, 0)
+                };
+                let mix = self.input(&get(1 + off), module, "mix", UNIT, at)?;
+                let room = self.input(&get(2 + off), module, "room", UNIT, at)?;
+                let damp = self.input(&get(3 + off), module, "damp", UNIT, at)?;
+                let slot = Self::slot(
+                    &mut self.prog.counts.verbs,
+                    super::MAX_VERBS,
+                    at,
+                    "a voice runs at most 2 reverbs",
+                )?;
+                let left = self.push(
+                    Ugen::Verb {
+                        left: l,
+                        right: r,
+                        mix,
+                        room,
+                        damp,
+                        slot,
+                    },
+                    at,
+                )?;
+                if !stereo {
+                    return Ok(V::Sig(left, false));
+                }
+                let right = self.push(Ugen::VerbR { slot }, at)?;
+                Ok(V::Arr(vec![V::Sig(left, false), V::Sig(right, false)]))
             }
             ("Rand" | "ExpRand", "new" | "ir") => {
                 let exp = c == "ExpRand";
@@ -1939,9 +2076,9 @@ impl Builder {
             kinds: [0; 7],
             curves: [0.0; 7],
             n: u8::try_from(levels.len()).unwrap_or(0),
-            release: NONE,
+            release: super::NO_RELEASE,
         };
-        let fixed = |this: &Builder, n: u8| {
+        let fixed = |this: &Builder, n: u16| {
             matches!(this.prog.node(n), Some(Ugen::Num(_) | Ugen::Ctl { .. }))
         };
         for (k, l) in levels.iter().enumerate() {
@@ -1994,7 +2131,7 @@ impl Builder {
             if r + 1 >= levels.len() {
                 return Err(err("a release node is a level before the last"));
             }
-            b.release = u8::try_from(r).unwrap_or(NONE);
+            b.release = u8::try_from(r).unwrap_or(super::NO_RELEASE);
         }
         let slot = Self::slot(
             &mut self.prog.counts.envs,
@@ -2084,7 +2221,7 @@ impl Builder {
         self.expand(&inputs, &mut |b, v| {
             let module = b.module(&c, at);
             let named = |k: usize| names.get(k).copied().unwrap_or("");
-            let inp = |b: &mut Builder, k: usize| -> R<u8> {
+            let inp = |b: &mut Builder, k: usize| -> R<u16> {
                 let v = v.get(k).cloned().unwrap_or(V::Nil);
                 if matches!(v, V::Nil) {
                     return Err(CodeError {
@@ -2099,7 +2236,7 @@ impl Builder {
                 };
                 b.input(&v, module, named(k), spec, at)
             };
-            let osc = |b: &mut Builder, wave: Waveform, freq: u8, width: u8| -> R<u8> {
+            let osc = |b: &mut Builder, wave: Waveform, freq: u16, width: u16| -> R<u16> {
                 let slot = Self::slot(
                     &mut b.prog.counts.oscs,
                     MAX_OSCS,
@@ -2116,7 +2253,7 @@ impl Builder {
                     at,
                 )
             };
-            let lfo = |b: &mut Builder, wave: Waveform, rate: u8| -> R<u8> {
+            let lfo = |b: &mut Builder, wave: Waveform, rate: u16| -> R<u16> {
                 let slot = Self::slot(
                     &mut b.prog.counts.phases,
                     MAX_PHASES,
@@ -2370,7 +2507,7 @@ fn num_or(v: &V) -> f64 {
     }
 }
 
-fn node_of(v: &V) -> u8 {
+fn node_of(v: &V) -> u16 {
     match v {
         V::Sig(n, _) => *n,
         _ => 0,
@@ -2484,7 +2621,7 @@ mod tests {
         let osc = nodes(&v)
             .iter()
             .position(|u| matches!(u, Ugen::Osc { .. }))
-            .expect("osc") as u8;
+            .expect("osc") as u16;
         assert!(
             nodes(&v)
                 .iter()
@@ -2552,11 +2689,29 @@ mod tests {
     fn arrays_expand_into_channels() {
         let p = patch("{ SinOsc.ar([220, 330], 0, 0.3) }");
         assert_eq!(count(&p, |u| matches!(u, Ugen::Sin { .. })), 2);
-        assert!(
-            matches!(nodes(&p).last(), Some(Ugen::Mix { n: 2, .. })),
-            "summed to mono"
-        );
+        assert!(p.program.is_stereo(), "two channels play on two sides");
         assert_eq!(p.knobs.len(), 3, "220, 330 and the shared mul");
+        let three = patch("{ SinOsc.ar([220, 330, 440], 0, 0.3) }");
+        assert!(!three.program.is_stereo());
+        assert!(
+            matches!(nodes(&three).last(), Some(Ugen::Mix { n: 3, .. })),
+            "more than two summed to one side"
+        );
+    }
+
+    #[test]
+    fn pan_splay_and_freeverb_make_two_sides() {
+        let pan = patch("{ |freq| Pan2.ar(Saw.ar(freq), -0.5) }");
+        assert!(pan.program.is_stereo());
+        assert_eq!(count(&pan, |u| matches!(u, Ugen::Pan { .. })), 2);
+        let splay = patch("{ |freq| Splay.ar({ |i| Saw.ar(freq * (i + 1)) } ! 4) }");
+        assert!(splay.program.is_stereo());
+        assert_eq!(count(&splay, |u| matches!(u, Ugen::Osc { .. })), 4);
+        let verb = patch("{ |freq| var s = Saw.ar(freq) * 0.2; FreeVerb2.ar(s, s, 0.3, 0.9) }");
+        assert!(verb.program.is_stereo());
+        assert_eq!(verb.program.counts.verbs, 1);
+        let names: Vec<&str> = verb.knobs.iter().map(|k| k.name.as_str()).collect();
+        assert_eq!(names, vec!["mix", "room"]);
     }
 
     #[test]
@@ -2571,10 +2726,10 @@ mod tests {
             ("{ Saw.ar(fr) }", 1, 10, "this name is not defined"),
             ("{ Saw.ar(440) ", 1, 15, "} goes here"),
             (
-                "{ |freq|\n  Pan2.ar(Saw.ar(freq), 0) }",
-                2,
-                3,
-                "this UGen needs the stereo synth bus (#288)",
+                "{ |freq| var s = Saw.ar(freq); FreeVerb.ar(FreeVerb.ar(FreeVerb.ar(s))) }",
+                1,
+                32,
+                "a voice runs at most 2 reverbs",
             ),
             (
                 "{ SinOsc.ar(IRand(200, 800)) }",
@@ -2631,6 +2786,34 @@ pub(crate) mod hoover {
     snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
     Out.ar(\out.kr(0), snd * \amp.kr(0.1));
 }).add;";
+
+    /// The SuperCollider hoover of #216, as the user pasted it.
+    pub const HOOVER: &str = r"SynthDef(\hoover, {
+    var snd, freq, bw, delay, decay;
+    freq = \freq.kr(440);
+    freq = freq * Env([-5, 6, 0], [0.1, 1.7], [\lin, -4]).kr.midiratio;
+    bw = 1.035;
+    snd = { DelayN.ar(Saw.ar(freq * ExpRand(bw, 1 / bw)) + Saw.ar(freq * 0.5 * ExpRand(bw, 1 / bw)), 0.01, Rand(0, 0.01)) }.dup(20);
+    snd = (Splay.ar(snd) * 3).atan;
+    snd = snd * Env.asr(0.01, 1.0, 1.0).kr(0, \gate.kr(1));
+    snd = FreeVerb2.ar(snd[0], snd[1], 0.3, 0.9);
+    snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
+    Out.ar(\out.kr(0), snd * \amp.kr(0.1));
+}).add;";
+
+    #[test]
+    fn the_hoover_builds_as_pasted() {
+        let p = compile(HOOVER).unwrap_or_else(|e| panic!("{e:?}"));
+        let c = p.program.counts;
+        assert_eq!((c.oscs, c.delays, c.rands, c.verbs), (40, 20, 60, 1));
+        assert!(p.program.is_stereo());
+        assert!(usize::from(p.program.len) <= super::super::MAX_NODES);
+        assert!(
+            (1..=6).contains(&p.program.voice_cap()),
+            "cap {}",
+            p.program.voice_cap()
+        );
+    }
 
     #[test]
     fn the_mono_hoover_builds() {
