@@ -144,3 +144,59 @@ fn never_panics_on_odd_files() {
         }
     }
 }
+
+/// #295: the song lasts until its last note ends, so a note held past the
+/// last start rings out instead of being cut at that start's bar.
+#[test]
+fn a_held_last_note_rings_out() {
+    // A note held 30 bars, and a short one in bar 1.
+    let t = track(
+        "Pad",
+        &[
+            (0, true, 0, 60, 100),
+            (0, true, 0, 64, 100),
+            (480, false, 0, 64, 0),
+            (480 * 4 * 30, false, 0, 60, 0),
+        ],
+    );
+    let imp = import_file(&[t]).expect("imports");
+    let song = Song::parse(&imp.text).expect("parses");
+    let bars: u32 = song
+        .arrange
+        .iter()
+        .filter_map(|s| song.sections.get(*s).map(|sec| sec.bars))
+        .sum();
+    assert_eq!(bars, 30, "{}", imp.text);
+}
+
+/// #295: a tempo change keeps each note at its moment in the file: the grid
+/// is at the first tempo, and only the bar lines drift from the file's.
+#[test]
+fn a_tempo_change_keeps_notes_at_their_moments() {
+    let tempo = |us: u32| [0xFF, 0x51, 3, (us >> 16) as u8, (us >> 8) as u8, us as u8];
+    // 120 BPM, then 60 from bar 2 (tick 1920).
+    let mut map = vec![0x00];
+    map.extend(tempo(500_000));
+    map.extend(vlq(1920));
+    map.extend(tempo(1_000_000));
+    map.extend(END);
+    let notes = track(
+        "Lead",
+        &[
+            (0, true, 0, 60, 100),
+            (480, false, 0, 60, 0),
+            (1920, true, 0, 62, 100),
+            (2400, false, 0, 62, 0), // a quarter at 60: one second
+            (2400, true, 0, 64, 100),
+            (2880, false, 0, 64, 0),
+        ],
+    );
+    let imp = import_file(&[map, notes]).expect("imports");
+    assert!(imp.text.starts_with("tempo 120\n"), "{}", imp.text);
+    // At 120 a second is 24 ticks of the grid: d4 at bar 2, e4 a second later.
+    assert!(
+        imp.text.contains("c4@0:12:100 d4@48:24:100 e4@72:24:100"),
+        "{}",
+        imp.text
+    );
+}

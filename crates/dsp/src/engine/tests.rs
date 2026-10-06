@@ -1743,6 +1743,25 @@ fn clock_steps_land_on_their_samples_through_render() {
     assert_eq!(onsets, want);
 }
 
+/// #295: an imported note held past the last start sounds until its end, on
+/// through the empty sections after it.
+#[test]
+fn an_imported_held_note_rings_to_its_end() {
+    // At 120 BPM a bar is 2 s: a note from 0.5 s held 12 bars.
+    let held = vec![
+        0x83, 0x60, 0x90, 60, 100, 0x81, 0xB4, 0x00, 0x80, 60, 0, 0x00, 0xFF, 0x2F, 0,
+    ];
+    let mut e = Engine::new(48_000.0);
+    import(&mut e, &file(0, 480, &[held])).expect("imports");
+    e.song_play();
+    // Ten bars in: 20 s.
+    for _ in 0..(48_000 * 20 / BLOCK) {
+        e.render(BLOCK);
+    }
+    assert!(e.clock().playing(), "the song is still playing");
+    assert!(gated(&e, Owner::Track(0)), "the note still sounds");
+}
+
 /// ADR-0022: one transport. Pause holds the place and play goes on from it;
 /// stop goes back to the top.
 #[test]

@@ -10,9 +10,14 @@
 //! and chunk, identical chunks sharing a fragment and identical sections a
 //! section, and `arrange` plays them in order.
 //!
-//! Limits, as the song has them: bars are 4/4 (a 3/4 file keeps its timing,
-//! not its bar lines), the tempo is the file's first, and anything finer than
-//! a tick is rounded. Import allocates, so it runs when asked, never in
+//! The song lasts until its last note ends. A tempo change keeps each note
+//! at its moment: ticks become time through the file's tempo map, and time
+//! the grid at the first tempo, which the song plays at (#295).
+//!
+//! Limits, as the song has them: bars are 4/4 (a 3/4 file, or one whose tempo
+//! changes, keeps its timing, not its bar lines), anything finer than a tick
+//! is rounded, and channel 10 is a `synth` track like the others (a drum
+//! track holds no timed notes; on a kit it plays the General MIDI pads). Import allocates, so it runs when asked, never in
 //! `render`; it is total: whatever the file, a song or an error.
 
 use crate::notes::{self, Event, MAX_EVENTS, TICKS_PER_BAR};
@@ -62,8 +67,7 @@ struct Note {
 }
 
 pub fn import(smf: &Smf) -> Result<Imported, ImportError> {
-    let ppq = u64::from(smf.division.max(1));
-    let grid = |t: u64| (t.saturating_mul(TICKS_PER_QUARTER) + ppq / 2) / ppq;
+    let ppq = u128::from(smf.division.max(1));
 
     // Every event of every track in time order; at one tick, offs before ons,
     // so a repeated note is not cut by its own next start.
@@ -80,10 +84,30 @@ pub fn import(smf: &Smf) -> Result<Imported, ImportError> {
     }
     all.sort_by_key(|(tick, order, t, _)| (*tick, *order, *t));
 
-    let tempo = all.iter().find_map(|(_, _, _, k)| match k {
-        Kind::Tempo(us) => Some(60_000_000.0 / f64::from((*us).max(1))),
+    let first_us = all.iter().find_map(|(_, _, _, k)| match k {
+        Kind::Tempo(us) => Some(u128::from((*us).max(1))),
         _ => None,
     });
+    let tempo = first_us.map(|us| 60_000_000.0 / us as f64);
+
+    // The tempo map (#295): where each tempo starts, in ticks, the time there
+    // in tick·µs (microseconds times `ppq`) and its µs per quarter. Before the
+    // first tempo event a file is at 120 (500 000 µs).
+    let mut map: Vec<(u64, u128, u128)> = vec![(0, 0, 500_000)];
+    for (tick, _, _, kind) in &all {
+        if let Kind::Tempo(us) = kind {
+            let at = time(&map, *tick);
+            map.push((*tick, at, u128::from((*us).max(1))));
+        }
+    }
+    // A tick to the grid by its time, at the first tempo: a tempo change keeps
+    // its notes at their moments, and only the bar lines drift from the file's.
+    let us0 = first_us.unwrap_or(500_000);
+    let div = ppq * us0;
+    let grid = |t: u64| -> u64 {
+        let at = time(&map, t).saturating_mul(u128::from(TICKS_PER_QUARTER));
+        u64::try_from((at + div / 2) / div).unwrap_or(u64::MAX)
+    };
 
     // Notes per channel; open notes per (channel, pitch), first in first out.
     let mut open: Vec<Vec<(u64, u8)>> = vec![Vec::new(); 16 * 128];
@@ -152,13 +176,20 @@ pub fn import(smf: &Smf) -> Result<Imported, ImportError> {
     for list in notes.iter_mut() {
         list.sort_by_key(|n| (n.start, n.note, n.len, n.vel));
     }
-    let max_start = channels
+    // The song lasts until its last note ends, so a held last note rings out (#295).
+    let max_end = channels
         .iter()
-        .filter_map(|c| notes.get(usize::from(*c))?.iter().map(|n| n.start).max())
+        .filter_map(|c| {
+            notes
+                .get(usize::from(*c))?
+                .iter()
+                .map(|n| n.start + n.len)
+                .max()
+        })
         .max()
-        .unwrap_or(0);
-    let total_bars =
-        u32::try_from(max_start / u64::from(TICKS_PER_BAR) + 1).map_err(|_| ImportError::TooBig)?;
+        .unwrap_or(1);
+    let total_bars = u32::try_from(max_end.div_ceil(u64::from(TICKS_PER_BAR)))
+        .map_err(|_| ImportError::TooBig)?;
     let track_names = unique_names(&channels, &names, smf);
 
     for chunk in CHUNKS {
@@ -167,6 +198,15 @@ pub fn import(smf: &Smf) -> Result<Imported, ImportError> {
         }
     }
     Err(ImportError::TooBig)
+}
+
+/// The time at `tick` in tick·µs, through the tempo map so far.
+fn time(map: &[(u64, u128, u128)], tick: u64) -> u128 {
+    let i = map
+        .partition_point(|(t, _, _)| *t <= tick)
+        .saturating_sub(1);
+    map.get(i)
+        .map_or(0, |(t, at, us)| at + u128::from(tick - t) * us)
 }
 
 /// The song in chunks of `chunk` bars, or `None` when it does not fit.
