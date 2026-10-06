@@ -21,7 +21,7 @@ use crate::engine::{BLOCK, SYNTHS};
 use crate::fm::FmVoice;
 use crate::la::LaVoice;
 use crate::mixer::GROUPS;
-use crate::modular::GraphVoice;
+use crate::modular::{GraphVoice, VoiceState};
 use crate::mono::MonoParams;
 use crate::mono::lfo::Lfo;
 use crate::mono::noise::Noise;
@@ -265,6 +265,9 @@ pub struct Pool {
     keys: [(Option<Owner>, u8, f32); MAX_VOICES],
     /// One block for a drum pad that goes to a group (#162), before it is panned there.
     scratch: [f32; BLOCK],
+    /// A Modular synth's voices' state, one per slot, sized with its
+    /// program outside `render` (ADR-0024).
+    graph: Vec<VoiceState>,
     nkeys: usize,
     /// Each voice slot's own values, from per-voice signals (ADR-0023).
     sets: [VoiceSet; MAX_VOICES],
@@ -284,6 +287,8 @@ impl Pool {
             rng: seed(MAX_VOICES + 1) | 1,
             keys: [(None, 0, 0.0); MAX_VOICES],
             scratch: [0.0; BLOCK],
+            // Room for the saw a Modular synth plays before it has a program.
+            graph: vec![VoiceState::for_program(&crate::modular::Program::default()); MAX_VOICES],
             nkeys: 0,
             sets: [VoiceSet::default(); MAX_VOICES],
         }
@@ -322,6 +327,14 @@ impl Pool {
     /// Every voice goes back to the synth's values.
     pub fn clear_all_voices(&mut self) {
         self.sets = [VoiceSet::default(); MAX_VOICES];
+    }
+
+    /// Room in every slot for a Modular program's state; allocates, so it
+    /// runs when the program is set, never in `render`.
+    pub fn size_graph(&mut self, prog: &crate::modular::Program) {
+        for st in self.graph.iter_mut() {
+            st.grow(prog);
+        }
     }
 
     /// Voices sounding now.
@@ -885,12 +898,13 @@ impl Pool {
             tables: tools.tables,
         };
         let n = out.len() as u32;
-        for ((v, s), set) in self
+        for (((v, s), set), st) in self
             .voices
             .iter_mut()
             .zip(self.slots.iter_mut())
             .zip(self.sets.iter())
-            .filter(|((v, _), _)| v.active())
+            .zip(self.graph.iter_mut())
+            .filter(|(((v, _), _), _)| v.active())
         {
             // How long the note has sounded, and since its key was let go.
             s.since = s.since.saturating_add(n);
@@ -908,7 +922,7 @@ impl Pool {
                 PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
-                PolyVoice::Graph(g) => g.render(&ctx, out),
+                PolyVoice::Graph(g) => g.render(&ctx, st, out),
             }
         }
     }

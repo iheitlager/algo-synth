@@ -38,14 +38,23 @@ use crate::voice::lookup;
 pub mod sc;
 
 /// Most nodes in a voice, and most of each kind of state it may hold.
-pub const MAX_NODES: usize = 64;
-pub const MAX_OSCS: usize = 8;
-pub const MAX_PHASES: usize = 8;
-pub const MAX_FILTERS: usize = 4;
-pub const MAX_ENVS: usize = 4;
+pub const MAX_NODES: usize = 250;
+pub const MAX_OSCS: usize = 64;
+pub const MAX_PHASES: usize = 32;
+pub const MAX_FILTERS: usize = 8;
+pub const MAX_ENVS: usize = 8;
+/// Most random numbers a voice draws when its note starts (`Rand`, `ExpRand`).
+pub const MAX_RANDS: usize = 64;
+/// The old voice language's limits (ADR-0021), until it goes (ADR-0024).
+const OLD_NODES: usize = 32;
+const OLD_OSCS: usize = 8;
+const OLD_PHASES: usize = 8;
+const OLD_FILTERS: usize = 4;
+const OLD_ENVS: usize = 4;
+const OLD_DELAYS: usize = 1;
 /// Most `delay`s in a voice, and the longest one in samples (about 21 ms at
 /// 48 kHz: combs, flangers and chorus, not echoes).
-pub const MAX_DELAYS: usize = 1;
+pub const MAX_DELAYS: usize = 32;
 pub const MAX_DELAY: usize = 1024;
 /// Most numbers in all of a voice's lists, and inputs to one `mix`.
 pub const MAX_LIST: usize = 16;
@@ -105,6 +114,23 @@ pub enum Shape {
     /// read when the gate moves, so a knob changes the next note's shape
     /// (ADR-0024).
     Nodes([u8; 4]),
+    /// SuperCollider's `Env(levels, times, curves, releaseNode)`.
+    Brk(Brk),
+}
+
+/// A breakpoint envelope: up to eight levels and seven segments, each with
+/// a time and a curve; levels and times are nodes (numbers or knobs).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Brk {
+    pub levels: [u8; 8],
+    pub times: [u8; 7],
+    /// Each segment's curve: 0 linear, 1 a curvature (`curves`), 2
+    /// exponential, 3 a step.
+    pub kinds: [u8; 7],
+    pub curves: [f32; 7],
+    pub n: u8,
+    /// The node it holds at while the gate is open, `NONE` for none.
+    pub release: u8,
 }
 
 /// One unit generator; `u8` fields index earlier nodes, `slot` its state.
@@ -168,6 +194,11 @@ pub enum Ugen {
         /// `feedback` is a `CombL` decay time in seconds: the echoes fall
         /// 60 dB in it.
         decay: bool,
+        /// Its line among the voice's delays.
+        slot: u8,
+        /// Only the delayed signal comes out (SuperCollider's delays and
+        /// combs), not the input with it.
+        wet: bool,
     },
     /// SuperCollider's shapers on a signal: 0 `tanh`, 1 `softclip`, 2 `distort`.
     Clip {
@@ -190,6 +221,16 @@ pub enum Ugen {
         from: u8,
         len: u8,
     },
+    /// A number drawn when the note starts, between `lo` and `hi`
+    /// (SuperCollider's `Rand` and `ExpRand`), from a seeded generator.
+    Rand {
+        lo: u8,
+        hi: u8,
+        exp: bool,
+        slot: u8,
+    },
+    /// Semitones as a frequency ratio, `2^(x/12)`.
+    MidiRatio(u8),
     /// A control of the voice (`ctl`): the synth's `Param::Ctl1`… value,
     /// held in its range.
     Ctl {
@@ -233,6 +274,7 @@ struct Counts {
     envs: u8,
     delays: u8,
     lists: u8,
+    rands: u8,
 }
 
 impl Default for Program {
@@ -298,9 +340,18 @@ impl Program {
         self.nodes.get(usize::from(i)).copied()
     }
 
-    /// Whether the program shapes its own loudness with `env`.
-    fn has_env(&self) -> bool {
-        self.counts.envs > 0
+    /// The most voices of this program a synth sounds at once: a budget of
+    /// work per synth over a rough cost per voice (a band-limited oscillator
+    /// the unit), from 1 to 16; `make bench` checks it.
+    pub fn voice_cap(&self) -> usize {
+        const BUDGET: f32 = 240.0;
+        let c = self.counts;
+        let cost = 4.0 * f32::from(c.oscs)
+            + 2.0 * f32::from(c.filters)
+            + f32::from(c.phases)
+            + 1.5 * f32::from(c.delays)
+            + 0.25 * f32::from(self.len);
+        ((BUDGET / cost.max(1.0)) as usize).clamp(1, crate::poly::MAX_VOICES)
     }
 
     fn write(&self, out: &mut String, names: &[&str], i: u8, prec: u8) -> std::fmt::Result {
@@ -319,6 +370,11 @@ impl Program {
             Ugen::Freq => out.write_str("freq"),
             Ugen::Gate => out.write_str("gate"),
             Ugen::Vel => out.write_str("vel"),
+            Ugen::Rand { .. } => out.write_str("rand"),
+            Ugen::MidiRatio(x) => {
+                self.write(out, names, x, 4)?;
+                out.write_str(".midiratio")
+            }
             Ugen::Ctl { index, .. } => match names.get(usize::from(index)) {
                 Some(n) => out.write_str(n),
                 None => write!(out, "ctl{}", index + 1),
@@ -380,7 +436,7 @@ impl Program {
                 Some(Shape::Adsr) | None => out.write_str("env(adsr)"),
                 Some(s) if *s == PERC => out.write_str("env(perc)"),
                 Some(Shape::Times(a, d, s, r)) => write!(out, "env({a}, {d}, {s}, {r})"),
-                Some(Shape::Nodes(_)) => out.write_str("env(adsr)"),
+                Some(Shape::Nodes(_) | Shape::Brk(_)) => out.write_str("env(adsr)"),
             },
             Ugen::Ladder {
                 input, cutoff, res, ..
@@ -576,7 +632,7 @@ impl<'a> Parser<'a, '_> {
 
     fn push(&mut self, u: Ugen) -> Res<u8> {
         let len = usize::from(self.prog.len);
-        let Some(slot) = self.prog.nodes.get_mut(len) else {
+        let Some(slot) = self.prog.nodes.get_mut(len).filter(|_| len < OLD_NODES) else {
             return Err((self.col(), "a voice has at most 32 nodes"));
         };
         *slot = u;
@@ -798,7 +854,7 @@ impl<'a> Parser<'a, '_> {
             self.depth -= 1;
             let slot = Self::slot(
                 &mut self.prog.counts.phases,
-                MAX_PHASES - 1,
+                OLD_PHASES - 1,
                 col,
                 "a voice has at most 8 sin and lfo, an fm counting two",
             )?;
@@ -860,7 +916,7 @@ impl<'a> Parser<'a, '_> {
                 };
                 let slot = Self::slot(
                     &mut self.prog.counts.phases,
-                    MAX_PHASES,
+                    OLD_PHASES,
                     col,
                     "a voice has at most 8 sin and lfo",
                 )?;
@@ -874,7 +930,7 @@ impl<'a> Parser<'a, '_> {
                 freq: first,
                 slot: Self::slot(
                     &mut self.prog.counts.phases,
-                    MAX_PHASES,
+                    OLD_PHASES,
                     col,
                     "a voice has at most 8 sin and lfo",
                 )?,
@@ -891,7 +947,7 @@ impl<'a> Parser<'a, '_> {
                     width,
                     slot: Self::slot(
                         &mut self.prog.counts.oscs,
-                        MAX_OSCS,
+                        OLD_OSCS,
                         col,
                         "a voice has at most 8 saw, tri and pulse",
                     )?,
@@ -933,15 +989,15 @@ impl<'a> Parser<'a, '_> {
                 gain: false,
                 slot: Self::slot(
                     &mut self.prog.counts.filters,
-                    MAX_FILTERS,
+                    OLD_FILTERS,
                     col,
                     "a voice has at most 4 filters",
                 )?,
             },
             "delay" => {
-                Self::slot(
+                let slot = Self::slot(
                     &mut self.prog.counts.delays,
-                    MAX_DELAYS,
+                    OLD_DELAYS,
                     col,
                     "a voice has one delay",
                 )?;
@@ -950,6 +1006,8 @@ impl<'a> Parser<'a, '_> {
                     time: first,
                     feedback: second,
                     decay: false,
+                    slot,
+                    wet: false,
                 }
             }
             _ => Ugen::Drive {
@@ -1013,7 +1071,7 @@ impl<'a> Parser<'a, '_> {
         self.expect(')', ") goes here")?;
         let slot = Self::slot(
             &mut self.prog.counts.filters,
-            MAX_FILTERS,
+            OLD_FILTERS,
             col,
             "a voice has at most 4 filters",
         )?;
@@ -1061,7 +1119,7 @@ impl<'a> Parser<'a, '_> {
         self.expect(')', ") goes here")?;
         let slot = Self::slot(
             &mut self.prog.counts.envs,
-            MAX_ENVS,
+            OLD_ENVS,
             col,
             "a voice has at most 4 envelopes",
         )?;
@@ -1103,226 +1161,63 @@ pub fn fast_exp2(x: f32) -> f32 {
     f32::from_bits(((whole as i32 + 127) as u32) << 23) * poly
 }
 
-/// A note playing a program.
-#[derive(Clone, Copy)]
-pub struct GraphVoice {
+/// What a note of a program holds that is sized by the program: one per
+/// voice slot of a pool, allocated with the synth's program, outside
+/// `render` (ADR-0024). It only grows, so a sounding voice keeps its own.
+#[derive(Clone, Default)]
+pub struct VoiceState {
+    /// The program the note plays, copied when it starts.
     prog: Program,
-    note: f32,
-    velocity: f32,
-    gate: bool,
-    retrigger: bool,
-    /// Pitch trim in semitones from the pool (unison, analog variance).
-    pub trim: f32,
-    pub cutoff_trim: f32,
-    vals: [f32; MAX_NODES],
-    oscs: [Osc; MAX_OSCS],
-    phases: [f32; MAX_PHASES],
-    filters: [Svf; MAX_FILTERS],
-    ladders: [Ladder; MAX_FILTERS],
-    /// The delay's line and where it writes next.
-    line: [f32; MAX_DELAY],
-    write: usize,
-    /// The voice's slot in its pool: which number of a list it takes.
-    slot: usize,
+    vals: Vec<f32>,
+    oscs: Vec<Osc>,
+    phases: Vec<f32>,
+    filters: Vec<Svf>,
+    ladders: Vec<Ladder>,
     /// Each filter's last cutoff in hertz and as a note, so a steady
     /// cutoff is converted once.
-    cutoffs: [(f32, f32); MAX_FILTERS],
-    envs: [Env; MAX_ENVS],
-    times: [EnvTimes; MAX_ENVS],
-    env_vals: [f32; MAX_ENVS],
-    /// The loudness of a program without `env`: the synth's ADSR.
-    amp: Env,
-    noise: Noise,
+    cutoffs: Vec<(f32, f32)>,
+    /// The delays' lines, `MAX_DELAY` each, and where each writes next.
+    lines: Vec<f32>,
+    writes: Vec<usize>,
+    /// The numbers drawn when the note started.
+    rands: Vec<f32>,
 }
 
-const NO_TIMES: EnvTimes = EnvTimes {
-    attack: 0.0,
-    decay: 0.0,
-    sustain: 0.0,
-    release: 0.0,
-};
-
-impl GraphVoice {
-    pub fn new(seed: u32) -> GraphVoice {
-        GraphVoice {
-            prog: Program::default(),
-            note: 0.0,
-            velocity: 0.0,
-            gate: false,
-            retrigger: false,
-            trim: 0.0,
-            cutoff_trim: 0.0,
-            vals: [0.0; MAX_NODES],
-            oscs: [Osc::default(); MAX_OSCS],
-            phases: [0.0; MAX_PHASES],
-            filters: [Svf::new(); MAX_FILTERS],
-            ladders: [Ladder::new(); MAX_FILTERS],
-            line: [0.0; MAX_DELAY],
-            write: 0,
-            slot: 0,
-            cutoffs: [(f32::NAN, 0.0); MAX_FILTERS],
-            envs: [Env::default(); MAX_ENVS],
-            times: [NO_TIMES; MAX_ENVS],
-            env_vals: [0.0; MAX_ENVS],
-            amp: Env::default(),
-            noise: Noise::new(seed | 1),
-        }
+impl VoiceState {
+    /// State with room for `prog`.
+    pub fn for_program(prog: &Program) -> VoiceState {
+        let mut st = VoiceState::default();
+        st.grow(prog);
+        st
     }
 
-    pub fn active(&self) -> bool {
-        let used = usize::from(self.prog.counts.envs);
-        self.retrigger
-            || if self.prog.has_env() {
-                self.envs.iter().take(used).any(sounding)
-            } else {
-                self.amp.stage != Stage::Idle
-            }
+    /// Room for `prog`, keeping what is there.
+    pub fn grow(&mut self, prog: &Program) {
+        let c = prog.counts;
+        let up = |n: usize, now: usize| n.max(now);
+        self.vals
+            .resize(up(usize::from(prog.len), self.vals.len()), 0.0);
+        self.oscs
+            .resize(up(usize::from(c.oscs), self.oscs.len()), Osc::default());
+        self.phases
+            .resize(up(usize::from(c.phases), self.phases.len()), 0.0);
+        let f = up(usize::from(c.filters), self.filters.len());
+        self.filters.resize(f, Svf::new());
+        self.ladders.resize(f, Ladder::new());
+        self.cutoffs.resize(f, (f32::NAN, 0.0));
+        let d = up(usize::from(c.delays), self.writes.len());
+        self.writes.resize(d, 0);
+        self.lines.resize(d * MAX_DELAY, 0.0);
+        self.rands
+            .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
     }
 
-    pub fn gated(&self) -> bool {
-        self.gate
-    }
-
-    /// Start a note with the synth's program; a voice that was silent starts
-    /// its oscillators, phases and filters afresh.
-    pub fn press(
-        &mut self,
-        note: u8,
-        velocity: f32,
-        prog: &Program,
-        sample_rate: f32,
-        slot: usize,
-    ) {
-        if !self.active() {
-            self.oscs = [Osc::default(); MAX_OSCS];
-            self.phases = [0.0; MAX_PHASES];
-            self.filters = [Svf::new(); MAX_FILTERS];
-            self.ladders = [Ladder::new(); MAX_FILTERS];
-            if prog.counts.delays > 0 {
-                self.line = [0.0; MAX_DELAY];
-            }
-        }
-        self.slot = slot;
-        // A sounding voice keeps its state; a changed program takes the note
-        // from here.
-        self.prog = *prog;
-        for i in 0..usize::from(self.prog.len) {
-            if let Some(Ugen::Osc { wave, slot, .. }) = self.prog.nodes.get(i).copied()
-                && let Some(o) = self.oscs.get_mut(usize::from(slot))
-            {
-                o.wave = wave;
-            }
-        }
-        for (t, shape) in self.times.iter_mut().zip(self.prog.envs) {
-            if let Shape::Times(a, d, s, r) = shape {
-                *t = EnvTimes {
-                    attack: a * sample_rate,
-                    decay: d * sample_rate,
-                    sustain: s,
-                    release: r * sample_rate,
-                };
-            }
-        }
-        self.note = f32::from(note);
-        self.velocity = velocity.clamp(0.0, 1.0);
-        self.gate = true;
-        self.retrigger = true;
-    }
-
-    pub fn release_all(&mut self) {
-        self.gate = false;
-    }
-
-    /// Add this voice into `out`, advancing its state.
-    pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
-        let p = ctx.params;
-        let sr = p.sample_rate();
-        let inv = 1.0 / sr.max(1.0);
-        let (retrigger, gate) = (self.retrigger, self.gate);
-        self.retrigger = false;
-        let used = usize::from(self.prog.counts.envs);
-        for k in 0..used {
-            let t = match self.prog.envs.get(k).copied() {
-                Some(Shape::Times(..)) => self.times.get(k).copied().unwrap_or(NO_TIMES),
-                Some(Shape::Nodes([a, d, s, r])) => EnvTimes {
-                    attack: self.fixed(a, ctx).max(0.0) * sr,
-                    decay: self.fixed(d, ctx).max(0.0) * sr,
-                    sustain: self.fixed(s, ctx).clamp(0.0, 1.0),
-                    release: self.fixed(r, ctx).max(0.0) * sr,
-                },
-                _ => p.adsr,
-            };
-            if let Some(env) = self.envs.get_mut(k) {
-                gate_env(env, &t, retrigger, gate);
-                if matches!(self.prog.envs.get(k), Some(Shape::Nodes(_))) {
-                    env.set_sustain(t.sustain);
-                }
-            }
-        }
-        if !self.prog.has_env() {
-            gate_env(&mut self.amp, &p.adsr, retrigger, gate);
-            self.amp.set_sustain(p.adsr.sustain);
-        }
-        let hz = ctx.pitch.at(self.note + self.trim) * sr;
-        let len = usize::from(self.prog.len);
-        for sample in out.iter_mut() {
-            for (v, e) in self
-                .env_vals
-                .iter_mut()
-                .zip(self.envs.iter_mut())
-                .take(used)
-            {
-                *v = e.step();
-            }
-            let amp = if self.prog.has_env() {
-                1.0
-            } else {
-                self.amp.step()
-            };
-            if !self.active() {
-                return;
-            }
-            for i in 0..len {
-                let v = self.eval(i, hz, inv, gate, ctx);
-                if let Some(slot) = self.vals.get_mut(i) {
-                    *slot = v;
-                }
-            }
-            let y = len
-                .checked_sub(1)
-                .and_then(|i| self.vals.get(i))
-                .copied()
-                .unwrap_or(0.0)
-                * amp;
-            if y.is_finite() {
-                // A SynthDef with its own `amp` plays at its own level.
-                let gain = if self.prog.own_amp {
-                    1.0
-                } else {
-                    OUT_GAIN * self.velocity
-                };
-                *sample += y.clamp(-4.0, 4.0) * gain;
-            }
-        }
-    }
-
-    /// Filter `slot`'s cutoff in hertz as a note, converted only when it
-    /// changes, with the pool's trim.
-    fn cutoff_note(&mut self, slot: u8, hz: f32) -> f32 {
-        let hz = hz.max(1.0);
-        let note = match self.cutoffs.get_mut(usize::from(slot)) {
-            Some((last, note)) if *last == hz => *note,
-            Some(cached) => {
-                *cached = (hz, 69.0 + 12.0 * fast_log2(hz / 440.0));
-                cached.1
-            }
-            None => 0.0,
-        };
-        note + self.cutoff_trim
+    fn val(&self, i: u8) -> f32 {
+        self.vals.get(usize::from(i)).copied().unwrap_or(0.0)
     }
 
     /// The value of a number or a control node, read outside the sample loop
-    /// (an envelope's times).
+    /// (an envelope's times, a random number's bounds).
     fn fixed(&self, i: u8, ctx: &MonoCtx) -> f32 {
         match self.prog.node(i) {
             Some(Ugen::Num(v)) => v,
@@ -1337,13 +1232,283 @@ impl GraphVoice {
         }
     }
 
-    fn val(&self, i: u8) -> f32 {
-        self.vals.get(usize::from(i)).copied().unwrap_or(0.0)
+    /// Filter `slot`'s cutoff in hertz as a note, converted only when it
+    /// changes, with the pool's trim.
+    fn cutoff_note(&mut self, slot: u8, hz: f32, trim: f32) -> f32 {
+        let hz = hz.max(1.0);
+        let note = match self.cutoffs.get_mut(usize::from(slot)) {
+            Some((last, note)) if *last == hz => *note,
+            Some(cached) => {
+                *cached = (hz, 69.0 + 12.0 * fast_log2(hz / 440.0));
+                cached.1
+            }
+            None => 0.0,
+        };
+        note + trim
+    }
+}
+
+/// A breakpoint envelope's state: the segment it is in and how it moves
+/// (SuperCollider's `EnvGen`: worked out once per segment, a multiply or
+/// an add per sample).
+#[derive(Clone, Copy, Default)]
+struct BrkState {
+    seg: u8,
+    left: u32,
+    level: f32,
+    /// Linear step, or the curve's `a2 - b1` with `b1 *= grow`, or `level *= grow`.
+    inc: f32,
+    a2: f32,
+    b1: f32,
+    grow: f32,
+    kind: u8,
+    target: f32,
+    /// Holding at its release node with the gate open.
+    holding: bool,
+    done: bool,
+}
+
+/// A note playing a program; what the program sizes is in the pool's
+/// [`VoiceState`] for its slot.
+#[derive(Clone, Copy)]
+pub struct GraphVoice {
+    note: f32,
+    velocity: f32,
+    gate: bool,
+    retrigger: bool,
+    /// The note starts on a silent voice: its state starts afresh.
+    fresh: bool,
+    /// Pitch trim in semitones from the pool (unison, analog variance).
+    pub trim: f32,
+    pub cutoff_trim: f32,
+    /// The voice's slot in its pool: its state, and the number of a list it takes.
+    slot: usize,
+    /// What `active` needs of the program: its envelopes and their kinds.
+    envs_used: u8,
+    shapes: [Shape; MAX_ENVS],
+    envs: [Env; MAX_ENVS],
+    brks: [BrkState; MAX_ENVS],
+    env_vals: [f32; MAX_ENVS],
+    /// The loudness of a program without `env`: the synth's ADSR.
+    amp: Env,
+    noise: Noise,
+    /// Notes started, and the seed of this voice's random numbers.
+    presses: u32,
+    seed: u32,
+}
+
+const NO_TIMES: EnvTimes = EnvTimes {
+    attack: 0.0,
+    decay: 0.0,
+    sustain: 0.0,
+    release: 0.0,
+};
+
+impl GraphVoice {
+    pub fn new(seed: u32) -> GraphVoice {
+        GraphVoice {
+            note: 0.0,
+            velocity: 0.0,
+            gate: false,
+            retrigger: false,
+            fresh: true,
+            trim: 0.0,
+            cutoff_trim: 0.0,
+            slot: 0,
+            envs_used: 0,
+            shapes: [Shape::Adsr; MAX_ENVS],
+            envs: [Env::default(); MAX_ENVS],
+            brks: [BrkState::default(); MAX_ENVS],
+            env_vals: [0.0; MAX_ENVS],
+            amp: Env::default(),
+            noise: Noise::new(seed | 1),
+            presses: 0,
+            seed,
+        }
+    }
+
+    pub fn active(&self) -> bool {
+        let used = usize::from(self.envs_used);
+        self.retrigger
+            || if used > 0 {
+                self.shapes
+                    .iter()
+                    .zip(self.envs.iter().zip(&self.brks))
+                    .take(used)
+                    .any(|(shape, (e, b))| match shape {
+                        Shape::Brk(_) => !b.done || b.holding,
+                        _ => sounding(e),
+                    })
+            } else {
+                self.amp.stage != Stage::Idle
+            }
+    }
+
+    pub fn gated(&self) -> bool {
+        self.gate
+    }
+
+    /// Start a note with the synth's program; it is copied into the voice's
+    /// state when the note's first block renders.
+    pub fn press(
+        &mut self,
+        note: u8,
+        velocity: f32,
+        prog: &Program,
+        _sample_rate: f32,
+        slot: usize,
+    ) {
+        self.fresh = !self.active();
+        self.slot = slot;
+        self.envs_used = prog.counts.envs;
+        self.shapes = prog.envs;
+        self.presses = self.presses.wrapping_add(1);
+        self.note = f32::from(note);
+        self.velocity = velocity.clamp(0.0, 1.0);
+        self.gate = true;
+        self.retrigger = true;
+    }
+
+    pub fn release_all(&mut self) {
+        self.gate = false;
+    }
+
+    /// The note's first block: the program into the state, which starts
+    /// afresh on a silent voice, and the note's random numbers drawn.
+    fn start(&mut self, ctx: &MonoCtx, st: &mut VoiceState) {
+        st.prog = ctx.params.graph;
+        if self.fresh {
+            st.oscs.iter_mut().for_each(|o| *o = Osc::default());
+            st.phases.iter_mut().for_each(|p| *p = 0.0);
+            st.filters.iter_mut().for_each(|f| *f = Svf::new());
+            st.ladders.iter_mut().for_each(|l| *l = Ladder::new());
+            st.cutoffs.iter_mut().for_each(|c| *c = (f32::NAN, 0.0));
+            if st.prog.counts.delays > 0 {
+                st.lines.iter_mut().for_each(|x| *x = 0.0);
+            }
+        }
+        let mut k = 0u32;
+        for i in 0..usize::from(st.prog.len) {
+            match st.prog.nodes.get(i).copied() {
+                Some(Ugen::Osc { wave, slot, .. }) => {
+                    if let Some(o) = st.oscs.get_mut(usize::from(slot)) {
+                        o.wave = wave;
+                    }
+                }
+                Some(Ugen::Rand { lo, hi, exp, slot }) => {
+                    let h = crate::algo::mix(self.seed ^ self.presses.wrapping_mul(0x9E37_79B9), k);
+                    k += 1;
+                    let u = h as f32 / (u32::MAX as f32 + 1.0);
+                    let (l, hh) = (st.fixed(lo, ctx), st.fixed(hi, ctx));
+                    let v = if exp && l * hh > 0.0 {
+                        l * fast_exp2(fast_log2(hh / l) * u)
+                    } else {
+                        l + (hh - l) * u
+                    };
+                    if let Some(r) = st.rands.get_mut(usize::from(slot)) {
+                        *r = v;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Add this voice into `out`, advancing its state in `st`.
+    pub fn render(&mut self, ctx: &MonoCtx, st: &mut VoiceState, out: &mut [f32]) {
+        let p = ctx.params;
+        let sr = p.sample_rate();
+        let inv = 1.0 / sr.max(1.0);
+        let (retrigger, gate) = (self.retrigger, self.gate);
+        self.retrigger = false;
+        if retrigger {
+            self.start(ctx, st);
+        }
+        let used = usize::from(self.envs_used);
+        for k in 0..used {
+            let shape = self.shapes.get(k).copied().unwrap_or(Shape::Adsr);
+            if let Shape::Brk(b) = shape {
+                if let Some(state) = self.brks.get_mut(k) {
+                    brk_gate(state, &b, st, ctx, sr, retrigger, gate);
+                }
+                continue;
+            }
+            let t = match shape {
+                Shape::Times(a, d, s, r) => EnvTimes {
+                    attack: a * sr,
+                    decay: d * sr,
+                    sustain: s,
+                    release: r * sr,
+                },
+                Shape::Nodes([a, d, s, r]) => EnvTimes {
+                    attack: st.fixed(a, ctx).max(0.0) * sr,
+                    decay: st.fixed(d, ctx).max(0.0) * sr,
+                    sustain: st.fixed(s, ctx).clamp(0.0, 1.0),
+                    release: st.fixed(r, ctx).max(0.0) * sr,
+                },
+                _ => p.adsr,
+            };
+            if let Some(env) = self.envs.get_mut(k) {
+                gate_env(env, &t, retrigger, gate);
+                if matches!(shape, Shape::Nodes(_)) {
+                    env.set_sustain(t.sustain);
+                }
+            }
+        }
+        if used == 0 {
+            gate_env(&mut self.amp, &p.adsr, retrigger, gate);
+            self.amp.set_sustain(p.adsr.sustain);
+        }
+        let hz = ctx.pitch.at(self.note + self.trim) * sr;
+        let len = usize::from(st.prog.len).min(st.vals.len());
+        let _ = NO_TIMES;
+        for sample in out.iter_mut() {
+            for k in 0..used {
+                let v = match self.shapes.get(k) {
+                    Some(Shape::Brk(b)) => match self.brks.get_mut(k) {
+                        Some(state) => brk_step(state, b, st, ctx, sr),
+                        None => 0.0,
+                    },
+                    _ => self.envs.get_mut(k).map_or(0.0, Env::step),
+                };
+                if let Some(slot) = self.env_vals.get_mut(k) {
+                    *slot = v;
+                }
+            }
+            let amp = if used > 0 { 1.0 } else { self.amp.step() };
+            if !self.active() {
+                return;
+            }
+            for i in 0..len {
+                let v = self.eval(st, i, hz, inv, gate, ctx);
+                if let Some(slot) = st.vals.get_mut(i) {
+                    *slot = v;
+                }
+            }
+            let y = len.checked_sub(1).map_or(0.0, |i| st.val(i as u8)) * amp;
+            if y.is_finite() {
+                // A SynthDef with its own `amp` plays at its own level.
+                let gain = if st.prog.own_amp {
+                    1.0
+                } else {
+                    OUT_GAIN * self.velocity
+                };
+                *sample += y.clamp(-4.0, 4.0) * gain;
+            }
+        }
     }
 
     /// Node `i` this sample, its inputs already evaluated.
-    fn eval(&mut self, i: usize, hz: f32, inv: f32, gate: bool, ctx: &MonoCtx) -> f32 {
-        let Some(node) = self.prog.nodes.get(i).copied() else {
+    fn eval(
+        &mut self,
+        st: &mut VoiceState,
+        i: usize,
+        hz: f32,
+        inv: f32,
+        gate: bool,
+        ctx: &MonoCtx,
+    ) -> f32 {
+        let Some(node) = st.prog.nodes.get(i).copied() else {
             return 0.0;
         };
         match node {
@@ -1355,21 +1520,21 @@ impl GraphVoice {
             Ugen::Osc {
                 freq, width, slot, ..
             } => {
-                let f = self.val(freq);
+                let f = st.val(freq);
                 let w = if width == NONE {
                     0.5
                 } else {
-                    self.val(width).clamp(0.05, 0.95)
+                    st.val(width).clamp(0.05, 0.95)
                 };
-                let Some(o) = self.oscs.get_mut(usize::from(slot)) else {
+                let Some(o) = st.oscs.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
                 o.set_increment(f * inv);
                 o.step(ctx.blep, ctx.sine, w, None).0
             }
             Ugen::Sin { freq, slot } => {
-                let inc = self.val(freq) * inv;
-                let Some(ph) = self.phases.get_mut(usize::from(slot)) else {
+                let inc = st.val(freq) * inv;
+                let Some(ph) = st.phases.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
                 *ph += inc;
@@ -1377,8 +1542,8 @@ impl GraphVoice {
                 lookup(ctx.sine, *ph)
             }
             Ugen::Lfo { rate, wave, slot } => {
-                let inc = self.val(rate) * inv;
-                let Some(ph) = self.phases.get_mut(usize::from(slot)) else {
+                let inc = st.val(rate) * inv;
+                let Some(ph) = st.phases.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
                 *ph += inc;
@@ -1393,16 +1558,16 @@ impl GraphVoice {
                 slot,
                 rq,
             } => {
-                let x = self.val(input);
-                let c = self.val(cutoff).max(1.0);
-                let note = self.cutoff_note(slot, c);
+                let x = st.val(input);
+                let c = st.val(cutoff).max(1.0);
+                let note = st.cutoff_note(slot, c, self.cutoff_trim);
                 let r = match (res == NONE, rq) {
                     (true, _) => RES,
                     // rq 1 is gentle, 0.05 nearly singing.
-                    (false, true) => 1.0 - self.val(res).clamp(0.0, 1.0),
-                    (false, false) => self.val(res),
+                    (false, true) => 1.0 - st.val(res).clamp(0.0, 1.0),
+                    (false, false) => st.val(res),
                 };
-                let Some(f) = self.filters.get_mut(usize::from(slot)) else {
+                let Some(f) = st.filters.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
                 let o = f.process(ctx.ladder, &VOICING, x, note, r);
@@ -1416,6 +1581,8 @@ impl GraphVoice {
                 .copied()
                 .unwrap_or(lo)
                 .clamp(lo, hi),
+            Ugen::Rand { slot, .. } => st.rands.get(usize::from(slot)).copied().unwrap_or(0.0),
+            Ugen::MidiRatio(x) => fast_exp2(st.val(x) * (1.0 / 12.0)),
             Ugen::Ladder {
                 input,
                 cutoff,
@@ -1423,15 +1590,15 @@ impl GraphVoice {
                 slot,
                 gain,
             } => {
-                let x = self.val(input);
-                let note = self.cutoff_note(slot, self.val(cutoff));
-                let r = if res == NONE { RES } else { self.val(res) };
+                let x = st.val(input);
+                let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
+                let r = if res == NONE { RES } else { st.val(res) };
                 let k = if gain {
                     r.clamp(0.0, MAX_K)
                 } else {
                     r.clamp(0.0, 1.0) * MAX_K
                 };
-                let Some(l) = self.ladders.get_mut(usize::from(slot)) else {
+                let Some(l) = st.ladders.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
                 l.process(ctx.ladder, x, note, k, 1.0)
@@ -1442,16 +1609,16 @@ impl GraphVoice {
                 index,
                 slot,
             } => {
-                let (c, m, k) = (self.val(carrier), self.val(modulator), self.val(index));
+                let (c, m, k) = (st.val(carrier), st.val(modulator), st.val(index));
                 let s = usize::from(slot);
-                let mph = self.phases.get(s + 1).copied().unwrap_or(0.0) + m * inv;
+                let mph = st.phases.get(s + 1).copied().unwrap_or(0.0) + m * inv;
                 let mph = mph - mph.floor();
-                let cph = self.phases.get(s).copied().unwrap_or(0.0) + c * inv;
+                let cph = st.phases.get(s).copied().unwrap_or(0.0) + c * inv;
                 let cph = cph - cph.floor();
-                if let Some(p) = self.phases.get_mut(s + 1) {
+                if let Some(p) = st.phases.get_mut(s + 1) {
                     *p = mph;
                 }
-                if let Some(p) = self.phases.get_mut(s) {
+                if let Some(p) = st.phases.get_mut(s) {
                     *p = cph;
                 }
                 let at = cph + k * lookup(ctx.sine, mph) * (1.0 / std::f32::consts::TAU);
@@ -1462,14 +1629,16 @@ impl GraphVoice {
                 time,
                 feedback,
                 decay,
+                slot,
+                wet,
             } => {
-                let x = self.val(input);
+                let x = st.val(input);
                 let fb = match (feedback == NONE, decay) {
                     (true, _) => 0.0,
                     // A decay time: each pass loses its share of 60 dB.
                     (false, true) => {
-                        let t = self.val(time).max(1e-4);
-                        let dec = self.val(feedback);
+                        let t = st.val(time).max(1e-4);
+                        let dec = st.val(feedback);
                         if dec.abs() < 1e-4 {
                             0.0
                         } else {
@@ -1477,27 +1646,39 @@ impl GraphVoice {
                                 .clamp(-0.999, 0.999)
                         }
                     }
-                    (false, false) => self.val(feedback).clamp(-0.98, 0.98),
+                    (false, false) => st.val(feedback).clamp(-0.98, 0.98),
                 };
-                let d = (self.val(time) / inv).clamp(1.0, (MAX_DELAY - 2) as f32);
-                let back = self.write as f32 + MAX_DELAY as f32 - d;
-                let (i, frac) = (back as usize, back - back.floor());
-                let a = self.line.get(i % MAX_DELAY).copied().unwrap_or(0.0);
-                let b = self.line.get((i + 1) % MAX_DELAY).copied().unwrap_or(0.0);
-                let y = x + fb * (a + (b - a) * frac);
-                let y = if y.is_finite() {
-                    y.clamp(-8.0, 8.0)
+                let d = (st.val(time) / inv).clamp(1.0, (MAX_DELAY - 2) as f32);
+                let k = usize::from(slot);
+                let Some(write) = st.writes.get(k).copied() else {
+                    return 0.0;
+                };
+                let base = k * MAX_DELAY;
+                let back = write as f32 + MAX_DELAY as f32 - d;
+                let (j, frac) = (back as usize, back - back.floor());
+                let a = st.lines.get(base + j % MAX_DELAY).copied().unwrap_or(0.0);
+                let b = st
+                    .lines
+                    .get(base + (j + 1) % MAX_DELAY)
+                    .copied()
+                    .unwrap_or(0.0);
+                let delayed = a + (b - a) * frac;
+                let stored = x + fb * delayed;
+                let stored = if stored.is_finite() {
+                    stored.clamp(-8.0, 8.0)
                 } else {
                     0.0
                 };
-                if let Some(w) = self.line.get_mut(self.write) {
-                    *w = y;
+                if let Some(w) = st.lines.get_mut(base + write) {
+                    *w = stored;
                 }
-                self.write = (self.write + 1) % MAX_DELAY;
-                y
+                if let Some(w) = st.writes.get_mut(k) {
+                    *w = (write + 1) % MAX_DELAY;
+                }
+                if wet { delayed } else { stored }
             }
             Ugen::Clip { input, kind } => {
-                let x = self.val(input);
+                let x = st.val(input);
                 match kind {
                     // A Padé tanh, exact enough below 3 and 1 above.
                     0 => {
@@ -1506,30 +1687,33 @@ impl GraphVoice {
                     }
                     1 if x.abs() <= 0.5 => x,
                     1 => (x.abs() - 0.25) / x,
-                    _ => x / (1.0 + x.abs()),
+                    2 => x / (1.0 + x.abs()),
+                    // atan, within a few thousandths: x / (1 + 0.28 x²) below 1,
+                    // π/2 − 1/x … above.
+                    _ => fast_atan(x),
                 }
             }
             Ugen::Drive { input, amount } => {
-                let a = self.val(amount).max(0.0);
-                let x = self.val(input);
+                let a = st.val(amount).max(0.0);
+                let x = st.val(input);
                 (1.0 + a) * x / (1.0 + a * x.abs())
             }
             Ugen::Mix { inputs, n, mean } => {
                 let n = usize::from(n).max(1);
-                let sum: f32 = inputs.iter().take(n).map(|i| self.val(*i)).sum();
+                let sum: f32 = inputs.iter().take(n).map(|i| st.val(*i)).sum();
                 if mean { sum / n as f32 } else { sum }
             }
             Ugen::List { from, len } => {
                 let len = usize::from(len).max(1);
-                self.prog
+                st.prog
                     .lists
                     .get(usize::from(from) + self.slot % len)
                     .copied()
                     .unwrap_or(0.0)
             }
-            Ugen::Neg(a) => -self.val(a),
+            Ugen::Neg(a) => -st.val(a),
             Ugen::Bin(op, a, b) => {
-                let (x, y) = (self.val(a), self.val(b));
+                let (x, y) = (st.val(a), st.val(b));
                 match op {
                     Op::Add => x + y,
                     Op::Sub => x - y,
@@ -1546,11 +1730,11 @@ impl GraphVoice {
                 uni,
             } => {
                 let u = if uni {
-                    self.val(of)
+                    st.val(of)
                 } else {
-                    (self.val(of) + 1.0) * 0.5
+                    (st.val(of) + 1.0) * 0.5
                 };
-                let (l, h) = (self.val(lo), self.val(hi));
+                let (l, h) = (st.val(lo), st.val(hi));
                 if !exp {
                     l + (h - l) * u
                 } else if l > 0.0 && h > 0.0 {
@@ -1561,6 +1745,120 @@ impl GraphVoice {
             }
         }
     }
+}
+
+/// `atan(x)` within about 0.005 rad, with no transcendental call.
+pub fn fast_atan(x: f32) -> f32 {
+    const HALF_PI: f32 = std::f32::consts::FRAC_PI_2;
+    let a = x.abs();
+    let y = if a <= 1.0 {
+        a / (1.0 + 0.28 * a * a)
+    } else {
+        HALF_PI - a / (a * a + 0.28)
+    };
+    y.copysign(x)
+}
+
+/// Open, close or start a breakpoint envelope at the start of a block.
+fn brk_gate(
+    s: &mut BrkState,
+    b: &Brk,
+    st: &VoiceState,
+    ctx: &MonoCtx,
+    sr: f32,
+    retrigger: bool,
+    gate: bool,
+) {
+    if retrigger {
+        *s = BrkState {
+            level: b.levels.first().map_or(0.0, |l| st.fixed(*l, ctx)),
+            ..BrkState::default()
+        };
+        brk_segment(s, b, st, ctx, sr);
+        return;
+    }
+    if !gate && s.holding {
+        s.holding = false;
+        brk_segment(s, b, st, ctx, sr);
+    } else if !gate && b.release != NONE && s.seg < b.release && !s.done {
+        // Released before the release node: on from there, from where it is.
+        s.seg = b.release;
+        brk_segment(s, b, st, ctx, sr);
+    }
+}
+
+/// Begin segment `s.seg` (from `s.level` to its level), or finish.
+fn brk_segment(s: &mut BrkState, b: &Brk, st: &VoiceState, ctx: &MonoCtx, sr: f32) {
+    let k = usize::from(s.seg);
+    if k + 1 >= usize::from(b.n) {
+        s.done = true;
+        return;
+    }
+    let target = b.levels.get(k + 1).map_or(0.0, |l| st.fixed(*l, ctx));
+    let time = b.times.get(k).map_or(0.0, |t| st.fixed(*t, ctx)).max(0.0);
+    let n = (time * sr).max(1.0);
+    s.left = n as u32;
+    s.target = target;
+    let curve = b.curves.get(k).copied().unwrap_or(0.0);
+    let kind = b.kinds.get(k).copied().unwrap_or(0);
+    s.kind = kind;
+    match kind {
+        // A curvature: SuperCollider's `a2 - b1, b1 *= grow`, once a segment.
+        1 if curve.abs() > 1e-3 => {
+            let a1 = (target - s.level) / (1.0 - curve.exp());
+            s.a2 = s.level + a1;
+            s.b1 = a1;
+            s.grow = (curve / n).exp();
+        }
+        // Exponential, between levels of one sign.
+        2 if s.level * target > 0.0 => {
+            s.grow = (target / s.level).powf(1.0 / n);
+        }
+        3 => {
+            s.level = target;
+            s.inc = 0.0;
+            s.kind = 3;
+        }
+        _ => {
+            s.kind = 0;
+            s.inc = (target - s.level) / n;
+        }
+    }
+    if kind == 2 && s.level * target <= 0.0 {
+        s.kind = 0;
+        s.inc = (target - s.level) / n;
+    }
+    if kind == 1 && curve.abs() <= 1e-3 {
+        s.kind = 0;
+        s.inc = (target - s.level) / n;
+    }
+}
+
+/// One sample of a breakpoint envelope.
+fn brk_step(s: &mut BrkState, b: &Brk, st: &VoiceState, ctx: &MonoCtx, sr: f32) -> f32 {
+    if s.done || s.holding {
+        return s.level;
+    }
+    match s.kind {
+        1 => {
+            s.b1 *= s.grow;
+            s.level = s.a2 - s.b1;
+        }
+        2 => s.level *= s.grow,
+        3 => {}
+        _ => s.level += s.inc,
+    }
+    s.left = s.left.saturating_sub(1);
+    if s.left == 0 {
+        s.level = s.target;
+        s.seg += 1;
+        if b.release != NONE && s.seg == b.release {
+            s.holding = true;
+        } else {
+            brk_segment(s, b, st, ctx, sr);
+        }
+    }
+    s.level
 }
 
 /// Whether an envelope still shapes a sound: not idle, and not settled at

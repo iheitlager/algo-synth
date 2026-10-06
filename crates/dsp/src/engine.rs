@@ -445,7 +445,11 @@ impl Engine {
     /// Give `synth` the voice a Modular synth plays (ADR-0020); each note
     /// takes it when it starts.
     pub fn set_graph(&mut self, synth: usize, graph: Program) {
+        if let Some(pool) = self.pools.get_mut(synth) {
+            pool.size_graph(&graph);
+        }
         if let Some(p) = self.synths.get_mut(synth) {
+            p.graph_cap = graph.voice_cap();
             p.graph = graph;
         }
     }

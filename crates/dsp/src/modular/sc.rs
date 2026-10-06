@@ -946,7 +946,7 @@ impl Builder {
             return Err(CodeError {
                 line: at.0,
                 col: at.1,
-                msg: "the voice needs more than 64 nodes",
+                msg: "the voice needs more than 250 nodes",
             });
         };
         *slot = u;
@@ -1753,7 +1753,7 @@ impl Builder {
             &mut self.prog.counts.envs,
             MAX_ENVS,
             at,
-            "a voice has at most 4 envelopes",
+            "a voice has at most 8 envelopes",
         )?;
         if let Some(e) = self.prog.envs.get_mut(usize::from(slot)) {
             *e = Shape::Nodes(nodes);
@@ -1869,7 +1869,7 @@ impl Builder {
                     &mut b.prog.counts.oscs,
                     MAX_OSCS,
                     at,
-                    "a voice has at most 8 oscillators",
+                    "a voice has at most 64 oscillators",
                 )?;
                 b.push(
                     Ugen::Osc {
@@ -1886,7 +1886,7 @@ impl Builder {
                     &mut b.prog.counts.phases,
                     MAX_PHASES,
                     at,
-                    "a voice has at most 8 sines and LFOs",
+                    "a voice has at most 32 sines and LFOs",
                 )?;
                 b.push(Ugen::Lfo { rate, wave, slot }, at)
             };
@@ -1904,7 +1904,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES,
                         at,
-                        "a voice has at most 8 sines and LFOs",
+                        "a voice has at most 32 sines and LFOs",
                     )?;
                     (b.push(Ugen::Sin { freq: f, slot }, at)?, false, 2)
                 }
@@ -1949,7 +1949,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES - 1,
                         at,
-                        "a voice has at most 8 sines and LFOs, a PMOsc counting two",
+                        "a voice has at most 32 sines and LFOs, a PMOsc counting two",
                     )?;
                     b.prog.counts.phases += 1;
                     (
@@ -1979,7 +1979,7 @@ impl Builder {
                         &mut b.prog.counts.filters,
                         MAX_FILTERS,
                         at,
-                        "a voice has at most 4 filters",
+                        "a voice has at most 8 filters",
                     )?;
                     let high = c.ends_with("HPF");
                     (
@@ -2004,7 +2004,7 @@ impl Builder {
                         &mut b.prog.counts.filters,
                         MAX_FILTERS,
                         at,
-                        "a voice has at most 4 filters",
+                        "a voice has at most 8 filters",
                     )?;
                     (
                         b.push(
@@ -2034,11 +2034,11 @@ impl Builder {
                     let x = inp(b, 0)?;
                     let t = inp(b, 2)?;
                     let d = inp(b, 3)?;
-                    Self::slot(
+                    let slot = Self::slot(
                         &mut b.prog.counts.delays,
                         MAX_DELAYS,
                         at,
-                        "a voice has one comb",
+                        "a voice has at most 32 delays and combs",
                     )?;
                     (
                         b.push(
@@ -2047,6 +2047,8 @@ impl Builder {
                                 time: t,
                                 feedback: d,
                                 decay: true,
+                                slot,
+                                wet: true,
                             },
                             at,
                         )?,
@@ -2358,10 +2360,10 @@ mod tests {
                 "the code is a SynthDef(\\name, { … }) or a function { … }",
             ),
             (
-                "{ |freq| { Saw.ar(freq) }.dup(9).sum }",
+                "{ |freq| { Saw.ar(freq) }.dup(65).sum }",
                 1,
                 12,
-                "a voice has at most 8 oscillators",
+                "a voice has at most 64 oscillators",
             ),
             (
                 "{ CombL.ar(Saw.ar(440), 0.2, 0.1, 1) }",

@@ -126,6 +126,8 @@ pub struct MonoParams {
     /// A Modular synth's voice (ADR-0020): a preset's or the song's; each
     /// note takes a copy when it starts.
     pub graph: crate::modular::Program,
+    /// The most voices a Modular program may sound at once, from its cost.
+    pub graph_cap: usize,
     /// The values of a Modular voice's controls (`Param::Ctl1`…), in their own units.
     pub ctl: [f32; crate::params::CTLS],
 }
@@ -155,7 +157,12 @@ impl MonoParams {
 
     /// The voices this synth plays at once: `Polyphony`, at most its model's.
     pub fn voices(&self) -> usize {
-        self.polyphony.clamp(1, self.model.voices())
+        let most = if self.model.uses_graph() {
+            self.model.voices().min(self.graph_cap)
+        } else {
+            self.model.voices()
+        };
+        self.polyphony.clamp(1, most.max(1))
     }
 
     /// The voice at `preset::DEFAULTS`: zeroed, then every default set.
@@ -215,6 +222,7 @@ impl MonoParams {
             drive: 1.0,
             sample_rate,
             graph: crate::modular::Program::default(),
+            graph_cap: crate::poly::MAX_VOICES,
             ctl: [0.0; crate::params::CTLS],
             adsr: off,
             ar: off,
