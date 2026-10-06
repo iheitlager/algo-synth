@@ -70,6 +70,7 @@ export const FAMILIES = [
   { id: 'poly', label: 'Poly' },
   { id: 'samplers', label: 'Samplers' },
   { id: 'drums', label: 'Drums' },
+  { id: 'modular', label: 'Modular' },
 ] as const
 export type FamilyId = (typeof FAMILIES)[number]['id']
 
@@ -1176,6 +1177,23 @@ const tr909: ModelDef = {
   ],
 }
 
+// A voice written in the song as a graph of unit generators (ADR-0020): its
+// sound is its text, so the panel has only the envelope a voice without `env`
+// sounds through. Its own controls come with the Sound screen (#216).
+const modular: ModelDef = {
+  id: Model.Modular,
+  family: 'modular',
+  name: 'Modular',
+  maker: 'algo-synth · a voice written in the song',
+  tagline: 'sin saw tri pulse noise lfo svf env, patched in a line of text and played per note',
+  theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
+  presets: ['ModularBasic', 'ModularHoover'],
+  sections: [
+    { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
+    { title: 'Voice', controls: [{ kind: 'note', text: 'The sound is the voice line in the song: voice name = { saw(freq) |> svf(lp, 1800) }' }] },
+  ],
+}
+
 export const ARP_MODES = entries(ArpMode)
 export const ARP_RATES: Options = [['1/8', ArpRate.Eighth], ['1/16', ArpRate.Sixteenth], ['1/8T', ArpRate.EighthTriplet], ['1/16T', ArpRate.SixteenthTriplet]]
 
@@ -1197,7 +1215,7 @@ const ARP_SECTION: Section = {
 const withArp = (m: ModelDef): ModelDef =>
   m.family === 'mono' || m.family === 'poly' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909].map(withArp)
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular].map(withArp)
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

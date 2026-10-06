@@ -3449,3 +3449,96 @@ fn the_mixer_writes_itself_into_the_song() {
     assert_eq!(f.param_value(SYNTHS + 1, Param::Out), 3.0);
     assert_eq!(f.param_value(0, Param::P2Return), 0.4);
 }
+
+/// ADR-0020: every Modular preset sounds, stays bounded, renders the same
+/// twice, and ends after its key is let go.
+#[test]
+fn a_modular_voice_sounds_bounded_deterministic_and_ends() {
+    use crate::mono::preset::Preset;
+    for preset in [Preset::ModularBasic, Preset::ModularHoover] {
+        let play = || {
+            let mut e = Engine::new(48_000.0);
+            e.preset(0, preset);
+            e.note_on(0, 57, 1.0);
+            e.note_on(0, 64, 0.8);
+            let out = render_out(&mut e, 200);
+            e.note_off(0, 57);
+            e.note_off(0, 64);
+            render_out(&mut e, 400);
+            (out, e.active_voices())
+        };
+        let (out, left) = play();
+        assert!(
+            out.iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "{preset:?}"
+        );
+        let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        assert!(peak > 0.05, "{preset:?} is heard: {peak}");
+        assert_eq!(out, play().0, "{preset:?} renders the same");
+        assert_eq!(left, 0, "{preset:?} ends");
+    }
+}
+
+/// `sin(freq)` plays the note's pitch: note 69 crosses zero upward 440 times
+/// a second.
+#[test]
+fn a_modular_sine_plays_its_pitch() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    e.set_graph(0, Program::parse("sin(freq)").expect("parses"));
+    e.note_on(0, 69, 1.0);
+    render_out(&mut e, 40);
+    let mut left = Vec::new();
+    for _ in 0..(48_000 / BLOCK) {
+        e.render(BLOCK);
+        left.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let ups = left
+        .windows(2)
+        .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+        .count();
+    let want = 440.0 * left.len() as f32 / 48_000.0;
+    assert!(
+        (ups as f32 - want).abs() <= 2.0,
+        "{ups} crossings for {want}"
+    );
+}
+
+/// A voice with its own `env` ends by it, a held key or not.
+#[test]
+fn a_modular_voice_with_a_percussive_env_ends_while_held() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    e.set_graph(0, Program::parse("tri(freq) * env(perc)").expect("parses"));
+    e.note_on(0, 60, 1.0);
+    let early = render_out(&mut e, 20);
+    assert!(early.iter().any(|s| s.abs() > 0.01));
+    render_out(&mut e, 48_000 / BLOCK);
+    assert_eq!(e.active_voices(), 0);
+}
+
+/// A song's voice plays on the synth its Modular track is routed to.
+#[test]
+fn a_song_voice_plays_on_its_track() {
+    let text = "tempo 120\nvoice beep = { sin(freq) * env(perc) }\ntrack lead synth Modular beep\n\
+        frag r = lead\n  \"a4 ~ ~ ~\"\n";
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Model), 19.0);
+    e.song_play();
+    let out = render_out(&mut e, 48_000 / BLOCK);
+    let left: Vec<f32> = out
+        .chunks(2 * BLOCK)
+        .flat_map(|b| b[..BLOCK].to_vec())
+        .collect();
+    let ups = left[..24_000]
+        .windows(2)
+        .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+        .count();
+    // A perc on a4 sounds for a while and dies: crossings near 440 a second
+    // while it rings, none at the end.
+    assert!(ups > 50, "{ups}");
+    assert!(left[44_000..].iter().all(|s| s.abs() < 1e-3));
+}

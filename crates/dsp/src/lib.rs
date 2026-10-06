@@ -15,6 +15,7 @@ pub mod fx;
 pub mod la;
 pub mod midi_import;
 pub mod mixer;
+pub mod modular;
 pub mod mono;
 pub mod notes;
 pub mod padsampler;

@@ -59,6 +59,7 @@ fn cycle_seed(base: u32, cycle: u64) -> u32 {
     )
 }
 use crate::algo::mix;
+use crate::modular::Program;
 use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
@@ -391,6 +392,18 @@ impl Engine {
     pub fn preset(&mut self, synth: usize, preset: Preset) {
         for (p, v) in DEFAULTS.iter().chain(preset.changes()) {
             self.set_param(synth, *p, *v);
+        }
+        // A Modular preset's voice; parsing allocates, so never from `render`.
+        if let Some(text) = preset.voice_text() {
+            self.set_graph(synth, Program::parse(text).unwrap_or_default());
+        }
+    }
+
+    /// Give `synth` the voice a Modular synth plays (ADR-0020); each note
+    /// takes it when it starts.
+    pub fn set_graph(&mut self, synth: usize, graph: Program) {
+        if let Some(p) = self.synths.get_mut(synth) {
+            p.graph = graph;
         }
     }
 
@@ -1498,6 +1511,14 @@ impl Engine {
                         if let Some(r) = route.get_mut(t) {
                             *r = synth;
                         }
+                    }
+                }
+                // A Modular track's voice goes to its synth now, as patches do;
+                // each note takes it when it starts (ADR-0020).
+                for (t, track) in song.tracks.iter().enumerate() {
+                    let voice = track.voice.and_then(|i| song.voices.get(i));
+                    if let (Some(v), Some(Some(s))) = (voice, route.get(t)) {
+                        self.set_graph(*s, v.program);
                     }
                 }
                 self.apply_mix(&song, &before, &route);
