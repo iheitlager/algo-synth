@@ -56,6 +56,8 @@ export interface Section {
   wide?: boolean
   /** Its controls stacked top to bottom, a narrow column (#194). */
   column?: boolean
+  /** Its own accent where the instrument colours its sections, as the TR-808's step buttons. */
+  colour?: string
 }
 
 /**
@@ -308,7 +310,7 @@ const proOne: ModelDef = {
   name: 'Pro-One',
   maker: 'Sequential · two oscillators, poly-mod',
   tagline: 'Oscillator A synced to B, poly-mod from the filter envelope and B, 4-pole filter',
-  theme: { panel: '#241f1c', ink: '#f1e6d2', soft: '#bcae98', trim: '#8c2f1f', accent: '#e8482b', wood: '#6b4a2e' },
+  theme: { panel: '#1c1b1b', ink: '#f1e6d2', soft: '#bcae98', trim: '#8c2f1f', accent: '#e8482b' },
   presets: ['ProLead', 'ProBass', 'SyncSweep', 'PolyModBell', 'ProStrings'],
   sections: [
     {
@@ -431,6 +433,17 @@ const prophet5: ModelDef = {
 const HPF_STEPS: Options = [['0', 20], ['1', 240], ['2', 720], ['3', 1600]]
 const CHORUS: Options = [['Off', 0], ['I', 1], ['II', 2], ['I+II', 3]]
 
+/**
+ * Sections coloured in turn from a palette, for the instruments known by
+ * their coloured buttons rather than one accent (the Juno-106, the Jupiter-8).
+ */
+const tint = (palette: readonly string[], sections: Section[]): Section[] =>
+  sections.map((sec, i) => ({ ...sec, colour: palette[i % palette.length] }))
+/** The Juno-106's buttons: blue, white, red and orange on cool grey. */
+const JUNO_BUTTONS = ['#2f7fd0', '#e9ecef', '#e8442e', '#f08a24']
+/** The Jupiter-8's rainbow of buttons: red, orange, yellow, green, blue, white. */
+const JUPITER_BUTTONS = ['#e0392b', '#f08a24', '#f2c230', '#4caf50', '#2f7fd0', '#ece6d6']
+
 // Six voices of one DCO (saw and a locked pulse, a sub), an IR3109-voiced
 // low-pass, a high-pass in four steps, one envelope for filter and loudness,
 // and the stereo chorus (spec 006 Req 7). The pulse is VCO 2, locked by the model.
@@ -440,9 +453,9 @@ const juno106: ModelDef = {
   name: 'Juno-106',
   maker: 'Roland · six voices, DCO, chorus',
   tagline: 'Six voices: a DCO with sub, a 24 dB low-pass, one envelope, and the stereo chorus',
-  theme: { panel: '#262b30', ink: '#eaeef2', soft: '#a3adb8', trim: '#14171a', accent: '#3fb6c9' },
+  theme: { panel: '#3a3d41', ink: '#eef0f2', soft: '#b0b5ba', trim: '#1c1e21', accent: '#e8442e' },
   presets: ['JunoPad', 'JunoStrings', 'JunoBrass', 'JunoBass', 'JunoPluck', 'JunoPoly'],
-  sections: [
+  sections: tint(JUNO_BUTTONS, [
     {
       title: 'LFO',
       controls: [
@@ -476,7 +489,7 @@ const juno106: ModelDef = {
     { title: 'Envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
     { title: 'Chorus', controls: [select('Mode', Param.ChorusMode, CHORUS)] },
     voicesSection(),
-  ],
+  ]),
 }
 
 const SLOPE: Options = [['12 dB', 0], ['24 dB', 1]]
@@ -490,9 +503,9 @@ const jupiter8: ModelDef = {
   name: 'Jupiter-8',
   maker: 'Roland · eight voices, sync and cross-mod',
   tagline: 'Eight voices: two VCOs with sync and cross-mod, a 12 or 24 dB low-pass, a high-pass, two envelopes',
-  theme: { panel: '#1b1d20', ink: '#f0efe8', soft: '#adb0b6', trim: '#8a7a20', accent: '#e6d44a' },
+  theme: { panel: '#1b1d20', ink: '#f0efe8', soft: '#adb0b6', trim: '#d9731f', accent: '#f08a24' },
   presets: ['JupiterBrass', 'JupiterStrings', 'JupiterBass', 'JupiterSync', 'JupiterXMod', 'JupiterPad'],
-  sections: [
+  sections: tint(JUPITER_BUTTONS, [
     {
       title: 'LFO',
       controls: [
@@ -535,7 +548,7 @@ const jupiter8: ModelDef = {
     { title: 'Env 1 (filter)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
     { title: 'Env 2 (amplifier)', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
     voicesSection(),
-  ],
+  ]),
 }
 
 // Twelve voices of two oscillators with sync, a filter with a 12 or 24 dB slope
@@ -611,7 +624,7 @@ const ppgWave: ModelDef = {
   name: 'PPG Wave',
   maker: 'PPG · eight voices, wavetables',
   tagline: 'Eight voices: two wavetable oscillators swept by envelope and LFO, a 4-pole analog-style filter',
-  theme: { panel: '#202830', ink: '#e6edf3', soft: '#9fb0bf', trim: '#3a4a5a', accent: '#5ec2ff' },
+  theme: { panel: '#26318a', ink: '#f3f5fb', soft: '#b8c0e6', trim: '#151c56', accent: '#ffffff' },
   presets: ['PpgSweepPad', 'PpgGlassBell', 'PpgFormant', 'PpgPulseBass', 'PpgDigitalPluck', 'PpgOrganWave'],
   sections: [
     {
@@ -758,7 +771,7 @@ const dx7: ModelDef = {
   name: 'DX7',
   maker: 'Yamaha · sixteen voices, six-operator FM',
   tagline: 'Sixteen voices: six sine operators, 32 algorithms, feedback, the DX7 envelopes',
-  theme: { panel: '#1d2326', ink: '#e4efe9', soft: '#9db0a6', trim: '#34464a', accent: '#4fd1a5' },
+  theme: { panel: '#2b221d', ink: '#efe9e2', soft: '#b3a597', trim: '#4a3a30', accent: '#3fbf8f' },
   presets: ['FmElectricPiano', 'FmBell', 'FmBrass', 'FmBass', 'FmMarimba', 'FmPad'],
   sections: [
     { title: 'Algorithm', controls: [{ kind: 'algo', label: 'Algorithm', param: Param.Algorithm }, int('Feedback', Param.Feedback, 7)] },
@@ -1091,6 +1104,8 @@ const pad = (title: string, name: string, extra: Control[] = []): Section => {
     ],
   }
 }
+/** The TR-808's sixteen step buttons, four of each from left to right: red, orange, yellow, off-white. */
+const STEP_808 = ['#e0392b', '#f0712c', '#f2c230', '#ece6d6'].flatMap((c) => [c, c, c, c])
 const KICK_DRIVE: Control[] = [{ kind: 'knob', label: 'Drive', param: Param.BdDrive, lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0 }]
 const tr808: ModelDef = {
   id: Model.Tr808,
@@ -1103,10 +1118,12 @@ const tr808: ModelDef = {
   row: true,
   sections: [
     // In the hardware's order, the congas beside the toms they share a switch with.
-    pad('Bass drum', 'Bd', KICK_DRIVE), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
-    pad('Low conga', 'Lc'), pad('Mid conga', 'Mc'), pad('High conga', 'Hc'), pad('Rimshot', 'Rs'), pad('Claves', 'Cl'),
-    pad('Clap', 'Cp'), pad('Maracas', 'Ma'), pad('Cowbell', 'Cb'), pad('Cymbal', 'Cy'), pad('Open hat', 'Oh'),
-    pad('Closed hat', 'Ch'),
+    ...tint(STEP_808, [
+      pad('Bass drum', 'Bd', KICK_DRIVE), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
+      pad('Low conga', 'Lc'), pad('Mid conga', 'Mc'), pad('High conga', 'Hc'), pad('Rimshot', 'Rs'), pad('Claves', 'Cl'),
+      pad('Clap', 'Cp'), pad('Maracas', 'Ma'), pad('Cowbell', 'Cb'), pad('Cymbal', 'Cy'), pad('Open hat', 'Oh'),
+      pad('Closed hat', 'Ch'),
+    ]),
     {
       title: 'Accent',
       column: true,

@@ -77,6 +77,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
     <div class="mods" :class="{ row: def.row }">
       <section
         v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column }"
+        :style="sec.colour ? { '--c': sec.colour } : undefined"
         :aria-label="sec.title"
       >
         <h3>{{ sec.title }}</h3>
