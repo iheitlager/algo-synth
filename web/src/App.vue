@@ -1,14 +1,12 @@
 <script setup lang="ts">
-// Wide-screen layout (spec 003): transport on top, the synths or the mixer
-// console with the MIDI player across the bottom, or the composer on a screen
-// of its own.
+// Wide-screen layout (spec 003): transport on top, the synths, the mixer
+// console or the composer, with the arranger across the bottom.
 import { status, synths, view } from './audio/engine'
 import ArrangerPane from './components/ArrangerPane.vue'
 import ComposerPane from './components/ComposerPane.vue'
 import ConsolePane from './components/ConsolePane.vue'
 import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
-import PlayerPane from './components/PlayerPane.vue'
 import SoundPane from './components/SoundPane.vue'
 import TransportBar from './components/TransportBar.vue'
 
@@ -32,14 +30,9 @@ function openSynth(s: number) {
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <ComposerPane v-if="view.main === 'composer'" class="main" />
     <SoundPane v-if="view.main === 'sound'" class="main" />
-    <!-- The bottom pane: the arranger (also under the composer) or the MIDI file player. -->
-    <div class="player bottom">
-      <nav v-if="view.main !== 'composer'" class="tabs" aria-label="Bottom pane">
-        <button :aria-pressed="view.bottom === 'arranger'" @click="view.bottom = 'arranger'">Arranger</button>
-        <button :aria-pressed="view.bottom === 'player'" @click="view.bottom = 'player'">MIDI player</button>
-      </nav>
-      <ArrangerPane v-if="view.main === 'composer' || view.bottom === 'arranger'" class="fill" />
-      <PlayerPane v-else class="fill" />
+    <!-- The bottom pane: the arranger, under every view (ADR-0015, ADR-0022). -->
+    <div class="foot bottom">
+      <ArrangerPane class="fill" />
     </div>
     <!-- One popover for every knob, in the synths and in the mixer. -->
     <KnobPop />
@@ -57,7 +50,7 @@ function openSynth(s: number) {
   grid-template-areas:
     'transport'
     'main'
-    'player';
+    'arranger';
 }
 .layout.mixer { grid-template-rows: auto minmax(0, 1fr) 200px; }
 .layout.composer { grid-template-rows: auto minmax(0, 1fr) minmax(180px, 30vh); }
@@ -67,10 +60,7 @@ function openSynth(s: number) {
   font: 600 14px/1.4 var(--con-font-silk); letter-spacing: 0.03em;
 }
 .main { grid-area: main; }
-.player { grid-area: player; }
+.foot { grid-area: arranger; }
 .bottom { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 .bottom .fill { flex: 1; }
-.tabs { display: flex; gap: 2px; }
-.tabs button { padding: 2px 10px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
-.tabs button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
 </style>

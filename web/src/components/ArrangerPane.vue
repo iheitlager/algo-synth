@@ -5,7 +5,7 @@
 // that section plays it. Every click is a message: the engine changes the song
 // and sends it back as text, so the arranger, the composer and the text agree.
 import { computed } from 'vue'
-import { arrange, playSong, song, status, stopSong, synthColour, type SongSection } from '../audio/engine'
+import { arrange, files, song, status, synthColour, type SongSection } from '../audio/engine'
 
 const STEPS_PER_BAR = 16
 /** Pixels per bar: wide enough to read a name, narrow enough for a song. */
@@ -70,8 +70,6 @@ function onBar(bar: number, e: MouseEvent) {
     <div class="pane-head">
       <span>Arranger · {{ song.sections.length }} sections · {{ bars }} bars<template v-if="song.loop[0]"> · loop {{ song.loop[0] }}–{{ song.loop[1] }}</template></span>
       <span class="tools">
-        <button :disabled="!status.running" :class="{ on: song.playing }" @click="playSong">▶ Play</button>
-        <button :disabled="!status.running" @click="stopSong">■ Stop</button>
         <button :disabled="!status.running" title="A new empty section of four bars, at the end" @click="arrange.addSection(4)">+ Section</button>
         <select v-if="song.sections.length" :disabled="!status.running" aria-label="Add a section to the arrangement" @change="addEntry">
           <option value="">+ Play section…</option>
@@ -79,6 +77,8 @@ function onBar(bar: number, e: MouseEvent) {
         </select>
       </span>
     </div>
+    <!-- What opening files reported: a MIDI file imported as the song, a setup's skipped entries. -->
+    <p v-if="files.notice" class="notice">{{ files.notice }}</p>
     <p v-if="!song.arrange.length" class="empty">
       No arrangement yet: every fragment loops. <b>+ Section</b> starts one; fragments, automation lanes and scenes are switched on per section below.
     </p>
@@ -128,6 +128,7 @@ function onBar(bar: number, e: MouseEvent) {
 .tools button.on { border-color: var(--accent); color: var(--accent); }
 .tools select { font: inherit; font-size: 11px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; }
 .empty { color: var(--muted); padding: 12px; margin: 0; }
+.notice { margin: 4px 12px; color: var(--accent); }
 .grid { position: relative; display: grid; grid-template-columns: 170px max-content; row-gap: 2px; padding: 6px 10px 10px; }
 .label { font-size: 11px; color: var(--muted); padding: 3px 8px 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
 .label i { width: 8px; height: 8px; border-radius: 2px; flex: none; }

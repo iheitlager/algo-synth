@@ -1,11 +1,11 @@
 //! The engine: up to `SYNTHS` synths, each with its own parameters and a voice
 //! pool (`poly`: one Mono voice per owner, or a voice per note), the mixer, the
-//! MIDI player, planar stereo blocks.
+//! song and its one clock (ADR-0022), planar stereo blocks.
 //!
 //! Real-time rules (ADR-0002): `render` never allocates, never panics and
 //! never calls `sin`/`exp`/`pow` per sample. The voices, tables and output are
-//! allocated in `Engine::new`. Loading a MIDI file allocates, once, between
-//! blocks (`load_midi`), never inside `render`.
+//! allocated in `Engine::new`. Importing a MIDI file allocates, once, between
+//! blocks (`import_midi`), never inside `render`.
 
 use crate::arp::{ARP_DEFAULTS, Arp};
 use crate::clock::{Clock, STEPS_PER_BEAT, TICKS_PER_STEP};
@@ -23,7 +23,6 @@ use crate::mono::preset::{DEFAULTS, Preset};
 use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
-use crate::player::Sequence;
 use crate::poly::{MAX_VOICES, Pool, VOICE_BUDGET};
 
 /// Song notes that may sound at once before one is dropped.
@@ -73,8 +72,6 @@ use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
 pub const BLOCK: usize = 128;
-/// MIDI channels the player routes.
-pub const CHANNELS: usize = 16;
 /// Synth slots, each any model, with its own parameters.
 pub const SYNTHS: usize = 16;
 /// Peak meters: one per strip (the synths, then the groups), then master left
@@ -123,7 +120,7 @@ pub struct Engine {
     out: Box<[f32; 2 * BLOCK]>,
     /// The highest level of each meter since `clear_meters`.
     meters: [f32; METERS],
-    /// The MIDI file's bytes, written by JavaScript before `load_midi`.
+    /// The MIDI file's bytes, written by JavaScript before `import_midi`.
     midi: Vec<u8>,
     /// A DX7 SysEx file's bytes, written by JavaScript before `load_sysex`, and the
     /// voices parsed from it.
@@ -136,11 +133,8 @@ pub struct Engine {
     peaks: Vec<f32>,
     /// Each synth's zones, for when it is a sampler.
     zones: Vec<ZoneMap>,
-    sequence: Sequence,
     /// The transport's tempo and sixteenth steps (spec 002 Req 5).
     clock: Clock,
-    /// The synth each MIDI channel plays on; `None` mutes it.
-    route: [Option<usize>; CHANNELS],
     /// The song (ADR-0012), its text as the view wrote it, its canonical
     /// print, the last load's error, and the synth each track plays on.
     song: Song,
@@ -227,9 +221,7 @@ impl Engine {
             samples: SampleStore::new(),
             peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
-            sequence: Sequence::default(),
             clock: Clock::new(sample_rate),
-            route: [Some(0); CHANNELS],
             song: Song::default(),
             song_buf: Vec::new(),
             song_text: Song::default().print(),
@@ -476,11 +468,10 @@ impl Engine {
     }
 
     /// The synth `owner` plays now: its own for live input, the route for a
-    /// channel.
+    /// song track.
     fn target(&self, owner: Owner) -> Option<usize> {
         match owner {
             Owner::Live(s) => Some(usize::from(s)),
-            Owner::Channel(ch) => self.routed(ch),
             Owner::Track(t) => self.song_routed(usize::from(t)),
         }
     }
@@ -533,12 +524,6 @@ impl Engine {
     fn stop_note(&mut self, owner: Owner, note: u8) {
         for (pool, params) in self.pools.iter_mut().zip(self.synths.iter()) {
             pool.note_off(owner, note, params);
-        }
-    }
-
-    fn release_player(&mut self) {
-        for pool in self.pools.iter_mut() {
-            pool.release_channels();
         }
     }
 
@@ -598,7 +583,7 @@ impl Engine {
         true
     }
 
-    // --- MIDI player -----------------------------------------------------
+    // --- MIDI files (imported, #173) --------------------------------------
 
     /// Size the MIDI buffer for `len` bytes and return it for writing.
     /// `None` if the file is larger than `MAX_MIDI`.
@@ -609,22 +594,6 @@ impl Engine {
         self.midi.clear();
         self.midi.resize(len, 0);
         Some(&mut self.midi)
-    }
-
-    /// Parse the buffer and make it the current sequence, stopped at the
-    /// top, its parts on synths 0, 1, 2… in order. Returns the number of
-    /// parts.
-    pub fn load_midi(&mut self) -> Result<usize, smf::Error> {
-        let parsed = smf::parse(&self.midi)?;
-        self.release_player();
-        self.sequence = Sequence::compile(&parsed, self.sample_rate);
-        self.route = [Some(0); CHANNELS];
-        for (synth, part) in self.sequence.parts().iter().enumerate().take(SYNTHS) {
-            if let Some(slot) = self.route.get_mut(usize::from(part.channel)) {
-                *slot = Some(synth);
-            }
-        }
-        Ok(self.sequence.parts().len())
     }
 
     // --- Samples ---------------------------------------------------------
@@ -723,10 +692,6 @@ impl Engine {
         self.zones.get(synth)
     }
 
-    pub fn sequence(&self) -> &Sequence {
-        &self.sequence
-    }
-
     pub fn clock(&self) -> &Clock {
         &self.clock
     }
@@ -741,25 +706,10 @@ impl Engine {
         self.clock.set_swing(pct);
     }
 
-    /// The MIDI file's transport: play, stop and seek move only the file
-    /// (spec 002 Req 9). The song has its own (`song_play`).
-    pub fn play(&mut self) {
-        self.sequence.play();
-    }
-
-    pub fn stop(&mut self) {
-        self.sequence.stop();
-        self.release_player();
-    }
-
-    pub fn seek(&mut self, sample: u64) {
-        self.sequence.seek(sample);
-        self.release_player();
-    }
-
-    /// The song's transport: the clock runs its lanes (spec 002 Req 5). Play
-    /// continues from where it stopped; stop goes back to the top, as a
-    /// drum machine's does. Hits ring out.
+    /// The transport, the only one (ADR-0022): the clock runs the song's
+    /// lanes (spec 002 Req 5). Play continues from where it paused or
+    /// stopped; pause holds the place; stop goes back to the top, as a drum
+    /// machine's does. Hits ring out.
     pub fn song_play(&mut self) {
         if !self.clock.playing() {
             self.hand_arps_over();
@@ -779,6 +729,14 @@ impl Engine {
         self.free_tick = 0;
         self.free_next = 0.0;
         self.free_pos = 0;
+    }
+
+    /// Halt the song where it is; play goes on from here. Its notes let go.
+    pub fn song_pause(&mut self) {
+        self.commit_song();
+        self.hand_arps_over();
+        self.release_song_notes();
+        self.clock.stop();
     }
 
     pub fn song_stop(&mut self) {
@@ -824,33 +782,7 @@ impl Engine {
         }
     }
 
-    /// Play `channel` on `synth`, or mute it with `None`. An unknown synth
-    /// mutes too.
-    pub fn route(&mut self, channel: u8, synth: Option<usize>) {
-        if let Some(slot) = self.route.get_mut(usize::from(channel)) {
-            *slot = synth.filter(|s| *s < SYNTHS);
-            for pool in self.pools.iter_mut() {
-                pool.release_owner(Owner::Channel(channel));
-            }
-        }
-    }
-
-    pub fn routed(&self, channel: u8) -> Option<usize> {
-        self.route.get(usize::from(channel)).copied().flatten()
-    }
-
     fn fire_due_events(&mut self) {
-        while let Some(ev) = self.sequence.due() {
-            let owner = Owner::Channel(ev.channel);
-            if !ev.on {
-                self.stop_note(owner, ev.note);
-            } else {
-                self.start_voice(owner, ev.note, ev.velocity);
-            }
-        }
-        if self.sequence.finished() {
-            self.stop();
-        }
         while let Some(k) = self.clock.due() {
             if k % STEPS_PER_BAR == 0 {
                 self.commit_song();
@@ -1627,8 +1559,8 @@ impl Engine {
     }
 
     /// Turn the loaded MIDI file into the song (#173): its text replaces the
-    /// song's, and each track goes to the synth its channel plays on in the
-    /// player. The number of tracks, or a negative code: the MIDI file's own
+    /// song's, and its tracks, one per channel in channel order, go to synths
+    /// 0, 1, 2… (ADR-0022). The number of tracks, or a negative code: the MIDI file's own
     /// (`smf::Error::code`), `ImportError::code`, or −9 when the text does
     /// not parse (a bug). Allocates; never called from `render`.
     pub fn import_midi(&mut self) -> Result<usize, i32> {
@@ -1640,10 +1572,9 @@ impl Engine {
         self.keep_synths = false;
         loaded.map_err(|_| -9)?;
         self.commit_song();
-        for (t, ch) in imported.channels.iter().enumerate() {
-            let synth = self.routed(*ch);
+        for t in 0..imported.channels.len() {
             if let Some(slot) = self.song_route.get_mut(t) {
-                *slot = synth;
+                *slot = Some(t).filter(|s| *s < SYNTHS);
             }
         }
         Ok(imported.channels.len())
@@ -1968,7 +1899,7 @@ impl Engine {
     // --- Render ----------------------------------------------------------
 
     /// Render `frames` (at most `BLOCK`) into the output buffer. The block is
-    /// split at player events and clock steps, so each lands on its exact
+    /// split at clock steps, so each lands on its exact
     /// sample.
     pub fn render(&mut self, frames: usize) {
         let n = frames.min(BLOCK);
@@ -1980,9 +1911,8 @@ impl Engine {
         while t < n {
             self.fire_due_events();
             let chunk = self
-                .sequence
+                .clock
                 .frames_until_next(n - t)
-                .min(self.clock.frames_until_next(n - t))
                 .min(self.free_frames_until_next(n - t));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
@@ -2020,7 +1950,6 @@ impl Engine {
                     pool.render(params, tools, buf);
                 }
             }
-            self.sequence.advance(chunk);
             self.clock.advance(chunk);
             if !self.clock.playing() {
                 self.free_pos += chunk as u64;

@@ -60,44 +60,83 @@ fn note_starts(e: &mut Engine, frames: u64, step: usize) -> Vec<(u64, usize, u8)
     out
 }
 
-/// #173: the demo Canon imported as a song starts the same notes on the
-/// same synths as the MIDI player plays them, at the same time (to the
-/// eight frames the test renders at once, far finer than a tick).
+/// #173, ADR-0022: the demo Canon imported as a song starts every note of
+/// the file on the synth of its channel (in channel order, from 0), at its
+/// time in the file (to the eight frames the test renders at once, far finer
+/// than a tick).
 #[test]
-fn the_demo_imported_plays_like_the_player() {
+fn the_demo_imported_plays_the_file() {
     let bytes = include_bytes!("../../../../web/public/demo.mid");
-    let fresh = || {
-        let mut e = Engine::new(48_000.0);
-        for s in 0..SYNTHS {
-            e.set_param(s, Param::Polyphony, 8.0);
-        }
-        e
-    };
-    let mut player = fresh();
-    assert!(load(&mut player, bytes).is_ok());
-    player.play();
-    let mut song = fresh();
-    assert!(load(&mut song, bytes).is_ok());
-    let tracks = song.import_midi().expect("the demo imports");
-    assert_eq!(tracks, player.sequence().parts().len());
-    assert!(song.song().arrange.len() > 1, "in sections");
-    song.song_play();
+    let mut e = Engine::new(48_000.0);
+    for s in 0..SYNTHS {
+        e.set_param(s, Param::Polyphony, 8.0);
+    }
+    assert_eq!(import(&mut e, bytes), Ok(4));
+    assert!(e.song().arrange.len() > 1, "in sections");
+    e.song_play();
     let frames = 48_000 * 24;
-    let a = note_starts(&mut player, frames, 8);
-    let b = note_starts(&mut song, frames, 8);
-    assert!(a.len() > 40, "the demo plays: {}", a.len());
-    assert_eq!(a.len(), b.len());
-    for (x, y) in a.iter().zip(&b) {
+    let want = file_starts(bytes, 48_000.0, frames);
+    let mut got = note_starts(&mut e, frames, 8);
+    got.sort_unstable();
+    assert!(want.len() > 40, "the demo plays: {}", want.len());
+    assert_eq!(want.len(), got.len());
+    for (x, y) in want.iter().zip(&got) {
         assert_eq!((x.1, x.2), (y.1, y.2), "{x:?} {y:?}");
         assert!(x.0.abs_diff(y.0) <= 8, "{x:?} {y:?}");
     }
 }
 
-fn load(e: &mut Engine, bytes: &[u8]) -> Result<usize, smf::Error> {
+/// Every note-on of a one-tempo file before `frames`, as (frame, synth,
+/// note): its channels on synths 0, 1, 2… in order, ordered as `note_starts`.
+fn file_starts(bytes: &[u8], rate: f64, frames: u64) -> Vec<(u64, usize, u8)> {
+    let smf = smf::parse(bytes).expect("parses");
+    let events = || smf.tracks.iter().flat_map(|t| t.events.iter());
+    let us = events()
+        .find_map(|e| match e.kind {
+            smf::Kind::Tempo(us) => Some(f64::from(us)),
+            _ => None,
+        })
+        .unwrap_or(500_000.0);
+    let per_tick = us / 1.0e6 / f64::from(smf.division) * rate;
+    let mut channels: Vec<u8> = events()
+        .filter_map(|e| match e.kind {
+            smf::Kind::NoteOn { channel, .. } => Some(channel),
+            _ => None,
+        })
+        .collect();
+    channels.sort_unstable();
+    channels.dedup();
+    let mut out: Vec<(u64, usize, u8)> = events()
+        .filter_map(|e| match e.kind {
+            smf::Kind::NoteOn {
+                channel,
+                note,
+                velocity,
+            } if velocity > 0 => {
+                let synth = channels.iter().position(|c| *c == channel)?;
+                Some(((e.tick as f64 * per_tick).round() as u64, synth, note))
+            }
+            _ => None,
+        })
+        .filter(|(f, _, _)| *f < frames)
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// Import a MIDI file as the song (#173): its tracks, or the error code.
+fn import(e: &mut Engine, bytes: &[u8]) -> Result<usize, i32> {
     e.midi_buffer(bytes.len())
         .expect("fits")
         .copy_from_slice(bytes);
-    e.load_midi()
+    e.import_midi()
+}
+
+/// Play song track `t` on synth `s`, as a loaded song routes it.
+fn route_track(e: &mut Engine, t: usize, s: Option<usize>) {
+    if let Some(r) = e.song_route.get_mut(t) {
+        *r = s;
+    }
 }
 
 /// One note on channel `ch` at tick 480 (0.5 s at 120 BPM), 480 ticks long.
@@ -192,19 +231,21 @@ fn mono_sustain_moves_a_held_note() {
     );
 }
 
-/// Spec 004 Req 6: live input and each MIDI channel have their own Mono
+/// Spec 004 Req 6: live input and each song track have their own Mono
 /// voice, and a note off on one leaves the others gated.
 #[test]
 fn mono_owners_are_independent() {
     let mut e = Engine::new(48_000.0);
-    e.start_voice(Owner::Channel(2), 60, 1.0);
-    e.start_voice(Owner::Channel(3), 64, 1.0);
+    route_track(&mut e, 2, Some(0));
+    route_track(&mut e, 3, Some(0));
+    e.start_voice(Owner::Track(2), 60, 1.0);
+    e.start_voice(Owner::Track(3), 64, 1.0);
     e.note_on(0, 67, 1.0);
     e.render(BLOCK);
     assert_eq!(e.active_voices(), 3);
-    e.stop_note(Owner::Channel(2), 60);
-    assert!(!gated(&e, Owner::Channel(2)));
-    assert!(gated(&e, Owner::Channel(3)) && gated(&e, Owner::Live(0)));
+    e.stop_note(Owner::Track(2), 60);
+    assert!(!gated(&e, Owner::Track(2)));
+    assert!(gated(&e, Owner::Track(3)) && gated(&e, Owner::Live(0)));
     // Live Mono is monophonic: a second key moves the same voice.
     e.note_on(0, 69, 1.0);
     e.render(BLOCK);
@@ -227,9 +268,10 @@ fn loud_patches_are_limited_to_full_scale() {
     ] {
         e.set_param(0, p, v);
     }
-    // 16 Mono voices: one per MIDI channel.
-    for ch in 0..16 {
-        e.start_voice(Owner::Channel(ch), 36 + 3 * ch, 1.0);
+    // 16 Mono voices: one per song track.
+    for t in 0..16 {
+        route_track(&mut e, usize::from(t), Some(0));
+        e.start_voice(Owner::Track(t), 36 + 3 * t, 1.0);
     }
     let mut peak_seen = 0.0_f32;
     for _ in 0..200 {
@@ -401,30 +443,31 @@ fn master_gain_is_global() {
 }
 
 /// Out-of-range synths are ignored, and a live note never reaches a
-/// channel's voice.
+/// track's voice.
 #[test]
 fn unknown_synths_are_ignored() {
     let mut e = Engine::new(48_000.0);
-    e.start_voice(Owner::Channel(4), 60, 1.0);
+    route_track(&mut e, 4, Some(0));
+    e.start_voice(Owner::Track(4), 60, 1.0);
     e.note_on(SYNTHS, 62, 1.0);
     e.note_off(SYNTHS + 4, 60);
     e.set_param(SYNTHS, Param::Cutoff, 300.0);
     e.preset(usize::MAX, Preset::Bass);
     e.reset(SYNTHS);
-    assert!(gated(&e, Owner::Channel(4)));
+    assert!(gated(&e, Owner::Track(4)));
     assert_eq!(e.param_value(SYNTHS, Param::Cutoff), 0.0);
     e.render(BLOCK);
     assert_eq!(e.active_voices(), 1);
 }
 
 #[test]
-fn a_channel_plays_on_its_routed_synth() {
+fn an_imported_track_plays_on_its_routed_synth() {
     let render = |synth: Option<usize>| {
         let mut e = Engine::new(48_000.0);
         silence(&mut e, 1);
-        load(&mut e, &one_note(0)).expect("loads");
-        e.route(0, synth);
-        e.play();
+        import(&mut e, &one_note(0)).expect("imports");
+        route_track(&mut e, 0, synth);
+        e.song_play();
         heard(&mut e, 300)
     };
     assert!(render(Some(0)) > 0.05);
@@ -433,27 +476,27 @@ fn a_channel_plays_on_its_routed_synth() {
     assert_eq!(render(Some(SYNTHS)), 0.0, "an unknown synth mutes");
 }
 
-/// Changing a synth's patch reaches the channel voice playing on it.
+/// Changing a synth's patch reaches the track's voice playing on it.
 #[test]
-fn a_channel_voice_follows_its_synths_parameters() {
+fn a_track_voice_follows_its_synths_parameters() {
     let mut e = Engine::new(48_000.0);
-    load(&mut e, &one_note(0)).expect("loads");
-    e.route(0, Some(4));
-    e.play();
+    import(&mut e, &one_note(0)).expect("imports");
+    route_track(&mut e, 0, Some(4));
+    e.song_play();
     // The note starts at 0.5 s (187.5 blocks).
     assert!(heard(&mut e, 200) > 0.05);
     silence(&mut e, 4);
     heard(&mut e, 2);
     assert!(
         heard(&mut e, 10) < 1.0e-4,
-        "silencing synth 4 silences the channel"
+        "silencing synth 4 silences the track"
     );
 }
 
-/// Spec 006 Req 1: a polyphonic synth plays a chord from live keys and a MIDI
-/// channel at once, each releasing only its own notes.
+/// Spec 006 Req 1: a polyphonic synth plays a chord from live keys and a song
+/// track at once, each releasing only its own notes.
 #[test]
-fn a_poly_synth_plays_chords_from_live_keys_and_a_channel() {
+fn a_poly_synth_plays_chords_from_live_keys_and_a_track() {
     let mut e = Engine::new(48_000.0);
     e.set_param(0, Param::Polyphony, 8.0);
     // A chord of three on channel 0 at 0.5 s, held for 0.5 s.
@@ -461,10 +504,10 @@ fn a_poly_synth_plays_chords_from_live_keys_and_a_channel() {
         0x83, 0x60, 0x90, 60, 100, 0x00, 0x90, 64, 100, 0x00, 0x90, 67, 100, 0x83, 0x60, 0x80, 60,
         0, 0x00, 0x80, 64, 0, 0x00, 0x80, 67, 0, 0x00, 0xFF, 0x2F, 0,
     ];
-    load(&mut e, &file(0, 480, &[chord])).expect("loads");
-    e.route(0, Some(0));
+    import(&mut e, &file(0, 480, &[chord])).expect("imports");
+    route_track(&mut e, 0, Some(0));
     e.note_on(0, 72, 1.0);
-    e.play();
+    e.song_play();
     let mut most = 0;
     for _ in 0..260 {
         e.render(BLOCK);
@@ -1666,10 +1709,10 @@ fn bad_sample_rate_falls_back() {
 }
 
 #[test]
-fn player_note_starts_on_its_exact_sample() {
+fn an_imported_note_starts_on_its_exact_sample() {
     let mut e = Engine::new(48_000.0);
-    assert_eq!(load(&mut e, &one_note(0)), Ok(1));
-    e.play();
+    assert_eq!(import(&mut e, &one_note(0)), Ok(1));
+    e.song_play();
     // 24_000 = 187 blocks + 64 frames; Mono's VCOs lag by LATENCY.
     for _ in 0..187 {
         e.render(BLOCK);
@@ -1702,103 +1745,78 @@ fn clock_steps_land_on_their_samples_through_render() {
     assert_eq!(onsets, want);
 }
 
+/// ADR-0022: one transport. Pause holds the place and play goes on from it;
+/// stop goes back to the top.
 #[test]
-fn the_song_and_the_file_have_their_own_transports() {
+fn pause_holds_the_place_and_stop_goes_to_the_top() {
     let mut e = Engine::new(48_000.0);
-    load(&mut e, &one_note(0)).expect("loads");
     e.set_tempo(60.0);
-    // The song plays with the file stopped.
     e.song_play();
     for _ in 0..100 {
         e.render(BLOCK);
     }
     // 12_800 samples at 12_000 per step: steps 0 and 1 have fired.
     assert_eq!(e.clock().step(), Some(1));
-    assert!(!e.sequence().playing());
-    // The file plays and stops without touching the song.
-    e.play();
+    e.song_pause();
+    let at = e.clock().position();
     e.render(BLOCK);
-    e.stop();
-    assert!(e.clock().playing());
-    assert_eq!(e.sequence().position(), BLOCK as u64);
-    // Stopping the song goes back to the top and leaves the file alone.
-    e.play();
+    assert!(!e.clock().playing());
+    assert_eq!((e.clock().position(), e.clock().step()), (at, Some(1)));
+    e.song_play();
+    for _ in 0..90 {
+        e.render(BLOCK);
+    }
+    assert_eq!(e.clock().step(), Some(2), "on from where it paused");
     e.song_stop();
-    e.render(BLOCK);
-    assert!(e.sequence().playing());
     assert_eq!((e.clock().position(), e.clock().step()), (0, None));
     e.song_play();
     e.render(BLOCK);
     assert_eq!(e.clock().step(), Some(0), "from the top again");
 }
 
+/// Pausing lets the song's notes go and leaves the keyboard's held.
 #[test]
-fn player_stops_at_the_end_and_releases() {
+fn pause_releases_song_voices_but_not_live_ones() {
     let mut e = Engine::new(48_000.0);
-    load(&mut e, &one_note(0)).expect("loads");
-    e.play();
-    for _ in 0..(48_000 * 2 / BLOCK) {
-        e.render(BLOCK);
-    }
-    assert!(!e.sequence().playing());
-    assert_eq!(e.active_voices(), 0);
-}
-
-#[test]
-fn every_channel_plays_and_mute_silences() {
-    let mut e = Engine::new(48_000.0);
-    load(&mut e, &one_note(9)).expect("loads");
-    assert!((0..16).all(|ch| e.routed(ch).is_some()));
-    e.route(9, None);
-    e.play();
-    for _ in 0..300 {
-        e.render(BLOCK);
-        assert_eq!(peak(&e), 0.0);
-    }
-}
-
-#[test]
-fn stop_releases_player_voices_but_not_live_ones() {
-    let mut e = Engine::new(48_000.0);
-    load(&mut e, &one_note(0)).expect("loads");
+    import(&mut e, &one_note(0)).expect("imports");
     e.note_on(0, 72, 1.0);
-    e.play();
+    e.song_play();
     for _ in 0..200 {
         e.render(BLOCK);
     }
-    e.stop();
+    assert!(gated(&e, Owner::Track(0)), "the song's note sounds");
+    e.song_pause();
     assert!(
         gated(&e, Owner::Live(0)),
         "the live Mono voice is still held"
     );
     assert!(
-        !gated(&e, Owner::Channel(0)),
-        "the player's Mono voice is released"
+        !gated(&e, Owner::Track(0)),
+        "the song's Mono voice is released"
     );
 }
 
 #[test]
 fn bad_files_are_rejected_and_keep_the_old_song() {
     let mut e = Engine::new(48_000.0);
-    load(&mut e, &one_note(0)).expect("loads");
-    assert_eq!(load(&mut e, b"not midi"), Err(smf::Error::NotMidi));
-    assert_eq!(e.sequence().parts().len(), 1);
+    import(&mut e, &one_note(0)).expect("imports");
+    assert_eq!(import(&mut e, b"not midi"), Err(smf::Error::NotMidi.code()));
+    assert_eq!(e.song().tracks.len(), 1);
     assert!(e.midi_buffer(MAX_MIDI + 1).is_none());
 }
 
-/// The shipped demo (tools/make_demo_mid.py) parses into its four parts.
+/// The shipped demo (tools/make_demo_mid.py) imports as four tracks, one per
+/// channel, on synths 0–3.
 #[test]
-fn demo_file_loads() {
+fn demo_file_imports() {
     let mut e = Engine::new(48_000.0);
-    let parts = load(&mut e, include_bytes!("../../../../web/public/demo.mid")).expect("loads");
-    assert_eq!(parts, 4);
-    let channels: Vec<u8> = e.sequence().parts().iter().map(|p| p.channel).collect();
-    assert_eq!(channels, vec![0, 1, 2, 3]);
-    let synths: Vec<Option<usize>> = (0..4).map(|ch| e.routed(ch)).collect();
+    let tracks = import(&mut e, include_bytes!("../../../../web/public/demo.mid"));
+    assert_eq!(tracks, Ok(4));
+    let synths: Vec<Option<usize>> = (0..4).map(|t| e.song_routed(t)).collect();
     assert_eq!(
         synths,
         vec![Some(0), Some(1), Some(2), Some(3)],
-        "one synth per part"
+        "one synth per track"
     );
 }
 
@@ -1913,14 +1931,14 @@ fn the_heavy_kits_have_a_deeper_louder_kick() {
     }
 }
 
-/// #114: a MIDI file's channel 10 plays on the slot it is routed to, when
-/// that slot holds the kit.
+/// #114: a MIDI file's channel 10, imported, plays on the slot its track is
+/// routed to, when that slot holds the kit.
 #[test]
 fn channel_ten_plays_on_a_kit_slot() {
     let mut e = kit(2);
-    assert_eq!(load(&mut e, &one_note(9)), Ok(1));
-    e.route(9, Some(2));
-    e.play();
+    assert_eq!(import(&mut e, &one_note(9)), Ok(1));
+    route_track(&mut e, 0, Some(2));
+    e.song_play();
     let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
     assert!(heard > 0.05, "the kick at 0.5 s");
     assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
@@ -2932,9 +2950,9 @@ fn channel_ten_plays_on_a_pad_sampler_slot() {
         .position(|w| w == [0x89, 60, 0])
         .expect("note off");
     file_bytes[off + 1] = 38;
-    assert_eq!(load(&mut e, &file_bytes), Ok(1));
-    e.route(9, Some(2));
-    e.play();
+    assert_eq!(import(&mut e, &file_bytes), Ok(1));
+    route_track(&mut e, 0, Some(2));
+    e.song_play();
     let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
     assert!(heard > 0.05, "the snare pad at 0.5 s");
     assert_eq!(e.pools[0].active(), 0, "nothing on synth 0");
