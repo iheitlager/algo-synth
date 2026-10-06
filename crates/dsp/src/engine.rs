@@ -1961,7 +1961,8 @@ impl Engine {
                 .min(self.free_frames_until_next(n - t));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
-                if pool.active() == 0 {
+                // A-440 sounds with no key held (#308).
+                if pool.active() == 0 && !params.a440 {
                     continue;
                 }
                 if params.model.uses_drums() {

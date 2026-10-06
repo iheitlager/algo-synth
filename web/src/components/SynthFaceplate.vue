@@ -5,7 +5,7 @@
 // goes out as a message and nothing is decided here.
 import { computed } from 'vue'
 import { exp, lin, visibleOuts } from '../audio/console'
-import { stepped } from '../audio/faceplate'
+import { keySwitches, keyTrackOf, stepped } from '../audio/faceplate'
 import { fmtUnit } from '../audio/faceplate'
 import { getEngine, layout, outText, params, status } from '../audio/engine'
 import { PAD_OUTS, scaleOf, type Control, type ModelDef } from '../audio/models'
@@ -20,6 +20,7 @@ import SamplerPane from './synth/SamplerPane.vue'
 import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
 import VoiceEditor from './synth/VoiceEditor.vue'
+import Rocker from './synth/Rocker.vue'
 import Switch from './synth/Switch.vue'
 
 const props = defineProps<{ s: number; def: ModelDef }>()
@@ -59,6 +60,11 @@ const envTimes = (c: Env) => ({
   s: c.s !== undefined ? val(c.s) : 1,
   r: c.r !== undefined ? val(c.r) : c.decayIsRelease && c.d !== undefined ? val(c.d) : 0.05,
 })
+/** The key-track amount with one of the Minimoog's keyboard control switches flipped (#308). */
+const keyFlip = (id: ParamId, k: number, on: boolean) => {
+  const [one, two] = keySwitches(val(id))
+  return k === 0 ? keyTrackOf(on, two) : keyTrackOf(one, on)
+}
 const EG4_RATE = stepped(0, 99, 1)
 const dxText = (v: number) => `${Math.round(v)}`
 const ALGORITHM = stepped(0, 31, 1)
@@ -96,6 +102,20 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
               v-else-if="c.kind === 'select'" :model-value="val(c.param)" :label="c.label" :options="c.options"
               :name="`${def.name} ${sec.title} ${c.label}`" :disabled="!status.running" @update:model-value="send(c.param, $event)"
             />
+            <Rocker
+              v-else-if="c.kind === 'switch' && c.rocker" :model-value="val(c.param) >= 0.5" :label="c.label" :colour="c.rocker"
+              :name="`${def.name} ${sec.title} ${c.label}`" :disabled="!status.running" @update:model-value="send(c.param, Number($event))"
+            />
+            <div v-else-if="c.kind === 'keyctl'" class="keyctl" role="group" :aria-label="`${def.name} ${c.label}`">
+              <span>{{ c.label }}</span>
+              <div class="pair">
+                <Rocker
+                  v-for="(on, k) in keySwitches(val(c.param))" :key="k" :model-value="on" :label="`${k + 1}`" colour="orange"
+                  :name="`${def.name} ${c.label} ${k + 1}`" :disabled="!status.running"
+                  @update:model-value="send(c.param, keyFlip(c.param, k, $event))"
+                />
+              </div>
+            </div>
             <Switch
               v-else-if="c.kind === 'switch'" :model-value="val(c.param) >= 0.5" :label="c.label"
               :name="`${def.name} ${sec.title} ${c.label}`" :disabled="!status.running" @update:model-value="send(c.param, Number($event))"
@@ -174,5 +194,7 @@ h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.2em; 
 .env { display: flex; flex-direction: column; gap: 6px; }
 .eknobs { display: flex; gap: 8px; justify-content: space-between; }
 .algobox { display: flex; gap: 14px; align-items: center; }
+.keyctl { display: grid; gap: 5px; justify-items: center; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.keyctl .pair { display: flex; gap: 6px; }
 .note { margin: 0; max-width: 260px; font: 400 11px/1.4 var(--con-font-mono); }
 </style>
