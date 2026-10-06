@@ -59,6 +59,8 @@ enum Under {
     Notes,
     /// A sampler frag: lanes, or notes when written as notes.
     Either,
+    /// A voice's `ctl` lines (ADR-0020).
+    Voice,
 }
 
 /// The spans of `text`.
@@ -94,7 +96,10 @@ pub fn lex(text: &str) -> Vec<Span> {
                     Under::Either => first.starts_with(['"', '[']) || first.contains(':'),
                     _ => false,
                 };
-                if notes {
+                if under == Under::Voice {
+                    l.push(s, e, Class::Keyword);
+                    l.tokens(e, body, false);
+                } else if notes {
                     l.tokens(s, body, true);
                 } else {
                     l.push(s, e, Class::Pad);
@@ -113,6 +118,7 @@ pub fn lex(text: &str) -> Vec<Span> {
                             tracks.push((n, k));
                         }
                     }
+                    "voice" => under = Under::Voice,
                     "frag" => {
                         let kind = word(3)
                             .and_then(|t| tracks.iter().rev().find(|(n, _)| *n == t))
@@ -427,6 +433,19 @@ arrange main main
         assert_eq!(of(SONG, Class::Note), ["c4", "e4", "g4", "c5", "f#3"]);
         assert!(of(SONG, Class::Rest).contains(&"~".to_string()));
         assert!(of(SONG, Class::Rest).contains(&"...".to_string()));
+    }
+
+    /// ADR-0020: a voice's `ctl` lines are not lanes.
+    #[test]
+    fn a_voice_and_its_controls() {
+        let text = "voice v = { saw(freq) |> svf(lp, cut) }\n  ctl cut = 800 [100 8000 exp]\n";
+        let k = of(text, Class::Keyword);
+        assert!(
+            k.contains(&"voice".to_string()) && k.contains(&"ctl".to_string()),
+            "{k:?}"
+        );
+        assert!(of(text, Class::Pad).is_empty());
+        assert!(of(text, Class::Call).contains(&"saw".to_string()));
     }
 
     #[test]

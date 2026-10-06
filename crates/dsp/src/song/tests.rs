@@ -2051,3 +2051,118 @@ fn voice_errors_say_where() {
         assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
     }
 }
+
+/// ADR-0020: a voice's controls are its indented `ctl` lines; on its track
+/// a control is a parameter by its own name, printed back as written.
+#[test]
+fn voice_controls_parse_resolve_and_print() {
+    let text = "voice v = { saw(freq) |> svf(lp, cutoff, res) }   # bright\n\
+        \x20 ctl cutoff = 800 [100  8000 exp]   # Hz\n\
+        \x20 ctl res = 0.3 [0 1]\n\
+        track lead synth Modular v\n\
+        frag r = lead .res(0.6)\n  \"c3\"\n\
+        auto up = lead.cutoff ramp 200 4000 /2\n\
+        scene s: lead.res 0.1\n\
+        mod lead.cutoff = sine.exprange(300, 3000)\n";
+    let s = Song::parse(text).expect("parses");
+    let v = &s.voices[0];
+    assert_eq!(v.ctls.len(), 2);
+    assert_eq!(
+        (v.ctls[0].default, v.ctls[0].lo, v.ctls[0].hi, v.ctls[0].exp),
+        (800.0, 100.0, 8000.0, true)
+    );
+    assert_eq!(s.autos[0].param, Param::Ctl1);
+    assert_eq!(s.scenes[0].sets[0].1, Param::Ctl2);
+    assert_eq!(
+        s.mods.iter().map(|m| m.param).collect::<Vec<_>>(),
+        vec![Param::Ctl2, Param::Ctl1]
+    );
+    let printed = s.print();
+    for line in [
+        "voice v = { saw(freq) |> svf(lp, cutoff, res) } # bright\n",
+        "  ctl cutoff = 800 [100 8000 exp] # Hz\n",
+        "  ctl res = 0.3 [0 1]\n",
+        "frag r = lead .res(0.6)\n",
+        "auto up = lead.cutoff ramp 200 4000 /2\n",
+        "scene s: lead.res 0.1\n",
+        "mod lead.cutoff = sine.exprange(300, 3000)\n",
+    ] {
+        assert!(printed.contains(line), "{line}in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+    // On a track without the voice, `cutoff` is the registry's.
+    let plain = Song::parse("track l synth Minimoog\nmod l.cutoff = 900\n").expect("parses");
+    assert_eq!(plain.mods[0].param, Param::Cutoff);
+}
+
+#[test]
+fn control_errors_say_where() {
+    for (text, line, col, msg) in [
+        (
+            "voice v = { saw(freq) }\n  cut = 3",
+            2,
+            3,
+            "under a voice go its controls: ctl cutoff = 800 [100 8000 exp]",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl freq = 3 [0 9]",
+            2,
+            7,
+            "this word is the voice language's own",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a = 3 [0 9]\n  ctl a = 3 [0 9]",
+            3,
+            7,
+            "this voice already has a control with this name",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a 3 [0 9]",
+            2,
+            9,
+            "= and a value go here",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a = x [0 9]",
+            2,
+            11,
+            "a value goes here",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a = 3",
+            2,
+            12,
+            "a range goes here: [low high] or [low high exp]",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a = 3 [9 0]",
+            2,
+            13,
+            "a range goes from low to high",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a = 3 [0 9 exp]",
+            2,
+            13,
+            "an exp range starts above 0",
+        ),
+        (
+            "voice v = { saw(freq) }\n  ctl a = 30 [0 9]",
+            2,
+            11,
+            "the value is in the range",
+        ),
+        (
+            "voice v = { saw(freq) * gain }\n  ctl a = 1 [0 9]",
+            1,
+            25,
+            "a voice is made of sin saw tri pulse noise lfo svf env, numbers and freq gate vel",
+        ),
+    ] {
+        let err = Song::parse(text).expect_err(text);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+    }
+    let many: String = (0..17).map(|i| format!("  ctl c{i} = 0 [0 1]\n")).collect();
+    let err = Song::parse(&format!("voice v = {{ saw(freq) }}\n{many}")).expect_err("many");
+    assert_eq!((err.line, err.msg), (18, "a voice has at most 16 controls"));
+}

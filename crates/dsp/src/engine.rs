@@ -1518,7 +1518,16 @@ impl Engine {
                 for (t, track) in song.tracks.iter().enumerate() {
                     let voice = track.voice.and_then(|i| song.voices.get(i));
                     if let (Some(v), Some(Some(s))) = (voice, route.get(t)) {
-                        self.set_graph(*s, v.program);
+                        // A new or changed voice starts its controls at their
+                        // values; an unchanged one keeps a knob turned by hand.
+                        if self.synths.get(*s).is_some_and(|p| p.graph != v.program) {
+                            self.set_graph(*s, v.program);
+                            for (i, c) in v.ctls.iter().enumerate() {
+                                if let Some(p) = Param::ctl_param(i) {
+                                    self.set_param(*s, p, c.default);
+                                }
+                            }
+                        }
                     }
                 }
                 self.apply_mix(&song, &before, &route);

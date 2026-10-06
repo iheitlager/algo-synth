@@ -17,13 +17,14 @@ ADR-0020 decides that a Modular synth's voice is a graph of unit generators writ
 - **The program travels by copy.** The compiled program lives in the synth's `MonoParams` (a preset's voice, or the song's at load) and each note copies it when it starts, so a changed graph takes the next note while sounding notes finish theirs, with no reference into a song that may be swapped at the bar line.
 - **No transcendental call per sample.** `sin` reads the shared sine table; `exprange` and the filter's cutoff in hertz use a fast `exp2`/`log2` (within 1e-5); a filter converts its cutoff to a note only when it changes.
 - **Loudness.** A voice that uses `env` is shaped by it and ends when its envelopes do (a percussive one ends with the key held); a voice without `env` sounds through the synth's ADSR, so every voice ends.
+- **Controls under the voice.** A voice's controls are the indented `ctl <name> = <value> [<low> <high> (exp)]` lines under it, as lanes sit under a frag; the voice compiles once they are read, so it can use their names. Control `i` is the generic `Param::Ctl1` + `i` of the voice's synth (ADR-0020's fixed block, 16 of them), holding the value in the control's own units, so `mod`, methods, lanes and scenes write hertz or a level as they do for any parameter; the voice holds it in its range. On a track that plays the voice its names come before the registry's (`lead.cutoff` is the voice's control there), and the printer writes them back. A new or changed voice sets its controls to their values; an unchanged one keeps a value turned by hand.
 - **Presets.** The Modular model has presets like every model (spec 005): their voices are text in `Preset::voice_text`, compiled outside `render` when the preset is chosen.
 
 ## Consequences
 
 - PR 1 of #216 measured 64 voices of the hoover preset (three band-limited oscillators, two LFOs, a filter) at 22% of one core against plan.md's 25% budget (`make bench`, `modular`). The limits above are an upper bound on a single voice, not a promise that 64 voices of the largest graph fit; the bench of the largest graph sets the limit before the language grows (#216, PR 3).
 - A graph's state is reset when a silent voice starts a note, not when the program changes under a sounding one.
-- Controls (`ctl`), the ladder, `fm`, `delay`, `mix`, `pan`, per-voice `env(shape)` and multichannel `[a, b]` come in later steps of #216, within the same rules.
+- The ladder, `fm`, `delay`, `mix`, `pan`, per-voice `env(shape)` and multichannel `[a, b]` come in later steps of #216, within the same rules.
 
 ## Alternatives considered
 

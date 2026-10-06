@@ -987,7 +987,28 @@ pub enum Param {
     ArpSeed = 490,
     /// Drum kit: the kick's drive into a soft clip, 0..=1 (#264).
     BdDrive = 491,
+    /// A Modular voice's controls (ADR-0020): `ctl` lines name them per
+    /// voice; each holds its value in the control's own units.
+    Ctl1 = 492,
+    Ctl2 = 493,
+    Ctl3 = 494,
+    Ctl4 = 495,
+    Ctl5 = 496,
+    Ctl6 = 497,
+    Ctl7 = 498,
+    Ctl8 = 499,
+    Ctl9 = 500,
+    Ctl10 = 501,
+    Ctl11 = 502,
+    Ctl12 = 503,
+    Ctl13 = 504,
+    Ctl14 = 505,
+    Ctl15 = 506,
+    Ctl16 = 507,
 }
+
+/// Controls a Modular voice may have (`Param::Ctl1`…).
+pub const CTLS: usize = 16;
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
 /// a return goes up; P3 and P4 are off.
@@ -1071,7 +1092,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 492] = [
+    pub const ALL: [(Param, &'static str); 508] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1564,7 +1585,35 @@ impl Param {
         (Param::ArpFree, "ArpFree"),
         (Param::ArpSeed, "ArpSeed"),
         (Param::BdDrive, "BdDrive"),
+        (Param::Ctl1, "Ctl1"),
+        (Param::Ctl2, "Ctl2"),
+        (Param::Ctl3, "Ctl3"),
+        (Param::Ctl4, "Ctl4"),
+        (Param::Ctl5, "Ctl5"),
+        (Param::Ctl6, "Ctl6"),
+        (Param::Ctl7, "Ctl7"),
+        (Param::Ctl8, "Ctl8"),
+        (Param::Ctl9, "Ctl9"),
+        (Param::Ctl10, "Ctl10"),
+        (Param::Ctl11, "Ctl11"),
+        (Param::Ctl12, "Ctl12"),
+        (Param::Ctl13, "Ctl13"),
+        (Param::Ctl14, "Ctl14"),
+        (Param::Ctl15, "Ctl15"),
+        (Param::Ctl16, "Ctl16"),
     ];
+
+    /// The control a parameter is, 0..16, for a Modular voice's `ctl`.
+    pub fn ctl(self) -> Option<usize> {
+        let i = (self as u32).checked_sub(Param::Ctl1 as u32)? as usize;
+        (i < CTLS).then_some(i)
+    }
+
+    /// The parameter of control `i`.
+    pub fn ctl_param(i: usize) -> Option<Param> {
+        let i = u32::try_from(i).ok().filter(|i| (*i as usize) < CTLS)?;
+        Param::from_id(Param::Ctl1 as u32 + i)
+    }
 
     /// The live arpeggiator's parameters: the engine owns them, not the voice,
     /// and a preset leaves them alone.
@@ -1764,6 +1813,22 @@ impl Param {
             Param::ArpRate => (0.0, 3.0),
             Param::ArpGate => (0.05, 1.0),
             Param::ArpSeed => (0.0, 9999.0),
+            Param::Ctl1
+            | Param::Ctl2
+            | Param::Ctl3
+            | Param::Ctl4
+            | Param::Ctl5
+            | Param::Ctl6
+            | Param::Ctl7
+            | Param::Ctl8
+            | Param::Ctl9
+            | Param::Ctl10
+            | Param::Ctl11
+            | Param::Ctl12
+            | Param::Ctl13
+            | Param::Ctl14
+            | Param::Ctl15
+            | Param::Ctl16 => (-100_000.0, 100_000.0),
             Param::BdOut
             | Param::SnOut
             | Param::CpOut

@@ -496,6 +496,22 @@ export const Param = {
   ArpFree: 489,
   ArpSeed: 490,
   BdDrive: 491,
+  Ctl1: 492,
+  Ctl2: 493,
+  Ctl3: 494,
+  Ctl4: 495,
+  Ctl5: 496,
+  Ctl6: 497,
+  Ctl7: 498,
+  Ctl8: 499,
+  Ctl9: 500,
+  Ctl10: 501,
+  Ctl11: 502,
+  Ctl12: 503,
+  Ctl13: 504,
+  Ctl14: 505,
+  Ctl15: 506,
+  Ctl16: 507,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

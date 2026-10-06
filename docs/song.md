@@ -144,10 +144,33 @@ ends when its envelopes do; one without sounds through the synth's ADSR.
 Without a voice, a `Modular` track plays a preset: `ModularBasic` or
 `ModularHoover`.
 
+### Controls
+
+A voice's controls are the indented `ctl` lines under it:
+`ctl <name> = <value> [<low> <high>]`, or `[<low> <high> exp]` for a knob that
+turns exponentially (a cutoff in hertz). The voice uses a control by its name.
+On a track that plays the voice, the control is a parameter like any other, by
+that name and in its own units: a `mod` line, a frag's method, an `auto` lane
+or a scene moves it, and the voice holds it in its range. A voice's name for a
+control comes before the registry's, so `lead.cutoff` below is the voice's.
+
+```song
+voice acid = { saw(freq) |> svf(lp, cutoff, res) * env(adsr) }
+  ctl cutoff = 800 [100 8000 exp]
+  ctl res = 0.3 [0 1]
+track lead synth Modular acid
+frag r = lead .res(0.7)
+  "c2 c2 eb2 <g2 bb1>"
+mod lead.cutoff = sine.slow(4).exprange(200, 3000)
+```
+
+A control starts at its value when the voice is new or changed; a knob turned
+by hand holds through a reload that leaves the voice as it was.
+
 At most 16 voices in a song; in one voice, at most 32 nodes (numbers, units,
 operators, methods), 8 of `saw`, `tri` and `pulse`, 8 of `sin` and `lfo`, 4
-filters and 4 envelopes. Voices go before the tracks that play them, all on
-one line.
+filters, 4 envelopes and 16 controls. Voices go before the tracks that play
+them, each on one line with its `ctl` lines under it.
 
 ## track
 
