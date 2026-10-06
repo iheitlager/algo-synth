@@ -1,4 +1,4 @@
-//! SuperCollider SynthDefs for the Modular synth (ADR-0022).
+//! SuperCollider SynthDefs for the Modular synth (ADR-0024).
 //!
 //! ```text
 //! SynthDef(\acid, { |freq = 110, gate = 1|

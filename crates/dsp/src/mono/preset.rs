@@ -280,7 +280,7 @@ impl Preset {
         }
     }
 
-    /// A Modular preset's code: a SuperCollider SynthDef (ADR-0022).
+    /// A Modular preset's code: a SuperCollider SynthDef (ADR-0024).
     pub fn code(self) -> Option<&'static str> {
         match self {
             Preset::ModularBasic => Some(
@@ -3441,7 +3441,7 @@ mod tests {
     }
 
     /// Spec 005 Req 1: every model has at least two presets of its own.
-    /// Every Modular preset's code builds (ADR-0022).
+    /// Every Modular preset's code builds (ADR-0024).
     #[test]
     fn every_modular_voice_compiles() {
         for (p, name) in Preset::ALL {

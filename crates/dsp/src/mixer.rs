@@ -3,11 +3,14 @@
 //! sends (P1–P4), each after the fader or before it and switched on or off (#144), routed by `Out` to the stereo master or to a
 //! higher-numbered group. It owns every strip parameter (`Param::is_strip`).
 //! Everything is allocated in `Mixer::new` (ADR-0002); gains and the solo
-//! paths are worked out when a parameter changes, never per sample.
+//! paths are worked out when a parameter changes, never per sample, and a
+//! strip's gains ramp to new values across a block so a moving fader, pan or
+//! send does not zipper (#271).
 
 use crate::engine::{BLOCK, SYNTHS};
 use crate::fx::insert::{Insert, InsertType};
 use crate::params::{INSERT_SLOTS, InsertField, Param};
+use crate::voice::Gains;
 
 /// The processors the sends feed (P1–P4).
 pub const SENDS: usize = 4;
@@ -138,6 +141,22 @@ impl Strip {
         }
     }
 
+    /// Where this block's gains head: left and right into the strip's out,
+    /// then the four sends. A stereo source feeds a send half from each side.
+    fn targets(&self, stereo: bool) -> [f32; 2 + SENDS] {
+        let [l, r] = if stereo && !self.group {
+            self.balance
+        } else {
+            self.pan
+        };
+        let half = if stereo { 0.5 } else { 1.0 };
+        let mut g = [self.level * l, self.level * r, 0.0, 0.0, 0.0, 0.0];
+        for (k, v) in g.iter_mut().skip(2).enumerate() {
+            *v = half * self.send_gain(k);
+        }
+        g
+    }
+
     /// What send `k` takes of the strip's signal: its level, times the fader
     /// unless it is taken before it, and nothing when it is off.
     fn send_gain(&self, k: usize) -> f32 {
@@ -178,6 +197,11 @@ pub struct Mixer {
     /// The groups each synth feeds directly, a bit per group, for the solos.
     feeds: [u8; SYNTHS],
     strips: [Strip; STRIPS],
+    /// Each strip's gains as they ramp from one block's to the next (#271).
+    gains: [Gains<{ 2 + SENDS }>; STRIPS],
+    /// Each strip's input was silent last block: its gains then jump, as
+    /// nothing is sounding that a step could click (a song's first values).
+    quiet: [bool; STRIPS],
     /// Heard, given the solos: a strip is silent when something is soloed and
     /// neither it, nor a group it feeds, nor a strip feeding it is.
     heard: [bool; STRIPS],
@@ -203,6 +227,10 @@ impl Mixer {
             direct: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
             feeds: [0; SYNTHS],
             strips: std::array::from_fn(|i| Strip::new(i >= SYNTHS)),
+            gains: std::array::from_fn(|i| {
+                Gains::new(Strip::new(i >= SYNTHS).targets(i >= SYNTHS))
+            }),
+            quiet: [true; STRIPS],
             heard: [true; STRIPS],
             sends: [[0.0; BLOCK]; SENDS],
             peaks: [0.0; STRIPS],
@@ -485,6 +513,13 @@ impl Mixer {
                 }
                 *p = peak * s.level;
             }
+            let was_quiet = self.quiet.get(i).copied().unwrap_or(true);
+            if let Some(q) = self.quiet.get_mut(i) {
+                *q = bus
+                    .iter()
+                    .chain(wide_r.iter().flat_map(|r| r.iter()))
+                    .all(|x| *x == 0.0);
+            }
             // Into the master, a group's stereo bus, or nowhere: a strip routed
             // nowhere still feeds its sends below.
             let (dl, dr): (&mut [f32], &mut [f32]) = match s.out {
@@ -506,42 +541,15 @@ impl Mixer {
                     (nl, nr)
                 }
             };
-            if let Some(right) = wide_r.as_deref() {
-                let [bl, br] = s.balance;
-                for (((x, y), l), r) in bus
-                    .iter()
-                    .zip(right.iter())
-                    .zip(dl.iter_mut())
-                    .zip(dr.iter_mut())
-                {
-                    *l += x * s.level * bl;
-                    *r += y * s.level * br;
-                }
-                for (k, send) in self.sends.iter_mut().enumerate() {
-                    let gain = 0.5 * s.send_gain(k);
-                    if gain == 0.0 {
-                        continue;
-                    }
-                    for ((acc, x), y) in send.iter_mut().zip(bus.iter()).zip(right.iter()) {
-                        *acc += (x + y) * gain;
-                    }
-                }
+            let Some(gains) = self.gains.get_mut(i) else {
                 continue;
+            };
+            let right = wide_r.as_deref();
+            let to = s.targets(right.is_some());
+            if was_quiet {
+                gains.jump(to);
             }
-            let [pl, pr] = s.pan;
-            for ((x, l), r) in bus.iter().zip(dl.iter_mut()).zip(dr.iter_mut()) {
-                *l += x * s.level * pl;
-                *r += x * s.level * pr;
-            }
-            for (k, send) in self.sends.iter_mut().enumerate() {
-                let gain = s.send_gain(k);
-                if gain == 0.0 {
-                    continue;
-                }
-                for (acc, x) in send.iter_mut().zip(bus.iter()) {
-                    *acc += x * gain;
-                }
-            }
+            send_out(gains, to, bus, right, dl, dr, &mut self.sends);
         }
         // Groups in ascending order: one that feeds another is done first.
         for gi in 0..GROUPS {
@@ -572,6 +580,10 @@ impl Mixer {
                     .fold(0.0_f32, |m, x| m.max(x.abs()));
                 *p = peak * s.level;
             }
+            let was_quiet = self.quiet.get(idx).copied().unwrap_or(true);
+            if let Some(q) = self.quiet.get_mut(idx) {
+                *q = gl.iter().chain(gr.iter()).all(|x| *x == 0.0);
+            }
             let (dl, dr): (&mut [f32], &mut [f32]) = match s.out {
                 0 => (&mut *left, &mut *right),
                 o if o > GROUPS => {
@@ -592,27 +604,56 @@ impl Mixer {
                     (ol, or)
                 }
             };
-            let [bl, br] = s.pan;
-            for (((l, r), ol), or) in gl
-                .iter()
-                .zip(gr.iter())
-                .zip(dl.iter_mut())
-                .zip(dr.iter_mut())
-            {
-                *ol += l * s.level * bl;
-                *or += r * s.level * br;
+            let Some(gains) = self.gains.get_mut(idx) else {
+                continue;
+            };
+            let to = s.targets(true);
+            if was_quiet {
+                gains.jump(to);
             }
-            for (k, send) in self.sends.iter_mut().enumerate() {
-                let gain = 0.5 * s.send_gain(k);
-                if gain == 0.0 {
-                    continue;
-                }
-                for ((acc, l), r) in send.iter_mut().zip(gl.iter()).zip(gr.iter()) {
-                    *acc += (l + r) * gain;
+            send_out(gains, to, gl, Some(gr), dl, dr, &mut self.sends);
+        }
+    }
+}
+
+/// Add a strip's signal, mono (`right` none) or stereo, into its out and its
+/// sends at gains that ramp to `to` across the block (#271); a send at 0
+/// before and after is skipped.
+fn send_out(
+    gains: &mut Gains<{ 2 + SENDS }>,
+    to: [f32; 2 + SENDS],
+    left: &[f32],
+    right: Option<&[f32]>,
+    dl: &mut [f32],
+    dr: &mut [f32],
+    sends: &mut [[f32; BLOCK]; SENDS],
+) {
+    let n = left.len().min(dl.len()).min(dr.len());
+    let from = gains.now();
+    let moving = gains.aim(to, n);
+    let mut live = [false; SENDS];
+    for (k, l) in live.iter_mut().enumerate() {
+        let at = |g: &[f32; 2 + SENDS]| g.get(2 + k).copied().unwrap_or(0.0);
+        *l = at(&from) != 0.0 || at(&to) != 0.0;
+    }
+    for j in 0..n {
+        let g = if moving { gains.tick() } else { to };
+        let x = left.get(j).copied().unwrap_or(0.0);
+        let y = right.and_then(|r| r.get(j)).copied().unwrap_or(x);
+        if let (Some(l), Some(r)) = (dl.get_mut(j), dr.get_mut(j)) {
+            *l += x * g[0];
+            *r += y * g[1];
+        }
+        let mid = if right.is_some() { x + y } else { x };
+        for (k, send) in sends.iter_mut().enumerate() {
+            if live.get(k).copied().unwrap_or(false) {
+                if let (Some(acc), Some(gain)) = (send.get_mut(j), g.get(2 + k)) {
+                    *acc += mid * gain;
                 }
             }
         }
     }
+    gains.settle();
 }
 
 /// The raw signal a strip's vocoder follows: synth `key` (1–16), never the
@@ -628,6 +669,46 @@ fn key_of(raw: &[[f32; BLOCK]; SYNTHS], strip: usize, key: usize, n: usize) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The largest jump between neighbouring samples, across blocks.
+    fn largest_step(x: &[f32]) -> f32 {
+        x.windows(2).fold(0.0, |m, w| m.max((w[1] - w[0]).abs()))
+    }
+
+    /// #271: a fader, pan and send written every block, as a `mod` line or a
+    /// lane writes them, ramp across the block instead of stepping at its edge.
+    #[test]
+    fn a_fader_pan_and_send_moved_every_block_do_not_step() {
+        let mut m = Mixer::new(48_000.0);
+        let (mut left, mut right, mut send) = (Vec::new(), Vec::new(), Vec::new());
+        for block in 0..16 {
+            let up = block % 2 == 0;
+            m.set(0, Param::Level, if up { 1.0 } else { 0.2 });
+            m.set(0, Param::Pan, if up { -1.0 } else { 1.0 });
+            m.set(0, Param::Send1, if up { 1.0 } else { 0.0 });
+            // A steady input: any step in a gain shows up whole.
+            m.bus(0, 0..BLOCK).expect("bus").fill(0.5);
+            let (mut l, mut r) = ([0.0; BLOCK], [0.0; BLOCK]);
+            m.mix(BLOCK, &mut l, &mut r);
+            left.extend_from_slice(&l);
+            right.extend_from_slice(&r);
+            send.extend_from_slice(&m.sends[0]);
+        }
+        // Stepped, a side jumps by half the input at a block's edge; ramped,
+        // by that over a block.
+        let ramp = 0.5 / BLOCK as f32 * 1.01;
+        for (side, x) in [("left", &left), ("right", &right), ("send", &send)] {
+            let step = largest_step(&x[BLOCK..]);
+            assert!(
+                step <= ramp,
+                "{side}: a step of {step}, a ramp moves {ramp}"
+            );
+        }
+        assert!(
+            left[BLOCK - 1] > 0.49 && right[2 * BLOCK - 1] > 0.09,
+            "each block ends on its gains"
+        );
+    }
 
     /// #225: automation sets strip parameters from `render`; only a solo or a
     /// route reworks who is heard, so a fader move leaves it alone.

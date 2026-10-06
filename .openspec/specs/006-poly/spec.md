@@ -233,3 +233,23 @@ The Polymoog model SHALL play sixteen voices, each with its own resonant filter 
 - THEN the most prominent harmonic stands out by several dB and moves down
 
 **Tests:** `crates/dsp/src/engine/tests.rs::the_polymoog_has_sixteen_voices`, `crates/dsp/src/engine/tests.rs::the_vox_humana_resonance_peak_follows_the_filter_envelope`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`
+
+### Requirement 17: Per-voice values [SHOULD]
+
+A song's signal that uses `env(…)` or a list `[a, b]` SHALL give each voice of a Mono or Poly synth its own value of `cutoff`, `resonance`, `vco1level`, `vco2level`, `vco3level`, `noiselevel`, `ringlevel` or `sublevel` (ADR-0023, #273). The engine SHALL evaluate it once per block for each sounding voice, `env` from the times since the voice's note began and since its key was let go, a list by voice slot round the list, and the voice SHALL read that value instead of the synth's while the modulation writes it; the synth's own value SHALL be left alone. Such a signal on a strip, another parameter, a drum, sampler or Modular track, or with `.lag`, SHALL be a parse error with its column. `render` SHALL not allocate, and 64 voices with two per-voice signals each SHALL stay within the CPU budget.
+
+**Implementation:** `crates/dsp/src/song/signal.rs::Voice`, `crates/dsp/src/mono/voice.rs::VoiceSet`, `crates/dsp/src/poly.rs::Pool::set_voice`, `crates/dsp/src/engine.rs::Engine::run_mods`, `crates/dsp/src/song.rs::per_voice_fits`, `tools/bench.mjs`
+
+#### Scenario: an envelope per note
+
+- GIVEN `mod lead.cutoff = env(perc).exprange(200, 4000)` on a Juno-106 playing `"c3 ~ e3 ~"`
+- WHEN the song plays
+- THEN each note's voice starts above 2500 Hz and falls below 300 Hz, and the synth's own cutoff is unchanged
+
+#### Scenario: a rate per voice
+
+- GIVEN `mod lead.cutoff = lfo([1, 3]).exprange(200, 4000)` and a held chord of two notes
+- WHEN the song plays
+- THEN the two voices hold different cutoffs
+
+**Tests:** `crates/dsp/src/engine/tests.rs::an_envelope_on_the_cutoff_restarts_with_each_note_of_a_poly_synth`, `crates/dsp/src/engine/tests.rs::a_list_gives_two_held_voices_their_own_values`, `crates/dsp/src/song/signal.rs::tests::env_and_lists_are_per_voice`, `crates/dsp/src/song/tests.rs::per_voice_mod_errors_say_where`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`, `tools/bench.mjs` (`make bench`: the `per-voice` scenario)

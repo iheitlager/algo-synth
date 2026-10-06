@@ -103,7 +103,7 @@ pub enum Shape {
     Times(f32, f32, f32, f32),
     /// Attack, decay, sustain and release from nodes (numbers or controls),
     /// read when the gate moves, so a knob changes the next note's shape
-    /// (ADR-0022).
+    /// (ADR-0024).
     Nodes([u8; 4]),
 }
 

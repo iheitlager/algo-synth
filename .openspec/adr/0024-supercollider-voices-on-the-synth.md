@@ -1,4 +1,4 @@
-# 0022: SuperCollider voices on the Modular synth's panel
+# 0024: SuperCollider voices on the Modular synth's panel
 
 **Status:** Proposed · **Date:** 2026-10-06 · supersedes the syntax, storage and Sound-screen parts of ADR-0020 and ADR-0021
 

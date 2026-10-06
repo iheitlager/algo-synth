@@ -49,6 +49,8 @@ scene open: strip1.Solo 0, strip2.Mute 0, master.P2Return 0.4
 mod lead.resonance = lfo(0.5, tri).range(0.1, 0.6).lag(0.05)
 mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
 mod buzzer.bright = sine.slow(2).exprange(800, 5000)
+mod lead.cutoff = env(perc).exprange(300, 4000)
+mod pad.vco1level = [1, 0.6, 0.8]
 
 section a 2: beat hold sand roam zap ring fade pan sweep [open]
 section b 1: beat sand roam zap [solo]

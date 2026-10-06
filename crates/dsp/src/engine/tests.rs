@@ -1011,6 +1011,8 @@ fn fader_mute_and_solo() {
     assert!(heard(&mut e, 40) > 0.05);
     e.set_param(0, Param::Level, 0.0);
     e.set_param(1, Param::Mute, 1.0);
+    // A fader closing on a sounding synth ramps down across one block (#271).
+    heard(&mut e, 1);
     assert_eq!(heard(&mut e, 10), 0.0, "fader 0 and a mute are silent");
     e.set_param(1, Param::Mute, 0.0);
     assert!(heard(&mut e, 10) > 0.05, "synth 1 unmuted");
@@ -1743,6 +1745,25 @@ fn clock_steps_land_on_their_samples_through_render() {
     assert_eq!(onsets, want);
 }
 
+/// #295: an imported note held past the last start sounds until its end, on
+/// through the empty sections after it.
+#[test]
+fn an_imported_held_note_rings_to_its_end() {
+    // At 120 BPM a bar is 2 s: a note from 0.5 s held 12 bars.
+    let held = vec![
+        0x83, 0x60, 0x90, 60, 100, 0x81, 0xB4, 0x00, 0x80, 60, 0, 0x00, 0xFF, 0x2F, 0,
+    ];
+    let mut e = Engine::new(48_000.0);
+    import(&mut e, &file(0, 480, &[held])).expect("imports");
+    e.song_play();
+    // Ten bars in: 20 s.
+    for _ in 0..(48_000 * 20 / BLOCK) {
+        e.render(BLOCK);
+    }
+    assert!(e.clock().playing(), "the song is still playing");
+    assert!(gated(&e, Owner::Track(0)), "the note still sounds");
+}
+
 /// ADR-0022: one transport. Pause holds the place and play goes on from it;
 /// stop goes back to the top.
 #[test]
@@ -1903,29 +1924,31 @@ fn a_hard_hit_is_accented_and_the_knobs_reach_the_pads() {
 /// louder in its tail.
 #[test]
 fn the_heavy_kits_have_a_deeper_louder_kick() {
+    // The tail's loudness, tune and drive; the engine stays in here, as one
+    // is large for a test thread's stack.
     let tail = |preset: Preset| {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::MasterGain, 1.0);
         e.preset(0, preset);
         e.note_on(0, 36, 0.8);
         run(&mut e, 48_000 / 5 / BLOCK);
-        (run(&mut e, 48_000 / 5 / BLOCK), e)
+        let loud = run(&mut e, 48_000 / 5 / BLOCK);
+        (
+            loud,
+            e.param_value(0, Param::BdTune),
+            e.param_value(0, Param::BdDrive),
+        )
     };
     for (stock, heavy) in [
         (Preset::Kit808, Preset::Heavy808),
         (Preset::Kit909, Preset::Heavy909),
     ] {
         assert_eq!(stock.model(), heavy.model());
-        let ((quiet, _), (loud, e)) = (tail(stock), tail(heavy));
+        let (quiet, _, _) = tail(stock);
+        let (loud, tune, drive) = tail(heavy);
         assert!(loud > 1.5 * quiet, "{heavy:?}: tail {loud} vs {quiet}");
-        assert!(
-            e.param_value(0, Param::BdTune) < 0.0,
-            "{heavy:?} is tuned down"
-        );
-        assert!(
-            e.param_value(0, Param::BdDrive) > 0.0,
-            "{heavy:?} is driven"
-        );
+        assert!(tune < 0.0, "{heavy:?} is tuned down");
+        assert!(drive > 0.0, "{heavy:?} is driven");
     }
 }
 
@@ -3806,7 +3829,7 @@ fn a_voice_is_edited_on_its_own_lines() {
     assert_eq!(e.voice_error(), None);
 }
 
-/// ADR-0022: a SynthDef set on a synth plays, its numbers are live knobs on
+/// ADR-0024: a SynthDef set on a synth plays, its numbers are live knobs on
 /// a held note, the code shows their values, and a bad edit changes nothing.
 #[test]
 fn a_synthdef_plays_with_live_knobs() {
@@ -3841,4 +3864,65 @@ fn a_synthdef_plays_with_live_knobs() {
     // Another model's preset drops the code.
     e.preset(0, crate::mono::preset::Preset::MiniLead);
     assert_eq!(e.code(0), None);
+}
+
+/// The cutoffs in hertz the sounding voices of the track's synth hold (ADR-0023).
+fn voice_cutoffs(e: &Engine, track: usize) -> Vec<f32> {
+    let s = e.song_routed(track).expect("routed");
+    (0..MAX_VOICES)
+        .filter_map(|i| e.pools[s].voice_value(i, Param::Cutoff))
+        .map(|n| 440.0 * ((n - 69.0) / 12.0).exp2())
+        .collect()
+}
+
+/// #273's acceptance: `env(perc)` on a Poly synth's cutoff restarts with each
+/// note, each voice its own, while the synth's own cutoff is left alone.
+#[test]
+fn an_envelope_on_the_cutoff_restarts_with_each_note_of_a_poly_synth() {
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nfrag r = lead\n  \"c3 ~ e3 ~\"\n\
+        mod lead.cutoff = env(perc).exprange(200, 4000)\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let own = e.param_value(s, Param::Cutoff);
+    e.song_play();
+    // Up to `secs` into the song, then the brightest voice.
+    let mut at = 0.0;
+    let mut brightest = |e: &mut Engine, secs: f32| {
+        while at < secs {
+            e.render(BLOCK);
+            at += BLOCK as f32 / 48_000.0;
+        }
+        voice_cutoffs(e, 0).into_iter().fold(0.0_f32, f32::max)
+    };
+    let first = brightest(&mut e, 0.01);
+    assert!(first > 2500.0, "c3 starts bright: {first}");
+    let late = brightest(&mut e, 0.9);
+    assert!(late < 300.0, "and falls: {late}");
+    let second = brightest(&mut e, 1.01);
+    assert!(second > 2500.0, "e3 starts bright again: {second}");
+    assert_eq!(
+        e.param_value(s, Param::Cutoff),
+        own,
+        "the synth's cutoff is its own"
+    );
+    e.song_stop();
+    assert!(
+        voice_cutoffs(&e, 0).is_empty(),
+        "stopped, the voices follow the synth"
+    );
+}
+
+/// #273's acceptance: `lfo([1, 3])` runs each voice of a chord at its own rate.
+#[test]
+fn a_list_gives_two_held_voices_their_own_values() {
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nfrag r = lead\n  \"[c3,e3]\"\n\
+        mod lead.cutoff = lfo([1, 3]).exprange(200, 4000)\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    run(&mut e, 48_000 / 5 / BLOCK);
+    let cut = voice_cutoffs(&e, 0);
+    assert_eq!(cut.len(), 2, "two voices: {cut:?}");
+    assert!((cut[0] / cut[1] - 1.0).abs() > 0.1, "each its own: {cut:?}");
 }

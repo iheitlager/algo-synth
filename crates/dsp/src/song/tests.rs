@@ -1790,6 +1790,52 @@ fn mod_errors_say_where() {
     assert_eq!(err.msg, "a song's signals have at most 256 nodes");
 }
 
+/// ADR-0023: a signal with `env` or a list goes on a Mono or Poly track's
+/// voice parameters, without `.lag`, and says where when it does not.
+#[test]
+fn per_voice_mod_errors_say_where() {
+    let head = "track kit drums\ntrack lead synth Juno106 JunoPad\n\
+        voice buzz = { saw(freq) }\ntrack buzzer synth Modular buzz\nfrag b = kit\n  bd x\n";
+    for (line, col, msg) in [
+        (
+            "mod strip1.level = [0.5, 1]",
+            20,
+            "env and lists give each voice its own value: they modulate a track",
+        ),
+        (
+            "mod lead.pan = env(perc)",
+            16,
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+        ),
+        (
+            "mod lead.cutoff = env(perc).range(200, 900).lag(0.1)",
+            19,
+            ".lag follows one value for the song, not one per voice",
+        ),
+        (
+            "mod kit.cutoff = env(perc)",
+            18,
+            "env and lists need a Mono or Poly synth; a Modular voice writes them in its graph",
+        ),
+        (
+            "mod buzzer.cutoff = [300, 600]",
+            21,
+            "env and lists need a Mono or Poly synth; a Modular voice writes them in its graph",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}")).expect_err(line);
+        assert_eq!((err.line, err.col, err.msg), (7, col, msg), "{line}");
+    }
+    // On the track's voice parameters it parses, and so does a method.
+    let ok = format!(
+        "{head}frag r = lead .resonance(lfo([1, 3]).range(0, 0.6))\n  \"c3\"\n\
+        mod lead.cutoff = env(perc).exprange(200, 4000)\nmod lead.vco1level = [1, 0.5]\n"
+    );
+    let song = Song::parse(&ok).expect("parses");
+    assert!(song.mods.iter().all(|m| m.signal.per_voice()));
+    assert_eq!(Song::parse(&song.print()), Ok(song));
+}
+
 /// #204: parameter methods on a fragment's line parse with it, belong to its
 /// track, and print after the rest of the line.
 #[test]

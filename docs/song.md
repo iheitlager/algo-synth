@@ -601,6 +601,33 @@ so a `mod` wins over an `auto` or a scene on the same parameter. One `mod`
 per parameter. When a modulation stops (the song stops, or an edit takes it
 out) the parameter goes back to the value it had before.
 
+### Per voice: `env` and lists
+
+Two sources give each voice of a Mono or Poly synth its own value (ADR-0023):
+
+| source | what |
+|---|---|
+| `env(adsr)`, `env(perc)`, `env(a, d, s, r)` | an envelope from 0 to 1 that starts with each note: the synth's amplifier ADSR, a short percussive one, or times in seconds |
+| `[a, b, …]` | a number per voice: voice slot *i* takes number *i* round the list |
+| `lfo([a, b])` | an LFO per voice, each at its own rate |
+
+```song
+track lead synth Juno106 JunoPad
+frag chords = lead
+  "[c3,e3,g3] ~ [f3,a3,c4] ~"
+mod lead.cutoff = env(perc).exprange(200, 4000)
+mod lead.resonance = lfo([1, 3, 5]).range(0.1, 0.6)
+```
+
+A signal that uses one of them is per voice. It goes on a track whose synth
+is a Mono or Poly one (not FM, LA, a drum machine, a sampler or a Modular
+synth, whose voice writes `env` and lists in its graph), on one of the
+parameters a voice holds: `cutoff`, `resonance`, `vco1level`, `vco2level`,
+`vco3level`, `noiselevel`, `ringlevel` or `sublevel`. It can't use `.lag`.
+Each voice is worked out once a block, so a note takes its own value within
+a block (2.7 ms) of starting; the synth's own knob is left alone, and the
+voices follow it again when the modulation stops.
+
 ### Parameter methods
 
 The same, written on a frag's line after everything else: `.<param>(<signal>)`
