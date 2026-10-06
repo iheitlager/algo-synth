@@ -6,7 +6,7 @@ Common to every requirement: `render` follows ADR-0002 (no allocation, no panic,
 
 ### Requirement 1: Voice pool [MUST]
 
-Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a model uses `Model::voices()`. A monosynth model SHALL keep one voice per owner with note priority, legato and glide on that voice (spec 004 Req 6), so every monosynth renders exactly as it did before the pool. A poly model SHALL press each note on a voice of its own. A voice SHALL remember its owner (live keys or a MIDI channel) and its note, so a note-off releases its own voice, and live keys and MIDI channels on one synth SHALL NOT release each other. Rerouting a channel or `all_off` SHALL release its voices.
+Each synth SHALL own a pool of 16 voices, allocated in `Engine::new`, of which a model uses `Model::voices()`. A monosynth model SHALL keep one voice per owner with note priority, legato and glide on that voice (spec 004 Req 6), so every monosynth renders exactly as it did before the pool. A poly model SHALL press each note on a voice of its own. A voice is of the kind its model plays (Mono, LA, FM, a drum pad, the samplers' or the Modular graph voice of spec 005 Req 11), and a voice of another kind SHALL be rebuilt when a note presses it. A voice SHALL remember its owner (live keys or a MIDI channel) and its note, so a note-off releases its own voice, and live keys and MIDI channels on one synth SHALL NOT release each other. Rerouting a channel or `all_off` SHALL release its voices.
 
 **Implementation:** `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/engine.rs::Engine` (#80)
 
