@@ -38,6 +38,8 @@ export type Control =
   | { kind: 'sampler' }
   /** The pad sampler's kit browser, 4 x 4 pad grid and pad editor (#125). */
   | { kind: 'pads' }
+  /** The Modular synth's song voice, written as text, with its ctl knobs (#292). */
+  | { kind: 'voice' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -1193,7 +1195,7 @@ const modular: ModelDef = {
   presets: ['ModularBasic', 'ModularHoover', 'ModularKick'],
   sections: [
     { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
-    { title: 'Voice', controls: [{ kind: 'note', text: 'The sound is the voice line in the song: voice name = { saw(freq) |> svf(lp, 1800) }' }] },
+    { title: 'Voice', wide: true, controls: [{ kind: 'voice' }] },
   ],
 }
 

@@ -83,6 +83,13 @@ describe('model descriptions', () => {
     }
   })
 
+  it('writes the voice as text on the Modular faceplate only (#292)', () => {
+    for (const m of MODELS) {
+      const voice = controls(m).some((c) => c.kind === 'voice')
+      expect(voice, m.name).toBe(m.id === Model.Modular)
+    }
+  })
+
   it('has five colours per palette, and presets that exist', () => {
     for (const m of MODELS) {
       for (const k of ['panel', 'ink', 'soft', 'trim', 'accent'] as const) expect(m.theme[k], `${m.name} ${k}`).toMatch(/^#[0-9a-f]{6}$/i)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  NEW_AMOUNT, amountToPos, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
+  NEW_AMOUNT, amountToPos, playedVoice, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
   type PatchSlot,
 } from './faceplate'
 
@@ -160,5 +160,20 @@ describe('jack names', () => {
     expect(jackName('Lfo2Rate')).toBe('LFO 2 rate')
     expect(jackName('HpCutoff')).toBe('HP cutoff')
     expect(jackName('Ramp')).toBe('Ramp')
+  })
+})
+
+describe('modular voice', () => {
+  it('is the song voice the first track on the synth plays, or none for a factory voice', () => {
+    const tracks = [
+      { synth: 0, voice: -1 },
+      { synth: 2, voice: -1 },
+      { synth: 2, voice: 1 },
+      { synth: 3, voice: 0 },
+    ]
+    expect(playedVoice(tracks, 2)).toBe(1)
+    expect(playedVoice(tracks, 3)).toBe(0)
+    expect(playedVoice(tracks, 0)).toBe(-1)
+    expect(playedVoice(tracks, 5)).toBe(-1)
   })
 })
