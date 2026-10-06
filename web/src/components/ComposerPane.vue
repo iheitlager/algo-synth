@@ -5,8 +5,8 @@
 // engine sends back. Nothing here parses or plays.
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, loadSong, params, playSong, requestSong, writeMixerToSong, routeTrack, setSongSwing, setSongTempo, setStep, song, status, stopSong,
-  stripName, synthColour, synths, type Route,
+  MUTE, loadSong, params, requestSong, writeMixerToSong, routeTrack, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
 import { Model, Pad, Param } from '../audio/params'
@@ -51,12 +51,6 @@ const playing = (f: number, len: number) => {
   const k = song.entry >= 0 ? song.local : song.step
   return k < 0 ? -1 : k % len
 }
-// Where the song is: in an arrangement the bar counts from the top of the arrangement, so it follows the loop.
-const position = computed(() => {
-  if (song.entry < 0) return song.step
-  const start = song.arrange.slice(0, song.entry).reduce((n, s) => n + (song.sections[s]?.bars ?? 0), 0)
-  return song.local < 0 ? -1 : start * 16 + song.local
-})
 
 function apply() {
   loadSong(song.draft)
@@ -87,10 +81,8 @@ watch(() => status.running, (on) => on && requestSong())
         <a class="ref" :href="SONG_REFERENCE" target="_blank" rel="noopener" title="The song language: every line, with examples">Song reference ↗</a>
       </span>
     </div>
-    <!-- The song's own transport: apart from the MIDI file's, in the transport bar. -->
+    <!-- Play, pause and stop are the transport bar's (ADR-0022). -->
     <div class="controls">
-      <button :disabled="!status.running" :class="{ on: song.playing }" @click="playSong">▶ Play</button>
-      <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
       <button
         :disabled="!status.running" title="Write the mixer as it is into the song: strip, group and master lines"
         @click="writeMixerToSong"

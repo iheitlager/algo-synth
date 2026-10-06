@@ -239,7 +239,7 @@ const ANALOG_CUTOFF: f32 = 0.5;
 fn owner_seed(owner: Owner) -> u32 {
     let index = match owner {
         Owner::Live(s) => usize::from(s),
-        Owner::Channel(ch) => SYNTHS + usize::from(ch),
+        // 16 past the synths: the MIDI player's channels were seeded there (ADR-0022).
         Owner::Track(t) => SYNTHS + 16 + usize::from(t),
     };
     (index as u32 + 1).wrapping_mul(2_654_435_761)
@@ -790,15 +790,6 @@ impl Pool {
         }
     }
 
-    /// Release every voice played for a MIDI channel.
-    pub fn release_channels(&mut self) {
-        for (s, v) in self.slots.iter().zip(self.voices.iter_mut()) {
-            if matches!(s.owner, Some(Owner::Channel(_))) {
-                v.release_all();
-            }
-        }
-    }
-
     pub fn release_all(&mut self) {
         self.nkeys = 0;
         for v in self.voices.iter_mut() {
@@ -979,12 +970,12 @@ mod tests {
         let mut r = Rig::new(1.0);
         r.on(LIVE, 60);
         r.on(LIVE, 64);
-        r.on(Owner::Channel(2), 67);
+        r.on(Owner::Track(2), 67);
         r.run(2);
         assert_eq!(
             r.pool.active(),
             2,
-            "live keys are one voice, the channel another"
+            "live keys are one voice, the track another"
         );
         assert_eq!(
             r.pool.voice(LIVE).map(|v| v.note()),
@@ -1003,11 +994,11 @@ mod tests {
     fn owners_do_not_release_each_other() {
         let mut r = Rig::new(6.0);
         r.on(LIVE, 60);
-        r.on(Owner::Channel(1), 60);
-        r.off(Owner::Channel(1), 60);
+        r.on(Owner::Track(1), 60);
+        r.off(Owner::Track(1), 60);
         assert_eq!(r.held(), vec![60], "the live key is still held");
-        r.on(Owner::Channel(1), 62);
-        r.pool.release_owner(Owner::Channel(1));
+        r.on(Owner::Track(1), 62);
+        r.pool.release_owner(Owner::Track(1));
         assert_eq!(r.held(), vec![60]);
         r.pool.release_all();
         assert!(r.held().is_empty());

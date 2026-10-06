@@ -100,7 +100,7 @@ The voice SHALL have an LFO (sine, triangle, saw, square) from 0.01 Hz to 50 Hz,
 
 ### Requirement 6: Mono note handling and glide [MUST]
 
-On a monophonic model, each owner (live input, each MIDI channel of the player, each song track) SHALL have one voice of its synth's pool, allocated in `Engine::new` (ADR-0011, spec 006 Req 1). Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s, in a straight line of semitones; it applies when a key arrives while another is held. A voice SHALL remember up to 16 held keys, forgetting the oldest. Pitch SHALL come from a table, so it can move every sample without per-sample `exp2` (ADR-0002).
+On a monophonic model, each owner (live input, each song track) SHALL have one voice of its synth's pool, allocated in `Engine::new` (ADR-0011, spec 006 Req 1). Each voice SHALL keep a stack of held keys and sound one of them by a priority (last, low or high). With legato on, a new key while another is held SHALL change pitch without retriggering the envelopes; releasing a key SHALL fall back to the next held key by priority. Glide SHALL move the pitch to a new key in a set time, from 0 (off) to 5 s, in a straight line of semitones; it applies when a key arrives while another is held. A voice SHALL remember up to 16 held keys, forgetting the oldest. Pitch SHALL come from a table, so it can move every sample without per-sample `exp2` (ADR-0002).
 
 **Implementation:** `crates/dsp/src/mono/voice.rs::MonoVoice`, `crates/dsp/src/mono/voice.rs::PitchTable`, `crates/dsp/src/engine.rs::Engine::note_on`, `crates/dsp/src/poly.rs::Pool` (#8)
 
@@ -156,7 +156,7 @@ A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount
 
 The engine SHALL take raw MIDI channel messages through one export, `midi_in(status, d1, d2)`, and interpret them in Rust; JavaScript SHALL only forward the bytes it gets from Web MIDI. Note on and off SHALL carry velocity, and a note on with velocity 0 SHALL be a note off. Pitch bend SHALL be read as 14 bits, with its range a parameter (default ±2 semitones). The mod wheel (CC 1) SHALL be a modulation source (Req 7). Other messages SHALL be ignored.
 
-**Implementation:** (planned, #10, plan.md MVP 11) a MIDI message parser in Rust behind one `midi_in` export; not built. The player and the song already play notes through `Engine::note_on` (Req 10).
+**Implementation:** (planned, #10, plan.md MVP 11) a MIDI message parser in Rust behind one `midi_in` export; not built. The song already plays notes through `Engine::note_on` (Req 10).
 
 #### Scenario: bend
 
@@ -182,9 +182,9 @@ The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead
 
 ### Requirement 10: Independent synths [MUST]
 
-The engine SHALL hold 16 synths, allocated in `Engine::new`, each with its own parameters, values, patch and model (spec 005; plan.md MVP 5); `set_param`, `param_value`, `mono_preset`, `note_on` and `note_off` SHALL name the synth, and `synth_reset` SHALL put one back to the defaults. `MasterGain` SHALL stay global. Each synth SHALL have its own live keys; each MIDI channel SHALL play on one synth or be muted, and loading a file SHALL put its parts on synths 0, 1, 2… in order. A voice SHALL keep the synth its note started on, and SHALL follow that synth's parameters while it sounds. An unknown synth SHALL be ignored (or mute, as a route), and a live note SHALL never reach a channel's voice.
+The engine SHALL hold 16 synths, allocated in `Engine::new`, each with its own parameters, values, patch and model (spec 005; plan.md MVP 5); `set_param`, `param_value`, `mono_preset`, `note_on` and `note_off` SHALL name the synth, and `synth_reset` SHALL put one back to the defaults. `MasterGain` SHALL stay global. Each synth SHALL have its own live keys; each song track SHALL play on one synth or be muted, and importing a MIDI file SHALL put its tracks on synths 0, 1, 2… in channel order (ADR-0022). A voice SHALL keep the synth its note started on, and SHALL follow that synth's parameters while it sounds. An unknown synth SHALL be ignored (or mute, as a route), and a live note SHALL never reach a track's voice.
 
-**Implementation:** `crates/dsp/src/engine.rs::Engine` (`SYNTHS`, `set_param`, `preset`, `reset`, `route`), `crates/dsp/src/ffi.rs` (`synth_count`, `synth_reset`), `web/src/audio/engine.ts::addSynth` (#19)
+**Implementation:** `crates/dsp/src/engine.rs::Engine` (`SYNTHS`, `set_param`, `preset`, `reset`, `song_route`), `crates/dsp/src/ffi.rs` (`synth_count`, `synth_reset`), `web/src/audio/engine.ts::addSynth` (#19)
 
 #### Scenario: own patch
 
@@ -195,8 +195,8 @@ The engine SHALL hold 16 synths, allocated in `Engine::new`, each with its own p
 #### Scenario: one synth per part
 
 - GIVEN the four-part demo file
-- WHEN it loads
-- THEN channels 1-4 play on synths 0-3
+- WHEN it is imported
+- THEN its tracks, channels 1-4, play on synths 0-3
 
 #### Scenario: sixteen at once
 
@@ -204,7 +204,7 @@ The engine SHALL hold 16 synths, allocated in `Engine::new`, each with its own p
 - WHEN each plays a note at full master gain
 - THEN 16 voices sound and every sample is finite and within ±1
 
-**Tests:** `crates/dsp/src/engine/tests.rs::synths_have_their_own_parameters`, `crates/dsp/src/engine/tests.rs::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine/tests.rs::master_gain_is_global`, `crates/dsp/src/engine/tests.rs::unknown_synths_are_ignored`, `crates/dsp/src/engine/tests.rs::a_channel_plays_on_its_routed_synth`, `crates/dsp/src/engine/tests.rs::a_channel_voice_follows_its_synths_parameters`, `crates/dsp/src/engine/tests.rs::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine/tests.rs::demo_file_loads`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
+**Tests:** `crates/dsp/src/engine/tests.rs::synths_have_their_own_parameters`, `crates/dsp/src/engine/tests.rs::a_preset_on_one_synth_leaves_the_others`, `crates/dsp/src/engine/tests.rs::master_gain_is_global`, `crates/dsp/src/engine/tests.rs::unknown_synths_are_ignored`, `crates/dsp/src/engine/tests.rs::an_imported_track_plays_on_its_routed_synth`, `crates/dsp/src/engine/tests.rs::a_track_voice_follows_its_synths_parameters`, `crates/dsp/src/engine/tests.rs::sixteen_differently_patched_synths_play_together`, `crates/dsp/src/engine/tests.rs::demo_file_imports`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
 
 ### Requirement 11: Drive insert [SHOULD]
 

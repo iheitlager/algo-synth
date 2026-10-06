@@ -15,7 +15,6 @@ use crate::mixer::STRIPS;
 use crate::mono::preset::Preset;
 use crate::padsampler::{PADS, PadField};
 use crate::params::Param;
-use crate::player::Part;
 use crate::sample;
 use crate::sampler::{ZONES, ZoneField};
 use crate::song::{Kind, Lane};
@@ -235,10 +234,10 @@ pub extern "C" fn gain_reduction_db() -> f32 {
     query(0.0, |e| e.gain_reduction_db())
 }
 
-// --- MIDI player (spec 002, Req 9) -------------------------------------------
+// --- MIDI files (imported, spec 002 Req 8, ADR-0022) -------------------------
 //
 // Loading: JavaScript calls `midi_buf(len)`, writes the file's bytes at the
-// returned address, then calls `midi_load()`. The engine owns the buffer, so
+// returned address, then calls `midi_import()`. The engine owns the buffer, so
 // Rust never dereferences a pointer it was handed.
 
 /// Size the engine's MIDI buffer and return its address; null if too large.
@@ -247,16 +246,6 @@ pub extern "C" fn midi_buf(len: u32) -> *mut u8 {
     query(std::ptr::null_mut(), |e| {
         e.midi_buffer(len as usize)
             .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
-    })
-}
-
-/// Parse the buffer: the number of parts, or a negative `smf::Error` code
-/// (−5 before `init`).
-#[unsafe(no_mangle)]
-pub extern "C" fn midi_load() -> i32 {
-    query(-5, |e| match e.load_midi() {
-        Ok(parts) => i32::try_from(parts).unwrap_or(i32::MAX),
-        Err(err) => err.code(),
     })
 }
 
@@ -465,134 +454,6 @@ pub extern "C" fn zone_count() -> u32 {
     ZONES as u32
 }
 
-fn seconds(e: &Engine, samples: u64) -> f32 {
-    (samples as f64 / f64::from(e.sample_rate())) as f32
-}
-
-fn with_part<R: Copy>(default: R, i: u32, f: impl FnOnce(&Engine, &Part) -> R) -> R {
-    query(default, |e| {
-        let e: &Engine = e;
-        match e.sequence().parts().get(i as usize) {
-            Some(p) => f(e, p),
-            None => default,
-        }
-    })
-}
-
-/// Parts (MIDI channels with notes) in the loaded file.
-#[unsafe(no_mangle)]
-pub extern "C" fn part_count() -> u32 {
-    query(0, |e| e.sequence().parts().len() as u32)
-}
-
-/// MIDI channel (0..=15) of part `i`.
-#[unsafe(no_mangle)]
-pub extern "C" fn part_channel(i: u32) -> u32 {
-    with_part(0, i, |_, p| u32::from(p.channel))
-}
-
-/// Note count of part `i`.
-#[unsafe(no_mangle)]
-pub extern "C" fn part_notes(i: u32) -> u32 {
-    with_part(0, i, |_, p| p.notes)
-}
-
-/// First note of part `i`, in seconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn part_start(i: u32) -> f32 {
-    with_part(0.0, i, |e, p| seconds(e, p.start))
-}
-
-/// Last event of part `i`, in seconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn part_end(i: u32) -> f32 {
-    with_part(0.0, i, |e, p| seconds(e, p.end))
-}
-
-/// Address of part `i`'s name bytes (decoded on the main thread).
-#[unsafe(no_mangle)]
-pub extern "C" fn part_name_ptr(i: u32) -> *const u8 {
-    with_part(std::ptr::null(), i, |_, p| p.name.as_ptr())
-}
-
-/// Length of part `i`'s name in bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn part_name_len(i: u32) -> u32 {
-    with_part(0, i, |_, p| p.name.len() as u32)
-}
-
-/// Events (note ons and offs) in the loaded file, for drawing.
-#[unsafe(no_mangle)]
-pub extern "C" fn event_count() -> u32 {
-    query(0, |e| e.sequence().events().len() as u32)
-}
-
-/// Event `i` packed for the view: `on << 15 | channel << 8 | note`; 0 if out of range.
-#[unsafe(no_mangle)]
-pub extern "C" fn event_packed(i: u32) -> u32 {
-    query(0, |e| {
-        e.sequence().events().get(i as usize).map_or(0, |ev| {
-            u32::from(ev.on) << 15 | u32::from(ev.channel) << 8 | u32::from(ev.note)
-        })
-    })
-}
-
-/// Time of event `i`, in seconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn event_time(i: u32) -> f32 {
-    query(0.0, |e| {
-        let s = e
-            .sequence()
-            .events()
-            .get(i as usize)
-            .map_or(0, |ev| ev.sample);
-        seconds(e, s)
-    })
-}
-
-/// Length of the loaded file, in seconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn song_length() -> f32 {
-    query(0.0, |e| seconds(e, e.sequence().length()))
-}
-
-/// One 4/4 bar at the opening tempo, in seconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn song_bar() -> f32 {
-    query(0.0, |e| seconds(e, e.sequence().bar()))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn play() {
-    with_engine(Engine::play);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn stop() {
-    with_engine(Engine::stop);
-}
-
-/// Jump to `seconds`.
-#[unsafe(no_mangle)]
-pub extern "C" fn seek(seconds: f32) {
-    with_engine(|e| {
-        let s = (f64::from(seconds.max(0.0)) * f64::from(e.sample_rate())) as u64;
-        e.seek(s);
-    });
-}
-
-/// Playback position, in seconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn position() -> f32 {
-    query(0.0, |e| seconds(e, e.sequence().position()))
-}
-
-/// 1 while the MIDI file plays.
-#[unsafe(no_mangle)]
-pub extern "C" fn playing() -> u32 {
-    query(0, |e| u32::from(e.sequence().playing()))
-}
-
 // --- The song (spec 002, Req 6, ADR-0012) ----------------------------------
 //
 // Loading as a MIDI file: `song_buf(len)`, write the text's UTF-8 bytes,
@@ -721,10 +582,16 @@ fn with_lane<R: Copy>(default: R, f: u32, l: u32, get: impl FnOnce(&Lane) -> R) 
     })
 }
 
-/// The song's own transport: play from where it stopped, stop back to the top.
+/// The transport (ADR-0022): play from where it paused or stopped, pause
+/// where it is, stop back to the top.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_play() {
     with_engine(Engine::song_play);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pause() {
+    with_engine(Engine::song_pause);
 }
 
 #[unsafe(no_mangle)]
@@ -1471,21 +1338,6 @@ pub extern "C" fn clock_step() -> i32 {
     })
 }
 
-/// Play MIDI `channel` on `synth`; an unknown synth (e.g. 255) mutes it.
-#[unsafe(no_mangle)]
-pub extern "C" fn route(channel: u32, synth: u32) {
-    if let Ok(ch) = u8::try_from(channel) {
-        with_engine(|e| e.route(ch, Some(synth as usize)));
-    }
-}
-
-/// The synth MIDI `channel` plays on, or 255 if muted.
-#[unsafe(no_mangle)]
-pub extern "C" fn routed(channel: u32) -> u32 {
-    let ch = u8::try_from(channel).unwrap_or(u8::MAX);
-    query(255, |e| e.routed(ch).map_or(255, |s| s as u32))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1637,9 +1489,9 @@ mod tests {
     }
 
     #[test]
-    fn midi_round_trip_through_the_abi() {
+    fn midi_import_and_the_transport_through_the_abi() {
         init(48_000.0);
-        assert_eq!(midi_load(), -1); // empty buffer: not MIDI
+        assert_eq!(midi_import(), -1); // empty buffer: not MIDI
         let bytes = include_bytes!("../../../web/public/demo.mid");
         let ptr = midi_buf(bytes.len() as u32);
         assert!(!ptr.is_null());
@@ -1648,32 +1500,21 @@ mod tests {
                 .expect("fits")
                 .copy_from_slice(bytes)
         });
-        assert_eq!(midi_load(), 4);
-        assert_eq!(part_channel(3), 3);
-        assert_eq!(routed(3), 3, "the fourth part plays on synth 3");
-        route(3, 255);
-        assert_eq!(routed(3), 255);
-        route(3, 99);
-        assert_eq!(routed(3), 255, "an unknown synth mutes");
-        assert!(part_name_len(1) > 0);
-        assert!(song_length() > 60.0);
-        assert!((song_bar() - 4.0 * 60.0 / 72.0).abs() < 1.0e-3);
-        play();
-        process(128);
-        assert_eq!(playing(), 1);
-        seek(10.0);
-        assert!((position() - 10.0).abs() < 1.0e-3);
-        stop();
-        assert_eq!(playing(), 0);
-        assert_eq!(part_notes(99), 0);
-        seek(0.0);
-        tempo(120.0);
-        swing(50.0);
-        assert_eq!(clock_step(), -1);
+        assert_eq!(midi_import(), 4);
+        assert_eq!(song_routed(3), 3, "the fourth track plays on synth 3");
         song_play();
         process(128);
-        assert_eq!(clock_step(), 0);
+        assert_eq!((song_playing(), clock_step()), (1, 0));
+        song_pause();
+        process(128);
+        assert_eq!(
+            (song_playing(), clock_step()),
+            (0, 0),
+            "pause holds the place"
+        );
+        song_play();
         song_stop();
+        assert_eq!(song_playing(), 0);
         assert!(midi_buf(u32::MAX).is_null());
     }
 
@@ -1788,7 +1629,7 @@ mod tests {
         assert!(song_buf(u32::MAX).is_null());
         assert_eq!(song_playing(), 0);
         song_play();
-        assert_eq!((song_playing(), playing()), (1, 0), "the song alone");
+        assert_eq!(song_playing(), 1);
         song_stop();
         assert_eq!(song_playing(), 0);
         song_tempo(97.0);

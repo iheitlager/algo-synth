@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
-import { engineBuild, getEngine, loadDemo, meter, openFiles, params, play, player, power, saveSetup, saveSong, song, status, stop, view } from '../audio/engine'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import {
+  engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSetup, saveSong, song, songPosition, status, stopSong,
+  view,
+} from '../audio/engine'
 import { details, page } from '../audio/buildinfo'
 import { Param } from '../audio/params'
 
@@ -45,7 +48,7 @@ async function onPower() {
 }
 onBeforeUnmount(() => cancelAnimationFrame(raf))
 
-// MIDI player (spec 002 Req 9): loading powers audio on, so start the scope.
+// Loading the demo powers audio on, so start the scope.
 async function onDemo() {
   await loadDemo()
   await onPower()
@@ -71,7 +74,10 @@ async function copyBuild() {
     // No clipboard here (an insecure origin, say): the text is on show anyway.
   }
 }
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+// The one transport (ADR-0022): play and pause the song, stop back to the top.
+const toggle = () => (song.playing ? pauseSong() : playSong())
+// The section playing now, in an arrangement.
+const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[song.entry] ?? -1] : undefined))
 </script>
 
 <template>
@@ -99,11 +105,11 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
     </label>
     <button :disabled="!status.running" title="Download the synths, their patches and routing as .synths.json" @click="saveSetup">Save setup</button>
     <button :disabled="!status.running || !song.text" title="Download the song as .song text" @click="saveSong">Save song</button>
-    <!-- The MIDI file's transport; the composer has its own (spec 003 Req 5). -->
-    <button :disabled="!player.loaded" :class="{ on: player.playing }" @click="play">▶ Play</button>
-    <button :disabled="!player.loaded" @click="stop">■ Stop</button>
-    <span v-if="player.loaded" class="field">
-      <b>{{ clock(player.position) }}</b> / {{ clock(player.length) }} · bar {{ Math.floor(player.position / player.bar) + 1 }}
+    <!-- The transport, the only one (ADR-0022): the song plays, pauses where it is, stops back to the top. -->
+    <button :disabled="!status.running" :class="{ on: song.playing }" @click="toggle">{{ song.playing ? '❚❚ Pause' : '▶ Play' }}</button>
+    <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
+    <span v-if="songPosition >= 0" class="field">
+      <b>bar {{ Math.floor(songPosition / 16) + 1 }}</b> · step {{ (songPosition % 16) + 1 }}<template v-if="section"> · {{ section.name }}</template>
     </span>
     <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
     <label class="field gain">Master <input type="range" min="0" max="1" step="0.01" :value="gain()" @input="sendGain" /></label>

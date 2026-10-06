@@ -17,7 +17,7 @@ export interface Tape {
   name: string
   model: string
   accent: string
-  /** The synth's own colour, as on the MIDI player's chips. */
+  /** The synth's own colour, as on the arranger's rows. */
   dot: string
   /** Where it is routed from, e.g. "Ch 1 · 3". */
   footer: string
