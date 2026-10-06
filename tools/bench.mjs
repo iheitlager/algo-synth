@@ -113,15 +113,18 @@ const noteName = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`
 // One held note per track, eight bars long so it outlasts the run: 16 Mono
 // voices, since each track owns one (spec 004 Req 6). With a chord, each
 // track holds all of its notes: a polyphonic voice per note. The song is the
-// only transport (ADR-0022); track n plays synth n.
-function heldSong(lowest, chord = [0]) {
+// only transport (ADR-0022); track n plays synth n. A scenario's song may
+// bring its own tracks; the notes then go to those.
+function heldSong(lowest, chord = [0], song = '') {
   const spread = (t) => (chord.length > 1 ? 3 * (t % 4) : 3 * t)
-  const lines = ['tempo 120']
-  for (let t = 0; t < VOICES; t++) lines.push(`track t${t + 1} synth`)
-  for (let t = 0; t < VOICES; t++) {
-    lines.push(`frag f${t + 1} = t${t + 1} bars 8`)
+  const own = [...song.matchAll(/^track (\S+)/gm)].map((m) => m[1])
+  const tracks = own.length ? own : Array.from({ length: VOICES }, (_, t) => `t${t + 1}`)
+  const lines = ['tempo 120', song]
+  if (!own.length) for (const t of tracks) lines.push(`track ${t} synth`)
+  tracks.forEach((name, t) => {
+    lines.push(`frag f${t + 1} = ${name} bars 8`)
     lines.push(`  ${chord.map((n) => `${noteName(lowest + spread(t) + n)}@0:384:100`).join(' ')}`)
-  }
+  })
   return lines.join('\n')
 }
 
@@ -172,7 +175,7 @@ function run(setup, lowest, chord, song) {
     w.set_param(s, Param.Send4, 0.3)
   }
   // The held notes and the mod lines are one song: one transport.
-  const text = new TextEncoder().encode(`${heldSong(lowest, chord)}\n${song ?? ''}\n`)
+  const text = new TextEncoder().encode(`${heldSong(lowest, chord, song)}\n`)
   new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
   if (w.song_load() < 0) throw new Error('the bench song did not load')
   for (let t = 0; t < VOICES; t++) w.song_route(t, t)
