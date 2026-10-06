@@ -17,7 +17,7 @@ const GROUP_BASE = 16
 const GROUPS = 8
 /** The names of an output: a strip's `Out`, or a drum kit's pad (`BdOut`, `SnOut`, …; #162). */
 const OUT_PARAM = /^(?:[A-Z][a-z])?Out$/
-/** A route to no synth: the channel is muted. Matches `MUTE` in engine.ts. */
+/** A route to no synth: the track is muted. Matches `MUTE` in engine.ts. */
 export const MUTE = 255
 
 export interface SynthSetup {
@@ -41,25 +41,20 @@ export interface Layout {
   hidden: number[]
 }
 
-/** Names the user gave (#127): strip index (synths 0–15, groups 16–23) or MIDI channel to a name. */
+/** Names the user gave (#127): strip index (synths 0–15, groups 16–23) to a name. */
 export interface Names {
   strips?: Record<string, string>
-  parts?: Record<string, string>
 }
 
 export interface Setup {
   version: typeof SETUP_VERSION
-  /** The MIDI file the setup was made for, to warn on a mismatch. */
-  midi?: { name: string; parts: number }
   global: Record<string, number>
   synths: SynthSetup[]
   /** The group buses on screen; absent in setups from before groups. */
   groups?: GroupSetup[]
   layout?: Layout
-  /** Names of strips and lanes; absent in setups from before names. */
+  /** Names of strips; absent in setups from before names. */
   names?: Names
-  /** MIDI channel (0-15) to a synth index, or 'mute'. */
-  routes: Record<string, number | 'mute'>
 }
 
 /** The registry a setup is built from and applied to, by name. */
@@ -73,19 +68,16 @@ export interface Registry {
   /** Model names to ids (`Model`), when synth models exist. */
   models?: Record<string, number>
   maxSynths: number
-  channels: number
 }
 
-/** What the view holds: shown synths, values by synth and id, routes. */
+/** What the view holds: shown synths, values by synth and id. */
 export interface State {
   synths: number[]
   /** The group buses on screen, 0–7. */
   groups?: number[]
   layout?: Layout
-  names?: { strips: Record<number, string>; parts: Record<number, string> }
+  names?: { strips: Record<number, string> }
   values: number[][]
-  routes: { channel: number; synth: number }[]
-  midi?: { name: string; parts: number }
 }
 
 export type Op =
@@ -95,7 +87,6 @@ export type Op =
   | { t: 'names'; names: Names }
   | { t: 'reset'; s: number }
   | { t: 'param'; s: number; id: number; v: number }
-  | { t: 'route'; channel: number; synth: number }
 
 /** The parameter that selects a synth's model; stored as `model` by name. */
 const MODEL = 'Model'
@@ -139,8 +130,6 @@ export function buildSetup(state: State, reg: Registry): Setup {
     }
     return { index, kind: 'mono', ...(model !== undefined && { model }), params }
   })
-  const routes: Setup['routes'] = {}
-  for (const r of state.routes) routes[String(r.channel)] = r.synth === MUTE ? 'mute' : r.synth
   const groups = (state.groups ?? []).map((g): GroupSetup => {
     const values = state.values[GROUP_BASE + g] ?? []
     const params: Record<string, number> = {}
@@ -152,13 +141,11 @@ export function buildSetup(state: State, reg: Registry): Setup {
   })
   return {
     version: SETUP_VERSION,
-    ...(state.midi && { midi: state.midi }),
     global,
     synths,
     groups,
     ...(state.layout && { layout: state.layout }),
     ...names(state),
-    routes,
   }
 }
 
@@ -167,8 +154,7 @@ function names(state: State): { names?: Names } {
   const table = (t: Record<number, string> = {}) =>
     Object.keys(t).length ? Object.fromEntries(Object.entries(t).map(([k, v]) => [String(k), v])) : undefined
   const strips = table(state.names?.strips)
-  const parts = table(state.names?.parts)
-  return strips || parts ? { names: { ...(strips && { strips }), ...(parts && { parts }) } } : {}
+  return strips ? { names: { strips } } : {}
 }
 
 // Setups written before the mixer was central (#50) used other names: the
@@ -274,7 +260,7 @@ function parseLayout(raw: unknown, warnings: string[]): Layout | undefined {
 }
 
 /** Names as saved: indices in range, non-empty strings, cleaned as the view cleans them. */
-function parseNames(raw: unknown, reg: Registry, warnings: string[]): Names | undefined {
+function parseNames(raw: unknown, warnings: string[]): Names | undefined {
   if (!isObject(raw)) return undefined
   let bad = false
   const table = (from: unknown, count: number) => {
@@ -292,8 +278,9 @@ function parseNames(raw: unknown, reg: Registry, warnings: string[]): Names | un
     }
     return out
   }
-  const names = { strips: table(raw.strips, GROUP_BASE + GROUPS), parts: table(raw.parts, reg.channels) }
-  if (bad) warnings.push('ignored names that are not strips or channels')
+  // Lane names (`parts`) named the MIDI player's channels, gone with it (ADR-0022).
+  const names = { strips: table(raw.strips, GROUP_BASE + GROUPS) }
+  if (bad) warnings.push('ignored names that are not strips')
   return names
 }
 
@@ -363,32 +350,13 @@ export function parseSetup(text: string, reg: Registry): Parsed {
 
   const groups = parseGroups(raw.groups, reg, warnings)
   const layout = parseLayout(raw.layout, warnings)
-  const names = parseNames(raw.names, reg, warnings)
+  const names = parseNames(raw.names, warnings)
 
-  const routes: Setup['routes'] = {}
-  if (isObject(raw.routes)) {
-    for (const [ch, target] of Object.entries(raw.routes)) {
-      const channel = Number(ch)
-      if (!Number.isInteger(channel) || channel < 0 || channel >= reg.channels) {
-        warnings.push(`ignored a route for channel ${ch}`)
-      } else if (target === 'mute') {
-        routes[ch] = 'mute'
-      } else if (Number.isInteger(target) && synths.some((s) => s.index === target)) {
-        routes[ch] = target as number
-      } else {
-        warnings.push(`channel ${channel + 1}: no synth ${String(target)} in the setup, muted`)
-        routes[ch] = 'mute'
-      }
-    }
-  }
-
-  const midi =
-    isObject(raw.midi) && typeof raw.midi.name === 'string' && Number.isInteger(raw.midi.parts)
-      ? { name: raw.midi.name, parts: raw.midi.parts as number }
-      : undefined
+  // A MIDI file plays as the song now, its tracks routed in the song (ADR-0022).
+  if (isObject(raw.routes) && Object.keys(raw.routes).length) warnings.push('ignored the MIDI channel routes: a MIDI file plays as the song')
   return {
     ok: true,
-    setup: { version: SETUP_VERSION, ...(midi && { midi }), global, synths, ...(groups && { groups }), ...(layout && { layout }), ...(names && { names }), routes },
+    setup: { version: SETUP_VERSION, global, synths, ...(groups && { groups }), ...(layout && { layout }), ...(names && { names }) },
     warnings,
   }
 }
@@ -396,18 +364,10 @@ export function parseSetup(text: string, reg: Registry): Parsed {
 /**
  * The messages that apply a setup, in order: show its synths, then per synth
  * a reset (so anything the file leaves out is the default), the model before
- * the other parameters, then the routes and the global parameters. Warns when
- * the setup was made for a file with a different number of parts.
+ * the other parameters, then the global parameters.
  */
-export function applyPlan(
-  setup: Setup,
-  reg: Registry,
-  midi?: { name: string; parts: number },
-): { ops: Op[]; warnings: string[] } {
+export function applyPlan(setup: Setup, reg: Registry): { ops: Op[]; warnings: string[] } {
   const warnings: string[] = []
-  if (setup.midi && midi && setup.midi.parts !== midi.parts) {
-    warnings.push(`the setup is for ${setup.midi.parts} parts (${setup.midi.name}); this file has ${midi.parts}`)
-  }
   const ops: Op[] = []
   // An Out (a strip's, or a kit's pad's) to a group the setup does not have goes to the master (#218).
   const have = new Set((setup.groups ?? []).map((g) => g.index))
@@ -438,9 +398,6 @@ export function applyPlan(
         if (id !== undefined) ops.push({ t: 'param', s, id, v: value(`group ${group.index + 1}`, name, v) })
       }
     }
-  }
-  for (const [ch, target] of Object.entries(setup.routes)) {
-    ops.push({ t: 'route', channel: Number(ch), synth: target === 'mute' ? MUTE : target })
   }
   for (const [name, v] of Object.entries(setup.global)) {
     const id = reg.global[name]

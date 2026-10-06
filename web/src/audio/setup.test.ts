@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import demoText from '../../public/demo.synths.json?raw'
 import { GlobalParam, Param, StripParam } from './params'
-import { MUTE, applyPlan, buildSetup, parseSetup, shortF32, type Registry, type Setup, type State } from './setup'
+import { applyPlan, buildSetup, parseSetup, shortF32, type Registry, type Setup, type State } from './setup'
 
-const reg: Registry = { params: Param, global: GlobalParam, strip: StripParam, maxSynths: 16, channels: 16 }
+const reg: Registry = { params: Param, global: GlobalParam, strip: StripParam, maxSynths: 16 }
 // The registry once synth models exist (epic #28): a `Model` parameter and names.
 const withModels: Registry = {
   ...reg,
@@ -22,16 +22,10 @@ function values(base: number, extra: Record<number, number> = {}): number[] {
 const state: State = {
   synths: [0, 2],
   values: [values(1), values(9), values(2, { [Param.Cutoff]: 1234.5678 })],
-  routes: [
-    { channel: 0, synth: 0 },
-    { channel: 1, synth: 2 },
-    { channel: 9, synth: MUTE },
-  ],
-  midi: { name: 'canon.mid', parts: 3 },
 }
 
 describe('buildSetup', () => {
-  it('stores shown synths, params by name, globals once and routes', () => {
+  it('stores shown synths, params by name and globals once', () => {
     const s = buildSetup(state, reg)
     expect(s.version).toBe(1)
     expect(s.synths.map((x) => x.index)).toEqual([0, 2])
@@ -41,8 +35,9 @@ describe('buildSetup', () => {
     expect(s.global).toEqual(want)
     expect(s.global).toHaveProperty('P1Return')
     expect(s.synths[0]?.params).not.toHaveProperty('P1Return')
-    expect(s.routes).toEqual({ 0: 0, 1: 2, 9: 'mute' })
-    expect(s.midi).toEqual({ name: 'canon.mid', parts: 3 })
+    // A MIDI file is the song now: no channel routes, no file (ADR-0022).
+    expect(s).not.toHaveProperty('routes')
+    expect(s).not.toHaveProperty('midi')
   })
 
   it('writes the model by name, not as a parameter', () => {
@@ -115,7 +110,6 @@ describe('parseSetup', () => {
     if (!parsed.ok) return
     expect(parsed.setup.synths).toEqual([{ index: 0, kind: 'mono', params: { Cutoff: 500 } }])
     expect(parsed.setup.global).toEqual({ MasterGain: 0.3 })
-    expect(parsed.setup.routes).toEqual({ 0: 0, 1: 'mute', 2: 'mute' })
     expect(parsed.warnings).toEqual([
       'synth 1: unknown model Minimoog',
       'skipped a second synth 1',
@@ -123,8 +117,7 @@ describe('parseSetup', () => {
       'skipped synth 4: unknown kind poly',
       'skipped a synth without an index',
       'ignored unknown parameters: Glide, Sparkle, Wobble',
-      'channel 2: no synth 5 in the setup, muted',
-      'ignored a route for channel 20',
+      'ignored the MIDI channel routes: a MIDI file plays as the song',
     ])
   })
 
@@ -136,13 +129,12 @@ describe('parseSetup', () => {
 })
 
 describe('applyPlan', () => {
-  it('shows, resets, sets the model first, then params, routes and globals', () => {
+  it('shows, resets, sets the model first, then params and globals', () => {
     const parsed = parseSetup(
       JSON.stringify({
         version: 1,
         global: { MasterGain: 0.4 },
         synths: [{ index: 3, model: 'Minimoog', params: { Cutoff: 700 } }, { index: 1, params: {} }],
-        routes: { 0: 3, 1: 'mute' },
       }),
       withModels,
     )
@@ -154,19 +146,9 @@ describe('applyPlan', () => {
       { t: 'param', s: 3, id: 999, v: 1 },
       { t: 'param', s: 3, id: Param.Cutoff, v: 700 },
       { t: 'reset', s: 1 },
-      { t: 'route', channel: 0, synth: 3 },
-      { t: 'route', channel: 1, synth: MUTE },
       { t: 'param', s: 0, id: Param.MasterGain, v: 0.4 },
       { t: 'names', names: {} },
     ])
-  })
-
-  it('warns when the file has a different number of parts', () => {
-    const setup = { version: 1 as const, midi: { name: 'a.mid', parts: 9 }, global: {}, synths: [], routes: {} }
-    expect(applyPlan(setup, reg, { name: 'b.mid', parts: 4 }).warnings).toEqual([
-      'the setup is for 9 parts (a.mid); this file has 4',
-    ])
-    expect(applyPlan(setup, reg, { name: 'a.mid', parts: 9 }).warnings).toEqual([])
   })
 })
 
@@ -327,11 +309,11 @@ describe('groups and layout in a setup (#61)', () => {
 })
 
 describe('names in a setup (#127)', () => {
-  const named: State = { ...state, names: { strips: { 0: 'Violin I', 17: 'Strings bus' }, parts: { 1: 'Cello' } } }
+  const named: State = { ...state, names: { strips: { 0: 'Violin I', 17: 'Strings bus' } } }
 
-  it('saves only the names given, keyed by strip and channel', () => {
-    expect(buildSetup(named, reg).names).toEqual({ strips: { 0: 'Violin I', 17: 'Strings bus' }, parts: { 1: 'Cello' } })
-    expect(buildSetup({ ...state, names: { strips: {}, parts: {} } }, reg)).not.toHaveProperty('names')
+  it('saves only the names given, keyed by strip', () => {
+    expect(buildSetup(named, reg).names).toEqual({ strips: { 0: 'Violin I', 17: 'Strings bus' } })
+    expect(buildSetup({ ...state, names: { strips: {} } }, reg)).not.toHaveProperty('names')
   })
 
   it('restores them through a file and applies them as one step', () => {
@@ -340,7 +322,7 @@ describe('names in a setup (#127)', () => {
     if (!parsed.ok) return
     expect(parsed.warnings).toEqual([])
     const ops = applyPlan(parsed.setup, reg).ops.filter((o) => o.t === 'names')
-    expect(ops).toEqual([{ t: 'names', names: { strips: { 0: 'Violin I', 17: 'Strings bus' }, parts: { 1: 'Cello' } } }])
+    expect(ops).toEqual([{ t: 'names', names: { strips: { 0: 'Violin I', 17: 'Strings bus' } } }])
   })
 
   it('puts the defaults back for a setup without names', () => {
@@ -349,15 +331,15 @@ describe('names in a setup (#127)', () => {
     expect(applyPlan(parsed.setup, reg).ops.filter((o) => o.t === 'names')).toEqual([{ t: 'names', names: {} }])
   })
 
-  it('cleans names and drops what is not a strip or channel, with one warning', () => {
+  it('cleans names and drops what is not a strip, with one warning; lane names are gone with the player', () => {
     const raw = {
       ...buildSetup(state, reg),
       names: { strips: { 0: '  Lead   synth  ', 24: 'Nope', x: 'Bad', 3: '', 4: 7, 5: 'A'.repeat(40) }, parts: { 16: 'Too far', 2: 'Bass' } },
     }
     const parsed = parseSetup(JSON.stringify(raw), reg)
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(parsed.setup.names).toEqual({ strips: { 0: 'Lead synth', 5: 'A'.repeat(24) }, parts: { 2: 'Bass' } })
-    expect(parsed.warnings).toEqual(['ignored names that are not strips or channels'])
+    expect(parsed.setup.names).toEqual({ strips: { 0: 'Lead synth', 5: 'A'.repeat(24) } })
+    expect(parsed.warnings).toEqual(['ignored names that are not strips'])
   })
 })
 
@@ -365,7 +347,6 @@ describe('an Out to a group the setup does not have (#218)', () => {
   const setup = (groups: number[]): Setup => ({
     version: 1,
     global: {},
-    routes: {},
     synths: [
       { index: 0, kind: 'mono', params: { Out: 1, Level: 0.5 } },
       { index: 3, kind: 'mono', params: { Out: 3, BdOut: 3, SnOut: 1, CpOut: 9 } },

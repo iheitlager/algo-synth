@@ -2,7 +2,7 @@
 // AudioWorkletNode (dsp.wasm) -> AnalyserNode (scope) -> speakers.
 // This file only sends messages; every musical decision is made in Rust.
 
-import { reactive, shallowReactive, watch } from 'vue'
+import { computed, reactive, shallowReactive } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
@@ -11,7 +11,7 @@ import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, Stri
 import { lexer, wasmLexer } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
-import { cleanName, familyName, names, partName as laneName, renameStrip, setNames, stripName as nameOfStrip } from './names'
+import { cleanName, familyName, names, renameStrip, setNames, stripName } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
@@ -23,23 +23,9 @@ const base = import.meta.env.BASE_URL
 
 /** Synth slots the engine holds, each any model (`SYNTHS` in engine.rs). */
 export const MAX_SYNTHS = 16
-/** A routing choice for a MIDI part: a synth index, or MUTE. */
+/** A song track's synth: a synth index, or MUTE. */
 export { MUTE }
 export type Route = number
-/** MIDI channels the player routes. */
-const CHANNELS = 16
-
-/** One MIDI channel with notes, as the engine summarised it. */
-export interface Part {
-  channel: number
-  name: string
-  notes: number
-  start: number
-  end: number
-  synth: Route
-  /** Notes for drawing: [start s, end s, pitch], paired on the main thread. */
-  roll: [number, number, number][]
-}
 
 class AudioEngine {
   constructor(
@@ -78,22 +64,12 @@ class AudioEngine {
   panic() { this.post({ t: 'panic' }) }
 }
 
-// One engine for the app. `status` and `player` are reactive so the UI follows them.
+// One engine for the app. `status` and `files` are reactive so the UI follows them.
 export const status = reactive({ running: false, error: '', sampleRate: 0 })
 /** Which build of dsp.wasm is running, once the worklet says (#197). */
 export const engineBuild = reactive<Build>({ version: '', build: '' })
-export const player = reactive({
-  loaded: false,
-  fileName: '',
-  parts: [] as Part[],
-  length: 0,
-  bar: 2,
-  position: 0,
-  playing: false,
-  error: '',
-  /** What applying a setup reported: skipped entries, a part-count mismatch, or why it failed. */
-  notice: '',
-})
+/** The MIDI file last opened, and what opening files reported: an import, a setup's skipped entries, or why either failed. */
+export const files = reactive({ fileName: '', notice: '' })
 /** DSP load as a share of real time (peak is null without a precise clock). */
 export const meter = reactive({ load: 0, peak: null as number | null, voices: 0, reduction: 0, seen: false })
 
@@ -148,7 +124,7 @@ const PAD_OUT_IDS = Object.entries(Param).filter(([name]) => /^[A-Z][a-z]Out$/.t
 /** A pad's or strip's Out option named as the console names it: a group by its own name (#127). */
 export const outText = (name: string) => {
   const g = /^Group (\d)$/.exec(name)
-  return g ? nameOfStrip(16 + Number(g[1]) - 1) : name
+  return g ? stripName(16 + Number(g[1]) - 1) : name
 }
 
 /** Remove group `g`: what fed it goes to the master, and the group goes back to its defaults. */
@@ -181,8 +157,6 @@ export function moveStrip(id: number, target: number) {
 /** Which main view is shown: the synth panels or the mixer console. */
 export const view = reactive({
   main: 'synths' as 'synths' | 'mixer' | 'composer' | 'sound',
-  /** The bottom pane: the arranger (ADR-0015) or the MIDI file player, until MIDI import replaces it. */
-  bottom: 'arranger' as 'arranger' | 'player',
 })
 
 /** One hue per synth, so a part's notes match its synth's card. */
@@ -225,12 +199,11 @@ export function renameSynth(s: number, raw: string) {
   names.strips[s] = familyName(family, others)
 }
 
-/** Remove synth `s` (never the last one); parts playing on it are muted. */
+/** Remove synth `s` (never the last one). */
 export function removeSynth(s: number) {
   if (synths.list.length <= 1) return
   synths.list = synths.list.filter((i) => i !== s)
   delete names.strips[s]
-  for (const p of player.parts) if (p.synth === s) route(p, MUTE)
   if (synths.selected === s) synths.selected = synths.list[0] ?? 0
 }
 let engine: AudioEngine | null = null
@@ -254,7 +227,7 @@ export async function power(): Promise<void> {
 
 export const getEngine = (): AudioEngine | null => engine
 
-// --- MIDI player ------------------------------------------------------------
+// --- MIDI files (ADR-0022): opening one imports it as the song ----------------
 
 const LOAD_ERRORS: Record<number, string> = {
   [-1]: 'not a MIDI file',
@@ -264,20 +237,19 @@ const LOAD_ERRORS: Record<number, string> = {
   [-6]: 'the file is larger than 16 MiB',
 }
 
-/** Send a MIDI file to the engine; powers audio on first (a click is a gesture). */
+/** Send a MIDI file to the engine to import as the song; powers audio on first (a click is a gesture). */
 export async function loadMidi(bytes: ArrayBuffer, fileName: string): Promise<void> {
   await power()
   if (!engine) return
-  player.fileName = fileName
-  player.error = ''
+  files.fileName = fileName
   engine.post({ t: 'midi', bytes }, [bytes])
 }
 
 export async function loadDemo(): Promise<void> {
   const [mid, setup] = await Promise.all([fetch(`${base}demo.mid`), fetch(`${base}demo.synths.json`)])
   const parsed = setup.ok ? parseSetup(await setup.text(), registry) : null
-  pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings, from: 'shipped' } : null
-  player.notice = ''
+  pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings } : null
+  files.notice = ''
   await loadMidi(await mid.arrayBuffer(), 'Canon in D (demo)')
 }
 
@@ -299,9 +271,7 @@ export async function loadSysex(bytes: ArrayBuffer, fileName: string): Promise<v
 }
 export const applySysex = (s: number, i: number) => engine?.post({ t: 'sysexApply', s, i })
 
-/** A strip's name, a synth's following the lane it plays when not renamed (#127). */
-export const stripName = (s: number) => nameOfStrip(s, player.parts)
-export const partName = (p: Part) => laneName(p)
+export { stripName }
 
 // --- The sampler (#125): the sample store, each synth's zones and the packs on offer -----------
 // The engine parses and holds everything; the view keeps what it reports (the waveform's peaks,
@@ -497,7 +467,7 @@ export const song = reactive({
   swing: 50,
   /** The clock's last step, −1 before the first. */
   step: -1,
-  /** The song's own transport (the composer's Play and Stop). */
+  /** The transport, the only one (ADR-0022): playing, or paused or stopped. */
   playing: false,
   /** With an arrangement (ADR-0015): the entry playing and the steps into it, −1 without. */
   entry: -1,
@@ -550,48 +520,39 @@ export const routeTrack = (t: number, s: Route) => engine?.post({ t: 'songRoute'
 export const setSongTempo = (v: number) => engine?.post({ t: 'songTempo', v })
 export const setSongSwing = (v: number) => engine?.post({ t: 'songSwing', v })
 
-/** The song's transport, apart from the MIDI file's. */
+/** The transport (ADR-0022): play goes on from where it paused, pause holds the place, stop goes back to the top. */
 export const playSong = () => engine?.post({ t: 'songPlay' })
+export const pauseSong = () => engine?.post({ t: 'songPause' })
 export const stopSong = () => engine?.post({ t: 'songStop' })
+
+/** Where the song is, in steps from the top (−1 before the first): in an arrangement it counts from the top of the arrangement, so it follows the loop. */
+export const songPosition = computed(() => {
+  if (song.entry < 0) return song.step
+  const start = song.arrange.slice(0, song.entry).reduce((n, s) => n + (song.sections[s]?.bars ?? 0), 0)
+  return song.local < 0 ? -1 : start * 16 + song.local
+})
 
 /** Ask the engine for the song it holds (when the composer opens). */
 export const requestSong = () => engine?.post({ t: 'songDump' })
 /** Print the mixer as it is into the song as `strip`, `group` and `master` lines (ADR-0018). */
 export const writeMixerToSong = () => engine?.post({ t: 'mixWrite' })
 
-// Turning the loaded MIDI file into the song (#173): the engine converts it;
-// the composer and the arranger show the result.
+// Opening a MIDI file turns it into the song (#173, ADR-0022): the engine
+// converts it; the composer and the arranger show the result.
 const IMPORT_ERRORS: Record<number, string> = {
   [-7]: 'the file has no notes',
   [-8]: 'the file has more notes, fragments or sections than a song holds',
   [-9]: 'the converted text did not parse (a bug)',
 }
-export const importMidi = () => engine?.post({ t: 'midiImport' })
 function onImported(code: number) {
+  const next = pending
+  pending = null
   if (code < 0) {
-    player.notice = `Import: ${IMPORT_ERRORS[code] ?? LOAD_ERRORS[code] ?? `failed (${code})`}`
+    files.notice = `${files.fileName}: ${IMPORT_ERRORS[code] ?? LOAD_ERRORS[code] ?? `import failed (${code})`}`
     return
   }
-  player.notice = `Imported ${player.fileName} as the song: ${code} tracks in sections; edit it in the composer, chain it in the arranger.`
-  view.bottom = 'arranger'
-}
-
-export const play = () => engine?.post({ t: 'play' })
-export const stop = () => engine?.post({ t: 'stop' })
-export const seek = (sec: number) => engine?.post({ t: 'seek', sec })
-export function route(part: Part, synth: Route) {
-  part.synth = synth
-  engine?.post({ t: 'route', ch: part.channel, s: synth })
-}
-
-interface MidiSummary {
-  t: 'midi'
-  code: number
-  parts?: { channel: number; name: Uint8Array; notes: number; start: number; end: number; synth: number }[]
-  packed?: Uint32Array
-  times?: Float32Array
-  length?: number
-  bar?: number
+  files.notice = `Imported ${files.fileName} as the song: ${code} tracks in sections; edit it in the composer, chain it in the arranger.`
+  if (next) applySetup(next.setup, next.warnings)
 }
 
 /** Take the song the worklet sent: decode its text, names and grid into `song`. */
@@ -692,8 +653,6 @@ export const staleEngine = (engine: number, view: number) =>
 
 function onMessage(data: { t: string } & Record<string, unknown>) {
   if (data.t === 'pos') {
-    player.position = data.sec as number
-    player.playing = data.playing as boolean
     song.step = data.step as number
     song.playing = data.songPlaying as boolean
     song.entry = (data.entry as number | undefined) ?? -1
@@ -717,8 +676,6 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     modulated.keys = new Set(data.keys as number[])
   } else if (data.t === 'imported') {
     onImported(data.code as number)
-  } else if (data.t === 'midi') {
-    onMidi(data as unknown as MidiSummary)
   } else if (data.t === 'sample') {
     const slot = data.slot as number
     const queue = loading.get(slot)
@@ -763,38 +720,6 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
   }
 }
 
-function onMidi(m: MidiSummary) {
-  if (m.code < 0 || !m.parts || !m.packed || !m.times) {
-    player.error = LOAD_ERRORS[m.code] ?? `load failed (${m.code})`
-    pending = null
-    return
-  }
-  const decoder = new TextDecoder('utf-8')
-  const rolls = pairNotes(m.packed, m.times)
-  player.parts = m.parts.map((p) => ({
-    channel: p.channel,
-    name: decoder.decode(p.name),
-    notes: p.notes,
-    start: p.start,
-    end: p.end,
-    synth: p.synth,
-    roll: rolls.get(p.channel) ?? [],
-  }))
-  // The engine puts the parts on synths 0, 1, 2…: show each of them.
-  for (const p of player.parts) if (p.synth !== MUTE) show(p.synth)
-  player.length = m.length ?? 0
-  player.bar = m.bar || 2
-  player.position = 0
-  player.playing = false
-  player.loaded = true
-  loadedName = player.fileName
-  // A picked setup file beats the last session for this file, which beats a
-  // shipped one (the demo's).
-  const next = pending?.from === 'file' ? pending : (storedSetup(loadedName) ?? pending)
-  pending = null
-  if (next) applySetup(next.setup, next.warnings)
-}
-
 // --- Setups (#41) -------------------------------------------------------------
 
 /** The registry setups are built from; `Model` joins it with synth models (epic #28). */
@@ -804,7 +729,6 @@ const registry: Registry = {
   strip: StripParam,
   models: (registryTables as unknown as Record<string, Record<string, number> | undefined>).Model,
   maxSynths: MAX_SYNTHS,
-  channels: CHANNELS,
 }
 
 // --- User presets (ADR-0014, epic #153) -----------------------------------------
@@ -831,21 +755,14 @@ export function applyPreset(preset: UserPreset, target: Target): boolean {
 export const presetModified = (preset: UserPreset, target: Target) => modified(preset, target, params.values, presetRegistry)
 
 /** A setup waiting for its MIDI file to load. */
-let pending: { setup: Setup; warnings: string[]; from: 'file' | 'shipped' | 'session' } | null = null
-/** The MIDI file whose setup the last session is kept under. */
-let loadedName = ''
-
-const sessionKey = (name: string) => `algo-synth:setup:${name}`
-
+let pending: { setup: Setup; warnings: string[] } | null = null
 function state(): State {
   return {
     synths: synths.list,
     groups: layout.groups,
     layout: { order: layout.order, collapsed: layout.collapsed, hidden: layout.hidden },
-    names: { strips: names.strips, parts: names.parts },
+    names: { strips: names.strips },
     values: params.values,
-    routes: player.parts.map((p) => ({ channel: p.channel, synth: p.synth })),
-    ...(player.loaded && { midi: { name: player.fileName, parts: player.parts.length } }),
   }
 }
 
@@ -862,7 +779,7 @@ function download(text: string, type: string, name: string) {
 
 /** Download the current setup, named after the loaded MIDI file. */
 export function saveSetup() {
-  const stem = player.loaded ? player.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
+  const stem = files.fileName ? files.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
   download(setupText(), 'application/json', `${stem}.synths.json`)
 }
 
@@ -871,21 +788,21 @@ let songName = ''
 
 /** Download the song the engine plays as `.song` text (#105), named after the song or MIDI file opened. */
 export function saveSong() {
-  download(song.text, 'text/plain', songFileName(songName || (player.loaded ? player.fileName : 'algo-synth')))
+  download(song.text, 'text/plain', songFileName(songName || files.fileName || 'algo-synth'))
 }
 
 /**
  * Open what the user picked: a MIDI file, a setup, a song, or any of them
- * together. With a MIDI file the setup waits until its parts arrive; alone it
+ * together. With a MIDI file the setup waits until it is imported; alone it
  * applies to the synths on screen. A song goes to the composer; one that does
  * not parse shows its error there and the playing song plays on.
  */
-export async function openFiles(files: File[]): Promise<void> {
+export async function openFiles(picked: File[]): Promise<void> {
   const isSetup = (f: File) => /\.json$/i.test(f.name)
-  const setupFile = files.find(isSetup)
-  const songFile = files.find((f) => isSongFile(f.name))
-  const midiFile = files.find((f) => !isSetup(f) && !isSongFile(f.name))
-  player.notice = ''
+  const setupFile = picked.find(isSetup)
+  const songFile = picked.find((f) => isSongFile(f.name))
+  const midiFile = picked.find((f) => !isSetup(f) && !isSongFile(f.name))
+  files.notice = ''
   if (songFile) {
     await power()
     songName = songFile.name
@@ -895,10 +812,10 @@ export async function openFiles(files: File[]): Promise<void> {
   let parsed: ReturnType<typeof parseSetup> | null = null
   if (setupFile) {
     parsed = parseSetup(await setupFile.text(), registry)
-    if (!parsed.ok) player.notice = `${setupFile.name}: ${parsed.error}; nothing applied`
+    if (!parsed.ok) files.notice = `${setupFile.name}: ${parsed.error}; nothing applied`
   }
   if (midiFile) {
-    pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings, from: 'file' } : null
+    pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings } : null
     await loadMidi(await midiFile.arrayBuffer(), midiFile.name)
   } else if (parsed?.ok) {
     await power()
@@ -909,9 +826,7 @@ export async function openFiles(files: File[]): Promise<void> {
 /** Apply a parsed setup to the engine and the view. */
 function applySetup(setup: Setup, warnings: string[]) {
   if (!engine) return
-  const midi = player.loaded ? { name: player.fileName, parts: player.parts.length } : undefined
-  const plan = applyPlan(setup, registry, midi)
-  const before = synths.list
+  const plan = applyPlan(setup, registry)
   for (const op of plan.ops) {
     if (op.t === 'show') {
       synths.list = op.synths
@@ -924,77 +839,18 @@ function applySetup(setup: Setup, warnings: string[]) {
       setNames(op.names)
     } else if (op.t === 'reset') {
       engine.reset(op.s)
-    } else if (op.t === 'param') {
-      engine.param(op.s, op.id as ParamId, op.v)
     } else {
-      const part = player.parts.find((p) => p.channel === op.channel)
-      if (part) route(part, op.synth)
-      else engine.post({ t: 'route', ch: op.channel, s: op.synth })
+      engine.param(op.s, op.id as ParamId, op.v)
     }
   }
-  // A part on a synth the setup doesn't list keeps that synth: as it was if
-  // it was on screen, at the default patch if not.
-  for (const p of player.parts) {
-    if (p.synth === MUTE || synths.list.includes(p.synth)) continue
-    if (before.includes(p.synth)) synths.list = [...synths.list, p.synth].sort((a, b) => a - b)
-    else show(p.synth)
+  // A song track on a synth the setup doesn't list keeps that synth on screen.
+  for (const t of song.tracks) {
+    if (t.synth !== MUTE && !synths.list.includes(t.synth)) synths.list = [...synths.list, t.synth].sort((a, b) => a - b)
   }
   // Ask for the values again: the replies to the resets above would
   // otherwise arrive last and put the sliders back to the defaults. Synth 0
   // too, shown or not: the master and returns read the globals from it.
   for (const s of new Set([0, ...synths.list, ...layout.groups.map(groupStrip)])) engine.post({ t: 'dump', s })
   const all = [...warnings, ...plan.warnings]
-  if (all.length) player.notice = `Setup: ${all.join('; ')}`
-}
-
-/** The last session's setup for this MIDI file, if any. */
-function storedSetup(name: string): typeof pending {
-  try {
-    const text = localStorage.getItem(sessionKey(name))
-    const parsed = text ? parseSetup(text, registry) : null
-    return parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings, from: 'session' } : null
-  } catch {
-    return null
-  }
-}
-
-// Keep the last session per MIDI file, a moment after anything changes. A
-// convenience only: storage can be unavailable, and the file is the real save.
-let saveTimer: ReturnType<typeof setTimeout> | undefined
-watch(
-  () => [params.values, synths.list, player.parts.map((p) => p.synth), names.strips, names.parts],
-  () => {
-    if (!player.loaded || !loadedName) return
-    clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      try {
-        localStorage.setItem(sessionKey(loadedName), setupText())
-      } catch {
-        // Private window or storage full: keep playing.
-      }
-    }, 500)
-  },
-  { deep: true },
-)
-
-/** Pair note-ons with their offs per channel, for drawing only. */
-function pairNotes(packed: Uint32Array, times: Float32Array) {
-  const open = new Map<number, number>()
-  const rolls = new Map<number, [number, number, number][]>()
-  packed.forEach((p, i) => {
-    const on = (p >> 15) & 1
-    const ch = (p >> 8) & 0x0f
-    const note = p & 0x7f
-    const key = (ch << 7) | note
-    const t = times[i] ?? 0
-    if (on) {
-      open.set(key, t)
-    } else if (open.has(key)) {
-      const list = rolls.get(ch) ?? []
-      list.push([open.get(key) ?? t, t, note])
-      rolls.set(ch, list)
-      open.delete(key)
-    }
-  })
-  return rolls
+  if (all.length) files.notice = `Setup: ${all.join('; ')}`
 }

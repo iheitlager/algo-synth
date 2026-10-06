@@ -51,7 +51,7 @@ const LARGEST = [
 ].join('\n')
 
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
-// there. Each MIDI channel plays its own synth, all set up the same.
+// there. Each song track plays its own synth, all set up the same.
 const scenarios = {
   // Three saws and pink noise, in a string section's range.
   'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
@@ -107,36 +107,22 @@ const scenarios = {
 // Juno-106, Jupiter-8, Matrix-12, PPG Wave, D-50, DX7.
 const polys = ['P5Pad', 'JunoPad', 'JupiterPad', 'MatrixPad', 'PpgSweepPad', 'LaFantasia', 'FmPad']
 
-// A MIDI variable-length quantity.
-const vlq = (n) => {
-  const out = [n & 0x7f]
-  while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80)
-  return out
-}
+const NAMES = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
+const noteName = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`
 
-// One held note per channel for a minute: 16 Mono voices, since each
-// channel owns one (spec 004 Req 6) and live input is monophonic. With a
-// chord, each channel holds all of its notes: a polyphonic voice per note.
-function sixteenChannels(lowest, chord = [0]) {
-  const track = []
-  const spread = (ch) => (chord.length > 1 ? 3 * (ch % 4) : 3 * ch)
-  const notes = (ch) => chord.map((n) => lowest + spread(ch) + n)
-  for (let ch = 0; ch < VOICES; ch++) for (const n of notes(ch)) track.push(0, 0x90 | ch, n, 100)
-  // The player's song ends at its last note off.
-  let first = true
-  for (let ch = 0; ch < VOICES; ch++) {
-    for (const n of notes(ch)) {
-      track.push(...(first ? vlq(480 * 120) : [0]), 0x80 | ch, n, 0)
-      first = false
-    }
+// One held note per track, eight bars long so it outlasts the run: 16 Mono
+// voices, since each track owns one (spec 004 Req 6). With a chord, each
+// track holds all of its notes: a polyphonic voice per note. The song is the
+// only transport (ADR-0022); track n plays synth n.
+function heldSong(lowest, chord = [0]) {
+  const spread = (t) => (chord.length > 1 ? 3 * (t % 4) : 3 * t)
+  const lines = ['tempo 120']
+  for (let t = 0; t < VOICES; t++) lines.push(`track t${t + 1} synth`)
+  for (let t = 0; t < VOICES; t++) {
+    lines.push(`frag f${t + 1} = t${t + 1} bars 8`)
+    lines.push(`  ${chord.map((n) => `${noteName(lowest + spread(t) + n)}@0:384:100`).join(' ')}`)
   }
-  track.push(0, 0xff, 0x2f, 0)
-  const len = track.length
-  return new Uint8Array([
-    ...[0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0],
-    ...[0x4d, 0x54, 0x72, 0x6b, (len >>> 24) & 255, (len >>> 16) & 255, (len >>> 8) & 255, len & 255],
-    ...track,
-  ])
+  return lines.join('\n')
 }
 
 function run(setup, lowest, chord, song) {
@@ -185,24 +171,20 @@ function run(setup, lowest, chord, song) {
     w.set_param(s, Param.Send3, 0.3)
     w.set_param(s, Param.Send4, 0.3)
   }
-  const file = sixteenChannels(lowest, chord)
-  new Uint8Array(w.memory.buffer, w.midi_buf(file.length), file.length).set(file)
-  if (w.midi_load() < 0) throw new Error('the bench MIDI file did not load')
-  w.play()
-  if (song) {
-    const text = new TextEncoder().encode(song)
-    new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
-    if (w.song_load() < 0) throw new Error('the bench song did not load')
-    w.song_play()
-  }
+  // The held notes and the mod lines are one song: one transport.
+  const text = new TextEncoder().encode(`${heldSong(lowest, chord)}\n${song ?? ''}\n`)
+  new Uint8Array(w.memory.buffer, w.song_buf(text.length), text.length).set(text)
+  if (w.song_load() < 0) throw new Error('the bench song did not load')
+  for (let t = 0; t < VOICES; t++) w.song_route(t, t)
+  w.song_play()
   const block = w.block_len()
   for (let i = 0; i < WARMUP; i++) w.process(block)
   const t0 = process.hrtime.bigint()
   for (let i = 0; i < BLOCKS; i++) w.process(block)
   const ns = Number(process.hrtime.bigint() - t0)
   const voices = w.active_voices()
-  // The song of modulations still plays at the end.
-  if (song && !w.song_playing()) throw new Error('the bench song stopped')
+  // The song still plays at the end.
+  if (!w.song_playing()) throw new Error('the bench song stopped')
   // Every sample stays within ±1 (untimed: reading the output costs).
   let peak = 0
   for (let i = 0; i < 500; i++) {

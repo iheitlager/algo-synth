@@ -37,13 +37,9 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'on': w.note_on(data.s, data.n, data.v); break
         case 'off': w.note_off(data.s, data.n); break
         case 'panic': w.all_off(); break
-        case 'midi': this.loadMidi(new Uint8Array(data.bytes)); break
+        case 'midi': this.importMidi(new Uint8Array(data.bytes)); break
         case 'sysex': this.loadSysex(new Uint8Array(data.bytes)); break
         case 'sysexApply': w.sysex_apply(data.s, data.i); this.sendParams(data.s); break
-        case 'play': w.play(); break
-        case 'stop': w.stop(); break
-        case 'seek': w.seek(data.sec); break
-        case 'route': w.route(data.ch, data.s); break
         case 'preset': w.mono_preset(data.s, data.id); this.sendParams(data.s); break
         case 'reset': w.synth_reset(data.s); this.sendParams(data.s); break
         case 'defaults': w.synth_defaults(data.s); break
@@ -82,13 +78,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         }
         case 'songSeek': w.song_seek_bar(data.bar); break
         case 'mixWrite': w.song_write_mixer(); this.sendSong(true); break
-        case 'midiImport': {
-          const code = w.midi_import()
-          this.sendSong(code >= 0)
-          this.port.postMessage({ t: 'imported', code })
-          break
-        }
         case 'songPlay': w.song_play(); break
+        case 'songPause': w.song_pause(); break
         case 'songStop': w.song_stop(); break
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
@@ -150,44 +141,19 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ t: 'zones', s, values }, [values.buffer])
   }
 
-  // Copy the file into the engine's buffer, parse it there, and send the
-  // summary back. Names travel as bytes: the worklet has no TextDecoder.
-  loadMidi(bytes) {
+  // Copy the file into the engine's buffer and import it as the song there
+  // (ADR-0022); the song comes back as any song does.
+  importMidi(bytes) {
     const w = this.w
     const ptr = w.midi_buf(bytes.length)
     if (!ptr) {
-      this.port.postMessage({ t: 'midi', code: -6 })
+      this.port.postMessage({ t: 'imported', code: -6 })
       return
     }
     new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
-    const code = w.midi_load()
-    if (code < 0) {
-      this.port.postMessage({ t: 'midi', code })
-      return
-    }
-    const parts = []
-    for (let i = 0; i < code; i++) {
-      const ch = w.part_channel(i)
-      parts.push({
-        channel: ch,
-        notes: w.part_notes(i),
-        start: w.part_start(i),
-        end: w.part_end(i),
-        name: new Uint8Array(w.memory.buffer, w.part_name_ptr(i), w.part_name_len(i)).slice(),
-        synth: w.routed(ch),
-      })
-    }
-    const n = w.event_count()
-    const packed = new Uint32Array(n)
-    const times = new Float32Array(n)
-    for (let i = 0; i < n; i++) {
-      packed[i] = w.event_packed(i)
-      times[i] = w.event_time(i)
-    }
-    this.port.postMessage(
-      { t: 'midi', code, parts, packed, times, length: w.song_length(), bar: w.song_bar() },
-      [packed.buffer, times.buffer],
-    )
+    const code = w.midi_import()
+    this.sendSong(code >= 0)
+    this.port.postMessage({ t: 'imported', code })
   }
 
   // Copy the song's text into the engine and have it parsed there; the
@@ -332,8 +298,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (out[1]) out[1].set(buf.subarray(this.block, this.block + frames))
     if (++this.tick % POSITION_EVERY === 0) {
       this.port.postMessage({
-        t: 'pos', sec: w.position(), playing: w.playing() === 1,
-        step: w.clock_step(), songPlaying: w.song_playing() === 1,
+        t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,
         entry: w.song_entry(), local: w.song_local(),
       })
       // Automation moved these strips' values: show them (ADR-0015).

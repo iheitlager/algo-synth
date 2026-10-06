@@ -4,15 +4,15 @@ The wide-screen browser view in `web/`. Decision: ADR-0003.
 
 ### Requirement 1: Three-area layout [MUST]
 
-The view SHALL fill the window with a transport bar across the top and a Synths | Mixer | Composer | Sound switch in it. With **Synths** or **Mixer**, that view SHALL fill the middle and a bottom pane SHALL show the **arranger** (Req 12) or the **MIDI player** (one row per channel), one tab away from each other. **Composer** SHALL take the middle with the arranger under it, without tabs; **Sound** (Req 15) takes the middle as Composer does, with the bottom pane's tabs. The transport bar's Play and Stop belong to the MIDI file; the song has its own (Req 5).
+The view SHALL fill the window with a transport bar across the top and a Synths | Mixer | Composer | Sound switch in it. **Synths**, **Mixer**, **Composer** or **Sound** (Req 15) SHALL fill the middle, with the **arranger** (Req 12) in a bottom pane under each. The transport bar's Play (Pause while the song plays) and Stop SHALL be the app's only transport (ADR-0022), with the song's position as bar, step and, in an arrangement, section.
 
 **Implementation:** `web/src/App.vue`, `web/src/components/TransportBar.vue`
 
 #### Scenario: switching views
 
-- GIVEN audio on and the synths shown, the MIDI player tab open
-- WHEN Composer is chosen
-- THEN the composer fills the middle with the arranger under it, and choosing Synths again brings the MIDI player tab back
+- GIVEN audio on and the synths shown, the song playing
+- WHEN Composer is chosen and then Pause
+- THEN the composer fills the middle with the arranger under it, and the song holds its place until Play
 
 **Tests:** `cd web && npm run typecheck`; review in the browser
 
@@ -32,7 +32,7 @@ Audio SHALL start only from a user gesture (the Power button), creating the Audi
 
 ### Requirement 3: Play the synths [MUST]
 
-The synths view SHALL be a rail of synth tapes beside one faceplate (Req 9): **+ Synth** SHALL add one on the lowest free index (up to 16, reset, then on its model's first preset) and **× Remove** SHALL remove one (never the last), muting the parts that played on it. The selected synth's faceplate has an on-screen keyboard; the computer keyboard (`a`…`;`, C4 upward) SHALL play the selected synth, from the mixer view too, and a held key SHALL release on the synth it started on. Loading a MIDI file SHALL show a synth for each part, and each part SHALL pick its synth or mute.
+The synths view SHALL be a rail of synth tapes beside one faceplate (Req 9): **+ Synth** SHALL add one on the lowest free index (up to 16, reset, then on its model's first preset) and **× Remove** SHALL remove one (never the last). The selected synth's faceplate has an on-screen keyboard; the computer keyboard (`a`…`;`, C4 upward) SHALL play the selected synth, from the mixer view too, and a held key SHALL release on the synth it started on. Opening a MIDI file SHALL import it as the song (ADR-0022) and show a synth for each of its tracks; a strip's footer SHALL name the song tracks that play on it.
 
 **Implementation:** `web/src/components/InstrumentsPane.vue`, `web/src/components/synth/` (`SynthRail.vue`, `Keyboard.vue`), `web/src/audio/engine.ts` (`addSynth`, `removeSynth`)
 
@@ -60,7 +60,7 @@ The transport bar SHALL draw the output waveform from the AnalyserNode.
 
 ### Requirement 5: Composer [MUST]
 
-The composer SHALL show the song (ADR-0012, spec 002 Req 6) as a step grid beside its text. Each drum fragment SHALL show a row per lane, a button per step (off, hit, accent; a click cycles them and sends `setStep`), the step each lane plays now, and a selector for the synth its track plays on. The text SHALL be editable and sent with Apply or Ctrl+Enter; a text that does not parse SHALL show its line, column and message, and the grid SHALL keep showing the song that plays. The grid and the text SHALL redraw from what the engine sends back, never from the view's own copy. The composer SHALL have its own Play and Stop (Stop goes back to the top), apart from the MIDI file's, and its BPM and Swing SHALL set the song's tempo and swing through the engine. Without a drum kit (a TR-808, TR-909 or pad sampler) the composer SHALL say so. The text is edited in the song editor (Req 13).
+The composer SHALL show the song (ADR-0012, spec 002 Req 6) as a step grid beside its text. Each drum fragment SHALL show a row per lane, a button per step (off, hit, accent; a click cycles them and sends `setStep`), the step each lane plays now, and a selector for the synth its track plays on. The text SHALL be editable and sent with Apply or Ctrl+Enter; a text that does not parse SHALL show its line, column and message, and the grid SHALL keep showing the song that plays. The grid and the text SHALL redraw from what the engine sends back, never from the view's own copy. The composer SHALL have no transport of its own (the transport bar's is the only one, Req 1), and its BPM and Swing SHALL set the song's tempo and swing through the engine. Without a drum kit (a TR-808, TR-909 or pad sampler) the composer SHALL say so. The text is edited in the song editor (Req 13).
 
 Above the grid the composer SHALL list the song's tracks (#213), each with its synth, its model (only the models that play the track's kind, by the engine's rule) and its preset (the model's factory presets, then the song's settings on that model). Picking a model SHALL play its first factory preset; picking a preset or setting SHALL be a message to the engine, which sets the track's synth at once, rewrites the track line and prints the song back. **Save as setting** SHALL write the synth's sound, its parameters that differ from the track's preset (not the model, strip, global or arp parameters, at most 32), into the song as a `setting` named after the track, which the track then plays; a sound past that room SHALL be refused.
 
@@ -98,7 +98,7 @@ The view SHALL only send messages and draw; sequencing, generation, parsing and 
 
 ### Requirement 7: Synth setups [SHOULD]
 
-The view SHALL save the synths on screen, each one's kind, model and parameters, the channel routing and the global parameters (`GlobalParam`) as a versioned `.synths.json` file, with parameters keyed by name, not id. **Open…** SHALL take a MIDI file, a setup, or both in either order; with a MIDI file the setup SHALL apply once the parts arrive, alone it SHALL apply to the synths on screen. Applying SHALL reset each listed synth, set its model before its other parameters, then the routes and the globals. A file that isn't JSON or has an unknown version SHALL change nothing; unknown names, models and synths SHALL be skipped and listed in one notice, and a part-count mismatch SHALL warn. The last setup per MIDI file SHALL be kept in `localStorage` and restored when that file opens again, below a picked file and above a shipped one; Demo ships one. A parameter added to the registry SHALL be saved without changes to the setup code; this carries the whole mixer (strips, sends, inserts, processors, equalizer, compressor). The setup SHALL also hold the group buses on screen, each with its strip parameters (`StripParam`) including its Out, and the console layout; a setup without them leaves groups and layout as they are. A setup written before the mixer was central (`EchoSend`, `ReverbSend`, the global `Echo*` and `Reverb*`) SHALL load, migrated to `Send1`, `Send2` and the knobs of P1 and P2 with one notice. The format is built in the view from values the engine reports, which clamps every value it receives (#41).
+The view SHALL save the synths on screen, each one's kind, model and parameters, and the global parameters (`GlobalParam`) as a versioned `.synths.json` file, with parameters keyed by name, not id. **Open…** SHALL take a MIDI file, a setup, or both in either order; with a MIDI file the setup SHALL apply once the file is imported as the song (ADR-0022), alone it SHALL apply to the synths on screen. Applying SHALL reset each listed synth, set its model before its other parameters, then the globals; a song track's synth SHALL stay on screen. A file that isn't JSON or has an unknown version SHALL change nothing; unknown names, models and synths SHALL be skipped and listed in one notice, and the MIDI channel routes of an older setup SHALL be ignored with a notice. Demo ships one. A parameter added to the registry SHALL be saved without changes to the setup code; this carries the whole mixer (strips, sends, inserts, processors, equalizer, compressor). The setup SHALL also hold the group buses on screen, each with its strip parameters (`StripParam`) including its Out, and the console layout; a setup without them leaves groups and layout as they are. A setup written before the mixer was central (`EchoSend`, `ReverbSend`, the global `Echo*` and `Reverb*`) SHALL load, migrated to `Send1`, `Send2` and the knobs of P1 and P2 with one notice. The format is built in the view from values the engine reports, which clamps every value it receives (#41).
 
 **Implementation:** `web/src/audio/setup.ts` (`buildSetup`, `parseSetup`, `applyPlan`, `shortF32`), `web/src/audio/engine.ts` (`saveSetup`, `openFiles`), `crates/dsp/src/params.rs::Param::is_global`, `web/public/demo.synths.json`
 
@@ -106,7 +106,7 @@ The view SHALL save the synths on screen, each one's kind, model and parameters,
 
 - GIVEN a setup built from the view's values
 - WHEN it is written as JSON, read back and applied
-- THEN every per-synth parameter, global and route is the same 32-bit float or synth as before
+- THEN every per-synth parameter and global is the same 32-bit float as before
 
 #### Scenario: unknown entries
 
@@ -118,7 +118,7 @@ The view SHALL save the synths on screen, each one's kind, model and parameters,
 
 ### Requirement 8: Mixer console [SHOULD]
 
-The mixer view SHALL be a console: one thin strip per synth side by side (tape with the synth and its model, three insert slots, four sends P1–P4 each with pre/post and on/off, pan, mute, solo, fader with a dB scale and an LED meter, the MIDI channels routed to it), the four effect processors as rack modules (type among off, echo, reverb, chorus and flanger, the knobs of that type with their real units, return and return meter, and on P2–P4 a toggle "← P1" that makes it hear the processor before it, drawn as a link between the two modules), and the master section (equalizer with its response curve, compressor with its transfer curve and gain-reduction meter, master fader, stereo meters and a limiter light). Values shown SHALL be those the engine reports, and changes SHALL go out as messages; the meters SHALL come from the engine's peaks (spec 002 Req 2). A knob SHALL turn by dragging up or down (shift for fine), open a slider when clicked, reset on double-click, and move with the wheel and the arrow keys; a fader SHALL do the same with its taper (0 dB at the top). Group buses (ADR-0010) SHALL be strips too: a group SHALL be added and removed from the console (removing it sends what fed it to the master), and every strip and group SHALL have an Out selector offering only the destinations the engine accepts, a coloured tag under its tape saying which group it feeds, and three insert slots whose panel opens from a slot button with the type and its knobs in real units. A strip SHALL be reordered by dragging its tape onto another, collapsed to a sliver, and hidden (a hidden strip stays in the mix and can be shown again from the bar); the order, collapsed and hidden strips are layout, kept in the setup file and never sent to the engine. Which strips are dimmed SHALL follow the engine's mute and solo rules through groups. Clicking a strip's tape SHALL select its synth for the keyboard, and double-clicking it SHALL show that synth's panel. The synths SHALL stay mounted in the mixer view so the computer keyboard still plays.
+The mixer view SHALL be a console: one thin strip per synth side by side (tape with the synth and its model, three insert slots, four sends P1–P4 each with pre/post and on/off, pan, mute, solo, fader with a dB scale and an LED meter, the song tracks that play on it), the four effect processors as rack modules (type among off, echo, reverb, chorus and flanger, the knobs of that type with their real units, return and return meter, and on P2–P4 a toggle "← P1" that makes it hear the processor before it, drawn as a link between the two modules), and the master section (equalizer with its response curve, compressor with its transfer curve and gain-reduction meter, master fader, stereo meters and a limiter light). Values shown SHALL be those the engine reports, and changes SHALL go out as messages; the meters SHALL come from the engine's peaks (spec 002 Req 2). A knob SHALL turn by dragging up or down (shift for fine), open a slider when clicked, reset on double-click, and move with the wheel and the arrow keys; a fader SHALL do the same with its taper (0 dB at the top). Group buses (ADR-0010) SHALL be strips too: a group SHALL be added and removed from the console (removing it sends what fed it to the master), and every strip and group SHALL have an Out selector offering only the destinations the engine accepts, a coloured tag under its tape saying which group it feeds, and three insert slots whose panel opens from a slot button with the type and its knobs in real units. A strip SHALL be reordered by dragging its tape onto another, collapsed to a sliver, and hidden (a hidden strip stays in the mix and can be shown again from the bar); the order, collapsed and hidden strips are layout, kept in the setup file and never sent to the engine. Which strips are dimmed SHALL follow the engine's mute and solo rules through groups. Clicking a strip's tape SHALL select its synth for the keyboard, and double-clicking it SHALL show that synth's panel. The synths SHALL stay mounted in the mixer view so the computer keyboard still plays.
 
 **Implementation:** `web/src/components/ConsolePane.vue`, `web/src/components/console/` (`Knob.vue`, `Fader.vue`, `LedMeter.vue`, `ChannelStrip.vue`, `ProcessorModule.vue`, `MasterSection.vue`), `web/src/audio/console.ts`, `web/src/App.vue`, `web/src/components/TransportBar.vue`
 
@@ -164,21 +164,21 @@ The selected synth SHALL be drawn as one faceplate in the console's hardware sty
 
 ### Requirement 10: Names [SHOULD]
 
-The user SHALL be able to rename every MIDI lane (by channel), synth and group bus in place (#127), a synth also from its tape in the synth rail by a double-click, while a single click still selects it (#178). A synth and its console strip SHALL share one name. An instrument added with + Synth SHALL be named by its family when it is added, with the lowest free number: `Drum N` for the drum machines, `Sampler N` for the samplers, `Synth N` for the synths (#177); the name SHALL be kept, so adding, removing or switching other instruments never renames it, and removing an instrument SHALL free its name. A synth that is not named SHALL take the name of the first lane routed to it, else `Synth N`; a group `Group N`; a lane the file's track name, else `Channel N`. A name SHALL be trimmed and at most 24 characters, and an empty one SHALL restore the default (for an instrument, its family's). Every place a strip or lane is labelled (console tapes and feeds tags, the Out selector, the synth rail and faceplate header, the Player's lanes and route choices) SHALL use the same name. Names are labels only: they SHALL be kept in the view and the setup file (`names`), never in the engine (ADR-0001), and a setup without them SHALL load with the defaults.
+The user SHALL be able to rename every synth and group bus in place (#127), a synth also from its tape in the synth rail by a double-click, while a single click still selects it (#178). A synth and its console strip SHALL share one name. An instrument added with + Synth SHALL be named by its family when it is added, with the lowest free number: `Drum N` for the drum machines, `Sampler N` for the samplers, `Synth N` for the synths (#177); the name SHALL be kept, so adding, removing or switching other instruments never renames it, and removing an instrument SHALL free its name. A synth that is not named SHALL be `Synth N`, a group `Group N`. A name SHALL be trimmed and at most 24 characters, and an empty one SHALL restore the default (for an instrument, its family's). Every place a strip is labelled (console tapes and feeds tags, the Out selector, the synth rail and faceplate header, the composer's synth choices) SHALL use the same name. Names are labels only: they SHALL be kept in the view and the setup file (`names`), never in the engine (ADR-0001), and a setup without them SHALL load with the defaults.
 
-**Implementation:** `web/src/audio/names.ts`, `web/src/audio/setup.ts::parseNames`, `web/src/components/EditableName.vue`, `web/src/components/ConsolePane.vue`, `web/src/components/console/ChannelStrip.vue`, `web/src/components/InstrumentsPane.vue`, `web/src/components/PlayerPane.vue`, `web/src/audio/engine.ts` (`addSynth`, `removeSynth`, `renameSynth`)
+**Implementation:** `web/src/audio/names.ts`, `web/src/audio/setup.ts::parseNames`, `web/src/components/EditableName.vue`, `web/src/components/ConsolePane.vue`, `web/src/components/console/ChannelStrip.vue`, `web/src/components/InstrumentsPane.vue`, `web/src/audio/engine.ts` (`addSynth`, `removeSynth`, `renameSynth`)
 
-#### Scenario: a loaded file names its synths
+#### Scenario: a renamed synth
 
-- GIVEN a MIDI file whose first channel is called "Violin I", played on synth 1
-- WHEN it loads
-- THEN synth 1 and its strip are labelled "Violin I" until the user renames them, and clearing the name brings that back
+- GIVEN synth 2 renamed "Violin I"
+- WHEN its strip is shown in the console and the composer's synth choices
+- THEN it reads "Violin I" everywhere, and clearing the name brings back its default
 
 #### Scenario: names travel with the setup
 
-- GIVEN a renamed synth, group and lane
+- GIVEN a renamed synth and group
 - WHEN the setup is saved and opened again
-- THEN the same names are shown; names that are not a strip or channel are dropped with one warning
+- THEN the same names are shown; names that are not a strip are dropped with one warning, and an older file's lane names are ignored
 
 **Tests:** `web/src/audio/names.test.ts`, `web/src/audio/setup.test.ts`, `web/src/audio/family-names.test.ts`
 
@@ -204,7 +204,7 @@ The user SHALL be able to save, load, rename, delete, export and import presets 
 
 ### Requirement 12: The arranger [SHOULD]
 
-The bottom pane SHALL show the arranger (ADR-0015, #171), with the MIDI file player one tab away, and the arranger SHALL also sit under the composer. Columns SHALL be the arrangement's entries in order, as wide as their bars, each with its section's name and bars; rows SHALL be the song's fragments (in their track's colour), automation lanes and scenes; a lit cell SHALL mean the entry's section plays that row. Clicking a cell SHALL switch the row in that section (so in every entry of it), and a section's bars, the order of entries, adding a section or an entry, and the loop region (shift-click two bars of the ruler; shift-click inside it clears it) SHALL be edits sent to the engine, which changes the song and prints it back. Clicking a bar SHALL move the song there; while the song plays, the current entry SHALL be marked and a playhead SHALL follow it. The arranger SHALL NOT parse the song.
+The bottom pane SHALL show the arranger (ADR-0015, #171) under every view, and with it what opening files reported (a MIDI file imported, a setup's skipped entries). Columns SHALL be the arrangement's entries in order, as wide as their bars, each with its section's name and bars; rows SHALL be the song's fragments (in their track's colour), automation lanes and scenes; a lit cell SHALL mean the entry's section plays that row. Clicking a cell SHALL switch the row in that section (so in every entry of it), and a section's bars, the order of entries, adding a section or an entry, and the loop region (shift-click two bars of the ruler; shift-click inside it clears it) SHALL be edits sent to the engine, which changes the song and prints it back. Clicking a bar SHALL move the song there; while the song plays, the current entry SHALL be marked and a playhead SHALL follow it. The arranger SHALL NOT parse the song.
 
 **Implementation:** `web/src/components/ArrangerPane.vue`, `web/src/App.vue`, `web/src/audio/engine.ts` (`arrange`, `applySong`), `web/public/worklet.js` (`arr`, `songSeek`), `crates/dsp/src/song.rs` (`toggle`, `add_section`, `set_bars`, `arrange_insert`, `arrange_remove`, `arrange_move`, `set_loop`), `crates/dsp/src/ffi.rs` (`arr_edit` and the arrangement getters)
 
