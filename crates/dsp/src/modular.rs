@@ -35,8 +35,10 @@ use crate::mono::voice::MonoCtx;
 use crate::song::signal::{Tok, Token, lex};
 use crate::voice::lookup;
 
+pub mod sc;
+
 /// Most nodes in a voice, and most of each kind of state it may hold.
-pub const MAX_NODES: usize = 32;
+pub const MAX_NODES: usize = 64;
 pub const MAX_OSCS: usize = 8;
 pub const MAX_PHASES: usize = 8;
 pub const MAX_FILTERS: usize = 4;
@@ -47,7 +49,7 @@ pub const MAX_DELAYS: usize = 1;
 pub const MAX_DELAY: usize = 1024;
 /// Most numbers in all of a voice's lists, and inputs to one `mix`.
 pub const MAX_LIST: usize = 16;
-const MAX_MIX: usize = 4;
+const MAX_MIX: usize = 8;
 /// Deepest nesting of brackets and minus signs.
 const MAX_DEPTH: usize = 16;
 /// No input: an optional argument left out.
@@ -99,6 +101,10 @@ impl Op {
 pub enum Shape {
     Adsr,
     Times(f32, f32, f32, f32),
+    /// Attack, decay, sustain and release from nodes (numbers or controls),
+    /// read when the gate moves, so a knob changes the next note's shape
+    /// (ADR-0022).
+    Nodes([u8; 4]),
 }
 
 /// One unit generator; `u8` fields index earlier nodes, `slot` its state.
@@ -131,6 +137,8 @@ pub enum Ugen {
         cutoff: u8,
         res: u8,
         slot: u8,
+        /// `res` is SuperCollider's `rq` (bandwidth over cutoff): small is sharp.
+        rq: bool,
     },
     Env {
         slot: u8,
@@ -141,6 +149,8 @@ pub enum Ugen {
         cutoff: u8,
         res: u8,
         slot: u8,
+        /// `res` is `MoogFF`'s gain, 0..4, the feedback itself.
+        gain: bool,
     },
     /// A sine phase-modulated by a sine: `index` in radians. Two phases.
     Fm {
@@ -155,16 +165,25 @@ pub enum Ugen {
         input: u8,
         time: u8,
         feedback: u8,
+        /// `feedback` is a `CombL` decay time in seconds: the echoes fall
+        /// 60 dB in it.
+        decay: bool,
+    },
+    /// SuperCollider's shapers on a signal: 0 `tanh`, 1 `softclip`, 2 `distort`.
+    Clip {
+        input: u8,
+        kind: u8,
     },
     /// A soft clip that keeps a full-scale input at full scale.
     Drive {
         input: u8,
         amount: u8,
     },
-    /// The mean of up to four inputs.
+    /// Up to eight inputs added (SuperCollider's `Mix`), or their mean.
     Mix {
         inputs: [u8; MAX_MIX],
         n: u8,
+        mean: bool,
     },
     /// A list of numbers: each voice slot takes its own, round the list.
     List {
@@ -196,6 +215,9 @@ pub enum Ugen {
 pub struct Program {
     nodes: [Ugen; MAX_NODES],
     len: u8,
+    /// The voice sets its own level (a SuperCollider `amp`): no velocity
+    /// and output gain on top.
+    own_amp: bool,
     envs: [Shape; MAX_ENVS],
     /// The numbers of the voice's lists.
     lists: [f32; MAX_LIST],
@@ -228,6 +250,7 @@ impl Default for Program {
         Program {
             nodes,
             len: 2,
+            own_amp: false,
             envs: [Shape::Adsr; MAX_ENVS],
             lists: [0.0; MAX_LIST],
             counts: Counts {
@@ -255,6 +278,7 @@ impl Program {
             prog: Program {
                 nodes: [Ugen::Num(0.0); MAX_NODES],
                 len: 0,
+                own_amp: false,
                 envs: [Shape::Adsr; MAX_ENVS],
                 lists: [0.0; MAX_LIST],
                 counts: Counts::default(),
@@ -356,6 +380,7 @@ impl Program {
                 Some(Shape::Adsr) | None => out.write_str("env(adsr)"),
                 Some(s) if *s == PERC => out.write_str("env(perc)"),
                 Some(Shape::Times(a, d, s, r)) => write!(out, "env({a}, {d}, {s}, {r})"),
+                Some(Shape::Nodes(_)) => out.write_str("env(adsr)"),
             },
             Ugen::Ladder {
                 input, cutoff, res, ..
@@ -374,6 +399,7 @@ impl Program {
                 input,
                 time,
                 feedback,
+                ..
             } => {
                 self.write(out, names, input, 4)?;
                 out.push_str(" |> delay(");
@@ -384,6 +410,14 @@ impl Program {
                 }
                 out.push(')');
                 Ok(())
+            }
+            Ugen::Clip { input, kind } => {
+                self.write(out, names, input, 4)?;
+                let name = ["tanh", "softclip", "distort"]
+                    .get(usize::from(kind))
+                    .copied()
+                    .unwrap_or("tanh");
+                write!(out, ".{name}")
             }
             Ugen::Drive { input, amount } => {
                 self.write(out, names, input, 4)?;
@@ -407,7 +441,7 @@ impl Program {
                 out.push(')');
                 Ok(())
             }
-            Ugen::Mix { inputs, n } => {
+            Ugen::Mix { inputs, n, .. } => {
                 out.push_str("mix(");
                 for (k, i) in inputs.iter().take(usize::from(n)).enumerate() {
                     if k > 0 {
@@ -782,7 +816,7 @@ impl<'a> Parser<'a, '_> {
             let mut n = 0usize;
             loop {
                 let a = self.sum()?;
-                let Some(slot) = inputs.get_mut(n) else {
+                let Some(slot) = inputs.get_mut(n).filter(|_| n < 4) else {
                     return Err((col, "mix takes at most 4 inputs"));
                 };
                 *slot = a;
@@ -796,6 +830,7 @@ impl<'a> Parser<'a, '_> {
             return self.push(Ugen::Mix {
                 inputs,
                 n: u8::try_from(n).unwrap_or(0),
+                mean: true,
             });
         }
         if name == "env" {
@@ -895,6 +930,7 @@ impl<'a> Parser<'a, '_> {
                 input,
                 cutoff: first,
                 res: second,
+                gain: false,
                 slot: Self::slot(
                     &mut self.prog.counts.filters,
                     MAX_FILTERS,
@@ -913,6 +949,7 @@ impl<'a> Parser<'a, '_> {
                     input,
                     time: first,
                     feedback: second,
+                    decay: false,
                 }
             }
             _ => Ugen::Drive {
@@ -986,6 +1023,7 @@ impl<'a> Parser<'a, '_> {
             cutoff,
             res,
             slot,
+            rq: false,
         })
     }
 
@@ -1203,12 +1241,23 @@ impl GraphVoice {
         let (retrigger, gate) = (self.retrigger, self.gate);
         self.retrigger = false;
         let used = usize::from(self.prog.counts.envs);
-        for (k, env) in self.envs.iter_mut().enumerate().take(used) {
-            let t = match self.prog.envs.get(k) {
+        for k in 0..used {
+            let t = match self.prog.envs.get(k).copied() {
                 Some(Shape::Times(..)) => self.times.get(k).copied().unwrap_or(NO_TIMES),
+                Some(Shape::Nodes([a, d, s, r])) => EnvTimes {
+                    attack: self.fixed(a, ctx).max(0.0) * sr,
+                    decay: self.fixed(d, ctx).max(0.0) * sr,
+                    sustain: self.fixed(s, ctx).clamp(0.0, 1.0),
+                    release: self.fixed(r, ctx).max(0.0) * sr,
+                },
                 _ => p.adsr,
             };
-            gate_env(env, &t, retrigger, gate);
+            if let Some(env) = self.envs.get_mut(k) {
+                gate_env(env, &t, retrigger, gate);
+                if matches!(self.prog.envs.get(k), Some(Shape::Nodes(_))) {
+                    env.set_sustain(t.sustain);
+                }
+            }
         }
         if !self.prog.has_env() {
             gate_env(&mut self.amp, &p.adsr, retrigger, gate);
@@ -1246,7 +1295,13 @@ impl GraphVoice {
                 .unwrap_or(0.0)
                 * amp;
             if y.is_finite() {
-                *sample += y.clamp(-4.0, 4.0) * OUT_GAIN * self.velocity;
+                // A SynthDef with its own `amp` plays at its own level.
+                let gain = if self.prog.own_amp {
+                    1.0
+                } else {
+                    OUT_GAIN * self.velocity
+                };
+                *sample += y.clamp(-4.0, 4.0) * gain;
             }
         }
     }
@@ -1264,6 +1319,22 @@ impl GraphVoice {
             None => 0.0,
         };
         note + self.cutoff_trim
+    }
+
+    /// The value of a number or a control node, read outside the sample loop
+    /// (an envelope's times).
+    fn fixed(&self, i: u8, ctx: &MonoCtx) -> f32 {
+        match self.prog.node(i) {
+            Some(Ugen::Num(v)) => v,
+            Some(Ugen::Ctl { index, lo, hi }) => ctx
+                .params
+                .ctl
+                .get(usize::from(index))
+                .copied()
+                .unwrap_or(lo)
+                .clamp(lo, hi),
+            _ => 0.0,
+        }
     }
 
     fn val(&self, i: u8) -> f32 {
@@ -1320,11 +1391,17 @@ impl GraphVoice {
                 cutoff,
                 res,
                 slot,
+                rq,
             } => {
                 let x = self.val(input);
                 let c = self.val(cutoff).max(1.0);
                 let note = self.cutoff_note(slot, c);
-                let r = if res == NONE { RES } else { self.val(res) };
+                let r = match (res == NONE, rq) {
+                    (true, _) => RES,
+                    // rq 1 is gentle, 0.05 nearly singing.
+                    (false, true) => 1.0 - self.val(res).clamp(0.0, 1.0),
+                    (false, false) => self.val(res),
+                };
                 let Some(f) = self.filters.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
@@ -1344,14 +1421,20 @@ impl GraphVoice {
                 cutoff,
                 res,
                 slot,
+                gain,
             } => {
                 let x = self.val(input);
                 let note = self.cutoff_note(slot, self.val(cutoff));
                 let r = if res == NONE { RES } else { self.val(res) };
+                let k = if gain {
+                    r.clamp(0.0, MAX_K)
+                } else {
+                    r.clamp(0.0, 1.0) * MAX_K
+                };
                 let Some(l) = self.ladders.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
-                l.process(ctx.ladder, x, note, r.clamp(0.0, 1.0) * MAX_K, 1.0)
+                l.process(ctx.ladder, x, note, k, 1.0)
             }
             Ugen::Fm {
                 carrier,
@@ -1378,12 +1461,23 @@ impl GraphVoice {
                 input,
                 time,
                 feedback,
+                decay,
             } => {
                 let x = self.val(input);
-                let fb = if feedback == NONE {
-                    0.0
-                } else {
-                    self.val(feedback).clamp(-0.98, 0.98)
+                let fb = match (feedback == NONE, decay) {
+                    (true, _) => 0.0,
+                    // A decay time: each pass loses its share of 60 dB.
+                    (false, true) => {
+                        let t = self.val(time).max(1e-4);
+                        let dec = self.val(feedback);
+                        if dec.abs() < 1e-4 {
+                            0.0
+                        } else {
+                            (dec.signum() * fast_exp2(-9.965_784 * t / dec.abs()))
+                                .clamp(-0.999, 0.999)
+                        }
+                    }
+                    (false, false) => self.val(feedback).clamp(-0.98, 0.98),
                 };
                 let d = (self.val(time) / inv).clamp(1.0, (MAX_DELAY - 2) as f32);
                 let back = self.write as f32 + MAX_DELAY as f32 - d;
@@ -1402,15 +1496,28 @@ impl GraphVoice {
                 self.write = (self.write + 1) % MAX_DELAY;
                 y
             }
+            Ugen::Clip { input, kind } => {
+                let x = self.val(input);
+                match kind {
+                    // A Padé tanh, exact enough below 3 and 1 above.
+                    0 => {
+                        let x = x.clamp(-3.0, 3.0);
+                        x * (27.0 + x * x) / (27.0 + 9.0 * x * x)
+                    }
+                    1 if x.abs() <= 0.5 => x,
+                    1 => (x.abs() - 0.25) / x,
+                    _ => x / (1.0 + x.abs()),
+                }
+            }
             Ugen::Drive { input, amount } => {
                 let a = self.val(amount).max(0.0);
                 let x = self.val(input);
                 (1.0 + a) * x / (1.0 + a * x.abs())
             }
-            Ugen::Mix { inputs, n } => {
+            Ugen::Mix { inputs, n, mean } => {
                 let n = usize::from(n).max(1);
                 let sum: f32 = inputs.iter().take(n).map(|i| self.val(*i)).sum();
-                sum / n as f32
+                if mean { sum / n as f32 } else { sum }
             }
             Ugen::List { from, len } => {
                 let len = usize::from(len).max(1);

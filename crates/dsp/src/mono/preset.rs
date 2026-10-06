@@ -280,19 +280,21 @@ impl Preset {
         }
     }
 
-    /// A Modular preset's voice, in the song's voice language (ADR-0020).
-    pub fn voice_text(self) -> Option<&'static str> {
+    /// A Modular preset's code: a SuperCollider SynthDef (ADR-0022).
+    pub fn code(self) -> Option<&'static str> {
         match self {
-            Preset::ModularBasic => Some("saw(freq) |> svf(lp, 1800, 0.3)"),
+            Preset::ModularBasic => Some(
+                "SynthDef(\\basic, { |freq = 440, gate = 1|\n    RLPF.ar(Saw.ar(freq), 1800, 0.7)\n}).add;\n",
+            ),
             // Two detuned pulses whose widths an LFO each moves, and a saw an
             // octave down: the rave hoover's buzz.
             Preset::ModularHoover => Some(
-                "(pulse(freq * 0.995, lfo(5).range(0.1, 0.4)) + pulse(freq * 1.005, lfo(4.3).range(0.2, 0.5)) + saw(freq * 0.5)) |> svf(lp, 2500, 0.3)",
+                "SynthDef(\\hoover, { |freq = 440, gate = 1|\n    var a = Pulse.ar(freq * 0.995, SinOsc.kr(5).range(0.1, 0.4));\n    var b = Pulse.ar(freq * 1.005, SinOsc.kr(4.3).range(0.2, 0.5));\n    var sub = Saw.ar(freq * 0.5);\n    RLPF.ar(a + b + sub, 2500, 0.7)\n}).add;\n",
             ),
             // A gabber kick: a sine swept from 900 Hz down to 48 in a tenth of
             // a second, under a short decay, driven hard into a square-ish boom.
             Preset::ModularKick => Some(
-                "(sin(env(0.001, 0.12, 0, 0.12).exprange(48, 900)) * env(0.001, 0.45, 0, 0.1)) |> drive(12)",
+                "SynthDef(\\kick, { |amp = 0.5|\n    var pitch = Env.perc(0.001, 0.12).kr.exprange(48, 900);\n    var body = SinOsc.ar(pitch) * Env.perc(0.001, 0.45).kr;\n    (body * 12).tanh * amp\n}).add;\n",
             ),
             _ => None,
         }
@@ -2732,7 +2734,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 417] = [
+pub const DEFAULTS: [(Param, f32); 433] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -3045,6 +3047,22 @@ pub const DEFAULTS: [(Param, f32); 417] = [
     (Param::Ctl14, 0.0),
     (Param::Ctl15, 0.0),
     (Param::Ctl16, 0.0),
+    (Param::Ctl17, 0.0),
+    (Param::Ctl18, 0.0),
+    (Param::Ctl19, 0.0),
+    (Param::Ctl20, 0.0),
+    (Param::Ctl21, 0.0),
+    (Param::Ctl22, 0.0),
+    (Param::Ctl23, 0.0),
+    (Param::Ctl24, 0.0),
+    (Param::Ctl25, 0.0),
+    (Param::Ctl26, 0.0),
+    (Param::Ctl27, 0.0),
+    (Param::Ctl28, 0.0),
+    (Param::Ctl29, 0.0),
+    (Param::Ctl30, 0.0),
+    (Param::Ctl31, 0.0),
+    (Param::Ctl32, 0.0),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
     (Param::SnTone, 0.5),
@@ -3423,20 +3441,14 @@ mod tests {
     }
 
     /// Spec 005 Req 1: every model has at least two presets of its own.
-    /// Every Modular preset's voice compiles (ADR-0020).
+    /// Every Modular preset's code builds (ADR-0022).
     #[test]
     fn every_modular_voice_compiles() {
         for (p, name) in Preset::ALL {
-            assert_eq!(
-                p.voice_text().is_some(),
-                p.model() == Model::Modular,
-                "{name}"
-            );
-            if let Some(text) = p.voice_text() {
-                assert!(
-                    crate::modular::Program::parse(text).is_ok(),
-                    "{name}: {text}"
-                );
+            assert_eq!(p.code().is_some(), p.model() == Model::Modular, "{name}");
+            if let Some(text) = p.code() {
+                let built = crate::modular::sc::compile(text);
+                assert!(built.is_ok(), "{name}: {built:?}");
             }
         }
     }

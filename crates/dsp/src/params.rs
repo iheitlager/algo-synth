@@ -1005,10 +1005,26 @@ pub enum Param {
     Ctl14 = 505,
     Ctl15 = 506,
     Ctl16 = 507,
+    Ctl17 = 508,
+    Ctl18 = 509,
+    Ctl19 = 510,
+    Ctl20 = 511,
+    Ctl21 = 512,
+    Ctl22 = 513,
+    Ctl23 = 514,
+    Ctl24 = 515,
+    Ctl25 = 516,
+    Ctl26 = 517,
+    Ctl27 = 518,
+    Ctl28 = 519,
+    Ctl29 = 520,
+    Ctl30 = 521,
+    Ctl31 = 522,
+    Ctl32 = 523,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
-pub const CTLS: usize = 16;
+pub const CTLS: usize = 32;
 
 /// Where the global parameters start: P1 an echo and P2 a reverb, silent until
 /// a return goes up; P3 and P4 are off.
@@ -1092,7 +1108,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 508] = [
+    pub const ALL: [(Param, &'static str); 524] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1601,9 +1617,25 @@ impl Param {
         (Param::Ctl14, "Ctl14"),
         (Param::Ctl15, "Ctl15"),
         (Param::Ctl16, "Ctl16"),
+        (Param::Ctl17, "Ctl17"),
+        (Param::Ctl18, "Ctl18"),
+        (Param::Ctl19, "Ctl19"),
+        (Param::Ctl20, "Ctl20"),
+        (Param::Ctl21, "Ctl21"),
+        (Param::Ctl22, "Ctl22"),
+        (Param::Ctl23, "Ctl23"),
+        (Param::Ctl24, "Ctl24"),
+        (Param::Ctl25, "Ctl25"),
+        (Param::Ctl26, "Ctl26"),
+        (Param::Ctl27, "Ctl27"),
+        (Param::Ctl28, "Ctl28"),
+        (Param::Ctl29, "Ctl29"),
+        (Param::Ctl30, "Ctl30"),
+        (Param::Ctl31, "Ctl31"),
+        (Param::Ctl32, "Ctl32"),
     ];
 
-    /// The control a parameter is, 0..16, for a Modular voice's `ctl`.
+    /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
     pub fn ctl(self) -> Option<usize> {
         let i = (self as u32).checked_sub(Param::Ctl1 as u32)? as usize;
         (i < CTLS).then_some(i)
@@ -1828,7 +1860,23 @@ impl Param {
             | Param::Ctl13
             | Param::Ctl14
             | Param::Ctl15
-            | Param::Ctl16 => (-100_000.0, 100_000.0),
+            | Param::Ctl16
+            | Param::Ctl17
+            | Param::Ctl18
+            | Param::Ctl19
+            | Param::Ctl20
+            | Param::Ctl21
+            | Param::Ctl22
+            | Param::Ctl23
+            | Param::Ctl24
+            | Param::Ctl25
+            | Param::Ctl26
+            | Param::Ctl27
+            | Param::Ctl28
+            | Param::Ctl29
+            | Param::Ctl30
+            | Param::Ctl31
+            | Param::Ctl32 => (-100_000.0, 100_000.0),
             Param::BdOut
             | Param::SnOut
             | Param::CpOut
