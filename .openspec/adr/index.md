@@ -21,3 +21,4 @@
 | [0018](0018-the-song-is-the-session.md) | The song is the session: mixer, groups, master, processors and samples as lines in the song text, one namespace for tracks and strips, the setup file an import | Proposed |
 | [0019](0019-patterns-signals-and-parameters.md) | One language for patterns, signals and parameters: pattern methods, control-rate signals with mathematics, parameters as methods, one precedence, compiled to a node pool | Proposed |
 | [0020](0020-modular-voice-and-sound-screen.md) | A modular voice: unit-generator graphs in the song compiled per song and played per note, controls as generic parameters, a Sound screen; our own language, not scsynth | Proposed |
+| [0021](0021-modular-voice-language.md) | The modular voice's language: bipolar audio-rate calls in hertz apart from the signals, `|>` as a postfix, one line, fixed per-voice limits, the program copied per note, no transcendental call per sample | Proposed |

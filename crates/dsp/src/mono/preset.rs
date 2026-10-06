@@ -2381,9 +2381,15 @@ impl Preset {
             // short toms, crisp hats and a long ride.
             // A Modular synth's sound is its voice (`voice_text`); the ADSR
             // shapes a voice without `env`.
-            Preset::ModularBasic => &[(Model, 19.0), (AdsrAttack, 0.005), (AdsrRelease, 0.25)],
+            Preset::ModularBasic => &[
+                (Model, 19.0),
+                (Polyphony, 8.0),
+                (AdsrAttack, 0.005),
+                (AdsrRelease, 0.25),
+            ],
             Preset::ModularHoover => &[
                 (Model, 19.0),
+                (Polyphony, 8.0),
                 (AdsrAttack, 0.02),
                 (AdsrSustain, 0.9),
                 (AdsrRelease, 0.4),

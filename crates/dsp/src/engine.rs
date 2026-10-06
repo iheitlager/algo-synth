@@ -1513,6 +1513,14 @@ impl Engine {
                         }
                     }
                 }
+                // A Modular track's voice goes to its synth now, as patches do;
+                // each note takes it when it starts (ADR-0020).
+                for (t, track) in song.tracks.iter().enumerate() {
+                    let voice = track.voice.and_then(|i| song.voices.get(i));
+                    if let (Some(v), Some(Some(s))) = (voice, route.get(t)) {
+                        self.set_graph(*s, v.program);
+                    }
+                }
                 self.apply_mix(&song, &before, &route);
                 self.song_text = song.print();
                 self.song_error = None;

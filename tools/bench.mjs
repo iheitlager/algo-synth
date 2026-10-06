@@ -86,6 +86,9 @@ const scenarios = {
     w.set_param(s, Param.Resonance, 1)
     w.set_param(s, Param.Drive, 1)
   }, 72],
+  // The Modular hoover (ADR-0020), a chord on every synth: 64 graph voices of
+  // three oscillators, two LFOs and a filter.
+  'modular': [(w, s) => w.mono_preset(s, Preset.ModularHoover), 48, CHORD],
   // The family worst case with its cutoff and resonance modulated on every
   // synth by a song of mod lines (ADR-0019, #208), evaluated once a block.
   modulated: [(w, s) => scenarios['family worst'][0](w, s), 72, [0], MODS],

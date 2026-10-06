@@ -1,7 +1,7 @@
 //! `render` never allocates (ADR-0002, #233), checked by counting every
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
 //! walk, strip and synth automation, scenes that solo, mute and send,
-//! modulations, and a new song taking over on a bar line.
+//! modulations, a Modular voice, and a new song taking over on a bar line.
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
@@ -16,10 +16,12 @@ static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 const SONG: &str = "\
 tempo 180
 scale e phrygian
+voice buzz = { (pulse(freq, lfo(3).range(0.2, 0.6)) + saw(freq * 0.5) + noise() * 0.05) |> svf(lp, lfo(0.2).exprange(300, 3000), 0.4) * env(0.005, 0.2, 0.6, 0.3) }
 track kit drums
 track lead synth
 track pad synth
 track bass synth
+track buzzer synth Modular buzz
 
 frag beat = kit /16
   bd x..x..x...x..x..
@@ -31,6 +33,8 @@ frag sand = lead live
   arp([e4,g#4,b4,d5],random,16,3)
 frag roam = bass live
   walk(e2,16,5)
+frag zap = buzzer
+  \"e3 [g3 b3] ~ <e4 d4>\"
 
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
@@ -40,8 +44,8 @@ scene open: strip1.Solo 0, strip2.Mute 0, master.P2Return 0.4
 mod lead.resonance = lfo(0.5, tri).range(0.1, 0.6).lag(0.05)
 mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
 
-section a 2: beat hold sand roam fade pan sweep [open]
-section b 1: beat sand roam [solo]
+section a 2: beat hold sand roam zap fade pan sweep [open]
+section b 1: beat sand roam zap [solo]
 arrange a b a b
 ";
 

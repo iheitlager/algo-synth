@@ -3516,3 +3516,29 @@ fn a_modular_voice_with_a_percussive_env_ends_while_held() {
     render_out(&mut e, 48_000 / BLOCK);
     assert_eq!(e.active_voices(), 0);
 }
+
+/// A song's voice plays on the synth its Modular track is routed to.
+#[test]
+fn a_song_voice_plays_on_its_track() {
+    let text = "tempo 120\nvoice beep = { sin(freq) * env(perc) }\ntrack lead synth Modular beep\n\
+        frag r = lead\n  \"a4 ~ ~ ~\"\n";
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Model), 19.0);
+    e.song_play();
+    let out = render_out(&mut e, 48_000 / BLOCK);
+    let left: Vec<f32> = out
+        .chunks(2 * BLOCK)
+        .flat_map(|b| b[..BLOCK].to_vec())
+        .collect();
+    let ups = left[..24_000]
+        .windows(2)
+        .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+        .count();
+    // A perc on a4 sounds for a while and dies: crossings near 440 a second
+    // while it rings, none at the end.
+    assert!(ups > 50, "{ups}");
+    assert!(left[44_000..].iter().all(|s| s.abs() < 1e-3));
+}

@@ -736,6 +736,9 @@ pub struct GraphVoice {
     oscs: [Osc; MAX_OSCS],
     phases: [f32; MAX_PHASES],
     filters: [Svf; MAX_FILTERS],
+    /// Each filter's last cutoff in hertz and as a note, so a steady
+    /// cutoff is converted once.
+    cutoffs: [(f32, f32); MAX_FILTERS],
     envs: [Env; MAX_ENVS],
     times: [EnvTimes; MAX_ENVS],
     env_vals: [f32; MAX_ENVS],
@@ -765,6 +768,7 @@ impl GraphVoice {
             oscs: [Osc::default(); MAX_OSCS],
             phases: [0.0; MAX_PHASES],
             filters: [Svf::new(); MAX_FILTERS],
+            cutoffs: [(f32::NAN, 0.0); MAX_FILTERS],
             envs: [Env::default(); MAX_ENVS],
             times: [NO_TIMES; MAX_ENVS],
             env_vals: [0.0; MAX_ENVS],
@@ -938,7 +942,14 @@ impl GraphVoice {
             } => {
                 let x = self.val(input);
                 let c = self.val(cutoff).max(1.0);
-                let note = 69.0 + 12.0 * fast_log2(c / 440.0) + self.cutoff_trim;
+                let note = match self.cutoffs.get_mut(usize::from(slot)) {
+                    Some((hz, note)) if *hz == c => *note,
+                    Some(cached) => {
+                        *cached = (c, 69.0 + 12.0 * fast_log2(c / 440.0));
+                        cached.1
+                    }
+                    None => 0.0,
+                } + self.cutoff_trim;
                 let r = if res == NONE { RES } else { self.val(res) };
                 let Some(f) = self.filters.get_mut(usize::from(slot)) else {
                     return 0.0;
