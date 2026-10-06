@@ -1423,20 +1423,13 @@ impl Song {
             }
             lines.push(line);
         }
-        for v in &self.voices {
-            let names: Vec<&str> = v.ctls.iter().map(|c| c.name.as_str()).collect();
-            lines.push(format!(
-                "voice {} = {{ {} }}",
-                v.name,
-                v.program.print(&names)
-            ));
-            for c in &v.ctls {
-                let exp = if c.exp { " exp" } else { "" };
-                lines.push(format!(
-                    "  ctl {} = {} [{} {}{exp}]",
-                    c.name, c.default, c.lo, c.hi
-                ));
-            }
+        for i in 0..self.voices.len() {
+            lines.extend(
+                self.voice_text(i)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(String::from),
+            );
         }
         lines.extend(self.tracks.iter().map(|t| {
             let setting = t.setting.and_then(|i| self.settings.get(i));
@@ -1882,6 +1875,22 @@ impl Song {
         tr.setting = Some(i);
         tr.picked = false;
         Some(i)
+    }
+
+    /// Voice `i` as the song prints it: its `voice` line and its `ctl` lines
+    /// (the Sound screen's text, ADR-0020).
+    pub fn voice_text(&self, i: usize) -> Option<String> {
+        let v = self.voices.get(i)?;
+        let names: Vec<&str> = v.ctls.iter().map(|c| c.name.as_str()).collect();
+        let mut out = format!("voice {} = {{ {} }}\n", v.name, v.program.print(&names));
+        for c in &v.ctls {
+            let exp = if c.exp { " exp" } else { "" };
+            out.push_str(&format!(
+                "  ctl {} = {} [{} {}{exp}]\n",
+                c.name, c.default, c.lo, c.hi
+            ));
+        }
+        Some(out)
     }
 
     /// ` .fast(2) .cutoff(…)`: the pattern methods of fragment `f`, then its

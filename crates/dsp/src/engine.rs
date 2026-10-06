@@ -147,6 +147,10 @@ pub struct Engine {
     song_buf: Vec<u8>,
     song_text: String,
     song_error: Option<SongError>,
+    /// The last voice edit's error, in the voice's own lines (`edit_voice`).
+    voice_error: Option<SongError>,
+    /// A voice's printed text, handed out by `voice_text`.
+    voice_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
     /// While a MIDI file is imported its parts keep the synths they play on.
     keep_synths: bool,
@@ -230,6 +234,8 @@ impl Engine {
             song_buf: Vec::new(),
             song_text: Song::default().print(),
             song_error: None,
+            voice_error: None,
+            voice_text: String::new(),
             song_route: [None; MAX_TRACKS],
             keep_synths: false,
             note_offs: [None; NOTE_OFFS],
@@ -1588,6 +1594,63 @@ impl Engine {
     /// Why the last load failed, if it did.
     pub fn song_error(&self) -> Option<SongError> {
         self.song_error
+    }
+
+    /// Replace voice `i` with the voice in the song buffer, its `voice` line
+    /// and `ctl` lines, and load the song again (the Sound screen, ADR-0020):
+    /// the edit goes through `load_song`, so it takes over on the bar line.
+    /// An error is in the voice's own lines (`voice_error`); the song plays on.
+    /// Allocates; never called from `render`.
+    pub fn edit_voice(&mut self, i: usize) -> Result<(), SongError> {
+        let result = self.voice_edited(i);
+        self.voice_error = result.as_ref().err().copied();
+        result
+    }
+
+    fn voice_edited(&mut self, i: usize) -> Result<(), SongError> {
+        let one = |msg| SongError {
+            line: 1,
+            col: 1,
+            msg,
+        };
+        let text = std::str::from_utf8(&self.song_buf).map_err(|_| one("the text is not UTF-8"))?;
+        let parsed = Song::parse(text)?;
+        let mut rest = parsed.clone();
+        rest.voices.clear();
+        let [voice] = parsed.voices.as_slice() else {
+            return Err(one(
+                "the Sound screen edits one voice: its voice line and its ctl lines",
+            ));
+        };
+        if rest != Song::default() {
+            return Err(one(
+                "the Sound screen edits one voice: its voice line and its ctl lines",
+            ));
+        }
+        let mut song = Song::parse(&self.song_text).map_err(|_| one("the song does not parse"))?;
+        let slot = song
+            .voices
+            .get_mut(i)
+            .ok_or(one("the song has no such voice"))?;
+        *slot = voice.clone();
+        self.song_buf = song.print().into_bytes();
+        self.load_song()
+            .map_err(|_| one("the voice does not fit the song: a name it shares?"))
+    }
+
+    pub fn voice_error(&self) -> Option<SongError> {
+        self.voice_error
+    }
+
+    /// The text the last `voice_text` printed.
+    pub fn voice_text_buf(&self) -> &str {
+        &self.voice_text
+    }
+
+    /// Voice `i`'s printed text, kept until the next call.
+    pub fn voice_text(&mut self, i: usize) -> &str {
+        self.voice_text = self.song.voice_text(i).unwrap_or_default();
+        &self.voice_text
     }
 
     /// Set one step of the song (level 0 off, 1 hit, 2 accent) and print it

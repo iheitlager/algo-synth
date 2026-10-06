@@ -57,6 +57,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'zonesClear': w.zones_clear(data.s); break
         case 'zonesDump': this.sendZones(data.s); break
         case 'song': this.loadSong(new Uint8Array(data.bytes)); break
+        case 'voice': this.editVoice(data.i, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
         case 'note':
           // op 0 adds a sixteenth at tick, 1 removes the note, 2 sets its length in ticks.
@@ -191,6 +192,21 @@ class EngineProcessor extends AudioWorkletProcessor {
 
   // Copy the song's text into the engine and have it parsed there; the
   // summary below comes back whether it played or not.
+  // A voice edited on the Sound screen: its lines replace the voice's in the
+  // song, which the engine loads again (ADR-0020).
+  editVoice(i, bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (!ptr) return
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    const ok = w.voice_set(i) === 0
+    const msg = (p, n) => new Uint8Array(w.memory.buffer, p, n).slice()
+    const error = ok ? null : { line: w.voice_error_line(), col: w.voice_error_col(), msg: msg(w.voice_error_ptr(), w.voice_error_len()) }
+    this.port.postMessage({ t: 'voice', ok, error })
+    this.sendSong(true)
+    if (ok) for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
+  }
+
   loadSong(bytes) {
     const w = this.w
     const ptr = w.song_buf(bytes.length)
@@ -216,7 +232,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     for (let t = 0; t < w.song_tracks(); t++) {
       tracks.push({
         name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t), kind: w.track_kind(t),
-        preset: w.track_preset(t), setting: w.track_setting(t),
+        preset: w.track_preset(t), setting: w.track_setting(t), voice: w.track_voice ? w.track_voice(t) : -1,
       })
     }
     const frags = []
@@ -258,6 +274,19 @@ class EngineProcessor extends AudioWorkletProcessor {
     const settings = Array.from({ length: w.song_settings() }, (_, i) => ({
       name: bytes(w.setting_name_ptr(i), w.setting_name_len(i)), preset: w.setting_preset(i),
     }))
+    // The Modular voices (ADR-0020): text and controls, for the Sound screen.
+    const voices = []
+    for (let i = 0; i < (w.voice_count ? w.voice_count() : 0); i++) {
+      const len = w.voice_text(i)
+      const ctls = []
+      for (let c = 0; c < w.voice_ctls(i); c++) {
+        ctls.push({
+          name: bytes(w.voice_ctl_name_ptr(i, c), w.voice_ctl_name_len(i, c)),
+          lo: w.voice_ctl_lo(i, c), hi: w.voice_ctl_hi(i, c), def: w.voice_ctl_default(i, c), exp: w.voice_ctl_exp(i, c) === 1,
+        })
+      }
+      voices.push({ name: bytes(w.voice_name_ptr(i), w.voice_name_len(i)), text: bytes(w.voice_text_ptr(), len), ctls })
+    }
     const models = w.model_count ? w.model_count() : 0
     const fits = [0, 1, 2].map((k) => Array.from({ length: models }, (_, m) => w.model_fits(k, m) === 1))
     const error = ok
@@ -266,7 +295,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()],
+      sections, arrange, autos, scenes, settings, fits, voices, loop: [w.loop_from(), w.loop_to()],
     })
   }
 

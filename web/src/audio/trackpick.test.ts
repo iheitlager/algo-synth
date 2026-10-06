@@ -12,7 +12,7 @@ const fits = [0, 1, 2].map((k) =>
     return k === 0 ? drums : k === 2 ? sampler : !drums && !sampler
   }),
 )
-const track = (over: Partial<SongTrack>): SongTrack => ({ name: 't', synth: 0, kind: 'synth', preset: -1, setting: -1, ...over })
+const track = (over: Partial<SongTrack>): SongTrack => ({ name: 't', synth: 0, kind: 'synth', preset: -1, setting: -1, voice: -1, ...over })
 
 describe('the track picker (#213)', () => {
   it('offers the models that play the track kind', () => {

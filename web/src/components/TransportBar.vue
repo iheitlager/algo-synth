@@ -91,6 +91,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
       <button :aria-pressed="view.main === 'synths'" @click="view.main = 'synths'">Synths</button>
       <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
       <button :aria-pressed="view.main === 'composer'" @click="view.main = 'composer'">Composer</button>
+      <button :aria-pressed="view.main === 'sound'" @click="view.main = 'sound'">Sound</button>
     </span>
     <button @click="onDemo">Demo</button>
     <label class="file" title="A MIDI file, its .synths.json setup, a .song, or several">

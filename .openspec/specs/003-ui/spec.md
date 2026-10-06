@@ -4,7 +4,7 @@ The wide-screen browser view in `web/`. Decision: ADR-0003.
 
 ### Requirement 1: Three-area layout [MUST]
 
-The view SHALL fill the window with a transport bar across the top and a Synths | Mixer | Composer switch in it. With **Synths** or **Mixer**, that view SHALL fill the middle and a bottom pane SHALL show the **arranger** (Req 12) or the **MIDI player** (one row per channel), one tab away from each other. **Composer** SHALL take the middle with the arranger under it, without tabs. The transport bar's Play and Stop belong to the MIDI file; the song has its own (Req 5).
+The view SHALL fill the window with a transport bar across the top and a Synths | Mixer | Composer | Sound switch in it. With **Synths** or **Mixer**, that view SHALL fill the middle and a bottom pane SHALL show the **arranger** (Req 12) or the **MIDI player** (one row per channel), one tab away from each other. **Composer** SHALL take the middle with the arranger under it, without tabs; **Sound** (Req 15) takes the middle as Composer does, with the bottom pane's tabs. The transport bar's Play and Stop belong to the MIDI file; the song has its own (Req 5).
 
 **Implementation:** `web/src/App.vue`, `web/src/components/TransportBar.vue`
 
@@ -249,3 +249,17 @@ The transport bar SHALL show which build is running (#197): the page's version, 
 - THEN the transport bar says "Page v0.32.0 but engine v0.31.0" with the hint to hard-refresh
 
 **Tests:** `web/src/audio/buildinfo.test.ts`, `crates/dsp/src/ffi.rs::tests::a_build_id_is_the_first_eight_hex_digits_or_zero`, `crates/dsp/src/ffi.rs::tests::exports_drive_the_engine`
+
+### Requirement 15: The Sound screen [SHOULD]
+
+A **Sound** view SHALL design the song's Modular voices (ADR-0020, #216): a choice of the song's voices, the chosen voice's text (its `voice` line and `ctl` lines) in the song editor with its highlighting, applied with Apply or Ctrl+Enter, a knob for each of its controls on the synth its track plays (`Param::Ctl1`…, its range and taper from the `ctl` line), a scope and a spectrum of the output, and a keyboard that plays that synth. An applied voice SHALL be a message to the engine, which puts it into the song in place of the old one and loads the song (so it takes over on the bar line, spec 002 Req 6); the view SHALL redraw from what the engine sends back and never splice the song text itself. A voice that does not parse SHALL show its line, column and message in the voice's own lines while the song plays on. Without a voice in the song, the view SHALL say how to write one; without a track playing the voice, how to add one.
+
+**Implementation:** `web/src/components/SoundPane.vue`, `web/src/audio/engine.ts` (`editVoice`, `song.voices`, `song.voiceError`), `web/public/worklet.js` (`editVoice`, voices in `sendSong`), `crates/dsp/src/engine.rs::Engine::edit_voice`, `crates/dsp/src/ffi.rs` (`voice_*`, `track_voice`)
+
+#### Scenario: a voice edited on its own lines
+
+- GIVEN a song with `voice acid = { … }` and its two `ctl` lines, played by a Modular track
+- WHEN the Sound screen's text changes its filter to a ladder and is applied
+- THEN the song text holds the new voice, the track line is unchanged, and the two controls are knobs
+
+**Tests:** `crates/dsp/src/engine/tests.rs::a_voice_is_edited_on_its_own_lines`, `web/src/audio/engine.test.ts` (voices decoded, a voice edit sent, its error kept)
