@@ -1011,6 +1011,8 @@ fn fader_mute_and_solo() {
     assert!(heard(&mut e, 40) > 0.05);
     e.set_param(0, Param::Level, 0.0);
     e.set_param(1, Param::Mute, 1.0);
+    // A fader closing on a sounding synth ramps down across one block (#271).
+    heard(&mut e, 1);
     assert_eq!(heard(&mut e, 10), 0.0, "fader 0 and a mute are silent");
     e.set_param(1, Param::Mute, 0.0);
     assert!(heard(&mut e, 10) > 0.05, "synth 1 unmuted");
@@ -1922,29 +1924,31 @@ fn a_hard_hit_is_accented_and_the_knobs_reach_the_pads() {
 /// louder in its tail.
 #[test]
 fn the_heavy_kits_have_a_deeper_louder_kick() {
+    // The tail's loudness, tune and drive; the engine stays in here, as one
+    // is large for a test thread's stack.
     let tail = |preset: Preset| {
         let mut e = Engine::new(48_000.0);
         e.set_param(0, Param::MasterGain, 1.0);
         e.preset(0, preset);
         e.note_on(0, 36, 0.8);
         run(&mut e, 48_000 / 5 / BLOCK);
-        (run(&mut e, 48_000 / 5 / BLOCK), e)
+        let loud = run(&mut e, 48_000 / 5 / BLOCK);
+        (
+            loud,
+            e.param_value(0, Param::BdTune),
+            e.param_value(0, Param::BdDrive),
+        )
     };
     for (stock, heavy) in [
         (Preset::Kit808, Preset::Heavy808),
         (Preset::Kit909, Preset::Heavy909),
     ] {
         assert_eq!(stock.model(), heavy.model());
-        let ((quiet, _), (loud, e)) = (tail(stock), tail(heavy));
+        let (quiet, _, _) = tail(stock);
+        let (loud, tune, drive) = tail(heavy);
         assert!(loud > 1.5 * quiet, "{heavy:?}: tail {loud} vs {quiet}");
-        assert!(
-            e.param_value(0, Param::BdTune) < 0.0,
-            "{heavy:?} is tuned down"
-        );
-        assert!(
-            e.param_value(0, Param::BdDrive) > 0.0,
-            "{heavy:?} is driven"
-        );
+        assert!(tune < 0.0, "{heavy:?} is tuned down");
+        assert!(drive > 0.0, "{heavy:?} is driven");
     }
 }
 
