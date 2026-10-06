@@ -756,6 +756,7 @@ export const Preset = {
   ModularHoover: 88,
   Heavy808: 89,
   Heavy909: 90,
+  ModularKick: 91,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

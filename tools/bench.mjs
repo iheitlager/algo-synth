@@ -44,6 +44,12 @@ const MODS = Array.from({ length: VOICES }, (_, s) => [
   `mod strip${s + 1}.resonance = perlin.fast(${1 + s}).range(0.2, 0.9)`,
 ]).flat().join('\n')
 
+// A song giving every synth the largest Modular voice: 30 of its 32 nodes.
+const LARGEST = [
+  'voice big = { (mix(saw(freq), saw(freq), pulse(freq), tri(freq)) + mix(saw(freq), pulse(freq), saw(freq), tri(freq))) |> ladder(3000) |> ladder(2000) |> ladder(1500) |> svf(lp, 1000) |> delay(0.003, 0.5) }',
+  ...Array.from({ length: VOICES }, (_, s) => `track t${s} synth Modular big`),
+].join('\n')
+
 // [setup for one synth, lowest note]; voices are 3 semitones apart from
 // there. Each MIDI channel plays its own synth, all set up the same.
 const scenarios = {
@@ -86,6 +92,9 @@ const scenarios = {
     w.set_param(s, Param.Resonance, 1)
     w.set_param(s, Param.Drive, 1)
   }, 72],
+  // The largest voice the limits allow (ADR-0021): eight oscillators, four
+  // filters and the delay, a note on each of the 16 synths.
+  'modular max': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48, [0], LARGEST],
   // The Modular hoover (ADR-0020), a chord on every synth: 64 graph voices of
   // three oscillators, two LFOs and a filter.
   'modular': [(w, s) => w.mono_preset(s, Preset.ModularHoover), 48, CHORD],

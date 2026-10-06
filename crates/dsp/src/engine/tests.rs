@@ -3613,3 +3613,130 @@ fn a_voice_control_starts_holds_and_drives_the_sound() {
     );
     assert_eq!(e.param_value(s, Param::Ctl1), 0.9);
 }
+
+/// A Modular synth playing `graph`, note `note` held for `secs`: the left
+/// channel.
+fn graph_out(graph: &str, note: u8, secs: f32) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    e.set_graph(0, Program::parse(graph).expect("parses"));
+    e.note_on(0, note, 1.0);
+    left_of(&mut e, secs)
+}
+
+fn left_of(e: &mut Engine, secs: f32) -> Vec<f32> {
+    let mut left = Vec::new();
+    for _ in 0..(secs * 48_000.0 / BLOCK as f32) as usize {
+        e.render(BLOCK);
+        left.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    left
+}
+
+fn ups(x: &[f32]) -> usize {
+    x.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count()
+}
+
+fn level(x: &[f32]) -> f32 {
+    (x.iter().map(|v| v * v).sum::<f32>() / x.len().max(1) as f32).sqrt()
+}
+
+/// ADR-0021: `fm` at index 0 is its carrier; `drive` squares a sine;
+/// `ladder` darkens a saw; `delay` combs a pulse and stays bounded.
+#[test]
+fn the_modular_units_do_what_they_say() {
+    let fm = graph_out("fm(freq, freq * 2, 0)", 69, 1.0);
+    assert!(
+        (ups(&fm[4800..]) as f32 - 396.0).abs() <= 2.0,
+        "{}",
+        ups(&fm[4800..])
+    );
+    let wide = graph_out("fm(freq, freq * 2, 3)", 69, 1.0);
+    assert!(
+        ups(&wide[4800..]) > 420,
+        "fm adds partials: {}",
+        ups(&wide[4800..])
+    );
+    let sine = graph_out("sin(freq)", 69, 0.5);
+    let driven = graph_out("sin(freq) |> drive(20)", 69, 0.5);
+    let crest = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs())) / level(x);
+    assert!(crest(&sine[4800..]) > 1.35 && crest(&driven[4800..]) < 1.15);
+    let saw = graph_out("saw(freq)", 69, 0.5);
+    let dark = graph_out("saw(freq) |> ladder(300, 0)", 69, 0.5);
+    assert!(level(&dark[4800..]) < 0.6 * level(&saw[4800..]));
+    let pulse = graph_out("pulse(freq)", 57, 0.5);
+    let comb = graph_out("pulse(freq) |> delay(0.002, 0.7)", 57, 0.5);
+    assert_ne!(pulse, comb);
+    assert!(comb.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+}
+
+/// ADR-0019/0021: a list gives each voice slot its own number.
+#[test]
+fn a_list_gives_each_voice_its_own_value() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    e.set_graph(0, Program::parse("sin([220, 330])").expect("parses"));
+    let mut heard = Vec::new();
+    for _ in 0..2 {
+        e.note_on(0, 60, 1.0);
+        let out = left_of(&mut e, 0.5);
+        heard.push(ups(&out[4800..]));
+        e.note_off(0, 60);
+        left_of(&mut e, 1.0);
+    }
+    // 0.4 s at 220 and 330 hertz.
+    assert!(
+        (heard[0] as f32 - 88.0).abs() <= 2.0 && (heard[1] as f32 - 132.0).abs() <= 2.0,
+        "{heard:?}"
+    );
+}
+
+/// #216's acceptance: the gabber kick falls in pitch, is driven square, ends
+/// by itself and renders the same twice.
+#[test]
+fn the_gabber_kick_sounds_right() {
+    let play = || {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularKick);
+        e.note_on(0, 36, 1.0);
+        let out = left_of(&mut e, 0.8);
+        (out, e.active_voices())
+    };
+    let (out, left) = play();
+    assert_eq!(out, play().0, "deterministic");
+    assert_eq!(left, 0, "it ends with its key held");
+    let early = ups(&out[..1200]) as f32 / 1200.0;
+    let late = ups(&out[4800..9600]) as f32 / 4800.0;
+    assert!(early > 3.0 * late, "the pitch falls: {early} then {late}");
+    let body = &out[1440..2880];
+    let peak = body.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+    assert!(
+        peak > 0.1 && peak / level(body) < 1.25,
+        "driven: {peak} {} {}",
+        level(body),
+        peak / level(body)
+    );
+    assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+}
+
+/// #216's acceptance: the hoover's detuned pulses beat under a held chord,
+/// bounded and the same twice.
+#[test]
+fn the_hoover_sounds_right() {
+    let play = || {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularHoover);
+        for n in [48, 55, 60] {
+            e.note_on(0, n, 1.0);
+        }
+        left_of(&mut e, 1.0)
+    };
+    let out = play();
+    assert_eq!(out, play(), "deterministic");
+    assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+    let windows: Vec<f32> = out[9600..].chunks(480).map(level).collect();
+    let mean = windows.iter().sum::<f32>() / windows.len() as f32;
+    let var = windows.iter().map(|w| (w - mean).powi(2)).sum::<f32>() / windows.len() as f32;
+    assert!(mean > 0.02, "heard: {mean}");
+    assert!(var.sqrt() / mean > 0.05, "it beats: {}", var.sqrt() / mean);
+}

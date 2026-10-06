@@ -26,6 +26,7 @@
 use std::fmt::Write;
 
 use crate::mono::env::{Env, EnvTimes, Stage};
+use crate::mono::ladder::{Ladder, MAX_K};
 use crate::mono::model::SvfVoicing;
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Osc, Waveform, naive};
@@ -40,6 +41,13 @@ pub const MAX_OSCS: usize = 8;
 pub const MAX_PHASES: usize = 8;
 pub const MAX_FILTERS: usize = 4;
 pub const MAX_ENVS: usize = 4;
+/// Most `delay`s in a voice, and the longest one in samples (about 21 ms at
+/// 48 kHz: combs, flangers and chorus, not echoes).
+pub const MAX_DELAYS: usize = 1;
+pub const MAX_DELAY: usize = 1024;
+/// Most numbers in all of a voice's lists, and inputs to one `mix`.
+pub const MAX_LIST: usize = 16;
+const MAX_MIX: usize = 4;
 /// Deepest nesting of brackets and minus signs.
 const MAX_DEPTH: usize = 16;
 /// No input: an optional argument left out.
@@ -54,6 +62,9 @@ const VOICING: SvfVoicing = SvfVoicing {
     k_min: 0.0,
     ceiling: 1.0,
 };
+/// What a voice is made of, for the error that names it.
+const UNITS: &str = "a voice is made of sin saw tri pulse noise lfo fm svf ladder delay drive mix env, numbers, lists and freq gate vel";
+
 /// `env(perc)`: a click of attack, a third of a second to nothing.
 const PERC: Shape = Shape::Times(0.002, 0.3, 0.0, 0.3);
 
@@ -124,6 +135,42 @@ pub enum Ugen {
     Env {
         slot: u8,
     },
+    /// The shared 24 dB ladder: `res` 0..1 up to self-oscillation.
+    Ladder {
+        input: u8,
+        cutoff: u8,
+        res: u8,
+        slot: u8,
+    },
+    /// A sine phase-modulated by a sine: `index` in radians. Two phases.
+    Fm {
+        carrier: u8,
+        modulator: u8,
+        index: u8,
+        slot: u8,
+    },
+    /// A feedback comb: the input plus the output `time` seconds ago times
+    /// `feedback`.
+    Delay {
+        input: u8,
+        time: u8,
+        feedback: u8,
+    },
+    /// A soft clip that keeps a full-scale input at full scale.
+    Drive {
+        input: u8,
+        amount: u8,
+    },
+    /// The mean of up to four inputs.
+    Mix {
+        inputs: [u8; MAX_MIX],
+        n: u8,
+    },
+    /// A list of numbers: each voice slot takes its own, round the list.
+    List {
+        from: u8,
+        len: u8,
+    },
     /// A control of the voice (`ctl`): the synth's `Param::Ctl1`… value,
     /// held in its range.
     Ctl {
@@ -133,11 +180,14 @@ pub enum Ugen {
     },
     Neg(u8),
     Bin(Op, u8, u8),
+    /// `of` mapped onto lo..hi from −1..1, or from 0..1 when `uni` (an
+    /// envelope, the gate, the velocity), as SuperCollider's `range`.
     Range {
         of: u8,
         lo: u8,
         hi: u8,
         exp: bool,
+        uni: bool,
     },
 }
 
@@ -147,6 +197,8 @@ pub struct Program {
     nodes: [Ugen; MAX_NODES],
     len: u8,
     envs: [Shape; MAX_ENVS],
+    /// The numbers of the voice's lists.
+    lists: [f32; MAX_LIST],
     counts: Counts,
 }
 
@@ -157,6 +209,8 @@ struct Counts {
     phases: u8,
     filters: u8,
     envs: u8,
+    delays: u8,
+    lists: u8,
 }
 
 impl Default for Program {
@@ -175,6 +229,7 @@ impl Default for Program {
             nodes,
             len: 2,
             envs: [Shape::Adsr; MAX_ENVS],
+            lists: [0.0; MAX_LIST],
             counts: Counts {
                 oscs: 1,
                 ..Counts::default()
@@ -192,7 +247,7 @@ impl Program {
 
     /// Compile `text` with the voice's controls, by name and range.
     pub fn parse_with(text: &str, ctls: &[Control<'_>]) -> Result<Program, (usize, &'static str)> {
-        let toks = lex(text)?;
+        let toks = lex(text, true)?;
         let mut p = Parser {
             toks: &toks,
             at: 0,
@@ -201,6 +256,7 @@ impl Program {
                 nodes: [Ugen::Num(0.0); MAX_NODES],
                 len: 0,
                 envs: [Shape::Adsr; MAX_ENVS],
+                lists: [0.0; MAX_LIST],
                 counts: Counts::default(),
             },
             depth: 0,
@@ -301,6 +357,85 @@ impl Program {
                 Some(s) if *s == PERC => out.write_str("env(perc)"),
                 Some(Shape::Times(a, d, s, r)) => write!(out, "env({a}, {d}, {s}, {r})"),
             },
+            Ugen::Ladder {
+                input, cutoff, res, ..
+            } => {
+                self.write(out, names, input, 4)?;
+                out.push_str(" |> ladder(");
+                self.write(out, names, cutoff, 0)?;
+                if res != NONE {
+                    out.push_str(", ");
+                    self.write(out, names, res, 0)?;
+                }
+                out.push(')');
+                Ok(())
+            }
+            Ugen::Delay {
+                input,
+                time,
+                feedback,
+            } => {
+                self.write(out, names, input, 4)?;
+                out.push_str(" |> delay(");
+                self.write(out, names, time, 0)?;
+                if feedback != NONE {
+                    out.push_str(", ");
+                    self.write(out, names, feedback, 0)?;
+                }
+                out.push(')');
+                Ok(())
+            }
+            Ugen::Drive { input, amount } => {
+                self.write(out, names, input, 4)?;
+                out.push_str(" |> drive(");
+                self.write(out, names, amount, 0)?;
+                out.push(')');
+                Ok(())
+            }
+            Ugen::Fm {
+                carrier,
+                modulator,
+                index,
+                ..
+            } => {
+                out.push_str("fm(");
+                self.write(out, names, carrier, 0)?;
+                out.push_str(", ");
+                self.write(out, names, modulator, 0)?;
+                out.push_str(", ");
+                self.write(out, names, index, 0)?;
+                out.push(')');
+                Ok(())
+            }
+            Ugen::Mix { inputs, n } => {
+                out.push_str("mix(");
+                for (k, i) in inputs.iter().take(usize::from(n)).enumerate() {
+                    if k > 0 {
+                        out.push_str(", ");
+                    }
+                    self.write(out, names, *i, 0)?;
+                }
+                out.push(')');
+                Ok(())
+            }
+            Ugen::List { from, len } => {
+                out.push('[');
+                let from = usize::from(from);
+                for (k, v) in self
+                    .lists
+                    .iter()
+                    .skip(from)
+                    .take(usize::from(len))
+                    .enumerate()
+                {
+                    if k > 0 {
+                        out.push_str(", ");
+                    }
+                    write!(out, "{v}")?;
+                }
+                out.push(']');
+                Ok(())
+            }
             Ugen::Neg(a) => {
                 if prec > 3 {
                     out.push('(');
@@ -325,7 +460,9 @@ impl Program {
                 }
                 Ok(())
             }
-            Ugen::Range { of, lo, hi, exp } => {
+            Ugen::Range {
+                of, lo, hi, exp, ..
+            } => {
                 self.write(out, names, of, 4)?;
                 out.push_str(if exp { ".exprange(" } else { ".range(" });
                 self.write(out, names, lo, 0)?;
@@ -501,17 +638,33 @@ impl<'a> Parser<'a, '_> {
                 {
                     return Err((col, "exprange needs two numbers of one sign, not 0"));
                 }
-                a = self.push(Ugen::Range { of: a, lo, hi, exp })?;
+                let uni = matches!(
+                    self.prog.node(a),
+                    Some(Ugen::Env { .. } | Ugen::Gate | Ugen::Vel)
+                );
+                a = self.push(Ugen::Range {
+                    of: a,
+                    lo,
+                    hi,
+                    exp,
+                    uni,
+                })?;
             } else if self.eat('|') {
                 let col = self.col();
                 let Some(Tok::Word(name)) = self.peek() else {
                     return Err((col, "a filter goes after |>, e.g. svf(lp, 800)"));
                 };
                 self.at += 1;
-                if name != "svf" {
-                    return Err((col, "only a filter takes a signal through |>"));
-                }
-                a = self.svf(Some(a), col)?;
+                a = match name {
+                    "svf" => self.svf(Some(a), col)?,
+                    "ladder" | "delay" | "drive" => self.effect(name, Some(a), col)?,
+                    _ => {
+                        return Err((
+                            col,
+                            "only svf, ladder, delay and drive take a signal through |>",
+                        ));
+                    }
+                };
             } else {
                 return Ok(a);
             }
@@ -532,6 +685,10 @@ impl<'a> Parser<'a, '_> {
                 self.expect(')', ") goes here")?;
                 self.depth -= 1;
                 Ok(a)
+            }
+            Some(Tok::Punct('[')) => {
+                self.at += 1;
+                self.list(col)
             }
             Some(Tok::Word(w)) => {
                 self.at += 1;
@@ -567,12 +724,21 @@ impl<'a> Parser<'a, '_> {
         };
         if !matches!(
             name,
-            "saw" | "tri" | "pulse" | "sin" | "noise" | "lfo" | "svf" | "env"
+            "saw"
+                | "tri"
+                | "pulse"
+                | "sin"
+                | "noise"
+                | "lfo"
+                | "svf"
+                | "env"
+                | "ladder"
+                | "delay"
+                | "drive"
+                | "fm"
+                | "mix"
         ) {
-            return Err((
-                col,
-                "a voice is made of sin saw tri pulse noise lfo svf env, numbers and freq gate vel",
-            ));
+            return Err((col, UNITS));
         }
         self.expect('(', "( goes here")?;
         if name == "svf" {
@@ -580,6 +746,57 @@ impl<'a> Parser<'a, '_> {
             let r = self.svf(None, col);
             self.depth -= 1;
             return r;
+        }
+        if matches!(name, "ladder" | "delay" | "drive") {
+            self.depth += 1;
+            let r = self.effect(name, None, col);
+            self.depth -= 1;
+            return r;
+        }
+        if name == "fm" {
+            self.deeper()?;
+            let carrier = self.sum()?;
+            self.expect(',', "fm takes a carrier, a modulator in hertz and an index")?;
+            let modulator = self.sum()?;
+            self.expect(',', "fm takes a carrier, a modulator in hertz and an index")?;
+            let index = self.sum()?;
+            self.expect(')', ") goes here")?;
+            self.depth -= 1;
+            let slot = Self::slot(
+                &mut self.prog.counts.phases,
+                MAX_PHASES - 1,
+                col,
+                "a voice has at most 8 sin and lfo, an fm counting two",
+            )?;
+            self.prog.counts.phases += 1;
+            return self.push(Ugen::Fm {
+                carrier,
+                modulator,
+                index,
+                slot,
+            });
+        }
+        if name == "mix" {
+            self.deeper()?;
+            let mut inputs = [0u8; MAX_MIX];
+            let mut n = 0usize;
+            loop {
+                let a = self.sum()?;
+                let Some(slot) = inputs.get_mut(n) else {
+                    return Err((col, "mix takes at most 4 inputs"));
+                };
+                *slot = a;
+                n += 1;
+                if !self.eat(',') {
+                    break;
+                }
+            }
+            self.expect(')', ") goes here")?;
+            self.depth -= 1;
+            return self.push(Ugen::Mix {
+                inputs,
+                n: u8::try_from(n).unwrap_or(0),
+            });
         }
         if name == "env" {
             return self.env(col);
@@ -650,6 +867,86 @@ impl<'a> Parser<'a, '_> {
         self.expect(')', ") goes here")?;
         self.depth -= 1;
         self.push(node)
+    }
+
+    /// `ladder(cutoff, res)`, `delay(time, feedback)` or `drive(amount)`
+    /// after `|>`, or with the input first; the `(` is read when not piped.
+    fn effect(&mut self, name: &str, piped: Option<u8>, col: usize) -> Res<u8> {
+        if piped.is_some() {
+            self.expect('(', "( goes here")?;
+        }
+        let input = match piped {
+            Some(i) => i,
+            None => {
+                let i = self.sum()?;
+                self.expect(',', ", and the effect's values go here")?;
+                i
+            }
+        };
+        let first = self.sum()?;
+        let second = if name != "drive" && self.eat(',') {
+            self.sum()?
+        } else {
+            NONE
+        };
+        self.expect(')', ") goes here")?;
+        let node = match name {
+            "ladder" => Ugen::Ladder {
+                input,
+                cutoff: first,
+                res: second,
+                slot: Self::slot(
+                    &mut self.prog.counts.filters,
+                    MAX_FILTERS,
+                    col,
+                    "a voice has at most 4 filters",
+                )?,
+            },
+            "delay" => {
+                Self::slot(
+                    &mut self.prog.counts.delays,
+                    MAX_DELAYS,
+                    col,
+                    "a voice has one delay",
+                )?;
+                Ugen::Delay {
+                    input,
+                    time: first,
+                    feedback: second,
+                }
+            }
+            _ => Ugen::Drive {
+                input,
+                amount: first,
+            },
+        };
+        self.push(node)
+    }
+
+    /// `[a, b, …]`: numbers, one for each voice slot in turn; the `[` is read.
+    fn list(&mut self, col: usize) -> Res<u8> {
+        let from = self.prog.counts.lists;
+        loop {
+            let neg = self.eat('-');
+            let c = self.col();
+            let Some(Tok::Num(v)) = self.peek() else {
+                return Err((c, "a list holds numbers, e.g. [1, 3]"));
+            };
+            self.at += 1;
+            let Some(slot) = self.prog.lists.get_mut(usize::from(self.prog.counts.lists)) else {
+                return Err((col, "a voice's lists hold at most 16 numbers"));
+            };
+            *slot = if neg { -v } else { v };
+            self.prog.counts.lists += 1;
+            if !self.eat(',') {
+                break;
+            }
+        }
+        self.expect(']', "] goes here")?;
+        self.push(Ugen::List {
+            from,
+            len: self.prog.counts.lists - from,
+        })
     }
 
     /// `svf(mode, cutoff, res)` after `|>`, or `svf(input, mode, cutoff, res)`;
@@ -783,6 +1080,12 @@ pub struct GraphVoice {
     oscs: [Osc; MAX_OSCS],
     phases: [f32; MAX_PHASES],
     filters: [Svf; MAX_FILTERS],
+    ladders: [Ladder; MAX_FILTERS],
+    /// The delay's line and where it writes next.
+    line: [f32; MAX_DELAY],
+    write: usize,
+    /// The voice's slot in its pool: which number of a list it takes.
+    slot: usize,
     /// Each filter's last cutoff in hertz and as a note, so a steady
     /// cutoff is converted once.
     cutoffs: [(f32, f32); MAX_FILTERS],
@@ -815,6 +1118,10 @@ impl GraphVoice {
             oscs: [Osc::default(); MAX_OSCS],
             phases: [0.0; MAX_PHASES],
             filters: [Svf::new(); MAX_FILTERS],
+            ladders: [Ladder::new(); MAX_FILTERS],
+            line: [0.0; MAX_DELAY],
+            write: 0,
+            slot: 0,
             cutoffs: [(f32::NAN, 0.0); MAX_FILTERS],
             envs: [Env::default(); MAX_ENVS],
             times: [NO_TIMES; MAX_ENVS],
@@ -840,12 +1147,24 @@ impl GraphVoice {
 
     /// Start a note with the synth's program; a voice that was silent starts
     /// its oscillators, phases and filters afresh.
-    pub fn press(&mut self, note: u8, velocity: f32, prog: &Program, sample_rate: f32) {
+    pub fn press(
+        &mut self,
+        note: u8,
+        velocity: f32,
+        prog: &Program,
+        sample_rate: f32,
+        slot: usize,
+    ) {
         if !self.active() {
             self.oscs = [Osc::default(); MAX_OSCS];
             self.phases = [0.0; MAX_PHASES];
             self.filters = [Svf::new(); MAX_FILTERS];
+            self.ladders = [Ladder::new(); MAX_FILTERS];
+            if prog.counts.delays > 0 {
+                self.line = [0.0; MAX_DELAY];
+            }
         }
+        self.slot = slot;
         // A sounding voice keeps its state; a changed program takes the note
         // from here.
         self.prog = *prog;
@@ -932,6 +1251,21 @@ impl GraphVoice {
         }
     }
 
+    /// Filter `slot`'s cutoff in hertz as a note, converted only when it
+    /// changes, with the pool's trim.
+    fn cutoff_note(&mut self, slot: u8, hz: f32) -> f32 {
+        let hz = hz.max(1.0);
+        let note = match self.cutoffs.get_mut(usize::from(slot)) {
+            Some((last, note)) if *last == hz => *note,
+            Some(cached) => {
+                *cached = (hz, 69.0 + 12.0 * fast_log2(hz / 440.0));
+                cached.1
+            }
+            None => 0.0,
+        };
+        note + self.cutoff_trim
+    }
+
     fn val(&self, i: u8) -> f32 {
         self.vals.get(usize::from(i)).copied().unwrap_or(0.0)
     }
@@ -989,14 +1323,7 @@ impl GraphVoice {
             } => {
                 let x = self.val(input);
                 let c = self.val(cutoff).max(1.0);
-                let note = match self.cutoffs.get_mut(usize::from(slot)) {
-                    Some((hz, note)) if *hz == c => *note,
-                    Some(cached) => {
-                        *cached = (c, 69.0 + 12.0 * fast_log2(c / 440.0));
-                        cached.1
-                    }
-                    None => 0.0,
-                } + self.cutoff_trim;
+                let note = self.cutoff_note(slot, c);
                 let r = if res == NONE { RES } else { self.val(res) };
                 let Some(f) = self.filters.get_mut(usize::from(slot)) else {
                     return 0.0;
@@ -1012,6 +1339,87 @@ impl GraphVoice {
                 .copied()
                 .unwrap_or(lo)
                 .clamp(lo, hi),
+            Ugen::Ladder {
+                input,
+                cutoff,
+                res,
+                slot,
+            } => {
+                let x = self.val(input);
+                let note = self.cutoff_note(slot, self.val(cutoff));
+                let r = if res == NONE { RES } else { self.val(res) };
+                let Some(l) = self.ladders.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                l.process(ctx.ladder, x, note, r.clamp(0.0, 1.0) * MAX_K, 1.0)
+            }
+            Ugen::Fm {
+                carrier,
+                modulator,
+                index,
+                slot,
+            } => {
+                let (c, m, k) = (self.val(carrier), self.val(modulator), self.val(index));
+                let s = usize::from(slot);
+                let mph = self.phases.get(s + 1).copied().unwrap_or(0.0) + m * inv;
+                let mph = mph - mph.floor();
+                let cph = self.phases.get(s).copied().unwrap_or(0.0) + c * inv;
+                let cph = cph - cph.floor();
+                if let Some(p) = self.phases.get_mut(s + 1) {
+                    *p = mph;
+                }
+                if let Some(p) = self.phases.get_mut(s) {
+                    *p = cph;
+                }
+                let at = cph + k * lookup(ctx.sine, mph) * (1.0 / std::f32::consts::TAU);
+                lookup(ctx.sine, at - at.floor())
+            }
+            Ugen::Delay {
+                input,
+                time,
+                feedback,
+            } => {
+                let x = self.val(input);
+                let fb = if feedback == NONE {
+                    0.0
+                } else {
+                    self.val(feedback).clamp(-0.98, 0.98)
+                };
+                let d = (self.val(time) / inv).clamp(1.0, (MAX_DELAY - 2) as f32);
+                let back = self.write as f32 + MAX_DELAY as f32 - d;
+                let (i, frac) = (back as usize, back - back.floor());
+                let a = self.line.get(i % MAX_DELAY).copied().unwrap_or(0.0);
+                let b = self.line.get((i + 1) % MAX_DELAY).copied().unwrap_or(0.0);
+                let y = x + fb * (a + (b - a) * frac);
+                let y = if y.is_finite() {
+                    y.clamp(-8.0, 8.0)
+                } else {
+                    0.0
+                };
+                if let Some(w) = self.line.get_mut(self.write) {
+                    *w = y;
+                }
+                self.write = (self.write + 1) % MAX_DELAY;
+                y
+            }
+            Ugen::Drive { input, amount } => {
+                let a = self.val(amount).max(0.0);
+                let x = self.val(input);
+                (1.0 + a) * x / (1.0 + a * x.abs())
+            }
+            Ugen::Mix { inputs, n } => {
+                let n = usize::from(n).max(1);
+                let sum: f32 = inputs.iter().take(n).map(|i| self.val(*i)).sum();
+                sum / n as f32
+            }
+            Ugen::List { from, len } => {
+                let len = usize::from(len).max(1);
+                self.prog
+                    .lists
+                    .get(usize::from(from) + self.slot % len)
+                    .copied()
+                    .unwrap_or(0.0)
+            }
             Ugen::Neg(a) => -self.val(a),
             Ugen::Bin(op, a, b) => {
                 let (x, y) = (self.val(a), self.val(b));
@@ -1023,8 +1431,18 @@ impl GraphVoice {
                     Op::Div => x / y,
                 }
             }
-            Ugen::Range { of, lo, hi, exp } => {
-                let u = (self.val(of) + 1.0) * 0.5;
+            Ugen::Range {
+                of,
+                lo,
+                hi,
+                exp,
+                uni,
+            } => {
+                let u = if uni {
+                    self.val(of)
+                } else {
+                    (self.val(of) + 1.0) * 0.5
+                };
                 let (l, h) = (self.val(lo), self.val(hi));
                 if !exp {
                     l + (h - l) * u
@@ -1104,6 +1522,24 @@ mod tests {
             ("lfo(5, square) * -0.5", "lfo(5, square) * -0.5"),
             ("freq", "freq"),
             ("0.25", "0.25"),
+            (
+                "saw(freq) |> ladder(800, 0.5)",
+                "saw(freq) |> ladder(800, 0.5)",
+            ),
+            ("ladder(saw(freq), 800)", "saw(freq) |> ladder(800)"),
+            (
+                "pulse(freq) |> delay(0.004, 0.6) |> drive(3)",
+                "pulse(freq) |> delay(0.004, 0.6) |> drive(3)",
+            ),
+            (
+                "fm(freq, freq*2, env(perc).range(0, 5))",
+                "fm(freq, freq * 2, env(perc).range(0, 5))",
+            ),
+            (
+                "mix(saw(freq), tri(freq*2), noise())",
+                "mix(saw(freq), tri(freq * 2), noise())",
+            ),
+            ("sin([220, 330, -1])", "sin([220, 330, -1])"),
         ] {
             let p = prog(text);
             assert_eq!(p.to_string(), canon, "{text}");
@@ -1118,13 +1554,13 @@ mod tests {
             (
                 "square(freq)",
                 1,
-                "a voice is made of sin saw tri pulse noise lfo svf env, numbers and freq gate vel",
+                "a voice is made of sin saw tri pulse noise lfo fm svf ladder delay drive mix env, numbers, lists and freq gate vel",
             ),
             ("saw(freq", 9, ") goes here"),
             (
                 "saw(freq) |> sin(3)",
                 14,
-                "only a filter takes a signal through |>",
+                "only svf, ladder, delay and drive take a signal through |>",
             ),
             ("saw(freq) |> svf(bp, 3)", 18, "a filter mode is lp or hp"),
             ("saw(freq).wobble(1)", 11, "a method is range or exprange"),
@@ -1146,6 +1582,24 @@ mod tests {
             ("lfo(1, pink)", 8, "a shape is sine, saw, tri or square"),
             ("noise(1)", 7, "noise takes nothing: noise()"),
             ("saw(freq) saw(freq)", 11, "unexpected text"),
+            (
+                "saw(freq) |> sin(3)",
+                14,
+                "only svf, ladder, delay and drive take a signal through |>",
+            ),
+            ("mix(1, 2, 3, 4, 5)", 1, "mix takes at most 4 inputs"),
+            (
+                "fm(1, 2)",
+                8,
+                "fm takes a carrier, a modulator in hertz and an index",
+            ),
+            ("sin([1, x])", 9, "a list holds numbers, e.g. [1, 3]"),
+            ("sin([1, 2)", 10, "] goes here"),
+            (
+                "saw(1) |> delay(0.1) |> delay(0.1)",
+                25,
+                "a voice has one delay",
+            ),
         ] {
             assert_eq!(Program::parse(text), Err((col, msg)), "{text}");
         }
@@ -1163,6 +1617,22 @@ mod tests {
         assert_eq!(
             Program::parse(&filters).map_err(|e| e.1),
             Err("a voice has at most 4 filters")
+        );
+    }
+
+    #[test]
+    fn range_reads_a_unipolar_source_from_0() {
+        let range = |text: &str| match prog(text).node(prog(text).len - 1) {
+            Some(Ugen::Range { uni, .. }) => uni,
+            _ => panic!("{text}"),
+        };
+        assert!(range("env(perc).range(50, 400)"));
+        assert!(range("vel.range(0, 1)"));
+        assert!(!range("saw(freq).range(50, 400)"));
+        let long = ["1"; 17].join(", ");
+        assert_eq!(
+            Program::parse(&format!("sin([{long}])")).map_err(|e| e.1),
+            Err("a voice's lists hold at most 16 numbers")
         );
     }
 

@@ -133,16 +133,25 @@ Unit generators are calls; they run every sample, from −1 to 1, in hertz:
 | `pulse(f)`, `pulse(f, width)` | a band-limited pulse, `width` 0.05 to 0.95 (a half if left out) |
 | `noise()` | white noise |
 | `lfo(rate)`, `lfo(rate, shape)` | an unsmoothed `sine` (or `saw`, `tri`, `square`) at `rate` hertz |
+| `fm(carrier, modulator, index)` | a sine at `carrier` hertz phase-modulated by one at `modulator`, `index` in radians |
 | `x \|> svf(lp, cutoff)`, `svf(lp, cutoff, res)` | a resonant 12 dB filter, `lp` or `hp`, cutoff in hertz, res 0 to 1 |
+| `x \|> ladder(cutoff, res)` | the 24 dB ladder, res 0 to 1 (it sings near 1) |
+| `x \|> delay(time, feedback)` | a comb: `x` plus its own output `time` seconds ago (at most 0.02) times `feedback`; one a voice |
+| `x \|> drive(amount)` | a soft clip that keeps full scale at full scale; more `amount` is squarer |
+| `mix(a, b, …)` | the mean of up to four signals |
+| `[220, 330, 440]` | a list: each voice takes its own number, in turn |
 | `env(adsr)`, `env(perc)`, `env(a, d, s, r)` | an envelope: the synth's ADSR, a short hit, or times in seconds |
 | `freq`, `gate`, `vel` | the note's pitch in hertz, 1 while its key is held, its velocity |
 
 They combine with `+ - * /` and brackets; `.range(a, b)` and `.exprange(a, b)`
 map −1..1 onto a..b (the bounds may be signals: `saw(freq).range(freq, freq *
-3)`), and `x |> svf(…)` passes `x` through a filter. A voice that uses `env`
+3)`), or 0..1 for `env`, `gate` and `vel`, which run from 0 (so
+`env(perc).exprange(48, 900)` sweeps a kick's pitch down), and `x |> svf(…)`
+passes `x` through a filter or an effect. A voice ends with its envelopes, so
+a delay's tail stops with it. A voice that uses `env`
 ends when its envelopes do; one without sounds through the synth's ADSR.
-Without a voice, a `Modular` track plays a preset: `ModularBasic` or
-`ModularHoover`.
+Without a voice, a `Modular` track plays a preset: `ModularBasic`,
+`ModularHoover` or `ModularKick` (a gabber kick).
 
 ### Controls
 
@@ -169,7 +178,8 @@ by hand holds through a reload that leaves the voice as it was.
 
 At most 16 voices in a song; in one voice, at most 32 nodes (numbers, units,
 operators, methods), 8 of `saw`, `tri` and `pulse`, 8 of `sin` and `lfo`, 4
-filters, 4 envelopes and 16 controls. Voices go before the tracks that play
+filters (`svf` and `ladder`), 4 envelopes, one `delay`, 16 numbers in lists
+and 16 controls; an `fm` counts as two of `sin`. Voices go before the tracks that play
 them, each on one line with its `ctl` lines under it.
 
 ## track
