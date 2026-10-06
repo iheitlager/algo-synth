@@ -3927,6 +3927,77 @@ fn a_list_gives_two_held_voices_their_own_values() {
     assert!((cut[0] / cut[1] - 1.0).abs() > 0.1, "each its own: {cut:?}");
 }
 
+/// ADR-0024: `Env(levels, times)` through `.midiratio` glides the pitch an
+/// octave up, and `Rand` draws its number afresh per note, the same way
+/// every time.
+#[test]
+fn a_breakpoint_envelope_and_a_random_number_per_note() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    let glide =
+        "{ SinOsc.ar(440 * Env([-12, 0], [0.5]).kr.midiratio) * Env.asr(0.001, 1, 0.1).kr }";
+    assert_eq!(e.set_code(0, glide), Ok(()));
+    e.note_on(0, 69, 1.0);
+    let out = left_of(&mut e, 1.0);
+    let early = ups(&out[..2400]) as f32 / 0.05;
+    let late = ups(&out[33_600..43_200]) as f32 / 0.2;
+    assert!(
+        (early - 225.0).abs() < 25.0,
+        "starts an octave down: {early}"
+    );
+    assert!((late - 440.0).abs() < 12.0, "ends on the note: {late}");
+    let pick = "{ SinOsc.ar(Rand(200, 800)) * Env.perc(0.001, 0.3).kr }";
+    let notes = || {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularBasic);
+        assert_eq!(e.set_code(0, pick), Ok(()));
+        (0..3)
+            .map(|_| {
+                e.note_on(0, 60, 1.0);
+                let o = left_of(&mut e, 0.1);
+                e.note_off(0, 60);
+                left_of(&mut e, 0.5);
+                ups(&o)
+            })
+            .collect::<Vec<_>>()
+    };
+    let a = notes();
+    assert_eq!(a, notes(), "the same way every time");
+    assert!(a[0] != a[1] || a[1] != a[2], "a new number per note: {a:?}");
+}
+
+/// #216's target, A2: the SuperCollider hoover (its Splay as a Mix, no
+/// reverb yet) plays a held note bounded and the same twice, sounds while
+/// held, ends after its four-second release, and is capped to a few voices.
+#[test]
+fn the_supercollider_hoover_plays_mono() {
+    let play = || {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, crate::mono::preset::Preset::ModularBasic);
+        assert_eq!(
+            e.set_code(0, crate::modular::sc::hoover::MONO_HOOVER),
+            Ok(())
+        );
+        e.note_on(0, 57, 1.0);
+        let held = left_of(&mut e, 1.0);
+        e.note_off(0, 57);
+        left_of(&mut e, 5.0);
+        (held, e.active_voices())
+    };
+    let (held, after) = play();
+    assert_eq!(held, play().0, "deterministic");
+    assert!(held.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+    let level = held[24_000..].iter().map(|v| v * v).sum::<f32>() / 24_000.0;
+    assert!(level.sqrt() > 0.005, "heard: {}", level.sqrt());
+    assert_eq!(after, 0, "it ends after its release");
+    let cap = crate::modular::sc::compile(crate::modular::sc::hoover::MONO_HOOVER)
+        .expect("builds")
+        .program
+        .voice_cap();
+    assert!((2..=6).contains(&cap), "a few voices: {cap}");
+}
+
 /// #308: A-440 sounds a 440 Hz tone with no key held, and stops when off.
 #[test]
 fn a440_sounds_with_no_key_held() {

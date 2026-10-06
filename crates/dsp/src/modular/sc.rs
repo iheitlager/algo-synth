@@ -791,6 +791,8 @@ enum EnvKind {
     Adsr,
     Perc,
     Asr,
+    /// `Env(levels, times, curves, releaseNode)`.
+    Brk,
 }
 
 /// A knob's range and taper.
@@ -919,6 +921,8 @@ struct Builder {
     spans: Vec<(usize, usize)>,
     steps: usize,
     calls: usize,
+    /// The node of each number in the graph, by its bits.
+    consts: HashMap<u32, u8>,
 }
 
 impl Builder {
@@ -937,21 +941,32 @@ impl Builder {
             spans: Vec::new(),
             steps: 0,
             calls: 0,
+            consts: HashMap::new(),
         }
     }
 
     fn push(&mut self, u: Ugen, at: Pos) -> R<u8> {
+        // A number already in the graph is shared, not repeated per copy.
+        if let Ugen::Num(v) = u {
+            if let Some(n) = self.consts.get(&v.to_bits()) {
+                return Ok(*n);
+            }
+        }
         let len = usize::from(self.prog.len);
         let Some(slot) = self.prog.nodes.get_mut(len) else {
             return Err(CodeError {
                 line: at.0,
                 col: at.1,
-                msg: "the voice needs more than 64 nodes",
+                msg: "the voice needs more than 250 nodes",
             });
         };
         *slot = u;
         self.prog.len += 1;
-        Ok(self.prog.len - 1)
+        let n = self.prog.len - 1;
+        if let Ugen::Num(v) = u {
+            self.consts.insert(v.to_bits(), n);
+        }
+        Ok(n)
     }
 
     fn slot(count: &mut u8, limit: usize, at: Pos, msg: &'static str) -> R<u8> {
@@ -1358,9 +1373,22 @@ impl Builder {
             V::Sig(n, uni) => {
                 let kind = match name {
                     "neg" => return Ok(V::Sig(self.push(Ugen::Neg(n), at)?, false)),
+                    "midiratio" => return Ok(V::Sig(self.push(Ugen::MidiRatio(n), at)?, false)),
+                    "midicps" => {
+                        // 440 · 2^((x − 69)/12).
+                        let c69 = self.push(Ugen::Num(69.0), at)?;
+                        let up = self.push(Ugen::Bin(Op::Sub, n, c69), at)?;
+                        let ratio = self.push(Ugen::MidiRatio(up), at)?;
+                        let a440 = self.push(Ugen::Num(440.0), at)?;
+                        return Ok(V::Sig(
+                            self.push(Ugen::Bin(Op::Mul, ratio, a440), at)?,
+                            false,
+                        ));
+                    }
                     "tanh" => 0,
                     "softclip" => 1,
                     "distort" => 2,
+                    "atan" => 3,
                     _ => return Err(err("this method is not supported on a signal yet")),
                 };
                 let _ = uni;
@@ -1613,7 +1641,21 @@ impl Builder {
                     pos: at,
                 }))
             }
-            ("Env", "new") => Err(err("Env(levels, times, curves) is not supported yet")),
+            ("Env", "new") => {
+                let bound = bind(
+                    &["levels", "times", "curve", "releaseNode", "loopNode"],
+                    &[None, None, None, None, None],
+                    &args,
+                    &kws,
+                )
+                .map_err(err)?;
+                let args = bound.into_iter().map(|v| v.unwrap_or(V::Nil)).collect();
+                Ok(V::Env(EnvSpec {
+                    kind: EnvKind::Brk,
+                    args,
+                    pos: at,
+                }))
+            }
             ("Array", "fill") => {
                 let n = Self::count(args.first().unwrap_or(&V::Nil), at)?;
                 let Some(V::Func(f)) = args.get(1) else {
@@ -1649,9 +1691,103 @@ impl Builder {
             ("Pan2" | "Splay" | "FreeVerb2" | "FreeVerb", _) => {
                 Err(err("this UGen needs the stereo synth bus (#288)"))
             }
-            ("DelayN" | "DelayL" | "DelayC" | "Rand" | "ExpRand" | "IRand", _) => Err(err(
-                "this UGen comes with the next step of the Modular synth",
+            ("Rand" | "ExpRand", "new" | "ir") => {
+                let exp = c == "ExpRand";
+                let d = if exp { (0.01, 1.0) } else { (0.0, 1.0) };
+                let bound =
+                    bind(&["lo", "hi"], &[Some(d.0), Some(d.1)], &args, &kws).map_err(err)?;
+                let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
+                let name = c.to_string();
+                self.expand(&inputs, &mut |b, v| {
+                    let module = b.module(&name, at);
+                    let (Some(lo), Some(hi)) = (v.first(), v.get(1)) else {
+                        return Err(err("Rand takes a low and a high"));
+                    };
+                    if exp
+                        && num_or(lo) * num_or(hi) <= 0.0
+                        && matches!((lo, hi), (V::Num(..), V::Num(..)))
+                    {
+                        return Err(err("ExpRand needs two numbers of one sign, not 0"));
+                    }
+                    let lo = b.input(lo, module, "lo", ANY_SPEC(lo), at)?;
+                    let hi = b.input(hi, module, "hi", ANY_SPEC(hi), at)?;
+                    for n in [lo, hi] {
+                        if !matches!(b.prog.node(n), Some(Ugen::Num(_) | Ugen::Ctl { .. })) {
+                            return Err(err("a Rand's bounds are numbers or controls"));
+                        }
+                    }
+                    let slot = Self::slot(
+                        &mut b.prog.counts.rands,
+                        super::MAX_RANDS,
+                        at,
+                        "a voice draws at most 64 random numbers",
+                    )?;
+                    Ok(V::Sig(b.push(Ugen::Rand { lo, hi, exp, slot }, at)?, false))
+                })
+            }
+            ("IRand", _) => Err(err(
+                "IRand is not supported yet: Rand(lo, hi).round is not either",
             )),
+            ("DelayN" | "DelayL" | "DelayC", "ar" | "kr") => {
+                let bound = bind(
+                    &["in", "maxdelaytime", "delaytime", "mul", "add"],
+                    &[None, Some(0.2), Some(0.2), Some(1.0), Some(0.0)],
+                    &args,
+                    &kws,
+                )
+                .map_err(err)?;
+                let max = num_or(&bound.get(1).cloned().flatten().unwrap_or(V::Nil)) as f32;
+                if max * 48_000.0 > (MAX_DELAY - 2) as f32 {
+                    return Err(err("a delay holds at most 0.02 seconds here"));
+                }
+                let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
+                let name = c.to_string();
+                let written = |k: usize| {
+                    args_given(
+                        &args,
+                        &kws,
+                        &["in", "maxdelaytime", "delaytime", "mul", "add"],
+                        k,
+                    )
+                };
+                let (mul_given, add_given) = (written(3), written(4));
+                self.expand(&inputs, &mut |b, v| {
+                    let module = b.module(&name, at);
+                    let x = b.input(v.first().unwrap_or(&V::Nil), module, "in", ANY, at)?;
+                    let t = b.input(v.get(2).unwrap_or(&V::Nil), module, "delaytime", DELAY, at)?;
+                    let slot = Self::slot(
+                        &mut b.prog.counts.delays,
+                        MAX_DELAYS,
+                        at,
+                        "a voice has at most 32 delays and combs",
+                    )?;
+                    let mut out = b.push(
+                        Ugen::Delay {
+                            input: x,
+                            time: t,
+                            feedback: NONE,
+                            decay: false,
+                            slot,
+                            wet: true,
+                        },
+                        at,
+                    )?;
+                    for (given, k, op) in [(mul_given, 3, Op::Mul), (add_given, 4, Op::Add)] {
+                        if given {
+                            let spec = if k == 3 { MUL } else { ADD };
+                            let n = b.input(
+                                v.get(k).unwrap_or(&V::Nil),
+                                module,
+                                if k == 3 { "mul" } else { "add" },
+                                spec,
+                                at,
+                            )?;
+                            out = b.push(Ugen::Bin(op, out, n), at)?;
+                        }
+                    }
+                    Ok(V::Sig(out, false))
+                })
+            }
             ("EnvGen", "kr" | "ar") => {
                 let bound = bind(
                     &[
@@ -1688,9 +1824,13 @@ impl Builder {
     /// An `EnvGen` of `spec`: its times are knobs on its module.
     fn envgen(&mut self, spec: &EnvSpec, _gate: Option<V>, at: Pos) -> R<V> {
         let module = self.module("EnvGen", spec.pos);
+        if spec.kind == EnvKind::Brk {
+            return self.brk(spec, module, at);
+        }
         let a = |k: usize, d: f64| spec.args.get(k).cloned().unwrap_or(V::Num(d, None));
         let (times, level) = match spec.kind {
-            EnvKind::Adsr => (
+            // A breakpoint envelope went to `brk` above.
+            EnvKind::Adsr | EnvKind::Brk => (
                 [
                     ("attack", a(0, 0.01)),
                     ("decay", a(1, 0.3)),
@@ -1753,7 +1893,7 @@ impl Builder {
             &mut self.prog.counts.envs,
             MAX_ENVS,
             at,
-            "a voice has at most 4 envelopes",
+            "a voice has at most 8 envelopes",
         )?;
         if let Some(e) = self.prog.envs.get_mut(usize::from(slot)) {
             *e = Shape::Nodes(nodes);
@@ -1771,6 +1911,101 @@ impl Builder {
             Some(l) => self.binop("*", env, l, at),
             None => Ok(env),
         }
+    }
+
+    /// `Env(levels, times, curves, releaseNode)`: levels and times are knobs,
+    /// read when a segment starts.
+    fn brk(&mut self, spec: &EnvSpec, module: usize, at: Pos) -> R<V> {
+        let err = |msg| CodeError {
+            line: at.0,
+            col: at.1,
+            msg,
+        };
+        let list = |v: Option<&V>| match v {
+            Some(V::Arr(a)) => Some(a.clone()),
+            _ => None,
+        };
+        let levels = list(spec.args.first()).ok_or(err("an Env takes an array of levels"))?;
+        let times = list(spec.args.get(1)).ok_or(err("an Env takes an array of times"))?;
+        if levels.len() < 2 || levels.len() > 8 {
+            return Err(err("an Env has 2 to 8 levels"));
+        }
+        if times.len() + 1 < levels.len() {
+            return Err(err("an Env has a time for each segment"));
+        }
+        let mut b = super::Brk {
+            levels: [NONE; 8],
+            times: [NONE; 7],
+            kinds: [0; 7],
+            curves: [0.0; 7],
+            n: u8::try_from(levels.len()).unwrap_or(0),
+            release: NONE,
+        };
+        let fixed = |this: &Builder, n: u8| {
+            matches!(this.prog.node(n), Some(Ugen::Num(_) | Ugen::Ctl { .. }))
+        };
+        for (k, l) in levels.iter().enumerate() {
+            let n = self.input(l, module, &format!("level {}", k + 1), ANY_SPEC(l), at)?;
+            if !fixed(self, n) {
+                return Err(err("an Env's levels and times are numbers or controls"));
+            }
+            if let Some(slot) = b.levels.get_mut(k) {
+                *slot = n;
+            }
+        }
+        for (k, t) in times.iter().take(levels.len() - 1).enumerate() {
+            let n = self.input(t, module, &format!("time {}", k + 1), TIME, at)?;
+            if !fixed(self, n) {
+                return Err(err("an Env's levels and times are numbers or controls"));
+            }
+            if let Some(slot) = b.times.get_mut(k) {
+                *slot = n;
+            }
+        }
+        // A curve for all segments, or one each: \lin, \exp, \step, a number.
+        let curve_of = |v: &V| -> R<(u8, f32)> {
+            match v {
+                V::Nil => Ok((0, 0.0)),
+                V::Num(c, _) => Ok((1, *c as f32)),
+                V::Sym(s) => match s.as_str() {
+                    "lin" | "linear" | "sin" | "sine" | "wel" | "welch" | "sqr" | "squared"
+                    | "cub" | "cubed" => Ok((0, 0.0)),
+                    "exp" | "exponential" => Ok((2, 0.0)),
+                    "step" | "hold" => Ok((3, 0.0)),
+                    _ => Err(err("a curve is \\lin, \\exp, \\step or a number")),
+                },
+                _ => Err(err("a curve is \\lin, \\exp, \\step or a number")),
+            }
+        };
+        let curves = spec.args.get(2).cloned().unwrap_or(V::Nil);
+        for k in 0..levels.len() - 1 {
+            let c = match &curves {
+                V::Arr(a) if !a.is_empty() => a.get(k % a.len()).cloned().unwrap_or(V::Nil),
+                other => other.clone(),
+            };
+            let (kind, curve) = curve_of(&c)?;
+            if let (Some(kd), Some(cv)) = (b.kinds.get_mut(k), b.curves.get_mut(k)) {
+                *kd = kind;
+                *cv = curve;
+            }
+        }
+        if let Some(V::Num(r, _)) = spec.args.get(3) {
+            let r = *r as usize;
+            if r + 1 >= levels.len() {
+                return Err(err("a release node is a level before the last"));
+            }
+            b.release = u8::try_from(r).unwrap_or(NONE);
+        }
+        let slot = Self::slot(
+            &mut self.prog.counts.envs,
+            MAX_ENVS,
+            at,
+            "a voice has at most 8 envelopes",
+        )?;
+        if let Some(e) = self.prog.envs.get_mut(usize::from(slot)) {
+            *e = Shape::Brk(b);
+        }
+        Ok(V::Sig(self.push(Ugen::Env { slot }, at)?, false))
     }
 
     /// A UGen by class: its arguments bound by position and name, expanded
@@ -1869,7 +2104,7 @@ impl Builder {
                     &mut b.prog.counts.oscs,
                     MAX_OSCS,
                     at,
-                    "a voice has at most 8 oscillators",
+                    "a voice has at most 64 oscillators",
                 )?;
                 b.push(
                     Ugen::Osc {
@@ -1886,7 +2121,7 @@ impl Builder {
                     &mut b.prog.counts.phases,
                     MAX_PHASES,
                     at,
-                    "a voice has at most 8 sines and LFOs",
+                    "a voice has at most 32 sines and LFOs",
                 )?;
                 b.push(Ugen::Lfo { rate, wave, slot }, at)
             };
@@ -1904,7 +2139,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES,
                         at,
-                        "a voice has at most 8 sines and LFOs",
+                        "a voice has at most 32 sines and LFOs",
                     )?;
                     (b.push(Ugen::Sin { freq: f, slot }, at)?, false, 2)
                 }
@@ -1949,7 +2184,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES - 1,
                         at,
-                        "a voice has at most 8 sines and LFOs, a PMOsc counting two",
+                        "a voice has at most 32 sines and LFOs, a PMOsc counting two",
                     )?;
                     b.prog.counts.phases += 1;
                     (
@@ -1979,7 +2214,7 @@ impl Builder {
                         &mut b.prog.counts.filters,
                         MAX_FILTERS,
                         at,
-                        "a voice has at most 4 filters",
+                        "a voice has at most 8 filters",
                     )?;
                     let high = c.ends_with("HPF");
                     (
@@ -2005,7 +2240,7 @@ impl Builder {
                         &mut b.prog.counts.filters,
                         MAX_FILTERS,
                         at,
-                        "a voice has at most 4 filters",
+                        "a voice has at most 8 filters",
                     )?;
                     (
                         b.push(
@@ -2037,11 +2272,11 @@ impl Builder {
                     let x = inp(b, 0)?;
                     let t = inp(b, 2)?;
                     let d = inp(b, 3)?;
-                    Self::slot(
+                    let slot = Self::slot(
                         &mut b.prog.counts.delays,
                         MAX_DELAYS,
                         at,
-                        "a voice has one comb",
+                        "a voice has at most 32 delays and combs",
                     )?;
                     (
                         b.push(
@@ -2050,6 +2285,8 @@ impl Builder {
                                 time: t,
                                 feedback: d,
                                 decay: true,
+                                slot,
+                                wet: true,
                             },
                             at,
                         )?,
@@ -2343,17 +2580,12 @@ mod tests {
                 "this UGen needs the stereo synth bus (#288)",
             ),
             (
-                "{ DelayN.ar(Saw.ar(440), 0.01, 0.01) }",
+                "{ SinOsc.ar(IRand(200, 800)) }",
                 1,
-                3,
-                "this UGen comes with the next step of the Modular synth",
+                13,
+                "IRand is not supported yet: Rand(lo, hi).round is not either",
             ),
-            (
-                "{ Env([0, 1], [0.1]).kr }",
-                1,
-                3,
-                "Env(levels, times, curves) is not supported yet",
-            ),
+            ("{ Env([0], [0.1]).kr }", 1, 19, "an Env has 2 to 8 levels"),
             (
                 "42",
                 1,
@@ -2361,10 +2593,10 @@ mod tests {
                 "the code is a SynthDef(\\name, { … }) or a function { … }",
             ),
             (
-                "{ |freq| { Saw.ar(freq) }.dup(9).sum }",
+                "{ |freq| { Saw.ar(freq) }.dup(65).sum }",
                 1,
                 12,
-                "a voice has at most 8 oscillators",
+                "a voice has at most 64 oscillators",
             ),
             (
                 "{ CombL.ar(Saw.ar(440), 0.2, 0.1, 1) }",
@@ -2382,5 +2614,47 @@ mod tests {
             let e = compile(src).expect_err(src);
             assert_eq!((e.line, e.col, e.msg), (line, col, msg), "{src}");
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod hoover {
+    use super::*;
+
+    /// The SuperCollider hoover of #216 with `Splay` folded to `Mix` (its
+    /// level kept) and the reverb left out until the bus is stereo.
+    pub const MONO_HOOVER: &str = r"SynthDef(\hoover, {
+    var snd, freq, bw, delay, decay;
+    freq = \freq.kr(440);
+    freq = freq * Env([-5, 6, 0], [0.1, 1.7], [\lin, -4]).kr.midiratio;
+    bw = 1.035;
+    snd = { DelayN.ar(Saw.ar(freq * ExpRand(bw, 1 / bw)) + Saw.ar(freq * 0.5 * ExpRand(bw, 1 / bw)), 0.01, Rand(0, 0.01)) }.dup(20);
+    snd = (Mix(snd) * 3 * 0.2236).atan;
+    snd = snd * Env.asr(0.01, 1.0, 1.0).kr(0, \gate.kr(1));
+    snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
+    Out.ar(\out.kr(0), snd * \amp.kr(0.1));
+}).add;";
+
+    #[test]
+    fn the_mono_hoover_builds() {
+        let p = compile(MONO_HOOVER).unwrap_or_else(|e| panic!("{e:?}"));
+        let c = p.program.counts;
+        assert_eq!((c.oscs, c.delays, c.rands, c.envs), (40, 20, 60, 3));
+        assert!(
+            usize::from(p.program.len) <= super::super::MAX_NODES,
+            "{}",
+            p.program.len
+        );
+        assert!(p.program.own_amp);
+        assert!(
+            p.program.voice_cap() >= 1 && p.program.voice_cap() <= 6,
+            "cap {}",
+            p.program.voice_cap()
+        );
+        let names: Vec<&str> = p.modules.iter().map(|m| m.name.as_str()).collect();
+        assert!(
+            names.contains(&"DelayN") && names.contains(&"ExpRand") && names.contains(&"EnvGen"),
+            "{names:?}"
+        );
     }
 }
