@@ -20,6 +20,8 @@ const props = withDefaults(
     /** Hide the readout under the label. */
     noVal?: boolean
     fmt?: (v: number) => string
+    /** A modulation of the song drives it (ADR-0019): drawn with a ring. */
+    modulated?: boolean
   }>(),
   { size: 38, color: 'var(--con-paper)', def: 0, fmt: (v: number) => `${Math.round(v * 100)}%` },
 )
@@ -92,12 +94,17 @@ onBeforeUnmount(() => { if (pop.owner === id) closePop() })
 
 <template>
   <div
-    ref="root" class="knob" :class="{ live }" data-knob tabindex="0" role="slider" :aria-label="name ?? label"
+    ref="root" class="knob" :class="{ live, modulated }" data-knob tabindex="0" role="slider" :aria-label="name ?? label"
+    :title="modulated ? 'Modulated by the song' : undefined"
     aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(modelValue * 100)" :aria-valuetext="text"
     @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancel" @dblclick="reset"
     @wheel.prevent="wheel" @keydown="key"
   >
     <svg :width="size" :height="size" :viewBox="`0 0 ${size} ${size}`" aria-hidden="true">
+      <circle
+        v-if="modulated" class="mod-ring" :cx="c" :cy="c" :r="r + 2.5" fill="none" stroke="var(--con-led-a)"
+        stroke-width="1" stroke-dasharray="2 2"
+      />
       <path :d="track" fill="none" stroke="#0b0d10" stroke-width="3.5" stroke-linecap="round" />
       <path :d="value" fill="none" :stroke="color" stroke-width="3.5" stroke-linecap="round" />
       <circle :cx="c" :cy="c" :r="r - 6" fill="url(#con-cap)" stroke="#07080a" stroke-width="1" />

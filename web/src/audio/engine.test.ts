@@ -215,6 +215,16 @@ describe('onMessage', () => {
     expect(mod.params.values[2]).toEqual([1, 2, 3])
   })
 
+  it('keeps the knobs a modulation drives, as the engine sends them (#208)', async () => {
+    const { mod, send } = await boot()
+    expect(mod.modulated.keys.size).toBe(0)
+    send({ t: 'mods', keys: [mod.modKey(2, Param.Cutoff), mod.modKey(0, GlobalParam.P2Return)] })
+    expect(mod.modulated.keys.has(mod.modKey(2, Param.Cutoff))).toBe(true)
+    expect(mod.modulated.keys.has(mod.modKey(3, Param.Cutoff))).toBe(false)
+    send({ t: 'mods', keys: [] })
+    expect(mod.modulated.keys.size).toBe(0)
+  })
+
   it('pads and zones are decoded per synth', async () => {
     const { mod, send } = await boot()
     expect(mod.padsOf(1)).toHaveLength(16)

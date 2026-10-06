@@ -1296,6 +1296,26 @@ impl Engine {
         }
     }
 
+    /// The `i`th (strip, parameter) a modulation is writing now (ADR-0019),
+    /// so the view can mark its knob; `None` past the last. A track's
+    /// modulation names the strip it is routed to; the master's is strip 0.
+    pub fn modulated(&self, i: usize) -> Option<(usize, Param)> {
+        self.song
+            .mods
+            .iter()
+            .zip(self.mod_base.iter())
+            .filter(|(_, base)| base.is_some())
+            .filter_map(|(m, _)| {
+                let strip = match m.target {
+                    Target::Master => Some(0),
+                    Target::Strip(s) => Some(s),
+                    Target::Track(t) => self.song_routed(t),
+                };
+                strip.map(|s| (s, m.param))
+            })
+            .nth(i)
+    }
+
     /// The value a target's parameter has now; 0 for an unrouted track.
     fn target_value(&self, target: Target, param: Param) -> f32 {
         let strip = match target {

@@ -310,6 +310,14 @@ class EngineProcessor extends AudioWorkletProcessor {
       // Automation moved these strips' values: show them (ADR-0015).
       const touched = w.auto_touched()
       for (let s = 0; s < 32; s++) if ((touched >>> s) & 1) this.sendParams(s)
+      // The knobs a modulation drives (ADR-0019): sent when the set changes.
+      const mods = []
+      for (let i = 0; i < w.mod_count(); i++) mods.push(w.mod_strip(i) * 1024 + w.mod_param(i))
+      const key = mods.join(',')
+      if (key !== this.modKey) {
+        this.modKey = key
+        this.port.postMessage({ t: 'mods', keys: mods })
+      }
       // A song loaded while playing took over on the bar line (#208): show it.
       if (w.song_taken()) {
         this.sendSong(true)
