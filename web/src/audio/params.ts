@@ -495,6 +495,7 @@ export const Param = {
   ArpLatch: 488,
   ArpFree: 489,
   ArpSeed: 490,
+  BdDrive: 491,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -737,6 +738,8 @@ export const Preset = {
   Hard909: 86,
   ModularBasic: 87,
   ModularHoover: 88,
+  Heavy808: 89,
+  Heavy909: 90,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

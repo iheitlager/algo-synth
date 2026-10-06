@@ -1060,7 +1060,8 @@ const polyMoog: ModelDef = {
  */
 export const PAD_OUTS: Options = [['Master', 0], ...Array.from({ length: 8 }, (_, g): [string, number] => [`Group ${g + 1}`, g + 1])]
 // A pad is a narrow column, its knobs top to bottom, as a drum machine's channel (#194).
-const pad = (title: string, name: string): Section => {
+// The kicks add a Drive (#264): their soft clip, off at 0.
+const pad = (title: string, name: string, extra: Control[] = []): Section => {
   const p = (f: string) => Param[`${name}${f}` as keyof typeof Param]
   return {
     title,
@@ -1070,12 +1071,14 @@ const pad = (title: string, name: string): Section => {
       { kind: 'knob', label: 'Decay', param: p('Decay'), lo: 0.25, hi: 4, scale: 'exp', unit: 'pct', def: 1 },
       { kind: 'knob', label: 'Tone', param: p('Tone'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
       { kind: 'knob', label: 'Level', param: p('Level'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.8 },
+      ...extra,
       // Its individual out (#162): the kit's own strip, or a group, panned there.
       { kind: 'select', label: 'Out', param: p('Out'), options: PAD_OUTS, dropdown: true },
       { kind: 'knob', label: 'Pan', param: p('Pan'), lo: -1, hi: 1, scale: 'lin', unit: 'bip', bipolar: true, def: 0 },
     ],
   }
 }
+const KICK_DRIVE: Control[] = [{ kind: 'knob', label: 'Drive', param: Param.BdDrive, lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0 }]
 const tr808: ModelDef = {
   id: Model.Tr808,
   family: 'drums',
@@ -1083,11 +1086,11 @@ const tr808: ModelDef = {
   maker: 'Roland · rhythm composer, sixteen voices',
   tagline: 'Kick, snare, three toms and congas, rimshot, claves, clap, maracas, cowbell, cymbal and hats; the closed hat chokes the open',
   theme: { panel: '#2b2a28', ink: '#f2efe6', soft: '#b9b3a6', trim: '#dcd6c8', accent: '#f0712c' },
-  presets: ['Kit808', 'TightKit'],
+  presets: ['Kit808', 'TightKit', 'Heavy808'],
   row: true,
   sections: [
     // In the hardware's order, the congas beside the toms they share a switch with.
-    pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
+    pad('Bass drum', 'Bd', KICK_DRIVE), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
     pad('Low conga', 'Lc'), pad('Mid conga', 'Mc'), pad('High conga', 'Hc'), pad('Rimshot', 'Rs'), pad('Claves', 'Cl'),
     pad('Clap', 'Cp'), pad('Maracas', 'Ma'), pad('Cowbell', 'Cb'), pad('Cymbal', 'Cy'), pad('Open hat', 'Oh'),
     pad('Closed hat', 'Ch'),
@@ -1160,10 +1163,10 @@ const tr909: ModelDef = {
   maker: 'Roland · rhythm composer, eleven voices',
   tagline: 'A punchy kick, snappy snare, three toms, rimshot, clap, hats, crash and ride; the closed hat chokes the open',
   theme: { panel: '#d9d6cf', ink: '#1d1c1a', soft: '#5d5a54', trim: '#2a2927', accent: '#e8541e' },
-  presets: ['Kit909', 'Hard909'],
+  presets: ['Kit909', 'Hard909', 'Heavy909'],
   row: true,
   sections: [
-    pad('Bass drum', 'Bd'), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
+    pad('Bass drum', 'Bd', KICK_DRIVE), pad('Snare', 'Sn'), pad('Low tom', 'Lt'), pad('Mid tom', 'Mt'), pad('High tom', 'Ht'),
     pad('Rimshot', 'Rs'), pad('Clap', 'Cp'), pad('Closed hat', 'Ch'), pad('Open hat', 'Oh'), pad('Crash', 'Cr'),
     pad('Ride', 'Rd'),
     {

@@ -101,11 +101,13 @@ pub enum Preset {
     Hard909 = 86,
     ModularBasic = 87,
     ModularHoover = 88,
+    Heavy808 = 89,
+    Heavy909 = 90,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 89] = [
+    pub const ALL: [(Preset, &'static str); 91] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -195,6 +197,8 @@ impl Preset {
         (Preset::Hard909, "Hard909"),
         (Preset::ModularBasic, "ModularBasic"),
         (Preset::ModularHoover, "ModularHoover"),
+        (Preset::Heavy808, "Heavy808"),
+        (Preset::Heavy909, "Heavy909"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -217,8 +221,8 @@ impl Preset {
             Preset::PolyStrings | Preset::VoxHumana | Preset::PolyFunk | Preset::PolyBrass => {
                 Model::PolyMoog
             }
-            Preset::Kit808 | Preset::TightKit => Model::Tr808,
-            Preset::Kit909 | Preset::Hard909 => Model::Tr909,
+            Preset::Kit808 | Preset::TightKit | Preset::Heavy808 => Model::Tr808,
+            Preset::Kit909 | Preset::Hard909 | Preset::Heavy909 => Model::Tr909,
             Preset::ModularBasic | Preset::ModularHoover => Model::Modular,
             Preset::LaFantasia
             | Preset::LaPluckPad
@@ -2408,6 +2412,33 @@ impl Preset {
                 (RdDecay, 1.3),
                 (DrumAccent, 0.8),
             ],
+            // Deep and heavy (#264): a kick tuned down to about 44 Hz, long, driven
+            // and at full level, with a louder, snappier snare and clap.
+            Preset::Heavy808 => &[
+                (Model, 15.0),
+                (BdTune, -2.0),
+                (BdDecay, 1.6),
+                (BdTone, 0.7),
+                (BdLevel, 1.0),
+                (BdDrive, 0.6),
+                (SnTone, 0.7),
+                (SnLevel, 1.0),
+                (CpLevel, 0.9),
+                (DrumAccent, 0.7),
+            ],
+            // The 909 the same way: a kick at about 46 Hz, longer and driven harder.
+            Preset::Heavy909 => &[
+                (Model, 18.0),
+                (BdTune, -2.0),
+                (BdDecay, 1.3),
+                (BdTone, 0.8),
+                (BdLevel, 1.0),
+                (BdDrive, 0.5),
+                (SnTone, 0.8),
+                (SnLevel, 1.0),
+                (CpLevel, 0.9),
+                (DrumAccent, 0.7),
+            ],
             Preset::TightKit => &[
                 (Model, 15.0),
                 (BdDecay, 0.45),
@@ -2693,7 +2724,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 400] = [
+pub const DEFAULTS: [(Param, f32); 401] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -2989,6 +3020,7 @@ pub const DEFAULTS: [(Param, f32); 400] = [
     (Param::BdDecay, 1.0),
     (Param::BdTone, 0.5),
     (Param::BdLevel, 0.8),
+    (Param::BdDrive, 0.0),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
     (Param::SnTone, 0.5),
