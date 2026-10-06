@@ -2026,7 +2026,7 @@ fn voice_errors_say_where() {
             "voice v = { cosine(freq) }",
             1,
             13,
-            "a voice is made of sin saw tri pulse noise lfo svf env, numbers and freq gate vel",
+            "a voice is made of sin saw tri pulse noise lfo fm svf ladder delay drive mix env, numbers, lists and freq gate vel",
         ),
         (
             "voice v = { saw(freq) }\nvoice v = { tri(freq) }",
@@ -2156,7 +2156,7 @@ fn control_errors_say_where() {
             "voice v = { saw(freq) * gain }\n  ctl a = 1 [0 9]",
             1,
             25,
-            "a voice is made of sin saw tri pulse noise lfo svf env, numbers and freq gate vel",
+            "a voice is made of sin saw tri pulse noise lfo fm svf ladder delay drive mix env, numbers, lists and freq gate vel",
         ),
     ] {
         let err = Song::parse(text).expect_err(text);

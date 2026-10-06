@@ -134,7 +134,8 @@ impl PolyVoice {
     }
 
     /// Press a key on a voice of the right kind (a voice of another kind is replaced).
-    fn press(&mut self, note: u8, velocity: f32, p: &MonoParams, seed: u32) {
+    /// `slot` is the voice's place in its pool, for a Modular voice's lists.
+    fn press(&mut self, note: u8, velocity: f32, p: &MonoParams, seed: u32, slot: usize) {
         if !self.fits(p) {
             *self = PolyVoice::new(seed, Some(p));
         }
@@ -145,7 +146,7 @@ impl PolyVoice {
             PolyVoice::Drum(v) => strike(v, note, velocity, p),
             PolyVoice::Sampler(v) => v.press(note, velocity),
             PolyVoice::Pad(v) => v.press(note, velocity, &p.pad_kit, p.level[0], p.sample_rate()),
-            PolyVoice::Graph(v) => v.press(note, velocity, &p.graph, p.sample_rate()),
+            PolyVoice::Graph(v) => v.press(note, velocity, &p.graph, p.sample_rate(), slot),
         }
     }
 
@@ -451,7 +452,7 @@ impl Pool {
             };
             if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
                 v.release_all();
-                v.press(note, velocity, p, owner_seed(owner));
+                v.press(note, velocity, p, owner_seed(owner), i);
                 *s = Slot {
                     owner: Some(owner),
                     note,
@@ -482,7 +483,7 @@ impl Pool {
             }
         };
         if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
-            v.press(note, velocity, p, owner_seed(owner));
+            v.press(note, velocity, p, owner_seed(owner), i);
             *s = Slot {
                 owner: Some(owner),
                 note,
@@ -518,7 +519,7 @@ impl Pool {
             None => self.allocate(limit),
         };
         if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
-            v.press(note, velocity, p, owner_seed(owner));
+            v.press(note, velocity, p, owner_seed(owner), i);
             *s = Slot {
                 owner: Some(owner),
                 note,
@@ -557,7 +558,7 @@ impl Pool {
             None => self.allocate(MAX_VOICES),
         };
         if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
-            v.press(note, velocity, p, owner_seed(owner));
+            v.press(note, velocity, p, owner_seed(owner), i);
             *s = Slot {
                 owner: Some(owner),
                 note,
@@ -671,7 +672,7 @@ impl Pool {
             None => self.allocate(MAX_VOICES),
         };
         if let (Some(v), Some(s)) = (self.voices.get_mut(i), self.slots.get_mut(i)) {
-            v.press(note, velocity, p, owner_seed(owner));
+            v.press(note, velocity, p, owner_seed(owner), i);
             *s = Slot {
                 owner: Some(owner),
                 note,
