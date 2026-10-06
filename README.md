@@ -2,7 +2,7 @@
 
 An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. Up to sixteen synths (monosynths, polysynths, drum machines and samplers) play through a mixer with groups and effects. A song written as text, with generators and an arranger, plays them, and so does a MIDI player.
 
-## Version: 0.34.0
+## Version: 0.35.0
 
 - **Mono:** one shared voice: three band-limited VCOs, ring mod and sub, noise, a 4-pole ladder or a 12 dB high-pass/low-pass pair, ADSR, filter ADSR and AR, LFO, normalled routing with patch overrides, poly-mod.
 - **Up to 16 synths, nineteen models:** add synths as you need them. Seven are monosynths: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 and Odyssey, each with its own faceplate (knobs, envelope curves, patch bay), colours and presets. A MIDI file plays each part on its own synth.
