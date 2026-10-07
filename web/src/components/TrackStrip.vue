@@ -40,17 +40,17 @@ function pickPreset(i: number, value: string) {
       <b class="name">{{ r.t.name }}</b>
       <span class="muted kind">{{ r.t.kind }}</span>
       <label title="The synth the track plays on">
-        <select :value="r.t.synth" @change="routeTrack(r.i, Number(($event.target as HTMLSelectElement).value) as Route)">
+        <select class="picker" :value="r.t.synth" @change="routeTrack(r.i, Number(($event.target as HTMLSelectElement).value) as Route)">
           <option v-for="c in synths" :key="c.value" :value="c.value">{{ c.label }}</option>
         </select>
       </label>
       <label title="The track's instrument: the models that play this kind of track">
-        <select :value="r.model.id" :disabled="r.t.synth === MUTE" @change="pickModel(r.i, Number(($event.target as HTMLSelectElement).value))">
+        <select class="picker" :value="r.model.id" :disabled="r.t.synth === MUTE" @change="pickModel(r.i, Number(($event.target as HTMLSelectElement).value))">
           <option v-for="m in r.models" :key="m.id" :value="m.id">{{ m.name }}</option>
         </select>
       </label>
       <label title="A factory preset of the model, or one of the song's settings">
-        <select :value="choiceOf(r.t)" :disabled="r.t.synth === MUTE" @change="pickPreset(r.i, ($event.target as HTMLSelectElement).value)">
+        <select class="picker" :value="choiceOf(r.t)" :disabled="r.t.synth === MUTE" @change="pickPreset(r.i, ($event.target as HTMLSelectElement).value)">
           <option v-if="!choiceOf(r.t)" value="" disabled>samples as loaded</option>
           <option v-for="p in r.presets" :key="p.value" :value="p.value">{{ p.label }}</option>
         </select>
@@ -66,8 +66,8 @@ function pickPreset(i: number, value: string) {
 
 <style scoped>
 .tracks { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 0; }
-.track { display: flex; align-items: center; gap: 8px; padding-left: 8px; border-left: 3px solid var(--c); }
-.name { min-width: 5em; }
+.track { display: flex; align-items: center; gap: 8px; padding: 2px 0 2px 8px; border-left: 3px solid var(--c); }
+.name { width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kind { width: 4.5em; font-size: 11px; }
 .muted { color: var(--muted); }
 </style>
