@@ -1145,6 +1145,62 @@ mod tests {
         assert!(a24 > a12 + 8.0, "and it falls much faster than 12 dB");
     }
 
+    /// #321: the Odyssey's Rev switch takes its low-pass from the 4023's two
+    /// poles at Rev 1 to the 4075's four at Rev 3.
+    #[test]
+    fn odyssey_rev_switch_is_12_or_24_db_per_octave() {
+        let falls = |rev: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, 6.0),
+                (Param::Vco1Level, 0.0),
+                (Param::Vco2Level, 0.0),
+                (Param::NoiseLevel, 1.0),
+                (Param::Cutoff, 1_000.0),
+                (Param::Resonance, 0.0),
+                (Param::FilterRev, rev),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(60);
+            r.render(9_600);
+            let out = r.render(192_000);
+            let band = |f: f64| {
+                (0..8)
+                    .map(|k| tone(&out, f * (0.94 + 0.02 * k as f64)).powi(2))
+                    .sum::<f64>()
+                    / 8.0
+            };
+            10.0 * (band(3_000.0) / band(6_000.0)).log10()
+        };
+        let (rev1, rev3) = (falls(1.0), falls(3.0));
+        assert!((rev1 - 12.0).abs() < 3.5, "Rev 1: {rev1}");
+        assert!(rev3 > rev1 + 8.0, "Rev 3: {rev3} against {rev1}");
+    }
+
+    /// #321: turning the Rev switch while a resonant note sounds keeps it
+    /// finite and bounded, on both synths with the switch.
+    #[test]
+    fn filter_rev_switch_while_a_note_sounds() {
+        for model in [7.0, 6.0] {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::Cutoff, 800.0),
+                (Param::Resonance, 0.9),
+                (Param::Drive, 1.0),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(45);
+            for rev in [3.0, 1.0, 2.0, 3.0, 1.0] {
+                r.params.set(Param::FilterRev, rev);
+                for y in r.render(4_800) {
+                    assert!(
+                        y.is_finite() && y.abs() <= 2.0,
+                        "model {model} rev {rev}: {y}"
+                    );
+                }
+            }
+        }
+    }
+
     /// Cross-modulation: VCO 2 moves VCO 1's pitch, at any mixer level.
     #[test]
     fn cross_mod_moves_vco1_from_vco2() {

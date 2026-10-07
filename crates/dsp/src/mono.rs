@@ -23,7 +23,7 @@ use crate::padsampler::PadKit;
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
-use model::{Filter, Model};
+use model::{Filter, Model, Setting};
 use noise::NoiseColour;
 use osc::Waveform;
 use patch::{DESTS, Normals, Patch};
@@ -45,8 +45,8 @@ pub struct MonoParams {
     pub analog: f32,
     /// The stereo chorus mode (0 off); the engine runs it after the voices.
     pub chorus_mode: usize,
-    /// Whether a model with the slope switch filters at 12 dB (else 24).
-    pub slope12: bool,
+    /// The filter switches: slope and revision (#321).
+    pub filter_switches: Setting,
     /// The second LFO (cycles per sample, waveform) and the ramp's step per sample.
     pub lfo2_inc: f32,
     pub lfo2_wave: Waveform,
@@ -162,15 +162,9 @@ impl MonoParams {
         self.sample_rate
     }
 
-    /// The low-pass in use: the model's, or on a model with the slope switch its
-    /// 12 dB one when the switch says so.
+    /// The low-pass in use: the model's at the panel's switches.
     pub fn filter(&self) -> Filter {
-        if self.slope12 {
-            if let Some(f) = self.model.filter_12db() {
-                return f;
-            }
-        }
-        self.model.filter()
+        self.model.low_pass(self.filter_switches)
     }
 
     /// The voices this synth plays at once: `Polyphony`, at most its model's.
@@ -198,7 +192,7 @@ impl MonoParams {
             unison_cents: 0.0,
             analog: 0.0,
             chorus_mode: 0,
-            slope12: false,
+            filter_switches: Setting::OWN,
             lfo2_inc: 0.0,
             lfo2_wave: Waveform::Sine,
             ramp_inc: 0.0,
@@ -540,7 +534,8 @@ impl MonoParams {
             Param::Analog => self.analog = v,
             Param::ChorusMode => self.chorus_mode = v.round() as usize,
             Param::XMod => self.normals.xmod = 24.0 * v,
-            Param::Slope => self.slope12 = v < 0.5,
+            Param::Slope => self.filter_switches.slope12 = v < 0.5,
+            Param::FilterRev => self.filter_switches.rev = v.round().clamp(1.0, 3.0) as u8,
             Param::Patch9Source => self.patch.set_source(8, v),
             Param::Patch9Dest => self.patch.set_dest(8, v),
             Param::Patch9Amount => self.patch.set_amount(8, v),

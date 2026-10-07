@@ -25,10 +25,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{
-    LADDERS, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NONE, Op,
-    Program, SVFS, Shape, Ugen,
+    Class, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NONE, Op,
+    Program, Shape, Ugen, VOICINGS,
 };
-use crate::mono::model::Filter;
+use crate::mono::model::{Filter, Hp};
 use crate::mono::osc::Waveform;
 use crate::params::CTLS;
 
@@ -982,8 +982,11 @@ impl Builder {
     }
 
     /// Filter slot `slot` takes `voicing`, if one was named.
-    fn voice(&mut self, slot: u8, voicing: Option<Filter>) {
-        if let (Some(f), Some(v)) = (voicing, self.prog.voicings.get_mut(usize::from(slot))) {
+    fn voice(&mut self, slot: u8, voicing: Option<Voicing>) {
+        let Some(Voicing::Filter(f)) = voicing else {
+            return;
+        };
+        if let Some(v) = self.prog.voicings.get_mut(usize::from(slot)) {
             *v = f;
         }
     }
@@ -2378,22 +2381,25 @@ impl Builder {
                         "a voice has at most 8 filters",
                     )?;
                     let high = c.ends_with("HPF");
-                    b.voice(slot, voicing);
-                    (
-                        b.push(
-                            Ugen::Svf {
-                                input: x,
-                                high,
-                                cutoff: f,
-                                res,
-                                slot,
-                                rq: resonant,
-                            },
-                            at,
-                        )?,
-                        false,
-                        if resonant { 3 } else { 2 },
-                    )
+                    if voicing == Some(Voicing::OnePole) {
+                        let u = Ugen::PoleHp {
+                            input: x,
+                            cutoff: f,
+                            slot,
+                        };
+                        (b.push(u, at)?, false, 2)
+                    } else {
+                        b.voice(slot, voicing);
+                        let u = Ugen::Svf {
+                            input: x,
+                            high,
+                            cutoff: f,
+                            res,
+                            slot,
+                            rq: resonant,
+                        };
+                        (b.push(u, at)?, false, if resonant { 3 } else { 2 })
+                    }
                 }
                 "MoogFF" => {
                     let (x, f, g) = (inp(b, 0)?, inp(b, 1)?, inp(b, 2)?);
@@ -2484,29 +2490,32 @@ fn args_given(args: &[V], kws: &[(String, V)], names: &[&str], k: usize) -> bool
             .is_some_and(|n| kws.iter().any(|(kw, _)| kw == n))
 }
 
-/// Arguments bound to `names` by position, then by keyword, then defaults.
-/// The voicing `v` names for filter class `c` (#307, #316): a synth's
-/// ladder for `MoogFF`, a synth's 12 dB filter (its two-pole setting where
-/// it has a slope switch) for the others.
-fn voicing_of(c: &str, v: &V) -> Result<Filter, &'static str> {
-    let ladder = c == "MoogFF";
-    let words = if ladder {
-        "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 or \\odyssey"
-    } else {
-        "a filter voicing is \\ms20 \\cs15 \\polymoog \\jupiter8 or \\matrix12"
-    };
+/// What a filter's voicing word names.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Voicing {
+    Filter(Filter),
+    /// A synth's 6 dB high-pass, for `HPF` (#321).
+    OnePole,
+}
+
+/// The voicing `v` names for filter `c` (#307, #316, #321): the word's
+/// synth's filter of that class, at the word's setting of its switches.
+fn voicing_of(c: &str, v: &V) -> Result<Voicing, &'static str> {
+    let class = Class::of(c);
     let V::Sym(w) = v else {
-        return Err(words);
+        return Err(class.words());
     };
-    let table = if ladder { &LADDERS[..] } else { &SVFS[..] };
-    let (_, m) = table.iter().find(|(word, _)| word == w).ok_or(words)?;
-    Ok(if ladder {
-        m.filter()
-    } else {
-        m.filter_12db().unwrap_or(m.filter())
+    let &(_, _, m, setting) = VOICINGS
+        .iter()
+        .find(|(word, k, ..)| *k == class && word == w)
+        .ok_or(class.words())?;
+    Ok(match class {
+        Class::Hp if m.hp() == Hp::OnePole => Voicing::OnePole,
+        _ => Voicing::Filter(m.low_pass(setting)),
     })
 }
 
+/// Arguments bound to `names` by position, then by keyword, then defaults.
 fn bind(
     names: &[&str],
     defaults: &[Option<f64>],

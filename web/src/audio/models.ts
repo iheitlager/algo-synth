@@ -372,6 +372,9 @@ const voicesSection = (): Section => ({
 })
 
 // Five voices of the Pro-One's two-oscillator voice (spec 006 Req 6): A is VCO 2,
+// The Rev 4's filter switch (#321): the SSM2040 of Rev 1/2 or the CEM3320 of Rev 3.
+const P5_REVS: Options = [['Rev 1/2', 1], ['Rev 3', 3]]
+
 // B is VCO 1, poly-mod from the filter envelope and B, unison and vintage drift.
 const prophet5: ModelDef = {
   id: Model.Prophet5,
@@ -413,6 +416,7 @@ const prophet5: ModelDef = {
       controls: [
         range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
         range('Envelope amount', Param.EnvCutoff, -1, 1, 0.01), select('Key track', Param.KeyTrack, HALF_FULL),
+        select('Filter rev', Param.FilterRev, P5_REVS),
       ],
     },
     { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
@@ -962,10 +966,6 @@ const sh101: ModelDef = {
       ],
     },
     {
-      title: 'HPF',
-      controls: [range('Cutoff', Param.HpCutoff, 0, 1, 0.001, 'cutoff')],
-    },
-    {
       title: 'VCF',
       controls: [
         range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
@@ -976,6 +976,9 @@ const sh101: ModelDef = {
     { title: 'Envelope', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
   ],
 }
+
+// The reissue's filter switch (#321): the 4023 two-pole, the 4035 ladder, the 4075.
+const ODYSSEY_REVS: Options = [['Rev 1', 1], ['Rev 2', 2], ['Rev 3', 3]]
 
 // The ARP Odyssey Mk II (spec 005 Req 10): two VCOs with sync, ring mod and
 // noise, a 24 dB ladder and a 6 dB high-pass after it, one ADSR to filter and
@@ -1015,7 +1018,7 @@ const odyssey: ModelDef = {
       controls: [
         range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
         range('ADSR', Param.EnvCutoff, -1, 1, 0.01), range('Key track', Param.KeyTrack, 0, 1, 0.01),
-        range('LFO', Param.LfoCutoff, 0, 1, 0.01),
+        range('LFO', Param.LfoCutoff, 0, 1, 0.01), select('Filter rev', Param.FilterRev, ODYSSEY_REVS),
       ],
     },
     { title: 'ADSR', controls: adsrControls(Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease) },
