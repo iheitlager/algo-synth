@@ -1939,6 +1939,8 @@ impl Song {
             preset: Some(preset),
             setting: None,
             picked: false,
+            mute: false,
+            solo: false,
         });
         Some(self.tracks.len() - 1)
     }
