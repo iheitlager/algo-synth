@@ -631,18 +631,18 @@ impl Pool {
         self.last = i;
     }
 
-    /// The drum kit's voices (#162): a pad on the kit's own strip adds into
-    /// `bus`; one on a group into that group's direct input from `at`, panned.
+    /// The drum kit's voices (#162): each pad panned by its `PadOut`, into
+    /// the kit's stereo bus or into its group's direct input from `at` (#364).
     pub fn render_kit(
         &mut self,
         p: &MonoParams,
         sine: &[f32],
         blep: &Blep,
-        bus: &mut [f32],
+        (left, right): (&mut [f32], &mut [f32]),
         direct: &mut [[[f32; BLOCK]; 2]; GROUPS],
         at: usize,
     ) {
-        let n = bus.len();
+        let n = left.len();
         for v in self.voices.iter_mut() {
             let PolyVoice::Drum(d) = v else {
                 continue;
@@ -655,15 +655,15 @@ impl Pool {
                 .get(p.model.drum_machine().voice(d.pad()) as usize)
                 .copied()
                 .unwrap_or_default();
-            let Some(group) = out.group.checked_sub(1) else {
-                d.render(sine, blep, bus);
-                continue;
+            // Panned into the kit's own strip, or straight into a group (#364).
+            let (gl, gr) = match out.group.checked_sub(1) {
+                None => (left.get_mut(..n), right.get_mut(..n)),
+                Some(group) => match direct.get_mut(group) {
+                    Some([gl, gr]) => (gl.get_mut(at..at + n), gr.get_mut(at..at + n)),
+                    None => continue,
+                },
             };
-            let (Some(s), Some([gl, gr])) = (self.scratch.get_mut(..n), direct.get_mut(group))
-            else {
-                continue;
-            };
-            let (Some(gl), Some(gr)) = (gl.get_mut(at..at + n), gr.get_mut(at..at + n)) else {
+            let (Some(s), Some(gl), Some(gr)) = (self.scratch.get_mut(..n), gl, gr) else {
                 continue;
             };
             s.fill(0.0);

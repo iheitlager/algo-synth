@@ -139,6 +139,17 @@ describe('drum faceplates (#194)', () => {
     for (const m of MODELS.filter((x) => !drums.includes(x))) expect(m.row, m.name).toBeFalsy()
   })
 
+  it('give every pad the same rows, two to a row, Drive on the kick and an empty slot elsewhere (#364)', () => {
+    const row = (c: Control) => (c.kind === 'knob' || c.kind === 'select' ? c.label : c.kind)
+    for (const m of drums) {
+      for (const s of m.sections.filter((x) => x.title !== 'Accent')) {
+        const kick = s.title === 'Bass drum'
+        expect(s.pairs, `${m.name} ${s.title}`).toBe(true)
+        expect(s.controls.map(row), `${m.name} ${s.title}`).toEqual(['Tune', 'Decay', 'Tone', 'Level', kick ? 'Drive' : 'gap', 'Pan', 'Out'])
+      }
+    }
+  })
+
   it("choose a pad's out from a pull-down: Master or one of the eight groups", () => {
     for (const m of drums) {
       for (const s of m.sections.filter((x) => x.title !== 'Accent')) {

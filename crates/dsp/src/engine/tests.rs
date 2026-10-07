@@ -3055,6 +3055,34 @@ fn a_pad_is_panned_into_its_group() {
     );
 }
 
+/// #364: a pad on the kit's own strip is panned there too: the kit is
+/// stereo, hard left is heard only on the left, hard right only on the
+/// right, and at the centre both sides are the same.
+#[test]
+fn a_pad_is_panned_on_the_kits_own_strip() {
+    let sides = |pan: f32| {
+        let (_, out) = clap_meters(&|e| e.set_param(0, Param::CpPan, pan));
+        let side = |skip: usize| -> Vec<f32> {
+            out.chunks(BLOCK)
+                .skip(skip)
+                .step_by(2)
+                .flatten()
+                .copied()
+                .collect()
+        };
+        (side(0), side(1))
+    };
+    let (l, r) = sides(-1.0);
+    assert!(l.iter().any(|x| *x != 0.0), "heard on the left");
+    assert!(r.iter().all(|x| x.abs() < 1.0e-6), "nothing on the right");
+    let (l, r) = sides(1.0);
+    assert!(r.iter().any(|x| *x != 0.0), "heard on the right");
+    assert!(l.iter().all(|x| x.abs() < 1.0e-6), "nothing on the left");
+    let (l, r) = sides(0.0);
+    assert!(l.iter().any(|x| *x != 0.0));
+    assert_eq!(l, r, "centred");
+}
+
 /// #220: the groups a pad sampler's pads go to are what the solos follow; clearing the pads clears them.
 #[test]
 fn a_pad_samplers_outs_are_reported_for_the_solos() {

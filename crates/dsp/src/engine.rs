@@ -2271,9 +2271,10 @@ impl Engine {
                     continue;
                 }
                 if params.model.uses_drums() {
-                    // The kit's pads go to its strip or straight to a group (#162).
-                    if let Some((bus, direct)) = self.mixer.kit_outs(synth, t..t + chunk) {
-                        pool.render_kit(params, &self.sine, &self.blep, bus, direct, t);
+                    // The kit's pads go to its strip or straight to a group (#162),
+                    // panned either way: the synth gets a stereo bus (#364).
+                    if let Some((l, r, direct)) = self.mixer.pad_outs(synth, t..t + chunk) {
+                        pool.render_kit(params, &self.sine, &self.blep, (l, r), direct, t);
                     }
                     continue;
                 }
