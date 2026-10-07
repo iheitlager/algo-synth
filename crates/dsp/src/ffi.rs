@@ -216,6 +216,12 @@ pub extern "C" fn note_off(synth: u32, note: u32) {
     }
 }
 
+/// Start over (#325): see `Engine::clear`.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_clear() {
+    with_engine(Engine::clear);
+}
+
 /// Release every voice.
 #[unsafe(no_mangle)]
 pub extern "C" fn all_off() {

@@ -17,7 +17,7 @@ import {
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
-import { isSongFile, keepSong, lastSong, songFileName } from './songfile'
+import { forgetSong, isSongFile, keepSong, lastSong, songFileName } from './songfile'
 
 const base = import.meta.env.BASE_URL
 
@@ -62,6 +62,7 @@ class AudioEngine {
   noteOn(s: number, n: number, v = 0.8) { this.post({ t: 'on', s, n, v }) }
   noteOff(s: number, n: number) { this.post({ t: 'off', s, n }) }
   panic() { this.post({ t: 'panic' }) }
+  clear() { this.post({ t: 'clear' }) }
 }
 
 // One engine for the app. `status` and `files` are reactive so the UI follows them.
@@ -234,12 +235,38 @@ export async function power(): Promise<void> {
     // The last session's song (#105); a song file opened at the same time follows and replaces it.
     const kept = lastSong()
     if (kept) loadSong(kept)
+    else clearAll()
   } catch (e) {
     status.error = e instanceof Error ? e.message : String(e)
   }
 }
 
 export const getEngine = (): AudioEngine | null => engine
+
+/**
+ * Start over (#325): the engine clears the song, every synth, strip and effect
+ * and puts a Modular synth on synth 0; the view forgets its own state to match.
+ * Loaded samples stay cached.
+ */
+export function clearAll() {
+  if (!engine) return
+  engine.clear()
+  synths.list = [0]
+  synths.selected = 0
+  setNames({ strips: { 0: familyName('modular', []) } })
+  layout.groups = []
+  layout.order = []
+  layout.collapsed = []
+  layout.hidden = []
+  for (const s of Object.keys(codes)) delete codes[Number(s)]
+  zoneState.zones = []
+  padState.pads = []
+  modulated.keys = new Set()
+  files.fileName = ''
+  files.notice = ''
+  song.draft = ''
+  forgetSong()
+}
 
 // --- MIDI files (ADR-0022): opening one imports it as the song ----------------
 
@@ -581,9 +608,11 @@ export function applySong(data: Record<string, unknown>) {
   const error = data.error as { line: number; col: number; msg: Uint8Array } | null
   song.error = error ? { line: error.line, col: error.col, msg: decoder.decode(error.msg) } : null
   // A song that played replaces the draft with its canonical text; a failed one leaves the draft alone.
+  // One without tracks is not kept, so a reload after New starts fresh (#325).
   if (data.ok) {
     song.draft = text
-    keepSong(text)
+    if ((data.tracks as unknown[]).length) keepSong(text)
+    else forgetSong()
   }
   song.text = text
   song.tempo = data.tempo as number

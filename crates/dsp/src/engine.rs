@@ -496,6 +496,38 @@ impl Engine {
         }
     }
 
+    /// Start over (#325): the song stopped and emptied, every synth, strip,
+    /// arp, zone map, pad kit and global effect back to its defaults, every
+    /// voice let go, and synth 0 a Modular synth on `ModularBasic`. Loaded
+    /// samples stay in the store. Builds a SynthDef, so never from `render`.
+    pub fn clear(&mut self) {
+        self.song_stop();
+        self.all_off();
+        let empty = Song::default().print();
+        self.song_buf.clear();
+        self.song_buf.extend_from_slice(empty.as_bytes());
+        // The canonical empty song always parses; should it not, no song at all.
+        if self.load_song().is_err() {
+            self.song = Song::default();
+        }
+        for (p, v) in GLOBAL_DEFAULTS {
+            self.set_param(0, p, v);
+        }
+        for synth in 0..SYNTHS {
+            self.clear_zones(synth);
+            self.clear_pads(synth);
+            if let Some(c) = self.codes.get_mut(synth) {
+                *c = None;
+            }
+            self.set_graph(synth, Program::default());
+        }
+        self.code_error = None;
+        for strip in 0..STRIPS {
+            self.reset(strip);
+        }
+        self.preset(0, Preset::ModularBasic);
+    }
+
     /// Live input: press a key on `synth`'s live voice, or, with its arp on,
     /// add it to the arp's held notes.
     pub fn note_on(&mut self, synth: usize, note: u8, velocity: f32) {

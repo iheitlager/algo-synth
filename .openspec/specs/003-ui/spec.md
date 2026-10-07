@@ -30,6 +30,16 @@ Audio SHALL start only from a user gesture (the Power button), creating the Audi
 
 **Tests:** `cd web && npm run typecheck`; review in the browser
 
+#### Scenario: New starts over (#325)
+
+- GIVEN a song, several synths and a changed mix, or a first visit with no kept song
+- WHEN New is pressed and confirmed, or audio powers on with nothing kept
+- THEN the engine clears the song, every synth, strip and effect (`Engine::clear`), one Modular synth on `ModularBasic` remains, and a song without tracks is not kept, so a reload starts the same way
+
+**Implementation:** `crates/dsp/src/engine.rs::Engine::clear`, `web/src/audio/engine.ts::clearAll`, `web/src/audio/songfile.ts::forgetSong`
+
+**Tests:** `crates/dsp/src/engine/tests.rs::clear_starts_over_with_one_modular_synth`, `web/src/audio/engine.test.ts`, `web/src/audio/songfile.test.ts`
+
 ### Requirement 3: Play the synths [MUST]
 
 The synths view SHALL be a rail of synth tapes beside one faceplate (Req 9): **+ Synth** SHALL add one on the lowest free index (up to 16, reset, then on its model's first preset) and **× Remove** SHALL remove one (never the last). The selected synth's faceplate has an on-screen keyboard; the computer keyboard (`a`…`;`, C4 upward) SHALL play the selected synth, from the mixer view too, and a held key SHALL release on the synth it started on. Opening a MIDI file SHALL import it as the song (ADR-0022) and show a synth for each of its tracks; a strip's footer SHALL name the song tracks that play on it.
