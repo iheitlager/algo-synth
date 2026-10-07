@@ -861,13 +861,17 @@ impl Pool {
     }
 
     /// Each voice's pitch and cutoff trim for the next block: its unison detune and,
-    /// with `Analog`, its own static detune, a slow drift and a cutoff offset.
+    /// with `Analog`, its own static detune, a slow drift and a cutoff offset,
+    /// as far as the model's oscillators wander (#339). A monosynth's VCOs
+    /// drift too; a drum machine's pads are left alone.
     fn retrim(&mut self, p: &MonoParams, poly: bool) {
+        let osc = p.model.osc();
         for (i, (v, s)) in self.voices.iter_mut().zip(self.slots.iter()).enumerate() {
-            if !poly {
+            if p.model.uses_drums() {
                 v.set_trim(0.0, 0.0);
                 continue;
             }
+            let unison = if poly { s.cents } else { 0.0 };
             let mut trim = 0.0;
             // xorshift: a step of drift in −1..=1.
             self.rng ^= self.rng << 13;
@@ -876,8 +880,8 @@ impl Pool {
             let step = (self.rng as f32 / u32::MAX as f32) * 2.0 - 1.0;
             if let Some(d) = self.drift.get_mut(i) {
                 *d = (*d * 0.998 + step * 0.12).clamp(-DRIFT_CENTS, DRIFT_CENTS);
-                let own = unit(i, 1) * ANALOG_CENTS + *d;
-                trim = (s.cents + own * p.analog) / 100.0;
+                let own = unit(i, 1) * ANALOG_CENTS * osc.detune + *d * osc.drift;
+                trim = (unison + own * p.analog) / 100.0;
             }
             v.set_trim(trim, unit(i, 2) * ANALOG_CUTOFF * p.analog);
         }

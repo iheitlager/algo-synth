@@ -319,3 +319,63 @@ The voice SHALL add, after the normals and the patch, five poly-mod amounts: fil
 - THEN the cutoff modulation is the sum of both
 
 **Tests:** `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`
+
+### Requirement 16: Oscillators voiced per model [SHOULD]
+
+A model SHALL voice its oscillators as the instrument's circuit was (#339): how far `Analog` (spec 006 Req 3) lets them wander, and the shape of their waves. Discrete VCOs (Minimoog, ARP 2600, Odyssey, MS-20, CS-15, Jupiter-8) SHALL drift the most and have rounded triangles and saws bowed as a charging capacitor bows them; the CEM3340 and CEM3374 (SH-101, Pro-One, Prophet-5, Matrix-12) SHALL drift less and be closer to ideal; the Juno-106's crystal-clocked DCOs, the PPG's digital oscillators and the Polymoog's divide-down core SHALL neither detune nor drift. A monosynth's VCOs SHALL drift as a polysynth's do, by `Analog`, and its presets SHALL set some; `Analog` 0 SHALL stay exact. A rounded triangle SHALL keep its peaks at ±1, and a bowed saw SHALL add no DC and keep its reset a step of 2, so the band-limiting of Req 1 still fits. The oscillators SHALL run freely across notes, their phase never reset at a note-on. Shaping SHALL cost a few multiplies per sample and the drift a step per block, with no transcendental per sample; a model whose oscillators are not voiced SHALL sound as before.
+
+**Implementation:** `crates/dsp/src/mono/model.rs::OscVoicing`, `crates/dsp/src/synth.rs::ModelDef`, `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#339)
+
+#### Scenario: VCOs drift, DCOs do not
+
+- GIVEN `Analog` at 1 on a Minimoog, an SH-101 and a Juno-106
+- WHEN A3 is played eight times, a little apart
+- THEN the Minimoog's notes spread wider than the SH-101's, both more than half a cent, and the Juno-106's lie within a twentieth of a cent
+
+#### Scenario: shapes keep their peaks and steps
+
+- GIVEN the discrete and CEM voicings
+- WHEN a triangle and a saw are shaped
+- THEN the triangle keeps ±1 at its peaks and rises monotonically, and the saw has no DC and still steps by 2
+
+**Tests:** `crates/dsp/src/mono/model.rs::tests::models_voice_their_oscillators`, `crates/dsp/src/mono/model.rs::tests::wave_shapes_keep_their_peaks_and_steps`, `crates/dsp/src/engine/tests.rs::vcos_drift_between_notes_and_dcos_do_not`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
+
+### Requirement 17: Envelopes voiced per model [SHOULD]
+
+A model SHALL voice its ADSR and filter envelope as the instrument's circuit was (#340): how far past its peak the attack aims, each segment's shortest and longest time, and the highest sustain. The attack of Req 4 SHALL aim 0.3 past its peak by default, an RC charge as the CEM3310's toward 1.3× its peak; an envelope written by a CPU (Juno-106) SHALL aim further, for a near-linear rise; every aim SHALL still arrive in its set time. Times SHALL lie within the instrument's documented range, a knob beyond it playing at the range's end: the Minimoog's contours 10 ms to 10 s with the sustain at most 80 % of the peak, the CEM3310 (Prophet-5, Pro-One) from 2 ms, the Juno-106's attack 1.5 ms to 3 s, the SH-101's attack 1.5 ms to 4 s and its decay and release from 2 ms, the Odyssey's attack 5 ms to 5 s, decay 10 ms to 8 s and release from 15 ms, the Jupiter-8's attack 1.5 ms to 6 s. The AR, and a model whose envelopes are not voiced, SHALL keep the knobs' full range and today's curve. A preset SHALL set times its model can make. The ranges SHALL be applied once per block and the curve when the gate changes, so nothing is added per sample.
+
+**Implementation:** `crates/dsp/src/mono/model.rs::EnvVoicing`, `crates/dsp/src/mono/env.rs::Env::gate_on_aimed`, `crates/dsp/src/synth.rs::ModelDef`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#340)
+
+#### Scenario: an aimed attack
+
+- GIVEN a 100 ms attack aimed 0.3 and one aimed 3 past its peak
+- WHEN each rises
+- THEN the first is about 0.675 up at half time and the second about 0.536, and both reach the peak in 100 ms
+
+#### Scenario: times within the instrument's range
+
+- GIVEN a Juno-106 attack of 10 s, a Minimoog attack of 1 ms and a Minimoog held at full sustain
+- WHEN each note is held
+- THEN the Juno-106 peaks within 3 s, the Minimoog takes at least 10 ms, and its sustain sits at 80 % of the peak
+
+**Tests:** `crates/dsp/src/mono/env.rs::tests::an_aimed_attack_is_straighter_and_still_on_time`, `crates/dsp/src/mono/model.rs::tests::models_voice_their_envelopes`, `crates/dsp/src/mono/voice.rs::tests::envelope_times_stay_in_the_models_range`, `crates/dsp/src/mono/preset.rs::tests::every_presets_times_lie_in_its_models_ranges`
+
+### Requirement 18: VCA voiced per model [SHOULD]
+
+A model SHALL voice its VCA as the instrument's was (#341): how hard its input rounds a hot signal off, and whether its envelope drives a linear or an exponential control. An OTA VCA SHALL soft-clip its input before its gain, about `tanh(y·k)/k`, the BA662 (SH-101, Juno-106, Jupiter-8) harder than the CA3280 (Prophet-5 Rev 3), adding a third harmonic only to a hot signal. The ARP 2600's ADSR SHALL drive an exponential control over 60 dB, as the instrument normals it to the 4019's exponential input, so half the sustain is about 30 dB down and a decay falls evenly in decibels; its presets' sustains SHALL be retuned to hold their level. Every other VCA SHALL stay a clean, linear multiply, its output bit-exact to before. A click on a fast attack and bleed through a closed VCA SHALL NOT be voiced: no source documents either for these instruments. The soft clip SHALL be a polynomial with no division per sample and the exponential a polynomial `exp2`, the choice made per block.
+
+**Implementation:** `crates/dsp/src/mono/model.rs::VcaVoicing`, `crates/dsp/src/mono/model.rs::ota`, `crates/dsp/src/synth.rs::ModelDef`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#341)
+
+#### Scenario: an OTA rounds only a hot signal
+
+- GIVEN the BA662 and the CA3280
+- WHEN a sine of 0.05 and one of 2 pass through each
+- THEN the soft sine keeps its third harmonic under 0.1 % and the hot one gains more than 2 %, the BA662 more than the CA3280
+
+#### Scenario: the ARP's exponential VCA
+
+- GIVEN an ARP 2600 and an MS-20 holding a note at sustain 0.7, then 0.35
+- WHEN the level is measured
+- THEN the MS-20's halves and the ARP's falls about 21 dB
+
+**Tests:** `crates/dsp/src/mono/model.rs::tests::models_voice_their_vcas`, `crates/dsp/src/mono/model.rs::tests::vca_voicings_shape_as_they_say`, `crates/dsp/src/engine/tests.rs::mono_sustain_moves_a_held_note`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`

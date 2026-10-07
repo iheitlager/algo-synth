@@ -1,11 +1,21 @@
 //! The Roland Jupiter-8: what the model is and its presets (#330).
 
-use crate::mono::model::{Filter, Hp, JUPITER, JUPITER12};
+use crate::mono::model::{BA662, DISCRETE_VCO, EnvVoicing, Filter, Hp, JUPITER, JUPITER12, RC_ENV};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
+    vca: BA662,
+    // The IR3R01 (#340): attack 1.5 ms to 6 s, decay and release from
+    // 1.5 ms.
+    env: EnvVoicing {
+        attack: [0.0015, 6.0],
+        decay: [0.0015, 10.0],
+        release: [0.0015, 10.0],
+        ..RC_ENV
+    },
     voices: 8,
     filter: Filter::Ladder(JUPITER),
     slope12: Some(Filter::Svf(JUPITER12)),

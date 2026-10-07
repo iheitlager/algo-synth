@@ -6,7 +6,7 @@ Common to every requirement: `render` follows ADR-0002, every parameter and id i
 
 ### Requirement 1: Models [MUST]
 
-Every synth SHALL have a model, `Param::Model`, held with the synth's parameters: one of the monosynths here (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), the polysynths of spec 006 (`Prophet5`, `Juno106`, `Jupiter8`, `Matrix12`, `PpgWave`, `D50`, `Dx7`, `PolyMoog`), the drum machines (`Tr808`, `Tr909`, spec 002 Req 1), the samplers (`Sampler`, `PadSampler`, spec 007) or `Modular` (Req 11); a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
+Every synth SHALL have a model, `Param::Model`, held with the synth's parameters: one of the monosynths here (`Arp2600`, `Minimoog`, `ProOne`, `Ms20`, `Cs15`, `Sh101`, `Odyssey`), the polysynths of spec 006 (`Prophet5`, `Juno106`, `Jupiter8`, `Matrix12`, `PpgWave`, `D50`, `Dx7`, `PolyMoog`), the drum machines (`Tr808`, `Tr909`, spec 002 Req 1), the samplers (`Sampler`, `PadSampler`, spec 007) or `Modular` (Req 11); a new or reset synth SHALL be an ARP 2600. A model SHALL decide which filter the voice uses and its voicing, how its oscillators, envelopes and VCA are voiced (spec 004 Req 16–18), whether a high-pass stage exists, which envelope drives the normalled cutoff, and whether the decay time also sets the release (ADR-0009). Every other parameter SHALL exist on every model. Each model SHALL have at least two presets, among them well-known sounds of the instrument (named in `preset.rs`); a preset SHALL set the model and every Mono parameter (spec 004 Req 9), and selecting a model in the view SHALL load that model's first preset. Unknown model ids SHALL be ignored.
 
 **Implementation:** `crates/dsp/src/mono/model.rs::Model`, `crates/dsp/src/mono/preset.rs::Preset`, `crates/dsp/src/mono.rs::MonoParams` (#30)
 
@@ -26,7 +26,7 @@ Every synth SHALL have a model, `Param::Model`, held with the synth's parameters
 
 ### Requirement 2: ARP 2600 [MUST]
 
-The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs, noise, the Moog-voiced ladder, one ADSR driving the VCA and the normalled cutoff, an AR, an LFO and sample-and-hold, and the patch of Req 7, with no high-pass stage. Its output SHALL NOT change with the model parameter's introduction.
+The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs, noise, the Moog-voiced ladder, one ADSR driving the VCA, through its exponential control input as on the instrument (spec 004 Req 18), and the normalled cutoff, an AR, an LFO and sample-and-hold, and the patch of Req 7, with no high-pass stage. Its output SHALL NOT change with the model parameter's introduction; it changes only where its circuits are voiced on purpose (#306, #339, #341), each sustain retuned to hold its level.
 
 **Implementation:** `crates/dsp/src/synth/arp2600.rs::DEF`, `web/src/audio/models.ts` (#34)
 
@@ -34,7 +34,7 @@ The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs,
 
 - GIVEN each of the four original presets
 - WHEN A3 is held for half a second
-- THEN rms, peak and two samples equal the values recorded before models, within 2e-5
+- THEN rms, peak and two samples equal the values recorded, re-taken only where its circuits were voiced on purpose, within 2e-5
 
 **Tests:** `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`, `crates/dsp/src/mono/voice.rs::tests::arp_cutoff_still_follows_the_adsr`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
 

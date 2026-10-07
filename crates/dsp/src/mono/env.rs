@@ -60,6 +60,12 @@ impl Env {
 
     /// Open the gate: attack from the current level, then decay.
     pub fn gate_on(&mut self, t: &EnvTimes) {
+        self.gate_on_aimed(t, ATTACK_OVERSHOOT);
+    }
+
+    /// Open the gate with an attack aimed `overshoot` past its peak: 0.3 is
+    /// an RC charge, larger is straighter (spec 004 Req 17, #340).
+    pub fn gate_on_aimed(&mut self, t: &EnvTimes, overshoot: f64) {
         self.sustain = f64::from(t.sustain.clamp(0.0, 1.0));
         self.decay_target = self.sustain - FALL_OVERSHOOT;
         self.decay_coef = coef(1.0, self.sustain, self.decay_target, t.decay);
@@ -67,7 +73,7 @@ impl Env {
             self.level = 1.0;
             self.enter_decay();
         } else {
-            let target = 1.0 + ATTACK_OVERSHOOT;
+            let target = 1.0 + overshoot;
             self.set_segment(
                 Stage::Attack,
                 target,
@@ -266,6 +272,38 @@ mod tests {
         // Exponential: well below half way at half time.
         assert!(fall[fall.len() / 2] < 0.1);
         assert!(rise.iter().chain(&fall).all(|v| (0.0..=1.0).contains(v)));
+    }
+
+    /// Spec 004 Req 17: an attack aimed further past its peak is straighter,
+    /// and every aim arrives on time. An RC charge to 1.3× its peak is two
+    /// thirds up at half time, one aimed at 4× (a CPU's near-linear one)
+    /// just over half.
+    #[test]
+    fn an_aimed_attack_is_straighter_and_still_on_time() {
+        let t = times(0.1, 0.1, 1.0, 0.1);
+        let n = (0.1 * SR) as usize;
+        let half = |aim: f64| {
+            let mut env = Env::default();
+            env.gate_on_aimed(&t, aim);
+            let rise: Vec<f32> = (0..n).map(|_| env.step()).collect();
+            assert_eq!(env.stage, Stage::Sustain, "{aim}: on time");
+            assert!(rise[..n - 2].iter().all(|v| *v < 1.0), "{aim}: not early");
+            rise[n / 2]
+        };
+        let (rc, cpu) = (half(ATTACK_OVERSHOOT), half(3.0));
+        assert!((rc - 0.675).abs() < 0.01, "RC at half time: {rc}");
+        assert!(
+            (cpu - 0.536).abs() < 0.01,
+            "near-linear at half time: {cpu}"
+        );
+        let mut a = Env::default();
+        let mut b = Env::default();
+        a.gate_on(&t);
+        b.gate_on_aimed(&t, ATTACK_OVERSHOOT);
+        assert!(
+            (0..n).all(|_| a.step() == b.step()),
+            "gate_on is the RC aim"
+        );
     }
 
     #[test]

@@ -769,6 +769,43 @@ mod tests {
         });
     }
 
+    /// #340: a preset sets times its model's envelopes can make, so what
+    /// its knobs show is what plays.
+    #[test]
+    fn every_presets_times_lie_in_its_models_ranges() {
+        use Param::*;
+        let mut outside = Vec::new();
+        for (preset, name) in Preset::ALL {
+            let m = preset.model();
+            if m.def().engine != crate::synth::Engine::Mono {
+                continue;
+            }
+            let v = m.env();
+            let value = |p: Param| {
+                preset
+                    .changes()
+                    .iter()
+                    .chain(DEFAULTS.iter())
+                    .find(|(q, _)| *q == p)
+                    .map_or(0.0, |(_, x)| *x)
+            };
+            for (param, [lo, hi]) in [
+                (AdsrAttack, v.attack),
+                (AdsrDecay, v.decay),
+                (AdsrRelease, v.release),
+                (FenvAttack, v.attack),
+                (FenvDecay, v.decay),
+                (FenvRelease, v.release),
+            ] {
+                let x = value(param);
+                if !(lo..=hi).contains(&x) {
+                    outside.push(format!("{name}: {param:?} {x} outside {lo}..={hi}"));
+                }
+            }
+        }
+        assert!(outside.is_empty(), "{outside:#?}");
+    }
+
     #[test]
     fn every_preset_is_bounded() {
         for_every_preset(|preset, name| {
@@ -863,16 +900,20 @@ mod tests {
     /// rms, peak and two samples of half a second of A3, per preset, from the
     /// last release before the model was added, then scaled by the mixer's
     /// centre pan. Re-taken when the ladder's stages began to saturate
-    /// (#306), which rounds the peaks.
+    /// (#306), which rounds the peaks, and when the discrete VCOs' saws were
+    /// bowed and set drifting (#339), which moves the samples but not the
+    /// level, and when its ADSR began to drive an exponential VCA (#341),
+    /// with each sustain retuned to hold its level; the bowed string's slow
+    /// swell stays quieter for longer.
     #[test]
     fn arp_presets_keep_their_sound() {
         let gold: [(Preset, [f64; 4]); 4] = [
-            (Preset::Bass, [0.111419, 0.445526, 0.038502, 0.151381]),
-            (Preset::Lead, [0.166608, 0.448171, -0.250129, -0.074438]),
-            (Preset::SyncLead, [0.144039, 0.329408, -0.216896, -0.148365]),
+            (Preset::Bass, [0.118415, 0.445219, 0.037457, 0.151015]),
+            (Preset::Lead, [0.167781, 0.455040, -0.276790, 0.193332]),
+            (Preset::SyncLead, [0.144055, 0.328993, -0.159012, 0.107227]),
             (
                 Preset::BowedString,
-                [0.092574, 0.223146, -0.097959, 0.053156],
+                [0.068671, 0.221530, -0.025489, 0.165805],
             ),
         ];
         for (preset, want) in gold {

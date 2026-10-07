@@ -176,7 +176,7 @@ fn mono_follows_its_adsr() {
     for _ in 0..40 {
         e.render(BLOCK);
     }
-    assert!(peak(&e) > 0.05);
+    assert!(peak(&e) > 0.01);
     e.note_off(0, 57);
     // 0.01 s is 3.75 blocks.
     for _ in 0..5 {
@@ -206,11 +206,14 @@ fn a_mono_tap_shorter_than_a_block_sounds() {
     assert_eq!(e.active_voices(), 0);
 }
 
-/// Mono's sustain slider moves a held note.
+/// Mono's sustain slider moves a held note: half the sustain is half the
+/// level through a linear VCA, and on the ARP 2600, whose ADSR drives an
+/// exponential VCA over 60 dB, 21 dB down (#341).
 #[test]
 fn mono_sustain_moves_a_held_note() {
-    let level = |sustain: f32| {
+    let level = |model: Model, sustain: f32| {
         let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Model, model as u32 as f32);
         e.set_param(0, Param::AdsrDecay, 0.01);
         e.note_on(0, 57, 1.0);
         for _ in 0..40 {
@@ -224,11 +227,13 @@ fn mono_sustain_moves_a_held_note() {
         }
         sum.sqrt()
     };
-    let ratio = level(0.35) / level(0.7);
+    let ratio = level(Model::Ms20, 0.35) / level(Model::Ms20, 0.7);
     assert!(
         (ratio - 0.5).abs() < 0.05,
         "half the sustain, half the level: {ratio}"
     );
+    let db = 20.0 * (level(Model::Arp2600, 0.35) / level(Model::Arp2600, 0.7)).log10();
+    assert!((db + 21.0).abs() < 1.5, "exponential: {db} dB");
 }
 
 /// Spec 004 Req 6: live input and each song track have their own Mono
@@ -1008,26 +1013,26 @@ fn fader_mute_and_solo() {
     let mut e = Engine::new(48_000.0);
     e.note_on(0, 57, 1.0);
     e.note_on(1, 64, 1.0);
-    assert!(heard(&mut e, 40) > 0.05);
+    assert!(heard(&mut e, 40) > 0.01);
     e.set_param(0, Param::Level, 0.0);
     e.set_param(1, Param::Mute, 1.0);
     // A fader closing on a sounding synth ramps down across one block (#271).
     heard(&mut e, 1);
     assert_eq!(heard(&mut e, 10), 0.0, "fader 0 and a mute are silent");
     e.set_param(1, Param::Mute, 0.0);
-    assert!(heard(&mut e, 10) > 0.05, "synth 1 unmuted");
+    assert!(heard(&mut e, 10) > 0.01, "synth 1 unmuted");
     e.set_param(0, Param::Level, 1.0);
     e.set_param(0, Param::Solo, 1.0);
     e.set_param(1, Param::Level, 0.0);
     assert!(
-        heard(&mut e, 10) > 0.05,
+        heard(&mut e, 10) > 0.01,
         "solo silences the others, not itself"
     );
     e.set_param(0, Param::Solo, 0.0);
     e.set_param(1, Param::Level, 1.0);
     e.set_param(1, Param::Solo, 1.0);
     e.set_param(0, Param::Level, 0.0);
-    assert!(heard(&mut e, 10) > 0.05, "only the soloed synth sounds");
+    assert!(heard(&mut e, 10) > 0.01, "only the soloed synth sounds");
 }
 
 #[test]
@@ -3669,6 +3674,65 @@ fn left_of(e: &mut Engine, secs: f32) -> Vec<f32> {
         left.extend_from_slice(&e.output()[..BLOCK]);
     }
     left
+}
+
+/// The frequency of `x` in Hz from its first and last rising zero
+/// crossings, each placed between samples: precise to a fraction of a cent.
+fn pitch_of(x: &[f32]) -> f64 {
+    let ups: Vec<f64> = x
+        .windows(2)
+        .enumerate()
+        .filter(|(_, w)| w[0] < 0.0 && w[1] >= 0.0)
+        .map(|(i, w)| i as f64 + f64::from(w[0] / (w[0] - w[1])))
+        .collect();
+    match (ups.first(), ups.last()) {
+        (Some(a), Some(b)) if ups.len() > 2 => (ups.len() - 1) as f64 * 48_000.0 / (b - a),
+        _ => 0.0,
+    }
+}
+
+/// #339: with `Analog` up, a VCO monosynth plays the same key a little
+/// off each time as its oscillators drift; the Juno-106's DCOs play it in
+/// tune every time, on every voice. `Analog` 0 holds every model in tune.
+#[test]
+fn vcos_drift_between_notes_and_dcos_do_not() {
+    let spread = |model: Model, analog: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Model, model as u32 as f32);
+        e.set_param(0, Param::Analog, analog);
+        e.set_param(0, Param::Cutoff, 400.0);
+        let mut hz = Vec::new();
+        for _ in 0..8 {
+            e.note_on(0, 57, 0.8);
+            hz.push(pitch_of(&left_of(&mut e, 0.25)[2400..]));
+            e.note_off(0, 57);
+            left_of(&mut e, 0.6);
+        }
+        assert!(
+            hz.iter().all(|h| (h - 220.0).abs() < 5.0),
+            "{model:?}: {hz:?}"
+        );
+        let cents = |h: f64| 1200.0 * (h / 220.0).log2();
+        let (lo, hi) = hz.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &h| {
+            (lo.min(cents(h)), hi.max(cents(h)))
+        });
+        hi - lo
+    };
+    for vco in [Model::Minimoog, Model::Sh101] {
+        let s = spread(vco, 1.0);
+        assert!(s > 0.5, "{vco:?} drifts: {s} cents");
+        assert!(spread(vco, 0.0) < 0.05, "{vco:?} at Analog 0");
+    }
+    assert!(
+        spread(Model::Minimoog, 1.0) > spread(Model::Sh101, 1.0),
+        "discrete VCOs drift more than a CEM3340"
+    );
+    let juno = spread(Model::Juno106, 1.0);
+    assert!(
+        juno < 0.05,
+        "the Juno-106's DCOs stay in tune: {juno} cents"
+    );
 }
 
 fn ups(x: &[f32]) -> usize {

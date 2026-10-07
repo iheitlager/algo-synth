@@ -435,14 +435,20 @@ impl MonoVoice {
                 *t
             }
         };
-        let (adsr_times, fadsr_times) = (times(&p.adsr), times(&p.fadsr));
+        // Within the model's ranges and under its sustain ceiling (#340).
+        let voiced = p.model.env();
+        let sr = p.sample_rate();
+        let (adsr_times, fadsr_times) = (
+            voiced.clamp(&times(&p.adsr), sr),
+            voiced.clamp(&times(&p.fadsr), sr),
+        );
         for (env, times) in [
             (&mut self.adsr, &adsr_times),
             (&mut self.ar, &p.ar),
             (&mut self.fadsr, &fadsr_times),
         ] {
             if self.retrigger || (self.gate && !env.gated()) {
-                env.gate_on(times);
+                env.gate_on_aimed(times, voiced.attack_aim);
             } else if !self.gate && env.gated() {
                 env.gate_off(times);
             }
@@ -455,11 +461,13 @@ impl MonoVoice {
         }
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
-        self.adsr.set_sustain(p.adsr.sustain);
-        self.fadsr.set_sustain(p.fadsr.sustain);
+        self.adsr.set_sustain(adsr_times.sustain);
+        self.fadsr.set_sustain(fadsr_times.sustain);
         for (osc, wave) in self.osc.iter_mut().zip(p.wave) {
             osc.wave = wave;
         }
+        // Which oscillators the model's voicing shapes, decided per block (#339).
+        let shaped = p.wave.map(|w| p.model.osc().shapes(w));
         // Control rate: the LFO's speed follows its modulation per block.
         let lfo_inc = p.lfo_inc * self.mods.lfo_rate.clamp(-8.0, 8.0).exp2();
         let lfo2_inc = p.lfo2_inc * self.mods.lfo2_rate.clamp(-8.0, 8.0).exp2();
@@ -487,6 +495,9 @@ impl MonoVoice {
         let moving = self.levels.aim(levels, out.len());
         let hp = p.model.hp();
         let filter_env_is_adsr = p.model.filter_env_is_adsr();
+        let shape = p.model.osc();
+        let amp = p.model.vca();
+        let (ota, expo) = (amp.ota(), amp.expo);
         for (i, sample) in out.iter_mut().enumerate() {
             let [l1, l2, l3, noise_level, ring_level, sub_level] =
                 if moving { self.levels.tick() } else { levels };
@@ -582,12 +593,29 @@ impl MonoVoice {
             } else {
                 let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
                 let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
-                (y1, wrap, y2)
+                (
+                    if shaped[0] {
+                        shape.shape(o1.wave, y1)
+                    } else {
+                        y1
+                    },
+                    wrap,
+                    if shaped[1] {
+                        shape.shape(o2.wave, y2)
+                    } else {
+                        y2
+                    },
+                )
             };
             // The rising saw starts low where a pulse is high, so a pulse in
             // the saw's phase would cancel it: the SH-101's is inverted.
             let y2 = if locked { -y2 } else { y2 };
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
+            let y3 = if shaped[2] {
+                shape.shape(o3.wave, y3)
+            } else {
+                y3
+            };
             // The sub is a pulse at an exact fraction of VCO 1's increment, so
             // it stays an octave (or two) down through glide and vibrato.
             let sub = if sub_level > 0.0 {
@@ -632,7 +660,13 @@ impl MonoVoice {
             if hp == Hp::OnePole {
                 y = self.pole_hp.process(ctx.ladder, y, hp_cutoff);
             }
-            *sample += y * MONO_GAIN * m.vca * self.velocity;
+            // A clean VCA passes `y` and `m.vca` as they are (#341).
+            let y = match ota {
+                Some((k, inv)) => crate::mono::model::ota(y, k, inv),
+                None => y,
+            };
+            let vca = if expo { amp.gain(m.vca) } else { m.vca };
+            *sample += y * MONO_GAIN * vca * self.velocity;
             self.last = [y1, y2, y3];
             self.mods = m;
         }
@@ -1501,25 +1535,72 @@ mod tests {
     }
 
     /// Spec 005 Req 3: the loudness is full at once while a slow filter
-    /// contour opens the spectrum.
+    /// contour opens the spectrum. Its contours attack in 10 ms at the
+    /// fastest and sustain at 80 % of the peak at most (#340), so the
+    /// filter's opens to that.
     #[test]
     fn minimoog_filter_contour_brightens_a_held_note() {
         let mut r = Rig::new(&[
             (Param::Model, 1.0),
             (Param::Cutoff, 150.0),
             (Param::EnvCutoff, 1.0),
-            (Param::AdsrAttack, 0.001),
+            (Param::AdsrAttack, 0.01),
             (Param::AdsrSustain, 1.0),
             (Param::FenvAttack, 0.5),
             (Param::FenvSustain, 1.0),
         ]);
         r.press(45);
-        r.render(480);
-        assert!(r.voice.mods().vca > 0.99, "the loudness contour is full");
+        r.render(960);
+        assert!(r.voice.mods().vca > 0.79, "the loudness contour is full");
         let early = brightness(&r.render(2_400));
         r.render(24_000);
         let late = brightness(&r.render(2_400));
-        assert!(late > 2.0 * early, "{early} brightens to {late}");
+        assert!(late > 1.5 * early, "{early} brightens to {late}");
+    }
+
+    /// #340: a time beyond a model's range plays at its end, and a
+    /// Minimoog's full sustain sits at 80 % of the peak.
+    #[test]
+    fn envelope_times_stay_in_the_models_range() {
+        // Frames until the loudness envelope first reaches `level`.
+        let reach = |model: f32, attack: f32, level: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::AdsrAttack, attack),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(60);
+            (0..48_000 * 11).find(|_| {
+                r.render(1);
+                r.voice.mods().vca >= level
+            })
+        };
+        let juno = reach(8.0, 10.0, 0.999).expect("peaks");
+        assert!(
+            juno <= (3.0 * SR) as usize + 2,
+            "Juno-106: 3 s at most: {juno}"
+        );
+        let moog = reach(1.0, 0.001, 0.999).expect("peaks");
+        assert!(
+            moog >= (0.01 * SR) as usize - 2,
+            "Minimoog: 10 ms at least: {moog}"
+        );
+        let arp = reach(0.0, 0.001, 0.999).expect("peaks");
+        assert!(
+            arp <= (0.001 * SR) as usize + 2,
+            "the ARP keeps 1 ms: {arp}"
+        );
+
+        let mut r = Rig::new(&[
+            (Param::Model, 1.0),
+            (Param::AdsrAttack, 0.01),
+            (Param::AdsrDecay, 0.05),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(60);
+        r.render(24_000);
+        let held = r.voice.mods().vca;
+        assert!((held - 0.8).abs() < 1.0e-3, "sustain at 80 %: {held}");
     }
 
     /// Spec 004 Req 13: the ladder is voiced per model, and every voicing
@@ -1539,9 +1620,15 @@ mod tests {
             assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 2.0));
             (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
         };
-        // Moog (ARP 2600 and Minimoog), Pro-One, SH-101, Odyssey.
+        // Moog (ARP 2600 and Minimoog), Pro-One, SH-101, Odyssey. The two
+        // Moog ladders' models differ in their envelopes and VCAs (#340,
+        // #341), so their filters are compared, not their sound.
         let (moog, pro, sh, ody) = (rms_of(0.0), rms_of(2.0), rms_of(5.0), rms_of(6.0));
-        assert_eq!(moog, rms_of(1.0), "the Minimoog ladder is the Moog voicing");
+        assert_eq!(
+            crate::mono::model::Model::Minimoog.filter(),
+            crate::mono::model::Model::Arp2600.filter(),
+            "the Minimoog ladder is the Moog voicing"
+        );
         assert!(moog > 0.0 && pro > 0.0 && sh > 0.0 && ody > 0.0);
         assert!((moog - pro).abs() > 1.0e-3, "{moog} vs {pro}");
         assert!((moog - sh).abs() > 1.0e-3, "{moog} vs {sh}");
@@ -1603,7 +1690,7 @@ mod tests {
     #[test]
     fn filter_envelope_is_independent() {
         let mut r = Rig::new(&[
-            (Param::Model, 1.0),
+            (Param::Model, 2.0),
             (Param::EnvCutoff, 1.0),
             (Param::AdsrAttack, 0.001),
             (Param::AdsrSustain, 1.0),
@@ -1841,9 +1928,11 @@ mod tests {
     #[test]
     fn pitch_and_envelope_at_other_sample_rates() {
         for sr in [44_100.0, 96_000.0] {
+            // The MS-20: a linear VCA and today's envelope (#341).
             let mut r = Rig::at(
                 sr,
                 &[
+                    (Param::Model, 3.0),
                     (Param::Vco1Wave, 0.0),
                     (Param::Cutoff, 20_000.0),
                     (Param::AdsrAttack, 0.1),

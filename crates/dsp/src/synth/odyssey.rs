@@ -1,11 +1,22 @@
 //! The ARP Odyssey: what the model is and its presets (#330).
 
-use crate::mono::model::{Filter, Hp, ODYSSEY, ODYSSEY_REV1, ODYSSEY_REV2};
+use crate::mono::model::{
+    DISCRETE_VCO, EnvVoicing, Filter, Hp, ODYSSEY, ODYSSEY_REV1, ODYSSEY_REV2, RC_ENV,
+};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
+    // ARP's envelopes (#340): attack 5 ms to 5 s, decay 10 ms to 8 s,
+    // release 15 ms to 10 s.
+    env: EnvVoicing {
+        attack: [0.005, 5.0],
+        decay: [0.01, 8.0],
+        release: [0.015, 10.0],
+        ..RC_ENV
+    },
     filter: Filter::Ladder(ODYSSEY),
     // The reissue's Rev switch: the 4023's two poles, the 4035's ladder.
     revs: [
@@ -23,6 +34,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::CurrieLead,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.9),
                 (Vco2Fine, 7.0),
                 (Vco2Level, 0.8),
@@ -49,6 +61,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::OdysseySync,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 12.0),
                 (Vco2Level, 1.0),

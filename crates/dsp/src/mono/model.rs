@@ -7,6 +7,7 @@
 //! definitions share. Every parameter exists on every model; the panel shows
 //! what the instrument has and the presets set the rest to neutral values.
 
+use crate::mono::env::EnvTimes;
 use crate::mono::ladder::MAX_K;
 use crate::synth::Engine;
 
@@ -319,6 +320,204 @@ pub const CS15: SvfVoicing = SvfVoicing {
     ceiling: 1.2,
 };
 
+/// How a model's oscillators are voiced (spec 004 Req 16, #339): how far
+/// `Analog` lets them wander, and the shape of their waves.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OscVoicing {
+    /// Scales `Analog`'s static detune of each voice: 0 for a
+    /// crystal-locked DCO or a digital oscillator.
+    pub detune: f32,
+    /// Scales `Analog`'s slow drift.
+    pub drift: f32,
+    /// Rounds the triangle's corners, 0 sharp to 1 flat at the peaks.
+    pub tri_round: f32,
+    /// Bows the saw's ramp as a charging capacitor does, 0 straight.
+    pub saw_bend: f32,
+}
+
+/// Today's oscillator: `Analog` as spec 006 Req 3 has it, ideal waves. The
+/// voicing of a model whose oscillators are not voiced.
+pub const IDEAL_VCO: OscVoicing = OscVoicing {
+    detune: 1.0,
+    drift: 1.0,
+    tri_round: 0.0,
+    saw_bend: 0.0,
+};
+/// Discrete VCOs (Minimoog, ARP 2600 and Odyssey modules, MS-20, CS-15,
+/// Jupiter-8): the most drift, rounded triangles, bowed saws.
+pub const DISCRETE_VCO: OscVoicing = OscVoicing {
+    detune: 1.0,
+    drift: 1.5,
+    tri_round: 0.3,
+    saw_bend: 0.08,
+};
+/// The CEM3340 and CEM3374 (SH-101, Pro-One, Prophet-5 Rev 3, Matrix-12):
+/// temperature-compensated, steadier and cleaner.
+pub const CEM_VCO: OscVoicing = OscVoicing {
+    detune: 0.6,
+    drift: 0.5,
+    tri_round: 0.15,
+    saw_bend: 0.03,
+};
+/// A crystal-clocked DCO (Juno-106), a digital oscillator (PPG) or a
+/// divide-down organ core (Polymoog): every voice in tune, ideal waves.
+pub const LOCKED: OscVoicing = OscVoicing {
+    detune: 0.0,
+    drift: 0.0,
+    tri_round: 0.0,
+    saw_bend: 0.0,
+};
+
+impl OscVoicing {
+    /// Whether wave `w` is shaped at all: per block, so a sample of an
+    /// unshaped wave costs nothing.
+    pub fn shapes(&self, w: crate::mono::osc::Waveform) -> bool {
+        use crate::mono::osc::Waveform;
+        match w {
+            Waveform::Triangle => self.tri_round > 0.0,
+            Waveform::Saw => self.saw_bend > 0.0,
+            _ => false,
+        }
+    }
+
+    /// A band-limited oscillator's output `y` of wave `w`, shaped. Two
+    /// multiplies and an add; `y` passes untouched at 0.
+    pub fn shape(&self, w: crate::mono::osc::Waveform, y: f32) -> f32 {
+        use crate::mono::osc::Waveform;
+        match w {
+            // y·(1 + r/2) − r/2·y³ keeps ±1 at the peaks, where its slope
+            // falls to 1 − r.
+            Waveform::Triangle if self.tri_round > 0.0 => {
+                let h = 0.5 * self.tri_round;
+                y * (1.0 + h - h * y * y)
+            }
+            // A bow of (1 − y²) less its mean, 2/3: both ends move alike, so
+            // the reset is still a step of 2 and no DC is added.
+            Waveform::Saw if self.saw_bend > 0.0 => y + self.saw_bend * (1.0 / 3.0 - y * y),
+            _ => y,
+        }
+    }
+}
+
+/// How a model's envelopes are voiced (spec 004 Req 17, #340): the curve of
+/// the attack, each segment's shortest and longest time, and how high the
+/// sustain goes. It shapes the ADSR and the filter envelope; the AR keeps
+/// the knobs' full range.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnvVoicing {
+    /// How far past its peak the attack aims: 0.3 is an RC charge (the
+    /// CEM3310 charges toward 1.3× its peak), larger is straighter, as an
+    /// envelope a CPU writes.
+    pub attack_aim: f64,
+    /// The shortest and longest attack, decay and release, in seconds.
+    pub attack: [f32; 2],
+    pub decay: [f32; 2],
+    pub release: [f32; 2],
+    /// The highest sustain, as a fraction of the peak.
+    pub sustain_max: f32,
+}
+
+/// Today's envelope: an RC curve over the full range of the knobs. The
+/// voicing of a model whose envelopes are not voiced.
+pub const RC_ENV: EnvVoicing = EnvVoicing {
+    attack_aim: 0.3,
+    attack: [0.001, 10.0],
+    decay: [0.001, 10.0],
+    release: [0.001, 10.0],
+    sustain_max: 1.0,
+};
+/// The CEM3310 (Prophet-5 Rev 3, Pro-One): an RC attack toward 1.3× its
+/// peak, from 2 ms.
+pub const CEM3310: EnvVoicing = EnvVoicing {
+    attack: [0.002, 10.0],
+    decay: [0.002, 10.0],
+    release: [0.002, 10.0],
+    ..RC_ENV
+};
+
+impl EnvVoicing {
+    /// `t` (samples, at `sample_rate`) within the voicing's ranges, the
+    /// sustain under its ceiling.
+    pub fn clamp(&self, t: &EnvTimes, sample_rate: f32) -> EnvTimes {
+        let within = |x: f32, [lo, hi]: [f32; 2]| x.clamp(lo * sample_rate, hi * sample_rate);
+        EnvTimes {
+            attack: within(t.attack, self.attack),
+            decay: within(t.decay, self.decay),
+            sustain: t.sustain * self.sustain_max,
+            release: within(t.release, self.release),
+        }
+    }
+}
+
+/// How a model's VCA is voiced (spec 004 Req 18, #341): how hard its input
+/// rounds off, and whether its envelope drives an exponential control.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VcaVoicing {
+    /// Drive into an OTA's input pair before its gain: 0 is a clean,
+    /// linear multiply.
+    pub sat: f32,
+    /// The envelope drives an exponential control input, so a decay falls
+    /// evenly in decibels.
+    pub expo: bool,
+}
+
+/// Today's VCA: a clean, linear multiply. The voicing of a model whose
+/// VCA is not voiced, and of the CEM3360 and CEM3372 used linearly.
+pub const CLEAN_VCA: VcaVoicing = VcaVoicing {
+    sat: 0.0,
+    expo: false,
+};
+/// Roland's BA662 OTA (SH-101, Juno-106, Jupiter-8): a hot signal rounds
+/// off.
+pub const BA662: VcaVoicing = VcaVoicing {
+    sat: 0.5,
+    expo: false,
+};
+/// The CA3280 OTA (Prophet-5 Rev 3): a little cleaner than the BA662.
+pub const CA3280: VcaVoicing = VcaVoicing {
+    sat: 0.4,
+    expo: false,
+};
+/// The decibels an exponential VCA spans over its envelope's travel.
+const EXPO_DB: f32 = 60.0;
+
+impl VcaVoicing {
+    /// The gain for an envelope level `vca` in 0..=1: `vca` itself on a
+    /// linear control; on an exponential one `EXPO_DB` of travel, put back
+    /// to 0 at 0 and 1 at 1. A polynomial `exp2`, no transcendental.
+    pub fn gain(&self, vca: f32) -> f32 {
+        if !self.expo {
+            return vca;
+        }
+        const OCTAVES: f32 = EXPO_DB / 6.020_6;
+        let floor = crate::modular::fast_exp2(-OCTAVES);
+        let g = crate::modular::fast_exp2(OCTAVES * (vca - 1.0));
+        ((g - floor) / (1.0 - floor)).max(0.0)
+    }
+
+    /// An OTA's drive and its inverse, worked out once per block; `None`
+    /// for a clean VCA.
+    pub fn ota(&self) -> Option<(f32, f32)> {
+        (self.sat > 0.0).then(|| (self.sat, 1.0 / self.sat))
+    }
+
+    /// The signal `y` through the VCA's input: an OTA's input pair rounds
+    /// a hot signal off, about `tanh(y·sat)/sat`; a clean VCA passes it.
+    pub fn input(&self, y: f32) -> f32 {
+        match self.ota() {
+            Some((k, inv)) => ota(y, k, inv),
+            None => y,
+        }
+    }
+}
+
+/// `y` through an OTA of drive `k` (`inv` = 1/k): a cubic soft clip, flat
+/// from ±1.5, smooth at the knee. Multiplies only, no division per sample.
+pub fn ota(y: f32, k: f32, inv: f32) -> f32 {
+    let x = (y * k).clamp(-1.5, 1.5);
+    (x - (4.0 / 27.0) * x * x * x) * inv
+}
+
 /// A panel's filter switches: the slope switch at 12 dB (`Param::Slope`)
 /// and the revision switch (`Param::FilterRev`, 1..=3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,6 +575,21 @@ impl Model {
     /// pool's.
     pub fn voices(self) -> usize {
         self.def().voices
+    }
+
+    /// How its oscillators are voiced (#339).
+    pub fn osc(self) -> OscVoicing {
+        self.def().osc
+    }
+
+    /// How its envelopes are voiced (#340).
+    pub fn env(self) -> EnvVoicing {
+        self.def().env
+    }
+
+    /// How its VCA is voiced (#341).
+    pub fn vca(self) -> VcaVoicing {
+        self.def().vca
     }
 
     /// The filter and its voicing.
@@ -504,6 +718,167 @@ mod tests {
         }
         assert_eq!(Model::from_id(99), None);
         assert_eq!(Model::default(), Model::Arp2600);
+    }
+
+    /// #339: discrete VCOs drift most, the CEM chips less, the DCO, the
+    /// digital oscillators and the divide-down core not at all; a model
+    /// whose oscillators are not voiced keeps today's `Analog`.
+    #[test]
+    fn models_voice_their_oscillators() {
+        use crate::synth::Engine;
+        for (m, name) in Model::ALL {
+            let want = match m {
+                Model::Arp2600
+                | Model::Minimoog
+                | Model::Ms20
+                | Model::Cs15
+                | Model::Odyssey
+                | Model::Jupiter8 => DISCRETE_VCO,
+                Model::Sh101 | Model::ProOne | Model::Prophet5 | Model::Matrix12 => CEM_VCO,
+                Model::Juno106 | Model::PpgWave | Model::PolyMoog => LOCKED,
+                _ => IDEAL_VCO,
+            };
+            assert_eq!(m.osc(), want, "{name}");
+            if m.def().engine != Engine::Mono {
+                assert_eq!(m.osc(), IDEAL_VCO, "{name}: not a Mono voice");
+            }
+        }
+        const { assert!(DISCRETE_VCO.drift > CEM_VCO.drift && CEM_VCO.drift > LOCKED.drift) };
+    }
+
+    /// #340: each model's envelopes take the instrument's ranges and curve;
+    /// one whose envelopes are not voiced keeps today's.
+    #[test]
+    fn models_voice_their_envelopes() {
+        for (m, name) in Model::ALL {
+            let v = m.env();
+            let want: ([f32; 2], [f32; 2], [f32; 2], f64, f32) = match m {
+                Model::Minimoog => ([0.01, 10.0], [0.01, 10.0], [0.01, 10.0], 0.3, 0.8),
+                Model::Prophet5 | Model::ProOne => {
+                    ([0.002, 10.0], [0.002, 10.0], [0.002, 10.0], 0.3, 1.0)
+                }
+                Model::Juno106 => ([0.0015, 3.0], [0.0015, 10.0], [0.0015, 10.0], 3.0, 1.0),
+                Model::Sh101 => ([0.0015, 4.0], [0.002, 10.0], [0.002, 10.0], 0.3, 1.0),
+                Model::Odyssey => ([0.005, 5.0], [0.01, 8.0], [0.015, 10.0], 0.3, 1.0),
+                Model::Jupiter8 => ([0.0015, 6.0], [0.0015, 10.0], [0.0015, 10.0], 0.3, 1.0),
+                _ => {
+                    assert_eq!(v, RC_ENV, "{name}");
+                    continue;
+                }
+            };
+            assert_eq!(
+                (v.attack, v.decay, v.release, v.attack_aim, v.sustain_max),
+                want,
+                "{name}"
+            );
+        }
+        let t = EnvTimes {
+            attack: 1.0,
+            decay: 2.0,
+            sustain: 0.5,
+            release: 3.0,
+        };
+        assert_eq!(RC_ENV.clamp(&t, 1_000.0), t, "today's: untouched in range");
+    }
+
+    /// #341: the OTA VCAs round off, the ARP 2600's ADSR drives an
+    /// exponential control, every other VCA is clean.
+    #[test]
+    fn models_voice_their_vcas() {
+        for (m, name) in Model::ALL {
+            let want = match m {
+                Model::Sh101 | Model::Juno106 | Model::Jupiter8 => BA662,
+                Model::Prophet5 => CA3280,
+                Model::Arp2600 => VcaVoicing {
+                    expo: true,
+                    ..CLEAN_VCA
+                },
+                _ => CLEAN_VCA,
+            };
+            assert_eq!(m.vca(), want, "{name}");
+        }
+    }
+
+    /// #341: a clean VCA passes the signal and the envelope as they are; an
+    /// OTA leaves a soft signal alone and adds a third harmonic to a hot
+    /// one; an exponential control runs 0 to 1, is about 30 dB down half
+    /// way, and turns a straight fall into one even in decibels.
+    #[test]
+    fn vca_voicings_shape_as_they_say() {
+        for i in 0..=1000 {
+            let x = -2.0 + i as f32 * 0.004;
+            assert_eq!(CLEAN_VCA.input(x), x);
+            let v = i as f32 / 1000.0;
+            assert_eq!(CLEAN_VCA.gain(v), v);
+            assert_eq!(BA662.gain(v), v, "an OTA's control is linear");
+        }
+        // The third harmonic of a sine of `amp` through `v`, over its level.
+        let third = |v: VcaVoicing, amp: f32| {
+            let n = 4_800;
+            let (mut re, mut im, mut all) = (0.0_f64, 0.0_f64, 0.0_f64);
+            for k in 0..n {
+                let ph = std::f64::consts::TAU * 10.0 * k as f64 / n as f64;
+                let y = f64::from(v.input(amp * ph.sin() as f32));
+                re += y * (3.0 * ph).cos();
+                im += y * (3.0 * ph).sin();
+                all += y * y;
+            }
+            (re * re + im * im).sqrt() * 2.0 / n as f64 / (2.0 * all / n as f64).sqrt()
+        };
+        for ota in [BA662, CA3280] {
+            assert!(third(ota, 0.05) < 1.0e-3, "soft: {}", third(ota, 0.05));
+            assert!(third(ota, 2.0) > 0.02, "hot: {}", third(ota, 2.0));
+        }
+        assert!(
+            third(BA662, 2.0) > third(CA3280, 2.0),
+            "the BA662 rounds harder"
+        );
+
+        let expo = VcaVoicing {
+            expo: true,
+            ..CLEAN_VCA
+        };
+        assert_eq!(expo.gain(0.0), 0.0);
+        assert!((expo.gain(1.0) - 1.0).abs() < 1.0e-4);
+        let db = |v: f32| 20.0 * expo.gain(v).log10();
+        assert!((db(0.5) + 30.0).abs() < 0.5, "half way: {} dB", db(0.5));
+        let steps: Vec<f32> = (5..10)
+            .map(|i| db(i as f32 / 10.0) - db((i - 1) as f32 / 10.0))
+            .collect();
+        assert!(
+            steps.iter().all(|s| (s - 6.0).abs() < 0.3),
+            "even in dB: {steps:?}"
+        );
+    }
+
+    /// #339: a rounded triangle keeps its peaks at ±1 and stays monotonic
+    /// between them; a bowed saw adds no DC and its reset is still a step
+    /// of 2, so the band-limiting still fits; at 0 both pass untouched.
+    #[test]
+    fn wave_shapes_keep_their_peaks_and_steps() {
+        use crate::mono::osc::Waveform;
+        let ys: Vec<f32> = (0..=2000).map(|i| -1.0 + i as f32 / 1000.0).collect();
+        for v in [DISCRETE_VCO, CEM_VCO] {
+            let tri: Vec<f32> = ys.iter().map(|&y| v.shape(Waveform::Triangle, y)).collect();
+            assert!((tri[2000] - 1.0).abs() < 1e-6 && (tri[0] + 1.0).abs() < 1e-6);
+            assert!(tri.windows(2).all(|w| w[1] >= w[0]), "monotonic");
+            let saw: Vec<f32> = ys.iter().map(|&y| v.shape(Waveform::Saw, y)).collect();
+            let mean = saw.iter().sum::<f32>() / saw.len() as f32;
+            assert!(mean.abs() < 1e-3, "no DC: {mean}");
+            assert!((saw[2000] - saw[0] - 2.0).abs() < 1e-6, "a step of 2");
+            assert!(saw.iter().all(|y| y.abs() <= 1.1));
+        }
+        for w in [
+            Waveform::Saw,
+            Waveform::Triangle,
+            Waveform::Pulse,
+            Waveform::Sine,
+        ] {
+            for &y in &ys {
+                assert_eq!(IDEAL_VCO.shape(w, y), y);
+                assert_eq!(DISCRETE_VCO.shape(Waveform::Pulse, y), y);
+            }
+        }
     }
 
     /// Every model with a high-pass stage of 12 dB has the matching filter.

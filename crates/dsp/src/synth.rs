@@ -3,7 +3,10 @@
 //! that goes from a model to its definition; the voice reads the rest.
 
 use crate::drums::Machine;
-use crate::mono::model::{D50, Filter, Hp, Model, Setting};
+use crate::mono::model::{
+    CLEAN_VCA, D50, EnvVoicing, Filter, Hp, IDEAL_VCO, Model, OscVoicing, RC_ENV, Setting,
+    VcaVoicing,
+};
 use crate::mono::preset::Preset;
 use crate::params::Param;
 
@@ -63,6 +66,12 @@ pub struct ModelDef {
     pub revs: [Option<Filter>; 2],
     /// The high-pass stage.
     pub hp: Hp,
+    /// How the oscillators are voiced (#339).
+    pub osc: OscVoicing,
+    /// How the envelopes are voiced (#340).
+    pub env: EnvVoicing,
+    /// How the VCA is voiced (#341).
+    pub vca: VcaVoicing,
     /// VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
     pub uses_tables: bool,
     /// The second LFO and the ramp of the Matrix-12's modulation matrix.
@@ -93,6 +102,9 @@ impl ModelDef {
         slope12: None,
         revs: [None; 2],
         hp: Hp::None,
+        osc: IDEAL_VCO,
+        env: RC_ENV,
+        vca: CLEAN_VCA,
         uses_tables: false,
         has_matrix: false,
         filter_env_is_adsr: false,
