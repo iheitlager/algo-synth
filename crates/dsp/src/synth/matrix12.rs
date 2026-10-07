@@ -1,11 +1,13 @@
 //! The Oberheim Matrix-12: what the model is and its presets (#330).
 
+use crate::mono::model::CEM_VCO;
 use crate::mono::model::{Filter, Hp, MATRIX, MATRIX12};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: CEM_VCO,
     voices: 12,
     filter: Filter::Ladder(MATRIX),
     slope12: Some(Filter::Svf(MATRIX12)),

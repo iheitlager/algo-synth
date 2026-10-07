@@ -1,11 +1,13 @@
 //! The Roland Juno-106: what the model is and its presets (#330).
 
+use crate::mono::model::LOCKED;
 use crate::mono::model::{Filter, Hp, JUNO106};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: LOCKED,
     voices: 6,
     filter: Filter::Ladder(JUNO106),
     hp: Hp::OnePole,

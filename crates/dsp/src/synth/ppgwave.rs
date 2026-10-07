@@ -1,11 +1,13 @@
 //! The PPG Wave: what the model is and its presets (#330).
 
+use crate::mono::model::LOCKED;
 use crate::mono::model::{Filter, PPG};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: LOCKED,
     voices: 8,
     filter: Filter::Ladder(PPG),
     uses_tables: true,

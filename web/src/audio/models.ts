@@ -158,6 +158,8 @@ export const MOD_DESTS = entries(ModDest)
 const level = (p: ParamId) => range('Level', p, 0, 1, 0.01)
 const coarse = (p: ParamId) => range('Coarse', p, -24, 24, 1)
 const fine = (p: ParamId) => range('Fine', p, -50, 50, 1)
+/** A monosynth's VCO drift and detune (#339): how far its oscillators wander, as its voicing allows. */
+const vintage = (): Control => range('Vintage', Param.Analog, 0, 1, 0.01)
 
 const arp2600: ModelDef = {
   id: Model.Arp2600,
@@ -194,7 +196,7 @@ const arp2600: ModelDef = {
     { title: 'Noise', controls: [select('Colour', Param.NoiseColour, NOISES), level(Param.NoiseLevel)] },
     {
       title: 'Keys',
-      controls: [select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), range('Glide', Param.Glide, 0, 2, 0.01)],
+      controls: [select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), range('Glide', Param.Glide, 0, 2, 0.01), vintage()],
     },
     {
       title: 'Ladder',
@@ -245,7 +247,7 @@ const minimoog: ModelDef = {
         range('Glide', Param.Glide, 0, 2, 0.01), rocker('Glide', Param.GlideOn, 'white'), rocker('Decay', Param.DecayRelease, 'white'),
         rocker('Oscillator modulation', Param.OscModOn, 'orange'), range('Osc mod amount', Param.Vibrato, 0, 1, 0.01),
         rocker('Osc 3 control', Param.Vco3KeyFollow, 'orange'), range('Mod wheel', Param.ModWheel, 0, 1, 0.01),
-        select('Note priority', Param.Priority, PRIORITIES), rocker('Legato', Param.Legato, 'black'),
+        select('Note priority', Param.Priority, PRIORITIES), rocker('Legato', Param.Legato, 'black'), vintage(),
       ],
     },
     {
@@ -363,7 +365,7 @@ const proOne: ModelDef = {
     },
     {
       title: 'Keys',
-      controls: [select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), range('Glide', Param.Glide, 0, 2, 0.01)],
+      controls: [select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), range('Glide', Param.Glide, 0, 2, 0.01), vintage()],
     },
   ],
 }
@@ -857,7 +859,7 @@ const ms20: ModelDef = {
     { title: 'EG 2 (filters)', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },
     {
       title: 'Keys',
-      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), vintage()],
     },
     { title: 'Patch panel', controls: [], patch: true },
   ],
@@ -922,7 +924,7 @@ const cs15: ModelDef = {
     },
     {
       title: 'Keys',
-      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), vintage()],
     },
     { title: 'Sample & hold, patch', controls: [], patch: true },
   ],
@@ -944,7 +946,7 @@ const sh101: ModelDef = {
   sections: [
     {
       title: 'Controller',
-      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), vintage()],
     },
     {
       title: 'LFO',
@@ -1036,7 +1038,7 @@ const odyssey: ModelDef = {
     },
     {
       title: 'Keys',
-      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato)],
+      controls: [range('Portamento', Param.Glide, 0, 2, 0.01), select('Priority', Param.Priority, PRIORITIES), sw('Legato', Param.Legato), vintage()],
     },
   ],
 }

@@ -319,3 +319,23 @@ The voice SHALL add, after the normals and the patch, five poly-mod amounts: fil
 - THEN the cutoff modulation is the sum of both
 
 **Tests:** `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`
+
+### Requirement 16: Oscillators voiced per model [SHOULD]
+
+A model SHALL voice its oscillators as the instrument's circuit was (#339): how far `Analog` (spec 006 Req 3) lets them wander, and the shape of their waves. Discrete VCOs (Minimoog, ARP 2600, Odyssey, MS-20, CS-15, Jupiter-8) SHALL drift the most and have rounded triangles and saws bowed as a charging capacitor bows them; the CEM3340 and CEM3374 (SH-101, Pro-One, Prophet-5, Matrix-12) SHALL drift less and be closer to ideal; the Juno-106's crystal-clocked DCOs, the PPG's digital oscillators and the Polymoog's divide-down core SHALL neither detune nor drift. A monosynth's VCOs SHALL drift as a polysynth's do, by `Analog`, and its presets SHALL set some; `Analog` 0 SHALL stay exact. A rounded triangle SHALL keep its peaks at ±1, and a bowed saw SHALL add no DC and keep its reset a step of 2, so the band-limiting of Req 1 still fits. The oscillators SHALL run freely across notes, their phase never reset at a note-on. Shaping SHALL cost a few multiplies per sample and the drift a step per block, with no transcendental per sample; a model whose oscillators are not voiced SHALL sound as before.
+
+**Implementation:** `crates/dsp/src/mono/model.rs::OscVoicing`, `crates/dsp/src/synth.rs::ModelDef`, `crates/dsp/src/poly.rs::Pool`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#339)
+
+#### Scenario: VCOs drift, DCOs do not
+
+- GIVEN `Analog` at 1 on a Minimoog, an SH-101 and a Juno-106
+- WHEN A3 is played eight times, a little apart
+- THEN the Minimoog's notes spread wider than the SH-101's, both more than half a cent, and the Juno-106's lie within a twentieth of a cent
+
+#### Scenario: shapes keep their peaks and steps
+
+- GIVEN the discrete and CEM voicings
+- WHEN a triangle and a saw are shaped
+- THEN the triangle keeps ±1 at its peaks and rises monotonically, and the saw has no DC and still steps by 2
+
+**Tests:** `crates/dsp/src/mono/model.rs::tests::models_voice_their_oscillators`, `crates/dsp/src/mono/model.rs::tests::wave_shapes_keep_their_peaks_and_steps`, `crates/dsp/src/engine/tests.rs::vcos_drift_between_notes_and_dcos_do_not`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`

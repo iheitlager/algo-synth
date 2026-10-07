@@ -319,6 +319,74 @@ pub const CS15: SvfVoicing = SvfVoicing {
     ceiling: 1.2,
 };
 
+/// How a model's oscillators are voiced (spec 004 Req 16, #339): how far
+/// `Analog` lets them wander, and the shape of their waves.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OscVoicing {
+    /// Scales `Analog`'s static detune of each voice: 0 for a
+    /// crystal-locked DCO or a digital oscillator.
+    pub detune: f32,
+    /// Scales `Analog`'s slow drift.
+    pub drift: f32,
+    /// Rounds the triangle's corners, 0 sharp to 1 flat at the peaks.
+    pub tri_round: f32,
+    /// Bows the saw's ramp as a charging capacitor does, 0 straight.
+    pub saw_bend: f32,
+}
+
+/// Today's oscillator: `Analog` as spec 006 Req 3 has it, ideal waves. The
+/// voicing of a model whose oscillators are not voiced.
+pub const IDEAL_VCO: OscVoicing = OscVoicing {
+    detune: 1.0,
+    drift: 1.0,
+    tri_round: 0.0,
+    saw_bend: 0.0,
+};
+/// Discrete VCOs (Minimoog, ARP 2600 and Odyssey modules, MS-20, CS-15,
+/// Jupiter-8): the most drift, rounded triangles, bowed saws.
+pub const DISCRETE_VCO: OscVoicing = OscVoicing {
+    detune: 1.0,
+    drift: 1.5,
+    tri_round: 0.3,
+    saw_bend: 0.08,
+};
+/// The CEM3340 and CEM3374 (SH-101, Pro-One, Prophet-5 Rev 3, Matrix-12):
+/// temperature-compensated, steadier and cleaner.
+pub const CEM_VCO: OscVoicing = OscVoicing {
+    detune: 0.6,
+    drift: 0.5,
+    tri_round: 0.15,
+    saw_bend: 0.03,
+};
+/// A crystal-clocked DCO (Juno-106), a digital oscillator (PPG) or a
+/// divide-down organ core (Polymoog): every voice in tune, ideal waves.
+pub const LOCKED: OscVoicing = OscVoicing {
+    detune: 0.0,
+    drift: 0.0,
+    tri_round: 0.0,
+    saw_bend: 0.0,
+};
+
+impl OscVoicing {
+    /// A band-limited oscillator's output `y` of wave `w`, shaped. Two
+    /// multiplies and an add; `y` passes untouched at 0.
+    pub fn shape(&self, w: crate::mono::osc::Waveform, y: f32) -> f32 {
+        use crate::mono::osc::Waveform;
+        match w {
+            // y·(1 + r/2) − r/2·y³ keeps ±1 at the peaks, where its slope
+            // falls to 1 − r.
+            Waveform::Triangle if self.tri_round > 0.0 => {
+                let h = 0.5 * self.tri_round;
+                y * (1.0 + h - h * y * y)
+            }
+            // A bow of (1 − y²) less its mean, 2/3: both ends move alike, so
+            // the reset is still a step of 2 and no DC is added.
+            Waveform::Saw if self.saw_bend > 0.0 => y + self.saw_bend * (1.0 / 3.0 - y * y),
+            _ => y,
+        }
+    }
+}
+
 /// A panel's filter switches: the slope switch at 12 dB (`Param::Slope`)
 /// and the revision switch (`Param::FilterRev`, 1..=3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,6 +444,11 @@ impl Model {
     /// pool's.
     pub fn voices(self) -> usize {
         self.def().voices
+    }
+
+    /// How its oscillators are voiced (#339).
+    pub fn osc(self) -> OscVoicing {
+        self.def().osc
     }
 
     /// The filter and its voicing.
@@ -504,6 +577,62 @@ mod tests {
         }
         assert_eq!(Model::from_id(99), None);
         assert_eq!(Model::default(), Model::Arp2600);
+    }
+
+    /// #339: discrete VCOs drift most, the CEM chips less, the DCO, the
+    /// digital oscillators and the divide-down core not at all; a model
+    /// whose oscillators are not voiced keeps today's `Analog`.
+    #[test]
+    fn models_voice_their_oscillators() {
+        use crate::synth::Engine;
+        for (m, name) in Model::ALL {
+            let want = match m {
+                Model::Arp2600
+                | Model::Minimoog
+                | Model::Ms20
+                | Model::Cs15
+                | Model::Odyssey
+                | Model::Jupiter8 => DISCRETE_VCO,
+                Model::Sh101 | Model::ProOne | Model::Prophet5 | Model::Matrix12 => CEM_VCO,
+                Model::Juno106 | Model::PpgWave | Model::PolyMoog => LOCKED,
+                _ => IDEAL_VCO,
+            };
+            assert_eq!(m.osc(), want, "{name}");
+            if m.def().engine != Engine::Mono {
+                assert_eq!(m.osc(), IDEAL_VCO, "{name}: not a Mono voice");
+            }
+        }
+        const { assert!(DISCRETE_VCO.drift > CEM_VCO.drift && CEM_VCO.drift > LOCKED.drift) };
+    }
+
+    /// #339: a rounded triangle keeps its peaks at ±1 and stays monotonic
+    /// between them; a bowed saw adds no DC and its reset is still a step
+    /// of 2, so the band-limiting still fits; at 0 both pass untouched.
+    #[test]
+    fn wave_shapes_keep_their_peaks_and_steps() {
+        use crate::mono::osc::Waveform;
+        let ys: Vec<f32> = (0..=2000).map(|i| -1.0 + i as f32 / 1000.0).collect();
+        for v in [DISCRETE_VCO, CEM_VCO] {
+            let tri: Vec<f32> = ys.iter().map(|&y| v.shape(Waveform::Triangle, y)).collect();
+            assert!((tri[2000] - 1.0).abs() < 1e-6 && (tri[0] + 1.0).abs() < 1e-6);
+            assert!(tri.windows(2).all(|w| w[1] >= w[0]), "monotonic");
+            let saw: Vec<f32> = ys.iter().map(|&y| v.shape(Waveform::Saw, y)).collect();
+            let mean = saw.iter().sum::<f32>() / saw.len() as f32;
+            assert!(mean.abs() < 1e-3, "no DC: {mean}");
+            assert!((saw[2000] - saw[0] - 2.0).abs() < 1e-6, "a step of 2");
+            assert!(saw.iter().all(|y| y.abs() <= 1.1));
+        }
+        for w in [
+            Waveform::Saw,
+            Waveform::Triangle,
+            Waveform::Pulse,
+            Waveform::Sine,
+        ] {
+            for &y in &ys {
+                assert_eq!(IDEAL_VCO.shape(w, y), y);
+                assert_eq!(DISCRETE_VCO.shape(Waveform::Pulse, y), y);
+            }
+        }
     }
 
     /// Every model with a high-pass stage of 12 dB has the matching filter.

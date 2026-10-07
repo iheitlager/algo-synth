@@ -1,11 +1,13 @@
 //! The Moog Polymoog: what the model is and its presets (#330).
 
+use crate::mono::model::LOCKED;
 use crate::mono::model::{Filter, POLYMOOG};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: LOCKED,
     voices: 16,
     filter: Filter::Svf(POLYMOOG),
     presets: &[

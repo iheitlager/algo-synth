@@ -487,6 +487,7 @@ impl MonoVoice {
         let moving = self.levels.aim(levels, out.len());
         let hp = p.model.hp();
         let filter_env_is_adsr = p.model.filter_env_is_adsr();
+        let shape = p.model.osc();
         for (i, sample) in out.iter_mut().enumerate() {
             let [l1, l2, l3, noise_level, ring_level, sub_level] =
                 if moving { self.levels.tick() } else { levels };
@@ -582,12 +583,13 @@ impl MonoVoice {
             } else {
                 let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
                 let (y2, _) = o2.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync2 || locked));
-                (y1, wrap, y2)
+                (shape.shape(o1.wave, y1), wrap, shape.shape(o2.wave, y2))
             };
             // The rising saw starts low where a pulse is high, so a pulse in
             // the saw's phase would cancel it: the SH-101's is inverted.
             let y2 = if locked { -y2 } else { y2 };
             let (y3, _) = o3.step(ctx.blep, ctx.sine, pw, wrap.filter(|_| sync3));
+            let y3 = shape.shape(o3.wave, y3);
             // The sub is a pulse at an exact fraction of VCO 1's increment, so
             // it stays an octave (or two) down through glide and vibrato.
             let sub = if sub_level > 0.0 {

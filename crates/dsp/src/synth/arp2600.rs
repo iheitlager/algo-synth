@@ -1,11 +1,13 @@
 //! The ARP 2600: what the model is and its presets (#330).
 
+use crate::mono::model::DISCRETE_VCO;
 use crate::mono::model::{Filter, MOOG};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
     filter: Filter::Ladder(MOOG),
     // Its ADSR is normalled to filter and VCA (spec 004 Req 12).
     cutoff_follows_filter_env: false,
@@ -14,6 +16,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Bass,
             &[
+                (Analog, 0.4),
                 (Vco2Wave, 1.0),
                 (Vco2Coarse, -12.0),
                 (Vco2Level, 0.7),
@@ -34,6 +37,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Lead,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 7.0),
                 (Vco2Level, 0.8),
                 (Vco3Coarse, -12.0),
@@ -57,6 +61,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SyncLead,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 19.0),
                 (Vco2Level, 1.0),
@@ -80,6 +85,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::BowedString,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.8),
                 (Vco2Fine, 6.0),
                 (Vco2Level, 0.7),
@@ -110,6 +116,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::R2D2,
             &[
+                (Analog, 0.4),
                 (Vco1Wave, 1.0),
                 (Vco1Level, 1.0),
                 (PulseWidth, 0.3),
@@ -140,6 +147,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ShArp,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 6.0),
                 (Vco2Level, 0.8),
                 (Cutoff, 1_800.0),
@@ -166,6 +174,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SolinaStrings,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.8),
                 (Vco2Fine, 7.0),
                 (Vco2Level, 0.7),

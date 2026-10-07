@@ -1,11 +1,13 @@
 //! The Roland Jupiter-8: what the model is and its presets (#330).
 
+use crate::mono::model::DISCRETE_VCO;
 use crate::mono::model::{Filter, Hp, JUPITER, JUPITER12};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
     voices: 8,
     filter: Filter::Ladder(JUPITER),
     slope12: Some(Filter::Svf(JUPITER12)),

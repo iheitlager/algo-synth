@@ -3671,6 +3671,65 @@ fn left_of(e: &mut Engine, secs: f32) -> Vec<f32> {
     left
 }
 
+/// The frequency of `x` in Hz from its first and last rising zero
+/// crossings, each placed between samples: precise to a fraction of a cent.
+fn pitch_of(x: &[f32]) -> f64 {
+    let ups: Vec<f64> = x
+        .windows(2)
+        .enumerate()
+        .filter(|(_, w)| w[0] < 0.0 && w[1] >= 0.0)
+        .map(|(i, w)| i as f64 + f64::from(w[0] / (w[0] - w[1])))
+        .collect();
+    match (ups.first(), ups.last()) {
+        (Some(a), Some(b)) if ups.len() > 2 => (ups.len() - 1) as f64 * 48_000.0 / (b - a),
+        _ => 0.0,
+    }
+}
+
+/// #339: with `Analog` up, a VCO monosynth plays the same key a little
+/// off each time as its oscillators drift; the Juno-106's DCOs play it in
+/// tune every time, on every voice. `Analog` 0 holds every model in tune.
+#[test]
+fn vcos_drift_between_notes_and_dcos_do_not() {
+    let spread = |model: Model, analog: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Model, model as u32 as f32);
+        e.set_param(0, Param::Analog, analog);
+        e.set_param(0, Param::Cutoff, 400.0);
+        let mut hz = Vec::new();
+        for _ in 0..8 {
+            e.note_on(0, 57, 0.8);
+            hz.push(pitch_of(&left_of(&mut e, 0.25)[2400..]));
+            e.note_off(0, 57);
+            left_of(&mut e, 0.6);
+        }
+        assert!(
+            hz.iter().all(|h| (h - 220.0).abs() < 5.0),
+            "{model:?}: {hz:?}"
+        );
+        let cents = |h: f64| 1200.0 * (h / 220.0).log2();
+        let (lo, hi) = hz.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &h| {
+            (lo.min(cents(h)), hi.max(cents(h)))
+        });
+        hi - lo
+    };
+    for vco in [Model::Minimoog, Model::Sh101] {
+        let s = spread(vco, 1.0);
+        assert!(s > 0.5, "{vco:?} drifts: {s} cents");
+        assert!(spread(vco, 0.0) < 0.05, "{vco:?} at Analog 0");
+    }
+    assert!(
+        spread(Model::Minimoog, 1.0) > spread(Model::Sh101, 1.0),
+        "discrete VCOs drift more than a CEM3340"
+    );
+    let juno = spread(Model::Juno106, 1.0);
+    assert!(
+        juno < 0.05,
+        "the Juno-106's DCOs stay in tune: {juno} cents"
+    );
+}
+
 fn ups(x: &[f32]) -> usize {
     x.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count()
 }

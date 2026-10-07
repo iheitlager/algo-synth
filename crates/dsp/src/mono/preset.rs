@@ -863,16 +863,18 @@ mod tests {
     /// rms, peak and two samples of half a second of A3, per preset, from the
     /// last release before the model was added, then scaled by the mixer's
     /// centre pan. Re-taken when the ladder's stages began to saturate
-    /// (#306), which rounds the peaks.
+    /// (#306), which rounds the peaks, and when the discrete VCOs' saws were
+    /// bowed and set drifting (#339), which moves the samples but not the
+    /// level.
     #[test]
     fn arp_presets_keep_their_sound() {
         let gold: [(Preset, [f64; 4]); 4] = [
-            (Preset::Bass, [0.111419, 0.445526, 0.038502, 0.151381]),
-            (Preset::Lead, [0.166608, 0.448171, -0.250129, -0.074438]),
-            (Preset::SyncLead, [0.144039, 0.329408, -0.216896, -0.148365]),
+            (Preset::Bass, [0.111399, 0.446056, 0.030734, 0.138210]),
+            (Preset::Lead, [0.166185, 0.456667, -0.269997, 0.198758]),
+            (Preset::SyncLead, [0.143545, 0.328541, -0.087489, 0.202874]),
             (
                 Preset::BowedString,
-                [0.092574, 0.223146, -0.097959, 0.053156],
+                [0.092674, 0.223676, -0.109591, 0.163225],
             ),
         ];
         for (preset, want) in gold {

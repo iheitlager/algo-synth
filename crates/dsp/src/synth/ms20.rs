@@ -1,11 +1,13 @@
 //! The Korg MS-20: what the model is and its presets (#330).
 
+use crate::mono::model::DISCRETE_VCO;
 use crate::mono::model::{Filter, Hp, MS20};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
     filter: Filter::Svf(MS20),
     hp: Hp::Svf,
     presets: &[
@@ -14,6 +16,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Lead,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 8.0),
                 (Vco2Level, 0.6),
                 (HpCutoff, 120.0),
@@ -40,6 +43,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Wobble,
             &[
+                (Analog, 0.4),
                 (Vco1Wave, 1.0),
                 (Vco1Coarse, -12.0),
                 (Vco2Coarse, -12.0),
@@ -66,6 +70,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Squelch,
             &[
+                (Analog, 0.4),
                 (Vco1Coarse, -12.0),
                 (HpCutoff, 60.0),
                 (Cutoff, 400.0),
@@ -92,6 +97,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JetSweep,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.0),
                 (NoiseLevel, 1.0),
                 (HpCutoff, 300.0),
@@ -112,6 +118,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Strings,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 10.0),
                 (Vco2Level, 0.8),
                 (HpCutoff, 200.0),

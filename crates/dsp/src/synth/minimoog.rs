@@ -1,11 +1,13 @@
 //! The Minimoog: what the model is and its presets (#330).
 
+use crate::mono::model::DISCRETE_VCO;
 use crate::mono::model::{Filter, MOOG};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
     filter: Filter::Ladder(MOOG),
     // The contours have no release knob; Osc 3 is the modulation source.
     decay_is_release: true,
@@ -17,6 +19,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MiniBass,
             &[
+                (Analog, 0.4),
                 (Vco1Coarse, -12.0),
                 (Vco2Coarse, -12.0),
                 (Vco2Fine, 4.0),
@@ -44,6 +47,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MiniLead,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 7.0),
                 (Vco2Level, 0.8),
                 (Vco3Wave, 2.0),
@@ -74,6 +78,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LuckyMan,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 5.0),
                 (Vco2Level, 0.9),
                 (Vco3Wave, 2.0),
@@ -104,6 +109,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FunkBass,
             &[
+                (Analog, 0.4),
                 (Vco1Coarse, -12.0),
                 (Vco2Wave, 1.0),
                 (Vco2Coarse, -12.0),
@@ -129,6 +135,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MoogStrings,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 8.0),
                 (Vco2Level, 0.8),
                 (Vco3Fine, -8.0),

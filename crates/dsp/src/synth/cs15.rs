@@ -1,11 +1,13 @@
 //! The Yamaha CS-15: what the model is and its presets (#330).
 
+use crate::mono::model::DISCRETE_VCO;
 use crate::mono::model::{CS15, Filter, Hp};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: DISCRETE_VCO,
     filter: Filter::Svf(CS15),
     hp: Hp::Svf,
     hp_follows_ar: true,
@@ -16,6 +18,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Cs15Brass,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 9.0),
                 (Vco2Level, 0.9),
                 (HpCutoff, 150.0),
@@ -43,6 +46,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Cs15Lead,
             &[
+                (Analog, 0.4),
                 (Vco1Wave, 1.0),
                 (PulseWidth, 0.4),
                 (Vco2Coarse, 12.0),
@@ -71,6 +75,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::BladeBrass,
             &[
+                (Analog, 0.4),
                 (Vco2Fine, 8.0),
                 (Vco2Level, 0.9),
                 (HpCutoff, 100.0),
@@ -98,6 +103,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Cs15Strings,
             &[
+                (Analog, 0.4),
                 (Vco2Wave, 1.0),
                 (Vco2Fine, -6.0),
                 (Vco2Level, 0.7),

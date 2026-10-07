@@ -1,11 +1,13 @@
 //! The Sequential Pro-One: what the model is and its presets (#330).
 
+use crate::mono::model::CEM_VCO;
 use crate::mono::model::{Filter, PRO_ONE};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    osc: CEM_VCO,
     filter: Filter::Ladder(PRO_ONE),
     presets: &[
         // Oscillator A (VCO 2) synced to a silent B (VCO 1), a fifth
@@ -14,6 +16,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ProLead,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 12.0),
                 (Vco2Level, 1.0),
@@ -44,6 +47,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ProBass,
             &[
+                (Analog, 0.4),
                 (Vco1Coarse, -12.0),
                 (Vco2Wave, 1.0),
                 (Vco2Coarse, -12.0),
@@ -73,6 +77,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SyncSweep,
             &[
+                (Analog, 0.4),
                 (Vco1Level, 0.0),
                 (Vco2Level, 1.0),
                 (Vco2Sync, 1.0),
@@ -95,6 +100,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PolyModBell,
             &[
+                (Analog, 0.4),
                 (Vco1Wave, 3.0),
                 (Vco1Coarse, 22.0),
                 (Vco1Level, 0.0),
@@ -114,6 +120,7 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ProStrings,
             &[
+                (Analog, 0.4),
                 (Vco1Fine, 9.0),
                 (Vco1Level, 0.8),
                 (Vco2Wave, 1.0),
