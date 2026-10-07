@@ -248,6 +248,39 @@ pub const CS15: SvfVoicing = SvfVoicing {
     ceiling: 1.2,
 };
 
+/// A panel's filter switches: the slope switch at 12 dB (`Param::Slope`)
+/// and the revision switch (`Param::FilterRev`, 1..=3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Setting {
+    pub slope12: bool,
+    pub rev: u8,
+}
+
+impl Setting {
+    /// The filter a model has by itself: 24 dB, and Rev 3, which is the own
+    /// filter of both models with the revision switch.
+    pub const OWN: Setting = Setting {
+        slope12: false,
+        rev: 3,
+    };
+    /// The slope switch at 12 dB.
+    pub const SLOPE12: Setting = Setting {
+        slope12: true,
+        ..Setting::OWN
+    };
+
+    /// The revision switch at `rev`.
+    pub const fn rev(rev: u8) -> Setting {
+        Setting {
+            rev,
+            ..Setting::OWN
+        }
+    }
+
+    /// Every setting a switch gives, past `OWN`.
+    pub const SWITCHED: [Setting; 3] = [Setting::SLOPE12, Setting::rev(1), Setting::rev(2)];
+}
+
 /// The low-pass a model uses.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Filter {
@@ -308,26 +341,19 @@ impl Model {
         }
     }
 
-    /// The 12 dB low-pass of a model with the slope switch (the Jupiter-8's
-    /// two-pole setting), if it has one.
-    pub fn filter_12db(self) -> Option<Filter> {
-        match self {
-            Model::Jupiter8 => Some(Filter::Svf(JUPITER12)),
-            Model::Matrix12 => Some(Filter::Svf(MATRIX12)),
-            _ => None,
-        }
-    }
-
-    /// The low-pass of a model with the filter revision switch at `rev`
-    /// (`Param::FilterRev`, 1..=3), where it differs from `filter`: the
-    /// Prophet-5 Rev 4's SSM2040 for Rev 1/2, the Odyssey reissue's 4023 and
-    /// 4035 for Rev 1 and 2 (#321).
-    pub fn filter_rev(self, rev: u8) -> Option<Filter> {
-        match (self, rev) {
-            (Model::Prophet5, 1 | 2) => Some(Filter::Ladder(PROPHET5_REV12)),
-            (Model::Odyssey, 1) => Some(Filter::Svf(ODYSSEY_REV1)),
-            (Model::Odyssey, 2) => Some(Filter::Ladder(ODYSSEY_REV2)),
-            _ => None,
+    /// The low-pass at the panel's switches (#321): the 12 dB setting of a
+    /// model with the slope switch (Jupiter-8, Matrix-12), a revision of one
+    /// with the revision switch (the Prophet-5 Rev 4's SSM2040 at Rev 1/2,
+    /// the Odyssey reissue's 4023 and 4035 at Rev 1 and 2); `filter` where
+    /// no switch applies.
+    pub fn low_pass(self, s: Setting) -> Filter {
+        match (self, s.slope12, s.rev) {
+            (Model::Jupiter8, true, _) => Filter::Svf(JUPITER12),
+            (Model::Matrix12, true, _) => Filter::Svf(MATRIX12),
+            (Model::Prophet5, _, 1 | 2) => Filter::Ladder(PROPHET5_REV12),
+            (Model::Odyssey, _, 1) => Filter::Svf(ODYSSEY_REV1),
+            (Model::Odyssey, _, 2) => Filter::Ladder(ODYSSEY_REV2),
+            _ => self.filter(),
         }
     }
 
@@ -510,7 +536,10 @@ mod tests {
             assert_eq!(v.stages, Stages::Ota, "{m:?}");
         }
         assert_ne!(Model::Juno106.filter(), Model::Sh101.filter());
-        assert_eq!(Model::Jupiter8.filter_12db(), Some(Filter::Svf(JUPITER12)));
+        assert_eq!(
+            Model::Jupiter8.low_pass(Setting::SLOPE12),
+            Filter::Svf(JUPITER12)
+        );
     }
 
     #[test]
@@ -529,21 +558,28 @@ mod tests {
         );
     }
 
-    /// Only a model with the slope switch has a 12 dB setting, and it is a
-    /// state-variable filter beside the ladder.
+    /// The models a switch changes, and what to: no model has both switches,
+    /// so which one `low_pass` reads first does not matter.
+    fn switched(s: Setting) -> Vec<Model> {
+        Model::ALL
+            .iter()
+            .map(|(m, _)| *m)
+            .filter(|m| m.low_pass(s) != m.filter())
+            .collect()
+    }
+
+    /// Only the Jupiter-8 and the Matrix-12 have the slope switch, and their
+    /// 12 dB setting is a state-variable filter beside the ladder.
     #[test]
-    fn only_the_jupiter_has_a_slope_switch() {
-        for (m, name) in Model::ALL {
-            assert_eq!(
-                m.filter_12db().is_some(),
-                matches!(m, Model::Jupiter8 | Model::Matrix12),
-                "{name}"
-            );
-        }
+    fn only_the_jupiter_and_matrix_have_a_slope_switch() {
+        assert_eq!(
+            switched(Setting::SLOPE12),
+            [Model::Jupiter8, Model::Matrix12]
+        );
         assert!(matches!(Model::Jupiter8.filter(), Filter::Ladder(_)));
         assert!(matches!(
-            Model::Jupiter8.filter_12db(),
-            Some(Filter::Svf(_))
+            Model::Jupiter8.low_pass(Setting::SLOPE12),
+            Filter::Svf(_)
         ));
     }
 
@@ -558,30 +594,32 @@ mod tests {
         assert_eq!(stages(Model::ProOne.filter()), Stages::Cem3320);
         assert_eq!(stages(Model::Prophet5.filter()), Stages::Cem3320);
         for rev in [1, 2] {
-            let f = Model::Prophet5.filter_rev(rev).expect("Rev 1/2");
+            let f = Model::Prophet5.low_pass(Setting::rev(rev));
             assert_eq!(stages(f), Stages::Ssm2040);
         }
-        assert_eq!(Model::Prophet5.filter_rev(3), None, "Rev 3 is its own");
+        assert_eq!(
+            Model::Prophet5.low_pass(Setting::OWN),
+            Model::Prophet5.filter(),
+            "Rev 3 is its own"
+        );
     }
 
     /// Only the Prophet-5 and the Odyssey have the revision switch; the
     /// Odyssey's Rev 1 is the 4023's two poles, its Rev 2 the 4035's ladder.
+    /// No model has both switches.
     #[test]
     fn only_the_prophet_and_odyssey_have_a_rev_switch() {
-        for (m, name) in Model::ALL {
-            let any = (1..=3).any(|r| m.filter_rev(r).is_some());
-            assert_eq!(any, matches!(m, Model::Prophet5 | Model::Odyssey), "{name}");
-        }
-        assert_eq!(
-            Model::Odyssey.filter_rev(1),
-            Some(Filter::Svf(ODYSSEY_REV1))
-        );
-        assert_eq!(
-            Model::Odyssey.filter_rev(2),
-            Some(Filter::Ladder(ODYSSEY_REV2))
-        );
+        let mut revs = switched(Setting::rev(1));
+        revs.extend(switched(Setting::rev(2)));
+        revs.sort_by_key(|m| *m as u32);
+        revs.dedup();
+        assert_eq!(revs, [Model::Odyssey, Model::Prophet5]);
+        assert!(revs.iter().all(|m| !switched(Setting::SLOPE12).contains(m)));
+        let odyssey = |r| Model::Odyssey.low_pass(Setting::rev(r));
+        assert_eq!(odyssey(1), Filter::Svf(ODYSSEY_REV1));
+        assert_eq!(odyssey(2), Filter::Ladder(ODYSSEY_REV2));
         assert_eq!(ODYSSEY_REV2.stages, Stages::Transistor);
-        assert_eq!(Model::Odyssey.filter_rev(3), None);
+        assert_eq!(odyssey(3), Model::Odyssey.filter());
     }
 
     /// #321: the SH-101 has no high-pass.

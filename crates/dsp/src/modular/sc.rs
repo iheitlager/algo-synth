@@ -25,8 +25,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{
-    HPS, LADDERS, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES,
-    NONE, Op, Program, REVS, SVFS, Shape, Ugen,
+    Class, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NONE, Op,
+    Program, Shape, Ugen, VOICINGS,
 };
 use crate::mono::model::{Filter, Hp};
 use crate::mono::osc::Waveform;
@@ -2498,44 +2498,21 @@ enum Voicing {
     OnePole,
 }
 
-/// The voicing `v` names for filter class `c` (#307, #316, #321): a synth's
-/// ladder for `MoogFF`, a synth's high-pass for `HPF`, a synth's 12 dB
-/// filter (its two-pole setting where it has a slope switch) for the
-/// others; a revision word names that revision's filter of the kind.
+/// The voicing `v` names for filter `c` (#307, #316, #321): the word's
+/// synth's filter of that class, at the word's setting of its switches.
 fn voicing_of(c: &str, v: &V) -> Result<Voicing, &'static str> {
-    let ladder = c == "MoogFF";
-    let words = match c {
-        "MoogFF" => {
-            "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 \\odyssey \\prophet5rev1 or \\odysseyrev2"
-        }
-        "HPF" => "an HPF voicing is \\ms20 \\cs15 \\odyssey \\juno106 \\jupiter8 or \\matrix12",
-        _ => "a filter voicing is \\ms20 \\cs15 \\polymoog \\jupiter8 \\matrix12 or \\odysseyrev1",
-    };
+    let class = Class::of(c);
     let V::Sym(w) = v else {
-        return Err(words);
+        return Err(class.words());
     };
-    if c == "HPF" {
-        let (_, m) = HPS.iter().find(|(word, _)| word == w).ok_or(words)?;
-        return Ok(match m.hp() {
-            Hp::OnePole => Voicing::OnePole,
-            _ => Voicing::Filter(m.filter()),
-        });
-    }
-    let rev = REVS
+    let &(_, _, m, setting) = VOICINGS
         .iter()
-        .find(|(word, _, _)| word == w)
-        .and_then(|(_, m, r)| m.filter_rev(*r))
-        .filter(|f| matches!(f, Filter::Ladder(_)) == ladder);
-    if let Some(f) = rev {
-        return Ok(Voicing::Filter(f));
-    }
-    let table = if ladder { &LADDERS[..] } else { &SVFS[..] };
-    let (_, m) = table.iter().find(|(word, _)| word == w).ok_or(words)?;
-    Ok(Voicing::Filter(if ladder {
-        m.filter()
-    } else {
-        m.filter_12db().unwrap_or(m.filter())
-    }))
+        .find(|(word, k, ..)| *k == class && word == w)
+        .ok_or(class.words())?;
+    Ok(match class {
+        Class::Hp if m.hp() == Hp::OnePole => Voicing::OnePole,
+        _ => Voicing::Filter(m.low_pass(setting)),
+    })
 }
 
 /// Arguments bound to `names` by position, then by keyword, then defaults.

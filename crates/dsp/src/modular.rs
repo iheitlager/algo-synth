@@ -13,7 +13,7 @@
 
 use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::{Ladder, MAX_K};
-use crate::mono::model::{Filter, MOOG, Model, SvfVoicing};
+use crate::mono::model::{Filter, MOOG, Model, Setting, SvfVoicing};
 use crate::mono::noise::Noise;
 use crate::mono::osc::{Osc, Waveform, naive};
 use crate::mono::svf::{OnePole, Svf};
@@ -53,46 +53,82 @@ const VOICING: SvfVoicing = SvfVoicing {
     k_min: 0.0,
     ceiling: 1.0,
 };
-/// The synths whose ladder a `MoogFF` can take, by the symbol that names it
-/// (`voicing: \sh101`, #307, #316).
-const LADDERS: [(&str, Model); 11] = [
-    ("arp2600", Model::Arp2600),
-    ("minimoog", Model::Minimoog),
-    ("proone", Model::ProOne),
-    ("prophet5", Model::Prophet5),
-    ("sh101", Model::Sh101),
-    ("juno106", Model::Juno106),
-    ("jupiter8", Model::Jupiter8),
-    ("matrix12", Model::Matrix12),
-    ("ppgwave", Model::PpgWave),
-    ("d50", Model::D50),
-    ("odyssey", Model::Odyssey),
-];
-/// The synths whose 12 dB filter an `RLPF`, `RHPF` or `LPF` can take:
-/// their two-pole setting where they have a slope switch.
-const SVFS: [(&str, Model); 5] = [
-    ("ms20", Model::Ms20),
-    ("cs15", Model::Cs15),
-    ("polymoog", Model::PolyMoog),
-    ("jupiter8", Model::Jupiter8),
-    ("matrix12", Model::Matrix12),
-];
-/// A synth's filter at another revision than its own (`Param::FilterRev`,
-/// #321): a ladder for `MoogFF`, a 12 dB filter for the others.
-const REVS: [(&str, Model, u8); 3] = [
-    ("prophet5rev1", Model::Prophet5, 1),
-    ("odysseyrev1", Model::Odyssey, 1),
-    ("odysseyrev2", Model::Odyssey, 2),
-];
-/// The synths whose high-pass an `HPF` can take (#321): the 12 dB one's
-/// high output or the 6 dB one.
-const HPS: [(&str, Model); 6] = [
-    ("ms20", Model::Ms20),
-    ("cs15", Model::Cs15),
-    ("odyssey", Model::Odyssey),
-    ("juno106", Model::Juno106),
-    ("jupiter8", Model::Jupiter8),
-    ("matrix12", Model::Matrix12),
+/// The filter classes a voicing word is given to: `MoogFF`, the 12 dB
+/// low-pass and band classes (`RLPF`, `RHPF`, `LPF`), `HPF`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Class {
+    Ladder,
+    Lp12,
+    Hp,
+}
+
+impl Class {
+    /// The class of a SuperCollider filter.
+    pub(crate) fn of(ugen: &str) -> Class {
+        match ugen {
+            "MoogFF" => Class::Ladder,
+            "HPF" => Class::Hp,
+            _ => Class::Lp12,
+        }
+    }
+
+    /// The words the class takes, for an error; a test holds it to `VOICINGS`.
+    pub(crate) fn words(self) -> &'static str {
+        match self {
+            Class::Ladder => {
+                "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 \\odyssey \\prophet5rev1 or \\odysseyrev2"
+            }
+            Class::Lp12 => {
+                "a filter voicing is \\ms20 \\cs15 \\polymoog \\jupiter8 \\matrix12 or \\odysseyrev1"
+            }
+            Class::Hp => {
+                "an HPF voicing is \\ms20 \\cs15 \\odyssey \\juno106 \\jupiter8 or \\matrix12"
+            }
+        }
+    }
+}
+
+/// Every voicing word (#307, #316, #321): a synth's lowercase name, with
+/// `revN` for a revision other than its own, naming its filter of a class
+/// at a setting of its switches: its ladder for `MoogFF`, its 12 dB filter
+/// (the two-pole setting where it has a slope switch) for `RLPF`, `RHPF`
+/// and `LPF`, its high-pass for `HPF`.
+pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 25] = [
+    ("arp2600", Class::Ladder, Model::Arp2600, Setting::OWN),
+    ("minimoog", Class::Ladder, Model::Minimoog, Setting::OWN),
+    ("proone", Class::Ladder, Model::ProOne, Setting::OWN),
+    ("prophet5", Class::Ladder, Model::Prophet5, Setting::OWN),
+    ("sh101", Class::Ladder, Model::Sh101, Setting::OWN),
+    ("juno106", Class::Ladder, Model::Juno106, Setting::OWN),
+    ("jupiter8", Class::Ladder, Model::Jupiter8, Setting::OWN),
+    ("matrix12", Class::Ladder, Model::Matrix12, Setting::OWN),
+    ("ppgwave", Class::Ladder, Model::PpgWave, Setting::OWN),
+    ("d50", Class::Ladder, Model::D50, Setting::OWN),
+    ("odyssey", Class::Ladder, Model::Odyssey, Setting::OWN),
+    (
+        "prophet5rev1",
+        Class::Ladder,
+        Model::Prophet5,
+        Setting::rev(1),
+    ),
+    (
+        "odysseyrev2",
+        Class::Ladder,
+        Model::Odyssey,
+        Setting::rev(2),
+    ),
+    ("ms20", Class::Lp12, Model::Ms20, Setting::OWN),
+    ("cs15", Class::Lp12, Model::Cs15, Setting::OWN),
+    ("polymoog", Class::Lp12, Model::PolyMoog, Setting::OWN),
+    ("jupiter8", Class::Lp12, Model::Jupiter8, Setting::SLOPE12),
+    ("matrix12", Class::Lp12, Model::Matrix12, Setting::SLOPE12),
+    ("odysseyrev1", Class::Lp12, Model::Odyssey, Setting::rev(1)),
+    ("ms20", Class::Hp, Model::Ms20, Setting::OWN),
+    ("cs15", Class::Hp, Model::Cs15, Setting::OWN),
+    ("odyssey", Class::Hp, Model::Odyssey, Setting::OWN),
+    ("juno106", Class::Hp, Model::Juno106, Setting::OWN),
+    ("jupiter8", Class::Hp, Model::Jupiter8, Setting::OWN),
+    ("matrix12", Class::Hp, Model::Matrix12, Setting::OWN),
 ];
 /// The `drive` of a ladder that names none: unity, as `Param::Drive` at 0.
 const DRIVE: f32 = 0.0;
@@ -832,7 +868,7 @@ impl GraphVoice {
                 slot,
             } => {
                 let x = st.val(input);
-                let note = st.cutoff_note(slot, st.val(cutoff).max(1.0), self.cutoff_trim);
+                let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
                 let Some(p) = st.poles.get_mut(usize::from(slot)) else {
                     return 0.0;
                 };
@@ -1212,69 +1248,56 @@ mod tests {
         assert!(!uni("SinOsc.ar(Saw.ar(freq).range(50, 400))"));
     }
 
-    /// #307, #316: a voicing is a synth's lowercase name, each naming a
-    /// filter of the kind it is given to; an unknown one is refused with
-    /// the valid ones.
+    /// #307, #316, #321: a voicing is a synth's lowercase name, `revN` added
+    /// for another revision; each word names a filter of its class, an
+    /// unknown one is refused with exactly the class's words.
     #[test]
     fn voicing_words_name_the_synths() {
-        let named = |m: Model| {
-            Model::ALL
-                .iter()
-                .find(|(n, _)| *n == m)
-                .map(|(_, name)| name.to_ascii_lowercase())
-        };
         let refused = |body: &str| {
             let text = format!("SynthDef(\\t, {{ |freq = 440| {body} }}).add;");
             sc::compile(&text).expect_err(body).msg
         };
-        let ladders = refused("MoogFF.ar(Saw.ar(freq), 800, voicing: \\ms20)");
-        let svfs = refused("RLPF.ar(Saw.ar(freq), 800, voicing: \\minimoog)");
-        let hps = refused("HPF.ar(Saw.ar(freq), 800, voicing: \\polymoog)");
-        assert_eq!(refused("RLPF.ar(Saw.ar(freq), 800, voicing: 3)"), svfs);
-        // A revision word names a filter of one kind only.
-        assert_eq!(
-            refused("RLPF.ar(Saw.ar(freq), 800, voicing: \\prophet5rev1)"),
-            svfs
-        );
-        assert_eq!(
-            refused("MoogFF.ar(Saw.ar(freq), 800, voicing: \\odysseyrev1)"),
-            ladders
-        );
-        for (word, m, rev) in REVS {
-            let f = m.filter_rev(rev).expect(word);
-            assert!(
-                word.starts_with(named(m).unwrap_or_default().as_str()),
-                "{word}"
+        for (class, ugen, opening) in [
+            (Class::Ladder, "MoogFF", "a MoogFF voicing is"),
+            (Class::Lp12, "RLPF", "a filter voicing is"),
+            (Class::Hp, "HPF", "an HPF voicing is"),
+        ] {
+            let words: Vec<String> = VOICINGS
+                .iter()
+                .filter(|(_, k, ..)| *k == class)
+                .map(|(w, ..)| format!("\\{w}"))
+                .collect();
+            let (last, rest) = words.split_last().expect("a class has words");
+            let listed = class.words();
+            assert_eq!(listed, format!("{opening} {} or {last}", rest.join(" ")));
+            assert_eq!(
+                refused(&format!("{ugen}.ar(Saw.ar(freq), 800, voicing: \\nope)")),
+                listed
             );
-            let words = if matches!(f, Filter::Ladder(_)) {
-                &ladders
-            } else {
-                &svfs
-            };
-            assert!(words.contains(&format!("\\{word}")), "{word}");
-        }
-        for (word, m) in HPS {
-            assert_eq!(named(m).as_deref(), Some(word));
-            assert_ne!(m.hp(), Hp::None, "{word}");
-            assert!(hps.contains(&format!("\\{word}")), "{word}");
-        }
-        for (word, m) in LADDERS {
-            assert_eq!(named(m).as_deref(), Some(word));
-            assert!(matches!(m.filter(), Filter::Ladder(_)), "{word}");
-            assert!(ladders.contains(&format!("\\{word}")), "{word}");
-        }
-        for (word, m) in SVFS {
-            assert_eq!(named(m).as_deref(), Some(word));
-            assert!(
-                matches!(m.filter_12db().unwrap_or(m.filter()), Filter::Svf(_)),
-                "{word}"
+            assert_eq!(
+                refused(&format!("{ugen}.ar(Saw.ar(freq), 800, voicing: 3)")),
+                listed
             );
-            assert!(svfs.contains(&format!("\\{word}")), "{word}");
+        }
+        for (word, class, m, setting) in VOICINGS {
+            let name = Model::ALL
+                .iter()
+                .find(|(n, _)| *n == m)
+                .map(|(_, name)| name.to_ascii_lowercase())
+                .expect(word);
+            let rev = format!("{name}rev{}", setting.rev);
+            assert!(word == name || word == rev, "{word}");
+            let f = m.low_pass(setting);
+            match class {
+                Class::Ladder => assert!(matches!(f, Filter::Ladder(_)), "{word}"),
+                Class::Lp12 => assert!(matches!(f, Filter::Svf(_)), "{word}"),
+                Class::Hp => assert_ne!(m.hp(), Hp::None, "{word}"),
+            }
         }
     }
 
-    /// #321: every fixed synth's filters have a word: its low-pass, its 12 dB
-    /// setting, each revision and its high-pass. A model added without one
+    /// #321: every fixed synth's filters have a word: its low-pass, each
+    /// setting of its switches and its high-pass. A model added without one
     /// fails here.
     #[test]
     fn every_fixed_filter_has_a_word() {
@@ -1286,30 +1309,28 @@ mod tests {
             Model::PadSampler,
             Model::Modular,
         ];
-        let low: Vec<Filter> = LADDERS
-            .iter()
-            .map(|(_, m)| m.filter())
-            .chain(
-                SVFS.iter()
-                    .map(|(_, m)| m.filter_12db().unwrap_or(m.filter())),
-            )
-            .chain(REVS.iter().filter_map(|(_, m, r)| m.filter_rev(*r)))
-            .collect();
+        let named = |class: Class, f: Filter| {
+            VOICINGS
+                .iter()
+                .any(|(_, k, m, s)| *k == class && m.low_pass(*s) == f)
+        };
         for (m, name) in Model::ALL {
             if filterless.contains(&m) {
                 continue;
             }
-            assert!(low.contains(&m.filter()), "{name}");
-            if let Some(f) = m.filter_12db() {
-                assert!(low.contains(&f), "{name} 12 dB");
-            }
-            for rev in 1..=3 {
-                if let Some(f) = m.filter_rev(rev) {
-                    assert!(low.contains(&f), "{name} rev {rev}");
-                }
+            for s in std::iter::once(Setting::OWN).chain(Setting::SWITCHED) {
+                let f = m.low_pass(s);
+                let class = match f {
+                    Filter::Ladder(_) => Class::Ladder,
+                    Filter::Svf(_) => Class::Lp12,
+                };
+                assert!(named(class, f), "{name} at {s:?}");
             }
             if m.hp() != Hp::None {
-                assert!(HPS.iter().any(|(_, h)| *h == m), "{name} high-pass");
+                let has = VOICINGS
+                    .iter()
+                    .any(|(_, k, h, _)| *k == Class::Hp && *h == m);
+                assert!(has, "{name} high-pass");
             }
         }
     }
@@ -1378,21 +1399,37 @@ mod tests {
         }
     }
 
-    /// #307, #316: a voiced filter is the fixed synth's filter: the same
-    /// samples out for the same samples in. Without a voicing `MoogFF` is
-    /// the Moog's ladder at unity drive, per-stage saturation and all (#306).
+    /// #307, #316, #321: a voiced filter is the fixed synth's filter: the
+    /// same samples out for the same samples in, for every word. Without a
+    /// voicing `MoogFF` is the Moog's ladder at unity drive, per-stage
+    /// saturation and all (#306).
     #[test]
     fn a_voiced_filter_renders_as_the_synths() {
         let mut b = Bench::new();
         let note = 69.0 + 12.0 * fast_log2(800.0 / 440.0);
-        for (word, m) in LADDERS {
-            let Filter::Ladder(v) = m.filter() else {
-                panic!("{word}");
+        for (word, class, m, setting) in VOICINGS {
+            let body = match class {
+                Class::Ladder => {
+                    format!("MoogFF.ar(Saw.ar(freq), 800, 3, voicing: \\{word}, drive: 0.5)")
+                }
+                Class::Lp12 => format!("RLPF.ar(Saw.ar(freq), 800, 0.1, voicing: \\{word})"),
+                Class::Hp => format!("HPF.ar(Saw.ar(freq), 800, voicing: \\{word})"),
             };
-            let body = format!("MoogFF.ar(Saw.ar(freq), 800, 3, voicing: \\{word}, drive: 0.5)");
-            let mut l = Ladder::new();
+            let (mut l, mut f, mut p) = (Ladder::new(), Svf::new(), OnePole::default());
             for (i, (x, y)) in b.nodes(&body, 4_800).into_iter().enumerate() {
-                let want = l.voiced(&b.ladder, &v, x, note, 3.0, 4.5);
+                let want = match (class, m.low_pass(setting), m.hp()) {
+                    (Class::Ladder, Filter::Ladder(v), _) => {
+                        l.voiced(&b.ladder, &v, x, note, 3.0, 4.5)
+                    }
+                    (Class::Lp12, Filter::Svf(v), _) => {
+                        f.process(&b.ladder, &v, x, note, 1.0 - 0.1).lp
+                    }
+                    (Class::Hp, _, Hp::OnePole) => p.process(&b.ladder, x, note),
+                    (Class::Hp, Filter::Svf(v), Hp::Svf) => {
+                        f.process(&b.ladder, &v, x, note, 0.0).hp
+                    }
+                    other => panic!("{word}: {other:?}"),
+                };
                 assert_eq!(y, want, "{word} at {i}");
             }
         }
@@ -1400,55 +1437,18 @@ mod tests {
         for (x, y) in b.nodes("MoogFF.ar(Saw.ar(freq), 800, 3)", 4_800) {
             assert_eq!(y, l.voiced(&b.ladder, &MOOG, x, note, 3.0, 1.0));
         }
-        for (word, m) in SVFS {
-            let Some(Filter::Svf(v)) = m.filter_12db().or(Some(m.filter())) else {
-                panic!("{word}");
+        // RHPF takes the 12 dB filter's high output.
+        for (word, class, m, setting) in VOICINGS {
+            let Filter::Svf(v) = m.low_pass(setting) else {
+                continue;
             };
-            for (class, high) in [("RLPF", false), ("RHPF", true)] {
-                let body = format!("{class}.ar(Saw.ar(freq), 800, 0.1, voicing: \\{word})");
-                let mut f = Svf::new();
-                for (x, y) in b.nodes(&body, 4_800) {
-                    let o = f.process(&b.ladder, &v, x, note, 1.0 - 0.1);
-                    assert_eq!(y, if high { o.hp } else { o.lp }, "{word} {class}");
-                }
+            if class != Class::Lp12 {
+                continue;
             }
-        }
-        // #321: a revision word is that revision's filter.
-        for (word, m, rev) in REVS {
-            let mut l = Ladder::new();
+            let body = format!("RHPF.ar(Saw.ar(freq), 800, 0.1, voicing: \\{word})");
             let mut f = Svf::new();
-            let (body, filter) = match m.filter_rev(rev) {
-                Some(Filter::Ladder(v)) => (
-                    format!("MoogFF.ar(Saw.ar(freq), 800, 3, voicing: \\{word}, drive: 0.5)"),
-                    Filter::Ladder(v),
-                ),
-                Some(Filter::Svf(v)) => (
-                    format!("RLPF.ar(Saw.ar(freq), 800, 0.1, voicing: \\{word})"),
-                    Filter::Svf(v),
-                ),
-                None => panic!("{word}"),
-            };
             for (x, y) in b.nodes(&body, 4_800) {
-                let want = match filter {
-                    Filter::Ladder(v) => l.voiced(&b.ladder, &v, x, note, 3.0, 4.5),
-                    Filter::Svf(v) => f.process(&b.ladder, &v, x, note, 1.0 - 0.1).lp,
-                };
-                assert_eq!(y, want, "{word}");
-            }
-        }
-        // #321: an HPF's word is the synth's high-pass: the 12 dB filter's
-        // high output, or the 6 dB one-pole.
-        for (word, m) in HPS {
-            let body = format!("HPF.ar(Saw.ar(freq), 800, voicing: \\{word})");
-            let mut f = Svf::new();
-            let mut p = OnePole::default();
-            for (x, y) in b.nodes(&body, 4_800) {
-                let want = match (m.hp(), m.filter()) {
-                    (Hp::Svf, Filter::Svf(v)) => f.process(&b.ladder, &v, x, note, 0.0).hp,
-                    (Hp::OnePole, _) => p.process(&b.ladder, x, note),
-                    _ => panic!("{word}"),
-                };
-                assert_eq!(y, want, "{word}");
+                assert_eq!(y, f.process(&b.ladder, &v, x, note, 1.0 - 0.1).hp, "{word}");
             }
         }
     }
