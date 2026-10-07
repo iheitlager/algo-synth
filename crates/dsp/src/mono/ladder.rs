@@ -125,6 +125,43 @@ fn sat_gain(x: f32) -> f32 {
     }
 }
 
+impl Stages {
+    /// Each stage's saturator as a gain on its input and on its output, at
+    /// last sample's loop input and stage outputs.
+    fn gains(self, last: [f32; 5]) -> ([f32; 4], [f32; 4]) {
+        let [u0, o1, o2, o3, o4] = last;
+        // An OTA saturates the difference of its input and output.
+        let ota = |gain: f32| {
+            let d = [u0 - o1, o1 - o2, o2 - o3, o3 - o4].map(|v| sat_gain(v * gain));
+            (d, d)
+        };
+        match self {
+            Stages::Linear => ([1.0; 4], [1.0; 4]),
+            // A stage's input is the last one's output: five gains for eight.
+            Stages::Transistor => {
+                let [g0, g1, g2, g3, g4] = last.map(sat_gain);
+                ([g0, g1, g2, g3], [g1, g2, g3, g4])
+            }
+            Stages::Ota | Stages::Cem3320 => ota(OTA_GAIN),
+            Stages::Ssm2040 => ota(SSM_GAIN),
+        }
+    }
+
+    /// The loop solved for its input `u`, the last stage being `A·u + B`:
+    /// `x` the driven input, `k` the feedback, `o4` last sample's output.
+    fn loop_input(self, x: f32, k: f32, big_a: f32, big_b: f32, o4: f32) -> f32 {
+        match self {
+            // The input clips on its own; the feedback through the VCA, at
+            // its gain at last sample's output.
+            Stages::Cem3320 => {
+                let k = k * sat_gain(k * o4);
+                (saturate(x) - k * big_b) / (1.0 + k * big_a)
+            }
+            _ => saturate((x - k * big_b) / (1.0 + k * big_a)),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct Ladder {
     s: [f32; 4],
@@ -194,24 +231,7 @@ impl Ladder {
     /// sample's input and output.
     fn saturating(&mut self, stages: Stages, x: f32, k: f32, drive: f32) -> f32 {
         let g = self.g;
-        let [u0, o1, o2, o3, o4] = self.last;
-        let (a, b) = match stages {
-            // A stage's input is the last one's output: five gains for eight.
-            Stages::Transistor => {
-                let [g0, g1, g2, g3, g4] = self.last.map(sat_gain);
-                ([g0, g1, g2, g3], [g1, g2, g3, g4])
-            }
-            Stages::Ota | Stages::Cem3320 | Stages::Ssm2040 => {
-                let gain = if stages == Stages::Ssm2040 {
-                    SSM_GAIN
-                } else {
-                    OTA_GAIN
-                };
-                let d = [u0 - o1, o1 - o2, o2 - o3, o3 - o4].map(|v| sat_gain(v * gain));
-                (d, d)
-            }
-            Stages::Linear => ([1.0; 4], [1.0; 4]),
-        };
+        let (a, b) = stages.gains(self.last);
         let [d1, d2, d3, d4] = b.map(|b| 1.0 / (1.0 + g * b));
         let [a1, a2, a3, a4] = a;
         let [s1, s2, s3, s4] = self.s;
@@ -220,14 +240,7 @@ impl Ladder {
         // The last stage's output is A·u + B; solve the loop for u.
         let big_a = a1 * a2 * a3 * a4;
         let big_b = ((b1 * a2 + b2) * a3 + b3) * a4 + b4;
-        let u = if stages == Stages::Cem3320 {
-            // The input clips on its own; the feedback through the VCA, at
-            // its gain at last sample's output.
-            let k = k * sat_gain(k * o4);
-            (saturate(x * drive) - k * big_b) / (1.0 + k * big_a)
-        } else {
-            saturate((x * drive - k * big_b) / (1.0 + k * big_a))
-        };
+        let u = stages.loop_input(x * drive, k, big_a, big_b, self.last[4]);
         let y1 = a1 * u + b1;
         let y2 = a2 * y1 + b2;
         let y3 = a3 * y2 + b3;
