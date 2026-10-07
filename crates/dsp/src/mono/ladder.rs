@@ -12,7 +12,7 @@
 //! and `g` comes from a table built in `Engine::new`, read only while the
 //! smoothed cutoff moves; `render` does no transcendental math.
 
-use crate::mono::model::{LadderVoicing, Stages};
+use crate::mono::model::{LadderVoicing, ONSET_K, Stages};
 use crate::voice::midi_to_hz;
 
 /// Table range in MIDI notes: 8 Hz to above any cutoff the clamp allows.
@@ -174,6 +174,16 @@ pub struct Ladder {
     /// The loop input and each stage's output last sample, where a
     /// saturating stage takes its gain.
     last: [f32; 5],
+    /// The state of the high-pass in the feedback path (#342).
+    hp: f32,
+    /// The voicing the taper and loop high-pass below were worked out for
+    /// (onset, k_scale, loop_hp), so `voiced` divides only when it changes.
+    key: (f32, f32, f32),
+    /// The taper's slopes below and above the onset, and the loop
+    /// high-pass's `g/(1+g)` (0 for none).
+    rise: f32,
+    slope: f32,
+    hp_gain: f32,
 }
 
 impl Ladder {
@@ -187,9 +197,13 @@ impl Ladder {
     /// Filter one sample. `cutoff` is a MIDI note, `k` the feedback
     /// (0..=`MAX_K`), `drive` the input gain into the saturator.
     pub fn process(&mut self, t: &LadderTables, x: f32, cutoff: f32, k: f32, drive: f32) -> f32 {
-        self.run(t, Stages::Linear, x, cutoff, k, drive)
+        self.run(t, Stages::Linear, x, cutoff, k, drive, 0.0)
     }
 
+    /// `hp` is the feedback path's high-pass as `G = g/(1+g)` at its cutoff,
+    /// 0 for none. It is a one-pole in the loop, `(1 − G)·(y₄ − s)`, linear
+    /// in the loop input, so the loop is still solved exactly.
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &mut self,
         t: &LadderTables,
@@ -198,29 +212,39 @@ impl Ladder {
         cutoff: f32,
         k: f32,
         drive: f32,
+        hp: f32,
     ) -> f32 {
         if let Some(note) = t.follow(&mut self.note, cutoff) {
             self.retune(t, note);
         }
-        if stages != Stages::Linear {
-            return self.saturating(stages, x, k, drive);
-        }
-        let (g, inv) = (self.big_g, self.inv);
-        let [s1, s2, s3, s4] = self.s;
-        // Output of the last stage is G^4·u + S; solve the loop for u.
-        let big_s = ((g * s1 * inv + s2 * inv) * g + s3 * inv) * g + s4 * inv;
-        let g4 = g * g * g * g;
-        let u = saturate((x * drive - k * big_s) / (1.0 + k * g4));
-        let mut y = u;
-        for s in self.s.iter_mut() {
-            let v = (y - *s) * g;
-            y = v + *s;
-            *s = y + v;
+        let y = if stages != Stages::Linear {
+            self.saturating(stages, x, k, drive, hp)
+        } else {
+            let (g, inv) = (self.big_g, self.inv);
+            let [s1, s2, s3, s4] = self.s;
+            // Output of the last stage is G^4·u + S; the loop feeds back
+            // (1 − hp)·(G^4·u + S − s_hp). Solve it for u.
+            let big_s = ((g * s1 * inv + s2 * inv) * g + s3 * inv) * g + s4 * inv;
+            let g4 = g * g * g * g;
+            let kc = k * (1.0 - hp);
+            let u = saturate((x * drive - kc * (big_s - self.hp)) / (1.0 + kc * g4));
+            let mut y = u;
+            for s in self.s.iter_mut() {
+                let v = (y - *s) * g;
+                y = v + *s;
+                *s = y + v;
+            }
+            y
+        };
+        if hp > 0.0 {
+            self.hp += 2.0 * (y - self.hp) * hp;
         }
         if y.is_finite() {
             y
         } else {
             self.s = [0.0; 4];
+            self.last = [0.0; 5];
+            self.hp = 0.0;
             0.0
         }
     }
@@ -229,7 +253,7 @@ impl Ladder {
     /// `y = s + g·(a·x − b·y)`, so `y = α·x + β` with `α = g·a/(1 + g·b)`
     /// and `β = s/(1 + g·b)`; `a` and `b` are the saturator's gain at last
     /// sample's input and output.
-    fn saturating(&mut self, stages: Stages, x: f32, k: f32, drive: f32) -> f32 {
+    fn saturating(&mut self, stages: Stages, x: f32, k: f32, drive: f32, hp: f32) -> f32 {
         let g = self.g;
         let (a, b) = stages.gains(self.last);
         let [d1, d2, d3, d4] = b.map(|b| 1.0 / (1.0 + g * b));
@@ -240,20 +264,21 @@ impl Ladder {
         // The last stage's output is A·u + B; solve the loop for u.
         let big_a = a1 * a2 * a3 * a4;
         let big_b = ((b1 * a2 + b2) * a3 + b3) * a4 + b4;
-        let u = stages.loop_input(x * drive, k, big_a, big_b, self.last[4]);
+        // The feedback path's high-pass: (1 − hp)·(A·u + B − s_hp).
+        let u = stages.loop_input(
+            x * drive,
+            k * (1.0 - hp),
+            big_a,
+            big_b - self.hp,
+            self.last[4],
+        );
         let y1 = a1 * u + b1;
         let y2 = a2 * y1 + b2;
         let y3 = a3 * y2 + b3;
         let y4 = a4 * y3 + b4;
         self.s = [2.0 * y1 - s1, 2.0 * y2 - s2, 2.0 * y3 - s3, 2.0 * y4 - s4];
         self.last = [u, y1, y2, y3, y4];
-        if y4.is_finite() {
-            y4
-        } else {
-            self.s = [0.0; 4];
-            self.last = [0.0; 5];
-            0.0
-        }
+        y4
     }
 
     /// Filter one sample as `v` voices the ladder: `k` the feedback
@@ -269,9 +294,28 @@ impl Ladder {
         k: f32,
         drive: f32,
     ) -> f32 {
-        let k = k.clamp(0.0, MAX_K) * v.k_scale;
+        let key = (v.onset, v.k_scale, v.loop_hp);
+        if key != self.key {
+            self.key = key;
+            let (rise, slope) = v.taper();
+            self.rise = rise;
+            self.slope = slope;
+            self.hp_gain = if v.loop_hp > 0.0 {
+                let g = t.g_at(v.loop_hp);
+                g / (1.0 + g)
+            } else {
+                0.0
+            };
+        }
+        // The knob's taper (#342), as `LadderVoicing::feedback` without its divisions.
+        let r = (k / MAX_K).clamp(0.0, 1.0);
+        let k = if r <= v.onset {
+            self.rise * r
+        } else {
+            ONSET_K + (r - v.onset) * self.slope
+        };
         let x = x * (1.0 + v.comp * k);
-        self.run(t, v.stages, x, cutoff, k, drive * v.drive)
+        self.run(t, v.stages, x, cutoff, k, drive * v.drive, self.hp_gain)
     }
 
     fn retune(&mut self, t: &LadderTables, note: f32) {
@@ -285,6 +329,7 @@ impl Ladder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mono::model::ONSET_K;
 
     const SR: f32 = 48_000.0;
     /// Every stage type, for the tests every ladder must pass.
@@ -317,7 +362,7 @@ mod tests {
         (0..2 * n)
             .map(|i| {
                 let x = amp * (w * i as f64).sin() as f32;
-                f.run(&t, stages, x, cutoff, k, drive)
+                f.run(&t, stages, x, cutoff, k, drive, 0.0)
             })
             .skip(n)
             .collect()
@@ -378,7 +423,7 @@ mod tests {
                 let mut f = Ladder::new();
                 let cutoff = hz_to_note(cutoff_hz);
                 let y: Vec<f32> = (0..SR as usize)
-                    .map(|_| f.run(&t, stages, 0.0, cutoff, MAX_K, 8.0))
+                    .map(|_| f.run(&t, stages, 0.0, cutoff, MAX_K, 8.0, 0.0))
                     .collect();
                 let tail = &y[y.len() / 2..];
                 let peak = tail.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
@@ -398,7 +443,7 @@ mod tests {
             let (lo, hi) = (hz_to_note(20.0), hz_to_note(20_000.0));
             for i in 0..n {
                 let cutoff = lo + (hi - lo) * i as f32 / n as f32;
-                let y = f.run(&t, stages, 0.0, cutoff, MAX_K, 8.0);
+                let y = f.run(&t, stages, 0.0, cutoff, MAX_K, 8.0, 0.0);
                 assert!(
                     y.is_finite() && y.abs() <= 2.0,
                     "{stages:?}: {y} at sample {i}"
@@ -418,7 +463,7 @@ mod tests {
                     for i in 0..4_800 {
                         // A loud square, well past the saturator's knee.
                         let x = if i % 37 < 18 { 4.0 } else { -4.0 };
-                        let y = f.run(&t, stages, x, cutoff, k, drive);
+                        let y = f.run(&t, stages, x, cutoff, k, drive, 0.0);
                         assert!(
                             y.is_finite() && y.abs() <= 2.0,
                             "{stages:?} {cutoff} {k} {drive}: {y}"
@@ -472,7 +517,7 @@ mod tests {
         let y: Vec<f32> = (0..2 * n)
             .map(|i| {
                 let x = if (i / 240) % 2 == 0 { 0.5 } else { -0.5 };
-                f.run(&t, stages, x, hz_to_note(1_000.0), 3.0, 8.0)
+                f.run(&t, stages, x, hz_to_note(1_000.0), 3.0, 8.0, 0.0)
             })
             .skip(n)
             .collect();
@@ -603,7 +648,17 @@ mod tests {
         let mut f = Ladder::default();
         let cutoff = hz_to_note(2_000.0);
         let y: Vec<f32> = (0..SR as usize + samples)
-            .map(|i| f.run(&t, stages, if i == 0 { 1.0 } else { 0.0 }, cutoff, k, 1.0))
+            .map(|i| {
+                f.run(
+                    &t,
+                    stages,
+                    if i == 0 { 1.0 } else { 0.0 },
+                    cutoff,
+                    k,
+                    1.0,
+                    0.0,
+                )
+            })
             .collect();
         let peak = |s: &[f32]| s.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
         (peak(&y[..samples]), peak(&y[SR as usize..]))
@@ -687,7 +742,7 @@ mod tests {
                     _ if i % 96 < 48 => 0.5,
                     _ => -0.5,
                 };
-                let y = f.run(&t, stages, x, cutoff, k, 1.0);
+                let y = f.run(&t, stages, x, cutoff, k, 1.0, 0.0);
                 assert!(
                     y.is_finite() && y.abs() <= 2.0,
                     "{stages:?} k {k}, sample {i}: {y}"
@@ -716,5 +771,111 @@ mod tests {
             let left = (to - f.note.unwrap_or(from)) / (to - from);
             assert!((left - (-1.0_f32).exp()).abs() < 1.0e-3, "{left} left");
         }
+    }
+
+    /// Every 4-pole voicing, as the models play it.
+    fn voicings() -> [(&'static str, LadderVoicing); 12] {
+        use crate::mono::model::*;
+        [
+            ("Moog", MOOG),
+            ("Pro-One", PRO_ONE),
+            ("Prophet-5 Rev 3", PROPHET5_REV3),
+            ("Prophet-5 Rev 1/2", PROPHET5_REV12),
+            ("SH-101", SH101),
+            ("Juno-106", JUNO106),
+            ("Odyssey", ODYSSEY),
+            ("Jupiter-8", JUPITER),
+            ("Matrix-12", MATRIX),
+            ("PPG", PPG),
+            ("D-50", D50),
+            ("Odyssey Rev 2", ODYSSEY_REV2),
+        ]
+    }
+
+    /// The whistle of `v` with no input after a second, at `hz` with the
+    /// knob at `r`: its peak and its pitch against `hz`.
+    fn whistle(v: &LadderVoicing, hz: f32, r: f32) -> (f32, f32) {
+        let t = LadderTables::new(SR);
+        let mut f = Ladder::new();
+        let n = SR as usize;
+        let y: Vec<f32> = (0..2 * n)
+            .map(|_| f.voiced(&t, v, 0.0, hz_to_note(hz), r * MAX_K, 1.0))
+            .collect();
+        let tail = y.get(n..).unwrap_or(&[]);
+        let peak = tail.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+        let ups = tail
+            .windows(2)
+            .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+            .count();
+        (peak, ups as f32 / (tail.len() as f32 / SR) / hz)
+    }
+
+    /// #342: the knob's taper keeps the old straight line at an onset of
+    /// 0.8, and reaches the threshold at the onset and the voicing's top at 1.
+    #[test]
+    fn the_resonance_taper() {
+        let line = LadderVoicing {
+            onset: 0.8,
+            loop_hp: 0.0,
+            ..crate::mono::model::MOOG
+        };
+        for i in 0..=20 {
+            let r = i as f32 / 20.0;
+            assert!((line.feedback(r) - r * MAX_K).abs() < 1e-5, "{r}");
+        }
+        for (name, v) in voicings() {
+            assert!((v.feedback(v.onset) - ONSET_K).abs() < 1e-5, "{name}");
+            assert!(
+                (v.feedback(1.0) - (MAX_K * v.k_scale).max(ONSET_K)).abs() < 1e-5,
+                "{name}"
+            );
+            assert_eq!(v.feedback(f32::NAN), 0.0, "{name}");
+        }
+    }
+
+    /// #342: each voicing starts to whistle at its onset on the knob, and at
+    /// the top whistles at a level within reach of the others, in tune.
+    #[test]
+    fn each_voicing_whistles_from_its_onset() {
+        for (name, v) in voicings() {
+            let below = whistle(&v, 880.0, v.onset - 0.02).0;
+            let above = whistle(&v, 880.0, (v.onset + 0.05).min(1.0)).0;
+            assert!(
+                below < 0.01,
+                "{name}: quiet just below {}: {below}",
+                v.onset
+            );
+            assert!(
+                above > 0.01,
+                "{name}: whistles just above {}: {above}",
+                v.onset
+            );
+            for hz in [220.0, 880.0, 3_520.0] {
+                let (peak, ratio) = whistle(&v, hz, 1.0);
+                assert!((0.1..0.3).contains(&peak), "{name} at {hz}: level {peak}");
+                assert!((ratio - 1.0).abs() < 0.03, "{name} at {hz}: pitch {ratio}");
+            }
+        }
+    }
+
+    /// #342: a loop high-pass stops the whistle at the lowest cutoffs, where
+    /// a ladder without one whistles on.
+    #[test]
+    fn the_loop_high_pass_stops_the_lowest_whistle() {
+        use crate::mono::model::{JUNO106, MOOG};
+        const { assert!(JUNO106.loop_hp > 0.0 && MOOG.loop_hp == 0.0) };
+        assert!(
+            whistle(&JUNO106, 40.0, 1.0).0 < 0.01,
+            "the Juno-106 is quiet at 40 Hz"
+        );
+        assert!(
+            whistle(&MOOG, 40.0, 1.0).0 > 0.1,
+            "the Moog whistles at 40 Hz"
+        );
+        let (peak, ratio) = whistle(&JUNO106, 220.0, 1.0);
+        assert!(
+            peak > 0.1 && (ratio - 1.0).abs() < 0.02,
+            "and at 220 Hz: {peak} {ratio}"
+        );
     }
 }

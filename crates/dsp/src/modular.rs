@@ -217,7 +217,7 @@ pub enum Ugen {
         cutoff: u16,
         res: u16,
         slot: u8,
-        /// `res` is `MoogFF`'s gain, 0..4, the feedback itself.
+        /// `res` is `MoogFF`'s gain, 0..4: 4 is the top of the knob (#342).
         gain: bool,
         /// 0..1, 0 to +18 dB into the saturator, as `Param::Drive`.
         drive: u16,
@@ -927,8 +927,10 @@ impl GraphVoice {
                 let x = st.val(input);
                 let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
                 let r = if res == NONE { RES } else { st.val(res) };
+                // MoogFF's gain runs 0..4 and whistles at 4, as in
+                // SuperCollider: its range is the knob's (#342).
                 let k = if gain {
-                    r.clamp(0.0, MAX_K)
+                    r.clamp(0.0, 4.0) / 4.0 * MAX_K
                 } else {
                     r.clamp(0.0, 1.0) * MAX_K
                 };
@@ -1420,7 +1422,8 @@ mod tests {
             for (i, (x, y)) in b.nodes(&body, 4_800).into_iter().enumerate() {
                 let want = match (class, m.low_pass(setting), m.hp()) {
                     (Class::Ladder, Filter::Ladder(v), _) => {
-                        l.voiced(&b.ladder, &v, x, note, 3.0, 4.5)
+                        // MoogFF's gain 3 is three quarters of the knob (#342).
+                        l.voiced(&b.ladder, &v, x, note, 0.75 * MAX_K, 4.5)
                     }
                     (Class::Lp12, Filter::Svf(v), _) => {
                         f.process(&b.ladder, &v, x, note, 1.0 - 0.1).lp
@@ -1436,7 +1439,7 @@ mod tests {
         }
         let mut l = Ladder::new();
         for (x, y) in b.nodes("MoogFF.ar(Saw.ar(freq), 800, 3)", 4_800) {
-            assert_eq!(y, l.voiced(&b.ladder, &MOOG, x, note, 3.0, 1.0));
+            assert_eq!(y, l.voiced(&b.ladder, &MOOG, x, note, 0.75 * MAX_K, 1.0));
         }
         // RHPF takes the 12 dB filter's high output.
         for (word, class, m, setting) in VOICINGS {

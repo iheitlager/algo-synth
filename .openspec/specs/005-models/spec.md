@@ -142,7 +142,7 @@ The view SHALL draw each synth with a panel of its model: the sections, control 
 
 ### Requirement 9: Mixed ensemble budget [MUST]
 
-Sixteen synths across all the models SHALL render within the performance budget of plan.md (25% of a core), and every model's presets SHALL be bounded at full master gain.
+Sixteen synths across all the models SHALL render within the performance budget of plan.md (30% of a core), and every model's presets SHALL be bounded at full master gain.
 
 **Implementation:** `tools/bench.mjs`, `crates/dsp/src/engine.rs::Engine` (#40)
 

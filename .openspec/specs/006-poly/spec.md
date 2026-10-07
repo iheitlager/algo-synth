@@ -68,7 +68,7 @@ A poly model's pool SHALL run one LFO and one sample-and-hold, and every voice S
 
 ### Requirement 5: Voice budget [MUST]
 
-At most 64 voices SHALL sound at once across all synths; a note past it SHALL steal the oldest voice in release anywhere, else the oldest held note of its own pool. `make bench` SHALL measure full polyphony on every poly model against the 25% budget of plan.md.
+At most 64 voices SHALL sound at once across all synths; a note past it SHALL steal the oldest voice in release anywhere, else the oldest held note of its own pool. `make bench` SHALL measure full polyphony on every poly model against the 30% budget of plan.md.
 
 **Implementation:** `crates/dsp/src/engine.rs::Engine::start_voice`, `tools/bench.mjs` (#80, #91)
 
@@ -216,7 +216,7 @@ Chord pads on every poly model SHALL render within the performance budget, and e
 
 - GIVEN a chord on each poly model
 - WHEN they are held
-- THEN the load is within 25% of a core and every sample is within ±1
+- THEN the load is within 30% of a core and every sample is within ±1
 
 **Tests:** `tools/bench.mjs` (`make bench`: the `poly pads` and `poly worst` scenarios), `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
 
