@@ -17,7 +17,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MiniBass,
             &[
-                (Model, 1.0),
                 (Vco1Coarse, -12.0),
                 (Vco2Coarse, -12.0),
                 (Vco2Fine, 4.0),
@@ -45,7 +44,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MiniLead,
             &[
-                (Model, 1.0),
                 (Vco2Fine, 7.0),
                 (Vco2Level, 0.8),
                 (Vco3Wave, 2.0),
@@ -76,7 +74,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LuckyMan,
             &[
-                (Model, 1.0),
                 (Vco2Fine, 5.0),
                 (Vco2Level, 0.9),
                 (Vco3Wave, 2.0),
@@ -107,7 +104,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FunkBass,
             &[
-                (Model, 1.0),
                 (Vco1Coarse, -12.0),
                 (Vco2Wave, 1.0),
                 (Vco2Coarse, -12.0),
@@ -133,7 +129,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MoogStrings,
             &[
-                (Model, 1.0),
                 (Vco2Fine, 8.0),
                 (Vco2Level, 0.8),
                 (Vco3Fine, -8.0),

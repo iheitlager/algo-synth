@@ -12,7 +12,7 @@ ADR-0009 put "what each model decides" in `mono/model.rs`, as answers on `enum M
 
 - `ModelDef` is plain `Copy` data: voice count, `engine: Engine` (Mono, La, Fm, Drums(machine), Sampler, Pads, Graph), the low-pass, its 12 dB setting and revisions (`slope12`, `revs`, read by `low_pass`, #321), the high-pass, the behaviour flags, and `presets: &[PresetDef]`. A definition states what differs from `ModelDef::MONO`.
 - `Model::def()` in `synth.rs` is the one `match` from a model to its definition. The `Model` methods stay as one-line reads of it, so call sites do not change; the voice dispatch (`PolyVoice::new`, `fits`) matches on `engine`.
-- A `PresetDef` holds what the preset changes from `DEFAULTS` and, for a Modular preset, its SuperCollider code. `Preset::model`, `changes` and `code` find the preset in the definitions, when a preset loads, never in `render`.
+- A `PresetDef` holds what the preset changes from `DEFAULTS` and, for a Modular preset, its SuperCollider code. A preset does not set its model: loading it sets the model whose definition holds it. `Preset::model`, `changes` and `code` find the preset in the definitions, when a preset loads, never in `render`.
 - `mono/model.rs` keeps the model ids and the filter voicings the definitions share (`MOOG`, `D50`, …). `mono/preset.rs` keeps the `Preset` ids and names (ADR-0004) and `DEFAULTS`.
 - Not by mono or poly: the polysynths play the same Mono voice, and the voice count is a field.
 - The view's faceplates (`web/src/audio/models.ts`) are unchanged: they are view data (ADR-0001, ADR-0009).

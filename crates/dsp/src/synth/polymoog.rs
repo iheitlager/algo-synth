@@ -14,7 +14,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PolyStrings,
             &[
-                (Model, 14.0),
                 (Polyphony, 16.0),
                 (Analog, 0.4),
                 (Vco1Level, 0.8),
@@ -43,7 +42,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::VoxHumana,
             &[
-                (Model, 14.0),
                 (Polyphony, 16.0),
                 (Analog, 0.3),
                 (Vco1Wave, 1.0),
@@ -70,7 +68,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PolyFunk,
             &[
-                (Model, 14.0),
                 (Polyphony, 16.0),
                 (Analog, 0.3),
                 (Vco1Wave, 1.0),
@@ -95,7 +92,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PolyBrass,
             &[
-                (Model, 14.0),
                 (Polyphony, 16.0),
                 (Analog, 0.4),
                 (Vco1Level, 0.9),

@@ -15,12 +15,7 @@ pub const DEF: ModelDef = ModelDef {
             ),
             ..PresetDef::of(
                 Preset::ModularBasic,
-                &[
-                    (Model, 19.0),
-                    (Polyphony, 8.0),
-                    (AdsrAttack, 0.005),
-                    (AdsrRelease, 0.25),
-                ],
+                &[(Polyphony, 8.0), (AdsrAttack, 0.005), (AdsrRelease, 0.25)],
             )
         },
         // Two detuned pulses whose widths an LFO each moves, and a saw an
@@ -32,7 +27,6 @@ pub const DEF: ModelDef = ModelDef {
             ..PresetDef::of(
                 Preset::ModularHoover,
                 &[
-                    (Model, 19.0),
                     (Polyphony, 8.0),
                     (AdsrAttack, 0.02),
                     (AdsrSustain, 0.9),
@@ -46,7 +40,7 @@ pub const DEF: ModelDef = ModelDef {
             code: Some(
                 "SynthDef(\\kick, { |amp = 0.5|\n    var pitch = Env.perc(0.001, 0.12).kr.exprange(48, 900);\n    var body = SinOsc.ar(pitch) * Env.perc(0.001, 0.45).kr;\n    (body * 12).tanh * amp\n}).add;\n",
             ),
-            ..PresetDef::of(Preset::ModularKick, &[(Model, 19.0), (Polyphony, 4.0)])
+            ..PresetDef::of(Preset::ModularKick, &[(Polyphony, 4.0)])
         },
     ],
     ..ModelDef::MONO

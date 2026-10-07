@@ -18,7 +18,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JunoPad,
             &[
-                (Model, 8.0),
                 (Polyphony, 6.0),
                 (Analog, 0.5),
                 (ChorusMode, 2.0),
@@ -44,7 +43,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JunoStrings,
             &[
-                (Model, 8.0),
                 (Polyphony, 6.0),
                 (Analog, 0.5),
                 (ChorusMode, 3.0),
@@ -69,7 +67,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JunoBrass,
             &[
-                (Model, 8.0),
                 (Polyphony, 6.0),
                 (Analog, 0.4),
                 (ChorusMode, 1.0),
@@ -92,7 +89,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JunoBass,
             &[
-                (Model, 8.0),
                 (Polyphony, 6.0),
                 (Analog, 0.3),
                 (Vco1Level, 0.7),
@@ -114,7 +110,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JunoPluck,
             &[
-                (Model, 8.0),
                 (Polyphony, 6.0),
                 (Analog, 0.4),
                 (ChorusMode, 1.0),
@@ -141,7 +136,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JunoPoly,
             &[
-                (Model, 8.0),
                 (Polyphony, 6.0),
                 (Analog, 0.5),
                 (ChorusMode, 2.0),

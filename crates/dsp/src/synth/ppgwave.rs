@@ -15,7 +15,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PpgSweepPad,
             &[
-                (Model, 11.0),
                 (Polyphony, 8.0),
                 (Analog, 0.5),
                 (ChorusMode, 2.0),
@@ -48,7 +47,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PpgGlassBell,
             &[
-                (Model, 11.0),
                 (Polyphony, 8.0),
                 (Analog, 0.3),
                 (WtSteps, 1.0),
@@ -78,7 +76,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PpgFormant,
             &[
-                (Model, 11.0),
                 (Polyphony, 8.0),
                 (Analog, 0.5),
                 (ChorusMode, 1.0),
@@ -106,7 +103,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PpgPulseBass,
             &[
-                (Model, 11.0),
                 (Polyphony, 8.0),
                 (Analog, 0.3),
                 (Wt1Table, 1.0),
@@ -138,7 +134,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PpgDigitalPluck,
             &[
-                (Model, 11.0),
                 (Polyphony, 8.0),
                 (Analog, 0.3),
                 (WtSteps, 1.0),
@@ -168,7 +163,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PpgOrganWave,
             &[
-                (Model, 11.0),
                 (Polyphony, 8.0),
                 (Analog, 0.4),
                 (ChorusMode, 1.0),

@@ -941,9 +941,14 @@ mod tests {
         });
     }
 
+    /// A preset's model is its definition's; its changes never set it.
     #[test]
     fn every_preset_sets_its_model() {
         for (preset, name) in Preset::ALL {
+            assert!(
+                preset.changes().iter().all(|(p, _)| *p != Param::Model),
+                "{name} sets the model"
+            );
             let mut e = Engine::new(48_000.0);
             e.preset(0, preset);
             assert_eq!(

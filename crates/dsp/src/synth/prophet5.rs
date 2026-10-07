@@ -16,7 +16,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::P5Brass,
             &[
-                (Model, 7.0),
                 (Polyphony, 5.0),
                 (Analog, 0.5),
                 (Vco1Level, 0.9),
@@ -41,7 +40,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::P5Strings,
             &[
-                (Model, 7.0),
                 (Polyphony, 5.0),
                 (Analog, 0.6),
                 (Vco1Level, 0.8),
@@ -68,7 +66,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::P5Bass,
             &[
-                (Model, 7.0),
                 (Polyphony, 5.0),
                 (Assign, 1.0),
                 (UnisonDetune, 0.12),
@@ -97,7 +94,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::P5SyncLead,
             &[
-                (Model, 7.0),
                 (Polyphony, 5.0),
                 (Assign, 1.0),
                 (UnisonDetune, 0.1),
@@ -125,7 +121,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::P5Bell,
             &[
-                (Model, 7.0),
                 (Polyphony, 5.0),
                 (Analog, 0.3),
                 (Vco1Wave, 3.0),
@@ -146,7 +141,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::P5Pad,
             &[
-                (Model, 7.0),
                 (Polyphony, 5.0),
                 (Analog, 0.7),
                 (Vco1Level, 0.8),

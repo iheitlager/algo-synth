@@ -14,7 +14,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ProLead,
             &[
-                (Model, 2.0),
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 12.0),
                 (Vco2Level, 1.0),
@@ -45,7 +44,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ProBass,
             &[
-                (Model, 2.0),
                 (Vco1Coarse, -12.0),
                 (Vco2Wave, 1.0),
                 (Vco2Coarse, -12.0),
@@ -75,7 +73,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SyncSweep,
             &[
-                (Model, 2.0),
                 (Vco1Level, 0.0),
                 (Vco2Level, 1.0),
                 (Vco2Sync, 1.0),
@@ -98,7 +95,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::PolyModBell,
             &[
-                (Model, 2.0),
                 (Vco1Wave, 3.0),
                 (Vco1Coarse, 22.0),
                 (Vco1Level, 0.0),
@@ -118,7 +114,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::ProStrings,
             &[
-                (Model, 2.0),
                 (Vco1Fine, 9.0),
                 (Vco1Level, 0.8),
                 (Vco2Wave, 1.0),

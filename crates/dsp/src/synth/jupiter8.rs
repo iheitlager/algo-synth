@@ -16,7 +16,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JupiterBrass,
             &[
-                (Model, 9.0),
                 (Polyphony, 8.0),
                 (Analog, 0.4),
                 (Vco1Level, 0.9),
@@ -41,7 +40,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JupiterStrings,
             &[
-                (Model, 9.0),
                 (Polyphony, 8.0),
                 (Analog, 0.5),
                 (Vco1Level, 0.8),
@@ -69,7 +67,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JupiterBass,
             &[
-                (Model, 9.0),
                 (Polyphony, 8.0),
                 (Assign, 1.0),
                 (UnisonDetune, 0.15),
@@ -99,7 +96,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JupiterSync,
             &[
-                (Model, 9.0),
                 (Polyphony, 8.0),
                 (Assign, 1.0),
                 (UnisonDetune, 0.1),
@@ -128,7 +124,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JupiterXMod,
             &[
-                (Model, 9.0),
                 (Polyphony, 8.0),
                 (Analog, 0.4),
                 (Vco1Wave, 3.0),
@@ -155,7 +150,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JupiterPad,
             &[
-                (Model, 9.0),
                 (Polyphony, 8.0),
                 (Analog, 0.6),
                 (Vco1Level, 0.8),

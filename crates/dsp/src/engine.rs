@@ -395,7 +395,9 @@ impl Engine {
     /// Set every Mono parameter of `synth`: the defaults, then the preset's
     /// changes.
     pub fn preset(&mut self, synth: usize, preset: Preset) {
-        for (p, v) in DEFAULTS.iter().chain(preset.changes()) {
+        // The model is the one whose definition holds the preset (#330).
+        let model = [(Param::Model, preset.model() as u32 as f32)];
+        for (p, v) in DEFAULTS.iter().chain(&model).chain(preset.changes()) {
             self.set_param(synth, *p, *v);
         }
         // A Modular preset's code; building allocates, so never from `render`.

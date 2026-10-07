@@ -13,7 +13,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LaFantasia,
             &[
-                (Model, 12.0),
                 (Polyphony, 16.0),
                 (Analog, 0.1),
                 (ChorusMode, 2.0),
@@ -47,7 +46,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LaPluckPad,
             &[
-                (Model, 12.0),
                 (Polyphony, 16.0),
                 (Analog, 0.1),
                 (ChorusMode, 1.0),
@@ -76,7 +74,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LaBreathFlute,
             &[
-                (Model, 12.0),
                 (Polyphony, 16.0),
                 (Analog, 0.1),
                 (Pcm1Sample, 5.0),
@@ -106,7 +103,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LaRingBell,
             &[
-                (Model, 12.0),
                 (Polyphony, 16.0),
                 (Analog, 0.1),
                 (Structure, 2.0),
@@ -132,7 +128,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LaThumpBass,
             &[
-                (Model, 12.0),
                 (Polyphony, 16.0),
                 (Analog, 0.1),
                 (Pcm1Sample, 7.0),
@@ -161,7 +156,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::LaChoir,
             &[
-                (Model, 12.0),
                 (Polyphony, 16.0),
                 (Analog, 0.2),
                 (ChorusMode, 2.0),

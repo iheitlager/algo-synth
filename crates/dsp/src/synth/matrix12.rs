@@ -17,7 +17,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MatrixPad,
             &[
-                (Model, 10.0),
                 (Polyphony, 12.0),
                 (Analog, 0.5),
                 (Vco1Level, 0.8),
@@ -50,7 +49,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MatrixSweep,
             &[
-                (Model, 10.0),
                 (Polyphony, 12.0),
                 (Analog, 0.4),
                 (Vco1Level, 0.9),
@@ -79,7 +77,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MatrixBrass,
             &[
-                (Model, 10.0),
                 (Polyphony, 12.0),
                 (Analog, 0.4),
                 (Vco1Level, 0.9),
@@ -107,7 +104,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MatrixPunch,
             &[
-                (Model, 10.0),
                 (Polyphony, 12.0),
                 (Analog, 0.3),
                 (Vco1Coarse, -12.0),
@@ -142,7 +138,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MatrixBells,
             &[
-                (Model, 10.0),
                 (Polyphony, 12.0),
                 (Analog, 0.3),
                 (Vco1Wave, 3.0),
@@ -166,7 +161,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::MatrixLead,
             &[
-                (Model, 10.0),
                 (Polyphony, 12.0),
                 (Assign, 1.0),
                 (UnisonDetune, 0.12),
