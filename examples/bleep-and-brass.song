@@ -1,0 +1,150 @@
+# Bleep and Brass: melodic techno in D minor, half classic polysynths, half
+# SuperCollider. Prophet-5 brass stabs, Jupiter-8 and Polymoog strings, an
+# SH-101 acid line and MS-20 jet sweeps; Modular bleeps, chirps, a rolling sub,
+# a Jupiter-filtered pluck and a metal clank. One progression feeds the
+# strings, the stabs, the sub and the pluck.
+tempo 126
+swing 54
+scale d minor
+
+# A squelchier AcidBass: more resonance and envelope, a snappier decay.
+setting tb = Sh101 AcidBass: Resonance 0.9, Drive 0.7, EnvCutoff 0.95, AdsrDecay 0.18, AdsrSustain 0.1, Glide 0.08
+
+# Sheffield bleep: a square and its octave sine, short, a little apart.
+setting bleep = Modular ModularBasic
+  SynthDef(\bleep, { |freq = 880, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.09), gate);
+      var sig = (Pulse.ar(freq, 0.5) * 0.3) + SinOsc.ar(freq * 2);
+      Pan2.ar(LPF.ar(sig, 5000) * env * 1.2, Rand(-0.5, 0.5))
+  }).add;
+
+# A sine that drops an octave into its note: a bloop.
+setting chirp = Modular ModularBasic
+  SynthDef(\chirp, { |freq = 660, gate = 1|
+      var f = freq * Env([12, 0], [0.04], [\lin]).kr.midiratio;
+      var env = EnvGen.kr(Env.perc(0.001, 0.14), gate);
+      Pan2.ar(SinOsc.ar(f) * env * 1, Rand(-0.7, 0.7))
+  }).add;
+
+# A sine and a triangle, warmed and short: the off-beat roll.
+setting rumble = Modular ModularBasic
+  SynthDef(\rumble, { |freq = 55, gate = 1|
+      var sig = SinOsc.ar(freq) + (LFTri.ar(freq * 2) * 0.25);
+      (sig * 1.8).tanh * EnvGen.kr(Env.perc(0.003, 0.22), gate) * 0.7
+  }).add;
+
+# A saw and a pulse through the Jupiter-8's ladder, the envelope plucking it.
+setting pluck = Modular ModularBasic
+  SynthDef(\pluck, { |freq = 440, cutoff = 900, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.002, 0.25), gate);
+      var sig = Saw.ar(freq) + Pulse.ar(freq * 1.004, 0.4);
+      sig = MoogFF.ar(sig, cutoff * (env * 4 + 1), 2, voicing: \jupiter8, drive: 0.3);
+      Pan2.ar(sig * env * 0.5, SinOsc.kr(0.13) * 0.6)
+  }).add;
+
+# A click of noise ringing in a comb tuned to the note: metal.
+setting clank = Modular ModularBasic
+  SynthDef(\clank, { |freq = 440, gate = 1|
+      var hit = WhiteNoise.ar * Env.perc(0.001, 0.01).kr;
+      var ring = CombC.ar(hit, 0.02, 1 / freq, 0.4);
+      Pan2.ar(RHPF.ar(ring, 800, 0.5) * EnvGen.kr(Env.perc(0.001, 0.4), gate) * 2, Rand(-0.4, 0.4))
+  }).add;
+
+track kit drums Tr909 Kit909
+track sub synth rumble
+track acid synth tb
+track stabs synth Prophet5 P5Brass
+track strings synth Jupiter8 JupiterStrings
+track poly synth PolyMoog PolyStrings
+track sweep synth Ms20 JetSweep
+track bleep synth bleep
+track chirp synth chirp
+track pluck synth pluck
+track clank synth clank
+
+strip kit: Level 1
+strip sub: Level 0.65
+strip acid: Level 0.17, Pan 0.15, I1Type Overdrive, I1A 0.5, Send1 0.25
+strip stabs: Level 0.32, Send1 0.25, Send2 0.15, Send4 0.55
+strip strings: Level 0.2, Pan -0.2, Send2 0.35, Send3 0.7
+strip poly: Level 0.16, Pan 0.25, Send2 0.4, Send3 0.6
+strip sweep: Level 0.4, Send2 0.3
+strip bleep: Level 0.5, Send1 0.45
+strip chirp: Level 0.5, Send1 0.3
+strip pluck: Level 0.4, Send1 0.25
+strip clank: Level 0.45, Send2 0.25
+master: MasterGain 0.8, P1Return 0.3, P1B 0.45, P2Return 0.3, P2A 0.8, P3Type Chorus, P3Return 0.5, P3A 0.3, P3B 0.6, P3C 0.5, P3D 0.9, P3E 0.55, P4Type Reverb, P4Return 0.35, P4A 0.75, P4B 0.25, P4C 0.35
+
+frag kick = kit /16
+  bd x...x...x...x...
+frag tick = kit /16
+  ch x.x.x.x.x.x.x.x.
+frag hats = kit /16
+  ch xxXx xxXx xxXx xxXX
+  oh ..x...x...x...x.
+frag clap = kit /16
+  cp ....x.......x...
+frag ride = kit /16
+  rd x.x.x.x.x.x.x.x.
+  rs euclid(3,8,2)
+frag roll = kit /16
+  sn x...x...x.x.xxXX
+  cp ............x.x.
+frag crash = kit /16
+  cr x...............................................................
+
+frag chords = strings voicing
+  "<i VI III VII>"
+frag high = poly
+  "<[d5,f5,a5] [d5,f5,bb5] [c5,f5,a5] [c5,e5,g5]>"
+frag stab = stabs voicing .struct("~ ~ x ~ ~ x ~ ~ ~ ~ x ~ ~ x ~ ~")
+  "<i7 VImaj7 III VII7>"
+frag stab_half = stabs voicing .struct("~ ~ x ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~")
+  "<i7 VImaj7 III VII7>"
+
+frag roll_low = sub .struct("~ x x x ~ x x x ~ x x x ~ x x x")
+  root(chords,1)
+frag ripple = pluck
+  arp(chords,updown,16)
+
+frag line = acid
+  "d2! d2& d3 d2 ~ d2! c3& d3 a1 d2& f2 d2! ~ g2& a2 d3!"
+frag line_b = acid .every(2, rev)
+  mutate(line,35,6)
+
+frag jet = sweep bars 4
+  d3@0:192:100
+
+frag bleeps = bleep .off(3/16, add(12))
+  "~ d6 ~ ~ a5 ~ d6 ~ ~ ~ f6 ~ a5 ~ ~ c6"
+frag bloops = chirp
+  euclid(5,16,1) scale d5
+frag drift = chirp live
+  walk(d5,16,4)
+frag metal = clank
+  "~ ~ ~ a4 ~ ~ d5 ~ ~ ~ ~ a4 ~ d5 ~ ~"
+
+auto jet_rise = sweep.Cutoff ramp 200 6000 /4
+auto jet_res = sweep.Resonance 0.7 /4
+auto acid_shut = acid.Cutoff 250 /8
+auto acid_open = acid.Cutoff ramp 250 1600 /16
+auto acid_scream = acid.Cutoff 700 2200 1100 2600 /4
+auto acid_soft = acid.Resonance 0.75 /8
+auto acid_peak = acid.Resonance ramp 0.8 0.95 /8
+auto pluck_open = pluck.Ctl1 ramp 300 2000 /8
+auto stab_open = stabs.Cutoff ramp 800 4000 /4
+auto brass_bloom = master.P4Return ramp 0.35 0.7 /4
+
+scene dry: master.P1Return 0.3, master.P2Return 0.3, master.P4Return 0.35
+scene wet: master.P1Return 0.5, master.P2Return 0.55
+
+section intro 8: kick tick chords bleeps [dry]
+section rise 8: kick hats chords roll_low bloops jet jet_rise jet_res
+section main 16: kick hats clap roll_low line stab_half bleeps metal acid_open acid_soft
+section groove 16: kick hats clap ride roll_low line_b stab ripple bloops pluck_open acid_scream acid_soft
+section breakdown 8: chords high drift jet jet_rise jet_res [wet]
+section build 4: roll stab line acid_shut acid_peak stab_open brass_bloom
+section drop 16: crash kick hats clap ride roll_low line stab ripple bleeps metal acid_scream acid_peak [dry]
+section outro 8: kick tick roll_low chords bleeps
+arrange intro rise main groove breakdown build drop outro
+loop 61 76
