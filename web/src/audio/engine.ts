@@ -550,6 +550,8 @@ export const song = reactive({
   /** With an arrangement (ADR-0015): the entry playing and the steps into it, −1 without. */
   entry: -1,
   local: -1,
+  /** The fragment playing alone, −1 when none is cued (#375). */
+  cued: -1,
   /** The arrangement (ADR-0015): sections with what each holds (by index), their order, lanes, scenes, loop bars (0 0 none). */
   sections: [] as SongSection[],
   arrange: [] as number[],
@@ -662,6 +664,8 @@ export const setSongSwing = (v: number) => engine?.post({ t: 'songSwing', v })
 export const playSong = () => engine?.post({ t: 'songPlay' })
 export const pauseSong = () => engine?.post({ t: 'songPause' })
 export const stopSong = () => engine?.post({ t: 'songStop' })
+/** Play fragment `f` alone, looping from its first bar (#375); −1 stops it and goes back to the song. */
+export const cueFrag = (f: number) => engine?.post({ t: 'songCue', f })
 
 /** Where the song is, in steps from the top (−1 before the first): in an arrangement it counts from the top of the arrangement, so it follows the loop. */
 export const songPosition = computed(() => {
@@ -796,6 +800,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     song.playing = data.songPlaying as boolean
     song.entry = (data.entry as number | undefined) ?? -1
     song.local = (data.local as number | undefined) ?? -1
+    song.cued = (data.cued as number | undefined) ?? -1
   } else if (data.t === 'song') {
     applySong(data)
   } else if (data.t === 'load') {

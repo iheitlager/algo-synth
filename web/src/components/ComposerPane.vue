@@ -7,7 +7,7 @@ import { LIMITS, setSplit, splits } from '../audio/split'
 import Splitter from './Splitter.vue'
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, loadSong, params, requestSong, routeTrack, typeSong, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  MUTE, cueFrag, loadSong, params, requestSong, routeTrack, typeSong, setSongSwing, setSongTempo, setStep, song, songPosition as position,
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -52,6 +52,8 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
 // The lane step under the clock: a lane of `grid` steps a bar (#353) moves
 // grid/16 steps per clock step.
 const playing = (f: number, len: number, grid: number) => {
+  // While a fragment is cued (#375), only it plays.
+  if (song.cued >= 0 && song.cued !== f) return -1
   if (song.entry >= 0 && !section.value?.frags[f]) return -1
   const k = song.entry >= 0 ? song.local : song.step
   return k < 0 ? -1 : Math.floor((k * grid) / 16) % len
@@ -97,6 +99,7 @@ watch(() => status.running, (on) => on && requestSong())
           @change="setSongSwing(Number(($event.target as HTMLInputElement).value))" />
       </label>
       <span v-if="song.playing && position >= 0" class="muted">bar {{ Math.floor(position / 16) + 1 }} · step {{ (position % 16) + 1 }}</span>
+      <span v-if="song.cued >= 0" class="cue-note">fragment {{ song.frags[song.cued]?.name }} alone</span>
     </div>
     <div class="body" :style="{ '--code': splits.code != null ? `${splits.code}px` : undefined }">
       <div class="grid">
@@ -106,8 +109,15 @@ watch(() => status.running, (on) => on && requestSong())
           The song has no fragments yet.
           <button @click="loadSong(STARTER)">Start a beat</button>
         </p>
-        <div v-for="(frag, f) in song.frags" :key="f" class="frag">
+        <div v-for="(frag, f) in song.frags" :key="f" class="frag" :class="{ cued: song.cued === f }">
           <div class="frag-head">
+            <!-- Play this fragment alone, looping; again, or Stop, goes back to the song (#375). -->
+            <button
+              class="cue" :aria-pressed="song.cued === f" :disabled="!status.running"
+              :aria-label="song.cued === f ? `Stop fragment ${frag.name}` : `Play fragment ${frag.name} alone`"
+              :title="song.cued === f ? 'Stop this fragment' : 'Play this fragment alone, looping'"
+              @click="cueFrag(song.cued === f ? -1 : f)"
+            >{{ song.cued === f ? '■' : '▶' }}</button>
             <b>{{ frag.name }}</b>
             <span class="muted">on {{ song.tracks[frag.track]?.name }}</span>
             <select
@@ -167,6 +177,11 @@ watch(() => status.running, (on) => on && requestSong())
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 .grid .strip { padding: 0; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+/* A fragment playing alone (#375): its button lit and the fragment outlined. */
+.frag.cued { outline: 1px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.cue { width: 26px; height: 22px; padding: 0; line-height: 1; }
+.cue[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+.cue-note { color: var(--accent); }
 .lane { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .pad { width: 2.2em; font-family: var(--font-mono); color: var(--muted); }
 .steps { display: flex; gap: 3px; }

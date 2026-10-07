@@ -99,6 +99,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songPlay': w.song_play(); break
         case 'songPause': w.song_pause(); break
         case 'songStop': w.song_stop(); break
+        case 'songCue': w.song_cue(data.f); break
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
         case 'padsDump': this.sendPads(data.s); break
@@ -332,7 +333,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (++this.tick % POSITION_EVERY === 0) {
       this.port.postMessage({
         t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,
-        entry: w.song_entry(), local: w.song_local(),
+        entry: w.song_entry(), local: w.song_local(), cued: w.song_cued(),
       })
       // Automation or a Revision switch moved these strips' values: show them (ADR-0015, #343).
       const touched = w.auto_touched()

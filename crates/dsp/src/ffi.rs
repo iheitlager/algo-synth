@@ -661,6 +661,21 @@ pub extern "C" fn song_stop() {
     with_engine(Engine::song_stop);
 }
 
+/// Play fragment `frag` alone, looping (#375); negative stops it and goes
+/// back to the song.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_cue(frag: i32) {
+    with_engine(|e| e.song_cue(usize::try_from(frag).ok()));
+}
+
+/// The fragment playing alone, −1 when none is cued.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_cued() -> i32 {
+    query(-1, |e| {
+        e.song_cued().map_or(-1, |f| i32::try_from(f).unwrap_or(-1))
+    })
+}
+
 /// Move the song to bar `bar` (from 0) of its arrangement.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_seek_bar(bar: u32) {

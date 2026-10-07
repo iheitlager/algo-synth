@@ -318,6 +318,11 @@ describe('onMessage', () => {
     // Without an arrangement the engine leaves entry and local out.
     send({ t: 'pos', step: -1, songPlaying: false })
     expect([mod.song.entry, mod.song.local]).toEqual([-1, -1])
+    // A fragment playing alone (#375), and none.
+    send({ t: 'pos', step: 3, songPlaying: true, cued: 4 })
+    expect(mod.song.cued).toBe(4)
+    send({ t: 'pos', step: -1, songPlaying: false, cued: -1 })
+    expect(mod.song.cued).toBe(-1)
   })
 
   it('load and meters', async () => {
@@ -529,6 +534,8 @@ describe('posting', () => {
     mod.playSong()
     mod.pauseSong()
     mod.stopSong()
+    mod.cueFrag(3)
+    mod.cueFrag(-1)
     mod.requestSong()
     mod.setStep(1, 2, 3, 2)
     mod.addNote(0, 6, 60)
@@ -543,6 +550,8 @@ describe('posting', () => {
       { t: 'songPlay' },
       { t: 'songPause' },
       { t: 'songStop' },
+      { t: 'songCue', f: 3 },
+      { t: 'songCue', f: -1 },
       { t: 'songDump' },
       { t: 'step', f: 1, l: 2, s: 3, level: 2 },
       { t: 'note', f: 0, op: 0, tick: 6, note: 60, len: 0 },

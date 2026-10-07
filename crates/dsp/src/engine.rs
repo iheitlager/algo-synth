@@ -193,6 +193,10 @@ pub struct Engine {
     /// A song loaded while the song plays, ready to take over at the next
     /// bar with its live buffers and track routes (#208).
     pending: Option<Pending>,
+    /// The fragment playing alone, if one is cued (#375), and its name, to
+    /// find it again in a song that takes over.
+    cue: Option<usize>,
+    cue_name: String,
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
     spent: Option<(Song, Vec<Live>)>,
@@ -278,6 +282,8 @@ impl Engine {
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
             pending: None,
+            cue: None,
+            cue_name: String::new(),
             spent: None,
             taken: false,
             auto_last: [f32::NAN; MAX_AUTOS],
@@ -983,6 +989,7 @@ impl Engine {
 
     pub fn song_stop(&mut self) {
         self.commit_song();
+        self.cue = None;
         self.hand_arps_over();
         self.release_song_notes();
         self.clock.stop();
@@ -1011,6 +1018,42 @@ impl Engine {
         self.mod_state = [f32::NAN; signal::MAX_NODES];
     }
 
+    /// Play fragment `frag` alone, looping from its first bar, on the song's
+    /// clock (#375): no arrangement, scenes or automation lanes, only its
+    /// lanes or notes and the song's modulations. `None`, or a fragment the
+    /// song does not have, stops it and leaves the song as it was. Stop
+    /// clears the cue too.
+    pub fn song_cue(&mut self, frag: Option<usize>) {
+        self.song_stop();
+        let Some((f, name)) = frag.and_then(|f| self.song.frags.get(f).map(|x| (f, &x.name)))
+        else {
+            return;
+        };
+        self.cue_name.clone_from(name);
+        self.cue = Some(f);
+        self.song_play();
+    }
+
+    /// The fragment playing alone, if one is cued.
+    pub fn song_cued(&self) -> Option<usize> {
+        self.cue
+    }
+
+    /// Where clock step `k` falls: in the song's arrangement, or free while a
+    /// fragment is cued (#375).
+    fn place(&self, k: u64) -> At {
+        if self.cue.is_some() {
+            At::Free(k)
+        } else {
+            self.song.at(k)
+        }
+    }
+
+    /// Whether fragment `f` is silent because another one is cued.
+    fn cued_out(&self, f: usize) -> bool {
+        self.cue.is_some_and(|c| c != f)
+    }
+
     /// Move the song to the first step of `bar` (from 0); the clock fires it next.
     pub fn song_seek_bar(&mut self, bar: u64) {
         self.clock.seek_step(bar.saturating_mul(STEPS_PER_BAR));
@@ -1020,7 +1063,7 @@ impl Engine {
     /// Where the last fired step fell: the arrangement entry and the steps into
     /// it, or `None` without an arrangement or before the first step.
     pub fn song_place(&self) -> Option<(usize, u64)> {
-        match self.song.at(self.clock.step()?) {
+        match self.place(self.clock.step()?) {
             At::In { entry, local, .. } => Some((entry, local)),
             _ => None,
         }
@@ -1120,7 +1163,7 @@ impl Engine {
         // the section that plays, if any. Note-offs above use the clock's own
         // ticks, so a note started in one section ends where it should.
         let step = j / TICKS_PER_STEP;
-        let (from, section) = match self.song.at(step) {
+        let (from, section) = match self.place(step) {
             At::Free(_) => (j, None),
             At::In { section, local, .. } => {
                 (local * TICKS_PER_STEP + j % TICKS_PER_STEP, Some(section))
@@ -1128,6 +1171,9 @@ impl Engine {
             At::End => return,
         };
         for f in 0..self.song.frags.len() {
+            if self.cued_out(f) {
+                continue;
+            }
             if let Some(s) = section {
                 if !self
                     .song
@@ -1302,7 +1348,7 @@ impl Engine {
     /// stops after its last bar (ADR-0015). Reads the song in place: nothing
     /// allocates.
     fn play_step(&mut self, step: u64) {
-        match self.song.at(step) {
+        match self.place(step) {
             At::In {
                 section, local: 0, ..
             } => self.apply_scenes(section),
@@ -1324,7 +1370,7 @@ impl Engine {
     /// only the grace strokes that fall before the step are queued; without,
     /// the hits and the graces that fall after it.
     fn lane_hits(&mut self, step: u64, ahead: bool) {
-        let (k, section) = match self.song.at(step) {
+        let (k, section) = match self.place(step) {
             At::Free(k) => (k, None),
             At::In { section, local, .. } => (local, Some(section)),
             At::End => return,
@@ -1333,6 +1379,9 @@ impl Engine {
         let before = step.checked_sub(1).map(|p| self.clock.step_sample(p));
         let ms = f64::from(self.sample_rate) / 1000.0;
         for f in 0..self.song.frags.len() {
+            if self.cued_out(f) {
+                continue;
+            }
             let Some(frag) = self.song.frags.get(f) else {
                 continue;
             };
@@ -1517,13 +1566,14 @@ impl Engine {
     /// writes only when its value changed. Lanes of the current section play,
     /// counted from its first step; without an arrangement every lane loops.
     fn run_automation(&mut self) {
-        if !self.clock.playing() || self.song.autos.is_empty() {
+        // A cued fragment plays without the arrangement's lanes (#375).
+        if !self.clock.playing() || self.song.autos.is_empty() || self.cue.is_some() {
             return;
         }
         let pos = self.clock.step_position().max(0.0);
         let whole = pos.floor();
         let frac = pos - whole;
-        let (local, section) = match self.song.at(whole as u64) {
+        let (local, section) = match self.place(whole as u64) {
             At::Free(k) => (k as f64 + frac, None),
             At::In { section, local, .. } => (local as f64 + frac, Some(section)),
             At::End => return,
@@ -1579,7 +1629,7 @@ impl Engine {
             return;
         }
         let pos = self.clock.step_position().max(0.0);
-        let section = match self.song.at(pos.floor() as u64) {
+        let section = match self.place(pos.floor() as u64) {
             At::Free(_) => None,
             At::In { section, .. } => Some(section),
             At::End => return,
@@ -1593,12 +1643,13 @@ impl Engine {
             };
             let (target, param) = (md.target, md.param);
             let playing = md.frag.is_none_or(|f| {
-                section.is_none_or(|s| {
-                    self.song
-                        .sections
-                        .get(s)
-                        .is_some_and(|sec| sec.frags.contains(&f))
-                })
+                !self.cued_out(f)
+                    && section.is_none_or(|s| {
+                        self.song
+                            .sections
+                            .get(s)
+                            .is_some_and(|sec| sec.frags.contains(&f))
+                    })
             });
             if md.signal.per_voice() {
                 // A value per voice of the track's Mono or Poly synth (ADR-0023).
@@ -1908,6 +1959,11 @@ impl Engine {
         self.song_route = p.route;
         self.clock.set_tempo(self.song.tempo);
         self.clock.set_swing(self.song.swing);
+        // A cued fragment is found again by its name; gone, it stops (#375).
+        let lost = self.cue.is_some() && {
+            self.cue = self.song.frags.iter().position(|f| f.name == self.cue_name);
+            self.cue.is_none()
+        };
         self.auto_last = [f32::NAN; MAX_AUTOS];
         self.mod_last = [f32::NAN; MAX_MODS];
         self.mod_state = [f32::NAN; signal::MAX_NODES];
@@ -1944,6 +2000,9 @@ impl Engine {
         }
         for (t, p, v) in restore.into_iter().flatten() {
             self.automate(t, p, v);
+        }
+        if lost {
+            self.song_stop();
         }
     }
 
