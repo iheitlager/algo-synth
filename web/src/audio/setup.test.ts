@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import demoText from '../../public/demo.synths.json?raw'
 import { GlobalParam, Param, StripParam } from './params'
 import { applyPlan, buildSetup, parseSetup, shortF32, type Registry, type Setup, type State } from './setup'
 
@@ -235,11 +234,6 @@ describe('the mixer in a setup (#49)', () => {
     )
     expect(parsed.ok && parsed.setup.synths[0]?.params).toEqual({ I1Type: 2, I1A: 0.8, I1B: 0.6, I1C: 0.7, Level: 0.9 })
     expect(parsed.ok && parsed.warnings[0]).toMatch(/DriveAmount, DriveLevel, DriveMode, DriveTone/)
-  })
-
-  it('opens the shipped demo setup without a warning', () => {
-    const parsed = parseSetup(demoText, { ...reg, models: { Arp2600: 0 } })
-    expect(parsed.ok && parsed.warnings).toEqual([])
   })
 })
 

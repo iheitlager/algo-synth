@@ -26,17 +26,28 @@ export function familyName(family: string, taken: readonly string[]): string {
   return `${word} ${n}`
 }
 
+/**
+ * The strips named after the song track they play (#327), not by the user, so
+ * the next song may rename them. Every other name is the user's or a family's.
+ */
+export const fromSong = new Set<number>()
+
+/** A song track's name as a strip's: underscores read as spaces (#327). */
+export const trackLabel = (track: string) => cleanName(track.replace(/_/g, ' '))
+
 /** A strip's name: the user's, else `Synth N` / `Group N`. */
 export const stripName = (s: number): string => names.strips[s] ?? defaultStripName(s)
 
 /** Name strip `s`; an empty name goes back to the default. */
 export function renameStrip(s: number, raw: string) {
   const name = cleanName(raw)
+  fromSong.delete(s)
   if (name) names.strips[s] = name
   else delete names.strips[s]
 }
 
 /** Replace every name (a setup was applied); keys are strip indices. */
 export function setNames(next: { strips?: Record<string, string> } = {}) {
+  fromSong.clear()
   names.strips = Object.fromEntries(Object.entries(next.strips ?? {}).map(([k, v]) => [Number(k), v]))
 }
