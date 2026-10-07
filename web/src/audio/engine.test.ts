@@ -10,7 +10,7 @@ import { GlobalParam, StripParam } from './params'
 
 type Msg = { t: string } & Record<string, unknown>
 
-/** An empty wasm module: enough for `wasmLexer`, which only instantiates it. */
+/** An empty wasm module: enough for `wasmLexers`, which only instantiates it. */
 const EMPTY_WASM = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
 
 function memoryStorage(seed: Record<string, string> = {}) {
@@ -204,6 +204,26 @@ describe('applySong', () => {
     const { mod, send } = await boot()
     send({ t: 'song', ...ok, ok: true, text: enc('sent'), error: null, tracks: [] })
     expect(mod.song.text).toBe('sent')
+  })
+})
+
+describe('Modular knobs (#329)', () => {
+  it('parses the engine\'s knob list, one tab-separated line per number', async () => {
+    const { mod } = await boot()
+    expect(mod.parseKnobs('1\tRLPF\tfreq\t0\t20\t20000\t1\t800\n1\tRLPF\trq\t1\t0.05\t2\t0\t0.3\n')).toEqual([
+      { module: 1, ugen: 'RLPF', name: 'freq', ctl: 0, lo: 20, hi: 20000, exp: true, def: 800 },
+      { module: 1, ugen: 'RLPF', name: 'rq', ctl: 1, lo: 0.05, hi: 2, exp: false, def: 0.3 },
+    ])
+    expect(mod.parseKnobs('')).toEqual([])
+  })
+
+  it('keeps each synth\'s knobs as they arrive, and asks for the code again', async () => {
+    const { mod, send, take } = await boot()
+    send({ t: 'knobs', s: 2, knobs: enc('0\tSinOsc\tfreq\t0\t20\t20000\t1\t440\n') })
+    expect(mod.codeKnobs[2]?.map((k) => k.ugen)).toEqual(['SinOsc'])
+    take()
+    mod.requestCode(2)
+    expect(take()).toEqual([{ t: 'dump', s: 2 }])
   })
 })
 

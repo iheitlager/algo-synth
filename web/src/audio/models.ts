@@ -43,8 +43,10 @@ export type Control =
   | { kind: 'sampler' }
   /** The pad sampler's kit browser, 4 x 4 pad grid and pad editor (#125). */
   | { kind: 'pads' }
-  /** The Modular synth's song voice, written as text, with its ctl knobs (#292). */
+  /** The Modular synth's SynthDef, written as text (ADR-0024, #329). */
   | { kind: 'code' }
+  /** A knob for each number of the Modular synth's SynthDef, by UGen (#329). */
+  | { kind: 'knobs' }
   | { kind: 'note'; text: string }
 
 export interface Section {
@@ -56,6 +58,8 @@ export interface Section {
   wide?: boolean
   /** Its controls stacked top to bottom, a narrow column (#194). */
   column?: boolean
+  /** Takes the rest of its row: the Modular code beside the envelope (#329). */
+  grow?: boolean
   /** Its own accent where the instrument colours its sections, as the TR-808's step buttons. */
   colour?: string
 }
@@ -1226,7 +1230,8 @@ const modular: ModelDef = {
   presets: ['ModularBasic', 'ModularHoover', 'ModularKick'],
   sections: [
     { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
-    { title: 'Code', wide: true, controls: [{ kind: 'code' }] },
+    { title: 'Code', grow: true, controls: [{ kind: 'code' }] },
+    { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
   ],
 }
 

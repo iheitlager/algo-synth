@@ -4084,3 +4084,29 @@ fn a_midi_import_sets_the_synths_its_text_names() {
         [Some(0), Some(1), Some(2), Some(3)]
     );
 }
+
+/// #329: a Modular synth hands out a knob per number of its SynthDef, with
+/// its UGen, range and control; another model has none.
+#[test]
+fn a_modular_synth_lists_its_knobs() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    e.set_code(
+        0,
+        "SynthDef(\\a, { |freq = 440, gate = 1| RLPF.ar(Saw.ar(freq), 800, 0.3) }).add;",
+    )
+    .expect("builds");
+    let list = e.knob_list(0).to_string();
+    let rows: Vec<Vec<&str>> = list.lines().map(|l| l.split('\t').collect()).collect();
+    let rlpf: Vec<&Vec<&str>> = rows.iter().filter(|r| r.get(1) == Some(&"RLPF")).collect();
+    assert_eq!(rlpf.len(), 2, "{list}");
+    assert!(rows.iter().all(|r| r.len() == 8), "{list}");
+    let freq = rlpf
+        .iter()
+        .find(|r| r.get(2) == Some(&"freq"))
+        .expect("a cutoff knob");
+    assert_eq!(freq.get(7), Some(&"800"));
+    assert_eq!(freq.get(6), Some(&"1"), "a frequency turns exponentially");
+    e.preset(1, crate::mono::preset::Preset::Bass);
+    assert_eq!(e.knob_list(1), "");
+}

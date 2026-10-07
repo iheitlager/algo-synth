@@ -87,7 +87,8 @@ describe('model descriptions', () => {
   it('writes the code on the Modular faceplate only (ADR-0024)', () => {
     for (const m of MODELS) {
       const code = controls(m).some((c) => c.kind === 'code')
-      expect(code, m.name).toBe(m.id === Model.Modular)
+      const knobs = controls(m).some((c) => c.kind === 'knobs')
+      expect([code, knobs], m.name).toEqual([m.id === Model.Modular, m.id === Model.Modular])
     }
   })
 

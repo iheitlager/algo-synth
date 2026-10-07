@@ -20,6 +20,7 @@ import SamplerPane from './synth/SamplerPane.vue'
 import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
 import CodeEditor from './synth/CodeEditor.vue'
+import CodeKnobs from './synth/CodeKnobs.vue'
 import Rocker from './synth/Rocker.vue'
 import Switch from './synth/Switch.vue'
 
@@ -76,7 +77,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
     <i v-if="def.theme.wood" class="cheek l" aria-hidden="true" /><i v-if="def.theme.wood" class="cheek r" aria-hidden="true" />
     <div class="mods" :class="{ row: def.row }">
       <section
-        v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column }"
+        v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column, grow: sec.grow }"
         :style="sec.colour ? { '--c': sec.colour } : undefined"
         :aria-label="sec.title"
       >
@@ -157,6 +158,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
             <SamplerPane v-else-if="c.kind === 'sampler'" :s="s" />
             <PadGrid v-else-if="c.kind === 'pads'" :s="s" />
             <CodeEditor v-else-if="c.kind === 'code'" :s="s" />
+            <CodeKnobs v-else-if="c.kind === 'knobs'" :s="s" :color="def.theme.accent" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>
@@ -181,6 +183,8 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
   background: color-mix(in srgb, var(--plate) 82%, black 18%); box-shadow: 0 1px 0 #ffffff0d inset; border-top: 2px solid var(--c);
 }
 .mod.wide { flex: 1 1 100%; }
+.mod.grow { flex: 1 1 0; min-width: 320px; display: flex; flex-direction: column; }
+.mod.grow .ctls { flex: 1; align-items: stretch; }
 /* A drum machine: its pads left to right in one row, each a column of knobs (#194). */
 .mods.row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
 .mod.column { flex: 0 0 auto; }
