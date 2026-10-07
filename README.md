@@ -16,6 +16,61 @@ An algorithmic synthesizer that runs entirely in the browser, with the whole eng
 
 What changed in each version is in [CHANGELOG.md](CHANGELOG.md). See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
 
+## The song language and its relatives
+
+A song is one text file: the instruments, their sound, the mix, the patterns and the arrangement. A taste, from [examples/clockwork-arps.song](examples/clockwork-arps.song):
+
+```
+tempo 128
+scale f minor
+setting glass = Modular ModularBasic
+  SynthDef(\glass, { |freq = 440, cutoff = 1200, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.002, 0.3), gate);
+      var sig = { Pulse.ar(freq * Rand(0.99, 1.01), Rand(0.2, 0.5)) }.dup(2);
+      RLPF.ar(sig, cutoff * (env * 3 + 1), 0.3, voicing: \ms20) * env * 0.5
+  }).add;
+track pad synth Jupiter8 JupiterPad
+track glass synth glass
+track k9 drums Tr909 Kit909
+
+frag kick = k9 /16
+  bd x...x...x...x...
+frag chords = pad voicing
+  prog(8,11)
+frag glassy = glass .every(4, rev)
+  arp(chords,updown,16)
+
+mod glass.ctl1 = perlin.slow(4).exprange(700, 3500)
+section arps 16: kick chords glassy
+arrange arps
+```
+
+Little of it is new on its own; it borrows on purpose:
+
+| In the song | Borrowed from |
+|---|---|
+| `"f2 [c3 f2] <a#2 c3>"`, `~`, `*4`, `@3`, `?` | Strudel and TidalCycles mini-notation |
+| `.every`, `.off`, `.degrade`, `.palindrome`, `.iter`, `.struct` | Strudel's pattern methods (ADR-0019) |
+| `sine.slow(8).range(…)`, `perlin`, `lfo(…)` | Strudel's signals, a modular's LFOs |
+| `euclid(5,16,2)` | Euclidean rhythms (Toussaint), as in Tidal and many sequencers |
+| `SynthDef(…)` under a `setting` | SuperCollider's sclang (ADR-0024) |
+| `bd x...x...` lanes | drum-machine step grids |
+| `c5:2 g#4:4 c5:4.` | LilyPond and MML durations |
+| `d5@0:6:90` | a MIDI event list |
+| `frag`, `section`, `arrange`, `loop` | a tracker's patterns and order list, a DAW's clips and arrangement |
+| `auto`, `scene`, `strip`, `group`, `master` | a DAW's automation lanes and a desk's recall sheet |
+| `prog`, `root`, `markov`, `mutate`, `walk` | algorithmic composition, made deterministic |
+
+Its nearest relatives are TidalCycles with SuperDirt (patterns playing SuperCollider SynthDefs) and Csound (an orchestra of instruments beside a score). Where algo-synth differs:
+
+- **The text and the GUI are one song.** The step grid, piano roll, synth faceplates and mixer all edit the text, and the engine prints it back in one canonical form, comments kept (ADR-0012). A song typed by hand and one built with the mouse are the same file.
+- **It renders the same every time.** Generators, live frags, random numbers in a SynthDef and analog drift are all seeded, so the same text gives the same audio, sample for sample, after a seek and in tests.
+- **SuperCollider code without SuperCollider.** A subset of sclang is built into a fixed program the engine runs on the audio thread without allocating; every number in it becomes a knob, saved back into the code.
+- **Code synths beside modelled instruments.** A SynthDef can borrow a modelled instrument's filter (`voicing: \ms20`) and play in the same song as a Prophet-5 voiced down to its oscillators, envelopes and VCA.
+- **Generators read the song.** `root(chords)`, `arp(chords, …)` and `markov(2, riff, 7)` take other frags as their input, so one progression can drive the pad, the bass and the arps.
+
+Every keyword, with examples, is in [docs/song.md](docs/song.md).
+
 ## Quick start
 
 ```bash
