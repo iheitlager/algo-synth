@@ -2,11 +2,13 @@
 // Wide-screen layout (spec 003): transport on top, the synths, the mixer
 // console or the composer, with the arranger across the bottom.
 import { status, synths, view } from './audio/engine'
+import { LIMITS, setSplit, splits } from './audio/split'
 import ArrangerPane from './components/ArrangerPane.vue'
 import ComposerPane from './components/ComposerPane.vue'
 import ConsolePane from './components/ConsolePane.vue'
 import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
+import Splitter from './components/Splitter.vue'
 import TransportBar from './components/TransportBar.vue'
 
 // A strip's faceplate is one double-click away: select the synth and show the synths.
@@ -17,7 +19,10 @@ function openSynth(s: number) {
 </script>
 
 <template>
-  <div class="layout" :class="{ mixer: view.main === 'mixer', composer: view.main === 'composer' }">
+  <div
+    class="layout" :class="{ mixer: view.main === 'mixer', composer: view.main === 'composer' }"
+    :style="{ '--arranger': view.main === 'composer' && splits.arranger != null ? `${splits.arranger}px` : undefined }"
+  >
     <div class="transport">
       <TransportBar />
       <!-- Whatever stops the engine working (a dsp.wasm older than the page, say) gets a row of its own:
@@ -28,6 +33,11 @@ function openSynth(s: number) {
     <InstrumentsPane v-show="view.main === 'synths'" class="main" />
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <ComposerPane v-if="view.main === 'composer'" class="main" />
+    <!-- In the composer the arranger's height is dragged (#373). -->
+    <Splitter
+      v-if="view.main === 'composer'" class="split" between="rows" :size="splits.arranger" :min="LIMITS.arranger"
+      label="Height of the arranger" @resize="(v) => setSplit('arranger', v)"
+    />
     <!-- The bottom pane: the arranger, under every view (ADR-0015, ADR-0022). -->
     <div class="foot bottom">
       <ArrangerPane class="fill" />
@@ -51,7 +61,12 @@ function openSynth(s: number) {
     'arranger';
 }
 .layout.mixer { grid-template-rows: auto minmax(0, 1fr) 200px; }
-.layout.composer { grid-template-rows: auto minmax(0, 1fr) minmax(180px, 30vh); }
+.layout.composer {
+  grid-template-rows: auto minmax(0, 1fr) 6px var(--arranger, minmax(180px, 30vh));
+  grid-template-areas: 'transport' 'main' 'split' 'arranger';
+  row-gap: 4px;
+}
+.split { grid-area: split; }
 .transport { grid-area: transport; display: flex; flex-direction: column; gap: 6px; }
 .banner {
   margin: 0; padding: 8px 14px; border-radius: 4px; border: 1px solid #e0654f; background: #4a1d17; color: #ffd9d0;
