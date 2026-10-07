@@ -97,10 +97,10 @@ watch(() => status.running, (on) => on && requestSong())
       </label>
       <span v-if="song.playing && position >= 0" class="muted">bar {{ Math.floor(position / 16) + 1 }} · step {{ (position % 16) + 1 }}</span>
     </div>
-    <p v-if="noKit" class="notice">No synth is a drum kit: add one with + Synth › Drums, then pick it for the track.</p>
-    <TrackStrip v-if="status.running && song.tracks.length" :synths="choices" />
     <div class="body">
       <div class="grid">
+        <p v-if="noKit" class="notice">No synth is a drum kit: add one with + Synth › Drums, then pick it for the track.</p>
+        <TrackStrip v-if="status.running && song.tracks.length" class="strip" :synths="choices" />
         <p v-if="status.running && !song.frags.length" class="muted">
           The song has no fragments yet.
           <button @click="loadSong(STARTER)">Start a beat</button>
@@ -135,20 +135,22 @@ watch(() => status.running, (on) => on && requestSong())
         </div>
       </div>
       <div class="text">
-        <SongEditor v-model="song.draft" :disabled="!status.running" :error="song.error" @keydown="onKey" />
-        <div class="text-foot">
+        <div class="text-head">
           <button :disabled="!dirty || !status.running" title="Ctrl+Enter" @click="apply">Apply</button>
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
           <span v-else-if="dirty" class="muted">edited, not applied</span>
         </div>
+        <SongEditor v-model="song.draft" :disabled="!status.running" :error="song.error" @keydown="onKey" />
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.composer { display: flex; flex-direction: column; min-height: 0; }
-.notice { margin: 4px 12px; color: var(--accent); }
+/* The pane never scrolls as a whole: the grid scrolls on the left, and the
+   text with its Apply above it holds the right from top to bottom. */
+.composer { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.notice { margin: 0; color: var(--accent); }
 .head-right { display: flex; align-items: center; gap: 12px; }
 .ref { color: var(--accent); text-decoration: none; }
 .ref:hover { text-decoration: underline; }
@@ -156,8 +158,9 @@ watch(() => status.running, (on) => on && requestSong())
 .controls .on { border-color: var(--accent); color: var(--accent); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .num { width: 4.5em; }
-.body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); gap: 12px; padding: 8px 12px; }
+.body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); grid-template-rows: minmax(0, 1fr); gap: 12px; padding: 8px 12px; }
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+.grid .strip { padding: 0; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .lane { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .pad { width: 2.2em; font-family: var(--font-mono); color: var(--muted); }
@@ -168,7 +171,7 @@ watch(() => status.running, (on) => on && requestSong())
 .step.l2 { background: var(--hit); }
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
-.text-foot { display: flex; align-items: center; gap: 10px; }
+.text-head { display: flex; align-items: center; gap: 10px; }
 .error { color: var(--accent); }
 .muted { color: var(--muted); }
 </style>
