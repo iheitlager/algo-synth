@@ -8,7 +8,7 @@ import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
-import { lexer, wasmLexer } from './lex'
+import { lexer, scLexer, wasmLexers } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
 import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setNames, stripName, trackLabel } from './names'
@@ -39,7 +39,9 @@ class AudioEngine {
   static async start(): Promise<AudioEngine> {
     const ctx = new AudioContext({ latencyHint: 'interactive' })
     const module = await WebAssembly.compileStreaming(fetch(`${base}dsp.wasm`))
-    lexer.value = wasmLexer(module)
+    const lexers = wasmLexers(module)
+    lexer.value = lexers.song
+    scLexer.value = lexers.sc
     await ctx.audioWorklet.addModule(`${base}worklet.js`)
     const node = new AudioWorkletNode(ctx, 'algo-synth', {
       numberOfInputs: 0,
@@ -261,6 +263,7 @@ export function clearAll() {
   layout.collapsed = []
   layout.hidden = []
   for (const s of Object.keys(codes)) delete codes[Number(s)]
+  for (const s of Object.keys(codeKnobs)) delete codeKnobs[Number(s)]
   zoneState.zones = []
   padState.pads = []
   modulated.keys = new Set()
@@ -530,6 +533,22 @@ export const song = reactive({
  */
 export const codes = reactive({} as Record<number, { text: string; error: { line: number; col: number; msg: string } | null }>)
 
+/** A knob of a Modular synth's code (#329): a number of the SynthDef, on `Ctl1` + `ctl`. */
+export interface CodeKnob { module: number; ugen: string; name: string; ctl: number; lo: number; hi: number; exp: boolean; def: number }
+/** Each Modular synth's knobs, as the engine lists them with its code. */
+export const codeKnobs = reactive({} as Record<number, CodeKnob[]>)
+
+/** The engine's knob list: one tab-separated line per knob (`Engine::knob_list`). */
+export function parseKnobs(text: string): CodeKnob[] {
+  return text.split('\n').filter(Boolean).map((line) => {
+    const [module, ugen, name, ctl, lo, hi, exp, def] = line.split('\t')
+    return { module: Number(module), ugen: ugen ?? '', name: name ?? '', ctl: Number(ctl), lo: Number(lo), hi: Number(hi), exp: exp === '1', def: Number(def) }
+  })
+}
+
+/** Ask the engine for synth `s`'s values and code again: a knob of the code moved (#329). */
+export const requestCode = (s: number) => engine?.post({ t: 'dump', s })
+
 /** Give Modular synth `s` the SynthDef `text`; the engine builds it, or says where it does not. */
 export function setCode(s: number, text: string) {
   const bytes = new TextEncoder().encode(text)
@@ -718,6 +737,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
       text: decoder.decode(data.text as Uint8Array),
       error: e ? { line: e.line, col: e.col, msg: decoder.decode(e.msg) } : null,
     }
+  } else if (data.t === 'knobs') {
+    codeKnobs[data.s as number] = parseKnobs(new TextDecoder('utf-8').decode(data.knobs as Uint8Array))
   } else if (data.t === 'mods') {
     modulated.keys = new Set(data.keys as number[])
   } else if (data.t === 'imported') {

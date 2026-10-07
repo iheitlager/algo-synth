@@ -545,6 +545,23 @@ pub extern "C" fn lex() -> u32 {
     })
 }
 
+/// Lex the buffer as SuperCollider code (#329), for the Modular editor; the
+/// spans come back as `lex`'s do, read with `lex_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn sc_lex() -> u32 {
+    LEX.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lex) => {
+            let (text, out) = &mut *lex;
+            out.clear();
+            for s in std::str::from_utf8(text).map_or(Vec::new(), crate::modular::lex::lex) {
+                out.extend([s.start, s.len, s.class as u32]);
+            }
+            (out.len() / 3) as u32
+        }
+        Err(_) => 0,
+    })
+}
+
 /// The spans of the last `lex`, three u32 each.
 #[unsafe(no_mangle)]
 pub extern "C" fn lex_ptr() -> *const u32 {
@@ -891,6 +908,18 @@ pub extern "C" fn code_text(s: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn code_text_ptr() -> *const u8 {
     query(std::ptr::null(), |e| e.code_text_buf().as_ptr())
+}
+
+/// Modular synth `s`'s knob list (#329, `Engine::knob_list`); its length,
+/// read from `knob_list_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn knob_list(s: u32) -> u32 {
+    query(0, |e| e.knob_list(s as usize).len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn knob_list_ptr() -> *const u8 {
+    query(std::ptr::null(), |e| e.knob_list_buf().as_ptr())
 }
 
 /// Address and length of track `t`'s name.

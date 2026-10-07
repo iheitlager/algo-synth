@@ -20,6 +20,7 @@ use crate::mono::svf::Svf;
 use crate::mono::voice::MonoCtx;
 use crate::voice::lookup;
 
+pub mod lex;
 pub mod sc;
 pub mod verb;
 

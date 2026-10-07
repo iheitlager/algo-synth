@@ -107,6 +107,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (len || error) {
       const text = new Uint8Array(w.memory.buffer, w.code_text_ptr(), len).slice()
       this.port.postMessage({ t: 'code', s, text, error })
+      // Its knobs, one per number of the code (#329).
+      const n = w.knob_list ? w.knob_list(s) : 0
+      const knobs = new Uint8Array(w.memory.buffer, n ? w.knob_list_ptr() : 0, n).slice()
+      this.port.postMessage({ t: 'knobs', s, knobs })
     }
   }
 

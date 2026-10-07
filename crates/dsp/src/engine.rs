@@ -147,6 +147,8 @@ pub struct Engine {
     /// The last code that did not build, and a code's text handed out.
     code_error: Option<CodeError>,
     code_text: String,
+    /// The knob list handed out last (`knob_list`).
+    knob_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
     /// While a MIDI file is imported every part's patch is set on its synth,
     /// so the synths are what the imported text says (#327).
@@ -232,6 +234,7 @@ impl Engine {
             codes: vec![None; SYNTHS],
             code_error: None,
             code_text: String::new(),
+            knob_text: String::new(),
             song_route: [None; MAX_TRACKS],
             import_patches: false,
             note_offs: [None; NOTE_OFFS],
@@ -449,6 +452,35 @@ impl Engine {
 
     pub fn code_text_buf(&self) -> &str {
         &self.code_text
+    }
+
+    /// Modular `synth`'s knobs for its panel (#329), one line each:
+    /// `module, UGen, name, ctl, lo, hi, exp (0/1), default`, tab-separated;
+    /// empty for another model. Kept for the C ABI until the next call.
+    pub fn knob_list(&mut self, synth: usize) -> &str {
+        let mut text = String::new();
+        if let Some(patch) = self.patch(synth) {
+            for k in &patch.knobs {
+                let ugen = patch.modules.get(k.module).map_or("", |m| m.name.as_str());
+                text.push_str(&format!(
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    k.module,
+                    ugen,
+                    k.name,
+                    k.ctl,
+                    k.lo,
+                    k.hi,
+                    u8::from(k.exp),
+                    k.default
+                ));
+            }
+        }
+        self.knob_text = text;
+        &self.knob_text
+    }
+
+    pub fn knob_list_buf(&self) -> &str {
+        &self.knob_text
     }
 
     /// Modular `synth`'s code as it plays: its numbers are its knobs' values.
