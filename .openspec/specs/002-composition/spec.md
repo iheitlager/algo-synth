@@ -296,7 +296,7 @@ A pitched fragment SHALL take chords by name (#103), in mini-notation and in cla
 
 The song SHALL give the mixer its starting values (ADR-0018, #214): `strip <track|stripN>: <Param> <value>, …` for the strip of a track's synth or a strip by number, `group <n> [name]: …` for a group bus and `master: …` for the global parameters, by registry name. Insert and processor types and `Out` SHALL take their names (`I1Type Overdrive`, `P1Type Echo`, `Out group2`); a parameter of another owner, an unknown name, a group routed to a lower group or a second line for one strip SHALL be a parse error with a line and a column. On load the engine SHALL set a value when its text differs from the playing song's, or on a strip its track has just moved to, and leave the others as they are; a line taken out SHALL change nothing. The printer SHALL write the lines after the tracks, and `write_mixer` SHALL print the mixer as these lines, the values that differ from the defaults, a group keeping its name.
 
-**Implementation:** `crates/dsp/src/song.rs::MixLine`, `crates/dsp/src/song.rs::Mix`, `crates/dsp/src/engine.rs::Engine::apply_mix`, `crates/dsp/src/engine.rs::Engine::write_mixer`, `web/src/components/ComposerPane.vue` (Write mixer to song)
+**Implementation:** `crates/dsp/src/song.rs::MixLine`, `crates/dsp/src/song.rs::Mix`, `crates/dsp/src/engine.rs::Engine::apply_mix`, `crates/dsp/src/engine.rs::Engine::write_mixer` (called by `Engine::fold`, Req 17)
 
 #### Scenario: a fader moved by hand holds
 
@@ -307,7 +307,7 @@ The song SHALL give the mixer its starting values (ADR-0018, #214): `strip <trac
 #### Scenario: the mix writes itself into the song
 
 - GIVEN a mix changed by hand on a track's strip, another strip, a group and the master
-- WHEN Write mixer to song is pressed and the text is loaded on a fresh engine
+- WHEN the hand's changes are folded into the song (Req 17) and the text is loaded on a fresh engine
 - THEN the fresh engine has the same mix
 
 **Tests:** `crates/dsp/src/song/tests.rs::mixer_lines_parse_and_print_back`, `crates/dsp/src/song/tests.rs::mixer_errors_say_where`, `crates/dsp/src/song/tests.rs::a_comment_on_the_master_line_stays_with_it`, `crates/dsp/src/engine/tests.rs::mixer_lines_set_the_mix_and_hold_a_hand`, `crates/dsp/src/engine/tests.rs::the_mixer_writes_itself_into_the_song`
@@ -357,3 +357,29 @@ A frag of notes SHALL take Strudel's pattern methods on its line (ADR-0019, #215
 - THEN the frag plays eight eighths a bar for two bars, the first reversed
 
 **Tests:** `crates/dsp/src/notes/pattern.rs::tests::fast_and_slow_squeeze_and_stretch`, `crates/dsp/src/notes/pattern.rs::tests::rev_and_palindrome_turn_bars_round`, `crates/dsp/src/notes/pattern.rs::tests::add_sub_and_ply_change_notes`, `crates/dsp/src/notes/pattern.rs::tests::iter_starts_each_bar_further_in`, `crates/dsp/src/notes/pattern.rs::tests::every_and_off_layer_a_method`, `crates/dsp/src/notes/pattern.rs::tests::degrade_is_seeded`, `crates/dsp/src/notes/pattern.rs::tests::struct_plays_the_notes_sounding_at_each_hit`, `crates/dsp/src/notes/pattern.rs::tests::sometimes_takes_about_half_from_the_method`, `crates/dsp/src/notes/pattern.rs::tests::scale_moves_notes_to_the_nearest_scale_note`, `crates/dsp/src/song/tests.rs::struct_sometimes_and_scale_print_back`, `crates/dsp/src/notes/pattern.rs::tests::methods_print_as_they_parse`, `crates/dsp/src/notes/pattern.rs::tests::bad_methods_say_why`, `crates/dsp/src/song/tests.rs::pattern_methods_transform_a_frags_notes`, `crates/dsp/src/song/tests.rs::pattern_method_errors_say_where`, `crates/dsp/src/song/tests.rs::a_patterned_frag_refuses_a_note_edit`, `crates/dsp/src/engine/tests.rs::a_patterned_frag_plays_its_transformed_notes`
+
+### Requirement 17: Autocommit [SHOULD]
+
+The song and the live synths and mixer SHALL stay one state without a commit (ADR-0027, #357):
+
+- **Hands fold in.** A parameter, a preset, SynthDef code, a DX7 voice or a library preset set from the view SHALL be marked (`Engine::edit_param`, `edit_preset`, `mark_synth`). A few times a second, outside `render`, `Engine::fold` SHALL fold the marks into the song and print it once: a track's sound into the setting only it plays (updated in place, or a new one named after the track), the mixer into its lines. A preset picked on a synth SHALL become its tracks' preset.
+- **The song's own writes stay out.** Values set by a lane, a scene or a modulation SHALL NOT be marked, and a value one of them drives SHALL keep what the text says when the rest is folded.
+- **The text is the mix.** A mixer value the old text set and the new one leaves out SHALL go back to its default.
+- **Every synth on screen is a track** (#360). `Engine::track_add` SHALL give a synth a track named after it and keep its sound. `Engine::track_remove` SHALL take a track without music out, its later tracks keeping their synths, and SHALL mute one with music.
+- **What has no song form is reported** (#361). `Engine::live_only` SHALL report a synth's arpeggiator away from its defaults, its sample zones, its sampled pads, and a sound past a setting's room.
+
+**Implementation:** `crates/dsp/src/engine.rs` (`edit_param`, `edit_preset`, `fold`, `driven`, `track_add`, `track_remove`, `live_only`), `crates/dsp/src/song.rs` (`fold_sound`, `add_track`, `remove_track`), `web/public/worklet.js` (`song_fold` every `FOLD_EVERY` blocks unless held)
+
+#### Scenario: a knob reaches the text
+
+- GIVEN a track on a factory preset
+- WHEN its cutoff is turned and then its resonance
+- THEN the song has one setting named after the track, holding both, and the printed song loads back to the same sound
+
+#### Scenario: a modulation does not freeze
+
+- GIVEN a `mod` on a track's cutoff while the song plays
+- WHEN its resonance is turned and folded
+- THEN the setting holds the resonance and no cutoff
+
+**Tests:** `crates/dsp/src/engine/tests.rs::a_hand_folds_into_the_tracks_setting`, `crates/dsp/src/engine/tests.rs::faders_and_presets_fold_and_the_engine_does_not`, `crates/dsp/src/engine/tests.rs::a_driven_value_is_not_folded`, `crates/dsp/src/engine/tests.rs::a_mixer_line_taken_out_resets_its_values`, `crates/dsp/src/engine/tests.rs::a_synth_on_screen_is_a_track`, `crates/dsp/src/engine/tests.rs::what_the_song_cannot_hold_is_reported`
