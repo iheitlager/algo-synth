@@ -66,8 +66,15 @@ function pickPreset(i: number, value: string) {
 
 <style scoped>
 .tracks { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 0; }
-.track { display: flex; align-items: center; gap: 8px; padding: 2px 0 2px 8px; border-left: 3px solid var(--c); }
-.name { width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kind { width: 4.5em; font-size: 11px; }
+/* One grid for every row, so each column lines up whatever its text:
+   name, kind, synth, model, preset, save. */
+.track {
+  display: grid; grid-template-columns: 9em 4em 17em 10em 14em max-content; align-items: center; gap: 8px;
+  padding: 2px 0 2px 8px; border-left: 3px solid var(--c);
+}
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind { font-size: 11px; }
 .muted { color: var(--muted); }
+.track label { display: block; min-width: 0; }
+.track label .picker { width: 100%; min-width: 0; max-width: none; }
 </style>
