@@ -110,6 +110,7 @@ watch(() => status.running, (on) => on && requestSong())
             <b>{{ frag.name }}</b>
             <span class="muted">on {{ song.tracks[frag.track]?.name }}</span>
             <select
+              class="picker" :style="{ '--c': synthColour(song.tracks[frag.track]?.synth ?? 0) }"
               :value="song.tracks[frag.track]?.synth ?? MUTE"
               @change="routeTrack(frag.track, Number(($event.target as HTMLSelectElement).value) as Route)"
             >
