@@ -226,6 +226,24 @@ pub extern "C" fn engine_clear() {
     with_engine(Engine::clear);
 }
 
+/// A track for synth `s` on factory preset `preset` (ADR-0027): its index,
+/// or −1 when refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_add(s: u32, preset: u32) -> i32 {
+    query(-1, |e| {
+        Preset::from_id(preset)
+            .and_then(|p| e.track_add(s as usize, p))
+            .map_or(-1, |t| t as i32)
+    })
+}
+
+/// Synth `s` taken off the screen (ADR-0027): 1 its track removed, 0 muted
+/// (it has music), −1 it had none.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_remove(s: u32) -> i32 {
+    query(-1, |e| e.track_remove(s as usize))
+}
+
 /// Fold what the hands changed into the song (ADR-0027): 1 when its text
 /// changed and should be sent to the view, 0 when not.
 #[unsafe(no_mangle)]

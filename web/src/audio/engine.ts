@@ -2,7 +2,7 @@
 // AudioWorkletNode (dsp.wasm) -> AnalyserNode (scope) -> speakers.
 // This file only sends messages; every musical decision is made in Rust.
 
-import { computed, reactive, shallowReactive } from 'vue'
+import { computed, reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
@@ -18,6 +18,7 @@ import {
 } from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, songFileName } from './songfile'
+import { keepView, lastView } from './viewstate'
 
 const base = import.meta.env.BASE_URL
 
@@ -184,8 +185,15 @@ export function addSynth(model?: ModelDef): boolean {
   show(free)
   const first = model?.presets[0]
   if (first !== undefined) engine?.preset(free, Preset[first])
+  trackFor(free, model ?? modelDef(0))
   synths.selected = free
   return true
+}
+
+/** Give synth `s` a song track on its model's first preset (ADR-0027). */
+function trackFor(s: number, model: ModelDef) {
+  const first = model.presets[0]
+  if (first !== undefined) engine?.post({ t: 'trackAdd', s, preset: Preset[first] })
 }
 
 /**
@@ -220,6 +228,8 @@ function nameByTrack(s: number, track: string) {
 /** Remove synth `s` (never the last one). */
 export function removeSynth(s: number) {
   if (synths.list.length <= 1) return
+  // Its track goes with it, or is muted when it has music (ADR-0027).
+  engine?.post({ t: 'trackRemove', s })
   synths.list = synths.list.filter((i) => i !== s)
   delete names.strips[s]
   fromSong.delete(s)
@@ -237,6 +247,7 @@ export async function power(): Promise<void> {
     status.running = true
     status.sampleRate = engine.ctx.sampleRate
     // The last session's song (#105); a song file opened at the same time follows and replaces it.
+    restoreView()
     const kept = lastSong()
     if (kept) loadSong(kept)
     else clearAll()
@@ -246,6 +257,24 @@ export async function power(): Promise<void> {
 }
 
 export const getEngine = (): AudioEngine | null => engine
+
+/** The screen as it was left (ADR-0027): groups, strip order, collapsed and
+ * hidden strips and typed names; the song brings its own tracks and names. */
+function restoreView() {
+  const v = lastView()
+  if (!v) return
+  Object.assign(layout, { groups: v.groups, order: v.order, collapsed: v.collapsed, hidden: v.hidden })
+  for (const [k, n] of Object.entries(v.names)) names.strips[Number(k)] = n
+}
+// Keep the view as it changes; names a song gave are the song's, not kept.
+watch(
+  () => [layout.groups, layout.order, layout.collapsed, layout.hidden, { ...names.strips }] as const,
+  () => {
+    const typed = Object.fromEntries(Object.entries(names.strips).filter(([k]) => !fromSong.has(Number(k))))
+    keepView({ groups: [...layout.groups], order: [...layout.order], collapsed: [...layout.collapsed], hidden: [...layout.hidden], names: typed })
+  },
+  { deep: true },
+)
 
 /**
  * Start over (#325): the engine clears the song, every synth, strip and effect
@@ -891,11 +920,6 @@ function download(text: string, type: string, name: string) {
 }
 
 /** Download the current setup, named after the loaded MIDI file. */
-export function saveSetup() {
-  const stem = files.fileName ? files.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
-  download(setupText(), 'application/json', `${stem}.synths.json`)
-}
-
 /** The song file last opened, so Save song writes it back under its name. */
 let songName = ''
 
@@ -940,6 +964,7 @@ export async function openFiles(picked: File[]): Promise<void> {
 function applySetup(setup: Setup, warnings: string[]) {
   if (!engine) return
   const plan = applyPlan(setup, registry)
+  const models = new Map<number, number>()
   for (const op of plan.ops) {
     if (op.t === 'show') {
       synths.list = op.synths
@@ -955,8 +980,14 @@ function applySetup(setup: Setup, warnings: string[]) {
     } else if (op.t === 'code') {
       setCode(op.s, op.text)
     } else {
+      if (op.id === Param.Model) models.set(op.s, op.v)
       engine.param(op.s, op.id as ParamId, op.v)
     }
+  }
+  // An opened setup is an import (ADR-0027): a synth it shows without a song
+  // track gets one, and the fold writes its sound into the song.
+  for (const s of synths.list) {
+    if (!song.tracks.some((t) => t.synth === s)) trackFor(s, modelDef(models.get(s) ?? params.values[s]?.[Param.Model] ?? 0))
   }
   // A song track on a synth the setup doesn't list keeps that synth on screen.
   for (const t of song.tracks) {

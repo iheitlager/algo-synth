@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
-  clearAll, engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSetup, saveSong, song, songPosition, status, stopSong,
+  clearAll, engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSong, song, songPosition, status, stopSong,
   view,
 } from '../audio/engine'
 import { details, page } from '../audio/buildinfo'
@@ -110,7 +110,6 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
     <label class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
       <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json,.song" @change="onFile" />Open…
     </label>
-    <button :disabled="!status.running" title="Download the synths, their patches and routing as .synths.json" @click="saveSetup">Save setup</button>
     <button :disabled="!status.running || !song.text" title="Download the song as .song text" @click="saveSong">Save song</button>
     <!-- The transport, the only one (ADR-0022): the song plays, pauses where it is, stops back to the top. -->
     <button :disabled="!status.running" :class="{ on: song.playing }" @click="toggle">{{ song.playing ? '❚❚ Pause' : '▶ Play' }}</button>

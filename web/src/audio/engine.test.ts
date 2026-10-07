@@ -593,10 +593,19 @@ describe('synths and groups', () => {
     expect(mod.addSynth()).toBe(true)
     expect(mod.synths.list).toEqual([0, 1])
     expect(mod.synths.selected).toBe(1)
-    expect(take()).toEqual([{ t: 'reset', s: 1 }])
+    // Shown, then a song track for it (ADR-0027).
+    expect(take().map((m) => [m.t, m.s])).toEqual([['reset', 1], ['trackAdd', 1]])
     expect(names.names.strips[1]).toMatch(/Synth/)
     for (let i = 2; i < mod.MAX_SYNTHS; i++) mod.addSynth()
     expect(mod.addSynth()).toBe(false)
+  })
+
+  it('removeSynth takes its track with it (ADR-0027)', async () => {
+    const { mod, take } = await boot()
+    mod.addSynth()
+    take()
+    mod.removeSynth(1)
+    expect(take()).toEqual([{ t: 'trackRemove', s: 1 }])
   })
 
   it('removeSynth never removes the last', async () => {

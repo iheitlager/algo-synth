@@ -44,6 +44,9 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'off': w.note_off(data.s, data.n); break
         case 'panic': w.all_off(); break
         case 'foldHold': this.foldHeld = !!data.on; break
+        // Every synth on screen is a song track (ADR-0027).
+        case 'trackAdd': w.track_add(data.s, data.preset); this.sendSong(true); break
+        case 'trackRemove': w.track_remove(data.s); this.sendSong(true); break
         case 'clear':
           // Start over (#325): every strip's values and the empty song go back to the view.
           w.engine_clear()

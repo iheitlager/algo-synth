@@ -4131,7 +4131,10 @@ fn clear_starts_over_with_one_modular_synth() {
     left_of(&mut e, 0.5);
     e.clear();
     assert!(!e.clock().playing(), "stopped");
-    assert_eq!(e.song_text(), Song::default().print(), "empty song");
+    // An empty song but for synth 0's track (ADR-0027).
+    assert!(e.song().frags.is_empty(), "no music");
+    assert_eq!(e.song().tracks.len(), 1);
+    assert_eq!(e.song_routed(0), Some(0));
     assert_eq!(e.param_value(0, Param::Model), Model::Modular as u32 as f32);
     assert_eq!(e.param_value(2, Param::Model), Model::Arp2600 as u32 as f32);
     let fresh = Engine::new(48_000.0);
@@ -4664,4 +4667,39 @@ fn a_mixer_line_taken_out_resets_its_values() {
         e.param_value(0, Param::MasterGain),
         fresh.param_value(0, Param::MasterGain)
     );
+}
+
+/// ADR-0027: every synth on screen is a track. Adding one names it after the
+/// synth and keeps its sound; removing it takes the track out when it has
+/// no music, the later tracks keeping their synths, and mutes it otherwise.
+#[test]
+fn a_synth_on_screen_is_a_track() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track kit drums\nfrag beat = kit /16\n  bd x...\n"),
+        Ok(())
+    );
+    let kit = e.song_routed(0).expect("the kit");
+    e.edit_param(3, Param::Cutoff, 700.0);
+    assert_eq!(
+        e.track_add(3, crate::mono::preset::Preset::MiniBass),
+        Some(1)
+    );
+    assert_eq!(e.track_add(5, crate::mono::preset::Preset::Bass), Some(2));
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(text.contains("track synth_4 synth"), "{text}");
+    assert!(
+        text.contains("Cutoff 700"),
+        "the synth's sound is folded in: {text}"
+    );
+    // Without music it goes; the next track keeps its synth.
+    assert_eq!(e.track_remove(3), 1);
+    assert_eq!(e.song().tracks.len(), 2);
+    assert_eq!(e.song_routed(1), Some(5));
+    // With music it is muted, its music kept.
+    assert_eq!(e.track_remove(kit), 0);
+    assert_eq!(e.song_routed(0), None);
+    assert_eq!(e.song().frags.len(), 1);
+    assert_eq!(e.track_remove(9), -1, "no track");
 }

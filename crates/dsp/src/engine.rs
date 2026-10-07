@@ -655,6 +655,8 @@ impl Engine {
             self.reset(strip);
         }
         self.preset(0, Preset::ModularBasic);
+        // Every synth on screen is a track (ADR-0027).
+        let _ = self.track_add(0, Preset::ModularBasic);
     }
 
     /// Live input: press a key on `synth`'s live voice, or, with its arp on,
@@ -1722,6 +1724,55 @@ impl Engine {
             }
         }
         self.mark_synth(synth);
+    }
+
+    /// A track for `synth`, shown without one (ADR-0027): named after it
+    /// (`synth_2`, `drums_10`), on `preset`, routed to it. The synth keeps its
+    /// sound; the next fold writes it into the track's setting. The track's
+    /// index, or `None` past the song's room.
+    pub fn track_add(&mut self, synth: usize, preset: Preset) -> Option<usize> {
+        if synth >= SYNTHS {
+            return None;
+        }
+        self.commit_song();
+        let m = preset.model();
+        let word = if m.uses_drums() || m.uses_pads() {
+            "drums"
+        } else if m.uses_sampler() {
+            "sampler"
+        } else {
+            "synth"
+        };
+        let t = self
+            .song
+            .add_track(&format!("{word}_{}", synth + 1), preset)?;
+        self.song_route(t, Some(synth));
+        self.mark_synth(synth);
+        self.song_text = self.song.print();
+        Some(t)
+    }
+
+    /// `synth` taken off the screen (ADR-0027): its track goes when it has no
+    /// music, the later tracks keeping their synths; one with music is
+    /// muted, so nothing composed is lost. 1 removed, 0 muted, −1 no track.
+    pub fn track_remove(&mut self, synth: usize) -> i32 {
+        let Some(t) = (0..self.song.tracks.len()).find(|t| self.song_routed(*t) == Some(synth))
+        else {
+            return -1;
+        };
+        self.commit_song();
+        let done = if self.song.remove_track(t) {
+            self.song_route.copy_within(t + 1.., t);
+            if let Some(last) = self.song_route.last_mut() {
+                *last = None;
+            }
+            1
+        } else {
+            self.song_route(t, None);
+            0
+        };
+        self.song_text = self.song.print();
+        done
     }
 
     /// Mark `synth`'s sound to fold: a preset, a voice or code it took.
