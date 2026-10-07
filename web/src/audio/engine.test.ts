@@ -155,18 +155,23 @@ describe('applySong', () => {
     expect(take().filter((m) => m.t === 'reset')).toEqual([])
   })
 
-  it('names a song track\'s synth by its kind: a drum on synth 0 is not Synth 1 (#177)', async () => {
+  it('names a song track\'s synth after the track, underscores as spaces (#327)', async () => {
     const { mod } = await boot()
     const { names } = await import('./names')
     names.strips[5] = 'Strings'
     mod.applySong({
       ...ok, ok: true, text: enc('x'), error: null,
-      tracks: [track('kit', 0, 0), track('bass', 3, 1), track('loop', 4, 2), track('pads', 5, 1)],
+      tracks: [track('kit', 0, 0), track('basso_continuo', 3, 1), track('loop', 4, 2), track('pads', 5, 1)],
     })
-    expect([0, 3, 4, 5].map((s) => mod.stripName(s))).toEqual(['Drum 1', 'Synth 1', 'Sampler 1', 'Strings'])
-    // Played again, the names that fit stay as they are.
-    mod.applySong({ ...ok, ok: true, text: enc('x'), error: null, tracks: [track('kit', 0, 0), track('bass', 3, 1)] })
-    expect([0, 3].map((s) => mod.stripName(s))).toEqual(['Drum 1', 'Synth 1'])
+    // A name the user typed stays.
+    expect([0, 3, 4, 5].map((s) => mod.stripName(s))).toEqual(['kit', 'basso continuo', 'loop', 'Strings'])
+    // The next song renames what the last one named.
+    mod.applySong({ ...ok, ok: true, text: enc('x'), error: null, tracks: [track('drums', 0, 0), track('lead', 3, 1)] })
+    expect([0, 3].map((s) => mod.stripName(s))).toEqual(['drums', 'lead'])
+    // Renamed by the user, it is theirs from then on.
+    mod.renameSynth(3, 'My lead')
+    mod.applySong({ ...ok, ok: true, text: enc('x'), error: null, tracks: [track('drums', 0, 0), track('bass', 3, 1)] })
+    expect(mod.stripName(3)).toBe('My lead')
   })
 
   it('keeps the draft and shows the error of a song that failed', async () => {
@@ -631,18 +636,21 @@ describe('MIDI files and setups', () => {
     expect(take().map((m) => m.t)).toEqual(['song'])
   })
 
-  it('the demo imports its MIDI file, then applies the shipped setup', async () => {
-    const setup = buildSetup({ synths: [0, 1], values: [] }, reg)
+  it('the demo imports its MIDI file and no setup: the song picks its synths (#327)', async () => {
+    const fetched: string[] = []
     const { mod, send, take } = await boot({
-      fetch: async (url) =>
-        url.endsWith('.json') ? new Response(JSON.stringify(setup)) : new Response(new Uint8Array(4)),
+      fetch: async (url) => {
+        fetched.push(url)
+        return new Response(new Uint8Array(4))
+      },
     })
     take()
     await mod.loadDemo()
+    expect(fetched.filter((u) => u.includes('demo'))).toEqual([expect.stringMatching(/demo\.mid$/)])
     expect(mod.files.fileName).toBe('Canon in D (demo)')
     expect(take().map((m) => m.t)).toEqual(['midi'])
     send({ t: 'imported', code: 4 })
-    expect(mod.synths.list).toEqual([0, 1])
+    expect(take().map((m) => m.t)).toEqual([])
   })
 })
 

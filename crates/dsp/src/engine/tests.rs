@@ -4060,3 +4060,27 @@ fn clear_starts_over_with_one_modular_synth() {
         "synth 0 plays"
     );
 }
+
+/// #327: an imported MIDI file's parts play on the synths its text names:
+/// the demo's bass on a Minimoog, its violins on Pro-Ones, synths 0 to 3.
+#[test]
+fn a_midi_import_sets_the_synths_its_text_names() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/public/demo.mid");
+    let bytes = std::fs::read(path).expect("the demo MIDI file");
+    let mut e = Engine::new(48_000.0);
+    // Synth 2 already a Minimoog: the bass still goes to synth 0, in channel order.
+    e.preset(2, crate::mono::preset::Preset::MiniLead);
+    e.midi_buffer(bytes.len())
+        .expect("fits")
+        .copy_from_slice(&bytes);
+    assert_eq!(e.import_midi(), Ok(4));
+    let model = |s: usize| e.param_value(s, Param::Model);
+    assert_eq!(model(0), Model::Minimoog as u32 as f32);
+    for s in 1..4 {
+        assert_eq!(model(s), Model::ProOne as u32 as f32, "synth {s}");
+    }
+    assert_eq!(
+        (0..4).map(|t| e.song_routed(t)).collect::<Vec<_>>(),
+        [Some(0), Some(1), Some(2), Some(3)]
+    );
+}

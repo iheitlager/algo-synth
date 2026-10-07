@@ -166,6 +166,8 @@ class EngineProcessor extends AudioWorkletProcessor {
     }
     new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
     const code = w.midi_import()
+    // The import set each part's patch on its synth (#327): show them.
+    if (code >= 0) for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
     this.sendSong(code >= 0)
     this.port.postMessage({ t: 'imported', code })
   }

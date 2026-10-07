@@ -11,7 +11,7 @@ import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, Stri
 import { lexer, wasmLexer } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
-import { cleanName, familyName, isFamilyName, names, renameStrip, setNames, stripName } from './names'
+import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setNames, stripName, trackLabel } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
@@ -198,20 +198,21 @@ export function renameSynth(s: number, raw: string) {
   const family = modelDef(params.values[s]?.[Param.Model] ?? 0).family
   const others = synths.list.filter((i) => i !== s).map((i) => stripName(i))
   names.strips[s] = familyName(family, others)
+  fromSong.delete(s)
 }
 
-const KIND_FAMILY = { drums: 'drums', synth: 'mono', sampler: 'samplers' } as const
-
 /**
- * Name a song track's synth by its kind (#177), so a 909 on synth 0 is `Drum 1`
- * and not `Synth 1`. A name the user typed stays, and so does a family name
- * it was given that already fits.
+ * Name a song track's synth after the track (#327), `basso_continuo` as
+ * `basso continuo`, so the tapes and strips read as the song does. A name the
+ * user typed stays; one the last song gave, or a family name, follows the track.
  */
-function nameByKind(s: number, kind: SongTrack['kind']) {
+function nameByTrack(s: number, track: string) {
   const own = names.strips[s]
-  const family = KIND_FAMILY[kind]
-  if (own !== undefined && (!isFamilyName(own) || own.startsWith(familyName(family, []).split(' ')[0]))) return
-  names.strips[s] = familyName(family, synths.list.filter((i) => i !== s).map((i) => stripName(i)))
+  if (own !== undefined && !isFamilyName(own) && !fromSong.has(s)) return
+  const label = trackLabel(track)
+  if (!label) return
+  names.strips[s] = label
+  fromSong.add(s)
 }
 
 /** Remove synth `s` (never the last one). */
@@ -219,6 +220,7 @@ export function removeSynth(s: number) {
   if (synths.list.length <= 1) return
   synths.list = synths.list.filter((i) => i !== s)
   delete names.strips[s]
+  fromSong.delete(s)
   if (synths.selected === s) synths.selected = synths.list[0] ?? 0
 }
 let engine: AudioEngine | null = null
@@ -286,10 +288,10 @@ export async function loadMidi(bytes: ArrayBuffer, fileName: string): Promise<vo
   engine.post({ t: 'midi', bytes }, [bytes])
 }
 
+/** The demo is its MIDI file: the song it imports as picks its own synths (#327). */
 export async function loadDemo(): Promise<void> {
-  const [mid, setup] = await Promise.all([fetch(`${base}demo.mid`), fetch(`${base}demo.synths.json`)])
-  const parsed = setup.ok ? parseSetup(await setup.text(), registry) : null
-  pending = parsed?.ok ? { setup: parsed.setup, warnings: parsed.warnings } : null
+  const mid = await fetch(`${base}demo.mid`)
+  pending = null
   files.notice = ''
   await loadMidi(await mid.arrayBuffer(), 'Canon in D (demo)')
 }
@@ -632,7 +634,7 @@ export function applySong(data: Record<string, unknown>) {
   // The engine put each track on a synth with its preset (#210): show them as they are.
   if (data.ok) for (const t of song.tracks) if (t.synth !== MUTE) {
     show(t.synth, true)
-    nameByKind(t.synth, t.kind)
+    nameByTrack(t.synth, t.name)
   }
   song.frags = (data.frags as {
     name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]

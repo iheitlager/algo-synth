@@ -148,8 +148,9 @@ pub struct Engine {
     code_error: Option<CodeError>,
     code_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
-    /// While a MIDI file is imported its parts keep the synths they play on.
-    keep_synths: bool,
+    /// While a MIDI file is imported every part's patch is set on its synth,
+    /// so the synths are what the imported text says (#327).
+    import_patches: bool,
     /// Notes of the song waiting for their note-off, as (tick, track, note):
     /// a fixed table, so the clock can end a note without allocating.
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
@@ -232,7 +233,7 @@ impl Engine {
             code_error: None,
             code_text: String::new(),
             song_route: [None; MAX_TRACKS],
-            keep_synths: false,
+            import_patches: false,
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
             pending: None,
@@ -1602,10 +1603,11 @@ impl Engine {
                                 .or_else(|| (0..SYNTHS).find(free))
                         });
                         let code = song.code(t);
-                        let changed = routed.is_none()
+                        let changed = self.import_patches
+                            || routed.is_none()
                             || self.song.patch(t) != patch
                             || self.song.code(t) != code;
-                        if let Some(s) = synth.filter(|_| changed && !self.keep_synths) {
+                        if let Some(s) = synth.filter(|_| changed) {
                             self.preset(s, preset);
                             // The parser built it already, so it builds here.
                             if let Some(code) = code {
@@ -1662,9 +1664,14 @@ impl Engine {
         let smf = smf::parse(&self.midi).map_err(smf::Error::code)?;
         let imported = crate::midi_import::import(&smf).map_err(|e| e.code())?;
         self.song_buf = imported.text.into_bytes();
-        self.keep_synths = true;
+        // Its parts play on synths 0, 1, 2… (ADR-0022), each with the patch
+        // the text gives it (#327): routed first, so the patch lands there.
+        for (t, slot) in self.song_route.iter_mut().enumerate() {
+            *slot = Some(t).filter(|s| *s < imported.channels.len() && *s < SYNTHS);
+        }
+        self.import_patches = true;
         let loaded = self.load_song();
-        self.keep_synths = false;
+        self.import_patches = false;
         loaded.map_err(|_| -9)?;
         self.commit_song();
         for t in 0..imported.channels.len() {
