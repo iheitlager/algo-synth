@@ -902,16 +902,18 @@ mod tests {
     /// centre pan. Re-taken when the ladder's stages began to saturate
     /// (#306), which rounds the peaks, and when the discrete VCOs' saws were
     /// bowed and set drifting (#339), which moves the samples but not the
-    /// level.
+    /// level, and when its ADSR began to drive an exponential VCA (#341),
+    /// with each sustain retuned to hold its level; the bowed string's slow
+    /// swell stays quieter for longer.
     #[test]
     fn arp_presets_keep_their_sound() {
         let gold: [(Preset, [f64; 4]); 4] = [
-            (Preset::Bass, [0.111399, 0.446056, 0.030734, 0.138210]),
-            (Preset::Lead, [0.166185, 0.456667, -0.269997, 0.198758]),
-            (Preset::SyncLead, [0.143545, 0.328541, -0.087489, 0.202874]),
+            (Preset::Bass, [0.118415, 0.445219, 0.037457, 0.151015]),
+            (Preset::Lead, [0.167781, 0.455040, -0.276790, 0.193332]),
+            (Preset::SyncLead, [0.144055, 0.328993, -0.159012, 0.107227]),
             (
                 Preset::BowedString,
-                [0.092674, 0.223676, -0.109591, 0.163225],
+                [0.068671, 0.221530, -0.025489, 0.165805],
             ),
         ];
         for (preset, want) in gold {

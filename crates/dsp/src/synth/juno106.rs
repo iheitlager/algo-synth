@@ -1,12 +1,13 @@
 //! The Roland Juno-106: what the model is and its presets (#330).
 
-use crate::mono::model::{EnvVoicing, Filter, Hp, JUNO106, LOCKED, RC_ENV};
+use crate::mono::model::{BA662, EnvVoicing, Filter, Hp, JUNO106, LOCKED, RC_ENV};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: LOCKED,
+    vca: BA662,
     // Written by the CPU, not an RC circuit (#340): a near-linear attack,
     // 1.5 ms to 3 s, decay and release from 1.5 ms.
     env: EnvVoicing {

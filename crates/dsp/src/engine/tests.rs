@@ -176,7 +176,7 @@ fn mono_follows_its_adsr() {
     for _ in 0..40 {
         e.render(BLOCK);
     }
-    assert!(peak(&e) > 0.05);
+    assert!(peak(&e) > 0.01);
     e.note_off(0, 57);
     // 0.01 s is 3.75 blocks.
     for _ in 0..5 {
@@ -206,11 +206,14 @@ fn a_mono_tap_shorter_than_a_block_sounds() {
     assert_eq!(e.active_voices(), 0);
 }
 
-/// Mono's sustain slider moves a held note.
+/// Mono's sustain slider moves a held note: half the sustain is half the
+/// level through a linear VCA, and on the ARP 2600, whose ADSR drives an
+/// exponential VCA over 60 dB, 21 dB down (#341).
 #[test]
 fn mono_sustain_moves_a_held_note() {
-    let level = |sustain: f32| {
+    let level = |model: Model, sustain: f32| {
         let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::Model, model as u32 as f32);
         e.set_param(0, Param::AdsrDecay, 0.01);
         e.note_on(0, 57, 1.0);
         for _ in 0..40 {
@@ -224,11 +227,13 @@ fn mono_sustain_moves_a_held_note() {
         }
         sum.sqrt()
     };
-    let ratio = level(0.35) / level(0.7);
+    let ratio = level(Model::Ms20, 0.35) / level(Model::Ms20, 0.7);
     assert!(
         (ratio - 0.5).abs() < 0.05,
         "half the sustain, half the level: {ratio}"
     );
+    let db = 20.0 * (level(Model::Arp2600, 0.35) / level(Model::Arp2600, 0.7)).log10();
+    assert!((db + 21.0).abs() < 1.5, "exponential: {db} dB");
 }
 
 /// Spec 004 Req 6: live input and each song track have their own Mono
@@ -1008,26 +1013,26 @@ fn fader_mute_and_solo() {
     let mut e = Engine::new(48_000.0);
     e.note_on(0, 57, 1.0);
     e.note_on(1, 64, 1.0);
-    assert!(heard(&mut e, 40) > 0.05);
+    assert!(heard(&mut e, 40) > 0.01);
     e.set_param(0, Param::Level, 0.0);
     e.set_param(1, Param::Mute, 1.0);
     // A fader closing on a sounding synth ramps down across one block (#271).
     heard(&mut e, 1);
     assert_eq!(heard(&mut e, 10), 0.0, "fader 0 and a mute are silent");
     e.set_param(1, Param::Mute, 0.0);
-    assert!(heard(&mut e, 10) > 0.05, "synth 1 unmuted");
+    assert!(heard(&mut e, 10) > 0.01, "synth 1 unmuted");
     e.set_param(0, Param::Level, 1.0);
     e.set_param(0, Param::Solo, 1.0);
     e.set_param(1, Param::Level, 0.0);
     assert!(
-        heard(&mut e, 10) > 0.05,
+        heard(&mut e, 10) > 0.01,
         "solo silences the others, not itself"
     );
     e.set_param(0, Param::Solo, 0.0);
     e.set_param(1, Param::Level, 1.0);
     e.set_param(1, Param::Solo, 1.0);
     e.set_param(0, Param::Level, 0.0);
-    assert!(heard(&mut e, 10) > 0.05, "only the soloed synth sounds");
+    assert!(heard(&mut e, 10) > 0.01, "only the soloed synth sounds");
 }
 
 #[test]

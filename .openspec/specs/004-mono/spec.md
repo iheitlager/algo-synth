@@ -359,3 +359,23 @@ A model SHALL voice its ADSR and filter envelope as the instrument's circuit was
 - THEN the Juno-106 peaks within 3 s, the Minimoog takes at least 10 ms, and its sustain sits at 80 % of the peak
 
 **Tests:** `crates/dsp/src/mono/env.rs::tests::an_aimed_attack_is_straighter_and_still_on_time`, `crates/dsp/src/mono/model.rs::tests::models_voice_their_envelopes`, `crates/dsp/src/mono/voice.rs::tests::envelope_times_stay_in_the_models_range`, `crates/dsp/src/mono/preset.rs::tests::every_presets_times_lie_in_its_models_ranges`
+
+### Requirement 18: VCA voiced per model [SHOULD]
+
+A model SHALL voice its VCA as the instrument's was (#341): how hard its input rounds a hot signal off, and whether its envelope drives a linear or an exponential control. An OTA VCA SHALL soft-clip its input before its gain, about `tanh(y·k)/k`, the BA662 (SH-101, Juno-106, Jupiter-8) harder than the CA3280 (Prophet-5 Rev 3), adding a third harmonic only to a hot signal. The ARP 2600's ADSR SHALL drive an exponential control over 60 dB, as the instrument normals it to the 4019's exponential input, so half the sustain is about 30 dB down and a decay falls evenly in decibels; its presets' sustains SHALL be retuned to hold their level. Every other VCA SHALL stay a clean, linear multiply, its output bit-exact to before. A click on a fast attack and bleed through a closed VCA SHALL NOT be voiced: no source documents either for these instruments. The soft clip SHALL be a polynomial with no division per sample and the exponential a polynomial `exp2`, the choice made per block.
+
+**Implementation:** `crates/dsp/src/mono/model.rs::VcaVoicing`, `crates/dsp/src/mono/model.rs::ota`, `crates/dsp/src/synth.rs::ModelDef`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#341)
+
+#### Scenario: an OTA rounds only a hot signal
+
+- GIVEN the BA662 and the CA3280
+- WHEN a sine of 0.05 and one of 2 pass through each
+- THEN the soft sine keeps its third harmonic under 0.1 % and the hot one gains more than 2 %, the BA662 more than the CA3280
+
+#### Scenario: the ARP's exponential VCA
+
+- GIVEN an ARP 2600 and an MS-20 holding a note at sustain 0.7, then 0.35
+- WHEN the level is measured
+- THEN the MS-20's halves and the ARP's falls about 21 dB
+
+**Tests:** `crates/dsp/src/mono/model.rs::tests::models_voice_their_vcas`, `crates/dsp/src/mono/model.rs::tests::vca_voicings_shape_as_they_say`, `crates/dsp/src/engine/tests.rs::mono_sustain_moves_a_held_note`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`

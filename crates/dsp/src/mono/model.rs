@@ -369,6 +369,17 @@ pub const LOCKED: OscVoicing = OscVoicing {
 };
 
 impl OscVoicing {
+    /// Whether wave `w` is shaped at all: per block, so a sample of an
+    /// unshaped wave costs nothing.
+    pub fn shapes(&self, w: crate::mono::osc::Waveform) -> bool {
+        use crate::mono::osc::Waveform;
+        match w {
+            Waveform::Triangle => self.tri_round > 0.0,
+            Waveform::Saw => self.saw_bend > 0.0,
+            _ => false,
+        }
+    }
+
     /// A band-limited oscillator's output `y` of wave `w`, shaped. Two
     /// multiplies and an add; `y` passes untouched at 0.
     pub fn shape(&self, w: crate::mono::osc::Waveform, y: f32) -> f32 {
@@ -438,6 +449,75 @@ impl EnvVoicing {
     }
 }
 
+/// How a model's VCA is voiced (spec 004 Req 18, #341): how hard its input
+/// rounds off, and whether its envelope drives an exponential control.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VcaVoicing {
+    /// Drive into an OTA's input pair before its gain: 0 is a clean,
+    /// linear multiply.
+    pub sat: f32,
+    /// The envelope drives an exponential control input, so a decay falls
+    /// evenly in decibels.
+    pub expo: bool,
+}
+
+/// Today's VCA: a clean, linear multiply. The voicing of a model whose
+/// VCA is not voiced, and of the CEM3360 and CEM3372 used linearly.
+pub const CLEAN_VCA: VcaVoicing = VcaVoicing {
+    sat: 0.0,
+    expo: false,
+};
+/// Roland's BA662 OTA (SH-101, Juno-106, Jupiter-8): a hot signal rounds
+/// off.
+pub const BA662: VcaVoicing = VcaVoicing {
+    sat: 0.5,
+    expo: false,
+};
+/// The CA3280 OTA (Prophet-5 Rev 3): a little cleaner than the BA662.
+pub const CA3280: VcaVoicing = VcaVoicing {
+    sat: 0.4,
+    expo: false,
+};
+/// The decibels an exponential VCA spans over its envelope's travel.
+const EXPO_DB: f32 = 60.0;
+
+impl VcaVoicing {
+    /// The gain for an envelope level `vca` in 0..=1: `vca` itself on a
+    /// linear control; on an exponential one `EXPO_DB` of travel, put back
+    /// to 0 at 0 and 1 at 1. A polynomial `exp2`, no transcendental.
+    pub fn gain(&self, vca: f32) -> f32 {
+        if !self.expo {
+            return vca;
+        }
+        const OCTAVES: f32 = EXPO_DB / 6.020_6;
+        let floor = crate::modular::fast_exp2(-OCTAVES);
+        let g = crate::modular::fast_exp2(OCTAVES * (vca - 1.0));
+        ((g - floor) / (1.0 - floor)).max(0.0)
+    }
+
+    /// An OTA's drive and its inverse, worked out once per block; `None`
+    /// for a clean VCA.
+    pub fn ota(&self) -> Option<(f32, f32)> {
+        (self.sat > 0.0).then(|| (self.sat, 1.0 / self.sat))
+    }
+
+    /// The signal `y` through the VCA's input: an OTA's input pair rounds
+    /// a hot signal off, about `tanh(y·sat)/sat`; a clean VCA passes it.
+    pub fn input(&self, y: f32) -> f32 {
+        match self.ota() {
+            Some((k, inv)) => ota(y, k, inv),
+            None => y,
+        }
+    }
+}
+
+/// `y` through an OTA of drive `k` (`inv` = 1/k): a cubic soft clip, flat
+/// from ±1.5, smooth at the knee. Multiplies only, no division per sample.
+pub fn ota(y: f32, k: f32, inv: f32) -> f32 {
+    let x = (y * k).clamp(-1.5, 1.5);
+    (x - (4.0 / 27.0) * x * x * x) * inv
+}
+
 /// A panel's filter switches: the slope switch at 12 dB (`Param::Slope`)
 /// and the revision switch (`Param::FilterRev`, 1..=3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -505,6 +585,11 @@ impl Model {
     /// How its envelopes are voiced (#340).
     pub fn env(self) -> EnvVoicing {
         self.def().env
+    }
+
+    /// How its VCA is voiced (#341).
+    pub fn vca(self) -> VcaVoicing {
+        self.def().vca
     }
 
     /// The filter and its voicing.
@@ -694,6 +779,76 @@ mod tests {
             release: 3.0,
         };
         assert_eq!(RC_ENV.clamp(&t, 1_000.0), t, "today's: untouched in range");
+    }
+
+    /// #341: the OTA VCAs round off, the ARP 2600's ADSR drives an
+    /// exponential control, every other VCA is clean.
+    #[test]
+    fn models_voice_their_vcas() {
+        for (m, name) in Model::ALL {
+            let want = match m {
+                Model::Sh101 | Model::Juno106 | Model::Jupiter8 => BA662,
+                Model::Prophet5 => CA3280,
+                Model::Arp2600 => VcaVoicing {
+                    expo: true,
+                    ..CLEAN_VCA
+                },
+                _ => CLEAN_VCA,
+            };
+            assert_eq!(m.vca(), want, "{name}");
+        }
+    }
+
+    /// #341: a clean VCA passes the signal and the envelope as they are; an
+    /// OTA leaves a soft signal alone and adds a third harmonic to a hot
+    /// one; an exponential control runs 0 to 1, is about 30 dB down half
+    /// way, and turns a straight fall into one even in decibels.
+    #[test]
+    fn vca_voicings_shape_as_they_say() {
+        for i in 0..=1000 {
+            let x = -2.0 + i as f32 * 0.004;
+            assert_eq!(CLEAN_VCA.input(x), x);
+            let v = i as f32 / 1000.0;
+            assert_eq!(CLEAN_VCA.gain(v), v);
+            assert_eq!(BA662.gain(v), v, "an OTA's control is linear");
+        }
+        // The third harmonic of a sine of `amp` through `v`, over its level.
+        let third = |v: VcaVoicing, amp: f32| {
+            let n = 4_800;
+            let (mut re, mut im, mut all) = (0.0_f64, 0.0_f64, 0.0_f64);
+            for k in 0..n {
+                let ph = std::f64::consts::TAU * 10.0 * k as f64 / n as f64;
+                let y = f64::from(v.input(amp * ph.sin() as f32));
+                re += y * (3.0 * ph).cos();
+                im += y * (3.0 * ph).sin();
+                all += y * y;
+            }
+            (re * re + im * im).sqrt() * 2.0 / n as f64 / (2.0 * all / n as f64).sqrt()
+        };
+        for ota in [BA662, CA3280] {
+            assert!(third(ota, 0.05) < 1.0e-3, "soft: {}", third(ota, 0.05));
+            assert!(third(ota, 2.0) > 0.02, "hot: {}", third(ota, 2.0));
+        }
+        assert!(
+            third(BA662, 2.0) > third(CA3280, 2.0),
+            "the BA662 rounds harder"
+        );
+
+        let expo = VcaVoicing {
+            expo: true,
+            ..CLEAN_VCA
+        };
+        assert_eq!(expo.gain(0.0), 0.0);
+        assert!((expo.gain(1.0) - 1.0).abs() < 1.0e-4);
+        let db = |v: f32| 20.0 * expo.gain(v).log10();
+        assert!((db(0.5) + 30.0).abs() < 0.5, "half way: {} dB", db(0.5));
+        let steps: Vec<f32> = (5..10)
+            .map(|i| db(i as f32 / 10.0) - db((i - 1) as f32 / 10.0))
+            .collect();
+        assert!(
+            steps.iter().all(|s| (s - 6.0).abs() < 0.3),
+            "even in dB: {steps:?}"
+        );
     }
 
     /// #339: a rounded triangle keeps its peaks at ±1 and stays monotonic

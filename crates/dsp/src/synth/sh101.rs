@@ -1,12 +1,13 @@
 //! The Roland SH-101: what the model is and its presets (#330).
 
-use crate::mono::model::{CEM_VCO, EnvVoicing, Filter, RC_ENV, SH101};
+use crate::mono::model::{BA662, CEM_VCO, EnvVoicing, Filter, RC_ENV, SH101};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: CEM_VCO,
+    vca: BA662,
     // A discrete transistor ADSR (#340): attack 1.5 ms to 4 s, decay and
     // release from 2 ms.
     env: EnvVoicing {

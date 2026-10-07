@@ -1,12 +1,18 @@
 //! The ARP 2600: what the model is and its presets (#330).
 
-use crate::mono::model::{DISCRETE_VCO, Filter, MOOG};
+use crate::mono::model::{CLEAN_VCA, DISCRETE_VCO, Filter, MOOG, VcaVoicing};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: DISCRETE_VCO,
+    // The 4019's exponential control input, normalled from the ADSR, so a
+    // decay falls evenly in decibels (#341).
+    vca: VcaVoicing {
+        expo: true,
+        ..CLEAN_VCA
+    },
     filter: Filter::Ladder(MOOG),
     // Its ADSR is normalled to filter and VCA (spec 004 Req 12).
     cutoff_follows_filter_env: false,
@@ -25,7 +31,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Drive, 0.4),
                 (AdsrAttack, 0.002),
                 (AdsrDecay, 0.25),
-                (AdsrSustain, 0.45),
+                (AdsrSustain, 0.885),
                 (AdsrRelease, 0.12),
                 // The filter opens with each note and follows the key.
                 (EnvCutoff, 0.4),
@@ -46,7 +52,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Drive, 0.2),
                 (AdsrAttack, 0.01),
                 (AdsrDecay, 0.4),
-                (AdsrSustain, 0.75),
+                (AdsrSustain, 0.958),
                 (AdsrRelease, 0.3),
                 (EnvCutoff, 0.25),
                 (KeyTrack, 0.5),
@@ -70,7 +76,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Drive, 0.3),
                 (AdsrAttack, 0.005),
                 (AdsrDecay, 0.6),
-                (AdsrSustain, 0.6),
+                (AdsrSustain, 0.926),
                 (AdsrRelease, 0.25),
                 (EnvCutoff, 0.2),
                 (KeyTrack, 0.3),
@@ -96,7 +102,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Resonance, 0.1),
                 (AdsrAttack, 0.25),
                 (AdsrDecay, 0.5),
-                (AdsrSustain, 0.85),
+                (AdsrSustain, 0.976),
                 (AdsrRelease, 0.6),
                 // Vibrato at 5.5 Hz, the wheel all the way up; bow pressure
                 // (velocity) brightens the tone.
@@ -126,7 +132,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Resonance, 0.5),
                 (AdsrAttack, 0.002),
                 (AdsrDecay, 0.12),
-                (AdsrSustain, 0.8),
+                (AdsrSustain, 0.968),
                 (AdsrRelease, 0.1),
                 (LfoWave, 0.0),
                 (LfoRate, 9.0),
@@ -154,7 +160,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Drive, 0.2),
                 (AdsrAttack, 0.005),
                 (AdsrDecay, 0.25),
-                (AdsrSustain, 0.8),
+                (AdsrSustain, 0.968),
                 (AdsrRelease, 0.15),
                 (EnvCutoff, 0.3),
                 (KeyTrack, 0.5),
@@ -183,7 +189,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Resonance, 0.05),
                 (AdsrAttack, 0.5),
                 (AdsrDecay, 0.6),
-                (AdsrSustain, 0.9),
+                (AdsrSustain, 0.985),
                 (AdsrRelease, 0.7),
                 (EnvCutoff, 0.1),
                 (KeyTrack, 0.5),
