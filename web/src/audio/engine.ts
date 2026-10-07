@@ -567,6 +567,12 @@ export const song = reactive({
  */
 export const codes = reactive({} as Record<number, { text: string; error: { line: number; col: number; msg: string } | null }>)
 
+/** What of each synth's sound the song can't hold yet (#361), as the engine reports it. */
+export const liveOnly = reactive({ bits: [] as number[] })
+const LIVE_WORDS = ['the arpeggiator', 'its sample zones', 'its sampled pads', 'more changes than a setting holds'] as const
+/** What synth `s` has that isn't in the song, as words; empty when the song holds it all. */
+export const notInSong = (s: number): string[] => LIVE_WORDS.filter((_, i) => ((liveOnly.bits[s] ?? 0) >> i) & 1)
+
 /** A knob of a Modular synth's code (#329): a number of the SynthDef, on `Ctl1` + `ctl`. */
 export interface CodeKnob { module: number; ugen: string; name: string; ctl: number; lo: number; hi: number; exp: boolean; def: number }
 /** Each Modular synth's knobs, as the engine lists them with its code. */
@@ -809,6 +815,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
       text: decoder.decode(data.text as Uint8Array),
       error: e ? { line: e.line, col: e.col, msg: decoder.decode(e.msg) } : null,
     }
+  } else if (data.t === 'liveOnly') {
+    liveOnly.bits = data.bits as number[]
   } else if (data.t === 'knobs') {
     codeKnobs[data.s as number] = parseKnobs(new TextDecoder('utf-8').decode(data.knobs as Uint8Array))
   } else if (data.t === 'mods') {

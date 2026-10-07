@@ -4703,3 +4703,21 @@ fn a_synth_on_screen_is_a_track() {
     assert_eq!(e.song().frags.len(), 1);
     assert_eq!(e.track_remove(9), -1, "no track");
 }
+
+/// #361: what of a synth's sound the song can't hold yet is reported, and a
+/// synth the song holds entirely reports nothing.
+#[test]
+fn what_the_song_cannot_hold_is_reported() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track lead synth Minimoog MiniBass\n"),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    e.edit_param(s, Param::Cutoff, 900.0);
+    assert_eq!(e.live_only(s), 0, "a knob is in the song");
+    e.edit_param(s, Param::ArpOn, 1.0);
+    assert_eq!(e.live_only(s), LIVE_ARP);
+    e.edit_param(s, Param::ArpOn, 0.0);
+    assert_eq!(e.live_only(s), 0);
+}

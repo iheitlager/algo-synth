@@ -316,7 +316,19 @@ class EngineProcessor extends AudioWorkletProcessor {
     const buf = new Float32Array(w.memory.buffer, w.out_ptr(), 2 * this.block)
     out[0].set(buf.subarray(0, frames))
     if (out[1]) out[1].set(buf.subarray(this.block, this.block + frames))
-    if (this.tick % FOLD_EVERY === 0 && !this.foldHeld && w.song_fold && w.song_fold()) this.sendSong(true)
+    if (this.tick % FOLD_EVERY === 0) {
+      if (!this.foldHeld && w.song_fold && w.song_fold()) this.sendSong(true)
+      // What of each synth's sound the song can't hold yet (#361): sent when it changes.
+      if (w.live_only) {
+        const live = []
+        for (let s = 0; s < 16; s++) live.push(w.live_only(s))
+        const key = live.join(',')
+        if (key !== this.liveKey) {
+          this.liveKey = key
+          this.port.postMessage({ t: 'liveOnly', bits: live })
+        }
+      }
+    }
     if (++this.tick % POSITION_EVERY === 0) {
       this.port.postMessage({
         t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,

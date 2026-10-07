@@ -78,6 +78,11 @@ pub const BLOCK: usize = 128;
 pub const SYNTHS: usize = 16;
 /// The bit of `Engine::fold` that marks the master's global parameters.
 const FOLD_GLOBAL: u32 = 1 << 31;
+/// What `Engine::live_only` reports the song cannot hold yet (#361).
+pub const LIVE_ARP: u32 = 1;
+pub const LIVE_ZONES: u32 = 2;
+pub const LIVE_PADS: u32 = 4;
+pub const LIVE_FULL: u32 = 8;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
 pub const METERS: usize = STRIPS + 2 + SENDS;
@@ -1773,6 +1778,40 @@ impl Engine {
         };
         self.song_text = self.song.print();
         done
+    }
+
+    /// What of `synth`'s sound the song cannot hold yet (ADR-0027, #361), one
+    /// bit each: `LIVE_ARP` an arpeggiator away from its defaults,
+    /// `LIVE_ZONES` sample zones, `LIVE_PADS` sampled pads, `LIVE_FULL` more
+    /// changes than a setting holds. 0 when the song holds all of it.
+    pub fn live_only(&self, synth: usize) -> u32 {
+        let mut bits = 0;
+        if ARP_DEFAULTS
+            .iter()
+            .any(|(p, d)| (self.param_value(synth, *p) - p.clamp(*d)).abs() > 1e-6)
+        {
+            bits |= LIVE_ARP;
+        }
+        let zones = self.zones.get(synth);
+        if (0..crate::sampler::ZONES).any(|z| {
+            zones
+                .and_then(|m| m.get(z))
+                .is_some_and(|z| z.sample.is_some())
+        }) {
+            bits |= LIVE_ZONES;
+        }
+        let kit = self.synths.get(synth).map(|p| &p.pad_kit);
+        if (0..crate::padsampler::PADS).any(|i| {
+            kit.and_then(|k| k.pad(i))
+                .is_some_and(|c| c.sample.is_some())
+        }) {
+            bits |= LIVE_PADS;
+        }
+        let track = (0..self.song.tracks.len()).find(|t| self.song_routed(*t) == Some(synth));
+        if track.is_some_and(|t| self.changed_params(t).is_none()) {
+            bits |= LIVE_FULL;
+        }
+        bits
     }
 
     /// Mark `synth`'s sound to fold: a preset, a voice or code it took.
