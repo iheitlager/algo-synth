@@ -41,7 +41,7 @@ const noKit = computed(() => song.tracks.some((t) => t.kind === 'drums') && !syn
 const dirty = computed(() => song.draft !== song.text)
 
 // Off → hit → accent → off.
-// A click cycles off → hit → accent → off; a ghost (written in the text) clicks off.
+// A click cycles off → hit → accent → off; a ghost, flam or drag (written in the text) clicks off.
 const cycle = (f: number, l: number, s: number, level: number) => setStep(f, l, s, level < 2 ? level + 1 : 0)
 // The section playing now, in an arrangement.
 const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[song.entry]] : undefined))
@@ -174,6 +174,9 @@ watch(() => status.running, (on) => on && requestSong())
 .step.l1 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); }
 .step.l2 { background: var(--hit); }
 .step.l3 { background: color-mix(in srgb, var(--hit) 25%, var(--panel-2)); }
+/* A flam and a drag (#353): a hit with one or two grace marks before it. */
+.step.l4 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); box-shadow: inset 3px 0 0 var(--hit); }
+.step.l5 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); box-shadow: inset 2px 0 0 var(--hit), inset 5px 0 0 var(--panel-2), inset 7px 0 0 var(--hit); }
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
 .text-head { display: flex; align-items: center; gap: 10px; }

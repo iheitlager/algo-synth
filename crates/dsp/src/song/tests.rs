@@ -97,13 +97,13 @@ fn every_error_says_where() {
             "track kit drums\nfrag a = kit\n  bd x..z",
             3,
             9,
-            "a step is x, X, o or .",
+            "a step is x, X, o, f, d or .",
         ),
         (
             "track kit drums\nfrag a = kit\n  bd",
             3,
             3,
-            "a lane needs its steps: x, X, o or .",
+            "a lane needs its steps: x, X, o, f, d or .",
         ),
         (
             "track kit drums\nfrag a = kit\n  bd x\n  bd x",

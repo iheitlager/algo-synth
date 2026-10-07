@@ -122,6 +122,8 @@ const SWING: (f32, f32) = crate::clock::SWING;
 
 /// A ghost note's velocity: well under a hit's 0.75 (#353).
 pub const GHOST_VELOCITY: f32 = 0.35;
+/// A flam's or drag's grace stroke velocity (#353).
+pub const GRACE_VELOCITY: f32 = 0.4;
 
 /// One step of a lane: a rest, a hit, an accented hit or a ghost note.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +133,10 @@ pub enum Step {
     Accent = 2,
     /// A soft stroke under the hits (#353).
     Ghost = 3,
+    /// A hit with one soft grace stroke just before it (#353).
+    Flam = 4,
+    /// A hit with two soft grace strokes just before it (#353).
+    Drag = 5,
 }
 
 impl Step {
@@ -140,6 +146,8 @@ impl Step {
             'x' => Some(Step::Hit),
             'X' => Some(Step::Accent),
             'o' => Some(Step::Ghost),
+            'f' => Some(Step::Flam),
+            'd' => Some(Step::Drag),
             _ => None,
         }
     }
@@ -150,16 +158,21 @@ impl Step {
             Step::Hit => 'x',
             Step::Accent => 'X',
             Step::Ghost => 'o',
+            Step::Flam => 'f',
+            Step::Drag => 'd',
         }
     }
 
-    /// The step for a level from the view: 0 off, 1 hit, 2 accent, 3 ghost.
+    /// The step for a level from the view: 0 off, 1 hit, 2 accent, 3 ghost,
+    /// 4 flam, 5 drag.
     pub fn from_level(level: u32) -> Option<Step> {
         match level {
             0 => Some(Step::Off),
             1 => Some(Step::Hit),
             2 => Some(Step::Accent),
             3 => Some(Step::Ghost),
+            4 => Some(Step::Flam),
+            5 => Some(Step::Drag),
             _ => None,
         }
     }
@@ -168,9 +181,19 @@ impl Step {
     pub fn velocity(self) -> Option<f32> {
         match self {
             Step::Off => None,
-            Step::Hit => Some(0.75),
+            Step::Hit | Step::Flam | Step::Drag => Some(0.75),
             Step::Accent => Some(1.0),
             Step::Ghost => Some(GHOST_VELOCITY),
+        }
+    }
+
+    /// How long before the hit each grace stroke falls, in milliseconds,
+    /// earliest first: a flam's one, a drag's two (#353).
+    pub fn graces(self) -> &'static [f32] {
+        match self {
+            Step::Flam => &[20.0],
+            Step::Drag => &[30.0, 15.0],
+            _ => &[],
         }
     }
 }
@@ -2289,7 +2312,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     let mut steps = Vec::new();
     for w in ws.iter().skip(1) {
         for (k, c) in w.text.chars().enumerate() {
-            let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X, o or ."))?;
+            let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X, o, f, d or ."))?;
             if steps.len() >= MAX_STEPS {
                 return Err(err(w.col + k, "a lane has at most 64 steps"));
             }
@@ -2297,7 +2320,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
         }
     }
     if steps.is_empty() {
-        return Err(err(first.col, "a lane needs its steps: x, X, o or ."));
+        return Err(err(first.col, "a lane needs its steps: x, X, o, f, d or ."));
     }
     Ok(Lane {
         pad,

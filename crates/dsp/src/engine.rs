@@ -66,8 +66,8 @@ use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::song::{
-    At, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine, STEPS_PER_BAR, Song,
-    SongError, Step, Target, signal,
+    At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
+    STEPS_PER_BAR, Song, SongError, Step, Target, signal,
 };
 use crate::table::Tables;
 use crate::voice::{Owner, sine_table};
@@ -1286,17 +1286,36 @@ impl Engine {
     /// stops after its last bar (ADR-0015). Reads the song in place: nothing
     /// allocates.
     fn play_step(&mut self, step: u64) {
-        let (k, section) = match self.song.at(step) {
-            At::Free(k) => (k, None),
-            At::In { section, local, .. } => (local, Some(section)),
+        match self.song.at(step) {
+            At::In {
+                section, local: 0, ..
+            } => self.apply_scenes(section),
             At::End => {
                 self.song_stop();
                 return;
             }
-        };
-        if let (Some(s), 0) = (section, k) {
-            self.apply_scenes(s);
+            _ => {}
         }
+        self.lane_hits(step, false);
+        // The grace strokes of the next step's flams and drags fall before
+        // it (#353): queued now, from what the song holds now.
+        self.lane_hits(step + 1, true);
+    }
+
+    /// The lanes' hits from clock step `step` up to the next (#353): a lane
+    /// of `g` steps a bar has its step n at n·16/g clock steps. A hit on the
+    /// step plays now, one between steps waits in the queue. With `ahead`,
+    /// only the grace strokes that fall before the step are queued; without,
+    /// the hits and the graces that fall after it.
+    fn lane_hits(&mut self, step: u64, ahead: bool) {
+        let (k, section) = match self.song.at(step) {
+            At::Free(k) => (k, None),
+            At::In { section, local, .. } => (local, Some(section)),
+            At::End => return,
+        };
+        let on_step = self.clock.step_sample(step);
+        let before = step.checked_sub(1).map(|p| self.clock.step_sample(p));
+        let ms = f64::from(self.sample_rate) / 1000.0;
         for f in 0..self.song.frags.len() {
             let Some(frag) = self.song.frags.get(f) else {
                 continue;
@@ -1312,8 +1331,6 @@ impl Engine {
                 }
             }
             let owner = Owner::Track(u8::try_from(frag.track).unwrap_or(u8::MAX));
-            // A lane on a grid of `g` steps a bar has its step n at n·16/g
-            // clock steps: those from clock step k up to the next (#353).
             let g = u64::from(frag.grid.max(1));
             let (first, end) = ((k * g).div_ceil(16), ((k + 1) * g).div_ceil(16));
             for l in 0..frag.lanes.len() {
@@ -1326,22 +1343,58 @@ impl Engine {
                         .and_then(|lane| {
                             let len = lane.steps.len() as u64;
                             let st = lane.steps.get(usize::try_from(n % len.max(1)).ok()?)?;
-                            Some((lane.pad.note(), st.velocity()?))
+                            Some((lane.pad.note(), *st))
                         });
-                    let Some((note, velocity)) = hit else {
+                    let Some((note, st)) = hit else {
                         continue;
                     };
                     let off = n * 16 - k * g;
-                    if off == 0 {
-                        self.start_voice(owner, note, velocity);
+                    let at = if off == 0 {
+                        on_step
                     } else {
-                        let at = self.clock.between_sample(step, off as f64 / g as f64);
-                        self.queue_hit(Hit {
-                            at,
-                            owner,
-                            note,
-                            velocity,
-                        });
+                        self.clock.between_sample(step, off as f64 / g as f64)
+                    };
+                    if let (Some(velocity), false) = (st.velocity(), ahead) {
+                        if off == 0 {
+                            self.start_voice(owner, note, velocity);
+                        } else {
+                            self.queue_hit(Hit {
+                                at,
+                                owner,
+                                note,
+                                velocity,
+                            });
+                        }
+                    }
+                    // Graces shrink together to fit after the lane's hit
+                    // before and after the clock step before (the furthest
+                    // the queue looks ahead), so they stay in order.
+                    let graces = st.graces();
+                    let Some(widest) = graces.first().map(|g| f64::from(*g) * ms) else {
+                        continue;
+                    };
+                    let prev = n.checked_sub(1).map(|p| {
+                        let (pk, poff) = (p * 16 / g, p * 16 % g);
+                        let abs = step - (k - pk);
+                        self.clock.between_sample(abs, poff as f64 / g as f64)
+                    });
+                    let room = [prev, before]
+                        .into_iter()
+                        .flatten()
+                        .map(|b| at.saturating_sub(b))
+                        .min()
+                        .map_or(0.0, |r| r as f64 * 0.9);
+                    let scale = (room / widest).min(1.0);
+                    for g in graces {
+                        let grace = at.saturating_sub((f64::from(*g) * ms * scale).round() as u64);
+                        if (grace < on_step) == ahead && grace < at {
+                            self.queue_hit(Hit {
+                                at: grace,
+                                owner,
+                                note,
+                                velocity: GRACE_VELOCITY,
+                            });
+                        }
                     }
                 }
             }

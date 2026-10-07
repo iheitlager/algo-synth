@@ -4414,3 +4414,75 @@ fn a_grid_prints_back_and_a_bad_one_is_refused() {
     let err = Song::parse("track kit drums\nfrag a = kit /20\n  bd x\n").expect_err("/20");
     assert_eq!((err.line, err.col), (2, 14));
 }
+
+/// The note starts of a one-lane drum song at `tempo` within `frames`.
+fn lane_starts(tempo: u32, grid: u32, lane: &str, frames: u64) -> Vec<u64> {
+    let mut e = kit(0);
+    let text = format!("tempo {tempo}\ntrack kit drums\nfrag a = kit /{grid}\n  sn {lane}\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    starts_within(&mut e, frames)
+}
+
+/// #353: a flam's grace stroke falls 20 ms (960 samples at 48 kHz) before
+/// its hit, which stays on its step; a drag's two fall 30 and 15 ms before.
+#[test]
+fn flams_and_drags_put_their_graces_before_the_hit() {
+    let lane = "....f.......d...";
+    assert_eq!(
+        lane_starts(120, 16, lane, 96_000),
+        vec![23_040, 24_000, 72_000 - 1_440, 72_000 - 720, 72_000]
+    );
+}
+
+/// #353: a flam on the first step of play has nothing before it to sound
+/// its grace in; from the second time round it has.
+#[test]
+fn a_flam_on_the_first_step_graces_from_the_second_bar() {
+    assert_eq!(
+        lane_starts(120, 16, "f...............", 192_000),
+        vec![0, 96_000 - 960, 96_000, 192_000 - 960]
+    );
+}
+
+/// #353: at a fast tempo on a fine grid the graces shrink to fit: every
+/// grace still falls after the hit before it and before its own.
+#[test]
+fn graces_fit_between_close_hits() {
+    let lane = "d".repeat(48);
+    let starts = lane_starts(240, 48, &lane, 48_000);
+    // 48 drags a bar at 240 BPM: a hit every 1000 samples.
+    let hits: Vec<u64> = (0..48).map(|n| n * 1000).collect();
+    for (i, h) in hits.iter().enumerate().skip(1) {
+        let graces: Vec<u64> = starts
+            .iter()
+            .copied()
+            .filter(|s| *s > hits[i - 1] && s < h)
+            .collect();
+        assert_eq!(
+            graces.len(),
+            2,
+            "two graces before the hit at {h}: {starts:?}"
+        );
+    }
+    assert!(starts.windows(2).all(|w| w[0] <= w[1]), "in order");
+}
+
+/// #353: a grace stroke is softer than the hit it leads into: on the
+/// second bar, the 20 ms before the flam's hit are quieter than the hit.
+#[test]
+fn a_grace_is_softer_than_its_hit() {
+    let mut e = kit(0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 120\ntrack kit drums\nfrag a = kit /16\n  sn f...............\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut out = Vec::new();
+    for _ in 0..(100_000 / BLOCK) {
+        e.render(BLOCK);
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    let (grace, hit) = (peak(&out[95_040..96_000]), peak(&out[96_000..97_000]));
+    assert!(grace > 0.0 && grace < 0.8 * hit, "grace {grace}, hit {hit}");
+}

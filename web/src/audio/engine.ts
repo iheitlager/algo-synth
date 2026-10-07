@@ -479,7 +479,7 @@ export function mapSample(s: number, slot: number) {
   requestZones(s)
 }
 
-/** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent, 3 ghost. */
+/** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent, 3 ghost, 4 flam, 5 drag. */
 export interface SongLane { pad: number; steps: number[] }
 /** One note of a fragment: start and length in ticks (48 to a bar, 3 to a sixteenth), MIDI note, accent. */
 export interface SongNote { start: number; len: number; note: number; accent: boolean }
