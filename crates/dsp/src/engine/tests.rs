@@ -2431,8 +2431,8 @@ fn a_bad_text_is_reported_and_the_song_plays_on() {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     let good = e.song().clone();
-    let bad = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd x..o\n";
-    let err = load_text(&mut e, bad).expect_err("o is not a step");
+    let bad = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd x..z\n";
+    let err = load_text(&mut e, bad).expect_err("z is not a step");
     assert_eq!((err.line, err.col), (4, 9));
     assert_eq!(e.song_error(), Some(err));
     assert_eq!(e.song(), &good);
@@ -2557,7 +2557,7 @@ fn set_step_edits_the_playing_song_and_its_text() {
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     assert!(e.set_step(0, 0, 2, 2));
     assert!(e.song_text().contains("  bd x.X.x...x...x...\n"));
-    assert!(!e.set_step(0, 0, 2, 3), "no level 3");
+    assert!(!e.set_step(0, 0, 2, 9), "no level 9");
     assert!(!e.set_step(0, 1, 0, 1), "no second lane");
     e.song_play();
     run(&mut e, 12_001 / BLOCK + 1);
@@ -4319,4 +4319,29 @@ fn the_prophets_ssm_attack_is_straighter_than_its_curtis_one() {
     };
     let (ssm, cem) = (quarter(1.0), quarter(3.0));
     assert!(cem > ssm + 0.05, "a quarter in: SSM {ssm}, CEM {cem}");
+}
+
+/// The loudest sample of a one-bar `sn` lane on the kit, a step at a time.
+fn snare_peak(lane: &str) -> f32 {
+    let mut e = kit(0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = format!("tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn {lane}\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    let mut peak = 0.0_f32;
+    for _ in 0..(12_000 / BLOCK) {
+        e.render(BLOCK);
+        peak = e.output().iter().fold(peak, |m, s| m.max(s.abs()));
+    }
+    peak
+}
+
+/// #353: a ghost note `o` plays well under a hit, as its velocity has it.
+#[test]
+fn a_ghost_note_is_softer_than_a_hit() {
+    let (ghost, hit) = (
+        snare_peak("o..............."),
+        snare_peak("x..............."),
+    );
+    assert!(ghost > 0.0 && ghost < 0.7 * hit, "ghost {ghost}, hit {hit}");
 }

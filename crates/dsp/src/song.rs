@@ -117,12 +117,17 @@ const MAX_NAME: usize = 32;
 const TEMPO: (f32, f32) = crate::clock::TEMPO;
 const SWING: (f32, f32) = crate::clock::SWING;
 
-/// One step of a lane: a rest, a hit or an accented hit.
+/// A ghost note's velocity: well under a hit's 0.75 (#353).
+pub const GHOST_VELOCITY: f32 = 0.35;
+
+/// One step of a lane: a rest, a hit, an accented hit or a ghost note.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     Off = 0,
     Hit = 1,
     Accent = 2,
+    /// A soft stroke under the hits (#353).
+    Ghost = 3,
 }
 
 impl Step {
@@ -131,6 +136,7 @@ impl Step {
             '.' => Some(Step::Off),
             'x' => Some(Step::Hit),
             'X' => Some(Step::Accent),
+            'o' => Some(Step::Ghost),
             _ => None,
         }
     }
@@ -140,15 +146,17 @@ impl Step {
             Step::Off => '.',
             Step::Hit => 'x',
             Step::Accent => 'X',
+            Step::Ghost => 'o',
         }
     }
 
-    /// The step for a level from the view: 0 off, 1 hit, 2 accent.
+    /// The step for a level from the view: 0 off, 1 hit, 2 accent, 3 ghost.
     pub fn from_level(level: u32) -> Option<Step> {
         match level {
             0 => Some(Step::Off),
             1 => Some(Step::Hit),
             2 => Some(Step::Accent),
+            3 => Some(Step::Ghost),
             _ => None,
         }
     }
@@ -159,6 +167,7 @@ impl Step {
             Step::Off => None,
             Step::Hit => Some(0.75),
             Step::Accent => Some(1.0),
+            Step::Ghost => Some(GHOST_VELOCITY),
         }
     }
 }
@@ -2269,7 +2278,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     let mut steps = Vec::new();
     for w in ws.iter().skip(1) {
         for (k, c) in w.text.chars().enumerate() {
-            let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X or ."))?;
+            let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X, o or ."))?;
             if steps.len() >= MAX_STEPS {
                 return Err(err(w.col + k, "a lane has at most 64 steps"));
             }
@@ -2277,7 +2286,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
         }
     }
     if steps.is_empty() {
-        return Err(err(first.col, "a lane needs its steps: x, X or ."));
+        return Err(err(first.col, "a lane needs its steps: x, X, o or ."));
     }
     Ok(Lane {
         pad,
