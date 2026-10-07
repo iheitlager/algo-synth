@@ -7,6 +7,7 @@
 //! definitions share. Every parameter exists on every model; the panel shows
 //! what the instrument has and the presets set the rest to neutral values.
 
+use crate::mono::ladder::MAX_K;
 use crate::synth::Engine;
 
 /// A synth model id; mirrored in `web/src/audio/params.ts`.
@@ -89,6 +90,39 @@ pub struct LadderVoicing {
     pub k_scale: f32,
     /// Where the ladder saturates besides its input.
     pub stages: Stages,
+    /// Where on the resonance knob (0..1) the filter starts to whistle
+    /// (#342): the feedback reaches the self-oscillation threshold there and
+    /// the voicing's full feedback at the top. 0.8 with `k_scale` 1 is a
+    /// straight line, as every model had before.
+    pub onset: f32,
+    /// A one-pole high-pass in the feedback path, as a MIDI note (0 for
+    /// none): the AC coupling of a resonance loop, which takes the low end out
+    /// of the resonance and stops the whistle at the lowest cutoffs (#342).
+    pub loop_hp: f32,
+}
+
+/// The feedback at which a 4-pole ladder starts to self-oscillate.
+pub const ONSET_K: f32 = 4.0;
+
+impl LadderVoicing {
+    /// The feedback for a resonance knob at `r` (0..1, clamped) (#342): up
+    /// to the threshold at `onset`, on to `k_scale` of the full range at 1.
+    pub fn feedback(&self, r: f32) -> f32 {
+        let r = if r.is_nan() { 0.0 } else { r.clamp(0.0, 1.0) };
+        let (rise, slope) = self.taper();
+        if r <= self.onset {
+            rise * r
+        } else {
+            ONSET_K + (r - self.onset) * slope
+        }
+    }
+
+    /// The taper's slopes: feedback per unit of knob below the onset, and
+    /// above it up to `k_scale` of the full range.
+    pub fn taper(&self) -> (f32, f32) {
+        let top = (MAX_K * self.k_scale).max(ONSET_K);
+        (ONSET_K / self.onset, (top - ONSET_K) / (1.0 - self.onset))
+    }
 }
 
 /// What saturates inside a 4-pole ladder's stages.
@@ -131,6 +165,8 @@ pub const MOOG: LadderVoicing = LadderVoicing {
     comp: 0.0,
     k_scale: 1.0,
     stages: Stages::Transistor,
+    onset: 0.8,
+    loop_hp: 0.0,
 };
 /// The Pro-One's CEM3320.
 pub const PRO_ONE: LadderVoicing = LadderVoicing {
@@ -138,6 +174,9 @@ pub const PRO_ONE: LadderVoicing = LadderVoicing {
     comp: 0.3,
     k_scale: 1.0,
     stages: Stages::Cem3320,
+    // Estimates (#342): where it starts to whistle on the knob.
+    onset: 0.85,
+    loop_hp: 0.0,
 };
 /// The Prophet-5 Rev 3's CEM3320: a little cleaner than the Pro-One's.
 pub const PROPHET5_REV3: LadderVoicing = LadderVoicing {
@@ -145,6 +184,9 @@ pub const PROPHET5_REV3: LadderVoicing = LadderVoicing {
     comp: 0.25,
     k_scale: 1.0,
     stages: Stages::Cem3320,
+    // Estimates (#342): where it starts to whistle on the knob.
+    onset: 0.85,
+    loop_hp: 0.0,
 };
 /// The Prophet-5 Rev 1/2's SSM2040: fat, the bass kept under resonance,
 /// a softer resonance short of the full range.
@@ -153,6 +195,9 @@ pub const PROPHET5_REV12: LadderVoicing = LadderVoicing {
     comp: 0.5,
     k_scale: 0.94,
     stages: Stages::Ssm2040,
+    // Estimates (#342): where it starts to whistle on the knob.
+    onset: 0.88,
+    loop_hp: 0.0,
 };
 /// Roland's IR3109 OTA cascade: soft, a little bass kept, short of the full
 /// range.
@@ -161,6 +206,9 @@ pub const SH101: LadderVoicing = LadderVoicing {
     comp: 0.15,
     k_scale: 0.95,
     stages: Stages::Ota,
+    // Estimates (#342): where it starts to whistle on the knob, and a loop high-pass near 10 Hz.
+    onset: 0.9,
+    loop_hp: 3.5,
 };
 /// The Juno-106's 80017A: the IR3109's die trimmed a little hotter, with
 /// more of the bass kept and a stronger whistle.
@@ -169,6 +217,9 @@ pub const JUNO106: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 0.97,
     stages: Stages::Ota,
+    // Estimates (#342): where it starts to whistle on the knob, and a loop high-pass near 10 Hz.
+    onset: 0.93,
+    loop_hp: 3.5,
 };
 /// The Odyssey Rev 3's ARP 4075: brighter and cleaner than the Moog, a
 /// little bass kept under resonance, short of the full range.
@@ -177,6 +228,8 @@ pub const ODYSSEY: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 0.97,
     stages: Stages::Linear,
+    onset: 0.8,
+    loop_hp: 0.0,
 };
 /// The Jupiter-8's four-pole, an IR3109: clean and a little bass kept under
 /// resonance.
@@ -185,6 +238,9 @@ pub const JUPITER: LadderVoicing = LadderVoicing {
     comp: 0.25,
     k_scale: 0.98,
     stages: Stages::Ota,
+    // Estimates (#342): where it starts to whistle on the knob, and a loop high-pass near 10 Hz.
+    onset: 0.9,
+    loop_hp: 3.5,
 };
 /// Its two-pole setting: resonant but short of oscillating.
 pub const JUPITER12: SvfVoicing = SvfVoicing {
@@ -198,6 +254,9 @@ pub const MATRIX: LadderVoicing = LadderVoicing {
     comp: 0.35,
     k_scale: 1.0,
     stages: Stages::Linear,
+    // Estimates (#342): where it starts to whistle on the knob.
+    onset: 0.85,
+    loop_hp: 0.0,
 };
 /// Its two-pole setting: smooth, short of oscillating.
 pub const MATRIX12: SvfVoicing = SvfVoicing {
@@ -211,6 +270,9 @@ pub const PPG: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 1.0,
     stages: Stages::Linear,
+    // Estimates (#342): where it starts to whistle on the knob.
+    onset: 0.85,
+    loop_hp: 0.0,
 };
 /// The D-50's partial filters: clean, a little bass kept.
 pub const D50: LadderVoicing = LadderVoicing {
@@ -218,6 +280,9 @@ pub const D50: LadderVoicing = LadderVoicing {
     comp: 0.2,
     k_scale: 0.98,
     stages: Stages::Linear,
+    // Estimates (#342): where it starts to whistle on the knob.
+    onset: 0.9,
+    loop_hp: 0.0,
 };
 /// The Polymoog's resonator filter: strongly resonant, vocal rather than screaming.
 pub const POLYMOOG: SvfVoicing = SvfVoicing {
@@ -244,6 +309,8 @@ pub const ODYSSEY_REV2: LadderVoicing = LadderVoicing {
     comp: 0.0,
     k_scale: 1.0,
     stages: Stages::Transistor,
+    onset: 0.8,
+    loop_hp: 0.0,
 };
 /// Resonant and smooth, never quite oscillating.
 pub const CS15: SvfVoicing = SvfVoicing {
