@@ -9,7 +9,7 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     ok: true,
     text: bytes(text),
     error: null,
-    tracks: [{ name: bytes('kit'), synth: 2, kind: 0 }, { name: bytes('lead'), synth: 0, kind: 1 }],
+    tracks: [{ name: bytes('kit'), synth: 2, kind: 0, flags: 1 }, { name: bytes('lead'), synth: 0, kind: 1, flags: 2 }],
     frags: [
       { name: bytes('beat'), track: 0, lanes: [{ pad: 0, steps: new Uint8Array([1, 0, 2, 0]) }], grid: 24, notes: null },
       {
@@ -26,7 +26,11 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
     applySong(summary)
     expect(song.text).toBe(text)
     expect(song.draft).toBe(text)
-    expect(song.tracks).toEqual([{ name: 'kit', synth: 2, kind: 'drums', preset: -1, setting: -1 }, { name: 'lead', synth: 0, kind: 'synth', preset: -1, setting: -1 }])
+    // The tracks' mute and solo come as bits (#355): kit muted, lead soloed.
+    expect(song.tracks).toEqual([
+      { name: 'kit', synth: 2, kind: 'drums', preset: -1, setting: -1, mute: true, solo: false },
+      { name: 'lead', synth: 0, kind: 'synth', preset: -1, setting: -1, mute: false, solo: true },
+    ])
     expect(song.frags).toEqual([
       { name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0] }], grid: 24, notes: null },
       {

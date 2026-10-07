@@ -1045,6 +1045,30 @@ pub extern "C" fn track_kind(t: u32) -> u32 {
     })
 }
 
+/// Track `t`'s mute and solo (#355): bit 0 muted, bit 1 soloed.
+#[unsafe(no_mangle)]
+pub extern "C" fn track_flags(t: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .tracks
+            .get(t as usize)
+            .map_or(0, |x| u32::from(x.mute) | u32::from(x.solo) << 1)
+    })
+}
+
+/// Mute and solo track `t` (#355), bits as `track_flags`: 0 when done, −1
+/// for no such track.
+#[unsafe(no_mangle)]
+pub extern "C" fn set_track_flags(t: u32, flags: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_track_flags(t as usize, flags & 1 != 0, flags & 2 != 0) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
 /// Play song track `t` on `synth`; an unknown synth (e.g. 255) mutes it.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_route(t: u32, synth: u32) {

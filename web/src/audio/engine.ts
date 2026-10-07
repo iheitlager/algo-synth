@@ -492,7 +492,11 @@ export interface SongNotes { text: string; bars: number; events: SongNote[]; gen
 /** A fragment; `grid` is a drum fragment's steps to a bar (#353): 12, 16, 24, 32 or 48. */
 export interface SongFrag { name: string; track: number; lanes: SongLane[]; grid: number; notes: SongNotes | null }
 /** A song track (#210, #213): its synth, kind, factory preset and the song setting it plays (−1 for none). */
-export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number }
+export interface SongTrack {
+  name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number
+  /** Muted or soloed in the song (#355): its frags, not its synth. */
+  mute: boolean; solo: boolean
+}
 /** A setting of the song (#210): a factory preset and changes, named. */
 export interface SongSetting { name: string; preset: number }
 export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
@@ -567,6 +571,10 @@ export function loadSong(text: string) {
 export const setStep = (f: number, l: number, s: number, level: number) =>
   engine?.post({ t: 'step', f, l, s, level })
 
+/** Mute and solo song track `t` (#355); the engine sends the song back. */
+export const setTrackFlags = (t: number, mute: boolean, solo: boolean) =>
+  engine?.post({ t: 'trackFlags', track: t, flags: (mute ? 1 : 0) | (solo ? 2 : 0) })
+
 /** Add a sixteenth note at `tick` of fragment `f`; the engine sends the song back. */
 export const addNote = (f: number, tick: number, note: number) => engine?.post({ t: 'note', f, op: 0, tick, note, len: 0 })
 /** Remove the note that starts at `tick`. */
@@ -639,12 +647,14 @@ export function applySong(data: Record<string, unknown>) {
   song.text = text
   song.tempo = data.tempo as number
   song.swing = data.swing as number
-  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number }[]).map((t) => ({
+  song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number; flags?: number }[]).map((t) => ({
     name: decoder.decode(t.name),
     synth: t.synth,
     kind: (['drums', 'synth', 'sampler'] as const)[t.kind] ?? 'drums',
     preset: t.preset ?? -1,
     setting: t.setting ?? -1,
+    mute: ((t.flags ?? 0) & 1) !== 0,
+    solo: ((t.flags ?? 0) & 2) !== 0,
   }))
   song.settings = ((data.settings ?? []) as { name: Uint8Array; preset: number }[]).map((st) => ({
     name: decoder.decode(st.name),
