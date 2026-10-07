@@ -13,12 +13,11 @@ import EditableName from '../EditableName.vue'
 
 export interface Tape {
   s: number
-  /** The synth's name (#127), its model's name and the model's accent. */
+  /** The synth's name (#127) and its model's name. */
   name: string
   model: string
-  accent: string
-  /** The synth's own colour, as on the arranger's rows. */
-  dot: string
+  /** The synth's own colour, the same in the composer, the arranger and the mixer. */
+  colour: string
   /** Where it is routed from, e.g. "Ch 1 · 3". */
   footer: string
   silenced: boolean
@@ -65,13 +64,13 @@ const level = (s: number) => levels.values[s] ?? 0
   <nav class="rail" aria-label="Synths">
     <div
       v-for="t in tapes" :key="t.s" class="tape" :class="{ sel: selected === t.s, silenced: t.silenced }"
-      :style="{ '--c': t.accent, '--dot': t.dot }"
+      :style="{ '--c': t.colour }"
     >
       <button
         v-if="editing !== t.s" class="pick" :aria-pressed="selected === t.s"
         :title="`Play ${t.name} (double-click to rename)`" @click="$emit('select', t.s)" @dblclick="editing = t.s"
       >
-        <b><i class="dot" aria-hidden="true" />{{ t.name }}<i
+        <b>{{ t.name }}<i
           v-if="notInSong(t.s).length" class="live" role="img" :aria-label="`Not in the song: ${notInSong(t.s).join(', ')}`"
           :title="`Not in the song yet: ${notInSong(t.s).join(', ')}. It plays now, but a saved or reloaded song won't have it.`"
         >◐</i></b>
@@ -79,7 +78,6 @@ const level = (s: number) => levels.values[s] ?? 0
       </button>
       <div v-else class="pick">
         <b>
-          <i class="dot" aria-hidden="true" />
           <EditableName
             :value="t.name" :label="t.name" :editing="true"
             @rename="emit('rename', t.s, $event)" @update:editing="(on) => { if (!on) editing = -1 }"
@@ -118,7 +116,6 @@ const level = (s: number) => levels.values[s] ?? 0
 .pick:focus-visible { outline: 2px solid var(--con-paper); outline-offset: -2px; }
 .pick b { color: var(--con-paper); font-size: 15px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pick span { color: var(--con-silk-dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); margin-right: 7px; vertical-align: 1px; }
 .live { margin-left: 6px; font-style: normal; font-size: 11px; color: var(--accent); vertical-align: 1px; cursor: help; }
 .side { display: flex; gap: 5px; align-items: center; padding: 4px 6px 4px 0; }
 .ms { display: flex; flex-direction: column; gap: 3px; }
