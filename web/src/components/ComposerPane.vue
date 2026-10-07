@@ -3,6 +3,8 @@
 // grid and its note fragments as piano rolls beside the song's text (SongEditor). The engine holds the song: a click sends
 // `setStep`, an edited text is sent to be parsed, and both redraw from what the
 // engine sends back. Nothing here parses or plays.
+import { LIMITS, setSplit, splits } from '../audio/split'
+import Splitter from './Splitter.vue'
 import { computed, onMounted, watch } from 'vue'
 import {
   MUTE, loadSong, params, requestSong, routeTrack, typeSong, setSongSwing, setSongTempo, setStep, song, songPosition as position,
@@ -96,7 +98,7 @@ watch(() => status.running, (on) => on && requestSong())
       </label>
       <span v-if="song.playing && position >= 0" class="muted">bar {{ Math.floor(position / 16) + 1 }} · step {{ (position % 16) + 1 }}</span>
     </div>
-    <div class="body">
+    <div class="body" :style="{ '--code': splits.code != null ? `${splits.code}px` : undefined }">
       <div class="grid">
         <p v-if="noKit" class="notice">No synth is a drum kit: add one with + Synth › Drums, then pick it for the track.</p>
         <TrackStrip v-if="status.running && song.tracks.length" class="strip" :synths="choices" />
@@ -134,6 +136,10 @@ watch(() => status.running, (on) => on && requestSong())
           </div>
         </div>
       </div>
+      <Splitter
+        between="columns" :size="splits.code" :min="LIMITS.code" label="Width of the song text"
+        @resize="(v) => setSplit('code', v)"
+      />
       <div class="text">
         <div class="text-head">
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
@@ -157,7 +163,7 @@ watch(() => status.running, (on) => on && requestSong())
 .controls .on { border-color: var(--accent); color: var(--accent); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .num { width: 4.5em; }
-.body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); grid-template-rows: minmax(0, 1fr); gap: 12px; padding: 8px 12px; }
+.body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--code, minmax(260px, 34%)); grid-template-rows: minmax(0, 1fr); gap: 6px; padding: 8px 12px; }
 .grid { overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 .grid .strip { padding: 0; }
 .frag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
