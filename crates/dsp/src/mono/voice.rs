@@ -436,7 +436,7 @@ impl MonoVoice {
             }
         };
         // Within the model's ranges and under its sustain ceiling (#340).
-        let voiced = p.model.env();
+        let voiced = p.env();
         let sr = p.sample_rate();
         let (adsr_times, fadsr_times) = (
             voiced.clamp(&times(&p.adsr), sr),
@@ -467,7 +467,7 @@ impl MonoVoice {
             osc.wave = wave;
         }
         // Which oscillators the model's voicing shapes, decided per block (#339).
-        let shaped = p.wave.map(|w| p.model.osc().shapes(w));
+        let shaped = p.wave.map(|w| p.osc().shapes(w));
         // Control rate: the LFO's speed follows its modulation per block.
         let lfo_inc = p.lfo_inc * self.mods.lfo_rate.clamp(-8.0, 8.0).exp2();
         let lfo2_inc = p.lfo2_inc * self.mods.lfo2_rate.clamp(-8.0, 8.0).exp2();
@@ -495,7 +495,7 @@ impl MonoVoice {
         let moving = self.levels.aim(levels, out.len());
         let hp = p.model.hp();
         let filter_env_is_adsr = p.model.filter_env_is_adsr();
-        let shape = p.model.osc();
+        let shape = p.osc();
         let amp = p.model.vca();
         let (ota, expo) = (amp.ota(), amp.expo);
         for (i, sample) in out.iter_mut().enumerate() {

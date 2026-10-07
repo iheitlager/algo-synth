@@ -82,9 +82,9 @@ At most 64 voices SHALL sound at once across all synths; a note past it SHALL st
 
 ### Requirement 6: Prophet-5 [MUST]
 
-The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A synced to B), noise, poly-mod, a 4-pole low-pass on the CEM3320 of Rev 3 with the Rev 4's switch to the SSM2040 of Rev 1/2 (#321), a filter ADSR and a loudness ADSR, an LFO and unison; `Analog` SHALL default to a clearly audible drift.
+The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A synced to B), noise, poly-mod, a 4-pole low-pass on the CEM3320 of Rev 3 with the Rev 4's switch to the SSM2040 of Rev 1/2 (#321), a filter ADSR and a loudness ADSR, an LFO and unison; `Analog` SHALL default to a clearly audible drift. It SHALL have a Revision (#343), Rev 1 to Rev 4, that sets its parts as that revision had them: VCO (`VcoRev`: the SSM2030 of Rev 1/2, the CEM3340 of Rev 3/4), filter (`FilterRev`) and envelopes (`EnvRev`: the SSM2050, the CEM3310), and its drift (`Analog`): Rev 1 the most, then Rev 2, Rev 3, and the Rev 4 held stable. Each part SHALL also be chosen on its own; one turned away from its revision SHALL make the Revision Custom (0), and Custom SHALL set nothing, so a setup's values load the same in any order and one with only `FilterRev` keeps its sound. The Vintage knob (`Analog`) SHALL stay free. No source tells the SSM2020 VCA of Rev 1/2 from the CA3280 of Rev 3, so the VCA SHALL be the same in every revision. The view SHALL fetch the parts the Revision moved.
 
-**Implementation:** `crates/dsp/src/synth/prophet5.rs::DEF`, `web/src/audio/models.ts` (#82)
+**Implementation:** `crates/dsp/src/synth/prophet5.rs::DEF`, `web/src/audio/models.ts` (#82), `crates/dsp/src/engine.rs::Engine::revise` (#343)
 
 #### Scenario: five voices
 
@@ -92,7 +92,19 @@ The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A 
 - WHEN they are pressed
 - THEN five voices sound and the sixth steals one
 
-**Tests:** `crates/dsp/src/engine/tests.rs::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine/tests.rs::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
+#### Scenario: a revision sets its parts
+
+- GIVEN a Prophet-5 at Rev 3
+- WHEN Rev 1 is chosen, then its VCO is turned to the CEM3340
+- THEN VCO, filter and envelopes are the SSM chips and the drift is Rev 1's, then the Revision reads Custom with the filter and envelopes left as they were
+
+#### Scenario: SSM and Curtis parts sound apart
+
+- GIVEN the same Prophet-5 note with the SSM and with the Curtis part
+- WHEN it is played
+- THEN the SSM2030 plays a key more than 1.3 times further off at the same Vintage, and a quarter into a long attack the CEM3310's envelope stands higher than the SSM2050's
+
+**Tests:** `crates/dsp/src/engine/tests.rs::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine/tests.rs::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`, `crates/dsp/src/engine/tests.rs::a_revision_sets_its_parts_and_drift`, `crates/dsp/src/engine/tests.rs::a_part_turned_away_makes_it_custom`, `crates/dsp/src/engine/tests.rs::revisions_load_in_any_order_and_old_setups_keep_their_sound`, `crates/dsp/src/engine/tests.rs::only_a_model_with_revisions_links_them`, `crates/dsp/src/engine/tests.rs::the_prophets_ssm_vcos_drift_more_than_its_curtis_ones`, `crates/dsp/src/engine/tests.rs::the_prophets_ssm_attack_is_straighter_than_its_curtis_one`
 
 ### Requirement 7: Juno-106 [MUST]
 
