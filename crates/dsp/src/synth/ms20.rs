@@ -14,7 +14,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Lead,
             &[
-                (Model, 3.0),
                 (Vco2Fine, 8.0),
                 (Vco2Level, 0.6),
                 (HpCutoff, 120.0),
@@ -41,7 +40,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Wobble,
             &[
-                (Model, 3.0),
                 (Vco1Wave, 1.0),
                 (Vco1Coarse, -12.0),
                 (Vco2Coarse, -12.0),
@@ -68,7 +66,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Squelch,
             &[
-                (Model, 3.0),
                 (Vco1Coarse, -12.0),
                 (HpCutoff, 60.0),
                 (Cutoff, 400.0),
@@ -95,7 +92,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::JetSweep,
             &[
-                (Model, 3.0),
                 (Vco1Level, 0.0),
                 (NoiseLevel, 1.0),
                 (HpCutoff, 300.0),
@@ -116,7 +112,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Ms20Strings,
             &[
-                (Model, 3.0),
                 (Vco2Fine, 10.0),
                 (Vco2Level, 0.8),
                 (HpCutoff, 200.0),

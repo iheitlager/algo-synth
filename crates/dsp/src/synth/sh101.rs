@@ -17,7 +17,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Sh101Bass,
             &[
-                (Model, 5.0),
                 (Vco1Level, 0.6),
                 (Vco2Wave, 1.0),
                 (Vco2Level, 0.6),
@@ -39,7 +38,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Sh101Lead,
             &[
-                (Model, 5.0),
                 (Vco1Level, 1.0),
                 (Vco2Wave, 1.0),
                 (Vco2Level, 0.8),
@@ -66,7 +64,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::AcidBass,
             &[
-                (Model, 5.0),
                 (Cutoff, 350.0),
                 (Resonance, 0.85),
                 (Drive, 0.4),
@@ -84,7 +81,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SubPluck,
             &[
-                (Model, 5.0),
                 (Vco1Level, 0.6),
                 (SubLevel, 1.0),
                 (Cutoff, 900.0),
@@ -102,7 +98,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Sh101Strings,
             &[
-                (Model, 5.0),
                 (Vco1Level, 0.7),
                 (Vco2Wave, 1.0),
                 (Vco2Level, 0.7),

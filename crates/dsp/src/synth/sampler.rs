@@ -12,7 +12,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SamplerKeys,
             &[
-                (Model, 16.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Cutoff, 20_000.0),
@@ -32,7 +31,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::SamplerPad,
             &[
-                (Model, 16.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Cutoff, 6_000.0),

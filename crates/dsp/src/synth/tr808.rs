@@ -9,12 +9,11 @@ pub const DEF: ModelDef = ModelDef {
     engine: Engine::Drums(Machine::Tr808),
     presets: &[
         // The kit as it comes: every pad at its own decay and a middle tone.
-        PresetDef::of(Preset::Kit808, &[(Model, 15.0)]),
+        PresetDef::of(Preset::Kit808, &[]),
         // Short and bright: clipped kick and toms, a snappy snare, closed-in hats.
         PresetDef::of(
             Preset::TightKit,
             &[
-                (Model, 15.0),
                 (BdDecay, 0.45),
                 (BdTone, 0.7),
                 (SnDecay, 0.6),
@@ -35,7 +34,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::Heavy808,
             &[
-                (Model, 15.0),
                 (BdTune, -2.0),
                 (BdDecay, 1.6),
                 (BdTone, 0.7),

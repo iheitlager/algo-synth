@@ -23,7 +23,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::CurrieLead,
             &[
-                (Model, 6.0),
                 (Vco1Level, 0.9),
                 (Vco2Fine, 7.0),
                 (Vco2Level, 0.8),
@@ -50,7 +49,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::OdysseySync,
             &[
-                (Model, 6.0),
                 (Vco1Level, 0.0),
                 (Vco2Coarse, 12.0),
                 (Vco2Level, 1.0),

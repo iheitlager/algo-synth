@@ -13,7 +13,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FmElectricPiano,
             &[
-                (Model, 13.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Algorithm, 4.0),
@@ -110,7 +109,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FmBell,
             &[
-                (Model, 13.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Algorithm, 4.0),
@@ -205,7 +203,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FmBrass,
             &[
-                (Model, 13.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Algorithm, 21.0),
@@ -300,7 +297,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FmBass,
             &[
-                (Model, 13.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Algorithm, 0.0),
@@ -395,7 +391,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FmMarimba,
             &[
-                (Model, 13.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Algorithm, 4.0),
@@ -490,7 +485,6 @@ pub const DEF: ModelDef = ModelDef {
         PresetDef::of(
             Preset::FmPad,
             &[
-                (Model, 13.0),
                 (Polyphony, 16.0),
                 (Analog, 0.0),
                 (Algorithm, 21.0),
