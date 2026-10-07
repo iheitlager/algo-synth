@@ -1914,6 +1914,41 @@ impl Song {
         Some(i)
     }
 
+    /// Track `t`'s sound as the hands left it (ADR-0027): the setting only it
+    /// plays takes `sets` and `code` in place; without one, a new setting
+    /// named after the track does, unless nothing differs from the preset.
+    /// False without a preset or past a setting's room.
+    pub fn fold_sound(&mut self, t: usize, sets: Vec<(Param, f32)>, code: Option<String>) -> bool {
+        let Some(tr) = self.tracks.get(t) else {
+            return false;
+        };
+        let Some(preset) = tr.preset else {
+            return false;
+        };
+        if sets.len() > MAX_SETS {
+            return false;
+        }
+        let shared = |i: usize| {
+            self.tracks
+                .iter()
+                .enumerate()
+                .any(|(u, other)| u != t && other.setting == Some(i))
+        };
+        match tr.setting.filter(|&i| !shared(i)) {
+            Some(i) => match self.settings.get_mut(i) {
+                Some(st) => {
+                    st.preset = preset;
+                    st.sets = sets;
+                    st.code = code;
+                    true
+                }
+                None => false,
+            },
+            None if sets.is_empty() && code.is_none() => true,
+            None => self.add_setting(t, sets, code).is_some(),
+        }
+    }
+
     /// ` .fast(2) .cutoff(…)`: the pattern methods of fragment `f`, then its
     /// parameter methods.
     fn methods_of(&self, f: usize) -> String {

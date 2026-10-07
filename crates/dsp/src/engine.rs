@@ -76,6 +76,8 @@ use crate::voice::{Owner, sine_table};
 pub const BLOCK: usize = 128;
 /// Synth slots, each any model, with its own parameters.
 pub const SYNTHS: usize = 16;
+/// The bit of `Engine::fold` that marks the master's global parameters.
+const FOLD_GLOBAL: u32 = 1 << 31;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
 pub const METERS: usize = STRIPS + 2 + SENDS;
@@ -204,6 +206,9 @@ pub struct Engine {
     /// Strips (bit per strip, globals on bit 0) automation or a Revision
     /// switch changed since the view last asked, so it can redraw their values.
     touched: u32,
+    /// The strips a hand changed since the last fold (bit per strip), and
+    /// the master in `FOLD_GLOBAL` (ADR-0027).
+    fold: u32,
     /// Drum hits between steps, waiting for their sample (#353), and how many.
     hits: [Hit; HITS],
     hit_count: usize,
@@ -275,6 +280,7 @@ impl Engine {
             mod_base: [None; MAX_MODS],
             mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
+            fold: 0,
             hits: [NO_HIT; HITS],
             hit_count: 0,
             arps: [Arp::default(); SYNTHS],
@@ -1695,6 +1701,97 @@ impl Engine {
         strip.map_or(0.0, |s| self.param_value(s, param))
     }
 
+    // --- Autocommit (ADR-0027) ---------------------------------------------------
+
+    /// A parameter a hand set (a knob, a library preset, a setup opened):
+    /// set as `set_param` does, and marked to be folded into the song.
+    /// Automation, scenes and modulation call `set_param` and are not.
+    pub fn edit_param(&mut self, synth: usize, param: Param, value: f32) {
+        self.set_param(synth, param, value);
+        self.mark(synth, param);
+    }
+
+    /// A factory preset picked for `synth`: the tracks it plays take it as
+    /// their preset, and its sound is folded in from there.
+    pub fn edit_preset(&mut self, synth: usize, preset: Preset) {
+        self.commit_song();
+        self.preset(synth, preset);
+        for t in 0..self.song.tracks.len() {
+            if self.song_routed(t) == Some(synth) {
+                self.song.set_track_preset(t, preset);
+            }
+        }
+        self.mark_synth(synth);
+    }
+
+    /// Mark `synth`'s sound to fold: a preset, a voice or code it took.
+    pub fn mark_synth(&mut self, synth: usize) {
+        self.fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
+    }
+
+    /// Mark `synth`'s strip, or the master for a global parameter, to fold.
+    pub fn mark(&mut self, synth: usize, param: Param) {
+        let bit = if param.is_global() {
+            FOLD_GLOBAL
+        } else {
+            1u32.checked_shl(synth as u32).unwrap_or(0)
+        };
+        self.fold |= bit;
+    }
+
+    /// Whether a lane, a scene or a modulation of the song sets `param` on
+    /// `strip`: its value is the song's, never folded back.
+    fn driven(&self, strip: usize, param: Param) -> bool {
+        let on = |target: Target| match target {
+            Target::Track(t) => self.song_routed(t) == Some(strip),
+            Target::Strip(s) => s == strip,
+            Target::Master => param.is_global(),
+        };
+        self.song
+            .autos
+            .iter()
+            .any(|a| a.param == param && on(a.target))
+            || self
+                .song
+                .mods
+                .iter()
+                .any(|m| m.param == param && on(m.target))
+            || self
+                .song
+                .scenes
+                .iter()
+                .any(|sc| sc.sets.iter().any(|(tg, p, _)| *p == param && on(*tg)))
+    }
+
+    /// Fold what the hands changed since the last call into the song
+    /// (ADR-0027): each changed track's sound into its own setting, the mixer
+    /// into its lines, and the song printed again. True when the text
+    /// changed. Allocates: the worklet calls it a few times a second, never
+    /// from `render`.
+    pub fn fold(&mut self) -> bool {
+        let marks = std::mem::take(&mut self.fold);
+        if marks == 0 {
+            return false;
+        }
+        self.commit_song();
+        let before = std::mem::take(&mut self.song_text);
+        for t in 0..self.song.tracks.len() {
+            let Some(s) = self.song_routed(t).filter(|s| *s < SYNTHS) else {
+                continue;
+            };
+            if marks & (1 << s) == 0 {
+                continue;
+            }
+            // Past a setting's room the sound stays as it plays, unfolded.
+            if let Some(sets) = self.changed_params(t) {
+                let code = self.changed_code(t);
+                self.song.fold_sound(t, sets, code);
+            }
+        }
+        self.write_mixer();
+        self.song_text != before
+    }
+
     /// Mark `strip`'s values as moved by the engine, for the view to fetch.
     fn touch(&mut self, strip: usize) {
         self.touched |= 1u32.checked_shl(strip as u32).unwrap_or(0);
@@ -2033,6 +2130,52 @@ impl Engine {
                 }
             }
         }
+        // A value the old text set and the new one leaves out goes back to its
+        // default (ADR-0027): the text is the mix, so a line taken out is gone.
+        let mut resets = Vec::new();
+        for line in &self.song.mix {
+            let (strip, defaults): (Option<usize>, &[(Param, f32)]) = match line.at {
+                Mix::Track(t) => (before.get(t).copied().flatten(), &STRIP_DEFAULTS),
+                Mix::Strip(i) => (Some(i), &STRIP_DEFAULTS),
+                Mix::Group(g) => (Some(SYNTHS + g), &STRIP_DEFAULTS),
+                Mix::Master => (Some(0), &GLOBAL_DEFAULTS),
+            };
+            let Some(strip) = strip else {
+                continue;
+            };
+            for (p, _) in &line.sets {
+                let kept = match line.at {
+                    Mix::Track(t) => self.song.tracks.get(t).is_some_and(|old| {
+                        song.tracks
+                            .iter()
+                            .position(|new| new.name == old.name)
+                            .is_some_and(|u| song.mix_value(Mix::Track(u), *p).is_some())
+                    }),
+                    at => song.mix_value(at, *p).is_some(),
+                };
+                if let Some((_, d)) = defaults.iter().find(|(q, _)| q == p).filter(|_| !kept) {
+                    resets.push((strip, *p, *d));
+                }
+            }
+        }
+        for (strip, p, d) in resets {
+            self.set_param(strip, p, d);
+        }
+    }
+
+    /// What the song's mixer lines say `param` is on `strip`, if they say.
+    fn mix_value_at(&self, strip: usize, param: Param) -> Option<f32> {
+        self.song.mix.iter().find_map(|line| {
+            let at = match line.at {
+                Mix::Track(t) => self.song_routed(t),
+                Mix::Strip(i) => Some(i),
+                Mix::Group(g) => Some(SYNTHS + g),
+                Mix::Master => Some(0),
+            };
+            (at == Some(strip))
+                .then(|| line.sets.iter().find(|(p, _)| *p == param).map(|(_, v)| *v))
+                .flatten()
+        })
     }
 
     /// Print the mixer as it is into the song (ADR-0018, Write mixer to
@@ -2041,11 +2184,16 @@ impl Engine {
     /// mixer lines are replaced; a group keeps its name.
     pub fn write_mixer(&mut self) {
         self.commit_song();
+        // A value the song drives keeps what its line says (ADR-0027).
         let differs = |e: &Engine, strip: usize, defaults: &[(Param, f32)]| -> Vec<(Param, f32)> {
             defaults
                 .iter()
                 .filter_map(|(p, d)| {
-                    let v = e.param_value(strip, *p);
+                    let v = if e.driven(strip, *p) {
+                        e.mix_value_at(strip, *p)?
+                    } else {
+                        e.param_value(strip, *p)
+                    };
                     ((v - p.clamp(*d)).abs() > 1e-6).then_some((*p, v))
                 })
                 .collect()
@@ -2174,8 +2322,15 @@ impl Engine {
                 .rev()
                 .find(|(q, _)| q == p)
                 .map_or(*d, |(_, v)| *v);
-            let now = self.param_value(s, *p);
-            if (now - p.clamp(base)).abs() > 1e-6 {
+            // A value the song drives keeps what its setting says (ADR-0027).
+            let now = if self.driven(s, *p) {
+                self.song
+                    .patch(t)
+                    .and_then(|(_, sets)| sets.iter().find(|(q, _)| q == p).map(|(_, v)| *v))
+            } else {
+                Some(self.param_value(s, *p))
+            };
+            if let Some(now) = now.filter(|v| (v - p.clamp(base)).abs() > 1e-6) {
                 sets.push((*p, now));
             }
         }

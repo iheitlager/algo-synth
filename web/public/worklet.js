@@ -6,6 +6,9 @@
 const POSITION_EVERY = 8
 // Report the DSP load about twice a second (188 blocks at 48 kHz).
 const LOAD_EVERY = 188
+// How often a hand's changes are folded into the song (ADR-0027): about
+// five times a second, so a knob drag gives a few song updates, not hundreds.
+const FOLD_EVERY = 75
 // Some worklet scopes lack performance.now(); Date.now() only ticks in
 // milliseconds, so then only the average over many blocks means anything.
 const precise = typeof globalThis.performance?.now === 'function'
@@ -29,6 +32,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.busy = 0
     this.peak = 0
     this.blocks = 0
+    // While the view has an edit of the song text not yet applied, folding
+    // waits, so a knob never overwrites what is being typed (ADR-0027).
+    this.foldHeld = false
     for (let s = 0; s < this.w.strip_count(); s++) this.sendParams(s)
     this.port.onmessage = ({ data }) => {
       const w = this.w
@@ -37,6 +43,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'on': w.note_on(data.s, data.n, data.v); break
         case 'off': w.note_off(data.s, data.n); break
         case 'panic': w.all_off(); break
+        case 'foldHold': this.foldHeld = !!data.on; break
         case 'clear':
           // Start over (#325): every strip's values and the empty song go back to the view.
           w.engine_clear()
@@ -306,6 +313,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     const buf = new Float32Array(w.memory.buffer, w.out_ptr(), 2 * this.block)
     out[0].set(buf.subarray(0, frames))
     if (out[1]) out[1].set(buf.subarray(this.block, this.block + frames))
+    if (this.tick % FOLD_EVERY === 0 && !this.foldHeld && w.song_fold && w.song_fold()) this.sendSong(true)
     if (++this.tick % POSITION_EVERY === 0) {
       this.port.postMessage({
         t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,

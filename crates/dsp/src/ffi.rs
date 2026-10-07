@@ -100,7 +100,8 @@ pub extern "C" fn process(frames: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn set_param(synth: u32, id: u32, value: f32) {
     if let Some(p) = Param::from_id(id) {
-        with_engine(|e| e.set_param(synth as usize, p, value));
+        // From the view: a hand, folded into the song (ADR-0027).
+        with_engine(|e| e.edit_param(synth as usize, p, value));
     }
 }
 
@@ -176,7 +177,10 @@ pub extern "C" fn synth_reset(synth: u32) {
 /// Put `synth`'s sound back to the defaults, its strip unchanged (ADR-0014).
 #[unsafe(no_mangle)]
 pub extern "C" fn synth_defaults(synth: u32) {
-    with_engine(|e| e.synth_defaults(synth as usize));
+    with_engine(|e| {
+        e.synth_defaults(synth as usize);
+        e.mark_synth(synth as usize);
+    });
 }
 
 /// Number of parameter ids; they run from 0 without gaps.
@@ -197,7 +201,7 @@ pub extern "C" fn param_value(synth: u32, id: u32) -> f32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn mono_preset(synth: u32, id: u32) {
     if let Some(p) = Preset::from_id(id) {
-        with_engine(|e| e.preset(synth as usize, p));
+        with_engine(|e| e.edit_preset(synth as usize, p));
     }
 }
 
@@ -220,6 +224,13 @@ pub extern "C" fn note_off(synth: u32, note: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_clear() {
     with_engine(Engine::clear);
+}
+
+/// Fold what the hands changed into the song (ADR-0027): 1 when its text
+/// changed and should be sent to the view, 0 when not.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_fold() -> u32 {
+    query(0, |e| u32::from(e.fold()))
 }
 
 /// Release every voice.
@@ -294,7 +305,10 @@ pub extern "C" fn sysex_name_len(i: u32) -> u32 {
 /// Set synth `synth`'s DX7 parameters from voice `i`; false if there is no such voice.
 #[unsafe(no_mangle)]
 pub extern "C" fn sysex_apply(synth: u32, i: u32) -> bool {
-    query(false, |e| e.apply_sysex(synth as usize, i as usize))
+    query(false, |e| {
+        e.mark_synth(synth as usize);
+        e.apply_sysex(synth as usize, i as usize)
+    })
 }
 
 /// Size the WAV buffer for `len` bytes and return its address for writing;
@@ -870,6 +884,7 @@ pub extern "C" fn song_tracks() -> u32 {
 pub extern "C" fn code_set(s: u32) -> i32 {
     query(-5, |e| {
         if e.set_code_from_buffer(s as usize).is_ok() {
+            e.mark_synth(s as usize);
             0
         } else {
             -1
