@@ -1227,6 +1227,14 @@ pub extern "C" fn freeze(f: u32) -> i32 {
     query(-1, |e| if e.freeze(f as usize) { 0 } else { -1 })
 }
 
+/// Steps to a bar of drum fragment `f` (#353); 16 for an unknown one.
+#[unsafe(no_mangle)]
+pub extern "C" fn frag_grid(f: u32) -> u32 {
+    query(16, |e| {
+        e.song().frags.get(f as usize).map_or(16, |x| x.grid)
+    })
+}
+
 /// Lanes of fragment `f`.
 #[unsafe(no_mangle)]
 pub extern "C" fn frag_lanes(f: u32) -> u32 {

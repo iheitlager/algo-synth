@@ -2431,8 +2431,8 @@ fn a_bad_text_is_reported_and_the_song_plays_on() {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     let good = e.song().clone();
-    let bad = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd x..o\n";
-    let err = load_text(&mut e, bad).expect_err("o is not a step");
+    let bad = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd x..z\n";
+    let err = load_text(&mut e, bad).expect_err("z is not a step");
     assert_eq!((err.line, err.col), (4, 9));
     assert_eq!(e.song_error(), Some(err));
     assert_eq!(e.song(), &good);
@@ -2557,7 +2557,7 @@ fn set_step_edits_the_playing_song_and_its_text() {
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     assert!(e.set_step(0, 0, 2, 2));
     assert!(e.song_text().contains("  bd x.X.x...x...x...\n"));
-    assert!(!e.set_step(0, 0, 2, 3), "no level 3");
+    assert!(!e.set_step(0, 0, 2, 9), "no level 9");
     assert!(!e.set_step(0, 1, 0, 1), "no second lane");
     e.song_play();
     run(&mut e, 12_001 / BLOCK + 1);
@@ -4319,4 +4319,170 @@ fn the_prophets_ssm_attack_is_straighter_than_its_curtis_one() {
     };
     let (ssm, cem) = (quarter(1.0), quarter(3.0));
     assert!(cem > ssm + 0.05, "a quarter in: SSM {ssm}, CEM {cem}");
+}
+
+/// The loudest sample of a one-bar `sn` lane on the kit, a step at a time.
+fn snare_peak(lane: &str) -> f32 {
+    let mut e = kit(0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = format!("tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn {lane}\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    let mut peak = 0.0_f32;
+    for _ in 0..(12_000 / BLOCK) {
+        e.render(BLOCK);
+        peak = e.output().iter().fold(peak, |m, s| m.max(s.abs()));
+    }
+    peak
+}
+
+/// #353: a ghost note `o` plays well under a hit, as its velocity has it.
+#[test]
+fn a_ghost_note_is_softer_than_a_hit() {
+    let (ghost, hit) = (
+        snare_peak("o..............."),
+        snare_peak("x..............."),
+    );
+    assert!(ghost > 0.0 && ghost < 0.7 * hit, "ghost {ghost}, hit {hit}");
+}
+
+/// The samples a song's notes start on within `frames`, a frame at a time.
+fn starts_within(e: &mut Engine, frames: u64) -> Vec<u64> {
+    let mut hits = Vec::new();
+    let mut count = e.note_count;
+    for s in 0..frames {
+        e.render(1);
+        for _ in count..e.note_count {
+            hits.push(s);
+        }
+        count = e.note_count;
+    }
+    hits
+}
+
+/// #353: a lane of 12, 24, 32 or 48 steps a bar hits every bar / grid, on
+/// its exact sample: at 120 BPM and 48 kHz a bar is 96 000 samples.
+#[test]
+fn lanes_hit_on_their_grid() {
+    for grid in [12u64, 16, 24, 32, 48] {
+        let mut e = kit(0);
+        let lane = "x".repeat(grid as usize);
+        let text = format!("tempo 120\ntrack kit drums\nfrag a = kit /{grid}\n  bd {lane}\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let want: Vec<u64> = (0..grid).map(|n| n * 96_000 / grid).collect();
+        assert_eq!(starts_within(&mut e, 96_000), want, "/{grid}");
+    }
+}
+
+/// #353: lanes on different grids keep time together, and with a note frag:
+/// a triplet lane meets the 16ths on every beat, and swing moves a hit
+/// between steps with its step.
+#[test]
+fn mixed_grids_keep_time_and_follow_swing() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack kit drums\nfrag a = kit /16\n  bd x...x...x...x...\nfrag b = kit /12\n  ch x..x..x..x..\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let starts = starts_within(&mut e, 96_000);
+    assert_eq!(
+        starts,
+        vec![0, 0, 24_000, 24_000, 48_000, 48_000, 72_000, 72_000]
+    );
+    // At swing 66 the second 16th lands 2/3 of the way to the third: a
+    // /32 hit halfway into the first 16th sits halfway to the swung one.
+    let mut e = kit(0);
+    let text = "tempo 120\nswing 66\ntrack kit drums\nfrag a = kit /32\n  bd .x.x\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let swung = e.clock.step_sample(1);
+    assert_eq!(
+        starts_within(&mut e, 12_000),
+        vec![swung / 2, swung + (12_000 - swung) / 2]
+    );
+}
+
+/// #353: a grid prints back as written; anything else says where.
+#[test]
+fn a_grid_prints_back_and_a_bad_one_is_refused() {
+    for grid in [12, 16, 24, 32, 48] {
+        let text = format!("tempo 120\ntrack kit drums\n\nfrag a = kit /{grid}\n  bd x..x\n");
+        let song = Song::parse(&text).expect("parses");
+        assert_eq!(song.frags[0].grid, grid);
+        assert!(song.print().contains(&format!("frag a = kit /{grid}\n")));
+    }
+    let err = Song::parse("track kit drums\nfrag a = kit /20\n  bd x\n").expect_err("/20");
+    assert_eq!((err.line, err.col), (2, 14));
+}
+
+/// The note starts of a one-lane drum song at `tempo` within `frames`.
+fn lane_starts(tempo: u32, grid: u32, lane: &str, frames: u64) -> Vec<u64> {
+    let mut e = kit(0);
+    let text = format!("tempo {tempo}\ntrack kit drums\nfrag a = kit /{grid}\n  sn {lane}\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    starts_within(&mut e, frames)
+}
+
+/// #353: a flam's grace stroke falls 20 ms (960 samples at 48 kHz) before
+/// its hit, which stays on its step; a drag's two fall 30 and 15 ms before.
+#[test]
+fn flams_and_drags_put_their_graces_before_the_hit() {
+    let lane = "....f.......d...";
+    assert_eq!(
+        lane_starts(120, 16, lane, 96_000),
+        vec![23_040, 24_000, 72_000 - 1_440, 72_000 - 720, 72_000]
+    );
+}
+
+/// #353: a flam on the first step of play has nothing before it to sound
+/// its grace in; from the second time round it has.
+#[test]
+fn a_flam_on_the_first_step_graces_from_the_second_bar() {
+    assert_eq!(
+        lane_starts(120, 16, "f...............", 192_000),
+        vec![0, 96_000 - 960, 96_000, 192_000 - 960]
+    );
+}
+
+/// #353: at a fast tempo on a fine grid the graces shrink to fit: every
+/// grace still falls after the hit before it and before its own.
+#[test]
+fn graces_fit_between_close_hits() {
+    let lane = "d".repeat(48);
+    let starts = lane_starts(240, 48, &lane, 48_000);
+    // 48 drags a bar at 240 BPM: a hit every 1000 samples.
+    let hits: Vec<u64> = (0..48).map(|n| n * 1000).collect();
+    for (i, h) in hits.iter().enumerate().skip(1) {
+        let graces: Vec<u64> = starts
+            .iter()
+            .copied()
+            .filter(|s| *s > hits[i - 1] && s < h)
+            .collect();
+        assert_eq!(
+            graces.len(),
+            2,
+            "two graces before the hit at {h}: {starts:?}"
+        );
+    }
+    assert!(starts.windows(2).all(|w| w[0] <= w[1]), "in order");
+}
+
+/// #353: a grace stroke is softer than the hit it leads into: on the
+/// second bar, the 20 ms before the flam's hit are quieter than the hit.
+#[test]
+fn a_grace_is_softer_than_its_hit() {
+    let mut e = kit(0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 120\ntrack kit drums\nfrag a = kit /16\n  sn f...............\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut out = Vec::new();
+    for _ in 0..(100_000 / BLOCK) {
+        e.render(BLOCK);
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    let (grace, hit) = (peak(&out[95_040..96_000]), peak(&out[96_000..97_000]));
+    assert!(grace > 0.0 && grace < 0.8 * hit, "grace {grace}, hit {hit}");
 }

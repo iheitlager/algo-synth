@@ -170,6 +170,15 @@ impl Clock {
         a + (gap * sub as f64 / TICKS_PER_STEP as f64).round() as u64
     }
 
+    /// The sample a point `frac` (0..1) of the way from step `k` to the next
+    /// falls on, spaced evenly between the two as `tick_sample` spaces ticks,
+    /// so swing moves it with its step (#353).
+    pub fn between_sample(&self, k: u64, frac: f64) -> u64 {
+        let a = self.step_sample(k);
+        let gap = self.step_sample(k + 1).saturating_sub(a) as f64;
+        a + (gap * frac).round() as u64
+    }
+
     /// The next tick between steps due at the current position, advancing past
     /// it. Ticks on a step belong to `due`.
     pub(crate) fn due_sub(&mut self) -> Option<u64> {

@@ -93,6 +93,9 @@ pub use signal::Signal;
 pub const MAX_TRACKS: usize = 16;
 pub const MAX_FRAGS: usize = 256;
 pub const MAX_STEPS: usize = 64;
+/// The steps to a bar a drum lane may have (#353): 16ths, their triplets,
+/// 32nds and 32nd triplets.
+pub const GRIDS: [u32; 5] = [12, 16, 24, 32, 48];
 /// Most sections, entries in the arrangement and bars in a section.
 pub const MAX_SECTIONS: usize = 256;
 pub const MAX_ARRANGE: usize = 256;
@@ -117,12 +120,23 @@ const MAX_NAME: usize = 32;
 const TEMPO: (f32, f32) = crate::clock::TEMPO;
 const SWING: (f32, f32) = crate::clock::SWING;
 
-/// One step of a lane: a rest, a hit or an accented hit.
+/// A ghost note's velocity: well under a hit's 0.75 (#353).
+pub const GHOST_VELOCITY: f32 = 0.35;
+/// A flam's or drag's grace stroke velocity (#353).
+pub const GRACE_VELOCITY: f32 = 0.4;
+
+/// One step of a lane: a rest, a hit, an accented hit or a ghost note.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     Off = 0,
     Hit = 1,
     Accent = 2,
+    /// A soft stroke under the hits (#353).
+    Ghost = 3,
+    /// A hit with one soft grace stroke just before it (#353).
+    Flam = 4,
+    /// A hit with two soft grace strokes just before it (#353).
+    Drag = 5,
 }
 
 impl Step {
@@ -131,6 +145,9 @@ impl Step {
             '.' => Some(Step::Off),
             'x' => Some(Step::Hit),
             'X' => Some(Step::Accent),
+            'o' => Some(Step::Ghost),
+            'f' => Some(Step::Flam),
+            'd' => Some(Step::Drag),
             _ => None,
         }
     }
@@ -140,15 +157,22 @@ impl Step {
             Step::Off => '.',
             Step::Hit => 'x',
             Step::Accent => 'X',
+            Step::Ghost => 'o',
+            Step::Flam => 'f',
+            Step::Drag => 'd',
         }
     }
 
-    /// The step for a level from the view: 0 off, 1 hit, 2 accent.
+    /// The step for a level from the view: 0 off, 1 hit, 2 accent, 3 ghost,
+    /// 4 flam, 5 drag.
     pub fn from_level(level: u32) -> Option<Step> {
         match level {
             0 => Some(Step::Off),
             1 => Some(Step::Hit),
             2 => Some(Step::Accent),
+            3 => Some(Step::Ghost),
+            4 => Some(Step::Flam),
+            5 => Some(Step::Drag),
             _ => None,
         }
     }
@@ -157,8 +181,19 @@ impl Step {
     pub fn velocity(self) -> Option<f32> {
         match self {
             Step::Off => None,
-            Step::Hit => Some(0.75),
+            Step::Hit | Step::Flam | Step::Drag => Some(0.75),
             Step::Accent => Some(1.0),
+            Step::Ghost => Some(GHOST_VELOCITY),
+        }
+    }
+
+    /// How long before the hit each grace stroke falls, in milliseconds,
+    /// earliest first: a flam's one, a drag's two (#353).
+    pub fn graces(self) -> &'static [f32] {
+        match self {
+            Step::Flam => &[20.0],
+            Step::Drag => &[30.0, 15.0],
+            _ => &[],
         }
     }
 }
@@ -186,6 +221,8 @@ pub struct Fragment {
     pub voicing: bool,
     /// Pattern methods (`.fast(2) .rev()`, ADR-0019), applied to its notes in order.
     pub pattern: Vec<Pattern>,
+    /// A drum frag's steps to a bar (`/16`, #353): one of `GRIDS`.
+    pub grid: u32,
 }
 
 /// What a track's fragments hold.
@@ -877,13 +914,17 @@ impl Song {
                             .ok_or(err(n.col, "a line is 1 to 32 bars"))?;
                         open_bars = Some((bars, w.col, line));
                     }
+                    let mut grid = 16;
                     if let Some(w) = ws.get(4).filter(|_| !live && open_bars.is_none()) {
                         if synth {
                             return Err(err(w.col, "a note frag has no step grid"));
                         }
-                        if w.text != "/16" {
-                            return Err(err(w.col, "only /16 steps for now"));
-                        }
+                        grid = w
+                            .text
+                            .strip_prefix('/')
+                            .and_then(|g| g.parse().ok())
+                            .filter(|g| GRIDS.contains(g))
+                            .ok_or(err(w.col, "a drum grid is /12, /16, /24, /32 or /48"))?;
                     }
                     expect_end(if open_bars.is_some() { 6 } else { 5 })?;
                     if song.frags.len() >= MAX_FRAGS {
@@ -897,6 +938,7 @@ impl Song {
                         live,
                         voicing: voicing.is_some(),
                         pattern: Vec::new(),
+                        grid,
                     });
                     let f = song.frags.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1404,9 +1446,10 @@ impl Song {
                 continue;
             }
             lines.push(format!(
-                "frag {} = {} /16{}",
+                "frag {} = {} /{}{}",
                 f.name,
                 track,
+                f.grid,
                 self.methods_of(fi)
             ));
             for l in &f.lanes {
@@ -2269,7 +2312,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     let mut steps = Vec::new();
     for w in ws.iter().skip(1) {
         for (k, c) in w.text.chars().enumerate() {
-            let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X or ."))?;
+            let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X, o, f, d or ."))?;
             if steps.len() >= MAX_STEPS {
                 return Err(err(w.col + k, "a lane has at most 64 steps"));
             }
@@ -2277,7 +2320,7 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
         }
     }
     if steps.is_empty() {
-        return Err(err(first.col, "a lane needs its steps: x, X or ."));
+        return Err(err(first.col, "a lane needs its steps: x, X, o, f, d or ."));
     }
     Ok(Lane {
         pad,

@@ -479,7 +479,7 @@ export function mapSample(s: number, slot: number) {
   requestZones(s)
 }
 
-/** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent. */
+/** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent, 3 ghost, 4 flam, 5 drag. */
 export interface SongLane { pad: number; steps: number[] }
 /** One note of a fragment: start and length in ticks (48 to a bar, 3 to a sixteenth), MIDI note, accent. */
 export interface SongNote { start: number; len: number; note: number; accent: boolean }
@@ -489,7 +489,8 @@ export interface SongNote { start: number; len: number; note: number; accent: bo
  * edited) and whether that call is live.
  */
 export interface SongNotes { text: string; bars: number; events: SongNote[]; generated: boolean; live: boolean }
-export interface SongFrag { name: string; track: number; lanes: SongLane[]; notes: SongNotes | null }
+/** A fragment; `grid` is a drum fragment's steps to a bar (#353): 12, 16, 24, 32 or 48. */
+export interface SongFrag { name: string; track: number; lanes: SongLane[]; grid: number; notes: SongNotes | null }
 /** A song track (#210, #213): its synth, kind, factory preset and the song setting it plays (−1 for none). */
 export interface SongTrack { name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number }
 /** A setting of the song (#210): a factory preset and changes, named. */
@@ -656,12 +657,13 @@ export function applySong(data: Record<string, unknown>) {
     nameByTrack(t.synth, t.name)
   }
   song.frags = (data.frags as {
-    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]
+    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]; grid?: number
     notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null
   }[]).map((f) => ({
     name: decoder.decode(f.name),
     track: f.track,
     lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps) })),
+    grid: f.grid ?? 16,
     notes: f.notes
       ? {
           text: decoder.decode(f.notes.text),

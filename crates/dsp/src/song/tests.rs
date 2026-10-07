@@ -85,7 +85,7 @@ fn every_error_says_where() {
             "track kit drums\nfrag a = kit /8\n  bd x",
             2,
             14,
-            "only /16 steps for now",
+            "a drum grid is /12, /16, /24, /32 or /48",
         ),
         (
             "track kit drums\nfrag a = kit\n  zz x...",
@@ -94,16 +94,16 @@ fn every_error_says_where() {
             "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
         ),
         (
-            "track kit drums\nfrag a = kit\n  bd x..o",
+            "track kit drums\nfrag a = kit\n  bd x..z",
             3,
             9,
-            "a step is x, X or .",
+            "a step is x, X, o, f, d or .",
         ),
         (
             "track kit drums\nfrag a = kit\n  bd",
             3,
             3,
-            "a lane needs its steps: x, X or .",
+            "a lane needs its steps: x, X, o, f, d or .",
         ),
         (
             "track kit drums\nfrag a = kit\n  bd x\n  bd x",
@@ -159,7 +159,7 @@ fn set_step_changes_one_step() {
     assert!(!s.set_step(0, 0, 16, Step::Hit), "past the lane");
     assert!(!s.set_step(0, 3, 0, Step::Hit), "no fourth lane");
     assert!(!s.set_step(1, 0, 0, Step::Hit), "no second frag");
-    assert_eq!(Step::from_level(3), None);
+    assert_eq!(Step::from_level(9), None);
 }
 
 /// A small xorshift for generated cases: no new dependency, and repeatable.
@@ -209,6 +209,7 @@ fn random_song(r: &mut Rng) -> Song {
                 live: false,
                 voicing: false,
                 pattern: Vec::new(),
+                grid: 16,
             });
             continue;
         }
@@ -217,7 +218,7 @@ fn random_song(r: &mut Rng) -> Song {
         for _ in 0..1 + r.below(8) {
             let pad = pads.remove(r.below(pads.len()));
             let steps = (0..1 + r.below(MAX_STEPS))
-                .map(|_| [Step::Off, Step::Hit, Step::Accent][r.below(3)])
+                .map(|_| [Step::Off, Step::Hit, Step::Accent, Step::Ghost][r.below(4)])
                 .collect();
             lanes.push(Lane {
                 pad,
@@ -233,6 +234,7 @@ fn random_song(r: &mut Rng) -> Song {
             live: false,
             voicing: false,
             pattern: Vec::new(),
+            grid: GRIDS[r.below(GRIDS.len())],
         });
     }
     song
@@ -2096,4 +2098,16 @@ fn setting_code_errors_say_where() {
         let err = Song::parse(text).expect_err(text);
         assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
     }
+}
+
+/// #353: a ghost note `o` parses, prints back and plays at its velocity.
+#[test]
+fn a_ghost_note_parses_and_prints_back() {
+    let text = "tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn o.x.X.o.\n";
+    let song = Song::parse(text).expect("parses");
+    let steps = &song.frags[0].lanes[0].steps;
+    assert_eq!(steps[0], Step::Ghost);
+    assert_eq!(Step::Ghost.velocity(), Some(crate::song::GHOST_VELOCITY));
+    assert_eq!(Step::from_level(3), Some(Step::Ghost));
+    assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
 }

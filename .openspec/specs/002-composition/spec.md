@@ -56,9 +56,9 @@ The engine SHALL report peak meters for the view: each synth strip after its fad
 
 ### Requirement 3: Fragments [MUST]
 
-A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `.` a rest. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability, `&` slides into the next note) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error. A `sampler` track SHALL take lanes of pad names, as a drum track does, for a pad sampler, or note fragments for a multisampler, never both in one fragment; an unknown pad name SHALL be a parse error.
+A fragment SHALL be a loop of events (note or pad, velocity, start, length, probability) on a beat grid, of any length, playing on one track. A drum fragment SHALL be one lane per pad, one step per character: `x` a hit, `X` an accented hit, `o` a ghost note (well under a hit), `f` a flam (one soft grace stroke 20 ms before the hit), `d` a drag (two, 30 and 15 ms before), `.` a rest; on a grid of `/12`, `/16`, `/24`, `/32` or `/48` steps a bar (ADR-0026, #353), each hit on its exact sample, swung with its step, the graces before a hit that stays on its step and closing up to fit between close hits. A pitched fragment SHALL be written in mini-notation (a quoted sequence divides one cycle; `[ ]` subdivides, `~` rests, `*n` repeats, `<a b>` alternates per cycle, `?` plays with a probability, `&` slides into the next note) or as classic notes with durations (`c4:4`, `e4:8.`), laid out one after another; mixing the two in one sequence SHALL be a parse error. A `sampler` track SHALL take lanes of pad names, as a drum track does, for a pad sampler, or note fragments for a multisampler, never both in one fragment; an unknown pad name SHALL be a parse error.
 
-**Implementation:** drum fragments `crates/dsp/src/song.rs::Fragment` (lanes of up to 64 steps, each lane looping on its own length; `/16` steps for now), played on the clock's steps by `crates/dsp/src/engine.rs::Engine::play_step` (a hit at velocity 0.75, an accent at 1.0); pitched fragments `crates/dsp/src/notes.rs::Notes` (mini-notation and classic durations parsed, printed and compiled to events on 48 ticks to the bar, ADR-0016), held by `crates/dsp/src/song.rs::Fragment` on a `synth` track and played by `crates/dsp/src/engine.rs::Engine::play_tick` on the clock's ticks (`crates/dsp/src/clock.rs::Clock::due_sub`), with a fixed note-off table
+**Implementation:** drum fragments `crates/dsp/src/song.rs::Fragment` (lanes of up to 64 steps, each lane looping on its own length, on the frag's grid), played by `crates/dsp/src/engine.rs::Engine::play_step` and `Engine::lane_hits` (a hit at velocity 0.75, an accent at 1.0, a ghost at 0.35, a grace at 0.4; hits between steps queued, graces a step ahead, ADR-0026); pitched fragments `crates/dsp/src/notes.rs::Notes` (mini-notation and classic durations parsed, printed and compiled to events on 48 ticks to the bar, ADR-0016), held by `crates/dsp/src/song.rs::Fragment` on a `synth` track and played by `crates/dsp/src/engine.rs::Engine::play_tick` on the clock's ticks (`crates/dsp/src/clock.rs::Clock::due_sub`), with a fixed note-off table
 
 #### Scenario: a drum lane
 
@@ -73,6 +73,14 @@ A fragment SHALL be a loop of events (note or pad, velocity, start, length, prob
 - THEN the first note is one tick longer than its share, so it is still held when the second starts, and the pitch glides to it on one gate
 
 **Tests:** `crates/dsp/src/notes/tests.rs::a_slide_runs_one_tick_into_the_next_note`, `crates/dsp/src/engine/tests.rs::a_slide_glides_into_the_next_note`
+
+#### Scenario: drum grids, ghosts, flams and drags
+
+- GIVEN lanes of x on /12, /16, /24, /32 and /48 at 120 BPM and 48 kHz, and `sn ....f.......d...` on /16
+- WHEN they are played
+- THEN each lane hits every 96000 / grid samples from 0; the flam's grace falls 960 samples before its hit on 24000 and the drag's two 1440 and 720 before 72000; a ghost and a grace sound softer than a hit
+
+**Tests:** `crates/dsp/src/engine/tests.rs::lanes_hit_on_their_grid`, `crates/dsp/src/engine/tests.rs::mixed_grids_keep_time_and_follow_swing`, `crates/dsp/src/engine/tests.rs::flams_and_drags_put_their_graces_before_the_hit`, `crates/dsp/src/engine/tests.rs::a_flam_on_the_first_step_graces_from_the_second_bar`, `crates/dsp/src/engine/tests.rs::graces_fit_between_close_hits`, `crates/dsp/src/engine/tests.rs::a_grace_is_softer_than_its_hit`, `crates/dsp/src/engine/tests.rs::a_ghost_note_is_softer_than_a_hit`, `crates/dsp/src/engine/tests.rs::a_grid_prints_back_and_a_bad_one_is_refused`, `crates/dsp/src/song/tests.rs::a_ghost_note_parses_and_prints_back`
 
 #### Scenario: classic durations
 

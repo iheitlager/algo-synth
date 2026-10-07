@@ -227,6 +227,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         for (let s = 0; s < steps.length; s++) steps[s] = w.step_level(f, l, s)
         lanes.push({ pad: w.lane_pad(f, l), steps })
       }
+      // Its steps to a bar (#353): 16 from an engine that has no other.
+      const grid = w.frag_grid ? w.frag_grid(f) : 16
       let notes = null
       if (w.frag_notes_len(f)) {
         // Each note as [start, length, note, accent]; the start and length are in ticks, 48 to a bar.
@@ -239,7 +241,7 @@ class EngineProcessor extends AudioWorkletProcessor {
           live: w.frag_live(f) === 1, generated: w.frag_generated(f) === 1, events,
         }
       }
-      frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes, notes })
+      frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes, grid, notes })
     }
     // The arrangement (ADR-0015): sections with what each holds, the order, lanes, scenes, loop.
     const nF = w.song_frags(), nA = w.song_autos(), nC = w.song_scenes()
