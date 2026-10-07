@@ -61,6 +61,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'song': this.loadSong(new Uint8Array(data.bytes)); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
+        // A track's mute and solo (#355): bit 0 mute, bit 1 solo.
+        case 'trackFlags': w.set_track_flags(data.track, data.flags); this.sendSong(true); break
         case 'note':
           // op 0 adds a sixteenth at tick, 1 removes the note, 2 sets its length in ticks.
           if (data.op === 0) w.note_add(data.f, data.tick, data.note)
@@ -216,6 +218,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     for (let t = 0; t < w.song_tracks(); t++) {
       tracks.push({
         name: bytes(w.track_name_ptr(t), w.track_name_len(t)), synth: w.song_routed(t), kind: w.track_kind(t),
+        flags: w.track_flags ? w.track_flags(t) : 0,
         preset: w.track_preset(t), setting: w.track_setting(t),
       })
     }

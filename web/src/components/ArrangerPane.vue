@@ -4,36 +4,39 @@
 // bars; rows are the fragments, automation lanes and scenes; a lit cell means
 // that section plays it. Every click is a message: the engine changes the song
 // and sends it back as text, so the arranger, the composer and the text agree.
-// A fragment's row mutes and solos its track's synth (#346): the strip's own
-// Mute and Solo, as the synth rail and the mixer show them.
+// A fragment's row mutes and solos its track (#346, #355): the track's frags
+// stop, its synth stays open for live keys and other tracks. The song text
+// keeps it (`track … mute`); the synth rail and mixer mute the instrument.
 import { computed } from 'vue'
-import { MUTE, arrange, files, getEngine, params, song, status, synthColour, synths, type SongSection } from '../audio/engine'
-import { Param, type ParamId } from '../audio/params'
+import { MUTE, arrange, files, setTrackFlags, song, status, synthColour, type SongSection } from '../audio/engine'
 
 const STEPS_PER_BAR = 16
 /** Pixels per bar: wide enough to read a name, narrow enough for a song. */
 const BAR = 48
 
-/** A row; a fragment's carries the synth its track plays on, or null when muted. */
-interface Row { kind: 0 | 1 | 2; item: number; label: string; colour: string; synth?: number | null }
+/** A row; a fragment's carries its track. */
+interface Row { kind: 0 | 1 | 2; item: number; label: string; colour: string; track?: number }
 const rows = computed<Row[]>(() => [
   ...song.frags.map((f, i) => {
     const s = song.tracks[f.track]?.synth
     return {
       kind: 0 as const, item: i, label: `${f.name} · ${song.tracks[f.track]?.name ?? ''}`,
-      colour: synthColour(s ?? 0), synth: s === undefined || s === MUTE ? null : s,
+      colour: synthColour(s === undefined || s === MUTE ? 0 : s), track: f.track,
     }
   }),
   ...song.autos.map((a, i) => ({ kind: 1 as const, item: i, label: `~ ${a}`, colour: 'var(--accent)' })),
   ...song.scenes.map((c, i) => ({ kind: 2 as const, item: i, label: `[${c}]`, colour: 'var(--score)' })),
 ])
 
-const val = (s: number, id: ParamId) => params.values[s]?.[id] ?? 0
-const toggle = (s: number, id: ParamId) => getEngine()?.param(s, id, val(s, id) >= 0.5 ? 0 : 1)
-const anySolo = computed(() => synths.list.some((s) => val(s, Param.Solo) >= 0.5))
-/** Whether a row's synth is not heard: muted, or another one soloed. */
+const muted = (t: number) => song.tracks[t]?.mute ?? false
+const soloed = (t: number) => song.tracks[t]?.solo ?? false
+const toggleMute = (t: number) => setTrackFlags(t, !muted(t), soloed(t))
+const toggleSolo = (t: number) => setTrackFlags(t, muted(t), !soloed(t))
+const anySolo = computed(() => song.tracks.some((t) => t.solo))
+/** Whether a fragment row's track is not heard, as the engine has it: while
+ * any track is soloed only the soloed ones play, else the ones not muted. */
 const silenced = (r: Row) =>
-  r.synth != null && (val(r.synth, Param.Mute) >= 0.5 || (anySolo.value && val(r.synth, Param.Solo) < 0.5))
+  r.track != null && (anySolo.value ? !soloed(r.track) : muted(r.track))
 
 /** The entries with where each starts, in bars. */
 const entries = computed(() => {
@@ -123,16 +126,16 @@ function onBar(bar: number, e: MouseEvent) {
       </div>
       <template v-for="r in rows" :key="`${r.kind}:${r.item}`">
         <div class="label" :class="{ silenced: silenced(r) }" :title="r.label">
-          <span v-if="r.synth != null" class="ms">
+          <span v-if="r.track != null" class="ms">
             <button
-              class="m" :aria-pressed="val(r.synth, Param.Mute) >= 0.5" :disabled="!status.running"
-              :aria-label="`Mute ${song.tracks[song.frags[r.item]?.track ?? 0]?.name}`" title="Mute the track's synth"
-              @click="toggle(r.synth, Param.Mute)"
+              class="m" :aria-pressed="muted(r.track)" :disabled="!status.running"
+              :aria-label="`Mute ${song.tracks[r.track]?.name}`" title="Mute the track: its frags stop, its synth plays on"
+              @click="toggleMute(r.track)"
             >M</button>
             <button
-              class="s" :aria-pressed="val(r.synth, Param.Solo) >= 0.5" :disabled="!status.running"
-              :aria-label="`Solo ${song.tracks[song.frags[r.item]?.track ?? 0]?.name}`" title="Solo the track's synth"
-              @click="toggle(r.synth, Param.Solo)"
+              class="s" :aria-pressed="soloed(r.track)" :disabled="!status.running"
+              :aria-label="`Solo ${song.tracks[r.track]?.name}`" title="Solo the track: only soloed tracks play"
+              @click="toggleSolo(r.track)"
             >S</button>
           </span>
           <i :style="{ background: r.colour }" /><span class="name">{{ r.label }}</span>

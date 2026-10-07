@@ -4486,3 +4486,53 @@ fn a_grace_is_softer_than_its_hit() {
     let (grace, hit) = (peak(&out[95_040..96_000]), peak(&out[96_000..97_000]));
     assert!(grace > 0.0 && grace < 0.8 * hit, "grace {grace}, hit {hit}");
 }
+
+/// Two drum tracks, `a` and `b`, both on kit synth 0, each a hit every beat.
+fn two_tracks(flags: &str) -> Engine {
+    let mut e = kit(0);
+    let text = format!(
+        "tempo 120\ntrack a drums{flags}\ntrack b drums\nfrag fa = a /16\n  bd x...x...x...x...\nfrag fb = b /16\n  sn ..x...x...x...x.\n"
+    );
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_route(0, Some(0));
+    e.song_route(1, Some(0));
+    e
+}
+
+/// #355: a muted track's frags are silent, while its synth still plays a
+/// live key, and the other track on the same synth plays on.
+#[test]
+fn a_muted_track_is_silent_and_its_synth_plays_on() {
+    let mut e = two_tracks(" mute");
+    e.song_play();
+    // Only track b's four snares sound.
+    assert_eq!(hit_steps(&mut e, 16), vec![2, 6, 10, 14]);
+    let before = e.note_count;
+    e.note_on(0, 36, 1.0);
+    assert_eq!(e.note_count, before + 1, "the synth takes a live key");
+}
+
+/// #355: while a track is soloed only soloed tracks play; solo outranks mute.
+#[test]
+fn solo_plays_only_the_soloed_tracks() {
+    let mut e = two_tracks(" mute solo");
+    e.song_play();
+    assert_eq!(hit_steps(&mut e, 16), vec![0, 4, 8, 12]);
+    assert!(e.set_track_flags(0, false, false));
+    assert_eq!(hit_steps(&mut e, 16), vec![0, 2, 4, 6, 8, 10, 12, 14]);
+}
+
+/// #355: muting a track mid-note lets its notes go; the text says so.
+#[test]
+fn muting_a_track_lets_its_notes_go_and_writes_the_text() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nfrag l = lead\n  c3:1\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    e.render(BLOCK);
+    assert!(gated(&e, Owner::Track(0)), "the long note sounds");
+    assert!(e.set_track_flags(0, true, false));
+    assert!(!gated(&e, Owner::Track(0)), "muted, it lets go");
+    assert!(e.song_text().contains("track lead synth ") && e.song_text().contains(" mute\n"));
+    assert!(!e.set_track_flags(9, true, false), "no such track");
+}

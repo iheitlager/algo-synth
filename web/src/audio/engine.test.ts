@@ -127,10 +127,10 @@ describe('applySong', () => {
     expect(storage.map.get('algo-synth:song')).toBe('tempo 100\n')
     expect([mod.song.tempo, mod.song.swing]).toEqual([100, 55])
     expect(mod.song.tracks).toEqual([
-      { name: 'kick', synth: 0, kind: 'drums', preset: -1, setting: -1 },
-      { name: 'bass', synth: 3, kind: 'synth', preset: -1, setting: -1 },
-      { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1 },
-      { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1 },
+      { name: 'kick', synth: 0, kind: 'drums', preset: -1, setting: -1, mute: false, solo: false },
+      { name: 'bass', synth: 3, kind: 'synth', preset: -1, setting: -1, mute: false, solo: false },
+      { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1, mute: false, solo: false },
+      { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1, mute: false, solo: false },
     ])
     // An engine without frag_grid sends none: the lane is 16ths (#353).
     expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0] }], grid: 16, notes: null })

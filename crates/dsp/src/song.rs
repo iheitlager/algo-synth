@@ -371,14 +371,31 @@ pub struct Track {
     /// Neither a model nor a setting was written: the preset was picked from
     /// the role, and the engine may pick again from the synths it has.
     pub picked: bool,
+    /// Muted, or soloed (#355): written `mute` / `solo` at the end of its
+    /// line. A frag plays when its track is heard (`Song::heard`).
+    pub mute: bool,
+    pub solo: bool,
 }
 
 /// Two tracks are equal by what they play; whether the preset was picked or
 /// written is not part of the song, so a printed song parses back equal.
 impl PartialEq for Track {
     fn eq(&self, other: &Track) -> bool {
-        (&self.name, self.kind, self.preset, self.setting)
-            == (&other.name, other.kind, other.preset, other.setting)
+        (
+            &self.name,
+            self.kind,
+            self.preset,
+            self.setting,
+            self.mute,
+            self.solo,
+        ) == (
+            &other.name,
+            other.kind,
+            other.preset,
+            other.setting,
+            other.mute,
+            other.solo,
+        )
     }
 }
 
@@ -724,22 +741,34 @@ impl Song {
                         "sampler" => Kind::Sampler,
                         _ => return Err(err(kind.col, "a track kind is drums, synth or sampler")),
                     };
-                    // `<setting>`, `<model> <preset>` or `<model>`; nothing picks both.
+                    // `mute` and `solo` end the line (#355); before them,
+                    // `<setting>`, `<model> <preset>` or `<model>`.
+                    let flags = ws
+                        .iter()
+                        .skip(3)
+                        .rev()
+                        .take_while(|w| matches!(w.text, "mute" | "solo"))
+                        .count();
+                    let base = ws.len() - flags;
+                    let flag = |f: &str| ws.iter().skip(base).any(|w| w.text == f);
+                    let (mute, solo) = (flag("mute"), flag("solo"));
                     let mut setting = None;
                     let mut model = None;
                     let mut preset = None;
-                    if let Some(w) = ws.get(3) {
+                    if let Some(w) = ws.get(3).filter(|_| base > 3) {
                         if let Some(i) = song.settings.iter().position(|st| st.name == w.text) {
                             setting = Some(i);
                             preset = song.settings.get(i).map(|st| st.preset);
-                            expect_end(4)?;
+                            if base > 4 {
+                                expect_end(4)?;
+                            }
                         } else {
                             let m = model_named(w.text).ok_or(err(
                                 w.col,
                                 "a model (as Minimoog or Tr808) or a setting goes here",
                             ))?;
                             model = Some(m);
-                            if let Some(p) = ws.get(4) {
+                            if let Some(p) = ws.get(4).filter(|_| base > 4) {
                                 let pr = preset_named(p.text).ok_or(err(
                                     p.col,
                                     "a preset is a factory preset, as MiniBass",
@@ -749,7 +778,9 @@ impl Song {
                                 }
                                 preset = Some(pr);
                             }
-                            expect_end(5)?;
+                            if base > 5 {
+                                expect_end(5)?;
+                            }
                         }
                         if !fits(kind, preset.map_or(model, |p| Some(p.model()))) {
                             return Err(err(w.col, "this model does not play this kind of track"));
@@ -764,6 +795,8 @@ impl Song {
                         preset,
                         setting,
                         picked: false,
+                        mute,
+                        solo,
                     });
                     // A model without a preset: one is picked once the frags are in.
                     if let (Some(m), None) = (model, preset) {
@@ -1316,6 +1349,29 @@ impl Song {
             .sum()
     }
 
+    /// Whether track `t`'s frags play (#355): while any track is soloed only
+    /// the soloed ones, muted or not; else every track not muted.
+    pub fn heard(&self, t: usize) -> bool {
+        let Some(track) = self.tracks.get(t) else {
+            return false;
+        };
+        if self.tracks.iter().any(|x| x.solo) {
+            track.solo
+        } else {
+            !track.mute
+        }
+    }
+
+    /// Mute or solo track `t`; false for an unknown track.
+    pub fn set_track_flags(&mut self, t: usize, mute: bool, solo: bool) -> bool {
+        let Some(track) = self.tracks.get_mut(t) else {
+            return false;
+        };
+        track.mute = mute;
+        track.solo = solo;
+        true
+    }
+
     /// Where clock step `k` falls: inside the loop region the song wraps.
     /// Scans the arrangement (at most `MAX_ARRANGE` entries); never allocates.
     pub fn at(&self, k: u64) -> At {
@@ -1393,7 +1449,13 @@ impl Song {
         }
         lines.extend(self.tracks.iter().map(|t| {
             let setting = t.setting.and_then(|i| self.settings.get(i));
-            match (setting, t.preset) {
+            let flags = match (t.mute, t.solo) {
+                (true, true) => " mute solo",
+                (true, false) => " mute",
+                (false, true) => " solo",
+                (false, false) => "",
+            };
+            let line = match (setting, t.preset) {
                 (Some(st), _) => format!("track {} {} {}", t.name, t.kind.name(), st.name),
                 (None, Some(p)) => format!(
                     "track {} {} {} {}",
@@ -1403,7 +1465,8 @@ impl Song {
                     preset_name(p)
                 ),
                 (None, None) => format!("track {} {}", t.name, t.kind.name()),
-            }
+            };
+            line + flags
         }));
         for m in &self.mix {
             let at = match m.at {

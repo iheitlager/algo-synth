@@ -136,7 +136,7 @@ The UGens, methods and limits are spec 005's (Requirement 11). Without code a
 
 ## track
 
-`track <name> <kind> [<Model> [<Preset>] | <setting>]`. The kind says what the
+`track <name> <kind> [<Model> [<Preset>] | <setting>] [mute] [solo]`. The kind says what the
 track's frags hold:
 
 | kind | frags hold | plays on |
@@ -155,6 +155,10 @@ setting, or nothing.
 - **Nothing:** a model and preset are picked from the track's role and written
   into the text, and each track plays on a synth of its own. A `sampler` track
   without a model keeps the samples already loaded.
+- **`mute`, `solo`:** at the end of the line, the track's frags stop
+  (`track bass synth Sh101 AcidBass mute`); while any track is soloed only the
+  soloed ones play, muted or not. The synth plays on for live keys and other
+  tracks; the arranger's M and S set these.
 
 The role comes from the name first, then from the notes:
 

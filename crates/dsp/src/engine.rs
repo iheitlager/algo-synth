@@ -1141,6 +1141,9 @@ impl Engine {
             if live {
                 self.step_live(f, from / span, local);
             }
+            if !self.song.heard(usize::from(track)) {
+                continue;
+            }
             let first = self.first_event(f, local);
             for k in first.. {
                 let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {
@@ -1330,6 +1333,9 @@ impl Engine {
                     continue;
                 }
             }
+            if !self.song.heard(frag.track) {
+                continue;
+            }
             let owner = Owner::Track(u8::try_from(frag.track).unwrap_or(u8::MAX));
             let g = u64::from(frag.grid.max(1));
             let (first, end) = ((k * g).div_ceil(16), ((k + 1) * g).div_ceil(16));
@@ -1424,7 +1430,13 @@ impl Engine {
             if hit.at <= pos {
                 self.hits.copy_within(i + 1..self.hit_count, i);
                 self.hit_count -= 1;
-                self.start_voice(hit.owner, hit.note, hit.velocity);
+                let heard = match hit.owner {
+                    Owner::Track(t) => self.song.heard(usize::from(t)),
+                    _ => true,
+                };
+                if heard {
+                    self.start_voice(hit.owner, hit.note, hit.velocity);
+                }
             } else {
                 i += 1;
             }
@@ -1951,6 +1963,32 @@ impl Engine {
         };
         if !self.song.set_step(frag, lane, step, to) {
             return false;
+        }
+        self.song_text = self.song.print();
+        true
+    }
+
+    /// Mute and solo track `t` (#355): its frags stop or play again, the
+    /// notes of every track no longer heard let go, and the text says so.
+    /// The synth and its strip are left alone.
+    pub fn set_track_flags(&mut self, t: usize, mute: bool, solo: bool) -> bool {
+        self.commit_song();
+        if !self.song.set_track_flags(t, mute, solo) {
+            return false;
+        }
+        for i in 0..self.note_offs.len() {
+            let unheard = self
+                .note_offs
+                .get(i)
+                .copied()
+                .flatten()
+                .filter(|(_, track, _)| !self.song.heard(usize::from(*track)));
+            if let Some((_, track, note)) = unheard {
+                if let Some(slot) = self.note_offs.get_mut(i) {
+                    *slot = None;
+                }
+                self.stop_note(Owner::Track(track), note);
+            }
         }
         self.song_text = self.song.print();
         true

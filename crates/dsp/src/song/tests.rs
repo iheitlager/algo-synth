@@ -24,6 +24,8 @@ fn a_beat_parses() {
             preset: Some(Preset::Kit808),
             setting: None,
             picked: true,
+            mute: false,
+            solo: false,
         }]
     );
     let f = &s.frags[0];
@@ -196,6 +198,8 @@ fn random_song(r: &mut Rng) -> Song {
             }),
             setting: None,
             picked: false,
+            mute: false,
+            solo: false,
         });
     }
     for f in 0..r.below(5) {
@@ -2110,4 +2114,32 @@ fn a_ghost_note_parses_and_prints_back() {
     assert_eq!(Step::Ghost.velocity(), Some(crate::song::GHOST_VELOCITY));
     assert_eq!(Step::from_level(3), Some(Step::Ghost));
     assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
+}
+
+/// #355: `mute` and `solo` end a track line, print back and decide which
+/// tracks are heard; anything else after a track's synth is an error.
+#[test]
+fn track_mute_and_solo_parse_print_and_decide_who_is_heard() {
+    let text =
+        "tempo 120\ntrack a drums Tr808 Kit808 mute\ntrack b drums solo\ntrack c drums mute solo\n";
+    let song = Song::parse(text).expect("parses");
+    let flags: Vec<(bool, bool)> = song.tracks.iter().map(|t| (t.mute, t.solo)).collect();
+    assert_eq!(flags, vec![(true, false), (false, true), (true, true)]);
+    assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
+    assert!(song.print().contains("track a drums Tr808 Kit808 mute\n"));
+    // b and c are soloed: they play, c although muted; a does not.
+    assert_eq!(
+        (0..3).map(|t| song.heard(t)).collect::<Vec<_>>(),
+        vec![false, true, true]
+    );
+    let mut quiet = song.clone();
+    for t in 0..3 {
+        quiet.set_track_flags(t, t == 0, false);
+    }
+    assert_eq!(
+        (0..3).map(|t| quiet.heard(t)).collect::<Vec<_>>(),
+        vec![false, true, true]
+    );
+    let err = Song::parse("track a drums Tr808 Kit808 loud\n").expect_err("loud");
+    assert_eq!((err.line, err.col), (1, 28));
 }
