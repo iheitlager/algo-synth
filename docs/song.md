@@ -222,7 +222,7 @@ frag low = bass
 
 ## frag
 
-`frag <name> = <track> [/16 | live | bars <n>]`, then indented lines. A
+`frag <name> = <track> [/<grid> | live | bars <n>]`, then indented lines. A
 fragment is a loop on one track: lanes on a drum track, one line of notes on a
 synth track. A sampler frag holds either, not both.
 
@@ -231,9 +231,11 @@ At most 256 frags. A frag with nothing under it is an error.
 ### Lanes
 
 On a `drums` or `sampler` track, each indented line is a pad and its steps:
-`x` a hit, `X` an accent, `.` a rest. Spaces inside the steps are only for
-reading. `/16` after the track says the steps are sixteenths; it is the only
-grid and may be left out.
+`x` a hit, `X` an accent, `o` a ghost note, `f` a flam, `d` a drag, `.` a
+rest. Spaces inside the steps are only for reading. The grid after the track
+says how many steps make a bar: `/16` sixteenths (the default, may be left
+out), `/12` and `/24` triplets, `/32` thirty-seconds, `/48` thirty-second
+triplets.
 
 ```song
 tempo 124
@@ -255,6 +257,26 @@ frag beat = kit /16
 - **Euclid:** `euclid(hits,steps)` or `euclid(hits,steps,rotation)` spreads the
   hits as evenly as it can; 1 to 64 steps, no more hits than steps.
 - One lane per pad in a frag.
+- **Ghost, flam, drag:** `o` plays softly under the hits. `f` puts one soft
+  grace stroke 20 ms before its hit, `d` two (30 and 15 ms); the hit stays on
+  its step, and on a fast, fine grid the graces close up to fit. A flam on the
+  very first step of play has nothing before it to sound its grace in.
+- **Grids:** every frag keeps its own, and they stay in time with each other
+  and with note frags; swing moves a hit between steps with its step.
+
+Rolls and fills:
+
+```song
+tempo 120
+track kit drums
+frag roll = kit /32
+  sn o.o.o.o.x.x.x.x.xxxxxxxxXXXXXXXX
+frag trip = kit /24
+  sn ..x..x..x..x..x..X..X..X
+  bd x.....x.....x.....x.....
+frag rudiments = kit /16
+  sn f...o.o.d...o.o.f.f.d.d.X...X...
+```
 
 ### Notes
 
