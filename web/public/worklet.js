@@ -37,6 +37,12 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'on': w.note_on(data.s, data.n, data.v); break
         case 'off': w.note_off(data.s, data.n); break
         case 'panic': w.all_off(); break
+        case 'clear':
+          // Start over (#325): every strip's values and the empty song go back to the view.
+          w.engine_clear()
+          for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
+          this.sendSong(true)
+          break
         case 'midi': this.importMidi(new Uint8Array(data.bytes)); break
         case 'sysex': this.loadSysex(new Uint8Array(data.bytes)); break
         case 'sysexApply': w.sysex_apply(data.s, data.i); this.sendParams(data.s); break

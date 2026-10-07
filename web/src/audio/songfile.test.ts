@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { applySong, song } from './engine'
-import { isSongFile, keepSong, lastSong, SONG_KEY, songFileName } from './songfile'
+import { forgetSong, isSongFile, keepSong, lastSong, SONG_KEY, songFileName } from './songfile'
 
 const memory = () => {
   const items = new Map<string, string>()
-  const store = { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) }
+  const store = {
+    getItem: (k: string) => items.get(k) ?? null,
+    setItem: (k: string, v: string) => void items.set(k, v),
+    removeItem: (k: string) => void items.delete(k),
+  }
   return () => store
 }
 const broken = () => {
@@ -38,8 +42,16 @@ describe('the song file (#105, spec 003 Req 5)', () => {
     expect(lastSong(store)).toBe('tempo 120\n')
   })
 
+  it('forgets the kept song, so the next start is fresh (#325)', () => {
+    const store = memory()
+    keepSong('tempo 120\n', store)
+    forgetSong(store)
+    expect(lastSong(store)).toBe('')
+  })
+
   it('survives storage that is unavailable', () => {
     expect(() => keepSong('tempo 120\n', broken)).not.toThrow()
+    expect(() => forgetSong(broken)).not.toThrow()
     expect(lastSong(broken)).toBe('')
   })
 

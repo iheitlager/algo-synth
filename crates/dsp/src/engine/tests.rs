@@ -4023,3 +4023,40 @@ fn a440_sounds_with_no_key_held() {
     }
     assert!(peak(&e) < 1e-4, "off is silent: {}", peak(&e));
 }
+
+/// #325: New starts over: an empty stopped song, defaults everywhere, silence,
+/// and one Modular synth on synth 0.
+#[test]
+fn clear_starts_over_with_one_modular_synth() {
+    let mut e = Engine::new(48_000.0);
+    load_text(&mut e, FOUR).expect("parses");
+    e.song_play();
+    e.set_param(3, Param::Cutoff, 300.0);
+    e.set_param(5, Param::Level, 0.1);
+    e.set_param(0, Param::MasterGain, 0.9);
+    e.preset(2, crate::mono::preset::Preset::ModularHoover);
+    e.note_on(1, 60, 1.0);
+    left_of(&mut e, 0.5);
+    e.clear();
+    assert!(!e.clock().playing(), "stopped");
+    assert_eq!(e.song_text(), Song::default().print(), "empty song");
+    assert_eq!(e.param_value(0, Param::Model), Model::Modular as u32 as f32);
+    assert_eq!(e.param_value(2, Param::Model), Model::Arp2600 as u32 as f32);
+    let fresh = Engine::new(48_000.0);
+    for (s, p) in [
+        (3, Param::Cutoff),
+        (5, Param::Level),
+        (0, Param::MasterGain),
+    ] {
+        assert_eq!(e.param_value(s, p), fresh.param_value(s, p), "{p:?} on {s}");
+    }
+    left_of(&mut e, 1.0);
+    assert_eq!(e.active_voices(), 0, "every voice let go");
+    left_of(&mut e, 0.1);
+    assert!(peak(&e) < 1e-4, "silent: {}", peak(&e));
+    e.note_on(0, 60, 1.0);
+    assert!(
+        left_of(&mut e, 0.3).iter().any(|v| v.abs() > 0.01),
+        "synth 0 plays"
+    );
+}

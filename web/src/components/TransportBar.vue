@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
-  engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSetup, saveSong, song, songPosition, status, stopSong,
+  clearAll, engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSetup, saveSong, song, songPosition, status, stopSong,
   view,
 } from '../audio/engine'
 import { details, page } from '../audio/buildinfo'
@@ -47,6 +47,13 @@ async function onPower() {
   if (!raf) draw()
 }
 onBeforeUnmount(() => cancelAnimationFrame(raf))
+
+// Start over (#325): nothing of it can be undone, so ask first.
+async function onNew() {
+  if (!window.confirm('Start over? The song, every synth and the mix are discarded.')) return
+  await onPower()
+  clearAll()
+}
 
 // Loading the demo powers audio on, so start the scope.
 async function onDemo() {
@@ -98,6 +105,7 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
       <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
       <button :aria-pressed="view.main === 'composer'" @click="view.main = 'composer'">Composer</button>
     </span>
+    <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
     <button @click="onDemo">Demo</button>
     <label class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
       <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json,.song" @change="onFile" />Open…

@@ -202,6 +202,36 @@ describe('applySong', () => {
   })
 })
 
+describe('New (#325)', () => {
+  it('starts fresh on one Modular synth when no song is kept', async () => {
+    const { mod, names, posted } = await boot()
+    expect(posted.map((m) => m.t)).toEqual(['clear'])
+    expect(mod.synths.list).toEqual([0])
+    expect(names.stripName(0)).toBe('Synth 1')
+  })
+
+  it('clears the view with the engine and forgets the kept song', async () => {
+    const { mod, take, storage } = await boot({ storage: { 'algo-synth:song': 'tempo 90' } })
+    mod.addSynth()
+    mod.addSynth()
+    mod.layout.groups = [16]
+    mod.files.fileName = 'groove.song'
+    take()
+    mod.clearAll()
+    expect(take().map((m) => m.t)).toEqual(['clear'])
+    expect([mod.synths.list, mod.synths.selected, mod.layout.groups, mod.files.fileName]).toEqual([[0], 0, [], ''])
+    expect(storage.getItem('algo-synth:song')).toBeNull()
+  })
+
+  it('keeps a song with tracks, and forgets one without', async () => {
+    const { send, storage } = await boot()
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 100\ntrack a synth\n'), error: null, tracks: [track('a', 0, 1)] })
+    expect(storage.getItem('algo-synth:song')).toBe('tempo 100\ntrack a synth\n')
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 120\n'), error: null, tracks: [] })
+    expect(storage.getItem('algo-synth:song')).toBeNull()
+  })
+})
+
 describe('onMessage', () => {
   it('pos: the song clock', async () => {
     const { mod, send } = await boot()

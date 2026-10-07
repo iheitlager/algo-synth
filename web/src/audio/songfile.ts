@@ -4,7 +4,7 @@
 
 export const SONG_KEY = 'algo-synth:song'
 
-type Store = Pick<Storage, 'getItem' | 'setItem'>
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 const local = (): Store => localStorage
 
 export const isSongFile = (name: string) => /\.song$/i.test(name)
@@ -19,6 +19,15 @@ export function keepSong(text: string, store: () => Store = local) {
     store().setItem(SONG_KEY, text)
   } catch {
     // Private window or storage full: keep playing.
+  }
+}
+
+/** Forget the kept song (New, #325), so the next start is a fresh one. */
+export function forgetSong(store: () => Store = local) {
+  try {
+    store().removeItem(SONG_KEY)
+  } catch {
+    // Storage unavailable: nothing was kept.
   }
 }
 
