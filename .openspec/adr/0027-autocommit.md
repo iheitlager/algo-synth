@@ -1,6 +1,6 @@
 # 0027: Autocommit: the song follows the synths and the synths the song
 
-**Status:** Proposed · **Date:** 2026-10-07
+**Status:** Accepted · **Date:** 2026-10-07
 
 ## Context
 
