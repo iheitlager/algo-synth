@@ -366,8 +366,8 @@ impl Mixer {
     }
 
     /// The left and right buses of `synth` and every group's direct input from `range.start`,
-    /// for a pad sampler whose pads go to its strip or straight to a group (#220); stereo as
-    /// `stereo_bus` is.
+    /// for a pad sampler or a drum kit whose pads go to its strip or straight to a group
+    /// (#162, #220, #364), panned either way; stereo as `stereo_bus` is.
     #[allow(clippy::type_complexity)]
     pub fn pad_outs(
         &mut self,
@@ -408,18 +408,6 @@ impl Mixer {
         dry.copy_from_slice(l);
         effect(dry, l, r);
         *wide = true;
-    }
-
-    /// A drum kit's bus, and every group's direct input from `range.start`,
-    /// for voices that go either way (#162).
-    #[allow(clippy::type_complexity)]
-    pub fn kit_outs(
-        &mut self,
-        synth: usize,
-        range: std::ops::Range<usize>,
-    ) -> Option<(&mut [f32], &mut [[[f32; BLOCK]; 2]; GROUPS])> {
-        let bus = self.bus.get_mut(synth)?.get_mut(range)?;
-        Some((bus, &mut self.direct))
     }
 
     /// Silence the buses at the start of a block.

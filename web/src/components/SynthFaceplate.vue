@@ -77,7 +77,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
     <i v-if="def.theme.wood" class="cheek l" aria-hidden="true" /><i v-if="def.theme.wood" class="cheek r" aria-hidden="true" />
     <div class="mods" :class="{ row: def.row }">
       <section
-        v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column, grow: sec.grow }"
+        v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column, pairs: sec.pairs, grow: sec.grow }"
         :style="sec.colour ? { '--c': sec.colour } : undefined"
         :aria-label="sec.title"
       >
@@ -159,6 +159,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
             <PadGrid v-else-if="c.kind === 'pads'" :s="s" />
             <CodeEditor v-else-if="c.kind === 'code'" :s="s" />
             <CodeKnobs v-else-if="c.kind === 'knobs'" :s="s" :color="def.theme.accent" />
+            <div v-else-if="c.kind === 'gap'" class="gap" aria-hidden="true" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
         </div>
@@ -187,8 +188,15 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 .mod.grow .ctls { flex: 1; align-items: stretch; }
 /* A drum machine: its pads left to right in one row, each a column of knobs (#194). */
 .mods.row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
-.mod.column { flex: 0 0 auto; }
-.mod.column .ctls { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.mod.column { flex: 0 0 auto; width: 100px; padding-inline: 6px; }
+/* A column's controls one to a row, or two (a drum pad), an empty slot
+   included and a pull-down across both, so neighbouring columns line up
+   row by row (#364). */
+.mod.column .ctls { display: grid; justify-items: center; gap: 6px 4px; }
+.mod.column.pairs .ctls { grid-template-columns: 1fr 1fr; }
+.mod.column.pairs .drop { grid-column: 1 / -1; }
+.mod.column h3 { letter-spacing: 0.08em; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mod.column .note { font-size: 10px; text-align: center; }
 .drop { display: grid; gap: 3px; justify-items: center; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
 .drop select {
   max-width: 84px; font: 500 11px var(--con-font-silk); color: var(--con-paper, inherit); padding: 2px 4px;

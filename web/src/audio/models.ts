@@ -48,6 +48,8 @@ export type Control =
   /** A knob for each number of the Modular synth's SynthDef, by UGen (#329). */
   | { kind: 'knobs' }
   | { kind: 'note'; text: string }
+  /** An empty slot the size of a knob, so a column lines up with its neighbours (#364). */
+  | { kind: 'gap' }
 
 export interface Section {
   title: string
@@ -58,6 +60,8 @@ export interface Section {
   wide?: boolean
   /** Its controls stacked top to bottom, a narrow column (#194). */
   column?: boolean
+  /** In a column, its knobs two to a row and a pull-down across both (#364). */
+  pairs?: boolean
   /** Takes the rest of its row: the Modular code beside the envelope (#329). */
   grow?: boolean
   /** Its own accent where the instrument colours its sections, as the TR-808's step buttons. */
@@ -1106,21 +1110,25 @@ const polyMoog: ModelDef = {
  */
 export const PAD_OUTS: Options = [['Master', 0], ...Array.from({ length: 8 }, (_, g): [string, number] => [`Group ${g + 1}`, g + 1])]
 // A pad is a narrow column, its knobs top to bottom, as a drum machine's channel (#194).
-// The kicks add a Drive (#264): their soft clip, off at 0.
-const pad = (title: string, name: string, extra: Control[] = []): Section => {
+// The kicks add a Drive (#264): their soft clip, off at 0. Every pad has the same
+// rows, two knobs to a row, the others an empty slot where the kick has Drive, so
+// the columns line up and the instrument fits above the keyboard (#364).
+// Tune · Decay, Tone · Level, Drive · Pan, then Out across.
+const pad = (title: string, name: string, extra: Control[] = [{ kind: 'gap' }]): Section => {
   const p = (f: string) => Param[`${name}${f}` as keyof typeof Param]
   return {
     title,
     column: true,
+    pairs: true,
     controls: [
       { kind: 'knob', label: 'Tune', param: p('Tune'), lo: -12, hi: 12, scale: 'lin', unit: 'st', step: 1, bipolar: true, def: 0 },
       { kind: 'knob', label: 'Decay', param: p('Decay'), lo: 0.25, hi: 4, scale: 'exp', unit: 'pct', def: 1 },
       { kind: 'knob', label: 'Tone', param: p('Tone'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.5 },
       { kind: 'knob', label: 'Level', param: p('Level'), lo: 0, hi: 1, scale: 'lin', unit: 'pct', def: 0.8 },
       ...extra,
-      // Its individual out (#162): the kit's own strip, or a group, panned there.
-      { kind: 'select', label: 'Out', param: p('Out'), options: PAD_OUTS, dropdown: true },
       { kind: 'knob', label: 'Pan', param: p('Pan'), lo: -1, hi: 1, scale: 'lin', unit: 'bip', bipolar: true, def: 0 },
+      // Its individual out (#162): the kit's own strip, or a group, panned either way (#364).
+      { kind: 'select', label: 'Out', param: p('Out'), options: PAD_OUTS, dropdown: true },
     ],
   }
 }
