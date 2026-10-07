@@ -754,7 +754,7 @@ fn the_example_songs_parse_and_print_back() {
         );
         seen += 1;
     }
-    assert_eq!(seen, 10, "ten examples");
+    assert_eq!(seen, 11, "eleven examples");
 }
 
 const ARRANGED: &str = "\
