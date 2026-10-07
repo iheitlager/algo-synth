@@ -94,9 +94,9 @@ A fragment SHALL be a loop of events (note or pad, velocity, start, length, prob
 
 An arrangement SHALL be a list of sections, each a number of bars and the fragments that play in it; a fragment SHALL loop inside its section. A section MAY repeat an earlier one by name. A loop region SHALL repeat a range of bars.
 
-In the text (ADR-0015): `section <name> <bars>: <frags…>` (1 to 256 bars, the frags defined above it, none for silent bars), one `arrange <sections…>` line, and `loop <first> <last>` over the arrangement's bars, counted from 1 and inclusive. A bar is sixteen clock steps. A fragment SHALL start on its section's first step, each lane looping on its own length and cut at the section's end. Inside a loop region the song SHALL wrap from its last bar to its first; after the arrangement's last bar the song SHALL stop and go back to the top. A song without `arrange` SHALL play every fragment as a loop. The engine SHALL report the entry playing and the steps into it, the arrangement's length in bars, and SHALL seek to a bar.
+In the text (ADR-0015): `section <name> <bars>: <frags…>` (1 to 256 bars, the frags defined above it, none for silent bars), one `arrange <sections…>` line, and `loop <first> <last>` over the arrangement's bars, counted from 1 and inclusive. A bar is sixteen clock steps. A fragment SHALL start on its section's first step, each lane looping on its own length and cut at the section's end. Inside a loop region the song SHALL wrap from its last bar to its first; after the arrangement's last bar the song SHALL stop and go back to the top. A song without `arrange` SHALL play every fragment as a loop. The engine SHALL report the entry playing and the steps into it, the arrangement's length in bars, and SHALL seek to a bar. A fragment MAY be *cued* (#375): it then plays alone from its first bar, looping on its own length, without the arrangement's sections, scenes, automation lanes or end, while the song's modulations and its own parameter methods go on; the cue SHALL follow its fragment by name through a new song text and end when the fragment goes, and Stop SHALL end it, leaving the song as it was.
 
-**Implementation:** `crates/dsp/src/song.rs::Song::at`, `crates/dsp/src/song.rs::Section`, `crates/dsp/src/engine.rs::Engine::play_step`, `crates/dsp/src/ffi.rs` (`song_seek_bar`, `song_bars`, `song_entry`, `song_local`)
+**Implementation:** `crates/dsp/src/song.rs::Song::at`, `crates/dsp/src/song.rs::Section`, `crates/dsp/src/engine.rs::Engine::play_step`, `crates/dsp/src/engine.rs::Engine::song_cue`, `crates/dsp/src/ffi.rs` (`song_seek_bar`, `song_bars`, `song_entry`, `song_local`, `song_cue`, `song_cued`)
 
 #### Scenario: sections in order
 
@@ -110,7 +110,7 @@ In the text (ADR-0015): `section <name> <bars>: <frags…>` (1 to 256 bars, the 
 - WHEN the song passes bar 2
 - THEN bar 2 plays again, without end
 
-**Tests:** `crates/dsp/src/song/tests.rs::sections_and_the_arrangement_parse_and_print`, `crates/dsp/src/song/tests.rs::a_step_falls_in_its_section_and_the_loop_wraps`, `crates/dsp/src/song/tests.rs::arrangement_errors_say_where`, `crates/dsp/src/engine/tests.rs::sections_play_in_order_and_the_song_ends`, `crates/dsp/src/engine/tests.rs::a_fragment_restarts_with_its_section`, `crates/dsp/src/engine/tests.rs::the_loop_region_repeats_and_seek_lands_on_a_bar`
+**Tests:** `crates/dsp/src/song/tests.rs::sections_and_the_arrangement_parse_and_print`, `crates/dsp/src/song/tests.rs::a_step_falls_in_its_section_and_the_loop_wraps`, `crates/dsp/src/song/tests.rs::arrangement_errors_say_where`, `crates/dsp/src/engine/tests.rs::sections_play_in_order_and_the_song_ends`, `crates/dsp/src/engine/tests.rs::a_fragment_restarts_with_its_section`, `crates/dsp/src/engine/tests.rs::the_loop_region_repeats_and_seek_lands_on_a_bar`, `crates/dsp/src/engine/tests.rs::a_cued_fragment_plays_alone`, `crates/dsp/src/engine/tests.rs::a_cue_follows_its_fragment_through_an_edit`
 
 ### Requirement 5: Sample-accurate clock in the engine [MUST]
 

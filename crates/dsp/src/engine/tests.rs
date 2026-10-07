@@ -4721,3 +4721,88 @@ fn what_the_song_cannot_hold_is_reported() {
     e.edit_param(s, Param::ArpOn, 0.0);
     assert_eq!(e.live_only(s), 0);
 }
+
+/// #375: a kit and a bass on their own synths, in a two-bar arrangement
+/// whose automation closes the bass's filter.
+const CUE: &str = "tempo 120\ntrack kit drums Tr909 Kit909\ntrack bass synth Sh101 Sh101Bass\n\
+frag beat = kit /16\n  bd x...x...x...x...\nfrag low = bass\n  \"a1 a1 a1 a1\"\n\
+auto shut = bass.Cutoff 100 /1\nsection a 2: beat low shut\narrange a\n";
+
+/// The peak of each track's strip over `blocks` blocks.
+fn track_peaks(e: &mut Engine, blocks: usize) -> [f32; 2] {
+    e.clear_meters();
+    for _ in 0..blocks {
+        e.render(BLOCK);
+    }
+    let m = *e.meters();
+    [0, 1].map(|t| {
+        e.song_routed(t)
+            .and_then(|s| m.get(s).copied())
+            .unwrap_or(0.0)
+    })
+}
+
+/// #375: a cued fragment plays alone, looping past the end of the
+/// arrangement, without its lanes; stop ends it and the song plays as before.
+#[test]
+fn a_cued_fragment_plays_alone() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, CUE), Ok(()));
+    let bass = e.song_routed(1).expect("routed");
+    let open = e.param_value(bass, Param::Cutoff);
+    e.song_cue(Some(1));
+    assert_eq!(e.song_cued(), Some(1));
+    // Three bars at 120 BPM: past the arrangement's two.
+    let [kit, low] = track_peaks(&mut e, 3 * 96_000 / BLOCK);
+    assert_eq!(kit, 0.0, "the kit is silent");
+    assert!(low > 0.01, "the bass plays: {low}");
+    assert!(e.clock().playing(), "it loops past the arrangement's end");
+    assert_eq!(
+        e.param_value(bass, Param::Cutoff),
+        open,
+        "no automation lane"
+    );
+
+    e.song_cue(Some(0));
+    // The bass's last note releases over 0.15 s; after it, the beat alone.
+    track_peaks(&mut e, 14_400 / BLOCK);
+    let [kit, low] = track_peaks(&mut e, 96_000 / BLOCK);
+    assert!(kit > 0.01 && low < 1.0e-4, "the beat alone: {kit} {low}");
+
+    e.song_stop();
+    assert_eq!(e.song_cued(), None, "stop ends the cue");
+    e.song_play();
+    let [kit, low] = track_peaks(&mut e, 96_000 / BLOCK);
+    assert!(kit > 0.01 && low > 0.01, "the song again: {kit} {low}");
+}
+
+/// #375: the cue follows its fragment by name through a new song text, and
+/// stops when the fragment is gone; a fragment the song lacks cues nothing.
+#[test]
+fn a_cue_follows_its_fragment_through_an_edit() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, CUE), Ok(()));
+    e.song_cue(Some(1));
+    track_peaks(&mut e, 10);
+    // A fragment before it moves it to index 2; the new text takes over at the bar.
+    let edited = CUE.replace(
+        "frag beat",
+        "frag hat = kit /16\n  ch x.x.x.x.x.x.x.x.\nfrag beat",
+    );
+    assert_eq!(load_text(&mut e, &edited), Ok(()));
+    let [kit, low] = track_peaks(&mut e, 2 * 96_000 / BLOCK);
+    assert_eq!(e.song_cued(), Some(2), "found again by its name");
+    assert!(kit == 0.0 && low > 0.01, "still alone: {kit} {low}");
+
+    let gone = edited
+        .replace("frag low = bass\n  \"a1 a1 a1 a1\"\n", "")
+        .replace(" low shut", " shut");
+    assert_eq!(load_text(&mut e, &gone), Ok(()));
+    track_peaks(&mut e, 2 * 96_000 / BLOCK);
+    assert_eq!(e.song_cued(), None, "gone with its fragment");
+    assert!(!e.clock().playing(), "and the song stopped");
+
+    e.song_cue(Some(99));
+    assert_eq!(e.song_cued(), None);
+    assert!(!e.clock().playing());
+}
