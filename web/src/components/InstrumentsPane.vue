@@ -26,8 +26,7 @@ const tapes = computed<Tape[]>(() =>
       s,
       name: stripName(s),
       model: defOf(s).name,
-      accent: defOf(s).theme.accent,
-      dot: synthColour(s),
+      colour: synthColour(s),
       footer: tracks.length ? tracks.join('·') : '—',
       silenced: val(s, Param.Mute) >= 0.5 || (anySolo.value && val(s, Param.Solo) < 0.5),
     }
