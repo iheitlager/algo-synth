@@ -216,6 +216,8 @@ The user SHALL be able to save, load, rename, delete, export and import presets 
 
 The bottom pane SHALL show the arranger (ADR-0015, #171) under every view, and with it what opening files reported (a MIDI file imported, a setup's skipped entries). Columns SHALL be the arrangement's entries in order, as wide as their bars, each with its section's name and bars; rows SHALL be the song's fragments (in their track's colour), automation lanes and scenes; a lit cell SHALL mean the entry's section plays that row. Clicking a cell SHALL switch the row in that section (so in every entry of it), and a section's bars, the order of entries, adding a section or an entry, and the loop region (shift-click two bars of the ruler; shift-click inside it clears it) SHALL be edits sent to the engine, which changes the song and prints it back. Clicking a bar SHALL move the song there; while the song plays, the current entry SHALL be marked and a playhead SHALL follow it. The arranger SHALL NOT parse the song.
 
+A fragment's row SHALL carry Mute and Solo for its track's synth (#346): the strip's own `Mute` and `Solo`, so the arranger, the synth rail and the mixer show one state; a track whose synth is not heard (muted, or another soloed) SHALL have its rows dimmed. Automation and scene rows, and a track routed to no synth, SHALL have none.
+
 **Implementation:** `web/src/components/ArrangerPane.vue`, `web/src/App.vue`, `web/src/audio/engine.ts` (`arrange`, `applySong`), `web/public/worklet.js` (`arr`, `songSeek`), `crates/dsp/src/song.rs` (`toggle`, `add_section`, `set_bars`, `arrange_insert`, `arrange_remove`, `arrange_move`, `set_loop`), `crates/dsp/src/ffi.rs` (`arr_edit` and the arrangement getters)
 
 #### Scenario: a section gets a fragment
