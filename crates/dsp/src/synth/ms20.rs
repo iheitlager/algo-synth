@@ -1,7 +1,6 @@
 //! The Korg MS-20: what the model is and its presets (#330).
 
-use crate::mono::model::DISCRETE_VCO;
-use crate::mono::model::{Filter, Hp, MS20};
+use crate::mono::model::{DISCRETE_VCO, Filter, Hp, MS20};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};

@@ -769,6 +769,43 @@ mod tests {
         });
     }
 
+    /// #340: a preset sets times its model's envelopes can make, so what
+    /// its knobs show is what plays.
+    #[test]
+    fn every_presets_times_lie_in_its_models_ranges() {
+        use Param::*;
+        let mut outside = Vec::new();
+        for (preset, name) in Preset::ALL {
+            let m = preset.model();
+            if m.def().engine != crate::synth::Engine::Mono {
+                continue;
+            }
+            let v = m.env();
+            let value = |p: Param| {
+                preset
+                    .changes()
+                    .iter()
+                    .chain(DEFAULTS.iter())
+                    .find(|(q, _)| *q == p)
+                    .map_or(0.0, |(_, x)| *x)
+            };
+            for (param, [lo, hi]) in [
+                (AdsrAttack, v.attack),
+                (AdsrDecay, v.decay),
+                (AdsrRelease, v.release),
+                (FenvAttack, v.attack),
+                (FenvDecay, v.decay),
+                (FenvRelease, v.release),
+            ] {
+                let x = value(param);
+                if !(lo..=hi).contains(&x) {
+                    outside.push(format!("{name}: {param:?} {x} outside {lo}..={hi}"));
+                }
+            }
+        }
+        assert!(outside.is_empty(), "{outside:#?}");
+    }
+
     #[test]
     fn every_preset_is_bounded() {
         for_every_preset(|preset, name| {

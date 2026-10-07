@@ -435,14 +435,20 @@ impl MonoVoice {
                 *t
             }
         };
-        let (adsr_times, fadsr_times) = (times(&p.adsr), times(&p.fadsr));
+        // Within the model's ranges and under its sustain ceiling (#340).
+        let voiced = p.model.env();
+        let sr = p.sample_rate();
+        let (adsr_times, fadsr_times) = (
+            voiced.clamp(&times(&p.adsr), sr),
+            voiced.clamp(&times(&p.fadsr), sr),
+        );
         for (env, times) in [
             (&mut self.adsr, &adsr_times),
             (&mut self.ar, &p.ar),
             (&mut self.fadsr, &fadsr_times),
         ] {
             if self.retrigger || (self.gate && !env.gated()) {
-                env.gate_on(times);
+                env.gate_on_aimed(times, voiced.attack_aim);
             } else if !self.gate && env.gated() {
                 env.gate_off(times);
             }
@@ -455,8 +461,8 @@ impl MonoVoice {
         }
         self.retrigger = false;
         self.vca_patched = is_taken(&p.taken, ModDest::Vca);
-        self.adsr.set_sustain(p.adsr.sustain);
-        self.fadsr.set_sustain(p.fadsr.sustain);
+        self.adsr.set_sustain(adsr_times.sustain);
+        self.fadsr.set_sustain(fadsr_times.sustain);
         for (osc, wave) in self.osc.iter_mut().zip(p.wave) {
             osc.wave = wave;
         }
@@ -1503,46 +1509,97 @@ mod tests {
     }
 
     /// Spec 005 Req 3: the loudness is full at once while a slow filter
-    /// contour opens the spectrum.
+    /// contour opens the spectrum. Its contours attack in 10 ms at the
+    /// fastest and sustain at 80 % of the peak at most (#340), so the
+    /// filter's opens to that.
     #[test]
     fn minimoog_filter_contour_brightens_a_held_note() {
         let mut r = Rig::new(&[
             (Param::Model, 1.0),
             (Param::Cutoff, 150.0),
             (Param::EnvCutoff, 1.0),
-            (Param::AdsrAttack, 0.001),
+            (Param::AdsrAttack, 0.01),
             (Param::AdsrSustain, 1.0),
             (Param::FenvAttack, 0.5),
             (Param::FenvSustain, 1.0),
         ]);
         r.press(45);
-        r.render(480);
-        assert!(r.voice.mods().vca > 0.99, "the loudness contour is full");
+        r.render(960);
+        assert!(r.voice.mods().vca > 0.79, "the loudness contour is full");
         let early = brightness(&r.render(2_400));
         r.render(24_000);
         let late = brightness(&r.render(2_400));
-        assert!(late > 2.0 * early, "{early} brightens to {late}");
+        assert!(late > 1.5 * early, "{early} brightens to {late}");
+    }
+
+    /// #340: a time beyond a model's range plays at its end, and a
+    /// Minimoog's full sustain sits at 80 % of the peak.
+    #[test]
+    fn envelope_times_stay_in_the_models_range() {
+        // Frames until the loudness envelope first reaches `level`.
+        let reach = |model: f32, attack: f32, level: f32| {
+            let mut r = Rig::new(&[
+                (Param::Model, model),
+                (Param::AdsrAttack, attack),
+                (Param::AdsrSustain, 1.0),
+            ]);
+            r.press(60);
+            (0..48_000 * 11).find(|_| {
+                r.render(1);
+                r.voice.mods().vca >= level
+            })
+        };
+        let juno = reach(8.0, 10.0, 0.999).expect("peaks");
+        assert!(
+            juno <= (3.0 * SR) as usize + 2,
+            "Juno-106: 3 s at most: {juno}"
+        );
+        let moog = reach(1.0, 0.001, 0.999).expect("peaks");
+        assert!(
+            moog >= (0.01 * SR) as usize - 2,
+            "Minimoog: 10 ms at least: {moog}"
+        );
+        let arp = reach(0.0, 0.001, 0.999).expect("peaks");
+        assert!(
+            arp <= (0.001 * SR) as usize + 2,
+            "the ARP keeps 1 ms: {arp}"
+        );
+
+        let mut r = Rig::new(&[
+            (Param::Model, 1.0),
+            (Param::AdsrAttack, 0.01),
+            (Param::AdsrDecay, 0.05),
+            (Param::AdsrSustain, 1.0),
+        ]);
+        r.press(60);
+        r.render(24_000);
+        let held = r.voice.mods().vca;
+        assert!((held - 0.8).abs() < 1.0e-3, "sustain at 80 %: {held}");
     }
 
     /// Spec 004 Req 13: the ladder is voiced per model, and every voicing
     /// stays bounded at full resonance and drive.
     #[test]
     fn ladder_voicings_differ_and_stay_bounded() {
-        let rms_of = |model: f32| {
+        // The Minimoog's sustain tops out at 80 % (#340): the ARP's is set
+        // there, so the two envelopes match.
+        let rms_at = |model: f32, sustain: f32| {
             let mut r = Rig::new(&[
                 (Param::Model, model),
                 (Param::Cutoff, 1_200.0),
                 (Param::Resonance, 1.0),
                 (Param::Drive, 1.0),
-                (Param::AdsrSustain, 1.0),
+                (Param::AdsrAttack, 0.01),
+                (Param::AdsrSustain, sustain),
             ]);
             r.press(45);
             let out = r.render(24_000);
             assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 2.0));
             (out.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / out.len() as f64).sqrt()
         };
+        let rms_of = |model: f32| rms_at(model, 1.0);
         // Moog (ARP 2600 and Minimoog), Pro-One, SH-101, Odyssey.
-        let (moog, pro, sh, ody) = (rms_of(0.0), rms_of(2.0), rms_of(5.0), rms_of(6.0));
+        let (moog, pro, sh, ody) = (rms_at(0.0, 0.8), rms_of(2.0), rms_of(5.0), rms_of(6.0));
         assert_eq!(moog, rms_of(1.0), "the Minimoog ladder is the Moog voicing");
         assert!(moog > 0.0 && pro > 0.0 && sh > 0.0 && ody > 0.0);
         assert!((moog - pro).abs() > 1.0e-3, "{moog} vs {pro}");
@@ -1605,7 +1662,7 @@ mod tests {
     #[test]
     fn filter_envelope_is_independent() {
         let mut r = Rig::new(&[
-            (Param::Model, 1.0),
+            (Param::Model, 2.0),
             (Param::EnvCutoff, 1.0),
             (Param::AdsrAttack, 0.001),
             (Param::AdsrSustain, 1.0),

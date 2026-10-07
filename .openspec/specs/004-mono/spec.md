@@ -339,3 +339,23 @@ A model SHALL voice its oscillators as the instrument's circuit was (#339): how 
 - THEN the triangle keeps ±1 at its peaks and rises monotonically, and the saw has no DC and still steps by 2
 
 **Tests:** `crates/dsp/src/mono/model.rs::tests::models_voice_their_oscillators`, `crates/dsp/src/mono/model.rs::tests::wave_shapes_keep_their_peaks_and_steps`, `crates/dsp/src/engine/tests.rs::vcos_drift_between_notes_and_dcos_do_not`, `crates/dsp/src/mono/preset.rs::tests::arp_presets_keep_their_sound`
+
+### Requirement 17: Envelopes voiced per model [SHOULD]
+
+A model SHALL voice its ADSR and filter envelope as the instrument's circuit was (#340): how far past its peak the attack aims, each segment's shortest and longest time, and the highest sustain. The attack of Req 4 SHALL aim 0.3 past its peak by default, an RC charge as the CEM3310's toward 1.3× its peak; an envelope written by a CPU (Juno-106) SHALL aim further, for a near-linear rise; every aim SHALL still arrive in its set time. Times SHALL lie within the instrument's documented range, a knob beyond it playing at the range's end: the Minimoog's contours 10 ms to 10 s with the sustain at most 80 % of the peak, the CEM3310 (Prophet-5, Pro-One) from 2 ms, the Juno-106's attack 1.5 ms to 3 s, the SH-101's attack 1.5 ms to 4 s and its decay and release from 2 ms, the Odyssey's attack 5 ms to 5 s, decay 10 ms to 8 s and release from 15 ms, the Jupiter-8's attack 1.5 ms to 6 s. The AR, and a model whose envelopes are not voiced, SHALL keep the knobs' full range and today's curve. A preset SHALL set times its model can make. The ranges SHALL be applied once per block and the curve when the gate changes, so nothing is added per sample.
+
+**Implementation:** `crates/dsp/src/mono/model.rs::EnvVoicing`, `crates/dsp/src/mono/env.rs::Env::gate_on_aimed`, `crates/dsp/src/synth.rs::ModelDef`, `crates/dsp/src/mono/voice.rs::MonoVoice` (#340)
+
+#### Scenario: an aimed attack
+
+- GIVEN a 100 ms attack aimed 0.3 and one aimed 3 past its peak
+- WHEN each rises
+- THEN the first is about 0.675 up at half time and the second about 0.536, and both reach the peak in 100 ms
+
+#### Scenario: times within the instrument's range
+
+- GIVEN a Juno-106 attack of 10 s, a Minimoog attack of 1 ms and a Minimoog held at full sustain
+- WHEN each note is held
+- THEN the Juno-106 peaks within 3 s, the Minimoog takes at least 10 ms, and its sustain sits at 80 % of the peak
+
+**Tests:** `crates/dsp/src/mono/env.rs::tests::an_aimed_attack_is_straighter_and_still_on_time`, `crates/dsp/src/mono/model.rs::tests::models_voice_their_envelopes`, `crates/dsp/src/mono/voice.rs::tests::envelope_times_stay_in_the_models_range`, `crates/dsp/src/mono/preset.rs::tests::every_presets_times_lie_in_its_models_ranges`

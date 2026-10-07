@@ -1,13 +1,13 @@
 //! The Sequential Pro-One: what the model is and its presets (#330).
 
-use crate::mono::model::CEM_VCO;
-use crate::mono::model::{Filter, PRO_ONE};
+use crate::mono::model::{CEM_VCO, CEM3310, Filter, PRO_ONE};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: CEM_VCO,
+    env: CEM3310,
     filter: Filter::Ladder(PRO_ONE),
     presets: &[
         // Oscillator A (VCO 2) synced to a silent B (VCO 1), a fifth
@@ -108,7 +108,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Vco2Level, 1.0),
                 (OscFreq2, 0.9),
                 (Cutoff, 6_000.0),
-                (AdsrAttack, 0.001),
+                (AdsrAttack, 0.002),
                 (AdsrDecay, 1.6),
                 (AdsrSustain, 0.0),
                 (AdsrRelease, 1.2),

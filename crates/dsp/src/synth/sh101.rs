@@ -1,13 +1,20 @@
 //! The Roland SH-101: what the model is and its presets (#330).
 
-use crate::mono::model::CEM_VCO;
-use crate::mono::model::{Filter, SH101};
+use crate::mono::model::{CEM_VCO, EnvVoicing, Filter, RC_ENV, SH101};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: CEM_VCO,
+    // A discrete transistor ADSR (#340): attack 1.5 ms to 4 s, decay and
+    // release from 2 ms.
+    env: EnvVoicing {
+        attack: [0.0015, 4.0],
+        decay: [0.002, 10.0],
+        release: [0.002, 10.0],
+        ..RC_ENV
+    },
     filter: Filter::Ladder(SH101),
     // One oscillator gives saw and pulse; one envelope for filter and VCA.
     filter_env_is_adsr: true,
@@ -72,7 +79,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Cutoff, 350.0),
                 (Resonance, 0.85),
                 (Drive, 0.4),
-                (AdsrAttack, 0.001),
+                (AdsrAttack, 0.0015),
                 (AdsrDecay, 0.25),
                 (AdsrSustain, 0.5),
                 (AdsrRelease, 0.1),
@@ -91,7 +98,7 @@ pub const DEF: ModelDef = ModelDef {
                 (SubLevel, 1.0),
                 (Cutoff, 900.0),
                 (Resonance, 0.2),
-                (AdsrAttack, 0.001),
+                (AdsrAttack, 0.0015),
                 (AdsrDecay, 0.8),
                 (AdsrSustain, 0.1),
                 (AdsrRelease, 0.25),

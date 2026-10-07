@@ -7,6 +7,7 @@
 //! definitions share. Every parameter exists on every model; the panel shows
 //! what the instrument has and the presets set the rest to neutral values.
 
+use crate::mono::env::EnvTimes;
 use crate::mono::ladder::MAX_K;
 use crate::synth::Engine;
 
@@ -387,6 +388,56 @@ impl OscVoicing {
     }
 }
 
+/// How a model's envelopes are voiced (spec 004 Req 17, #340): the curve of
+/// the attack, each segment's shortest and longest time, and how high the
+/// sustain goes. It shapes the ADSR and the filter envelope; the AR keeps
+/// the knobs' full range.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnvVoicing {
+    /// How far past its peak the attack aims: 0.3 is an RC charge (the
+    /// CEM3310 charges toward 1.3× its peak), larger is straighter, as an
+    /// envelope a CPU writes.
+    pub attack_aim: f64,
+    /// The shortest and longest attack, decay and release, in seconds.
+    pub attack: [f32; 2],
+    pub decay: [f32; 2],
+    pub release: [f32; 2],
+    /// The highest sustain, as a fraction of the peak.
+    pub sustain_max: f32,
+}
+
+/// Today's envelope: an RC curve over the full range of the knobs. The
+/// voicing of a model whose envelopes are not voiced.
+pub const RC_ENV: EnvVoicing = EnvVoicing {
+    attack_aim: 0.3,
+    attack: [0.001, 10.0],
+    decay: [0.001, 10.0],
+    release: [0.001, 10.0],
+    sustain_max: 1.0,
+};
+/// The CEM3310 (Prophet-5 Rev 3, Pro-One): an RC attack toward 1.3× its
+/// peak, from 2 ms.
+pub const CEM3310: EnvVoicing = EnvVoicing {
+    attack: [0.002, 10.0],
+    decay: [0.002, 10.0],
+    release: [0.002, 10.0],
+    ..RC_ENV
+};
+
+impl EnvVoicing {
+    /// `t` (samples, at `sample_rate`) within the voicing's ranges, the
+    /// sustain under its ceiling.
+    pub fn clamp(&self, t: &EnvTimes, sample_rate: f32) -> EnvTimes {
+        let within = |x: f32, [lo, hi]: [f32; 2]| x.clamp(lo * sample_rate, hi * sample_rate);
+        EnvTimes {
+            attack: within(t.attack, self.attack),
+            decay: within(t.decay, self.decay),
+            sustain: t.sustain * self.sustain_max,
+            release: within(t.release, self.release),
+        }
+    }
+}
+
 /// A panel's filter switches: the slope switch at 12 dB (`Param::Slope`)
 /// and the revision switch (`Param::FilterRev`, 1..=3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -449,6 +500,11 @@ impl Model {
     /// How its oscillators are voiced (#339).
     pub fn osc(self) -> OscVoicing {
         self.def().osc
+    }
+
+    /// How its envelopes are voiced (#340).
+    pub fn env(self) -> EnvVoicing {
+        self.def().env
     }
 
     /// The filter and its voicing.
@@ -603,6 +659,41 @@ mod tests {
             }
         }
         const { assert!(DISCRETE_VCO.drift > CEM_VCO.drift && CEM_VCO.drift > LOCKED.drift) };
+    }
+
+    /// #340: each model's envelopes take the instrument's ranges and curve;
+    /// one whose envelopes are not voiced keeps today's.
+    #[test]
+    fn models_voice_their_envelopes() {
+        for (m, name) in Model::ALL {
+            let v = m.env();
+            let want: ([f32; 2], [f32; 2], [f32; 2], f64, f32) = match m {
+                Model::Minimoog => ([0.01, 10.0], [0.01, 10.0], [0.01, 10.0], 0.3, 0.8),
+                Model::Prophet5 | Model::ProOne => {
+                    ([0.002, 10.0], [0.002, 10.0], [0.002, 10.0], 0.3, 1.0)
+                }
+                Model::Juno106 => ([0.0015, 3.0], [0.0015, 10.0], [0.0015, 10.0], 3.0, 1.0),
+                Model::Sh101 => ([0.0015, 4.0], [0.002, 10.0], [0.002, 10.0], 0.3, 1.0),
+                Model::Odyssey => ([0.005, 5.0], [0.01, 8.0], [0.015, 10.0], 0.3, 1.0),
+                Model::Jupiter8 => ([0.0015, 6.0], [0.0015, 10.0], [0.0015, 10.0], 0.3, 1.0),
+                _ => {
+                    assert_eq!(v, RC_ENV, "{name}");
+                    continue;
+                }
+            };
+            assert_eq!(
+                (v.attack, v.decay, v.release, v.attack_aim, v.sustain_max),
+                want,
+                "{name}"
+            );
+        }
+        let t = EnvTimes {
+            attack: 1.0,
+            decay: 2.0,
+            sustain: 0.5,
+            release: 3.0,
+        };
+        assert_eq!(RC_ENV.clamp(&t, 1_000.0), t, "today's: untouched in range");
     }
 
     /// #339: a rounded triangle keeps its peaks at ±1 and stays monotonic

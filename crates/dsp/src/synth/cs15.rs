@@ -1,7 +1,6 @@
 //! The Yamaha CS-15: what the model is and its presets (#330).
 
-use crate::mono::model::DISCRETE_VCO;
-use crate::mono::model::{CS15, Filter, Hp};
+use crate::mono::model::{CS15, DISCRETE_VCO, Filter, Hp};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};

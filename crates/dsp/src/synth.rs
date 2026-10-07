@@ -3,7 +3,9 @@
 //! that goes from a model to its definition; the voice reads the rest.
 
 use crate::drums::Machine;
-use crate::mono::model::{D50, Filter, Hp, IDEAL_VCO, Model, OscVoicing, Setting};
+use crate::mono::model::{
+    D50, EnvVoicing, Filter, Hp, IDEAL_VCO, Model, OscVoicing, RC_ENV, Setting,
+};
 use crate::mono::preset::Preset;
 use crate::params::Param;
 
@@ -65,6 +67,8 @@ pub struct ModelDef {
     pub hp: Hp,
     /// How the oscillators are voiced (#339).
     pub osc: OscVoicing,
+    /// How the envelopes are voiced (#340).
+    pub env: EnvVoicing,
     /// VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
     pub uses_tables: bool,
     /// The second LFO and the ramp of the Matrix-12's modulation matrix.
@@ -96,6 +100,7 @@ impl ModelDef {
         revs: [None; 2],
         hp: Hp::None,
         osc: IDEAL_VCO,
+        env: RC_ENV,
         uses_tables: false,
         has_matrix: false,
         filter_env_is_adsr: false,

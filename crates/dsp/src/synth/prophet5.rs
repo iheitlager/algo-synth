@@ -1,13 +1,13 @@
 //! The Sequential Prophet-5: what the model is and its presets (#330).
 
-use crate::mono::model::CEM_VCO;
-use crate::mono::model::{Filter, PROPHET5_REV3, PROPHET5_REV12};
+use crate::mono::model::{CEM_VCO, CEM3310, Filter, PROPHET5_REV3, PROPHET5_REV12};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: CEM_VCO,
+    env: CEM3310,
     voices: 5,
     filter: Filter::Ladder(PROPHET5_REV3),
     // The Rev 4's switch: the SSM2040 of Rev 1/2.
@@ -132,7 +132,7 @@ pub const DEF: ModelDef = ModelDef {
                 (Vco2Level, 1.0),
                 (OscFreq2, 0.9),
                 (Cutoff, 6_000.0),
-                (AdsrAttack, 0.001),
+                (AdsrAttack, 0.002),
                 (AdsrDecay, 1.6),
                 (AdsrSustain, 0.0),
                 (AdsrRelease, 1.2),

@@ -1,7 +1,6 @@
 //! The ARP 2600: what the model is and its presets (#330).
 
-use crate::mono::model::DISCRETE_VCO;
-use crate::mono::model::{Filter, MOOG};
+use crate::mono::model::{DISCRETE_VCO, Filter, MOOG};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};

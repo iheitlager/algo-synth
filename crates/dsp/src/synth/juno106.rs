@@ -1,13 +1,21 @@
 //! The Roland Juno-106: what the model is and its presets (#330).
 
-use crate::mono::model::LOCKED;
-use crate::mono::model::{Filter, Hp, JUNO106};
+use crate::mono::model::{EnvVoicing, Filter, Hp, JUNO106, LOCKED, RC_ENV};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: LOCKED,
+    // Written by the CPU, not an RC circuit (#340): a near-linear attack,
+    // 1.5 ms to 3 s, decay and release from 1.5 ms.
+    env: EnvVoicing {
+        attack_aim: 3.0,
+        attack: [0.0015, 3.0],
+        decay: [0.0015, 10.0],
+        release: [0.0015, 10.0],
+        ..RC_ENV
+    },
     voices: 6,
     filter: Filter::Ladder(JUNO106),
     hp: Hp::OnePole,
@@ -125,7 +133,7 @@ pub const DEF: ModelDef = ModelDef {
                 (LfoPw, 0.35),
                 (Cutoff, 1_500.0),
                 (Resonance, 0.4),
-                (AdsrAttack, 0.001),
+                (AdsrAttack, 0.0015),
                 (AdsrDecay, 0.45),
                 (AdsrSustain, 0.0),
                 (AdsrRelease, 0.3),

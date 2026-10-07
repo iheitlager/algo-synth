@@ -1,7 +1,6 @@
 //! The Moog Polymoog: what the model is and its presets (#330).
 
-use crate::mono::model::LOCKED;
-use crate::mono::model::{Filter, POLYMOOG};
+use crate::mono::model::{Filter, LOCKED, POLYMOOG};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};

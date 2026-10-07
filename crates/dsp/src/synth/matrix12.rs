@@ -1,7 +1,6 @@
 //! The Oberheim Matrix-12: what the model is and its presets (#330).
 
-use crate::mono::model::CEM_VCO;
-use crate::mono::model::{Filter, Hp, MATRIX, MATRIX12};
+use crate::mono::model::{CEM_VCO, Filter, Hp, MATRIX, MATRIX12};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};

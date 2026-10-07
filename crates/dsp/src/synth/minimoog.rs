@@ -1,13 +1,22 @@
 //! The Minimoog: what the model is and its presets (#330).
 
-use crate::mono::model::DISCRETE_VCO;
-use crate::mono::model::{Filter, MOOG};
+use crate::mono::model::{DISCRETE_VCO, EnvVoicing, Filter, MOOG, RC_ENV};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
     osc: DISCRETE_VCO,
+    // The contour generators (#340): 10 ms to 10 s, as the original manual
+    // gives them, and a sustain that tops out near 80 % of the peak, so a
+    // transient stays even at full sustain.
+    env: EnvVoicing {
+        attack: [0.01, 10.0],
+        decay: [0.01, 10.0],
+        release: [0.01, 10.0],
+        sustain_max: 0.8,
+        ..RC_ENV
+    },
     filter: Filter::Ladder(MOOG),
     // The contours have no release knob; Osc 3 is the modulation source.
     decay_is_release: true,
@@ -30,10 +39,10 @@ pub const DEF: ModelDef = ModelDef {
                 (Cutoff, 450.0),
                 (Resonance, 0.3),
                 (Drive, 0.5),
-                (AdsrAttack, 0.002),
+                (AdsrAttack, 0.01),
                 (AdsrDecay, 0.5),
                 (AdsrSustain, 0.8),
-                (FenvAttack, 0.002),
+                (FenvAttack, 0.01),
                 (FenvDecay, 0.35),
                 (FenvSustain, 0.2),
                 (EnvCutoff, 0.55),
@@ -119,10 +128,10 @@ pub const DEF: ModelDef = ModelDef {
                 (Cutoff, 300.0),
                 (Resonance, 0.45),
                 (Drive, 0.4),
-                (AdsrAttack, 0.001),
+                (AdsrAttack, 0.01),
                 (AdsrDecay, 0.22),
                 (AdsrSustain, 0.6),
-                (FenvAttack, 0.001),
+                (FenvAttack, 0.01),
                 (FenvDecay, 0.18),
                 (FenvSustain, 0.0),
                 (EnvCutoff, 0.8),
