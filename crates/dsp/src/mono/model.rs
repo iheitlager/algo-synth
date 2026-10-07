@@ -1,9 +1,13 @@
 //! The synth models (spec 005, ADR-0009): which instrument a Mono synth is.
 //!
-//! One shared voice serves every model; what differs lives here, as small
-//! `Copy` answers `MonoVoice::render` matches on (ADR-0002: no boxing, no
-//! allocation). Every parameter exists on every model; the panel shows what
-//! the instrument has and the presets set the rest to neutral values.
+//! One shared voice serves every model; what differs is each model's
+//! definition in `crate::synth` (ADR-0025), read here as small `Copy`
+//! answers `MonoVoice::render` matches on (ADR-0002: no boxing, no
+//! allocation). This file keeps the ids and the filter voicings the
+//! definitions share. Every parameter exists on every model; the panel shows
+//! what the instrument has and the presets set the rest to neutral values.
+
+use crate::synth::Engine;
 
 /// A synth model id; mirrored in `web/src/audio/params.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -298,47 +302,18 @@ pub enum Hp {
     OnePole,
 }
 
+/// What each model decides, read from its definition (`crate::synth`, #330).
 impl Model {
     /// How many voices the instrument has at most (spec 006 Req 1): the
     /// polyphonic models are limited to their own count, the monosynths to the
     /// pool's.
     pub fn voices(self) -> usize {
-        match self {
-            Model::Prophet5 => 5,
-            Model::Juno106 => 6,
-            Model::Jupiter8 => 8,
-            Model::Matrix12 => 12,
-            Model::PpgWave => 8,
-            Model::D50 => 16,
-            Model::Dx7 | Model::PolyMoog | Model::Sampler | Model::PadSampler => 16,
-            _ => crate::poly::MAX_VOICES,
-        }
+        self.def().voices
     }
 
     /// The filter and its voicing.
     pub fn filter(self) -> Filter {
-        match self {
-            Model::Arp2600 | Model::Minimoog => Filter::Ladder(MOOG),
-            Model::ProOne => Filter::Ladder(PRO_ONE),
-            Model::Prophet5 => Filter::Ladder(PROPHET5_REV3),
-            Model::Sh101 => Filter::Ladder(SH101),
-            Model::Juno106 => Filter::Ladder(JUNO106),
-            Model::Jupiter8 => Filter::Ladder(JUPITER),
-            Model::Matrix12 => Filter::Ladder(MATRIX),
-            Model::PpgWave => Filter::Ladder(PPG),
-            // The kit has no filter of its own; the ladder's setting goes unused.
-            Model::D50
-            | Model::Dx7
-            | Model::Tr808
-            | Model::Tr909
-            | Model::Sampler
-            | Model::PadSampler
-            | Model::Modular => Filter::Ladder(D50),
-            Model::Odyssey => Filter::Ladder(ODYSSEY),
-            Model::Ms20 => Filter::Svf(MS20),
-            Model::Cs15 => Filter::Svf(CS15),
-            Model::PolyMoog => Filter::Svf(POLYMOOG),
-        }
+        self.def().filter
     }
 
     /// The low-pass at the panel's switches (#321): the 12 dB setting of a
@@ -347,139 +322,106 @@ impl Model {
     /// the Odyssey reissue's 4023 and 4035 at Rev 1 and 2); `filter` where
     /// no switch applies.
     pub fn low_pass(self, s: Setting) -> Filter {
-        match (self, s.slope12, s.rev) {
-            (Model::Jupiter8, true, _) => Filter::Svf(JUPITER12),
-            (Model::Matrix12, true, _) => Filter::Svf(MATRIX12),
-            (Model::Prophet5, _, 1 | 2) => Filter::Ladder(PROPHET5_REV12),
-            (Model::Odyssey, _, 1) => Filter::Svf(ODYSSEY_REV1),
-            (Model::Odyssey, _, 2) => Filter::Ladder(ODYSSEY_REV2),
-            _ => self.filter(),
-        }
+        self.def().low_pass(s)
     }
 
     /// Whether the voice is the DX7's six-operator FM voice (spec 006 Req 13).
     pub fn uses_fm(self) -> bool {
-        self == Model::Dx7
+        self.def().engine == Engine::Fm
     }
 
     /// Whether the synth is the drum kit, whose keys hit pads (#114).
     pub fn uses_drums(self) -> bool {
-        matches!(self, Model::Tr808 | Model::Tr909)
+        matches!(self.def().engine, Engine::Drums(_))
     }
 
     /// The drum machine a kit model is; the 808 for any other.
     pub fn drum_machine(self) -> crate::drums::Machine {
-        match self {
-            Model::Tr909 => crate::drums::Machine::Tr909,
+        match self.def().engine {
+            Engine::Drums(m) => m,
             _ => crate::drums::Machine::Tr808,
         }
     }
 
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
     pub fn uses_la(self) -> bool {
-        self == Model::D50
+        self.def().engine == Engine::La
     }
 
     /// Whether the voice is a graph of unit generators (ADR-0020).
     pub fn uses_graph(self) -> bool {
-        self == Model::Modular
+        self.def().engine == Engine::Graph
     }
 
     /// Whether its voices are the Mono voice, monophonic or in a poly pool:
     /// the voices that read per-voice values (ADR-0023).
     pub fn uses_mono_voice(self) -> bool {
-        !(self.uses_la()
-            || self.uses_fm()
-            || self.uses_drums()
-            || self.uses_sampler()
-            || self.uses_pads()
-            || self.uses_graph())
+        self.def().engine == Engine::Mono
     }
 
     /// Whether the synth is the drum/pad sampler (#124).
     pub fn uses_pads(self) -> bool {
-        self == Model::PadSampler
+        self.def().engine == Engine::Pads
     }
 
     /// Whether the voice is the multisampler's (#123).
     pub fn uses_sampler(self) -> bool {
-        self == Model::Sampler
+        self.def().engine == Engine::Sampler
     }
 
     /// Whether VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
     pub fn uses_tables(self) -> bool {
-        self == Model::PpgWave
+        self.def().uses_tables
     }
 
     /// Whether the voice runs the second LFO and the ramp, the sources the
     /// Matrix-12's modulation matrix adds.
     pub fn has_matrix(self) -> bool {
-        self == Model::Matrix12
+        self.def().has_matrix
     }
 
     /// The high-pass stage.
     pub fn hp(self) -> Hp {
-        match self {
-            Model::Ms20 | Model::Cs15 => Hp::Svf,
-            Model::Odyssey | Model::Juno106 | Model::Jupiter8 | Model::Matrix12 => Hp::OnePole,
-            // The SH-101 has no high-pass (#321).
-            Model::Sh101
-            | Model::Arp2600
-            | Model::Minimoog
-            | Model::ProOne
-            | Model::Prophet5
-            | Model::PpgWave
-            | Model::D50
-            | Model::Dx7
-            | Model::PolyMoog
-            | Model::Tr808
-            | Model::Sampler
-            | Model::PadSampler
-            | Model::Tr909
-            | Model::Modular => Hp::None,
-        }
+        self.def().hp
     }
 
     /// Whether the filter envelope source (`ModSource::Fenv`, so the poly-mod
     /// and high-pass envelope amounts) is the ADSR: the SH-101 has one
     /// envelope for filter and loudness.
     pub fn filter_env_is_adsr(self) -> bool {
-        matches!(self, Model::Sh101 | Model::Juno106)
+        self.def().filter_env_is_adsr
     }
 
     /// Whether VCO 2 is the pulse output of VCO 1: phase-locked to it and at
     /// its pitch, as the SH-101's one oscillator gives saw and pulse together.
     pub fn pulse_locked(self) -> bool {
-        matches!(self, Model::Sh101 | Model::Juno106)
+        self.def().pulse_locked
     }
 
     /// Whether a time set as decay is also the release, on the loudness and
     /// the filter ADSR: the Minimoog's contours have no release knob.
     pub fn decay_is_release(self) -> bool {
-        self == Model::Minimoog
+        self.def().decay_is_release
     }
 
     /// Whether VCO 3 is the modulation source of the normals (vibrato,
     /// `LfoCutoff`) instead of the LFO: the Minimoog has no LFO, Osc 3 in
     /// its low range does that job.
     pub fn modulates_with_osc3(self) -> bool {
-        self == Model::Minimoog
+        self.def().modulates_with_osc3
     }
 
     /// Whether the high-pass cutoff follows the AR envelope (the CS-15's
     /// own envelope for it) rather than the filter ADSR.
     pub fn hp_follows_ar(self) -> bool {
-        self == Model::Cs15
+        self.def().hp_follows_ar
     }
 
     /// Whether the normalled cutoff follows the filter ADSR. The ARP 2600,
     /// the SH-101 and the Odyssey (whose ADSR is normalled to both filter
     /// and VCA; its AR is a patch source) follow the ADSR (spec 004 Req 12).
     pub fn cutoff_follows_filter_env(self) -> bool {
-        !matches!(
-            self,
-            Model::Arp2600 | Model::Sh101 | Model::Odyssey | Model::Juno106
-        )
+        self.def().cutoff_follows_filter_env
     }
 }
 

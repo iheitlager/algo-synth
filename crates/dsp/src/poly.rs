@@ -31,6 +31,7 @@ use crate::padsampler::{PadVoice as SampledPad, pad_of};
 use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::SamplerVoice;
+use crate::synth::Engine;
 use crate::voice::{Owner, lookup, wrap};
 
 /// Voices in a pool.
@@ -64,35 +65,32 @@ pub enum PolyVoice {
 impl PolyVoice {
     /// A voice of the kind a synth's model plays with.
     fn new(seed: u32, p: Option<&MonoParams>) -> PolyVoice {
-        match p {
-            Some(p) if p.model.uses_la() => PolyVoice::La(LaVoice::new()),
-            Some(p) if p.model.uses_fm() => PolyVoice::Fm(FmVoice::new(p.sample_rate())),
-            Some(p) if p.model.uses_drums() => PolyVoice::Drum(PadVoice::new(Pad::Bd, seed)),
-            Some(p) if p.model.uses_sampler() => PolyVoice::Sampler(SamplerVoice::new()),
-            Some(p) if p.model.uses_pads() => PolyVoice::Pad(SampledPad::default()),
-            Some(p) if p.model.uses_graph() => PolyVoice::Graph(GraphVoice::new(seed)),
-            _ => PolyVoice::Mono(MonoVoice::new(seed)),
+        let Some(p) = p else {
+            return PolyVoice::Mono(MonoVoice::new(seed));
+        };
+        match p.model.def().engine {
+            Engine::Mono => PolyVoice::Mono(MonoVoice::new(seed)),
+            Engine::La => PolyVoice::La(LaVoice::new()),
+            Engine::Fm => PolyVoice::Fm(FmVoice::new(p.sample_rate())),
+            Engine::Drums(_) => PolyVoice::Drum(PadVoice::new(Pad::Bd, seed)),
+            Engine::Sampler => PolyVoice::Sampler(SamplerVoice::new()),
+            Engine::Pads => PolyVoice::Pad(SampledPad::default()),
+            Engine::Graph => PolyVoice::Graph(GraphVoice::new(seed)),
         }
     }
 
     /// Whether this voice is of the kind `p`'s model needs.
     fn fits(&self, p: &MonoParams) -> bool {
-        match self {
-            PolyVoice::Mono(_) => {
-                !p.model.uses_la()
-                    && !p.model.uses_fm()
-                    && !p.model.uses_drums()
-                    && !p.model.uses_sampler()
-                    && !p.model.uses_pads()
-                    && !p.model.uses_graph()
-            }
-            PolyVoice::La(_) => p.model.uses_la(),
-            PolyVoice::Fm(_) => p.model.uses_fm(),
-            PolyVoice::Drum(_) => p.model.uses_drums(),
-            PolyVoice::Sampler(_) => p.model.uses_sampler(),
-            PolyVoice::Pad(_) => p.model.uses_pads(),
-            PolyVoice::Graph(_) => p.model.uses_graph(),
-        }
+        matches!(
+            (self, p.model.def().engine),
+            (PolyVoice::Mono(_), Engine::Mono)
+                | (PolyVoice::La(_), Engine::La)
+                | (PolyVoice::Fm(_), Engine::Fm)
+                | (PolyVoice::Drum(_), Engine::Drums(_))
+                | (PolyVoice::Sampler(_), Engine::Sampler)
+                | (PolyVoice::Pad(_), Engine::Pads)
+                | (PolyVoice::Graph(_), Engine::Graph)
+        )
     }
 
     /// Sounding: gated, releasing, or about to start.

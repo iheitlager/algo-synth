@@ -1,6 +1,6 @@
 # 0009: Synth models: one voice, six instruments
 
-**Status:** Accepted · **Date:** 2026-10-03 · A seventh model, the ARP Odyssey, joined in #64 on the same terms.
+**Status:** Accepted · **Date:** 2026-10-03 · A seventh model, the ARP Odyssey, joined in #64 on the same terms. · What each model decides moved to one definition per instrument in ADR-0025.
 
 ## Context
 

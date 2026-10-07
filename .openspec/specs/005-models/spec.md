@@ -28,7 +28,7 @@ Every synth SHALL have a model, `Param::Model`, held with the synth's parameters
 
 The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs, noise, the Moog-voiced ladder, one ADSR driving the VCA and the normalled cutoff, an AR, an LFO and sample-and-hold, and the patch of Req 7, with no high-pass stage. Its output SHALL NOT change with the model parameter's introduction.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Arp2600`, `web/src/audio/models.ts` (#34)
+**Implementation:** `crates/dsp/src/synth/arp2600.rs::DEF`, `web/src/audio/models.ts` (#34)
 
 #### Scenario: as before models
 
@@ -42,7 +42,7 @@ The ARP 2600 SHALL be the voice of spec 004 as it was before models: three VCOs,
 
 The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive in the mixer (`Drive`), a loudness ADSR and a separate filter ADSR, each with its decay time also setting its release, glide, low note priority, and Osc 3 usable as a modulator (spec 004 Req 14). It has no LFO: Osc 3 SHALL be the source of its vibrato and of `LfoCutoff` (the modulation normals), and its panel SHALL have no patch panel. Its normalled cutoff SHALL follow the filter ADSR, with key tracking in steps of off, 1/3, 2/3 and full, set by two keyboard control switches. It SHALL have the Model D's on/off switches as parameters: a mixer switch per oscillator and for noise (`Vco1On`…`NoiseOn`), Glide (`GlideOn`), Decay (`DecayRelease`; off, the contours release at once), oscillator and filter modulation (`OscModOn`, `FilterModOn`), and an A-440 reference tone at the synth's output that sounds with no key held (`A440`). A switch that is off SHALL zero what its knob sets without losing the knob's value, and every switch but A-440 SHALL default to on (#308).
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Minimoog`, `crates/dsp/src/mono/voice.rs::MonoVoice::render`, `crates/dsp/src/mono.rs::MonoParams::set`, `crates/dsp/src/poly.rs::Pool::render` (#35, #308)
+**Implementation:** `crates/dsp/src/synth/minimoog.rs::DEF`, `crates/dsp/src/mono/voice.rs::MonoVoice::render`, `crates/dsp/src/mono.rs::MonoParams::set`, `crates/dsp/src/poly.rs::Pool::render` (#35, #308)
 
 #### Scenario: decay is release
 
@@ -68,7 +68,7 @@ The Minimoog SHALL have three VCOs, noise, a Moog-voiced ladder with overdrive i
 
 The Pro-One SHALL have two oscillators (A and B), the second synced to the first, noise, a 4-pole low-pass in its own voicing, a loudness ADSR and a filter ADSR, an LFO, and poly-mod: the filter envelope and oscillator B each modulate oscillator A's pitch and pulse width, and oscillator B the cutoff (spec 004 Req 15). Its oscillator A SHALL be VCO 2 and B VCO 1, so sync and poly-mod run in the direction the instrument has.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::ProOne`, `crates/dsp/src/mono/patch.rs::modulate` (#36)
+**Implementation:** `crates/dsp/src/synth/proone.rs::DEF`, `crates/dsp/src/mono/patch.rs::modulate` (#36)
 
 #### Scenario: poly-mod sweeps A
 
@@ -82,7 +82,7 @@ The Pro-One SHALL have two oscillators (A and B), the second synced to the first
 
 The MS-20 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-pass then a low-pass 12 dB filter, each with its own resonance that SHALL self-oscillate, a loudness ADSR and a filter ADSR moving both cutoffs, an LFO, glide, and the patch of spec 004 Req 7 on its panel as the patch panel.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Ms20`, `crates/dsp/src/mono/svf.rs::Svf` (#37)
+**Implementation:** `crates/dsp/src/synth/ms20.rs::DEF`, `crates/dsp/src/mono/svf.rs::Svf` (#37)
 
 #### Scenario: both filters shape the sound
 
@@ -102,7 +102,7 @@ The MS-20 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 
 The CS-15 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-pass and a low-pass 12 dB filter in the Yamaha voicing (resonant but not self-oscillating), the low-pass moved by the filter ADSR and the high-pass by the AR envelope, a loudness ADSR, an LFO and sample-and-hold on the patch.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Cs15` (#38)
+**Implementation:** `crates/dsp/src/synth/cs15.rs::DEF` (#38)
 
 #### Scenario: each filter has its own envelope
 
@@ -116,7 +116,7 @@ The CS-15 SHALL have two VCOs, noise, ring modulation of VCO 1 by VCO 2, a high-
 
 The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, locked to VCO 1's phase and pitch by the model, and inverted so it adds to the rising saw instead of cancelling it), a sub-oscillator one or two octaves down, noise, an IR3109-voiced 4-pole low-pass and no high-pass (#321), a single ADSR driving the filter and the VCA (it SHALL also be the filter envelope source of the poly-mod and envelope amounts, spec 004 Req 15), an LFO that can modulate pitch, cutoff and pulse width, and glide.
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Sh101` (#39)
+**Implementation:** `crates/dsp/src/synth/sh101.rs::DEF` (#39)
 
 #### Scenario: one envelope moves both
 
@@ -158,7 +158,7 @@ Sixteen synths across all the models SHALL render within the performance budget 
 
 The Odyssey (the Mk II and III of about 1975-81) SHALL be two VCOs (saw, pulse with width, triangle, sine) with VCO 2 hard-synced to VCO 1 on a switch, ring mod of VCO 1 by VCO 2, and white or pink noise in its mixer; a 24 dB ladder with a voicing of its own (`ODYSSEY`, the 4075 of Rev 3: brighter and cleaner than the Moog, a little bass kept under resonance), the reissue's Rev switch taking it to the 4023's two poles at Rev 1 or the 4035's transistor ladder at Rev 2 (#321), and a 6 dB high-pass *after* it; one ADSR normalled to both cutoff and VCA; an LFO to pitch, cutoff and pulse width, and portamento. It is not modular, so its faceplate has no patch bay (spec 003 Req 9): the AR and sample-and-hold are reached through the patch slots of presets and setups only. The faceplate SHALL be black and gold. Presets: **Currie lead** (two detuned saws, a bright, slightly resonant ladder driven into its saturator, legato glide, a quick vibrato on the wheel: the late-70s lead of Billy Currie with Gary Numan; an overdrive insert on its strip adds the grit, since presets don't set the mixer; no transcription ships) and **Odyssey sync** (VCO 2 synced to a silent VCO 1, its pitch swept by the ADSR). The bends of such a solo need a pitch-bend source (#10).
 
-**Implementation:** `crates/dsp/src/mono/model.rs::Model::Odyssey`, `crates/dsp/src/mono/model.rs::ODYSSEY`, `crates/dsp/src/mono/preset.rs` (`CurrieLead`, `OdysseySync`), `web/src/audio/models.ts` (#64)
+**Implementation:** `crates/dsp/src/synth/odyssey.rs::DEF`, `crates/dsp/src/mono/model.rs::ODYSSEY`, `crates/dsp/src/mono/preset.rs` (`CurrieLead`, `OdysseySync`), `web/src/audio/models.ts` (#64)
 
 #### Scenario: the high-pass after the ladder
 
