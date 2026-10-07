@@ -91,6 +91,27 @@ struct Pending {
     route: [Option<usize>; MAX_TRACKS],
 }
 
+/// A drum hit between the clock's steps (#353), played when the clock
+/// reaches sample `at`.
+#[derive(Clone, Copy, Debug)]
+struct Hit {
+    at: u64,
+    owner: Owner,
+    note: u8,
+    velocity: f32,
+}
+
+/// How many hits may wait between two steps: a lane of 48 a bar puts two
+/// between every pair of 16ths, so this is many lanes' worth.
+const HITS: usize = 256;
+
+const NO_HIT: Hit = Hit {
+    at: 0,
+    owner: Owner::Live(0),
+    note: 0,
+    velocity: 0.0,
+};
+
 /// The switches a revision sets, in the order of `RevisionDef`'s parts (#343).
 const REVISED: [Param; 3] = [Param::VcoRev, Param::FilterRev, Param::EnvRev];
 
@@ -183,6 +204,9 @@ pub struct Engine {
     /// Strips (bit per strip, globals on bit 0) automation or a Revision
     /// switch changed since the view last asked, so it can redraw their values.
     touched: u32,
+    /// Drum hits between steps, waiting for their sample (#353), and how many.
+    hits: [Hit; HITS],
+    hit_count: usize,
     /// Each synth's live arpeggiator (spec 002 Req 7).
     arps: [Arp; SYNTHS],
     /// The arps' own grid while the song's clock is stopped: ticks fired, the
@@ -251,6 +275,8 @@ impl Engine {
             mod_base: [None; MAX_MODS],
             mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
+            hits: [NO_HIT; HITS],
+            hit_count: 0,
             arps: [Arp::default(); SYNTHS],
             free_tick: 0,
             free_next: 0.0,
@@ -939,6 +965,7 @@ impl Engine {
         self.hand_arps_over();
         self.release_song_notes();
         self.clock.stop();
+        self.hit_count = 0;
     }
 
     pub fn song_stop(&mut self) {
@@ -947,6 +974,7 @@ impl Engine {
         self.release_song_notes();
         self.clock.stop();
         self.clock.seek(0);
+        self.hit_count = 0;
         // Each modulation puts back the value it found; a per-voice one never
         // wrote the synth's, so its voices just go back to it (ADR-0023).
         for m in 0..MAX_MODS {
@@ -973,6 +1001,7 @@ impl Engine {
     /// Move the song to the first step of `bar` (from 0); the clock fires it next.
     pub fn song_seek_bar(&mut self, bar: u64) {
         self.clock.seek_step(bar.saturating_mul(STEPS_PER_BAR));
+        self.hit_count = 0;
     }
 
     /// Where the last fired step fell: the arrangement entry and the steps into
@@ -995,6 +1024,7 @@ impl Engine {
         while let Some(j) = self.clock.due_sub() {
             self.play_tick(j);
         }
+        self.fire_hits();
         // With the clock stopped, the arps set to free run keep their own grid.
         if !self.clock.playing() && self.free_arps() {
             while self.free_next <= self.free_pos as f64 {
@@ -1255,8 +1285,8 @@ impl Engine {
     /// fragments play, counted from the section's first step, and the song
     /// stops after its last bar (ADR-0015). Reads the song in place: nothing
     /// allocates.
-    fn play_step(&mut self, k: u64) {
-        let (k, section) = match self.song.at(k) {
+    fn play_step(&mut self, step: u64) {
+        let (k, section) = match self.song.at(step) {
             At::Free(k) => (k, None),
             At::In { section, local, .. } => (local, Some(section)),
             At::End => {
@@ -1282,22 +1312,83 @@ impl Engine {
                 }
             }
             let owner = Owner::Track(u8::try_from(frag.track).unwrap_or(u8::MAX));
+            // A lane on a grid of `g` steps a bar has its step n at n·16/g
+            // clock steps: those from clock step k up to the next (#353).
+            let g = u64::from(frag.grid.max(1));
+            let (first, end) = ((k * g).div_ceil(16), ((k + 1) * g).div_ceil(16));
             for l in 0..frag.lanes.len() {
-                let hit = self
-                    .song
-                    .frags
-                    .get(f)
-                    .and_then(|fr| fr.lanes.get(l))
-                    .and_then(|lane| {
-                        let len = lane.steps.len() as u64;
-                        let step = lane.steps.get(usize::try_from(k % len.max(1)).ok()?)?;
-                        Some((lane.pad.note(), step.velocity()?))
-                    });
-                if let Some((note, velocity)) = hit {
-                    self.start_voice(owner, note, velocity);
+                for n in first..end {
+                    let hit = self
+                        .song
+                        .frags
+                        .get(f)
+                        .and_then(|fr| fr.lanes.get(l))
+                        .and_then(|lane| {
+                            let len = lane.steps.len() as u64;
+                            let st = lane.steps.get(usize::try_from(n % len.max(1)).ok()?)?;
+                            Some((lane.pad.note(), st.velocity()?))
+                        });
+                    let Some((note, velocity)) = hit else {
+                        continue;
+                    };
+                    let off = n * 16 - k * g;
+                    if off == 0 {
+                        self.start_voice(owner, note, velocity);
+                    } else {
+                        let at = self.clock.between_sample(step, off as f64 / g as f64);
+                        self.queue_hit(Hit {
+                            at,
+                            owner,
+                            note,
+                            velocity,
+                        });
+                    }
                 }
             }
         }
+    }
+
+    /// Hold a drum hit between steps until the clock reaches it; with the
+    /// queue full it plays at once rather than not at all (#353).
+    fn queue_hit(&mut self, hit: Hit) {
+        match self.hits.get_mut(self.hit_count) {
+            Some(slot) => {
+                *slot = hit;
+                self.hit_count += 1;
+            }
+            None => self.start_voice(hit.owner, hit.note, hit.velocity),
+        }
+    }
+
+    /// Play the queued hits the clock has reached, in the order queued.
+    fn fire_hits(&mut self) {
+        let pos = self.clock.position();
+        let mut i = 0;
+        while i < self.hit_count {
+            let Some(hit) = self.hits.get(i).copied() else {
+                break;
+            };
+            if hit.at <= pos {
+                self.hits.copy_within(i + 1..self.hit_count, i);
+                self.hit_count -= 1;
+                self.start_voice(hit.owner, hit.note, hit.velocity);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// Frames to render before the next queued hit, at least 1, at most `remaining`.
+    fn frames_until_hit(&self, remaining: usize) -> usize {
+        let pos = self.clock.position();
+        let next = self
+            .hits
+            .iter()
+            .take(self.hit_count)
+            .map(|h| h.at.saturating_sub(pos))
+            .min();
+        next.and_then(|gap| usize::try_from(gap).ok())
+            .map_or(remaining, |gap| gap.clamp(1, remaining.max(1)))
     }
 
     /// Set the values of every scene section `s` lists (ADR-0015).
@@ -2018,6 +2109,7 @@ impl Engine {
                 if let Some(k) = self.clock.step().filter(|_| ok && first) {
                     let len = u64::from(a as u32).max(1) * STEPS_PER_BAR;
                     self.clock.seek_step((k + 1) % len);
+                    self.hit_count = 0;
                 }
                 ok
             }
@@ -2079,7 +2171,8 @@ impl Engine {
             let chunk = self
                 .clock
                 .frames_until_next(n - t)
-                .min(self.free_frames_until_next(n - t));
+                .min(self.free_frames_until_next(n - t))
+                .min(self.frames_until_hit(n - t));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
                 // A-440 sounds with no key held (#308).

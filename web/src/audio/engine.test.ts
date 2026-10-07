@@ -132,7 +132,8 @@ describe('applySong', () => {
       { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1 },
       { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1 },
     ])
-    expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0] }], notes: null })
+    // An engine without frag_grid sends none: the lane is 16ths (#353).
+    expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0] }], grid: 16, notes: null })
     expect(mod.song.frags[1]?.notes).toEqual({
       text: 'c3 e3', bars: 2, generated: true, live: false,
       events: [{ start: 0, len: 3, note: 48, accent: true }, { start: 6, len: 3, note: 52, accent: false }],

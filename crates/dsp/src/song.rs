@@ -93,6 +93,9 @@ pub use signal::Signal;
 pub const MAX_TRACKS: usize = 16;
 pub const MAX_FRAGS: usize = 256;
 pub const MAX_STEPS: usize = 64;
+/// The steps to a bar a drum lane may have (#353): 16ths, their triplets,
+/// 32nds and 32nd triplets.
+pub const GRIDS: [u32; 5] = [12, 16, 24, 32, 48];
 /// Most sections, entries in the arrangement and bars in a section.
 pub const MAX_SECTIONS: usize = 256;
 pub const MAX_ARRANGE: usize = 256;
@@ -195,6 +198,8 @@ pub struct Fragment {
     pub voicing: bool,
     /// Pattern methods (`.fast(2) .rev()`, ADR-0019), applied to its notes in order.
     pub pattern: Vec<Pattern>,
+    /// A drum frag's steps to a bar (`/16`, #353): one of `GRIDS`.
+    pub grid: u32,
 }
 
 /// What a track's fragments hold.
@@ -886,13 +891,17 @@ impl Song {
                             .ok_or(err(n.col, "a line is 1 to 32 bars"))?;
                         open_bars = Some((bars, w.col, line));
                     }
+                    let mut grid = 16;
                     if let Some(w) = ws.get(4).filter(|_| !live && open_bars.is_none()) {
                         if synth {
                             return Err(err(w.col, "a note frag has no step grid"));
                         }
-                        if w.text != "/16" {
-                            return Err(err(w.col, "only /16 steps for now"));
-                        }
+                        grid = w
+                            .text
+                            .strip_prefix('/')
+                            .and_then(|g| g.parse().ok())
+                            .filter(|g| GRIDS.contains(g))
+                            .ok_or(err(w.col, "a drum grid is /12, /16, /24, /32 or /48"))?;
                     }
                     expect_end(if open_bars.is_some() { 6 } else { 5 })?;
                     if song.frags.len() >= MAX_FRAGS {
@@ -906,6 +915,7 @@ impl Song {
                         live,
                         voicing: voicing.is_some(),
                         pattern: Vec::new(),
+                        grid,
                     });
                     let f = song.frags.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1413,9 +1423,10 @@ impl Song {
                 continue;
             }
             lines.push(format!(
-                "frag {} = {} /16{}",
+                "frag {} = {} /{}{}",
                 f.name,
                 track,
+                f.grid,
                 self.methods_of(fi)
             ));
             for l in &f.lanes {

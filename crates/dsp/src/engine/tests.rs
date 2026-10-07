@@ -4345,3 +4345,72 @@ fn a_ghost_note_is_softer_than_a_hit() {
     );
     assert!(ghost > 0.0 && ghost < 0.7 * hit, "ghost {ghost}, hit {hit}");
 }
+
+/// The samples a song's notes start on within `frames`, a frame at a time.
+fn starts_within(e: &mut Engine, frames: u64) -> Vec<u64> {
+    let mut hits = Vec::new();
+    let mut count = e.note_count;
+    for s in 0..frames {
+        e.render(1);
+        for _ in count..e.note_count {
+            hits.push(s);
+        }
+        count = e.note_count;
+    }
+    hits
+}
+
+/// #353: a lane of 12, 24, 32 or 48 steps a bar hits every bar / grid, on
+/// its exact sample: at 120 BPM and 48 kHz a bar is 96 000 samples.
+#[test]
+fn lanes_hit_on_their_grid() {
+    for grid in [12u64, 16, 24, 32, 48] {
+        let mut e = kit(0);
+        let lane = "x".repeat(grid as usize);
+        let text = format!("tempo 120\ntrack kit drums\nfrag a = kit /{grid}\n  bd {lane}\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let want: Vec<u64> = (0..grid).map(|n| n * 96_000 / grid).collect();
+        assert_eq!(starts_within(&mut e, 96_000), want, "/{grid}");
+    }
+}
+
+/// #353: lanes on different grids keep time together, and with a note frag:
+/// a triplet lane meets the 16ths on every beat, and swing moves a hit
+/// between steps with its step.
+#[test]
+fn mixed_grids_keep_time_and_follow_swing() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack kit drums\nfrag a = kit /16\n  bd x...x...x...x...\nfrag b = kit /12\n  ch x..x..x..x..\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let starts = starts_within(&mut e, 96_000);
+    assert_eq!(
+        starts,
+        vec![0, 0, 24_000, 24_000, 48_000, 48_000, 72_000, 72_000]
+    );
+    // At swing 66 the second 16th lands 2/3 of the way to the third: a
+    // /32 hit halfway into the first 16th sits halfway to the swung one.
+    let mut e = kit(0);
+    let text = "tempo 120\nswing 66\ntrack kit drums\nfrag a = kit /32\n  bd .x.x\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let swung = e.clock.step_sample(1);
+    assert_eq!(
+        starts_within(&mut e, 12_000),
+        vec![swung / 2, swung + (12_000 - swung) / 2]
+    );
+}
+
+/// #353: a grid prints back as written; anything else says where.
+#[test]
+fn a_grid_prints_back_and_a_bad_one_is_refused() {
+    for grid in [12, 16, 24, 32, 48] {
+        let text = format!("tempo 120\ntrack kit drums\n\nfrag a = kit /{grid}\n  bd x..x\n");
+        let song = Song::parse(&text).expect("parses");
+        assert_eq!(song.frags[0].grid, grid);
+        assert!(song.print().contains(&format!("frag a = kit /{grid}\n")));
+    }
+    let err = Song::parse("track kit drums\nfrag a = kit /20\n  bd x\n").expect_err("/20");
+    assert_eq!((err.line, err.col), (2, 14));
+}

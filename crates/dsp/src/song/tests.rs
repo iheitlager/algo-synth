@@ -85,7 +85,7 @@ fn every_error_says_where() {
             "track kit drums\nfrag a = kit /8\n  bd x",
             2,
             14,
-            "only /16 steps for now",
+            "a drum grid is /12, /16, /24, /32 or /48",
         ),
         (
             "track kit drums\nfrag a = kit\n  zz x...",
@@ -209,6 +209,7 @@ fn random_song(r: &mut Rng) -> Song {
                 live: false,
                 voicing: false,
                 pattern: Vec::new(),
+                grid: 16,
             });
             continue;
         }
@@ -217,7 +218,7 @@ fn random_song(r: &mut Rng) -> Song {
         for _ in 0..1 + r.below(8) {
             let pad = pads.remove(r.below(pads.len()));
             let steps = (0..1 + r.below(MAX_STEPS))
-                .map(|_| [Step::Off, Step::Hit, Step::Accent][r.below(3)])
+                .map(|_| [Step::Off, Step::Hit, Step::Accent, Step::Ghost][r.below(4)])
                 .collect();
             lanes.push(Lane {
                 pad,
@@ -233,6 +234,7 @@ fn random_song(r: &mut Rng) -> Song {
             live: false,
             voicing: false,
             pattern: Vec::new(),
+            grid: GRIDS[r.below(GRIDS.len())],
         });
     }
     song
