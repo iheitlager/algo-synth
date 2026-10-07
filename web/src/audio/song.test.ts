@@ -22,6 +22,8 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
   }
 
   it('decodes the text, the tracks and the grid, and takes the text as the draft', () => {
+    // A draft not edited since the last text takes the new one (ADR-0027).
+    song.text = 'old'
     song.draft = 'old'
     applySong(summary)
     expect(song.text).toBe(text)

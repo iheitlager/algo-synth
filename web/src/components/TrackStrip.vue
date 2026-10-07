@@ -55,11 +55,6 @@ function pickPreset(i: number, value: string) {
           <option v-for="p in r.presets" :key="p.value" :value="p.value">{{ p.label }}</option>
         </select>
       </label>
-      <button
-        :disabled="r.t.synth === MUTE || r.t.preset < 0"
-        title="Write the synth's sound into the song as a setting the track plays"
-        @click="trackEdit.save(r.i)"
-      >Save as setting</button>
     </div>
   </div>
 </template>
@@ -67,9 +62,9 @@ function pickPreset(i: number, value: string) {
 <style scoped>
 .tracks { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 0; }
 /* One grid for every row, so each column lines up whatever its text:
-   name, kind, synth, model, preset, save. */
+   name, kind, synth, model, preset. */
 .track {
-  display: grid; grid-template-columns: 9em 4em 17em 10em 14em max-content; align-items: center; gap: 8px;
+  display: grid; grid-template-columns: 9em 4em 17em 10em 14em; align-items: center; gap: 8px;
   padding: 2px 0 2px 8px; border-left: 3px solid var(--c);
 }
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

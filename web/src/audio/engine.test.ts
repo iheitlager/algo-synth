@@ -208,6 +208,47 @@ describe('applySong', () => {
   })
 })
 
+describe('the song as it is typed (ADR-0027)', () => {
+  it('holds folding while typing and applies once typing rests', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mod, take } = await boot()
+      mod.song.text = 'tempo 120\n'
+      take()
+      mod.typeSong('tempo 12')
+      mod.typeSong('tempo 128\n')
+      expect(take()).toEqual([{ t: 'foldHold', on: true }])
+      vi.advanceTimersByTime(mod.APPLY_AFTER_MS - 1)
+      expect(take()).toEqual([])
+      vi.advanceTimersByTime(1)
+      const sent = take()
+      expect(sent.map((m) => m.t)).toEqual(['song'])
+      expect(new TextDecoder().decode(sent[0]?.bytes as ArrayBuffer)).toBe('tempo 128\n')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('takes the canonical text back, releases folding, and never overwrites what was typed since', async () => {
+    const { mod, send, take } = await boot()
+    mod.song.text = 'tempo 120\n'
+    mod.loadSong('tempo  128')
+    take()
+    // The answer to what was sent replaces the draft with its canonical text.
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 128\n'), error: null, tracks: [] })
+    expect(mod.song.draft).toBe('tempo 128\n')
+    // Typed on, then a fold arrives: the typing stays.
+    mod.typeSong('tempo 128\nswing 60\n')
+    take()
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 128\nstrip a: Level 0.5\n'), error: null, tracks: [] })
+    expect(mod.song.draft).toBe('tempo 128\nswing 60\n')
+    expect(take()).toEqual([])
+    // Back to the engine's text: folding is released.
+    mod.typeSong('tempo 128\nstrip a: Level 0.5\n')
+    expect(take()).toEqual([{ t: 'foldHold', on: false }])
+  })
+})
+
 describe('Modular knobs (#329)', () => {
   it('parses the engine\'s knob list, one tab-separated line per number', async () => {
     const { mod } = await boot()
@@ -515,7 +556,6 @@ describe('posting', () => {
     mod.arrange.seekBar(5)
     mod.trackEdit.preset(1, Preset.MiniBass)
     mod.trackEdit.setting(0, 2)
-    mod.trackEdit.save(3)
     expect(take()).toEqual([
       { t: 'arr', op: 0, a: 1, b: 2, c: 3 },
       { t: 'arr', op: 1, a: 4 },
@@ -528,7 +568,6 @@ describe('posting', () => {
       { t: 'songSeek', bar: 5 },
       { t: 'track', op: 0, track: 1, a: Preset.MiniBass },
       { t: 'track', op: 1, track: 0, a: 2 },
-      { t: 'track', op: 2, track: 3 },
     ])
   })
 

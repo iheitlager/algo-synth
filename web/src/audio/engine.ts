@@ -560,11 +560,42 @@ export function setCode(s: number, text: string) {
   engine?.post({ t: 'code', s, bytes: bytes.buffer }, [bytes.buffer])
 }
 
+/** The text last sent to be parsed, so its answer may replace the draft. */
+let sent: string | null = null
+
 /** Send `text` to the engine to parse and play. */
 export function loadSong(text: string) {
+  clearTimeout(typing)
   song.draft = text
+  sent = text
   const bytes = new TextEncoder().encode(text)
   engine?.post({ t: 'song', bytes: bytes.buffer }, [bytes.buffer])
+}
+
+/** How long typing rests before the text applies (ADR-0027). */
+export const APPLY_AFTER_MS = 500
+let typing: ReturnType<typeof setTimeout> | undefined
+let held = false
+
+/** Hold the engine's folding while an edit of the text is not applied yet,
+ * so a knob never overwrites what is being typed (ADR-0027). */
+function holdFold(on: boolean) {
+  if (on === held) return
+  held = on
+  engine?.post({ t: 'foldHold', on })
+}
+
+/**
+ * The song text as it is typed (ADR-0027): applied once typing rests for
+ * `APPLY_AFTER_MS`, folding held until then. A text that doesn't parse shows
+ * its error and changes nothing.
+ */
+export function typeSong(text: string) {
+  song.draft = text
+  clearTimeout(typing)
+  const edited = text !== song.text
+  holdFold(edited)
+  if (edited) typing = setTimeout(() => loadSong(song.draft), APPLY_AFTER_MS)
 }
 
 /** Set one step (0 off, 1 hit, 2 accent); the engine sends the song back. */
@@ -607,7 +638,6 @@ export const songPosition = computed(() => {
 /** Ask the engine for the song it holds (when the composer opens). */
 export const requestSong = () => engine?.post({ t: 'songDump' })
 /** Print the mixer as it is into the song as `strip`, `group` and `master` lines (ADR-0018). */
-export const writeMixerToSong = () => engine?.post({ t: 'mixWrite' })
 
 // Opening a MIDI file turns it into the song (#173, ADR-0022): the engine
 // converts it; the composer and the arranger show the result.
@@ -637,14 +667,16 @@ export function applySong(data: Record<string, unknown>) {
   const text = decoder.decode(data.text as Uint8Array)
   const error = data.error as { line: number; col: number; msg: Uint8Array } | null
   song.error = error ? { line: error.line, col: error.col, msg: decoder.decode(error.msg) } : null
-  // A song that played replaces the draft with its canonical text; a failed one leaves the draft alone.
+  // A song that played replaces the draft with its canonical text, unless the
+  // draft was typed on since (ADR-0027); a failed one leaves the draft alone.
   // One without tracks is not kept, so a reload after New starts fresh (#325).
   if (data.ok) {
-    song.draft = text
+    if (song.draft === song.text || song.draft === sent) song.draft = text
     if ((data.tracks as unknown[]).length) keepSong(text)
     else forgetSong()
   }
   song.text = text
+  holdFold(song.draft !== song.text)
   song.tempo = data.tempo as number
   song.swing = data.swing as number
   song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number; flags?: number }[]).map((t) => ({
@@ -717,7 +749,6 @@ export const arrange = {
 export const trackEdit = {
   preset: (t: number, preset: number) => engine?.post({ t: 'track', op: 0, track: t, a: preset }),
   setting: (t: number, i: number) => engine?.post({ t: 'track', op: 1, track: t, a: i }),
-  save: (t: number) => engine?.post({ t: 'track', op: 2, track: t }),
 }
 
 /** What to tell the user when the engine knows fewer models than the view offers. */
