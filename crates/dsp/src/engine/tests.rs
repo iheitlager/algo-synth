@@ -4174,3 +4174,149 @@ fn a_modular_synth_lists_its_knobs() {
     e.preset(1, crate::mono::preset::Preset::Bass);
     assert_eq!(e.knob_list(1), "");
 }
+
+/// A Prophet-5 on synth 0, from its first preset.
+fn prophet() -> Engine {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::P5Brass);
+    e
+}
+
+/// The Prophet-5's VCO, filter and envelope switches, and its Revision.
+fn revision_of(e: &Engine) -> [f32; 4] {
+    [
+        Param::VcoRev,
+        Param::FilterRev,
+        Param::EnvRev,
+        Param::Revision,
+    ]
+    .map(|p| e.param_value(0, p))
+}
+
+/// #343: a revision sets the parts it had, SSM for Rev 1 and 2, Curtis for
+/// Rev 3 and 4, and its drift: Rev 1 the most, the Rev 4 held stable.
+#[test]
+fn a_revision_sets_its_parts_and_drift() {
+    let mut e = prophet();
+    assert_eq!(revision_of(&e), [3.0, 3.0, 3.0, 3.0], "a preset is Rev 3");
+    let mut drift = Vec::new();
+    for (rev, part) in [(1.0, 1.0), (2.0, 1.0), (3.0, 3.0), (4.0, 3.0)] {
+        e.set_param(0, Param::Revision, rev);
+        assert_eq!(revision_of(&e), [part, part, part, rev], "Rev {rev}");
+        drift.push(e.param_value(0, Param::Analog));
+    }
+    assert!(drift.windows(2).all(|d| d[1] < d[0]), "{drift:?}");
+    assert_eq!(
+        e.take_touched() & 1,
+        1,
+        "the view fetches the parts it moved"
+    );
+}
+
+/// #343: turning a part away from its revision makes the Revision Custom;
+/// the Vintage knob does not.
+#[test]
+fn a_part_turned_away_makes_it_custom() {
+    let mut e = prophet();
+    e.set_param(0, Param::Revision, 2.0);
+    e.set_param(0, Param::Analog, 0.2);
+    assert_eq!(e.param_value(0, Param::Revision), 2.0, "Vintage is free");
+    e.set_param(0, Param::FilterRev, 2.0);
+    assert_eq!(
+        e.param_value(0, Param::Revision),
+        2.0,
+        "1 and 2 are one chip"
+    );
+    e.set_param(0, Param::VcoRev, 3.0);
+    assert_eq!(revision_of(&e), [3.0, 2.0, 1.0, 0.0], "Custom");
+    e.set_param(0, Param::Revision, 0.0);
+    assert_eq!(revision_of(&e), [3.0, 2.0, 1.0, 0.0], "Custom sets nothing");
+}
+
+/// #343: a setup's values load the same in any order, and an old setup
+/// that only has `FilterRev` keeps its sound: SSM filter, Curtis VCOs and
+/// envelopes, now shown as Custom.
+#[test]
+fn revisions_load_in_any_order_and_old_setups_keep_their_sound() {
+    let saved = [
+        (Param::Revision, 0.0),
+        (Param::VcoRev, 1.0),
+        (Param::FilterRev, 3.0),
+        (Param::EnvRev, 1.0),
+    ];
+    for order in [[0, 1, 2, 3], [3, 2, 1, 0], [1, 0, 3, 2]] {
+        let mut e = prophet();
+        for i in order {
+            let (p, v) = saved[i];
+            e.set_param(0, p, v);
+        }
+        assert_eq!(revision_of(&e), [1.0, 3.0, 1.0, 0.0], "{order:?}");
+    }
+    let mut e = prophet();
+    e.set_param(0, Param::FilterRev, 1.0);
+    assert_eq!(revision_of(&e), [3.0, 1.0, 3.0, 0.0]);
+}
+
+/// #343: on a model without the Revision switch nothing is linked: the
+/// Odyssey's filter switch leaves the Revision, the Revision its drift.
+#[test]
+fn only_a_model_with_revisions_links_them() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::CurrieLead);
+    let analog = e.param_value(0, Param::Analog);
+    e.set_param(0, Param::FilterRev, 1.0);
+    e.set_param(0, Param::Revision, 1.0);
+    assert_eq!(e.param_value(0, Param::FilterRev), 1.0);
+    assert_eq!(e.param_value(0, Param::Analog), analog);
+}
+
+/// #343: the SSM2030 of Rev 1/2 lacks the CEM3340's temperature
+/// compensation: with the same Vintage it plays a key further off.
+#[test]
+fn the_prophets_ssm_vcos_drift_more_than_its_curtis_ones() {
+    let spread = |vco: f32| {
+        let mut e = prophet();
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::VcoRev, vco);
+        e.set_param(0, Param::Analog, 1.0);
+        e.set_param(0, Param::Vco2Level, 0.0);
+        e.set_param(0, Param::Cutoff, 400.0);
+        e.set_param(0, Param::EnvCutoff, 0.0);
+        let cents: Vec<f64> = (0..8)
+            .map(|_| {
+                e.note_on(0, 57, 0.8);
+                let hz = pitch_of(&left_of(&mut e, 0.25)[2400..]);
+                e.note_off(0, 57);
+                left_of(&mut e, 0.6);
+                1200.0 * (hz / 220.0).log2()
+            })
+            .collect();
+        let (lo, hi) = cents
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
+        hi - lo
+    };
+    let (ssm, cem) = (spread(1.0), spread(3.0));
+    assert!(ssm > 1.3 * cem && cem > 0.1, "SSM {ssm} cents, CEM {cem}");
+}
+
+/// #343: the SSM2050's attack is almost straight, the CEM3310's an RC
+/// curve: a quarter into a long attack the Curtis envelope is further up.
+#[test]
+fn the_prophets_ssm_attack_is_straighter_than_its_curtis_one() {
+    let quarter = |env: f32| {
+        let mut e = prophet();
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::EnvRev, env);
+        e.set_param(0, Param::AdsrAttack, 0.4);
+        e.set_param(0, Param::AdsrSustain, 1.0);
+        e.set_param(0, Param::Polyphony, 1.0);
+        e.note_on(0, 57, 1.0);
+        let out = left_of(&mut e, 0.4);
+        let rms = |x: &[f32]| (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt();
+        let n = out.len();
+        rms(&out[n / 4 - 960..n / 4 + 960]) / rms(&out[n - 1920..])
+    };
+    let (ssm, cem) = (quarter(1.0), quarter(3.0));
+    assert!(cem > ssm + 0.05, "a quarter in: SSM {ssm}, CEM {cem}");
+}

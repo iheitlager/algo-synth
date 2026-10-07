@@ -865,7 +865,7 @@ impl Pool {
     /// as far as the model's oscillators wander (#339). A monosynth's VCOs
     /// drift too; a drum machine's pads are left alone.
     fn retrim(&mut self, p: &MonoParams, poly: bool) {
-        let osc = p.model.osc();
+        let osc = p.osc();
         for (i, (v, s)) in self.voices.iter_mut().zip(self.slots.iter()).enumerate() {
             if p.model.uses_drums() {
                 v.set_trim(0.0, 0.0);

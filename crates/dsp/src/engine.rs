@@ -24,6 +24,7 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::poly::{MAX_VOICES, Pool, VOICE_BUDGET};
+use crate::synth::RevisionDef;
 
 /// Song notes that may sound at once before one is dropped.
 const NOTE_OFFS: usize = 256;
@@ -89,6 +90,9 @@ struct Pending {
     live: Vec<Live>,
     route: [Option<usize>; MAX_TRACKS],
 }
+
+/// The switches a revision sets, in the order of `RevisionDef`'s parts (#343).
+const REVISED: [Param; 3] = [Param::VcoRev, Param::FilterRev, Param::EnvRev];
 
 /// The whole synth, one per wasm instance (one per AudioWorklet node).
 pub struct Engine {
@@ -176,8 +180,8 @@ pub struct Engine {
     mod_base: [Option<f32>; MAX_MODS],
     /// The state of the song's `lag` nodes, NaN until each first runs.
     mod_state: [f32; signal::MAX_NODES],
-    /// Strips (bit per strip, globals on bit 0) automation changed since the
-    /// view last asked, so it can redraw their values.
+    /// Strips (bit per strip, globals on bit 0) automation or a Revision
+    /// switch changed since the view last asked, so it can redraw their values.
     touched: u32,
     /// Each synth's live arpeggiator (spec 002 Req 7).
     arps: [Arp; SYNTHS],
@@ -314,6 +318,64 @@ impl Engine {
             if let Some(c) = self.chorus.get_mut(synth) {
                 c.set_mode(mono.chorus_mode);
             }
+        }
+        if REVISED.contains(&param) || param == Param::Revision {
+            self.revise(synth, param, v);
+        }
+    }
+
+    /// The Revision switch of a model that has one (#343): a revision sets
+    /// the switches it stands for and its drift; turning a switch away from
+    /// them makes it Custom (0). Either way round, the switches and the
+    /// Revision agree, so a setup loads the same in any order.
+    fn revise(&mut self, synth: usize, param: Param, v: f32) {
+        let Some(revisions) = self.synths.get(synth).and_then(|m| m.model.def().revisions) else {
+            return;
+        };
+        let parts = |r: &RevisionDef| [r.vco, r.filter, r.env].map(f32::from);
+        // Revisions run from 1; 0, Custom, sets nothing.
+        let nth = |x: f32| {
+            (x.round() as usize)
+                .checked_sub(1)
+                .and_then(|i| revisions.get(i))
+        };
+        if param == Param::Revision {
+            if let Some(r) = nth(v) {
+                for (p, x) in REVISED.into_iter().zip(parts(r)) {
+                    self.put(synth, p, x);
+                }
+                self.put(synth, Param::Analog, r.analog);
+                self.touch(synth);
+            }
+            return;
+        }
+        let Some(r) = nth(self.param_value(synth, Param::Revision)) else {
+            return;
+        };
+        // 1 and 2 are the same early chips, as `FilterRev` has always had it.
+        let early = |x: f32| x < 2.5;
+        let agree = REVISED
+            .into_iter()
+            .zip(parts(r))
+            .all(|(p, x)| early(self.param_value(synth, p)) == early(x));
+        if !agree {
+            self.put(synth, Param::Revision, 0.0);
+            self.touch(synth);
+        }
+    }
+
+    /// Store and apply a synth parameter, nothing else.
+    fn put(&mut self, synth: usize, param: Param, v: f32) {
+        let v = param.clamp(v);
+        if let Some(slot) = self
+            .values
+            .get_mut(synth)
+            .and_then(|r| r.get_mut(param as usize))
+        {
+            *slot = v;
+        }
+        if let Some(mono) = self.synths.get_mut(synth) {
+            mono.set(param, v);
         }
     }
 
@@ -1279,7 +1341,7 @@ impl Engine {
             },
         };
         self.set_param(strip, param, v);
-        self.touched |= 1u32.checked_shl(strip as u32).unwrap_or(0);
+        self.touch(strip);
     }
 
     /// The automation lanes at the clock's position, once per block: each
@@ -1477,7 +1539,13 @@ impl Engine {
         strip.map_or(0.0, |s| self.param_value(s, param))
     }
 
-    /// The strips automation changed since the last call (bit per strip), cleared.
+    /// Mark `strip`'s values as moved by the engine, for the view to fetch.
+    fn touch(&mut self, strip: usize) {
+        self.touched |= 1u32.checked_shl(strip as u32).unwrap_or(0);
+    }
+
+    /// The strips automation or a Revision switch changed since the last
+    /// call (bit per strip), cleared.
     pub fn take_touched(&mut self) -> u32 {
         std::mem::take(&mut self.touched)
     }

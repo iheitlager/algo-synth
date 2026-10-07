@@ -377,10 +377,15 @@ const voicesSection = (): Section => ({
   controls: [select('Assign', Param.Assign, ASSIGN), range('Unison detune', Param.UnisonDetune, 0, 1, 0.01), range('Vintage', Param.Analog, 0, 1, 0.01)],
 })
 
-// Five voices of the Pro-One's two-oscillator voice (spec 006 Req 6): A is VCO 2,
-// The Rev 4's filter switch (#321): the SSM2040 of Rev 1/2 or the CEM3320 of Rev 3.
-const P5_REVS: Options = [['Rev 1/2', 1], ['Rev 3', 3]]
+// The Prophet-5's revisions (#343): a revision sets the chips below and the drift;
+// a chip turned away from them reads Custom. Rev 1 and 2 had the SSM chips, Rev 3
+// and 4 the Curtis ones, and the Rev 4 lets each be chosen (#321 the filter).
+const P5_REVISIONS: Options = [['Custom', 0], ['Rev 1', 1], ['Rev 2', 2], ['Rev 3', 3], ['Rev 4', 4]]
+const P5_VCOS: Options = [['SSM2030', 1], ['CEM3340', 3]]
+const P5_VCFS: Options = [['SSM2040', 1], ['CEM3320', 3]]
+const P5_ENVS: Options = [['SSM2050', 1], ['CEM3310', 3]]
 
+// Five voices of the Pro-One's two-oscillator voice (spec 006 Req 6): A is VCO 2,
 // B is VCO 1, poly-mod from the filter envelope and B, unison and vintage drift.
 const prophet5: ModelDef = {
   id: Model.Prophet5,
@@ -391,6 +396,13 @@ const prophet5: ModelDef = {
   theme: { panel: '#1c1b1a', ink: '#f4ead8', soft: '#bfae94', trim: '#3a2a1c', accent: '#f0a73a', wood: '#6e4426' },
   presets: ['P5Brass', 'P5Strings', 'P5Bass', 'P5SyncLead', 'P5Bell', 'P5Pad'],
   sections: [
+    {
+      title: 'Revision',
+      controls: [
+        select('Revision', Param.Revision, P5_REVISIONS), select('VCO', Param.VcoRev, P5_VCOS),
+        select('VCF', Param.FilterRev, P5_VCFS), select('Envelopes', Param.EnvRev, P5_ENVS),
+      ],
+    },
     {
       title: 'Oscillator A',
       controls: [
@@ -422,7 +434,6 @@ const prophet5: ModelDef = {
       controls: [
         range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'), range('Resonance', Param.Resonance, 0, 1, 0.01),
         range('Envelope amount', Param.EnvCutoff, -1, 1, 0.01), select('Key track', Param.KeyTrack, HALF_FULL),
-        select('Filter rev', Param.FilterRev, P5_REVS),
       ],
     },
     { title: 'Filter envelope', controls: adsrControls(Param.FenvAttack, Param.FenvDecay, Param.FenvSustain, Param.FenvRelease) },

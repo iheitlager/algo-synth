@@ -68,8 +68,14 @@ pub struct ModelDef {
     pub hp: Hp,
     /// How the oscillators are voiced (#339).
     pub osc: OscVoicing,
+    /// The oscillators at Rev 1 and Rev 2 of the VCO switch, if it has one;
+    /// Rev 3 is `osc` (#343).
+    pub osc_revs: [Option<OscVoicing>; 2],
     /// How the envelopes are voiced (#340).
     pub env: EnvVoicing,
+    /// The envelopes at Rev 1 and Rev 2 of the envelope switch, if it has
+    /// one; Rev 3 is `env` (#343).
+    pub env_revs: [Option<EnvVoicing>; 2],
     /// How the VCA is voiced (#341).
     pub vca: VcaVoicing,
     /// VCO 1 and VCO 2 are wavetable oscillators (spec 006 Req 11).
@@ -88,8 +94,22 @@ pub struct ModelDef {
     pub hp_follows_ar: bool,
     /// The normalled cutoff follows the filter ADSR (spec 004 Req 12).
     pub cutoff_follows_filter_env: bool,
+    /// What each revision of the instrument sets, Rev 1 to Rev 4, if it
+    /// has the Revision switch (#343).
+    pub revisions: Option<&'static [RevisionDef; 4]>,
     /// Its presets, in the order the view lists them.
     pub presets: &'static [PresetDef],
+}
+
+/// What a revision of an instrument sets: the VCO, filter and envelope
+/// switches (1 or 2 for the early chips, 3 for the later ones) and its
+/// `Analog` drift (#343).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RevisionDef {
+    pub vco: u8,
+    pub filter: u8,
+    pub env: u8,
+    pub analog: f32,
 }
 
 impl ModelDef {
@@ -103,7 +123,9 @@ impl ModelDef {
         revs: [None; 2],
         hp: Hp::None,
         osc: IDEAL_VCO,
+        osc_revs: [None; 2],
         env: RC_ENV,
+        env_revs: [None; 2],
         vca: CLEAN_VCA,
         uses_tables: false,
         has_matrix: false,
@@ -113,18 +135,33 @@ impl ModelDef {
         modulates_with_osc3: false,
         hp_follows_ar: false,
         cutoff_follows_filter_env: true,
+        revisions: None,
         presets: &[],
     };
 
     /// The low-pass at the panel's switches; `filter` where none applies.
     pub fn low_pass(&self, s: Setting) -> Filter {
         let slope = self.slope12.filter(|_| s.slope12);
-        let rev = match s.rev {
-            1 => self.revs[0],
-            2 => self.revs[1],
-            _ => None,
-        };
-        slope.or(rev).unwrap_or(self.filter)
+        slope.or(at_rev(&self.revs, s.rev)).unwrap_or(self.filter)
+    }
+
+    /// The oscillators at the VCO switch's revision.
+    pub fn osc_at(&self, rev: u8) -> OscVoicing {
+        at_rev(&self.osc_revs, rev).unwrap_or(self.osc)
+    }
+
+    /// The envelopes at the envelope switch's revision.
+    pub fn env_at(&self, rev: u8) -> EnvVoicing {
+        at_rev(&self.env_revs, rev).unwrap_or(self.env)
+    }
+}
+
+/// A switch's part at Rev 1 or Rev 2; none at Rev 3, the model's own.
+fn at_rev<T: Copy>(revs: &[Option<T>; 2], rev: u8) -> Option<T> {
+    match rev {
+        1 => revs[0],
+        2 => revs[1],
+        _ => None,
     }
 }
 

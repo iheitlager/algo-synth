@@ -1042,6 +1042,17 @@ pub enum Param {
     /// Prophet-5's SSM2040 at 1 and 2, its CEM3320 at 3; the Odyssey's
     /// 4023, 4035 and 4075.
     FilterRev = 533,
+    /// The instrument's revision on the models with the Revision switch
+    /// (#343): 1..=4 sets the VCO, filter and envelope switches and `Analog`
+    /// as that revision had them; 0 is Custom, which a switch turned away
+    /// from them leaves.
+    Revision = 534,
+    /// The VCO revision, 1..=3: the Prophet-5's SSM2030 at 1 and 2, its
+    /// CEM3340 at 3 (#343).
+    VcoRev = 535,
+    /// The envelope revision, 1..=3: the Prophet-5's SSM2050 at 1 and 2, its
+    /// CEM3310 at 3 (#343).
+    EnvRev = 536,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1129,7 +1140,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 534] = [
+    pub const ALL: [(Param, &'static str); 537] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1664,6 +1675,9 @@ impl Param {
         (Param::FilterModOn, "FilterModOn"),
         (Param::A440, "A440"),
         (Param::FilterRev, "FilterRev"),
+        (Param::Revision, "Revision"),
+        (Param::VcoRev, "VcoRev"),
+        (Param::EnvRev, "EnvRev"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -1962,7 +1976,8 @@ impl Param {
             Param::Assign => (0.0, 1.0),
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),
-            Param::FilterRev => (1.0, 3.0),
+            Param::FilterRev | Param::VcoRev | Param::EnvRev => (1.0, 3.0),
+            Param::Revision => (0.0, 4.0),
             Param::Wt1Table | Param::Wt2Table => (0.0, 7.0),
             Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),
             Param::WtSteps => (0.0, 1.0),

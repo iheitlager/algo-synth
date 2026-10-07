@@ -1,18 +1,55 @@
 //! The Sequential Prophet-5: what the model is and its presets (#330).
 
-use crate::mono::model::{CA3280, CEM_VCO, CEM3310, Filter, PROPHET5_REV3, PROPHET5_REV12};
+use crate::mono::model::{
+    CA3280, CEM_VCO, CEM3310, Filter, PROPHET5_REV3, PROPHET5_REV12, SSM_VCO, SSM2050,
+};
 use crate::mono::preset::Preset;
 use crate::params::Param::*;
-use crate::synth::{ModelDef, PresetDef};
+use crate::synth::{ModelDef, PresetDef, RevisionDef};
+
+/// Rev 1 and 2 share the SSM chips and differ in stability: the hand-built
+/// Rev 1 drifts most. Rev 3 has the Curtis chips; the Rev 4 is Rev 3's
+/// voice, held stable (its Vintage knob at 4).
+const REVISIONS: [RevisionDef; 4] = [
+    RevisionDef {
+        vco: 1,
+        filter: 1,
+        env: 1,
+        analog: 0.8,
+    },
+    RevisionDef {
+        vco: 1,
+        filter: 1,
+        env: 1,
+        analog: 0.6,
+    },
+    RevisionDef {
+        vco: 3,
+        filter: 3,
+        env: 3,
+        analog: 0.4,
+    },
+    RevisionDef {
+        vco: 3,
+        filter: 3,
+        env: 3,
+        analog: 0.1,
+    },
+];
 
 pub const DEF: ModelDef = ModelDef {
+    // Rev 3's parts are its own; Rev 1/2's SSM chips are the switches'.
     osc: CEM_VCO,
+    osc_revs: [Some(SSM_VCO); 2],
     env: CEM3310,
+    env_revs: [Some(SSM2050); 2],
+    // No source tells the SSM2020 of Rev 1/2 apart: one VCA for all.
     vca: CA3280,
     voices: 5,
     filter: Filter::Ladder(PROPHET5_REV3),
     // The Rev 4's switch: the SSM2040 of Rev 1/2.
     revs: [Some(Filter::Ladder(PROPHET5_REV12)); 2],
+    revisions: Some(&REVISIONS),
     presets: &[
         // Two saws a few cents apart, the filter opened by its envelope on every
         // note and followed by the key: the Prophet brass. Five voices, a little drift.

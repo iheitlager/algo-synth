@@ -306,7 +306,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,
         entry: w.song_entry(), local: w.song_local(),
       })
-      // Automation moved these strips' values: show them (ADR-0015).
+      // Automation or a Revision switch moved these strips' values: show them (ADR-0015, #343).
       const touched = w.auto_touched()
       for (let s = 0; s < 32; s++) if ((touched >>> s) & 1) this.sendParams(s)
       // The knobs a modulation drives (ADR-0019): sent when the set changes.

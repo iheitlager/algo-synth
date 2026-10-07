@@ -23,7 +23,7 @@ use crate::padsampler::PadKit;
 use crate::params::Param;
 use env::EnvTimes;
 use ladder::{MAX_K, hz_to_note};
-use model::{Filter, Model, Setting};
+use model::{EnvVoicing, Filter, Model, OscVoicing, Setting};
 use noise::NoiseColour;
 use osc::Waveform;
 use patch::{DESTS, Normals, Patch};
@@ -47,6 +47,9 @@ pub struct MonoParams {
     pub chorus_mode: usize,
     /// The filter switches: slope and revision (#321).
     pub filter_switches: Setting,
+    /// The VCO and envelope revisions, on a model with those switches (#343).
+    pub vco_rev: u8,
+    pub env_rev: u8,
     /// The second LFO (cycles per sample, waveform) and the ramp's step per sample.
     pub lfo2_inc: f32,
     pub lfo2_wave: Waveform,
@@ -167,6 +170,16 @@ impl MonoParams {
         self.model.low_pass(self.filter_switches)
     }
 
+    /// The oscillators in use: the model's at its VCO switch (#343).
+    pub fn osc(&self) -> OscVoicing {
+        self.model.def().osc_at(self.vco_rev)
+    }
+
+    /// The envelopes in use: the model's at its envelope switch (#343).
+    pub fn env(&self) -> EnvVoicing {
+        self.model.def().env_at(self.env_rev)
+    }
+
     /// The voices this synth plays at once: `Polyphony`, at most its model's.
     pub fn voices(&self) -> usize {
         let most = if self.model.uses_graph() {
@@ -193,6 +206,8 @@ impl MonoParams {
             analog: 0.0,
             chorus_mode: 0,
             filter_switches: Setting::OWN,
+            vco_rev: 3,
+            env_rev: 3,
             lfo2_inc: 0.0,
             lfo2_wave: Waveform::Sine,
             ramp_inc: 0.0,
@@ -536,6 +551,10 @@ impl MonoParams {
             Param::XMod => self.normals.xmod = 24.0 * v,
             Param::Slope => self.filter_switches.slope12 = v < 0.5,
             Param::FilterRev => self.filter_switches.rev = v.round().clamp(1.0, 3.0) as u8,
+            Param::VcoRev => self.vco_rev = v.round().clamp(1.0, 3.0) as u8,
+            Param::EnvRev => self.env_rev = v.round().clamp(1.0, 3.0) as u8,
+            // The engine sets the switches it stands for (#343).
+            Param::Revision => {}
             Param::Patch9Source => self.patch.set_source(8, v),
             Param::Patch9Dest => self.patch.set_dest(8, v),
             Param::Patch9Amount => self.patch.set_amount(8, v),

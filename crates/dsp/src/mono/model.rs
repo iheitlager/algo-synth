@@ -359,6 +359,14 @@ pub const CEM_VCO: OscVoicing = OscVoicing {
     tri_round: 0.15,
     saw_bend: 0.03,
 };
+/// The SSM2030 (Prophet-5 Rev 1/2, #343): the waves of the CEM3340 as far
+/// as anyone documents, and the full drift of a VCO without its
+/// temperature compensation.
+pub const SSM_VCO: OscVoicing = OscVoicing {
+    detune: 1.0,
+    drift: 1.0,
+    ..CEM_VCO
+};
 /// A crystal-clocked DCO (Juno-106), a digital oscillator (PPG) or a
 /// divide-down organ core (Polymoog): every voice in tune, ideal waves.
 pub const LOCKED: OscVoicing = OscVoicing {
@@ -432,6 +440,14 @@ pub const CEM3310: EnvVoicing = EnvVoicing {
     attack: [0.002, 10.0],
     decay: [0.002, 10.0],
     release: [0.002, 10.0],
+    ..RC_ENV
+};
+
+/// The SSM2050 (Prophet-5 Rev 1/2, #343): an attack Sequential calls
+/// "very flat, almost linear" next to the CEM3310's curve, from 1 ms. Its
+/// decay and release keep the RC curve: nothing documents them apart.
+pub const SSM2050: EnvVoicing = EnvVoicing {
+    attack_aim: 3.0,
     ..RC_ENV
 };
 
