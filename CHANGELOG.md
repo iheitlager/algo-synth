@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-07
+
+### Added
+
+- **Sequential filters** (spec 004 Req 13): the CEM3320 of the Pro-One and the Prophet-5 Rev 3 clips its input and its resonance feedback apart, as its resonance VCA does, so resonance thins a driven note as it does a soft one; the SSM2040 of the Prophet-5 Rev 1/2 runs cleaner and keeps more bass under resonance (#321).
+- **Filter Rev switch** (`FilterRev`): the Prophet-5 takes the Rev 4's choice of the SSM2040 (Rev 1/2) or the CEM3320 (Rev 3); the Odyssey the reissue's 4023 two-pole (Rev 1), 4035 transistor ladder (Rev 2) or 4075 (Rev 3). Rev 3 is the default (#321).
+- **Every fixed filter in a Modular voice:** revision words (`\prophet5rev1`, `\odysseyrev1`, `\odysseyrev2`), and `HPF … voicing:` as the synth's high-pass, the 6 dB one-pole for `\odyssey`, `\juno106`, `\jupiter8` and `\matrix12`; a test fails when a model's filter has no word (#321).
+- **New:** a button in the top bar discards the song, the synths and the mix and starts over with one Modular synth; a first visit with no kept song starts the same way, and a song without tracks is no longer kept (#325).
+- **A Modular editor with knobs:** the SynthDef sits beside the amplifier envelope, numbered and highlighted by the engine's SuperCollider lexer, and every number in it is a knob on the faceplate, grouped by UGen; turning one changes the sound and the number in the text (#329).
+- **Three example songs on the SuperCollider Modular synth:** *Patch Bay* (909 techno, six SynthDefs and an acid line), *Bleep and Brass* (Prophet-5 stabs, Jupiter-8 and Polymoog strings, SH-101 acid and MS-20 sweeps beside Modular bleeps) and *Clockwork Arps* (arps and generators over one `prog`, 909 and 808 in polymeter with fills, a breakbeat and a four-bar roll, wide Modular arps) (#331).
+- **Oscillators voiced per model:** discrete VCOs (Minimoog, ARP 2600, Odyssey, MS-20, CS-15, Jupiter-8) drift most and have rounded triangles and capacitor-bowed saws, the CEM3340/3374 synths (SH-101, Pro-One, Prophet-5, Matrix-12) drift less, and the Juno-106's DCOs, the PPG and the Polymoog stay in tune. Monosynths now drift too, by a new **Vintage** knob, and their presets set some (#339).
+- **Envelopes voiced per model:** each model's ADSR and filter envelope take the instrument's documented time ranges and curve: the Minimoog's 10 ms–10 s contours with sustain at most 80 % of the peak, the CEM3310's (Prophet-5, Pro-One) from 2 ms, the Juno-106's CPU-written near-linear attack up to 3 s, the SH-101's, the Odyssey's and the Jupiter-8's ranges. Presets whose attack was quicker than their model allows are retuned to its fastest: MiniBass, FunkBass, PolyModBell, P5Bell, AcidBass, SubPluck, JunoPluck (#340).
+- **VCAs voiced per model:** the BA662 OTA (SH-101, Juno-106, Jupiter-8) and the CA3280 (Prophet-5 Rev 3) round a hot signal off, and the ARP 2600's ADSR now drives an exponential VCA over 60 dB as the instrument normals it, so its decays fall evenly in decibels; its presets' sustains are retuned to hold their level. A new synth's default sustain (0.7) therefore sits about 18 dB lower on the ARP. Every other VCA stays clean and bit-exact (#341).
+- **Prophet-5 revisions** (spec 006 Req 6): a Revision selector at the head of the panel, Rev 1 to Rev 4, sets the VCO (SSM2030 or CEM3340), filter (SSM2040 or CEM3320), envelopes (SSM2050, almost straight, or CEM3310) and the drift: Rev 1 the most, the Rev 4 held stable. Each part can be chosen on its own, and the Revision then reads Custom; old setups with `FilterRev` keep their sound (#343).
+- **Drum rolls** (spec 002 Req 3, ADR-0026): drum lanes take ghost notes (`o`), flams (`f`, a soft grace 20 ms before the hit) and drags (`d`, two graces), and grids of `/12` and `/24` (triplets), `/32` and `/48` besides `/16`. Hits between the clock's steps land on their exact samples and swing with their step; the composer's beat marks and play head follow each frag's grid (#353).
+- **Autocommit:** turning a knob, picking a preset, loading a library preset or opening a setup changes the song at once: a track's sound is written into a setting named after the track, the mix into its strip, group and master lines, a few times a second. Values a lane, scene or modulation drives stay as the text says (#357, ADR-0027).
+- **What isn't in the song is marked:** a synth tape shows ◐ when part of its sound can't be written into the song yet (its arpeggiator, sample zones, sampled pads, or more changes than a setting holds), naming what (#361).
+
+### Changed
+
+- **The SH-101 has no high-pass**, as the instrument has none: the HPF knob goes from its faceplate (#321).
+- `HPF … voicing:` takes only the synths with a high-pass; `\polymoog` is refused there, and `\jupiter8` and `\matrix12` are now their 6 dB one-pole (#321).
+- **One definition per instrument** (ADR-0025): each model is a `ModelDef` with its presets in `crates/dsp/src/synth/<model>.rs`, and `Model::def` is the one place a model's answers come from; every preset sounds exactly as before (#330).
+- **Resonance per filter chip:** each 4-pole voicing starts to whistle at its own place on the resonance knob (the Moog at 0.8 as before, the CEM3320 at 0.85, the SSM2040 at 0.88, the Roland IR3109s around 0.9), and the Roland voicings high-pass their resonance loop, so they no longer whistle at the lowest cutoffs; the onsets past 0.8 and the loop high-pass are estimates. SuperCollider's `MoogFF` gain 0–4 now spans the whole knob, so it self-oscillates at 4 (#342).
+- **CPU budget 30%:** `make bench` and plan.md allow 30% of a core, up from 25%, which full polyphony had reached (#342).
+- **Mute and solo per track** (spec 002 Req 11, spec 003 Req 12): the arranger's M and S now mute and solo the track, not its synth. Its frags stop while the synth plays on for live keys and other tracks; the song keeps it as `mute` / `solo` at the end of the track line. The synth rail and mixer still mute the instrument (#355).
+- **The song text applies as you type**, half a second after you stop (Ctrl+Enter at once); a knob never overwrites what you're typing. The Apply, Save as setting and Write mixer to song buttons are gone, and taking a mixer line out of the text resets its values (#358).
+- **The Modular code builds as you type** and lands in the track's setting; its Apply button is gone (#359).
+- **Every synth is a song track:** adding a synth adds its track, removing it removes the track (or mutes it when it has music), and New starts with one Modular track. Save setup is gone; Open… still imports a `.synths.json` into the song, and the console's layout and typed names are kept in the browser (#360).
+
+### Fixed
+
+- **The Demo, and any MIDI file, plays on the synths its song names:** an import now sets each part's patch on its synth (the Demo's bass on a Minimoog, its violins on Pro-Ones), as a reload of the same text did; the Demo no longer ships a setup that turned them into ARP 2600s; and a synth playing a song track is named after it (`basso_continuo` reads `BASSO CONTINUO` on the tape and the mixer strip) unless you named it yourself (#327).
+- **The composer's text editor holds its place:** a song with many tracks no longer pushes the editor down; the text fills the right column from the top, and the track strip and fragments scroll on the left (#332).
+- **Composer dropdowns:** a track's synth, model and preset and a fragment's synth are styled pickers in the track's colour, with a glow on hover and focus, and the track rows line up (#336).
+- **Composer track rows line up:** name, kind, synth, model and preset sit in fixed columns, whatever their text (#351).
+- **The TR-808 and TR-909 panels line up and fit:** every pad column has the same rows, two knobs to a row with Out across, the kick's Drive in a slot the others leave empty, so the panel is symmetric and every Pan is in view above the keyboard; the 808 still scrolls sideways to its last pads. A pad's **Pan now works on the kit's own strip**, not only into a group: the kit plays in stereo, and its strip's Pan balances it (#364).
+
 ## [0.36.0] - 2026-10-06
 
 ### Added
