@@ -4131,7 +4131,10 @@ fn clear_starts_over_with_one_modular_synth() {
     left_of(&mut e, 0.5);
     e.clear();
     assert!(!e.clock().playing(), "stopped");
-    assert_eq!(e.song_text(), Song::default().print(), "empty song");
+    // An empty song but for synth 0's track (ADR-0027).
+    assert!(e.song().frags.is_empty(), "no music");
+    assert_eq!(e.song().tracks.len(), 1);
+    assert_eq!(e.song_routed(0), Some(0));
     assert_eq!(e.param_value(0, Param::Model), Model::Modular as u32 as f32);
     assert_eq!(e.param_value(2, Param::Model), Model::Arp2600 as u32 as f32);
     let fresh = Engine::new(48_000.0);
@@ -4563,4 +4566,158 @@ fn muting_a_track_lets_its_notes_go_and_writes_the_text() {
     assert!(!gated(&e, Owner::Track(0)), "muted, it lets go");
     assert!(e.song_text().contains("track lead synth ") && e.song_text().contains(" mute\n"));
     assert!(!e.set_track_flags(9, true, false), "no such track");
+}
+
+/// ADR-0027: a hand on a knob is folded into the track's own setting, which
+/// is updated in place, and the printed song loads back to the same sound.
+#[test]
+fn a_hand_folds_into_the_tracks_setting() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track lead synth Minimoog MiniBass\n"),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    assert!(!e.fold(), "nothing to fold");
+    e.edit_param(s, Param::Cutoff, 1_234.0);
+    assert!(e.fold(), "the text changed");
+    e.edit_param(s, Param::Resonance, 0.4);
+    assert!(e.fold());
+    assert_eq!(e.song().settings.len(), 1, "one setting, updated in place");
+    let text = e.song_text().to_string();
+    assert!(text.contains("setting lead = Minimoog MiniBass:"), "{text}");
+    let mut f = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut f, &text), Ok(()));
+    let t = f.song_routed(0).expect("routed");
+    assert_eq!(
+        f.param_value(t, Param::Cutoff),
+        e.param_value(s, Param::Cutoff)
+    );
+    assert_eq!(
+        f.param_value(t, Param::Resonance),
+        e.param_value(s, Param::Resonance)
+    );
+}
+
+/// ADR-0027: a fader is folded into the track's strip line, a preset picked
+/// on the synth becomes the track's preset, and what the engine sets itself
+/// (`set_param`, as automation does) is not folded.
+#[test]
+fn faders_and_presets_fold_and_the_engine_does_not() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track lead synth Minimoog MiniBass\n"),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    e.set_param(s, Param::Level, 0.2);
+    assert!(!e.fold(), "the engine's own write is not a hand");
+    e.edit_param(s, Param::Level, 0.4);
+    assert!(e.fold());
+    assert!(
+        e.song_text().contains("strip lead: Level 0.4"),
+        "{}",
+        e.song_text()
+    );
+    e.edit_preset(s, crate::mono::preset::Preset::MiniLead);
+    assert!(e.fold());
+    assert!(
+        e.song_text().contains("track lead synth Minimoog MiniLead"),
+        "{}",
+        e.song_text()
+    );
+}
+
+/// ADR-0027: a value a modulation drives keeps what the text says when the
+/// rest of the sound is folded, so a moving value never freezes into a number.
+#[test]
+fn a_driven_value_is_not_folded() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth Minimoog MiniBass\nmod lead.cutoff = lfo(1).range(300, 2000)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    left_of(&mut e, 0.3);
+    let s = e.song_routed(0).expect("routed");
+    e.edit_param(s, Param::Resonance, 0.5);
+    assert!(e.fold());
+    let setting = e.song().settings.first().expect("a setting");
+    assert!(setting.sets.iter().any(|(p, _)| *p == Param::Resonance));
+    assert!(
+        setting.sets.iter().all(|(p, _)| *p != Param::Cutoff),
+        "the modulated cutoff stays out: {:?}",
+        setting.sets
+    );
+}
+
+/// ADR-0027: a mixer line taken out of the text puts its values back to
+/// their defaults, so the text is the mix.
+#[test]
+fn a_mixer_line_taken_out_resets_its_values() {
+    let mut e = Engine::new(48_000.0);
+    let fresh = Engine::new(48_000.0);
+    let text = "track bass synth\nstrip bass: Level 0.3\nmaster: MasterGain 0.6\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(load_text(&mut e, "track bass synth\n"), Ok(()));
+    assert_eq!(
+        e.param_value(s, Param::Level),
+        fresh.param_value(s, Param::Level)
+    );
+    assert_eq!(
+        e.param_value(0, Param::MasterGain),
+        fresh.param_value(0, Param::MasterGain)
+    );
+}
+
+/// ADR-0027: every synth on screen is a track. Adding one names it after the
+/// synth and keeps its sound; removing it takes the track out when it has
+/// no music, the later tracks keeping their synths, and mutes it otherwise.
+#[test]
+fn a_synth_on_screen_is_a_track() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track kit drums\nfrag beat = kit /16\n  bd x...\n"),
+        Ok(())
+    );
+    let kit = e.song_routed(0).expect("the kit");
+    e.edit_param(3, Param::Cutoff, 700.0);
+    assert_eq!(
+        e.track_add(3, crate::mono::preset::Preset::MiniBass),
+        Some(1)
+    );
+    assert_eq!(e.track_add(5, crate::mono::preset::Preset::Bass), Some(2));
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(text.contains("track synth_4 synth"), "{text}");
+    assert!(
+        text.contains("Cutoff 700"),
+        "the synth's sound is folded in: {text}"
+    );
+    // Without music it goes; the next track keeps its synth.
+    assert_eq!(e.track_remove(3), 1);
+    assert_eq!(e.song().tracks.len(), 2);
+    assert_eq!(e.song_routed(1), Some(5));
+    // With music it is muted, its music kept.
+    assert_eq!(e.track_remove(kit), 0);
+    assert_eq!(e.song_routed(0), None);
+    assert_eq!(e.song().frags.len(), 1);
+    assert_eq!(e.track_remove(9), -1, "no track");
+}
+
+/// #361: what of a synth's sound the song can't hold yet is reported, and a
+/// synth the song holds entirely reports nothing.
+#[test]
+fn what_the_song_cannot_hold_is_reported() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track lead synth Minimoog MiniBass\n"),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    e.edit_param(s, Param::Cutoff, 900.0);
+    assert_eq!(e.live_only(s), 0, "a knob is in the song");
+    e.edit_param(s, Param::ArpOn, 1.0);
+    assert_eq!(e.live_only(s), LIVE_ARP);
+    e.edit_param(s, Param::ArpOn, 0.0);
+    assert_eq!(e.live_only(s), 0);
 }

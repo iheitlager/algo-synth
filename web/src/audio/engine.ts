@@ -2,7 +2,7 @@
 // AudioWorkletNode (dsp.wasm) -> AnalyserNode (scope) -> speakers.
 // This file only sends messages; every musical decision is made in Rust.
 
-import { computed, reactive, shallowReactive } from 'vue'
+import { computed, reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
@@ -18,6 +18,7 @@ import {
 } from './sampler'
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, songFileName } from './songfile'
+import { keepView, lastView } from './viewstate'
 
 const base = import.meta.env.BASE_URL
 
@@ -184,8 +185,15 @@ export function addSynth(model?: ModelDef): boolean {
   show(free)
   const first = model?.presets[0]
   if (first !== undefined) engine?.preset(free, Preset[first])
+  trackFor(free, model ?? modelDef(0))
   synths.selected = free
   return true
+}
+
+/** Give synth `s` a song track on its model's first preset (ADR-0027). */
+function trackFor(s: number, model: ModelDef) {
+  const first = model.presets[0]
+  if (first !== undefined) engine?.post({ t: 'trackAdd', s, preset: Preset[first] })
 }
 
 /**
@@ -220,6 +228,8 @@ function nameByTrack(s: number, track: string) {
 /** Remove synth `s` (never the last one). */
 export function removeSynth(s: number) {
   if (synths.list.length <= 1) return
+  // Its track goes with it, or is muted when it has music (ADR-0027).
+  engine?.post({ t: 'trackRemove', s })
   synths.list = synths.list.filter((i) => i !== s)
   delete names.strips[s]
   fromSong.delete(s)
@@ -237,6 +247,7 @@ export async function power(): Promise<void> {
     status.running = true
     status.sampleRate = engine.ctx.sampleRate
     // The last session's song (#105); a song file opened at the same time follows and replaces it.
+    restoreView()
     const kept = lastSong()
     if (kept) loadSong(kept)
     else clearAll()
@@ -246,6 +257,24 @@ export async function power(): Promise<void> {
 }
 
 export const getEngine = (): AudioEngine | null => engine
+
+/** The screen as it was left (ADR-0027): groups, strip order, collapsed and
+ * hidden strips and typed names; the song brings its own tracks and names. */
+function restoreView() {
+  const v = lastView()
+  if (!v) return
+  Object.assign(layout, { groups: v.groups, order: v.order, collapsed: v.collapsed, hidden: v.hidden })
+  for (const [k, n] of Object.entries(v.names)) names.strips[Number(k)] = n
+}
+// Keep the view as it changes; names a song gave are the song's, not kept.
+watch(
+  () => [layout.groups, layout.order, layout.collapsed, layout.hidden, { ...names.strips }] as const,
+  () => {
+    const typed = Object.fromEntries(Object.entries(names.strips).filter(([k]) => !fromSong.has(Number(k))))
+    keepView({ groups: [...layout.groups], order: [...layout.order], collapsed: [...layout.collapsed], hidden: [...layout.hidden], names: typed })
+  },
+  { deep: true },
+)
 
 /**
  * Start over (#325): the engine clears the song, every synth, strip and effect
@@ -538,6 +567,12 @@ export const song = reactive({
  */
 export const codes = reactive({} as Record<number, { text: string; error: { line: number; col: number; msg: string } | null }>)
 
+/** What of each synth's sound the song can't hold yet (#361), as the engine reports it. */
+export const liveOnly = reactive({ bits: [] as number[] })
+const LIVE_WORDS = ['the arpeggiator', 'its sample zones', 'its sampled pads', 'more changes than a setting holds'] as const
+/** What synth `s` has that isn't in the song, as words; empty when the song holds it all. */
+export const notInSong = (s: number): string[] => LIVE_WORDS.filter((_, i) => ((liveOnly.bits[s] ?? 0) >> i) & 1)
+
 /** A knob of a Modular synth's code (#329): a number of the SynthDef, on `Ctl1` + `ctl`. */
 export interface CodeKnob { module: number; ugen: string; name: string; ctl: number; lo: number; hi: number; exp: boolean; def: number }
 /** Each Modular synth's knobs, as the engine lists them with its code. */
@@ -560,11 +595,42 @@ export function setCode(s: number, text: string) {
   engine?.post({ t: 'code', s, bytes: bytes.buffer }, [bytes.buffer])
 }
 
+/** The text last sent to be parsed, so its answer may replace the draft. */
+let sent: string | null = null
+
 /** Send `text` to the engine to parse and play. */
 export function loadSong(text: string) {
+  clearTimeout(typing)
   song.draft = text
+  sent = text
   const bytes = new TextEncoder().encode(text)
   engine?.post({ t: 'song', bytes: bytes.buffer }, [bytes.buffer])
+}
+
+/** How long typing rests before the text applies (ADR-0027). */
+export const APPLY_AFTER_MS = 500
+let typing: ReturnType<typeof setTimeout> | undefined
+let held = false
+
+/** Hold the engine's folding while an edit of the text is not applied yet,
+ * so a knob never overwrites what is being typed (ADR-0027). */
+function holdFold(on: boolean) {
+  if (on === held) return
+  held = on
+  engine?.post({ t: 'foldHold', on })
+}
+
+/**
+ * The song text as it is typed (ADR-0027): applied once typing rests for
+ * `APPLY_AFTER_MS`, folding held until then. A text that doesn't parse shows
+ * its error and changes nothing.
+ */
+export function typeSong(text: string) {
+  song.draft = text
+  clearTimeout(typing)
+  const edited = text !== song.text
+  holdFold(edited)
+  if (edited) typing = setTimeout(() => loadSong(song.draft), APPLY_AFTER_MS)
 }
 
 /** Set one step (0 off, 1 hit, 2 accent); the engine sends the song back. */
@@ -607,7 +673,6 @@ export const songPosition = computed(() => {
 /** Ask the engine for the song it holds (when the composer opens). */
 export const requestSong = () => engine?.post({ t: 'songDump' })
 /** Print the mixer as it is into the song as `strip`, `group` and `master` lines (ADR-0018). */
-export const writeMixerToSong = () => engine?.post({ t: 'mixWrite' })
 
 // Opening a MIDI file turns it into the song (#173, ADR-0022): the engine
 // converts it; the composer and the arranger show the result.
@@ -637,14 +702,16 @@ export function applySong(data: Record<string, unknown>) {
   const text = decoder.decode(data.text as Uint8Array)
   const error = data.error as { line: number; col: number; msg: Uint8Array } | null
   song.error = error ? { line: error.line, col: error.col, msg: decoder.decode(error.msg) } : null
-  // A song that played replaces the draft with its canonical text; a failed one leaves the draft alone.
+  // A song that played replaces the draft with its canonical text, unless the
+  // draft was typed on since (ADR-0027); a failed one leaves the draft alone.
   // One without tracks is not kept, so a reload after New starts fresh (#325).
   if (data.ok) {
-    song.draft = text
+    if (song.draft === song.text || song.draft === sent) song.draft = text
     if ((data.tracks as unknown[]).length) keepSong(text)
     else forgetSong()
   }
   song.text = text
+  holdFold(song.draft !== song.text)
   song.tempo = data.tempo as number
   song.swing = data.swing as number
   song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number; flags?: number }[]).map((t) => ({
@@ -717,7 +784,6 @@ export const arrange = {
 export const trackEdit = {
   preset: (t: number, preset: number) => engine?.post({ t: 'track', op: 0, track: t, a: preset }),
   setting: (t: number, i: number) => engine?.post({ t: 'track', op: 1, track: t, a: i }),
-  save: (t: number) => engine?.post({ t: 'track', op: 2, track: t }),
 }
 
 /** What to tell the user when the engine knows fewer models than the view offers. */
@@ -749,6 +815,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
       text: decoder.decode(data.text as Uint8Array),
       error: e ? { line: e.line, col: e.col, msg: decoder.decode(e.msg) } : null,
     }
+  } else if (data.t === 'liveOnly') {
+    liveOnly.bits = data.bits as number[]
   } else if (data.t === 'knobs') {
     codeKnobs[data.s as number] = parseKnobs(new TextDecoder('utf-8').decode(data.knobs as Uint8Array))
   } else if (data.t === 'mods') {
@@ -860,11 +928,6 @@ function download(text: string, type: string, name: string) {
 }
 
 /** Download the current setup, named after the loaded MIDI file. */
-export function saveSetup() {
-  const stem = files.fileName ? files.fileName.replace(/\.midi?$/i, '') : 'algo-synth'
-  download(setupText(), 'application/json', `${stem}.synths.json`)
-}
-
 /** The song file last opened, so Save song writes it back under its name. */
 let songName = ''
 
@@ -909,6 +972,7 @@ export async function openFiles(picked: File[]): Promise<void> {
 function applySetup(setup: Setup, warnings: string[]) {
   if (!engine) return
   const plan = applyPlan(setup, registry)
+  const models = new Map<number, number>()
   for (const op of plan.ops) {
     if (op.t === 'show') {
       synths.list = op.synths
@@ -924,8 +988,14 @@ function applySetup(setup: Setup, warnings: string[]) {
     } else if (op.t === 'code') {
       setCode(op.s, op.text)
     } else {
+      if (op.id === Param.Model) models.set(op.s, op.v)
       engine.param(op.s, op.id as ParamId, op.v)
     }
+  }
+  // An opened setup is an import (ADR-0027): a synth it shows without a song
+  // track gets one, and the fold writes its sound into the song.
+  for (const s of synths.list) {
+    if (!song.tracks.some((t) => t.synth === s)) trackFor(s, modelDef(models.get(s) ?? params.values[s]?.[Param.Model] ?? 0))
   }
   // A song track on a synth the setup doesn't list keeps that synth on screen.
   for (const t of song.tracks) {

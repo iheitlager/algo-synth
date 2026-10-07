@@ -5,7 +5,7 @@
 // engine sends back. Nothing here parses or plays.
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, loadSong, params, requestSong, writeMixerToSong, routeTrack, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  MUTE, loadSong, params, requestSong, routeTrack, typeSong, setSongSwing, setSongTempo, setStep, song, songPosition as position,
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -86,10 +86,6 @@ watch(() => status.running, (on) => on && requestSong())
     </div>
     <!-- Play, pause and stop are the transport bar's (ADR-0022). -->
     <div class="controls">
-      <button
-        :disabled="!status.running" title="Write the mixer as it is into the song: strip, group and master lines"
-        @click="writeMixerToSong"
-      >Write mixer to song</button>
       <label class="field" title="The song's tempo; its text follows">
         BPM <input class="num" type="number" min="20" max="300" step="1" :value="song.tempo" :disabled="!status.running"
           @change="setSongTempo(Number(($event.target as HTMLInputElement).value))" />
@@ -140,11 +136,10 @@ watch(() => status.running, (on) => on && requestSong())
       </div>
       <div class="text">
         <div class="text-head">
-          <button :disabled="!dirty || !status.running" title="Ctrl+Enter" @click="apply">Apply</button>
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
-          <span v-else-if="dirty" class="muted">edited, not applied</span>
+          <span v-else-if="dirty" class="muted">applies when you pause · Ctrl+Enter now</span>
         </div>
-        <SongEditor v-model="song.draft" :disabled="!status.running" :error="song.error" @keydown="onKey" />
+        <SongEditor :model-value="song.draft" :disabled="!status.running" :error="song.error" @update:model-value="typeSong" @keydown="onKey" />
       </div>
     </div>
   </section>

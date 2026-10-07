@@ -1914,6 +1914,116 @@ impl Song {
         Some(i)
     }
 
+    /// A track for a synth shown on screen (ADR-0027): named `base`, or
+    /// `base_2`… when taken, of the kind `preset`'s model plays, on that
+    /// preset. Its index, or `None` past the song's room.
+    pub fn add_track(&mut self, base: &str, preset: Preset) -> Option<usize> {
+        if self.tracks.len() >= MAX_TRACKS {
+            return None;
+        }
+        let model = preset.model();
+        let kind = if model.uses_drums() || model.uses_pads() {
+            Kind::Drums
+        } else if model.uses_sampler() {
+            Kind::Sampler
+        } else {
+            Kind::Synth
+        };
+        let taken = |n: &str| self.tracks.iter().any(|t| t.name == n);
+        let name = std::iter::once(base.to_string())
+            .chain((2..=MAX_TRACKS + 1).map(|k| format!("{base}_{k}")))
+            .find(|n| !taken(n))?;
+        self.tracks.push(Track {
+            name,
+            kind,
+            preset: Some(preset),
+            setting: None,
+            picked: false,
+            mute: false,
+            solo: false,
+        });
+        Some(self.tracks.len() - 1)
+    }
+
+    /// Take track `t` out (ADR-0027), when nothing of the song plays or moves
+    /// it: no fragment, lane, modulation or scene names it. Its mixer line
+    /// goes; later tracks move down one. False when it has music.
+    pub fn remove_track(&mut self, t: usize) -> bool {
+        let names = |target: Target| target == Target::Track(t);
+        if t >= self.tracks.len()
+            || self.frags.iter().any(|f| f.track == t)
+            || self.autos.iter().any(|a| names(a.target))
+            || self.mods.iter().any(|m| names(m.target))
+            || self
+                .scenes
+                .iter()
+                .any(|s| s.sets.iter().any(|(tg, _, _)| names(*tg)))
+        {
+            return false;
+        }
+        self.tracks.remove(t);
+        self.mix.retain(|m| m.at != Mix::Track(t));
+        let down = |u: &mut usize| {
+            if *u > t {
+                *u -= 1;
+            }
+        };
+        for f in &mut self.frags {
+            down(&mut f.track);
+        }
+        for m in &mut self.mix {
+            if let Mix::Track(u) = &mut m.at {
+                down(u);
+            }
+        }
+        let target = |tg: &mut Target| {
+            if let Target::Track(u) = tg {
+                down(u);
+            }
+        };
+        self.autos.iter_mut().for_each(|a| target(&mut a.target));
+        self.mods.iter_mut().for_each(|m| target(&mut m.target));
+        for s in &mut self.scenes {
+            s.sets.iter_mut().for_each(|(tg, _, _)| target(tg));
+        }
+        true
+    }
+
+    /// Track `t`'s sound as the hands left it (ADR-0027): the setting only it
+    /// plays takes `sets` and `code` in place; without one, a new setting
+    /// named after the track does, unless nothing differs from the preset.
+    /// False without a preset or past a setting's room.
+    pub fn fold_sound(&mut self, t: usize, sets: Vec<(Param, f32)>, code: Option<String>) -> bool {
+        let Some(tr) = self.tracks.get(t) else {
+            return false;
+        };
+        let Some(preset) = tr.preset else {
+            return false;
+        };
+        if sets.len() > MAX_SETS {
+            return false;
+        }
+        let shared = |i: usize| {
+            self.tracks
+                .iter()
+                .enumerate()
+                .any(|(u, other)| u != t && other.setting == Some(i))
+        };
+        match tr.setting.filter(|&i| !shared(i)) {
+            Some(i) => match self.settings.get_mut(i) {
+                Some(st) => {
+                    st.preset = preset;
+                    st.sets = sets;
+                    st.code = code;
+                    true
+                }
+                None => false,
+            },
+            None if sets.is_empty() && code.is_none() => true,
+            None => self.add_setting(t, sets, code).is_some(),
+        }
+    }
+
     /// ` .fast(2) .cutoff(…)`: the pattern methods of fragment `f`, then its
     /// parameter methods.
     fn methods_of(&self, f: usize) -> String {

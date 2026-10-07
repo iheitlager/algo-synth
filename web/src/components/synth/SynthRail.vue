@@ -5,7 +5,7 @@
 // decided: it shows what the engine reports.
 // "+ Synth" opens the families and their models (#132).
 import { nextTick, ref } from 'vue'
-import { getEngine, levels, params, status } from '../../audio/engine'
+import { getEngine, levels, notInSong, params, status } from '../../audio/engine'
 import { FAMILIES, familyModels, type ModelDef } from '../../audio/models'
 import { Param, type ParamId } from '../../audio/params'
 import LedMeter from '../console/LedMeter.vue'
@@ -71,7 +71,10 @@ const level = (s: number) => levels.values[s] ?? 0
         v-if="editing !== t.s" class="pick" :aria-pressed="selected === t.s"
         :title="`Play ${t.name} (double-click to rename)`" @click="$emit('select', t.s)" @dblclick="editing = t.s"
       >
-        <b><i class="dot" aria-hidden="true" />{{ t.name }}</b>
+        <b><i class="dot" aria-hidden="true" />{{ t.name }}<i
+          v-if="notInSong(t.s).length" class="live" role="img" :aria-label="`Not in the song: ${notInSong(t.s).join(', ')}`"
+          :title="`Not in the song yet: ${notInSong(t.s).join(', ')}. It plays now, but a saved or reloaded song won't have it.`"
+        >◐</i></b>
         <span>{{ t.model }} · {{ t.footer }}</span>
       </button>
       <div v-else class="pick">
@@ -116,6 +119,7 @@ const level = (s: number) => levels.values[s] ?? 0
 .pick b { color: var(--con-paper); font-size: 15px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pick span { color: var(--con-silk-dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); margin-right: 7px; vertical-align: 1px; }
+.live { margin-left: 6px; font-style: normal; font-size: 11px; color: var(--accent); vertical-align: 1px; cursor: help; }
 .side { display: flex; gap: 5px; align-items: center; padding: 4px 6px 4px 0; }
 .ms { display: flex; flex-direction: column; gap: 3px; }
 .ms button {

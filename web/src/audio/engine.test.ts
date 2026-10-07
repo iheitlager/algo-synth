@@ -208,6 +208,58 @@ describe('applySong', () => {
   })
 })
 
+describe('the song as it is typed (ADR-0027)', () => {
+  it('holds folding while typing and applies once typing rests', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mod, take } = await boot()
+      mod.song.text = 'tempo 120\n'
+      take()
+      mod.typeSong('tempo 12')
+      mod.typeSong('tempo 128\n')
+      expect(take()).toEqual([{ t: 'foldHold', on: true }])
+      vi.advanceTimersByTime(mod.APPLY_AFTER_MS - 1)
+      expect(take()).toEqual([])
+      vi.advanceTimersByTime(1)
+      const sent = take()
+      expect(sent.map((m) => m.t)).toEqual(['song'])
+      expect(new TextDecoder().decode(sent[0]?.bytes as ArrayBuffer)).toBe('tempo 128\n')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('takes the canonical text back, releases folding, and never overwrites what was typed since', async () => {
+    const { mod, send, take } = await boot()
+    mod.song.text = 'tempo 120\n'
+    mod.loadSong('tempo  128')
+    take()
+    // The answer to what was sent replaces the draft with its canonical text.
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 128\n'), error: null, tracks: [] })
+    expect(mod.song.draft).toBe('tempo 128\n')
+    // Typed on, then a fold arrives: the typing stays.
+    mod.typeSong('tempo 128\nswing 60\n')
+    take()
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 128\nstrip a: Level 0.5\n'), error: null, tracks: [] })
+    expect(mod.song.draft).toBe('tempo 128\nswing 60\n')
+    expect(take()).toEqual([])
+    // Back to the engine's text: folding is released.
+    mod.typeSong('tempo 128\nstrip a: Level 0.5\n')
+    expect(take()).toEqual([{ t: 'foldHold', on: false }])
+  })
+})
+
+describe('what the song cannot hold yet (#361)', () => {
+  it('names what of a synth is not in the song, from the engine\'s bits', async () => {
+    const { mod, send } = await boot()
+    send({ t: 'liveOnly', bits: [0, 1 | 4, 8] })
+    expect(mod.notInSong(0)).toEqual([])
+    expect(mod.notInSong(1)).toEqual(['the arpeggiator', 'its sampled pads'])
+    expect(mod.notInSong(2)).toEqual(['more changes than a setting holds'])
+    expect(mod.notInSong(9)).toEqual([])
+  })
+})
+
 describe('Modular knobs (#329)', () => {
   it('parses the engine\'s knob list, one tab-separated line per number', async () => {
     const { mod } = await boot()
@@ -515,7 +567,6 @@ describe('posting', () => {
     mod.arrange.seekBar(5)
     mod.trackEdit.preset(1, Preset.MiniBass)
     mod.trackEdit.setting(0, 2)
-    mod.trackEdit.save(3)
     expect(take()).toEqual([
       { t: 'arr', op: 0, a: 1, b: 2, c: 3 },
       { t: 'arr', op: 1, a: 4 },
@@ -528,7 +579,6 @@ describe('posting', () => {
       { t: 'songSeek', bar: 5 },
       { t: 'track', op: 0, track: 1, a: Preset.MiniBass },
       { t: 'track', op: 1, track: 0, a: 2 },
-      { t: 'track', op: 2, track: 3 },
     ])
   })
 
@@ -554,10 +604,19 @@ describe('synths and groups', () => {
     expect(mod.addSynth()).toBe(true)
     expect(mod.synths.list).toEqual([0, 1])
     expect(mod.synths.selected).toBe(1)
-    expect(take()).toEqual([{ t: 'reset', s: 1 }])
+    // Shown, then a song track for it (ADR-0027).
+    expect(take().map((m) => [m.t, m.s])).toEqual([['reset', 1], ['trackAdd', 1]])
     expect(names.names.strips[1]).toMatch(/Synth/)
     for (let i = 2; i < mod.MAX_SYNTHS; i++) mod.addSynth()
     expect(mod.addSynth()).toBe(false)
+  })
+
+  it('removeSynth takes its track with it (ADR-0027)', async () => {
+    const { mod, take } = await boot()
+    mod.addSynth()
+    take()
+    mod.removeSynth(1)
+    expect(take()).toEqual([{ t: 'trackRemove', s: 1 }])
   })
 
   it('removeSynth never removes the last', async () => {
