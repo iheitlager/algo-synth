@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The Modular faceplate's code (ADR-0024): the synth's SuperCollider SynthDef,
 // written here and sent with `setCode`; the engine builds it, or keeps the
-// synth as it was and says where it went wrong. The code lives on the synth,
-// like a patch; saving the track's sound as a setting puts it in the song.
-// Numbered and highlighted by the engine's SuperCollider lexer (#329).
-import { computed, ref, watch } from 'vue'
-import { codes, setCode, status } from '../../audio/engine'
+// synth as it was and says where it went wrong. It builds as it is typed, half
+// a second after typing stops (Ctrl+Enter at once), and the engine folds it
+// into the track's setting (ADR-0027). Numbered and highlighted by the
+// engine's SuperCollider lexer (#329).
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { APPLY_AFTER_MS, codes, setCode, status } from '../../audio/engine'
 import { scLexer } from '../../audio/lex'
 import CodeArea from '../CodeArea.vue'
 
@@ -28,7 +29,17 @@ watch(
   { immediate: true },
 )
 
-const apply = () => setCode(props.s, draft.value)
+let typing: ReturnType<typeof setTimeout> | undefined
+const apply = () => {
+  clearTimeout(typing)
+  setCode(props.s, draft.value)
+}
+// An edit builds once typing rests; a text the engine sent is not an edit.
+watch(draft, (text) => {
+  clearTimeout(typing)
+  if (text !== taken) typing = setTimeout(apply, APPLY_AFTER_MS)
+})
+onBeforeUnmount(() => clearTimeout(typing))
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
@@ -40,11 +51,10 @@ function onKey(e: KeyboardEvent) {
 <template>
   <div class="code-editor" @keydown="onKey">
     <div class="bar">
-      <button :disabled="!status.running" title="Build the SynthDef on this synth (Ctrl+Enter)" @click="apply">Apply</button>
       <p v-if="code?.error" class="err" role="alert">
         Line {{ code.error.line }}, column {{ code.error.col }}: {{ code.error.msg }}
       </p>
-      <span v-else class="hint">Ctrl+Enter applies</span>
+      <span v-else class="hint">builds when you pause · Ctrl+Enter now</span>
     </div>
     <CodeArea
       v-model="draft" :lexer="scLexer" label="SynthDef" indent="    " :disabled="!status.running"
