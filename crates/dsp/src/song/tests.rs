@@ -722,8 +722,8 @@ fn an_electro_example_parses_and_prints_back() {
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
-/// The songs in `examples/` parse, print back equal, are arranged, and play an
-/// SH-101 bass whose filter has automation lanes.
+/// The songs in `examples/` parse, print back equal and are arranged; all but
+/// a drum study play an SH-101 bass whose filter has automation lanes.
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
@@ -738,6 +738,11 @@ fn the_example_songs_parse_and_print_back() {
         let s = Song::parse(&text).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{name}");
         assert!(!s.arrange.is_empty(), "{name}: arranged");
+        seen += 1;
+        // A drum study (all its tracks drums) has no bass to automate.
+        if s.tracks.iter().all(|t| t.kind == Kind::Drums) {
+            continue;
+        }
         assert!(
             s.tracks
                 .iter()
@@ -752,9 +757,8 @@ fn the_example_songs_parse_and_print_back() {
             s.autos.iter().any(|a| a.param == Param::Resonance),
             "{name}: resonance lanes"
         );
-        seen += 1;
     }
-    assert_eq!(seen, 11, "eleven examples");
+    assert_eq!(seen, 12, "twelve examples");
 }
 
 const ARRANGED: &str = "\
