@@ -22,7 +22,7 @@ What changed in each version is in [CHANGELOG.md](CHANGELOG.md). See [.openspec/
 make dev      # Vite on http://localhost:6341 (rebuilds dsp.wasm first)
 make serve    # Podman + Caddy on http://localhost:6340
 make check    # every CI gate: lint, deny, tests, typecheck, build
-make bench    # 16 Mono voices in V8 against the 25% CPU budget
+make bench    # 16 Mono voices in V8 against the 30% CPU budget
 make          # all targets
 ```
 

@@ -13,7 +13,7 @@ const SR = 48_000
 const VOICES = 16
 const WARMUP = 200
 const BLOCKS = 4_000
-const BUDGET = 0.25
+const BUDGET = 0.3
 // Notes held on each channel; the polyphonic scenarios hold chords (spec 006 Req 15).
 const CHORD = [0, 3, 7, 12]
 

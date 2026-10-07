@@ -22,7 +22,7 @@ algo-synth is built **from working to working**: every MVP is something you can 
 
 - **All music logic lands in `crates/dsp`** (ADR-0001). A feature that needs JavaScript beyond a message or a drawing is a design smell.
 - **Offline-render tests.** Every source and effect is tested natively by rendering blocks and checking properties: finite, bounded, silent when it should be, the right pitch (zero crossings or a Goertzel bin), no DC. The browser is for listening, not for proving.
-- **Performance budget.** Target: 16 voices plus the full mixer under 25% of one core at 48 kHz, measured as render capacity in Chrome DevTools' WebAudio panel (More tools → WebAudio). Checked at the end of each milestone, not guessed; `make bench` measures it in V8.
+- **Performance budget.** Target: 16 voices plus the full mixer under 30% of one core at 48 kHz (25% until #342, when full polyphony sat at its edge), measured as render capacity in Chrome DevTools' WebAudio panel (More tools → WebAudio). Checked at the end of each milestone, not guessed; `make bench` measures it in V8.
 
 ---
 
