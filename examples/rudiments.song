@@ -1,0 +1,136 @@
+tempo 96
+track kit drums Tr909 Kit909
+
+# The click under every rudiment: kick on one, a hat on each beat.
+frag click = kit /16
+  bd x...............
+  ch x...x...x...x...
+
+# --- Rolls (o is the soft second stroke of a diddle) ---
+# Single stroke roll, sixteenths: R L R L
+frag single16 = kit /16
+  sn XxxxXxxxXxxxXxxx
+# Single stroke roll, thirty-seconds
+frag single32 = kit /32
+  sn XxxxxxxxXxxxxxxxXxxxxxxxXxxxxxxx
+# Double stroke roll: RR LL, each double a stroke and its rebound
+frag double = kit /32
+  sn XoxoxoxoXoxoxoxoXoxoxoxoXoxoxoxo
+# Triple stroke roll, in triplets: RRR LLL
+frag triple = kit /24
+  sn XooxooXooxooXooxooXooxoo
+# Five stroke roll: RR LL R
+frag five = kit /32
+  sn xoxoX...xoxoX...xoxoX...xoxoX...
+# Six stroke roll: R LL RR L
+frag six = kit /32
+  sn X.xoxoX.X.xoxoX.X.xoxoX.X.xoxoX.
+# Seven stroke roll: RR LL RR L
+frag seven = kit /32
+  sn xoxoxoX.xoxoxoX.xoxoxoX.xoxoxoX.
+# Nine stroke roll: RR LL RR LL R
+frag nine = kit /32
+  sn xoxoxoxoX.......xoxoxoxoX.......
+# Single stroke four, triplets: R L R L(accent)
+frag stroke4 = kit /24
+  sn xxxX..xxxX..xxxX..xxxX..
+# Single stroke seven, triplets
+frag stroke7 = kit /24
+  sn xxxxxxX.xxxxxxX.xxxxxxX.
+# Crescendo roll: ghosts, hits, then accents
+frag crescendo = kit /32
+  sn o.o.o.o.x.x.x.x.xxxxxxxxXXXXXXXX
+
+# --- Diddles ---
+# Single paradiddle: R L RR  L R LL
+frag paradiddle = kit /16
+  sn XxxoXxxoXxxoXxxo
+# Double paradiddle, triplets: R L R L RR
+frag dblpara = kit /24
+  sn XxxxxoXxxxxoXxxxxoXxxxxo
+# Paradiddle-diddle, triplets: R L RR LL
+frag paradiddle_diddle = kit /24
+  sn XxxoxoXxxoxoXxxoxoXxxoxo
+# Triple paradiddle: R L R L R L RR
+frag triplepara = kit /16
+  sn XxxxxxxoXxxxxxxo
+
+# --- Flams (f: a soft grace just before the stroke) ---
+# Flam on every beat
+frag flam = kit /16
+  sn f...f...f...f...
+# Flam tap: flam and a tap from the same hand
+frag flamtap = kit /16
+  sn fxfxfxfxfxfxfxfx
+# Flam accent, triplets: flam tap tap
+frag flamaccent = kit /24
+  sn fxxfxxfxxfxxfxxfxxfxxfxx
+# Flamacue: flam, accent, tap, tap, flam
+frag flamacue = kit /16
+  sn fXxxf...fXxxf...
+# Flam paradiddle
+frag flampara = kit /16
+  sn fxxofxxofxxofxxo
+# Pataflafla: flam tap tap flam
+frag pataflafla = kit /16
+  sn fxxffxxffxxffxxf
+# Swiss army triplet: flam, rebound, tap
+frag swiss = kit /24
+  sn foxfoxfoxfoxfoxfoxfoxfox
+# Flam drag: flam, drag, tap
+frag flamdrag = kit /24
+  sn f.dx..f.dx..f.dx..f.dx..
+
+# --- Drags (d: two soft graces before the stroke) ---
+# Drag on every beat
+frag drag = kit /16
+  sn d...d...d...d...
+# Single drag tap: drag, accent
+frag dragtap = kit /16
+  sn d.X.d.X.d.X.d.X.
+# Lesson 25: drag, tap, accent
+frag lesson25 = kit /16
+  sn dxX.dxX.dxX.dxX.
+# Single ratamacue: drag, tap, tap, accent
+frag ratamacue = kit /16
+  sn dxxXdxxXdxxXdxxX
+# Drag paradiddle: accent, drag paradiddle
+frag dragpara = kit /16
+  sn XdxoXdxoXdxoXdxo
+
+# --- In a groove: ghost notes between backbeats ---
+frag ghosts = kit /16
+  sn .oo.Xo.o.oo.X.oo
+  bd x.....x...x.....
+  ch x.x.x.x.x.x.x.x.
+
+section single16 2: click single16
+section single32 2: click single32
+section double 2: click double
+section triple 2: click triple
+section five 2: click five
+section six 2: click six
+section seven 2: click seven
+section nine 2: click nine
+section stroke4 2: click stroke4
+section stroke7 2: click stroke7
+section crescendo 2: click crescendo
+section paradiddle 2: click paradiddle
+section dblpara 2: click dblpara
+section paradiddle_diddle 2: click paradiddle_diddle
+section triplepara 2: click triplepara
+section flam 2: click flam
+section flamtap 2: click flamtap
+section flamaccent 2: click flamaccent
+section flamacue 2: click flamacue
+section flampara 2: click flampara
+section pataflafla 2: click pataflafla
+section swiss 2: click swiss
+section flamdrag 2: click flamdrag
+section drag 2: click drag
+section dragtap 2: click dragtap
+section lesson25 2: click lesson25
+section ratamacue 2: click ratamacue
+section dragpara 2: click dragpara
+section ghosts 2: ghosts
+arrange single16 single32 double triple five six seven nine stroke4 stroke7 crescendo paradiddle dblpara paradiddle_diddle triplepara flam flamtap flamaccent flamacue flampara pataflafla swiss flamdrag drag dragtap lesson25 ratamacue dragpara ghosts
