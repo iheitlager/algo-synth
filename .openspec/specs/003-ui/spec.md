@@ -279,3 +279,23 @@ The Modular faceplate SHALL show its synth's SuperCollider SynthDef (ADR-0024, s
 - THEN the song holds the setting with the code under it, the turned knob's value in place of its number
 
 **Tests:** `crates/dsp/src/modular/lex.rs::tests`, `crates/dsp/src/engine/tests.rs::a_modular_synth_lists_its_knobs`, `crates/dsp/src/engine/tests.rs::a_saved_setting_keeps_the_code`, `web/src/audio/engine.test.ts` (a SynthDef sent, the code of each synth and its error kept), `web/src/audio/setup.test.ts` (Modular code), `web/src/audio/presets.test.ts` (Modular synth presets)
+
+### Requirement 16: The Assistant [SHOULD]
+
+The view SHALL have an Assistant (#387, ADR-0028): a pane beside every view, shown and hidden from the transport bar, that pops out into its own window (`assistant.html`). It SHALL talk only to the assist server on the same origin under `/api`: `GET /api/health`, `GET /api/providers` for the providers and models to pick (the server's default selected), and `POST /api/assist` with the current song text, the request, the provider, the model and a fragment to focus on (by default the cued one, #375), read as server-sent events. Progress, tool steps (✓ or ✗ with their summary), the model's text and errors SHALL be drawn as they arrive, and Stop SHALL abort the request; a refusal before the stream (400, 429, 503) SHALL show its message. A proposed song SHALL be shown as a line diff against the song as it is now, with **Apply**, which loads it through `loadSong` so the engine parses it again (ADR-0012), **Discard**, and after Apply **Undo**; when the request is done, its rounds, seconds and tokens (input, cached, output). The requests of the session SHALL stay listed, and one is asked again with a click. Without an answer from `/api/health` the pane SHALL show only how to start the server. The window SHALL get the song from the main window over the `algo-synth-assistant` BroadcastChannel and send Apply back to it, so only the main window touches the engine (ADR-0001); while it is open the pane says so, and when the main window is gone the window SHALL say a song can't be applied, and reconnect when the app opens again. No key and no prompt reach the browser.
+
+**Implementation:** `web/src/components/AssistantPane.vue`, `web/src/components/AssistantWindow.vue`, `web/src/audio/assist.ts` (`health`, `providers`, `assist`, `SseParser`, `toEvent`), `web/src/audio/linediff.ts` (`diffLines`, `collapse`), `web/src/audio/assistlink.ts` (`serveWindow`, `connectMain`), `web/src/App.vue`, `web/src/components/TransportBar.vue`, `web/assistant.html`, `web/vite.config.ts`, `tools/fake-assist.mjs`
+
+#### Scenario: a faster song, applied from the window
+
+- GIVEN the app with audio on and a song at tempo 120, the Assistant popped out into its own window, and an assist server
+- WHEN "a little faster" is sent from the window and the server proposes the song at tempo 128
+- THEN the window streams the steps and shows `- tempo 120` and `+ tempo 128`, and Apply in the window sets the main window's composer to 128 BPM
+
+#### Scenario: no server
+
+- GIVEN no assist server running
+- WHEN the Assistant is shown
+- THEN it says the assistant needs its server (`make assist`) and nothing else
+
+**Tests:** `web/src/audio/assist.test.ts`, `web/src/audio/linediff.test.ts`, `web/src/audio/assistlink.test.ts`, `web/src/audio/split.test.ts`

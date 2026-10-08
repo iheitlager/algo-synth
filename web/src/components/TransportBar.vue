@@ -4,6 +4,7 @@ import {
   clearAll, engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSong, song, songPosition, status, stopSong,
   view,
 } from '../audio/engine'
+import { assistant } from '../audio/assistlink'
 import { details, page } from '../audio/buildinfo'
 import { Param } from '../audio/params'
 
@@ -111,6 +112,8 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
       <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
       <button :aria-pressed="view.main === 'composer'" @click="view.main = 'composer'">Composer</button>
     </span>
+    <!-- The Assistant (#387): a pane beside the view, which can pop out into its own window. -->
+    <button :aria-pressed="assistant.shown" :class="{ on: assistant.shown }" title="Ask a language model to change the song" @click="assistant.shown = !assistant.shown">Assistant</button>
     <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
     <button @click="onDemo">Demo</button>
     <label class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
