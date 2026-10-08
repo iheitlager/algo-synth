@@ -1,0 +1,7 @@
+# Test threads get 8 MiB of stack instead of 2 MiB. An `Engine` is about
+# 300 KB and lives inline; tests hold two or more, and a debug build copies
+# one while constructing it, which left the engine tests within a few KB of
+# the limit on Linux (#391). Only spawned threads read this: the engine on the
+# audio thread and in the deck workers is unaffected.
+[env]
+RUST_MIN_STACK = "8388608"

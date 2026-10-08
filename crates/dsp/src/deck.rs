@@ -49,8 +49,9 @@ enum Side {
 }
 
 pub struct DeckMixer {
-    /// Planar stereo blocks of decks B–D: left, then right.
-    inputs: [[f32; 2 * BLOCK]; INPUTS],
+    /// Planar stereo blocks of decks B–D: left, then right. On the heap, so
+    /// the engine, which lives inline, stays small (Linux test threads have 2 MiB).
+    inputs: Box<[[f32; 2 * BLOCK]; INPUTS]>,
     fed: [bool; INPUTS],
     level: [f32; DECKS],
     side: [Side; DECKS],
@@ -66,7 +67,7 @@ pub struct DeckMixer {
 impl DeckMixer {
     pub fn new(sample_rate: f32) -> DeckMixer {
         let mut m = DeckMixer {
-            inputs: [[0.0; 2 * BLOCK]; INPUTS],
+            inputs: Box::new([[0.0; 2 * BLOCK]; INPUTS]),
             fed: [false; INPUTS],
             level: [1.0; DECKS],
             side: [Side::Thru; DECKS],
