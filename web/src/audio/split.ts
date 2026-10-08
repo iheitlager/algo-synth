@@ -15,10 +15,12 @@ export interface Splits {
   code: number | null
   /** The arranger's height under the composer, in pixels. */
   arranger: number | null
+  /** The Assistant's width beside the views (#387). */
+  assistant: number | null
 }
 
 /** The smallest each pane may be, and the share of its container it may take. */
-export const LIMITS = { code: 260, arranger: 120, share: 0.7 } as const
+export const LIMITS = { code: 260, arranger: 120, assistant: 300, share: 0.7 } as const
 /** Pixels an arrow key moves a divider. */
 export const STEP = 16
 
@@ -45,9 +47,9 @@ export function lastSplits(store: () => Store = local): Splits {
   try {
     const raw = store().getItem(SPLIT_KEY)
     const v = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-    return { code: size(v.code), arranger: size(v.arranger) }
+    return { code: size(v.code), arranger: size(v.arranger), assistant: size(v.assistant) }
   } catch {
-    return { code: null, arranger: null }
+    return { code: null, arranger: null, assistant: null }
   }
 }
 
