@@ -5,7 +5,7 @@
 // empty song, examples/four-on-the-floor.song so), which the engine parses.
 //
 //   node tools/fake-assist.mjs [port]      # default 6342, on 127.0.0.1
-//   cd web && ASSIST_URL=http://127.0.0.1:6342 npx vite   # the UI on :6341 against it
+//   cd web && ASSIST_URL=http://127.0.0.1:6342 npx vite   # the UI on :6343 against it
 //
 // A request containing "refuse" is answered 429; one containing "fail" ends in
 // an error event.

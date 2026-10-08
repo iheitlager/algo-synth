@@ -10,9 +10,10 @@
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
-# One server, one port (ADR-0030); 63xx: out of the way of the usual
-# 3000/5173/8080 dev servers.
+# One server (ADR-0030): 6340 for make serve, 6341 for make dev; 63xx: out of
+# the way of the usual 3000/5173/8080 dev servers.
 PORT     ?= 6340
+DEV_PORT ?= 6341
 # The assistant's keys come from 1Password (ADR-0028, #386): op.env holds only
 # op:// references, and `op run` fills them in for one process. OP= skips
 # 1Password: without keys the app serves and the assistant has no provider.
@@ -22,15 +23,15 @@ KEYS     := ANTHROPIC_API_KEY MISTRAL_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY 
 ##@ Everyday
 
 check: lint deny test build ## Run all CI gates
-# One server (ADR-0030): algo-synth serve on 127.0.0.1:6340, the app and the
+# One server (ADR-0030): algo-synth serve on 127.0.0.1:6341, the app and the
 # assistant, while vite build --watch keeps web/dist current; reload to see a
 # change. dsp.wasm is built first (make wasm again after a DSP change). Ctrl-C
 # stops both.
-dev: wasm install ## App and assistant on localhost:6340
-	@cd web && npx vite build --watch --logLevel warn & build=$$!; \
+dev: wasm install ## App and assistant on localhost:6341
+	@(cd web && exec ./node_modules/.bin/vite build --watch --logLevel warn) & build=$$!; \
 	trap 'kill $$build 2>/dev/null' EXIT INT TERM; \
 	until [ -f web/dist/index.html ]; do sleep 1; done; \
-	$(OP) cargo run --release -p algo-assist -- serve
+	ALGO_BIND=127.0.0.1:$(DEV_PORT) $(OP) cargo run --release -p algo-assist -- serve
 build: wasm web ## Build wasm and web into web/dist
 fmt: ## Format the code
 	cargo fmt

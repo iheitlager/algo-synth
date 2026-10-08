@@ -81,7 +81,7 @@ The keys SHALL come from 1Password and never be stored in git:
 - `make env-check` says which resolve, ok or missing, never a value;
 - `.env` files are ignored by git.
 
-`make dev` SHALL run `algo-synth serve` on `127.0.0.1:6340` with the keys from 1Password, while `vite build --watch` keeps `web/dist` current. `make serve` SHALL run one image, the binary and the built app, published on the host's `127.0.0.1:6340` only. Keys SHALL pass in by name (`-e NAME`) from `op run`'s environment, never on a command line. Without 1Password both serve the app, and the assistant offers no provider.
+`make dev` SHALL run `algo-synth serve` on `127.0.0.1:6341` with the keys from 1Password, while `vite build --watch` keeps `web/dist` current. `make serve` SHALL run one image, the binary and the built app, published on the host's `127.0.0.1:6340` only. Keys SHALL pass in by name (`-e NAME`) from `op run`'s environment, never on a command line. Without 1Password both serve the app, and the assistant offers no provider.
 
 **Implementation:** `op.env`, `Makefile` (`dev`, `env-check`, `image`, `serve`), `Containerfile`
 

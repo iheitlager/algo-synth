@@ -22,7 +22,7 @@ On localhost Caddy does nothing the Rust server cannot: static files, a few head
 - **It binds `127.0.0.1:6340`** (`ALGO_BIND`). In the container it listens on all its interfaces, and the one port is published on the host's `127.0.0.1` only.
 - **The binary** keeps the song tools and the eval as subcommands: `check`, `render`, `catalog`, `eval`.
 - **One image:** one Rust stage builds the wasm and the server, Node builds the app, a slim runtime holds both. Caddy, the second image, the network and the proxies go.
-- **`make dev`** runs the same server while `vite build --watch` keeps `web/dist` current: one terminal, one port, a reload shows a change. Vite's own server stays only for UI work against a fake assistant (`ASSIST_URL`).
+- **`make dev`** runs the same server on 6341 while `vite build --watch` keeps `web/dist` current: one terminal, one port, a reload shows a change. Vite's own server (6343) stays only for UI work against a fake assistant (`ASSIST_URL`).
 - **Keys** still come from 1Password (`op run`, #386). Without them the app serves and the assistant offers no provider.
 
 ## Consequences
@@ -31,7 +31,7 @@ On localhost Caddy does nothing the Rust server cannot: static files, a few head
 - Static serving is ours to test: the routes, headers and compression are checked in `crates/assist`'s tests.
 - Development loses Vite's hot module reload for the app; a reload shows a change after the watching build.
 - Serving beyond localhost brings back a proxy in front for TLS. That decision also brings authentication (ADR-0028).
-- `make serve` is 6340 and `make dev` is 6340 as well; one of them runs at a time.
+- `make serve` is 6340 and `make dev` 6341, as before; `make assist` and 6342 are gone.
 
 ## Alternatives considered
 

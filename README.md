@@ -74,7 +74,7 @@ Every keyword, with examples, is in [docs/song.md](docs/song.md).
 ## Quick start
 
 ```bash
-make dev      # the app and the assistant on http://localhost:6340, rebuilt as you edit
+make dev      # the app and the assistant on http://localhost:6341, rebuilt as you edit
 make serve    # the same from one Podman container on http://localhost:6340
 make check    # every CI gate: lint, deny, tests, typecheck, build
 make bench    # 16 Mono voices in V8 against the 30% CPU budget
@@ -95,7 +95,7 @@ A language model can write and change the song (ADR-0028, epic #381). The app's 
 **Run it:**
 
 ```bash
-make dev      # algo-synth serve on 127.0.0.1:6340, keys from 1Password; reload to see an edit
+make dev      # algo-synth serve on 127.0.0.1:6341, keys from 1Password; reload to see an edit
 make serve    # the same, one container, published on 127.0.0.1:6340
 ```
 

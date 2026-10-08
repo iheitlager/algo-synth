@@ -37,16 +37,16 @@ export default defineConfig({
       },
     },
   },
-  // The app is served by algo-synth serve (make dev, make serve: 6340,
-  // ADR-0030). Vite's own server is for UI work only: with ASSIST_URL set it
-  // proxies /api there, e.g. to tools/fake-assist.mjs.
+  // The app is served by algo-synth serve (make dev 6341, make serve 6340,
+  // ADR-0030). Vite's own server (6343) is for UI work only: with ASSIST_URL
+  // set it proxies /api there, e.g. to tools/fake-assist.mjs.
   server: {
-    port: 6341,
+    port: 6343,
     strictPort: true,
     headers: ISOLATED,
     proxy: process.env.ASSIST_URL ? { '/api': { target: process.env.ASSIST_URL } } : undefined,
   },
-  preview: { port: 6341, strictPort: true, headers: ISOLATED },
+  preview: { port: 6343, strictPort: true, headers: ISOLATED },
   // `npm run test:coverage` (make coverage-web): the summary prints, the HTML report goes to coverage/.
   test: {
     coverage: {
