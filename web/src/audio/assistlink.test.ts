@@ -17,7 +17,7 @@ class FakeChannel implements Port {
   close() { this.closed = true }
 }
 
-const STATE: LinkState = { song: 'tempo 120\n', focus: 'beat', frags: ['beat', 'bass'], running: true }
+const STATE: LinkState = { song: 'tempo 120\n', focus: 'kit', tracks: ['kit', 'bass'], running: true }
 
 function mainWindow(state = STATE) {
   const applied: string[] = []

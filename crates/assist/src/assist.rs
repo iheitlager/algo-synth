@@ -4,6 +4,7 @@
 //! Every step goes out as an event.
 
 use crate::provider::{Msg, Provider, ProviderError, Stop, ToolCall, ToolDef, ToolResult, Usage};
+use crate::scope;
 use crate::tools::{self, Limits};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -18,7 +19,8 @@ const LANGUAGE: &str = include_str!("../../../.openspec/language.md");
 pub struct Request {
     pub song: String,
     pub request: String,
-    /// A fragment the request is about, if one is in focus (#375).
+    /// The track (instrument) the request may change, if one is in focus
+    /// (#415): a proposal that changes anything else is refused.
     pub focus: Option<String>,
 }
 
@@ -180,7 +182,11 @@ fn first_message(req: &Request) -> String {
     let focus = req
         .focus
         .as_deref()
-        .map(|f| format!("The request is about the fragment `{f}`.\n"))
+        .map(|t| {
+            format!(
+                "The request is about the track `{t}`. Change only that track: its track line, its strip line, its frags, and autos, mods and scene values on it; leave everything else exactly as it is.\n"
+            )
+        })
         .unwrap_or_default();
     format!(
         "<song>\n{}\n</song>\n\n{focus}Request: {}",
@@ -207,7 +213,7 @@ struct Ran {
     proposed: Option<(String, String)>,
 }
 
-async fn run_tool(call: &ToolCall) -> Ran {
+async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
     let answer = |content: Value, ok: bool, summary: String| Ran {
         result: ToolResult {
             id: call.id.clone(),
@@ -294,12 +300,22 @@ async fn run_tool(call: &ToolCall) -> Ran {
                 .unwrap_or("")
                 .to_string();
             let c = tools::check(&song);
-            match c.error {
-                None => Ran {
+            // With a track in focus (#415), a song that changes more is refused.
+            let scoped = match &req.focus {
+                Some(t) if c.error.is_none() => scope::check(&req.song, &song, t),
+                _ => Ok(()),
+            };
+            match (c.error, scoped) {
+                (None, Err(why)) => answer(
+                    json!({"error": why, "hint": "change only the track in focus and propose again"}),
+                    false,
+                    why,
+                ),
+                (None, Ok(())) => Ran {
                     proposed: Some((song, summary)),
                     ..answer(json!({"ok": true}), true, "proposed".into())
                 },
-                Some(e) => {
+                (Some(e), _) => {
                     let line = format!("line {}, col {}: {}", e.line, e.col, e.msg);
                     answer(
                         json!({"error": e, "hint": "fix it and propose again"}),
@@ -403,7 +419,7 @@ pub async fn run<P: Provider>(
         let mut results = Vec::new();
         let mut proposed = None;
         for call in &turn.calls {
-            let ran = run_tool(call).await;
+            let ran = run_tool(call, req).await;
             emit(Event::Tool {
                 round: rounds,
                 name: call.name.clone(),
@@ -497,7 +513,7 @@ mod tests {
         let req = Request {
             song: GOOD.into(),
             request: "add a snare".into(),
-            focus: Some("beat".into()),
+            focus: Some("kit".into()),
         };
         let mut out = Vec::new();
         run(p, &req, limits, &mut |e| out.push(e)).await;
@@ -558,7 +574,7 @@ mod tests {
             panic!("a user message first")
         };
         assert!(
-            first.contains("<song>") && first.contains("`beat`") && first.contains("add a snare")
+            first.contains("<song>") && first.contains("`kit`") && first.contains("add a snare")
         );
         let Msg::Results(r) = &seen[1][2] else {
             panic!("the check's result: {:?}", seen[1])
@@ -591,6 +607,35 @@ mod tests {
         assert!(ev.contains(&Event::Song {
             song: GOOD.into(),
             summary: "fixed".into()
+        }));
+    }
+
+    /// With the track `kit` in focus (#415), a song that also changes the
+    /// tempo is refused with what changed; one that changes only `kit` goes.
+    #[tokio::test]
+    async fn a_song_beyond_the_focused_track_is_not_proposed() {
+        let faster = GOOD.replace("tempo 120", "tempo 128");
+        let snare = format!("{GOOD}  sn ....x.......x...\n");
+        let p = Scripted::new(vec![
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": faster, "summary": "x"}),
+            )])),
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": snare, "summary": "a snare"}),
+            )])),
+        ]);
+        let ev = events(&p, LoopLimits::default()).await;
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e, Event::Tool { name, ok: false, summary, .. }
+                if name == "propose_song" && summary.contains("tempo"))),
+            "{ev:?}"
+        );
+        assert!(ev.contains(&Event::Song {
+            song: snare,
+            summary: "a snare".into()
         }));
     }
 

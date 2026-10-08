@@ -6,7 +6,7 @@ import { onBeforeUnmount, reactive } from 'vue'
 import { CHANNEL, connectMain, type AssistHost } from '../audio/assistlink'
 import AssistantPane from './AssistantPane.vue'
 
-const link = reactive({ song: '', focus: null as string | null, frags: [] as string[], running: false, connected: false })
+const link = reactive({ song: '', focus: null as string | null, tracks: [] as string[], running: false, connected: false })
 const main = connectMain(new BroadcastChannel(CHANNEL), (s) => {
   if (s) Object.assign(link, s, { connected: true })
   else link.connected = false

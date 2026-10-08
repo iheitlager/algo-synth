@@ -27,8 +27,8 @@ function openSynth(s: number) {
 // same over a BroadcastChannel; only this window touches the engine.
 const linkState = (): LinkState => ({
   song: song.text,
-  focus: song.frags[song.cued]?.name ?? null,
-  frags: song.frags.map((f) => f.name),
+  focus: song.tracks[song.frags[song.cued]?.track ?? -1]?.name ?? null,
+  tracks: song.tracks.map((t) => t.name),
   running: status.running,
 })
 function applySong(text: string): boolean {
@@ -39,8 +39,8 @@ function applySong(text: string): boolean {
 const appHost: AssistHost = {
   link: {
     get song() { return song.text },
-    get focus() { return song.frags[song.cued]?.name ?? null },
-    get frags() { return song.frags.map((f) => f.name) },
+    get focus() { return song.tracks[song.frags[song.cued]?.track ?? -1]?.name ?? null },
+    get tracks() { return song.tracks.map((t) => t.name) },
     get running() { return status.running },
     connected: true,
   },

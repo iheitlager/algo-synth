@@ -34,9 +34,9 @@ The server SHALL call a model through one `Provider` trait over three wire forma
 
 ### Requirement 3: The loop [MUST]
 
-For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the fragment in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. A proposed song that does not parse SHALL go back to the model as an error; one that parses SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
+For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its frags, and autos, mods and scene values on it) SHALL go back to the model as an error naming what changed. Any other song that parses SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
 
-**Implementation:** `crates/assist/src/assist.rs::run`, `crates/assist/src/assist.rs::system_prompt`, `crates/assist/src/assist.rs::tool_defs`, `crates/assist/src/assist.rs::Event`
+**Implementation:** `crates/assist/src/assist.rs::run`, `crates/assist/src/scope.rs::check`, `crates/assist/src/assist.rs::system_prompt`, `crates/assist/src/assist.rs::tool_defs`, `crates/assist/src/assist.rs::Event`
 
 #### Scenario: a parse error is fixed
 
@@ -45,6 +45,14 @@ For a request, the model SHALL get a system prompt holding how to work, the lang
 - THEN the check's error goes back to the model, the fixed song is the `song` event, and `done` counts three rounds and their tokens
 
 **Tests:** `crates/assist/src/assist.rs::tests::a_parse_error_goes_back_and_the_fix_is_proposed`, `crates/assist/src/assist.rs::tests::a_song_that_does_not_parse_is_not_proposed`, `crates/assist/src/assist.rs::tests::the_loop_stops_at_its_rounds_and_on_errors`, `crates/assist/src/assist.rs::tests::bad_tool_input_is_told_to_the_model`, `crates/assist/src/assist.rs::tests::the_system_prompt_holds_the_language_and_the_catalog`, `crates/assist/src/assist.rs::tests::events_serialise_as_the_contract_says`
+
+#### Scenario: the focused track is all that changes
+
+- GIVEN the track `kit` in focus and a model that first proposes the song at a new tempo, then one with only a snare added to `kit`'s frag
+- WHEN the loop runs
+- THEN the first proposal goes back as an error naming the tempo, and the second is the `song` event
+
+**Tests:** `crates/assist/src/assist.rs::tests::a_song_beyond_the_focused_track_is_not_proposed`, `crates/assist/src/scope.rs::tests::the_focused_track_may_change`, `crates/assist/src/scope.rs::tests::anything_else_is_named_and_refused`, `crates/assist/src/scope.rs::tests::no_such_track_holds_nothing`
 
 ### Requirement 4: The server [MUST]
 
