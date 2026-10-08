@@ -5,5 +5,10 @@
 	# The worklet and engine must be refetched after a rebuild (ADR-0006).
 	@engine path /worklet.js /dsp.wasm
 	header @engine Cache-Control "no-cache"
+	# The assist server (ADR-0028) on the containers' network; events stream
+	# unbuffered. Without it /api answers 502 and the Assistant hides.
+	reverse_proxy /api/* assist:6342 {
+		flush_interval -1
+	}
 	file_server
 }
