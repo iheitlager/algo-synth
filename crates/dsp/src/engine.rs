@@ -9,6 +9,7 @@
 
 use crate::arp::{ARP_DEFAULTS, Arp};
 use crate::clock::{Clock, STEPS_PER_BEAT, TICKS_PER_STEP};
+use crate::deck::DeckMixer;
 use crate::fm::sysex;
 use crate::fx::compressor::Compressor;
 use crate::fx::ensemble::Ensemble;
@@ -148,6 +149,8 @@ pub struct Engine {
     eq: Equalizer,
     comp: Compressor,
     limiter: Limiter,
+    /// Decks B–D summed with this engine's output, after its master (ADR-0029).
+    deck: DeckMixer,
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -258,6 +261,7 @@ impl Engine {
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
             limiter: Limiter::new(sample_rate),
+            deck: DeckMixer::new(sample_rate),
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
@@ -2668,6 +2672,11 @@ impl Engine {
             self.record(STRIPS, pl);
             self.record(STRIPS + 1, pr);
         }
+        // Decks B–D join after deck A's master and its meters (ADR-0029).
+        let (left, right) = self.out.split_at_mut(BLOCK);
+        if let (Some(l), Some(r)) = (left.get_mut(..n), right.get_mut(..n)) {
+            self.deck.process(l, r);
+        }
         for i in 0..STRIPS {
             let level = self.mixer.peaks.get(i).copied().unwrap_or(0.0);
             self.record(i, level);
@@ -2689,6 +2698,11 @@ impl Engine {
     /// return. For the view; levels are linear, 1 is full scale.
     pub fn meters(&self) -> &[f32; METERS] {
         &self.meters
+    }
+
+    /// The deck mixer (ADR-0029): decks B–D's input blocks, levels and crossfader.
+    pub fn deck(&mut self) -> &mut DeckMixer {
+        &mut self.deck
     }
 
     /// Start the meters over, after the view has read them.

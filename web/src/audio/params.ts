@@ -823,6 +823,16 @@ export const PadField = {
 } as const
 export type PadFieldId = (typeof PadField)[keyof typeof PadField]
 
+/** What `deck_set(deck, field, value)` sets on deck A–D (0–3); see `deck.rs` (ADR-0029). */
+export const DeckField = {
+  Level: 0,
+  Side: 1,
+} as const
+export type DeckFieldId = (typeof DeckField)[keyof typeof DeckField]
+
+/** A deck's side of the crossfader (`Side` field). */
+export const DeckSide = { Thru: 0, Left: 1, Right: 2 } as const
+
 /** A zone's loop modes (`Loop` field). */
 export const LoopMode = { Off: 0, Loop: 1, Sustain: 2 } as const
 

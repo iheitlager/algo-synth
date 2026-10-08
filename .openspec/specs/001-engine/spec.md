@@ -98,9 +98,9 @@ Output SHALL be finite and within ±1, whatever the input: the master limiter is
 
 ### Requirement 6: Parameter registry mirrored [MUST]
 
-Every id list the engine exposes SHALL appear in `web/src/audio/params.ts` as a block of `Name: id,` lines with the same names and ids: `Param` (and its `GlobalParam` and `StripParam` subsets), the models, presets, waveforms, noise colours, note priorities, modulation sources and destinations, insert and processor types, the drum pads, and the sampler's zone and pad fields. (ADR-0004)
+Every id list the engine exposes SHALL appear in `web/src/audio/params.ts` as a block of `Name: id,` lines with the same names and ids: `Param` (and its `GlobalParam` and `StripParam` subsets), the models, presets, waveforms, noise colours, note priorities, modulation sources and destinations, insert and processor types, the drum pads, the sampler's zone and pad fields, and the deck fields. (ADR-0004)
 
-**Implementation:** `crates/dsp/src/params.rs::Param::ALL`, `crates/dsp/src/mono/patch.rs::ModSource::ALL`, `crates/dsp/src/mono/model.rs::Model::ALL`, `crates/dsp/src/sampler.rs::ZoneField::ALL`, `crates/dsp/src/padsampler.rs::PadField::ALL`
+**Implementation:** `crates/dsp/src/params.rs::Param::ALL`, `crates/dsp/src/mono/patch.rs::ModSource::ALL`, `crates/dsp/src/mono/model.rs::Model::ALL`, `crates/dsp/src/sampler.rs::ZoneField::ALL`, `crates/dsp/src/padsampler.rs::PadField::ALL`, `crates/dsp/src/deck.rs::DeckField::ALL`
 
 #### Scenario: a new parameter
 
@@ -123,3 +123,23 @@ MIDI note *n* SHALL sound at 440 · 2^((n − 69)/12) Hz.
 - THEN they are 440 Hz and 880 Hz
 
 **Tests:** `crates/dsp/src/voice.rs::tests::a4_is_440`, `crates/dsp/src/mono/voice.rs::tests::pitch_table_is_equal_tempered`
+
+### Requirement 8: Decks [SHOULD]
+
+The engine on the audio thread SHALL be deck A, and up to three more engines, decks B–D, SHALL each run in a Web Worker (ADR-0029, #391). A worker deck SHALL hold its own instance of the same `dsp.wasm` and render 4 blocks ahead of the worklet into a single-producer, single-consumer ring in a SharedArrayBuffer, counted in the worklet's block numbers, in order and without skipping a block unless it has fallen more than a second behind. The worklet SHALL copy a deck's block for the block it is about to render into the engine's input for that deck (`deck_in_ptr`, `deck_fed`) and count a block that came too late as dropped. The deck mixer SHALL sum deck A after its master with every fed deck, each through its level and its side of an equal-power crossfader (`deck_set`, `deck_crossfade`), ramping gains across the block, and limit the sum to ±1; an unfed deck SHALL be silent for that block, and with nothing fed and deck A at unity the output SHALL pass bit for bit. `render` SHALL not allocate with decks fed (Req 5).
+
+**Implementation:** `crates/dsp/src/deck.rs::DeckMixer`, `crates/dsp/src/engine.rs::Engine::render`, `crates/dsp/src/ffi.rs` (`deck_in_ptr`, `deck_fed`, `deck_set`, `deck_crossfade`, `deck_peak`), `web/public/deck-worker.js`, `web/public/worklet.js` (`attachDeck`, `feedDecks`, `readDecks`), `web/src/audio/decks.ts`
+
+#### Scenario: a deck fed for one block
+
+- GIVEN deck C's input filled with 0.25 on the left and −0.25 on the right, and nothing else playing
+- WHEN the engine renders a block, and then another without feeding it
+- THEN the first block is 0.25 and −0.25 throughout, and the second is silent
+
+#### Scenario: the crossfader in the middle
+
+- GIVEN deck A on the left of the crossfader and deck B on the right
+- WHEN the crossfader moves anywhere from 0 to 1
+- THEN the squares of the two gains add up to 1
+
+**Tests:** `crates/dsp/src/deck.rs::tests`, `crates/dsp/src/engine/tests.rs::a_fed_deck_joins_the_output`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`

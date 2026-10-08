@@ -4806,3 +4806,22 @@ fn a_cue_follows_its_fragment_through_an_edit() {
     assert_eq!(e.song_cued(), None);
     assert!(!e.clock().playing());
 }
+
+// ADR-0029: a deck's fed block joins the engine's output after its master;
+// unfed, the deck is silent and deck A plays alone.
+#[test]
+fn a_fed_deck_joins_the_output() {
+    let mut e = Engine::new(48_000.0);
+    e.render(128);
+    assert_eq!(peak(&e), 0.0, "silent without notes");
+    let input = e.deck().input_mut(2).expect("deck C has an input");
+    input[..BLOCK].fill(0.25);
+    input[BLOCK..].fill(-0.25);
+    e.deck().fed(2);
+    e.render(128);
+    let (l, r) = e.output().split_at(BLOCK);
+    assert!(l.iter().all(|x| (*x - 0.25).abs() < 1e-6), "left");
+    assert!(r.iter().all(|x| (*x + 0.25).abs() < 1e-6), "right");
+    e.render(128);
+    assert_eq!(peak(&e), 0.0, "not fed again: silent again");
+}

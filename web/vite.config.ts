@@ -17,6 +17,9 @@ const version = (() => {
   }
 })()
 
+// Cross-origin isolated, so decks can share SharedArrayBuffer rings (ADR-0029); Caddy sends the same.
+const ISOLATED = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' }
+
 export default defineConfig({
   plugins: [vue()],
   define: {
@@ -39,9 +42,10 @@ export default defineConfig({
   server: {
     port: 6341,
     strictPort: true,
+    headers: ISOLATED,
     proxy: { '/api': { target: process.env.ASSIST_URL || 'http://127.0.0.1:6342' } },
   },
-  preview: { port: 6341, strictPort: true },
+  preview: { port: 6341, strictPort: true, headers: ISOLATED },
   // `npm run test:coverage` (make coverage-web): the summary prints, the HTML report goes to coverage/.
   test: {
     coverage: {

@@ -5,6 +5,7 @@
 import { computed, reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
+import { onDecks } from './decks'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
@@ -33,6 +34,8 @@ class AudioEngine {
     readonly ctx: AudioContext,
     readonly node: AudioWorkletNode,
     readonly analyser: AnalyserNode,
+    /** The compiled dsp.wasm, which each deck's worker instantiates too (ADR-0029). */
+    readonly module: WebAssembly.Module,
   ) {
     node.port.onmessage = ({ data }) => onMessage(data)
   }
@@ -51,7 +54,7 @@ class AudioEngine {
     })
     const analyser = new AnalyserNode(ctx, { fftSize: 2048 })
     node.connect(analyser).connect(ctx.destination)
-    return new AudioEngine(ctx, node, analyser)
+    return new AudioEngine(ctx, node, analyser, module)
   }
 
   post(msg: object, transfer: Transferable[] = []) { this.node.port.postMessage(msg, transfer) }
@@ -160,7 +163,7 @@ export function moveStrip(id: number, target: number) {
 
 /** Which main view is shown: the synth panels or the mixer console. */
 export const view = reactive({
-  main: 'synths' as 'synths' | 'mixer' | 'composer',
+  main: 'synths' as 'synths' | 'mixer' | 'composer' | 'decks',
 })
 
 /** One hue per synth, so a part's notes match its synth's card. */
@@ -809,6 +812,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     meter.voices = data.voices as number
     meter.reduction = data.reduction as number
     meter.seen = true
+  } else if (data.t === 'decks') {
+    onDecks(data.peaks as number[], data.dropped as number[])
   } else if (data.t === 'meters') {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {

@@ -299,3 +299,17 @@ The view SHALL have an Assistant (#387, ADR-0028): a pane beside every view, sho
 - THEN it says the assistant needs its server (`make assist`) and nothing else
 
 **Tests:** `web/src/audio/assist.test.ts`, `web/src/audio/linediff.test.ts`, `web/src/audio/assistlink.test.ts`, `web/src/audio/split.test.ts`
+
+### Requirement 17: The Decks view [SHOULD]
+
+The transport bar SHALL switch to a Decks view (ADR-0029, #391) beside Synths, Mixer and Composer. It SHALL show deck A as the song the rest of the app edits and decks B–D with **Load song…** for a `.song` file, Play and Stop, the deck's bar and step, a parse error with its line and column, and for every deck a level, a side of the crossfader (Thru, Left, Right), its peak and, for B–D, its dropped blocks; one crossfader runs from Left to Right under them. A worker deck SHALL start the first time a song is loaded into it, after audio is on. The page SHALL be served cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`) by Caddy and Vite; without isolation the view SHALL say decks B–D can't run and offer deck A only.
+
+**Implementation:** `web/src/components/DecksPane.vue`, `web/src/audio/decks.ts` (`decks`, `loadDeck`, `playDeck`, `stopDeck`, `setDeck`, `setCrossfade`, `onDecks`), `web/src/components/TransportBar.vue`, `web/src/App.vue`, `Caddyfile`, `web/vite.config.ts`
+
+#### Scenario: a second song faded in
+
+- GIVEN audio on, the demo as deck A on the left of the crossfader, and a song loaded into deck B on the right
+- WHEN deck B and the transport play and the crossfader moves all the way right
+- THEN deck B is heard with no dropped blocks and deck A's peak falls to −∞
+
+**Tests:** `web/src/audio/decks.test.ts`

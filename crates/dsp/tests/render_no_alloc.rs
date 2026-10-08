@@ -1,12 +1,13 @@
 //! `render` never allocates (ADR-0002, #233), checked by counting every
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
 //! walk, strip and synth automation, scenes that solo, mute and send,
-//! modulations, Modular settings with their code, a new song taking over on a bar line, and
-//! a SuperCollider hoover.
+//! modulations, Modular settings with their code, a new song taking over on a bar line,
+//! a SuperCollider hoover, and decks B–D fed into the deck mixer with a crossfade (ADR-0029).
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
 
+use algo_dsp::deck::DeckField;
 use algo_dsp::engine::Engine;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 use std::alloc::System;
@@ -75,10 +76,22 @@ fn a_busy_song_renders_without_allocating() {
         .copy_from_slice(text);
     e.load_song().expect("the song parses");
     e.song_play();
+    // Decks B–D on the right of the crossfader, half way across.
+    e.deck().set(0, DeckField::Side, 1.0);
+    for d in 1..4 {
+        e.deck().set(d, DeckField::Side, 2.0);
+    }
+    e.deck().set_crossfade(0.5);
     // Six bars at 180 BPM, past every section change, scene and live cycle.
     let blocks = 6 * 4 * 48_000 * 60 / 180 / 128;
     let region = Region::new(GLOBAL);
     for _ in 0..blocks {
+        for d in 1..4 {
+            if let Some(input) = e.deck().input_mut(d) {
+                input.fill(0.05);
+            }
+            e.deck().fed(d);
+        }
         e.render(128);
     }
     let change = region.change();
