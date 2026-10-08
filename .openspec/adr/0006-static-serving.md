@@ -1,6 +1,6 @@
 # 0006: Static serving with Podman and Caddy
 
-**Status:** Accepted · **Date:** 2026-09-30
+**Status:** Accepted, amended by 0028 · **Date:** 2026-09-30
 
 ## Context
 
@@ -14,3 +14,4 @@ The server does no audio work (ADR-0001). It needs to serve `index.html`, the bu
 
 - Deploying elsewhere means TLS (Caddy does it automatically for a real hostname).
 - Base images are pulled by tag for now; pin by digest before anything is public.
+- **Amended by ADR-0028:** an assist server runs beside Caddy for the language model, and everything algo-synth serves binds to `127.0.0.1` only; serving another host is a later decision that brings authentication.

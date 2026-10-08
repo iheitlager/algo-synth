@@ -137,7 +137,7 @@ Three insert slots on every synth strip and group (Overdrive, Distortion, Fuzz, 
 ### MVP 11: the model writes, and performance *(next, #108)*
 
 - **A language model writes the song.** It gets the current text and a request ("a busier snare in B", "continue for 16 bars", "a darker lead") and returns a new text. The engine's parser is the check: a parse error goes back to the model for another try, and nothing reaches the engine that did not parse. The model never touches the engine directly.
-- **Where the call runs is on hold.** Options: (a) the browser calls the API directly with a key the user pastes in (no server, but the key lives in the browser); (b) a small proxy next to Caddy holds the key (a backend, against ADR-0006; a 63xx port); (c) no call from the app: the text is written in Claude Code or claude.ai and pasted in. (c) works now and needs no code; (a) or (b) need an ADR.
+- **Where the call runs: behind a proxy next to Caddy, on localhost** (ADR-0028, epic #381). Option (b) of the three: (a) a key pasted into the browser and (c) pasting a text written elsewhere were weighed; (c) stays the fallback when the assist server is not running.
 - **Performance:** quantized launching, Web MIDI in from a hardware keyboard (note on/off, velocity, pitch bend, mod wheel; #10, moved here from MVP 2), MIDI out to hardware, SIMD (`simd128`) and table optimizations where profiling says so. Scenes are built (#172).
 - **MIDI export** as a converter from the notation to a MIDI file. Import is built (#173).
 
