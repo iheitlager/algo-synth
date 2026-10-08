@@ -1,0 +1,184 @@
+# On the Run, simulated (#63): after Pink Floyd's instrumental on The Dark
+# Side of the Moon (1973).
+#
+# The EMS Synthi AKS sequence, E2 G2 A2 G2 D3 C3 D3 E3 in sixteenths at 165,
+# on an MS-20 square whose filter and resonance never sit still; a hi-hat of
+# gated white noise on every sixteenth; a dotted-eighth echo. Around it the
+# rest of the track: running footsteps and panting, an airport PA chime and a
+# muffled announcement, Doppler fly-bys, VCS3 swoops, and the dive into the
+# crash.
+tempo 165
+swing 50
+
+# The sequence: one square, a short envelope, a resonant low-pass.
+setting synthi = Ms20 Ms20Lead: Vco1Wave 1, PulseWidth 0.5, Vco2Level 0, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 900, Resonance 0.6, Drive 0.35, AdsrAttack 0.001, AdsrDecay 0.12, AdsrSustain 0.25, AdsrRelease 0.06, FenvAttack 0.001, FenvDecay 0.1, FenvSustain 0.1, FenvRelease 0.06, EnvCutoff 0.35, KeyTrack 0.5, Glide 0, Legato 0
+
+# White noise opened by the trigger pulse, high-passed.
+setting hiss = Modular ModularBasic
+  SynthDef(\hiss, { |freq = 440, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.04), gate);
+      var sig = RHPF.ar(WhiteNoise.ar, 7000, 0.6);
+      Pan2.ar(sig * env * 0.5, 0.3)
+  }).add;
+
+# A heel on concrete: a falling thud and a scuff of grit.
+setting step = Modular ModularBasic
+  SynthDef(\step, { |freq = 60, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.002, 0.14), gate);
+      var thud = SinOsc.ar(freq * EnvGen.kr(Env([2.5, 1], [0.05], [-4]), gate)) * env;
+      var grit = RLPF.ar(WhiteNoise.ar, Rand(900, 2400), 0.7) * EnvGen.kr(Env.perc(0.001, 0.07), gate);
+      Pan2.ar((thud + (grit * 0.4)) * 0.9, Rand(-0.25, 0.25))
+  }).add;
+
+# Panting: a band of noise that swells and falls; the note sets the band.
+setting pant = Modular ModularBasic
+  SynthDef(\pant, { |freq = 1500, gate = 1|
+      var env = EnvGen.kr(Env([0, 1, 0.5, 0], [0.08, 0.1, 0.22], [2, 0, -3]), gate);
+      var sig = RHPF.ar(RLPF.ar(WhiteNoise.ar, freq * 1.4, 0.35), freq * 0.6, 0.5);
+      Pan2.ar(sig * env * 0.9, -0.2)
+  }).add;
+
+# The airport chime: a bell with two inharmonic partials.
+setting chime = Modular ModularBasic
+  SynthDef(\chime, { |freq = 660, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.004, 2.4), gate);
+      var sig = SinOsc.ar(freq) + (SinOsc.ar(freq * 2.76) * 0.3) + (SinOsc.ar(freq * 5.4) * 0.1);
+      Pan2.ar(sig * env * 0.45, 0.1)
+  }).add;
+
+# A voice through a tannoy: a buzz with two formants that move per syllable,
+# the bass cut away.
+setting tannoy = Modular ModularBasic
+  SynthDef(\tannoy, { |freq = 120, gate = 1|
+      var env = EnvGen.kr(Env([0, 1, 0.7, 0], [0.02, 0.09, 0.07]), gate);
+      var src = Saw.ar(freq * SinOsc.kr(4.5).range(0.985, 1.015));
+      var f1 = RLPF.ar(src, Rand(350, 850), 0.12);
+      var f2 = RLPF.ar(src, Rand(1100, 2500), 0.15);
+      var sig = RHPF.ar(f1 + (f2 * 0.6), 450, 0.8);
+      Pan2.ar(sig * env * 0.3, 0.45)
+  }).add;
+
+# A jet passing: a roar whose filter opens as it nears, engine whine that
+# drops in pitch as it goes past (Doppler), panned left to right.
+setting jet = Modular ModularBasic
+  SynthDef(\jet, { |freq = 110, gate = 1|
+      var amp = EnvGen.kr(Env([0, 1, 0], [4.5, 3.5], [1.5, -1.5]), gate);
+      var shift = EnvGen.kr(Env([1.12, 1.1, 0.88, 0.86], [3.8, 1.2, 3]), gate);
+      var pan = EnvGen.kr(Env([-1, 1], [8]), gate);
+      var roar = RLPF.ar(WhiteNoise.ar, (amp * 3500) + 150, 0.5);
+      var whine = Saw.ar(freq * shift) + Saw.ar(freq * shift * 2.01);
+      var sig = roar + (RLPF.ar(whine, (amp * 2500) + 300, 0.3) * 0.35);
+      Pan2.ar(sig * amp * 0.8, pan)
+  }).add;
+
+# The VCS3's swoops: a thin pulse whose pitch dives, filter following.
+setting swoop = Modular ModularBasic
+  SynthDef(\swoop, { |freq = 440, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.03, 1.6), gate);
+      var p = EnvGen.kr(Env([2.5, 0.2], [1.6], [-3]), gate);
+      var sig = RLPF.ar(Pulse.ar(freq * p, 0.2), freq * p * 3, 0.25, voicing: \ms20);
+      Pan2.ar(sig * env * 0.7, Rand(-0.9, 0.9))
+  }).add;
+
+# The dive: the roar climbing in pitch and level for eleven seconds.
+setting dive = Modular ModularBasic
+  SynthDef(\dive, { |freq = 80, gate = 1|
+      var amp = EnvGen.kr(Env([0, 0.25, 1, 0], [5, 6.4, 0.02], [2, 3, 0]), gate);
+      var p = EnvGen.kr(Env([1, 3.5], [11.4], [3]), gate);
+      var roar = RLPF.ar(WhiteNoise.ar, (amp * 5000) + 300, 0.4);
+      var whine = Saw.ar(freq * p) + Saw.ar(freq * p * 1.5);
+      Pan2.ar((roar + (whine * 0.3)) * amp * 0.6, EnvGen.kr(Env([0.8, -0.3], [11.4]), gate))
+  }).add;
+
+# The crash: a thump falling from three times the note, and a wall of noise
+# whose filter closes over seven seconds.
+setting boom = Modular ModularBasic
+  SynthDef(\boom, { |freq = 40, gate = 1|
+      var env = EnvGen.kr(Env([0, 1, 0.5, 0], [0.005, 1.2, 6], [0, -2, -3]), gate);
+      var thump = SinOsc.ar(freq * EnvGen.kr(Env([3, 1], [0.3], [-4]), gate)) * EnvGen.kr(Env.perc(0.005, 1.4), gate);
+      var noise = LPF.ar(WhiteNoise.ar, (env * 4500) + 80);
+      var sig = ((noise * env) + thump).tanh;
+      Pan2.ar(sig * 0.9, 0)
+  }).add;
+
+track seq synth synthi
+track hat synth hiss
+track feet synth step
+track breath synth pant
+track chime synth chime
+track pa synth tannoy
+track jet synth jet
+track swoop synth swoop
+track dive synth dive
+track boom synth boom
+
+strip seq: Level 0.75, Send1 0.35, Send2 0.15
+strip hat: Level 0.45, Send2 0.1
+strip feet: Level 0.7, Send2 0.15
+strip breath: Level 0.55, Send2 0.2
+strip chime: Level 0.5, Send2 0.6
+strip pa: Level 0.6, Send1 0.15, Send2 0.5
+strip jet: Level 0.75, Send2 0.3
+strip swoop: Level 0.6, Send1 0.5, Send2 0.3
+strip dive: Level 0.8, Send2 0.3
+strip boom: Level 1, Send2 0.7
+# A dotted-eighth echo (273 ms: 2000^0.738), ping-pong; a big hall; a flanger
+# for the phasing on the sequence.
+master: MasterGain 0.8, P1Type Echo, P1A 0.738, P1B 0.45, P1D 1, P1Return 0.35, P2Type Reverb, P2A 0.8, P2Return 0.35, P3Type Flanger, P3A 0.3, P3B 0.7, P3D 0.7, P3Return 0.4
+
+# The sequence, twice a bar.
+frag seq_in = seq .cutoff(sine.slow(8).exprange(200, 900)) .resonance(0.5)
+  "e2 g2 a2 g2 d3 c3 d3 e3 e2 g2 a2 g2 d3 c3 d3 e3"
+frag seq_run = seq .cutoff(sine.slow(8).exprange(300, 3200)) .resonance(tri.slow(16).range(0.35, 0.8))
+  "e2 g2 a2 g2 d3 c3 d3 e3 e2 g2 a2 g2 d3 c3 d3 e3"
+frag seq_wild = seq .cutoff(lfo(0.6).exprange(180, 5000)) .resonance(perlin.range(0.55, 0.92))
+  "e2 g2 a2 g2 d3 c3 d3 e3 e2 g2 a2 g2 d3 c3 d3 e3"
+
+frag ticks = hat
+  "[c6! c6 c6 c6]*4"
+
+frag run = feet
+  "c2 c#2 c2 c#2"
+
+frag gasp = breath
+  "[c7 g6] ~ [c7 g6] ~"
+
+frag dingdong = chime
+  "<[g5 e5 c5 ~] ~ ~ ~ ~ ~ ~ ~>"
+
+# Syllables, some bars only, in the pitch of a speaking voice.
+frag announce = pa
+  "<~ [a2 c3? b2 ~ g2 a2? ~ ~ c3 d3? b2 a2 ~ g2 ~ ~] [b2 a2 ~ c3? a2 g2 a2? ~ d3 c3 ~ b2? a2 ~ ~ ~] [a2 a2? c3 b2 ~ ~ g2 a2 b2? c3 ~ a2 g2? ~ ~ ~] [c3 b2 a2? ~ g2 a2 ~ b2? a2 ~ ~ ~ ~ ~ ~ ~] ~ ~ ~>"
+
+frag flyby = jet
+  "<~ ~ a1 ~ ~ ~ ~ ~ ~ ~ ~ ~>"
+frag flybys = jet
+  "<~ ~ ~ ~ e1 ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ c2 ~ ~ ~ ~ ~ ~ ~ ~>"
+
+frag swoops = swoop
+  "<[~ c5 ~ ~] ~ [~ ~ g5? ~] [e5 ~ ~ ~] ~ [~ ~ ~ a5] ~ ~>"
+
+frag fall = dive
+  "<e1 ~ ~ ~ ~ ~ ~ ~>"
+
+frag crash = boom
+  "<e1 ~ ~ ~ ~ ~>"
+
+# The sequence and the hats fade in.
+auto fade_seq = seq.Level ramp 0 0.75 /8
+auto fade_hat = hat.Level ramp 0 0.45 /8
+
+# The flanger on the sequence in the swirl, off again.
+scene phase: seq.Send3 0.7
+scene plain: seq.Send3 0
+
+section intro 8: seq_in ticks fade_seq fade_hat
+section run 24: seq_run ticks run gasp
+section gate 8: seq_run ticks run dingdong announce
+section flyby 12: seq_run ticks run gasp flyby
+section run2 24: seq_wild ticks run gasp swoops
+section gate2 8: seq_run ticks run dingdong announce
+section swirl 24: seq_wild ticks gasp swoops flybys [phase]
+section dive 8: seq_wild ticks run gasp fall [plain]
+section crash 6: crash
+arrange intro run gate flyby run2 gate2 swirl dive crash

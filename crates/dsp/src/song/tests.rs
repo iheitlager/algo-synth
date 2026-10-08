@@ -730,11 +730,12 @@ fn an_electro_example_parses_and_prints_back() {
 }
 
 /// The songs in `examples/` parse, print back equal and are arranged; all but
-/// a drum study play an SH-101 bass whose filter has automation lanes.
+/// a drum study move a filter's cutoff and resonance, by lane or modulation,
+/// and the SH-101 plays in most of them.
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    let mut seen = 0;
+    let (mut seen, mut sh101) = (0, 0);
     for entry in std::fs::read_dir(&dir).expect("examples dir") {
         let path = entry.expect("entry").path();
         if path.extension().is_none_or(|e| e != "song") {
@@ -750,22 +751,21 @@ fn the_example_songs_parse_and_print_back() {
         if s.tracks.iter().all(|t| t.kind == Kind::Drums) {
             continue;
         }
-        assert!(
-            s.tracks
-                .iter()
-                .any(|t| t.preset.is_some_and(|p| p.model() == Model::Sh101)),
-            "{name}: an SH-101 track"
-        );
-        assert!(
-            s.autos.iter().any(|a| a.param == Param::Cutoff),
-            "{name}: cutoff lanes"
-        );
-        assert!(
-            s.autos.iter().any(|a| a.param == Param::Resonance),
-            "{name}: resonance lanes"
-        );
+        if s.tracks
+            .iter()
+            .any(|t| t.preset.is_some_and(|p| p.model() == Model::Sh101))
+        {
+            sh101 += 1;
+        }
+        // A lane or a modulation (a `mod` line or a frag's method).
+        let moves = |param| {
+            s.autos.iter().any(|a| a.param == param) || s.mods.iter().any(|m| m.param == param)
+        };
+        assert!(moves(Param::Cutoff), "{name}: the cutoff moves");
+        assert!(moves(Param::Resonance), "{name}: the resonance moves");
     }
-    assert_eq!(seen, 13, "thirteen examples");
+    assert_eq!(seen, 15, "fifteen examples");
+    assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
 }
 
 const ARRANGED: &str = "\

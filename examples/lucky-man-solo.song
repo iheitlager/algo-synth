@@ -1,0 +1,54 @@
+# A Minimoog solo in the style of Keith Emerson's on Lucky Man (ELP, 1970).
+# Not a transcription: the notes are new, the gestures are his: long
+# portamento rises, held notes swelling into vibrato, octave leaps, fast
+# falling runs, a climb to the top, and the long glide down at the end. A D C
+# G G vamp under it.
+tempo 96
+swing 50
+
+track kit drums Tr909 Kit909
+track bass synth Minimoog MiniBass
+track keys synth Juno106 JunoPoly
+track solo synth Minimoog LuckyMan
+
+strip kit: Level 0.7
+strip bass: Level 0.6
+strip keys: Level 0.35, Pan -0.25, Send2 0.2
+strip solo: Level 0.6, Pan 0.1, Send1 0.2, Send2 0.3
+# A quarter-note echo (625 ms: 2000^0.618) and a room.
+master: MasterGain 0.8, P1Type Echo, P1A 0.618, P1B 0.3, P1Return 0.25, P2Type Reverb, P2A 0.6, P2Return 0.3
+
+frag beat = kit /16
+  bd x.......x.x.....
+  sn ....x.......x...
+  ch x.x.x.x.x.x.x.x.
+frag fill = kit /16
+  bd x.......x.x.....................................x.......x.x.....
+  sn ....x.......x.......x.......x.......x.......x.......x...x.xxXXXX
+  ch x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.........
+  cr X...............................................................
+
+frag low = bass
+  "<[d2 ~ d2 a1] [c2 ~ c2 g1] [g1 ~ g1 d2] [g1 ~ b1 d2]>"
+
+frag vamp = keys .struct("x ~ x x ~ x x ~")
+  "<[d3,f#3,a3] [c3,e3,g3] [g2,b2,d3] [g2,b2,d3]>"
+
+# Sixteen bars; & lets a note run into the next, so the preset's glide carries
+# the pitch up or down between them.
+frag solo_line = solo
+  d4:2& a4:4& d5:4 d5:1 c5:8 d5:8 c5:8 a4:8 g4:4& a4:4 a4:2. r:4 d5:8& d6:8 d5:8& d6:8 c6:8 a5:8 g5:8 a5:8 a5:1 g5:16 f#5:16 e5:16 d5:16 c5:16 b4:16 a4:16 g4:16 a4:8 c5:8 d5:4 d5:2& f#5:2 g5:4& a5:4 c6:4& d6:4 d6:1 d6:8 c6:8 a5:8 c6:8 d6:8 c6:8 a5:8 g5:8 a5:2& d5:2 d5:4& d6:2. c6:8 a5:8 g5:8 f#5:8 g5:4& a5:4 d6:1& d4:1
+
+# The filter opens over the solo; the wheel brings the vibrato in on the
+# held notes of the second half.
+auto bright = solo.Cutoff ramp 1800 5500 /16
+auto wheel = solo.ModWheel 0.3 0.3 0.5 0.5 0.6 0.6 0.9 0.9 /16
+auto bite = solo.Resonance ramp 0.25 0.5 /16
+# Glide by the bar: long on the rises, short enough on the fast figures for
+# the leaps to land, and nearly a second for the last fall.
+auto slide = solo.Glide 0.35 0.35 0.1 0.1 0.05 0.3 0.04 0.2 0.3 0.3 0.05 0.2 0.3 0.06 0.4 0.9 /16
+
+section intro 4: beat low vamp
+section solo 16: beat low vamp solo_line bright wheel bite slide
+section outro 4: fill low vamp
+arrange intro solo outro
