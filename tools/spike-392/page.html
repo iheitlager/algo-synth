@@ -1,0 +1,56 @@
+<!doctype html><meta charset="utf-8"><title>spike 392</title>
+<pre id="log"></pre>
+<script type="module">
+// Spike #392: run(mode, decks, ahead, seconds, stressMain) from the console or playwright.
+import { makeEngine } from './common.mjs'
+import { makeRing } from './ring.mjs'
+const log = (s) => (document.getElementById('log').textContent += s + '\n')
+const ids = await (await fetch('ids.json')).json()
+const module = await WebAssembly.compileStreaming(fetch('dsp.wasm'))
+window.isolated = crossOriginIsolated
+window.hasSAB = typeof SharedArrayBuffer === 'function'
+log(`crossOriginIsolated ${crossOriginIsolated}, SharedArrayBuffer ${window.hasSAB}`)
+
+// Record makeEngine's calls on a fake engine, so the worklet can replay them.
+function record(kind) {
+  const calls = []
+  let mem = new ArrayBuffer(1 << 16)
+  const fake = new Proxy({}, { get: (_, fn) => {
+    if (fn === 'memory') return { buffer: mem }
+    if (fn === 'song_buf') return (n) => { calls.push(['#song', null]); calls.at(-1).buf = n; return 0 }
+    if (fn === 'song_load') return () => { calls.at(-1)[1] = new Uint8Array(mem, 0, calls.at(-1).buf).slice().buffer; calls.push(['song_load']); return 0 }
+    return (...a) => { calls.push([fn, ...a]) }
+  } })
+  const orig = WebAssembly.Instance
+  WebAssembly.Instance = function () { return { exports: fake } }
+  try { makeEngine(module, ids, kind) } finally { WebAssembly.Instance = orig }
+  return calls
+}
+
+window.run = async (mode, decks, ahead = 4, seconds = 8, stressMain = false, kind = 'heavy') => {
+  const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' })
+  await ctx.audioWorklet.addModule('mixer-worklet.js')
+  let workers = [], rings
+  if (mode === 'rings') {
+    rings = Array.from({ length: decks }, makeRing)
+    workers = rings.map(() => new Worker('engine-worker.mjs', { type: 'module' }))
+    await Promise.all(workers.map((w, i) => new Promise((ok) => { w.onmessage = ok; w.postMessage({ module, ids, kind, ahead, ring: rings[i] }) })))
+  }
+  const setups = mode === 'inline' ? Array.from({ length: decks }, () => record(kind)) : []
+  const node = new AudioWorkletNode(ctx, 'mixer', { outputChannelCount: [2], processorOptions: { mode, module, setups, rings } })
+  node.connect(ctx.destination)
+  await ctx.resume()
+  // A busy main thread: 40 ms of work every 50 ms, as a heavy UI would.
+  const stop = Date.now() + seconds * 1000
+  if (stressMain) while (Date.now() < stop) { const e = Date.now() + 40; while (Date.now() < e); await new Promise((r) => setTimeout(r, 10)) }
+  else await new Promise((r) => setTimeout(r, seconds * 1000))
+  const stats = await new Promise((ok) => { node.port.onmessage = ({ data }) => ok(data); node.port.postMessage(0) })
+  if (rings) for (const r of rings) { const c = new Int32Array(r.ctrl); Atomics.store(c, 1, -1); Atomics.notify(c, 1) }
+  workers.forEach((w) => w.terminate())
+  stats.playbackStats = ctx.playbackStats ? { underrunEvents: ctx.playbackStats.underrunEvents, underrunDuration: ctx.playbackStats.underrunDuration } : null
+  await ctx.close()
+  log(`${mode} decks ${decks} ahead ${ahead} stressMain ${stressMain}: ${JSON.stringify(stats)}`)
+  return stats
+}
+window.ready = true
+</script>
