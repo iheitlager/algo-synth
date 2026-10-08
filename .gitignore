@@ -31,3 +31,6 @@ AGENTS.md
 web/public/samples/
 .cache/
 __pycache__/
+# Keys never go in git: op.env holds 1Password references only (#386)
+.env
+.env.*
