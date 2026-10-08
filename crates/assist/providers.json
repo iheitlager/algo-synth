@@ -1,0 +1,31 @@
+{
+  "_note": "The providers the assist server can offer (ADR-0028). A provider is offered when its key variable is set (self-hosted: when ASSIST_SELF_HOSTED_URL is). Model ids are an allowlist; check them against each provider's model list.",
+  "default": { "provider": "anthropic", "model": "claude-opus-5-5" },
+  "providers": [
+    {
+      "id": "anthropic", "name": "Anthropic", "kind": "anthropic",
+      "base": "https://api.anthropic.com/v1/messages", "key_env": "ANTHROPIC_API_KEY",
+      "models": ["claude-opus-5-5", "claude-sonnet-5-5"]
+    },
+    {
+      "id": "mistral", "name": "Mistral", "kind": "openai",
+      "base": "https://api.mistral.ai/v1", "key_env": "MISTRAL_API_KEY",
+      "models": ["mistral-large-latest", "mistral-medium-latest"]
+    },
+    {
+      "id": "google", "name": "Google", "kind": "gemini",
+      "base": "https://generativelanguage.googleapis.com/v1beta", "key_env": "GEMINI_API_KEY",
+      "models": ["gemini-3.1-pro", "gemini-3.1-flash-lite"]
+    },
+    {
+      "id": "openrouter", "name": "OpenRouter", "kind": "openai",
+      "base": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY",
+      "models": ["z-ai/glm-4.6", "anthropic/claude-opus-5-5", "google/gemini-3.1-pro"]
+    },
+    {
+      "id": "self-hosted", "name": "Self-hosted", "kind": "openai",
+      "base_env": "ASSIST_SELF_HOSTED_URL", "models_env": "ASSIST_SELF_HOSTED_MODELS",
+      "models": []
+    }
+  ]
+}

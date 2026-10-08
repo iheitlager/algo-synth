@@ -13,7 +13,9 @@ targets = [
 ignore = []
 
 [licenses]
-allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+# ISC, BSD-3-Clause and CDLA-Permissive-2.0 come with TLS for the assist
+# server (ADR-0028): ring, rustls-webpki, untrusted, subtle, webpki-roots.
+allow = ["Apache-2.0", "MIT", "Unicode-3.0", "ISC", "BSD-3-Clause", "CDLA-Permissive-2.0"]
 confidence-threshold = 0.8
 
 [bans]
