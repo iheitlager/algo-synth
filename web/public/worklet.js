@@ -9,6 +9,9 @@ const LOAD_EVERY = 188
 // How often a hand's changes are folded into the song (ADR-0027): about
 // five times a second, so a knob drag gives a few song updates, not hundreds.
 const FOLD_EVERY = 75
+// How far ahead a deck's start is cued, at least: time for the cue to reach its
+// worker before it renders that block (16 blocks, 43 ms at 48 kHz; ADR-0029).
+const CUE_MARGIN = 16
 // Some worklet scopes lack performance.now(); Date.now() only ticks in
 // milliseconds, so then only the average over many blocks means anything.
 const precise = typeof globalThis.performance?.now === 'function'
@@ -104,6 +107,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'deckDetach': this.decks.delete(data.deck); break
         case 'deckSet': w.deck_set(data.deck, data.field, data.v); break
         case 'deckXfade': w.deck_crossfade(data.x); break
+        case 'deckCue': this.cueDeck(data.deck, data.every); break
         case 'songPlay': w.song_play(); break
         case 'songPause': w.song_pause(); break
         case 'songStop': w.song_stop(); break
@@ -396,6 +400,17 @@ class EngineProcessor extends AudioWorkletProcessor {
     }
   }
 
+  // Where deck `deck` starts: the master's next multiple of `every` steps
+  // (16 a bar, 128 a phrase) far enough ahead, or right after the margin when
+  // `every` is 0 or the song is stopped; as a frame on this worklet's clock.
+  cueDeck(deck, every) {
+    const w = this.w
+    const margin = CUE_MARGIN * this.block
+    const f = every > 0 ? w.cue_frames(every, margin) : -1
+    const at = this.blockNo * this.block + (f < 0 ? margin : f)
+    this.port.postMessage({ t: 'deckCued', deck, at, bpm: w.clock_tempo() })
+  }
+
   // This block is read: each worker may render one more.
   readDecks() {
     for (const r of this.decks.values()) {
@@ -408,7 +423,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     const w = this.w
     const peaks = [0, 1, 2, 3].map((d) => w.deck_peak(d))
     const dropped = [0, 1, 2, 3].map((d) => this.decks.get(d)?.dropped ?? 0)
-    this.port.postMessage({ t: 'decks', peaks, dropped })
+    this.port.postMessage({ t: 'decks', peaks, dropped, bpm: w.clock_tempo() })
     this.deckPeaksSent = this.decks.size > 0
   }
 

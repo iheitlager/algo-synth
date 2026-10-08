@@ -4825,3 +4825,60 @@ fn a_fed_deck_joins_the_output() {
     e.render(128);
     assert_eq!(peak(&e), 0.0, "not fed again: silent again");
 }
+
+// ADR-0029: a deck cued to the master's next bar starts on that sample, even
+// in the middle of a block, and keeps its steps on the master's.
+#[test]
+fn a_cued_deck_starts_on_the_masters_bar() {
+    let mut master = Engine::new(48_000.0);
+    let mut deck = Engine::new(48_000.0);
+    // At 130 BPM a bar is not a whole number of blocks.
+    master.set_tempo(130.0);
+    deck.set_tempo(130.0);
+    master.song_play();
+    for _ in 0..300 {
+        master.render(BLOCK);
+    }
+    assert_eq!(
+        deck.cue_frames(16, 0),
+        None,
+        "a stopped song has no bar to cue to"
+    );
+    let f = master.cue_frames(16, 0).expect("the master plays");
+    assert!(
+        f > 0 && f % BLOCK as u64 != 0,
+        "the bar falls inside a block: {f}"
+    );
+    let bar = master.clock().position() + f;
+    deck.song_play_in(f as usize);
+    for _ in 0..1000 {
+        master.render(BLOCK);
+        deck.render(BLOCK);
+    }
+    assert!(deck.clock().playing());
+    assert_eq!(
+        deck.clock().position(),
+        master.clock().position() - bar,
+        "started on the bar's sample"
+    );
+    let (m, d) = (
+        master.clock().step().expect("stepped"),
+        deck.clock().step().expect("stepped"),
+    );
+    assert_eq!(
+        (m - d) % 16,
+        0,
+        "on the same step of the bar: master {m}, deck {d}"
+    );
+}
+
+#[test]
+fn stop_cancels_a_cued_start() {
+    let mut e = Engine::new(48_000.0);
+    e.song_play_in(500);
+    e.song_stop();
+    for _ in 0..10 {
+        e.render(BLOCK);
+    }
+    assert!(!e.clock().playing());
+}

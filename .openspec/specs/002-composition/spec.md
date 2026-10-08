@@ -383,3 +383,23 @@ The song and the live synths and mixer SHALL stay one state without a commit (AD
 - THEN the setting holds the resonance and no cutoff
 
 **Tests:** `crates/dsp/src/engine/tests.rs::a_hand_folds_into_the_tracks_setting`, `crates/dsp/src/engine/tests.rs::faders_and_presets_fold_and_the_engine_does_not`, `crates/dsp/src/engine/tests.rs::a_driven_value_is_not_folded`, `crates/dsp/src/engine/tests.rs::a_mixer_line_taken_out_resets_its_values`, `crates/dsp/src/engine/tests.rs::a_synth_on_screen_is_a_track`, `crates/dsp/src/engine/tests.rs::what_the_song_cannot_hold_is_reported`
+
+### Requirement 18: A deck follows the master's clock [SHOULD]
+
+With decks (ADR-0029, #391), deck A's clock SHALL lead and every worker deck's clock SHALL follow its tempo: the worklet SHALL report the master's tempo and each worker deck SHALL take it, and a new worker deck SHALL start with it. Play on a worker deck SHALL cue it: the master SHALL name the frame of its next bar (16 steps) or 8-bar phrase (128 steps) at least 16 blocks ahead (`cue_frames`), or 16 blocks ahead for **Now** or while the master is stopped; the deck SHALL start from its top on that exact frame at the master's tempo, inside whichever block it falls (`song_play_in`), so its steps fall on the master's. Stop SHALL cancel a cued start. A cue that reaches the worker after its frame SHALL start the deck at once and say how late it was.
+
+**Implementation:** `crates/dsp/src/clock.rs::Clock::frames_to_multiple`, `crates/dsp/src/engine.rs::Engine::cue_frames`, `crates/dsp/src/engine.rs::Engine::song_play_in`, `crates/dsp/src/ffi.rs` (`cue_frames`, `song_play_in`), `web/public/worklet.js` (`cueDeck`), `web/public/deck-worker.js` (`startNow`), `web/src/audio/decks.ts` (`playDeck`, `onCued`, `onDecks`)
+
+#### Scenario: cued to the next bar inside a block
+
+- GIVEN a master at 130 BPM playing, its next bar falling inside a block, and a stopped deck
+- WHEN the deck is started that many frames ahead and both render on
+- THEN the deck's position is the master's minus the bar's sample, and both are on the same step of the bar
+
+#### Scenario: a faster song follows
+
+- GIVEN deck A playing a song at 124 BPM and a song at 170 BPM loaded into deck B
+- WHEN deck B's Play is pressed with Start on Next bar
+- THEN deck B starts on deck A's next bar and both advance the same number of steps a second
+
+**Tests:** `crates/dsp/src/clock.rs::tests::frames_to_the_next_bar`, `crates/dsp/src/engine/tests.rs::a_cued_deck_starts_on_the_masters_bar`, `crates/dsp/src/engine/tests.rs::stop_cancels_a_cued_start`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`, `web/src/audio/decks.test.ts`
