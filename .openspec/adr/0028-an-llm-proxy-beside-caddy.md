@@ -1,6 +1,6 @@
 # 0028: An LLM proxy beside Caddy, on localhost only
 
-**Status:** Proposed · **Date:** 2026-10-08 · **Amends:** 0006, 0012
+**Status:** Accepted · **Date:** 2026-10-08 · **Amends:** 0006, 0012
 
 ## Context
 
