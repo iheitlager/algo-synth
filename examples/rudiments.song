@@ -1,42 +1,55 @@
 tempo 96
-track kit drums Tr909 Kit909
+swing 50
+track kit drums Tr808 TightKit
 
-# The click under every rudiment: kick on one, a hat on each beat.
+# The click under every rudiment: kick on one, a hat on each beat,
+# and a son clave (3-2) on the claves.
 frag click = kit /16
   bd x...............
   ch x...x...x...x...
+  cl x..x..x...x.x...
 
 # --- Rolls (o is the soft second stroke of a diddle) ---
 # Single stroke roll, sixteenths: R L R L
 frag single16 = kit /16
   sn XxxxXxxxXxxxXxxx
+
 # Single stroke roll, thirty-seconds
 frag single32 = kit /32
   sn XxxxxxxxXxxxxxxxXxxxxxxxXxxxxxxx
+
 # Double stroke roll: RR LL, each double a stroke and its rebound
 frag double = kit /32
   sn XoxoxoxoXoxoxoxoXoxoxoxoXoxoxoxo
+
 # Triple stroke roll, in triplets: RRR LLL
 frag triple = kit /24
   sn XooxooXooxooXooxooXooxoo
+
 # Five stroke roll: RR LL R
 frag five = kit /32
   sn xoxoX...xoxoX...xoxoX...xoxoX...
+
 # Six stroke roll: R LL RR L
 frag six = kit /32
   sn X.xoxoX.X.xoxoX.X.xoxoX.X.xoxoX.
+
 # Seven stroke roll: RR LL RR L
 frag seven = kit /32
   sn xoxoxoX.xoxoxoX.xoxoxoX.xoxoxoX.
+
 # Nine stroke roll: RR LL RR LL R
 frag nine = kit /32
   sn xoxoxoxoX.......xoxoxoxoX.......
+
 # Single stroke four, triplets: R L R L(accent)
 frag stroke4 = kit /24
   sn xxxX..xxxX..xxxX..xxxX..
+
 # Single stroke seven, triplets
 frag stroke7 = kit /24
   sn xxxxxxX.xxxxxxX.xxxxxxX.
+
 # Crescendo roll: ghosts, hits, then accents
 frag crescendo = kit /32
   sn o.o.o.o.x.x.x.x.xxxxxxxxXXXXXXXX
@@ -45,12 +58,15 @@ frag crescendo = kit /32
 # Single paradiddle: R L RR  L R LL
 frag paradiddle = kit /16
   sn XxxoXxxoXxxoXxxo
+
 # Double paradiddle, triplets: R L R L RR
 frag dblpara = kit /24
   sn XxxxxoXxxxxoXxxxxoXxxxxo
+
 # Paradiddle-diddle, triplets: R L RR LL
 frag paradiddle_diddle = kit /24
   sn XxxoxoXxxoxoXxxoxoXxxoxo
+
 # Triple paradiddle: R L R L R L RR
 frag triplepara = kit /16
   sn XxxxxxxoXxxxxxxo
@@ -59,24 +75,31 @@ frag triplepara = kit /16
 # Flam on every beat
 frag flam = kit /16
   sn f...f...f...f...
+
 # Flam tap: flam and a tap from the same hand
 frag flamtap = kit /16
   sn fxfxfxfxfxfxfxfx
+
 # Flam accent, triplets: flam tap tap
 frag flamaccent = kit /24
   sn fxxfxxfxxfxxfxxfxxfxxfxx
+
 # Flamacue: flam, accent, tap, tap, flam
 frag flamacue = kit /16
   sn fXxxf...fXxxf...
+
 # Flam paradiddle
 frag flampara = kit /16
   sn fxxofxxofxxofxxo
+
 # Pataflafla: flam tap tap flam
 frag pataflafla = kit /16
   sn fxxffxxffxxffxxf
+
 # Swiss army triplet: flam, rebound, tap
 frag swiss = kit /24
   sn foxfoxfoxfoxfoxfoxfoxfox
+
 # Flam drag: flam, drag, tap
 frag flamdrag = kit /24
   sn f.dx..f.dx..f.dx..f.dx..
@@ -85,15 +108,19 @@ frag flamdrag = kit /24
 # Drag on every beat
 frag drag = kit /16
   sn d...d...d...d...
+
 # Single drag tap: drag, accent
 frag dragtap = kit /16
   sn d.X.d.X.d.X.d.X.
+
 # Lesson 25: drag, tap, accent
 frag lesson25 = kit /16
   sn dxX.dxX.dxX.dxX.
+
 # Single ratamacue: drag, tap, tap, accent
 frag ratamacue = kit /16
   sn dxxXdxxXdxxXdxxX
+
 # Drag paradiddle: accent, drag paradiddle
 frag dragpara = kit /16
   sn XdxoXdxoXdxoXdxo
