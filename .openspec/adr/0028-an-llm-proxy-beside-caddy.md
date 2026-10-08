@@ -1,6 +1,6 @@
 # 0028: An LLM proxy beside Caddy, on localhost only
 
-**Status:** Accepted · **Date:** 2026-10-08 · **Amends:** 0006, 0012
+**Status:** Accepted, amended by 0030 · **Date:** 2026-10-08 · **Amends:** 0006, 0012
 
 ## Context
 
@@ -57,3 +57,7 @@ So far algo-synth has only been run on the machine it plays on. ADR-0006 named `
 - **(c) Paste only, no call from the app.** Works today and stays possible, but no loop: nothing checks or renders the song before it is pasted. Kept as the fallback when the server is not running.
 - **A Python (FastAPI) server**, as in lab271/demo-paragraphica, with the official Anthropic SDK and the song tools behind a native CLI. A second language and toolchain, and the tools a process away from the engine. Rejected for a Rust server linking `algo-dsp`.
 - **Authentication now.** Nothing to protect from on localhost; it would only add setup. Deferred to the ADR that serves beyond localhost.
+
+## Amended by ADR-0030
+
+The assist server no longer runs beside Caddy: one server, `algo-synth serve`, serves the app and `/api` on `127.0.0.1:6340`, and Caddy is gone. What this ADR decided about the providers, the loop, the keys, localhost and the limits stands.

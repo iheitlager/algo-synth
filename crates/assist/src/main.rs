@@ -1,12 +1,13 @@
-//! `assist serve`: the assist server (#385, ADR-0028) on `ASSIST_BIND`
-//! (default `127.0.0.1:6342`), offering the providers whose keys are in the
-//! environment.
+//! `algo-synth serve`: algo-synth's one server (ADR-0030, #406) on
+//! `ALGO_BIND` (default `127.0.0.1:6340`): the built app from `ALGO_WEB`
+//! (default `web/dist`) and, under `/api`, the assistant (ADR-0028) with the
+//! providers whose keys are in the environment.
 //!
-//! `assist eval --provider ID --model ID [--only a,b] [--json]`: the eval
+//! `algo-synth eval --provider ID --model ID [--only a,b] [--json]`: the eval
 //! (#388) on that provider, graded by code; it calls the provider for every
 //! case and costs money.
 //!
-//! `assist check|render|catalog [file]`: the song tools (#384) from a shell,
+//! `algo-synth check|render|catalog [file]`: the song tools (#384) from a shell,
 //! for people and for the eval (#388). A song is read from `file`, or from
 //! standard input without one; the result is printed as JSON. Exits 1 when
 //! a song does not check or render, 2 on a usage or I/O error.
@@ -16,7 +17,7 @@ use serde::Serialize;
 use std::io::Read;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: assist serve | assist eval --provider ID --model ID [--only a,b] [--json] | assist check|render|catalog [file]";
+const USAGE: &str = "usage: algo-synth serve | algo-synth eval --provider ID --model ID [--only a,b] [--json] | algo-synth check|render|catalog [file]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -139,9 +140,14 @@ fn serve() -> Result<ExitCode, String> {
     use algo_assist::server::{AppState, Rates, router};
     let env: std::collections::HashMap<String, String> = std::env::vars().collect();
     let bind = env
-        .get("ASSIST_BIND")
+        .get("ALGO_BIND")
         .cloned()
-        .unwrap_or_else(|| "127.0.0.1:6342".into());
+        .unwrap_or_else(|| "127.0.0.1:6340".into());
+    let web = std::path::PathBuf::from(
+        env.get("ALGO_WEB")
+            .cloned()
+            .unwrap_or_else(|| "web/dist".into()),
+    );
     let effort = env
         .get("ASSIST_EFFORT")
         .cloned()
@@ -153,20 +159,22 @@ fn serve() -> Result<ExitCode, String> {
         .iter()
         .map(|p| format!("{} ({})", p.id, p.models.join(", ")))
         .collect();
+    let site = if web.join("index.html").is_file() {
+        format!("the app from {}", web.display())
+    } else {
+        format!("no app: {} has no index.html (make build)", web.display())
+    };
     eprintln!(
-        "assist: http://{bind}  providers: {}",
+        "algo-synth: http://{bind}  {site};  assistant providers: {}",
         if offered.is_empty() {
             "none (set a key, see README)".into()
         } else {
             offered.join("; ")
         }
     );
-    let state = std::sync::Arc::new(AppState::new(
-        config,
-        effort,
-        LoopLimits::default(),
-        Rates::default(),
-    ));
+    let mut state = AppState::new(config, effort, LoopLimits::default(), Rates::default());
+    state.web = web.join("index.html").is_file().then_some(web);
+    let state = std::sync::Arc::new(state);
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
         let listener = tokio::net::TcpListener::bind(&bind)

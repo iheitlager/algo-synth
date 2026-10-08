@@ -25,7 +25,9 @@ The `## ...` comment after a target is what `make help` prints; keep it to
 
 ## Ports
 
-`make serve` → 6340, `make dev` → 6341. Keep new services in the 63xx range.
+`make serve` → 6340, `make dev` → 6341: both one server, the app and `/api`
+(ADR-0030). Vite's own server (6343) is only for UI work against a fake.
+Keep new services in the 63xx range.
 
 ## Releases
 

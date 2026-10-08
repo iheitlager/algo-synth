@@ -7,7 +7,7 @@
 | [0003](0003-vue-view.md) | A Vue + TypeScript view, separate from the engine; the worklet outside the bundler; the scope on an AnalyserNode | Accepted |
 | [0004](0004-one-parameter-registry.md) | One parameter and source registry in Rust, mirrored in TypeScript, the mirror checked by a test | Accepted |
 | [0005](0005-composition-model.md) | Composition: tracks own one source; fixed insert/send/master mixer; patterns in clips from hand, generator or score; the clock in the engine | Accepted, narrowed by 0008, song format superseded by 0012 |
-| [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted, amended by 0028 and 0029 |
+| [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted, amended by 0028 and 0029, Caddy superseded by 0030 |
 | [0007](0007-blep-table-oscillators.md) | Oscillators band-limit every step (wrap, pulse edge, sync reset) with a windowed-sinc BLEP table, not a 2-point polyBLEP | Accepted |
 | [0008](0008-mono-only-to-the-ensemble.md) | Mono only, straight to the ensemble: Wave, Drums, the arrangement and algo loops removed for now | Accepted, deferrals lifted by 0012 |
 | [0009](0009-synth-models.md) | Synth models: one shared voice with a `Model` per slot (enum dispatch) and one data-driven panel per model; six monosynths | Accepted |
@@ -28,5 +28,6 @@
 | [0025](0025-one-definition-per-instrument.md) | One definition per instrument: a `ModelDef` and its presets per file in `synth/`, `Model::def` the one match; supersedes the per-model answers in `model.rs` of 0009 | Accepted |
 | [0026](0026-drum-hits-on-their-lanes-grid.md) | Drum hits on their lane's grid (/12 to /48), placed between the clock's steps and queued; flams' and drags' graces queued a step ahead; the 48-tick note grid unchanged | Accepted |
 | [0027](0027-autocommit.md) | Autocommit: the engine folds live synth and mixer changes into the song and the text applies as it is typed; the commit buttons and Save setup go; supersedes the write-back rule of 0018 and the two files of 0015 | Accepted |
-| [0028](0028-an-llm-proxy-beside-caddy.md) | An LLM proxy beside Caddy, on localhost only: a Rust (axum) assist server linking algo-dsp for its tools, one loop over five providers behind one trait, keys from 1Password, SSE to the Assistant; everything binds to 127.0.0.1, so no authentication for now | Accepted |
+| [0028](0028-an-llm-proxy-beside-caddy.md) | An LLM proxy beside Caddy, on localhost only: a Rust (axum) assist server linking algo-dsp for its tools, one loop over five providers behind one trait, keys from 1Password, SSE to the Assistant; everything binds to 127.0.0.1, so no authentication for now | Accepted, amended by 0030 |
 | [0029](0029-decks.md) | Decks: the main engine stays on the audio thread, up to three more in Web Workers rendering 4 blocks ahead into SharedArrayBuffer rings; a deck mixer in Rust, one clock per instance, a late deck drops its block; cross-origin isolation headers | Accepted |
+| [0030](0030-one-server.md) | One binary, one server, one port: `algo-synth serve` on 127.0.0.1:6340 serves the app and `/api`, with isolation, no-cache and compression; one image; Caddy and the second process go | Accepted |

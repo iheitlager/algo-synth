@@ -17,7 +17,7 @@ const version = (() => {
   }
 })()
 
-// Cross-origin isolated, so decks can share SharedArrayBuffer rings (ADR-0029); Caddy sends the same.
+// Cross-origin isolated, so decks can share SharedArrayBuffer rings (ADR-0029); algo-synth serve sends the same.
 const ISOLATED = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' }
 
 export default defineConfig({
@@ -37,15 +37,16 @@ export default defineConfig({
       },
     },
   },
-  // 63xx range (Makefile DEV_PORT); `make serve` uses 6340. The assist server
-  // (ADR-0028) is on 6342, or ASSIST_URL; streamed events pass unbuffered.
+  // The app is served by algo-synth serve (make dev 6341, make serve 6340,
+  // ADR-0030). Vite's own server (6343) is for UI work only: with ASSIST_URL
+  // set it proxies /api there, e.g. to tools/fake-assist.mjs.
   server: {
-    port: 6341,
+    port: 6343,
     strictPort: true,
     headers: ISOLATED,
-    proxy: { '/api': { target: process.env.ASSIST_URL || 'http://127.0.0.1:6342' } },
+    proxy: process.env.ASSIST_URL ? { '/api': { target: process.env.ASSIST_URL } } : undefined,
   },
-  preview: { port: 6341, strictPort: true, headers: ISOLATED },
+  preview: { port: 6343, strictPort: true, headers: ISOLATED },
   // `npm run test:coverage` (make coverage-web): the summary prints, the HTML report goes to coverage/.
   test: {
     coverage: {

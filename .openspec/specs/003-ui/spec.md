@@ -296,7 +296,7 @@ The view SHALL have an Assistant (#387, ADR-0028): a pane beside every view, sho
 
 - GIVEN no assist server running
 - WHEN the Assistant is shown
-- THEN it says the assistant needs its server (`make assist`) and nothing else
+- THEN it says the assistant needs the app's server (`make dev` or `make serve`) and nothing else
 
 **Tests:** `web/src/audio/assist.test.ts`, `web/src/audio/linediff.test.ts`, `web/src/audio/assistlink.test.ts`, `web/src/audio/split.test.ts`
 

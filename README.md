@@ -12,7 +12,7 @@ An algorithmic synthesizer that runs entirely in the browser, with the whole eng
 - **Mixer:** a console with three insert slots per strip (drive, EQ, compressor, vocoder), four sends into four processors (echo, reverb, chorus, flanger), eight group buses, and a master EQ, compressor and limiter.
 - **The song is text:** drum lanes, notes in mini-notation or classic durations, generators (`euclid`, `walk`, `arp`, `markov`, `mutate`, live or frozen), sections and an arrangement, automation and scenes, in a highlighting editor beside a step grid, piano roll and arranger. Opening a MIDI file converts it into a song.
 - **Setups and presets:** save the synths, their models, patches and mixer as `<song>.synths.json`, and keep presets of synths, inserts, processors and strips in a library.
-- **No backend:** the container serves static files.
+- **One server:** `algo-synth serve` serves the app and the assistant on one port, localhost only; the music runs in the browser.
 
 What changed in each version is in [CHANGELOG.md](CHANGELOG.md). See [.openspec/plan.md](.openspec/plan.md) for the road from one mono voice to a true algo synth.
 
@@ -74,11 +74,10 @@ Every keyword, with examples, is in [docs/song.md](docs/song.md).
 ## Quick start
 
 ```bash
-make dev      # Vite on http://localhost:6341 (rebuilds dsp.wasm first)
-make serve    # Podman + Caddy on http://localhost:6340
+make dev      # the app and the assistant on http://localhost:6341, rebuilt as you edit
+make serve    # the same from one Podman container on http://localhost:6340
 make check    # every CI gate: lint, deny, tests, typecheck, build
 make bench    # 16 Mono voices in V8 against the 30% CPU budget
-make assist   # the assistant's server, keys from 1Password (see below)
 make          # all targets
 ```
 
@@ -86,7 +85,7 @@ Needs Rust (stable, the `wasm32-unknown-unknown` target comes from `rust-toolcha
 
 ## The assistant
 
-A language model can write and change the song (ADR-0028, epic #381). The browser talks to a small server, `assist`, which holds the keys, runs the model and checks every song on the engine. It serves `127.0.0.1` only, so there is no login. Without it the app works as before, with the Assistant hidden.
+A language model can write and change the song (ADR-0028, epic #381). The app's own server, `algo-synth serve` (ADR-0030), answers the Assistant under `/api`: it holds the keys, runs the model and checks every song on the engine. It serves `127.0.0.1` only, so there is no login. Without keys the app works as before, and the assistant offers no provider.
 
 **Keys come from 1Password** and never reach the browser or git. `op.env` holds references only:
 
@@ -96,10 +95,11 @@ A language model can write and change the song (ADR-0028, epic #381). The browse
 **Run it:**
 
 ```bash
-make assist   # the server on 127.0.0.1:6342, keys from 1Password
-make dev      # Vite on :6341 proxies /api to it
-make serve    # the containers: Caddy on :6340, the server beside it on a private network
+make dev      # algo-synth serve on 127.0.0.1:6341, keys from 1Password; reload to see an edit
+make serve    # the same, one container, published on 127.0.0.1:6340
 ```
+
+`OP=` runs either without 1Password: the app serves and the assistant offers no provider.
 
 - **A self-hosted model:** Ollama, llama.cpp's server, vLLM or LM Studio, anything with an OpenAI-compatible API. Set `ASSIST_SELF_HOSTED_URL` (for example `http://127.0.0.1:11434/v1`; from the container, `http://host.containers.internal:11434/v1`) and `ASSIST_SELF_HOSTED_MODELS` (for example `qwen3:32b`).
 - **A machine without the 1Password app:** export `OP_SERVICE_ACCOUNT_TOKEN` and `op run` uses it. `OP=` skips 1Password when the keys are exported already.
@@ -115,7 +115,7 @@ tools/          bench, demo MIDI, sample fetcher, release script, spec link chec
 changes/        changelog fragments, one per PR, collected by make release
 docs/           the song language
 .openspec/      vision, plan, ADRs, specs
-Containerfile   wasm → web → Caddy
+Containerfile   wasm and server → web → one image
 ```
 
 ## Documentation

@@ -1,6 +1,6 @@
 # 008: The assistant
 
-A language model writes and changes the song (ADR-0012), through the assist server beside Caddy (ADR-0028). Epic #381. Decisions: ADR-0001, ADR-0012, ADR-0028.
+A language model writes and changes the song (ADR-0012), through the assistant of algo-synth's one server (ADR-0028, ADR-0030). Epic #381. Decisions: ADR-0001, ADR-0012, ADR-0028.
 
 Common to every requirement: the server serves `127.0.0.1` only, so there is no authentication (ADR-0028). Keys come from the environment and never appear in a response, an event or a log. Tests never call a provider: they use scripted providers, recorded reply shapes and a local mock.
 
@@ -48,7 +48,11 @@ For a request, the model SHALL get a system prompt holding how to work, the lang
 
 ### Requirement 4: The server [MUST]
 
-`assist serve` SHALL listen on `ASSIST_BIND` (default `127.0.0.1:6342`) and answer the following:
+`algo-synth serve` SHALL be algo-synth's one server (ADR-0030): it listens on `ALGO_BIND` (default `127.0.0.1:6340`) and serves both the app and the assistant on that port.
+
+The app comes from `ALGO_WEB` (default `web/dist`): `/` the app, `/assistant.html` the Assistant's window, an unknown path 404. Every response SHALL be cross-origin isolated (COOP `same-origin`, COEP `require-corp`, ADR-0029). The worklet, the deck worker and the engine SHALL be sent `no-cache`, and `.wasm` as `application/wasm`. Responses SHALL be compressed, except the event stream.
+
+The assistant answers:
 - `GET /api/health`;
 - `GET /api/providers`: the offered providers and models and the default, with no key or base;
 - `POST /api/assist` with the song, the request, a provider, a model and an optional focus: the loop's steps as server-sent events named `progress`, `tool`, `text`, `song`, `error` and `done`.
@@ -68,23 +72,26 @@ Bodies are limited to 2 MB. When the browser closes the stream (Stop, a closed t
 - WHEN a request is posted
 - THEN the stream is `progress`, `text`, `tool`, `progress`, `tool`, `song`, `done`, the mock saw the cached system prompt and the first turn sent back, and no key is in the stream
 
-**Tests:** `crates/assist/src/server.rs::tests::health_and_providers`, `crates/assist/src/server.rs::tests::requests_are_refused_before_the_stream`, `crates/assist/src/server.rs::tests::a_request_streams_its_steps_through_the_real_adapter`, `crates/assist/src/server.rs::tests::a_closed_stream_stops_its_loop`
+**Tests:** `crates/assist/src/server.rs::tests::health_and_providers`, `crates/assist/src/server.rs::tests::requests_are_refused_before_the_stream`, `crates/assist/src/server.rs::tests::a_request_streams_its_steps_through_the_real_adapter`, `crates/assist/src/server.rs::tests::a_closed_stream_stops_its_loop`, `crates/assist/src/server.rs::tests::one_server_serves_the_app_and_the_api`
 
 ### Requirement 5: Keys and serving [MUST]
 
-The keys SHALL come from 1Password and never be stored in git. `op.env` holds `op://` references only; `op run --env-file=op.env` fills them in for one process; `make env-check` says which resolve, ok or missing, never a value. `.env` files are ignored by git. `make assist` SHALL run the server on `127.0.0.1:6342` with the keys from 1Password; `make dev` proxies `/api` to it.
+The keys SHALL come from 1Password and never be stored in git:
+- `op.env` holds `op://` references only, and `op run --env-file=op.env` fills them in for one process;
+- `make env-check` says which resolve, ok or missing, never a value;
+- `.env` files are ignored by git.
 
-For `make serve`, the assist server SHALL run as its own image beside Caddy, on a private podman network, with no port published on the host. Caddy SHALL proxy `/api/*` to it without buffering, so events stream. Keys SHALL pass into the container by name (`-e NAME`) from the `op run` environment, never on a command line. Without 1Password the server does not start, and the site serves as before.
+`make dev` SHALL run `algo-synth serve` on `127.0.0.1:6341` with the keys from 1Password, while `vite build --watch` keeps `web/dist` current. `make serve` SHALL run one image, the binary and the built app, published on the host's `127.0.0.1:6340` only. Keys SHALL pass in by name (`-e NAME`) from `op run`'s environment, never on a command line. Without 1Password both serve the app, and the assistant offers no provider.
 
-**Implementation:** `op.env`, `Makefile` (`assist`, `env-check`, `image`, `serve`), `Containerfile` (`assist`), `Caddyfile`, `web/vite.config.ts`
+**Implementation:** `op.env`, `Makefile` (`dev`, `env-check`, `image`, `serve`), `Containerfile`
 
-#### Scenario: only Caddy reaches the server
+#### Scenario: one container, one port
 
 - GIVEN `make serve` without keys
-- WHEN the containers run
-- THEN Caddy publishes `127.0.0.1:6340` and the assist server publishes nothing; from Caddy, `/api/health` and `/api/providers` answer through the proxy, the latter with no providers
+- WHEN the container runs
+- THEN it publishes `127.0.0.1:6340` only, and from inside it `/`, `/dsp.wasm` and `/api/providers` answer, the last with no providers
 
-**Tests:** review: `make serve OP=`, then `podman ps` and `podman exec algo-synth wget -qO- http://127.0.0.1:80/api/providers`
+**Tests:** review: `make serve OP=`, then `podman ps` and requests from inside the container
 
 ### Requirement 6: An eval set [SHOULD]
 

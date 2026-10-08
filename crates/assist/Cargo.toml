@@ -16,6 +16,7 @@ axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 tokio-stream = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tower-http = { version = "0.6", features = ["fs", "set-header", "compression-gzip"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
@@ -25,5 +26,5 @@ http-body-util = "0.1"
 workspace = true
 
 [[bin]]
-name = "assist"
+name = "algo-synth"
 path = "src/main.rs"
