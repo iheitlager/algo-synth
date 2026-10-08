@@ -72,6 +72,12 @@ async function onFile(e: Event) {
 // Which build is running (#197): the page's version and the engine's, with the commits in the details.
 const buildText = () => details(engineBuild)
 const copied = ref(false)
+// The bar hides its overflow, so the details float as `fixed`, placed under the summary when opened.
+const popAt = ref({ top: '0px', left: '0px' })
+function placeBuild(e: Event) {
+  const r = (e.target as HTMLDetailsElement).querySelector('summary')!.getBoundingClientRect()
+  popAt.value = { top: `${r.bottom + 6}px`, left: `${r.left}px` }
+}
 async function copyBuild() {
   try {
     await navigator.clipboard.writeText(buildText())
@@ -90,9 +96,9 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
 <template>
   <header class="pane bar">
     <strong class="logo">algo-synth</strong>
-    <details class="build">
+    <details class="build" @toggle="placeBuild">
       <summary :title="buildText()">v{{ page.version }}<template v-if="status.running"> · engine v{{ engineBuild.version || '?' }}</template></summary>
-      <div class="build-pop">
+      <div class="build-pop" :style="popAt">
         <pre>{{ buildText() }}</pre>
         <button @click="copyBuild">{{ copied ? 'Copied' : 'Copy' }}</button>
       </div>
@@ -139,7 +145,7 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
 .logo { color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
 .build { position: relative; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .build summary { cursor: pointer; }
-.build-pop { position: absolute; z-index: 10; top: 24px; left: 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 6px; }
+.build-pop { position: fixed; z-index: 10; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 6px; }
 .build-pop pre { margin: 0; font-family: var(--font-mono); color: inherit; }
 .on { border-color: var(--accent); color: var(--accent); }
 .seg { display: inline-flex; }
