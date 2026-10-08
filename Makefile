@@ -6,13 +6,20 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench lint deny image serve stop clean
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench lint deny image serve stop clean assist env-check
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
+ASSIST   := algo-synth-assist
+NET      := algo-synth
 # 63xx: out of the way of the usual 3000/5173/8080 dev servers.
 PORT     ?= 6340
 DEV_PORT ?= 6341
+# The assist server's keys come from 1Password (ADR-0028, #386): op.env holds
+# only op:// references, and `op run` fills them in for one process. OP= skips
+# 1Password when the keys are exported already.
+OP       ?= op run --env-file=op.env --
+KEYS     := ANTHROPIC_API_KEY MISTRAL_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY ASSIST_SELF_HOSTED_URL ASSIST_SELF_HOSTED_MODELS
 
 ##@ Everyday
 
@@ -85,21 +92,41 @@ lint: ## clippy, fmt check, no mod.rs
 deny: ## cargo-deny checks
 	cargo deny check
 
+##@ Assistant
+
+# The assist server on 127.0.0.1:6342 with the keys from 1Password; `make dev`
+# proxies /api to it. A provider without its key is not offered.
+assist: ## Assist server with 1Password keys
+	$(OP) cargo run --release -p algo-assist -- serve
+# Which of op.env's keys 1Password resolves: ok or missing, never a value.
+env-check: ## Check the 1Password keys
+	@grep -E '^[A-Z_]+=op://' op.env | while IFS='=' read -r name ref; do \
+		if op read --no-newline "$$ref" >/dev/null 2>&1; then echo "ok       $$name"; \
+		else echo "missing  $$name  ($$ref)"; fi; \
+	done
+
 ##@ Container
 
 # The commit goes in as ALGO_BUILD_SHA, declared after the source copies in
 # Containerfile, so a new commit rebuilds the wasm and the page instead of
 # reusing a cached layer from older sources (#198); no --no-cache needed.
-image: ## Build the Podman image
+image: ## Build the Podman images
 	podman build --build-arg ALGO_BUILD_SHA=$(SHA) -t $(IMAGE) -f Containerfile .
+	podman build --target assist -t $(ASSIST) -f Containerfile .
 # Localhost is a secure context, so AudioWorklet works without TLS.
 # Replaces a container left over from an earlier serve (running or not).
+# The assist server runs beside Caddy on a private network and publishes no
+# port: only Caddy's /api reaches it (ADR-0028). Its keys come from `op run`
+# by name (`-e NAME`), never on the command line. Without 1Password it does
+# not start and the site serves as before, the Assistant hidden.
 serve: image ## Serve on localhost:6340
-	@podman rm -f --ignore $(IMAGE) >/dev/null
-	podman run --rm -d --name $(IMAGE) -p 127.0.0.1:$(PORT):80 $(IMAGE)
+	@podman rm -f --ignore $(IMAGE) $(ASSIST) >/dev/null
+	@podman network exists $(NET) || podman network create $(NET) >/dev/null
+	-$(OP) podman run --rm -d --name $(ASSIST) --network $(NET) --network-alias assist $(foreach k,$(KEYS),-e $(k)) $(ASSIST)
+	podman run --rm -d --name $(IMAGE) --network $(NET) -p 127.0.0.1:$(PORT):80 $(IMAGE)
 	@echo "http://localhost:$(PORT)"
-stop: ## Stop the running container
-	@podman rm -f --ignore $(IMAGE) | grep -q . && echo "stopped $(IMAGE)" || echo "no $(IMAGE) container running"
+stop: ## Stop the running containers
+	@podman rm -f --ignore $(IMAGE) $(ASSIST) | grep -q . && echo "stopped" || echo "no $(IMAGE) container running"
 
 ##@ Support
 

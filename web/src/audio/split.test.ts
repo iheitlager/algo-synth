@@ -34,17 +34,17 @@ describe('the composer dividers (#373)', () => {
 
   it('are kept in the browser, and read back as the defaults when damaged or missing', () => {
     const store = memory()
-    expect(lastSplits(store)).toEqual({ code: null, arranger: null })
-    keepSplits({ code: 420, arranger: 260 }, store)
-    expect(lastSplits(store)).toEqual({ code: 420, arranger: 260 })
+    expect(lastSplits(store)).toEqual({ code: null, arranger: null, assistant: null })
+    keepSplits({ code: 420, arranger: 260, assistant: 380 }, store)
+    expect(lastSplits(store)).toEqual({ code: 420, arranger: 260, assistant: 380 })
     store().setItem(SPLIT_KEY, JSON.stringify({ code: 'wide', arranger: -3 }))
-    expect(lastSplits(store)).toEqual({ code: null, arranger: null })
+    expect(lastSplits(store)).toEqual({ code: null, arranger: null, assistant: null })
     store().setItem(SPLIT_KEY, '{oops')
-    expect(lastSplits(store)).toEqual({ code: null, arranger: null })
+    expect(lastSplits(store)).toEqual({ code: null, arranger: null, assistant: null })
   })
 
   it('survive storage that is unavailable', () => {
-    expect(lastSplits(broken)).toEqual({ code: null, arranger: null })
-    expect(() => keepSplits({ code: 1, arranger: 1 }, broken)).not.toThrow()
+    expect(lastSplits(broken)).toEqual({ code: null, arranger: null, assistant: null })
+    expect(() => keepSplits({ code: 1, arranger: 1, assistant: 1 }, broken)).not.toThrow()
   })
 })

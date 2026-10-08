@@ -78,15 +78,38 @@ make dev      # Vite on http://localhost:6341 (rebuilds dsp.wasm first)
 make serve    # Podman + Caddy on http://localhost:6340
 make check    # every CI gate: lint, deny, tests, typecheck, build
 make bench    # 16 Mono voices in V8 against the 30% CPU budget
+make assist   # the assistant's server, keys from 1Password (see below)
 make          # all targets
 ```
 
 Needs Rust (stable, the `wasm32-unknown-unknown` target comes from `rust-toolchain.toml`), Node 24, and for `make serve` Podman (`podman machine init && podman machine start` once on a Mac). Open it in Chrome and press **Power on**; play with the on-screen keys or the computer keyboard (`a`…`;`).
 
+## The assistant
+
+A language model can write and change the song (ADR-0028, epic #381). The browser talks to a small server, `assist`, which holds the keys, runs the model and checks every song on the engine. It serves `127.0.0.1` only, so there is no login. Without it the app works as before, with the Assistant hidden.
+
+**Keys come from 1Password** and never reach the browser or git. `op.env` holds references only:
+
+1. In 1Password, make an item **algo-synth** in the vault **Labs** with a field per provider you use: `Anthropic`, `Mistral`, `Gemini`, `OpenRouter`. Or edit `op.env` to point at your own vault and item.
+2. `make env-check` lists each key as ok or missing, never its value. A provider whose key is missing is simply not offered.
+
+**Run it:**
+
+```bash
+make assist   # the server on 127.0.0.1:6342, keys from 1Password
+make dev      # Vite on :6341 proxies /api to it
+make serve    # the containers: Caddy on :6340, the server beside it on a private network
+```
+
+- **A self-hosted model:** Ollama, llama.cpp's server, vLLM or LM Studio, anything with an OpenAI-compatible API. Set `ASSIST_SELF_HOSTED_URL` (for example `http://127.0.0.1:11434/v1`; from the container, `http://host.containers.internal:11434/v1`) and `ASSIST_SELF_HOSTED_MODELS` (for example `qwen3:32b`).
+- **A machine without the 1Password app:** export `OP_SERVICE_ACCOUNT_TOKEN` and `op run` uses it. `OP=` skips 1Password when the keys are exported already.
+- **Choosing models:** the allowlist per provider is `crates/assist/providers.json`. `ASSIST_EFFORT` sets Anthropic's effort (default `high`).
+
 ## Layout
 
 ```
 crates/dsp/     the engine (cdylib → dsp.wasm): C ABI, voices, mixer, song, generators, samplers
+crates/assist/  the assistant's server and its song tools (check, render, catalog)
 web/            Vue view; public/worklet.js is the audio-thread shim
 tools/          bench, demo MIDI, sample fetcher, release script, spec link check
 changes/        changelog fragments, one per PR, collected by make release
