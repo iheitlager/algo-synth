@@ -1,4 +1,25 @@
 <!doctype html><meta charset="utf-8"><title>spike 392</title>
+<style>
+  body { font: 14px system-ui, sans-serif; background: #15181c; color: #ddd; margin: 24px; max-width: 900px; }
+  h1 { font-size: 18px; color: #f0a830; } button { font: inherit; padding: 6px 12px; margin: 2px; background: #22272e; color: #ddd; border: 1px solid #444; border-radius: 4px; cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: default; } fieldset { border: 1px solid #333; margin: 12px 0; } legend { color: #f0a830; }
+  table { border-collapse: collapse; margin-top: 12px; } td, th { padding: 4px 10px; border-bottom: 1px solid #333; text-align: left; }
+  .bad { color: #ff6b6b; font-weight: bold; } .good { color: #6bd96b; } #log { color: #888; }
+</style>
+<h1>Spike #392: how many decks can play at once</h1>
+<p>Each run plays N heavy engines (64 voices each, a held chord) for the chosen time. You hear them mixed. The table says whether the audio glitched.
+  <b>Device underruns</b> (Chrome only) is the number that matters: 0 is clean.</p>
+<p id="status">loading…</p>
+<label>Seconds per run <input id="secs" type="number" value="10" min="2" max="120" style="width:60px"></label>
+<label><input id="stress" type="checkbox"> busy main thread (40 ms of work every 50 ms, like a heavy UI)</label>
+<fieldset><legend>Today's model: every engine on the audio thread</legend>
+  <button data-run="inline,1,0">1 engine</button><button data-run="inline,2,0">2 engines</button><button data-run="inline,3,0">3 engines</button><button data-run="inline,4,0">4 engines</button>
+</fieldset>
+<fieldset><legend>Engines in Web Workers, the worklet only mixes (needs isolation)</legend>
+  <button data-run="rings,2,4">2 decks</button><button data-run="rings,4,4">4 decks</button><button data-run="rings,6,4">6 decks</button><button data-run="rings,8,4">8 decks</button>
+  &nbsp; ahead 2 blocks: <button data-run="rings,4,2">4 decks</button> ahead 8: <button data-run="rings,4,8">4 decks</button>
+</fieldset>
+<table><thead><tr><th>run</th><th>blocks</th><th>mixer misses</th><th>device underruns</th><th>underrun time</th></tr></thead><tbody id="rows"></tbody></table>
 <pre id="log"></pre>
 <script type="module">
 // Spike #392: run(mode, decks, ahead, seconds, stressMain) from the console or playwright.
@@ -53,4 +74,29 @@ window.run = async (mode, decks, ahead = 4, seconds = 8, stressMain = false, kin
   return stats
 }
 window.ready = true
+const status = document.getElementById('status')
+status.innerHTML = crossOriginIsolated
+  ? '<span class="good">Cross-origin isolated: workers available.</span>'
+  : '<span class="bad">Not isolated: open http://localhost:6392/ (not 6393) for the worker runs.</span>'
+const buttons = [...document.querySelectorAll('button[data-run]')]
+for (const btn of buttons) {
+  if (btn.dataset.run.startsWith('rings') && !crossOriginIsolated) btn.disabled = true
+  btn.onclick = async () => {
+    const [mode, decks, ahead] = btn.dataset.run.split(',')
+    buttons.forEach((b) => (b.disabled = true))
+    const secs = Number(document.getElementById('secs').value)
+    const label = `${mode === 'inline' ? 'audio thread' : 'workers'} · ${decks} ${mode === 'inline' ? 'engines' : `decks, ahead ${ahead}`}${document.getElementById('stress').checked ? ' · busy main' : ''}`
+    status.textContent = `playing: ${label} for ${secs} s…`
+    try {
+      const r = await run(mode, Number(decks), Number(ahead), secs, document.getElementById('stress').checked)
+      const ps = r.playbackStats
+      const tr = document.createElement('tr')
+      const dev = ps ? `<span class="${ps.underrunEvents ? 'bad' : 'good'}">${ps.underrunEvents}</span>` : 'n/a (not Chrome)'
+      tr.innerHTML = `<td>${label}</td><td>${r.block}</td><td class="${r.underruns ? 'bad' : ''}">${mode === 'inline' ? '–' : r.underruns}</td><td>${dev}</td><td>${ps ? ps.underrunDuration.toFixed(2) + ' s' : ''}</td>`
+      document.getElementById('rows').prepend(tr)
+      status.textContent = 'done'
+    } catch (e) { status.textContent = `failed: ${e.message}` }
+    buttons.forEach((b) => (b.disabled = b.dataset.run.startsWith('rings') && !crossOriginIsolated))
+  }
+}
 </script>
