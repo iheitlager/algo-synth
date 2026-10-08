@@ -4,6 +4,7 @@
 
 pub mod assist;
 pub mod config;
+pub mod eval;
 pub mod provider;
 pub mod server;
 pub mod tools;
