@@ -1,6 +1,6 @@
 # 0012: The song is text
 
-**Status:** Accepted · **Date:** 2026-10-03
+**Status:** Accepted, amended by 0028 · **Date:** 2026-10-03
 
 ## Context
 
@@ -21,7 +21,7 @@ A binary song format serves the engine but nobody else: not a person reading a s
 - **Generators are functions in the notation**: `euclid(k, n, rotation)`, `walk`, `arp`, later `markov` and `mutate`. They take an explicit seed and are deterministic (ADR-0005): the same text gives the same music. A *live* fragment regenerates every cycle; *freezing* replaces the call with the events it produced, in the same notation.
 - **The engine parses, the view sends.** The view sends the text as bytes into a buffer, the way it sends a MIDI file (`midi_buf`, `midi_load`). The engine parses and compiles it in that call, outside `render`, into its own buffers; `render` only reads. A text that does not parse is rejected with a line, a column and a message, and the song that is playing keeps playing. A new song takes over at the next bar.
 - **Edits go through the engine.** A click on the drum grid is a message (`set_step(fragment, lane, step, level)`); the engine changes the song and prints it back as text, which the view shows. Printing is canonical: parsing a printed song gives the same song. So the grid, the text and the engine never disagree, and no music logic lands in `web/` (ADR-0001).
-- **A language model writes text, nothing else.** It gets the song and a request and returns a new song; the engine's parser is the check, and its error goes back to the model for another try. The engine never knows a model was involved. *Where the model call runs* (in the browser with the user's key, behind a small proxy next to Caddy, or outside the app by pasting) is held open; plan.md records the options.
+- **A language model writes text, nothing else.** It gets the song and a request and returns a new song; the engine's parser is the check, and its error goes back to the model for another try. The engine never knows a model was involved. *Where the model call runs* (in the browser with the user's key, behind a small proxy next to Caddy, or outside the app by pasting) was held open; ADR-0028 settles it: behind a proxy next to Caddy, on localhost.
 - **Drums come back** as a source of synthesized analog pads (plan.md MVP 3), reversing that part of ADR-0008. The Sampler is a later source behind the same pad and note names.
 - **The MIDI player stays separate** (spec 002 Req 9). Importing a MIDI file into the notation, or writing one out, is a later converter, not part of this model.
 
