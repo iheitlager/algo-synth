@@ -765,7 +765,7 @@ fn the_example_songs_parse_and_print_back() {
             "{name}: resonance lanes"
         );
     }
-    assert_eq!(seen, 12, "twelve examples");
+    assert_eq!(seen, 13, "thirteen examples");
 }
 
 const ARRANGED: &str = "\
