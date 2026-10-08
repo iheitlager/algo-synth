@@ -86,3 +86,23 @@ For `make serve`, the assist server SHALL run as its own image beside Caddy, on 
 
 **Tests:** review: `make serve OP=`, then `podman ps` and `podman exec algo-synth wget -qO- http://127.0.0.1:80/api/providers`
 
+### Requirement 6: An eval set [SHOULD]
+
+The assistant SHALL have an eval set: about thirty requests on starting songs from `examples/`, or on a song given in the case.
+- **What they ask:** add a part, change a groove, re-harmonise, make a section build, write a song from scratch, fix a song that does not load, or answer a question without changing anything.
+- **Grading, by code:** a song expected SHALL be proposed, parse and render clean (no non-finite samples, peak at most 1.0), and then pass the case's checks: fragments and tracks kept, tempo, swing, more lanes of a pad, more fragments, tracks or sections, a track on a model, the text holding something. A question SHALL be answered in words with no song.
+- **The runner:** `assist eval --provider ID --model ID` SHALL run the cases through the real loop and report, per case and in total, the pass, the rounds, the tokens (input, cached, output), the seconds and, where the prices are known, the cost.
+
+Every run calls the provider and costs money, so it runs on request and never in CI (#388).
+
+**Implementation:** `crates/assist/eval/cases.json`, `crates/assist/src/eval.rs::grade`, `crates/assist/src/eval.rs::run_case`, `crates/assist/src/eval.rs::markdown`, `crates/assist/src/main.rs`
+
+#### Scenario: the checks grade what they say
+
+- GIVEN a start with one drum fragment and a proposal at 128 BPM with a snare, a bass on an SH-101 and a section
+- WHEN it is graded against every check
+- THEN all pass, and graded against the start itself, every check that asks for a change fails
+
+**Tests:** `crates/assist/src/eval.rs::tests::the_set_loads_and_its_start_songs_parse`, `crates/assist/src/eval.rs::tests::checks_grade_what_they_say`, `crates/assist/src/eval.rs::tests::a_question_passes_with_words_and_no_song`, `crates/assist/src/eval.rs::tests::cost_and_the_report`, `crates/assist/src/eval.rs::tests::a_case_runs_through_the_loop`
+
+||||||| 7924b44

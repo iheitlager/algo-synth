@@ -169,3 +169,59 @@ pub(crate) async fn post_json(
     serde_json::from_str(&text)
         .map_err(|_| ProviderError::Fatal("the provider's reply is not JSON".into()))
 }
+
+/// Any of the three adapters, chosen at run time from the config.
+pub enum Any {
+    Anthropic(anthropic::Anthropic),
+    OpenAi(openai::OpenAi),
+    Gemini(gemini::Gemini),
+}
+
+impl Any {
+    /// The adapter for provider `p` with `model`.
+    pub fn new(
+        p: &crate::config::Provider,
+        model: &str,
+        client: reqwest::Client,
+        effort: &str,
+    ) -> Any {
+        use crate::config::Kind;
+        let key = p.key.clone().unwrap_or_default();
+        match p.kind {
+            Kind::Anthropic => Any::Anthropic(anthropic::Anthropic {
+                client,
+                url: p.base.clone(),
+                key,
+                model: model.to_string(),
+                effort: effort.to_string(),
+            }),
+            Kind::Openai => Any::OpenAi(openai::OpenAi {
+                client,
+                base: p.base.clone(),
+                key: p.key.clone(),
+                model: model.to_string(),
+            }),
+            Kind::Gemini => Any::Gemini(gemini::Gemini {
+                client,
+                base: p.base.clone(),
+                key,
+                model: model.to_string(),
+            }),
+        }
+    }
+}
+
+impl Provider for Any {
+    async fn turn(
+        &self,
+        system: &str,
+        tools: &[ToolDef],
+        msgs: &[Msg],
+    ) -> Result<Turn, ProviderError> {
+        match self {
+            Any::Anthropic(p) => p.turn(system, tools, msgs).await,
+            Any::OpenAi(p) => p.turn(system, tools, msgs).await,
+            Any::Gemini(p) => p.turn(system, tools, msgs).await,
+        }
+    }
+}
