@@ -4882,3 +4882,57 @@ fn stop_cancels_a_cued_start() {
     }
     assert!(!e.clock().playing());
 }
+
+// ADR-0029: sync lock pulls a deck that is off the master's bar back onto it
+// at the master's next bar line, and leaves one that is on it alone.
+#[test]
+fn sync_pulls_a_deck_onto_the_masters_bar() {
+    let mut master = Engine::new(48_000.0);
+    let mut deck = Engine::new(48_000.0);
+    master.set_tempo(130.0);
+    deck.set_tempo(130.0);
+    master.song_play();
+    for _ in 0..300 {
+        master.render(BLOCK);
+    }
+    // Started 700 samples after the master's bar: behind.
+    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
+    deck.song_play_in(f + 700);
+    let both = |m: &mut Engine, d: &mut Engine, blocks: usize| {
+        for _ in 0..blocks {
+            m.render(BLOCK);
+            d.render(BLOCK);
+        }
+    };
+    both(&mut master, &mut deck, 2000);
+    let phase = |m: &Engine, d: &Engine| {
+        (m.clock().step_position() - d.clock().step_position()).rem_euclid(16.0)
+    };
+    let off = phase(&master, &deck);
+    assert!(
+        (off - 700.0 / (48_000.0 * 60.0 / 130.0 / 4.0)).abs() < 1e-3,
+        "behind by 700 samples: {off} steps"
+    );
+    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
+    deck.sync_bar_in(f);
+    both(&mut master, &mut deck, 2000);
+    assert!(
+        (deck.sync_error() + 700).abs() <= 2,
+        "it was 700 samples behind: {}",
+        deck.sync_error()
+    );
+    let off = phase(&master, &deck);
+    assert!(
+        off.min(16.0 - off) < 1e-3,
+        "on the master's bar now: {off} steps off"
+    );
+    // Synced again, it is on the bar and stays put.
+    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
+    deck.sync_bar_in(f);
+    both(&mut master, &mut deck, 2000);
+    assert!(
+        deck.sync_error().abs() <= 2,
+        "already on the bar: {}",
+        deck.sync_error()
+    );
+}
