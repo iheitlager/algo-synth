@@ -97,7 +97,7 @@ Containerfile   wasm → web → Caddy
 
 ## Documentation
 
-- [The song language](docs/song.md): every keyword of the composer's song text, with examples
+- [The song language](docs/song.md): every keyword of the composer's song text, with examples; its normative definition is [.openspec/language.md](.openspec/language.md)
 - [Vision](.openspec/vision.md) · [Plan](.openspec/plan.md) · [ADRs](.openspec/adr/index.md) · [Specs](.openspec/README.md#specifications)
 
 ## Licence

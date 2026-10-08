@@ -1457,13 +1457,12 @@ fn a_song_without_comments_prints_as_before() {
     );
 }
 
-/// #226: every ```song block of the reference parses, and its print parses back.
-#[test]
-fn the_song_reference_examples_parse() {
-    const DOC: &str = include_str!("../../../../docs/song.md");
+/// Every ```song block of a document parses, and its print parses back equal;
+/// how many there were.
+fn song_blocks_parse(name: &str, doc: &str) -> usize {
     let mut blocks = Vec::new();
     let mut open: Option<(usize, String)> = None;
-    for (i, line) in DOC.lines().enumerate() {
+    for (i, line) in doc.lines().enumerate() {
         match (&mut open, line.trim_end()) {
             (None, "```song") => open = Some((i + 1, String::new())),
             (Some(_), "```") => blocks.extend(open.take()),
@@ -1474,15 +1473,121 @@ fn the_song_reference_examples_parse() {
             _ => {}
         }
     }
-    assert!(open.is_none(), "a song block is not closed");
-    assert!(blocks.len() >= 10, "{} song blocks", blocks.len());
+    assert!(open.is_none(), "{name}: a song block is not closed");
     for (at, text) in &blocks {
-        let s = Song::parse(text).unwrap_or_else(|e| panic!("docs/song.md:{at}: {e:?}"));
+        let s = Song::parse(text).unwrap_or_else(|e| panic!("{name}:{at}: {e:?}"));
         let printed = s.print();
-        assert_eq!(
-            Song::parse(&printed),
-            Ok(s),
-            "docs/song.md:{at}:\n{printed}"
+        assert_eq!(Song::parse(&printed), Ok(s), "{name}:{at}:\n{printed}");
+    }
+    blocks.len()
+}
+
+/// #226: every ```song block of the reference parses, and its print parses back.
+#[test]
+fn the_song_reference_examples_parse() {
+    let n = song_blocks_parse("docs/song.md", include_str!("../../../../docs/song.md"));
+    assert!(n >= 10, "{n} song blocks");
+}
+
+/// The normative definition of the language (#383).
+const LANGUAGE: &str = include_str!("../../../../.openspec/language.md");
+
+/// #383: every ```song block of the language's definition parses and prints
+/// back equal.
+#[test]
+fn the_language_examples_parse() {
+    let n = song_blocks_parse(".openspec/language.md", LANGUAGE);
+    assert!(n >= 20, "{n} song blocks");
+}
+
+/// #383: the definition grows with the language. Every line keyword has a
+/// heading; every word the parser reads from a fixed list (track kinds and
+/// frag words, generator calls, pattern and signal methods, signal sources,
+/// pads, steps, grids, models, modes, chord qualities, arp modes, insert and
+/// processor types, filter voicings) is written in its code or grammar.
+#[test]
+fn the_language_definition_covers_the_parser() {
+    // Words in backticks and in fenced blocks, split at what can't be in one.
+    let (mut code, mut prose) = (String::new(), String::new());
+    let mut fenced = false;
+    let mut headings = Vec::new();
+    for line in LANGUAGE.lines() {
+        if line.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if line.starts_with('#') && !fenced {
+            headings.push(line);
+        }
+        let to = if fenced { &mut code } else { &mut prose };
+        to.push_str(line);
+        to.push('\n');
+    }
+    // A span in backticks may run over a line break.
+    for (k, span) in prose.split('`').enumerate() {
+        if k % 2 == 1 {
+            code.push_str(span);
+            code.push('\n');
+        }
+    }
+    let words: std::collections::HashSet<&str> = code
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .collect();
+    let in_a_heading = |k: &str| headings.iter().any(|h| h.split([' ', ',']).any(|w| w == k));
+    let mut missing: Vec<String> = KEYWORDS
+        .iter()
+        .filter(|k| !in_a_heading(k))
+        .map(|k| format!("heading {k}"))
+        .collect();
+    let grids: Vec<String> = GRIDS.iter().map(|g| g.to_string()).collect();
+    let lists: [Vec<&str>; 14] = [
+        lex::WORDS.to_vec(),
+        notes::CALLS.to_vec(),
+        Pattern::NAMES.to_vec(),
+        signal::SOURCES.to_vec(),
+        signal::METHODS.to_vec(),
+        Pad::ALL.iter().map(|(_, n)| *n).collect(),
+        Model::ALL.iter().map(|(_, n)| *n).collect(),
+        crate::algo::Mode::ALL.iter().map(|m| m.1).collect(),
+        notes::QUALITIES
+            .iter()
+            .map(|q| q.0)
+            .filter(|q| !q.is_empty())
+            .collect(),
+        notes::ArpMode::ALL.iter().map(|m| m.1).collect(),
+        InsertType::ALL.iter().map(|(_, n)| *n).collect(),
+        ProcType::ALL.iter().map(|(_, n)| *n).collect(),
+        crate::modular::VOICINGS.iter().map(|v| v.0).collect(),
+        grids
+            .iter()
+            .map(String::as_str)
+            .chain(["x", "X", "o", "f", "d", "mute", "solo", "euclid"])
+            .collect(),
+    ];
+    for list in &lists {
+        for w in list {
+            if !words.contains(w) {
+                missing.push((*w).to_string());
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        ".openspec/language.md does not define: {missing:?}"
+    );
+}
+
+/// #383: the keywords are the parser's: each starts a line it reads, and any
+/// other word is refused naming them all.
+#[test]
+fn the_keywords_are_the_parsers() {
+    let err = Song::parse("tune 120").expect_err("no such keyword");
+    for k in KEYWORDS {
+        assert!(err.msg.contains(k), "{k} in {}", err.msg);
+        let e = Song::parse(k).err();
+        assert!(
+            e.is_none_or(|e| !e.msg.starts_with("a line starts with")),
+            "{k}: {e:?}"
         );
     }
 }

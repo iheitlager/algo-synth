@@ -30,6 +30,12 @@
 
 use std::fmt::{self, Write};
 
+/// The words a signal's source may be, and its methods; no other is read.
+pub const SOURCES: [&str; 8] = [
+    "sine", "saw", "tri", "square", "rand", "perlin", "lfo", "env",
+];
+pub const METHODS: [&str; 6] = ["range", "exprange", "slow", "fast", "segment", "lag"];
+
 /// Most nodes in all of a song's signals, and so most `lag` slots.
 pub const MAX_NODES: usize = 256;
 /// Deepest nesting of brackets and minus signs.
@@ -697,6 +703,9 @@ impl<'a> Parser<'a, '_> {
                 return Err((col, "a method name goes here, e.g. .range(0, 1)"));
             };
             self.at += 1;
+            if !METHODS.contains(&name) {
+                return Err((col, "no such method: range exprange slow fast segment lag"));
+            }
             let args = self.numbers()?;
             let one = || match args.as_slice() {
                 [n] if *n > 0.0 => Ok(*n),
@@ -776,6 +785,12 @@ impl<'a> Parser<'a, '_> {
             }
             Some(Tok::Word(w)) => {
                 self.at += 1;
+                if !SOURCES.contains(&w) {
+                    return Err((
+                        col,
+                        "a signal is a number, sine saw tri square rand perlin, lfo(…), env(…) or [a, b]",
+                    ));
+                }
                 if let Some(wave) = Wave::named(w) {
                     return self.push(Node::Wave(wave));
                 }
