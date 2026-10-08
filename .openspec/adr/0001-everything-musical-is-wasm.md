@@ -1,6 +1,6 @@
 # 0001: Everything musical is wasm
 
-**Status:** Accepted · **Date:** 2026-09-30
+**Status:** Accepted, amended by 0029 · **Date:** 2026-09-30
 
 ## Context
 
@@ -17,6 +17,8 @@ algo-synth must run entirely in the browser. Audio in a browser is produced on a
 **The JS shim (`web/public/worklet.js`) holds no logic.** It instantiates the module the main thread compiled, forwards port messages to exports, calls `process`, and copies the block into the output channels. Bulk data (songs, patterns, imported scores) will be written into a buffer the engine allocates at init (ADR-0005, spec 002).
 
 **No dependencies in the engine**, std only. `cargo deny` keeps it deliberate.
+
+**Amended by ADR-0029:** the module also runs in Web Workers, one engine per worker, for decks beyond the main one; still one module, no imports, no logic in the worker shim. The main engine stays on the audio thread.
 
 ## Consequences
 
