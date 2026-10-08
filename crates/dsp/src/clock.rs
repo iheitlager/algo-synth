@@ -206,6 +206,21 @@ impl Clock {
         Some(self.step_sample(k) - self.pos)
     }
 
+    /// Make now the sample of step `k`, at the current tempo from the top: how
+    /// a deck locked to its master pulls its bar line onto the master's
+    /// (ADR-0029). Steps already fired stay fired, so nothing plays twice;
+    /// steps jumped over are not played late.
+    pub fn align_to_step(&mut self, k: u64) {
+        self.anchor_step = 0;
+        self.anchor_sample = 0.0;
+        self.prev_len = self.step_len;
+        self.pos = self.step_sample(k);
+        if self.next <= k {
+            self.next = k;
+            self.sub = k * TICKS_PER_STEP;
+        }
+    }
+
     /// Frames to render before the next step, at least 1, at most `remaining`.
     pub(crate) fn frames_until_next(&self, remaining: usize) -> usize {
         if !self.playing {
@@ -308,6 +323,33 @@ mod tests {
             Some(86_000),
             "swing never moves a bar"
         );
+    }
+
+    /// ADR-0029: aligning moves the grid, never fires a step twice, and skips
+    /// steps jumped over.
+    #[test]
+    fn align_to_a_step() {
+        // Ahead: step 16 fired 500 samples ago; aligned, it is not fired again.
+        let mut c = playing(48_000.0);
+        let fired = run(&mut c, 16 * 6000 + 500);
+        assert_eq!(fired.last(), Some(&(16 * 6000)));
+        c.align_to_step(16);
+        assert_eq!(c.position(), 16 * 6000);
+        assert_eq!(
+            run(&mut c, 6001),
+            vec![17 * 6000],
+            "17 next, on its sample; 16 not again"
+        );
+        // Behind: 500 samples short of step 16; aligned, 16 fires now and 15 isn't replayed.
+        let mut c = playing(48_000.0);
+        run(&mut c, 16 * 6000 - 500);
+        c.align_to_step(16);
+        assert_eq!(run(&mut c, 1), vec![16 * 6000]);
+        // Behind by more: steps 14 and 15 are jumped over, not played late.
+        let mut c = playing(48_000.0);
+        run(&mut c, 14 * 6000 - 500);
+        c.align_to_step(16);
+        assert_eq!(run(&mut c, 6001), vec![16 * 6000, 17 * 6000]);
     }
 
     #[test]

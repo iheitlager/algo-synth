@@ -37,6 +37,10 @@ export type Deck = {
   start: Start
   /** Play was pressed and the deck waits for its bar. */
   cued: boolean
+  /** Sync lock: the deck's bar lines are pulled onto deck A's at every bar. */
+  sync: boolean
+  /** How far the last sync found the deck off deck A's bar, in ms (positive: ahead), or null before one. */
+  syncMs: number | null
 }
 
 /** Steps to the start a deck is cued to: a bar is 16 steps (ADR-0029). */
@@ -45,6 +49,7 @@ export type Start = keyof typeof STARTS
 
 const fresh = (name: string): Deck => ({
   name, loaded: false, playing: false, step: 0, error: '', level: 1, side: DeckSide.Thru, peak: 0, dropped: 0, start: 'bar', cued: false,
+  sync: true, syncMs: null,
 })
 
 export const decks = reactive({
@@ -58,21 +63,13 @@ export const decks = reactive({
 
 const workers: (Worker | null)[] = [null, null, null, null]
 
-/** The worklet's peaks and dropped blocks for every deck, and the master's tempo. */
+/** The worklet's peaks and dropped blocks for every deck, and the master's tempo it sends the decks. */
 export function onDecks(peaks: number[], dropped: number[], bpm: number) {
   decks.list.forEach((d, i) => {
     d.peak = peaks[i] ?? 0
     d.dropped = dropped[i] ?? 0
   })
-  if (bpm && bpm !== decks.bpm) {
-    decks.bpm = bpm
-    for (const w of workers) w?.postMessage({ t: 'tempo', bpm })
-  }
-}
-
-/** The worklet placed deck `deck`'s start on its clock: the worker starts it there. */
-export function onCued(deck: number, at: number, bpm: number) {
-  workers[deck]?.postMessage({ t: 'playAt', at, bpm })
+  if (bpm) decks.bpm = bpm
 }
 
 /** Start deck `deck`'s worker (1–3) the first time it is used: its ring, then its engine. */
@@ -87,6 +84,8 @@ async function ensureWorker(deck: number): Promise<Worker | null> {
     seq: new SharedArrayBuffer(SLOTS * 4),
   }
   new Int32Array(ring.seq).fill(-1)
+  // The worklet and the worker talk directly: cues, tempo and bar lines (ADR-0029).
+  const channel = new MessageChannel()
   // The worklet counts blocks: it stamps the ring with its block number first,
   // so the worker starts there and not at zero.
   await new Promise<void>((resolve) => {
@@ -98,12 +97,13 @@ async function ensureWorker(deck: number): Promise<Worker | null> {
       }
     }
     port.addEventListener('message', done)
-    engine.post({ t: 'deckAttach', deck, ring })
+    engine.post({ t: 'deckAttach', deck, ring, port: channel.port1 }, [channel.port1])
   })
   const worker = new Worker(`${base}deck-worker.js`)
   worker.onmessage = ({ data }) => onWorker(deck, data)
-  worker.postMessage({ t: 'init', module: engine.module, sampleRate: engine.ctx.sampleRate, ring })
-  if (decks.bpm) worker.postMessage({ t: 'tempo', bpm: decks.bpm })
+  worker.postMessage({ t: 'init', module: engine.module, sampleRate: engine.ctx.sampleRate, ring, port: channel.port2 }, [channel.port2])
+  const d = decks.list[deck]
+  if (d && !d.sync) engine.post({ t: 'deckSync', deck, on: false })
   workers[deck] = worker
   return worker
 }
@@ -118,6 +118,9 @@ function onWorker(deck: number, data: { t: string } & Record<string, unknown>) {
     d.step = data.step as number
     d.playing = data.playing as boolean
     if (d.playing) d.cued = false
+  } else if (data.t === 'sync') {
+    const rate = getEngine()?.ctx.sampleRate ?? 48_000
+    d.syncMs = (1000 * (data.frames as number)) / rate
   } else if (data.t === 'late') {
     const rate = getEngine()?.ctx.sampleRate ?? 48_000
     d.error = `The cue came ${Math.round((1000 * (data.frames as number)) / rate)} ms late; the deck started at once.`
@@ -159,6 +162,15 @@ export function setDeck(deck: number, field: 'level' | 'side', v: number) {
   if (!d) return
   d[field] = v
   getEngine()?.post({ t: 'deckSet', deck, field: field === 'level' ? DeckField.Level : DeckField.Side, v })
+}
+
+/** Sync lock on or off for deck `deck` (1–3). */
+export function setSync(deck: number, on: boolean) {
+  const d = decks.list[deck]
+  if (!d) return
+  d.sync = on
+  if (!on) d.syncMs = null
+  getEngine()?.post({ t: 'deckSync', deck, on })
 }
 
 export function setCrossfade(x: number) {

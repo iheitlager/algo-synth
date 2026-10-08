@@ -34,6 +34,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     // The block number every deck's ring counts in, and the attached decks by number (1–3).
     this.blockNo = 0
     this.decks = new Map()
+    // The master's next bar line already announced to synced decks, as a frame; and its tempo as last sent.
+    this.nextBar = -Infinity
+    this.deckBpm = 0
     this.tick = 0
     this.busy = 0
     this.peak = 0
@@ -103,11 +106,12 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songSeek': w.song_seek_bar(data.bar); break
         case 'mixWrite': w.song_write_mixer(); this.sendSong(true); break
         // Decks B–D (ADR-0029): a worker renders each into a ring; this only copies blocks.
-        case 'deckAttach': this.attachDeck(data.deck, data.ring); break
+        case 'deckAttach': this.attachDeck(data.deck, data.ring, data.port); break
         case 'deckDetach': this.decks.delete(data.deck); break
         case 'deckSet': w.deck_set(data.deck, data.field, data.v); break
         case 'deckXfade': w.deck_crossfade(data.x); break
         case 'deckCue': this.cueDeck(data.deck, data.every); break
+        case 'deckSync': { const r = this.decks.get(data.deck); if (r) r.sync = !!data.on; break }
         case 'songPlay': w.song_play(); break
         case 'songPause': w.song_pause(); break
         case 'songStop': w.song_stop(); break
@@ -324,7 +328,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     const w = this.w
     const out = outputs[0]
     const frames = out[0].length
-    if (this.decks.size) this.feedDecks()
+    if (this.decks.size) {
+      this.syncDecks()
+      this.feedDecks()
+    }
     w.process(frames)
     if (this.decks.size) this.readDecks()
     this.blockNo++
@@ -376,10 +383,16 @@ class EngineProcessor extends AudioWorkletProcessor {
     return true
   }
 
-  attachDeck(deck, r) {
-    const ring = { ctrl: new Int32Array(r.ctrl), audio: new Float32Array(r.audio), seq: new Int32Array(r.seq), live: false, dropped: 0 }
+  // A deck's ring, and its port: this worklet talks to the deck's worker
+  // directly, so cues, tempo and bar lines never wait on the main thread.
+  attachDeck(deck, r, port) {
+    const ring = {
+      ctrl: new Int32Array(r.ctrl), audio: new Float32Array(r.audio), seq: new Int32Array(r.seq),
+      live: false, dropped: 0, port, sync: true,
+    }
     Atomics.store(ring.ctrl, 1, this.blockNo)
     this.decks.set(deck, ring)
+    port.postMessage({ t: 'tempo', bpm: this.w.clock_tempo() })
     this.port.postMessage({ t: 'deckAttached', deck })
   }
 
@@ -408,7 +421,30 @@ class EngineProcessor extends AudioWorkletProcessor {
     const margin = CUE_MARGIN * this.block
     const f = every > 0 ? w.cue_frames(every, margin) : -1
     const at = this.blockNo * this.block + (f < 0 ? margin : f)
-    this.port.postMessage({ t: 'deckCued', deck, at, bpm: w.clock_tempo() })
+    this.decks.get(deck)?.port.postMessage({ t: 'playAt', at, bpm: w.clock_tempo() })
+  }
+
+  // Sync lock (ADR-0029): each of the master's bar lines, announced to the
+  // synced decks at least the margin ahead; and the master's tempo when it moves.
+  syncDecks() {
+    const w = this.w
+    const bpm = w.clock_tempo()
+    if (bpm !== this.deckBpm) {
+      this.deckBpm = bpm
+      for (const r of this.decks.values()) r.port.postMessage({ t: 'tempo', bpm })
+    }
+    const now = this.blockNo * this.block
+    const margin = CUE_MARGIN * this.block
+    // One bar line at a time: the next goes out once the worklet has passed the
+    // last, which the worker, rendering ahead, has applied by then.
+    if (now < this.nextBar) return
+    const f = w.cue_frames(16, margin)
+    if (f < 0) {
+      this.nextBar = -Infinity
+      return
+    }
+    this.nextBar = now + f
+    for (const r of this.decks.values()) if (r.sync) r.port.postMessage({ t: 'barAt', at: this.nextBar })
   }
 
   // This block is read: each worker may render one more.
@@ -423,7 +459,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     const w = this.w
     const peaks = [0, 1, 2, 3].map((d) => w.deck_peak(d))
     const dropped = [0, 1, 2, 3].map((d) => this.decks.get(d)?.dropped ?? 0)
-    this.port.postMessage({ t: 'decks', peaks, dropped, bpm: w.clock_tempo() })
+    this.port.postMessage({ t: 'decks', peaks, dropped, bpm: this.deckBpm })
     this.deckPeaksSent = this.decks.size > 0
   }
 

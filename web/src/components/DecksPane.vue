@@ -3,7 +3,7 @@
 // each play a loaded song from an engine in a Web Worker. Every control is a
 // message; the deck mixer is Rust.
 import { status } from '../audio/engine'
-import { decks, loadDeck, playDeck, setCrossfade, setDeck, stopDeck, type Start } from '../audio/decks'
+import { decks, loadDeck, playDeck, setCrossfade, setDeck, setSync, stopDeck, type Start } from '../audio/decks'
 import { DeckSide } from '../audio/params'
 
 const LETTERS = ['A', 'B', 'C', 'D']
@@ -27,6 +27,8 @@ async function onFile(deck: number, e: Event) {
 }
 // Bar and step of a worker deck's clock (16 steps a bar, as the transport shows).
 const where = (step: number) => `bar ${Math.floor(step / 16) + 1} · step ${(step % 16) + 1}`
+// How far the last sync found the deck off deck A's bar: within a sample or two it is locked.
+const syncText = (ms: number) => (Math.abs(ms) < 0.05 ? 'locked' : `pulled ${Math.abs(ms).toFixed(1)} ms ${ms > 0 ? 'back' : 'forward'}`)
 const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0)} dB` : '−∞')
 </script>
 
@@ -56,6 +58,10 @@ const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0
             <select v-model="d.start" :disabled="!d.loaded">
               <option v-for="s in STARTS" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
+          </label>
+          <label class="check" title="Pull this deck's bar lines onto deck A's at every bar">
+            <input type="checkbox" :checked="d.sync" @change="setSync(i, ($event.target as HTMLInputElement).checked)" />
+            Sync to deck A<template v-if="d.sync && d.syncMs !== null && d.playing"> · {{ syncText(d.syncMs) }}</template>
           </label>
           <div class="buttons">
             <button :disabled="!d.loaded || d.cued" :class="{ on: d.playing || d.cued }" @click="playDeck(i)">{{ d.cued ? 'Cued…' : '▶ Play' }}</button>
@@ -102,6 +108,7 @@ const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0
 .file:hover { border-color: var(--accent); }
 .file.off { opacity: 0.5; cursor: default; }
 .file input { display: none; }
+.deck label.check { flex-direction: row; align-items: center; gap: 6px; }
 .xfade { display: flex; align-items: center; gap: 12px; padding: 0 12px 12px; color: var(--muted); font-size: 12px; }
 .xfade input { flex: 1; }
 .on { border-color: var(--accent); color: var(--accent); }

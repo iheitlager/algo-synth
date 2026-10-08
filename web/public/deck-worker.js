@@ -25,10 +25,23 @@ let block = 0
 let written = 0
 // A cued start: the frame on the worklet's clock it falls on, and the master's tempo.
 let start = null
+// The master's next bar line, as a frame, for sync lock; and whether to report the sync.
+let barAt = null
+let synced = false
+
+// From the worklet, directly (ADR-0029): cues, the master's tempo and bar lines.
+function fromWorklet({ data }) {
+  switch (data.t) {
+    case 'playAt': start = { at: data.at, bpm: data.bpm }; break
+    case 'tempo': w.tempo(data.bpm); break
+    case 'barAt': barAt = data.at; break
+  }
+}
 
 onmessage = ({ data }) => {
   switch (data.t) {
     case 'init': {
+      data.port.onmessage = fromWorklet
       w = new WebAssembly.Instance(data.module, {}).exports
       w.init(data.sampleRate)
       block = w.block_len()
@@ -49,10 +62,7 @@ onmessage = ({ data }) => {
       postMessage({ t: 'song', ok, line: ok ? 0 : w.song_error_line(), col: ok ? 0 : w.song_error_col() })
       break
     }
-    case 'playAt': start = { at: data.at, bpm: data.bpm }; break
     case 'stop': start = null; w.song_stop(); break
-    // The master's tempo: a deck follows it (ADR-0029).
-    case 'tempo': w.tempo(data.bpm); break
   }
 }
 
@@ -68,6 +78,17 @@ function startNow() {
   start = null
 }
 
+// The master's bar line falls in the block about to render: the engine pulls
+// this song's nearest bar line onto it if it is off. A late one is skipped.
+function syncNow() {
+  const offset = barAt - written * block
+  if (offset >= 0) {
+    w.song_sync_bar_in(offset)
+    synced = true
+  }
+  barAt = null
+}
+
 // Render until the ring is AHEAD blocks in front of the worklet, then wait for
 // it to read one. The wait gives the event loop a turn, so messages arrive.
 function pump() {
@@ -77,7 +98,12 @@ function pump() {
   if (Atomics.load(ring.ctrl, READ) - written > CATCH_UP) written = Atomics.load(ring.ctrl, READ) + 1
   while (written - Atomics.load(ring.ctrl, READ) < AHEAD) {
     if (start && start.at < (written + 1) * block) startNow()
+    if (barAt !== null && barAt < (written + 1) * block) syncNow()
     w.process(block)
+    if (synced) {
+      synced = false
+      if (w.song_playing()) postMessage({ t: 'sync', frames: w.sync_error() })
+    }
     const slot = written % slots
     ring.audio.set(new Float32Array(w.memory.buffer, w.out_ptr(), 2 * block), slot * 2 * block)
     ring.seq[slot] = written

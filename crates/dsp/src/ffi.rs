@@ -142,6 +142,20 @@ pub extern "C" fn song_play_in(frames: u32) {
     with_engine(|e| e.song_play_in(frames as usize));
 }
 
+/// In `frames` frames the master is on a bar line: pull this song's nearest
+/// bar line onto it if it is off (sync lock).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_sync_bar_in(frames: u32) {
+    with_engine(|e| e.sync_bar_in(frames as usize));
+}
+
+/// How far the last sync found the song off the master's bar, in frames
+/// (positive: it was ahead).
+#[unsafe(no_mangle)]
+pub extern "C" fn sync_error() -> i32 {
+    query(0, |e| i32::try_from(e.sync_error()).unwrap_or(i32::MAX))
+}
+
 /// Deck `deck`'s (0–3) peak after its gain since the last call, linear.
 #[unsafe(no_mangle)]
 pub extern "C" fn deck_peak(deck: u32) -> f32 {

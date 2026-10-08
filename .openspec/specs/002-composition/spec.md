@@ -386,9 +386,9 @@ The song and the live synths and mixer SHALL stay one state without a commit (AD
 
 ### Requirement 18: A deck follows the master's clock [SHOULD]
 
-With decks (ADR-0029, #391), deck A's clock SHALL lead and every worker deck's clock SHALL follow its tempo: the worklet SHALL report the master's tempo and each worker deck SHALL take it, and a new worker deck SHALL start with it. Play on a worker deck SHALL cue it: the master SHALL name the frame of its next bar (16 steps) or 8-bar phrase (128 steps) at least 16 blocks ahead (`cue_frames`), or 16 blocks ahead for **Now** or while the master is stopped; the deck SHALL start from its top on that exact frame at the master's tempo, inside whichever block it falls (`song_play_in`), so its steps fall on the master's. Stop SHALL cancel a cued start. A cue that reaches the worker after its frame SHALL start the deck at once and say how late it was.
+With decks (ADR-0029, #391), deck A's clock SHALL lead and every worker deck's clock SHALL follow its tempo: the worklet SHALL report the master's tempo and each worker deck SHALL take it, and a new worker deck SHALL start with it. Play on a worker deck SHALL cue it: the master SHALL name the frame of its next bar (16 steps) or 8-bar phrase (128 steps) at least 16 blocks ahead (`cue_frames`), or 16 blocks ahead for **Now** or while the master is stopped; the deck SHALL start from its top on that exact frame at the master's tempo, inside whichever block it falls (`song_play_in`), so its steps fall on the master's. Stop SHALL cancel a cued start. A cue that reaches the worker after its frame SHALL start the deck at once and say how late it was. With **sync lock** on (the default), the worklet SHALL announce each of the master's bar lines to the deck, one at a time and at least 16 blocks ahead, and on that exact frame the deck SHALL pull its nearest bar line onto it when it is more than 2 frames off (`song_sync_bar_in`): steps already fired SHALL not fire again and steps jumped over SHALL not play late (`Clock::align_to_step`); the deck SHALL report how far it was off (`sync_error`). Cues, tempo and bar lines SHALL go from the worklet to the deck's worker over their own message channel, not through the main thread.
 
-**Implementation:** `crates/dsp/src/clock.rs::Clock::frames_to_multiple`, `crates/dsp/src/engine.rs::Engine::cue_frames`, `crates/dsp/src/engine.rs::Engine::song_play_in`, `crates/dsp/src/ffi.rs` (`cue_frames`, `song_play_in`), `web/public/worklet.js` (`cueDeck`), `web/public/deck-worker.js` (`startNow`), `web/src/audio/decks.ts` (`playDeck`, `onCued`, `onDecks`)
+**Implementation:** `crates/dsp/src/clock.rs::Clock::frames_to_multiple`, `crates/dsp/src/clock.rs::Clock::align_to_step`, `crates/dsp/src/engine.rs::Engine::cue_frames`, `crates/dsp/src/engine.rs::Engine::song_play_in`, `crates/dsp/src/engine.rs::Engine::sync_bar_in`, `crates/dsp/src/ffi.rs` (`cue_frames`, `song_play_in`, `song_sync_bar_in`, `sync_error`), `web/public/worklet.js` (`cueDeck`, `syncDecks`), `web/public/deck-worker.js` (`startNow`, `syncNow`), `web/src/audio/decks.ts` (`playDeck`, `setSync`, `onDecks`)
 
 #### Scenario: cued to the next bar inside a block
 
@@ -402,4 +402,10 @@ With decks (ADR-0029, #391), deck A's clock SHALL lead and every worker deck's c
 - WHEN deck B's Play is pressed with Start on Next bar
 - THEN deck B starts on deck A's next bar and both advance the same number of steps a second
 
-**Tests:** `crates/dsp/src/clock.rs::tests::frames_to_the_next_bar`, `crates/dsp/src/engine/tests.rs::a_cued_deck_starts_on_the_masters_bar`, `crates/dsp/src/engine/tests.rs::stop_cancels_a_cued_start`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`, `web/src/audio/decks.test.ts`
+#### Scenario: started mid-bar, pulled onto the bar
+
+- GIVEN deck A playing and deck B started with Start on Now, 7 steps into deck A's bar, sync lock on
+- WHEN deck A reaches its next bar line
+- THEN deck B's nearest bar line is pulled onto it, both are on the same step of the bar from then on, and the deck shows how far it was pulled, then "locked"
+
+**Tests:** `crates/dsp/src/clock.rs::tests::frames_to_the_next_bar`, `crates/dsp/src/engine/tests.rs::a_cued_deck_starts_on_the_masters_bar`, `crates/dsp/src/engine/tests.rs::stop_cancels_a_cued_start`, `crates/dsp/src/clock.rs::tests::align_to_a_step`, `crates/dsp/src/engine/tests.rs::sync_pulls_a_deck_onto_the_masters_bar`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`, `web/src/audio/decks.test.ts`

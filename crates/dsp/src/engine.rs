@@ -75,6 +75,9 @@ use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
 pub const BLOCK: usize = 128;
+/// Frames a synced deck may be off its master's bar and stay put: the grid's
+/// own rounding (ADR-0029).
+const SYNC_TOLERANCE: i64 = 2;
 /// Synth slots, each any model, with its own parameters.
 pub const SYNTHS: usize = 16;
 /// The bit of `Engine::fold` that marks the master's global parameters.
@@ -153,6 +156,10 @@ pub struct Engine {
     deck: DeckMixer,
     /// Frames until a cued start (`song_play_in`), if one is pending.
     start_in: Option<usize>,
+    /// Frames until the master's next bar line, for sync lock (`sync_bar_in`).
+    sync_in: Option<usize>,
+    /// How far the last sync found the song off the master's bar, in frames.
+    sync_error: i64,
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -265,6 +272,8 @@ impl Engine {
             limiter: Limiter::new(sample_rate),
             deck: DeckMixer::new(sample_rate),
             start_in: None,
+            sync_in: None,
+            sync_error: 0,
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
@@ -970,6 +979,31 @@ impl Engine {
         self.start_in = Some(frames);
     }
 
+    /// In `frames` frames the master is on a bar line: then pull this song's
+    /// nearest bar line onto that sample, if it is off (sync lock, ADR-0029).
+    pub fn sync_bar_in(&mut self, frames: usize) {
+        self.sync_in = Some(frames);
+    }
+
+    /// How far the last sync found this song off the master's bar, in frames:
+    /// positive when it was ahead, within `SYNC_TOLERANCE` when it was on it.
+    pub fn sync_error(&self) -> i64 {
+        self.sync_error
+    }
+
+    fn sync_to_bar(&mut self) {
+        if !self.clock.playing() {
+            return;
+        }
+        let bar = STEPS_PER_BAR as f64;
+        let k = ((self.clock.step_position() / bar).round() * bar).max(0.0) as u64;
+        let error = self.clock.position() as i64 - self.clock.step_sample(k) as i64;
+        self.sync_error = error;
+        if error.abs() > SYNC_TOLERANCE {
+            self.clock.align_to_step(k);
+        }
+    }
+
     /// Frames from now to the next multiple of `every` steps at least
     /// `at_least` frames away, while the song plays: where to cue a deck.
     pub fn cue_frames(&self, every: u64, at_least: u64) -> Option<u64> {
@@ -1010,6 +1044,7 @@ impl Engine {
         self.commit_song();
         self.cue = None;
         self.start_in = None;
+        self.sync_in = None;
         self.hand_arps_over();
         self.release_song_notes();
         self.clock.stop();
@@ -2586,13 +2621,18 @@ impl Engine {
                 self.start_in = None;
                 self.song_play();
             }
+            if self.sync_in == Some(0) {
+                self.sync_in = None;
+                self.sync_to_bar();
+            }
             self.fire_due_events();
             let chunk = self
                 .clock
                 .frames_until_next(n - t)
                 .min(self.free_frames_until_next(n - t))
                 .min(self.frames_until_hit(n - t))
-                .min(self.start_in.unwrap_or(usize::MAX));
+                .min(self.start_in.unwrap_or(usize::MAX))
+                .min(self.sync_in.unwrap_or(usize::MAX));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
                 // A-440 sounds with no key held (#308).
@@ -2651,8 +2691,11 @@ impl Engine {
             if !self.clock.playing() {
                 self.free_pos += chunk as u64;
             }
-            if let Some(f) = self.start_in.as_mut() {
-                *f -= chunk;
+            for pending in [&mut self.start_in, &mut self.sync_in]
+                .into_iter()
+                .flatten()
+            {
+                *pending -= chunk;
             }
             t += chunk;
         }

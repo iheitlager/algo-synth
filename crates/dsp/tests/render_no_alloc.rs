@@ -3,7 +3,7 @@
 //! walk, strip and synth automation, scenes that solo, mute and send,
 //! modulations, Modular settings with their code, a new song taking over on a bar line,
 //! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, and a
-//! cued start (ADR-0029).
+//! cued start and a sync to a bar (ADR-0029).
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
@@ -167,6 +167,11 @@ fn a_busy_song_renders_without_allocating() {
     for _ in 0..blocks / 6 {
         e.render(128);
     }
+    // And pulled onto a bar line that isn't its own (sync lock).
+    e.sync_bar_in(777);
+    for _ in 0..blocks / 6 {
+        e.render(128);
+    }
     let change = region.change();
     assert_eq!(
         (
@@ -175,7 +180,7 @@ fn a_busy_song_renders_without_allocating() {
             change.deallocations
         ),
         (0, 0, 0),
-        "the cued start allocated: {change:?}"
+        "the cued start or the sync allocated: {change:?}"
     );
     assert!(e.clock().playing(), "started");
 }
