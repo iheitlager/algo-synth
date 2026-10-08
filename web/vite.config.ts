@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
@@ -23,9 +24,23 @@ export default defineConfig({
     __APP_BUILD__: JSON.stringify(process.env.ALGO_BUILD_SHA || 'dev'),
     __APP_BUILT__: JSON.stringify(new Date().toISOString()),
   },
-  build: { target: 'es2022' },
-  // 63xx range (Makefile DEV_PORT); `make serve` uses 6340.
-  server: { port: 6341, strictPort: true },
+  // Two pages: the app, and the Assistant in its own window (#387).
+  build: {
+    target: 'es2022',
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('index.html', import.meta.url)),
+        assistant: fileURLToPath(new URL('assistant.html', import.meta.url)),
+      },
+    },
+  },
+  // 63xx range (Makefile DEV_PORT); `make serve` uses 6340. The assist server
+  // (ADR-0028) is on 6342, or ASSIST_URL; streamed events pass unbuffered.
+  server: {
+    port: 6341,
+    strictPort: true,
+    proxy: { '/api': { target: process.env.ASSIST_URL || 'http://127.0.0.1:6342' } },
+  },
   preview: { port: 6341, strictPort: true },
   // `npm run test:coverage` (make coverage-web): the summary prints, the HTML report goes to coverage/.
   test: {
