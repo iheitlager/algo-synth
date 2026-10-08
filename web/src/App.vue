@@ -10,6 +10,7 @@ import ArrangerPane from './components/ArrangerPane.vue'
 import AssistantPane from './components/AssistantPane.vue'
 import ComposerPane from './components/ComposerPane.vue'
 import ConsolePane from './components/ConsolePane.vue'
+import DecksPane from './components/DecksPane.vue'
 import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
 import Splitter from './components/Splitter.vue'
@@ -83,6 +84,7 @@ function popOut() {
     <InstrumentsPane v-show="view.main === 'synths'" class="main" />
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <ComposerPane v-if="view.main === 'composer'" class="main" />
+    <DecksPane v-if="view.main === 'decks'" class="main" />
     <!-- In the composer the arranger's height is dragged (#373). -->
     <Splitter
       v-if="view.main === 'composer'" class="split" between="rows" :size="splits.arranger" :min="LIMITS.arranger"

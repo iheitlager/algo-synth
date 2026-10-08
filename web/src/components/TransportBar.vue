@@ -111,6 +111,7 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
       <button :aria-pressed="view.main === 'synths'" @click="view.main = 'synths'">Synths</button>
       <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
       <button :aria-pressed="view.main === 'composer'" @click="view.main = 'composer'">Composer</button>
+      <button :aria-pressed="view.main === 'decks'" @click="view.main = 'decks'">Decks</button>
     </span>
     <!-- The Assistant (#387): a pane beside the view, which can pop out into its own window. -->
     <button :aria-pressed="assistant.shown" :class="{ on: assistant.shown }" title="Ask a language model to change the song" @click="assistant.shown = !assistant.shown">Assistant</button>

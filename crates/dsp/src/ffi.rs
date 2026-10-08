@@ -10,6 +10,7 @@
 
 use std::cell::RefCell;
 
+use crate::deck::DeckField;
 use crate::engine::{BLOCK, Engine, METERS, SYNTHS};
 use crate::mixer::STRIPS;
 use crate::mono::preset::Preset;
@@ -87,6 +88,46 @@ pub extern "C" fn meters_ptr() -> *const f32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn meters_clear() {
     with_engine(Engine::clear_meters);
+}
+
+// --- Decks (ADR-0029) ----------------------------------------------------
+
+/// Where deck `deck` (1–3, B–D) writes its next block: `2 * block_len()`
+/// values, left then right; null for another deck or before `init`.
+#[unsafe(no_mangle)]
+pub extern "C" fn deck_in_ptr(deck: u32) -> *mut f32 {
+    query(std::ptr::null_mut(), |e| {
+        e.deck()
+            .input_mut(deck as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
+    })
+}
+
+/// Deck `deck` (1–3) wrote its block: it plays in the next `process`. An
+/// unfed deck is silent for that block.
+#[unsafe(no_mangle)]
+pub extern "C" fn deck_fed(deck: u32) {
+    with_engine(|e| e.deck().fed(deck as usize));
+}
+
+/// Set a deck's `DeckField` (0–3 for A–D); unknown ids are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn deck_set(deck: u32, field: u32, value: f32) {
+    if let Some(f) = DeckField::from_id(field) {
+        with_engine(|e| e.deck().set(deck as usize, f, value));
+    }
+}
+
+/// The crossfader, 0 (left) to 1 (right).
+#[unsafe(no_mangle)]
+pub extern "C" fn deck_crossfade(x: f32) {
+    with_engine(|e| e.deck().set_crossfade(x));
+}
+
+/// Deck `deck`'s (0–3) peak after its gain since the last call, linear.
+#[unsafe(no_mangle)]
+pub extern "C" fn deck_peak(deck: u32) -> f32 {
+    query(0.0, |e| e.deck().take_peak(deck as usize))
 }
 
 /// Render the next block into the output buffer.

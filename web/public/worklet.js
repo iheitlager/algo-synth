@@ -28,6 +28,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     const num = (name) => (typeof this.w[name] === 'function' ? this.w[name]() : 0)
     this.port.postMessage({ t: 'ready', models: num('model_count'), version: num('version_code'), build: num('build_id') })
     this.block = this.w.block_len()
+    // The block number every deck's ring counts in, and the attached decks by number (1–3).
+    this.blockNo = 0
+    this.decks = new Map()
     this.tick = 0
     this.busy = 0
     this.peak = 0
@@ -96,6 +99,11 @@ class EngineProcessor extends AudioWorkletProcessor {
         }
         case 'songSeek': w.song_seek_bar(data.bar); break
         case 'mixWrite': w.song_write_mixer(); this.sendSong(true); break
+        // Decks B–D (ADR-0029): a worker renders each into a ring; this only copies blocks.
+        case 'deckAttach': this.attachDeck(data.deck, data.ring); break
+        case 'deckDetach': this.decks.delete(data.deck); break
+        case 'deckSet': w.deck_set(data.deck, data.field, data.v); break
+        case 'deckXfade': w.deck_crossfade(data.x); break
         case 'songPlay': w.song_play(); break
         case 'songPause': w.song_pause(); break
         case 'songStop': w.song_stop(); break
@@ -312,7 +320,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     const w = this.w
     const out = outputs[0]
     const frames = out[0].length
+    if (this.decks.size) this.feedDecks()
     w.process(frames)
+    if (this.decks.size) this.readDecks()
+    this.blockNo++
     // Rebuild the view every block: it goes stale if wasm memory grows.
     const buf = new Float32Array(w.memory.buffer, w.out_ptr(), 2 * this.block)
     out[0].set(buf.subarray(0, frames))
@@ -351,6 +362,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         this.sendSong(true)
         for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
       }
+      if (this.decks.size || this.deckPeaksSent) this.sendDecks()
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()
@@ -358,6 +370,46 @@ class EngineProcessor extends AudioWorkletProcessor {
     }
     this.measure(now() - start, frames)
     return true
+  }
+
+  attachDeck(deck, r) {
+    const ring = { ctrl: new Int32Array(r.ctrl), audio: new Float32Array(r.audio), seq: new Int32Array(r.seq), live: false, dropped: 0 }
+    Atomics.store(ring.ctrl, 1, this.blockNo)
+    this.decks.set(deck, ring)
+    this.port.postMessage({ t: 'deckAttached', deck })
+  }
+
+  // Hand each deck's block for this block number to the engine, if it is
+  // there in time; a late one is dropped and counted (ADR-0029).
+  feedDecks() {
+    const w = this.w
+    const size = 2 * this.block
+    for (const [deck, r] of this.decks) {
+      const slot = this.blockNo % r.seq.length
+      if (Atomics.load(r.ctrl, 0) > this.blockNo && r.seq[slot] === this.blockNo) {
+        new Float32Array(w.memory.buffer, w.deck_in_ptr(deck), size).set(r.audio.subarray(slot * size, (slot + 1) * size))
+        w.deck_fed(deck)
+        r.live = true
+      } else if (r.live) {
+        r.dropped++
+      }
+    }
+  }
+
+  // This block is read: each worker may render one more.
+  readDecks() {
+    for (const r of this.decks.values()) {
+      Atomics.store(r.ctrl, 1, this.blockNo + 1)
+      Atomics.notify(r.ctrl, 1)
+    }
+  }
+
+  sendDecks() {
+    const w = this.w
+    const peaks = [0, 1, 2, 3].map((d) => w.deck_peak(d))
+    const dropped = [0, 1, 2, 3].map((d) => this.decks.get(d)?.dropped ?? 0)
+    this.port.postMessage({ t: 'decks', peaks, dropped })
+    this.deckPeaksSent = this.decks.size > 0
   }
 
   // Time spent in this callback as a share of the block's real time.

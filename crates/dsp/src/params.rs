@@ -2406,6 +2406,10 @@ mod tests {
             ("Pad", rust(&crate::drums::Pad::ALL, |p| p as u32)),
             ("ZoneField", rust(&ZoneField::ALL, |f| f as u32)),
             ("PadField", rust(&PadField::ALL, |f| f as u32)),
+            (
+                "DeckField",
+                rust(&crate::deck::DeckField::ALL, |f| f as u32),
+            ),
         ];
         for (name, want) in lists {
             assert_eq!(

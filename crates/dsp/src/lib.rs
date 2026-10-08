@@ -8,6 +8,7 @@
 pub mod algo;
 pub mod arp;
 pub mod clock;
+pub mod deck;
 pub mod drums;
 pub mod engine;
 pub mod fm;
