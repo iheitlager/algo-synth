@@ -1,6 +1,11 @@
-//! The assist server (ADR-0028): axum on `127.0.0.1:6342`, behind Caddy's
-//! `/api`. It offers the providers it has keys for and runs the loop of
+//! algo-synth's one server (ADR-0030, #406): axum on `127.0.0.1:6340`,
+//! serving the built app and, under `/api`, the assistant (ADR-0028). The
+//! assistant offers the providers it has keys for and runs the loop of
 //! `crate::assist` for a request, streaming each step as a server-sent event.
+//!
+//! Every response is cross-origin isolated (ADR-0029); the worklet, the deck
+//! worker and the engine are never cached, so a rebuild is picked up; the
+//! rest is compressed, except the event stream.
 
 use crate::assist::{self, Event, LoopLimits, Request};
 use crate::config::{Config, Kind};
@@ -10,7 +15,7 @@ use crate::provider::openai::OpenAi;
 use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::sse::{Event as Sse, KeepAlive};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -23,6 +28,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 /// The largest request body: a song of up to 1 MB and the request.
 const BODY_LIMIT: usize = 2 << 20;
@@ -50,6 +56,8 @@ impl Default for Rates {
 
 pub struct AppState {
     pub config: Config,
+    /// The built app (`web/dist`), served at `/`; none serves `/api` only.
+    pub web: Option<std::path::PathBuf>,
     pub client: reqwest::Client,
     /// Anthropic's effort for the loop.
     pub effort: String,
@@ -63,6 +71,7 @@ impl AppState {
     pub fn new(config: Config, effort: String, limits: LoopLimits, rates: Rates) -> AppState {
         AppState {
             config,
+            web: None,
             client: reqwest::Client::new(),
             effort,
             limits,
@@ -92,12 +101,42 @@ impl AppState {
     }
 }
 
+/// The files a rebuild changes under the same name: never cached (ADR-0006).
+const FRESH: [&str; 3] = ["/worklet.js", "/deck-worker.js", "/dsp.wasm"];
+
+/// `Cache-Control: no-cache` on the files of `FRESH`.
+async fn fresh(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let fresh = FRESH.contains(&req.uri().path());
+    let mut resp = next.run(req).await;
+    if fresh {
+        resp.headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
+    resp
+}
+
 pub fn router(state: Arc<AppState>) -> Router {
-    Router::new()
+    let api = Router::new()
         .route("/api/health", get(|| async { Json(json!({"ok": true})) }))
         .route("/api/providers", get(providers))
         .route("/api/assist", post(assist))
-        .layer(DefaultBodyLimit::max(BODY_LIMIT))
+        .layer(DefaultBodyLimit::max(BODY_LIMIT));
+    let app = match &state.web {
+        Some(dir) => api.fallback_service(tower_http::services::ServeDir::new(dir)),
+        None => api,
+    };
+    // Cross-origin isolated, so decks can share SharedArrayBuffer rings (ADR-0029).
+    let isolate = |name: &'static str, value: &'static str| {
+        SetResponseHeaderLayer::overriding(
+            HeaderName::from_static(name),
+            HeaderValue::from_static(value),
+        )
+    };
+    app.layer(axum::middleware::from_fn(fresh))
+        .layer(isolate("cross-origin-opener-policy", "same-origin"))
+        .layer(isolate("cross-origin-embedder-policy", "require-corp"))
+        // The default predicate leaves the event stream uncompressed, so it flows.
+        .layer(tower_http::compression::CompressionLayer::new())
         .with_state(state)
 }
 
@@ -373,13 +412,24 @@ mod tests {
             LoopLimits::default(),
             Rates::default(),
         ));
-        let (st, body) = call(
-            router(s),
-            "POST",
-            "/api/assist",
-            Some(ask("anthropic", "claude-opus-5-5")),
-        )
-        .await;
+        // Asked for gzip, as a browser does: the stream still comes plain.
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/api/assist")
+            .header("content-type", "application/json")
+            .header("accept-encoding", "gzip")
+            .body(Body::from(ask("anthropic", "claude-opus-5-5").to_string()))
+            .expect("a request");
+        let resp = router(s).oneshot(req).await.expect("an answer");
+        let st = resp.status();
+        assert_eq!(
+            resp.headers().get("content-encoding"),
+            None,
+            "the event stream is not compressed"
+        );
+        let body =
+            String::from_utf8_lossy(&resp.into_body().collect().await.expect("a body").to_bytes())
+                .into_owned();
         assert_eq!(st, StatusCode::OK);
         let names: Vec<&str> = body
             .lines()
@@ -455,5 +505,95 @@ mod tests {
             }
         }
         assert!(admitted, "the first loop still holds its place");
+    }
+
+    /// The built app and `/api` from one server (#406): the engine and its
+    /// workers never cached, every response cross-origin isolated, files
+    /// compressed, the event stream not.
+    #[tokio::test]
+    async fn one_server_serves_the_app_and_the_api() {
+        let dir = std::env::temp_dir().join(format!("algo-synth-web-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a dir");
+        std::fs::write(
+            dir.join("index.html"),
+            "<!doctype html><title>algo-synth</title>",
+        )
+        .expect("index");
+        std::fs::write(
+            dir.join("assistant.html"),
+            "<!doctype html><title>assistant</title>",
+        )
+        .expect("assistant");
+        std::fs::write(dir.join("dsp.wasm"), b"\0asm\x01\0\0\0").expect("wasm");
+        std::fs::write(
+            dir.join("app.js"),
+            "console.log('algo-synth');\n".repeat(400),
+        )
+        .expect("js");
+        let mut state = AppState::new(
+            Config::from_env(&HashMap::new()),
+            "high".into(),
+            LoopLimits::default(),
+            Rates::default(),
+        );
+        state.web = Some(dir.clone());
+        let app = router(Arc::new(state));
+        let get = |uri: &str, gzip: bool| {
+            let mut b = HttpRequest::builder().uri(uri);
+            if gzip {
+                b = b.header("accept-encoding", "gzip");
+            }
+            app.clone()
+                .oneshot(b.body(Body::empty()).expect("a request"))
+        };
+        let h = |r: &Response, k: &str| {
+            r.headers()
+                .get(k)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        let wasm = get("/dsp.wasm", false).await.expect("an answer");
+        assert_eq!(wasm.status(), StatusCode::OK);
+        assert_eq!(h(&wasm, "content-type"), "application/wasm");
+        assert_eq!(h(&wasm, "cache-control"), "no-cache");
+        assert_eq!(h(&wasm, "cross-origin-opener-policy"), "same-origin");
+        assert_eq!(h(&wasm, "cross-origin-embedder-policy"), "require-corp");
+
+        let index = get("/", false).await.expect("an answer");
+        assert_eq!(index.status(), StatusCode::OK);
+        assert!(h(&index, "content-type").starts_with("text/html"));
+        assert_eq!(
+            h(&index, "cache-control"),
+            "",
+            "the page may be cached as usual"
+        );
+        let body = index
+            .into_body()
+            .collect()
+            .await
+            .expect("a body")
+            .to_bytes();
+        assert!(String::from_utf8_lossy(&body).contains("<title>algo-synth</title>"));
+
+        assert_eq!(
+            get("/assistant.html", false)
+                .await
+                .expect("an answer")
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            get("/nowhere.js", false).await.expect("an answer").status(),
+            StatusCode::NOT_FOUND
+        );
+        let health = get("/api/health", false).await.expect("an answer");
+        assert_eq!(health.status(), StatusCode::OK);
+        assert_eq!(h(&health, "cross-origin-embedder-policy"), "require-corp");
+
+        let js = get("/app.js", true).await.expect("an answer");
+        assert_eq!(h(&js, "content-encoding"), "gzip", "files are compressed");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

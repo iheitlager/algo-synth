@@ -6,28 +6,31 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench lint deny image serve stop clean assist env-check
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench lint deny image serve stop clean env-check
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
-ASSIST   := algo-synth-assist
-NET      := algo-synth
-# 63xx: out of the way of the usual 3000/5173/8080 dev servers.
+# One server, one port (ADR-0030); 63xx: out of the way of the usual
+# 3000/5173/8080 dev servers.
 PORT     ?= 6340
-DEV_PORT ?= 6341
-# The assist server's keys come from 1Password (ADR-0028, #386): op.env holds
-# only op:// references, and `op run` fills them in for one process. OP= skips
-# 1Password when the keys are exported already.
+# The assistant's keys come from 1Password (ADR-0028, #386): op.env holds only
+# op:// references, and `op run` fills them in for one process. OP= skips
+# 1Password: without keys the app serves and the assistant has no provider.
 OP       ?= op run --env-file=op.env --
 KEYS     := ANTHROPIC_API_KEY MISTRAL_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY ASSIST_SELF_HOSTED_URL ASSIST_SELF_HOSTED_MODELS
 
 ##@ Everyday
 
 check: lint deny test build ## Run all CI gates
-# Vite serves web/public, so dsp.wasm is rebuilt first. Hard-refresh the
-# browser after a DSP change: the worklet module is cached.
-dev: wasm install ## Dev server on localhost:6341
-	cd web && npm run dev -- --port $(DEV_PORT) --strictPort
+# One server (ADR-0030): algo-synth serve on 127.0.0.1:6340, the app and the
+# assistant, while vite build --watch keeps web/dist current; reload to see a
+# change. dsp.wasm is built first (make wasm again after a DSP change). Ctrl-C
+# stops both.
+dev: wasm install ## App and assistant on localhost:6340
+	@cd web && npx vite build --watch --logLevel warn & build=$$!; \
+	trap 'kill $$build 2>/dev/null' EXIT INT TERM; \
+	until [ -f web/dist/index.html ]; do sleep 1; done; \
+	$(OP) cargo run --release -p algo-assist -- serve
 build: wasm web ## Build wasm and web into web/dist
 fmt: ## Format the code
 	cargo fmt
@@ -94,10 +97,6 @@ deny: ## cargo-deny checks
 
 ##@ Assistant
 
-# The assist server on 127.0.0.1:6342 with the keys from 1Password; `make dev`
-# proxies /api to it. A provider without its key is not offered.
-assist: ## Assist server with 1Password keys
-	$(OP) cargo run --release -p algo-assist -- serve
 # Which of op.env's keys 1Password resolves: ok or missing, never a value.
 env-check: ## Check the 1Password keys
 	@grep -E '^[A-Z_]+=op://' op.env | while IFS='=' read -r name ref; do \
@@ -110,23 +109,20 @@ env-check: ## Check the 1Password keys
 # The commit goes in as ALGO_BUILD_SHA, declared after the source copies in
 # Containerfile, so a new commit rebuilds the wasm and the page instead of
 # reusing a cached layer from older sources (#198); no --no-cache needed.
-image: ## Build the Podman images
+image: ## Build the Podman image
 	podman build --build-arg ALGO_BUILD_SHA=$(SHA) -t $(IMAGE) -f Containerfile .
-	podman build --target assist -t $(ASSIST) -f Containerfile .
 # Localhost is a secure context, so AudioWorklet works without TLS.
 # Replaces a container left over from an earlier serve (running or not).
-# The assist server runs beside Caddy on a private network and publishes no
-# port: only Caddy's /api reaches it (ADR-0028). Its keys come from `op run`
-# by name (`-e NAME`), never on the command line. Without 1Password it does
-# not start and the site serves as before, the Assistant hidden.
+# One container, one port on the host's 127.0.0.1 (ADR-0030, ADR-0028). The
+# keys pass in by name (`-e NAME`) from `op run`, never on the command line;
+# without 1Password it starts without them.
 serve: image ## Serve on localhost:6340
-	@podman rm -f --ignore $(IMAGE) $(ASSIST) >/dev/null
-	@podman network exists $(NET) || podman network create $(NET) >/dev/null
-	-$(OP) podman run --rm -d --name $(ASSIST) --network $(NET) --network-alias assist $(foreach k,$(KEYS),-e $(k)) $(ASSIST)
-	podman run --rm -d --name $(IMAGE) --network $(NET) -p 127.0.0.1:$(PORT):80 $(IMAGE)
+	@podman rm -f --ignore $(IMAGE) >/dev/null
+	@$(OP) podman run --rm -d --name $(IMAGE) -p 127.0.0.1:$(PORT):6340 $(foreach k,$(KEYS),-e $(k)) $(IMAGE) \
+		|| podman run --rm -d --name $(IMAGE) -p 127.0.0.1:$(PORT):6340 $(IMAGE)
 	@echo "http://localhost:$(PORT)"
-stop: ## Stop the running containers
-	@podman rm -f --ignore $(IMAGE) $(ASSIST) | grep -q . && echo "stopped" || echo "no $(IMAGE) container running"
+stop: ## Stop the running container
+	@podman rm -f --ignore $(IMAGE) | grep -q . && echo "stopped $(IMAGE)" || echo "no $(IMAGE) container running"
 
 ##@ Support
 

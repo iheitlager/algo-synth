@@ -160,7 +160,7 @@ onMounted(check)
     </div>
     <p v-if="avail === 'checking'" class="note muted">Looking for the assist server…</p>
     <p v-else-if="avail === 'down'" class="note">
-      The assistant needs its server: <code>make assist</code> — see README.
+      The assistant needs the app's server: <code>make dev</code> or <code>make serve</code> — see README.
       <button class="small" @click="check">Check again</button>
     </p>
     <template v-else>
