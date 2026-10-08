@@ -1,5 +1,9 @@
-//! The assist server's side of the song (ADR-0028, epic #381): tools a
-//! language model calls while it writes a song, on the engine itself so they
-//! never drift from it (#384). The server (#385) comes later in this crate.
+//! The assist server and its song tools (ADR-0028, epic #381): a language
+//! model writes the song; the tools check and render it on the engine; the
+//! server runs the loop over one of five providers and streams its steps.
 
+pub mod assist;
+pub mod config;
+pub mod provider;
+pub mod server;
 pub mod tools;
