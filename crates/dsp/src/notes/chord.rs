@@ -14,7 +14,7 @@ use crate::algo::Scale;
 use crate::notes::Event;
 
 /// Qualities by name, as semitones above the root.
-const QUALITIES: [(&str, &[u8]); 17] = [
+pub const QUALITIES: [(&str, &[u8]); 17] = [
     ("", &[0, 4, 7]),
     ("maj", &[0, 4, 7]),
     ("m", &[0, 3, 7]),

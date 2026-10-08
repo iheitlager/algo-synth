@@ -43,11 +43,10 @@ pub struct Span {
     pub class: Class,
 }
 
-const KEYWORDS: [&str; 15] = [
-    "tempo", "swing", "scale", "setting", "track", "frag", "section", "arrange", "loop", "auto",
-    "scene", "mod", "strip", "group", "master",
-];
-const WORDS: [&str; 7] = [
+use super::KEYWORDS;
+
+/// The words after a line's keyword that are coloured as keywords.
+pub(crate) const WORDS: [&str; 7] = [
     "live", "bars", "ramp", "drums", "synth", "sampler", "voicing",
 ];
 

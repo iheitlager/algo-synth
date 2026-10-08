@@ -116,6 +116,13 @@ pub const STEPS_PER_BAR: u64 = 16;
 pub const MAX_TEXT: usize = 1 << 20;
 /// Longest name of a track or fragment.
 const MAX_NAME: usize = 32;
+/// The words a line of the song starts with, in the order the parser's error
+/// names them. The parser reads no other, and `.openspec/language.md` must
+/// define each (a test holds it to that).
+pub const KEYWORDS: [&str; 15] = [
+    "tempo", "swing", "scale", "setting", "track", "strip", "group", "master", "frag", "auto",
+    "scene", "mod", "section", "arrange", "loop",
+];
 /// Tempo and swing ranges, as the clock has them.
 const TEMPO: (f32, f32) = crate::clock::TEMPO;
 const SWING: (f32, f32) = crate::clock::SWING;
@@ -681,6 +688,13 @@ impl Song {
                 Some(w) => Err(err(w.col, "unexpected text")),
                 None => Ok(()),
             };
+            let keyword = first.text.strip_suffix(':').unwrap_or(first.text);
+            if !KEYWORDS.contains(&keyword) {
+                return Err(err(
+                    first.col,
+                    "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                ));
+            }
             match first.text {
                 "tempo" | "swing" => {
                     let w = arg(1, "a number goes here")?;

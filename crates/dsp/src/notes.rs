@@ -30,8 +30,9 @@ mod chord;
 mod generate;
 pub mod pattern;
 
+pub use chord::QUALITIES;
 use generate::Source;
-pub use generate::{ArpMode, Gen};
+pub use generate::{ArpMode, CALLS, Gen};
 
 use crate::algo::{Euclid, Rng, Scale, mix};
 

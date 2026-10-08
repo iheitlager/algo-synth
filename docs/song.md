@@ -2,8 +2,10 @@
 
 A song is text (ADR-0012). The composer shows it, the engine parses it and plays
 it, and every edit in the view goes back through the engine, which prints the
-text again. This page lists every keyword: its syntax, an example, its limits
-and the errors it gives.
+text again. This page is the guide: every keyword with an example, its limits
+and the errors it gives. The normative definition, compact and complete, is
+[`.openspec/language.md`](../.openspec/language.md); where the two differ, it
+and the parser decide.
 
 Every example tagged `song` here is a whole song; a test parses each one and
 checks that its printed form parses back the same
@@ -32,7 +34,7 @@ notes.
   on.
 - **Canonical form:** the engine prints the song back in a fixed order and
   layout: tempo, swing, scale, settings, tracks, mixer lines, frags, autos,
-  scenes, sections, arrange, loop. Blank lines and alignment are not kept, and flats
+  scenes, mods, sections, arrange, loop. Blank lines and alignment are not kept, and flats
   print as sharps (`eb4` as `d#4`).
 
 An empty text is a song too: 120 BPM, no swing, silence.
@@ -408,7 +410,7 @@ call gives the same notes every run.
 | `root(chords)` | the root of each chord of frag `chords`, in octave 2, as a bass line; `root(chords,3)` for another octave |
 | `arp(chords,up,16)` | frag `chords` arpeggiated chord by chord, each from its own start (a frag's name wins over a chord name) |
 
-A chord has at most 8 notes. `markov`, `mutate`, `root` and `arp` over a frag
+A chord given to `arp` has at most 8 notes. `markov`, `mutate`, `root` and `arp` over a frag
 read a note frag written above them, as it was when the song loaded: over a
 `live` frag they follow its first bar's notes.
 
@@ -446,8 +448,8 @@ frag dice = lead
 
 `frag <name> = <track> live` makes a generator call play new notes every bar:
 the call's seed mixed with the bar, so a run is the same every time. Only a
-call (`arp`, `walk`, `markov` or `mutate`) can be live, and only on a note
-frag. **Freeze** in the composer replaces the call with the bar it was
+generator call (`arp`, `walk`, `markov`, `mutate`, `root` or `prog`) can be
+live, and only on a note frag. **Freeze** in the composer replaces the call with the bar it was
 playing, written as mini-notation.
 
 ```song

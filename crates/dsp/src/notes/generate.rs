@@ -17,6 +17,9 @@ use super::{Cursor, Event, NoteError, Pitch, TICKS_PER_BAR, err};
 use crate::algo::{Rng, Scale, mix};
 use crate::arp;
 
+/// The calls a line of notes may be, `euclid` aside; no other is read.
+pub const CALLS: [&str; 6] = ["arp", "walk", "markov", "mutate", "root", "prog"];
+
 /// Notes of a walk, and of a chord for an arpeggio.
 const MAX_WALK: u32 = 32;
 const MAX_CHORD: usize = 8;
@@ -32,7 +35,7 @@ pub enum ArpMode {
 }
 
 impl ArpMode {
-    const ALL: [(ArpMode, &'static str); 4] = [
+    pub const ALL: [(ArpMode, &'static str); 4] = [
         (ArpMode::Up, "up"),
         (ArpMode::Down, "down"),
         (ArpMode::UpDown, "updown"),
@@ -627,8 +630,7 @@ pub(super) fn parse_call(
         name.push(c);
         cur.i += 1;
     }
-    let names = ["arp", "walk", "markov", "mutate", "root", "prog"];
-    if cur.peek() != Some('(') || !names.contains(&name.as_str()) {
+    if cur.peek() != Some('(') || !CALLS.contains(&name.as_str()) {
         cur.i = start;
         return Ok(None);
     }
