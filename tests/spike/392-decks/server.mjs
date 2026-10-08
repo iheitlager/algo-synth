@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { parseIds } from './common.mjs'
 
 const here = new URL('./', import.meta.url)
-const root = new URL('../../', import.meta.url)
+const root = new URL('../../../', import.meta.url)
 const types = { html: 'text/html', mjs: 'text/javascript', js: 'text/javascript', wasm: 'application/wasm', json: 'application/json' }
 const ids = JSON.stringify(parseIds(readFileSync(new URL('web/src/audio/params.ts', root), 'utf8')))
 

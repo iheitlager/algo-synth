@@ -7,8 +7,8 @@ import { Worker } from 'node:worker_threads'
 import { parseIds, SR } from './common.mjs'
 import { BLOCK, SLOTS, makeRing, view } from './ring.mjs'
 
-const ids = parseIds(readFileSync(new URL('../../web/src/audio/params.ts', import.meta.url), 'utf8'))
-const bytes = readFileSync(new URL('../../web/public/dsp.wasm', import.meta.url))
+const ids = parseIds(readFileSync(new URL('../../../web/src/audio/params.ts', import.meta.url), 'utf8'))
+const bytes = readFileSync(new URL('../../../web/public/dsp.wasm', import.meta.url))
 const SECONDS = Number(process.env.SECONDS ?? 6)
 const PERIOD = (BLOCK / SR) * 1e9 // ns
 

@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs'
 import { cpus } from 'node:os'
 import { makeEngine, parseIds, SR } from './common.mjs'
 
-const ids = parseIds(readFileSync(new URL('../../web/src/audio/params.ts', import.meta.url), 'utf8'))
-const module = await WebAssembly.compile(readFileSync(new URL('../../web/public/dsp.wasm', import.meta.url)))
+const ids = parseIds(readFileSync(new URL('../../../web/src/audio/params.ts', import.meta.url), 'utf8'))
+const module = await WebAssembly.compile(readFileSync(new URL('../../../web/public/dsp.wasm', import.meta.url)))
 const BLOCK = 128, WARMUP = 200, BLOCKS = 3000
 const realtime = (BLOCK / SR) * 1e6
 
