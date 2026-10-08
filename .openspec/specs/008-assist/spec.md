@@ -58,7 +58,7 @@ Before the stream it SHALL refuse a request:
 - `400` for a provider or model not offered, a body that is not the request, or an empty request or one over 4000 characters;
 - `429` when a request is running already or twenty started this minute.
 
-Bodies are limited to 2 MB.
+Bodies are limited to 2 MB. When the browser closes the stream (Stop, a closed tab), the request's loop SHALL be dropped at once, its provider call with it, so a request nobody reads costs nothing more.
 
 **Implementation:** `crates/assist/src/server.rs::router`, `crates/assist/src/server.rs::AppState`, `crates/assist/src/main.rs`
 
@@ -68,4 +68,4 @@ Bodies are limited to 2 MB.
 - WHEN a request is posted
 - THEN the stream is `progress`, `text`, `tool`, `progress`, `tool`, `song`, `done`, the mock saw the cached system prompt and the first turn sent back, and no key is in the stream
 
-**Tests:** `crates/assist/src/server.rs::tests::health_and_providers`, `crates/assist/src/server.rs::tests::requests_are_refused_before_the_stream`, `crates/assist/src/server.rs::tests::a_request_streams_its_steps_through_the_real_adapter`
+**Tests:** `crates/assist/src/server.rs::tests::health_and_providers`, `crates/assist/src/server.rs::tests::requests_are_refused_before_the_stream`, `crates/assist/src/server.rs::tests::a_request_streams_its_steps_through_the_real_adapter`, `crates/assist/src/server.rs::tests::a_closed_stream_stops_its_loop`

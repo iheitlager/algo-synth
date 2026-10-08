@@ -168,42 +168,51 @@ async fn assist(
     let state = s.clone();
     tokio::spawn(async move {
         let _permit = permit;
-        // A closed stream (the browser went away) drops the rest.
+        // When the browser goes away (Stop, a closed tab) the stream closes:
+        // the loop is dropped there, its provider call with it, so a request
+        // nobody reads costs nothing more.
+        let closed = tx.clone();
         let mut emit = |e: Event| {
             tx.send(e).ok();
         };
-        let client = state.client.clone();
-        let (limits, model) = (state.limits, body.model);
-        let key = p.key.clone().unwrap_or_default();
-        match p.kind {
-            Kind::Anthropic => {
-                let provider = Anthropic {
-                    client,
-                    url: p.base,
-                    key,
-                    model,
-                    effort: state.effort.clone(),
-                };
-                assist::run(&provider, &req, limits, &mut emit).await;
+        let work = async {
+            let client = state.client.clone();
+            let (limits, model) = (state.limits, body.model);
+            let key = p.key.clone().unwrap_or_default();
+            match p.kind {
+                Kind::Anthropic => {
+                    let provider = Anthropic {
+                        client,
+                        url: p.base,
+                        key,
+                        model,
+                        effort: state.effort.clone(),
+                    };
+                    assist::run(&provider, &req, limits, &mut emit).await;
+                }
+                Kind::Openai => {
+                    let provider = OpenAi {
+                        client,
+                        base: p.base,
+                        key: p.key,
+                        model,
+                    };
+                    assist::run(&provider, &req, limits, &mut emit).await;
+                }
+                Kind::Gemini => {
+                    let provider = Gemini {
+                        client,
+                        base: p.base,
+                        key,
+                        model,
+                    };
+                    assist::run(&provider, &req, limits, &mut emit).await;
+                }
             }
-            Kind::Openai => {
-                let provider = OpenAi {
-                    client,
-                    base: p.base,
-                    key: p.key,
-                    model,
-                };
-                assist::run(&provider, &req, limits, &mut emit).await;
-            }
-            Kind::Gemini => {
-                let provider = Gemini {
-                    client,
-                    base: p.base,
-                    key,
-                    model,
-                };
-                assist::run(&provider, &req, limits, &mut emit).await;
-            }
+        };
+        tokio::select! {
+            () = work => {}
+            () = closed.closed() => {}
         }
     });
     let stream = UnboundedReceiverStream::new(rx)
@@ -393,5 +402,58 @@ mod tests {
             seen[1]["messages"][1]["content"][1]["name"], "check_song",
             "the turn went back"
         );
+    }
+
+    /// Stop in the browser closes the stream: the loop is dropped and its
+    /// place freed at once, so the next request runs, while the first model
+    /// call was still waiting.
+    #[tokio::test]
+    async fn a_closed_stream_stops_its_loop() {
+        let fake = Router::new().route(
+            "/v1/messages",
+            post(|| async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Json(json!({}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        tokio::spawn(async move { axum::serve(listener, fake).await });
+        let mut config =
+            Config::from_env(&[("ANTHROPIC_API_KEY".to_string(), "k".to_string())].into());
+        config.providers[0].base = format!("http://{addr}/v1/messages");
+        let one = Rates {
+            concurrent: 1,
+            per_minute: 20,
+        };
+        let s = Arc::new(AppState::new(
+            config,
+            "high".into(),
+            LoopLimits::default(),
+            one,
+        ));
+        let req = || {
+            HttpRequest::builder()
+                .method("POST")
+                .uri("/api/assist")
+                .header("content-type", "application/json")
+                .body(Body::from(ask("anthropic", "claude-opus-5-5").to_string()))
+                .expect("a request")
+        };
+        let first = router(s.clone()).oneshot(req()).await.expect("an answer");
+        assert_eq!(first.status(), StatusCode::OK);
+        drop(first);
+        let mut admitted = false;
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let again = router(s.clone()).oneshot(req()).await.expect("an answer");
+            if again.status() == StatusCode::OK {
+                admitted = true;
+                break;
+            }
+        }
+        assert!(admitted, "the first loop still holds its place");
     }
 }
