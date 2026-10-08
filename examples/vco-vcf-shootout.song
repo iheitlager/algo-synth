@@ -1,0 +1,189 @@
+# VCO/VCF shootout: one patch, seven mono synths, pushed to the edges (#407).
+# Every synth gets the same patch: one saw, no second or third oscillator,
+# sub, noise or high-pass, the same envelopes for amp and filter. What is
+# left is the circuit: each model's oscillator, filter, envelope and VCA.
+# Each test hands the same line from synth to synth, two bars each, in
+# this order: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101, Odyssey.
+# A crash marks each hand-over.
+tempo 120
+swing 50
+
+# The ARP's VCA is exponential: its sustain 0.926 is the others' 0.6 in
+# gain; at 0.6 it would sit 24 dB down.
+setting a2600_saw = Arp2600 Bass: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.926, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+setting moog_saw = Minimoog MiniBass: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.6, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+setting proone_saw = ProOne ProBass: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.6, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+setting ms20_saw = Ms20 Ms20Lead: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.6, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+setting cs15_saw = Cs15 Cs15Brass: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.6, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+setting sh101_saw = Sh101 AcidBass: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.6, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+setting odyssey_saw = Odyssey CurrieLead: Vco1Wave 0, Vco1Coarse 0, Vco1Level 1, Vco2Wave 0, Vco2Coarse 0, Vco2Fine 7, Vco2Level 0, Vco3Level 0, PulseWidth 0.5, HpCutoff 20, HpResonance 0, EnvHpCutoff 0, Cutoff 1500, Resonance 0.25, Drive 0.2, AdsrAttack 0.003, AdsrDecay 0.3, AdsrSustain 0.6, AdsrRelease 0.1, FenvAttack 0.003, FenvDecay 0.3, FenvSustain 0.6, FenvRelease 0.1, EnvCutoff 0.4, KeyTrack 0.5, LfoPw 0, Vibrato 0, Glide 0, Legato 1, Priority 0
+
+track kit drums Tr909 Kit909
+track a2600 synth a2600_saw
+track moog synth moog_saw
+track proone synth proone_saw
+track ms20 synth ms20_saw
+track cs15 synth cs15_saw
+track sh101 synth sh101_saw
+track odyssey synth odyssey_saw
+
+strip kit: Level 0.7
+strip a2600: Level 0.9
+strip moog: Level 0.9
+strip proone: Level 0.9
+strip ms20: Level 0.9
+strip cs15: Level 0.9
+strip sh101: Level 0.9
+strip odyssey: Level 0.9
+
+frag beat = kit /16
+  bd x...x...x...x...
+  ch ..x...x...x...x.
+# A crash on every hand-over.
+frag turn = kit /16
+  cr X...............................
+
+# The line every test but three plays: sixteenths around A1, accents on the downbeats.
+frag line_a2600 = a2600
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+frag line_moog = moog
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+frag line_proone = proone
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+frag line_ms20 = ms20
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+frag line_cs15 = cs15
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+frag line_sh101 = sh101
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+frag line_odyssey = odyssey
+  "<[a1! a1 a2 a1 ~ a1 g2 a1 c3! a1 ~ a1 e2 a1 g2 a1] [f1! f1 f2 f1 ~ f1 e2 f1 g1! g1 g2 g1 b1 d2 e2 g2]>"
+# Down at the bottom, A0 and F0: drift, and how much low end each filter keeps.
+frag sub_a2600 = a2600
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+frag sub_moog = moog
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+frag sub_proone = proone
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+frag sub_ms20 = ms20
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+frag sub_cs15 = cs15
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+frag sub_sh101 = sh101
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+frag sub_odyssey = odyssey
+  "<[a0!@3 a0 ~ a0 c1 e1] [f0!@3 f0 ~ g0 g0 b0]>"
+# Five octaves up, the filter wide open: the oscillators' tops and their aliasing.
+frag top_a2600 = a2600
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+frag top_moog = moog
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+frag top_proone = proone
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+frag top_ms20 = ms20
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+frag top_cs15 = cs15
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+frag top_sh101 = sh101
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+frag top_odyssey = odyssey
+  "<[a6 c7 e7 a7 e7 c7 a6 e6] [g6 b6 d7 g7 d7 b6 g6 d6]>"
+# Slides across six octaves with a long glide: how each portamento travels.
+frag glide_a2600 = a2600
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+frag glide_moog = moog
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+frag glide_proone = proone
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+frag glide_ms20 = ms20
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+frag glide_cs15 = cs15
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+frag glide_sh101 = sh101
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+frag glide_odyssey = odyssey
+  "<[a1& e5& a1& e5] [a6&@2 a0@2]>"
+# Long notes, for the two detuned oscillators beating.
+frag hold_a2600 = a2600
+  "<a2 e2>"
+frag hold_moog = moog
+  "<a2 e2>"
+frag hold_proone = proone
+  "<a2 e2>"
+frag hold_ms20 = ms20
+  "<a2 e2>"
+frag hold_cs15 = cs15
+  "<a2 e2>"
+frag hold_sh101 = sh101
+  "<a2 e2>"
+frag hold_odyssey = odyssey
+  "<a2 e2>"
+# Eighths on one note while the cutoff climbs under them.
+frag pump_a2600 = a2600
+  "<[a1*8] [a1*8]>"
+frag pump_moog = moog
+  "<[a1*8] [a1*8]>"
+frag pump_proone = proone
+  "<[a1*8] [a1*8]>"
+frag pump_ms20 = ms20
+  "<[a1*8] [a1*8]>"
+frag pump_cs15 = cs15
+  "<[a1*8] [a1*8]>"
+frag pump_sh101 = sh101
+  "<[a1*8] [a1*8]>"
+frag pump_odyssey = odyssey
+  "<[a1*8] [a1*8]>"
+
+# The hand-over: each synth heard for its two bars, muted for the rest.
+auto solo_a2600 = a2600.Mute 0 1 1 1 1 1 1 /14
+auto solo_moog = moog.Mute 1 0 1 1 1 1 1 /14
+auto solo_proone = proone.Mute 1 1 0 1 1 1 1 /14
+auto solo_ms20 = ms20.Mute 1 1 1 0 1 1 1 /14
+auto solo_cs15 = cs15.Mute 1 1 1 1 0 1 1 /14
+auto solo_sh101 = sh101.Mute 1 1 1 1 1 0 1 /14
+auto solo_odyssey = odyssey.Mute 1 1 1 1 1 1 0 /14
+# The cutoff from 30 Hz to 13 kHz in sixteen steps, one an eighth.
+auto sweep_a2600 = a2600.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+auto sweep_moog = moog.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+auto sweep_proone = proone.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+auto sweep_ms20 = ms20.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+auto sweep_cs15 = cs15.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+auto sweep_sh101 = sh101.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+auto sweep_odyssey = odyssey.Cutoff 30 45 68 101 152 228 342 513 769 1153 1730 2595 3892 5839 8758 13137 /2
+# The resonance from none to full: where each filter starts to whistle.
+auto whistle_a2600 = a2600.Resonance ramp 0 1 /2
+auto whistle_moog = moog.Resonance ramp 0 1 /2
+auto whistle_proone = proone.Resonance ramp 0 1 /2
+auto whistle_ms20 = ms20.Resonance ramp 0 1 /2
+auto whistle_cs15 = cs15.Resonance ramp 0 1 /2
+auto whistle_sh101 = sh101.Resonance ramp 0 1 /2
+auto whistle_odyssey = odyssey.Resonance ramp 0 1 /2
+
+# The filter out of the way.
+scene open: a2600.Cutoff 18000, moog.Cutoff 18000, proone.Cutoff 18000, ms20.Cutoff 18000, cs15.Cutoff 18000, sh101.Cutoff 18000, odyssey.Cutoff 18000
+# Back to the patch's cutoff; a long glide.
+scene glide: a2600.Cutoff 1500, moog.Cutoff 1500, proone.Cutoff 1500, ms20.Cutoff 1500, cs15.Cutoff 1500, sh101.Cutoff 1500, odyssey.Cutoff 1500, a2600.Glide 0.4, moog.Glide 0.4, proone.Glide 0.4, ms20.Glide 0.4, cs15.Glide 0.4, sh101.Glide 0.4, odyssey.Glide 0.4
+# No glide; a 5% pulse instead of the saw.
+scene thin: a2600.Glide 0, moog.Glide 0, proone.Glide 0, ms20.Glide 0, cs15.Glide 0, sh101.Glide 0, odyssey.Glide 0, a2600.Vco1Wave 1, moog.Vco1Wave 1, proone.Vco1Wave 1, ms20.Vco1Wave 1, cs15.Vco1Wave 1, sh101.Vco1Wave 1, odyssey.Vco1Wave 1, a2600.PulseWidth 0.05, moog.PulseWidth 0.05, proone.PulseWidth 0.05, ms20.PulseWidth 0.05, cs15.PulseWidth 0.05, sh101.PulseWidth 0.05, odyssey.PulseWidth 0.05
+# The saw again, and the second oscillator 7 cents up.
+scene beat: a2600.Vco1Wave 0, moog.Vco1Wave 0, proone.Vco1Wave 0, ms20.Vco1Wave 0, cs15.Vco1Wave 0, sh101.Vco1Wave 0, odyssey.Vco1Wave 0, a2600.PulseWidth 0.5, moog.PulseWidth 0.5, proone.PulseWidth 0.5, ms20.PulseWidth 0.5, cs15.PulseWidth 0.5, sh101.PulseWidth 0.5, odyssey.PulseWidth 0.5, a2600.Vco2Level 1, moog.Vco2Level 1, proone.Vco2Level 1, ms20.Vco2Level 1, cs15.Vco2Level 1, sh101.Vco2Level 1, odyssey.Vco2Level 1
+# One oscillator; resonance up, the envelope off the filter.
+scene sweep: a2600.Vco2Level 0, moog.Vco2Level 0, proone.Vco2Level 0, ms20.Vco2Level 0, cs15.Vco2Level 0, sh101.Vco2Level 0, odyssey.Vco2Level 0, a2600.Resonance 0.6, moog.Resonance 0.6, proone.Resonance 0.6, ms20.Resonance 0.6, cs15.Resonance 0.6, sh101.Resonance 0.6, odyssey.Resonance 0.6, a2600.EnvCutoff 0, moog.EnvCutoff 0, proone.EnvCutoff 0, ms20.EnvCutoff 0, cs15.EnvCutoff 0, sh101.EnvCutoff 0, odyssey.EnvCutoff 0
+# The cutoff low and still.
+scene whistle: a2600.Cutoff 400, moog.Cutoff 400, proone.Cutoff 400, ms20.Cutoff 400, cs15.Cutoff 400, sh101.Cutoff 400, odyssey.Cutoff 400
+# Shut low, resonant, driven flat out and opened by the envelope on every note.
+scene drive: a2600.Cutoff 120, moog.Cutoff 120, proone.Cutoff 120, ms20.Cutoff 120, cs15.Cutoff 120, sh101.Cutoff 120, odyssey.Cutoff 120, a2600.Resonance 0.7, moog.Resonance 0.7, proone.Resonance 0.7, ms20.Resonance 0.7, cs15.Resonance 0.7, sh101.Resonance 0.7, odyssey.Resonance 0.7, a2600.Drive 1, moog.Drive 1, proone.Drive 1, ms20.Drive 1, cs15.Drive 1, sh101.Drive 1, odyssey.Drive 1, a2600.EnvCutoff 1, moog.EnvCutoff 1, proone.EnvCutoff 1, ms20.EnvCutoff 1, cs15.EnvCutoff 1, sh101.EnvCutoff 1, odyssey.EnvCutoff 1
+# The patch as it started.
+scene home: a2600.Cutoff 1500, moog.Cutoff 1500, proone.Cutoff 1500, ms20.Cutoff 1500, cs15.Cutoff 1500, sh101.Cutoff 1500, odyssey.Cutoff 1500, a2600.Resonance 0.25, moog.Resonance 0.25, proone.Resonance 0.25, ms20.Resonance 0.25, cs15.Resonance 0.25, sh101.Resonance 0.25, odyssey.Resonance 0.25, a2600.Drive 0.2, moog.Drive 0.2, proone.Drive 0.2, ms20.Drive 0.2, cs15.Drive 0.2, sh101.Drive 0.2, odyssey.Drive 0.2, a2600.EnvCutoff 0.4, moog.EnvCutoff 0.4, proone.EnvCutoff 0.4, ms20.EnvCutoff 0.4, cs15.EnvCutoff 0.4, sh101.EnvCutoff 0.4, odyssey.EnvCutoff 0.4
+
+section patch 14: beat turn line_a2600 line_moog line_proone line_ms20 line_cs15 line_sh101 line_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey
+section vco_sub 14: beat turn sub_a2600 sub_moog sub_proone sub_ms20 sub_cs15 sub_sh101 sub_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey
+section vco_top 14: beat turn top_a2600 top_moog top_proone top_ms20 top_cs15 top_sh101 top_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey [open]
+section vco_glide 14: beat turn glide_a2600 glide_moog glide_proone glide_ms20 glide_cs15 glide_sh101 glide_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey [glide]
+section vco_pulse 14: beat turn line_a2600 line_moog line_proone line_ms20 line_cs15 line_sh101 line_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey [thin]
+section vco_beat 14: beat turn hold_a2600 hold_moog hold_proone hold_ms20 hold_cs15 hold_sh101 hold_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey [beat]
+section vcf_sweep 14: beat turn pump_a2600 pump_moog pump_proone pump_ms20 pump_cs15 pump_sh101 pump_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey sweep_a2600 sweep_moog sweep_proone sweep_ms20 sweep_cs15 sweep_sh101 sweep_odyssey [sweep]
+section vcf_whistle 14: beat turn line_a2600 line_moog line_proone line_ms20 line_cs15 line_sh101 line_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey whistle_a2600 whistle_moog whistle_proone whistle_ms20 whistle_cs15 whistle_sh101 whistle_odyssey [whistle]
+section vcf_drive 14: beat turn line_a2600 line_moog line_proone line_ms20 line_cs15 line_sh101 line_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey [drive]
+section outro 14: beat turn line_a2600 line_moog line_proone line_ms20 line_cs15 line_sh101 line_odyssey solo_a2600 solo_moog solo_proone solo_ms20 solo_cs15 solo_sh101 solo_odyssey [home]
+arrange patch vco_sub vco_top vco_glide vco_pulse vco_beat vcf_sweep vcf_whistle vcf_drive outro
