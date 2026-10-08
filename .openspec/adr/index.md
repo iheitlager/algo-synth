@@ -2,12 +2,12 @@
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](0001-everything-musical-is-wasm.md) | Everything musical is Rust in one wasm module on the audio thread; a C ABI, no wasm-bindgen, a JS shim with no logic | Accepted |
+| [0001](0001-everything-musical-is-wasm.md) | Everything musical is Rust in one wasm module on the audio thread; a C ABI, no wasm-bindgen, a JS shim with no logic | Accepted, amended by 0029 |
 | [0002](0002-real-time-rules.md) | The render loop never allocates, locks or panics; tables and control-rate coefficients instead of per-sample transcendentals | Accepted |
 | [0003](0003-vue-view.md) | A Vue + TypeScript view, separate from the engine; the worklet outside the bundler; the scope on an AnalyserNode | Accepted |
 | [0004](0004-one-parameter-registry.md) | One parameter and source registry in Rust, mirrored in TypeScript, the mirror checked by a test | Accepted |
 | [0005](0005-composition-model.md) | Composition: tracks own one source; fixed insert/send/master mixer; patterns in clips from hand, generator or score; the clock in the engine | Accepted, narrowed by 0008, song format superseded by 0012 |
-| [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted, amended by 0028 |
+| [0006](0006-static-serving.md) | Podman + Caddy serving static files; no backend | Accepted, amended by 0028 and 0029 |
 | [0007](0007-blep-table-oscillators.md) | Oscillators band-limit every step (wrap, pulse edge, sync reset) with a windowed-sinc BLEP table, not a 2-point polyBLEP | Accepted |
 | [0008](0008-mono-only-to-the-ensemble.md) | Mono only, straight to the ensemble: Wave, Drums, the arrangement and algo loops removed for now | Accepted, deferrals lifted by 0012 |
 | [0009](0009-synth-models.md) | Synth models: one shared voice with a `Model` per slot (enum dispatch) and one data-driven panel per model; six monosynths | Accepted |
@@ -22,10 +22,11 @@
 | [0019](0019-patterns-signals-and-parameters.md) | One language for patterns, signals and parameters: pattern methods, control-rate signals with mathematics, parameters as methods, one precedence, compiled to a node pool | Accepted |
 | [0020](0020-modular-voice-and-sound-screen.md) | A modular voice: unit-generator graphs in the song compiled per song and played per note, controls as generic parameters, a Sound screen; our own language, not scsynth | Accepted |
 | [0021](0021-modular-voice-language.md) | The modular voice's language: bipolar audio-rate calls in hertz apart from the signals, `|>` as a postfix, one line, fixed per-voice limits, the program copied per note, no transcendental call per sample | Accepted |
-| [0022](0022-one-clock-one-transport.md) | One clock, one transport: the song's clock and the top bar's Play, Pause and Stop, no MIDI player; a MIDI file is imported when opened | Accepted |
+| [0022](0022-one-clock-one-transport.md) | One clock, one transport: the song's clock and the top bar's Play, Pause and Stop, no MIDI player; a MIDI file is imported when opened | Accepted, amended by 0029 |
 | [0023](0023-per-voice-values-on-the-fixed-synths.md) | Per-voice values on the fixed synths: `env` and lists make a signal per voice, evaluated per block into an override table of eight continuous parameters on Mono and Poly voices, absolute values, lists by voice slot | Accepted |
 | [0024](0024-supercollider-voices-on-the-synth.md) | SuperCollider voices on the Modular synth: SynthDefs in a subset of sclang evaluated at build time, a knob for every number a UGen takes, the code the synth's own; supersedes the syntax, storage and Sound screen of 0020 and 0021 | Proposed |
 | [0025](0025-one-definition-per-instrument.md) | One definition per instrument: a `ModelDef` and its presets per file in `synth/`, `Model::def` the one match; supersedes the per-model answers in `model.rs` of 0009 | Accepted |
 | [0026](0026-drum-hits-on-their-lanes-grid.md) | Drum hits on their lane's grid (/12 to /48), placed between the clock's steps and queued; flams' and drags' graces queued a step ahead; the 48-tick note grid unchanged | Accepted |
 | [0027](0027-autocommit.md) | Autocommit: the engine folds live synth and mixer changes into the song and the text applies as it is typed; the commit buttons and Save setup go; supersedes the write-back rule of 0018 and the two files of 0015 | Accepted |
 | [0028](0028-an-llm-proxy-beside-caddy.md) | An LLM proxy beside Caddy, on localhost only: a Rust (axum) assist server linking algo-dsp for its tools, one loop over five providers behind one trait, keys from 1Password, SSE to the Assistant; everything binds to 127.0.0.1, so no authentication for now | Accepted |
+| [0029](0029-decks.md) | Decks: the main engine stays on the audio thread, up to three more in Web Workers rendering 4 blocks ahead into SharedArrayBuffer rings; a deck mixer in Rust, one clock per instance, a late deck drops its block; cross-origin isolation headers | Proposed |

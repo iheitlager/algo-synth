@@ -1,6 +1,6 @@
 # 0022: One clock, one transport
 
-**Status:** Accepted · **Date:** 2026-10-06
+**Status:** Accepted, amended by 0029 · **Date:** 2026-10-06
 
 ## Context
 
@@ -16,6 +16,7 @@ ADR-0015 already said that the MIDI player retires into the import and that ther
 - **No MIDI player.** The engine's `Sequence`, `play`, `stop`, `seek`, the channel routes and `Owner::Channel` go. The analog-variance seed keeps the offset of the old channel owners, so song voices sound as they did.
 - **A MIDI file is imported when opened.** Its tracks, one per channel in channel order, go to synths 0, 1, 2…, as loading the file into the player did. A setup picked with the file applies once it is imported.
 - **The view keeps no MIDI state.** The player pane, the per-file session, the channel routes in setups and the lane names go. An old setup with `routes` still opens, with a notice that they are ignored. This amends ADR-0018's "what stays in the view": the MIDI player's channel routes are no longer there.
+- **Amended by ADR-0029:** one clock per instance. With decks, the main engine's clock leads and each worker deck's song clock follows its tempo and starts on a block it names.
 
 ## Consequences
 
