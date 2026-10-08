@@ -19,6 +19,9 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# A path dependency inside the workspace (algo-assist on algo-dsp) has no
+# version; both crates are unpublished, so it is not a wildcard on a registry.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

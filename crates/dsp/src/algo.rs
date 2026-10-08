@@ -133,7 +133,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    const ALL: [(Mode, &'static str, &'static [u8]); 11] = [
+    pub const ALL: [(Mode, &'static str, &'static [u8]); 11] = [
         (Mode::Major, "major", &[0, 2, 4, 5, 7, 9, 11]),
         (Mode::Minor, "minor", &[0, 2, 3, 5, 7, 8, 10]),
         (Mode::Dorian, "dorian", &[0, 2, 3, 5, 7, 9, 10]),
