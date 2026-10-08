@@ -124,6 +124,24 @@ pub extern "C" fn deck_crossfade(x: f32) {
     with_engine(|e| e.deck().set_crossfade(x));
 }
 
+/// Frames from now to the master's next multiple of `every` steps (16 a
+/// bar, 128 an 8-bar phrase) at least `at_least` frames away; −1 while the
+/// song is stopped. Where a deck is cued to.
+#[unsafe(no_mangle)]
+pub extern "C" fn cue_frames(every: u32, at_least: u32) -> i32 {
+    query(-1, |e| {
+        e.cue_frames(u64::from(every), u64::from(at_least))
+            .and_then(|f| i32::try_from(f).ok())
+            .unwrap_or(-1)
+    })
+}
+
+/// Start the song `frames` from now, on that exact sample (a cued deck).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_play_in(frames: u32) {
+    with_engine(|e| e.song_play_in(frames as usize));
+}
+
 /// Deck `deck`'s (0–3) peak after its gain since the last call, linear.
 #[unsafe(no_mangle)]
 pub extern "C" fn deck_peak(deck: u32) -> f32 {

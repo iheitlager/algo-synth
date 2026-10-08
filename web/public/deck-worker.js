@@ -23,6 +23,8 @@ let w = null
 let ring = null
 let block = 0
 let written = 0
+// A cued start: the frame on the worklet's clock it falls on, and the master's tempo.
+let start = null
 
 onmessage = ({ data }) => {
   switch (data.t) {
@@ -47,9 +49,23 @@ onmessage = ({ data }) => {
       postMessage({ t: 'song', ok, line: ok ? 0 : w.song_error_line(), col: ok ? 0 : w.song_error_col() })
       break
     }
-    case 'play': w.song_play(); break
-    case 'stop': w.song_stop(); break
+    case 'playAt': start = { at: data.at, bpm: data.bpm }; break
+    case 'stop': start = null; w.song_stop(); break
+    // The master's tempo: a deck follows it (ADR-0029).
+    case 'tempo': w.tempo(data.bpm); break
   }
+}
+
+// The cued start falls in the block about to render: from the top, at the
+// master's tempo, on its exact sample. A cue that arrived too late starts at
+// once and says so.
+function startNow() {
+  const offset = start.at - written * block
+  w.song_stop()
+  w.tempo(start.bpm)
+  w.song_play_in(Math.max(0, offset))
+  if (offset < 0) postMessage({ t: 'late', frames: -offset })
+  start = null
 }
 
 // Render until the ring is AHEAD blocks in front of the worklet, then wait for
@@ -60,6 +76,7 @@ function pump() {
   // whole gap flat out, the deck jumps to now and slips once.
   if (Atomics.load(ring.ctrl, READ) - written > CATCH_UP) written = Atomics.load(ring.ctrl, READ) + 1
   while (written - Atomics.load(ring.ctrl, READ) < AHEAD) {
+    if (start && start.at < (written + 1) * block) startNow()
     w.process(block)
     const slot = written % slots
     ring.audio.set(new Float32Array(w.memory.buffer, w.out_ptr(), 2 * block), slot * 2 * block)

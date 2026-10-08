@@ -2,7 +2,8 @@
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
 //! walk, strip and synth automation, scenes that solo, mute and send,
 //! modulations, Modular settings with their code, a new song taking over on a bar line,
-//! a SuperCollider hoover, and decks B–D fed into the deck mixer with a crossfade (ADR-0029).
+//! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, and a
+//! cued start (ADR-0029).
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
@@ -157,6 +158,26 @@ fn a_busy_song_renders_without_allocating() {
         (0, 0, 0),
         "the hoover allocated: {change:?}"
     );
+
+    // A deck cued to start inside a later block (ADR-0029): the start and the
+    // song's first steps happen inside `render`.
+    e.song_stop();
+    e.song_play_in(1_000);
+    let region = Region::new(GLOBAL);
+    for _ in 0..blocks / 6 {
+        e.render(128);
+    }
+    let change = region.change();
+    assert_eq!(
+        (
+            change.allocations,
+            change.reallocations,
+            change.deallocations
+        ),
+        (0, 0, 0),
+        "the cued start allocated: {change:?}"
+    );
+    assert!(e.clock().playing(), "started");
 }
 
 const HOOVER: &str = r"SynthDef(\hoover, {

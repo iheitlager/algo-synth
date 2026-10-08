@@ -5,7 +5,7 @@
 import { computed, reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
-import { onDecks } from './decks'
+import { onCued, onDecks } from './decks'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
@@ -813,7 +813,9 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     meter.reduction = data.reduction as number
     meter.seen = true
   } else if (data.t === 'decks') {
-    onDecks(data.peaks as number[], data.dropped as number[])
+    onDecks(data.peaks as number[], data.dropped as number[], data.bpm as number)
+  } else if (data.t === 'deckCued') {
+    onCued(data.deck as number, data.at as number, data.bpm as number)
   } else if (data.t === 'meters') {
     levels.values = data.levels as Float32Array
   } else if (data.t === 'params') {

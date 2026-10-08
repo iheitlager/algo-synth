@@ -3,10 +3,16 @@
 // each play a loaded song from an engine in a Web Worker. Every control is a
 // message; the deck mixer is Rust.
 import { status } from '../audio/engine'
-import { decks, loadDeck, playDeck, setCrossfade, setDeck, stopDeck } from '../audio/decks'
+import { decks, loadDeck, playDeck, setCrossfade, setDeck, stopDeck, type Start } from '../audio/decks'
 import { DeckSide } from '../audio/params'
 
 const LETTERS = ['A', 'B', 'C', 'D']
+// Where Play starts a deck on the master's clock (ADR-0029).
+const STARTS: { label: string; value: Start }[] = [
+  { label: 'Next bar', value: 'bar' },
+  { label: 'Next phrase (8 bars)', value: 'phrase' },
+  { label: 'Now', value: 'now' },
+]
 const SIDES = [
   { label: 'Thru', value: DeckSide.Thru },
   { label: 'Left', value: DeckSide.Left },
@@ -28,7 +34,7 @@ const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0
   <section class="pane decks" aria-label="Decks">
     <div class="pane-head">
       <span>Decks</span>
-      <span class="tag">ADR-0029</span>
+      <span>{{ decks.bpm ? `${decks.bpm.toFixed(1)} BPM, deck A leads` : '' }}</span>
     </div>
     <p v-if="!decks.isolated" class="notice" role="alert">
       This page is not cross-origin isolated, so decks B–D can't run. Serve it with the
@@ -45,8 +51,14 @@ const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0
           <label class="file" :class="{ off: !decks.isolated || !status.running }">
             <input type="file" accept=".song" :disabled="!decks.isolated || !status.running" @change="onFile(i, $event)" />Load song…
           </label>
+          <label>
+            Start
+            <select v-model="d.start" :disabled="!d.loaded">
+              <option v-for="s in STARTS" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+          </label>
           <div class="buttons">
-            <button :disabled="!d.loaded" :class="{ on: d.playing }" @click="playDeck(i)">▶ Play</button>
+            <button :disabled="!d.loaded || d.cued" :class="{ on: d.playing || d.cued }" @click="playDeck(i)">{{ d.cued ? 'Cued…' : '▶ Play' }}</button>
             <button :disabled="!d.loaded" @click="stopDeck(i)">■ Stop</button>
           </div>
           <span class="muted">{{ d.loaded ? where(d.step) : '' }}</span>

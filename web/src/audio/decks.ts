@@ -33,25 +33,46 @@ export type Deck = {
   peak: number
   /** Blocks that came too late and were dropped since the deck started. */
   dropped: number
+  /** Where Play starts the deck: the master's next bar, next 8-bar phrase, or now. */
+  start: Start
+  /** Play was pressed and the deck waits for its bar. */
+  cued: boolean
 }
 
-const fresh = (name: string): Deck => ({ name, loaded: false, playing: false, step: 0, error: '', level: 1, side: DeckSide.Thru, peak: 0, dropped: 0 })
+/** Steps to the start a deck is cued to: a bar is 16 steps (ADR-0029). */
+export const STARTS = { bar: 16, phrase: 128, now: 0 } as const
+export type Start = keyof typeof STARTS
+
+const fresh = (name: string): Deck => ({
+  name, loaded: false, playing: false, step: 0, error: '', level: 1, side: DeckSide.Thru, peak: 0, dropped: 0, start: 'bar', cued: false,
+})
 
 export const decks = reactive({
   list: [fresh('This song'), fresh(''), fresh(''), fresh('')] as Deck[],
   crossfade: 0,
+  /** The master's tempo, which every worker deck follows. */
+  bpm: 0,
   /** SharedArrayBuffer needs a cross-origin isolated page; without it there is deck A only. */
   isolated: typeof crossOriginIsolated === 'boolean' && crossOriginIsolated,
 })
 
 const workers: (Worker | null)[] = [null, null, null, null]
 
-/** The worklet's peaks and dropped blocks for every deck. */
-export function onDecks(peaks: number[], dropped: number[]) {
+/** The worklet's peaks and dropped blocks for every deck, and the master's tempo. */
+export function onDecks(peaks: number[], dropped: number[], bpm: number) {
   decks.list.forEach((d, i) => {
     d.peak = peaks[i] ?? 0
     d.dropped = dropped[i] ?? 0
   })
+  if (bpm && bpm !== decks.bpm) {
+    decks.bpm = bpm
+    for (const w of workers) w?.postMessage({ t: 'tempo', bpm })
+  }
+}
+
+/** The worklet placed deck `deck`'s start on its clock: the worker starts it there. */
+export function onCued(deck: number, at: number, bpm: number) {
+  workers[deck]?.postMessage({ t: 'playAt', at, bpm })
 }
 
 /** Start deck `deck`'s worker (1–3) the first time it is used: its ring, then its engine. */
@@ -82,6 +103,7 @@ async function ensureWorker(deck: number): Promise<Worker | null> {
   const worker = new Worker(`${base}deck-worker.js`)
   worker.onmessage = ({ data }) => onWorker(deck, data)
   worker.postMessage({ t: 'init', module: engine.module, sampleRate: engine.ctx.sampleRate, ring })
+  if (decks.bpm) worker.postMessage({ t: 'tempo', bpm: decks.bpm })
   workers[deck] = worker
   return worker
 }
@@ -95,6 +117,10 @@ function onWorker(deck: number, data: { t: string } & Record<string, unknown>) {
   } else if (data.t === 'pos') {
     d.step = data.step as number
     d.playing = data.playing as boolean
+    if (d.playing) d.cued = false
+  } else if (data.t === 'late') {
+    const rate = getEngine()?.ctx.sampleRate ?? 48_000
+    d.error = `The cue came ${Math.round((1000 * (data.frames as number)) / rate)} ms late; the deck started at once.`
   }
 }
 
@@ -113,8 +139,20 @@ export async function loadDeck(deck: number, file: File) {
   worker.postMessage({ t: 'song', bytes }, [bytes])
 }
 
-export function playDeck(deck: number) { workers[deck]?.postMessage({ t: 'play' }) }
-export function stopDeck(deck: number) { workers[deck]?.postMessage({ t: 'stop' }) }
+/** Start deck `deck` on the master's next bar or phrase, or now (its `start`). */
+export function playDeck(deck: number) {
+  const d = decks.list[deck]
+  if (!d || !workers[deck]) return
+  d.cued = true
+  d.error = ''
+  getEngine()?.post({ t: 'deckCue', deck, every: STARTS[d.start] })
+}
+
+export function stopDeck(deck: number) {
+  const d = decks.list[deck]
+  if (d) d.cued = false
+  workers[deck]?.postMessage({ t: 'stop' })
+}
 
 export function setDeck(deck: number, field: 'level' | 'side', v: number) {
   const d = decks.list[deck]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decks, loadDeck, onDecks, setCrossfade, setDeck } from './decks'
+import { STARTS, decks, loadDeck, onDecks, playDeck, setCrossfade, setDeck } from './decks'
 import { DeckSide } from './params'
 
 describe('decks', () => {
@@ -8,10 +8,18 @@ describe('decks', () => {
     expect(decks.list.every((d) => d.level === 1 && d.side === DeckSide.Thru)).toBe(true)
   })
 
-  it('take the worklet\'s peaks and dropped blocks', () => {
-    onDecks([0.5, 0.25, 0, 0], [0, 3, 0, 0])
+  it('take the worklet\'s peaks, dropped blocks and the master\'s tempo', () => {
+    onDecks([0.5, 0.25, 0, 0], [0, 3, 0, 0], 128)
     expect(decks.list.map((d) => d.peak)).toEqual([0.5, 0.25, 0, 0])
     expect(decks.list[1]?.dropped).toBe(3)
+    expect(decks.bpm).toBe(128)
+  })
+
+  it('start on the next bar unless told otherwise, and cue nothing without a worker', () => {
+    expect(STARTS).toEqual({ bar: 16, phrase: 128, now: 0 })
+    expect(decks.list.every((d) => d.start === 'bar')).toBe(true)
+    playDeck(1)
+    expect(decks.list[1]?.cued).toBe(false)
   })
 
   it('keep a level, a side and the crossfader without audio on', () => {

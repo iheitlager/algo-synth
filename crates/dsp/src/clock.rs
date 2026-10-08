@@ -190,6 +190,22 @@ impl Clock {
         Some(self.sub - 1)
     }
 
+    /// Frames from now to the first step that is a multiple of `every` (16 is
+    /// a bar) and at least `at_least` frames away; `None` while stopped. What a
+    /// deck is cued to (ADR-0029). Multiples of 16 are even steps, so swing
+    /// never moves them.
+    pub fn frames_to_multiple(&self, every: u64, at_least: u64) -> Option<u64> {
+        if !self.playing || every == 0 {
+            return None;
+        }
+        let target = self.pos.saturating_add(at_least);
+        let mut k = self.next.div_ceil(every) * every;
+        while self.step_sample(k) < target {
+            k += every;
+        }
+        Some(self.step_sample(k) - self.pos)
+    }
+
     /// Frames to render before the next step, at least 1, at most `remaining`.
     pub(crate) fn frames_until_next(&self, remaining: usize) -> usize {
         if !self.playing {
@@ -259,6 +275,39 @@ mod tests {
         let mut c = Clock::new(rate);
         c.play();
         c
+    }
+
+    /// ADR-0029: a deck is cued to the next bar at least a margin away.
+    #[test]
+    fn frames_to_the_next_bar() {
+        let mut c = Clock::new(48_000.0);
+        assert_eq!(c.frames_to_multiple(16, 0), None, "stopped");
+        c.play();
+        // 120 BPM: a step is 6000 samples, a bar 96 000.
+        assert_eq!(
+            c.frames_to_multiple(16, 0),
+            Some(0),
+            "at the top, the first bar is now"
+        );
+        assert_eq!(c.frames_to_multiple(16, 1), Some(96_000));
+        run(&mut c, 10_000);
+        assert_eq!(c.frames_to_multiple(16, 0), Some(86_000));
+        assert_eq!(
+            c.frames_to_multiple(16, 90_000),
+            Some(182_000),
+            "too close: the bar after"
+        );
+        assert_eq!(
+            c.frames_to_multiple(128, 0),
+            Some(8 * 96_000 - 10_000),
+            "the next 8-bar phrase"
+        );
+        c.set_swing(75.0);
+        assert_eq!(
+            c.frames_to_multiple(16, 0),
+            Some(86_000),
+            "swing never moves a bar"
+        );
     }
 
     #[test]

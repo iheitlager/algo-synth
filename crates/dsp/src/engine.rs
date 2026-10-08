@@ -151,6 +151,8 @@ pub struct Engine {
     limiter: Limiter,
     /// Decks B–D summed with this engine's output, after its master (ADR-0029).
     deck: DeckMixer,
+    /// Frames until a cued start (`song_play_in`), if one is pending.
+    start_in: Option<usize>,
     master_gain: f32,
     /// Planar output: `BLOCK` left samples, then `BLOCK` right samples.
     out: Box<[f32; 2 * BLOCK]>,
@@ -262,6 +264,7 @@ impl Engine {
             comp: Compressor::new(sample_rate),
             limiter: Limiter::new(sample_rate),
             deck: DeckMixer::new(sample_rate),
+            start_in: None,
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
@@ -961,6 +964,18 @@ impl Engine {
     /// lanes (spec 002 Req 5). Play continues from where it paused or
     /// stopped; pause holds the place; stop goes back to the top, as a drum
     /// machine's does. Hits ring out.
+    /// Start the song `frames` from now, on that exact sample, even inside a
+    /// later block: how a deck starts on the master's bar (ADR-0029).
+    pub fn song_play_in(&mut self, frames: usize) {
+        self.start_in = Some(frames);
+    }
+
+    /// Frames from now to the next multiple of `every` steps at least
+    /// `at_least` frames away, while the song plays: where to cue a deck.
+    pub fn cue_frames(&self, every: u64, at_least: u64) -> Option<u64> {
+        self.clock.frames_to_multiple(every, at_least)
+    }
+
     pub fn song_play(&mut self) {
         if !self.clock.playing() {
             self.hand_arps_over();
@@ -994,6 +1009,7 @@ impl Engine {
     pub fn song_stop(&mut self) {
         self.commit_song();
         self.cue = None;
+        self.start_in = None;
         self.hand_arps_over();
         self.release_song_notes();
         self.clock.stop();
@@ -2566,12 +2582,17 @@ impl Engine {
         self.mixer.clear(n);
         let mut t = 0;
         while t < n {
+            if self.start_in == Some(0) {
+                self.start_in = None;
+                self.song_play();
+            }
             self.fire_due_events();
             let chunk = self
                 .clock
                 .frames_until_next(n - t)
                 .min(self.free_frames_until_next(n - t))
-                .min(self.frames_until_hit(n - t));
+                .min(self.frames_until_hit(n - t))
+                .min(self.start_in.unwrap_or(usize::MAX));
             for (synth, (pool, params)) in self.pools.iter_mut().zip(self.synths.iter()).enumerate()
             {
                 // A-440 sounds with no key held (#308).
@@ -2629,6 +2650,9 @@ impl Engine {
             self.clock.advance(chunk);
             if !self.clock.playing() {
                 self.free_pos += chunk as u64;
+            }
+            if let Some(f) = self.start_in.as_mut() {
+                *f -= chunk;
             }
             t += chunk;
         }
