@@ -258,7 +258,9 @@ frag <name> = <track> [/<grid> | live | bars <n>] [voicing] [.<method>(<args>)]â
 A fragment is a loop on one track. A sampler frag holds lanes or notes, not
 both; a line there is notes when it starts with `"` or `[`, or holds `:` or
 `(`. A frag with nothing under it is an error. `/grid` is for lanes, `live`
-and `voicing` for notes, `bars` for timed notes; methods come last.
+and `voicing` for notes, `bars` for timed notes; methods come last. A frag of
+notes, on a synth or a sampler track, takes no grid but the default `/16`:
+`a note frag has no step grid`.
 
 ### Lanes
 

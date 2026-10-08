@@ -538,6 +538,9 @@ impl Song {
         let mut open: Option<(usize, usize)> = None;
         // `frag … bars N`: the length the open frag's line of timed notes is given.
         let mut open_bars: Option<(u32, usize, usize)> = None;
+        // `frag … /N` other than /16 on a sampler: its column and line, refused
+        // if the frag turns out to hold notes (#395).
+        let mut open_grid: Option<(usize, usize)> = None;
         // The line of the `loop`, checked against the arrangement at the end.
         let mut loop_at: Option<usize> = None;
         // Tracks given a model and no preset.
@@ -615,6 +618,15 @@ impl Song {
                 if as_notes {
                     if song.frags.get(f).is_some_and(|fr| fr.notes.is_some()) {
                         return Err(err(first.col, "a note frag is one line of notes"));
+                    }
+                    // A grid is for lanes: a sampler frag that holds notes has
+                    // none, as on a synth track (#395).
+                    if let Some((col, at)) = open_grid.take() {
+                        return Err(SongError {
+                            line: at,
+                            col,
+                            msg: "a note frag has no step grid",
+                        });
                     }
                     let srcs = |name: &str| {
                         song.frags
@@ -962,6 +974,7 @@ impl Song {
                         open_bars = Some((bars, w.col, line));
                     }
                     let mut grid = 16;
+                    open_grid = None;
                     if let Some(w) = ws.get(4).filter(|_| !live && open_bars.is_none()) {
                         if synth {
                             return Err(err(w.col, "a note frag has no step grid"));
@@ -972,6 +985,9 @@ impl Song {
                             .and_then(|g| g.parse().ok())
                             .filter(|g| GRIDS.contains(g))
                             .ok_or(err(w.col, "a drum grid is /12, /16, /24, /32 or /48"))?;
+                        if grid != 16 {
+                            open_grid = Some((w.col, line));
+                        }
                     }
                     expect_end(if open_bars.is_some() { 6 } else { 5 })?;
                     if song.frags.len() >= MAX_FRAGS {
