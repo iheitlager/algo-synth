@@ -241,7 +241,8 @@ On a `drums` or `sampler` track, each indented line is a pad and its steps:
 rest. Spaces inside the steps are only for reading. The grid after the track
 says how many steps make a bar: `/16` sixteenths (the default, may be left
 out), `/12` and `/24` triplets, `/32` thirty-seconds, `/48` thirty-second
-triplets.
+triplets. A grid is for lanes: a frag of notes, on a synth or a sampler
+track, takes none.
 
 ```song
 tempo 124

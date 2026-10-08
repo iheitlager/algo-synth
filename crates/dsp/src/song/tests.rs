@@ -405,7 +405,7 @@ fn sampler_tracks_hold_lanes_or_notes() {
 
 #[test]
 fn sampler_errors_say_where() {
-    let cases: [(&str, usize, usize, &str); 4] = [
+    let cases: [(&str, usize, usize, &str); 5] = [
         (
             "track p sampler\nfrag a = p\n  zz x...",
             3,
@@ -429,6 +429,13 @@ fn sampler_errors_say_where() {
             2,
             1,
             "a frag needs lanes or a line of notes",
+        ),
+        // #395: a grid is for lanes; a frag of notes has none, as on a synth.
+        (
+            "track s sampler Sampler\nfrag f = s /24\n  \"c4 e4 g4\"",
+            2,
+            12,
+            "a note frag has no step grid",
         ),
     ];
     for (text, line, col, msg) in cases {
