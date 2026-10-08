@@ -1,0 +1,21 @@
+[package]
+name = "algo-assist"
+description = "The assist server's song tools (and, later, the server): check, render and catalog on the engine (ADR-0028)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+algo-dsp = { path = "../dsp" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "assist"
+path = "src/main.rs"
