@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-08
+
+### Added
+
+- **On the Run example:** `examples/on-the-run.song` simulates the Pink Floyd instrumental: the Synthi sequence on an MS-20 square with its filter always moving, a noise hi-hat on every sixteenth and a ping-pong echo, with running footsteps, panting, an airport chime and tannoy, Doppler fly-bys, VCS3 swoops and the dive into the crash as Modular SynthDefs (#63).
+- **Example song *Deep Polyrhythm*:** deep house in A minor with 3, 5 and 7 against a straight 909 (Rhodes triplets, Juno stabs in 3-3-3-3-2-2, a Modular kalimba in fives and a tick in sevens), 808 percussion in polymeter, two arpeggios (a Modular glint with a dotted-eighth fifth echo, a DX7 marimba in sixteenth triplets) and drum breaks with ghost notes, flams, drags and a triplet fill (#370).
+- **Resizable composer** (spec 003 Req 5): drag the divider between the step grid and the song text, and the one between the composer and the arranger, or move them with the arrow keys; a double-click puts them back. The sizes are kept in the browser (#373).
+- **Play one fragment alone:** a ▶ on each fragment in the composer plays just that fragment, looping from its first bar, without the arrangement's sections, scenes or automation; press it again, or Stop, to go back to the song. The cue follows its fragment through text edits and ends if the fragment is removed (#375).
+- **Drum rudiments example:** `examples/rudiments.song` plays the rolls, diddles, flams and drags of the rudiments on a TR-909, with ghosts and graces (#379).
+- **Song tools for the assistant:** a new `algo-assist` crate with `check` (the engine's parser: the canonical song or the first error with line and column), `render` (plays a song offline within bar and time limits and reports finite, peak, levels per section and per track, stereo width and each SynthDef's build) and `catalog` (models and presets, pads, every parameter with its range and scope, scales, insert and processor types, read from the engine), and an `assist check|render|catalog` command that prints them as JSON (#384).
+- **The assist server:** `assist serve` runs on `127.0.0.1:6342` and lets a language model write the song. It offers the providers it has keys for: Anthropic, Mistral, Google, OpenRouter and a self-hosted model. A request runs a loop in which the model checks and renders its songs on the engine, and streams each step to the browser. The proposed song is one the engine has parsed (#385).
+- **The assistant's keys from 1Password and its server beside Caddy:** `op.env` holds 1Password references only. `make env-check` says which keys resolve, never printing a value. `make assist` runs the server with the keys. `make serve` runs it as its own container beside Caddy, on a private network with no port of its own, behind Caddy's `/api`. The README says how to set up the 1Password item, a self-hosted model and a headless machine (#386).
+- **The Assistant:** a pane beside every view, and its own window, that asks the assist server to change the song: pick a provider and model, see its steps stream in, read the proposed song as a diff and Apply it through the engine's parser, Discard or Undo; the window talks to the app over a `BroadcastChannel`, and `tools/fake-assist.mjs` stands in for the server (#387).
+- **An eval for the assistant:** 32 requests on the example songs, graded by code. A song must be proposed, parse, render clean and pass its case's checks; a question must be answered in words. `assist eval --provider ID --model ID` runs the cases through the real loop and reports pass rate, rounds, tokens, time and, for known prices, cost. It calls the provider and costs money, so run it on request (#388).
+- **Decks:** a Decks view next to Synths, Mixer and Composer. Deck A is the song you edit; load a `.song` into decks B–D and each plays from its own engine in a Web Worker, rendered ahead so it can't make deck A glitch. Every deck has a level and a side of an equal-power crossfader; the sum is limited. The app is now served cross-origin isolated (ADR-0029, #391).
+- **Decks start on the beat:** Play on a deck cues it to deck A's next bar or 8-bar phrase (or now) and starts it on that exact sample; every deck follows deck A's tempo (ADR-0029, #391).
+- **Sync lock:** a deck synced to deck A (the default) has its bar lines pulled onto deck A's at every bar, so a deck started mid-bar or slipped by a tempo change lands back on the first beat (ADR-0029, #391).
+- **VCO/VCF shootout example:** `examples/vco-vcf-shootout.song` puts one patch on the seven mono synths and hands the same line from synth to synth through sub-bass, the top octaves, long glides, a 5% pulse, detuned beating, a full cutoff sweep, resonance up to the whistle and full drive (#407).
+- **Lucky Man solo example:** `examples/lucky-man-solo.song` is a Minimoog solo in the style of Keith Emerson's: portamento rises, octave leaps, falling runs and a long final glide, with the glide set bar by bar (#414).
+
+### Changed
+
+- **One binary, one server, one port:** `algo-synth serve` serves the app and the assistant together on `127.0.0.1:6340`, with the headers Caddy used to set (cross-origin isolation, no-cache on the engine, compression). `make dev` runs it in one terminal while the web build watches for edits; `make serve` is one container. Caddy, the second container and `make assist` are gone, and the `assist` command is now `algo-synth` (#406).
+- **Rudiments on a TR-808:** the example swings and runs a son clave under the rudiments (#412).
+
+### Fixed
+
+- **A synth has one colour everywhere:** the synth rail's tapes are coloured like the synth's tracks in the composer, the arranger and the mixer, instead of by the model's accent (#377).
+- **A sampler frag of notes refuses a step grid:** `frag f = s /24` over a line of notes on a sampler track parsed but printed back without its grid; it is now refused at the grid with `a note frag has no step grid`, as on a synth track. A grid stays for lanes (#395).
+- **Build details:** the popover beside the version shows both lines and its Copy button; the transport bar cut it off (#396).
+- **A saw in the SH-101 or Juno-106 pulse slot:** set to saw, the slot locked to VCO 1 doubles its saw instead of cancelling it to silence (#410).
+
 ## [0.37.0] - 2026-10-07
 
 ### Added
