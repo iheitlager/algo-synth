@@ -1,6 +1,6 @@
 # 0029: Decks: several engines, one clock, extra decks in workers
 
-**Status:** Proposed · **Date:** 2026-10-08 · **Amends:** 0001, 0006, 0022
+**Status:** Accepted · **Date:** 2026-10-08 · **Amends:** 0001, 0006, 0022
 
 ## Context
 
