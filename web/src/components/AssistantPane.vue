@@ -83,13 +83,8 @@ function take(turn: Turn, e: AssistEvent) {
   switch (e.type) {
     case 'progress': turn.steps.push({ kind: 'progress', text: e.message }); break
     case 'tool': turn.steps.push({ kind: 'tool', name: e.name, ok: e.ok, text: e.summary }); break
-    case 'text': {
-      // Prose may come in pieces: one paragraph until something else happens.
-      const last = turn.steps[turn.steps.length - 1]
-      if (last?.kind === 'text') last.text += e.text
-      else turn.steps.push({ kind: 'text', text: e.text })
-      break
-    }
+    // Each text event is a whole message of the model's (#385), a step of its own.
+    case 'text': turn.steps.push({ kind: 'text', text: e.text }); break
     case 'song': turn.proposal = { song: e.song, summary: e.summary }; turn.result = 'pending'; break
     case 'error': turn.steps.push({ kind: 'error', text: e.message }); turn.state = 'failed'; break
     case 'done': turn.done = { rounds: e.rounds, seconds: e.seconds, usage: e.usage }; break
