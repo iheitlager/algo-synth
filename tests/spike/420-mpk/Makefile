@@ -32,9 +32,10 @@ monitor: build ## Print every message
 identity: build ## Ask a device who it is
 	$(BIN) identity "$(PORT)"
 
-# About three minutes of prompts; writes mpk-mini-plus.toml and learn.jsonl.
+# About three minutes of prompts; writes learn.toml and learn.jsonl (the
+# checked map is mpk-mini-plus.toml).
 learn: build ## Walk through every control
-	$(BIN) learn "$(PORT)" mpk-mini-plus.toml learn.jsonl
+	$(BIN) learn "$(PORT)" learn.toml learn.jsonl
 
 # For the MPK's arpeggiator set to an External clock.
 clock: build ## Send clock at BPM for SECS

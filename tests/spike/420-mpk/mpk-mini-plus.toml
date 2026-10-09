@@ -1,0 +1,70 @@
+# The Akai MPK mini Plus, default program, as captured with `midi-spike` on
+# 2026-10-09 (#420). Channels count from 1. Port 1 is the controller; Port 2
+# is the 5-pin MIDI DIN in/out (the MPK acting as a USB MIDI interface) and
+# sends nothing of its own.
+
+[device]
+identity_request = "F0 7E 7F 06 01 F7"   # answered on Port 1 only
+# Akai's layout: 47, product 54, a 14-bit length (0x19 = 25), then
+# 00 01 01 03 00 00 00 00 00 (firmware 1.1.3, by the look of it) and the
+# serial number in ASCII, 0-terminated.
+identity_reply = "F0 7E 7F 06 02 47 54 00 19 00 01 01 03 00 00 00 00 00 <serial, 15 ASCII> 00 F7"
+idle = "nothing: no active sensing, no clock"
+
+[keys]
+channel = 1
+note_on = "90 note velocity (1-127)"
+note_off = "80 note 00: a real note-off, not a note-on of velocity 0"
+octave_buttons = "shift the notes; send nothing themselves"
+
+[pitch_wheel]
+channel = 1
+message = "E0 lsb msb: full 14 bits (the low byte moves), centre 00 40"
+
+[mod_wheel]
+channel = 1
+cc = 1
+
+# Unsigned: 0 at rest, up to 127 pushed either way, so the default program
+# loses the direction. The Program Editor can set an axis to pitch bend or a
+# CC per direction.
+[joystick]
+channel = 1
+x_cc = 12
+y_cc = 2
+
+[knobs]
+channel = 1
+ccs = [70, 71, 72, 73, 74, 75, 76, 77]   # knobs 1 to 8
+mode = "absolute, steps of 1; up to about 240 messages a second turned fast"
+
+[pads]
+channel = 10
+bank_a = "notes 36-43 (C2-G2)"
+bank_b = "notes 44-51 (G#2-D#3)"
+# In bank B the first four pads hit sent 48-51 and the next four 44-47: two
+# rows of four; which row comes first depends on the order they were hit.
+note_off = "80 note 00"
+pressure = "A9 note value: poly aftertouch, 0-127, sent on change (about 10 a second)"
+
+[transport]
+channel = 1
+# 127 on press, nothing on release (Global: Trpt = On; On/Off sends 0 on release).
+rewind = 115
+forward = 116
+stop = 117
+play = 118
+rec = 119
+
+[on_board]
+# Arp, Note Repeat, Chord, Scale and Home act inside the MPK and send no
+# message of their own; the arpeggiator, chords and note repeat send their
+# notes on the keys' channel.
+buttons = "silent"
+arp_and_chords = "notes on channel 1"
+sequencer = "Seq Play sends no clock and no Start"
+
+[open]
+clock_in = "the arpeggiator on External clock produced no notes while clock was sent to Port 1; not settled"
+sustain = "not captured (no pedal)"
+relative_knobs = "not captured"
