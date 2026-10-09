@@ -1547,12 +1547,13 @@ fn the_language_definition_covers_the_parser() {
         .map(|k| format!("heading {k}"))
         .collect();
     let grids: Vec<String> = GRIDS.iter().map(|g| g.to_string()).collect();
-    let lists: [Vec<&str>; 14] = [
+    let lists: [Vec<&str>; 15] = [
         lex::WORDS.to_vec(),
         notes::CALLS.to_vec(),
         Pattern::NAMES.to_vec(),
         signal::SOURCES.to_vec(),
         signal::METHODS.to_vec(),
+        ALIASES.iter().map(|(a, _)| *a).collect(),
         Pad::ALL.iter().map(|(_, n)| *n).collect(),
         Model::ALL.iter().map(|(_, n)| *n).collect(),
         crate::algo::Mode::ALL.iter().map(|m| m.1).collect(),
@@ -1887,7 +1888,7 @@ fn mod_errors_say_where() {
         (
             "mod kit.cutoff = lfo(1, pink)",
             25,
-            "a shape is sine, saw, tri or square",
+            "a shape is sine, cosine, saw, tri or square",
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}")).expect_err(line);
@@ -1989,6 +1990,42 @@ fn fragment_methods_parse_and_print() {
         assert!(printed.contains(line), "{line}in\n{printed}");
     }
     assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #298: Strudel's parameter names reach their registry parameters on
+/// parameter methods and `mod` lines, and print back as written.
+#[test]
+fn strudels_parameter_names_are_aliases() {
+    let text = "track bass synth\n\
+        frag a = bass .lpf(sine.range(300, 3000)) .lpq(0.6) .attack(0.01) .room(0.3)\n  \"c2 ~ c2 ~\"\n\
+        mod bass.gain = 0.8\n";
+    let s = Song::parse(text).expect("parses");
+    let params: Vec<_> = s.mods.iter().map(|m| (m.param, m.alias)).collect();
+    assert_eq!(
+        params,
+        vec![
+            (Param::Cutoff, Some("lpf")),
+            (Param::Resonance, Some("lpq")),
+            (Param::AdsrAttack, Some("attack")),
+            (Param::Send2, Some("room")),
+            (Param::Level, Some("gain")),
+        ]
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains(".lpf(sine.range(300, 3000)) .lpq(0.6) .attack(0.01) .room(0.3)"),
+        "{printed}"
+    );
+    assert!(printed.contains("mod bass.gain = 0.8"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(s));
+    // An alias names no registry parameter but its own, nor a pattern method.
+    for (a, p) in ALIASES {
+        assert!(Param::by_name(a).is_none_or(|q| q == p), "{a}");
+        assert!(!Pattern::NAMES.contains(&a), "{a}");
+    }
+    let e = Song::parse("track bass synth\nfrag a = bass .distort(0.5)\n  \"c2\"\n")
+        .expect_err("no alias");
+    assert_eq!(e.msg, "no parameter has this name");
 }
 
 #[test]

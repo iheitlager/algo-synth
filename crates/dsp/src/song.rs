@@ -316,6 +316,35 @@ pub struct Mod {
     pub signal: Signal,
     /// The fragment a method belongs to; `None` for a `mod` line.
     pub frag: Option<usize>,
+    /// The Strudel name it was written with (#298), printed back as written.
+    pub alias: Option<&'static str>,
+}
+
+/// Strudel's names for parameters (#298), for parameter methods and `mod`
+/// lines: each stands for one registry parameter, at our scale (a resonance
+/// 0..1, not a Q; a pan −1..1, not 0..1).
+pub const ALIASES: [(&str, Param); 16] = [
+    ("lpf", Param::Cutoff),
+    ("ctf", Param::Cutoff),
+    ("lpq", Param::Resonance),
+    ("hpf", Param::HpCutoff),
+    ("hpq", Param::HpResonance),
+    ("attack", Param::AdsrAttack),
+    ("att", Param::AdsrAttack),
+    ("decay", Param::AdsrDecay),
+    ("dec", Param::AdsrDecay),
+    ("sustain", Param::AdsrSustain),
+    ("sus", Param::AdsrSustain),
+    ("release", Param::AdsrRelease),
+    ("rel", Param::AdsrRelease),
+    ("gain", Param::Level),
+    ("room", Param::Send2),
+    ("delay", Param::Send1),
+];
+
+/// The alias `name` and its parameter, if it is one.
+fn alias(name: &str) -> Option<(&'static str, Param)> {
+    ALIASES.iter().find(|(a, _)| *a == name).copied()
 }
 
 /// Values set together on the first step of a section.
@@ -1047,6 +1076,7 @@ impl Song {
                                 return Err(err(at + ncol - 1, "a song has at most 32 mods"));
                             }
                             song.mods.push(Mod {
+                                alias: alias(name).map(|(a, _)| a),
                                 target,
                                 param,
                                 signal,
@@ -1289,6 +1319,11 @@ impl Song {
                         param,
                         signal,
                         frag: None,
+                        alias: tp
+                            .text
+                            .split_once('.')
+                            .and_then(|(_, p)| alias(p))
+                            .map(|(a, _)| a),
                     });
                 }
                 "arrange" => {
@@ -1594,7 +1629,8 @@ impl Song {
             lines.push(format!(
                 "mod {}.{} = {}",
                 self.target_name(m.target),
-                self.param_label(m.target, m.param, true),
+                m.alias
+                    .map_or_else(|| self.param_label(m.target, m.param, true), str::to_string),
                 m.signal
             ));
         }
@@ -2067,7 +2103,8 @@ impl Song {
         let params = self.mods.iter().filter(|m| m.frag == Some(f)).map(|m| {
             format!(
                 " .{}({})",
-                self.param_label(m.target, m.param, true),
+                m.alias
+                    .map_or_else(|| self.param_label(m.target, m.param, true), str::to_string),
                 m.signal
             )
         });
@@ -2379,7 +2416,10 @@ fn close_code(song: &mut Song, mut c: OpenCode) -> Result<(), SongError> {
 /// The parameter named `name` (in any case) of `target`, checked as
 /// `target_param` says.
 fn param_for(target: Target, name: &str) -> Result<Param, &'static str> {
-    let param = Param::by_name(name).ok_or("no parameter has this name")?;
+    let param = alias(name)
+        .map(|(_, p)| p)
+        .or_else(|| Param::by_name(name))
+        .ok_or("no parameter has this name")?;
     if matches!(param, Param::Model | Param::Out) {
         return Err("the model and the routing can't be automated");
     }

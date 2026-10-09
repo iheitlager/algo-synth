@@ -570,10 +570,13 @@ term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<m
 
 | source (0 to 1) | |
 |---|---|
-| `sine` `saw` `tri` `square` | once a bar |
+| `sine` `cosine` `saw` `tri` `square` | once a bar |
 | `rand` | a new seeded value each sixteenth |
 | `perlin` | a smooth seeded curve, a new value each bar |
-| `lfo(<hz>[, <shape>])` | shape `sine` (default), `saw`, `tri`, `square` |
+| `lfo(<hz>[, <shape>])` | shape `sine` (default), `cosine`, `saw`, `tri`, `square` |
+| `sine2` `cosine2` `saw2` `tri2` `square2` `rand2` | as Strudel's: the same from −1 to 1 |
+| `irand(<n>)` | a whole number from 0 to n − 1 (n 1–64), new each sixteenth |
+| `brand` `brandBy(<p>)` | 1 with chance p (0–1; 0.5 for `brand`), else 0, new each sixteenth |
 | `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64) |
 | `env(adsr)` `env(perc)` `env(<a>, <d>, <s>, <r>)` | per voice: an envelope per note, the synth's ADSR, a short one, or seconds |
 | `[a, b, …]` `lfo([a, b, …])` | per voice: number or LFO rate i for voice slot i, round the list (at most 16) |
@@ -585,6 +588,13 @@ term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<m
 | `.slow(n)` `.fast(n)` | n (> 0) times slower or faster |
 | `.segment(n)` | n steady values a bar |
 | `.lag(s)` | follow the input smoothly, s seconds |
+
+**Strudel's parameter names** stand for ours in a `mod` line and a parameter
+method, printed as written: `lpf` `ctf` (Cutoff), `lpq` (Resonance), `hpf`
+(HpCutoff), `hpq` (HpResonance), `attack` `att`, `decay` `dec`, `sustain`
+`sus`, `release` `rel` (the ADSR), `gain` (Level), `room` (Send2, the reverb),
+`delay` (Send1, the echo). Values are at our scale: a resonance is 0..1, not a
+Q; a `pan` is −1..1, not 0..1. Strudel's `distort` has no one parameter here.
 
 A per-voice signal goes on a track whose synth is Mono or Poly (not FM, LA,
 drums, samplers, Modular) and a voice parameter: `cutoff resonance vco1level
