@@ -1,6 +1,6 @@
-# 0009: Synth models: one voice, six instruments
+# 0009: Synth models: one voice, many instruments
 
-**Status:** Accepted · **Date:** 2026-10-03 · A seventh model, the ARP Odyssey, joined in #64 on the same terms. · What each model decides moved to one definition per instrument in ADR-0025.
+**Status:** Accepted, superseded in part by [ADR-0025](0025-one-definition-per-instrument.md) · **Date:** 2026-10-03
 
 ## Context
 
@@ -32,3 +32,8 @@ These machines share most of their parts: VCOs, noise, a low-pass filter, envelo
 
 - **A voice type per model (a trait or six structs).** Duplicates the oscillators, envelopes and note handling six times and needs trait objects or generics through the engine's fixed arrays. Rejected.
 - **Models as presets only.** Cannot give the MS-20 or CS-15 their high-pass stage and 12 dB filter, or the Minimoog its decay-as-release. Rejected.
+
+## Later decisions
+
+- **Grown:** the six monosynths became twenty models (`Model::ALL`): the monosynths with the ARP Odyssey (#64); the polysynths of ADR-0011 with the PolyMoog (#330); the PPG Wave, Roland D-50 and Yamaha DX7 on their own voices; the TR-808 and TR-909 drum kits; the Sampler and PadSampler; and Modular (ADR-0020, ADR-0024). Every one is a `Model` on a synth slot, chosen by the same parameter.
+- **Superseded in part by ADR-0025:** what each model decides lives in its own definition in `synth/`, with `Model::def` the one match, not in `mono/model.rs`.

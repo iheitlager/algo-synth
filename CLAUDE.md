@@ -9,7 +9,7 @@ feature needs JavaScript beyond that, stop and raise it.
 `render` never allocates, locks or panics (ADR-0002). Allocate in
 `Engine::new`; compute coefficients when a parameter changes, not per sample.
 
-A new parameter or source id goes in `params.rs`/`source.rs` **and**
+A new parameter or id goes in `params.rs` (or the enum it names) **and**
 `web/src/audio/params.ts` (ADR-0004); `cargo test` fails otherwise.
 
 ## Tests

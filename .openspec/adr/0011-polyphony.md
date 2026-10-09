@@ -1,6 +1,6 @@
 # 0011: Polyphony: a voice pool per synth
 
-**Status:** Accepted · **Date:** 2026-10-03
+**Status:** Accepted, extended 2026-10-09 (#227) · **Date:** 2026-10-03
 
 ## Context
 
@@ -35,3 +35,7 @@ Four of them are subtractive and can run on the Mono voice; the PPG Wave and D-5
 - **A shared pool of voices across all synths.** Fewer voices in memory, but a voice would carry its synth and every voice's parameters would be looked up per note; the per-synth pool keeps a voice's parameters in one place. The global budget gives the sharing that matters.
 - **A new polyphonic voice type per instrument.** Duplicates the oscillators, filters and envelopes four times. Rejected for the subtractive four.
 - **Voices as `Vec`s grown on demand.** Allocates on the audio thread. Rejected (ADR-0002).
+
+## Later decisions
+
+- **Extended:** the Moog PolyMoog (#330) joined later as an eighth polyphonic model, a subtractive one on the Mono voice with its 12 dB filter, on the same terms as the subtractive four.

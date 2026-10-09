@@ -1,6 +1,6 @@
 # 0005: The composition model
 
-**Status:** Accepted, scope narrowed by [ADR-0008](0008-mono-only-to-the-ensemble.md), song format superseded by [ADR-0012](0012-the-song-is-text.md) · **Date:** 2026-09-30
+**Status:** Accepted, scope narrowed by [ADR-0008](0008-mono-only-to-the-ensemble.md), superseded in part by [0010](0010-mixer-topology.md), [0012](0012-the-song-is-text.md), [0015](0015-the-arrangement.md) and [0016](0016-note-events-on-a-tick-grid.md) · **Date:** 2026-09-30
 
 ## Context
 
@@ -33,3 +33,11 @@ A clip records its **origin** (`hand`, `algo`, `score`) but plays identically.
 - One sequencer serves hand-played, generated and imported music.
 - The fixed mixer keeps `render` allocation-free (ADR-0002) at the cost of flexibility; a patch graph between tracks would be a new ADR.
 - The song format (UI → engine) is the next design task (spec 002, before MVP 3).
+
+## Later decisions
+
+- **Superseded in part by ADR-0010:** the mixer is strips, eight group buses and three insert slots per strip, not four inserts and two fixed sends.
+- **Superseded in part by ADR-0012:** the song is a text the engine parses; there is no binary song format, and patterns and clips are fragments in it.
+- **Superseded in part by ADR-0015:** the arrangement is sections and an `arrange` order in the text, with scenes and automation lanes.
+- **Superseded in part by ADR-0016:** notes are events on a 48-tick bar grid.
+- What holds: the clock in the engine, deterministic seeded generators, and one model for hand-made, generated and imported music.

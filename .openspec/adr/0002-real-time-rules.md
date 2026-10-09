@@ -1,6 +1,6 @@
 # 0002: Real-time rules for the render loop
 
-**Status:** Accepted · **Date:** 2026-09-30
+**Status:** Accepted, clarified 2026-10-09 (#227) · **Date:** 2026-09-30
 
 ## Context
 
@@ -19,3 +19,7 @@
 - Some code is more verbose (`iter`, `get`, `zip` instead of indexing).
 - Adding a source means sizing its pool up front.
 - Profiling happens at the end of each milestone (plan.md): render capacity in Chrome DevTools' WebAudio panel (`chrome://webaudio-internals` was retired), with `make bench` as an offline check.
+
+## Later decisions
+
+- **Clarified (#227):** the rules are about `render`. Load-time buffers grow outside it: `midi_buf`, `sysex_buf`, `sample_buf` and `song_buf` take the length JavaScript asks for, and loading a song, a MIDI file, a SysEx bank or a WAV parses and allocates in that call (ADR-0012, ADR-0013). `render` only reads what the load built.

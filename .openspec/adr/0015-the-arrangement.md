@@ -1,6 +1,6 @@
 # 0015: The arrangement: sections, scenes, automation and MIDI as notes
 
-**Status:** Accepted · **Date:** 2026-10-04
+**Status:** Accepted, amended by [0018](0018-the-song-is-the-session.md), [0022](0022-one-clock-one-transport.md) and [0027](0027-autocommit.md) · **Date:** 2026-10-04
 
 ## Context
 
@@ -34,3 +34,9 @@ ADR-0012 made the song a text the engine parses and plays, and so far the song h
 - **Scenes only.** Simpler, but no sweeps or fades. Rejected; scenes and lanes share one mechanism.
 - **Automation recorded per sample or per step in the engine's own format.** Faster to play, unreadable as text. Rejected; values live in the song.
 - **One project file holding song and setup.** Fewer files, but patches and the mixer are JSON and the song is notation; mixing them makes both harder to read and diff. Rejected for two files.
+
+## Later decisions
+
+- **As built, MIDI import:** there is no `midi` track kind; the kinds are `drums`, `synth` and `sampler`. Importing a file writes a `synth` track per channel with timed notes, `pitch@start:length:velocity` in ticks (ADR-0016), not `@bar.beat.tick` positions.
+- **Superseded in part by ADR-0022:** the MIDI player has retired; a MIDI file is imported when opened.
+- **Superseded in part by ADR-0018 and ADR-0027:** the two files are one. Patches (#210), the mixer and the master are lines in the song, the setup file is an import, and live changes fold into the song as they are made.

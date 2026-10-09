@@ -34,3 +34,7 @@ ADR-0015 also says the song names synths by their strip names (#127); the code n
 - **Keep two files (ADR-0015).** Clean on paper, but the song already holds patches (#210) and the split leaves the mix outside the language. Rejected.
 - **Embed the JSON setup in the song text.** One file, but two notations in it and the JSON still parsed in the view. Rejected.
 - **Write every hand change back into the text at once.** The text would then always match the knobs, but every fader move would rewrite the song, and the text the user is typing would change under them. Rejected in favour of an explicit *Write mixer to song*.
+
+## Later decisions
+
+- **Taken further by ADR-0027:** the explicit *Write mixer to song* rejected above went too; the engine folds live synth and mixer changes into the song. The rest stays proposed until #214.
