@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- Spike #420: does Chrome's Web MIDI see what CoreMIDI sees? SysEx included. -->
+<meta charset="utf-8">
+<title>Web MIDI check</title>
+<style>
+  body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+  button { font: inherit; margin-right: 8px; }
+  #log { white-space: pre; }
+</style>
+<p>
+  <button id="plain">Access without SysEx</button>
+  <button id="sysex">Access with SysEx</button>
+  <button id="ident" disabled>Send Identity Request to Port 1</button>
+</p>
+<div id="log"></div>
+<script>
+const log = (s) => { document.getElementById('log').textContent = s + '\n' + document.getElementById('log').textContent; };
+const hex = (d) => Array.from(d, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+let access;
+
+async function open(sysex) {
+  try {
+    access = await navigator.requestMIDIAccess({ sysex });
+  } catch (e) {
+    log(`requestMIDIAccess({sysex: ${sysex}}) refused: ${e.name}: ${e.message}`);
+    return;
+  }
+  log(`access, sysexEnabled=${access.sysexEnabled}`);
+  for (const i of access.inputs.values()) {
+    log(`in  ${i.name} (${i.manufacturer}) ${i.state}`);
+    // Clock and active sensing are counted, not printed.
+    let clocks = 0;
+    i.onmidimessage = (m) => {
+      if (m.data[0] === 0xf8) { if (++clocks % 96 === 0) log(`${i.name}: ${clocks} clocks`); return; }
+      if (m.data[0] === 0xfe) return;
+      log(`${m.timeStamp.toFixed(1).padStart(10)} ms  ${i.name}  ${hex(m.data)}`);
+    };
+  }
+  for (const o of access.outputs.values()) log(`out ${o.name} (${o.manufacturer}) ${o.state}`);
+  access.onstatechange = (e) => log(`state: ${e.port.type} ${e.port.name} ${e.port.state}`);
+  document.getElementById('ident').disabled = !access.sysexEnabled;
+}
+
+document.getElementById('plain').onclick = () => open(false);
+document.getElementById('sysex').onclick = () => open(true);
+document.getElementById('ident').onclick = () => {
+  const out = [...access.outputs.values()].find((o) => o.name.includes('Port 1') || o.name.includes('MPK'));
+  if (!out) return log('no output');
+  out.send([0xf0, 0x7e, 0x7f, 0x06, 0x01, 0xf7]);
+  log(`sent Identity Request to ${out.name}`);
+};
+</script>

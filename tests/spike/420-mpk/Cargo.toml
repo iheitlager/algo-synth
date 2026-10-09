@@ -1,0 +1,15 @@
+# Spike #420: what the MPK mini Plus sends. Its own workspace, so it never
+# touches the engine's lockfile or CI.
+[package]
+name = "midi-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Realtime MIDI I/O over CoreMIDI, ALSA, WinMM (and Web MIDI in wasm).
+midir = "0.10"
+# Decoding and encoding, allocation-free: the candidate for the engine.
+wmidi = "4"
