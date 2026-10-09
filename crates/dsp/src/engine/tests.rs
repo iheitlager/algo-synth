@@ -4989,9 +4989,114 @@ fn midi_wheels_bend_the_pitch_and_move_the_mod_wheel() {
     let mut e = Engine::new(48_000.0);
     e.midi_in(0xB0, 1, 127);
     assert_eq!(e.param_value(0, Param::ModWheel), 1.0);
-    // Other controllers are not read yet.
-    let cutoff = e.param_value(0, Param::Cutoff);
-    e.midi_in(0xB0, 70, 0);
+    // Clock is not read yet.
+    let wheel = e.param_value(0, Param::ModWheel);
     e.midi_in(0xF8, 0, 0);
-    assert_eq!(e.param_value(0, Param::Cutoff), cutoff);
+    assert_eq!(e.param_value(0, Param::ModWheel), wheel);
+}
+
+/// #422: the MPK's knobs (CC 70–77) turn eight parameters of the target,
+/// knob 5 its cutoff; a knob away from the value takes it only once it gets
+/// there, and the view is told.
+#[test]
+fn midi_knobs_take_over_softly_and_turn_the_target() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(1, Preset::MiniBass);
+    e.set_midi_target(1);
+    e.set_param(1, Param::Cutoff, 632.46);
+    e.take_touched();
+    // Far below the cutoff (the middle of its knob): nothing jumps.
+    e.midi_in(0xB0, 74, 10);
+    assert!((e.param_value(1, Param::Cutoff) - 632.46).abs() < 0.01);
+    assert_eq!(e.take_touched(), 0);
+    // Turned up through it, the knob takes over and the cutoff follows.
+    for v in 11..=127 {
+        e.midi_in(0xB0, 74, v);
+    }
+    assert!((e.param_value(1, Param::Cutoff) - 20_000.0).abs() < 0.5);
+    assert_eq!(e.take_touched(), 1 << 1, "the view fetches synth 1");
+    e.midi_in(0xB0, 74, 0);
+    assert!(
+        (e.param_value(1, Param::Cutoff) - 20.0).abs() < 0.01,
+        "held, it follows"
+    );
+    // Knob 2 is resonance; another synth selected starts the knobs afresh.
+    e.set_param(1, Param::Resonance, 0.5);
+    e.midi_in(0xB0, 71, 64);
+    assert!((e.param_value(1, Param::Resonance) - 64.0 / 127.0).abs() < 1.0e-6);
+    e.set_midi_target(2);
+    e.set_midi_target(1);
+    e.midi_in(0xB0, 71, 127);
+    assert!((e.param_value(1, Param::Resonance) - 64.0 / 127.0).abs() < 1.0e-6);
+}
+
+/// #422: on a Modular synth the knobs are its code's, in their ranges.
+#[test]
+fn midi_knobs_turn_a_modular_synths_own_knobs() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::Model, Model::Modular as u32 as f32);
+    assert_eq!(e.set_code(0, &synthdef("SinOsc.ar(freq, 0, 0.5)")), Ok(()));
+    let k = e
+        .patch(0)
+        .and_then(|p| p.knobs.first())
+        .cloned()
+        .expect("a knob");
+    let ctl = Param::ctl_param(k.ctl).expect("a Ctl");
+    for v in (0..=127).chain((0..=127).rev()) {
+        e.midi_in(0xB0, 70, v);
+    }
+    assert!((e.param_value(0, ctl) - k.lo).abs() < 1.0e-3 * (k.hi - k.lo).abs().max(1.0));
+    e.midi_in(0xB0, 70, 127);
+    assert!((e.param_value(0, ctl) - k.hi).abs() < 1.0e-3 * (k.hi - k.lo).abs().max(1.0));
+}
+
+/// #422: the pads (channel 10) hit the song's kit while the keys play the
+/// selected synth; a pad and a key on the same note are kept apart.
+#[test]
+fn midi_pads_play_the_kit_and_keys_the_target() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(1, Preset::MiniBass);
+    e.set_midi_target(1);
+    // No kit yet: the pads play the target.
+    e.midi_in(0x99, 36, 110);
+    e.render(BLOCK);
+    assert!(gated(&e, Owner::Live(1)));
+    e.midi_in(0x89, 36, 0);
+    e.preset(3, Preset::Kit909);
+    assert!(e.track_add(3, Preset::Kit909).is_some());
+    e.midi_in(0x99, 36, 110);
+    e.midi_in(0x90, 36, 100);
+    e.render(BLOCK);
+    assert!(e.pools[3].active() > 0, "the pad hits the kit");
+    assert!(gated(&e, Owner::Live(1)), "the key plays the target");
+    e.midi_in(0x80, 36, 0);
+    e.render(BLOCK);
+    assert!(
+        !gated(&e, Owner::Live(1)),
+        "the key's release reaches the target"
+    );
+}
+
+/// #422: Play and Stop drive the song; « and » move it a bar.
+#[test]
+fn midi_transport_plays_stops_and_seeks_the_song() {
+    let mut e = Engine::new(48_000.0);
+    let next = |e: &Engine| e.clock().step().map_or(0, |s| s + 1);
+    e.midi_in(0xB0, 116, 127);
+    assert_eq!(next(&e), 16, "on a bar");
+    e.midi_in(0xB0, 116, 127);
+    assert_eq!(next(&e), 32);
+    e.midi_in(0xB0, 115, 127);
+    assert_eq!(next(&e), 16, "back a bar");
+    e.midi_in(0xB0, 115, 127);
+    e.midi_in(0xB0, 115, 127);
+    assert_eq!(next(&e), 0, "not before the first");
+    // A release (0) does nothing; Play plays, Stop stops.
+    e.midi_in(0xB0, 118, 0);
+    assert!(!e.clock().playing());
+    e.midi_in(0xB0, 118, 127);
+    e.render(BLOCK);
+    assert!(e.clock().playing());
+    e.midi_in(0xB0, 117, 127);
+    assert!(!e.clock().playing());
 }

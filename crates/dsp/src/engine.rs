@@ -690,25 +690,35 @@ impl Engine {
         let _ = self.track_add(0, Preset::ModularBasic);
     }
 
-    /// The synth MIDI input plays (#10): the one selected in the view.
+    /// The synth MIDI input plays (#10): the one selected in the view. Its
+    /// knobs start again from no position, so none jumps the new synth.
     pub fn set_midi_target(&mut self, synth: usize) {
-        if synth < SYNTHS {
+        if synth < SYNTHS && synth != self.midi_in.target {
             self.midi_in.target = synth;
+            self.midi_in.knobs = [None; midi::KNOBS];
         }
     }
 
-    /// One MIDI message from a controller (#257 stage 1, #10): keys play the
-    /// target synth, a key's release goes where it started, the wheels move
-    /// its `PitchBend` and `ModWheel`. Other messages are ignored for now.
+    /// One MIDI message from a controller (#257 stage 1, #10, #422): keys
+    /// play the target synth, pads (the drum channel) the kit, a release goes
+    /// where it started; the wheels move the target's `PitchBend` and
+    /// `ModWheel`, the knobs eight of its parameters, the transport buttons
+    /// the song. Other messages are ignored for now.
     pub fn midi_in(&mut self, status: u8, d1: u8, d2: u8) {
         let target = self.midi_in.target;
         match midi::decode(status, d1, d2) {
-            Some(midi::Event::NoteOn { note, velocity, .. }) => {
-                self.midi_in.press(note, target);
-                self.note_on(target, note, velocity);
+            Some(midi::Event::NoteOn {
+                channel,
+                note,
+                velocity,
+            }) => {
+                let drum = channel == midi::DRUMS;
+                let synth = if drum { self.midi_kit() } else { target };
+                self.midi_in.press(drum, note, synth);
+                self.note_on(synth, note, velocity);
             }
-            Some(midi::Event::NoteOff { note, .. }) => {
-                let synth = self.midi_in.release(note);
+            Some(midi::Event::NoteOff { channel, note }) => {
+                let synth = self.midi_in.release(channel == midi::DRUMS, note);
                 self.note_off(synth, note);
             }
             Some(midi::Event::Bend { value, .. }) => {
@@ -719,8 +729,78 @@ impl Engine {
                 value,
                 ..
             }) => self.set_param(target, Param::ModWheel, f32::from(value) / 127.0),
+            Some(midi::Event::Control { number, value, .. }) => self.midi_control(number, value),
             _ => {}
         }
+    }
+
+    /// The synth the pads play: the target if it is a kit, else the kit of
+    /// the song's first drum track, else the target.
+    fn midi_kit(&self) -> usize {
+        let target = self.midi_in.target;
+        let kit = |s: usize| {
+            self.synths
+                .get(s)
+                .is_some_and(|p| p.model.uses_drums() || p.model.uses_pads())
+        };
+        if kit(target) {
+            return target;
+        }
+        (0..self.song.tracks.len())
+            .filter_map(|t| self.song_routed(t))
+            .find(|s| kit(*s))
+            .unwrap_or(target)
+    }
+
+    /// A controller: a transport button on press, or a knob.
+    fn midi_control(&mut self, number: u8, value: u8) {
+        let next = self.clock.step().map_or(0, |s| s + 1);
+        let bar = next / STEPS_PER_BAR;
+        match number {
+            midi::REWIND if value > 0 => self.song_seek_bar(bar.saturating_sub(1)),
+            midi::FORWARD if value > 0 => self.song_seek_bar(bar + 1),
+            midi::STOP if value > 0 => self.song_stop(),
+            midi::PLAY if value > 0 => self.song_play(),
+            _ => {
+                let knob = usize::from(number.wrapping_sub(midi::FIRST_KNOB));
+                if knob < midi::KNOBS {
+                    self.midi_knob(knob, value);
+                }
+            }
+        }
+    }
+
+    /// Knob `knob` turned to `value`: once it takes over (soft takeover), it
+    /// sets its parameter of the target as a hand would, and the view shows it.
+    fn midi_knob(&mut self, knob: usize, value: u8) {
+        let synth = self.midi_in.target;
+        let Some((param, span)) = self.knob_param(synth, knob) else {
+            return;
+        };
+        let now = f32::from(value) / 127.0;
+        let at = span.pos(self.param_value(synth, param));
+        let Some(last) = self.midi_in.knobs.get_mut(knob) else {
+            return;
+        };
+        let takes = midi::takes_over(*last, now, at);
+        *last = Some(now);
+        if takes {
+            self.edit_param(synth, param, span.value(now));
+            self.touch(synth);
+        }
+    }
+
+    /// What knob `knob` turns on `synth`, and through which range: a Modular
+    /// synth's knobs are its code's, in their ranges.
+    fn knob_param(&self, synth: usize, knob: usize) -> Option<(Param, midi::Span)> {
+        let model = self.synths.get(synth)?.model;
+        if model.uses_graph() {
+            let k = self.patch(synth)?.knobs.get(knob)?;
+            let param = Param::ctl_param(k.ctl)?;
+            return Some((param, midi::Span::new(k.lo, k.hi, k.exp)));
+        }
+        let param = *midi::knob_params(model)?.get(knob)?;
+        Some((param, midi::Span::of(param)))
     }
 
     /// Live input: press a key on `synth`'s live voice, or, with its arp on,
