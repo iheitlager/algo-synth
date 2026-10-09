@@ -1588,10 +1588,11 @@ impl Engine {
                         .and_then(|fr| fr.lanes.get(l))
                         .and_then(|lane| {
                             let len = lane.steps.len() as u64;
-                            let st = lane.steps.get(usize::try_from(n % len.max(1)).ok()?)?;
-                            Some((lane.pad.note(), *st))
+                            let i = usize::try_from(n % len.max(1)).ok()?;
+                            let st = lane.steps.get(i)?;
+                            Some((lane.pad.note(), *st, lane.ratchet(i)))
                         });
-                    let Some((note, st)) = hit else {
+                    let Some((note, st, ratchet)) = hit else {
                         continue;
                     };
                     let off = n * 16 - k * g;
@@ -1606,6 +1607,18 @@ impl Engine {
                         } else {
                             self.queue_hit(Hit {
                                 at,
+                                owner,
+                                note,
+                                velocity,
+                            });
+                        }
+                        // A ratchet's further hits share the step's span
+                        // evenly (#242), queued like any hit between steps.
+                        for j in 1..u64::from(ratchet) {
+                            let x = (off as f64 + (j * 16) as f64 / f64::from(ratchet)) / g as f64;
+                            let whole = x.floor();
+                            self.queue_hit(Hit {
+                                at: self.clock.between_sample(step + whole as u64, x - whole),
                                 owner,
                                 note,
                                 velocity,
@@ -2386,6 +2399,20 @@ impl Engine {
             return false;
         };
         if !self.song.set_step(frag, lane, step, to) {
+            return false;
+        }
+        self.song_text = self.song.print();
+        true
+    }
+
+    /// Ratchet a step (#242): it plays `r` (1–4) times in its span. The text
+    /// follows.
+    pub fn set_ratchet(&mut self, frag: usize, lane: usize, step: usize, r: u32) -> bool {
+        self.commit_song();
+        let Ok(r) = u8::try_from(r) else {
+            return false;
+        };
+        if !self.song.set_ratchet(frag, lane, step, r) {
             return false;
         }
         self.song_text = self.song.print();

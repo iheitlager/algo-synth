@@ -288,7 +288,7 @@ impl Line<'_> {
         }
         while i < end {
             let class = match self.at(i) {
-                'x' | 'X' | 'o' | 'f' | 'd' => Some(Class::Step),
+                'x' | 'X' | 'o' | 'f' | 'd' | '2'..='4' => Some(Class::Step),
                 '.' => Some(Class::Rest),
                 _ => None,
             };

@@ -1,6 +1,6 @@
 # 0026: Drum hits on their lane's grid, queued a step ahead
 
-**Status:** Accepted · **Date:** 2026-10-07 · complements ADR-0016 (note events on a tick grid), which stays as it is
+**Status:** Accepted, extended by #242 · **Date:** 2026-10-07 · complements ADR-0016 (note events on a tick grid), which stays as it is
 
 ## Context
 
@@ -22,3 +22,7 @@ Raising the clock to 96 or 192 ticks a bar would give `/32`, but it changes the 
 - Drum lanes can be written on triplet and thirty-second grids, with ghost notes, flams and drags (spec 002 Req 3), and they stay in time with note frags.
 - A flam on the very first step of play has no step before it to sound its grace in.
 - Note frags still cannot play thirty-seconds; if they need them, the tick grid can be raised later without touching drum lanes.
+
+## Later decisions
+
+- **Extended (#242), ratchets:** a digit 2–4 after `x`, `X` or `o` plays the hit that many times, evenly across its step's span. The first hit stays where the step puts it; the others go through the same queue between steps, so they land on their exact samples on every grid and move with swing. Graces stay before the first hit.

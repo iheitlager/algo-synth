@@ -34,7 +34,7 @@ describe('the song the worklet sends (spec 003 Req 5)', () => {
       { name: 'lead', synth: 0, kind: 'synth', preset: -1, setting: -1, mute: false, solo: true },
     ])
     expect(song.frags).toEqual([
-      { name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0] }], grid: 24, notes: null },
+      { name: 'beat', track: 0, lanes: [{ pad: 0, steps: [1, 0, 2, 0], ratchets: [1, 1, 1, 1] }], grid: 24, notes: null },
       {
         name: 'riff', track: 1, lanes: [], grid: 16,
         notes: {

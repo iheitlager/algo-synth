@@ -721,6 +721,20 @@ pub extern "C" fn set_step(frag: u32, lane: u32, step: u32, level: u32) -> i32 {
     })
 }
 
+/// Ratchet step `step` of lane `lane` of fragment `frag` (#242): it plays `r`
+/// (1–4) times in its span; only a hit, accent or ghost repeats. 0 when
+/// done, −1 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn set_ratchet(frag: u32, lane: u32, step: u32, r: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_ratchet(frag as usize, lane as usize, step as usize, r) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
 fn with_lane<R: Copy>(default: R, f: u32, l: u32, get: impl FnOnce(&Lane) -> R) -> R {
     query(default, |e| {
         e.song()
@@ -1424,6 +1438,12 @@ pub extern "C" fn lane_steps(f: u32, l: u32) -> u32 {
     with_lane(0, f, l, |lane| lane.steps.len() as u32)
 }
 
+/// How often step `s` of lane `l` of fragment `f` plays in its span (#242).
+#[unsafe(no_mangle)]
+pub extern "C" fn step_ratchet(f: u32, l: u32, s: u32) -> u32 {
+    with_lane(1, f, l, |lane| u32::from(lane.ratchet(s as usize)))
+}
+
 /// Step `s` of lane `l` of fragment `f`: 0 off, 1 hit, 2 accent.
 #[unsafe(no_mangle)]
 pub extern "C" fn step_level(f: u32, l: u32, s: u32) -> u32 {
@@ -1709,6 +1729,12 @@ mod tests {
         assert_eq!(set_step(0, 0, 1, 1), 0);
         assert_eq!(set_step(0, 0, 4, 1), -1);
         assert_eq!(step_level(0, 0, 1), 1);
+        assert_eq!((set_ratchet(0, 0, 1, 3), step_ratchet(0, 0, 1)), (0, 3));
+        assert_eq!(
+            (set_ratchet(0, 0, 3, 2), step_ratchet(0, 0, 3)),
+            (-1, 1),
+            "a rest"
+        );
         assert!(song_text_len() > 0 && !song_text_ptr().is_null());
         query((), |e| {
             e.song_buffer(4).expect("fits").copy_from_slice(b"play")

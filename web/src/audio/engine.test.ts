@@ -134,7 +134,7 @@ describe('applySong', () => {
       { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1, mute: false, solo: false },
     ])
     // An engine without frag_grid sends none: the lane is 16ths (#353).
-    expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0] }], grid: 16, notes: null })
+    expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0], ratchets: [1, 1, 1, 1] }], grid: 16, notes: null })
     expect(mod.song.frags[1]?.notes).toEqual({
       text: 'c3 e3', bars: 2, generated: true, live: false,
       events: [{ start: 0, len: 3, note: 48, accent: true }, { start: 6, len: 3, note: 52, accent: false }],
@@ -794,5 +794,14 @@ describe('helpers', () => {
     mod.addSynth()
     mod.moveStrip(2, 0)
     expect(mod.layout.order.slice(0, 3)).toEqual([2, 0, 1])
+  })
+})
+
+describe('ratchets (#242)', () => {
+  it('shift-click cycles a sounding step 1 → 2 → 3 → 4 → 1; a rest, flam or drag stays 1', async () => {
+    const { nextRatchet } = await import('./engine')
+    expect([1, 2, 3, 4].map((r) => nextRatchet(1, r))).toEqual([2, 3, 4, 1])
+    expect([nextRatchet(2, 1), nextRatchet(3, 2)]).toEqual([2, 3])
+    expect([0, 4, 5].map((level) => nextRatchet(level, 1))).toEqual([1, 1, 1])
   })
 })
