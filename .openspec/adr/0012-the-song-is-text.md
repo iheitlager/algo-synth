@@ -1,6 +1,6 @@
 # 0012: The song is text
 
-**Status:** Accepted, amended by 0028 · **Date:** 2026-10-03
+**Status:** Accepted, amended by [0015](0015-the-arrangement.md), [0022](0022-one-clock-one-transport.md) and [0028](0028-an-llm-proxy-beside-caddy.md) · **Date:** 2026-10-03
 
 ## Context
 
@@ -40,3 +40,9 @@ A binary song format serves the engine but nobody else: not a person reading a s
 - **JSON or TOML.** Readable and easy to parse, but a sixteen-step beat or a melody becomes dozens of lines. Rejected for the mini-notation; setups (synth patches, the mixer) stay JSON (spec 003 Req 7).
 - **Run Strudel in the view.** A complete system, but its scheduler is JavaScript, which breaks ADR-0001 and ADR-0005 (the clock in the engine). Rejected.
 - **Grow the MIDI player into the composition model.** Ties composition to an exchange format with ticks and channels. Rejected; MIDI stays import and export.
+
+## Later decisions
+
+- **Superseded in part by ADR-0015 and ADR-0022:** the MIDI player does not stay separate. A MIDI file is imported into the song as notes when opened, and the song's clock is the only one.
+- **Since ADR-0008 and ADR-0009:** a track plays a synth slot with a model; there are no sources. The drums came back as drum models (TR-808, TR-909) and the samplers as models on a slot, not as sources.
+- **Amended by ADR-0028:** the model call runs behind a server on localhost (see the Decision above).

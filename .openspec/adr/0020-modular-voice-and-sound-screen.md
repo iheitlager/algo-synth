@@ -1,6 +1,6 @@
 # 0020: A modular voice in the song, and a Sound screen
 
-**Status:** Accepted · **Date:** 2026-10-05 · built in #277, #282, #286, #287; `pan` is #288
+**Status:** Accepted, superseded in part by [ADR-0024](0024-supercollider-voices-on-the-synth.md) · **Date:** 2026-10-05 · built in #277, #282, #286, #287; `pan` is #288
 
 ## Context
 
@@ -33,3 +33,7 @@ There was a choice between embedding SuperCollider's server (scsynth, in wasm as
 - **Embed SuperSonic (scsynth in wasm).** Real SynthDefs, but AGPL-3.0 and a second engine, clock and mixer. Rejected.
 - **A fixed modular model with patch cables** (the ARP 2600 style the Mono voice already has). Visual and bounded, but not code, and not writable by a language model. Rejected for this ADR; patching stays where it is.
 - **The Sound screen as a second window,** like the Spectral Lab. It would need its own engine instance and messages to keep the song and the voice in step. Rejected: the voice belongs to the song.
+
+## Later decisions
+
+- **Superseded in part by ADR-0024:** the voice is a SuperCollider SynthDef in a subset of sclang, stored with the synth's setting in the song and edited on the Modular synth's panel; the Sound screen and the own language went. The Modular model, built per song and played per note with fixed limits, stays.

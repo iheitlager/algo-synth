@@ -6,7 +6,7 @@ algo-synth is built **from working to working**: every MVP is something you can 
 
 **Rerouted again 2026-10-03 (ADR-0012):** the ensemble plays, so the deferred milestones come back, in their original order, around one idea: **the song is text**. A Tidal/Strudel-style notation with classic note names and durations, parsed and printed by the engine; the 16-step drum grid, generators and a language model all edit that text. Drums move forward into MVP 3 (the drum machine is the first thing the clock plays); MVP 6 becomes the samplers. The MIDI player stays a separate path, and a MIDI file also converts into the song (#173).
 
-**Where it stands (v0.32):** M1 to M4 are built, and most of M5. Open: chord symbols (#103, the rest of MVP 4, #102), the Vivaldi score (#20) and per-synth drift (#21) of MVP 5, the PPG's 8-bit path of MVP 7, per-step parameter locks and LFO modulators of MVP 10, and MVP 11 (#108, Web MIDI in #10). The song language as built is in [docs/song.md](../docs/song.md).
+**Where it stands (v0.32):** M1 to M4 are built, and most of M5. Open: chord symbols (#103, the rest of MVP 4, #102), the Vivaldi score (#20) and per-synth drift (#21) of MVP 5, the PPG's 8-bit path of MVP 7, per-step parameter locks and LFO modulators of MVP 10, and the performance half of MVP 11. The language model writes the song (epic #381) and Web MIDI plays in (#10). The song language as built is in [docs/song.md](../docs/song.md).
 
 **Five milestones, eleven MVPs.** Epics become GitHub issues with the `epic` label; their stories become sub-issues that cite spec requirements (`Refs: 001/Req-3`). Every MVP names a **value signal**: how you know it delivers.
 
@@ -134,7 +134,7 @@ Three insert slots on every synth strip and group (Overdrive, Distortion, Fuzz, 
 - **Modulators:** automation lanes and scenes move any parameter over the arrangement (#172). *(Built.)* LFOs and random sources targeting any parameter, and per-step parameter locks, are not (epics #208, #215).
 - **Loops that feed loops:** one generator's output as another's input (`markov` and `mutate` read an earlier fragment). *(Built for those two.)*
 
-### MVP 11: the model writes, and performance *(next, #108)*
+### MVP 11: the model writes, and performance *(the model writes: built, #381; Web MIDI in: #10)*
 
 - **A language model writes the song.** It gets the current text and a request ("a busier snare in B", "continue for 16 bars", "a darker lead") and returns a new text. The engine's parser is the check: a parse error goes back to the model for another try, and nothing reaches the engine that did not parse. The model never touches the engine directly.
 - **Where the call runs: behind a proxy next to Caddy, on localhost** (ADR-0028, epic #381). Option (b) of the three: (a) a key pasted into the browser and (c) pasting a text written elsewhere were weighed; (c) stays the fallback when the assist server is not running.

@@ -1,6 +1,6 @@
 # 0021: The modular voice's language and how it runs
 
-**Status:** Accepted · **Date:** 2026-10-06
+**Status:** Accepted, superseded in part by [ADR-0024](0024-supercollider-voices-on-the-synth.md) · **Date:** 2026-10-06
 
 ## Context
 
@@ -34,3 +34,7 @@ ADR-0020 decides that a Modular synth's voice is a graph of unit generators writ
 - **One language with ADR-0019's signals.** One vocabulary, but either the merged signals change meaning (bipolar, in hertz) or audio-rate calls inherit song time; and a recursive tree walk per sample. Rejected.
 - **A program shared by reference from the song.** No copy per note, but a lifetime tie to a song swapped inside `render`, and a changed graph would change sounding notes. Rejected.
 - **Hz-to-note and `exp2` with `std` per sample.** Exact, but `log2` and `powf` per sample per voice against ADR-0002. Rejected for the fast approximations, tested against `std`.
+
+## Later decisions
+
+- **Superseded in part by ADR-0024:** the lowercase language and `|>` gave way to a subset of sclang, run once at build time. How a built program runs holds: fixed per-voice limits, the program copied per note, no transcendental call per sample.

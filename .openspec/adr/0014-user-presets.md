@@ -1,4 +1,4 @@
-# 0014: User presets: three scopes, stored by name, a library beside the setups
+# 0014: User presets: four kinds, stored by name, a library beside the setups
 
 **Status:** Accepted · **Date:** 2026-10-04
 
