@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-09
+
+### Changed
+
+- **The Assistant keeps to one instrument:** its focus picker lists the tracks, and with one picked, a proposed song that changes anything outside that track goes back to the model to fix (#415).
+
 ## [0.38.0] - 2026-10-08
 
 ### Added
