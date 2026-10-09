@@ -2,12 +2,15 @@
 // A knob for each number of a Modular synth's SynthDef (#329), grouped by the
 // UGen it sets, as the engine lists them (`Engine::knob_list`). A knob drives
 // its `Ctl` parameter; the engine prints the code with the knobs' values, so
-// the text is asked for again once a knob rests.
+// the text is asked for again once a knob rests. A `Select` index is a switch
+// (#433): two positions an LED toggle, more a row of buttons.
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { exp, lin } from '../../audio/console'
-import { codeKnobs, params, requestCode, type CodeKnob } from '../../audio/engine'
+import { codeKnobs, getEngine, params, requestCode, type CodeKnob } from '../../audio/engine'
 import { Param, type ParamId } from '../../audio/params'
 import ParamKnob from '../console/ParamKnob.vue'
+import Selector from './Selector.vue'
+import Switch from './Switch.vue'
 
 const props = defineProps<{ s: number; color: string }>()
 
@@ -24,6 +27,9 @@ const groups = computed(() => {
 
 const id = (k: CodeKnob) => (Param.Ctl1 + k.ctl) as ParamId
 const scale = (k: CodeKnob) => (k.exp && k.lo > 0 ? exp(k.lo, k.hi) : lin(k.lo, k.hi))
+const value = (k: CodeKnob) => params.values[props.s]?.[id(k)] ?? k.def
+const set = (k: CodeKnob, v: number) => getEngine()?.param(props.s, id(k), v)
+const positions = (k: CodeKnob) => Array.from({ length: Math.round(k.hi - k.lo) + 1 }, (_, i) => [String(k.lo + i), k.lo + i] as const)
 const text = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(3))
 
 // The text follows the knobs: once they rest, the engine prints it again.
@@ -45,10 +51,20 @@ onBeforeUnmount(() => clearTimeout(timer))
     <div v-for="g in groups" :key="g.key" class="ugen">
       <h4>{{ g.ugen }}</h4>
       <div class="row">
-        <ParamKnob
-          v-for="k in g.knobs" :key="k.ctl" :synth="s" :id="id(k)" :label="k.name" :name="`${g.ugen} ${k.name}`"
-          :scale="scale(k)" :def="k.def" :size="32" :color="color" :text="text"
-        />
+        <template v-for="k in g.knobs" :key="k.ctl">
+          <Switch
+            v-if="k.step > 0 && k.hi - k.lo === 1" :model-value="value(k) >= k.hi" :label="k.name"
+            :name="`${g.ugen} ${k.name}`" :color="color" @update:model-value="set(k, $event ? k.hi : k.lo)"
+          />
+          <Selector
+            v-else-if="k.step > 0" :model-value="value(k)" :label="k.name" :name="`${g.ugen} ${k.name}`"
+            :options="positions(k)" @update:model-value="set(k, $event)"
+          />
+          <ParamKnob
+            v-else :synth="s" :id="id(k)" :label="k.name" :name="`${g.ugen} ${k.name}`"
+            :scale="scale(k)" :def="k.def" :size="32" :color="color" :text="text"
+          />
+        </template>
       </div>
     </div>
   </div>

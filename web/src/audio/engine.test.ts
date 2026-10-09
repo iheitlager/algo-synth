@@ -264,10 +264,12 @@ describe('what the song cannot hold yet (#361)', () => {
 describe('Modular knobs (#329)', () => {
   it('parses the engine\'s knob list, one tab-separated line per number', async () => {
     const { mod } = await boot()
-    expect(mod.parseKnobs('1\tRLPF\tfreq\t0\t20\t20000\t1\t800\n1\tRLPF\trq\t1\t0.05\t2\t0\t0.3\n')).toEqual([
-      { module: 1, ugen: 'RLPF', name: 'freq', ctl: 0, lo: 20, hi: 20000, exp: true, def: 800 },
-      { module: 1, ugen: 'RLPF', name: 'rq', ctl: 1, lo: 0.05, hi: 2, exp: false, def: 0.3 },
+    expect(mod.parseKnobs('1\tRLPF\tfreq\t0\t20\t20000\t1\t800\t0\n1\tRLPF\trq\t1\t0.05\t2\t0\t0.3\t0\n')).toEqual([
+      { module: 1, ugen: 'RLPF', name: 'freq', ctl: 0, lo: 20, hi: 20000, exp: true, def: 800, step: 0 },
+      { module: 1, ugen: 'RLPF', name: 'rq', ctl: 1, lo: 0.05, hi: 2, exp: false, def: 0.3, step: 0 },
     ])
+    // A Select's index is a switch (#433).
+    expect(mod.parseKnobs('0\tControls\tdir\t2\t0\t1\t0\t1\t1\n')[0]).toMatchObject({ name: 'dir', hi: 1, def: 1, step: 1 })
     expect(mod.parseKnobs('')).toEqual([])
   })
 

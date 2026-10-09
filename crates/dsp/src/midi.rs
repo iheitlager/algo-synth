@@ -92,12 +92,14 @@ pub fn knob_params(model: Model) -> Option<[Param; KNOBS]> {
 }
 
 /// The range a knob turns through: `lo` to `hi`, exponentially when `exp`
-/// (a frequency, a time), so each step is the same ratio.
+/// (a frequency, a time), so each step is the same ratio; landing on
+/// multiples of `step` above `lo` when it is above 0 (a switch, #433).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Span {
     pub lo: f32,
     pub hi: f32,
     pub exp: bool,
+    pub step: f32,
 }
 
 impl Span {
@@ -114,6 +116,15 @@ impl Span {
             lo,
             hi,
             exp: exp && lo > 0.0 && hi > lo,
+            step: 0.0,
+        }
+    }
+
+    /// The same range, landing on multiples of `step` (0: anywhere).
+    pub fn stepped(self, step: f32) -> Span {
+        Span {
+            step: step.max(0.0),
+            ..self
         }
     }
 
@@ -122,6 +133,9 @@ impl Span {
         let pos = pos.clamp(0.0, 1.0);
         if self.exp {
             self.lo * (self.hi / self.lo).powf(pos)
+        } else if self.step > 0.0 {
+            let steps = ((self.hi - self.lo) * pos / self.step).round();
+            (self.lo + steps * self.step).min(self.hi)
         } else {
             self.lo + (self.hi - self.lo) * pos
         }
@@ -406,6 +420,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #433: a switch's knob lands on its positions; two flip at half-turn.
+    #[test]
+    fn a_stepped_span_lands_on_its_steps() {
+        let two = Span::new(0.0, 1.0, false).stepped(1.0);
+        assert_eq!(two.value(0.49), 0.0);
+        assert_eq!(two.value(0.51), 1.0);
+        let four = Span::new(0.0, 3.0, false).stepped(1.0);
+        let at: Vec<f32> = (0..=127u8)
+            .map(|k| four.value(f32::from(k) / 127.0))
+            .collect();
+        assert!(
+            at.iter()
+                .all(|v| v.fract() == 0.0 && (0.0..=3.0).contains(v))
+        );
+        assert_eq!((at[0], at[127]), (0.0, 3.0));
+        // A position's value is where the knob takes it over.
+        assert!(takes_over(
+            None,
+            four.pos(2.0),
+            four.pos(four.value(four.pos(2.0)))
+        ));
     }
 
     #[test]
