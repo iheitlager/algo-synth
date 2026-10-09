@@ -548,14 +548,26 @@ At most 32 scenes, 32 values each. Without `arrange` no scene is applied.
 whole song, while it plays (ADR-0019). Targets and parameters are as for
 `auto`; it prints the parameter in lower case.
 
+Strudel's names work here and in parameter methods, and print as you wrote
+them: `lpf` for the cutoff, `lpq` the resonance, `hpf` `hpq` the high-pass,
+`attack decay sustain release` the envelope, `gain` the strip's level, `room`
+and `delay` the reverb and echo sends. Two differ in scale from Strudel: our
+resonance runs 0..1 (Strudel's `lpq` is a Q), and our `pan` runs −1..1
+(Strudel's 0..1).
+
 A signal is a number, or a source that runs from 0 to 1:
 
 | source | what |
 |---|---|
-| `sine` `saw` `tri` `square` | once per bar |
+| `sine` `cosine` `saw` `tri` `square` | once per bar |
 | `rand` | a new random value each sixteenth |
 | `perlin` | a smooth random curve, through a new value each bar |
-| `lfo(rate)`, `lfo(rate, shape)` | a `sine` (or `saw`, `tri`, `square`) at `rate` hertz |
+| `lfo(rate)`, `lfo(rate, shape)` | a `sine` (or `cosine`, `saw`, `tri`, `square`) at `rate` hertz |
+| `irand(n)` | a whole number from 0 to n − 1, new each sixteenth |
+| `brand`, `brandBy(p)` | 1 with chance p (half the time for `brand`), else 0 |
+
+Strudel's bipolar sources run from −1 to 1 instead: `sine2 cosine2 saw2 tri2
+square2 rand2`.
 | `"<300 800 1200>"` | numbers in mini-notation, one per bar |
 | `"0 0.5 1 0.5"` | numbers sharing each bar |
 

@@ -31,8 +31,9 @@
 use std::fmt::{self, Write};
 
 /// The words a signal's source may be, and its methods; no other is read.
-pub const SOURCES: [&str; 8] = [
-    "sine", "saw", "tri", "square", "rand", "perlin", "lfo", "env",
+pub const SOURCES: [&str; 18] = [
+    "sine", "cosine", "saw", "tri", "square", "rand", "perlin", "lfo", "env", "sine2", "cosine2",
+    "saw2", "tri2", "square2", "rand2", "irand", "brand", "brandBy",
 ];
 pub const METHODS: [&str; 6] = ["range", "exprange", "slow", "fast", "segment", "lag"];
 
@@ -54,14 +55,16 @@ const FALL: f64 = 6.907_755;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wave {
     Sine,
+    Cosine,
     Saw,
     Tri,
     Square,
 }
 
 impl Wave {
-    const ALL: [(Wave, &'static str); 4] = [
+    const ALL: [(Wave, &'static str); 5] = [
         (Wave::Sine, "sine"),
+        (Wave::Cosine, "cosine"),
         (Wave::Saw, "saw"),
         (Wave::Tri, "tri"),
         (Wave::Square, "square"),
@@ -83,6 +86,7 @@ impl Wave {
         let p = phase - phase.floor();
         match self {
             Wave::Sine => 0.5 + 0.5 * (std::f64::consts::TAU * p).sin(),
+            Wave::Cosine => 0.5 + 0.5 * (std::f64::consts::TAU * p).cos(),
             Wave::Saw => p,
             Wave::Tri => 1.0 - (2.0 * p - 1.0).abs(),
             Wave::Square => {
@@ -145,6 +149,15 @@ pub enum Node {
     Env(Option<[f32; 4]>),
     Rand,
     Perlin,
+    /// Strudel's bipolar sources (#298): `sine2` … `square2`, `rand2`, from
+    /// −1 to 1.
+    Bi(Wave),
+    Rand2,
+    /// `irand(n)`: a whole number from 0 to n − 1, new every sixteenth.
+    IRand(f32),
+    /// `brand` (p = 0.5) or `brandBy(p)`: 1 with chance p, else 0, new every
+    /// sixteenth.
+    BRand(f32),
     Neg(usize),
     Bin(Op, usize, usize),
     Range {
@@ -295,6 +308,21 @@ impl Signal {
             Node::List { from, len } => self.listed(from, len, ctx),
             Node::Env(times) => ctx.voice.map_or(0.0, |v| v.env(times.unwrap_or(v.adsr))),
             Node::Rand => unit(hash((t * RAND_PER_CYCLE).floor())),
+            Node::Bi(w) => 2.0 * w.at(t) - 1.0,
+            Node::Rand2 => 2.0 * unit(hash((t * RAND_PER_CYCLE).floor())) - 1.0,
+            Node::IRand(n) => {
+                let n = f64::from(n);
+                (unit(hash((t * RAND_PER_CYCLE).floor())) * n)
+                    .floor()
+                    .min(n - 1.0)
+            }
+            Node::BRand(p) => {
+                if unit(hash((t * RAND_PER_CYCLE).floor())) < f64::from(p) {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
             Node::Perlin => {
                 let (k, f) = (t.floor(), t - t.floor());
                 let s = f * f * (3.0 - 2.0 * f);
@@ -411,6 +439,11 @@ impl Signal {
             Node::Env(Some([a, d, s, r])) => write!(out, "env({a}, {d}, {s}, {r})"),
             Node::Rand => out.write_str("rand"),
             Node::Perlin => out.write_str("perlin"),
+            Node::Bi(w) => write!(out, "{}2", w.name()),
+            Node::Rand2 => out.write_str("rand2"),
+            Node::IRand(n) => write!(out, "irand({n})"),
+            Node::BRand(0.5) => out.write_str("brand"),
+            Node::BRand(p) => write!(out, "brandBy({p})"),
             Node::Neg(a) => {
                 if prec > 3 {
                     out.push('(');
@@ -794,9 +827,30 @@ impl<'a> Parser<'a, '_> {
                 if let Some(wave) = Wave::named(w) {
                     return self.push(Node::Wave(wave));
                 }
+                if let Some(wave) = w.strip_suffix('2').and_then(Wave::named) {
+                    return self.push(Node::Bi(wave));
+                }
                 match w {
                     "rand" => self.push(Node::Rand),
+                    "rand2" => self.push(Node::Rand2),
                     "perlin" => self.push(Node::Perlin),
+                    "brand" => self.push(Node::BRand(0.5)),
+                    "irand" => {
+                        let n =
+                            self.arg("( goes here: irand(n)", "a count from 1 to 64 goes here")?;
+                        if n.1.fract() != 0.0 || !(1.0..=64.0).contains(&n.1) {
+                            return Err((n.0, "a count from 1 to 64 goes here"));
+                        }
+                        self.push(Node::IRand(n.1))
+                    }
+                    "brandBy" => {
+                        let p =
+                            self.arg("( goes here: brandBy(p)", "a chance from 0 to 1 goes here")?;
+                        if !(0.0..=1.0).contains(&p.1) {
+                            return Err((p.0, "a chance from 0 to 1 goes here"));
+                        }
+                        self.push(Node::BRand(p.1))
+                    }
                     "lfo" => self.lfo(),
                     "env" => self.env(),
                     _ => Err((
@@ -909,6 +963,18 @@ impl<'a> Parser<'a, '_> {
     }
 
     /// `lfo(rate)`, `lfo(rate, shape)`, or a rate per voice, `lfo([a, b])`.
+    /// `(n)`: one number in brackets, with its column.
+    fn arg(&mut self, open: &'static str, what: &'static str) -> Res<(usize, f32)> {
+        self.expect('(', open)?;
+        let col = self.col();
+        let Some(Tok::Num(v)) = self.peek() else {
+            return Err((col, what));
+        };
+        self.at += 1;
+        self.expect(')', ") goes here")?;
+        Ok((col, v))
+    }
+
     fn lfo(&mut self) -> Res<usize> {
         self.expect('(', "( goes here: lfo(rate, shape)")?;
         let list = if self.peek() == Some(Tok::Punct('[')) {
@@ -940,7 +1006,7 @@ impl<'a> Parser<'a, '_> {
                 Some(Tok::Word(w)) => Wave::named(w),
                 _ => None,
             }
-            .ok_or((c, "a shape is sine, saw, tri or square"))?;
+            .ok_or((c, "a shape is sine, cosine, saw, tri or square"))?;
             self.at += 1;
             wave
         } else {
@@ -1061,6 +1127,81 @@ mod tests {
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-3 * b.abs().max(1.0)
+    }
+
+    /// #298: Strudel's `cosine`, the bipolar sources from −1 to 1, whole
+    /// random numbers and random bits, each printed back as written.
+    #[test]
+    fn strudels_sources_run_in_their_ranges() {
+        let cos = sig("cosine");
+        assert!(close(val(&cos, 0.0), 1.0) && close(val(&cos, 0.5), 0.0));
+        for (name, at, want) in [
+            ("sine2", 0.25, 1.0),
+            ("sine2", 0.75, -1.0),
+            ("cosine2", 0.0, 1.0),
+            ("saw2", 0.0, -1.0),
+            ("saw2", 0.5, 0.0),
+            ("tri2", 0.5, 1.0),
+            ("tri2", 0.0, -1.0),
+            ("square2", 0.2, -1.0),
+            ("square2", 0.7, 1.0),
+        ] {
+            assert!(close(val(&sig(name), at), want), "{name} at {at}");
+        }
+        let steps = (0..256).map(|k| f64::from(k) / 16.0);
+        let (r2, ir, b, b9) = (
+            sig("rand2"),
+            sig("irand(4)"),
+            sig("brand"),
+            sig("brandBy(0.9)"),
+        );
+        let rs: Vec<f32> = steps.clone().map(|t| val(&r2, t)).collect();
+        assert!(rs.iter().all(|v| (-1.0..1.0).contains(v)) && rs.iter().any(|v| *v < -0.5));
+        let is: Vec<f32> = steps.clone().map(|t| val(&ir, t)).collect();
+        assert!(
+            is.iter()
+                .all(|v| v.fract() == 0.0 && (0.0..4.0).contains(v))
+        );
+        assert!(
+            (0..4).all(|k| is.contains(&(k as f32))),
+            "every count comes up"
+        );
+        let ones = |s: &Signal| steps.clone().filter(|t| val(s, *t) == 1.0).count();
+        assert!(steps.clone().all(|t| [0.0, 1.0].contains(&val(&b, t))));
+        assert!(
+            (80..176).contains(&ones(&b)) && ones(&b9) > 200,
+            "{} {}",
+            ones(&b),
+            ones(&b9)
+        );
+        for text in [
+            "cosine",
+            "sine2",
+            "cosine2",
+            "saw2",
+            "tri2",
+            "square2",
+            "rand2",
+            "irand(4)",
+            "brand",
+            "brandBy(0.9)",
+        ] {
+            assert_eq!(sig(text).to_string(), text);
+        }
+        assert_eq!(sig("brandBy(0.5)").to_string(), "brand");
+        let mut n = 0;
+        for (text, msg) in [
+            ("irand(0)", "a count from 1 to 64 goes here"),
+            ("irand(1.5)", "a count from 1 to 64 goes here"),
+            ("brandBy(2)", "a chance from 0 to 1 goes here"),
+            ("irand", "( goes here: irand(n)"),
+        ] {
+            assert_eq!(
+                Signal::parse(text, &mut n).map(|_| ()).map_err(|e| e.1),
+                Err(msg),
+                "{text}"
+            );
+        }
     }
 
     #[test]
@@ -1193,7 +1334,7 @@ mod tests {
                 "a signal goes here, e.g. sine.range(300, 3000)",
             ),
             (
-                "cosine",
+                "wobble",
                 1,
                 "a signal is a number, sine saw tri square rand perlin, lfo(…), env(…) or [a, b]",
             ),
@@ -1211,7 +1352,11 @@ mod tests {
             ("sine.slow(0)", 6, "this takes a number above 0"),
             ("sine.segment(0)", 6, "this takes a number above 0"),
             ("lfo(0)", 5, "a rate is above 0"),
-            ("lfo(1, pink)", 8, "a shape is sine, saw, tri or square"),
+            (
+                "lfo(1, pink)",
+                8,
+                "a shape is sine, cosine, saw, tri or square",
+            ),
             ("lfo([1, 0])", 5, "a rate is above 0"),
             ("[1, x]", 5, "a number goes here"),
             ("[1 2]", 4, ", or ] goes here"),
