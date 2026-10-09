@@ -11,7 +11,7 @@ use algo_dsp::modular::sc;
 use algo_dsp::mono::model::Model;
 use algo_dsp::mono::preset::Preset;
 use algo_dsp::params::Param;
-use algo_dsp::song::{Song, SongError};
+use algo_dsp::song::{Kind, Song, SongError};
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
@@ -52,6 +52,23 @@ pub struct Checked {
     pub bars: u64,
 }
 
+/// The error the sclang reader gives for a character it does not take.
+const NOT_SCLANG: &str = "this character is not part of sclang here";
+
+/// `e`, naming the character when the sclang reader refused one (#430): the
+/// message alone sends a model guessing.
+fn named(text: &str, mut e: ErrorAt) -> ErrorAt {
+    if e.msg == NOT_SCLANG
+        && let Some(c) = text
+            .lines()
+            .nth(e.line.saturating_sub(1))
+            .and_then(|l| l.chars().nth(e.col.saturating_sub(1)))
+    {
+        e.msg = format!("{NOT_SCLANG}: `{c}`");
+    }
+    e
+}
+
 /// Parse `text` with the engine's parser (ADR-0012: the parser is the check).
 pub fn check(text: &str) -> Checked {
     match Song::parse(text) {
@@ -66,7 +83,7 @@ pub fn check(text: &str) -> Checked {
         },
         Err(e) => Checked {
             ok: false,
-            error: Some(e.into()),
+            error: Some(named(text, e.into())),
             canonical: None,
             tracks: Vec::new(),
             frags: Vec::new(),
@@ -149,7 +166,7 @@ pub struct Rendered {
 /// bars (or `FREE_BARS` without one), within `limits`. A text that does not
 /// load gives its error.
 pub fn render(text: &str, limits: Limits) -> Result<Rendered, ErrorAt> {
-    let song = Song::parse(text)?;
+    let song = Song::parse(text).map_err(|e| named(text, e.into()))?;
     let mut e = Engine::new(SAMPLE_RATE);
     let Some(buf) = e.song_buffer(text.len()) else {
         return Err(ErrorAt {
@@ -307,6 +324,61 @@ pub fn render(text: &str, limits: Limits) -> Result<Rendered, ErrorAt> {
         tracks,
         synthdefs,
     })
+}
+
+/// Whether track `t` of `song` plays: not muted or out-soloed, and one of
+/// its fragments loops (no arrangement) or sits in an arranged section.
+pub fn plays(song: &Song, t: usize) -> bool {
+    let Some(track) = song.tracks.get(t) else {
+        return false;
+    };
+    let soloed = song.tracks.iter().any(|x| x.solo);
+    if track.mute || (soloed && !track.solo) {
+        return false;
+    }
+    let mine = |f: &usize| song.frags.get(*f).is_some_and(|x| x.track == t);
+    if song.arrange.is_empty() {
+        (0..song.frags.len()).any(|f| mine(&f))
+    } else {
+        song.arrange
+            .iter()
+            .filter_map(|s| song.sections.get(*s))
+            .any(|s| s.frags.iter().any(mine))
+    }
+}
+
+/// `text` with a fragment that plays `track`, when it has none and the song
+/// has no arrangement (#430): an instrument is heard without the model
+/// writing a test fragment and taking it out again. Notes over two octaves
+/// (a run, a held note, low repeats, a chord) or a beat on a drums track.
+pub fn audition(text: &str, track: &str) -> Option<String> {
+    let song = Song::parse(text).ok()?;
+    let (t, kind) = song
+        .tracks
+        .iter()
+        .enumerate()
+        .find(|(_, x)| x.name == track)
+        .map(|(t, x)| (t, x.kind))?;
+    if !song.arrange.is_empty() || song.frags.iter().any(|f| f.track == t) {
+        return None;
+    }
+    let name = (1..)
+        .map(|i| {
+            if i == 1 {
+                "audition".to_string()
+            } else {
+                format!("audition{i}")
+            }
+        })
+        .find(|n| song.frags.iter().all(|f| &f.name != n))?;
+    let body = match kind {
+        Kind::Drums => "  bd x...x...x...x...\n  sn ....x.......x...\n  ch x.x.x.x.x.x.x.x.\n",
+        Kind::Synth | Kind::Sampler => "  \"<[c3 eb3 g3 c4] [c4@3 ~] c2*4 [g3,c4,eb4]>\"\n",
+    };
+    Some(format!(
+        "{}\nfrag {name} = {track}\n{body}",
+        text.trim_end()
+    ))
 }
 
 /// A model, how it plays and its presets.
@@ -512,6 +584,54 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
         assert!(d.ok && d.voices > 0 && d.stereo && d.knobs > 0, "{d:?}");
         assert_eq!(r.bars, FREE_BARS, "no arrangement: a few bars of the loops");
         assert!(r.peak > 0.01 && r.width > 0.0, "{} {}", r.peak, r.width);
+    }
+
+    /// A refused character is named, so the model knows what to take out.
+    #[test]
+    fn a_character_sclang_does_not_take_is_named() {
+        let song = concat!(
+            "tempo 120\n",
+            "setting beep = Modular ModularBasic\n",
+            "  SynthDef(\\beep, { |freq = 440, gate = 1|\n",
+            "      SinOsc.ar(freq) $ 2\n",
+            "  }).add;\n",
+            "track lead synth beep\n",
+        );
+        let e = check(song).error.expect("refused");
+        assert_eq!(
+            (e.line, e.msg.as_str()),
+            (4, "this character is not part of sclang here: `$`")
+        );
+        let e = render(song, Limits::default()).expect_err("refused");
+        assert!(e.msg.ends_with("`$`"), "{e:?}");
+    }
+
+    /// A track without fragments is auditioned: a synth plays the phrase, a
+    /// drums track a beat, and the track sounds on its strip.
+    #[test]
+    fn a_track_without_fragments_is_auditioned() {
+        for (song, track) in [
+            ("tempo 120\ntrack lead synth\n", "lead"),
+            ("tempo 120\ntrack kit drums Tr909 Kit909\n", "kit"),
+        ] {
+            assert!(!plays(&Song::parse(song).unwrap(), 0));
+            let heard = audition(song, track).expect("auditioned");
+            let parsed = Song::parse(&heard).expect("parses");
+            assert!(plays(&parsed, 0), "{heard}");
+            let r = render(&heard, Limits::default()).expect("renders");
+            assert!(r.tracks[0].peak > 0.01, "{track}: {:?}", r.tracks[0]);
+        }
+        assert_eq!(audition("tempo 120\ntrack lead synth\n", "bass"), None);
+        assert_eq!(audition(BEAT, "kit"), None, "it has fragments");
+        let pad = BEAT.replace("arrange", "track pad synth\narrange");
+        assert_eq!(audition(&pad, "pad"), None, "an arrangement");
+    }
+
+    /// The bass of `BEAT` has a fragment but no section plays it.
+    #[test]
+    fn a_track_plays_when_a_section_holds_its_fragment() {
+        let song = Song::parse(BEAT).unwrap();
+        assert!(plays(&song, 0) && !plays(&song, 1));
     }
 
     #[test]

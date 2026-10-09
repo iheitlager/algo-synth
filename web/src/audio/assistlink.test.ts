@@ -2,7 +2,7 @@
 // message posted on one port reaches every other port of the same name, as
 // in the browser, never the port that sent it.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { connectMain, serveWindow, type LinkState, type Port } from './assistlink'
+import { connectMain, defaultFocus, serveWindow, type LinkState, type Port } from './assistlink'
 
 class FakeChannel implements Port {
   static all: FakeChannel[] = []
@@ -94,5 +94,19 @@ describe('the Assistant window and the main window', () => {
     stray.postMessage(null)
     expect(main.applied).toEqual([])
     expect(main.popped).toEqual([])
+  })
+})
+
+describe('the default focus', () => {
+  const tracks = [{ name: 'kit', synth: 2 }, { name: 'lead', synth: 0 }]
+  const frags = [{ track: 0 }]
+  it('is the selected synth\'s track in the synths view, with or without fragments', () => {
+    expect(defaultFocus(tracks, frags, 0, 'synths', 0)).toBe('lead')
+    expect(defaultFocus(tracks, [], -1, 'synths', 2)).toBe('kit')
+    expect(defaultFocus(tracks, frags, 0, 'synths', 5)).toBeNull()
+  })
+  it('is the cued fragment\'s track elsewhere, else the whole song', () => {
+    expect(defaultFocus(tracks, frags, 0, 'composer', 0)).toBe('kit')
+    expect(defaultFocus(tracks, frags, -1, 'mixer', 0)).toBeNull()
   })
 })
