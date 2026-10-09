@@ -1053,6 +1053,10 @@ pub enum Param {
     /// The envelope revision, 1..=3: the Prophet-5's SSM2050 at 1 and 2, its
     /// CEM3310 at 3 (#343).
     EnvRev = 536,
+    /// The pitch wheel, −1..=1, until MIDI input sends pitch bend (#10).
+    PitchBend = 537,
+    /// How far the pitch wheel bends, in semitones each way, 0..=24.
+    BendRange = 538,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1140,7 +1144,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 537] = [
+    pub const ALL: [(Param, &'static str); 539] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1678,6 +1682,8 @@ impl Param {
         (Param::Revision, "Revision"),
         (Param::VcoRev, "VcoRev"),
         (Param::EnvRev, "EnvRev"),
+        (Param::PitchBend, "PitchBend"),
+        (Param::BendRange, "BendRange"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -1977,6 +1983,8 @@ impl Param {
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),
             Param::FilterRev | Param::VcoRev | Param::EnvRev => (1.0, 3.0),
+            Param::PitchBend => (-1.0, 1.0),
+            Param::BendRange => (0.0, 24.0),
             Param::Revision => (0.0, 4.0),
             Param::Wt1Table | Param::Wt2Table => (0.0, 7.0),
             Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),

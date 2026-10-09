@@ -4936,3 +4936,62 @@ fn sync_pulls_a_deck_onto_the_masters_bar() {
         deck.sync_error()
     );
 }
+
+/// #10: a MIDI key plays the target synth; its release reaches that synth
+/// after the target has moved on.
+#[test]
+fn midi_keys_play_the_target_and_release_where_they_started() {
+    let mut e = Engine::new(48_000.0);
+    e.set_midi_target(1);
+    e.midi_in(0x90, 60, 100);
+    e.render(BLOCK);
+    assert!(gated(&e, Owner::Live(1)), "synth 1 plays");
+    assert!(!gated(&e, Owner::Live(0)), "synth 0 does not");
+    e.set_midi_target(0);
+    // The MPK releases with a real note-off; velocity 0 does the same.
+    e.midi_in(0x80, 60, 0);
+    e.render(BLOCK);
+    assert!(!gated(&e, Owner::Live(1)), "released on synth 1");
+    e.midi_in(0x90, 62, 90);
+    e.midi_in(0x90, 62, 0);
+    e.render(BLOCK);
+    assert!(!gated(&e, Owner::Live(0)), "velocity 0 releases");
+    // A target past the synths is ignored.
+    e.set_midi_target(SYNTHS);
+    e.midi_in(0x90, 64, 90);
+    e.render(BLOCK);
+    assert!(gated(&e, Owner::Live(0)), "still synth 0");
+}
+
+/// #10: the pitch wheel bends by `BendRange` semitones at full travel, and
+/// the mod wheel is `ModWheel`.
+#[test]
+fn midi_wheels_bend_the_pitch_and_move_the_mod_wheel() {
+    let hz = |bend: (u8, u8), range: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Model, Model::Minimoog as u32 as f32);
+        e.set_param(0, Param::Analog, 0.0);
+        e.set_param(0, Param::Cutoff, 400.0);
+        e.set_param(0, Param::BendRange, range);
+        e.midi_in(0xE0, bend.0, bend.1);
+        e.midi_in(0x90, 57, 100);
+        pitch_of(&left_of(&mut e, 0.25)[2400..])
+    };
+    let cents = |h: f64| 1200.0 * (h / 220.0).log2();
+    assert!(cents(hz((0x00, 0x40), 2.0)).abs() < 1.0, "at rest");
+    assert!((cents(hz((0x7F, 0x7F), 2.0)) - 200.0).abs() < 1.0, "up two");
+    assert!(
+        (cents(hz((0x00, 0x00), 12.0)) + 1200.0).abs() < 1.0,
+        "down an octave"
+    );
+
+    let mut e = Engine::new(48_000.0);
+    e.midi_in(0xB0, 1, 127);
+    assert_eq!(e.param_value(0, Param::ModWheel), 1.0);
+    // Other controllers are not read yet.
+    let cutoff = e.param_value(0, Param::Cutoff);
+    e.midi_in(0xB0, 70, 0);
+    e.midi_in(0xF8, 0, 0);
+    assert_eq!(e.param_value(0, Param::Cutoff), cutoff);
+}

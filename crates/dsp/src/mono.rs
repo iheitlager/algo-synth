@@ -126,6 +126,11 @@ pub struct MonoParams {
     pub taken: [bool; DESTS],
     pub normals: Normals,
     pub mod_wheel: f32,
+    /// The pitch wheel (−1..1) and its range in semitones; `bend` is their
+    /// product, added to every voice's pitch (#10).
+    pitch_bend: f32,
+    bend_range: f32,
+    pub bend: f32,
     /// A Modular synth's voice (ADR-0020): a preset's or the song's; each
     /// note takes a copy when it starts.
     pub graph: crate::modular::Program,
@@ -275,6 +280,9 @@ impl MonoParams {
             taken: [false; DESTS],
             normals: Normals::default(),
             mod_wheel: 0.0,
+            pitch_bend: 0.0,
+            bend_range: 2.0,
+            bend: 0.0,
         };
         for (param, v) in preset::DEFAULTS {
             p.set(param, param.clamp(v));
@@ -452,6 +460,14 @@ impl MonoParams {
             Param::OscPw => self.normals.osc_pw = 0.45 * v,
             Param::OscCutoff => self.normals.osc_cutoff = 48.0 * v,
             Param::ModWheel => self.mod_wheel = v,
+            Param::PitchBend => {
+                self.pitch_bend = v;
+                self.bend = v * self.bend_range;
+            }
+            Param::BendRange => {
+                self.bend_range = v;
+                self.bend = self.pitch_bend * v;
+            }
             // The mixer's (`mixer::Mixer`), not the voice's.
             Param::Level
             | Param::Pan

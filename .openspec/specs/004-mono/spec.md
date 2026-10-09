@@ -1,6 +1,6 @@
 # 004: The Mono voice
 
-The ARP 2600-style semi-modular monophonic voice in `crates/dsp/src/mono/`: oscillators, noise, filter, modulation, note handling, normalled routing, MIDI input and presets. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0007. Every requirement is built except Req 8 (MIDI input), which is planned (plan.md MVP 11) and names no code yet. Since ADR-0011 the voice is also the per-note voice of the polyphonic models (spec 006).
+The ARP 2600-style semi-modular monophonic voice in `crates/dsp/src/mono/`: oscillators, noise, filter, modulation, note handling, normalled routing, MIDI input and presets. Decisions: ADR-0001, ADR-0002, ADR-0004, ADR-0007. Every requirement is built. Since ADR-0011 the voice is also the per-note voice of the polyphonic models (spec 006).
 
 Common to every requirement: `render` follows ADR-0002 (no allocation, no panic, no per-sample transcendentals), every new parameter and id is mirrored in `web/src/audio/params.ts` (ADR-0004), and parameters are Mono-wide until tracks address them as (track, parameter) in MVP 4 (spec 002 Req 1). Tests render offline at 48 kHz.
 
@@ -154,9 +154,9 @@ A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount
 
 ### Requirement 8: MIDI input [MUST]
 
-The engine SHALL take raw MIDI channel messages through one export, `midi_in(status, d1, d2)`, and interpret them in Rust; JavaScript SHALL only forward the bytes it gets from Web MIDI. Note on and off SHALL carry velocity, and a note on with velocity 0 SHALL be a note off. Pitch bend SHALL be read as 14 bits, with its range a parameter (default ±2 semitones). The mod wheel (CC 1) SHALL be a modulation source (Req 7). Other messages SHALL be ignored.
+The engine SHALL take raw MIDI channel messages through one export, `midi_in(status, d1, d2)`, and interpret them in Rust; JavaScript SHALL only forward the bytes it gets from Web MIDI. Note on and off SHALL carry velocity, and a note on with velocity 0 SHALL be a note off. Pitch bend SHALL be read as 14 bits, with its range a parameter (default ±2 semitones). The mod wheel (CC 1) SHALL be a modulation source (Req 7). Other messages SHALL be ignored. The keys SHALL play the synth selected in the view (`midi_target`), and a note's release SHALL reach the synth it started on after the selection moves.
 
-**Implementation:** (planned, #10, plan.md MVP 11) a MIDI message parser in Rust behind one `midi_in` export; not built. The song already plays notes through `Engine::note_on` (Req 10).
+**Implementation:** `crates/dsp/src/midi.rs::decode`, `crates/dsp/src/engine.rs::Engine::midi_in`, `crates/dsp/src/ffi.rs::midi_in`, `crates/dsp/src/ffi.rs::midi_target`, `web/src/audio/midiin.ts` (#10); the bend is `PitchBend` × `BendRange` semitones on every voice's pitch (`crates/dsp/src/mono/voice.rs`).
 
 #### Scenario: bend
 
@@ -164,7 +164,7 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 - WHEN pitch bend 0x3FFF arrives
 - THEN the voice sounds B4 within 1 cent
 
-**Tests:** (planned) a velocity-0 note on is a note off, bend is read as 14 bits, unknown messages are ignored.
+**Tests:** `crates/dsp/src/midi.rs::tests::a_note_on_of_velocity_zero_is_a_release`, `crates/dsp/src/midi.rs::tests::the_bend_reads_all_fourteen_bits_and_ends_at_one`, `crates/dsp/src/midi.rs::tests::system_and_broken_messages_are_none`, `crates/dsp/src/engine/tests.rs::midi_wheels_bend_the_pitch_and_move_the_mod_wheel`, `crates/dsp/src/engine/tests.rs::midi_keys_play_the_target_and_release_where_they_started`, `web/src/audio/midiin.test.ts`
 
 ### Requirement 9: Presets [SHOULD]
 
