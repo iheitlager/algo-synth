@@ -156,7 +156,9 @@ A subset of sclang, run once to build the voice:
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `scene`,
   `mod` reach them (`sub.Ctl1`).
 - **Limits:** 512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes,
-  32 delays, 64 random numbers, 2 reverbs, 32 knobs.
+  32 delays, 64 random numbers, 2 reverbs, 32 knobs. A comb or delay holds
+  at most 0.02 seconds (a flanger, a chorus, a resonator, not an echo): a
+  long echo is the strip's send to the master's Echo.
 
 ```song
 setting hoover = Modular ModularBasic

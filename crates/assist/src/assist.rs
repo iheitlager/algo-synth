@@ -6,6 +6,7 @@
 use crate::provider::{Msg, Provider, ProviderError, Stop, ToolCall, ToolDef, ToolResult, Usage};
 use crate::scope;
 use crate::tools::{self, Limits};
+use algo_dsp::song::Song;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::sync::OnceLock;
@@ -101,12 +102,12 @@ pub fn tool_defs() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "check_song",
-            description: "Parse a song with the engine's parser. Returns ok and its tracks, fragments, sections and bars, or the first error with its line and column. Check every song you write.",
+            description: "Parse a song with the engine's parser. Returns ok and its tracks, fragments, sections and bars, or the first error with its line and column. render_song parses too; use this for a quick look at the structure.",
             schema: json!({"type": "object", "properties": {"song": song}, "required": ["song"], "additionalProperties": false}),
         },
         ToolDef {
             name: "render_song",
-            description: "Play a song offline and measure it: non-finite samples, peak (above 1.0 clips), RMS and stereo width, RMS per arrangement entry, each track's peak and level on its strip, and each Modular SynthDef's build. Use it to check the mix and that every part sounds.",
+            description: "Play a song offline and measure it: non-finite samples, peak (above 1.0 clips), RMS and stereo width, RMS per arrangement entry, each track's peak and level on its strip, and each Modular SynthDef's build. It parses the song first. A track in focus without fragments, in a song without an arrangement, plays an audition phrase (auditioned: true). Use it to check the mix and that every part sounds.",
             schema: json!({"type": "object", "properties": {
                 "song": song,
                 "bars": {"type": "integer", "description": "How many bars to render, at most 64; default the arrangement, or 4 without one."}
@@ -114,7 +115,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "propose_song",
-            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse; propose once, when it checks and renders cleanly.",
+            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse, stay within the track in focus and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the render's measures. Propose once, when it renders cleanly.",
             schema: json!({"type": "object", "properties": {
                 "song": song,
                 "summary": {"type": "string", "description": "What you changed and why, in one short paragraph."}
@@ -132,9 +133,9 @@ pub fn system_prompt() -> &'static str {
             "You write and change songs for algo-synth, a synthesizer in the browser. A song is a text in the language defined below; the user's engine parses it and plays it.\n\n\
 How to work:\n\
 - You get the current song and a request. Change what the request asks for and keep the rest: names, comments, settings, mixer lines and the arrangement, unless the request is about them.\n\
-- Check every song you write with check_song, and fix what it reports.\n\
-- Render it with render_song: no non-finite samples, the peak below 1.0, every new or changed part audible, and the parts balanced (drums and bass lead, pads and arps under them).\n\
-- When it checks and renders cleanly, call propose_song once with the whole song and a short summary. The user reviews a diff and applies it.\n\
+- Render every song you write with render_song; it parses it too and reports the first error with its line and column. Aim for no non-finite samples, the peak below 1.0, every new or changed part audible, and the parts balanced (drums and bass lead, pads and arps under them).\n\
+- A track in focus without fragments is auditioned: the render plays a phrase on it (\"auditioned\": true). Don't add a fragment just to hear it.\n\
+- When it renders cleanly, call propose_song once with the whole song and a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent. The user reviews a diff and applies it.\n\
 - If the request is a question, answer it in text and propose nothing.\n\
 - Use only the models, presets, pads, parameters and scales of the catalog.\n\n\
 <language>\n{LANGUAGE}\n</language>\n\n<catalog>\n{}</catalog>\n",
@@ -255,41 +256,18 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
                 .and_then(Value::as_u64)
                 .unwrap_or(64)
                 .clamp(1, 64);
-            let limits = Limits {
-                max_bars: bars,
-                ..Limits::default()
-            };
-            let rendered = tokio::task::spawn_blocking(move || tools::render(&song, limits)).await;
-            match rendered {
-                Ok(Ok(r)) => {
-                    let clean = r.nonfinite == 0 && r.peak <= 1.0;
+            match measure(&song, req.focus.as_deref(), bars).await {
+                Ok(m) => {
+                    let fault = m.fault();
                     let summary = format!(
-                        "{} bars, peak {:.2}{}",
-                        r.bars,
-                        r.peak,
-                        if r.nonfinite > 0 {
-                            format!(", {} non-finite samples", r.nonfinite)
-                        } else if r.peak > 1.0 {
-                            ", clips".into()
-                        } else {
-                            ", clean".into()
-                        }
+                        "{} bars, peak {:.2}, {}",
+                        m.rendered.bars,
+                        m.rendered.peak,
+                        fault.as_deref().unwrap_or("clean")
                     );
-                    answer(
-                        serde_json::to_value(&r).unwrap_or(Value::Null),
-                        clean,
-                        summary,
-                    )
+                    answer(m.report(), fault.is_none(), summary)
                 }
-                Ok(Err(e)) => {
-                    let summary = format!("line {}, col {}: {}", e.line, e.col, e.msg);
-                    answer(json!({"error": e}), false, summary)
-                }
-                Err(_) => answer(
-                    json!({"error": "the render failed"}),
-                    false,
-                    "the render failed".into(),
-                ),
+                Err((v, summary)) => answer(v, false, summary),
             }
         }
         "propose_song" => {
@@ -300,29 +278,41 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
                 .unwrap_or("")
                 .to_string();
             let c = tools::check(&song);
+            if let Some(e) = c.error {
+                let line = format!("line {}, col {}: {}", e.line, e.col, e.msg);
+                return answer(
+                    json!({"error": e, "hint": "fix it and propose again"}),
+                    false,
+                    line,
+                );
+            }
             // With a track in focus (#415), a song that changes more is refused.
-            let scoped = match &req.focus {
-                Some(t) if c.error.is_none() => scope::check(&req.song, &song, t),
-                _ => Ok(()),
-            };
-            match (c.error, scoped) {
-                (None, Err(why)) => answer(
+            if let Some(t) = &req.focus
+                && let Err(why) = scope::check(&req.song, &song, t)
+            {
+                return answer(
                     json!({"error": why, "hint": "change only the track in focus and propose again"}),
                     false,
                     why,
-                ),
-                (None, Ok(())) => Ran {
-                    proposed: Some((song, summary)),
-                    ..answer(json!({"ok": true}), true, "proposed".into())
+                );
+            }
+            // Only a song that renders cleanly reaches the user (#430).
+            match measure(&song, req.focus.as_deref(), 64).await {
+                Ok(m) => match m.fault() {
+                    Some(why) => {
+                        let mut v = m.report();
+                        if let Some(o) = v.as_object_mut() {
+                            o.insert("error".into(), json!(why));
+                            o.insert("hint".into(), json!("fix it and propose again"));
+                        }
+                        answer(v, false, why)
+                    }
+                    None => Ran {
+                        proposed: Some((song, summary)),
+                        ..answer(json!({"ok": true}), true, "proposed".into())
+                    },
                 },
-                (Some(e), _) => {
-                    let line = format!("line {}, col {}: {}", e.line, e.col, e.msg);
-                    answer(
-                        json!({"error": e, "hint": "fix it and propose again"}),
-                        false,
-                        line,
-                    )
-                }
+                Err((v, why)) => answer(v, false, why),
             }
         }
         other => answer(
@@ -330,6 +320,90 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
             false,
             format!("no tool {other}"),
         ),
+    }
+}
+
+/// A track's peak on its strip at or below this is silence.
+const SILENT: f32 = 1e-4;
+
+/// A song as `render_song` and the gate play it.
+struct Measured {
+    rendered: tools::Rendered,
+    /// The track in focus had no fragment and played an audition (#430).
+    auditioned: bool,
+    /// The track in focus, when it should sound: it was auditioned or one
+    /// of its fragments plays.
+    heard: Option<String>,
+}
+
+impl Measured {
+    /// What keeps the song from the user: non-finite samples, clipping, or
+    /// the track in focus silent.
+    fn fault(&self) -> Option<String> {
+        let r = &self.rendered;
+        if r.nonfinite > 0 {
+            return Some(format!("{} non-finite samples", r.nonfinite));
+        }
+        if r.peak > 1.0 {
+            return Some(format!("the peak is {:.2}: it clips", r.peak));
+        }
+        let silent = |t: &str| {
+            r.tracks
+                .iter()
+                .find(|x| x.name == t)
+                .is_some_and(|x| x.peak <= SILENT)
+        };
+        match &self.heard {
+            Some(t) if !r.cut_short && silent(t) => Some(format!("`{t}` is silent")),
+            _ => None,
+        }
+    }
+
+    /// The render's measures for the model, saying when it was an audition.
+    fn report(&self) -> Value {
+        let mut v = serde_json::to_value(&self.rendered).unwrap_or(Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("auditioned".into(), json!(self.auditioned));
+        }
+        v
+    }
+}
+
+/// Render `song` for at most `bars` bars; with a track in focus that has no
+/// fragment, and no arrangement, it plays an audition phrase on that track
+/// (#430). A song that does not load gives its error and a line.
+async fn measure(song: &str, focus: Option<&str>, bars: u64) -> Result<Measured, (Value, String)> {
+    let audition = focus.and_then(|t| tools::audition(song, t));
+    let auditioned = audition.is_some();
+    let heard = focus.filter(|t| {
+        auditioned
+            || Song::parse(song).is_ok_and(|s| {
+                s.tracks
+                    .iter()
+                    .position(|x| x.name == *t)
+                    .is_some_and(|i| tools::plays(&s, i))
+            })
+    });
+    let heard = heard.map(str::to_string);
+    let text = audition.unwrap_or_else(|| song.to_string());
+    let limits = Limits {
+        max_bars: bars,
+        ..Limits::default()
+    };
+    match tokio::task::spawn_blocking(move || tools::render(&text, limits)).await {
+        Ok(Ok(rendered)) => Ok(Measured {
+            rendered,
+            auditioned,
+            heard,
+        }),
+        Ok(Err(e)) => {
+            let line = format!("line {}, col {}: {}", e.line, e.col, e.msg);
+            Err((json!({"error": e}), line))
+        }
+        Err(_) => Err((
+            json!({"error": "the render failed"}),
+            "the render failed".into(),
+        )),
     }
 }
 
@@ -515,9 +589,109 @@ mod tests {
             request: "add a snare".into(),
             focus: Some("kit".into()),
         };
+        events_for(p, &req, limits).await
+    }
+
+    async fn events_for(p: &Scripted, req: &Request, limits: LoopLimits) -> Vec<Event> {
         let mut out = Vec::new();
-        run(p, &req, limits, &mut |e| out.push(e)).await;
+        run(p, req, limits, &mut |e| out.push(e)).await;
         out
+    }
+
+    /// The tool lines the browser got, by name and whether they passed.
+    fn tool_lines(ev: &[Event]) -> Vec<(String, bool, String)> {
+        ev.iter()
+            .filter_map(|e| match e {
+                Event::Tool {
+                    name, ok, summary, ..
+                } => Some((name.clone(), *ok, summary.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// An instrument without fragments (#430) is heard: the render plays an
+    /// audition on it and says so, and the gate hears it too, so the model
+    /// proposes the song as it is, with no test fragment.
+    #[tokio::test]
+    async fn an_instrument_without_fragments_is_auditioned() {
+        let song = "tempo 120\ntrack lead synth\n";
+        let p = Scripted::new(vec![
+            Ok(calls(vec![(
+                "render_song",
+                json!({"song": song, "bars": 2}),
+            )])),
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": song, "summary": "a lead"}),
+            )])),
+        ]);
+        let req = Request {
+            song: song.into(),
+            request: "a brighter lead".into(),
+            focus: Some("lead".into()),
+        };
+        let ev = events_for(&p, &req, LoopLimits::default()).await;
+        let lines = tool_lines(&ev);
+        assert!(lines[0].1 && lines[0].2.ends_with("clean"), "{lines:?}");
+        assert!(ev.contains(&Event::Song {
+            song: song.into(),
+            summary: "a lead".into()
+        }));
+        let seen = p.seen.lock().unwrap();
+        let Msg::Results(r) = &seen[1][2] else {
+            panic!("the render's result: {:?}", seen[1])
+        };
+        assert!(
+            r[0].content.contains("\"auditioned\":true"),
+            "{}",
+            r[0].content
+        );
+    }
+
+    /// A song whose track in focus has a fragment but makes no sound is
+    /// refused with why; the fix goes.
+    #[tokio::test]
+    async fn a_silent_track_in_focus_is_not_proposed() {
+        let hush = GOOD.replace("bd x...x...x...x...", "bd ................");
+        let p = Scripted::new(vec![
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": hush, "summary": "quiet"}),
+            )])),
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": GOOD, "summary": "a kick"}),
+            )])),
+        ]);
+        let ev = events(&p, LoopLimits::default()).await;
+        assert_eq!(
+            tool_lines(&ev),
+            [
+                ("propose_song".into(), false, "`kit` is silent".into()),
+                ("propose_song".into(), true, "proposed".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn clipping_and_non_finite_samples_are_faults() {
+        let r = tools::render(GOOD, Limits::default()).expect("renders");
+        let m = |peak, nonfinite| Measured {
+            rendered: tools::Rendered {
+                peak,
+                nonfinite,
+                ..r.clone()
+            },
+            auditioned: false,
+            heard: Some("kit".into()),
+        };
+        assert_eq!(m(0.5, 0).fault(), None);
+        assert_eq!(
+            m(1.3, 0).fault().as_deref(),
+            Some("the peak is 1.30: it clips")
+        );
+        assert_eq!(m(0.5, 3).fault().as_deref(), Some("3 non-finite samples"));
     }
 
     /// The model's bad song is checked, the error goes back, the fix is

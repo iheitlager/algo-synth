@@ -8,7 +8,9 @@ Common to every requirement: the server serves `127.0.0.1` only, so there is no 
 
 The `algo-assist` crate SHALL offer, on the engine itself, `check` (the engine's parser: the canonical song with its tracks, fragments, sections and bars, or the first error with its line and column), `render` (the song played offline up to its arrangement's bars, four without one, within a bar and a wall-time limit, measured for non-finite samples, peak, RMS, stereo width, RMS per arrangement entry, each track's peak and level on its strip and each Modular SynthDef's build) and `catalog` (the models with their engines, voices and presets, the pads, every parameter with its range and scope, the scales, the insert and processor types), and an `assist check|render|catalog [file]` command that prints them as JSON (#384).
 
-**Implementation:** `crates/assist/src/tools.rs::check`, `crates/assist/src/tools.rs::render`, `crates/assist/src/tools.rs::catalog`, `crates/assist/src/main.rs`
+A character the SynthDef reader refuses SHALL be named in the error. `audition` SHALL add a fragment to a track that has none, in a song without an arrangement: a phrase over two octaves on a synth or sampler track, a beat on a drums track (#430). `plays` SHALL tell whether a track sounds: not muted or out-soloed, with a fragment that loops (no arrangement) or sits in an arranged section.
+
+**Implementation:** `crates/assist/src/tools.rs::check`, `crates/assist/src/tools.rs::render`, `crates/assist/src/tools.rs::catalog`, `crates/assist/src/tools.rs::audition`, `crates/assist/src/tools.rs::plays`, `crates/assist/src/main.rs`
 
 #### Scenario: a silent section reads silent
 
@@ -16,7 +18,7 @@ The `algo-assist` crate SHALL offer, on the engine itself, `check` (the engine's
 - WHEN it is rendered
 - THEN the middle entry's RMS is below a fifth of the others', and a track no section plays reads zero
 
-**Tests:** `crates/assist/src/tools.rs::tests::check_gives_the_canonical_song_or_where_it_failed`, `crates/assist/src/tools.rs::tests::render_measures_each_section_and_track`, `crates/assist/src/tools.rs::tests::render_keeps_to_its_limits_and_reports_a_bad_song`, `crates/assist/src/tools.rs::tests::render_reports_a_synthdef`, `crates/assist/src/tools.rs::tests::the_catalog_is_the_engines`
+**Tests:** `crates/assist/src/tools.rs::tests::check_gives_the_canonical_song_or_where_it_failed`, `crates/assist/src/tools.rs::tests::render_measures_each_section_and_track`, `crates/assist/src/tools.rs::tests::render_keeps_to_its_limits_and_reports_a_bad_song`, `crates/assist/src/tools.rs::tests::render_reports_a_synthdef`, `crates/assist/src/tools.rs::tests::the_catalog_is_the_engines`, `crates/assist/src/tools.rs::tests::a_character_sclang_does_not_take_is_named`, `crates/assist/src/tools.rs::tests::a_track_without_fragments_is_auditioned`, `crates/assist/src/tools.rs::tests::a_track_plays_when_a_section_holds_its_fragment`
 
 ### Requirement 2: Providers behind one interface [MUST]
 
@@ -34,7 +36,7 @@ The server SHALL call a model through one `Provider` trait over three wire forma
 
 ### Requirement 3: The loop [MUST]
 
-For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its frags, and autos, mods and scene values on it) SHALL go back to the model as an error naming what changed. Any other song that parses SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
+For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. `render_song` SHALL parse the song too, so the prompt does not ask for `check_song` first. With a track in focus that has no fragment, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its frags, and autos, mods and scene values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its fragments plays) but is silent SHALL go back to the model as an error with the render's measures (#430). Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
 
 **Implementation:** `crates/assist/src/assist.rs::run`, `crates/assist/src/scope.rs::check`, `crates/assist/src/assist.rs::system_prompt`, `crates/assist/src/assist.rs::tool_defs`, `crates/assist/src/assist.rs::Event`
 
@@ -53,6 +55,14 @@ For a request, the model SHALL get a system prompt holding how to work, the lang
 - THEN the first proposal goes back as an error naming the tempo, and the second is the `song` event
 
 **Tests:** `crates/assist/src/assist.rs::tests::a_song_beyond_the_focused_track_is_not_proposed`, `crates/assist/src/scope.rs::tests::the_focused_track_may_change`, `crates/assist/src/scope.rs::tests::anything_else_is_named_and_refused`, `crates/assist/src/scope.rs::tests::no_such_track_holds_nothing`
+
+#### Scenario: an instrument is heard and only a clean song goes
+
+- GIVEN the track `lead` in focus, with no fragment, in a song without an arrangement
+- WHEN the model renders and proposes the song as it is
+- THEN the render plays an audition on `lead` and says so, and the song is proposed; a song whose track in focus is silent, or that clips, goes back as an error
+
+**Tests:** `crates/assist/src/assist.rs::tests::an_instrument_without_fragments_is_auditioned`, `crates/assist/src/assist.rs::tests::a_silent_track_in_focus_is_not_proposed`, `crates/assist/src/assist.rs::tests::clipping_and_non_finite_samples_are_faults`
 
 ### Requirement 4: The server [MUST]
 

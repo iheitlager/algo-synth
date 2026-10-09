@@ -4,7 +4,7 @@
 // Assistant beside them when shown (#387).
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { loadSong, song, status, synths, view } from './audio/engine'
-import { CHANNEL, assistant, serveWindow, type AssistHost, type LinkState } from './audio/assistlink'
+import { CHANNEL, assistant, defaultFocus, serveWindow, type AssistHost, type LinkState } from './audio/assistlink'
 import { LIMITS, setSplit, splits } from './audio/split'
 import ArrangerPane from './components/ArrangerPane.vue'
 import AssistantPane from './components/AssistantPane.vue'
@@ -28,9 +28,10 @@ function openSynth(s: number) {
 // The Assistant (#387) reads the song as the engine prints it, and Apply loads
 // a song through the engine like any text (ADR-0012). Its own window gets the
 // same over a BroadcastChannel; only this window touches the engine.
+const focus = () => defaultFocus(song.tracks, song.frags, song.cued, view.main, synths.selected)
 const linkState = (): LinkState => ({
   song: song.text,
-  focus: song.tracks[song.frags[song.cued]?.track ?? -1]?.name ?? null,
+  focus: focus(),
   tracks: song.tracks.map((t) => t.name),
   running: status.running,
 })
@@ -42,7 +43,7 @@ function applySong(text: string): boolean {
 const appHost: AssistHost = {
   link: {
     get song() { return song.text },
-    get focus() { return song.tracks[song.frags[song.cued]?.track ?? -1]?.name ?? null },
+    get focus() { return focus() },
     get tracks() { return song.tracks.map((t) => t.name) },
     get running() { return status.running },
     connected: true,
@@ -59,7 +60,7 @@ onMounted(() => {
   server = serveWindow(new BroadcastChannel(CHANNEL), { state: linkState, apply: applySong, popped: (open) => (assistant.popped = open) })
   window.addEventListener('pagehide', goodbye)
 })
-watch(() => [song.text, song.cued, status.running], () => server?.push())
+watch(() => [song.text, focus(), status.running], () => server?.push())
 onBeforeUnmount(() => {
   window.removeEventListener('pagehide', goodbye)
   goodbye()
