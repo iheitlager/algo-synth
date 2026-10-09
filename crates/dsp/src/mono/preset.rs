@@ -297,7 +297,8 @@ pub const DEFAULTS: [(Param, f32); 448] = [
     (Param::Patch8Amount, 0.0),
     (Param::EnvCutoff, 0.0),
     (Param::KeyTrack, 0.0),
-    (Param::Vibrato, 0.0),
+    // The mod wheel's depth: ±0.3 semitone at full wheel (#427).
+    (Param::Vibrato, 0.15),
     (Param::ModWheel, 0.0),
     (Param::Model, 0.0),
     (Param::FenvAttack, 0.005),

@@ -1806,6 +1806,29 @@ mod tests {
         );
     }
 
+    /// #427: a patch that sets no vibrato depth still answers the mod wheel.
+    #[test]
+    fn the_mod_wheel_moves_the_default_patch() {
+        let pitch_range = |wheel: f32| {
+            let mut r = Rig::new(&[(Param::ModWheel, wheel), (Param::LfoRate, 5.0)]);
+            r.press(60);
+            let mut lo = f32::MAX;
+            let mut hi = f32::MIN;
+            for _ in 0..96 {
+                r.render(100);
+                let p = r.voice.mods().pitch[0];
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+            hi - lo
+        };
+        assert_eq!(pitch_range(0.0), 0.0, "no wheel, no vibrato");
+        assert!(
+            (pitch_range(1.0) - 0.6).abs() < 0.05,
+            "±0.3 semitone at full wheel"
+        );
+    }
+
     /// AR patched to the VCA keeps the voice sounding after the ADSR ends.
     #[test]
     fn ar_on_the_vca_shapes_the_note() {
