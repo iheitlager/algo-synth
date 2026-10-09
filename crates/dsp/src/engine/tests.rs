@@ -3695,6 +3695,35 @@ fn graph_out(body: &str, note: u8, secs: f32) -> Vec<f32> {
     left_of(&mut e, secs)
 }
 
+/// #433: `Select` plays the choice its index picks, truncated and clipped
+/// as SuperCollider's; switching changes the sound at once.
+#[test]
+fn a_select_switches_between_signals() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularBasic);
+    let body = "Select.ar(dir, [SinOsc.ar(freq), SinOsc.ar(freq * 2)]) * 0.5";
+    let code = format!("SynthDef(\\t, {{ |freq = 440, gate = 1, dir = 0| {body} }}).add;");
+    assert_eq!(e.set_code(0, &code), Ok(()));
+    let dir = e
+        .patch(0)
+        .and_then(|p| p.knobs.iter().find(|k| k.name == "dir"))
+        .and_then(|k| Param::ctl_param(k.ctl))
+        .expect("a dir switch");
+    e.note_on(0, 57, 1.0);
+    for (v, hz) in [
+        (0.0, 220.0),
+        (1.0, 440.0),
+        (0.9, 220.0),
+        (5.0, 440.0),
+        (-1.0, 220.0),
+    ] {
+        e.set_param(0, dir, v);
+        let left = left_of(&mut e, 0.2);
+        let got = pitch_of(&left[2400..]);
+        assert!((got - hz).abs() < 0.5, "dir {v}: {got} Hz");
+    }
+}
+
 fn left_of(e: &mut Engine, secs: f32) -> Vec<f32> {
     let mut left = Vec::new();
     for _ in 0..(secs * 48_000.0 / BLOCK as f32) as usize {
@@ -4195,7 +4224,11 @@ fn a_modular_synth_lists_its_knobs() {
     let rows: Vec<Vec<&str>> = list.lines().map(|l| l.split('\t').collect()).collect();
     let rlpf: Vec<&Vec<&str>> = rows.iter().filter(|r| r.get(1) == Some(&"RLPF")).collect();
     assert_eq!(rlpf.len(), 2, "{list}");
-    assert!(rows.iter().all(|r| r.len() == 8), "{list}");
+    assert!(rows.iter().all(|r| r.len() == 9), "{list}");
+    assert!(
+        rows.iter().all(|r| r.get(8) == Some(&"0")),
+        "no switches: {list}"
+    );
     let freq = rlpf
         .iter()
         .find(|r| r.get(2) == Some(&"freq"))
@@ -5048,6 +5081,15 @@ fn midi_knobs_turn_a_modular_synths_own_knobs() {
     assert!((e.param_value(0, ctl) - k.lo).abs() < 1.0e-3 * (k.hi - k.lo).abs().max(1.0));
     e.midi_in(0xB0, 70, 127);
     assert!((e.param_value(0, ctl) - k.hi).abs() < 1.0e-3 * (k.hi - k.lo).abs().max(1.0));
+
+    // #433: a switch snaps: its knob flips it at half-turn.
+    let code = "SynthDef(\\t, { |freq = 440, gate = 1, dir = 0| Select.ar(dir, [Saw.ar(freq), SinOsc.ar(freq)]) }).add;";
+    assert_eq!(e.set_code(0, code), Ok(()));
+    let dir = Param::ctl_param(0).expect("dir is the first knob");
+    for (v, want) in [(0, 0.0), (60, 0.0), (66, 1.0), (127, 1.0), (63, 0.0)] {
+        e.midi_in(0xB0, 70, v);
+        assert_eq!(e.param_value(0, dir), want, "knob at {v}");
+    }
 }
 
 /// #422: the pads (channel 10) hit the song's kit while the keys play the

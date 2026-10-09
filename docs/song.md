@@ -132,6 +132,10 @@ frag r = lead
   "c3 eb3 g3 <bb3 c4>"
 ```
 
+`Select.kr(which, [a, b, …])` plays one of its choices. A control used as
+its index is a switch: `|dir = 0|` in `Select.kr(dir, [saw.neg, saw])` flips
+between two positions, and with more choices it steps through them.
+
 The UGens, methods and limits are spec 005's (Requirement 11). Without code a
 `Modular` setting or track plays its preset's: `ModularBasic`,
 `ModularHoover` or `ModularKick` (a gabber kick).

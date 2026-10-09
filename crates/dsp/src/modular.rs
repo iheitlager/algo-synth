@@ -255,6 +255,14 @@ pub enum Ugen {
         n: u8,
         mean: bool,
     },
+    /// One of up to eight inputs, picked by `which` (SuperCollider's
+    /// `Select`): truncated to a whole number and clipped to the inputs.
+    /// The others run on, so switching back finds them where they were.
+    Select {
+        which: u16,
+        inputs: [u16; MAX_MIX],
+        n: u8,
+    },
     /// A number drawn when the note starts, between `lo` and `hi`
     /// (SuperCollider's `Rand` and `ExpRand`), from a seeded generator.
     Rand {
@@ -1038,6 +1046,16 @@ impl GraphVoice {
                 let n = usize::from(n).max(1);
                 let sum: f32 = inputs.iter().take(n).map(|i| st.val(*i)).sum();
                 if mean { sum / n as f32 } else { sum }
+            }
+            Ugen::Select { which, inputs, n } => {
+                let last = usize::from(n).max(1) - 1;
+                let w = st.val(which);
+                let i = if w.is_nan() || w < 0.0 {
+                    0
+                } else {
+                    (w as usize).min(last)
+                };
+                inputs.get(i).map_or(0.0, |i| st.val(*i))
             }
             Ugen::Neg(a) => -st.val(a),
             Ugen::Bin(op, a, b) => {

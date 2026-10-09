@@ -50,6 +50,9 @@ pub struct Knob {
     pub lo: f32,
     pub hi: f32,
     pub exp: bool,
+    /// 1 for a switch (a `Select` index, #433): it lands on whole numbers;
+    /// 0 for a knob that turns smoothly.
+    pub step: f32,
     /// The number as written, and where it is in the code (bytes).
     pub default: f32,
     pub span: (usize, usize),
@@ -969,7 +972,7 @@ impl Builder {
             return Err(CodeError {
                 line: at.0,
                 col: at.1,
-                msg: "the voice needs more than 250 nodes",
+                msg: "the voice needs more than 512 nodes",
             });
         };
         *slot = u;
@@ -1073,6 +1076,7 @@ impl Builder {
             lo,
             hi,
             exp,
+            step: 0.0,
             default: x,
             span,
         });
@@ -1263,7 +1267,7 @@ impl Builder {
                 }
             }
             (V::Num(c, _), "if") => self.call(V::Bool(*c != 0.0), name, args, kws, at),
-            (V::Sig(..), "if") => Err(err("an if on a signal needs Select, which is not here yet")),
+            (V::Sig(..), "if") => Err(err("an if on a signal is Select.kr(which, [a, b])")),
             (V::Num(n, _), "do") => {
                 let n = Self::count(&V::Num(*n, None), at)?;
                 if let Some(V::Func(f)) = args.first() {
@@ -1606,6 +1610,68 @@ impl Builder {
             nodes = next;
         }
         Ok(V::Sig(nodes.first().copied().unwrap_or(0), false))
+    }
+
+    /// `Select.kr(which, [a, b, …])`: one of up to eight choices (#433). A
+    /// knob as the index becomes a switch, stepping through the choices.
+    fn select(&mut self, args: Vec<V>, kws: Vec<(String, V)>, at: Pos) -> R<V> {
+        let err = |msg| CodeError {
+            line: at.0,
+            col: at.1,
+            msg,
+        };
+        let mut which = args.first().cloned();
+        let mut array = args.get(1).cloned();
+        for (k, v) in kws {
+            match k.as_str() {
+                "which" => which = Some(v),
+                "array" => array = Some(v),
+                _ => return Err(err("Select takes which and array")),
+            }
+        }
+        let (Some(which), Some(V::Arr(items))) = (which, array) else {
+            return Err(err("Select is Select.kr(which, [a, b, …])"));
+        };
+        if items.is_empty() || items.len() > MAX_MIX {
+            return Err(err("Select picks from 1 to 8 choices"));
+        }
+        let module = self.module("Select", at);
+        let which = self.input(&which, module, "which", UNIT, at)?;
+        let mut inputs = [0u16; MAX_MIX];
+        for (slot, v) in inputs.iter_mut().zip(&items) {
+            *slot = self.node(v, at)?;
+        }
+        let n = u8::try_from(items.len()).unwrap_or(1);
+        self.switch(which, items.len());
+        Ok(V::Sig(
+            self.push(Ugen::Select { which, inputs, n }, at)?,
+            false,
+        ))
+    }
+
+    /// If `node` is a knob, make it a switch through `choices` positions
+    /// (more, if another `Select` it picks for has more): whole numbers from
+    /// 0, its number rounded into them.
+    fn switch(&mut self, node: u16, choices: usize) {
+        let Some(Ugen::Ctl { index, .. }) = self.prog.nodes.get(usize::from(node)).copied() else {
+            return;
+        };
+        let Some(k) = self.knobs.iter_mut().find(|k| k.ctl == usize::from(index)) else {
+            return;
+        };
+        let top = (choices.saturating_sub(1) as f32).max(if k.step > 0.0 { k.hi } else { 0.0 });
+        k.lo = 0.0;
+        k.hi = top;
+        k.exp = false;
+        k.step = 1.0;
+        k.default = k.default.round().clamp(0.0, top);
+        if let Some(n) = self.prog.nodes.get_mut(usize::from(node)) {
+            *n = Ugen::Ctl {
+                index,
+                lo: 0.0,
+                hi: top,
+            };
+        }
     }
 
     /// Run `f` once per channel when an input is an array (multichannel
@@ -1964,6 +2030,7 @@ impl Builder {
                     _ => Err(err("EnvGen plays an Env: Env.adsr, Env.perc or Env.asr")),
                 }
             }
+            ("Select", "ar" | "kr") => self.select(args, kws, at),
             (_, "ar" | "kr") => self.ugen(c, method == "kr", args, kws, at),
             _ => Err(err("this class is not part of a SynthDef here")),
         }
@@ -2725,10 +2792,7 @@ mod tests {
         ));
         let e = compile("{ |freq, gate| if(gate, { Saw.ar(freq) }, { Pulse.ar(freq) }) }")
             .expect_err("signal");
-        assert_eq!(
-            e.msg,
-            "an if on a signal needs Select, which is not here yet"
-        );
+        assert_eq!(e.msg, "an if on a signal is Select.kr(which, [a, b])");
     }
 
     #[test]
@@ -2771,6 +2835,45 @@ mod tests {
         assert_eq!(verb.program.counts.verbs, 1);
         let names: Vec<&str> = verb.knobs.iter().map(|k| k.name.as_str()).collect();
         assert_eq!(names, vec!["mix", "room"]);
+    }
+
+    /// #433: a knob as `Select`'s index is a switch through the choices.
+    #[test]
+    fn a_select_index_is_a_switch() {
+        let p =
+            patch("{ |dir = 0, rate = 2| Select.ar(dir, [Saw.ar(440), SinOsc.ar(440)]) * rate }");
+        let dir = p.knobs.iter().find(|k| k.name == "dir").expect("dir");
+        assert_eq!((dir.lo, dir.hi, dir.step, dir.exp), (0.0, 1.0, 1.0, false));
+        let rate = p.knobs.iter().find(|k| k.name == "rate").expect("rate");
+        assert_eq!(rate.step, 0.0, "a knob not used as an index turns");
+        assert_eq!(count(&p, |u| matches!(u, Ugen::Select { n: 2, .. })), 1);
+        assert_eq!(
+            count(&p, |u| matches!(u, Ugen::Ctl { hi, .. } if *hi == 1.0)),
+            1,
+            "the switch's node clamps to its positions (rate's is 0..4)"
+        );
+
+        // A number as the index is a switch too, its value rounded into
+        // the choices; the widest Select a knob picks for sets its range.
+        let p = patch(
+            "{ |pick = 1.6| Select.kr(pick, [1, 2, 3]) + Select.kr(pick, [1, 2]) + Select.kr(0.4, [5, 6]) }",
+        );
+        let pick = p.knobs.iter().find(|k| k.name == "pick").expect("pick");
+        assert_eq!((pick.hi, pick.default, pick.step), (2.0, 2.0, 1.0));
+        let which = p
+            .knobs
+            .iter()
+            .find(|k| k.name == "which")
+            .expect("a literal index");
+        assert_eq!((which.hi, which.default, which.step), (1.0, 0.0, 1.0));
+        assert_eq!(
+            p.modules.get(which.module).map(|m| m.name.as_str()),
+            Some("Select")
+        );
+
+        // A signal as the index makes no switch.
+        let p = patch("{ |rate = 2| Select.ar(LFPulse.kr(rate), [Saw.ar(440), SinOsc.ar(440)]) }");
+        assert!(p.knobs.iter().all(|k| k.step == 0.0));
     }
 
     #[test]
@@ -2820,6 +2923,36 @@ mod tests {
                 1,
                 3,
                 "strings are not part of a SynthDef here",
+            ),
+            (
+                "{ Select.ar(0, Saw.ar(440)) }",
+                1,
+                3,
+                "Select is Select.kr(which, [a, b, …])",
+            ),
+            (
+                "{ Select.ar(0, []) }",
+                1,
+                3,
+                "Select picks from 1 to 8 choices",
+            ),
+            (
+                "{ Select.ar(0, [1, 2, 3, 4, 5, 6, 7, 8, 9]) }",
+                1,
+                3,
+                "Select picks from 1 to 8 choices",
+            ),
+            (
+                "{ Select.ar(0, [1, 2], wrap: 1) }",
+                1,
+                3,
+                "Select takes which and array",
+            ),
+            (
+                "{ Select.ar(0, [[1, 2], 3]) }",
+                1,
+                3,
+                "this is not a signal",
             ),
         ] {
             let e = compile(src).expect_err(src);

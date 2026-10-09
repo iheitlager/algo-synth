@@ -586,16 +586,22 @@ const LIVE_WORDS = ['the arpeggiator', 'its sample zones', 'its sampled pads', '
 /** What synth `s` has that isn't in the song, as words; empty when the song holds it all. */
 export const notInSong = (s: number): string[] => LIVE_WORDS.filter((_, i) => ((liveOnly.bits[s] ?? 0) >> i) & 1)
 
-/** A knob of a Modular synth's code (#329): a number of the SynthDef, on `Ctl1` + `ctl`. */
-export interface CodeKnob { module: number; ugen: string; name: string; ctl: number; lo: number; hi: number; exp: boolean; def: number }
+/**
+ * A knob of a Modular synth's code (#329): a number of the SynthDef, on `Ctl1` + `ctl`.
+ * `step` is 1 for a switch (a `Select` index, #433), 0 for a knob that turns smoothly.
+ */
+export interface CodeKnob { module: number; ugen: string; name: string; ctl: number; lo: number; hi: number; exp: boolean; def: number; step: number }
 /** Each Modular synth's knobs, as the engine lists them with its code. */
 export const codeKnobs = reactive({} as Record<number, CodeKnob[]>)
 
 /** The engine's knob list: one tab-separated line per knob (`Engine::knob_list`). */
 export function parseKnobs(text: string): CodeKnob[] {
   return text.split('\n').filter(Boolean).map((line) => {
-    const [module, ugen, name, ctl, lo, hi, exp, def] = line.split('\t')
-    return { module: Number(module), ugen: ugen ?? '', name: name ?? '', ctl: Number(ctl), lo: Number(lo), hi: Number(hi), exp: exp === '1', def: Number(def) }
+    const [module, ugen, name, ctl, lo, hi, exp, def, step] = line.split('\t')
+    return {
+      module: Number(module), ugen: ugen ?? '', name: name ?? '', ctl: Number(ctl), lo: Number(lo), hi: Number(hi),
+      exp: exp === '1', def: Number(def), step: Number(step ?? 0) || 0,
+    }
   })
 }
 

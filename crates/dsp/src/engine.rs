@@ -582,7 +582,8 @@ impl Engine {
     }
 
     /// Modular `synth`'s knobs for its panel (#329), one line each:
-    /// `module, UGen, name, ctl, lo, hi, exp (0/1), default`, tab-separated;
+    /// `module, UGen, name, ctl, lo, hi, exp (0/1), default, step`,
+    /// tab-separated, the step 1 for a switch and 0 for a knob (#433);
     /// empty for another model. Kept for the C ABI until the next call.
     pub fn knob_list(&mut self, synth: usize) -> &str {
         let mut text = String::new();
@@ -590,7 +591,7 @@ impl Engine {
             for k in &patch.knobs {
                 let ugen = patch.modules.get(k.module).map_or("", |m| m.name.as_str());
                 text.push_str(&format!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                     k.module,
                     ugen,
                     k.name,
@@ -598,7 +599,8 @@ impl Engine {
                     k.lo,
                     k.hi,
                     u8::from(k.exp),
-                    k.default
+                    k.default,
+                    k.step
                 ));
             }
         }
@@ -778,11 +780,15 @@ impl Engine {
             return;
         };
         let now = f32::from(value) / 127.0;
-        let at = span.pos(self.param_value(synth, param));
+        let current = self.param_value(synth, param);
+        let at = span.pos(current);
         let Some(last) = self.midi_in.knobs.get_mut(knob) else {
             return;
         };
-        let takes = midi::takes_over(*last, now, at);
+        // A switch snaps, so its knob sits anywhere on the position that
+        // gives the value: there, the knob holds it (#433).
+        let holds = |pos: f32| span.step > 0.0 && span.value(pos) == current;
+        let takes = midi::takes_over(*last, now, at) || holds(now) || last.is_some_and(holds);
         *last = Some(now);
         if takes {
             self.edit_param(synth, param, span.value(now));
@@ -797,7 +803,7 @@ impl Engine {
         if model.uses_graph() {
             let k = self.patch(synth)?.knobs.get(knob)?;
             let param = Param::ctl_param(k.ctl)?;
-            return Some((param, midi::Span::new(k.lo, k.hi, k.exp)));
+            return Some((param, midi::Span::new(k.lo, k.hi, k.exp).stepped(k.step)));
         }
         let param = *midi::knob_params(model)?.get(knob)?;
         Some((param, midi::Span::of(param)))
