@@ -269,7 +269,7 @@ notes, on a synth or a sampler track, takes no grid but the default `/16`:
 ```text
 <pad> <steps>…  |  <pad> euclid(<hits>,<steps>[,<rotation>])
 pad  = bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd
-step = x hit | X accent | o ghost | f flam | d drag | . rest
+step = x hit | X accent | o ghost | f flam | d drag | . rest, then maybe a ratchet 2–4 on x X o
 grid = /16 (default) | /12 | /24 | /32 | /48     steps to a bar
 ```
 
@@ -279,7 +279,9 @@ are for reading. Each lane loops on its own length, 1 to 64 steps
 (polymeter). `euclid` spreads the hits evenly over its steps on the grid (no
 spaces inside, no more hits than steps). A ghost plays softly; a flam adds one
 soft grace 20 ms before its hit, a drag two (30 and 15 ms). Every frag keeps
-its own grid in time with the others; swing moves a step's hits with it.
+its own grid in time with the others; swing moves a step's hits with it. A
+digit after `x`, `X` or `o` is a ratchet: `x3` plays the hit three times,
+evenly across its step (2 to 4), and counts as one step.
 
 ```song
 tempo 124
@@ -296,6 +298,9 @@ frag trip = kit /24
   sn ..x..x..x..x..x..X..X..X
 frag rudiments = kit
   sn f...o.o.d...o.o.f.f.d.d.X...X...
+frag rolls = kit
+  sn x...x3..x...X4..
+  ch x2.x.x2.x.x3.x.o2.x.
 ```
 
 ### Notes

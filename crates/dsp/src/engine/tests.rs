@@ -4499,6 +4499,44 @@ fn flams_and_drags_put_their_graces_before_the_hit() {
     );
 }
 
+/// #242: a ratchet plays its hit 2–4 times, evenly across its step's span:
+/// on /16 a step is 6000 samples at 120 BPM, on /12 8000, and a /12 step
+/// that runs past a clock step still splits its own span.
+#[test]
+fn a_ratchet_splits_its_step_evenly() {
+    assert_eq!(
+        lane_starts(120, 16, "x3..X2..........", 48_000),
+        vec![0, 2_000, 4_000, 18_000, 21_000]
+    );
+    assert_eq!(
+        lane_starts(120, 12, ".x4..........", 24_000),
+        vec![8_000, 10_000, 12_000, 14_000]
+    );
+}
+
+/// #242: the grid ratchets a step through the engine, and the text follows;
+/// a rest or a flam can't repeat, and a step made a rest loses its ratchet.
+#[test]
+fn set_ratchet_edits_the_song_and_its_text() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    assert!(e.set_ratchet(0, 0, 4, 3));
+    assert!(
+        e.song_text().contains("  bd x...x3...x...x...\n"),
+        "{}",
+        e.song_text()
+    );
+    assert!(!e.set_ratchet(0, 0, 1, 2), "a rest can't repeat");
+    assert!(!e.set_ratchet(0, 0, 4, 5), "at most 4");
+    assert!(e.set_step(0, 0, 4, 0));
+    assert!(
+        e.song_text().contains("  bd x.......x...x...\n"),
+        "{}",
+        e.song_text()
+    );
+    assert!(e.song().frags[0].lanes[0].ratchets.is_empty());
+}
+
 /// #353: a flam on the first step of play has nothing before it to sound
 /// its grace in; from the second time round it has.
 #[test]

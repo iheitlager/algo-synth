@@ -83,6 +83,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'song': this.loadSong(new Uint8Array(data.bytes)); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
+        case 'ratchet': w.set_ratchet(data.f, data.l, data.s, data.r); this.sendSong(true); break
         // A track's mute and solo (#355): bit 0 mute, bit 1 solo.
         case 'trackFlags': w.set_track_flags(data.track, data.flags); this.sendSong(true); break
         case 'note':
@@ -258,7 +259,10 @@ class EngineProcessor extends AudioWorkletProcessor {
       for (let l = 0; l < w.frag_lanes(f); l++) {
         const steps = new Uint8Array(w.lane_steps(f, l))
         for (let s = 0; s < steps.length; s++) steps[s] = w.step_level(f, l, s)
-        lanes.push({ pad: w.lane_pad(f, l), steps })
+        // How often each step plays in its span (#242): 1 from an engine without ratchets.
+        const ratchets = new Uint8Array(steps.length).fill(1)
+        if (w.step_ratchet) for (let s = 0; s < steps.length; s++) ratchets[s] = w.step_ratchet(f, l, s)
+        lanes.push({ pad: w.lane_pad(f, l), steps, ratchets })
       }
       // Its steps to a bar (#353): 16 from an engine that has no other.
       const grid = w.frag_grid ? w.frag_grid(f) : 16

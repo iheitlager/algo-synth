@@ -228,6 +228,7 @@ fn random_song(r: &mut Rng) -> Song {
                 pad,
                 steps,
                 call: None,
+                ratchets: Vec::new(),
             });
         }
         song.frags.push(Fragment {
@@ -2267,6 +2268,42 @@ fn a_ghost_note_parses_and_prints_back() {
     assert_eq!(Step::Ghost.velocity(), Some(crate::song::GHOST_VELOCITY));
     assert_eq!(Step::from_level(3), Some(Step::Ghost));
     assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
+}
+
+/// #242: a digit after a hit, accent or ghost ratchets it; the lane counts
+/// steps, not digits, and prints back as written. A ratchet goes only on
+/// x, X or o, and is 2, 3 or 4.
+#[test]
+fn ratchets_parse_print_back_and_say_where_they_are_wrong() {
+    let text = "tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn x3.X2.o4.x...\n";
+    let song = Song::parse(text).expect("parses");
+    let lane = &song.frags[0].lanes[0];
+    assert_eq!(lane.steps.len(), 10);
+    let reps: Vec<u8> = (0..10).map(|n| lane.ratchet(n)).collect();
+    assert_eq!(reps, [3, 1, 2, 1, 4, 1, 1, 1, 1, 1]);
+    assert!(
+        song.print().contains("  sn x3.X2.o4.x...\n"),
+        "{}",
+        song.print()
+    );
+    assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
+    let plain = Song::parse("track kit drums\nfrag a = kit\n  sn x.x.\n").expect("parses");
+    assert!(
+        plain.frags[0].lanes[0].ratchets.is_empty(),
+        "no ratchet, nothing kept"
+    );
+    let head = "track kit drums\nfrag a = kit\n";
+    for (lane, col, msg) in [
+        ("  sn 3x", 6, "a ratchet follows a step: x3"),
+        ("  sn f2", 7, "only x, X and o take a ratchet"),
+        ("  sn .2", 7, "only x, X and o take a ratchet"),
+        ("  sn x1", 7, "a ratchet is 2, 3 or 4"),
+        ("  sn x5", 7, "a ratchet is 2, 3 or 4"),
+        ("  sn x33", 8, "a ratchet is 2, 3 or 4"),
+    ] {
+        let err = Song::parse(&format!("{head}{lane}\n")).expect_err(lane);
+        assert_eq!((err.line, err.col, err.msg), (3, col, msg), "{lane}");
+    }
 }
 
 /// #355: `mute` and `solo` end a track line, print back and decide which

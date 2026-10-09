@@ -272,6 +272,9 @@ frag beat = kit /16
   grace stroke 20 ms before its hit, `d` two (30 and 15 ms); the hit stays on
   its step, and on a fast, fine grid the graces close up to fit. A flam on the
   very first step of play has nothing before it to sound its grace in.
+- **Ratchets:** a digit after `x`, `X` or `o` repeats the hit inside its step,
+  evenly: `x3` is three hits, `X2` two accented ones, up to 4. It is still one
+  step. In the composer, shift-click a step to cycle it 1 → 2 → 3 → 4 → 1.
 - **Grids:** every frag keeps its own, and they stay in time with each other
   and with note frags; swing moves a hit between steps with its step.
 

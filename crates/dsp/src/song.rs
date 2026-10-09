@@ -194,6 +194,11 @@ impl Step {
         }
     }
 
+    /// Whether a ratchet may repeat it (#242): a hit, an accent or a ghost.
+    pub fn repeats(self) -> bool {
+        matches!(self, Step::Hit | Step::Accent | Step::Ghost)
+    }
+
     /// How long before the hit each grace stroke falls, in milliseconds,
     /// earliest first: a flam's one, a drag's two (#353).
     pub fn graces(self) -> &'static [f32] {
@@ -212,6 +217,52 @@ pub struct Lane {
     pub steps: Vec<Step>,
     /// The call that made the steps (`euclid(3,8)`); editing a step drops it.
     pub call: Option<Euclid>,
+    /// Ratchets (#242): how often each step plays inside its span, 1–4.
+    /// Empty when no step repeats, else as long as `steps`.
+    pub ratchets: Vec<u8>,
+}
+
+/// The most hits a ratchet plays in one step (#242).
+pub const MAX_RATCHET: u8 = 4;
+
+impl Lane {
+    /// How often step `n` plays inside its span: 1 unless it is ratcheted.
+    pub fn ratchet(&self, n: usize) -> u8 {
+        self.ratchets.get(n).copied().unwrap_or(1).max(1)
+    }
+
+    /// Step `n` with its ratchet, as the text writes it: `x`, `x3`.
+    fn step_text(&self, n: usize) -> String {
+        let st = self.steps.get(n).map_or('.', |s| s.char());
+        match self.ratchet(n) {
+            1 => st.to_string(),
+            r => format!("{st}{r}"),
+        }
+    }
+
+    /// Set step `n` to play `r` times (1–4); only a hit, accent or ghost
+    /// repeats. False when there is no such step or it can't.
+    pub fn set_ratchet(&mut self, n: usize, r: u8) -> bool {
+        let Some(st) = self.steps.get(n) else {
+            return false;
+        };
+        if !(1..=MAX_RATCHET).contains(&r) || (r > 1 && !st.repeats()) {
+            return false;
+        }
+        if self.ratchets.is_empty() {
+            if r == 1 {
+                return true;
+            }
+            self.ratchets = vec![1; self.steps.len()];
+        }
+        if let Some(slot) = self.ratchets.get_mut(n) {
+            *slot = r;
+        }
+        if self.ratchets.iter().all(|r| *r == 1) {
+            self.ratchets.clear();
+        }
+        true
+    }
 }
 
 /// A loop on a track: one lane per pad on a drum track, one line of notes on
@@ -1583,7 +1634,7 @@ impl Song {
             for l in &f.lanes {
                 let steps: String = match &l.call {
                     Some(e) => e.print(),
-                    None => l.steps.iter().map(|st| st.char()).collect(),
+                    None => (0..l.steps.len()).map(|n| l.step_text(n)).collect(),
                 };
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
@@ -1869,6 +1920,19 @@ impl Song {
     }
 
     /// Set one step; false when there is no such step.
+    /// Set step `step` of a lane to play `r` times in its span (#242); see
+    /// `Lane::set_ratchet`. Editing drops the lane's call, as a step does.
+    pub fn set_ratchet(&mut self, frag: usize, lane: usize, step: usize, r: u8) -> bool {
+        let Some(l) = self.frags.get_mut(frag).and_then(|f| f.lanes.get_mut(lane)) else {
+            return false;
+        };
+        if !l.set_ratchet(step, r) {
+            return false;
+        }
+        l.call = None;
+        true
+    }
+
     pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, to: Step) -> bool {
         let slot = self
             .frags
@@ -1880,6 +1944,10 @@ impl Song {
                 *s = to;
                 if let Some(l) = self.frags.get_mut(frag).and_then(|f| f.lanes.get_mut(lane)) {
                     l.call = None;
+                    // A step that can't repeat loses its ratchet (#242).
+                    if !to.repeats() {
+                        l.set_ratchet(step, 1);
+                    }
                 }
                 true
             }
@@ -2550,25 +2618,48 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
             pad,
             steps,
             call: Some(e),
+            ratchets: Vec::new(),
         });
     }
-    let mut steps = Vec::new();
+    let mut steps: Vec<Step> = Vec::new();
+    let mut ratchets: Vec<u8> = Vec::new();
     for w in ws.iter().skip(1) {
         for (k, c) in w.text.chars().enumerate() {
+            // A digit after a hit, accent or ghost repeats it in its step (#242).
+            if let Some(d) = c.to_digit(10) {
+                let Some(last) = steps.last().copied() else {
+                    return Err(err(w.col + k, "a ratchet follows a step: x3"));
+                };
+                if !last.repeats() {
+                    return Err(err(w.col + k, "only x, X and o take a ratchet"));
+                }
+                if !(2..=u32::from(MAX_RATCHET)).contains(&d) || ratchets.last() != Some(&1) {
+                    return Err(err(w.col + k, "a ratchet is 2, 3 or 4"));
+                }
+                if let Some(r) = ratchets.last_mut() {
+                    *r = d as u8;
+                }
+                continue;
+            }
             let step = Step::from_char(c).ok_or(err(w.col + k, "a step is x, X, o, f, d or ."))?;
             if steps.len() >= MAX_STEPS {
                 return Err(err(w.col + k, "a lane has at most 64 steps"));
             }
             steps.push(step);
+            ratchets.push(1);
         }
     }
     if steps.is_empty() {
         return Err(err(first.col, "a lane needs its steps: x, X, o, f, d or ."));
     }
+    if ratchets.iter().all(|r| *r == 1) {
+        ratchets.clear();
+    }
     Ok(Lane {
         pad,
         steps,
         call: None,
+        ratchets,
     })
 }
 

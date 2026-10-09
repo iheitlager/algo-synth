@@ -520,7 +520,8 @@ export function mapSample(s: number, slot: number) {
 }
 
 /** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent, 3 ghost, 4 flam, 5 drag. */
-export interface SongLane { pad: number; steps: number[] }
+/** A drum lane: its pad, each step's level, and how often each plays in its span (#242). */
+export interface SongLane { pad: number; steps: number[]; ratchets: number[] }
 /** One note of a fragment: start and length in ticks (48 to a bar, 3 to a sixteenth), MIDI note, accent. */
 export interface SongNote { start: number; len: number; note: number; accent: boolean }
 /**
@@ -656,6 +657,13 @@ export function typeSong(text: string) {
 export const setStep = (f: number, l: number, s: number, level: number) =>
   engine?.post({ t: 'step', f, l, s, level })
 
+/** A step's next ratchet as shift-click cycles it (#242): 1 → 2 → 3 → 4 → 1 on a hit, accent or ghost (levels 1–3); others stay 1. */
+export const nextRatchet = (level: number, r: number) => (level >= 1 && level <= 3 ? (r % 4) + 1 : 1)
+
+/** Ratchet one step (#242): it plays `r` (1–4) times in its span; the engine sends the song back. */
+export const setRatchet = (f: number, l: number, s: number, r: number) =>
+  engine?.post({ t: 'ratchet', f, l, s, r })
+
 /** Mute and solo song track `t` (#355); the engine sends the song back. */
 export const setTrackFlags = (t: number, mute: boolean, solo: boolean) =>
   engine?.post({ t: 'trackFlags', track: t, flags: (mute ? 1 : 0) | (solo ? 2 : 0) })
@@ -755,12 +763,12 @@ export function applySong(data: Record<string, unknown>) {
     nameByTrack(t.synth, t.name)
   }
   song.frags = (data.frags as {
-    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array }[]; grid?: number
+    name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array; ratchets?: Uint8Array }[]; grid?: number
     notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null
   }[]).map((f) => ({
     name: decoder.decode(f.name),
     track: f.track,
-    lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps) })),
+    lanes: f.lanes.map((l) => ({ pad: l.pad, steps: Array.from(l.steps), ratchets: Array.from(l.ratchets ?? l.steps, (r) => (l.ratchets ? r : 1)) })),
     grid: f.grid ?? 16,
     notes: f.notes
       ? {

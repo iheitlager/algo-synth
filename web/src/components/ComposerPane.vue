@@ -7,7 +7,7 @@ import { LIMITS, setSplit, splits } from '../audio/split'
 import Splitter from './Splitter.vue'
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, cueFrag, loadSong, params, requestSong, routeTrack, typeSong, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  MUTE, cueFrag, loadSong, nextRatchet, params, requestSong, routeTrack, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -45,6 +45,9 @@ const dirty = computed(() => song.draft !== song.text)
 // Off → hit → accent → off.
 // A click cycles off → hit → accent → off; a ghost, flam or drag (written in the text) clicks off.
 const cycle = (f: number, l: number, s: number, level: number) => setStep(f, l, s, level < 2 ? level + 1 : 0)
+// Shift-click cycles a sounding step's ratchet, 1 → 2 → 3 → 4 → 1 hits in its span (#242).
+const click = (e: MouseEvent, f: number, l: number, s: number, level: number, r: number) =>
+  e.shiftKey ? setRatchet(f, l, s, nextRatchet(level, r)) : cycle(f, l, s, level)
 // The section playing now, in an arrangement.
 const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[song.entry]] : undefined))
 // The step a lane plays now, looping on its own length; in an arrangement it counts from the section's start,
@@ -139,9 +142,9 @@ watch(() => status.running, (on) => on && requestSong())
                 v-for="(level, s) in lane.steps" :key="s"
                 class="step" :class="[`l${level}`, { beat: s % (frag.grid / 4) === 0, now: s === playing(f, lane.steps.length, frag.grid) }]"
                 :style="{ '--hit': synthColour(song.tracks[frag.track]?.synth ?? 0) }"
-                :title="`${padName(lane.pad)} step ${s + 1}`"
-                @click="cycle(f, l, s, level)"
-              />
+                :title="`${padName(lane.pad)} step ${s + 1}${(lane.ratchets[s] ?? 1) > 1 ? `, ${lane.ratchets[s]} hits` : ''} (shift-click: ratchet)`"
+                @click="click($event, f, l, s, level, lane.ratchets[s] ?? 1)"
+              >{{ (lane.ratchets[s] ?? 1) > 1 ? lane.ratchets[s] : '' }}</button>
             </div>
           </div>
         </div>
@@ -185,7 +188,7 @@ watch(() => status.running, (on) => on && requestSong())
 .lane { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .pad { width: 2.2em; font-family: var(--font-mono); color: var(--muted); }
 .steps { display: flex; gap: 3px; }
-.step { width: 26px; height: 26px; padding: 0; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); }
+.step { width: 26px; height: 26px; padding: 0; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); font-size: 11px; font-weight: 600; color: var(--text); }
 .step.beat { margin-left: 6px; }
 .step.l1 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); }
 .step.l2 { background: var(--hit); }
