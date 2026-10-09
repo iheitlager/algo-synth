@@ -2,7 +2,7 @@
 // Wide-screen layout (spec 003): transport on top, the synths, the mixer
 // console or the composer, with the arranger across the bottom, and the
 // Assistant beside them when shown (#387).
-import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { loadSong, song, status, synths, view } from './audio/engine'
 import { CHANNEL, assistant, serveWindow, type AssistHost, type LinkState } from './audio/assistlink'
 import { LIMITS, setSplit, splits } from './audio/split'
@@ -15,6 +15,9 @@ import KnobPop from './components/console/KnobPop.vue'
 import InstrumentsPane from './components/InstrumentsPane.vue'
 import Splitter from './components/Splitter.vue'
 import TransportBar from './components/TransportBar.vue'
+
+/** The views whose arranger height is dragged (#373); the decks keep theirs. */
+const resizable = computed(() => ['composer', 'synths', 'mixer'].includes(view.main))
 
 // A strip's faceplate is one double-click away: select the synth and show the synths.
 function openSynth(s: number) {
@@ -68,9 +71,9 @@ function popOut() {
 
 <template>
   <div
-    class="layout" :class="{ mixer: view.main === 'mixer', composer: view.main === 'composer', assist: assistant.shown }"
+    class="layout" :class="{ mixer: view.main === 'mixer', composer: view.main === 'composer', resizable, assist: assistant.shown }"
     :style="{
-      '--arranger': view.main === 'composer' && splits.arranger != null ? `${splits.arranger}px` : undefined,
+      '--arranger': resizable && splits.arranger != null ? `${splits.arranger}px` : undefined,
       '--assistant': splits.assistant != null ? `${splits.assistant}px` : undefined,
     }"
   >
@@ -85,9 +88,9 @@ function popOut() {
     <ConsolePane v-if="view.main === 'mixer'" class="main" @open-synth="openSynth" />
     <ComposerPane v-if="view.main === 'composer'" class="main" />
     <DecksPane v-if="view.main === 'decks'" class="main" />
-    <!-- In the composer the arranger's height is dragged (#373). -->
+    <!-- In the composer, the synths and the mixer the arranger's height is dragged (#373). -->
     <Splitter
-      v-if="view.main === 'composer'" class="split" between="rows" :size="splits.arranger" :min="LIMITS.arranger"
+      v-if="resizable" class="split" between="rows" :size="splits.arranger" :min="LIMITS.arranger"
       label="Height of the arranger" @resize="(v) => setSplit('arranger', v)"
     />
     <!-- The bottom pane: the arranger, under every view (ADR-0015, ADR-0022). -->
@@ -124,12 +127,13 @@ function popOut() {
     'main'
     'arranger';
 }
-.layout.mixer { grid-template-rows: auto minmax(0, 1fr) 200px; }
-.layout.composer {
-  grid-template-rows: auto minmax(0, 1fr) 6px var(--arranger, minmax(180px, 30vh));
+.layout.resizable {
+  grid-template-rows: auto minmax(0, 1fr) 6px var(--arranger, minmax(220px, 36vh));
   grid-template-areas: 'transport' 'main' 'split' 'arranger';
   row-gap: 4px;
 }
+.layout.resizable.mixer { grid-template-rows: auto minmax(0, 1fr) 6px var(--arranger, 200px); }
+.layout.resizable.composer { grid-template-rows: auto minmax(0, 1fr) 6px var(--arranger, minmax(180px, 30vh)); }
 /* The Assistant (#387): a third column beside every view, under the transport. */
 .layout.assist { grid-template-columns: minmax(0, 1fr) 6px var(--assistant, minmax(300px, 26%)); column-gap: 4px; }
 .layout.assist .transport { grid-column: 1 / -1; }
