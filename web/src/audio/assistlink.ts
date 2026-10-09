@@ -10,11 +10,11 @@ export const CHANNEL = 'algo-synth-assistant'
 /** In the main window: whether the Assistant pane is shown, and whether a window of its own is open. */
 export const assistant = reactive({ shown: false, popped: false })
 
-/** What the Assistant needs of the song: its text, the default focus (the cued fragment) and the fragments to pick. */
+/** What the Assistant needs of the song: its text, the default focus (the cued fragment's track) and the tracks to pick (#415). */
 export interface LinkState {
   song: string
   focus: string | null
-  frags: string[]
+  tracks: string[]
   /** Whether the engine runs, so a song can be applied. */
   running: boolean
 }

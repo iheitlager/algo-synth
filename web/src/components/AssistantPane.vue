@@ -72,7 +72,8 @@ function onProvider(id: string) {
   model.value = pickModel(id)
 }
 
-// The cued fragment (#375) is the default focus; the user may pick another.
+// The cued fragment's track (#375) is the default focus; the user may pick
+// another. With a track in focus the server refuses changes outside it (#415).
 watch(() => props.host.link.focus, (f) => (focus.value = f ?? ''), { immediate: true })
 
 function scrollDown() {
@@ -208,9 +209,9 @@ onMounted(check)
           <select v-model="model" class="picker" aria-label="Model">
             <option v-for="m in models" :key="m.id" :value="m.id">{{ m.id }}</option>
           </select>
-          <select v-model="focus" class="picker" aria-label="Focus" title="Work on one fragment, or the whole song">
+          <select v-model="focus" class="picker" aria-label="Focus" title="Change one instrument only, or the whole song">
             <option value="">Whole song</option>
-            <option v-for="f in host.link.frags" :key="f" :value="f">{{ f }}</option>
+            <option v-for="t in host.link.tracks" :key="t" :value="t">{{ t }}</option>
           </select>
         </div>
         <textarea v-model="request" rows="3" placeholder="What should change? Ctrl+Enter sends" aria-label="Request" @keydown="onKey" />

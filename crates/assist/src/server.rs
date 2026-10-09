@@ -305,7 +305,7 @@ mod tests {
     }
 
     fn ask(provider: &str, model: &str) -> serde_json::Value {
-        json!({"song": SONG, "request": "add a snare", "provider": provider, "model": model, "focus": "beat"})
+        json!({"song": SONG, "request": "add a snare", "provider": provider, "model": model, "focus": "kit"})
     }
 
     #[tokio::test]
