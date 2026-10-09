@@ -51,6 +51,9 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'param': w.set_param(data.s, data.id, data.v); break
         case 'on': w.note_on(data.s, data.n, data.v); break
         case 'off': w.note_off(data.s, data.n); break
+        // A controller's message as it came, and the synth its keys play (#10).
+        case 'midiIn': w.midi_in(data.b[0], data.b[1], data.b[2]); break
+        case 'midiTarget': w.midi_target(data.s); break
         case 'panic': w.all_off(); break
         case 'foldHold': this.foldHeld = !!data.on; break
         // Every synth on screen is a song track (ADR-0027).

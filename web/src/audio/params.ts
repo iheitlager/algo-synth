@@ -541,6 +541,8 @@ export const Param = {
   Revision: 534,
   VcoRev: 535,
   EnvRev: 536,
+  PitchBend: 537,
+  BendRange: 538,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

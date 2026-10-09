@@ -16,6 +16,7 @@ use crate::fx::ensemble::Ensemble;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
+use crate::midi::{self, MidiIn};
 use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS, STRIPS};
 use crate::mono::MonoParams;
 use crate::mono::ladder::LadderTables;
@@ -235,6 +236,8 @@ pub struct Engine {
     hit_count: usize,
     /// Each synth's live arpeggiator (spec 002 Req 7).
     arps: [Arp; SYNTHS],
+    /// MIDI input's target and held notes (#10).
+    midi_in: MidiIn,
     /// The arps' own grid while the song's clock is stopped: ticks fired, the
     /// sample the next one is on, and the samples run so far. Reset when the
     /// clock starts or stops.
@@ -311,6 +314,7 @@ impl Engine {
             hits: [NO_HIT; HITS],
             hit_count: 0,
             arps: [Arp::default(); SYNTHS],
+            midi_in: MidiIn::default(),
             free_tick: 0,
             free_next: 0.0,
             free_pos: 0,
@@ -684,6 +688,39 @@ impl Engine {
         self.preset(0, Preset::ModularBasic);
         // Every synth on screen is a track (ADR-0027).
         let _ = self.track_add(0, Preset::ModularBasic);
+    }
+
+    /// The synth MIDI input plays (#10): the one selected in the view.
+    pub fn set_midi_target(&mut self, synth: usize) {
+        if synth < SYNTHS {
+            self.midi_in.target = synth;
+        }
+    }
+
+    /// One MIDI message from a controller (#257 stage 1, #10): keys play the
+    /// target synth, a key's release goes where it started, the wheels move
+    /// its `PitchBend` and `ModWheel`. Other messages are ignored for now.
+    pub fn midi_in(&mut self, status: u8, d1: u8, d2: u8) {
+        let target = self.midi_in.target;
+        match midi::decode(status, d1, d2) {
+            Some(midi::Event::NoteOn { note, velocity, .. }) => {
+                self.midi_in.press(note, target);
+                self.note_on(target, note, velocity);
+            }
+            Some(midi::Event::NoteOff { note, .. }) => {
+                let synth = self.midi_in.release(note);
+                self.note_off(synth, note);
+            }
+            Some(midi::Event::Bend { value, .. }) => {
+                self.set_param(target, Param::PitchBend, value)
+            }
+            Some(midi::Event::Control {
+                number: midi::MOD_WHEEL,
+                value,
+                ..
+            }) => self.set_param(target, Param::ModWheel, f32::from(value) / 127.0),
+            _ => {}
+        }
     }
 
     /// Live input: press a key on `synth`'s live voice, or, with its arp on,

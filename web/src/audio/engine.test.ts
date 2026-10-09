@@ -76,9 +76,10 @@ describe('power', () => {
     const { mod, posted } = await boot({ storage: { 'algo-synth:song': 'tempo 90' } })
     expect(mod.status.running).toBe(true)
     expect(mod.status.sampleRate).toBe(48000)
-    expect(posted).toHaveLength(1)
-    expect(posted[0]?.t).toBe('song')
-    expect(new TextDecoder().decode(posted[0]?.bytes as ArrayBuffer)).toBe('tempo 90')
+    // First the synth a MIDI controller plays (#10), then the song.
+    expect(posted.map((m) => m.t)).toEqual(['midiTarget', 'song'])
+    expect(posted[0]?.s).toBe(0)
+    expect(new TextDecoder().decode(posted[1]?.bytes as ArrayBuffer)).toBe('tempo 90')
     expect(mod.song.draft).toBe('tempo 90')
     // A second power resumes the context instead of building another engine.
     const ctx = mod.getEngine()?.ctx as unknown as { resume: ReturnType<typeof vi.fn> }
@@ -283,7 +284,7 @@ describe('Modular knobs (#329)', () => {
 describe('New (#325)', () => {
   it('starts fresh on one Modular synth when no song is kept', async () => {
     const { mod, names, posted } = await boot()
-    expect(posted.map((m) => m.t)).toEqual(['clear'])
+    expect(posted.map((m) => m.t)).toEqual(['midiTarget', 'clear'])
     expect(mod.synths.list).toEqual([0])
     expect(names.stripName(0)).toBe('Synth 1')
   })

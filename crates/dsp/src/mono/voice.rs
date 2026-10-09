@@ -562,7 +562,7 @@ impl MonoVoice {
             let [m1, m2, m3] = m.pitch;
             let pw = (p.pulse_width + m.pulse_width).clamp(0.05, 0.95);
             let [o1, o2, o3] = &mut self.osc;
-            let base = self.pitch + self.trim;
+            let base = self.pitch + self.trim + p.bend;
             let inc1 = ctx.pitch.at(base + t1 + m1);
             o1.set_increment(inc1);
             // The SH-101's pulse is VCO 1's own phase: same pitch, reset with it.

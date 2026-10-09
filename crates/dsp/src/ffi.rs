@@ -285,6 +285,20 @@ pub extern "C" fn note_on(synth: u32, note: u32, velocity: f32) {
     with_engine(|e| e.note_on(synth as usize, note, velocity));
 }
 
+/// One MIDI message from a controller, as Web MIDI delivered it (#10);
+/// the engine reads it (`Engine::midi_in`).
+#[unsafe(no_mangle)]
+pub extern "C" fn midi_in(status: u32, d1: u32, d2: u32) {
+    let byte = |b: u32| u8::try_from(b).unwrap_or(0xFF);
+    with_engine(|e| e.midi_in(byte(status), byte(d1), byte(d2)));
+}
+
+/// The synth MIDI input plays: the one selected in the view (#10).
+#[unsafe(no_mangle)]
+pub extern "C" fn midi_target(synth: u32) {
+    with_engine(|e| e.set_midi_target(synth as usize));
+}
+
 /// Release `note` on `synth`'s live voice.
 #[unsafe(no_mangle)]
 pub extern "C" fn note_off(synth: u32, note: u32) {

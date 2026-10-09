@@ -7,6 +7,7 @@ import {
 import { assistant } from '../audio/assistlink'
 import { details, page } from '../audio/buildinfo'
 import { Param } from '../audio/params'
+import { midi } from '../audio/midiin'
 
 // The performance counter: worklet time per block against the budget
 // (plan.md "Performance budget"; tools/bench.mjs uses the same figure).
@@ -128,6 +129,9 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
       <b>bar {{ Math.floor(songPosition / 16) + 1 }}</b> · step {{ (songPosition % 16) + 1 }}<template v-if="section"> · {{ section.name }}</template>
     </span>
     <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
+    <!-- A controller connected (#10): its keys play the selected synth; the light blinks on input. -->
+    <span v-if="midi.inputs.length" class="field midi" :class="{ on: midi.active }" :title="`MIDI in: ${midi.inputs.join(', ')} → the selected synth`">MIDI</span>
+    <span v-else-if="midi.error" class="field muted" :title="midi.error">no MIDI</span>
     <label class="field gain">Master <input type="range" min="0" max="1" step="0.01" :value="gain()" @input="sendGain" /></label>
     <canvas ref="scope" class="scope" width="360" height="40" />
     <span
@@ -165,5 +169,7 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
 .muted { color: var(--muted); }
 .meter { font-variant-numeric: tabular-nums; }
 .meter.over b { color: var(--accent); }
+.midi { padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 12px; }
+.midi.on { border-color: var(--accent); color: var(--accent); }
 .scope { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 </style>

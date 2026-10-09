@@ -20,6 +20,7 @@ import {
 import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, songFileName } from './songfile'
 import { keepView, lastView } from './viewstate'
+import { startMidi } from './midiin'
 
 const base = import.meta.env.BASE_URL
 
@@ -248,6 +249,9 @@ export async function power(): Promise<void> {
   try {
     engine = await AudioEngine.start()
     status.running = true
+    // A controller's keys play the selected synth (#10).
+    engine.post({ t: 'midiTarget', s: synths.selected })
+    void startMidi((msg) => engine?.post(msg))
     status.sampleRate = engine.ctx.sampleRate
     // The last session's song (#105); a song file opened at the same time follows and replaces it.
     restoreView()
@@ -260,6 +264,10 @@ export async function power(): Promise<void> {
 }
 
 export const getEngine = (): AudioEngine | null => engine
+watch(
+  () => synths.selected,
+  (s) => engine?.post({ t: 'midiTarget', s }),
+)
 
 /** The screen as it was left (ADR-0027): groups, strip order, collapsed and
  * hidden strips and typed names; the song brings its own tracks and names. */
