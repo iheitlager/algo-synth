@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-10
+
+### Added
+
+- **Play from a MIDI keyboard:** with a controller connected (Chrome, after allowing MIDI), its keys play the selected synth with velocity, the pitch wheel bends by `BendRange` semitones (2 by default) and the mod wheel is `ModWheel`; a MIDI light in the transport bar blinks on input. The engine reads the messages; the browser only forwards them (#10).
+- **Ratchets in drum lanes:** a digit 2–4 after `x`, `X` or `o` plays the hit that many times evenly across its step (`sn x...x3..X4..`), on every grid and with swing; in the composer, shift-click a step to cycle its ratchet (#242).
+- **Strudel's names in signals and parameters:** `cosine`, `irand(n)`, `brand`/`brandBy(p)` and the bipolar `sine2 cosine2 saw2 tri2 square2 rand2`; `lpf lpq hpf hpq attack decay sustain release gain room delay` (and `ctf att dec sus rel`) on parameter methods and `mod` lines, printed as written. Values stay at our scale: a resonance is 0..1, a pan −1..1 (#298).
+- **A MIDI controller's knobs, pads and transport:** knobs on CC 70–77 turn eight parameters of the selected synth (cutoff on 74, resonance on 71, the envelope on 72, 73 and 75; a Modular synth's own knobs), taking over softly so nothing jumps, and the panel follows; pads on channel 10 hit the song's kit; CC 115–118 seek back a bar, seek on a bar, stop and play. Set up for the Akai MPK mini Plus's default program, and the MIDI standard for other controllers (#422).
+- The arranger's height can be dragged in the synths and mixer views too, as in the composer (#425).
+- **Switches on a Modular synth:** `Select.kr(which, [a, b, …])` (and `.ar`) plays one of up to eight choices, and a control used as its index becomes a switch on the panel: a toggle for two choices, a row of buttons for more. A MIDI knob on it snaps between positions (#433).
+
+### Changed
+
+- **The ADRs match the code:** each ADR a later one changed names it in its status line and says what changed in a closing *Later decisions* section; ADR-0024 is accepted; the index shows every amendment and the skipped 0017 (#227).
+- **The Assistant takes fewer rounds:** an instrument without fragments is auditioned when rendered, so the model no longer writes a test fragment and takes it out again. `propose_song` renders the song and refuses one that clips, has non-finite samples or leaves the track in focus silent, so the prompt no longer asks for `check_song` first. A character the SynthDef reader refuses is named, and the language states that a comb or delay holds at most 0.02 s. In the synths view the selected synth's track is the default focus (#430).
+
+### Fixed
+
+- **The mod wheel works on every patch:** it gives vibrato (±0.3 semitone at full wheel) on patches that set no depth of their own; before, it did nothing on most synths (#427).
+
 ## [0.39.0] - 2026-10-09
 
 ### Changed
