@@ -4,9 +4,10 @@
 // send the resynthesis to the main window. The worker analyses and renders;
 // this page sends, draws and plays.
 import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
+import { spectrogramPixels } from '../../audio/colormap'
 import { peakPath } from '../../audio/sampler'
 import {
-  Analyser, LAB_CHANNEL, LabEngine, codeMessage, connectMain, type Track,
+  Analyser, LAB_CHANNEL, LabEngine, codeMessage, connectMain, type Spectrogram, type Track,
 } from '../../audio/spectral'
 import Keyboard from '../synth/Keyboard.vue'
 
@@ -26,6 +27,8 @@ const settings = reactive({ window: 4096, hop: 256, top: 0, semitones: 0, stretc
 const original = shallowRef<ArrayBuffer | null>(null)
 const resynth = shallowRef<ArrayBuffer | null>(null)
 const tracks = shallowRef<Track[]>([])
+const grams = shallowRef<{ a: Spectrogram | null; b: Spectrogram | null }>({ a: null, b: null })
+const view = reactive({ gram: true, partials: true })
 const peaks = reactive<{ a: ArrayLike<number>; b: ArrayLike<number> }>({ a: [], b: [] })
 const held = reactive(new Set<number>())
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -79,6 +82,7 @@ async function analyse() {
     return
   }
   state.frames = r.code
+  grams.value = { a: r.gram, b: null }
   tracks.value = r.tracks
   await render()
 }
@@ -88,8 +92,9 @@ async function render() {
   const a = analyser.value
   if (!e || !a || !tracks.value.length) return
   state.busy = 'resynthesising…'
-  const wav = await a.render(settings.top, ratio.value, settings.stretch)
+  const { wav, gram } = await a.render(settings.top, ratio.value, settings.stretch)
   resynth.value = wav
+  grams.value = { ...grams.value, b: gram }
   const loaded = await e.play(SIDES.b.s, SIDES.b.slot, wav)
   state.busy = ''
   if (loaded.code < 0) state.error = codeMessage(loaded.code)
@@ -141,7 +146,21 @@ function onPick(e: Event) {
   if (f) void open(f)
 }
 
-// The tracks: time across, log frequency up, brighter when louder.
+// The spectrogram of the side being played (the engine's levels in the turbo
+// colours), and over it the tracks: time across, log frequency up.
+let gramCache: { gram: Spectrogram; image: HTMLCanvasElement } | null = null
+function gramImage(gram: Spectrogram): HTMLCanvasElement | null {
+  if (gramCache?.gram === gram) return gramCache.image
+  const px = spectrogramPixels(gram.levels, gram.bands)
+  if (!px.width) return null
+  const image = document.createElement('canvas')
+  image.width = px.width
+  image.height = px.height
+  image.getContext('2d')?.putImageData(new ImageData(px.data, px.width, px.height), 0, 0)
+  gramCache = { gram, image }
+  return image
+}
+
 function draw() {
   const c = canvas.value
   const ctx = c?.getContext('2d')
@@ -153,6 +172,15 @@ function draw() {
   c.height = Math.round(h * dpr)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, w, h)
+  // A resynthesis not rendered yet shows the original's.
+  const gram = state.side === 'b' ? grams.value.b ?? grams.value.a : grams.value.a
+  const image = view.gram && gram ? gramImage(gram) : null
+  if (image) {
+    ctx.imageSmoothingEnabled = true
+    // Its frames run as the tracks' do; a stretched resynthesis is longer.
+    const span = Math.max(1, image.width - 1) / Math.max(1, state.frames - 1)
+    ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, w * span, h)
+  }
   const top = Math.log(rate.value / 2)
   const bottom = Math.log(LOWEST_HZ)
   const y = (hz: number) => h - ((Math.log(Math.max(hz, LOWEST_HZ)) - bottom) / (top - bottom)) * h
@@ -168,12 +196,15 @@ function draw() {
     ctx.fillText(hz >= 1_000 ? `${hz / 1_000} kHz` : `${hz} Hz`, 4, y(hz) - 3)
   }
   ctx.lineWidth = 1.2
+  if (!view.partials) return
+  // Over a spectrogram the tracks are white, so they read against any colour.
+  const ink = image ? '255,255,255' : '240,162,59'
   for (const t of tracks.value) {
     for (let i = 1; i < t.freq.length; i++) {
       const db = 20 * Math.log10(Math.max(t.amp[i], 1e-9))
       const level = Math.min(1, Math.max(0, (db - FLOOR_DB) / -FLOOR_DB))
       if (level <= 0) continue
-      ctx.strokeStyle = `rgba(240,162,59,${(0.1 + 0.9 * level).toFixed(2)})`
+      ctx.strokeStyle = `rgba(${ink},${(0.1 + 0.9 * level).toFixed(2)})`
       ctx.beginPath()
       ctx.moveTo(x(t.start + i - 1), y(t.freq[i - 1]))
       ctx.lineTo(x(t.start + i), y(t.freq[i]))
@@ -181,7 +212,7 @@ function draw() {
     }
   }
 }
-watch(tracks, () => void nextTick(draw))
+watch([tracks, grams, () => state.side, () => view.gram, () => view.partials], () => void nextTick(draw))
 window.addEventListener('resize', draw)
 
 const WAVE_W = 600
@@ -236,9 +267,13 @@ onBeforeUnmount(() => {
       <label>Stretch <b>×{{ settings.stretch }}</b>
         <input v-model.number="settings.stretch" type="range" min="0.5" max="4" step="0.25" aria-label="Time stretch">
       </label>
+      <span class="layers" role="group" aria-label="Layers">
+        <label><input v-model="view.gram" type="checkbox"> Spectrogram</label>
+        <label><input v-model="view.partials" type="checkbox"> Partials</label>
+      </span>
     </div>
 
-    <canvas ref="canvas" class="tracks" aria-label="Partial tracks: time across, frequency up" />
+    <canvas ref="canvas" class="tracks" aria-label="Spectrogram and partial tracks of the side playing: time across, frequency up" />
 
     <div class="waves">
       <svg :viewBox="`0 0 ${WAVE_W} ${WAVE_H}`" preserveAspectRatio="none" aria-label="Original waveform"><path :d="waves.a" class="a" /></svg>
@@ -277,6 +312,8 @@ h1 { font-size: 15px; margin: 0; }
 .waves svg { width: 100%; height: 48px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 .waves .a { fill: #8ab4d8; }
 .waves .b { fill: var(--accent); }
+.layers { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.layers label { display: flex; align-items: center; gap: 4px; min-width: 0; flex-direction: row; }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; }
 .seg button:first-child { border-radius: 4px 0 0 4px; }

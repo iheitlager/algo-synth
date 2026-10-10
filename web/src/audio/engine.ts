@@ -438,6 +438,20 @@ export const zonesOf = (s: number): Zone[] => zoneState.zones[s] ?? Array.from({
 export const padState = reactive({ pads: [] as Pad[][] })
 export const padsOf = (s: number): Pad[] => padState.pads[s] ?? Array.from({ length: 16 }, () => EMPTY_PAD)
 
+/**
+ * A live spectrum of one synth's own output for its faceplate (#519): the
+ * synth watched (−1 none) and its bands in dB, `SPECTRUM` log bands from 20 Hz
+ * to 20 kHz, as the engine computes them (crates/dsp/src/spectrum.rs).
+ */
+export const SPECTRUM = { bands: 128, lowHz: 20, highHz: 20_000, floorDb: -120 } as const
+export const spectrum = shallowReactive({ s: -1, bands: null as Float32Array | null })
+/** Watch synth `s`'s output, or stop with −1; one synth at a time. */
+export function watchSpectrum(s: number) {
+  spectrum.s = s
+  spectrum.bands = null
+  engine?.post({ t: 'spectrum', s })
+}
+
 // The loads waiting on each slot, oldest first: the worklet answers in the
 // order it was sent, so a second load for a busy slot waits its turn (#253).
 const loading = new Map<number, { name: string; done: (code: number) => void }[]>()
@@ -973,6 +987,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     onDecks(data.peaks as number[], data.dropped as number[], data.bpm as number)
   } else if (data.t === 'meters') {
     levels.values = data.levels as Float32Array
+  } else if (data.t === 'spectrum') {
+    if (spectrum.s >= 0) spectrum.bands = data.bands as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
   } else if (data.t === 'code') {

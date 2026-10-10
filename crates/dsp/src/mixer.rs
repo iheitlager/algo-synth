@@ -380,6 +380,19 @@ impl Mixer {
         Some((l, r, &mut self.direct))
     }
 
+    /// What `synth` wrote this block before its strip: its bus, and its right
+    /// side when it is stereo (a live spectrum's tap, #519).
+    pub fn tap(&self, synth: usize, frames: usize) -> Option<(&[f32], Option<&[f32]>)> {
+        let n = frames.min(BLOCK);
+        let left = self.bus.get(synth)?.get(..n)?;
+        let right = if self.is_wide(synth) {
+            self.bus_r.get(synth).and_then(|r| r.get(..n))
+        } else {
+            None
+        };
+        Some((left, right))
+    }
+
     /// Whether `synth` is stereo this block.
     pub fn is_wide(&self, synth: usize) -> bool {
         self.wide.get(synth).copied().unwrap_or(false)

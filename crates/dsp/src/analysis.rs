@@ -10,6 +10,7 @@ pub mod fft;
 pub mod harmonic;
 pub mod lab;
 pub mod peaks;
+pub mod spectrogram;
 pub mod stft;
 pub mod track;
 

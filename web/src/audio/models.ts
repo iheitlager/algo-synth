@@ -47,6 +47,8 @@ export type Control =
   | { kind: 'code' }
   /** A knob for each number of the Modular synth's SynthDef, by UGen (#329). */
   | { kind: 'knobs' }
+  /** An optional live spectrum of the synth's own output (#519). */
+  | { kind: 'spectrum' }
   | { kind: 'note'; text: string }
   /** An empty slot the size of a knob, so a column lines up with its neighbours (#364). */
   | { kind: 'gap' }
@@ -1253,6 +1255,7 @@ const modular: ModelDef = {
     { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
     { title: 'Code', grow: true, controls: [{ kind: 'code' }] },
     { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
+    { title: 'Spectrum', wide: true, controls: [{ kind: 'spectrum' }] },
   ],
 }
 

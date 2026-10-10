@@ -351,3 +351,17 @@ The arranger SHALL carry a Launch bar (#489, epic #491) when the song has scenes
 - THEN the song's text says `arrange two three three one`
 
 **Tests:** `web/src/audio/launch.test.ts`; driven in a headless browser: keys, pads, the countdown and Rec
+
+### Requirement 19: A synth's own spectrum [MAY]
+
+The Modular faceplate MAY show a live spectrum of its synth's own output (#519): off until switched on (remembered in the browser), one synth watched at a time. The engine SHALL keep the last 2048 samples of the watched synth's bus before its strip in buffers allocated at start (ADR-0002), and SHALL transform them with the shared FFT, less their mean, where the worklet reads the meters (ADR-0001). It SHALL send 128 bands, log-spaced from 20 Hz to 20 kHz, in dB. The view SHALL draw them as bars coloured by level in the turbo map, with a peak hold that falls back. Nothing SHALL be computed while no synth is watched.
+
+**Implementation:** `crates/dsp/src/spectrum.rs::Spectrum`, `crates/dsp/src/mixer.rs::Mixer::tap`, `crates/dsp/src/engine.rs::Engine::render`, `crates/dsp/src/ffi.rs` (`spectrum_watch`, `spectrum_compute`, `spectrum_ptr`), `web/public/worklet.js` (`spectrum`), `web/src/audio/engine.ts` (`spectrum`, `watchSpectrum`), `web/src/audio/colormap.ts`, `web/src/components/synth/SynthSpectrum.vue`, `web/src/audio/models.ts` (`spectrum` on the Modular)
+
+#### Scenario: a held note
+
+- GIVEN a Modular synth with its spectrum on
+- WHEN A4 is held
+- THEN bars rise at 440 Hz and its harmonics, an offset in the output does not light the bass, and switching it off stops the work
+
+**Tests:** `crates/dsp/src/spectrum.rs::tests::a_sine_shows_in_its_band_at_its_level`, `crates/dsp/src/spectrum.rs::tests::an_offset_does_not_light_the_bass`, `crates/dsp/src/spectrum.rs::tests::silence_and_a_new_synth_are_the_floor`, `crates/dsp/src/ffi.rs::tests::a_synths_spectrum_through_the_abi`, `web/src/audio/colormap.test.ts`

@@ -81,6 +81,9 @@ export function connectMain(port: Port, onMain: (here: boolean) => void, waitMs 
   }
 }
 
+/** A spectrogram from the engine: `bands` byte levels a frame, log frequency from 30 Hz to Nyquist. */
+export interface Spectrogram { levels: Uint8Array; bands: number }
+
 /** One partial track: its first frame and a frequency and amplitude per frame. */
 export interface Track { start: number; freq: Float32Array; amp: Float32Array }
 
@@ -118,6 +121,7 @@ export function codeMessage(code: number): string {
 /** The analysis worker: one request at a time, answered in order. */
 export class Analyser {
   private waiting: ((data: any) => void)[] = []
+  private bands = 0
   private constructor(private worker: Worker) {
     worker.onmessage = ({ data }) => this.waiting.shift()?.(data)
   }
@@ -135,16 +139,21 @@ export class Analyser {
     })
   }
 
-  /** Analyse a copy of a WAV at `rate`: the frame count (or a negative code) and the tracks. */
-  async analyse(bytes: ArrayBuffer, rate: number, window: number, hop: number): Promise<{ code: number; tracks: Track[] }> {
+  /**
+   * Analyse a copy of a WAV at `rate`: the frame count (or a negative code),
+   * the tracks, and its spectrogram (`bands` byte levels a frame).
+   */
+  async analyse(bytes: ArrayBuffer, rate: number, window: number, hop: number): Promise<{ code: number; tracks: Track[]; gram: Spectrogram }> {
     const copy = bytes.slice(0)
     const r = await this.ask({ t: 'analyse', bytes: copy, rate, window, hop }, [copy])
-    return { code: r.code, tracks: parseTracks(r.tracks) }
+    this.bands = r.bands ?? 0
+    return { code: r.code, tracks: parseTracks(r.tracks), gram: { levels: r.gram, bands: this.bands } }
   }
 
-  /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes. */
-  async render(top: number, shift: number, stretch: number): Promise<ArrayBuffer> {
-    return (await this.ask({ t: 'render', top, shift, stretch })).wav
+  /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes, with its spectrogram. */
+  async render(top: number, shift: number, stretch: number): Promise<{ wav: ArrayBuffer; gram: Spectrogram }> {
+    const r = await this.ask({ t: 'render', top, shift, stretch })
+    return { wav: r.wav, gram: { levels: r.gram, bands: this.bands } }
   }
 }
 

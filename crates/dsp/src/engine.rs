@@ -27,6 +27,7 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::poly::{MAX_VOICES, Pool, VOICE_BUDGET};
+use crate::spectrum::Spectrum;
 use crate::synth::RevisionDef;
 
 /// Song notes that may sound at once before one is dropped.
@@ -184,6 +185,8 @@ pub struct Engine {
     out: Box<[f32; 2 * BLOCK]>,
     /// The highest level of each meter since `clear_meters`.
     meters: [f32; METERS],
+    /// A live spectrum of one synth's output, for its faceplate (#519).
+    pub spectrum: Spectrum,
     /// The MIDI file's bytes, written by JavaScript before `import_midi`.
     midi: Vec<u8>,
     /// A DX7 SysEx file's bytes, written by JavaScript before `load_sysex`, and the
@@ -313,6 +316,7 @@ impl Engine {
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
+            spectrum: Spectrum::new(sample_rate),
             midi: Vec::new(),
             sysex: Vec::new(),
             sysex_voices: Vec::new(),
@@ -3245,6 +3249,9 @@ impl Engine {
                 self.mixer
                     .widen(synth, n, |dry, l, r| chorus.process(dry, l, r));
             }
+        }
+        if let Some((l, r)) = self.spectrum.watched().and_then(|s| self.mixer.tap(s, n)) {
+            self.spectrum.push(l, r);
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);

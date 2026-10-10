@@ -1740,10 +1740,90 @@ pub extern "C" fn spectral_wav_ptr() -> *const u8 {
     })
 }
 
+/// The spectrogram of the lab's original (`which` 0) or its last resynthesis
+/// (1): `spectral_bands()` bytes a frame, read with `spectral_gram_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_gram_len(which: u32) -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(0, |lab| lab.spectrogram(which as usize).len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_gram_ptr(which: u32) -> *const u8 {
+    LAB.with(|cell| {
+        cell.try_borrow().map_or(std::ptr::null(), |lab| {
+            lab.spectrogram(which as usize).as_ptr()
+        })
+    })
+}
+
+/// Bands per spectrogram frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_bands() -> u32 {
+    crate::analysis::spectrogram::BANDS as u32
+}
+
+// A live spectrum of one synth's output for its faceplate (#519): the view
+// names the synth, and the worklet reads the bands where it reads the meters.
+
+/// Watch synth `s`'s output, or nothing when `s` is negative or past the synths.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectrum_watch(s: i32) {
+    with_engine(|e| {
+        let synth = usize::try_from(s).ok().filter(|s| *s < SYNTHS);
+        e.spectrum.watch(synth);
+    });
+}
+
+/// Transform the watched synth's last samples: the number of bands at
+/// `spectrum_ptr`, 0 when nothing is watched.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectrum_compute() -> u32 {
+    query(0, |e| {
+        if e.spectrum.watched().is_none() {
+            return 0;
+        }
+        e.spectrum.compute().len() as u32
+    })
+}
+
+/// The bands of the last `spectrum_compute`, in dB.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectrum_ptr() -> *const f32 {
+    ENGINE.with(|cell| match cell.try_borrow() {
+        Ok(guard) => guard
+            .as_ref()
+            .map_or(std::ptr::null(), |e| e.spectrum.bands().as_ptr()),
+        Err(_) => std::ptr::null(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::drums::Pad;
+
+    #[test]
+    fn a_synths_spectrum_through_the_abi() {
+        init(48_000.0);
+        assert_eq!(spectrum_compute(), 0, "nothing watched");
+        spectrum_watch(0);
+        note_on(0, 69, 1.0);
+        for _ in 0..40 {
+            query((), |e| e.render(BLOCK));
+        }
+        let n = spectrum_compute();
+        assert_eq!(n as usize, crate::spectrum::BANDS);
+        assert!(!spectrum_ptr().is_null());
+        let loudest = query(f32::MIN, |e| {
+            e.spectrum.bands().iter().copied().fold(f32::MIN, f32::max)
+        });
+        assert!(loudest > -40.0, "a held note shows: {loudest}");
+        spectrum_watch(-1);
+        assert_eq!(spectrum_compute(), 0);
+    }
 
     #[test]
     fn analysis_through_the_abi() {
