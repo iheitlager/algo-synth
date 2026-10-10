@@ -22,7 +22,8 @@ scale e phrygian
 setting buzz = Modular ModularBasic
   SynthDef(\\buzz, { |freq = 440, gate = 1|
       var sig = Pulse.ar(freq, SinOsc.kr(3).range(0.2, 0.6)) + Saw.ar(freq * 0.5) + WhiteNoise.ar(0.05);
-      var crush = Decimator.ar(sig * Latch.kr(WhiteNoise.kr, LFPulse.kr(8)).round(0.25), 8000, 4);
+      var crush = Decimator.ar(sig * Latch.kr(WhiteNoise.kr, LFPulse.kr(8)).round(0.25), 8000, 4)
+          * LFNoise1.kr(3).range(0.5, 1) * LFNoise0.kr(6).lag(0.02);
       RLPF.ar(sig + crush, SinOsc.kr(0.2).exprange(300, 3000), 0.4) * EnvGen.kr(Env.adsr(0.005, 0.2, 0.6, 0.3), gate)
   }).add;
 setting metal = Modular ModularBasic

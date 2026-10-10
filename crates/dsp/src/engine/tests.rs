@@ -3897,6 +3897,33 @@ fn the_robot_siren_steps_and_crushes() {
     );
 }
 
+/// #472: the robot siren of `examples/siren-system.song`, random steps
+/// from `LFNoise0` under a `lag`, renders the same twice from its seed,
+/// and a new note draws new steps.
+#[test]
+fn a_noise_siren_is_seeded() {
+    let body = "var steps = LFNoise0.kr(8).exprange(0.5, 3).lag(0.01); \
+        Decimator.ar(Pulse.ar(freq * steps, 0.5), 8000, 4) * 0.2";
+    let notes = || {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularBasic);
+        assert_eq!(e.set_code(0, &synthdef(body)), Ok(()));
+        (0..2)
+            .map(|_| {
+                e.note_on(0, 67, 1.0);
+                let o = left_of(&mut e, 0.5);
+                e.note_off(0, 67);
+                left_of(&mut e, 0.5);
+                o
+            })
+            .collect::<Vec<_>>()
+    };
+    let a = notes();
+    assert_eq!(a, notes(), "the same every time");
+    assert_ne!(ups(&a[0]), ups(&a[1]), "new steps per note");
+    assert!(a.iter().flatten().all(|v| v.is_finite() && v.abs() <= 1.0));
+}
+
 /// #216's acceptance: the gabber kick falls in pitch, is driven square, ends
 /// by itself and renders the same twice.
 #[test]

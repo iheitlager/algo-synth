@@ -19,10 +19,10 @@ setting wail = Modular ModularBasic
       var sig = Pulse.ar(freq * sweep, 0.5) * 0.3;
       Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.3)
   }).add;
-# Two-tone nee-naw: a square LFO flips between the note and a fourth up
+# Two-tone nee-naw: a square LFO flips between the note and a fourth up, gliding
 setting twotone = Modular ModularBasic
   SynthDef(\twotone, { |freq = 440, gate = 1|
-      var ratio = LFPulse.kr(1.2).range(1, 1.3333);
+      var ratio = LFPulse.kr(1.2).range(1, 1.3333).lag(0.03);
       var sig = Pulse.ar(freq * ratio, 0.5) * 0.3;
       Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), -0.5)
   }).add;
@@ -56,11 +56,11 @@ setting bubble = Modular ModularBasic
       var sig = SinOsc.ar(freq * sweep) * 0.6;
       Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.2)
   }).add;
-# Robot: a random semitone step eight times a second, crushed to 4 bits
+# Robot: a random step eight times a second, the click taken off, crushed to 4 bits
 setting robot = Modular ModularBasic
   SynthDef(\robot, { |freq = 440, gate = 1|
-      var steps = Latch.kr(WhiteNoise.kr, LFPulse.kr(8)).range(0, 12).round(1);
-      var sig = Decimator.ar(Pulse.ar(freq * steps.midiratio, 0.5), 8000, 4) * 0.2;
+      var steps = LFNoise0.kr(8).exprange(0.5, 3).lag(0.01);
+      var sig = Decimator.ar(Pulse.ar(freq * steps, 0.5), 8000, 4) * 0.2;
       Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.4)
   }).add;
 # The real thing: the two-555 dub siren of the sound-system boxes and DIY kits.
