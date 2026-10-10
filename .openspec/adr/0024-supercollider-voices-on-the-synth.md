@@ -30,12 +30,12 @@ The acceptance target is a classic hoover written for SuperCollider: 20 detuned 
 - A SynthDef from the SuperCollider world plays when it stays inside the UGen set; anything outside it is an error with a line and a column naming what is missing.
 - The editor and the knobs are two views of the same parameters: a knob is a parameter, the text shows its value.
 - Thirty-two numbers per voice can be knobs; past that a number is a constant.
-- ADR-0021's runtime stays: one program per synth copied into a voice at note-on, evaluated with no allocation or transcendental call. Since #318 its nodes are split at note-on into those steady over a block, evaluated once a block, and the rest, once a sample.
+- ADR-0021's runtime stays: one program per synth copied into a voice at note-on, evaluated with no allocation or transcendental call. Since #318 its nodes are split at note-on into those steady over a block, evaluated once a block, and the rest. Since #476 the rest run a sub-block of 32 frames at a time, node by node, except a run of adjacent filters, which goes frame by frame across the run so their feedback loops overlap.
 - Later, a SynthDef can be compiled in a second wasm instance off the audio thread, with the fixed program posted to the worklet as bytes; this design does not block it.
 - **Interpretation, not codegen (#318).** Measured on the hoover, the interpreter's per-node dispatch was about 75% of a voice. Of that voice, its 40 saws were about 26% and real unit work about a third. The answer is to dispatch less often, not to generate a wasm module per SynthDef:
   - Steady nodes are evaluated once a block, with `eval` inlined into both loops. This made the hoover about 1.4× faster in V8 and 1.9× natively, sample-exact.
-  - Next, moving nodes are evaluated over a sub-block (#476).
-  - Codegen is not pursued: cross-module calls into the units are not inlined, and it would need JavaScript in the worklet beyond ADR-0001. It is reconsidered only if #476 falls short.
+  - Moving nodes are evaluated over a 32-frame sub-block (#476). Filters stay frame by frame within a run: they are bound by the latency of their feedback, and a run of them in blocks cost as much as all their latencies added. The hoover went from about 466 to 313 µs a block in V8, its voices about 2.2× faster; `modular max` (three ladders) went from 359 to 316.
+  - Codegen is not pursued: cross-module calls into the units are not inlined, and it would need JavaScript in the worklet beyond ADR-0001. It is not needed after #476.
 - Because the code is the synth's own patch, a note of it can be rendered offline into a sample and played on with the samplers (#300).
 - The changelog fragments that announced `voice`/`ctl` lines are rewritten before the release that would have shipped them.
 
