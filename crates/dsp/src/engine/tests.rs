@@ -5327,3 +5327,26 @@ fn a_pack_picked_on_a_synth_becomes_its_samples_line() {
     );
     assert!(!e.set_samples_from_buffer(15), "no track plays synth 16");
 }
+
+/// #214: a group named in the view is named in the song, through the song
+/// buffer; an empty buffer takes the name away.
+#[test]
+fn a_group_named_in_the_view_is_named_in_the_song() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    let name = b"drum_bus";
+    e.song_buffer(name.len())
+        .expect("fits")
+        .copy_from_slice(name);
+    assert!(e.set_group_name_from_buffer(2));
+    assert_eq!(e.group_name(2), Some("drum_bus"));
+    assert!(
+        e.song_text().contains("group 3 drum_bus\n"),
+        "{}",
+        e.song_text()
+    );
+    e.song_buffer(0).expect("fits");
+    assert!(e.set_group_name_from_buffer(2));
+    assert_eq!(e.group_name(2), None);
+    assert!(!e.song_text().contains("group 3"), "{}", e.song_text());
+}

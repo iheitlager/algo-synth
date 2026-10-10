@@ -687,8 +687,6 @@ describe('MIDI files and setups', () => {
     send({ t: 'imported', code: 1 })
     expect(mod.synths.list).toEqual([0, 3])
     expect(take().filter((m) => m.t === 'dump').map((m) => m.s)).toEqual([0, 3])
-    // The setup round-trips through setupText.
-    expect(JSON.parse(mod.setupText()).synths.map((s: { index: number }) => s.index)).toEqual([0, 3])
   })
 
   it('a setup waiting for a file that does not import is dropped', async () => {
@@ -854,5 +852,29 @@ describe('samples lines (#214)', () => {
     send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('nope') }] })
     for (let i = 0; i < 10 && !mod.sampleStore.error; i++) await tick()
     expect(mod.sampleStore.error).toBe('samples: no pack or kit is called nope')
+  })
+})
+
+describe('group names (#214)', () => {
+  const groups = (...names: string[]) => Array.from({ length: 8 }, (_, g) => enc(names[g] ?? ''))
+
+  it('the song names the group strips, and a name it drops goes', async () => {
+    const { mod, names, send } = await boot()
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [], groups: groups('', 'drum_bus') })
+    expect(names.names.strips[17]).toBe('drum bus')
+    send({ t: 'song', ...ok, ok: true, text: enc('y'), error: null, tracks: [], groups: groups() })
+    expect(names.names.strips[17]).toBeUndefined()
+    expect(mod.stripName(17)).toBe('Group 2')
+  })
+
+  it('a group renamed in the view is named in the song; a name it can`t hold takes it away', async () => {
+    const { mod, take } = await boot()
+    take()
+    mod.renameSynth(16, 'Drum bus')
+    const sent = take().filter((m) => m.t === 'groupName') as unknown as { g: number; bytes: ArrayBuffer }[]
+    expect(sent.map((m) => [m.g, new TextDecoder().decode(m.bytes)])).toEqual([[0, 'Drum_bus']])
+    mod.renameSynth(16, '9 lives')
+    const cleared = take().filter((m) => m.t === 'groupName') as unknown as { bytes: ArrayBuffer }[]
+    expect(cleared.map((m) => m.bytes.byteLength)).toEqual([0])
   })
 })

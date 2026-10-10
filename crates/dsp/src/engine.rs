@@ -615,6 +615,39 @@ impl Engine {
         true
     }
 
+    /// Name group bus `g` with the name in the song buffer, or take its name
+    /// away when the buffer is empty (#214): one namespace for the song's
+    /// tracks and groups. The text follows. False for a name that isn't one.
+    pub fn set_group_name_from_buffer(&mut self, g: usize) -> bool {
+        self.commit_song();
+        let name = String::from_utf8_lossy(&self.song_buf).into_owned();
+        let name = Some(name.as_str()).filter(|n| !n.is_empty());
+        let same = self
+            .song
+            .mix
+            .iter()
+            .find(|m| m.at == Mix::Group(g))
+            .and_then(|m| m.name.as_deref())
+            == name;
+        if same {
+            return true;
+        }
+        if !self.song.set_group_name(g, name) {
+            return false;
+        }
+        self.reprint();
+        true
+    }
+
+    /// Group bus `g`'s name in the song, if it has one.
+    pub fn group_name(&self, g: usize) -> Option<&str> {
+        self.song
+            .mix
+            .iter()
+            .find(|m| m.at == Mix::Group(g))
+            .and_then(|m| m.name.as_deref())
+    }
+
     pub fn code_error(&self) -> Option<CodeError> {
         self.code_error
     }

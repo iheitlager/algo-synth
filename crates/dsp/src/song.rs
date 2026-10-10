@@ -1642,7 +1642,12 @@ impl Song {
                 .iter()
                 .map(|(p, v)| format!("{} {}", param_name(*p), mix_text(*p, *v)))
                 .collect();
-            lines.push(format!("{at}: {}", sets.join(", ")));
+            if sets.is_empty() {
+                // A group with only its name (#214).
+                lines.push(at);
+            } else {
+                lines.push(format!("{at}: {}", sets.join(", ")));
+            }
         }
         for (fi, f) in self.frags.iter().enumerate() {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
@@ -2117,6 +2122,27 @@ impl Song {
             solo: false,
         });
         Some(self.tracks.len() - 1)
+    }
+
+    /// Name group bus `g` (0–7), or take its name away with `None` (#214):
+    /// its `group` line, which goes when it has neither a name nor values.
+    /// False for no such group or a name that isn't one.
+    pub fn set_group_name(&mut self, g: usize, name: Option<&str>) -> bool {
+        if g >= crate::mixer::GROUPS || name.is_some_and(|n| !is_name(n)) {
+            return false;
+        }
+        match self.mix.iter_mut().find(|m| m.at == Mix::Group(g)) {
+            Some(line) => line.name = name.map(str::to_string),
+            None if name.is_some() => self.mix.push(MixLine {
+                at: Mix::Group(g),
+                name: name.map(str::to_string),
+                sets: Vec::new(),
+            }),
+            None => {}
+        }
+        self.mix
+            .retain(|m| m.at != Mix::Group(g) || m.name.is_some() || !m.sets.is_empty());
+        true
     }
 
     /// Track `t` wants the samples of pack or kit `id` (#214): its `samples`
@@ -2800,6 +2826,22 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
     let err = |col: usize, msg: &'static str| SongError { line, col, msg };
     let end = body.trim_end().chars().count() + 1;
     let first = ws.first().ok_or(err(1, "a mixer line goes here"))?;
+    // A group with only a name needs no values (#214): `group 2 keys`.
+    if let [g, n, name] = ws {
+        if g.text == "group" && !name.text.ends_with(':') && is_name(name.text) {
+            let g = n
+                .text
+                .parse::<usize>()
+                .ok()
+                .filter(|g| (1..=GROUPS).contains(g))
+                .ok_or(err(n.col, "a group is 1 to 8, then maybe its name"))?;
+            return Ok(MixLine {
+                at: Mix::Group(g - 1),
+                name: Some(name.text.to_string()),
+                sets: Vec::new(),
+            });
+        }
+    }
     // The words up to the one that ends with `:` (or a lone `:`) name the target.
     let colon = ws
         .iter()
