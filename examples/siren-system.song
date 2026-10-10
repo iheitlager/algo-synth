@@ -1,0 +1,137 @@
+# Siren System: a steppers dub at 76 with seven dub sirens over a one-drop,
+# every siren thrown into the dotted-eighth echo (P1) on Send1
+tempo 76
+swing 50
+scale g minor
+
+# The switch siren: dir flips the sweep between up (0) and down (1)
+setting updown = Modular ModularBasic
+  SynthDef(\updown, { |freq = 440, gate = 1, dir = 0|
+      var saw = LFSaw.kr(2);
+      var sweep = Select.kr(dir, [saw, saw.neg]);
+      var sig = Pulse.ar(freq * sweep.exprange(0.5, 2), 0.5) * 0.3;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), -0.3)
+  }).add;
+# Triangle wail: rises and falls smoothly, an air-raid siren
+setting wail = Modular ModularBasic
+  SynthDef(\wail, { |freq = 440, gate = 1|
+      var sweep = LFTri.kr(0.5).exprange(0.5, 2);
+      var sig = Pulse.ar(freq * sweep, 0.5) * 0.3;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.3)
+  }).add;
+# Two-tone nee-naw: a square LFO flips between the note and a fourth up
+setting twotone = Modular ModularBasic
+  SynthDef(\twotone, { |freq = 440, gate = 1|
+      var ratio = LFPulse.kr(1.2).range(1, 1.3333);
+      var sig = Pulse.ar(freq * ratio, 0.5) * 0.3;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), -0.5)
+  }).add;
+# Zap: a one-shot pitch drop on every note, so it follows the rhythm
+setting zap = Modular ModularBasic
+  SynthDef(\zap, { |freq = 440, gate = 1|
+      var pEnv = EnvGen.kr(Env([4, 1, 0.25], [0.04, 0.6], \exp), gate);
+      var sig = SinOsc.ar(freq * pEnv) * 0.7;
+      Pan2.ar(sig * EnvGen.kr(Env.perc(0.005, 0.7), gate), 0.5)
+  }).add;
+# Accelerating siren: a slow triangle sets the speed of a falling saw
+setting accel = Modular ModularBasic
+  SynthDef(\accel, { |freq = 440, gate = 1|
+      var rate = LFTri.kr(0.1).exprange(0.5, 12);
+      var sweep = LFSaw.kr(rate).neg.exprange(0.25, 4);
+      var sig = Pulse.ar(freq * sweep, 0.5) * 0.25;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0)
+  }).add;
+# Warble: a slow wail with a fast vibrato on top, the sound-system siren
+setting warble = Modular ModularBasic
+  SynthDef(\warble, { |freq = 440, gate = 1|
+      var slow = LFTri.kr(0.15).exprange(0.5, 3);
+      var fast = SinOsc.kr(7).range(0.97, 1.03);
+      var sig = Pulse.ar(freq * slow * fast, 0.5) * 0.25;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), -0.2)
+  }).add;
+# Bubbles: a fast falling saw, bloop-bloop
+setting bubble = Modular ModularBasic
+  SynthDef(\bubble, { |freq = 440, gate = 1|
+      var sweep = LFSaw.kr(9).neg.exprange(1, 4);
+      var sig = SinOsc.ar(freq * sweep) * 0.6;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.2)
+  }).add;
+# Sub bass: a sine with a little square on top
+setting sub = Modular ModularBasic
+  SynthDef(\sub, { |freq = 49, gate = 1|
+      var sig = SinOsc.ar(freq) + (Pulse.ar(freq, 0.5) * 0.1);
+      Pan2.ar(sig.tanh * EnvGen.kr(Env.adsr(0.005, 0.2, 0.8, 0.08), gate) * 0.8, 0)
+  }).add;
+
+track drums drums Tr808 Kit808
+track bass synth sub
+track updown synth updown
+track wail synth wail
+track twotone synth twotone
+track zap synth zap
+track accel synth accel
+track warble synth warble
+track bubble synth bubble
+
+strip drums: Level 0.9, Send1 0.1
+strip bass: Level 0.9
+strip updown: Level 0.6, Send1 0.5, Send2 0.2
+strip wail: Level 0.55, Send1 0.5, Send2 0.2
+strip twotone: Level 0.5, Send1 0.45, Send2 0.2
+strip zap: Level 0.6, Send1 0.6, Send2 0.1
+strip accel: Level 0.45, Send1 0.5, Send2 0.25
+strip warble: Level 0.5, Send1 0.5, Send2 0.3
+strip bubble: Level 0.5, Send1 0.55, Send2 0.15
+# P1 echo: a dotted eighth at 76 (592 ms), long feedback, dark repeats, ping-pong
+master: MasterGain 0.8, P1Return 0.6, P1A 0.84, P1B 0.7, P1C 0.3, P1D 1, P2Return 0.3
+
+# one-drop: kick and rim together on 3, hats on the eighths
+frag drop = drums /16
+  bd ........x.......
+  rs ........x.......
+  ch x.x.x.x.x.x.x.xX
+# steppers: four on the floor for the peak
+frag steppers = drums /16
+  bd x...x...x...x...
+  sn ........x.......
+  ch x.x.x.x.x.x.x.x.
+  oh ..x...x...x...x.
+# dub drums: only the kick and a snare thrown into the echo
+frag dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~ ~ ~ ~ ~")
+  bd ........x.......
+  sn ........x.......
+
+# the bassline, two bars
+frag line = bass
+  g1:4. g1:8 r:8 bb1:8 c2:4 d2:4. r:8 f1:8 g1:8 r:4 bb1:8 a1:8
+frag line_drop = bass
+  g1:4. g1:8 r:2 r:1
+
+# sirens: held notes, a bar or two at a time
+frag up_down = updown
+  g4:1 r:1
+frag air_raid = wail
+  d4:1 d4:1
+frag nee_naw = twotone
+  r:2 g4:2 r:1
+frag zaps = zap
+  r:4 g5:8 r:8 r:4 d5:8 r:8 r:4 g5:8 r:8 bb5:4
+frag speeding = accel
+  r:1 g3:1
+frag sound_system = warble
+  g3:1 g3:1
+frag bubbles = bubble
+  r:2 d4:4 r:4 r:2 g4:4 r:4
+
+# the switch flips each section: up in the build, down in the dub
+scene up: updown.Ctl1 0, master.P1Return 0.5
+scene down: updown.Ctl1 1, master.P1Return 0.7
+
+section intro 4: drop up_down [up]
+section riddim 8: drop line zaps [up]
+section sirens 8: drop line air_raid nee_naw bubbles [up]
+section dub 8: dub_drums line_drop up_down sound_system zaps [down]
+section peak 8: steppers line speeding air_raid zaps [up]
+section dub2 8: dub_drums line_drop sound_system bubbles nee_naw [down]
+section outro 4: drop up_down [down]
+arrange intro riddim sirens dub peak dub2 outro
