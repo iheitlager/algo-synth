@@ -12,98 +12,120 @@ Common to every requirement:
 
 ### Requirement 1: The partial set [MUST]
 
-A partial set SHALL be frames at a hop and rate. Each partial is a track with a start frame and, per frame, a frequency, an amplitude, a phase and a noise (bandwidth) value from 0 (a pure sine) to 1 (noise). It also carries a harmonic label: its harmonic number against an f0, or 0 for none. It SHALL extend spec 009's tracks, and an analysis without noise SHALL give noise 0 everywhere, so spec 009's results are unchanged.
+A partial set SHALL be frames at a hop and rate. Each partial is a track with a start frame and, per frame, a frequency, an amplitude, a phase and a noise (bandwidth) value from 0 (a pure sine) to 1 (noise). It also carries a harmonic label: the rounded mean, over its frames that have an f0, of its frequency over that f0, unweighted; 0 when none of its frames has one. It SHALL extend spec 009's tracks, so spec 009's results are unchanged:
+- An empty noise list reads as 0 everywhere.
+- An analysis without noise association gives noise 0.
 
-A partial set MAY carry an f0 per frame and a spectral envelope per frame (Requirement 3).
+**Implementation:** `crates/dsp/src/analysis/track.rs::Track`, `crates/dsp/src/analysis/peaks.rs::Peak`, `crates/dsp/src/analysis/harmonic.rs::label`
 
-**Implementation:** (planned) `crates/dsp/src/analysis/track.rs::Track`, `crates/dsp/src/analysis/partials.rs::PartialSet`
+#### Scenario: a labelled saw
 
-#### Scenario: spec 009 still holds
+- GIVEN the engine's sawtooth at 220 Hz, analysed and labelled
+- WHEN its long partials under 5 kHz are read
+- THEN each is labelled `round(f / 220)`, and every noise value is 0 without association
 
-- GIVEN the analysis of spec 009's sum of three sines
-- WHEN it is read as a partial set
-- THEN its tracks, frequencies and amplitudes are those of spec 009, and every noise value is 0
-
-**Tests:** (planned) `crates/dsp/src/analysis/partials.rs::tests::an_analysis_is_a_partial_set_with_no_noise`
+**Tests:** `crates/dsp/src/analysis/harmonic.rs::tests::labels_follow_f0`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_breathy_tone_has_bandwidth`
 
 ### Requirement 2: Noise per partial [MUST]
 
-The analysis SHALL give each partial the energy of the noise around it as bandwidth, after Fitz, Haken & Christensen (ICMC 2000):
-- The spectral energy of each frame not explained by its partials SHALL be assigned to the nearest partial.
-- The partial's amplitude SHALL then be `sqrt(sine² + noise energy)`, and its bandwidth `noise energy / total`.
+An analysis asked for noise SHALL turn each frame's peaks into partials with bandwidth, after Fitz, Haken & Christensen (ICMC 2000):
+- **What counts as noise.** A peak more than 40 dB under the frame's loudest is noise, not a partial, and is removed. The energy of every bin outside all peaks' main lobes (±8 bins, the Blackman–Harris lobe zero-padded twice) is noise too, converted to a sine's amplitude squared by the window's lobe energy.
+- **Where it goes.** All of that noise energy SHALL go to the nearest partial within 500 Hz. Noise further away is dropped, so noise stays where it was.
+- **The result.** The partial's amplitude SHALL become `sqrt(sine² + noise)`, and its bandwidth `noise / total`.
 
-Resynthesis SHALL play a partial with bandwidth β as a sinusoid amplitude-modulated by narrow-band noise. The modulation is a low-passed noise source whose depth follows √β, from a fixed seed, so a render repeats exactly. A morph SHALL interpolate bandwidth like any other dimension.
+**Resynthesis.**
+- A partial with bandwidth β SHALL be a sinusoid amplitude-modulated by `sqrt(1 − β) + sqrt(β)·ζ`. ζ is noise low-passed at 500 Hz with unit variance, from a fixed seed per partial, so its energy is kept and a render repeats exactly.
+- A morph SHALL interpolate bandwidth like any other dimension.
 
 This replaces #192 stage 4's separate SMS residual for the partial set (ADR-0032).
 
-**Implementation:** (planned) `crates/dsp/src/analysis/bandwidth.rs::associate`, `crates/dsp/src/analysis/additive.rs::resynthesise`
+**Implementation:** `crates/dsp/src/analysis/bandwidth.rs::associate`, `crates/dsp/src/analysis/stft.rs::Stft::lobe_energy`, `crates/dsp/src/analysis.rs::Settings`, `crates/dsp/src/analysis/additive.rs::resynthesise`
 
 #### Scenario: a breathy tone
 
-- GIVEN a 220 Hz sine plus white noise 20 dB under it
-- WHEN it is analysed and resynthesised with noise
-- THEN the 220 Hz partial has bandwidth above 0 and below 0.5, and the resynthesis's energy between the harmonics is within 3 dB of the original's, where without noise it would be at least 20 dB under
+- GIVEN a 440 Hz sine at 0.5 plus white noise at 0.05
+- WHEN it is analysed and resynthesised with noise, and again without
+- THEN the energy beside the partial (100–300 Hz and 600–800 Hz) is within 5 dB of the original's with noise, and more than 40 dB further under without it (measured: −4.2 dB and −59 dB)
 
 #### Scenario: a pure tone
 
 - GIVEN the engine's sawtooth
 - WHEN it is analysed with noise
-- THEN every long partial's bandwidth is under 0.05
+- THEN every long partial under 8 kHz has bandwidth under 0.05 (the weakest near Nyquist pick up the oscillator's aliasing residue)
 
-**Tests:** (planned) `crates/dsp/src/analysis/bandwidth.rs::tests::noise_goes_to_the_nearest_partial`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_breathy_tone_keeps_its_breath`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_saw_has_almost_no_bandwidth`, `crates/dsp/src/analysis/additive.rs::tests::noise_resynthesis_repeats_exactly`
+**Tests:** `crates/dsp/src/analysis/bandwidth.rs::tests::noise_goes_to_the_nearest_partial`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_breathy_tone_has_bandwidth`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_saw_has_almost_no_bandwidth`, `crates/dsp/src/analysis/additive.rs::tests::a_breathy_tone_keeps_its_breath`, `crates/dsp/src/analysis/additive.rs::tests::noise_resynthesis_repeats_exactly`
 
 ### Requirement 3: The spectral envelope [SHOULD]
 
 The analysis SHOULD estimate a smooth spectral envelope per frame by the true-envelope method (Röbel & Rodet, DAFx 2005):
-- cepstral smoothing of the log spectrum, repeated with the envelope raised to the spectrum's peaks at each step, until it lies over them within 1 dB or after a bounded number of steps
-- a cepstral order set from the frame's f0 when known, so the envelope does not follow single harmonics
+- **Its input.** It runs on a log spectrum of 512 points drawn through the frame's peaks (straight in log amplitude between neighbours) rather than the full STFT. The envelope is only read at partial frequencies, and this keeps it cheap enough to recompute as the lab's controls move.
+- **The iteration.** It raises the spectrum to the envelope and smooths it cepstrally, at an order of Nyquist over f0 (or 25 without an f0), until it lies over the peaks within 1 dB, at most 40 times.
+- **Reading it.** It SHOULD be readable as an amplitude at any frequency, so a partial moved in pitch can take the envelope's level at its new frequency.
 
-It SHOULD be read as an amplitude at any frequency, so a partial moved in pitch can take the envelope's level at its new frequency.
-
-**Implementation:** (planned) `crates/dsp/src/analysis/envelope.rs::true_envelope`, `crates/dsp/src/analysis/envelope.rs::Envelope::at`
+**Implementation:** `crates/dsp/src/analysis/envelope.rs::true_envelope`, `crates/dsp/src/analysis/envelope.rs::Envelope::at`
 
 #### Scenario: a formant
 
-- GIVEN the engine's sawtooth at 110 Hz through a band-pass at 1 kHz
+- GIVEN harmonics of 110 Hz under a resonance at 1 kHz
 - WHEN its envelope is estimated
-- THEN the envelope peaks within a third of an octave of 1 kHz and lies within 1 dB over the harmonics' peaks
+- THEN it peaks within a third of an octave of 1 kHz and lies within 1.5 dB over every peak under 5 kHz
 
-**Tests:** (planned) `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_finds_a_formant`, `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_lies_over_the_peaks`
+**Tests:** `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_finds_a_formant`, `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_lies_over_the_peaks`
 
 ### Requirement 4: Transforms [MUST]
 
-Each transform SHALL be one function on a partial set with one amount (and an optional second where named), offline, beside `shift` and `top_n` (spec 009 Req 5). Each SHALL leave the set's length and frame times alone unless it says otherwise:
+Each transform SHALL be one function on a partial set with one amount, offline, beside `shift` and `top_n` (spec 009 Req 5), leaving the set's length and frame times alone unless it says otherwise:
 
 | Transform | What it does to partial k (frequency fₖ, amplitude aₖ, label n) |
 |---|---|
-| harmonic stretch, s | fₖ → f₀·((n−1)·s + 1) for labelled partials; others by their ratio to f₀ |
-| inharmonic stretch, s | fₖ → fₖ·s^(log₂ n / log₂ N), so the higher a partial, the further it moves (N the highest label) |
-| frequency shift, Δ Hz | fₖ → fₖ + Δ (inharmonic: the classic frequency shifter) |
-| formant scale, r | aₖ → aₖ · E(fₖ / r) / E(fₖ), with E the envelope (Req 3): formants move, pitch stays |
-| smear, m | aₖ ← (1−m)·aₖ + m·aₖ₋₁ along the partials in frequency, then normalised to the set's energy |
-| odd/even, b | odd labels × (1−b)·2, even × b·2, clamped to 0…1 each side |
-| spectral low/high pass, c, q | aₖ × a two-pole magnitude response at cutoff c with resonance q, on the partials themselves |
-| freeze, t | every frame takes frame t's frequencies, amplitudes and noise (the length stays) |
-| decay by number, d | aₖ(t) × exp(−d · n · t): the higher partials die first (Harmor's Pluck); d < 0 the other way |
+| harmonic stretch, s | labelled: fₖ × ((n−1)·s + 1)/n, so harmonic 1 stays |
+| inharmonic stretch, s | labelled: fₖ × s^(log₂ n / log₂ N), N the highest label: the higher, the further |
+| frequency shift, Δ Hz | fₖ + Δ; at or below 0 Hz the partial falls silent |
+| formant scale, r | aₖ × E(fₖ / r) / E(fₖ), E the envelope (Req 3) of the partials as they are, clamped to ±40 dB |
+| smear, m | per frame, along the partials in frequency: aₖ ← (1−m)·aₖ + m·aₖ₋₁ (the already smeared one below), then scaled back to the frame's energy |
+| odd/even, b | odd labels × min(1, 2(1−b)), even × min(1, 2b) |
+| spectral low/high pass, c, q | aₖ × a two-pole magnitude at cutoff c, Q from 0.707 to 10 as q goes 0 to 1 |
+| freeze, t | the partials sounding at frame t, held there for the whole sound; the rest gone |
+| decay by number, d | aₖ(t) × exp(−d · n · t), t seconds from the start (n 1 when unlabelled), never more than +40 dB |
 | noise amount, g | bandwidth × g, clamped to 0…1 |
 
-After any transform, a partial at or above Nyquist SHALL be faded out over the top octave.
+**The order the lab applies them in:**
+1. freeze
+2. the stretches
+3. odd/even
+4. decay
+5. smear
+6. the filters
+7. formant scale
+8. noise
+9. frequency shift
+10. the pitch shift
 
-**Implementation:** (planned) `crates/dsp/src/analysis/edit.rs` (`stretch`, `inharmonic`, `freq_shift`, `formant_scale`, `smear`, `odd_even`, `spectral_filter`, `freeze`, `decay_by_number`, `noise_amount`)
+Formant scale comes before the pitch shift because the envelope describes the partials as they are. A formant-preserving shift by s therefore scales the formants by 1/s first and then shifts.
+
+Resynthesis SHALL fade a partial out over the last tenth of the band below Nyquist, so a partial pushed up by a transform leaves without a click. A whole top octave would dull every sound above a quarter of the rate.
+
+**Implementation:** `crates/dsp/src/analysis/edit.rs` (`stretch`, `inharmonic`, `freq_shift`, `formant_scale`, `smear`, `odd_even`, `spectral_filter`, `freeze`, `decay_by_number`, `noise_amount`), `crates/dsp/src/analysis/lab.rs::Lab::set`, `crates/dsp/src/ffi.rs` (`spectral_set`), `web/src/audio/spectral.ts` (`Edit`, `NO_EDITS`), `web/src/components/lab/SpectralLab.vue`
 
 #### Scenario: a saw becomes a bell
 
-- GIVEN the engine's sawtooth at 220 Hz
+- GIVEN a labelled saw at 220 Hz of 16 harmonics
 - WHEN it is stretched inharmonically by 1.5
-- THEN harmonic 1 stays at 220 Hz and harmonic 8 moves above 8·220·1.4 Hz
+- THEN harmonic 1 stays at 220 Hz, harmonic 8 moves by 1.5^0.75 ≈ 1.355, harmonic 16 by 1.5, and the higher a harmonic the further it moves
 
 #### Scenario: formants stay
 
-- GIVEN Requirement 3's formant at 1 kHz
-- WHEN the partials are shifted a fifth up and formant-scaled by 1/1.5
-- THEN the resynthesis's envelope still peaks within a third of an octave of 1 kHz
+- GIVEN harmonics of 110 Hz under a resonance at 1 kHz
+- WHEN they are formant-scaled by 1/1.5 and then shifted a fifth up
+- THEN the loudest partial is still within a third of an octave of 1 kHz
 
-**Tests:** (planned) `crates/dsp/src/analysis/edit.rs::tests::stretch_moves_harmonics_apart`, `crates/dsp/src/analysis/edit.rs::tests::inharmonic_moves_high_partials_most`, `crates/dsp/src/analysis/edit.rs::tests::freq_shift_adds_hertz`, `crates/dsp/src/analysis/edit.rs::tests::formants_stay_when_pitch_moves`, `crates/dsp/src/analysis/edit.rs::tests::smear_keeps_energy`, `crates/dsp/src/analysis/edit.rs::tests::freeze_holds_a_frame`, `crates/dsp/src/analysis/edit.rs::tests::decay_by_number_kills_the_highs_first`, `crates/dsp/src/analysis/edit.rs::tests::nothing_passes_nyquist`
+#### Scenario: the lab
+
+- GIVEN the lab with a saw analysed
+- WHEN odd/even is set to 0
+- THEN the resynthesis changes, and the table sent to the PPG has no second harmonic. The view's ids and defaults mirror the engine's.
+
+**Tests:** `crates/dsp/src/analysis/edit.rs::tests::stretch_moves_harmonics_apart`, `crates/dsp/src/analysis/edit.rs::tests::inharmonic_moves_high_partials_most`, `crates/dsp/src/analysis/edit.rs::tests::freq_shift_adds_hertz`, `crates/dsp/src/analysis/edit.rs::tests::formants_stay_when_pitch_moves`, `crates/dsp/src/analysis/edit.rs::tests::smear_keeps_energy`, `crates/dsp/src/analysis/edit.rs::tests::odd_even_hollows_the_sound`, `crates/dsp/src/analysis/edit.rs::tests::spectral_filter_shapes_and_resonates`, `crates/dsp/src/analysis/edit.rs::tests::freeze_holds_a_frame`, `crates/dsp/src/analysis/edit.rs::tests::decay_by_number_kills_the_highs_first`, `crates/dsp/src/analysis/edit.rs::tests::nothing_passes_nyquist`, `crates/dsp/src/analysis/edit.rs::tests::noise_amount_scales_the_share`, `crates/dsp/src/analysis/lab.rs::tests::transforms_reach_the_render_and_the_table`, `crates/dsp/src/analysis/lab.rs::tests::the_view_mirrors_the_transforms`
 
 ### Requirement 5: Labels and distillation [MUST]
 
@@ -200,7 +222,7 @@ A partial set SHOULD come from more than a WAV:
 
 The engine SHALL hold user wavetables beside its generated ones (spec 006 Req 10):
 - **Storage.** 8 slots, each 64 waves of 256 samples, loaded through a buffer outside `render` (as a sample, ADR-0013). A slot is allocated when it is loaded, never in `render`, and an empty slot reads as silence.
-- **Rendering a partial set.** `WAVES` frames SHALL be chosen evenly from the analysis's first voiced frame to its last. Each frame's first 31 harmonics SHALL be written as one wave in sine phase, so neighbouring waves never cancel when crossfaded, and normalised to a peak of 1, since the synth's envelope gives the loudness. An unvoiced frame SHALL take the nearest voiced frame's harmonics. Without a voiced frame there is no table.
+- **Rendering a partial set.** `WAVES` frames SHALL be chosen evenly from the analysis's first voiced frame to its last. Each frame's partials, with the lab's transforms but not its pitch shift, SHALL go to the harmonic nearest their frequency over the frame's f0, the first 31 of them; an inharmonic partial is rounded, since a table holds whole harmonics only. They SHALL be written as one wave in sine phase, so neighbouring waves never cancel when crossfaded, and normalised to a peak of 1, since the synth's envelope gives the loudness. An unvoiced frame SHALL take the nearest voiced frame's harmonics. Without a voiced frame there is no table.
 - **Selection.** `Wt1Table` and `Wt2Table` SHALL reach the user tables as 8 to 15, after the generated ones. `Wt1Pos`/`Wt2Pos` SHALL move through their waves as through any table. So the PPG model plays an analysed sound through its filters and envelopes, and a morph between two waves is a position.
 - **Sending.** The lab SHALL send a table to a user slot in the main window, which the PPG panel offers as "User 1" to "User 8".
 

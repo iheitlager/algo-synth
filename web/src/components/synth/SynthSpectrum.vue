@@ -115,8 +115,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.spectrum { display: flex; flex-direction: column; gap: 6px; min-width: 260px; }
+.spectrum { display: flex; flex-direction: column; gap: 6px; width: 320px; }
 .toggle { align-self: flex-start; font-size: 11px; }
 .toggle[aria-pressed='true'] { border-color: var(--c, var(--accent)); color: var(--c, var(--accent)); }
-canvas { width: 100%; height: 110px; background: #07080a; border-radius: 4px; }
+canvas { width: 100%; height: 200px; background: #07080a; border-radius: 4px; }
 </style>

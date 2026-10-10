@@ -1696,12 +1696,13 @@ pub extern "C" fn spectral_buf(len: u32) -> *mut u8 {
     })
 }
 
-/// Analyse the buffer at `rate` with a `window` and `hop`: the frame count,
-/// a negative `sample::Error` code, or an `analysis::Error` code minus 10.
+/// Analyse the buffer at `rate` with a `window` and `hop`, with noise per
+/// partial when `noise` is 1 (spec 010 Req 2): the frame count, a negative
+/// `sample::Error` code, or an `analysis::Error` code minus 10.
 #[unsafe(no_mangle)]
-pub extern "C" fn spectral_analyse(rate: f32, window: u32, hop: u32) -> i32 {
+pub extern "C" fn spectral_analyse(rate: f32, window: u32, hop: u32, noise: u32) -> i32 {
     LAB.with(|cell| match cell.try_borrow_mut() {
-        Ok(mut lab) => lab.analyse(rate, window as usize, hop as usize),
+        Ok(mut lab) => lab.analyse(rate, window as usize, hop as usize, noise == 1),
         Err(_) => -9,
     })
 }
@@ -1763,6 +1764,17 @@ pub extern "C" fn spectral_gram_ptr(which: u32) -> *const u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn spectral_bands() -> u32 {
     crate::analysis::spectrogram::BANDS as u32
+}
+
+/// Set the lab's transform `id` (`analysis::lab::STRETCH` …, spec 010 Req 4)
+/// to `v`; the next render, table and spectrogram use it.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_set(id: u32, v: f32) {
+    LAB.with(|cell| {
+        if let Ok(mut lab) = cell.try_borrow_mut() {
+            lab.set(id as usize, v);
+        }
+    });
 }
 
 /// The analysed sound as a PPG wavetable (spec 010 Req 9): the number of
@@ -1922,12 +1934,12 @@ mod tests {
                 .expect("fits")
                 .copy_from_slice(&wav)
         });
-        assert_eq!(spectral_analyse(48_000.0, 2048, 256), 12_000 / 256 + 1);
+        assert_eq!(spectral_analyse(48_000.0, 2048, 256, 0), 12_000 / 256 + 1);
         assert!(spectral_tracks_len() > 2 && !spectral_tracks_ptr().is_null());
         let bytes = spectral_render(0, 1.0, 1.0);
         assert!(bytes as usize >= 44 + 4 * 12_000);
         assert!(!spectral_wav_ptr().is_null());
-        assert_eq!(spectral_analyse(48_000.0, 2048, 0), -13);
+        assert_eq!(spectral_analyse(48_000.0, 2048, 0, 0), -13);
         assert_eq!(spectral_render(0, 1.0, 1.0), 0);
     }
 

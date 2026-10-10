@@ -1259,8 +1259,9 @@ const modular: ModelDef = {
   sections: [
     { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
     { title: 'Code', grow: true, controls: [{ kind: 'code' }] },
+    // Beside the code, so a change to the SynthDef shows in the sound as it is typed.
+    { title: 'Spectrum', controls: [{ kind: 'spectrum' }] },
     { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
-    { title: 'Spectrum', wide: true, controls: [{ kind: 'spectrum' }] },
   ],
 }
 

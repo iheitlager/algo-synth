@@ -5,7 +5,9 @@
 //! within `MAX_SECONDS` and `MAX_PEAKS`, and never panic.
 
 pub mod additive;
+pub mod bandwidth;
 pub mod edit;
+pub mod envelope;
 pub mod fft;
 pub mod frames;
 pub mod harmonic;
@@ -37,6 +39,8 @@ pub struct Settings {
     pub cents: f32,
     /// Frames a track may miss before it ends.
     pub gap: usize,
+    /// Give each partial the noise around it as bandwidth (spec 010 Req 2).
+    pub noise: bool,
 }
 
 impl Default for Settings {
@@ -47,6 +51,7 @@ impl Default for Settings {
             floor_db: -80.0,
             cents: 50.0,
             gap: 3,
+            noise: false,
         }
     }
 }
@@ -101,6 +106,7 @@ pub fn analyse(x: &[f32], rate: f32, s: &Settings) -> Result<Analysis, Error> {
     }
     let mut stft = Stft::new(s.window).ok_or(Error::BadSettings)?;
     let bin_hz = stft.bin_hz(rate);
+    let lobe_energy = stft.lobe_energy();
     let frames = x.len() / s.hop + 1;
     let mut tracker = Tracker::new(s.cents, s.gap);
     let mut all = Vec::with_capacity(frames);
@@ -108,6 +114,9 @@ pub fn analyse(x: &[f32], rate: f32, s: &Settings) -> Result<Analysis, Error> {
     for frame in 0..frames {
         let (mag, phase) = stft.frame(x, frame * s.hop);
         peaks::peaks(mag, phase, bin_hz, s.floor_db, MAX_PEAKS, &mut found);
+        if s.noise {
+            bandwidth::associate(mag, &mut found, bin_hz, lobe_energy);
+        }
         tracker.push(frame, &found);
         all.push(found.clone());
     }

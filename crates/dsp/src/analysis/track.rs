@@ -4,13 +4,19 @@
 
 use super::peaks::Peak;
 
-/// One partial: its frequency, amplitude and phase per frame from `start`.
+/// One partial: its frequency, amplitude, phase and noise per frame from
+/// `start`, and its harmonic number (spec 010 Req 1).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Track {
     pub start: usize,
     pub freq: Vec<f32>,
     pub amp: Vec<f32>,
     pub phase: Vec<f32>,
+    /// Bandwidth per frame, 0..=1; empty reads as 0 everywhere (no noise).
+    pub noise: Vec<f32>,
+    /// Its harmonic number against the sound's f0, 0 when it has none
+    /// (`label`, spec 010 Req 5).
+    pub label: usize,
 }
 
 impl Track {
@@ -22,10 +28,16 @@ impl Track {
         self.freq.is_empty()
     }
 
+    /// Noise at frame `i` of the track, 0 when it has none.
+    pub fn noise_at(&self, i: usize) -> f32 {
+        self.noise.get(i).copied().unwrap_or(0.0)
+    }
+
     fn push(&mut self, p: Peak) {
         self.freq.push(p.freq);
         self.amp.push(p.amp);
         self.phase.push(p.phase);
+        self.noise.push(p.noise);
     }
 
     fn last(&self) -> Peak {
@@ -33,6 +45,7 @@ impl Track {
             freq: self.freq.last().copied().unwrap_or(0.0),
             amp: self.amp.last().copied().unwrap_or(0.0),
             phase: self.phase.last().copied().unwrap_or(0.0),
+            noise: self.noise.last().copied().unwrap_or(0.0),
         }
     }
 }
@@ -107,6 +120,7 @@ impl Tracker {
                         freq: from.freq + (p.freq - from.freq) * t,
                         amp: from.amp + (p.amp - from.amp) * t,
                         phase: from.phase,
+                        noise: from.noise + (p.noise - from.noise) * t,
                     });
                 }
                 track.push(p);
@@ -158,7 +172,7 @@ mod tests {
         Peak {
             freq,
             amp: 0.5,
-            phase: 0.0,
+            ..Peak::default()
         }
     }
 
