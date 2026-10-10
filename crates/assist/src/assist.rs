@@ -3,6 +3,7 @@
 //! with the tools and ends by proposing one, which the engine has parsed.
 //! Every step goes out as an event.
 
+use crate::gate::{self, Finding};
 use crate::provider::{Msg, Provider, ProviderError, Stop, ToolCall, ToolDef, ToolResult, Usage};
 use crate::scope;
 use crate::tools::{self, Limits};
@@ -54,6 +55,9 @@ pub enum Event {
         name: String,
         ok: bool,
         summary: String,
+        /// The gate's rules that refused a proposal (#453).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        rules: Vec<&'static str>,
     },
     Text {
         text: String,
@@ -61,6 +65,9 @@ pub enum Event {
     Song {
         song: String,
         summary: String,
+        /// What the gate warns about, for the review (#453).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<Finding>,
     },
     Error {
         message: String,
@@ -115,7 +122,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "propose_song",
-            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse, stay within the track in focus and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the render's measures. Propose once, when it renders cleanly.",
+            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse, stay within the track in focus, leave no frag, auto lane or heard track unplayed by the arrangement, and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the rules it broke and what to change. Propose once, when it renders cleanly.",
             schema: json!({"type": "object", "properties": {
                 "song": song,
                 "summary": {"type": "string", "description": "What you changed and why, in one short paragraph."}
@@ -135,7 +142,7 @@ How to work:\n\
 - You get the current song and a request. Change what the request asks for and keep the rest: names, comments, settings, mixer lines and the arrangement, unless the request is about them.\n\
 - Render every song you write with render_song; it parses it too and reports the first error with its line and column. Aim for no non-finite samples, the peak below 1.0, every new or changed part audible, and the parts balanced (drums and bass lead, pads and arps under them).\n\
 - A track in focus without fragments is auditioned: the render plays a phrase on it (\"auditioned\": true). Don't add a fragment just to hear it.\n\
-- When it renders cleanly, call propose_song once with the whole song and a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent. The user reviews a diff and applies it.\n\
+- When it renders cleanly, call propose_song once with the whole song and a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent, or that adds a frag, auto lane or track the arrangement never plays. The user reviews a diff and applies it.\n\
 - If the request is a question, answer it in text and propose nothing.\n\
 - Use only the models, presets, pads, parameters and scales of the catalog.\n\n\
 <language>\n{LANGUAGE}\n</language>\n\n<catalog>\n{}</catalog>\n",
@@ -205,13 +212,15 @@ fn song_of(call: &ToolCall) -> Result<&str, String> {
     }
 }
 
-/// What a tool did: its answer to the model, a line for the browser, and a
-/// proposed song with its summary when `propose_song` succeeded.
+/// What a tool did: its answer to the model, a line for the browser, the
+/// gate's rules that refused a proposal, and a proposed song with its
+/// summary and warnings when `propose_song` succeeded.
 struct Ran {
     result: ToolResult,
     ok: bool,
     summary: String,
-    proposed: Option<(String, String)>,
+    rules: Vec<&'static str>,
+    proposed: Option<(String, String, Vec<Finding>)>,
 }
 
 async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
@@ -224,7 +233,19 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
         },
         ok,
         summary,
+        rules: Vec::new(),
         proposed: None,
+    };
+    // A proposal the gate refuses (#453): its rules, and what to do next.
+    let refuse = |mut v: Value, summary: String, rules: Vec<&'static str>, hint: &str| {
+        if let Some(o) = v.as_object_mut() {
+            o.insert("rules".into(), json!(rules));
+            o.insert("hint".into(), json!(hint));
+        }
+        Ran {
+            rules,
+            ..answer(v, false, summary)
+        }
     };
     let song = match song_of(call) {
         Ok(s) => s.to_string(),
@@ -263,7 +284,7 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
                         "{} bars, peak {:.2}, {}",
                         m.rendered.bars,
                         m.rendered.peak,
-                        fault.as_deref().unwrap_or("clean")
+                        fault.as_ref().map_or("clean", |f| f.message.as_str())
                     );
                     answer(m.report(), fault.is_none(), summary)
                 }
@@ -277,38 +298,62 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            let c = tools::check(&song);
-            if let Some(e) = c.error {
-                let line = format!("line {}, col {}: {}", e.line, e.col, e.msg);
-                return answer(
-                    json!({"error": e, "hint": "fix it and propose again"}),
-                    false,
-                    line,
-                );
-            }
+            // The gate (#453), in the order of `gate::RULES`.
+            let after = match Song::parse(&song) {
+                Ok(s) => s,
+                Err(e) => {
+                    let e = tools::check(&song).error.unwrap_or_else(|| e.into());
+                    let line = format!("line {}, col {}: {}", e.line, e.col, e.msg);
+                    return refuse(
+                        json!({"error": e}),
+                        line,
+                        vec!["parse"],
+                        "fix it and propose again",
+                    );
+                }
+            };
             // With a track in focus (#415), a song that changes more is refused.
             if let Some(t) = &req.focus
                 && let Err(why) = scope::check(&req.song, &song, t)
             {
-                return answer(
-                    json!({"error": why, "hint": "change only the track in focus and propose again"}),
-                    false,
+                return refuse(
+                    json!({"error": why}),
                     why,
+                    vec!["scope"],
+                    "change only the track in focus and propose again",
+                );
+            }
+            let before = Song::parse(&req.song).ok();
+            let (refused, warnings): (Vec<Finding>, Vec<Finding>) =
+                gate::lint(before.as_ref(), &after, req.focus.as_deref())
+                    .into_iter()
+                    .partition(Finding::refuses);
+            if !refused.is_empty() {
+                let why = refused
+                    .iter()
+                    .map(|f| f.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let rules = refused.iter().map(|f| f.rule).collect();
+                return refuse(
+                    json!({"error": why}),
+                    why,
+                    rules,
+                    "fix these and propose again",
                 );
             }
             // Only a song that renders cleanly reaches the user (#430).
             match measure(&song, req.focus.as_deref(), 64).await {
                 Ok(m) => match m.fault() {
-                    Some(why) => {
+                    Some(f) => {
                         let mut v = m.report();
                         if let Some(o) = v.as_object_mut() {
-                            o.insert("error".into(), json!(why));
-                            o.insert("hint".into(), json!("fix it and propose again"));
+                            o.insert("error".into(), json!(f.message));
                         }
-                        answer(v, false, why)
+                        refuse(v, f.message, vec![f.rule], "fix it and propose again")
                     }
                     None => Ran {
-                        proposed: Some((song, summary)),
+                        proposed: Some((song, summary, warnings)),
                         ..answer(json!({"ok": true}), true, "proposed".into())
                     },
                 },
@@ -338,14 +383,17 @@ struct Measured {
 
 impl Measured {
     /// What keeps the song from the user: non-finite samples, clipping, or
-    /// the track in focus silent.
-    fn fault(&self) -> Option<String> {
+    /// the track in focus silent; the gate's `nonfinite`, `clip` and
+    /// `silent-focus` rules.
+    fn fault(&self) -> Option<Finding> {
         let r = &self.rendered;
         if r.nonfinite > 0 {
-            return Some(format!("{} non-finite samples", r.nonfinite));
+            let why = format!("{} non-finite samples", r.nonfinite);
+            return Some(Finding::new("nonfinite", why));
         }
         if r.peak > 1.0 {
-            return Some(format!("the peak is {:.2}: it clips", r.peak));
+            let why = format!("the peak is {:.2}: it clips", r.peak);
+            return Some(Finding::new("clip", why));
         }
         let silent = |t: &str| {
             r.tracks
@@ -354,7 +402,9 @@ impl Measured {
                 .is_some_and(|x| x.peak <= SILENT)
         };
         match &self.heard {
-            Some(t) if !r.cut_short && silent(t) => Some(format!("`{t}` is silent")),
+            Some(t) if !r.cut_short && silent(t) => {
+                Some(Finding::new("silent-focus", format!("`{t}` is silent")))
+            }
             _ => None,
         }
     }
@@ -499,6 +549,7 @@ pub async fn run<P: Provider>(
                 name: call.name.clone(),
                 ok: ran.ok,
                 summary: ran.summary,
+                rules: ran.rules,
             });
             if proposed.is_none() {
                 proposed = ran.proposed;
@@ -506,8 +557,12 @@ pub async fn run<P: Provider>(
             results.push(ran.result);
         }
         msgs.push(Msg::Assistant(turn));
-        if let Some((song, summary)) = proposed {
-            emit(Event::Song { song, summary });
+        if let Some((song, summary, warnings)) = proposed {
+            emit(Event::Song {
+                song,
+                summary,
+                warnings,
+            });
             break;
         }
         msgs.push(Msg::Results(results));
@@ -636,7 +691,8 @@ mod tests {
         assert!(lines[0].1 && lines[0].2.ends_with("clean"), "{lines:?}");
         assert!(ev.contains(&Event::Song {
             song: song.into(),
-            summary: "a lead".into()
+            summary: "a lead".into(),
+            warnings: vec![],
         }));
         let seen = p.seen.lock().unwrap();
         let Msg::Results(r) = &seen[1][2] else {
@@ -687,11 +743,16 @@ mod tests {
             heard: Some("kit".into()),
         };
         assert_eq!(m(0.5, 0).fault(), None);
+        let f = m(1.3, 0).fault().expect("it clips");
         assert_eq!(
-            m(1.3, 0).fault().as_deref(),
-            Some("the peak is 1.30: it clips")
+            (f.rule, f.message.as_str()),
+            ("clip", "the peak is 1.30: it clips")
         );
-        assert_eq!(m(0.5, 3).fault().as_deref(), Some("3 non-finite samples"));
+        let f = m(0.5, 3).fault().expect("non-finite");
+        assert_eq!(
+            (f.rule, f.message.as_str()),
+            ("nonfinite", "3 non-finite samples")
+        );
     }
 
     /// The model's bad song is checked, the error goes back, the fix is
@@ -727,7 +788,8 @@ mod tests {
         );
         assert!(ev.contains(&Event::Song {
             song: GOOD.into(),
-            summary: "a kick".into()
+            summary: "a kick".into(),
+            warnings: vec![],
         }));
         let Some(Event::Done { rounds, usage, .. }) = ev.last() else {
             panic!("ends with done: {ev:?}")
@@ -780,7 +842,8 @@ mod tests {
         );
         assert!(ev.contains(&Event::Song {
             song: GOOD.into(),
-            summary: "fixed".into()
+            summary: "fixed".into(),
+            warnings: vec![],
         }));
     }
 
@@ -809,8 +872,62 @@ mod tests {
         );
         assert!(ev.contains(&Event::Song {
             song: snare,
-            summary: "a snare".into()
+            summary: "a snare".into(),
+            warnings: vec![],
         }));
+    }
+
+    /// A refusing rule of the gate (#453) goes back to the model with its
+    /// id; the fix is proposed with the gate's warnings for the review.
+    #[tokio::test]
+    async fn the_gate_refuses_with_its_rule_and_passes_warnings_on() {
+        let start = format!("{GOOD}section a 1: beat\narrange a\n");
+        let stray = start.replace(
+            "section a",
+            "frag hat = kit /16\n  ch ..x...x...x...x.\nsection a",
+        );
+        let gap = start.replace("arrange a", "section gap 1:\narrange a gap");
+        let p = Scripted::new(vec![
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": stray, "summary": "x"}),
+            )])),
+            Ok(calls(vec![(
+                "propose_song",
+                json!({"song": gap, "summary": "a break"}),
+            )])),
+        ]);
+        let req = Request {
+            song: start,
+            request: "add a break".into(),
+            focus: None,
+        };
+        let ev = events_for(&p, &req, LoopLimits::default()).await;
+        assert!(
+            ev.iter().any(
+                |e| matches!(e, Event::Tool { ok: false, rules, summary, .. }
+                if *rules == ["unused-frag"] && summary.contains("`hat`"))
+            ),
+            "{ev:?}"
+        );
+        let seen = p.seen.lock().unwrap();
+        let Msg::Results(r) = &seen[1][2] else {
+            panic!("the refusal: {:?}", seen[1])
+        };
+        assert!(
+            r[0].is_error && r[0].content.contains("unused-frag"),
+            "{:?}",
+            r[0]
+        );
+        let warned = ev.iter().find_map(|e| match e {
+            Event::Song { warnings, .. } => Some(warnings.clone()),
+            _ => None,
+        });
+        let warned = warned.expect("the fix is proposed");
+        assert_eq!(
+            warned.iter().map(|f| f.rule).collect::<Vec<_>>(),
+            ["silent-section"]
+        );
     }
 
     #[tokio::test]
@@ -914,11 +1031,30 @@ mod tests {
             name: "check_song".into(),
             ok: true,
             summary: "parses".into(),
+            rules: vec![],
         };
         assert_eq!(e.name(), "tool");
         assert_eq!(
             e.data(),
             json!({"round": 1, "name": "check_song", "ok": true, "summary": "parses"})
+        );
+        let refused = Event::Tool {
+            round: 1,
+            name: "propose_song".into(),
+            ok: false,
+            summary: "the peak is 1.30: it clips".into(),
+            rules: vec!["clip"],
+        };
+        assert_eq!(refused.data()["rules"], json!(["clip"]));
+        let s = Event::Song {
+            song: "tempo 120\n".into(),
+            summary: "faster".into(),
+            warnings: vec![Finding::new("removed", "the track `bass` is gone".into())],
+        };
+        assert_eq!(
+            s.data(),
+            json!({"song": "tempo 120\n", "summary": "faster",
+                   "warnings": [{"rule": "removed", "message": "the track `bass` is gone"}]})
         );
         let d = Event::Done {
             rounds: 2,

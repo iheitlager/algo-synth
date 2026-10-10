@@ -36,7 +36,7 @@ The server SHALL call a model through one `Provider` trait over three wire forma
 
 ### Requirement 3: The loop [MUST]
 
-For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. `render_song` SHALL parse the song too, so the prompt does not ask for `check_song` first. With a track in focus that has no fragment, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its frags, and autos, mods and scene values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its fragments plays) but is silent SHALL go back to the model as an error with the render's measures (#430). Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
+For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. `render_song` SHALL parse the song too, so the prompt does not ask for `check_song` first. With a track in focus that has no fragment, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its frags, and autos, mods and scene values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its fragments plays) but is silent SHALL go back to the model as an error with the render's measures (#430). These checks, with the structure rules between scope and render, are the gate of Requirement 7. Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
 
 **Implementation:** `crates/assist/src/assist.rs::run`, `crates/assist/src/scope.rs::check`, `crates/assist/src/assist.rs::system_prompt`, `crates/assist/src/assist.rs::tool_defs`, `crates/assist/src/assist.rs::Event`
 
@@ -116,7 +116,7 @@ The keys SHALL come from 1Password and never be stored in git:
 The assistant SHALL have an eval set: about thirty requests on starting songs from `examples/`, or on a song given in the case.
 - **What they ask:** add a part, change a groove, re-harmonise, make a section build, write a song from scratch, fix a song that does not load, or answer a question without changing anything.
 - **Grading, by code:** a song expected SHALL be proposed, parse and render clean (no non-finite samples, peak at most 1.0), and then pass the case's checks: fragments and tracks kept, tempo, swing, more lanes of a pad, more fragments, tracks or sections, a track on a model, the text holding something. A question SHALL be answered in words with no song.
-- **The runner:** `assist eval --provider ID --model ID` SHALL run the cases through the real loop and report, per case and in total, the pass, the rounds, the tokens (input, cached, output), the seconds and, where the prices are known, the cost.
+- **The runner:** `assist eval --provider ID --model ID` SHALL run the cases through the real loop and report, per case and in total, the pass, the gate's rules that fired (#453), the rounds, the tokens (input, cached, output), the seconds and, where the prices are known, the cost.
 
 Every run calls the provider and costs money, so it runs on request and never in CI (#388).
 
@@ -130,4 +130,40 @@ Every run calls the provider and costs money, so it runs on request and never in
 
 **Tests:** `crates/assist/src/eval.rs::tests::the_set_loads_and_its_start_songs_parse`, `crates/assist/src/eval.rs::tests::checks_grade_what_they_say`, `crates/assist/src/eval.rs::tests::a_question_passes_with_words_and_no_song`, `crates/assist/src/eval.rs::tests::cost_and_the_report`, `crates/assist/src/eval.rs::tests::a_case_runs_through_the_loop`
 
-||||||| 7924b44
+### Requirement 7: The acceptance gate [MUST]
+
+`propose_song` SHALL run a proposed song through one ordered set of named rules (#453). A refusing rule SHALL send the song back to the model as an error carrying the rule ids (`rules`) and a message that says what to change; the browser's `tool` line SHALL carry the same ids. A warning SHALL ride along with the proposal as the `song` event's `warnings` (rule and message), and the review SHALL show them. The structure rules SHALL hold the proposal only to what it adds: a finding the current song already has SHALL not count. The rules, in order:
+
+| Rule | Level | A song breaks it when |
+|---|---|---|
+| `parse` | refuse | it does not parse |
+| `scope` | refuse | with a track in focus, anything else changes (#415) |
+| `unused-frag` | refuse | it has an `arrange` and a frag sits in no arranged section |
+| `unplayed-track` | refuse | a heard track (not muted, not out-soloed, not in focus) plays no frag |
+| `unused-auto` | refuse | it has an `arrange` and an auto lane sits in no arranged section |
+| `nonfinite` | refuse | the render has non-finite samples (#430) |
+| `clip` | refuse | the render's peak is above 1.0 (#430) |
+| `silent-focus` | refuse | the track in focus should sound but is silent (#430) |
+| `silent-section` | warn | an arranged section plays no step and no note |
+| `unarranged` | warn | it has sections but no `arrange` |
+| `removed` | warn | a track or section of the current song is gone |
+
+Without an `arrange`, every frag and auto lane loops, so `unused-frag` and `unused-auto` do not apply. A `mod` is not placed by sections; a frag's own methods go with the frag.
+
+**Implementation:** `crates/assist/src/gate.rs::RULES`, `crates/assist/src/gate.rs::lint`, `crates/assist/src/assist.rs::run_tool`, `crates/assist/src/assist.rs::Event`, `web/src/components/AssistantPane.vue`
+
+#### Scenario: a refusal names its rule and a warning reaches the review
+
+- GIVEN a song with one arranged section and a model that first proposes it with a frag no section plays, then with an empty `gap` section arranged
+- WHEN the loop runs
+- THEN the first proposal goes back with `unused-frag` and the frag's name, and the second is the `song` event with a `silent-section` warning
+
+**Tests:** `crates/assist/src/assist.rs::tests::the_gate_refuses_with_its_rule_and_passes_warnings_on`, `crates/assist/src/gate.rs::tests::the_song_passes_every_rule`, `crates/assist/src/gate.rs::tests::an_unused_frag_is_refused`, `crates/assist/src/gate.rs::tests::an_unplayed_track_is_refused`, `crates/assist/src/gate.rs::tests::an_unused_auto_is_refused`, `crates/assist/src/gate.rs::tests::a_silent_section_is_a_warning`, `crates/assist/src/gate.rs::tests::sections_without_an_arrangement_are_a_warning`, `crates/assist/src/gate.rs::tests::removed_tracks_and_sections_are_warnings`, `crates/assist/src/gate.rs::tests::what_the_current_song_already_breaks_is_not_held_against_it`, `crates/assist/src/gate.rs::tests::the_rules_are_ordered_and_named_in_the_spec`, `crates/assist/src/assist.rs::tests::clipping_and_non_finite_samples_are_faults`, `crates/assist/src/assist.rs::tests::a_silent_track_in_focus_is_not_proposed`, `web/src/audio/assist.test.ts`
+
+#### Scenario: the eval records the rules that fired
+
+- GIVEN a case whose proposal has sections but no `arrange`
+- WHEN it runs through the loop
+- THEN its outcome and its report row carry `unarranged`
+
+**Tests:** `crates/assist/src/eval.rs::tests::a_case_runs_through_the_loop`, `crates/assist/src/eval.rs::tests::cost_and_the_report`
