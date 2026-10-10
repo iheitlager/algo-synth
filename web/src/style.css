@@ -25,6 +25,14 @@ button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: default; }
 input[type='range'] { accent-color: var(--accent); width: 100%; }
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: auto; min-height: 0; }
+/* A pane scrolls both ways, so it says so: the overlay scrollbars macOS hides
+   until you reach for them leave a wide arrangement looking cut off (#484). */
+.pane { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.pane::-webkit-scrollbar { width: 10px; height: 10px; }
+.pane::-webkit-scrollbar-track { background: transparent; }
+.pane::-webkit-scrollbar-thumb { background: var(--line); border: 2px solid var(--panel); border-radius: 5px; }
+.pane::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.pane::-webkit-scrollbar-corner { background: transparent; }
 .pane-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 8px 12px; border-bottom: 1px solid var(--line);

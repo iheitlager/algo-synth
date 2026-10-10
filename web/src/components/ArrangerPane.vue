@@ -7,13 +7,16 @@
 // A clip's row mutes and solos its track (#346, #355): the track's clips
 // stop, its synth stays open for live keys and other tracks. The song text
 // keeps it (`track … mute`); the synth rail and mixer mute the instrument.
-import { computed } from 'vue'
-import { MUTE, arrange, files, setTrackFlags, song, status, synthColour, type SongScene } from '../audio/engine'
+import { computed, ref } from 'vue'
+import { MUTE, arrange, files, params, setTrackFlags, song, status, synthColour, synths, type SongScene } from '../audio/engine'
+import { Param } from '../audio/params'
 import LaunchBar from './LaunchBar.vue'
 
 const STEPS_PER_BAR = 16
 /** Pixels per bar: wide enough to read a name, narrow enough for a song. */
 const BAR = 48
+/** Where the bars start: the grid's padding plus its label column, as the CSS has it. */
+const GUTTER = 10 + 170
 
 /** A row; a clip's carries its track. */
 interface Row { kind: 0 | 1 | 2; item: number; label: string; colour: string; track?: number }
@@ -34,10 +37,25 @@ const soloed = (t: number) => song.tracks[t]?.solo ?? false
 const toggleMute = (t: number) => setTrackFlags(t, !muted(t), soloed(t))
 const toggleSolo = (t: number) => setTrackFlags(t, muted(t), !soloed(t))
 const anySolo = computed(() => song.tracks.some((t) => t.solo))
+// The engine reports the live strip values, automation included, so a lane that
+// mutes an instrument greys its rows here too (#346).
+const val = (s: number, id: number) => params.values[s]?.[id] ?? 0
+/** The synth a track plays, when it has a real one. */
+const synthOf = (t: number) => {
+  const s = song.tracks[t]?.synth
+  return s === undefined || s === MUTE ? undefined : s
+}
+const anySynthSolo = computed(() => synths.list.some((s) => val(s, Param.Solo) >= 0.5))
+/** Whether a track's instrument is silent: muted, or unsoloed while another solos. */
+const instrumentSilent = (t: number) => {
+  const s = synthOf(t)
+  return s !== undefined && (val(s, Param.Mute) >= 0.5 || (anySynthSolo.value && val(s, Param.Solo) < 0.5))
+}
 /** Whether a clip row's track is not heard, as the engine has it: while
- * any track is soloed only the soloed ones play, else the ones not muted. */
+ * any track is soloed only the soloed ones play, else the ones not muted; and
+ * either way nothing is heard through a silenced instrument. */
 const silenced = (r: Row) =>
-  r.track != null && (anySolo.value ? !soloed(r.track) : muted(r.track))
+  r.track != null && ((anySolo.value ? !soloed(r.track) : muted(r.track)) || instrumentSilent(r.track))
 
 /** The entries with where each starts, in bars. */
 const entries = computed(() => {
@@ -57,6 +75,14 @@ const head = computed(() => {
   return song.playing && e && song.local >= 0 ? e.start + song.local / STEPS_PER_BAR : -1
 })
 const looped = (bar: number) => song.loop[0] > 0 && bar + 1 >= song.loop[0] && bar + 1 <= song.loop[1]
+// A long arrangement scrolls past the playhead; this brings it back in view.
+const pane = ref<HTMLElement>()
+function goToHead() {
+  const el = pane.value
+  if (!el || head.value < 0) return
+  // Centred in what the pinned label column leaves visible.
+  el.scrollTo({ left: Math.max(0, head.value * BAR - (el.clientWidth - GUTTER) / 2), behavior: 'smooth' })
+}
 
 // A scene that isn't in the arrangement yet can be added at its end.
 function addEntry(e: Event) {
@@ -84,7 +110,7 @@ function onBar(bar: number, e: MouseEvent) {
 </script>
 
 <template>
-  <section class="pane arranger" aria-label="Arranger">
+  <section ref="pane" class="pane arranger" aria-label="Arranger">
     <div class="pane-head">
       <span>Arranger · {{ song.scenes.length }} scenes · {{ bars }} bars<template v-if="song.loop[0]"> · loop {{ song.loop[0] }}–{{ song.loop[1] }}</template></span>
       <span class="tools">
@@ -93,6 +119,7 @@ function onBar(bar: number, e: MouseEvent) {
           <option value="">+ Play scene…</option>
           <option v-for="(s, i) in song.scenes" :key="i" :value="i">{{ s.name }} ({{ s.bars }})</option>
         </select>
+        <button :disabled="head < 0" title="Scroll to the bar playing now" @click="goToHead">◎ Now</button>
       </span>
     </div>
     <!-- Launch scenes and snapshots live (#489): pads and keys. -->
@@ -161,10 +188,13 @@ function onBar(bar: number, e: MouseEvent) {
 .tools { display: flex; gap: 6px; align-items: center; text-transform: none; letter-spacing: 0; }
 .tools button.on { border-color: var(--accent); color: var(--accent); }
 .tools select { font: inherit; font-size: 11px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; }
+/* Scrolling sideways keeps the head (and ◎ Now) and the row labels in place;
+   the bars slide under the labels. */
+.arranger > .pane-head { left: 0; }
 .empty { color: var(--muted); padding: 12px; margin: 0; }
 .notice { margin: 4px 12px; color: var(--accent); }
 .grid { position: relative; display: grid; grid-template-columns: 170px max-content; row-gap: 2px; padding: 6px 10px 10px; }
-.label { font-size: 11px; color: var(--muted); padding: 3px 8px 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+.label { position: sticky; left: 0; z-index: 1; margin-left: -10px; padding-left: 10px; background: var(--panel); font-size: 11px; color: var(--muted); padding-top: 3px; padding-right: 8px; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
 .label i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .ms { display: flex; gap: 2px; flex: none; }
 .ms button {
