@@ -6,7 +6,7 @@ algo-synth is built **from working to working**: every MVP is something you can 
 
 **Rerouted again 2026-10-03 (ADR-0012):** the ensemble plays, so the deferred milestones come back, in their original order, around one idea: **the song is text**. A Tidal/Strudel-style notation with classic note names and durations, parsed and printed by the engine; the 16-step drum grid, generators and a language model all edit that text. Drums move forward into MVP 3 (the drum machine is the first thing the clock plays); MVP 6 becomes the samplers. The MIDI player stays a separate path, and a MIDI file also converts into the song (#173).
 
-**Where it stands (v0.32):** M1 to M4 are built, and most of M5. Open: chord symbols (#103, the rest of MVP 4, #102), the Vivaldi score (#20) and per-synth drift (#21) of MVP 5, the PPG's 8-bit path of MVP 7, per-step parameter locks and LFO modulators of MVP 10, and the performance half of MVP 11. The language model writes the song (epic #381) and Web MIDI plays in (#10). The song language as built is in [docs/song.md](../docs/song.md).
+**Where it stands (v0.32):** M1 to M4 are built, and most of M5. Open: chord symbols (#103, the rest of MVP 4, #102), the Vivaldi score (#20) and per-synth drift (#21) of MVP 5, the PPG's 8-bit path of MVP 7, per-step parameter locks and LFO modulators of MVP 10, and the performance half of MVP 11. The language model writes the song (epic #381) and Web MIDI plays in (#10). The song language as built is in [language.md](language.md).
 
 **Five milestones, eleven MVPs.** Epics become GitHub issues with the `epic` label; their stories become sub-issues that cite spec requirements (`Refs: 001/Req-3`). Every MVP names a **value signal**: how you know it delivers.
 

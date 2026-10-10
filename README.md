@@ -69,7 +69,7 @@ Its nearest relatives are TidalCycles with SuperDirt (patterns playing SuperColl
 - **Code synths beside modelled instruments.** A SynthDef can borrow a modelled instrument's filter (`voicing: \ms20`) and play in the same song as a Prophet-5 voiced down to its oscillators, envelopes and VCA.
 - **Generators read the song.** `root(chords)`, `arp(chords, …)` and `markov(2, riff, 7)` take other frags as their input, so one progression can drive the pad, the bass and the arps.
 
-Every keyword, with examples, is in [docs/song.md](docs/song.md).
+Every keyword, with examples, is in [.openspec/language.md](.openspec/language.md).
 
 ## Quick start
 
@@ -113,14 +113,13 @@ crates/assist/  the assistant's server and its song tools (check, render, catalo
 web/            Vue view; public/worklet.js is the audio-thread shim
 tools/          bench, demo MIDI, sample fetcher, release script, spec link check
 changes/        changelog fragments, one per PR, collected by make release
-docs/           the song language
-.openspec/      vision, plan, ADRs, specs
+.openspec/      vision, plan, ADRs, specs, the song language
 Containerfile   wasm and server → web → one image
 ```
 
 ## Documentation
 
-- [The song language](docs/song.md): every keyword of the composer's song text, with examples; its normative definition is [.openspec/language.md](.openspec/language.md)
+- [The song language](.openspec/language.md): every keyword of the composer's song text, its meaning, limits and errors, with examples
 - [Vision](.openspec/vision.md) · [Plan](.openspec/plan.md) · [ADRs](.openspec/adr/index.md) · [Specs](.openspec/README.md#specifications)
 
 ## Licence

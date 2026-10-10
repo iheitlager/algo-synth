@@ -1,9 +1,9 @@
 # The song language
 
 The normative definition of algo-synth's song text: what the engine's parser
-accepts, what it means, its limits and its errors. `docs/song.md` is the guide
-for people; where the two differ, the parser decides and this file is fixed.
-Every block tagged `song` is a whole song that parses and prints back the same.
+accepts, what it means, its limits and its errors, with examples. Where it and
+the parser differ, the parser decides and this file is fixed. Every block
+tagged `song` is a whole song that parses and prints back the same.
 
 Grammar lines: `<x>` a placeholder, `[x]` optional, `x…` one or more, `a | b`
 a choice; anything else is literal.
@@ -136,7 +136,12 @@ A subset of sclang, run once to build the voice:
   velocity times its default; any other argument (or `\name.kr(n)`) is a knob.
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Out`.
+  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Out`.
+- **Switches:** `Select.kr(which, [a, b, …])` (and `.ar`) plays one of 1 to 8
+  choices, its index truncated and clipped as SuperCollider's; an `if` on a
+  signal is an error pointing to it. A knob used as a `Select` index is a
+  switch, whole numbers from 0 through the choices: `|dir = 0|` in
+  `Select.kr(dir, [saw.neg, saw])` flips between two positions.
 - **Envelopes:** `Env.adsr(a, d, s, r)`, `Env.perc(a, r)`, `Env.asr(a, s, r)`,
   `Env(levels, times, curves, releaseNode)`; played by `EnvGen.kr(env, gate)`
   or `env.kr`. A voice ends when its envelopes do; without one it uses the
@@ -770,4 +775,54 @@ scene full: strip1.Mute 0
 section main 8: kick roll open [full]
 section break 4: roll [bare]
 arrange main break main
+```
+
+**A whole song:** Sand and Nile, a maqsum beat on an 808, a Minimoog bass, an
+SH-101 "oud" from a setting, a live arp and a pad, in E phrygian dominant.
+
+```song
+# Sand and Nile
+tempo 104
+swing 54
+scale e phrygian-dominant
+
+setting oud = Sh101 Sh101Lead: Cutoff 1800, Resonance 0.45, Glide 0.05
+track kit drums Tr808 Kit808
+track bass synth Minimoog MiniBass
+track lead synth oud
+track arp synth
+track pad synth
+
+# maqsum: dum tek . tek dum . tek .
+frag beat = kit /16
+  bd x.......x.......
+  lc ..x...x.....x...
+  ma x.x.x.x.x.x.x.x.
+  hc euclid(5,16,3)
+frag roll = kit /16
+  lc ..x...x.....x...
+  hc x.x.x.x.xxxxXXXX
+
+frag groove = bass
+  "e2 ~ [e2 f2] ~ e2 ~ [g#2 f2] e2"
+frag call = lead
+  e4:8 f4:8 g#4:4 a4:8 g#4:8 f4:4 e4:2 r:2
+frag answer = lead
+  mutate(call,25,3)
+frag sand = arp live
+  arp([e4,g#4,b4,d5],random,16,7)
+frag hold = pad
+  "[e3,g#3,b3] <[f3,a3,c4] [d3,f3,a3]>"
+
+auto open = lead.Cutoff ramp 600 3000 /8
+scene bare: bass.Mute 1, pad.Level 0.4
+scene full: bass.Mute 0, pad.Level 0.8
+
+section intro 4: hold beat
+section theme 8: beat groove call open [full]
+section reply 8: beat groove answer sand
+section desert 4: roll hold sand [bare]
+section outro 2: hold
+arrange intro theme reply desert theme reply outro
+loop 5 28
 ```

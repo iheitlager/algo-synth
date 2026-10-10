@@ -1490,13 +1490,6 @@ fn song_blocks_parse(name: &str, doc: &str) -> usize {
     blocks.len()
 }
 
-/// #226: every ```song block of the reference parses, and its print parses back.
-#[test]
-fn the_song_reference_examples_parse() {
-    let n = song_blocks_parse("docs/song.md", include_str!("../../../../docs/song.md"));
-    assert!(n >= 10, "{n} song blocks");
-}
-
 /// The normative definition of the language (#383).
 const LANGUAGE: &str = include_str!("../../../../.openspec/language.md");
 
