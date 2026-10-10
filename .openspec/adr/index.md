@@ -2,7 +2,7 @@
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](0001-everything-musical-is-wasm.md) | Everything musical is Rust in one wasm module on the audio thread; a C ABI, no wasm-bindgen, a JS shim with no logic | Accepted, amended by 0029 |
+| [0001](0001-everything-musical-is-wasm.md) | Everything musical is Rust in one wasm module on the audio thread; a C ABI, no wasm-bindgen, a JS shim with no logic | Accepted, amended by 0029 and 0017 |
 | [0002](0002-real-time-rules.md) | The render loop never allocates, locks or panics; tables and control-rate coefficients instead of per-sample transcendentals | Accepted, clarified (load-time buffers) |
 | [0003](0003-vue-view.md) | A Vue + TypeScript view, separate from the engine; the worklet outside the bundler; the scope on an AnalyserNode | Accepted |
 | [0004](0004-one-parameter-registry.md) | One parameter and source registry in Rust, mirrored in TypeScript, the mirror checked by a test | Accepted, clarified (no `source.rs`) |
@@ -18,7 +18,7 @@
 | [0014](0014-user-presets.md) | User presets: four kinds (synth, insert, processor, strip) stored by name, applied on the synth defaults, kept in a browser library with export and import, apart from setups | Accepted |
 | [0015](0015-the-arrangement.md) | The arrangement: sections and an `arrange` order in the song text, drum, synth, sampler and MIDI tracks, scenes and automation lanes for any parameter by name, MIDI files converted into notes, the arranger pane | Accepted, amended by 0018, 0022, 0027, 0031 (its words) |
 | [0016](0016-note-events-on-a-tick-grid.md) | Note events on a tick grid: 48 ticks per bar, events compiled at load, fired at their tick with a fixed note-off queue, a seeded integer generator per cycle | Accepted |
-| 0017 | Never written: the number was skipped | — |
+| [0017](0017-spectral-lab.md) | The Spectral Lab: a third window (`spectral-lab.html`) with its own engine; STFT analysis, partial tracking and additive resynthesis in Rust, called offline from a Web Worker that only relays; results as arrays in wasm memory; send to the main window over a BroadcastChannel | Proposed |
 | [0018](0018-the-song-is-the-session.md) | The song is the session: mixer, groups, master, processors and samples as lines in the song text, one namespace for tracks and strips, the setup file an import | Accepted, amended by 0027, 0031 and #214 (setup import stays in TS) |
 | [0019](0019-patterns-signals-and-parameters.md) | One language for patterns, signals and parameters: pattern methods, control-rate signals with mathematics, parameters as methods, one precedence, compiled to a node pool | Accepted, extended (#255, #298) |
 | [0020](0020-modular-voice-and-sound-screen.md) | A modular voice: unit-generator graphs in the song compiled per song and played per note, controls as generic parameters, a Sound screen; our own language, not scsynth | Accepted, superseded in part by 0024 |
