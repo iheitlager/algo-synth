@@ -9,7 +9,7 @@ on:
     branches: [main]
   # A spike under tests/spike is its own crate or page: nothing here builds or
   # tests it, so a PR that only touches spikes runs no CI. Markdown is not
-  # skipped: docs/song.md, .openspec/language.md and the specs are tested.
+  # skipped: .openspec/language.md and the specs are tested.
   pull_request:
     paths-ignore:
       - 'tests/spike/**'

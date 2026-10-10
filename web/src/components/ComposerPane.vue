@@ -16,7 +16,7 @@ import NoteRoll from './NoteRoll.vue'
 import SongEditor from './SongEditor.vue'
 import TrackStrip from './TrackStrip.vue'
 
-const SONG_REFERENCE = 'https://github.com/iheitlager/algo-synth/blob/main/docs/song.md'
+const SONG_REFERENCE = 'https://github.com/iheitlager/algo-synth/blob/main/.openspec/language.md'
 
 // A first beat to start from when the song is empty.
 const STARTER = `tempo 120
