@@ -2136,7 +2136,18 @@ mod tests {
         for (text, want) in [
             (sc::hoover::HOOVER, 0x772a_e6cb_e164_51d4_u64),
             (sc::hoover::MONO_HOOVER, 0xc387_7eee_9807_13a5),
-            (KITCHEN, 0xd095_f665_2ba0_135b),
+            // Its sine and filter tables are built with the platform's
+            // libm (`sin`, `tan`, `exp`), which differ in the last bit
+            // between macOS and glibc: one print per platform, both taken
+            // from the interpreter before #476.
+            (
+                KITCHEN,
+                if cfg!(target_os = "linux") {
+                    0x4c2d_d496_24b1_9622
+                } else {
+                    0xd095_f665_2ba0_135b
+                },
+            ),
         ] {
             assert_eq!(fingerprint(&mut b, text), want, "{}", &text[..20]);
         }
