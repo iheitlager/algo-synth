@@ -1438,6 +1438,20 @@ pub extern "C" fn lane_steps(f: u32, l: u32) -> u32 {
     with_lane(0, f, l, |lane| lane.steps.len() as u32)
 }
 
+/// The words of the song's text playing now (#205); read their (start,
+/// length) pairs, in UTF-16 units, from `lit_ptr`. 0 while the song is
+/// stopped or a new one waits for its bar.
+#[unsafe(no_mangle)]
+pub extern "C" fn lit_count() -> u32 {
+    query(0, |e| e.lit_count() as u32)
+}
+
+/// The spans of the last `lit_count`, two u32 each.
+#[unsafe(no_mangle)]
+pub extern "C" fn lit_ptr() -> *const u32 {
+    query(std::ptr::null(), |e| e.lit_spans().as_ptr())
+}
+
 /// How often step `s` of lane `l` of fragment `f` plays in its span (#242).
 #[unsafe(no_mangle)]
 pub extern "C" fn step_ratchet(f: u32, l: u32, s: u32) -> u32 {

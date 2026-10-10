@@ -1,3 +1,4 @@
+use super::spans;
 use super::*;
 
 const BEAT: &str = "\
@@ -2338,4 +2339,54 @@ fn track_mute_and_solo_parse_print_and_decide_who_is_heard() {
     );
     let err = Song::parse("track a drums Tr808 Kit808 loud\n").expect_err("loud");
     assert_eq!((err.line, err.col), (1, 28));
+}
+
+/// The text `span` (UTF-16 units) points at in `text`.
+fn at16(text: &str, (start, len): (u32, u32)) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    String::from_utf16_lossy(
+        units
+            .get(start as usize..(start + len) as usize)
+            .unwrap_or(&[]),
+    )
+}
+
+/// #205: each fragment's spans point at its words in the printed text: a
+/// lane's steps (a ratchet with its digit, a call whole), and the words of a
+/// note line, whatever its form, past comments and non-ASCII text.
+#[test]
+fn spans_point_at_the_words_of_the_printed_text() {
+    let text = "# naïve — a beat\ntempo 120\ntrack kit drums\ntrack lead synth\n\
+        frag b = kit /16\n  # the kick\n  bd x3..X...\n  cl euclid(3,8)\n\
+        frag m = lead\n  \"c4 [e4 g4] ~ <c5 [d5,f5]>\"\n\
+        frag c = lead\n  c4:4 r:8 [e4,g4]:8.\n\
+        frag t = lead\n  d5@0:6:90 a4@12:24\n\
+        frag g = lead\n  arp([c4,e4,g4],up,16)\n";
+    let song = Song::parse(text).expect("parses");
+    let printed = song.print();
+    let s = spans::spans(&song, &printed);
+    let words =
+        |f: usize| -> Vec<String> { s[f].notes.iter().map(|sp| at16(&printed, *sp)).collect() };
+    let bd: Vec<String> = s[0].lanes[0].iter().map(|sp| at16(&printed, *sp)).collect();
+    assert_eq!(bd, ["x3", ".", ".", "X", ".", ".", "."]);
+    assert!(
+        s[0].lanes[1]
+            .iter()
+            .all(|sp| at16(&printed, *sp) == "euclid(3,8)")
+    );
+    assert_eq!(words(1), ["c4", "e4", "g4", "~", "c5", "[d5,f5]"]);
+    assert_eq!(words(2), ["c4", "r", "[e4,g4]"]);
+    assert_eq!(words(3), ["d5@0:6:90", "a4@12:24"]);
+    assert_eq!(words(4), ["arp([c4,e4,g4],up,16)"]);
+    // Every note event names the word it came from, through a pattern method.
+    let rev =
+        Song::parse("track lead synth\nfrag m = lead .rev() .fast(2)\n  \"c4 [e4 g4] <c5 d5>\"\n")
+            .expect("parses");
+    let p = rev.print();
+    let sp = spans::spans(&rev, &p);
+    let n = rev.frags[0].notes.as_ref().expect("notes");
+    for e in &n.events {
+        let word = at16(&p, sp[0].notes[usize::from(e.word)]);
+        assert_eq!(word, crate::notes::note_name(e.note), "{e:?}");
+    }
 }

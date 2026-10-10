@@ -552,6 +552,7 @@ mod tests {
             note,
             accent: false,
             vel: 0,
+            word: 0,
         }
     }
 

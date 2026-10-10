@@ -527,6 +527,7 @@ fn freezing_refuses_what_it_cannot_write() {
         note,
         accent: false,
         vel: 0,
+        word: 0,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -549,28 +550,32 @@ fn timed_notes_parse_compile_and_print() {
                 len: 6,
                 note: 74,
                 accent: false,
-                vel: 0
+                vel: 0,
+                word: 0,
             },
             Event {
                 start: 0,
                 len: 48,
                 note: 74,
                 accent: false,
-                vel: 0
+                vel: 0,
+                word: 0,
             },
             Event {
                 start: 6,
                 len: 6,
                 note: 78,
                 accent: true,
-                vel: 90
+                vel: 90,
+                word: 0,
             },
             Event {
                 start: 12,
                 len: 24,
                 note: 69,
                 accent: false,
-                vel: 0
+                vel: 0,
+                word: 0,
             },
         ]
     );
@@ -611,6 +616,7 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         note,
         accent: false,
         vel: 0,
+        word: 0,
     }
 }
 
