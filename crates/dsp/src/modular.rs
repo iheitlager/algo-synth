@@ -1770,6 +1770,74 @@ mod tests {
         }
     }
 
+    /// Every unit but `Noise` in one voice (#476): its render is held to
+    /// the per-sample interpreter's, bit for bit.
+    const KITCHEN: &str = r"SynthDef(\kitchen, { |freq = 220, gate = 1, amp = 0.3, cut = 1200, modwheel = 0|
+    var env = EnvGen.kr(Env.adsr(0.01, 0.2, 0.6, 0.3), gate);
+    var bend = Env([0, 3, 0], [0.05, 0.3], [\lin, -4]).kr.midiratio;
+    var lfo = LFSaw.kr(3).range(0.2, 0.8);
+    var a = Mix([Saw.ar(freq * bend * ExpRand(0.99, 1.01)), Pulse.ar(freq * 1.01, lfo), LFTri.ar(freq * 0.5)]);
+    var b = PMOsc.ar(freq, freq * 2, SinOsc.kr(0.5).range(0, 3)) * Rand(0.2, 0.4);
+    var f = MoogFF.ar(a, cut * (1 + modwheel) * env.range(0.5, 2), 2.5) + RLPF.ar(b, cut, 0.3) + HPF.ar(a, 300) + HPF.ar(b, 500, voicing: \odyssey);
+    var d = CombL.ar(f, 0.02, 0.013, 0.4) + DelayN.ar(f.neg, 0.01, 0.004);
+    var g = Latch.ar(d, LFPulse.kr(40)) * 0.3 + Decimator.ar(d.softclip, 8000, 6) * 0.3 + d.distort.round(0.01);
+    var s = Pan2.ar(Select.kr(LFPulse.kr(30), [g, g.neg * 0.5]).tanh * env * amp, SinOsc.kr(0.2));
+    FreeVerb2.ar(s[0], s[1], 0.3, 0.7, 0.4)
+}).add;";
+
+    /// Each sample's bits of `text` rendered in 128-frame blocks, folded (FNV-1a).
+    fn fingerprint(b: &mut Bench, text: &str) -> u64 {
+        let patch = sc::compile(text).unwrap_or_else(|e| panic!("{e:?}"));
+        for k in &patch.knobs {
+            if let Some(c) = b.params.ctl.get_mut(k.ctl) {
+                *c = k.default;
+            }
+        }
+        let p = patch.program;
+        b.params.graph = p;
+        let ctx = MonoCtx {
+            params: &b.params,
+            sine: &b.sine,
+            blep: &b.blep,
+            ladder: &b.ladder,
+            pitch: &b.pitch,
+            shared: None,
+            tables: b.tables,
+        };
+        let mut v = GraphVoice::new(7);
+        let mut st = VoiceState::for_program(&p);
+        v.press(45, 0.8, &p, 48_000.0, 0);
+        let mut h = 0xcbf2_9ce4_8422_2325_u64;
+        let mut loud = 0.0_f32;
+        for n in 0..150 {
+            if n == 100 {
+                v.release_all();
+            }
+            let (mut l, mut r) = ([0.0_f32; 128], [0.0_f32; 128]);
+            v.render(&ctx, &mut st, &mut l, Some(&mut r));
+            for x in l.iter().chain(&r) {
+                loud = loud.max(x.abs());
+                h = (h ^ u64::from(x.to_bits())).wrapping_mul(0x100_0000_01b3);
+            }
+        }
+        assert!(loud > 1e-3, "it sounds");
+        h
+    }
+
+    /// #476: the voice renders bit for bit what the per-sample interpreter
+    /// of #318 rendered: the hoovers, and every unit but `Noise`.
+    #[test]
+    fn the_interpreter_renders_as_it_did() {
+        let mut b = Bench::new();
+        for (text, want) in [
+            (sc::hoover::HOOVER, 0x772a_e6cb_e164_51d4_u64),
+            (sc::hoover::MONO_HOOVER, 0xc387_7eee_9807_13a5),
+            (KITCHEN, 0xd095_f665_2ba0_135b),
+        ] {
+            assert_eq!(fingerprint(&mut b, text), want, "{}", &text[..20]);
+        }
+    }
+
     /// #318 spike: the interpreter's per-node overhead against the
     /// hoover's whole cost. `cargo test --release -p algo-dsp dispatch_share -- --ignored --nocapture`
     #[test]
