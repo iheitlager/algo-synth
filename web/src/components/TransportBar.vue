@@ -52,6 +52,9 @@ async function onPower() {
 onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 // Start over (#325): nothing of it can be undone, so ask first.
+function openLab() {
+  window.open(`${import.meta.env.BASE_URL}spectral-lab.html`, 'algo-synth-spectral-lab', 'popup,width=960,height=820')
+}
 async function onNew() {
   if (!window.confirm('Start over? The song, every synth and the mix are discarded.')) return
   await onPower()
@@ -136,6 +139,8 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
     </span>
     <!-- The Assistant (#387): a pane beside the view, which can pop out into its own window. -->
     <button :aria-pressed="assistant.shown" :class="{ on: assistant.shown }" title="Ask a language model to change the song" @click="assistant.shown = !assistant.shown">Assistant</button>
+    <!-- The Spectral Lab (ADR-0017): its own window, with its own engine. -->
+    <button title="Take a WAV apart and resynthesise it, in a window of its own" @click="openLab">Lab</button>
     <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
     <select class="picker" aria-label="Load a demo" title="Load a demo: a score or an example song" @change="onDemo">
       <option value="">Demo…</option>

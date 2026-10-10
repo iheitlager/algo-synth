@@ -323,6 +323,38 @@ impl SampleStore {
     }
 }
 
+/// A mono 32-bit float WAV of `values` at `rate` with `root` as its unity
+/// note: what the Spectral Lab hands its resynthesis on as (spec 009 Req 7),
+/// so it plays across the keys as its original did.
+pub fn float_wav(values: &[f32], rate: u32, root: u8) -> Vec<u8> {
+    let data = (values.len() * 4) as u32;
+    // A `smpl` chunk of 36 bytes: the unity note at 12, no loops.
+    let mut smpl = [0u8; 36];
+    if let Some(note) = smpl.get_mut(12..16) {
+        note.copy_from_slice(&u32::from(root.min(127)).to_le_bytes());
+    }
+    let mut out = Vec::with_capacity(88 + values.len() * 4);
+    out.extend(b"RIFF");
+    out.extend((36 + 8 + smpl.len() as u32 + data).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    out.extend(3u16.to_le_bytes()); // IEEE float
+    out.extend(1u16.to_le_bytes()); // mono
+    out.extend(rate.to_le_bytes());
+    out.extend((rate * 4).to_le_bytes()); // bytes per second
+    out.extend(4u16.to_le_bytes()); // block align
+    out.extend(32u16.to_le_bytes()); // bits per sample
+    out.extend(b"data");
+    out.extend(data.to_le_bytes());
+    for v in values {
+        out.extend(v.to_le_bytes());
+    }
+    out.extend(b"smpl");
+    out.extend((smpl.len() as u32).to_le_bytes());
+    out.extend(smpl);
+    out
+}
+
 /// A mono 16-bit WAV of `values` (−1..=1) at `rate`, with a `smpl` chunk of
 /// root note, loop start and loop end when given; for tests that need a
 /// loaded sample.
