@@ -101,57 +101,20 @@ mod tests {
         (0..n).map(|_| noise.sample(colour)).collect()
     }
 
-    /// In-place radix-2 FFT of (re, im).
-    fn fft(re: &mut [f64], im: &mut [f64]) {
-        let n = re.len();
-        let mut j = 0;
-        for i in 1..n {
-            let mut bit = n >> 1;
-            while j & bit != 0 {
-                j ^= bit;
-                bit >>= 1;
-            }
-            j |= bit;
-            if i < j {
-                re.swap(i, j);
-                im.swap(i, j);
-            }
-        }
-        let mut len = 2;
-        while len <= n {
-            let a = -std::f64::consts::TAU / len as f64;
-            for start in (0..n).step_by(len) {
-                for k in 0..len / 2 {
-                    let (s, c) = (a * k as f64).sin_cos();
-                    let (p, q) = (start + k, start + k + len / 2);
-                    let (tr, ti) = (re[q] * c - im[q] * s, re[q] * s + im[q] * c);
-                    re[q] = re[p] - tr;
-                    im[q] = im[p] - ti;
-                    re[p] += tr;
-                    im[p] += ti;
-                }
-            }
-            len <<= 1;
-        }
-    }
-
     /// Mean power density per octave band from 100 Hz, in dB, by Welch's
     /// method (Hann windows, half overlap).
     fn octave_bands(x: &[f32], bands: usize) -> Vec<f64> {
+        let fft = crate::analysis::fft::Fft::new(SEG).unwrap();
         let mut psd = vec![0.0; SEG / 2];
         let hann: Vec<f64> = (0..SEG)
             .map(|i| 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / SEG as f64).cos())
             .collect();
         for seg in x.windows(SEG).step_by(SEG / 2) {
-            let mut re: Vec<f64> = seg
-                .iter()
-                .zip(&hann)
-                .map(|(s, w)| f64::from(*s) * w)
-                .collect();
+            let mut re: Vec<f32> = seg.iter().zip(&hann).map(|(s, w)| s * *w as f32).collect();
             let mut im = vec![0.0; SEG];
-            fft(&mut re, &mut im);
+            fft.forward(&mut re, &mut im);
             for (k, p) in psd.iter_mut().enumerate() {
-                *p += re[k] * re[k] + im[k] * im[k];
+                *p += f64::from(re[k] * re[k] + im[k] * im[k]);
             }
         }
         let bin = SR / SEG as f64;
