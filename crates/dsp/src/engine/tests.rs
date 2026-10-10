@@ -5299,3 +5299,31 @@ fn the_words_that_play_are_lit() {
     e.song_stop();
     assert!(lit_words(&mut e).is_empty());
 }
+
+/// #214: a pack picked on a synth's panel becomes its track's `samples`
+/// line, through the song buffer; a synth with no sampler track takes none.
+#[test]
+fn a_pack_picked_on_a_synth_becomes_its_samples_line() {
+    let mut e = kit(0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track kit drums\ntrack keys sampler Sampler SamplerKeys\n"
+        ),
+        Ok(())
+    );
+    let keys = e.song_routed(1).expect("routed");
+    let id = b"upright-piano-kw";
+    e.song_buffer(id.len()).expect("fits").copy_from_slice(id);
+    assert!(e.set_samples_from_buffer(keys));
+    assert!(
+        e.song_text().contains("samples keys upright-piano-kw\n"),
+        "{}",
+        e.song_text()
+    );
+    assert!(
+        e.set_samples_from_buffer(keys),
+        "the same again is no change"
+    );
+    assert!(!e.set_samples_from_buffer(15), "no track plays synth 16");
+}

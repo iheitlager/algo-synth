@@ -805,3 +805,54 @@ describe('ratchets (#242)', () => {
     expect([0, 4, 5].map((level) => nextRatchet(level, 1))).toEqual([1, 1, 1])
   })
 })
+
+describe('samples lines (#214)', () => {
+  const zone = { sample: 'instruments/pad/c4.wav', keyLo: 0, keyHi: 127, velLo: 1, velHi: 127, root: 60, tune: 0, loop: 0, seqLen: 1, seqPos: 1, release: false }
+  const manifest = { version: 1, instruments: [{ id: 'sweep-pad', name: 'Sweep pad', zones: [zone] }], kits: [] }
+  const fetchAll = async (url: string) => url.endsWith('manifest.json')
+    ? new Response(JSON.stringify(manifest))
+    : new Response(new ArrayBuffer(8))
+  const keys = { name: enc('keys'), synth: 3, kind: 2 }
+  const tick = () => new Promise((r) => setTimeout(r))
+  const loaded = (slot: number) => ({ t: 'sample', slot, code: 100, frames: 100, root: 60, loopStart: 0, loopEnd: 100, peaks: new Float32Array(4), used: 200, cap: 1000 })
+
+  it('a song that names a pack loads it on its track`s synth, once, and writes nothing back', async () => {
+    const { mod, send, take } = await boot({ fetch: fetchAll })
+    take()
+    const song = { t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('sweep-pad') }] }
+    send(song)
+    let msgs = take()
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const load = msgs.find((m) => m.t === 'sample') as unknown as { slot: number }
+    expect(load).toBeTruthy()
+    send(loaded(load.slot))
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'zone'); i++) { await tick(); msgs = msgs.concat(take()) }
+    expect(msgs.some((m) => m.t === 'zone' && m.s === 3)).toBe(true)
+    expect(msgs.some((m) => m.t === 'samples'), 'from the song: not written back').toBe(false)
+    expect(mod.song.samples).toEqual([{ synth: 3, id: 'sweep-pad' }])
+    send(song)
+    await tick()
+    expect(take().some((m) => m.t === 'sample'), 'already loaded').toBe(false)
+  })
+
+  it('a pack picked on a panel goes into the song as its id', async () => {
+    const { mod, send, take } = await boot({ fetch: fetchAll })
+    take()
+    const done = mod.loadPack(3, { id: 'sweep-pad', name: 'Sweep pad', license: '', credit: '', zones: [zone] })
+    let msgs: Msg[] = []
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    send(loaded((msgs.find((m) => m.t === 'sample') as unknown as { slot: number }).slot))
+    await done
+    msgs = msgs.concat(take())
+    const write = msgs.find((m) => m.t === 'samples') as unknown as { s: number; bytes: ArrayBuffer }
+    expect(write.s).toBe(3)
+    expect(new TextDecoder().decode(write.bytes)).toBe('sweep-pad')
+  })
+
+  it('an id no manifest names says so', async () => {
+    const { mod, send } = await boot({ fetch: fetchAll })
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('nope') }] })
+    for (let i = 0; i < 10 && !mod.sampleStore.error; i++) await tick()
+    expect(mod.sampleStore.error).toBe('samples: no pack or kit is called nope')
+  })
+})
