@@ -1043,6 +1043,95 @@ pub extern "C" fn song_tracks() -> u32 {
     query(0, |e| e.song().tracks.len() as u32)
 }
 
+// The song's `samples` lines (#214): the view loads what they name, and a
+// pack or kit picked on a synth's panel is written as its id into `song_buf`
+// and set with `samples_set`.
+
+/// Lines of `samples` in the song.
+#[unsafe(no_mangle)]
+pub extern "C" fn samples_count() -> u32 {
+    query(0, |e| e.song().samples.len() as u32)
+}
+
+/// The synth the track of `samples` line `i` plays on, or −1.
+#[unsafe(no_mangle)]
+pub extern "C" fn samples_synth(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .samples
+            .get(i as usize)
+            .and_then(|(t, _)| e.song_routed(*t))
+            .map_or(-1, |s| s as i32)
+    })
+}
+
+/// The id of `samples` line `i`: its length in bytes and where it is.
+#[unsafe(no_mangle)]
+pub extern "C" fn samples_id_len(i: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .samples
+            .get(i as usize)
+            .map_or(0, |(_, id)| id.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn samples_id_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .samples
+            .get(i as usize)
+            .map_or(std::ptr::null(), |(_, id)| id.as_ptr())
+    })
+}
+
+/// The track on synth `s` wants the pack or kit whose id is in `song_buf`:
+/// 0 when its `samples` line says so, −1 when no sampler or drums track plays
+/// on `s` or the id isn't one.
+#[unsafe(no_mangle)]
+pub extern "C" fn samples_set(s: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_samples_from_buffer(s as usize) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
+// Group buses' names in the song (#214): read with the song, set from
+// `song_buf` (empty takes the name away).
+
+/// The length of group `g`'s name in the song (0–7), 0 for none.
+#[unsafe(no_mangle)]
+pub extern "C" fn group_name_len(g: u32) -> u32 {
+    query(0, |e| {
+        e.group_name(g as usize).map_or(0, |n| n.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn group_name_ptr(g: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.group_name(g as usize)
+            .map_or(std::ptr::null(), str::as_ptr)
+    })
+}
+
+/// Name group `g` with the name in `song_buf`, or none when it is empty: 0
+/// when the song says so, −1 for a name that isn't one.
+#[unsafe(no_mangle)]
+pub extern "C" fn group_name_set(g: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_group_name_from_buffer(g as usize) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
 // A Modular synth's SuperCollider code (ADR-0024): written into `song_buf`,
 // set with `code_set`; its text with the knobs' values from `code_text`.
 

@@ -219,16 +219,40 @@ frag deep = bass
   "e1 f1 e2 b1"
 ```
 
+## samples
+
+```text
+samples <track> <id>
+```
+
+The samples a `sampler` or `drums` track wants: a pack (`instruments`) or a
+kit (`kits`) of the samples manifest, by its id. The app fetches it and loads
+it on the track's synth when the song loads; picking a pack or kit on a
+sampler's panel writes the line. A drums track takes the kit of that id, any
+other the pack (or the kit when no pack has it). An id no manifest names
+loads nothing and the sampler's panel says so. One line per track, after the
+track; the samples a track already has stay loaded without one.
+
+```song
+track keys sampler Sampler SamplerKeys
+track kit drums PadSampler
+samples keys upright-piano-kw
+samples kit audiophob
+frag chords = keys
+  "[c3,e3,g3] [a2,c3,e3]"
+```
+
 ## strip, group, master
 
 ```text
 strip <track> | strip<n>: <Param> <value>[, <Param> <value>]…      n = 1–16
-group <n> [<name>]: <Param> <value>[, …]                           n = 1–8
+group <n> [<name>][: <Param> <value>[, …]]                         n = 1–8
 master: <Param> <value>[, …]
 ```
 
 The mix's starting values, set when the song loads and again only when the
-line's text changes.
+line's text changes. A group may have a name and nothing else (`group 2 keys`): the
+name shows on its strip, and naming a group in the mixer writes it here.
 
 - Strip and group parameters: `Level Pan Mute Solo Out Key`, sends
   `Send1`–`Send4` (with `Send1Pre`, `Send1On`…), inserts `I1Type I1A`–`I1E`,

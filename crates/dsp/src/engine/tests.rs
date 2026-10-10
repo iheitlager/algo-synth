@@ -5356,3 +5356,54 @@ fn the_words_that_play_are_lit() {
     e.song_stop();
     assert!(lit_words(&mut e).is_empty());
 }
+
+/// #214: a pack picked on a synth's panel becomes its track's `samples`
+/// line, through the song buffer; a synth with no sampler track takes none.
+#[test]
+fn a_pack_picked_on_a_synth_becomes_its_samples_line() {
+    let mut e = kit(0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track kit drums\ntrack keys sampler Sampler SamplerKeys\n"
+        ),
+        Ok(())
+    );
+    let keys = e.song_routed(1).expect("routed");
+    let id = b"upright-piano-kw";
+    e.song_buffer(id.len()).expect("fits").copy_from_slice(id);
+    assert!(e.set_samples_from_buffer(keys));
+    assert!(
+        e.song_text().contains("samples keys upright-piano-kw\n"),
+        "{}",
+        e.song_text()
+    );
+    assert!(
+        e.set_samples_from_buffer(keys),
+        "the same again is no change"
+    );
+    assert!(!e.set_samples_from_buffer(15), "no track plays synth 16");
+}
+
+/// #214: a group named in the view is named in the song, through the song
+/// buffer; an empty buffer takes the name away.
+#[test]
+fn a_group_named_in_the_view_is_named_in_the_song() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, FOUR), Ok(()));
+    let name = b"drum_bus";
+    e.song_buffer(name.len())
+        .expect("fits")
+        .copy_from_slice(name);
+    assert!(e.set_group_name_from_buffer(2));
+    assert_eq!(e.group_name(2), Some("drum_bus"));
+    assert!(
+        e.song_text().contains("group 3 drum_bus\n"),
+        "{}",
+        e.song_text()
+    );
+    e.song_buffer(0).expect("fits");
+    assert!(e.set_group_name_from_buffer(2));
+    assert_eq!(e.group_name(2), None);
+    assert!(!e.song_text().contains("group 3"), "{}", e.song_text());
+}

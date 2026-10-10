@@ -119,9 +119,9 @@ const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
 /// names them. The parser reads no other, and `.openspec/language.md` must
 /// define each (a test holds it to that).
-pub const KEYWORDS: [&str; 15] = [
-    "tempo", "swing", "scale", "setting", "track", "strip", "group", "master", "frag", "auto",
-    "scene", "mod", "section", "arrange", "loop",
+pub const KEYWORDS: [&str; 16] = [
+    "tempo", "swing", "scale", "setting", "track", "samples", "strip", "group", "master", "frag",
+    "auto", "scene", "mod", "section", "arrange", "loop",
 ];
 /// Tempo and swing ranges, as the clock has them.
 const TEMPO: (f32, f32) = crate::clock::TEMPO;
@@ -514,6 +514,10 @@ pub struct Song {
     pub scale: Option<Scale>,
     pub settings: Vec<Setting>,
     pub tracks: Vec<Track>,
+    /// The samples each sampler or drums track wants, by pack or kit id from
+    /// the samples manifest (#214, ADR-0018): the view fetches and loads them,
+    /// since the engine can't fetch (ADR-0013).
+    pub samples: Vec<(usize, String)>,
     /// Starting values for strips, groups and the master (ADR-0018).
     pub mix: Vec<MixLine>,
     pub frags: Vec<Fragment>,
@@ -537,6 +541,7 @@ impl Default for Song {
             scale: None,
             settings: Vec::new(),
             tracks: Vec::new(),
+            samples: Vec::new(),
             mix: Vec::new(),
             frags: Vec::new(),
             autos: Vec::new(),
@@ -601,6 +606,14 @@ fn strip_comment(raw: &str) -> &str {
         prev_space = c.is_whitespace();
     }
     raw
+}
+
+/// A pack or kit id of the samples manifest: `upright-piano-kw`.
+fn is_sample_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 fn is_name(s: &str) -> bool {
@@ -784,7 +797,7 @@ impl Song {
             if !KEYWORDS.contains(&keyword) {
                 return Err(err(
                     first.col,
-                    "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                    "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
                 ));
             }
             match first.text {
@@ -1273,6 +1286,29 @@ impl Song {
                         bars,
                     });
                 }
+                "samples" => {
+                    let track = arg(1, "a track goes here, then a pack or kit id")?;
+                    let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
+                        return Err(err(track.col, "no track has this name"));
+                    };
+                    if song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth) {
+                        return Err(err(track.col, "samples go on a sampler or drums track"));
+                    }
+                    if song.samples.iter().any(|(u, _)| *u == t) {
+                        return Err(err(track.col, "this track already has its samples"));
+                    }
+                    let id = arg(2, "a pack or kit id goes here, as upright-piano-kw")?;
+                    if !is_sample_id(id.text) {
+                        return Err(err(
+                            id.col,
+                            "an id is lower-case letters, digits and -, as upright-piano-kw",
+                        ));
+                    }
+                    if let Some(extra) = ws.get(3) {
+                        return Err(err(extra.col, "unexpected text"));
+                    }
+                    song.samples.push((t, id.text.to_string()));
+                }
                 "strip" | "group" | "master" | "master:" => {
                     let line = parse_mix(&song, &ws, line, body)?;
                     if song.mix.iter().any(|m| m.at == line.at) {
@@ -1419,7 +1455,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
                     ));
                 }
             }
@@ -1584,6 +1620,10 @@ impl Song {
             };
             line + flags
         }));
+        for (t, id) in &self.samples {
+            let name = self.tracks.get(*t).map_or("", |x| x.name.as_str());
+            lines.push(format!("samples {name} {id}"));
+        }
         for m in &self.mix {
             let at = match m.at {
                 Mix::Track(t) => format!(
@@ -1602,7 +1642,12 @@ impl Song {
                 .iter()
                 .map(|(p, v)| format!("{} {}", param_name(*p), mix_text(*p, *v)))
                 .collect();
-            lines.push(format!("{at}: {}", sets.join(", ")));
+            if sets.is_empty() {
+                // A group with only its name (#214).
+                lines.push(at);
+            } else {
+                lines.push(format!("{at}: {}", sets.join(", ")));
+            }
         }
         for (fi, f) in self.frags.iter().enumerate() {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
@@ -2079,6 +2124,41 @@ impl Song {
         Some(self.tracks.len() - 1)
     }
 
+    /// Name group bus `g` (0–7), or take its name away with `None` (#214):
+    /// its `group` line, which goes when it has neither a name nor values.
+    /// False for no such group or a name that isn't one.
+    pub fn set_group_name(&mut self, g: usize, name: Option<&str>) -> bool {
+        if g >= crate::mixer::GROUPS || name.is_some_and(|n| !is_name(n)) {
+            return false;
+        }
+        match self.mix.iter_mut().find(|m| m.at == Mix::Group(g)) {
+            Some(line) => line.name = name.map(str::to_string),
+            None if name.is_some() => self.mix.push(MixLine {
+                at: Mix::Group(g),
+                name: name.map(str::to_string),
+                sets: Vec::new(),
+            }),
+            None => {}
+        }
+        self.mix
+            .retain(|m| m.at != Mix::Group(g) || m.name.is_some() || !m.sets.is_empty());
+        true
+    }
+
+    /// Track `t` wants the samples of pack or kit `id` (#214): its `samples`
+    /// line, replaced or added. False for no such track, a synth track, or an
+    /// id that isn't one.
+    pub fn set_samples(&mut self, t: usize, id: &str) -> bool {
+        if !is_sample_id(id) || self.tracks.get(t).is_none_or(|x| x.kind == Kind::Synth) {
+            return false;
+        }
+        match self.samples.iter_mut().find(|(u, _)| *u == t) {
+            Some((_, have)) => id.clone_into(have),
+            None => self.samples.push((t, id.to_string())),
+        }
+        true
+    }
+
     /// Take track `t` out (ADR-0027), when nothing of the song plays or moves
     /// it: no fragment, lane, modulation or scene names it. Its mixer line
     /// goes; later tracks move down one. False when it has music.
@@ -2097,6 +2177,7 @@ impl Song {
         }
         self.tracks.remove(t);
         self.mix.retain(|m| m.at != Mix::Track(t));
+        self.samples.retain(|(u, _)| *u != t);
         let down = |u: &mut usize| {
             if *u > t {
                 *u -= 1;
@@ -2104,6 +2185,9 @@ impl Song {
         };
         for f in &mut self.frags {
             down(&mut f.track);
+        }
+        for (u, _) in &mut self.samples {
+            down(u);
         }
         for m in &mut self.mix {
             if let Mix::Track(u) = &mut m.at {
@@ -2742,6 +2826,22 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
     let err = |col: usize, msg: &'static str| SongError { line, col, msg };
     let end = body.trim_end().chars().count() + 1;
     let first = ws.first().ok_or(err(1, "a mixer line goes here"))?;
+    // A group with only a name needs no values (#214): `group 2 keys`.
+    if let [g, n, name] = ws {
+        if g.text == "group" && !name.text.ends_with(':') && is_name(name.text) {
+            let g = n
+                .text
+                .parse::<usize>()
+                .ok()
+                .filter(|g| (1..=GROUPS).contains(g))
+                .ok_or(err(n.col, "a group is 1 to 8, then maybe its name"))?;
+            return Ok(MixLine {
+                at: Mix::Group(g - 1),
+                name: Some(name.text.to_string()),
+                sets: Vec::new(),
+            });
+        }
+    }
     // The words up to the one that ends with `:` (or a lone `:`) name the target.
     let colon = ws
         .iter()

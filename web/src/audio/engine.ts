@@ -18,7 +18,7 @@ import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
-import { MUTE, applyPlan, buildSetup, parseSetup, type Registry, type Setup, type State } from './setup'
+import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, songFileName } from './songfile'
 import { keepView, lastView } from './viewstate'
 import { startMidi } from './midiin'
@@ -208,12 +208,24 @@ function trackFor(s: number, model: ModelDef) {
 export function renameSynth(s: number, raw: string) {
   if (s >= MAX_SYNTHS || cleanName(raw)) {
     renameStrip(s, raw)
+    if (s >= MAX_SYNTHS) nameGroupInSong(s - MAX_SYNTHS, names.strips[s])
     return
   }
   const family = modelDef(params.values[s]?.[Param.Model] ?? 0).family
   const others = synths.list.filter((i) => i !== s).map((i) => stripName(i))
   names.strips[s] = familyName(family, others)
   fromSong.delete(s)
+}
+
+/**
+ * Write group bus `g`'s name into the song's `group` line (#214), spaces as
+ * `_` as track names have them; no name, or one the song can't hold, takes it away.
+ */
+function nameGroupInSong(g: number, name: string | undefined) {
+  const word = (name ?? '').replace(/ /g, '_')
+  const ok = /^[A-Za-z][A-Za-z0-9_]{0,23}$/.test(word)
+  const bytes = new TextEncoder().encode(ok ? word : '').buffer
+  engine?.post({ t: 'groupName', g, bytes }, [bytes])
 }
 
 /**
@@ -465,8 +477,40 @@ async function loadFiles(label: string, files: string[]) {
   }
 }
 
-/** Load a pack's files into free slots and lay its zones out on synth `s`. */
-export async function loadPack(s: number, pack: Pack): Promise<void> {
+/** The pack or kit id loaded on each synth (#214), so a song's `samples` line loads it once. */
+const samplesOn = new Map<number, string>()
+
+/** Write the pack or kit on synth `s` into the song, as its track's `samples` line (#214). */
+function samplesIntoSong(s: number, id: string) {
+  const bytes = new TextEncoder().encode(id).buffer
+  engine?.post({ t: 'samples', s, bytes }, [bytes])
+}
+
+/**
+ * Load what the song's `samples` lines name (#214), each on its track's synth, unless that synth
+ * has it already: a kit on a drums track, else the pack, else the kit of that id. One no
+ * manifest names says so on the sampler's panel.
+ */
+export async function loadSongSamples(wishes: readonly { synth: number; id: string }[]): Promise<void> {
+  const todo = wishes.filter((w) => w.synth >= 0 && samplesOn.get(w.synth) !== w.id)
+  if (!todo.length) return
+  for (const w of todo) samplesOn.set(w.synth, w.id)
+  if (!packs.loaded) await fetchPacks()
+  for (const w of todo) {
+    const pack = packs.list.find((p) => p.id === w.id)
+    const kit = packs.kits.find((k) => k.id === w.id)
+    const drums = song.tracks.some((t) => t.synth === w.synth && t.kind === 'drums')
+    if (kit && (drums || !pack)) await loadKit(w.synth, kit, true)
+    else if (pack) await loadPack(w.synth, pack, true)
+    else {
+      samplesOn.delete(w.synth)
+      sampleStore.error = `samples: no pack or kit is called ${w.id}`
+    }
+  }
+}
+
+/** Load a pack's files into free slots and lay its zones out on synth `s`; one picked by hand (not `fromSong`) goes into the song (#214). */
+export async function loadPack(s: number, pack: Pack, fromSong = false): Promise<void> {
   sampleStore.error = ''
   const files = packFiles(pack)
   // The store is shared and capped: a pack replaces the one this synth had, keeping what other
@@ -482,15 +526,18 @@ export async function loadPack(s: number, pack: Pack): Promise<void> {
     engine?.post({ t: 'zonesClear', s })
     for (const [zone, field, v] of zoneSets(pack, (f) => slotOfFile.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
     requestZones(s)
+    samplesOn.set(s, pack.id)
+    if (!fromSong) samplesIntoSong(s, pack.id)
   } catch (e) {
+    samplesOn.delete(s)
     sampleStore.error = e instanceof Error ? e.message : String(e)
   } finally {
     sampleStore.busy = ''
   }
 }
 
-/** Load a drum kit's files into free slots and lay its pads out on synth `s`; like `loadPack`, it replaces the kit it follows. */
-export async function loadKit(s: number, kit: Kit): Promise<void> {
+/** Load a drum kit's files into free slots and lay its pads out on synth `s`; like `loadPack`, it replaces the kit it follows and goes into the song. */
+export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<void> {
   sampleStore.error = ''
   const files = kitFiles(kit)
   engine?.post({ t: 'padsClear', s })
@@ -503,7 +550,10 @@ export async function loadKit(s: number, kit: Kit): Promise<void> {
     await loadFiles(kit.name, files)
     for (const [pad, field, v] of padSets(kit, (f) => slotOfFile.get(f))) engine?.post({ t: 'pad', s, pad, field, v })
     requestPads(s)
+    samplesOn.set(s, kit.id)
+    if (!fromSong) samplesIntoSong(s, kit.id)
   } catch (e) {
+    samplesOn.delete(s)
     sampleStore.error = e instanceof Error ? e.message : String(e)
   } finally {
     sampleStore.busy = ''
@@ -576,6 +626,8 @@ export const song = reactive({
   /** Per track kind (drums, synth, sampler), which models play it: the engine's rule (#213). */
   fits: [[], [], []] as boolean[][],
   loop: [0, 0] as [number, number],
+  /** The samples the song's tracks want (#214): a pack or kit id on the synth each track plays. */
+  samples: [] as { synth: number; id: string }[],
 })
 
 /**
@@ -765,6 +817,20 @@ export function applySong(data: Record<string, unknown>) {
     show(t.synth, true)
     nameByTrack(t.synth, t.name)
   }
+  // Group buses are named by the song's `group` lines (#214): one namespace with the tracks.
+  if (data.ok) {
+    ;((data.groups ?? []) as Uint8Array[]).forEach((bytes, g) => {
+      const name = decoder.decode(bytes)
+      const s = MAX_SYNTHS + g
+      if (name) {
+        names.strips[s] = trackLabel(name)
+        fromSong.add(s)
+      } else if (fromSong.has(s)) {
+        delete names.strips[s]
+        fromSong.delete(s)
+      }
+    })
+  }
   song.frags = (data.frags as {
     name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array; ratchets?: Uint8Array }[]; grid?: number
     notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null
@@ -789,6 +855,11 @@ export function applySong(data: Record<string, unknown>) {
   song.autos = ((data.autos as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
   song.scenes = ((data.scenes as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
   song.loop = (data.loop as [number, number] | undefined) ?? [0, 0]
+  // The samples the tracks want (#214) load once per synth, after the song that names them.
+  song.samples = ((data.samples ?? []) as { synth: number; id: Uint8Array }[]).map((w) => ({
+    synth: w.synth, id: decoder.decode(w.id),
+  }))
+  if (data.ok) void loadSongSamples(song.samples)
 }
 
 /**
@@ -942,20 +1013,6 @@ export const presetModified = (preset: UserPreset, target: Target) => modified(p
 
 /** A setup waiting for its MIDI file to load. */
 let pending: { setup: Setup; warnings: string[] } | null = null
-function state(): State {
-  return {
-    synths: synths.list,
-    groups: layout.groups,
-    layout: { order: layout.order, collapsed: layout.collapsed, hidden: layout.hidden },
-    names: { strips: names.strips },
-    values: params.values,
-    codes: Object.fromEntries(Object.entries(codes).filter(([, c]) => c.text).map(([s, c]) => [s, c.text])),
-  }
-}
-
-/** The current setup as the text of a `.synths.json` file. */
-export const setupText = () => `${JSON.stringify(buildSetup(state(), registry), null, 2)}\n`
-
 function download(text: string, type: string, name: string) {
   const link = document.createElement('a')
   link.href = URL.createObjectURL(new Blob([text], { type }))
@@ -964,7 +1021,6 @@ function download(text: string, type: string, name: string) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
-/** Download the current setup, named after the loaded MIDI file. */
 /** The song file last opened, so Save song writes it back under its name. */
 let songName = ''
 
@@ -1020,6 +1076,8 @@ function applySetup(setup: Setup, warnings: string[]) {
       Object.assign(layout, op.layout)
     } else if (op.t === 'names') {
       setNames(op.names)
+      // A setup's group names go into the song (#214); its synths' names follow their tracks.
+      for (let g = 0; g < 8; g++) if (names.strips[MAX_SYNTHS + g]) nameGroupInSong(g, names.strips[MAX_SYNTHS + g])
     } else if (op.t === 'reset') {
       engine.reset(op.s)
     } else if (op.t === 'code') {

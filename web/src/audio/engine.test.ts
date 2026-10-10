@@ -687,8 +687,6 @@ describe('MIDI files and setups', () => {
     send({ t: 'imported', code: 1 })
     expect(mod.synths.list).toEqual([0, 3])
     expect(take().filter((m) => m.t === 'dump').map((m) => m.s)).toEqual([0, 3])
-    // The setup round-trips through setupText.
-    expect(JSON.parse(mod.setupText()).synths.map((s: { index: number }) => s.index)).toEqual([0, 3])
   })
 
   it('a setup waiting for a file that does not import is dropped', async () => {
@@ -803,5 +801,80 @@ describe('ratchets (#242)', () => {
     expect([1, 2, 3, 4].map((r) => nextRatchet(1, r))).toEqual([2, 3, 4, 1])
     expect([nextRatchet(2, 1), nextRatchet(3, 2)]).toEqual([2, 3])
     expect([0, 4, 5].map((level) => nextRatchet(level, 1))).toEqual([1, 1, 1])
+  })
+})
+
+describe('samples lines (#214)', () => {
+  const zone = { sample: 'instruments/pad/c4.wav', keyLo: 0, keyHi: 127, velLo: 1, velHi: 127, root: 60, tune: 0, loop: 0, seqLen: 1, seqPos: 1, release: false }
+  const manifest = { version: 1, instruments: [{ id: 'sweep-pad', name: 'Sweep pad', zones: [zone] }], kits: [] }
+  const fetchAll = async (url: string) => url.endsWith('manifest.json')
+    ? new Response(JSON.stringify(manifest))
+    : new Response(new ArrayBuffer(8))
+  const keys = { name: enc('keys'), synth: 3, kind: 2 }
+  const tick = () => new Promise((r) => setTimeout(r))
+  const loaded = (slot: number) => ({ t: 'sample', slot, code: 100, frames: 100, root: 60, loopStart: 0, loopEnd: 100, peaks: new Float32Array(4), used: 200, cap: 1000 })
+
+  it('a song that names a pack loads it on its track`s synth, once, and writes nothing back', async () => {
+    const { mod, send, take } = await boot({ fetch: fetchAll })
+    take()
+    const song = { t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('sweep-pad') }] }
+    send(song)
+    let msgs = take()
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const load = msgs.find((m) => m.t === 'sample') as unknown as { slot: number }
+    expect(load).toBeTruthy()
+    send(loaded(load.slot))
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'zone'); i++) { await tick(); msgs = msgs.concat(take()) }
+    expect(msgs.some((m) => m.t === 'zone' && m.s === 3)).toBe(true)
+    expect(msgs.some((m) => m.t === 'samples'), 'from the song: not written back').toBe(false)
+    expect(mod.song.samples).toEqual([{ synth: 3, id: 'sweep-pad' }])
+    send(song)
+    await tick()
+    expect(take().some((m) => m.t === 'sample'), 'already loaded').toBe(false)
+  })
+
+  it('a pack picked on a panel goes into the song as its id', async () => {
+    const { mod, send, take } = await boot({ fetch: fetchAll })
+    take()
+    const done = mod.loadPack(3, { id: 'sweep-pad', name: 'Sweep pad', license: '', credit: '', zones: [zone] })
+    let msgs: Msg[] = []
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    send(loaded((msgs.find((m) => m.t === 'sample') as unknown as { slot: number }).slot))
+    await done
+    msgs = msgs.concat(take())
+    const write = msgs.find((m) => m.t === 'samples') as unknown as { s: number; bytes: ArrayBuffer }
+    expect(write.s).toBe(3)
+    expect(new TextDecoder().decode(write.bytes)).toBe('sweep-pad')
+  })
+
+  it('an id no manifest names says so', async () => {
+    const { mod, send } = await boot({ fetch: fetchAll })
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('nope') }] })
+    for (let i = 0; i < 10 && !mod.sampleStore.error; i++) await tick()
+    expect(mod.sampleStore.error).toBe('samples: no pack or kit is called nope')
+  })
+})
+
+describe('group names (#214)', () => {
+  const groups = (...names: string[]) => Array.from({ length: 8 }, (_, g) => enc(names[g] ?? ''))
+
+  it('the song names the group strips, and a name it drops goes', async () => {
+    const { mod, names, send } = await boot()
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [], groups: groups('', 'drum_bus') })
+    expect(names.names.strips[17]).toBe('drum bus')
+    send({ t: 'song', ...ok, ok: true, text: enc('y'), error: null, tracks: [], groups: groups() })
+    expect(names.names.strips[17]).toBeUndefined()
+    expect(mod.stripName(17)).toBe('Group 2')
+  })
+
+  it('a group renamed in the view is named in the song; a name it can`t hold takes it away', async () => {
+    const { mod, take } = await boot()
+    take()
+    mod.renameSynth(16, 'Drum bus')
+    const sent = take().filter((m) => m.t === 'groupName') as unknown as { g: number; bytes: ArrayBuffer }[]
+    expect(sent.map((m) => [m.g, new TextDecoder().decode(m.bytes)])).toEqual([[0, 'Drum_bus']])
+    mod.renameSynth(16, '9 lives')
+    const cleared = take().filter((m) => m.t === 'groupName') as unknown as { bytes: ArrayBuffer }[]
+    expect(cleared.map((m) => m.bytes.byteLength)).toEqual([0])
   })
 })
