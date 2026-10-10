@@ -20,7 +20,7 @@
     {
       "id": "openrouter", "name": "OpenRouter", "kind": "openai",
       "base": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY",
-      "models": ["qwen/qwen3.8-max-0902", "moonshotai/kimi-k3", "z-ai/glm-5.3", "anthropic/claude-opus-5.5", "google/gemini-3.1-pro-preview"]
+      "models": ["qwen/qwen3.8-max-0902", "moonshotai/kimi-k3", "z-ai/glm-5.3"]
     },
     {
       "id": "self-hosted", "name": "Self-hosted", "kind": "openai",
