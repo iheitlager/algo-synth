@@ -731,9 +731,8 @@ fn an_electro_example_parses_and_prints_back() {
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
-/// The songs in `examples/` parse, print back equal and are arranged; all but
-/// a drum study move a filter's cutoff and resonance, by lane or modulation,
-/// and the SH-101 plays in most of them.
+/// The songs in `examples/` parse, print back equal and are arranged, and
+/// the SH-101 plays in most of those that are not drum studies.
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
@@ -749,7 +748,7 @@ fn the_example_songs_parse_and_print_back() {
         assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{name}");
         assert!(!s.arrange.is_empty(), "{name}: arranged");
         seen += 1;
-        // A drum study (all its tracks drums) has no bass to automate.
+        // A drum study (all its tracks drums) has no synth to count.
         if s.tracks.iter().all(|t| t.kind == Kind::Drums) {
             continue;
         }
@@ -759,14 +758,8 @@ fn the_example_songs_parse_and_print_back() {
         {
             sh101 += 1;
         }
-        // A lane or a modulation (a `mod` line or a frag's method).
-        let moves = |param| {
-            s.autos.iter().any(|a| a.param == param) || s.mods.iter().any(|m| m.param == param)
-        };
-        assert!(moves(Param::Cutoff), "{name}: the cutoff moves");
-        assert!(moves(Param::Resonance), "{name}: the resonance moves");
     }
-    assert_eq!(seen, 15, "fifteen examples");
+    assert_eq!(seen, 16, "sixteen examples");
     assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
 }
 

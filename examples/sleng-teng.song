@@ -1,0 +1,51 @@
+# Sleng Teng / Casio MT-40 "Rock" riddim
+tempo 84
+swing 50
+scale c minor
+# Casio MT-40 bass: a round, hollow square with a sine body; held for the note's length, short gaps between notes
+setting mt40 = Modular ModularBasic
+  SynthDef(\mt40, { |freq = 65, gate = 1, cutoff = 2399.9316|
+      var body = SinOsc.ar(freq) * 0.9;
+      var sq = Pulse.ar(freq, 0.4961) * 0.45;
+      var oct = Pulse.ar(freq * 2, 0.5039) * 0.08;
+      var fenv = EnvGen.kr(Env.perc(0.001, 0.12), gate);
+      var sig = LPF.ar(sq + oct, cutoff * 0.5 + (cutoff * fenv)) + body;
+      sig = (sig * 1.1).tanh * EnvGen.kr(Env.adsr(0.0011, 0.2, 0.75, 0.06), gate) * 0.8;
+      Pan2.ar(sig, 0.0659)
+  }).add;
+track drums drums Tr808 TightKit
+track bass synth mt40
+strip drums: Level 0.95, Send1 0.12
+strip bass: Level 0.95, Send1 0.08, Send2 0.82734376
+master: MasterGain 0.9, P1Return 0.35, P1A 0.45386028, P1B 0.4195772, P1D 1, P2Return 0.7056296
+
+# Casio MT-40 "Rock" preset: kick on 1, 3 and the and of 3, snare on 2 and 4,
+# hats in pairs ("la-la") on every eighth, the last pair accented ("da-da")
+frag rock = drums /16
+  bd x.......x.x.....
+  sn ....x.......x...
+  ch xoxoxoxoxoxoxoXX
+
+# dub drums: hats out, echo throw on the snare on 4
+frag dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 0.7 ~ ~ ~")
+  bd x.......x.x.....
+  sn ........X...x...
+
+# The Sleng Teng bassline: c# into d, d three times, a gap, then g falling to f#
+frag teng = bass
+  "c#2 d2 d2 d2 c#2 d2 d2 d2 c#2 d2 d2 d2 g2 ~ f#2 ~"
+
+# dub version: the riff drops out halfway
+frag teng_drop = bass
+  "c#2 d2 d2 d2 ~ ~ ~ ~ ~ ~ ~ ~ g2 ~ f#2 ~"
+
+# filter "plop": the bass opens over the dub section
+auto plop = bass.Ctl1 ramp 350 2400 /4
+scene dry: bass.Send1 0.08, drums.Send1 0.12, master.P1Return 0.35
+scene dub: bass.Send1 0.45, drums.Send1 0.35, master.P1Return 0.55
+
+section intro 2: teng [dry]
+section riddim 8: rock teng [dry]
+section dub 4: dub_drums teng_drop plop [dub]
+section outro 2: rock teng [dry]
+arrange intro riddim dub riddim dub outro
