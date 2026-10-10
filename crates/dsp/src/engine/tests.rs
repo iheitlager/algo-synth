@@ -66,7 +66,7 @@ fn note_starts(e: &mut Engine, frames: u64, step: usize) -> Vec<(u64, usize, u8)
 /// than a tick).
 #[test]
 fn the_demo_imported_plays_the_file() {
-    let bytes = include_bytes!("../../../../web/public/demo.mid");
+    let bytes = include_bytes!("../../../../examples/scores/canon.mid");
     let mut e = Engine::new(48_000.0);
     for s in 0..SYNTHS {
         e.set_param(s, Param::Polyphony, 8.0);
@@ -1834,7 +1834,10 @@ fn bad_files_are_rejected_and_keep_the_old_song() {
 #[test]
 fn demo_file_imports() {
     let mut e = Engine::new(48_000.0);
-    let tracks = import(&mut e, include_bytes!("../../../../web/public/demo.mid"));
+    let tracks = import(
+        &mut e,
+        include_bytes!("../../../../examples/scores/canon.mid"),
+    );
     assert_eq!(tracks, Ok(4));
     let synths: Vec<Option<usize>> = (0..4).map(|t| e.song_routed(t)).collect();
     assert_eq!(
@@ -2068,6 +2071,261 @@ fn a_clip_restarts_with_its_scene() {
         want.extend([bar, bar, bar + 3, bar + 6, bar + 9, bar + 12, bar + 15]);
     }
     assert_eq!(hits, want);
+}
+
+/// #487: three scenes a hit pattern each (one every 4 steps, two every 2
+/// for two bars, three every 8), the arrangement eight bars of one.
+const LAUNCH: &str = "tempo 120\ntrack kit drums\nclip a = kit\n  bd x...\nclip b = kit\n  sn x.\n\
+                      clip c = kit\n  ch x.......\nsnapshot s: strip1.Send2 0.25\n\
+                      scene one 1: a\nscene two 2: b [s]\nscene three 1: c\n\
+                      arrange one one one one one one one one\n";
+
+/// The clock steps of the hits in the next `steps` steps, from `at`.
+fn hits_at(e: &mut Engine, at: u64, steps: u64) -> Vec<u64> {
+    hit_steps(e, steps).into_iter().map(|s| s + at).collect()
+}
+
+fn launch_song() -> Engine {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, LAUNCH), Ok(()));
+    e
+}
+
+/// #487: a scene launched mid-bar lands on the next bar line, from its
+/// first step, its snapshot set, and loops until the next launch.
+#[test]
+fn a_launched_scene_lands_on_the_next_bar_and_loops() {
+    let mut e = launch_song();
+    e.song_play();
+    assert_eq!(hits_at(&mut e, 0, 5), vec![0, 4]);
+    e.song_launch(1, Quantize::Bar);
+    assert_eq!(
+        e.song_queued(),
+        Some((LaunchTarget::Scene(1), Quantize::Bar))
+    );
+    assert_eq!(
+        e.song_launch_in(),
+        Some(11),
+        "steps 5 to 15 are left of bar 1"
+    );
+    let before = e.param_value(0, Param::Send2);
+    let hits = hits_at(&mut e, 5, 11 + 48);
+    let want: Vec<u64> = [8, 12].into_iter().chain((16..64).step_by(2)).collect();
+    assert_eq!(
+        hits, want,
+        "one to the bar line, then two, again after two bars"
+    );
+    assert_eq!(e.song_launched(), Some(1));
+    assert_eq!(e.song_queued(), None);
+    assert_ne!(e.param_value(0, Param::Send2), before);
+    assert_eq!(e.param_value(0, Param::Send2), 0.25, "its snapshot is set");
+    assert_eq!(
+        e.song_place(),
+        Some((usize::MAX, 15)),
+        "step 63: 47 into a 32-step loop, no entry"
+    );
+}
+
+/// #487: stopped, a launch starts the song with the scene; End waits for
+/// the scene to finish, not the bar.
+#[test]
+fn a_launch_at_the_end_waits_for_the_scene() {
+    let mut e = launch_song();
+    e.song_launch(1, Quantize::Bar);
+    assert!(e.clock().playing(), "a launch starts the song");
+    assert_eq!(hits_at(&mut e, 0, 5), vec![0, 2, 4]);
+    e.song_launch(2, Quantize::End);
+    assert_eq!(
+        e.song_launch_in(),
+        Some(27),
+        "two's two bars end on step 32"
+    );
+    let hits = hits_at(&mut e, 5, 27 + 24);
+    let want: Vec<u64> = (6..32).step_by(2).chain([32, 40, 48]).collect();
+    assert_eq!(hits, want);
+    assert_eq!(e.song_launched(), Some(2));
+}
+
+/// #487: Phrase waits for the next eight-bar line.
+#[test]
+fn a_launch_on_the_phrase_waits_eight_bars() {
+    let mut e = launch_song();
+    e.song_play();
+    hit_steps(&mut e, 5);
+    e.song_launch(2, Quantize::Phrase);
+    assert_eq!(e.song_launch_in(), Some(123));
+    let hits = hits_at(&mut e, 5, 123 + 16);
+    assert!(hits.iter().filter(|k| **k < 128).all(|k| k % 4 == 0));
+    assert_eq!(
+        hits.iter()
+            .filter(|k| **k >= 128)
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![128, 136]
+    );
+}
+
+/// #487: Now starts the scene at once, as far into its first bar as the
+/// clock is into its own; its snapshot is set at once.
+#[test]
+fn a_launch_now_keeps_the_phase() {
+    let mut e = launch_song();
+    e.song_play();
+    hit_steps(&mut e, 21);
+    e.song_launch(1, Quantize::Now);
+    assert_eq!(e.song_launched(), Some(1));
+    assert_eq!(e.param_value(0, Param::Send2), 0.25);
+    // two from bar 1: step 21 is its step 5, so it hits on 22, 24, … (even).
+    assert_eq!(hits_at(&mut e, 21, 11), vec![22, 24, 26, 28, 30]);
+}
+
+/// #487: back to the arrangement on the next bar, where the clock is.
+#[test]
+fn back_to_the_arrangement_goes_on_where_the_clock_is() {
+    let mut e = launch_song();
+    e.song_launch(2, Quantize::Bar);
+    hit_steps(&mut e, 20);
+    e.song_resume_arrangement(Quantize::Bar);
+    assert_eq!(
+        e.song_queued(),
+        Some((LaunchTarget::Arrangement, Quantize::Bar))
+    );
+    assert_eq!(hits_at(&mut e, 20, 20), vec![24, 32, 36]);
+    assert_eq!(e.song_launched(), None);
+    assert_eq!(e.song_place(), Some((2, 7)), "bar 3 of the arrangement");
+    e.song_launch(1, Quantize::Bar);
+    e.song_launch_cancel();
+    assert_eq!(e.song_queued(), None);
+    e.song_stop();
+    assert_eq!(
+        (e.song_launched(), e.song_queued()),
+        (None, None),
+        "stop forgets the launch"
+    );
+}
+
+/// #487: a song that takes over finds the launched scene by its name.
+#[test]
+fn a_launched_scene_is_found_again_by_name() {
+    let mut e = launch_song();
+    e.song_launch(2, Quantize::Bar);
+    hit_steps(&mut e, 4);
+    let moved = LAUNCH
+        .replace("scene one 1: a\n", "")
+        .replace("arrange one", "scene one 1: a\narrange one");
+    assert_eq!(load_text(&mut e, &moved), Ok(()));
+    hit_steps(&mut e, 14);
+    assert_eq!(e.song_launched(), Some(1), "three moved up a place");
+    let gone = moved.replace("scene three 1: c\n", "");
+    assert_eq!(load_text(&mut e, &gone), Ok(()));
+    hit_steps(&mut e, 16);
+    assert_eq!(e.song_launched(), None, "gone, the arrangement plays");
+}
+
+/// #487: the same launches at the same steps render the same samples.
+#[test]
+fn launches_render_the_same_every_time() {
+    let take = || {
+        let mut e = launch_song();
+        e.song_play();
+        let mut out = Vec::new();
+        for b in 0..1_500 {
+            match b {
+                100 => e.song_launch(1, Quantize::Bar),
+                600 => e.song_launch(2, Quantize::Now),
+                900 => e.song_resume_arrangement(Quantize::End),
+                _ => {}
+            }
+            e.render(BLOCK);
+            out.extend_from_slice(e.output());
+        }
+        out
+    };
+    let (a, b) = (take(), take());
+    assert!(a.iter().any(|s| *s != 0.0));
+    assert!(a == b);
+}
+
+/// #488: two snapshots on strip 1's send, switched from buttons.
+const SNAPS: &str = "tempo 120\ntrack kit drums\nclip a = kit\n  bd x...\n\
+                     snapshot dry: strip1.Send2 0.1\nsnapshot wet: strip1.Send2 0.7\n\
+                     scene one 1: a\nscene two 1: a [dry]\narrange one one two\n";
+
+/// The first frame from now strip 1's Send2 is `want`, within `frames`.
+fn frame_when(e: &mut Engine, want: f32, frames: u64) -> Option<u64> {
+    (0..frames).find(|_| {
+        e.render(1);
+        e.param_value(0, Param::Send2) == want
+    })
+}
+
+/// #488: a snapshot switched on Bar is set on the next bar line, the scene
+/// playing on; on Now and while stopped at once.
+#[test]
+fn a_snapshot_switched_from_a_button_lands_on_the_bar() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, SNAPS), Ok(()));
+    e.song_snapshot(1, Quantize::Now);
+    assert_eq!(e.param_value(0, Param::Send2), 0.7, "stopped: at once");
+    e.song_snapshot(0, Quantize::Bar);
+    assert_eq!(
+        e.param_value(0, Param::Send2),
+        0.1,
+        "stopped, any moment is now"
+    );
+    e.song_play();
+    hit_steps(&mut e, 5);
+    e.song_snapshot(1, Quantize::Bar);
+    assert_eq!(e.song_snapshot_queued(), Some((1, Quantize::Bar)));
+    assert_eq!(
+        frame_when(&mut e, 0.7, 70_000),
+        Some(66_000),
+        "on step 16, 11 steps of 6000 on"
+    );
+    assert_eq!(e.song_snapshot_queued(), None);
+    assert_eq!(e.song_place(), Some((1, 0)), "the arrangement plays on");
+    e.song_snapshot(0, Quantize::Now);
+    assert_eq!(e.param_value(0, Param::Send2), 0.1, "now: at once");
+}
+
+/// #488: the next scene's own snapshot still lands; a button landing on
+/// the same bar line comes after it.
+#[test]
+fn a_scenes_own_snapshot_still_lands_and_the_button_wins() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, SNAPS), Ok(()));
+    e.song_play();
+    e.song_snapshot(1, Quantize::Now);
+    assert_eq!(
+        frame_when(&mut e, 0.1, 200_000),
+        Some(192_000),
+        "scene two's [dry] on bar 3"
+    );
+    e.song_seek_bar(1);
+    hit_steps(&mut e, 1);
+    e.song_snapshot(1, Quantize::Bar);
+    hit_steps(&mut e, 16);
+    assert_eq!(
+        e.param_value(0, Param::Send2),
+        0.7,
+        "on bar 3's line too, after [dry]"
+    );
+    e.song_snapshot(0, Quantize::Bar);
+    e.song_stop();
+    assert_eq!(e.song_snapshot_queued(), None, "stop forgets it");
+}
+
+/// #488: a modulation on the parameter still writes over a switched snapshot.
+#[test]
+fn a_modulation_writes_over_a_switched_snapshot() {
+    let mut e = kit(0);
+    let text = format!("{SNAPS}mod strip1.send2 = 0.3\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    run(&mut e, 10);
+    e.song_snapshot(1, Quantize::Now);
+    run(&mut e, 2);
+    assert_eq!(e.param_value(0, Param::Send2), 0.3);
 }
 
 /// #449: the entry each bar falls in, through the loop, for the deck lane.
@@ -3881,7 +4139,7 @@ fn the_modular_units_do_what_they_say() {
     assert!(comb.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
 }
 
-/// #471: the robot siren of `examples/siren-system.song`, random semitone
+/// #471: the robot siren of `examples/songs/siren-system.song`, random semitone
 /// steps through a 4-bit crush, sounds bounded and the same twice.
 #[test]
 fn the_robot_siren_steps_and_crushes() {
@@ -3897,7 +4155,7 @@ fn the_robot_siren_steps_and_crushes() {
     );
 }
 
-/// #472: the robot siren of `examples/siren-system.song`, random steps
+/// #472: the robot siren of `examples/songs/siren-system.song`, random steps
 /// from `LFNoise0` under a `lag`, renders the same twice from its seed,
 /// and a new note draws new steps.
 #[test]
@@ -4280,7 +4538,10 @@ fn clear_starts_over_with_one_modular_synth() {
 /// the demo's bass on a Minimoog, its violins on Pro-Ones, synths 0 to 3.
 #[test]
 fn a_midi_import_sets_the_synths_its_text_names() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/public/demo.mid");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/scores/canon.mid"
+    );
     let bytes = std::fs::read(path).expect("the demo MIDI file");
     let mut e = Engine::new(48_000.0);
     // Synth 2 already a Minimoog: the bass still goes to synth 0, in channel order.
@@ -5449,4 +5710,62 @@ fn a_group_named_in_the_view_is_named_in_the_song() {
     assert!(e.set_group_name_from_buffer(2));
     assert_eq!(e.group_name(2), None);
     assert!(!e.song_text().contains("group 3"), "{}", e.song_text());
+}
+
+/// #20, MVP 5: a first movement of Vivaldi's Four Seasons (Mutopia,
+/// CC BY-SA 3.0, `examples/scores/LICENSE.txt`) imports as five string
+/// parts on synths 0–4 and plays start to finish: every part sounds, the
+/// output stays finite and bounded, and the song reaches its last bar.
+fn plays_start_to_finish(file: &str, bytes: &[u8]) {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(import(&mut e, bytes), Ok(5), "{file}: five parts");
+    let bars = e.song().bars();
+    let frames = (bars as f32 * 4.0 * 60.0 / e.song().tempo * 48_000.0) as u64;
+    e.song_play();
+    let (mut sounded, mut last) = ([false; 5], 0);
+    for _ in (0..frames).step_by(BLOCK) {
+        e.render(BLOCK);
+        assert!(
+            e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "{file}: finite and bounded"
+        );
+        for (s, on) in sounded.iter_mut().enumerate() {
+            *on |= e.pools.get(s).is_some_and(|p| !p.held_notes().is_empty());
+        }
+        last = last.max(e.clock().step().unwrap_or(0));
+    }
+    assert_eq!(sounded, [true; 5], "{file}: every part sounds");
+    assert!(last >= (bars - 1) * 16, "{file}: the last bar of {bars}");
+}
+
+#[test]
+fn spring_rv269_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv269-spring",
+        include_bytes!("../../../../examples/scores/rv269-spring.mid"),
+    );
+}
+
+#[test]
+fn summer_rv315_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv315-summer",
+        include_bytes!("../../../../examples/scores/rv315-summer.mid"),
+    );
+}
+
+#[test]
+fn autumn_rv293_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv293-autumn",
+        include_bytes!("../../../../examples/scores/rv293-autumn.mid"),
+    );
+}
+
+#[test]
+fn winter_rv297_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv297-winter",
+        include_bytes!("../../../../examples/scores/rv297-winter.mid"),
+    );
 }

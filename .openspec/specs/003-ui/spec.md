@@ -325,3 +325,29 @@ The transport bar SHALL switch to a Decks view (ADR-0029, #391) beside Synths, M
 - THEN its levels rise above the playhead a pixel a step, and the next scene's band comes up from below and crosses the playhead on its first bar
 
 **Tests:** `web/src/audio/decks.test.ts`, `web/src/audio/decktrail.test.ts`, `crates/dsp/src/engine/tests.rs::bar_entries_follow_the_arrangement_through_the_loop`
+
+### Requirement 18: Launch [SHOULD]
+
+The arranger SHALL carry a Launch bar (#489, epic #491) when the song has scenes: a pad per scene, a pad per snapshot, a `↩ Arrangement` pad, the moment a launch lands (Bar, End, Phrase), what waits and how far off it lands, and Rec. A scene's pad SHALL launch it (spec 002 Req 19) and a snapshot's switch it on, at the moment chosen, with Shift at once. The playing scene's pad SHALL be lit and a waiting one SHALL blink, still where motion is reduced. The computer keyboard SHALL work from every view, by key position whatever the layout: `1`–`0` launch scenes 1–10, `z`–`m` switch snapshots 1–7, Shift with either at once, `[` and `]` step the moment, `\` goes back to the arrangement, `Esc` cancels what waits (and only then, since popups close on it too), Space plays and stops. The keys SHALL do nothing while typing in a field, with a modifier other than Shift, or held down, and SHALL leave the note keys `a`…`;` to the synths. Rec SHALL note each scene each time it starts while on, and on stopping SHALL write them as the song's `arrange` line, a scene cut short counting whole, so a jam becomes text (ADR-0018).
+
+**Implementation:** `web/src/components/LaunchBar.vue`, `web/src/audio/launch.ts`, `web/src/audio/engine.ts`, `web/public/worklet.js`
+
+#### Scenario: a key launches a scene
+
+- GIVEN a song with scenes `one`, `two` and `three` playing its arrangement, the moment on Bar
+- WHEN `2` is pressed
+- THEN `two`'s pad blinks with "→ two in 3 beats", and on the next bar it is lit and `two` plays
+
+#### Scenario: typing is not launching
+
+- GIVEN the song text being edited
+- WHEN `2` is typed
+- THEN it goes into the text and nothing is launched
+
+#### Scenario: a jam becomes the arrangement
+
+- GIVEN Rec on and the scenes `two`, `three`, `three` and `one` starting in turn
+- WHEN Rec is pressed again
+- THEN the song's text says `arrange two three three one`
+
+**Tests:** `web/src/audio/launch.test.ts`; driven in a headless browser: keys, pads, the countdown and Rec

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write web/public/demo.mid: Pachelbel's Canon over its ground bass.
+"""Write examples/scores/canon.mid: Pachelbel's Canon over its ground bass.
 
 The composition is public domain and this arrangement is written here, so the
 file carries no third-party licence. Four parts on channels 1-4: basso
@@ -89,7 +89,7 @@ def main() -> None:
         track("Violino III", violins[2]),
     ]
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), DIV)
-    out = Path(__file__).resolve().parent.parent / "web" / "public" / "demo.mid"
+    out = Path(__file__).resolve().parent.parent / "examples" / "scores" / "canon.mid"
     out.write_bytes(header + b"".join(tracks))
     print(f"wrote {out.relative_to(Path.cwd()) if out.is_relative_to(Path.cwd()) else out} ({out.stat().st_size} bytes)")
 

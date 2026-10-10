@@ -731,7 +731,7 @@ fn an_electro_example_parses_and_prints_back() {
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
-/// The songs in `examples/` parse, print back equal and are arranged, and
+/// The songs in `examples/songs/` parse, print back equal and are arranged, and
 /// the SH-101 plays in most of those that are not drum studies.
 /// #486, ADR-0031: a song in the old words (`frag`, `section`, a `scene`
 /// that is a mixer snapshot) reads as the same song in Ableton's words, and
@@ -777,7 +777,7 @@ arrange a b
 
 #[test]
 fn the_example_songs_parse_and_print_back() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs");
     let (mut seen, mut sh101) = (0, 0);
     for entry in std::fs::read_dir(&dir).expect("examples dir") {
         let path = entry.expect("entry").path();
@@ -801,7 +801,7 @@ fn the_example_songs_parse_and_print_back() {
             sh101 += 1;
         }
     }
-    assert_eq!(seen, 17, "seventeen examples");
+    assert_eq!(seen, 21, "twenty-one examples");
     assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
 }
 
