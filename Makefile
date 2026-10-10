@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench lint deny image serve stop clean env-check
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench filters lint deny image serve stop clean env-check
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -84,6 +84,10 @@ typecheck: install ## vue-tsc over the UI
 # render capacity in Chrome DevTools' WebAudio panel.
 bench: wasm ## Time 16 voices in V8
 	node tools/bench.mjs
+# A harmonic table per ladder voicing (#319); pass ARGS="--stages-only" or
+# ARGS="--wav <dir>" for the stage types alone or a WAV per voicing.
+filters: ## Compare the ladder voicings
+	cargo run --release --locked -p algo-dsp --example filter_compare -- $(ARGS)
 
 ##@ Code quality
 
