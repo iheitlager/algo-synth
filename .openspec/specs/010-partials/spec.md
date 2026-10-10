@@ -2,7 +2,7 @@
 
 A sound as a partial set, from any source the engine has; transforms and morphs on partial sets; and three ways to play one: as a sample, as a PPG wavetable through the analog filters with a D-50 attack, and in the Modular's SuperCollider subset. Epic #192, after its first stages (spec 009). Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0021, ADR-0024, ADR-0032.
 
-Status: proposed. The implementation and test paths below are where the work goes; none of it is built yet.
+Status: proposed. The implementation and test paths below are where the work goes, marked (planned) until they exist; none of it is built yet.
 
 Common to every requirement:
 - **Offline work.** Analysis, transforms and morphs are offline calls (ADR-0017). They may allocate within spec 009's caps (60 s, 256 partials a frame), and they never panic.
@@ -16,7 +16,7 @@ A partial set SHALL be frames at a hop and rate. Each partial is a track with a 
 
 A partial set MAY carry an f0 per frame and a spectral envelope per frame (Requirement 3).
 
-**Implementation:** `crates/dsp/src/analysis/track.rs::Track`, `crates/dsp/src/analysis/partials.rs::PartialSet`
+**Implementation:** (planned) `crates/dsp/src/analysis/track.rs::Track`, `crates/dsp/src/analysis/partials.rs::PartialSet`
 
 #### Scenario: spec 009 still holds
 
@@ -24,7 +24,7 @@ A partial set MAY carry an f0 per frame and a spectral envelope per frame (Requi
 - WHEN it is read as a partial set
 - THEN its tracks, frequencies and amplitudes are those of spec 009, and every noise value is 0
 
-**Tests:** `crates/dsp/src/analysis/partials.rs::tests::an_analysis_is_a_partial_set_with_no_noise`
+**Tests:** (planned) `crates/dsp/src/analysis/partials.rs::tests::an_analysis_is_a_partial_set_with_no_noise`
 
 ### Requirement 2: Noise per partial [MUST]
 
@@ -36,7 +36,7 @@ Resynthesis SHALL play a partial with bandwidth β as a sinusoid amplitude-modul
 
 This replaces #192 stage 4's separate SMS residual for the partial set (ADR-0032).
 
-**Implementation:** `crates/dsp/src/analysis/bandwidth.rs::associate`, `crates/dsp/src/analysis/additive.rs::resynthesise`
+**Implementation:** (planned) `crates/dsp/src/analysis/bandwidth.rs::associate`, `crates/dsp/src/analysis/additive.rs::resynthesise`
 
 #### Scenario: a breathy tone
 
@@ -50,7 +50,7 @@ This replaces #192 stage 4's separate SMS residual for the partial set (ADR-0032
 - WHEN it is analysed with noise
 - THEN every long partial's bandwidth is under 0.05
 
-**Tests:** `crates/dsp/src/analysis/bandwidth.rs::tests::noise_goes_to_the_nearest_partial`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_breathy_tone_keeps_its_breath`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_saw_has_almost_no_bandwidth`, `crates/dsp/src/analysis/additive.rs::tests::noise_resynthesis_repeats_exactly`
+**Tests:** (planned) `crates/dsp/src/analysis/bandwidth.rs::tests::noise_goes_to_the_nearest_partial`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_breathy_tone_keeps_its_breath`, `crates/dsp/src/analysis/bandwidth.rs::tests::a_saw_has_almost_no_bandwidth`, `crates/dsp/src/analysis/additive.rs::tests::noise_resynthesis_repeats_exactly`
 
 ### Requirement 3: The spectral envelope [SHOULD]
 
@@ -60,7 +60,7 @@ The analysis SHOULD estimate a smooth spectral envelope per frame by the true-en
 
 It SHOULD be read as an amplitude at any frequency, so a partial moved in pitch can take the envelope's level at its new frequency.
 
-**Implementation:** `crates/dsp/src/analysis/envelope.rs::true_envelope`, `crates/dsp/src/analysis/envelope.rs::Envelope::at`
+**Implementation:** (planned) `crates/dsp/src/analysis/envelope.rs::true_envelope`, `crates/dsp/src/analysis/envelope.rs::Envelope::at`
 
 #### Scenario: a formant
 
@@ -68,7 +68,7 @@ It SHOULD be read as an amplitude at any frequency, so a partial moved in pitch 
 - WHEN its envelope is estimated
 - THEN the envelope peaks within a third of an octave of 1 kHz and lies within 1 dB over the harmonics' peaks
 
-**Tests:** `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_finds_a_formant`, `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_lies_over_the_peaks`
+**Tests:** (planned) `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_finds_a_formant`, `crates/dsp/src/analysis/envelope.rs::tests::the_envelope_lies_over_the_peaks`
 
 ### Requirement 4: Transforms [MUST]
 
@@ -89,7 +89,7 @@ Each transform SHALL be one function on a partial set with one amount (and an op
 
 After any transform, a partial at or above Nyquist SHALL be faded out over the top octave.
 
-**Implementation:** `crates/dsp/src/analysis/edit.rs` (`stretch`, `inharmonic`, `freq_shift`, `formant_scale`, `smear`, `odd_even`, `spectral_filter`, `freeze`, `decay_by_number`, `noise_amount`)
+**Implementation:** (planned) `crates/dsp/src/analysis/edit.rs` (`stretch`, `inharmonic`, `freq_shift`, `formant_scale`, `smear`, `odd_even`, `spectral_filter`, `freeze`, `decay_by_number`, `noise_amount`)
 
 #### Scenario: a saw becomes a bell
 
@@ -103,7 +103,7 @@ After any transform, a partial at or above Nyquist SHALL be faded out over the t
 - WHEN the partials are shifted a fifth up and formant-scaled by 1/1.5
 - THEN the resynthesis's envelope still peaks within a third of an octave of 1 kHz
 
-**Tests:** `crates/dsp/src/analysis/edit.rs::tests::stretch_moves_harmonics_apart`, `crates/dsp/src/analysis/edit.rs::tests::inharmonic_moves_high_partials_most`, `crates/dsp/src/analysis/edit.rs::tests::freq_shift_adds_hertz`, `crates/dsp/src/analysis/edit.rs::tests::formants_stay_when_pitch_moves`, `crates/dsp/src/analysis/edit.rs::tests::smear_keeps_energy`, `crates/dsp/src/analysis/edit.rs::tests::freeze_holds_a_frame`, `crates/dsp/src/analysis/edit.rs::tests::decay_by_number_kills_the_highs_first`, `crates/dsp/src/analysis/edit.rs::tests::nothing_passes_nyquist`
+**Tests:** (planned) `crates/dsp/src/analysis/edit.rs::tests::stretch_moves_harmonics_apart`, `crates/dsp/src/analysis/edit.rs::tests::inharmonic_moves_high_partials_most`, `crates/dsp/src/analysis/edit.rs::tests::freq_shift_adds_hertz`, `crates/dsp/src/analysis/edit.rs::tests::formants_stay_when_pitch_moves`, `crates/dsp/src/analysis/edit.rs::tests::smear_keeps_energy`, `crates/dsp/src/analysis/edit.rs::tests::freeze_holds_a_frame`, `crates/dsp/src/analysis/edit.rs::tests::decay_by_number_kills_the_highs_first`, `crates/dsp/src/analysis/edit.rs::tests::nothing_passes_nyquist`
 
 ### Requirement 5: Labels and distillation [MUST]
 
@@ -114,7 +114,7 @@ To morph, a partial set SHALL be labelled and distilled, after Loris:
   - The energy of whatever overlaps SHALL be added to the kept partial as noise: `a' = sqrt(a² + o²)`, `β' = (a²·β + o²) / (a² + o²)`.
   - A distilled set has at most one partial per label at any time.
 
-**Implementation:** `crates/dsp/src/analysis/morph.rs::label`, `crates/dsp/src/analysis/morph.rs::distill`
+**Implementation:** (planned) `crates/dsp/src/analysis/morph.rs::label`, `crates/dsp/src/analysis/morph.rs::distill`
 
 #### Scenario: a broken harmonic
 
@@ -122,13 +122,13 @@ To morph, a partial set SHALL be labelled and distilled, after Loris:
 - WHEN the set is labelled and distilled
 - THEN there is one partial with label 5, spanning both
 
-**Tests:** `crates/dsp/src/analysis/morph.rs::tests::labels_follow_f0`, `crates/dsp/src/analysis/morph.rs::tests::distilling_joins_a_broken_harmonic`, `crates/dsp/src/analysis/morph.rs::tests::overlap_becomes_noise`, `crates/dsp/src/analysis/morph.rs::tests::no_f0_no_label`
+**Tests:** (planned) `crates/dsp/src/analysis/morph.rs::tests::labels_follow_f0`, `crates/dsp/src/analysis/morph.rs::tests::distilling_joins_a_broken_harmonic`, `crates/dsp/src/analysis/morph.rs::tests::overlap_becomes_noise`, `crates/dsp/src/analysis/morph.rs::tests::no_f0_no_label`
 
 ### Requirement 6: Time alignment [SHOULD]
 
 Before a morph, two partial sets SHOULD be aligned on feature times: the attack onset, the end of the attack (the energy peak) and the release (the last fall below −30 dB of the peak), found from the set's energy envelope or given by hand. Each set's frame times SHOULD be mapped piecewise-linearly so its features fall on the shared times, the mean of the two sets' unless given. Before the first feature they SHOULD be scaled, and after the last shifted.
 
-**Implementation:** `crates/dsp/src/analysis/morph.rs::features`, `crates/dsp/src/analysis/morph.rs::dilate`
+**Implementation:** (planned) `crates/dsp/src/analysis/morph.rs::features`, `crates/dsp/src/analysis/morph.rs::dilate`
 
 #### Scenario: a short and a long attack
 
@@ -136,7 +136,7 @@ Before a morph, two partial sets SHOULD be aligned on feature times: the attack 
 - WHEN both are aligned
 - THEN both reach their peaks at 105 ms
 
-**Tests:** `crates/dsp/src/analysis/morph.rs::tests::features_find_attack_and_release`, `crates/dsp/src/analysis/morph.rs::tests::dilation_aligns_the_peaks`
+**Tests:** (planned) `crates/dsp/src/analysis/morph.rs::tests::features_find_attack_and_release`, `crates/dsp/src/analysis/morph.rs::tests::dilation_aligns_the_peaks`
 
 ### Requirement 7: Morph [MUST]
 
@@ -154,7 +154,7 @@ The engine SHALL morph two labelled, distilled and aligned partial sets A and B 
 - **Unlabelled partials** SHALL be crossfaded by the amplitude position.
 - **Pre-cleaning.** Frames below −90 dB SHALL have their frequency drawn to `label · f0` before interpolating, so near-silent noise never glides audibly.
 
-**Implementation:** `crates/dsp/src/analysis/morph.rs::morph`, `crates/dsp/src/analysis/morph.rs::Positions`
+**Implementation:** (planned) `crates/dsp/src/analysis/morph.rs::morph`, `crates/dsp/src/analysis/morph.rs::Positions`
 
 #### Scenario: ends
 
@@ -174,7 +174,7 @@ The engine SHALL morph two labelled, distilled and aligned partial sets A and B 
 - WHEN they are morphed at amplitude 0.5
 - THEN A's harmonic 8 is present at half its level (in the log sense) and moves towards 8 · f0(B)
 
-**Tests:** `crates/dsp/src/analysis/morph.rs::tests::ends_are_the_sources`, `crates/dsp/src/analysis/morph.rs::tests::pitch_of_one_timbre_of_the_other`, `crates/dsp/src/analysis/morph.rs::tests::orphans_glide_to_their_place`, `crates/dsp/src/analysis/morph.rs::tests::amplitude_morph_is_logarithmic`, `crates/dsp/src/analysis/morph.rs::tests::formant_morph_moves_the_formant`, `crates/dsp/src/analysis/morph.rs::tests::unlabelled_partials_crossfade`
+**Tests:** (planned) `crates/dsp/src/analysis/morph.rs::tests::ends_are_the_sources`, `crates/dsp/src/analysis/morph.rs::tests::pitch_of_one_timbre_of_the_other`, `crates/dsp/src/analysis/morph.rs::tests::orphans_glide_to_their_place`, `crates/dsp/src/analysis/morph.rs::tests::amplitude_morph_is_logarithmic`, `crates/dsp/src/analysis/morph.rs::tests::formant_morph_moves_the_formant`, `crates/dsp/src/analysis/morph.rs::tests::unlabelled_partials_crossfade`
 
 ### Requirement 8: Partial sets from other sources [SHOULD]
 
@@ -186,7 +186,7 @@ A partial set SHOULD come from more than a WAV:
 - **Macros (after Plaits, MIT).** Three values, harmonics, timbre and morph, SHALL give 24 harmonic amplitudes by Plaits' closed form, normalised by their sum.
 - **A wavetable.** Each wave of a table SHALL be one frame of up to 31 harmonics, by an FFT of the wave.
 
-**Implementation:** `crates/dsp/src/analysis/sources.rs::patch_spectrum`, `crates/dsp/src/analysis/sources.rs::FilterResponse`, `crates/dsp/src/analysis/sources.rs::macros`, `crates/dsp/src/analysis/sources.rs::from_table`
+**Implementation:** (planned) `crates/dsp/src/analysis/sources.rs::patch_spectrum`, `crates/dsp/src/analysis/sources.rs::FilterResponse`, `crates/dsp/src/analysis/sources.rs::macros`, `crates/dsp/src/analysis/sources.rs::from_table`
 
 #### Scenario: a filtered saw
 
@@ -194,7 +194,7 @@ A partial set SHOULD come from more than a WAV:
 - WHEN its patch spectrum is made, and the same patch is rendered by the engine and analysed
 - THEN the two agree within 1.5 dB on the first 20 harmonics
 
-**Tests:** `crates/dsp/src/analysis/sources.rs::tests::patch_spectrum_matches_the_engine`, `crates/dsp/src/analysis/sources.rs::tests::macros_are_normalised`, `crates/dsp/src/analysis/sources.rs::tests::a_table_wave_is_its_harmonics`
+**Tests:** (planned) `crates/dsp/src/analysis/sources.rs::tests::patch_spectrum_matches_the_engine`, `crates/dsp/src/analysis/sources.rs::tests::macros_are_normalised`, `crates/dsp/src/analysis/sources.rs::tests::a_table_wave_is_its_harmonics`
 
 ### Requirement 9: User wavetables (the PPG path) [MUST]
 
@@ -203,7 +203,7 @@ The engine SHALL hold user wavetables beside its generated ones (spec 006 Req 10
 - **Rendering.** A partial set SHALL render into a user table: up to 64 frames chosen evenly over its length, or at given times, each frame's labelled partials up to 31 harmonics written as one wave. Inharmonic partials are rounded to the nearest harmonic, and anything above harmonic 31 is dropped.
 - **Selection.** `Wt1Table` and `Wt2Table` SHALL reach the user tables after the generated ones, and `Wt1Pos`/`Wt2Pos` SHALL move through their frames as through any table. So the PPG model plays an analysed sound through its filters and envelopes, and a morph between two frames is a position.
 
-**Implementation:** `crates/dsp/src/table.rs::UserTables`, `crates/dsp/src/analysis/frames.rs::to_table`, `crates/dsp/src/ffi.rs` (`table_buf`, `table_load`, `spectral_table`), `crates/dsp/src/params.rs` (`Wt1Table`, `Wt2Table` ranges), `web/src/audio/params.ts`
+**Implementation:** (planned) `crates/dsp/src/table.rs::UserTables`, `crates/dsp/src/analysis/frames.rs::to_table`, `crates/dsp/src/ffi.rs` (`table_buf`, `table_load`, `spectral_table`), `crates/dsp/src/params.rs` (`Wt1Table`, `Wt2Table` ranges), `web/src/audio/params.ts`
 
 #### Scenario: an analysed sound on the PPG
 
@@ -217,7 +217,7 @@ The engine SHALL hold user wavetables beside its generated ones (spec 006 Req 10
 - WHEN `Wt1Pos` sweeps from 0 to 1
 - THEN the even harmonics fall from saw level to under −40 dB, and every sample is finite and bounded
 
-**Tests:** `crates/dsp/src/table.rs::tests::user_tables_load_outside_render`, `crates/dsp/src/analysis/frames.rs::tests::a_saw_becomes_a_saw_table`, `crates/dsp/src/engine/tests.rs::the_ppg_plays_a_user_table`, `crates/dsp/src/engine/tests.rs::a_table_position_is_a_morph`
+**Tests:** (planned) `crates/dsp/src/table.rs::tests::user_tables_load_outside_render`, `crates/dsp/src/analysis/frames.rs::tests::a_saw_becomes_a_saw_table`, `crates/dsp/src/engine/tests.rs::the_ppg_plays_a_user_table`, `crates/dsp/src/engine/tests.rs::a_table_position_is_a_morph`
 
 ### Requirement 10: Attack and body (the D-50 path) [SHOULD]
 
@@ -227,7 +227,7 @@ A partial set SHOULD split at the end of its attack (Requirement 6's feature), t
 
 The D-50 model playing both SHALL sound the original's transient over a body that its filter, envelopes and table position shape.
 
-**Implementation:** `crates/dsp/src/analysis/frames.rs::split_attack`, `crates/dsp/src/la.rs`, `crates/dsp/src/params.rs` (`Pcm1Sample`, `Pcm2Sample` ranges)
+**Implementation:** (planned) `crates/dsp/src/analysis/frames.rs::split_attack`, `crates/dsp/src/la.rs`, `crates/dsp/src/params.rs` (`Pcm1Sample`, `Pcm2Sample` ranges)
 
 #### Scenario: a piano's hammer
 
@@ -235,7 +235,7 @@ The D-50 model playing both SHALL sound the original's transient over a body tha
 - WHEN it is split and played on the D-50 model at its own root
 - THEN the first 30 ms differ from the original by less than −20 dB, and the body's harmonics follow the original's within 3 dB at 200 ms
 
-**Tests:** `crates/dsp/src/analysis/frames.rs::tests::split_finds_the_attack`, `crates/dsp/src/engine/tests.rs::the_d50_plays_attack_and_body`
+**Tests:** (planned) `crates/dsp/src/analysis/frames.rs::tests::split_finds_the_attack`, `crates/dsp/src/engine/tests.rs::the_d50_plays_attack_and_body`
 
 ### Requirement 11: Partials in the Modular (the SuperCollider path) [SHOULD]
 
@@ -254,7 +254,7 @@ The Modular's subset of sclang (ADR-0024) SHOULD gain these words, each behaving
 
 A number in any of these SHALL be a knob as every number in a SynthDef is (ADR-0024).
 
-**Implementation:** `crates/dsp/src/modular/sc.rs` (lexer: `` ` ``; `ugen()`: `Klang`, `DynKlang`, `Klank`, `DynKlank`, `VOsc`, `Osc`), `crates/dsp/src/modular.rs` (`MAX_RESONATORS`, table reads)
+**Implementation:** (planned) `crates/dsp/src/modular/sc.rs` (lexer: `` ` ``; `ugen()`: `Klang`, `DynKlang`, `Klank`, `DynKlank`, `VOsc`, `Osc`), `crates/dsp/src/modular.rs` (`MAX_RESONATORS`, table reads)
 
 #### Scenario: a bank of sines
 
@@ -274,7 +274,7 @@ A number in any of these SHALL be a knob as every number in a SynthDef is (ADR-0
 - WHEN the code is built
 - THEN it is refused with a message naming the limit, and the synth plays on as it was
 
-**Tests:** `crates/dsp/src/modular/sc.rs::tests::backtick_keeps_an_array_whole`, `crates/dsp/src/modular/sc.rs::tests::klang_is_a_bank_of_sines`, `crates/dsp/src/modular/sc.rs::tests::dynklank_rings`, `crates/dsp/src/modular/sc.rs::tests::vosc_crossfades_tables`, `crates/dsp/src/modular/sc.rs::tests::too_many_partials_are_refused`
+**Tests:** (planned) `crates/dsp/src/modular/sc.rs::tests::backtick_keeps_an_array_whole`, `crates/dsp/src/modular/sc.rs::tests::klang_is_a_bank_of_sines`, `crates/dsp/src/modular/sc.rs::tests::dynklank_rings`, `crates/dsp/src/modular/sc.rs::tests::vosc_crossfades_tables`, `crates/dsp/src/modular/sc.rs::tests::too_many_partials_are_refused`
 
 ### Requirement 12: Sequencing timbre [SHOULD]
 
@@ -282,7 +282,7 @@ The table positions, the morph positions of a live morph, freeze as a 0/1 gate, 
 
 A signal SHOULD also be sampleable at each note-on and held for that note (`.wt1pos(rand.onNote)`, the name to be settled with #514), as Tidal samples a continuous pattern per event. That gives each note its own timbre from a random or generative signal.
 
-**Implementation:** `crates/dsp/src/song` (parameter methods, a per-note-on hold), `.openspec/language.md` (sound-design part, #514)
+**Implementation:** (planned) `crates/dsp/src/song` (parameter methods, a per-note-on hold), `.openspec/language.md` (sound-design part, #514)
 
 #### Scenario: a timbre per note
 
@@ -290,7 +290,7 @@ A signal SHOULD also be sampleable at each note-on and held for that note (`.wt1
 - WHEN it plays
 - THEN each note holds one position for its length, and the positions differ between notes
 
-**Tests:** `crates/dsp/src/engine/tests.rs::a_signal_held_per_note`, `crates/dsp/src/engine/tests.rs::a_locked_table_position`
+**Tests:** (planned) `crates/dsp/src/engine/tests.rs::a_signal_held_per_note`, `crates/dsp/src/engine/tests.rs::a_locked_table_position`
 
 ### Requirement 13: Morphing in the lab [SHOULD]
 
@@ -302,7 +302,7 @@ The Spectral Lab (spec 009 Req 7) SHOULD:
   - as a multisample, one rendering per root note over a range, into a Sampler's zones
   - as a user table, or as an attack and a body (Requirements 9 and 10)
 
-**Implementation:** `crates/dsp/src/analysis/lab.rs`, `crates/dsp/src/ffi.rs` (`spectral_*`), `web/src/components/lab/SpectralLab.vue`, `web/src/audio/spectral.ts`
+**Implementation:** (planned) `crates/dsp/src/analysis/lab.rs`, `crates/dsp/src/ffi.rs` (`spectral_*`), `web/src/components/lab/SpectralLab.vue`, `web/src/audio/spectral.ts`
 
 #### Scenario: a morph sent as a table
 
@@ -310,12 +310,12 @@ The Spectral Lab (spec 009 Req 7) SHOULD:
 - WHEN the amplitude position is swept into a 16-wave table and sent
 - THEN the main window's PPG synth can play it with `Wt1Pos` moving from the saw to the bell
 
-**Tests:** `crates/dsp/src/analysis/lab.rs::tests::two_sources_morph`, `crates/dsp/src/analysis/lab.rs::tests::a_morph_renders_a_table`, `web/src/audio/spectral.test.ts`
+**Tests:** (planned) `crates/dsp/src/analysis/lab.rs::tests::two_sources_morph`, `crates/dsp/src/analysis/lab.rs::tests::a_morph_renders_a_table`, `web/src/audio/spectral.test.ts`
 
 ### Requirement 14: Fitting a DX7 voice (stage 6, refined) [MAY]
 
 A DX7 fit MAY choose its algorithm and operator ratios from the partial set (simple ratios between partial clusters and f0, or a small discrete search), then fit levels, envelope rates and feedback by CMA-ES. The loss would be a multi-resolution STFT (L1 on magnitude and log magnitude) plus an envelope term, with the step API, worker and `.syx` export of #192 stage 6. Spectral losses give no gradient for ratios (DDX7, ISMIR 2022), which is why the ratios are chosen first.
 
-**Implementation:** `crates/dsp/src/analysis/fm_fit.rs`
+**Implementation:** (planned) `crates/dsp/src/analysis/fm_fit.rs`
 
-**Tests:** `crates/dsp/src/analysis/fm_fit.rs::tests::an_engine_dx7_preset_is_recovered`
+**Tests:** (planned) `crates/dsp/src/analysis/fm_fit.rs::tests::an_engine_dx7_preset_is_recovered`
