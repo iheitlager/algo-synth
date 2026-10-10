@@ -137,7 +137,7 @@ pub enum Param {
     Mute = 64,
     /// When any synth is soloed (≥ 0.5), only soloed synths sound.
     Solo = 65,
-    /// Insert slot 1's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor), 0..=5.
+    /// Insert slot 1's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush), 0..=7.
     I1Type = 66,
     /// Insert slot 1's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
     I1A = 67,
@@ -149,7 +149,7 @@ pub enum Param {
     I1D = 70,
     /// Insert slot 1's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
     I1E = 71,
-    /// Insert slot 2's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor), 0..=5.
+    /// Insert slot 2's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush), 0..=7.
     I2Type = 72,
     /// Insert slot 2's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
     I2A = 73,
@@ -161,7 +161,7 @@ pub enum Param {
     I2D = 76,
     /// Insert slot 2's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
     I2E = 77,
-    /// Insert slot 3's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor), 0..=5.
+    /// Insert slot 3's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush), 0..=7.
     I3Type = 78,
     /// Insert slot 3's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
     I3A = 79,

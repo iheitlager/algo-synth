@@ -2790,7 +2790,9 @@ fn mix_value(param: Param, text: &str) -> Result<f32, &'static str> {
             return Ok(*t as u32 as f32);
         }
         if text.parse::<f32>().is_err() {
-            return Err("an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp or Vocoder");
+            return Err(
+                "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder or Bitcrush",
+            );
         }
     }
     if param
