@@ -233,6 +233,10 @@ pub struct Engine {
     /// song that takes over.
     launch: Launch,
     launch_names: [String; 2],
+    /// A snapshot switched from a button, waiting for its moment (#488),
+    /// and its name.
+    snapshot_queued: Option<(usize, Quantize)>,
+    snapshot_name: String,
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
     spent: Option<(Song, Vec<Live>, Vec<ClipSpans>)>,
@@ -334,6 +338,8 @@ impl Engine {
             cue_name: String::new(),
             launch: Launch::default(),
             launch_names: [String::new(), String::new()],
+            snapshot_queued: None,
+            snapshot_name: String::new(),
             spent: None,
             spans: Vec::new(),
             lit: [Lit::default(); MAX_LIT],
@@ -1282,6 +1288,7 @@ impl Engine {
         self.commit_song();
         self.cue = None;
         self.launch = Launch::default();
+        self.snapshot_queued = None;
         self.start_in = None;
         self.sync_in = None;
         self.hand_arps_over();
@@ -1467,6 +1474,41 @@ impl Engine {
         self.launch.queued = None;
     }
 
+    /// Switch snapshot `snapshot` on from a button (#488): its values are
+    /// set at the moment `when` gives (at once while stopped) and the
+    /// playing scene goes on. A later one replaces one still waiting; one
+    /// landing on a scene's first step comes after the scene's own. A
+    /// snapshot the song does not have is ignored. Not for `render`: it may
+    /// allocate the name.
+    pub fn song_snapshot(&mut self, snapshot: usize, when: Quantize) {
+        let Some(name) = self.song.snapshots.get(snapshot).map(|s| &s.name) else {
+            return;
+        };
+        if when == Quantize::Now || !self.clock.playing() {
+            self.snapshot_queued = None;
+            self.apply_snapshot(snapshot);
+            return;
+        }
+        self.snapshot_name.clone_from(name);
+        self.snapshot_queued = Some((snapshot, when));
+    }
+
+    /// The snapshot waiting for its moment, and when.
+    pub fn song_snapshot_queued(&self) -> Option<(usize, Quantize)> {
+        self.snapshot_queued
+    }
+
+    /// Set the snapshot waiting, if its moment is due at bar line `k`
+    /// (#488): after the step's own, so the button wins.
+    fn land_snapshot(&mut self, k: u64) {
+        if let Some((s, when)) = self.snapshot_queued
+            && when.due(k, self.scene_starts(k))
+        {
+            self.snapshot_queued = None;
+            self.apply_snapshot(s);
+        }
+    }
+
     /// The scene launched in place of the arrangement, if any.
     pub fn song_launched(&self) -> Option<usize> {
         self.launch.playing.map(|(s, _)| s)
@@ -1544,6 +1586,9 @@ impl Engine {
                 self.land_launch(k);
             }
             self.play_step(k);
+            if k % STEPS_PER_BAR == 0 {
+                self.land_snapshot(k);
+            }
             self.play_tick(k * TICKS_PER_STEP);
         }
         while let Some(j) = self.clock.due_sub() {
@@ -2020,31 +2065,35 @@ impl Engine {
     fn apply_snapshots(&mut self, s: usize) {
         let count = self.song.scenes.get(s).map_or(0, |sec| sec.snapshots.len());
         for i in 0..count {
-            let Some(snapshot) = self
+            if let Some(snapshot) = self
                 .song
                 .scenes
                 .get(s)
                 .and_then(|sec| sec.snapshots.get(i))
                 .copied()
-            else {
-                continue;
-            };
-            let sets = self
+            {
+                self.apply_snapshot(snapshot);
+            }
+        }
+    }
+
+    /// Set snapshot `snapshot`'s values; a modulation on one writes over it.
+    fn apply_snapshot(&mut self, snapshot: usize) {
+        let sets = self
+            .song
+            .snapshots
+            .get(snapshot)
+            .map_or(0, |sc| sc.sets.len());
+        for j in 0..sets {
+            if let Some((t, p, v)) = self
                 .song
                 .snapshots
                 .get(snapshot)
-                .map_or(0, |sc| sc.sets.len());
-            for j in 0..sets {
-                if let Some((t, p, v)) = self
-                    .song
-                    .snapshots
-                    .get(snapshot)
-                    .and_then(|sc| sc.sets.get(j))
-                    .copied()
-                {
-                    self.automate(t, p, v);
-                    self.mods_again(t, p);
-                }
+                .and_then(|sc| sc.sets.get(j))
+                .copied()
+            {
+                self.automate(t, p, v);
+                self.mods_again(t, p);
             }
         }
     }
@@ -2473,6 +2522,16 @@ impl Engine {
             self.cue = self.song.clips.iter().position(|f| f.name == self.cue_name);
             self.cue.is_none()
         };
+        // A snapshot waiting too (#488); gone, it is forgotten.
+        if self.snapshot_queued.is_some() {
+            let when = self.snapshot_queued.map(|(_, w)| w);
+            self.snapshot_queued = self
+                .song
+                .snapshots
+                .iter()
+                .position(|s| s.name == self.snapshot_name)
+                .zip(when);
+        }
         // A launched or waiting scene too (#487); gone, the arrangement plays.
         let find = |song: &Song, name: &str| song.scenes.iter().position(|s| s.name == name);
         if let Some((_, from)) = self.launch.playing {

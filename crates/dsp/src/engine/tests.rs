@@ -2246,6 +2246,88 @@ fn launches_render_the_same_every_time() {
     assert!(a == b);
 }
 
+/// #488: two snapshots on strip 1's send, switched from buttons.
+const SNAPS: &str = "tempo 120\ntrack kit drums\nclip a = kit\n  bd x...\n\
+                     snapshot dry: strip1.Send2 0.1\nsnapshot wet: strip1.Send2 0.7\n\
+                     scene one 1: a\nscene two 1: a [dry]\narrange one one two\n";
+
+/// The first frame from now strip 1's Send2 is `want`, within `frames`.
+fn frame_when(e: &mut Engine, want: f32, frames: u64) -> Option<u64> {
+    (0..frames).find(|_| {
+        e.render(1);
+        e.param_value(0, Param::Send2) == want
+    })
+}
+
+/// #488: a snapshot switched on Bar is set on the next bar line, the scene
+/// playing on; on Now and while stopped at once.
+#[test]
+fn a_snapshot_switched_from_a_button_lands_on_the_bar() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, SNAPS), Ok(()));
+    e.song_snapshot(1, Quantize::Now);
+    assert_eq!(e.param_value(0, Param::Send2), 0.7, "stopped: at once");
+    e.song_snapshot(0, Quantize::Bar);
+    assert_eq!(
+        e.param_value(0, Param::Send2),
+        0.1,
+        "stopped, any moment is now"
+    );
+    e.song_play();
+    hit_steps(&mut e, 5);
+    e.song_snapshot(1, Quantize::Bar);
+    assert_eq!(e.song_snapshot_queued(), Some((1, Quantize::Bar)));
+    assert_eq!(
+        frame_when(&mut e, 0.7, 70_000),
+        Some(66_000),
+        "on step 16, 11 steps of 6000 on"
+    );
+    assert_eq!(e.song_snapshot_queued(), None);
+    assert_eq!(e.song_place(), Some((1, 0)), "the arrangement plays on");
+    e.song_snapshot(0, Quantize::Now);
+    assert_eq!(e.param_value(0, Param::Send2), 0.1, "now: at once");
+}
+
+/// #488: the next scene's own snapshot still lands; a button landing on
+/// the same bar line comes after it.
+#[test]
+fn a_scenes_own_snapshot_still_lands_and_the_button_wins() {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, SNAPS), Ok(()));
+    e.song_play();
+    e.song_snapshot(1, Quantize::Now);
+    assert_eq!(
+        frame_when(&mut e, 0.1, 200_000),
+        Some(192_000),
+        "scene two's [dry] on bar 3"
+    );
+    e.song_seek_bar(1);
+    hit_steps(&mut e, 1);
+    e.song_snapshot(1, Quantize::Bar);
+    hit_steps(&mut e, 16);
+    assert_eq!(
+        e.param_value(0, Param::Send2),
+        0.7,
+        "on bar 3's line too, after [dry]"
+    );
+    e.song_snapshot(0, Quantize::Bar);
+    e.song_stop();
+    assert_eq!(e.song_snapshot_queued(), None, "stop forgets it");
+}
+
+/// #488: a modulation on the parameter still writes over a switched snapshot.
+#[test]
+fn a_modulation_writes_over_a_switched_snapshot() {
+    let mut e = kit(0);
+    let text = format!("{SNAPS}mod strip1.send2 = 0.3\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    run(&mut e, 10);
+    e.song_snapshot(1, Quantize::Now);
+    run(&mut e, 2);
+    assert_eq!(e.param_value(0, Param::Send2), 0.3);
+}
+
 /// #449: the entry each bar falls in, through the loop, for the deck lane.
 #[test]
 fn bar_entries_follow_the_arrangement_through_the_loop() {

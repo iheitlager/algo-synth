@@ -861,6 +861,22 @@ pub extern "C" fn song_launch_in() -> i32 {
     })
 }
 
+/// Switch snapshot `snapshot` on, as `when` says (#488); the scene plays on.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_snapshot(snapshot: u32, when: u32) {
+    let when = Quantize::from_id(when).unwrap_or(Quantize::Bar);
+    with_engine(|e| e.song_snapshot(snapshot as usize, when));
+}
+
+/// The snapshot waiting for its moment, −1 when none (#488).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_snapshot_queued() -> i32 {
+    query(-1, |e| {
+        e.song_snapshot_queued()
+            .map_or(-1, |(s, _)| i32::try_from(s).unwrap_or(-1))
+    })
+}
+
 /// Move the song to bar `bar` (from 0) of its arrangement.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_seek_bar(bar: u32) {
