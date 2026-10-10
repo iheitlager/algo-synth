@@ -8,8 +8,8 @@
 // stop, its synth stays open for live keys and other tracks. The song text
 // keeps it (`track … mute`); the synth rail and mixer mute the instrument.
 import { computed, ref } from 'vue'
-import { MUTE, arrange, files, params, setTrackFlags, song, status, synthColour, synths, type SongScene } from '../audio/engine'
-import { Param } from '../audio/params'
+import { MUTE, arrange, files, launch, params, setTrackFlags, song, status, synthColour, synths, type SongScene } from '../audio/engine'
+import { Param, Quantize } from '../audio/params'
 import LaunchBar from './LaunchBar.vue'
 
 const STEPS_PER_BAR = 16
@@ -84,10 +84,10 @@ function goToHead() {
   el.scrollTo({ left: Math.max(0, head.value * BAR - (el.clientWidth - GUTTER) / 2), behavior: 'smooth' })
 }
 
-// A scene that isn't in the arrangement yet can be added at its end.
-function addEntry(e: Event) {
+// Play a scene now, in place of the arrangement, as its Launch pad with Shift does.
+function playScene(e: Event) {
   const select = e.target as HTMLSelectElement
-  if (select.value !== '') arrange.insert(song.arrange.length, Number(select.value))
+  if (select.value !== '') launch.scene(Number(select.value), Quantize.Now)
   select.value = ''
 }
 function setBars(s: number, e: Event) {
@@ -114,9 +114,8 @@ function onBar(bar: number, e: MouseEvent) {
     <div class="pane-head">
       <span>Arranger · {{ song.scenes.length }} scenes · {{ bars }} bars<template v-if="song.loop[0]"> · loop {{ song.loop[0] }}–{{ song.loop[1] }}</template></span>
       <span class="tools">
-        <button :disabled="!status.running" title="A new empty scene of four bars, at the end" @click="arrange.addScene(4)">+ Scene</button>
-        <select v-if="song.scenes.length" :disabled="!status.running" aria-label="Add a scene to the arrangement" @change="addEntry">
-          <option value="">+ Play scene…</option>
+        <select v-if="song.scenes.length" :disabled="!status.running" aria-label="Play a scene now" @change="playScene">
+          <option value="">▶ Play scene…</option>
           <option v-for="(s, i) in song.scenes" :key="i" :value="i">{{ s.name }} ({{ s.bars }})</option>
         </select>
         <button :disabled="head < 0" title="Scroll to the bar playing now" @click="goToHead">◎ Now</button>
@@ -127,7 +126,7 @@ function onBar(bar: number, e: MouseEvent) {
     <!-- What opening files reported: a MIDI file imported as the song, a setup's skipped entries. -->
     <p v-if="files.notice" class="notice">{{ files.notice }}</p>
     <p v-if="!song.arrange.length" class="empty">
-      No arrangement yet: every clip loops. <b>+ Scene</b> starts one; clips, automation lanes and snapshots are switched on per scene below.
+      No arrangement yet: every clip loops. Write an <code>arrange</code> line in the song, or record one with <b>Rec</b> in Launch; clips, automation lanes and snapshots are switched on per scene below.
     </p>
     <div v-else class="grid" :style="{ '--bar': `${BAR}px` }">
       <!-- The ruler: click a bar to go there, shift-click two to loop them. -->
