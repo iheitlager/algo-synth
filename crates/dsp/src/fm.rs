@@ -395,7 +395,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
-                tables: self.tables,
+                tables: self.tables.into(),
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {

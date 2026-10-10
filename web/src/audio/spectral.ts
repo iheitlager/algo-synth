@@ -14,21 +14,33 @@ export interface Port {
   close(): void
 }
 
-export type ToMain = { t: 'hello' } | { t: 'sample'; id: number; name: string; bytes: ArrayBuffer }
+export type ToMain =
+  | { t: 'hello' }
+  | { t: 'sample'; id: number; name: string; bytes: ArrayBuffer }
+  | { t: 'table'; id: number; slot: number; values: ArrayBuffer }
+  | { t: 'attack'; id: number; slot: number; root: number; values: ArrayBuffer }
 export type ToLab = { t: 'here' } | { t: 'loaded'; id: number; code: number } | { t: 'gone' }
 
+/** What the main window does with what the lab sends: each answers a count or 0, or a negative code. */
+export interface LabLoads {
+  sample(name: string, bytes: ArrayBuffer): Promise<number>
+  table(slot: number, values: ArrayBuffer): Promise<number>
+  attack(slot: number, root: number, values: ArrayBuffer): Promise<number>
+}
+
 /**
- * The main window's side: answers a lab's hello, loads a sample it sends with
- * `load` (the frame count or a negative code goes back), says when it goes.
+ * The main window's side: answers a lab's hello, loads a sample, a user
+ * wavetable or a user attack it sends (the result goes back), says when it goes.
  */
-export function serveLab(port: Port, load: (name: string, bytes: ArrayBuffer) => Promise<number>) {
+export function serveLab(port: Port, load: LabLoads) {
   const send = (m: ToLab) => port.postMessage(m)
+  const answer = (id: number, p: Promise<number>) => void p.then((code) => send({ t: 'loaded', id, code }))
   port.onmessage = (e: MessageEvent) => {
     const m = e.data as ToMain
     if (m?.t === 'hello') send({ t: 'here' })
-    else if (m?.t === 'sample' && m.bytes instanceof ArrayBuffer) {
-      void load(m.name, m.bytes).then((code) => send({ t: 'loaded', id: m.id, code }))
-    }
+    else if (m?.t === 'sample' && m.bytes instanceof ArrayBuffer) answer(m.id, load.sample(m.name, m.bytes))
+    else if (m?.t === 'table' && m.values instanceof ArrayBuffer) answer(m.id, load.table(m.slot, m.values))
+    else if (m?.t === 'attack' && m.values instanceof ArrayBuffer) answer(m.id, load.attack(m.slot, m.root, m.values))
   }
   // A lab opened before this page (a reload) learns it is back.
   send({ t: 'here' })
@@ -58,22 +70,28 @@ export function connectMain(port: Port, onMain: (here: boolean) => void, waitMs 
   }
   port.postMessage({ t: 'hello' } satisfies ToMain)
   const silent = setTimeout(() => { if (!heard) onMain(false) }, waitMs)
+  // Send `msg` with a fresh id; its answer, or −100 when none comes.
+  const ask = (msg: (id: number) => ToMain): Promise<number> => {
+    const id = next++
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        pending.delete(id)
+        resolve(-100)
+      }, waitMs)
+      pending.set(id, (code) => {
+        clearTimeout(timer)
+        resolve(code)
+      })
+      port.postMessage(msg(id))
+    })
+  }
   return {
     /** Load `bytes` into the main window's sample store: its frames, or a negative code (−100: no answer). */
-    send(name: string, bytes: ArrayBuffer): Promise<number> {
-      const id = next++
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          pending.delete(id)
-          resolve(-100)
-        }, waitMs)
-        pending.set(id, (code) => {
-          clearTimeout(timer)
-          resolve(code)
-        })
-        port.postMessage({ t: 'sample', id, name, bytes } satisfies ToMain)
-      })
-    },
+    send: (name: string, bytes: ArrayBuffer) => ask((id) => ({ t: 'sample', id, name, bytes })),
+    /** Load a wavetable into the main window's user slot `slot` (0-7): 0, or a negative code. */
+    sendTable: (slot: number, values: ArrayBuffer) => ask((id) => ({ t: 'table', id, slot, values })),
+    /** Load an attack, at its own pitch `root`, into the main window's user slot `slot` (0-7): 0, or a negative code. */
+    sendAttack: (slot: number, root: number, values: ArrayBuffer) => ask((id) => ({ t: 'attack', id, slot, root, values })),
     close() {
       clearTimeout(silent)
       port.close()
@@ -113,6 +131,7 @@ export function codeMessage(code: number): string {
     [-11]: 'no audio in the file',
     [-12]: 'longer than 60 seconds',
     [-13]: 'bad analysis settings',
+    [-101]: 'nothing voiced: the sound has no pitch to make a table from',
     [-100]: 'the main window did not answer',
   }
   return messages[code] ?? `error ${code}`
@@ -148,6 +167,12 @@ export class Analyser {
     const r = await this.ask({ t: 'analyse', bytes: copy, rate, window, hop }, [copy])
     this.bands = r.bands ?? 0
     return { code: r.code, tracks: parseTracks(r.tracks), gram: { levels: r.gram, bands: this.bands } }
+  }
+
+  /** The analysed sound as a PPG wavetable (64 waves of 256), or its attack as a D-50 PCM sample, and its root note. */
+  async extract(kind: 'table' | 'attack'): Promise<{ values: Float32Array; root: number }> {
+    const r = await this.ask({ t: kind })
+    return { values: r.values, root: r.root }
   }
 
   /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes, with its spectrogram. */

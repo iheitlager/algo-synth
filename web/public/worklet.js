@@ -135,6 +135,19 @@ class EngineProcessor extends AudioWorkletProcessor {
           if (typeof w.spectrum_watch === 'function') w.spectrum_watch(data.s)
           this.spectrumOn = data.s >= 0
           break
+        // A user wavetable or attack from the Spectral Lab (spec 010 Req 9-10).
+        case 'userTable':
+        case 'userAttack': {
+          const values = new Float32Array(data.values)
+          const ptr = w.user_buf(values.length)
+          let code = -6
+          if (ptr) {
+            new Float32Array(w.memory.buffer, ptr, values.length).set(values)
+            code = data.t === 'userTable' ? w.table_load(data.slot) : w.attack_load(data.slot, data.root)
+          }
+          this.port.postMessage({ t: 'userLoaded', kind: data.t, slot: data.slot, code })
+          break
+        }
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
         case 'padsDump': this.sendPads(data.s); break

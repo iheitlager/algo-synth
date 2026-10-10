@@ -452,6 +452,21 @@ export function watchSpectrum(s: number) {
   engine?.post({ t: 'spectrum', s })
 }
 
+// User wavetables and attacks waiting for the engine's answer, by kind and slot (spec 010 Req 9-10).
+const userLoads = new Map<string, (code: number) => void>()
+function loadUser(kind: 'userTable' | 'userAttack', slot: number, values: ArrayBuffer, root = 60): Promise<number> {
+  return power().then(() => new Promise<number>((done) => {
+    if (!engine) return done(-5)
+    userLoads.get(`${kind}:${slot}`)?.(-8)
+    userLoads.set(`${kind}:${slot}`, done)
+    engine.post({ t: kind, slot, values, root }, [values])
+  }))
+}
+/** Load a wavetable (whole waves of 256 values) into user slot `slot` (0-7, the PPG's "User slot+1"): 0 or a negative code. */
+export const loadUserTable = (slot: number, values: ArrayBuffer) => loadUser('userTable', slot, values)
+/** Load an attack into user slot `slot` (0-7, the D-50's PCM "User slot+1"), at its own pitch `root`: 0 or a negative code. */
+export const loadUserAttack = (slot: number, root: number, values: ArrayBuffer) => loadUser('userAttack', slot, values, root)
+
 // The loads waiting on each slot, oldest first: the worklet answers in the
 // order it was sent, so a second load for a busy slot waits its turn (#253).
 const loading = new Map<number, { name: string; done: (code: number) => void }[]>()
@@ -987,6 +1002,10 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     onDecks(data.peaks as number[], data.dropped as number[], data.bpm as number)
   } else if (data.t === 'meters') {
     levels.values = data.levels as Float32Array
+  } else if (data.t === 'userLoaded') {
+    const key = `${data.kind}:${data.slot}`
+    userLoads.get(key)?.(data.code as number)
+    userLoads.delete(key)
   } else if (data.t === 'spectrum') {
     if (spectrum.s >= 0) spectrum.bands = data.bands as Float32Array
   } else if (data.t === 'params') {

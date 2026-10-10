@@ -7,6 +7,7 @@
 pub mod additive;
 pub mod edit;
 pub mod fft;
+pub mod frames;
 pub mod harmonic;
 pub mod lab;
 pub mod peaks;

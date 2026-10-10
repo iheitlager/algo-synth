@@ -150,6 +150,8 @@ const int = (label: string, param: ParamId, max: number, def = 0): Control =>
 const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: ParamId, decayIsRelease = false): Control =>
   ({ kind: 'env', label, a, d, s, r, decayIsRelease })
 const select = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options })
+/** A select too long for a row of buttons: a dropdown. */
+const dropdown = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options, dropdown: true })
 const sw = (label: string, param: ParamId): Control => ({ kind: 'switch', label, param })
 const rocker = (label: string, param: ParamId, colour: RockerColour): Control => ({ kind: 'switch', label, param, rocker: colour })
 
@@ -639,8 +641,11 @@ const matrix12: ModelDef = {
   ],
 }
 
-/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs). */
-const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7]]
+/** Eight user slots after `first`: tables and attacks the Spectral Lab sends (spec 010 Req 9-10). */
+const userSlots = (first: number): Options => Array.from({ length: 8 }, (_, i) => [`User ${i + 1}`, first + i] as [string, number])
+
+/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs), then the user's. */
+const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7], ...userSlots(8)]
 
 // Eight voices of two wavetable oscillators whose wave position the filter
 // envelope and the LFO move, in stepped transitions or crossfaded, into a
@@ -657,14 +662,14 @@ const ppgWave: ModelDef = {
     {
       title: 'Wavetable 1',
       controls: [
-        select('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
+        dropdown('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
         range('Range', Param.Vco1Coarse, -24, 24, 1), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
     },
     {
       title: 'Wavetable 2',
       controls: [
-        select('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
+        dropdown('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
         range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],
     },
@@ -699,8 +704,8 @@ const ppgWave: ModelDef = {
   ],
 }
 
-/** A partial's source: synthesised, or one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs). */
-const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8]]
+/** A partial's source: synthesised, one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs), or a user attack. */
+const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8], ...userSlots(9)]
 const SYNTH_WAVES: Options = [['Saw', 0], ['Pulse', 1], ['Triangle', 2]]
 const STRUCTURE: Options = [['Add', 0], ['Sync', 1], ['Ring', 2]]
 
@@ -719,7 +724,7 @@ const d50: ModelDef = {
     {
       title: 'Partial 1',
       controls: [
-        select('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
+        dropdown('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
         range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
     },
@@ -735,7 +740,7 @@ const d50: ModelDef = {
     {
       title: 'Partial 2',
       controls: [
-        select('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
+        dropdown('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
         range('Pitch', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],
     },

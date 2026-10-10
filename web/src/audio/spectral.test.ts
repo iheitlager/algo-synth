@@ -23,9 +23,13 @@ describe('the lab and the main window', () => {
   it('find each other and a sample sent is loaded there', async () => {
     vi.useFakeTimers()
     const loaded: [string, number][] = []
-    serveLab(new FakeChannel(), async (name, bytes) => {
-      loaded.push([name, bytes.byteLength])
-      return 1234
+    serveLab(new FakeChannel(), {
+      sample: async (name, bytes) => {
+        loaded.push([name, bytes.byteLength])
+        return 1234
+      },
+      table: async () => 0,
+      attack: async () => 0,
     })
     const here: boolean[] = []
     const lab = connectMain(new FakeChannel(), (h) => here.push(h))
@@ -35,6 +39,19 @@ describe('the lab and the main window', () => {
     // The wait for an answer runs out without taking the main window away.
     vi.advanceTimersByTime(5_000)
     expect(here).toEqual([true])
+  })
+
+  it('a table and an attack reach their user slots', async () => {
+    const got: string[] = []
+    serveLab(new FakeChannel(), {
+      sample: async () => 0,
+      table: async (slot, values) => { got.push(`table ${slot} ${values.byteLength}`); return 0 },
+      attack: async (slot, root, values) => { got.push(`attack ${slot} ${root} ${values.byteLength}`); return 0 },
+    })
+    const lab = connectMain(new FakeChannel(), () => {})
+    expect(await lab.sendTable(2, new Float32Array(64 * 256).buffer)).toBe(0)
+    expect(await lab.sendAttack(3, 45, new Float32Array(1000).buffer)).toBe(0)
+    expect(got).toEqual([`table 2 ${64 * 256 * 4}`, 'attack 3 45 4000'])
   })
 
   it('a lab without a main window hears nothing and a send gives up', async () => {
@@ -50,7 +67,7 @@ describe('the lab and the main window', () => {
   it('a main window that closes says so, and one that opens later says it is there', () => {
     const here: boolean[] = []
     connectMain(new FakeChannel(), (h) => here.push(h))
-    const main = serveLab(new FakeChannel(), async () => 0)
+    const main = serveLab(new FakeChannel(), { sample: async () => 0, table: async () => 0, attack: async () => 0 })
     main.close()
     expect(here).toEqual([true, false])
   })

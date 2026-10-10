@@ -29,7 +29,7 @@ use crate::mono::{MonoParams, VCOS};
 use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::ZoneMap;
-use crate::table::{TableOsc, Tables};
+use crate::table::{TableOsc, TableSet};
 use crate::voice::Gains;
 use crate::voice::midi_to_hz;
 
@@ -148,7 +148,7 @@ pub struct Tools<'a> {
     pub blep: &'a Blep,
     pub ladder: &'a LadderTables,
     pub pitch: &'a PitchTable,
-    pub tables: &'a Tables,
+    pub tables: TableSet<'a>,
     /// The sample store and this synth's zones, for the sampler's voices.
     pub samples: &'a SampleStore,
     pub zones: &'a ZoneMap,
@@ -164,7 +164,7 @@ pub struct MonoCtx<'a> {
     /// A poly synth's shared LFO; `None` gives the voice its own.
     pub shared: Option<&'a SharedMod>,
     /// The generated wavetables and samples.
-    pub tables: &'a Tables,
+    pub tables: TableSet<'a>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -683,6 +683,7 @@ impl MonoVoice {
 mod tests {
     use super::*;
     use crate::params::Param;
+    use crate::table::Tables;
     use crate::voice::sine_table;
 
     const SR: f32 = 48_000.0;
@@ -734,7 +735,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
-                tables: self.tables,
+                tables: self.tables.into(),
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {

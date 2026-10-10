@@ -1024,7 +1024,7 @@ mod tests {
                     blep: &self.blep,
                     ladder: &self.ladder,
                     pitch: &self.pitch,
-                    tables: self.tables,
+                    tables: self.tables.into(),
                     samples: &self.samples,
                     zones: &self.zones,
                 };

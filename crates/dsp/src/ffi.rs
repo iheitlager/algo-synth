@@ -1765,6 +1765,74 @@ pub extern "C" fn spectral_bands() -> u32 {
     crate::analysis::spectrogram::BANDS as u32
 }
 
+/// The analysed sound as a PPG wavetable (spec 010 Req 9): the number of
+/// values at `spectral_values_ptr`, 0 when nothing is voiced.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_table() -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.table().len() as u32)
+    })
+}
+
+/// The original's attack as a D-50 PCM sample (spec 010 Req 10): the number of
+/// values at `spectral_values_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_attack() -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.attack().len() as u32)
+    })
+}
+
+/// The values of the last `spectral_table` or `spectral_attack`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_values_ptr() -> *const f32 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.values().as_ptr())
+    })
+}
+
+/// The original's root note, where its table and attack play at their own pitch.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_root() -> u32 {
+    LAB.with(|cell| cell.try_borrow().map_or(60, |lab| u32::from(lab.root())))
+}
+
+// User wavetables and attacks on the main engine (spec 010 Req 9-10): size the
+// buffer with `user_buf(len)`, write the values, then load them into a slot.
+
+/// Size the buffer for `len` values and return its address; null when too long.
+#[unsafe(no_mangle)]
+pub extern "C" fn user_buf(len: u32) -> *mut f32 {
+    query(std::ptr::null_mut(), |e| {
+        e.user_buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
+    })
+}
+
+/// Load the buffer as user wavetable `slot` (0-7; the PPG's table 8 + slot):
+/// 0, or a negative `table::UserError` code (−5 before `init`).
+#[unsafe(no_mangle)]
+pub extern "C" fn table_load(slot: u32) -> i32 {
+    query(-5, |e| {
+        e.load_user_table(slot as usize)
+            .map_or_else(|err| err.code(), |()| 0)
+    })
+}
+
+/// Load the buffer as user attack `slot` (0-7; the D-50's PCM 9 + slot), its
+/// own pitch MIDI note `root`: 0, or a negative code as `table_load`.
+#[unsafe(no_mangle)]
+pub extern "C" fn attack_load(slot: u32, root: u32) -> i32 {
+    let root = u8::try_from(root.min(127)).unwrap_or(60);
+    query(-5, |e| {
+        e.load_user_attack(slot as usize, root)
+            .map_or_else(|err| err.code(), |()| 0)
+    })
+}
+
 // A live spectrum of one synth's output for its faceplate (#519): the view
 // names the synth, and the worklet reads the bands where it reads the meters.
 
@@ -1823,6 +1891,21 @@ mod tests {
         assert!(loudest > -40.0, "a held note shows: {loudest}");
         spectrum_watch(-1);
         assert_eq!(spectrum_compute(), 0);
+    }
+
+    #[test]
+    fn user_tables_and_attacks_through_the_abi() {
+        init(48_000.0);
+        let n = crate::table::WAVES * crate::table::WAVE_LEN;
+        assert!(user_buf(10_000_000).is_null());
+        assert!(!user_buf(n as u32).is_null());
+        assert_eq!(table_load(0), 0);
+        assert_eq!(table_load(8), crate::table::UserError::NoSlot.code());
+        assert!(!user_buf(100).is_null());
+        assert_eq!(table_load(1), crate::table::UserError::BadSize.code());
+        assert_eq!(attack_load(0, 60), 0);
+        assert!(query(false, |e| e.user_tables.has_table(0)));
+        assert!(!query(true, |e| e.user_tables.has_table(1)));
     }
 
     #[test]
