@@ -731,11 +731,11 @@ fn an_electro_example_parses_and_prints_back() {
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
-/// The songs in `examples/` parse, print back equal and are arranged, and
+/// The songs in `examples/songs/` parse, print back equal and are arranged, and
 /// the SH-101 plays in most of those that are not drum studies.
 #[test]
 fn the_example_songs_parse_and_print_back() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs");
     let (mut seen, mut sh101) = (0, 0);
     for entry in std::fs::read_dir(&dir).expect("examples dir") {
         let path = entry.expect("entry").path();

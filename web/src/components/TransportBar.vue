@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
-  clearAll, DEMOS, engineBuild, getEngine, loadDemo, meter, opened, openFiles, params, pauseSong, playSong, power, saveSong, song, songChanged, songPosition,
-  status, stopSong, view,
+  clearAll, engineBuild, getEngine, loadDemo, meter, opened, openFiles, params, pauseSong, playSong, power, saveSong, song, songChanged, songPosition,
+  SCORES, SONGS, status, stopSong, view,
 } from '../audio/engine'
 import { canPick, isSongFile, pickOpen } from '../audio/songfile'
 import { assistant } from '../audio/assistlink'
@@ -61,10 +61,10 @@ async function onNew() {
 // Loading a demo powers audio on, so start the scope.
 async function onDemo(e: Event) {
   const select = e.target as HTMLSelectElement
-  const i = select.value
+  const demo = [...SCORES, ...SONGS].find((d) => d.file === select.value)
   select.value = ''
-  if (i === '') return
-  await loadDemo(Number(i))
+  if (!demo) return
+  await loadDemo(demo)
   await onPower()
 }
 // A MIDI file, a setup (.synths.json), a song (.song), or several at once (#41, #105).
@@ -135,9 +135,14 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
     <!-- The Assistant (#387): a pane beside the view, which can pop out into its own window. -->
     <button :aria-pressed="assistant.shown" :class="{ on: assistant.shown }" title="Ask a language model to change the song" @click="assistant.shown = !assistant.shown">Assistant</button>
     <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
-    <select class="picker" aria-label="Load a demo" title="Load a demo song: the Canon or a Vivaldi Season" @change="onDemo">
+    <select class="picker" aria-label="Load a demo" title="Load a demo: a score or an example song" @change="onDemo">
       <option value="">Demo…</option>
-      <option v-for="(d, i) in DEMOS" :key="d.file" :value="i">{{ d.name }}</option>
+      <optgroup label="Scores">
+        <option v-for="d in SCORES" :key="d.file" :value="d.file">{{ d.name }}</option>
+      </optgroup>
+      <optgroup label="Songs">
+        <option v-for="d in SONGS" :key="d.file" :value="d.file">{{ d.name }}</option>
+      </optgroup>
     </select>
     <button v-if="picking" title="A MIDI file, its .synths.json setup, a .song, or several" @click="onPick">Open…</button>
     <label v-else class="file" title="A MIDI file, its .synths.json setup, a .song, or several">

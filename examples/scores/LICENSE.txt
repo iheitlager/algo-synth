@@ -26,3 +26,6 @@ rv297-winter.mid   L'Inverno / Winter, Op. 8 No. 4, RV 297
 Each has five parts: solo violin, violins I and II, viola and cello.
 Under ShareAlike, these files and any changes to them stay CC BY-SA 3.0;
 the rest of algo-synth keeps its own licence.
+
+canon.mid, Pachelbel's Canon, is not one of them: it is written from scratch
+by tools/make_demo_mid.py and is part of algo-synth, under its licence.

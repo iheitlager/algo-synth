@@ -113,7 +113,7 @@ The keys SHALL come from 1Password and never be stored in git:
 
 ### Requirement 6: An eval set [SHOULD]
 
-The assistant SHALL have an eval set: about thirty requests on starting songs from `examples/`, or on a song given in the case.
+The assistant SHALL have an eval set: about thirty requests on starting songs from `examples/songs/`, or on a song given in the case.
 - **What they ask:** add a part, change a groove, re-harmonise, make a section build, write a song from scratch, fix a song that does not load, or answer a question without changing anything.
 - **Grading, by code:** a song expected SHALL be proposed, parse and render clean (no non-finite samples, peak at most 1.0), and then pass the case's checks: fragments and tracks kept, tempo, swing, more lanes of a pad, more fragments, tracks or sections, a track on a model, the text holding something. A question SHALL be answered in words with no song.
 - **The runner:** `assist eval --provider ID --model ID` SHALL run the cases through the real loop and report, per case and in total, the pass, the gate's rules that fired (#453), the rounds, the tokens (input, cached, output), the seconds and, where the prices are known, the cost.

@@ -2,7 +2,7 @@
 // A fake assist server (#387) for working on the Assistant without keys or a
 // provider: the /api contract of ADR-0028 with a scripted stream. The song it
 // proposes is the one it was sent with the tempo raised by 8 (or, sent an
-// empty song, examples/four-on-the-floor.song so), which the engine parses.
+// empty song, examples/songs/four-on-the-floor.song so), which the engine parses.
 //
 //   node tools/fake-assist.mjs [port]      # default 6342, on 127.0.0.1
 //   cd web && ASSIST_URL=http://127.0.0.1:6342 npx vite   # the UI on :6343 against it
@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 
 const port = Number(process.argv[2] ?? process.env.PORT ?? 6342)
-const EXAMPLE = readFileSync(new URL('../examples/four-on-the-floor.song', import.meta.url), 'utf8')
+const EXAMPLE = readFileSync(new URL('../examples/songs/four-on-the-floor.song', import.meta.url), 'utf8')
 const PROVIDERS = {
   providers: [
     { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-opus-5-5', default: true }, { id: 'claude-sonnet-5-5', default: false }] },
