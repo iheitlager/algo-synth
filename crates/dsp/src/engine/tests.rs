@@ -5066,6 +5066,25 @@ fn midi_wheels_bend_the_pitch_and_move_the_mod_wheel() {
     assert_eq!(e.param_value(0, Param::ModWheel), wheel);
 }
 
+/// #437: the pitch wheel bends every pitched voice, not only the mono ones.
+#[test]
+fn the_pitch_wheel_bends_every_pitched_model() {
+    for model in [Model::D50] {
+        let hz = |bend: (u8, u8)| {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.set_param(0, Param::Model, model as u32 as f32);
+            e.set_param(0, Param::Analog, 0.0);
+            e.set_param(0, Param::Cutoff, 400.0);
+            e.midi_in(0xE0, bend.0, bend.1);
+            e.midi_in(0x90, 57, 100);
+            pitch_of(&left_of(&mut e, 0.25)[2400..])
+        };
+        let cents = 1200.0 * (hz((0x7F, 0x7F)) / hz((0x00, 0x40))).log2();
+        assert!((cents - 200.0).abs() < 1.0, "{model:?} bends {cents} cents");
+    }
+}
+
 /// #422: the MPK's knobs (CC 70–77) turn eight parameters of the target,
 /// knob 5 its cutoff; a knob away from the value takes it only once it gets
 /// there, and the view is told.

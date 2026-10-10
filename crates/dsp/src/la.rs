@@ -135,7 +135,9 @@ impl LaVoice {
             let mut raw = [0.0_f32; 2];
             let mut wrap = None;
             for (n, (part, y)) in parts.iter().zip(raw.iter_mut()).enumerate() {
-                let inc = ctx.pitch.at(self.note + self.trim + part.tune + vibrato);
+                let inc = ctx
+                    .pitch
+                    .at(self.note + self.trim + p.bend + part.tune + vibrato);
                 let pcm = part.pcm.checked_sub(1).and_then(|k| samples.get(k));
                 *y = match (pcm, self.pcm.get_mut(n), self.osc.get_mut(n)) {
                     (Some(sample), Some(player), _) => player.step(sample, inc),
