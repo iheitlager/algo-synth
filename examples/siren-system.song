@@ -56,13 +56,12 @@ setting bubble = Modular ModularBasic
       var sig = SinOsc.ar(freq * sweep) * 0.6;
       Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.2)
   }).add;
-# Robot: random steps. No LFNoise0 or Latch yet (#471), so a ramp walks a
-# Select through eight random pitches, drawn fresh for every note
+# Robot: a random semitone step eight times a second, crushed to 4 bits
 setting robot = Modular ModularBasic
-  SynthDef(\robot, { |freq = 440, gate = 1, rate = 1|
-      var steps = Select.kr(LFSaw.kr(rate).range(0, 8), { ExpRand(0.5, 3) }.dup(8));
-      var sig = Pulse.ar(freq * steps, 0.3) * 0.9;
-      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0)
+  SynthDef(\robot, { |freq = 440, gate = 1|
+      var steps = Latch.kr(WhiteNoise.kr, LFPulse.kr(8)).range(0, 12).round(1);
+      var sig = Decimator.ar(Pulse.ar(freq * steps.midiratio, 0.5), 8000, 4) * 0.2;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.4)
   }).add;
 # The real thing: the two-555 dub siren of the sound-system boxes and DIY kits.
 # One 555 is the LFO, its wave a four-way switch (wave: 0 square, 1 triangle,

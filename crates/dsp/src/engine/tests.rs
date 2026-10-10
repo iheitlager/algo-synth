@@ -3881,6 +3881,22 @@ fn the_modular_units_do_what_they_say() {
     assert!(comb.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
 }
 
+/// #471: the robot siren of `examples/siren-system.song`, random semitone
+/// steps through a 4-bit crush, sounds bounded and the same twice.
+#[test]
+fn the_robot_siren_steps_and_crushes() {
+    let body = "var steps = Latch.kr(WhiteNoise.kr, LFPulse.kr(8)).range(0, 12).round(1); \
+        Decimator.ar(Pulse.ar(freq * steps.midiratio, 0.5), 8000, 4) * 0.2";
+    let out = graph_out(body, 67, 1.0);
+    assert_eq!(out, graph_out(body, 67, 1.0), "deterministic");
+    assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+    assert!(
+        level(&out[4800..]) > 0.01,
+        "it sounds: {}",
+        level(&out[4800..])
+    );
+}
+
 /// #216's acceptance: the gabber kick falls in pitch, is driven square, ends
 /// by itself and renders the same twice.
 #[test]

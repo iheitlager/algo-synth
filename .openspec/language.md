@@ -137,7 +137,11 @@ A subset of sclang, run once to build the voice:
   (0..1); any other argument (or `\name.kr(n)`) is a knob.
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Out`.
+  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator Out`.
+  `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
+  (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a
+  second); `Decimator.ar(in, rate, bits)` samples `in` `rate` times a second
+  and quantizes it to `2^bits` levels from −1 to 1 (`bits: 1` is two).
 - **Switches:** `Select.kr(which, [a, b, …])` (and `.ar`) plays one of 1 to 8
   choices, its index truncated and clipped as SuperCollider's; an `if` on a
   signal is an error pointing to it. A knob used as a `Select` index is a
@@ -148,8 +152,10 @@ A subset of sclang, run once to build the voice:
   or `env.kr`. A voice ends when its envelopes do; without one it uses the
   synth's ADSR.
 - **Signal methods:** `range exprange tanh softclip distort atan midiratio
-  midicps neg`; numbers take also `abs reciprocal squared cubed sqrt round
-  floor ceil asInteger cpsmidi ratiomidi dbamp ampdb min max`.
+  midicps neg round`; `round(step)` (step 1 when left out) steps to the
+  nearest multiple, halves up, as SuperCollider's: `sweep.round(1/12)`.
+  Numbers take also `abs reciprocal squared cubed sqrt floor ceil asInteger
+  cpsmidi ratiomidi dbamp ampdb min max`.
 - **Stereo:** multichannel expansion; a final array of two channels is
   stereo (`Pan2`, `Splay`, `FreeVerb2`).
 - **Filter voicings:** `voicing: \<synth>` on `MoogFF` (ladders: `arp2600
@@ -162,7 +168,8 @@ A subset of sclang, run once to build the voice:
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `scene`,
   `mod` reach them (`sub.Ctl1`).
 - **Limits:** 512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes,
-  32 delays, 64 random numbers, 2 reverbs, 32 knobs. A comb or delay holds
+  32 delays, 64 random numbers, 32 latches and decimators, 2 reverbs, 32
+  knobs. A comb or delay holds
   at most 0.02 seconds (a flanger, a chorus, a resonator, not an echo): a
   long echo is the strip's send to the master's Echo.
 
