@@ -46,6 +46,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     // While the view has an edit of the song text not yet applied, folding
     // waits, so a knob never overwrites what is being typed (ADR-0027).
     this.foldHeld = false
+    this.spectrumOn = false
     for (let s = 0; s < this.w.strip_count(); s++) this.sendParams(s)
     this.port.onmessage = ({ data }) => {
       const w = this.w
@@ -129,6 +130,24 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'launchResume': w.song_resume_arrangement(data.when); break
         case 'launchCancel': w.song_launch_cancel(); break
         case 'snapshot': w.song_snapshot(data.s, data.when); break
+        // A live spectrum of one synth's output for its faceplate (#519); -1 stops it.
+        case 'spectrum':
+          if (typeof w.spectrum_watch === 'function') w.spectrum_watch(data.s)
+          this.spectrumOn = data.s >= 0
+          break
+        // A user wavetable or attack from the Spectral Lab (spec 010 Req 9-10).
+        case 'userTable':
+        case 'userAttack': {
+          const values = new Float32Array(data.values)
+          const ptr = w.user_buf(values.length)
+          let code = -6
+          if (ptr) {
+            new Float32Array(w.memory.buffer, ptr, values.length).set(values)
+            code = data.t === 'userTable' ? w.table_load(data.slot) : w.attack_load(data.slot, data.root)
+          }
+          this.port.postMessage({ t: 'userLoaded', kind: data.t, slot: data.slot, code })
+          break
+        }
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
         case 'padsDump': this.sendPads(data.s); break
@@ -432,6 +451,11 @@ class EngineProcessor extends AudioWorkletProcessor {
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()
       this.port.postMessage({ t: 'meters', levels }, [levels.buffer])
+      if (this.spectrumOn) {
+        const n = w.spectrum_compute()
+        const bands = new Float32Array(w.memory.buffer, w.spectrum_ptr(), n).slice()
+        this.port.postMessage({ t: 'spectrum', bands }, [bands.buffer])
+      }
     }
     this.measure(now() - start, frames)
     return true

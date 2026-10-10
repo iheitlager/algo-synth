@@ -27,6 +27,7 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::poly::{MAX_VOICES, Pool, VOICE_BUDGET};
+use crate::spectrum::Spectrum;
 use crate::synth::RevisionDef;
 
 /// Song notes that may sound at once before one is dropped.
@@ -73,7 +74,7 @@ use crate::song::{
     At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
     STEPS_PER_BAR, Song, SongError, Step, Target, signal,
 };
-use crate::table::Tables;
+use crate::table::{TableSet, Tables, UserTables};
 use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
@@ -155,6 +156,8 @@ pub struct Engine {
     pitch: PitchTable,
     /// The wavetables and attack samples, generated once at start.
     tables: &'static Tables,
+    /// Wavetables and attacks loaded by the view (spec 010 Req 9-10).
+    pub user_tables: UserTables,
     /// Each synth's voices (spec 006).
     pools: Vec<Pool>,
     /// Counts the notes started, so a pool can tell which voice is oldest.
@@ -184,6 +187,8 @@ pub struct Engine {
     out: Box<[f32; 2 * BLOCK]>,
     /// The highest level of each meter since `clear_meters`.
     meters: [f32; METERS],
+    /// A live spectrum of one synth's output, for its faceplate (#519).
+    pub spectrum: Spectrum,
     /// The MIDI file's bytes, written by JavaScript before `import_midi`.
     midi: Vec<u8>,
     /// A DX7 SysEx file's bytes, written by JavaScript before `load_sysex`, and the
@@ -192,6 +197,8 @@ pub struct Engine {
     sysex_voices: Vec<sysex::Voice>,
     /// A WAV file's bytes, written by JavaScript before `load_sample`.
     wav: Vec<u8>,
+    /// Values of a user wavetable or attack on their way in (spec 010 Req 9-10).
+    user_buf: Vec<f32>,
     samples: SampleStore,
     /// The waveform peaks `sample_peaks` last computed, for the view to read.
     peaks: Vec<f32>,
@@ -296,6 +303,7 @@ impl Engine {
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
             tables: Tables::shared(sample_rate),
+            user_tables: UserTables::empty(),
             pools: (0..SYNTHS).map(Pool::new).collect(),
             note_count: 0,
             mixer: Mixer::new(sample_rate),
@@ -313,10 +321,12 @@ impl Engine {
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
+            spectrum: Spectrum::new(sample_rate),
             midi: Vec::new(),
             sysex: Vec::new(),
             sysex_voices: Vec::new(),
             wav: Vec::new(),
+            user_buf: Vec::new(),
             samples: SampleStore::new(),
             peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
@@ -1084,6 +1094,32 @@ impl Engine {
 
     /// Size the WAV buffer for `len` bytes and return it for writing.
     /// `None` if the file is larger than `sample::MAX_WAV`.
+    /// Size the buffer for a user wavetable or attack of `len` values and
+    /// return it for writing; `None` past the largest either can be.
+    pub fn user_buffer(&mut self, len: usize) -> Option<&mut [f32]> {
+        if len > (crate::table::WAVES * crate::table::WAVE_LEN).max(crate::table::MAX_USER_SAMPLE) {
+            return None;
+        }
+        self.user_buf.clear();
+        self.user_buf.resize(len, 0.0);
+        Some(&mut self.user_buf)
+    }
+
+    /// The buffer as user wavetable `slot` (spec 010 Req 9).
+    pub fn load_user_table(&mut self, slot: usize) -> Result<(), crate::table::UserError> {
+        self.user_tables.load_table(slot, &self.user_buf)
+    }
+
+    /// The buffer as user attack `slot`, its own pitch MIDI note `root` (spec 010 Req 10).
+    pub fn load_user_attack(
+        &mut self,
+        slot: usize,
+        root: u8,
+    ) -> Result<(), crate::table::UserError> {
+        let root_inc = crate::voice::midi_to_hz(root.min(127)) / self.sample_rate;
+        self.user_tables.load_sample(slot, &self.user_buf, root_inc)
+    }
+
     pub fn sample_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
         if len > sample::MAX_WAV {
             return None;
@@ -3206,7 +3242,10 @@ impl Engine {
                             blep: &self.blep,
                             ladder: &self.ladder,
                             pitch: &self.pitch,
-                            tables: self.tables,
+                            tables: TableSet {
+                                builtin: self.tables,
+                                user: &self.user_tables,
+                            },
                             samples: &self.samples,
                             zones,
                         };
@@ -3220,7 +3259,10 @@ impl Engine {
                         blep: &self.blep,
                         ladder: &self.ladder,
                         pitch: &self.pitch,
-                        tables: self.tables,
+                        tables: TableSet {
+                            builtin: self.tables,
+                            user: &self.user_tables,
+                        },
                         samples: &self.samples,
                         zones,
                     };
@@ -3245,6 +3287,9 @@ impl Engine {
                 self.mixer
                     .widen(synth, n, |dry, l, r| chorus.process(dry, l, r));
             }
+        }
+        if let Some((l, r)) = self.spectrum.watched().and_then(|s| self.mixer.tap(s, n)) {
+            self.spectrum.push(l, r);
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);

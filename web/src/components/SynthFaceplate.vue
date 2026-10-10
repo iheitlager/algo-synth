@@ -21,6 +21,7 @@ import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
 import CodeEditor from './synth/CodeEditor.vue'
 import CodeKnobs from './synth/CodeKnobs.vue'
+import SynthSpectrum from './synth/SynthSpectrum.vue'
 import Rocker from './synth/Rocker.vue'
 import Switch from './synth/Switch.vue'
 
@@ -159,6 +160,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
             <PadGrid v-else-if="c.kind === 'pads'" :s="s" />
             <CodeEditor v-else-if="c.kind === 'code'" :s="s" />
             <CodeKnobs v-else-if="c.kind === 'knobs'" :s="s" :color="def.theme.accent" />
+            <SynthSpectrum v-else-if="c.kind === 'spectrum'" :s="s" :color="def.theme.accent" />
             <div v-else-if="c.kind === 'gap'" class="gap" aria-hidden="true" />
             <p v-else class="note">{{ c.text }}</p>
           </template>

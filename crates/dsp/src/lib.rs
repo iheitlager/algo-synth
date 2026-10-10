@@ -6,6 +6,7 @@
 //! messages and copies the output block.
 
 pub mod algo;
+pub mod analysis;
 pub mod arp;
 pub mod clock;
 pub mod deck;
@@ -28,6 +29,7 @@ pub mod sample;
 pub mod sampler;
 pub mod smf;
 pub mod song;
+pub mod spectrum;
 pub mod synth;
 pub mod table;
 pub mod voice;

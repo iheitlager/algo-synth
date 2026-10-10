@@ -1677,10 +1677,271 @@ pub extern "C" fn clock_step() -> i32 {
     })
 }
 
+// The Spectral Lab (ADR-0017, spec 009 Req 7). It needs no engine either:
+// the lab's worker holds its own instance and calls these, `spectral_buf(len)`,
+// write the WAV, `spectral_analyse`, then reads the tracks and renders.
+
+thread_local! {
+    static LAB: RefCell<crate::analysis::lab::Lab> = RefCell::new(crate::analysis::lab::Lab::default());
+}
+
+/// Size the WAV buffer to analyse and return its address; null if too long.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_buf(len: u32) -> *mut u8 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab
+            .buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()),
+        Err(_) => std::ptr::null_mut(),
+    })
+}
+
+/// Analyse the buffer at `rate` with a `window` and `hop`, with noise per
+/// partial when `noise` is 1 (spec 010 Req 2): the frame count, a negative
+/// `sample::Error` code, or an `analysis::Error` code minus 10.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_analyse(rate: f32, window: u32, hop: u32, noise: u32) -> i32 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab.analyse(rate, window as usize, hop as usize, noise == 1),
+        Err(_) => -9,
+    })
+}
+
+/// How many values `spectral_tracks_ptr` points at.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_tracks_len() -> u32 {
+    LAB.with(|cell| cell.try_borrow().map_or(0, |lab| lab.tracks().len() as u32))
+}
+
+/// The tracks: per track its start frame, length n, n frequencies, n amplitudes.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_tracks_ptr() -> *const f32 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.tracks().as_ptr())
+    })
+}
+
+/// Resynthesise the `n` loudest tracks (0 all), shifted by `ratio` and
+/// stretched by `stretch`, as a WAV: its length in bytes, 0 without an analysis.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_render(n: u32, ratio: f32, stretch: f32) -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.render(n as usize, ratio, stretch) as u32)
+    })
+}
+
+/// The last `spectral_render`'s WAV bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_wav_ptr() -> *const u8 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.rendered().as_ptr())
+    })
+}
+
+/// The spectrogram of the lab's original (`which` 0) or its last resynthesis
+/// (1): `spectral_bands()` bytes a frame, read with `spectral_gram_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_gram_len(which: u32) -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(0, |lab| lab.spectrogram(which as usize).len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_gram_ptr(which: u32) -> *const u8 {
+    LAB.with(|cell| {
+        cell.try_borrow().map_or(std::ptr::null(), |lab| {
+            lab.spectrogram(which as usize).as_ptr()
+        })
+    })
+}
+
+/// Bands per spectrogram frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_bands() -> u32 {
+    crate::analysis::spectrogram::BANDS as u32
+}
+
+/// Set the lab's transform `id` (`analysis::lab::STRETCH` …, spec 010 Req 4)
+/// to `v`; the next render, table and spectrogram use it.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_set(id: u32, v: f32) {
+    LAB.with(|cell| {
+        if let Ok(mut lab) = cell.try_borrow_mut() {
+            lab.set(id as usize, v);
+        }
+    });
+}
+
+/// The analysed sound as a PPG wavetable (spec 010 Req 9): the number of
+/// values at `spectral_values_ptr`, 0 when nothing is voiced.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_table() -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.table().len() as u32)
+    })
+}
+
+/// The original's attack as a D-50 PCM sample (spec 010 Req 10): the number of
+/// values at `spectral_values_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_attack() -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.attack().len() as u32)
+    })
+}
+
+/// The values of the last `spectral_table` or `spectral_attack`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_values_ptr() -> *const f32 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.values().as_ptr())
+    })
+}
+
+/// The original's root note, where its table and attack play at their own pitch.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_root() -> u32 {
+    LAB.with(|cell| cell.try_borrow().map_or(60, |lab| u32::from(lab.root())))
+}
+
+// User wavetables and attacks on the main engine (spec 010 Req 9-10): size the
+// buffer with `user_buf(len)`, write the values, then load them into a slot.
+
+/// Size the buffer for `len` values and return its address; null when too long.
+#[unsafe(no_mangle)]
+pub extern "C" fn user_buf(len: u32) -> *mut f32 {
+    query(std::ptr::null_mut(), |e| {
+        e.user_buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr())
+    })
+}
+
+/// Load the buffer as user wavetable `slot` (0-7; the PPG's table 8 + slot):
+/// 0, or a negative `table::UserError` code (−5 before `init`).
+#[unsafe(no_mangle)]
+pub extern "C" fn table_load(slot: u32) -> i32 {
+    query(-5, |e| {
+        e.load_user_table(slot as usize)
+            .map_or_else(|err| err.code(), |()| 0)
+    })
+}
+
+/// Load the buffer as user attack `slot` (0-7; the D-50's PCM 9 + slot), its
+/// own pitch MIDI note `root`: 0, or a negative code as `table_load`.
+#[unsafe(no_mangle)]
+pub extern "C" fn attack_load(slot: u32, root: u32) -> i32 {
+    let root = u8::try_from(root.min(127)).unwrap_or(60);
+    query(-5, |e| {
+        e.load_user_attack(slot as usize, root)
+            .map_or_else(|err| err.code(), |()| 0)
+    })
+}
+
+// A live spectrum of one synth's output for its faceplate (#519): the view
+// names the synth, and the worklet reads the bands where it reads the meters.
+
+/// Watch synth `s`'s output, or nothing when `s` is negative or past the synths.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectrum_watch(s: i32) {
+    with_engine(|e| {
+        let synth = usize::try_from(s).ok().filter(|s| *s < SYNTHS);
+        e.spectrum.watch(synth);
+    });
+}
+
+/// Transform the watched synth's last samples: the number of bands at
+/// `spectrum_ptr`, 0 when nothing is watched.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectrum_compute() -> u32 {
+    query(0, |e| {
+        if e.spectrum.watched().is_none() {
+            return 0;
+        }
+        e.spectrum.compute().len() as u32
+    })
+}
+
+/// The bands of the last `spectrum_compute`, in dB.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectrum_ptr() -> *const f32 {
+    ENGINE.with(|cell| match cell.try_borrow() {
+        Ok(guard) => guard
+            .as_ref()
+            .map_or(std::ptr::null(), |e| e.spectrum.bands().as_ptr()),
+        Err(_) => std::ptr::null(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::drums::Pad;
+
+    #[test]
+    fn a_synths_spectrum_through_the_abi() {
+        init(48_000.0);
+        assert_eq!(spectrum_compute(), 0, "nothing watched");
+        spectrum_watch(0);
+        note_on(0, 69, 1.0);
+        for _ in 0..40 {
+            query((), |e| e.render(BLOCK));
+        }
+        let n = spectrum_compute();
+        assert_eq!(n as usize, crate::spectrum::BANDS);
+        assert!(!spectrum_ptr().is_null());
+        let loudest = query(f32::MIN, |e| {
+            e.spectrum.bands().iter().copied().fold(f32::MIN, f32::max)
+        });
+        assert!(loudest > -40.0, "a held note shows: {loudest}");
+        spectrum_watch(-1);
+        assert_eq!(spectrum_compute(), 0);
+    }
+
+    #[test]
+    fn user_tables_and_attacks_through_the_abi() {
+        init(48_000.0);
+        let n = crate::table::WAVES * crate::table::WAVE_LEN;
+        assert!(user_buf(10_000_000).is_null());
+        assert!(!user_buf(n as u32).is_null());
+        assert_eq!(table_load(0), 0);
+        assert_eq!(table_load(8), crate::table::UserError::NoSlot.code());
+        assert!(!user_buf(100).is_null());
+        assert_eq!(table_load(1), crate::table::UserError::BadSize.code());
+        assert_eq!(attack_load(0, 60), 0);
+        assert!(query(false, |e| e.user_tables.has_table(0)));
+        assert!(!query(true, |e| e.user_tables.has_table(1)));
+    }
+
+    #[test]
+    fn analysis_through_the_abi() {
+        let x: Vec<f32> = (0..12_000)
+            .map(|i| 0.5 * (std::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin())
+            .collect();
+        let wav = sample::test_wav(48_000, &x, None);
+        assert!(spectral_buf(sample::MAX_WAV as u32 + 1).is_null());
+        assert!(!spectral_buf(wav.len() as u32).is_null());
+        LAB.with(|cell| {
+            cell.borrow_mut()
+                .buffer(wav.len())
+                .expect("fits")
+                .copy_from_slice(&wav)
+        });
+        assert_eq!(spectral_analyse(48_000.0, 2048, 256, 0), 12_000 / 256 + 1);
+        assert!(spectral_tracks_len() > 2 && !spectral_tracks_ptr().is_null());
+        let bytes = spectral_render(0, 1.0, 1.0);
+        assert!(bytes as usize >= 44 + 4 * 12_000);
+        assert!(!spectral_wav_ptr().is_null());
+        assert_eq!(spectral_analyse(48_000.0, 2048, 0, 0), -13);
+        assert_eq!(spectral_render(0, 1.0, 1.0), 0);
+    }
 
     #[test]
     fn samples_load_through_the_abi() {

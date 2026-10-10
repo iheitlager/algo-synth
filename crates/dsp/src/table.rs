@@ -30,6 +30,13 @@ pub const TABLE_NAMES: [&str; TABLES] = [
     "Sweep", "Pulse", "Formant", "Metal", "Organ", "Hollow", "Digital", "Bell",
 ];
 
+/// User wavetables and attack samples beside the generated ones (ADR-0032,
+/// spec 010 Req 9-10): table `TABLES + i` and attack `SAMPLES + i` are user slot `i`.
+pub const USER_TABLES: usize = 8;
+pub const USER_SAMPLES: usize = 8;
+/// The longest user attack, in samples: two seconds at 48 kHz.
+pub const MAX_USER_SAMPLE: usize = 96_000;
+
 /// The names of the attack samples, in order.
 pub const SAMPLE_NAMES: [&str; SAMPLES] = [
     "Chiff", "Pluck", "Bell", "Marimba", "Blow", "Voice", "Thump", "Glass",
@@ -48,6 +55,178 @@ pub struct Sample {
 pub struct Tables {
     waves: Vec<f32>,
     pub samples: Vec<Sample>,
+}
+
+/// Why a user table or attack was refused. `code` is what crosses the C ABI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UserError {
+    /// The slot is past `USER_TABLES` or `USER_SAMPLES`.
+    NoSlot,
+    /// No waves, more than `WAVES`, a length that is not whole waves, or an
+    /// attack that is empty or longer than `MAX_USER_SAMPLE`.
+    BadSize,
+}
+
+impl UserError {
+    pub fn code(self) -> i32 {
+        match self {
+            UserError::NoSlot => -1,
+            UserError::BadSize => -2,
+        }
+    }
+}
+
+/// The engine's own wavetables and attacks, loaded from the Spectral Lab
+/// (or anywhere else) outside `render`: allocated when loaded, read by the
+/// voices through a `TableSet`. Empty slots read as silence.
+pub struct UserTables {
+    waves: Vec<Vec<f32>>,
+    samples: Vec<Sample>,
+}
+
+/// No user tables: for voices played outside an engine.
+pub static NO_USER_TABLES: UserTables = UserTables::empty();
+
+impl UserTables {
+    pub const fn empty() -> UserTables {
+        UserTables {
+            waves: Vec::new(),
+            samples: Vec::new(),
+        }
+    }
+
+    /// Slot `slot` from `waves`: whole waves of `WAVE_LEN` samples, 1 to
+    /// `WAVES` of them, spread over the table's positions (a shorter table
+    /// repeats its nearest wave). Non-finite values read as 0.
+    pub fn load_table(&mut self, slot: usize, waves: &[f32]) -> Result<(), UserError> {
+        if slot >= USER_TABLES {
+            return Err(UserError::NoSlot);
+        }
+        let n = waves.len() / WAVE_LEN;
+        if n == 0 || n > WAVES || waves.len() % WAVE_LEN != 0 {
+            return Err(UserError::BadSize);
+        }
+        if self.waves.len() < USER_TABLES {
+            self.waves.resize(USER_TABLES, Vec::new());
+        }
+        let mut table = vec![0.0; WAVES * STRIDE];
+        for (k, dst) in table.chunks_exact_mut(STRIDE).enumerate() {
+            let from = if WAVES > 1 && n > 1 {
+                (k * (n - 1) + (WAVES - 1) / 2) / (WAVES - 1)
+            } else {
+                0
+            };
+            let src = waves
+                .get(from * WAVE_LEN..(from + 1) * WAVE_LEN)
+                .unwrap_or(&[]);
+            for (d, s) in dst.iter_mut().zip(src) {
+                *d = if s.is_finite() { *s } else { 0.0 };
+            }
+            // The guard: one more than a cycle, so an interpolation never wraps.
+            let first = dst.first().copied().unwrap_or(0.0);
+            if let Some(g) = dst.get_mut(WAVE_LEN) {
+                *g = first;
+            }
+        }
+        if let Some(t) = self.waves.get_mut(slot) {
+            *t = table;
+        }
+        Ok(())
+    }
+
+    /// Attack slot `slot` from `data`, played once, its own pitch `root_inc`
+    /// cycles per sample.
+    pub fn load_sample(
+        &mut self,
+        slot: usize,
+        data: &[f32],
+        root_inc: f32,
+    ) -> Result<(), UserError> {
+        if slot >= USER_SAMPLES {
+            return Err(UserError::NoSlot);
+        }
+        if data.is_empty() || data.len() > MAX_USER_SAMPLE {
+            return Err(UserError::BadSize);
+        }
+        if self.samples.len() < USER_SAMPLES {
+            self.samples.resize_with(USER_SAMPLES, || Sample {
+                data: Vec::new(),
+                root_inc: 0.0,
+                loop_start: 0,
+                loop_end: 0,
+            });
+        }
+        if let Some(s) = self.samples.get_mut(slot) {
+            *s = Sample {
+                data: data
+                    .iter()
+                    .map(|v| if v.is_finite() { *v } else { 0.0 })
+                    .collect(),
+                root_inc: if root_inc.is_finite() {
+                    root_inc.max(0.0)
+                } else {
+                    0.0
+                },
+                loop_start: 0,
+                loop_end: 0,
+            };
+        }
+        Ok(())
+    }
+
+    /// Whether table slot `slot` holds waves.
+    pub fn has_table(&self, slot: usize) -> bool {
+        self.waves.get(slot).is_some_and(|t| !t.is_empty())
+    }
+
+    fn wave(&self, table: usize, k: usize) -> &[f32] {
+        let base = k.min(WAVES - 1) * STRIDE;
+        self.waves
+            .get(table)
+            .and_then(|t| t.get(base..base + STRIDE))
+            .unwrap_or(&[])
+    }
+}
+
+/// The tables a voice reads: the generated ones, then the user's.
+#[derive(Clone, Copy)]
+pub struct TableSet<'a> {
+    pub builtin: &'a Tables,
+    pub user: &'a UserTables,
+}
+
+impl<'a> From<&'a Tables> for TableSet<'a> {
+    fn from(builtin: &'a Tables) -> TableSet<'a> {
+        TableSet {
+            builtin,
+            user: &NO_USER_TABLES,
+        }
+    }
+}
+
+impl<'a> TableSet<'a> {
+    /// Wave `k` of `table`: a generated table below `TABLES`, a user slot from
+    /// there; an empty or unknown slot reads silence.
+    pub fn wave(&self, table: usize, k: usize) -> &'a [f32] {
+        if table < TABLES {
+            self.builtin.wave(table, k)
+        } else {
+            self.user.wave(table - TABLES, k)
+        }
+    }
+
+    /// Attack `k` (0-based): a generated one below `SAMPLES`, a user slot from
+    /// there; `None` for an empty or unknown one.
+    pub fn sample(&self, k: usize) -> Option<&'a Sample> {
+        if k < SAMPLES {
+            self.builtin.samples.get(k)
+        } else {
+            self.user
+                .samples
+                .get(k - SAMPLES)
+                .filter(|s| !s.data.is_empty())
+        }
+    }
 }
 
 /// Seeded noise, so a sample is the same every start.
@@ -226,7 +405,7 @@ impl TableOsc {
 
     /// One sample of `table` at wave position `pos` (0..1): crossfading between the
     /// two nearest waves, or with `steps` on the nearest one alone.
-    pub fn step(&mut self, t: &Tables, table: usize, pos: f32, steps: bool) -> f32 {
+    pub fn step(&mut self, t: TableSet, table: usize, pos: f32, steps: bool) -> f32 {
         let x = pos.clamp(0.0, 1.0) * (WAVES - 1) as f32;
         let k = x as usize;
         let y = if steps {
@@ -450,7 +629,9 @@ mod tests {
         let mut osc = TableOsc::default();
         osc.set_increment(hz / SR);
         let n = (SR * 6.0) as usize;
-        let out: Vec<f32> = (0..n).map(|_| osc.step(t, table, 0.0, false)).collect();
+        let out: Vec<f32> = (0..n)
+            .map(|_| osc.step(t.into(), table, 0.0, false))
+            .collect();
         let mut times = Vec::new();
         for (i, w) in out.windows(2).enumerate() {
             if w[0] <= 0.0 && w[1] > 0.0 {
@@ -522,7 +703,7 @@ mod tests {
             let mut osc = TableOsc::default();
             osc.set_increment(0.01);
             (0..100)
-                .map(|_| osc.step(&t, 0, pos, steps))
+                .map(|_| osc.step((&t).into(), 0, pos, steps))
                 .collect::<Vec<f32>>()
         };
         // Just either side of the half-way point between waves 10 and 11.
@@ -619,7 +800,10 @@ mod tests {
         let mut osc = TableOsc::default();
         for inc in [f32::NAN, f32::INFINITY, -1.0, 7.0] {
             osc.set_increment(inc);
-            assert!((0..1000).all(|_| osc.step(&t, 3, f32::NAN.max(0.3), false).is_finite()));
+            assert!((0..1000).all(|_| {
+                osc.step((&t).into(), 3, f32::NAN.max(0.3), false)
+                    .is_finite()
+            }));
         }
         let mut so = SampleOsc::default();
         so.start();
