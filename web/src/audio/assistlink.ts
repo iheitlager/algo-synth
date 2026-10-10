@@ -12,15 +12,15 @@ export const assistant = reactive({ shown: false, popped: false })
 
 /**
  * The track a request is about by default (#415, #430): in the synths view the
- * track on the selected synth, so an instrument without fragments is in focus;
- * elsewhere the cued fragment's track. Null means the whole song.
+ * track on the selected synth, so an instrument without clips is in focus;
+ * elsewhere the cued clip's track. Null means the whole song.
  */
 export function defaultFocus(
-  tracks: readonly { name: string; synth: number }[], frags: readonly { track: number }[], cued: number,
+  tracks: readonly { name: string; synth: number }[], clips: readonly { track: number }[], cued: number,
   main: string, selected: number,
 ): string | null {
   if (main === 'synths') return tracks.find((t) => t.synth === selected)?.name ?? null
-  return tracks[frags[cued]?.track ?? -1]?.name ?? null
+  return tracks[clips[cued]?.track ?? -1]?.name ?? null
 }
 
 /** What the Assistant needs of the song: its text, the default focus (see `defaultFocus`) and the tracks to pick (#415). */

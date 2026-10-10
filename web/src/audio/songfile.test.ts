@@ -58,11 +58,11 @@ describe('the song file (#105, spec 003 Req 5)', () => {
   it('a file that does not parse leaves the playing song and shows its text with the error', () => {
     const bytes = (s: string) => new TextEncoder().encode(s)
     const playing = 'tempo 120\nswing 50\n'
-    applySong({ ok: true, text: bytes(playing), error: null, tracks: [], frags: [], tempo: 120, swing: 50 })
+    applySong({ ok: true, text: bytes(playing), error: null, tracks: [], clips: [], tempo: 120, swing: 50 })
     song.draft = 'tempo nope\n'
     applySong({
       ok: false, text: bytes(playing), error: { line: 1, col: 7, msg: bytes('a tempo is a number') },
-      tracks: [], frags: [], tempo: 120, swing: 50,
+      tracks: [], clips: [], tempo: 120, swing: 50,
     })
     expect(song.text).toBe(playing)
     expect(song.draft).toBe('tempo nope\n')

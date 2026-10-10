@@ -1,4 +1,4 @@
-// The note view's geometry (#168): where a note sits in a fragment's grid and
+// The note view's geometry (#168): where a note sits in a clip's grid and
 // what a click or a drag on the grid means. Pure, so the component only draws
 // and the engine keeps the music (ADR-0001).
 import type { SongNote } from './engine'
@@ -50,5 +50,5 @@ export function dragLength(start: number, fx: number, bars: number): number {
   return Math.max(TICKS_PER_STEP, end - start)
 }
 
-/** Which sixteenth of the fragment the song's step counter is on (it counts from the top of the song). */
+/** Which sixteenth of the clip the song's step counter is on (it counts from the top of the song). */
 export const stepIn = (step: number, bars: number) => (step < 0 ? -1 : step % (bars * (TICKS_PER_BAR / TICKS_PER_STEP)))

@@ -16,9 +16,9 @@ describe('the line diff', () => {
   })
 
   it('finds lines inserted and removed in the middle', () => {
-    const a = 'frag beat = kit /16\n  bd x...x...\n  sn ....x...\n  ch x.x.x.x.'
-    const b = 'frag beat = kit /16\n  bd x...x...\n  cp ....x...\n  sn ....x...'
-    expect(show(diffLines(a, b))).toEqual([' frag beat = kit /16', '   bd x...x...', '+  cp ....x...', '   sn ....x...', '-  ch x.x.x.x.'])
+    const a = 'clip beat = kit /16\n  bd x...x...\n  sn ....x...\n  ch x.x.x.x.'
+    const b = 'clip beat = kit /16\n  bd x...x...\n  cp ....x...\n  sn ....x...'
+    expect(show(diffLines(a, b))).toEqual([' clip beat = kit /16', '   bd x...x...', '+  cp ....x...', '   sn ....x...', '-  ch x.x.x.x.'])
     expect(changes(diffLines(a, b))).toEqual({ added: 1, removed: 1 })
   })
 

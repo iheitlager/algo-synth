@@ -170,7 +170,7 @@ function heldSong(lowest, chord = [0], song = '') {
   const lines = ['tempo 120', song]
   if (!own.length) for (const t of tracks) lines.push(`track ${t} synth`)
   tracks.forEach((name, t) => {
-    lines.push(`frag f${t + 1} = ${name} bars 8`)
+    lines.push(`clip f${t + 1} = ${name} bars 8`)
     lines.push(`  ${chord.map((n) => `${noteName(lowest + spread(t) + n)}@0:384:100`).join(' ')}`)
   })
   return lines.join('\n')

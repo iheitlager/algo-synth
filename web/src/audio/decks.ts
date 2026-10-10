@@ -45,8 +45,8 @@ export type Deck = {
   /** The arrangement entry playing, −1 without one, and the entries of the bars ahead (#449). */
   entry: number
   ahead: Ahead | null
-  /** A worker deck's song: its sections' names and bars, and their order (deck A's are the app's song). */
-  sections: { name: string; bars: number }[]
+  /** A worker deck's song: its scenes' names and bars, and their order (deck A's are the app's song). */
+  scenes: { name: string; bars: number }[]
   arrange: number[]
 }
 
@@ -56,7 +56,7 @@ export type Start = keyof typeof STARTS
 
 const fresh = (name: string): Deck => ({
   name, loaded: false, playing: false, step: 0, error: '', level: 1, side: DeckSide.Thru, peak: 0, dropped: 0, start: 'bar', cued: false,
-  sync: true, syncMs: null, entry: -1, ahead: null, sections: [], arrange: [],
+  sync: true, syncMs: null, entry: -1, ahead: null, scenes: [], arrange: [],
 })
 
 export const decks = reactive({
@@ -136,7 +136,7 @@ function onWorker(deck: number, data: { t: string } & Record<string, unknown>) {
   if (data.t === 'song') {
     d.loaded = data.ok as boolean
     d.error = data.ok ? '' : `The song did not parse (line ${data.line}, column ${data.col}).`
-    d.sections = (data.sections as Deck['sections'] | undefined) ?? []
+    d.scenes = (data.scenes as Deck['scenes'] | undefined) ?? []
     d.arrange = (data.arrange as number[] | undefined) ?? []
   } else if (data.t === 'pos') {
     onDeckPos(deck, data.step as number, data.playing as boolean, (data.entry as number | undefined) ?? -1, (data.ahead as Ahead | undefined) ?? null)

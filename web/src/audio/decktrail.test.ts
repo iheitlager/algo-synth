@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ROWS, aheadEntry, at, record, sectionColour, trail, width } from './decktrail'
+import { ROWS, aheadEntry, at, record, sceneColour, trail, width } from './decktrail'
 
 describe('deck trail', () => {
   it('keep the level of every step, the steps between two reports taking the later', () => {
@@ -39,11 +39,11 @@ describe('deck trail', () => {
     expect(aheadEntry(null, 0)).toBe(-1)
   })
 
-  it('draw a level over 48 dB, and give each section its own colour', () => {
+  it('draw a level over 48 dB, and give each scene its own colour', () => {
     expect(width(1)).toBe(1)
     expect(width(0)).toBe(0)
     expect(width(10 ** (-24 / 20))).toBeCloseTo(0.5)
     expect(width(10 ** (-60 / 20))).toBe(0)
-    expect(sectionColour(0)).not.toBe(sectionColour(1))
+    expect(sceneColour(0)).not.toBe(sceneColour(1))
   })
 })

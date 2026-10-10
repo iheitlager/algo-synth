@@ -49,7 +49,7 @@ describe('the note view geometry (#168)', () => {
     expect(dragLength(0, 0.5, 2)).toBe(48)
   })
 
-  it('maps the song step into the fragment', () => {
+  it('maps the song step into the clip', () => {
     expect([stepIn(-1, 1), stepIn(5, 1), stepIn(17, 1), stepIn(17, 2)]).toEqual([-1, 5, 1, 17])
   })
 })

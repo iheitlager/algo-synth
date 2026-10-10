@@ -1,23 +1,23 @@
 <script setup lang="ts">
 // The arranger (spec 002 Req 4, ADR-0015, #171): the song's arrangement as a
 // timeline. Columns are the entries of `arrange` in order, as wide as their
-// bars; rows are the fragments, automation lanes and scenes; a lit cell means
-// that section plays it. Every click is a message: the engine changes the song
+// bars; rows are the clips, automation lanes and snapshots; a lit cell means
+// that scene plays it. Every click is a message: the engine changes the song
 // and sends it back as text, so the arranger, the composer and the text agree.
-// A fragment's row mutes and solos its track (#346, #355): the track's frags
+// A clip's row mutes and solos its track (#346, #355): the track's clips
 // stop, its synth stays open for live keys and other tracks. The song text
 // keeps it (`track … mute`); the synth rail and mixer mute the instrument.
 import { computed } from 'vue'
-import { MUTE, arrange, files, setTrackFlags, song, status, synthColour, type SongSection } from '../audio/engine'
+import { MUTE, arrange, files, setTrackFlags, song, status, synthColour, type SongScene } from '../audio/engine'
 
 const STEPS_PER_BAR = 16
 /** Pixels per bar: wide enough to read a name, narrow enough for a song. */
 const BAR = 48
 
-/** A row; a fragment's carries its track. */
+/** A row; a clip's carries its track. */
 interface Row { kind: 0 | 1 | 2; item: number; label: string; colour: string; track?: number }
 const rows = computed<Row[]>(() => [
-  ...song.frags.map((f, i) => {
+  ...song.clips.map((f, i) => {
     const s = song.tracks[f.track]?.synth
     return {
       kind: 0 as const, item: i, label: `${f.name} · ${song.tracks[f.track]?.name ?? ''}`,
@@ -25,7 +25,7 @@ const rows = computed<Row[]>(() => [
     }
   }),
   ...song.autos.map((a, i) => ({ kind: 1 as const, item: i, label: `~ ${a}`, colour: 'var(--accent)' })),
-  ...song.scenes.map((c, i) => ({ kind: 2 as const, item: i, label: `[${c}]`, colour: 'var(--score)' })),
+  ...song.snapshots.map((c, i) => ({ kind: 2 as const, item: i, label: `[${c}]`, colour: 'var(--score)' })),
 ])
 
 const muted = (t: number) => song.tracks[t]?.mute ?? false
@@ -33,7 +33,7 @@ const soloed = (t: number) => song.tracks[t]?.solo ?? false
 const toggleMute = (t: number) => setTrackFlags(t, !muted(t), soloed(t))
 const toggleSolo = (t: number) => setTrackFlags(t, muted(t), !soloed(t))
 const anySolo = computed(() => song.tracks.some((t) => t.solo))
-/** Whether a fragment row's track is not heard, as the engine has it: while
+/** Whether a clip row's track is not heard, as the engine has it: while
  * any track is soloed only the soloed ones play, else the ones not muted. */
 const silenced = (r: Row) =>
   r.track != null && (anySolo.value ? !soloed(r.track) : muted(r.track))
@@ -42,14 +42,14 @@ const silenced = (r: Row) =>
 const entries = computed(() => {
   let start = 0
   return song.arrange.map((s, place) => {
-    const sec: SongSection | undefined = song.sections[s]
+    const sec: SongScene | undefined = song.scenes[s]
     const e = { place, s, sec, start, bars: sec?.bars ?? 0 }
     start += e.bars
     return e
   })
 })
 const bars = computed(() => entries.value.reduce((n, e) => n + e.bars, 0))
-const has = (sec: SongSection | undefined, r: Row) => !!(r.kind === 0 ? sec?.frags : r.kind === 1 ? sec?.autos : sec?.scenes)?.[r.item]
+const has = (sec: SongScene | undefined, r: Row) => !!(r.kind === 0 ? sec?.clips : r.kind === 1 ? sec?.autos : sec?.snapshots)?.[r.item]
 /** Where the song is, in bars, while it plays in the arrangement. */
 const head = computed(() => {
   const e = entries.value[song.entry]
@@ -57,7 +57,7 @@ const head = computed(() => {
 })
 const looped = (bar: number) => song.loop[0] > 0 && bar + 1 >= song.loop[0] && bar + 1 <= song.loop[1]
 
-// A section that isn't in the arrangement yet can be added at its end.
+// A scene that isn't in the arrangement yet can be added at its end.
 function addEntry(e: Event) {
   const select = e.target as HTMLSelectElement
   if (select.value !== '') arrange.insert(song.arrange.length, Number(select.value))
@@ -85,19 +85,19 @@ function onBar(bar: number, e: MouseEvent) {
 <template>
   <section class="pane arranger" aria-label="Arranger">
     <div class="pane-head">
-      <span>Arranger · {{ song.sections.length }} sections · {{ bars }} bars<template v-if="song.loop[0]"> · loop {{ song.loop[0] }}–{{ song.loop[1] }}</template></span>
+      <span>Arranger · {{ song.scenes.length }} scenes · {{ bars }} bars<template v-if="song.loop[0]"> · loop {{ song.loop[0] }}–{{ song.loop[1] }}</template></span>
       <span class="tools">
-        <button :disabled="!status.running" title="A new empty section of four bars, at the end" @click="arrange.addSection(4)">+ Section</button>
-        <select v-if="song.sections.length" :disabled="!status.running" aria-label="Add a section to the arrangement" @change="addEntry">
-          <option value="">+ Play section…</option>
-          <option v-for="(s, i) in song.sections" :key="i" :value="i">{{ s.name }} ({{ s.bars }})</option>
+        <button :disabled="!status.running" title="A new empty scene of four bars, at the end" @click="arrange.addScene(4)">+ Scene</button>
+        <select v-if="song.scenes.length" :disabled="!status.running" aria-label="Add a scene to the arrangement" @change="addEntry">
+          <option value="">+ Play scene…</option>
+          <option v-for="(s, i) in song.scenes" :key="i" :value="i">{{ s.name }} ({{ s.bars }})</option>
         </select>
       </span>
     </div>
     <!-- What opening files reported: a MIDI file imported as the song, a setup's skipped entries. -->
     <p v-if="files.notice" class="notice">{{ files.notice }}</p>
     <p v-if="!song.arrange.length" class="empty">
-      No arrangement yet: every fragment loops. <b>+ Section</b> starts one; fragments, automation lanes and scenes are switched on per section below.
+      No arrangement yet: every clip loops. <b>+ Scene</b> starts one; clips, automation lanes and snapshots are switched on per scene below.
     </p>
     <div v-else class="grid" :style="{ '--bar': `${BAR}px` }">
       <!-- The ruler: click a bar to go there, shift-click two to loop them. -->
@@ -108,8 +108,8 @@ function onBar(bar: number, e: MouseEvent) {
           :title="`Bar ${b}: click to go there, shift-click to loop`" @click="onBar(b - 1, $event)"
         >{{ b }}</button>
       </div>
-      <!-- One column head per entry: its section, bars, and moves. -->
-      <div class="label">section</div>
+      <!-- One column head per entry: its scene, bars, and moves. -->
+      <div class="label">scene</div>
       <div class="track" :style="{ width: `${bars * BAR}px` }">
         <div
           v-for="e in entries" :key="e.place" class="head" :class="{ now: song.playing && song.entry === e.place }"
@@ -129,7 +129,7 @@ function onBar(bar: number, e: MouseEvent) {
           <span v-if="r.track != null" class="ms">
             <button
               class="m" :aria-pressed="muted(r.track)" :disabled="!status.running"
-              :aria-label="`Mute ${song.tracks[r.track]?.name}`" title="Mute the track: its frags stop, its synth plays on"
+              :aria-label="`Mute ${song.tracks[r.track]?.name}`" title="Mute the track: its clips stop, its synth plays on"
               @click="toggleMute(r.track)"
             >M</button>
             <button

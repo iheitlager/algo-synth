@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { keepCaret } from './caret'
 
 describe('keepCaret (#458)', () => {
-  const typed = 'tempo 120\ntrack kit drums\ntrack lead synth\nfrag a = kit\n'
-  const printed = 'tempo 120\nswing 50\ntrack kit drums Tr808 Kit808\ntrack lead synth ProOne ProLead\nfrag a = kit /16\n'
+  const typed = 'tempo 120\ntrack kit drums\ntrack lead synth\nclip a = kit\n'
+  const printed = 'tempo 120\nswing 50\ntrack kit drums Tr808 Kit808\ntrack lead synth ProOne ProLead\nclip a = kit /16\n'
 
   it('keeps a caret before the change, and one after it counted from the end', () => {
     expect(keepCaret('abcXdef', 'abcYYdef', 2)).toBe(2)

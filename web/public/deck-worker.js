@@ -61,14 +61,14 @@ onmessage = ({ data }) => {
       }
       new Uint8Array(w.memory.buffer, ptr, data.bytes.byteLength).set(new Uint8Array(data.bytes))
       const ok = w.song_load() === 0
-      // Its sections and their order, for the deck lane's map ahead (#449).
+      // Its scenes and their order, for the deck lane's map ahead (#449).
       const text = new TextDecoder()
-      const sections = []
-      for (let i = 0; ok && i < w.song_sections(); i++) {
-        sections.push({ name: text.decode(new Uint8Array(w.memory.buffer, w.section_name_ptr(i), w.section_name_len(i))), bars: w.section_bars(i) })
+      const scenes = []
+      for (let i = 0; ok && i < w.song_scenes(); i++) {
+        scenes.push({ name: text.decode(new Uint8Array(w.memory.buffer, w.scene_name_ptr(i), w.scene_name_len(i))), bars: w.scene_bars(i) })
       }
       const arrange = ok ? Array.from({ length: w.arrange_len() }, (_, i) => w.arrange_at(i)) : []
-      postMessage({ t: 'song', ok, line: ok ? 0 : w.song_error_line(), col: ok ? 0 : w.song_error_col(), sections, arrange })
+      postMessage({ t: 'song', ok, line: ok ? 0 : w.song_error_line(), col: ok ? 0 : w.song_error_col(), scenes, arrange })
       break
     }
     case 'stop': start = null; w.song_stop(); break
