@@ -125,7 +125,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -2388,5 +2388,65 @@ fn spans_point_at_the_words_of_the_printed_text() {
     for e in &n.events {
         let word = at16(&p, sp[0].notes[usize::from(e.word)]);
         assert_eq!(word, crate::notes::note_name(e.note), "{e:?}");
+    }
+}
+
+/// #214: a `samples` line names the pack or kit a sampler or drums track
+/// wants; it prints after the tracks, keeps its comment, follows a track
+/// taken out, and says where it is wrong.
+#[test]
+fn samples_lines_parse_print_and_say_where_they_are_wrong() {
+    let text = "track keys sampler Sampler SamplerKeys\ntrack kit drums PadSampler\n# the piano\nsamples keys upright-piano-kw\nsamples kit audiophob\n";
+    let song = Song::parse(text).expect("parses");
+    assert_eq!(
+        song.samples,
+        [
+            (0, "upright-piano-kw".to_string()),
+            (1, "audiophob".to_string())
+        ]
+    );
+    let printed = song.print();
+    assert!(
+        printed.contains("# the piano\nsamples keys upright-piano-kw\nsamples kit audiophob\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    // A track taken out takes its line; the next one moves down.
+    let mut gone = song.clone();
+    assert!(gone.remove_track(0));
+    assert_eq!(gone.samples, [(0, "audiophob".to_string())]);
+    // Set from the panel: replaced, or added; never on a synth track.
+    let mut set = song;
+    assert!(set.set_samples(0, "sweep-pad"));
+    assert_eq!(set.samples[0], (0, "sweep-pad".to_string()));
+    assert!(!set.set_samples(0, "Bad Id"));
+    let head = "track keys sampler\ntrack lead synth\n";
+    for (line, col, msg) in [
+        ("samples", 8, "a track goes here, then a pack or kit id"),
+        ("samples nobody x", 9, "no track has this name"),
+        (
+            "samples lead x",
+            9,
+            "samples go on a sampler or drums track",
+        ),
+        (
+            "samples keys",
+            13,
+            "a pack or kit id goes here, as upright-piano-kw",
+        ),
+        (
+            "samples keys Piano",
+            14,
+            "an id is lower-case letters, digits and -, as upright-piano-kw",
+        ),
+        ("samples keys a b", 16, "unexpected text"),
+        (
+            "samples keys a\nsamples keys b",
+            9,
+            "this track already has its samples",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
+        assert_eq!((err.col, err.msg), (col, msg), "{line}");
     }
 }

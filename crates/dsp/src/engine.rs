@@ -590,6 +590,31 @@ impl Engine {
         result
     }
 
+    /// The track on synth `synth` wants the pack or kit whose id is in the
+    /// song buffer (#214): its `samples` line, and the text follows. False
+    /// when no sampler or drums track plays on that synth, or the id isn't one.
+    pub fn set_samples_from_buffer(&mut self, synth: usize) -> bool {
+        self.commit_song();
+        let id = String::from_utf8_lossy(&self.song_buf).into_owned();
+        let Some(t) = (0..self.song.tracks.len()).find(|t| self.song_routed(*t) == Some(synth))
+        else {
+            return false;
+        };
+        if self
+            .song
+            .samples
+            .iter()
+            .any(|(u, have)| *u == t && *have == id)
+        {
+            return true;
+        }
+        if !self.song.set_samples(t, &id) {
+            return false;
+        }
+        self.reprint();
+        true
+    }
+
     pub fn code_error(&self) -> Option<CodeError> {
         self.code_error
     }
