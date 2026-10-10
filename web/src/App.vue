@@ -3,8 +3,10 @@
 // console or the composer, with the arranger across the bottom, and the
 // Assistant beside them when shown (#387).
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
-import { loadSong, song, status, synths, view } from './audio/engine'
+import { loadSample, loadSong, sampleStore, song, status, synths, view } from './audio/engine'
 import { CHANNEL, assistant, defaultFocus, serveWindow, type AssistHost, type LinkState } from './audio/assistlink'
+import { freeSlot } from './audio/sampler'
+import { LAB_CHANNEL, serveLab } from './audio/spectral'
 import { LIMITS, setSplit, splits } from './audio/split'
 import ArrangerPane from './components/ArrangerPane.vue'
 import AssistantPane from './components/AssistantPane.vue'
@@ -51,13 +53,22 @@ const appHost: AssistHost = {
   apply: async (text) => applySong(text),
 }
 let server: ReturnType<typeof serveWindow> | null = null
+// The Spectral Lab (ADR-0017) sends a resynthesis here, into a free sample slot.
+let lab: ReturnType<typeof serveLab> | null = null
+function labSample(name: string, bytes: ArrayBuffer): Promise<number> {
+  const slot = freeSlot(sampleStore.slots)
+  return slot < 0 ? Promise.resolve(-7) : loadSample(slot, bytes, name)
+}
 const goodbye = () => {
   server?.close()
   server = null
+  lab?.close()
+  lab = null
 }
 onMounted(() => {
   if (typeof BroadcastChannel === 'undefined') return
   server = serveWindow(new BroadcastChannel(CHANNEL), { state: linkState, apply: applySong, popped: (open) => (assistant.popped = open) })
+  lab = serveLab(new BroadcastChannel(LAB_CHANNEL), labSample)
   window.addEventListener('pagehide', goodbye)
 })
 watch(() => [song.text, focus(), status.running], () => server?.push())

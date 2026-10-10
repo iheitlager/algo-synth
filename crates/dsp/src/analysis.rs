@@ -8,6 +8,7 @@ pub mod additive;
 pub mod edit;
 pub mod fft;
 pub mod harmonic;
+pub mod lab;
 pub mod peaks;
 pub mod stft;
 pub mod track;

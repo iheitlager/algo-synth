@@ -22,7 +22,7 @@ The engine SHALL have one in-place radix-2 FFT, std-only (ADR-0001), for power-o
 
 Each frame's peaks SHALL be the local maxima of its magnitude above a floor (default −80 dB under the frame's largest), each placed between bins by a parabola through the log magnitudes of it and its neighbours, giving frequency, amplitude and phase. Peaks SHALL be joined across frames into partial tracks after McAulay and Quatieri (1986): a peak continues the track whose last frequency is nearest, within a deviation (default 50 cents), each track takes at most one peak a frame, an unmatched peak starts a track and a track without a peak for more than a few frames (default 3) ends. The result SHALL be, per track, its first frame and its frequency, amplitude and phase per frame, read by the view as arrays from wasm memory (ADR-0017).
 
-**Implementation:** `crates/dsp/src/analysis/peaks.rs::peaks`, `crates/dsp/src/analysis/track.rs::Tracker`, `crates/dsp/src/ffi.rs` (`spectral_buf`, `spectral_analyse`, `spectral_tracks`, `spectral_track`)
+**Implementation:** `crates/dsp/src/analysis/peaks.rs::peaks`, `crates/dsp/src/analysis/track.rs::Tracker`
 
 #### Scenario: a sum of sines
 
@@ -36,7 +36,7 @@ Each frame's peaks SHALL be the local maxima of its magnitude above a floor (def
 - WHEN it is analysed
 - THEN one track follows it end to end
 
-**Tests:** `crates/dsp/src/analysis/peaks.rs::tests::interpolation_finds_the_frequency_between_bins`, `crates/dsp/src/analysis/peaks.rs::tests::silence_and_the_floor_give_nothing`, `crates/dsp/src/analysis/peaks.rs::tests::the_loudest_are_kept_in_frequency_order`, `crates/dsp/src/analysis/track.rs::tests::nearest_peaks_continue_tracks`, `crates/dsp/src/analysis/track.rs::tests::a_short_gap_is_bridged_and_a_long_one_ends_the_track`, `crates/dsp/src/analysis/track.rs::tests::one_peak_continues_one_track`, `crates/dsp/src/analysis.rs::tests::three_sines_are_three_tracks`, `crates/dsp/src/analysis.rs::tests::a_glide_is_one_track`, `crates/dsp/src/analysis.rs::tests::silence_has_no_tracks`, `crates/dsp/src/ffi.rs::tests::analysis_through_the_abi`
+**Tests:** `crates/dsp/src/analysis/peaks.rs::tests::interpolation_finds_the_frequency_between_bins`, `crates/dsp/src/analysis/peaks.rs::tests::silence_and_the_floor_give_nothing`, `crates/dsp/src/analysis/peaks.rs::tests::the_loudest_are_kept_in_frequency_order`, `crates/dsp/src/analysis/track.rs::tests::nearest_peaks_continue_tracks`, `crates/dsp/src/analysis/track.rs::tests::a_short_gap_is_bridged_and_a_long_one_ends_the_track`, `crates/dsp/src/analysis/track.rs::tests::one_peak_continues_one_track`, `crates/dsp/src/analysis.rs::tests::three_sines_are_three_tracks`, `crates/dsp/src/analysis.rs::tests::a_glide_is_one_track`, `crates/dsp/src/analysis.rs::tests::silence_has_no_tracks`
 
 ### Requirement 3: Harmonic mode [SHOULD]
 
@@ -94,9 +94,9 @@ A track SHOULD reduce to breakpoints, its first and last frame and every frame w
 
 ### Requirement 7: The lab window [MUST]
 
-The view SHALL have a Spectral Lab window, `spectral-lab.html`, a third entry beside the app and the Assistant, opened from the app. It SHALL have its own AudioContext and engine and a Web Worker holding a second instance of `dsp.wasm` that runs the analysis and resynthesis and only relays (ADR-0017). Loading a WAV SHALL analyse it and draw its tracks over time and frequency, with the waveform. A/B SHALL play the original and the resynthesis on the lab's own synths, from a keyboard and a button, switching between them on one key. The analysis settings, the top-N cut, the pitch shift and the time stretch SHALL apply again on change. Send SHALL hand the resynthesis to the main window over a `BroadcastChannel`, which loads it into its sample store; without a main window the lab SHALL say so. The lab SHALL never touch the main window's engine.
+The view SHALL have a Spectral Lab window, `spectral-lab.html`, a third entry beside the app and the Assistant, opened from the transport bar's Lab button. It SHALL have its own AudioContext and engine and a Web Worker holding a second instance of `dsp.wasm` that runs the analysis and resynthesis and only relays (ADR-0017): `spectral_buf` and `spectral_analyse` take a WAV in (the frame count, or a negative WAV code, or an analysis code minus 10), `spectral_tracks_ptr` and `spectral_tracks_len` give the tracks flat (start, n, n frequencies, n amplitudes), and `spectral_render` with `spectral_wav_ptr` gives the resynthesis as a 32-bit float WAV that keeps the original's root note in a `smpl` chunk, so A and B play alike across the keys. Loading a WAV SHALL analyse it and draw its tracks over time and frequency, with the waveform. A/B SHALL play the original and the resynthesis on the lab's own synths, from a keyboard and a button, switching between them on one key. The analysis settings, the top-N cut, the pitch shift and the time stretch SHALL apply again on change. Send SHALL hand the resynthesis to the main window over a `BroadcastChannel`, which loads it into its sample store; without a main window the lab SHALL say so. The lab SHALL never touch the main window's engine.
 
-**Implementation:** `web/spectral-lab.html`, `web/src/spectral-lab.ts`, `web/public/spectral-worker.js`, `web/src/components/lab/SpectralLab.vue`, `web/src/audio/spectral.ts`
+**Implementation:** `crates/dsp/src/analysis/lab.rs::Lab`, `crates/dsp/src/sample.rs::float_wav`, `crates/dsp/src/ffi.rs` (`spectral_buf`, `spectral_analyse`, `spectral_tracks_len`, `spectral_tracks_ptr`, `spectral_render`, `spectral_wav_ptr`), `web/spectral-lab.html`, `web/src/spectral-lab.ts`, `web/public/spectral-worker.js`, `web/src/components/lab/SpectralLab.vue`, `web/src/audio/spectral.ts`, `web/src/App.vue` (`serveLab`), `web/src/components/TransportBar.vue` (Lab)
 
 #### Scenario: A/B
 
@@ -104,4 +104,10 @@ The view SHALL have a Spectral Lab window, `spectral-lab.html`, a third entry be
 - WHEN A/B is switched while a key is held
 - THEN the original and the resynthesis sound in turn, and the main window's song plays on unchanged
 
-**Tests:** `web/src/audio/spectral.test.ts`
+#### Scenario: send
+
+- GIVEN the lab with a resynthesis and the app open
+- WHEN Send is pressed
+- THEN the app loads it into a free sample slot and the lab says so; without the app the lab says no main window answered
+
+**Tests:** `crates/dsp/src/analysis/lab.rs::tests::a_wav_is_analysed_drawn_and_rendered`, `crates/dsp/src/analysis/lab.rs::tests::errors_are_codes_and_keep_nothing`, `crates/dsp/src/ffi.rs::tests::analysis_through_the_abi`, `web/src/audio/spectral.test.ts`

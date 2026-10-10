@@ -1677,10 +1677,96 @@ pub extern "C" fn clock_step() -> i32 {
     })
 }
 
+// The Spectral Lab (ADR-0017, spec 009 Req 7). It needs no engine either:
+// the lab's worker holds its own instance and calls these, `spectral_buf(len)`,
+// write the WAV, `spectral_analyse`, then reads the tracks and renders.
+
+thread_local! {
+    static LAB: RefCell<crate::analysis::lab::Lab> = RefCell::new(crate::analysis::lab::Lab::default());
+}
+
+/// Size the WAV buffer to analyse and return its address; null if too long.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_buf(len: u32) -> *mut u8 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab
+            .buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()),
+        Err(_) => std::ptr::null_mut(),
+    })
+}
+
+/// Analyse the buffer at `rate` with a `window` and `hop`: the frame count,
+/// a negative `sample::Error` code, or an `analysis::Error` code minus 10.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_analyse(rate: f32, window: u32, hop: u32) -> i32 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab.analyse(rate, window as usize, hop as usize),
+        Err(_) => -9,
+    })
+}
+
+/// How many values `spectral_tracks_ptr` points at.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_tracks_len() -> u32 {
+    LAB.with(|cell| cell.try_borrow().map_or(0, |lab| lab.tracks().len() as u32))
+}
+
+/// The tracks: per track its start frame, length n, n frequencies, n amplitudes.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_tracks_ptr() -> *const f32 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.tracks().as_ptr())
+    })
+}
+
+/// Resynthesise the `n` loudest tracks (0 all), shifted by `ratio` and
+/// stretched by `stretch`, as a WAV: its length in bytes, 0 without an analysis.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_render(n: u32, ratio: f32, stretch: f32) -> u32 {
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.render(n as usize, ratio, stretch) as u32)
+    })
+}
+
+/// The last `spectral_render`'s WAV bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_wav_ptr() -> *const u8 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.rendered().as_ptr())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::drums::Pad;
+
+    #[test]
+    fn analysis_through_the_abi() {
+        let x: Vec<f32> = (0..12_000)
+            .map(|i| 0.5 * (std::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin())
+            .collect();
+        let wav = sample::test_wav(48_000, &x, None);
+        assert!(spectral_buf(sample::MAX_WAV as u32 + 1).is_null());
+        assert!(!spectral_buf(wav.len() as u32).is_null());
+        LAB.with(|cell| {
+            cell.borrow_mut()
+                .buffer(wav.len())
+                .expect("fits")
+                .copy_from_slice(&wav)
+        });
+        assert_eq!(spectral_analyse(48_000.0, 2048, 256), 12_000 / 256 + 1);
+        assert!(spectral_tracks_len() > 2 && !spectral_tracks_ptr().is_null());
+        let bytes = spectral_render(0, 1.0, 1.0);
+        assert!(bytes as usize >= 44 + 4 * 12_000);
+        assert!(!spectral_wav_ptr().is_null());
+        assert_eq!(spectral_analyse(48_000.0, 2048, 0), -13);
+        assert_eq!(spectral_render(0, 1.0, 1.0), 0);
+    }
 
     #[test]
     fn samples_load_through_the_abi() {
