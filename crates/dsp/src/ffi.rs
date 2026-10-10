@@ -1073,6 +1073,38 @@ pub extern "C" fn samples_set(s: u32) -> i32 {
     })
 }
 
+// Group buses' names in the song (#214): read with the song, set from
+// `song_buf` (empty takes the name away).
+
+/// The length of group `g`'s name in the song (0–7), 0 for none.
+#[unsafe(no_mangle)]
+pub extern "C" fn group_name_len(g: u32) -> u32 {
+    query(0, |e| {
+        e.group_name(g as usize).map_or(0, |n| n.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn group_name_ptr(g: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.group_name(g as usize)
+            .map_or(std::ptr::null(), str::as_ptr)
+    })
+}
+
+/// Name group `g` with the name in `song_buf`, or none when it is empty: 0
+/// when the song says so, −1 for a name that isn't one.
+#[unsafe(no_mangle)]
+pub extern "C" fn group_name_set(g: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_group_name_from_buffer(g as usize) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
 // A Modular synth's SuperCollider code (ADR-0024): written into `song_buf`,
 // set with `code_set`; its text with the knobs' values from `code_text`.
 

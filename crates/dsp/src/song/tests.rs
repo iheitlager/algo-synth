@@ -2450,3 +2450,30 @@ fn samples_lines_parse_print_and_say_where_they_are_wrong() {
         assert_eq!((err.col, err.msg), (col, msg), "{line}");
     }
 }
+
+/// #214: a group bus is named in the song's `group` line, set or taken away
+/// from the view; a line with neither name nor values goes.
+#[test]
+fn a_group_is_named_in_its_line() {
+    let mut song = Song::parse("track kit drums\ngroup 2: Level 0.8\n").expect("parses");
+    assert!(song.set_group_name(0, Some("drum_bus")));
+    assert!(song.set_group_name(1, Some("keys")));
+    let printed = song.print();
+    assert!(
+        printed.contains("group 1 drum_bus\n"),
+        "a name alone: {printed}"
+    );
+    assert!(printed.contains("group 2 keys: Level 0.8"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    assert!(song.set_group_name(0, None));
+    assert!(
+        !song.mix.iter().any(|m| m.at == Mix::Group(0)),
+        "no name, no values: gone"
+    );
+    assert!(song.set_group_name(1, None));
+    assert!(
+        song.mix.iter().any(|m| m.at == Mix::Group(1)),
+        "its values stay"
+    );
+    assert!(!song.set_group_name(8, Some("x")) && !song.set_group_name(0, Some("drum bus")));
+}

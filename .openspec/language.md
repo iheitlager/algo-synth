@@ -246,12 +246,13 @@ frag chords = keys
 
 ```text
 strip <track> | strip<n>: <Param> <value>[, <Param> <value>]…      n = 1–16
-group <n> [<name>]: <Param> <value>[, …]                           n = 1–8
+group <n> [<name>][: <Param> <value>[, …]]                         n = 1–8
 master: <Param> <value>[, …]
 ```
 
 The mix's starting values, set when the song loads and again only when the
-line's text changes.
+line's text changes. A group may have a name and nothing else (`group 2 keys`): the
+name shows on its strip, and naming a group in the mixer writes it here.
 
 - Strip and group parameters: `Level Pan Mute Solo Out Key`, sends
   `Send1`–`Send4` (with `Send1Pre`, `Send1On`…), inserts `I1Type I1A`–`I1E`,

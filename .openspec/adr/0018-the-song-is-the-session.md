@@ -1,6 +1,6 @@
 # 0018: The song is the session
 
-**Status:** Proposed · **Date:** 2026-10-05
+**Status:** Accepted, amended by 0027 and #214 · **Date:** 2026-10-05 · built in #210, #214, #448
 
 ## Context
 
@@ -37,4 +37,7 @@ ADR-0015 also says the song names synths by their strip names (#127); the code n
 
 ## Later decisions
 
-- **Taken further by ADR-0027:** the explicit *Write mixer to song* rejected above went too; the engine folds live synth and mixer changes into the song. The rest stays proposed until #214.
+- **Taken further by ADR-0027:** the explicit *Write mixer to song* rejected above went too; the engine folds live synth and mixer changes into the song.
+- **As built (#214), samples:** `samples <track> <id>` is in the song; the engine reports the wish and the view loads the pack or kit onto the synth the track plays (a kit on a drums track, else the pack), since the slots belong to that synth; picking one on a panel writes the line, and an id no manifest names loads nothing and the sampler's panel says so.
+- **As built (#214), one namespace:** a group's name lives in its `group` line, which may hold only the name (`group 2 keys`); the song names the group strips, and a group renamed in the view or by a setup is written back.
+- **Amended (#214), the setup import stays in TypeScript:** opening a `.synths.json` already writes song lines, through the engine's fold (ADR-0027). Parsing and planning that legacy, read-only format stay in `setup.ts` rather than move into the engine: a port of the whole migration path for a file nothing writes any more. The exception to ADR-0001 is limited to that importer.

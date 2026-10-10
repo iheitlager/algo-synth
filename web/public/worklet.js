@@ -83,6 +83,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'song': this.loadSong(new Uint8Array(data.bytes)); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
         case 'samples': this.setSamples(data.s, new Uint8Array(data.bytes)); break
+        case 'groupName': this.setGroupName(data.g, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
         case 'ratchet': w.set_ratchet(data.f, data.l, data.s, data.r); this.sendSong(true); break
         // A track's mute and solo (#355): bit 0 mute, bit 1 solo.
@@ -234,6 +235,15 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (w.samples_set(s) === 0) this.sendSong(true)
   }
 
+  // A group bus named in the view (#214): the song's `group` line takes the name; none takes it away.
+  setGroupName(g, bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (bytes.length && !ptr) return
+    if (bytes.length) new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    if (w.group_name_set(g) === 0) this.sendSong(true)
+  }
+
   loadSong(bytes) {
     const w = this.w
     const ptr = w.song_buf(bytes.length)
@@ -312,6 +322,8 @@ class EngineProcessor extends AudioWorkletProcessor {
     const error = ok
       ? null
       : { line: w.song_error_line(), col: w.song_error_col(), msg: bytes(w.song_error_ptr(), w.song_error_len()) }
+    // The group buses' names in the song (#214), empty for none.
+    const groups = Array.from({ length: w.group_name_len ? 8 : 0 }, (_, g) => bytes(w.group_name_ptr(g), w.group_name_len(g)))
     // The samples each track wants (#214): the view fetches and loads them.
     const samples = Array.from({ length: w.samples_count ? w.samples_count() : 0 }, (_, i) => ({
       synth: w.samples_synth(i), id: bytes(w.samples_id_ptr(i), w.samples_id_len(i)),
@@ -319,7 +331,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()], samples,
+      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups,
     })
   }
 
