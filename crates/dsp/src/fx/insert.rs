@@ -8,6 +8,7 @@
 //! | EQ (three bands)           | low gain  | mid freq  | mid gain  | high gain | mid Q  |
 //! | Compressor                 | threshold | ratio     | attack    | release   | make-up|
 //! | Vocoder (#161)             | shift     | release   | unvoiced  | width     | dry    |
+//! | Bitcrush (#470)            | bits      | rate      | level     | –         | dry    |
 //!
 //! A vocoder hears its key: another synth's raw signal, picked by the strip's
 //! `Key`; without one it is silent.
@@ -18,6 +19,7 @@
 //! compressor adds no make-up.
 
 use super::compressor::Compressor;
+use super::crush::Crush;
 use super::drive::{Drive, DriveMode};
 use super::eq::{EqBand, Equalizer};
 use super::vocoder::Vocoder;
@@ -33,10 +35,11 @@ pub enum InsertType {
     Eq = 4,
     Comp = 5,
     Vocoder = 6,
+    Bitcrush = 7,
 }
 
 impl InsertType {
-    pub const ALL: [(InsertType, &'static str); 7] = [
+    pub const ALL: [(InsertType, &'static str); 8] = [
         (InsertType::Off, "Off"),
         (InsertType::Overdrive, "Overdrive"),
         (InsertType::Distortion, "Distortion"),
@@ -44,6 +47,7 @@ impl InsertType {
         (InsertType::Eq, "Eq"),
         (InsertType::Comp, "Comp"),
         (InsertType::Vocoder, "Vocoder"),
+        (InsertType::Bitcrush, "Bitcrush"),
     ];
 
     pub fn from_id(id: u32) -> Option<InsertType> {
@@ -78,6 +82,7 @@ pub struct Insert {
     eq: Equalizer,
     comp: Compressor,
     vocoder: Vocoder,
+    crush: Crush,
 }
 
 impl Insert {
@@ -90,6 +95,7 @@ impl Insert {
             eq: Equalizer::new(sample_rate),
             comp: Compressor::new(sample_rate),
             vocoder: Vocoder::new(sample_rate),
+            crush: Crush::new(sample_rate),
         }
     }
 
@@ -104,6 +110,7 @@ impl Insert {
         self.eq.reset();
         self.comp.reset();
         self.vocoder.reset();
+        self.crush.reset();
         self.apply();
     }
 
@@ -145,6 +152,7 @@ impl Insert {
                 self.comp.set_makeup(24.0 * e);
             }
             InsertType::Vocoder => self.vocoder.set([a, b, c, d, e]),
+            InsertType::Bitcrush => self.crush.set([a, b, c, d, e]),
             _ => {}
         }
     }
@@ -157,6 +165,7 @@ impl Insert {
             InsertType::Eq => self.eq.process_mono(x),
             InsertType::Comp => self.comp.process_mono(x),
             InsertType::Vocoder => self.vocoder.process_mono(x, key),
+            InsertType::Bitcrush => self.crush.process_mono(x),
             _ => self.drive.process(x),
         }
     }
@@ -169,6 +178,7 @@ impl Insert {
             InsertType::Eq => self.eq.process(left, right),
             InsertType::Comp => self.comp.process(left, right),
             InsertType::Vocoder => self.vocoder.process_stereo(left, right, key),
+            InsertType::Bitcrush => self.crush.process_stereo(left, right),
             _ => {
                 self.drive.process(left);
                 self.drive_r.process(right);
@@ -334,9 +344,25 @@ mod tests {
     }
 
     #[test]
+    fn a_bitcrush_slot_steps_the_signal() {
+        let x = sine(440.0, 0.7, 4_800);
+        // About 3 bits at about 1.5 kHz.
+        let y = run(
+            &mut slot(InsertType::Bitcrush, [0.15, 0.25, 0.5, 0.0, 0.0]),
+            &x,
+        );
+        assert!(y != x && y.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+        let mut levels: Vec<i32> = y.iter().map(|s| (s * 1e4) as i32).collect();
+        levels.sort_unstable();
+        levels.dedup();
+        assert!(levels.len() <= 9, "{levels:?}");
+    }
+
+    #[test]
     fn unknown_type_ids_are_none() {
         assert_eq!(InsertType::from_id(5), Some(InsertType::Comp));
         assert_eq!(InsertType::from_id(6), Some(InsertType::Vocoder));
-        assert_eq!(InsertType::from_id(7), None);
+        assert_eq!(InsertType::from_id(7), Some(InsertType::Bitcrush));
+        assert_eq!(InsertType::from_id(8), None);
     }
 }

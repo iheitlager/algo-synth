@@ -1755,7 +1755,7 @@ fn mixer_errors_say_where() {
         (
             "strip bass: I1Type Delay",
             20,
-            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp or Vocoder",
+            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder or Bitcrush",
         ),
         (
             "master: P1Type Delay",

@@ -179,7 +179,7 @@ export const PROC_KNOBS: Record<number, ProcKnob[]> = {
 // --- insert slots -----------------------------------------------------------------------
 
 /** The short name a strip shows for an insert type id (`InsertType`). */
-export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP', 'VOC']
+export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP', 'VOC', 'BIT']
 
 const driveKnobs: ProcKnob[] = [
   { label: 'Amount', def: 0.5, text: (t) => `+${Math.round(t * 40)} dB` },
@@ -218,6 +218,14 @@ export const INSERT_KNOBS: Record<number, ProcKnob[]> = {
     { label: 'Release', def: 0.5, text: (t) => `${Math.round(logMap(20, 500)(t))} ms` },
     { label: 'Unvoiced', def: 0, text: (t) => `${Math.round(t * 100)}%` },
     { label: 'Width', def: 0.5, text: (t) => `Q ${(12 * 0.25 ** t).toFixed(1)}` },
+    { label: 'Dry', def: 0, text: (t) => `${Math.round(t * 100)}%` },
+  ],
+  // The bitcrusher (#470): fewer bits, a lower rate.
+  7: [
+    { label: 'Bits', def: 0.5, text: (t) => (t >= 1 ? 'off' : (1 + 15 * t).toFixed(1)) },
+    { label: 'Rate', def: 0.5, text: (t) => hzText(logMap(500, 48000)(t)) },
+    { label: 'Level', def: 0.5, text: (t) => `${Math.round(t * 200)}%` },
+    { label: '', def: 0.5 },
     { label: 'Dry', def: 0, text: (t) => `${Math.round(t * 100)}%` },
   ],
 }

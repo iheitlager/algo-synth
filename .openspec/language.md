@@ -137,11 +137,14 @@ A subset of sclang, run once to build the voice:
   (0..1); any other argument (or `\name.kr(n)`) is a knob.
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator Out`.
+  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 Out`.
   `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
   (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a
   second); `Decimator.ar(in, rate, bits)` samples `in` `rate` times a second
   and quantizes it to `2^bits` levels from −1 to 1 (`bits: 1` is two).
+  `LFNoise0.kr(freq)` draws a random value in −1..1 `freq` times a second
+  and holds it; `LFNoise1` joins the same points with straight lines. Both
+  draw from the note's seed, as `Rand`, so a note renders the same each time.
 - **Switches:** `Select.kr(which, [a, b, …])` (and `.ar`) plays one of 1 to 8
   choices, its index truncated and clipped as SuperCollider's; an `if` on a
   signal is an error pointing to it. A knob used as a `Select` index is a
@@ -152,8 +155,11 @@ A subset of sclang, run once to build the voice:
   or `env.kr`. A voice ends when its envelopes do; without one it uses the
   synth's ADSR.
 - **Signal methods:** `range exprange tanh softclip distort atan midiratio
-  midicps neg round`; `round(step)` (step 1 when left out) steps to the
-  nearest multiple, halves up, as SuperCollider's: `sweep.round(1/12)`.
+  midicps neg round lag`; `round(step)` (step 1 when left out) steps to the
+  nearest multiple, halves up, as SuperCollider's: `sweep.round(1/12)`;
+  `lag(time)` (0.1 s when left out) smooths a signal, falling 60 dB in
+  `time` from its first value, `lag(0)` passing it:
+  `LFNoise0.kr(8).exprange(0.5, 3).lag(0.01)`.
   Numbers take also `abs reciprocal squared cubed sqrt floor ceil asInteger
   cpsmidi ratiomidi dbamp ampdb min max`.
 - **Stereo:** multichannel expansion; a final array of two channels is
@@ -168,8 +174,8 @@ A subset of sclang, run once to build the voice:
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `scene`,
   `mod` reach them (`sub.Ctl1`).
 - **Limits:** 512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes,
-  32 delays, 64 random numbers, 32 latches and decimators, 2 reverbs, 32
-  knobs. A comb or delay holds
+  32 delays, 64 random numbers, 32 latches, decimators, noises and lags, 2
+  reverbs, 32 knobs. A comb or delay holds
   at most 0.02 seconds (a flanger, a chorus, a resonator, not an echo): a
   long echo is the strip's send to the master's Echo.
 
@@ -263,7 +269,7 @@ name shows on its strip, and naming a group in the mixer writes it here.
 
 - Strip and group parameters: `Level Pan Mute Solo Out Key`, sends
   `Send1`–`Send4` (with `Send1Pre`, `Send1On`…), inserts `I1Type I1A`–`I1E`,
-  `I2…`, `I3…`. Insert types: `Off Overdrive Distortion Fuzz Eq Comp Vocoder`.
+  `I2…`, `I3…`. Insert types: `Off Overdrive Distortion Fuzz Eq Comp Vocoder Bitcrush`.
   `Out` is `master`, `group1`–`group8` or `none`; a group goes only to a higher
   group.
 - Master parameters: `MasterGain`, `CompThreshold CompRatio CompAttack

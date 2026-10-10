@@ -11,7 +11,8 @@ import ParamKnob from './ParamKnob.vue'
 
 const id = (field: string) => Param[`I${p.slot + 1}${field}` as keyof typeof Param]
 const type = computed(() => Math.round(params.values[p.strip]?.[id('Type')] ?? 0))
-const knobs = computed(() => (INSERT_KNOBS[type.value] ?? []).map((k, i) => ({ ...k, id: id('ABCDE'[i] ?? 'A') })))
+// A knob without a label is one the type does not use.
+const knobs = computed(() => (INSERT_KNOBS[type.value] ?? []).map((k, i) => ({ ...k, id: id('ABCDE'[i] ?? 'A') })).filter((k) => k.label))
 const types = Object.entries(InsertType)
 /** The type's name, as effect presets store it. */
 const typeName = computed(() => types.find(([, t]) => t === type.value)?.[0])

@@ -653,6 +653,7 @@ export const InsertType = {
   Eq: 4,
   Comp: 5,
   Vocoder: 6,
+  Bitcrush: 7,
 } as const
 export type InsertTypeId = (typeof InsertType)[keyof typeof InsertType]
 

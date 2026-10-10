@@ -878,6 +878,12 @@ const PHASE: Spec = Spec {
     hi: std::f32::consts::TAU,
     exp: false,
 };
+/// A `lag`'s time: from 0, which passes its signal.
+const LAG: Spec = Spec {
+    lo: 0.0,
+    hi: 2.0,
+    exp: false,
+};
 /// A `Decimator`'s sample rate, and its bits.
 const SRATE: Spec = Spec {
     lo: 100.0,
@@ -1330,6 +1336,30 @@ impl Builder {
                 }
                 _ => Err(err("this takes a number")),
             },
+            // `lag(time)`, 0.1 s when left out: a number is as it is.
+            (V::Num(..), "lag") => Ok(r),
+            (V::Sig(..) | V::Arr(_), "lag") => {
+                let time = args.first().cloned().unwrap_or(V::Num(0.1, None));
+                self.expand(&[r, time], &mut |b, v| {
+                    let [V::Sig(of, uni), t] = v else {
+                        return Err(err("lag is a method of a signal"));
+                    };
+                    let module = b.module("lag", at);
+                    let time = b.input(t, module, "lagTime", LAG, at)?;
+                    let slot = Self::slot(
+                        &mut b.prog.counts.holds,
+                        MAX_HOLDS,
+                        at,
+                        "a voice has at most 32 latches, decimators, noises and lags",
+                    )?;
+                    let u = Ugen::Lag {
+                        input: *of,
+                        time,
+                        slot,
+                    };
+                    Ok(V::Sig(b.push(u, at)?, *uni))
+                })
+            }
             // `round(step)`, step 1 when left out: a node on a signal.
             (V::Num(..) | V::Sig(..) | V::Arr(_), "round") => {
                 let step = args.first().cloned().unwrap_or(V::Num(1.0, None));
@@ -2297,6 +2327,11 @@ impl Builder {
             ),
             "WhiteNoise" => (&["mul", "add"], &[Some(1.0), Some(0.0)], &[MUL, ADD]),
             "Latch" => (&["in", "trig"], &[Some(0.0), Some(0.0)], &[ANY, ANY]),
+            "LFNoise0" | "LFNoise1" => (
+                &["freq", "mul", "add"],
+                &[Some(500.0), Some(1.0), Some(0.0)],
+                &[FREQ, MUL, ADD],
+            ),
             "Decimator" => (
                 &["in", "rate", "bits", "mul", "add"],
                 &[None, Some(44_100.0), Some(24.0), Some(1.0), Some(0.0)],
@@ -2439,6 +2474,21 @@ impl Builder {
                     (b.push(Ugen::Bin(Op::Mul, up, half), at)?, true, 3)
                 }
                 "WhiteNoise" => (b.push(Ugen::Noise, at)?, false, 0),
+                "LFNoise0" | "LFNoise1" => {
+                    let f = inp(b, 0)?;
+                    let slot = Self::slot(
+                        &mut b.prog.counts.holds,
+                        MAX_HOLDS,
+                        at,
+                        "a voice has at most 32 latches, decimators, noises and lags",
+                    )?;
+                    let u = Ugen::LfNoise {
+                        freq: f,
+                        smooth: c == "LFNoise1",
+                        slot,
+                    };
+                    (b.push(u, at)?, false, 1)
+                }
                 "Latch" | "Decimator" => {
                     let x = inp(b, 0)?;
                     let uni = c == "Latch" && matches!(v.first(), Some(V::Sig(_, true)));
@@ -2446,7 +2496,7 @@ impl Builder {
                         &mut b.prog.counts.holds,
                         MAX_HOLDS,
                         at,
-                        "a voice has at most 32 latches and decimators",
+                        "a voice has at most 32 latches, decimators, noises and lags",
                     )?;
                     let u = if c == "Latch" {
                         Ugen::Latch {
