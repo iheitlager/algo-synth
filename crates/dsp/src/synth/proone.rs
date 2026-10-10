@@ -6,6 +6,8 @@ use crate::params::Param::*;
 use crate::synth::{ModelDef, PresetDef};
 
 pub const DEF: ModelDef = ModelDef {
+    // The mod wheel scales the LFO into the filter as into the pitch (#440).
+    wheel_scales_filter_mod: true,
     osc: CEM_VCO,
     env: CEM3310,
     filter: Filter::Ladder(PRO_ONE),

@@ -225,8 +225,10 @@ pub struct Normals {
     /// envelope is the AR (else the filter ADSR).
     pub env_hp_cutoff: f32,
     pub hp_from_ar: bool,
-    /// Semitones of cutoff at full modulation source (no mod wheel).
+    /// Semitones of cutoff at full modulation source; through the mod
+    /// wheel only where `lfo_cutoff_on_wheel` (#440).
     pub lfo_cutoff: f32,
+    pub lfo_cutoff_on_wheel: bool,
     /// Whether VCO 3 is the modulation source instead of the LFO.
     pub mod_from_osc3: bool,
     /// Pulse width at full modulation source (LFO → pulse width).
@@ -280,7 +282,14 @@ pub fn modulate(
         } else {
             at(ModSource::Adsr)
         };
-        d[4] = env * normals.env_cutoff + key * normals.key_track + modulator * normals.lfo_cutoff;
+        let wheel = if normals.lfo_cutoff_on_wheel {
+            at(ModSource::ModWheel)
+        } else {
+            1.0
+        };
+        d[4] = env * normals.env_cutoff
+            + key * normals.key_track
+            + modulator * wheel * normals.lfo_cutoff;
     }
     if !vca_taken {
         d[6] = at(ModSource::Adsr);
@@ -347,6 +356,7 @@ mod tests {
         env_hp_cutoff: 12.0,
         hp_from_ar: false,
         lfo_cutoff: 0.0,
+        lfo_cutoff_on_wheel: false,
         mod_from_osc3: false,
         lfo_pw: 0.0,
         env_freq2: 0.0,
@@ -430,6 +440,26 @@ mod tests {
         assert_eq!((osc3.pitch[0], osc3.cutoff), (-2.0, -10.0));
         let no_wheel = run(true, 0.0);
         assert_eq!((no_wheel.pitch[0], no_wheel.cutoff), (0.0, -10.0));
+    }
+
+    /// #440: on the models whose wheel scales the whole modulation mix, LFO → cutoff waits
+    /// for the mod wheel as the vibrato does.
+    #[test]
+    fn the_wheel_can_scale_lfo_to_cutoff() {
+        let cutoff = |on_wheel, wheel: f32| {
+            let src = sources(&[(ModSource::Lfo, 1.0), (ModSource::ModWheel, wheel)]);
+            let normals = Normals {
+                env_cutoff: 0.0,
+                key_track: 0.0,
+                lfo_cutoff: 10.0,
+                lfo_cutoff_on_wheel: on_wheel,
+                ..NORMALS
+            };
+            modulate(&Patch::default(), &[false; DESTS], &normals, &src, 0.0).cutoff
+        };
+        assert_eq!(cutoff(false, 0.0), 10.0, "direct, whatever the wheel");
+        assert_eq!(cutoff(true, 0.0), 0.0, "through the wheel, down");
+        assert_eq!(cutoff(true, 0.5), 5.0, "through the wheel, half up");
     }
 
     /// Poly-mod adds to a destination, with its normals and with a patch

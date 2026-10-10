@@ -176,6 +176,8 @@ pub enum Ugen {
     Freq,
     Gate,
     Vel,
+    /// The mod wheel, 0..1 (#439).
+    Wheel,
     /// A band-limited saw, triangle or pulse; `width` is `NONE` for a half.
     Osc {
         wave: Waveform,
@@ -741,7 +743,7 @@ impl GraphVoice {
             gate_env(&mut self.amp, &p.adsr, retrigger, gate);
             self.amp.set_sustain(p.adsr.sustain);
         }
-        let hz = ctx.pitch.at(self.note + self.trim) * sr;
+        let hz = ctx.pitch.at(self.note + self.trim + p.bend) * sr;
         let len = usize::from(st.prog.len).min(st.vals.len());
         let _ = NO_TIMES;
         for (frame, sample) in out.iter_mut().enumerate() {
@@ -809,6 +811,7 @@ impl GraphVoice {
             Ugen::Freq => hz,
             Ugen::Gate => f32::from(u8::from(gate)),
             Ugen::Vel => self.velocity,
+            Ugen::Wheel => ctx.params.mod_wheel,
             Ugen::Noise => self.noise.white(),
             Ugen::Osc {
                 freq, width, slot, ..

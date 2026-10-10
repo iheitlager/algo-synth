@@ -1517,7 +1517,8 @@ impl Builder {
         }
     }
 
-    /// A control by name: the note's `freq`, `gate` and `amp`, or a knob.
+    /// A control by name: the note's `freq`, `gate` and `amp`, the mod wheel
+    /// (`modwheel`), or a knob.
     fn control(&mut self, name: &str, default: &V, at: Pos) -> R<V> {
         if let Some(v) = self.controls.get(name) {
             return Ok(v.clone());
@@ -1525,6 +1526,7 @@ impl Builder {
         let v = match name {
             "freq" => V::Sig(self.push(Ugen::Freq, at)?, false),
             "gate" => V::Sig(self.push(Ugen::Gate, at)?, true),
+            "modwheel" => V::Sig(self.push(Ugen::Wheel, at)?, true),
             "out" | "bus" | "outBus" | "i_out" => V::Num(0.0, None),
             "amp" => {
                 // The note's velocity times the default: the voice's level.

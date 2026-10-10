@@ -21,6 +21,7 @@ pub const DEF: ModelDef = ModelDef {
     // The contours have no release knob; Osc 3 is the modulation source.
     decay_is_release: true,
     modulates_with_osc3: true,
+    wheel_scales_filter_mod: true,
     presets: &[
         // Two saws and a pulse an octave under, overdriven into a low
         // ladder that the contour opens: the Minimoog's bass. Low note

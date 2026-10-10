@@ -708,6 +708,11 @@ impl Model {
         self.def().modulates_with_osc3
     }
 
+    /// Whether the mod wheel scales LFO → cutoff too, not only the vibrato.
+    pub fn wheel_scales_filter_mod(self) -> bool {
+        self.def().wheel_scales_filter_mod
+    }
+
     /// Whether the high-pass cutoff follows the AR envelope (the CS-15's
     /// own envelope for it) rather than the filter ADSR.
     pub fn hp_follows_ar(self) -> bool {

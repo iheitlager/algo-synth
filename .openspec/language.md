@@ -132,8 +132,9 @@ A subset of sclang, run once to build the voice:
   `first`, `last`, `at`, `Array.fill`, `Mix.fill`, `if` on numbers, keyword
   arguments, `mul`/`add`. Binary operators run left to right with no
   precedence, as in sclang; on signals only `+ - * /`.
-- **Controls:** `freq` is the note's pitch, `gate` its gate, `amp` the
-  velocity times its default; any other argument (or `\name.kr(n)`) is a knob.
+- **Controls:** `freq` is the note's pitch (bent by the pitch wheel), `gate`
+  its gate, `amp` the velocity times its default, `modwheel` the mod wheel
+  (0..1); any other argument (or `\name.kr(n)`) is a knob.
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
   ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Out`.

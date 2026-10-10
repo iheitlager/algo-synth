@@ -429,8 +429,11 @@ impl SamplerVoice {
                 .root
                 .or_else(|| z.sample.and_then(|s| store.get(s)).map(|s| s.root))
                 .unwrap_or(60);
-            let semis =
-                f32::from(self.note) - f32::from(root) + self.trim + p.tune[0] + z.tune / 100.0;
+            let semis = f32::from(self.note) - f32::from(root)
+                + self.trim
+                + p.bend
+                + p.tune[0]
+                + z.tune / 100.0;
             f64::from((semis / 12.0).exp2())
         };
         let main_inc = ratio(&self.main.zone, store);
@@ -575,6 +578,7 @@ mod tests {
 
     use crate::engine::{BLOCK, Engine};
     use crate::mono::preset::Preset;
+    use crate::params::Param;
     use crate::sample::test_wav;
 
     const SR: f32 = 48_000.0;
@@ -651,6 +655,18 @@ mod tests {
         let up = left(&mut e, 100);
         let n = crossings(&up);
         assert!((252..=260).contains(&n), "an octave up: {n} cycles");
+    }
+
+    /// #439: the pitch wheel bends a sample by `BendRange` semitones.
+    #[test]
+    fn the_pitch_wheel_bends_the_sample() {
+        let mut e = rig(&[one_second()]);
+        e.set_zone(0, 0, ZoneField::Sample, 0.0);
+        e.set_param(0, Param::BendRange, 12.0);
+        e.set_param(0, Param::PitchBend, 1.0);
+        e.note_on(0, 60, 1.0);
+        let n = crossings(&left(&mut e, 100));
+        assert!((252..=260).contains(&n), "bent an octave up: {n} cycles");
     }
 
     #[test]

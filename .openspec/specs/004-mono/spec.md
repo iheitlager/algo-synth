@@ -156,7 +156,7 @@ A patch SHALL be a fixed table of 8 overrides, each (source, destination, amount
 
 The engine SHALL take raw MIDI channel messages through one export, `midi_in(status, d1, d2)`, and interpret them in Rust; JavaScript SHALL only forward the bytes it gets from Web MIDI. Note on and off SHALL carry velocity, and a note on with velocity 0 SHALL be a note off. Pitch bend SHALL be read as 14 bits, with its range a parameter (default ±2 semitones). The mod wheel (CC 1) SHALL be a modulation source (Req 7). The keys SHALL play the synth selected in the view (`midi_target`), and a note's release SHALL reach the synth it started on after the selection moves. One map SHALL serve every controller (#422): notes on channel 10 SHALL hit the selected synth if it is a kit, else the song's first kit; CC 70–77 SHALL turn eight parameters of the selected synth (the MIDI sound controllers where they apply: 71 resonance, 72 release, 73 attack, 74 cutoff, 75 decay; a Modular synth's own knobs), exponentially for frequencies and times, with soft takeover so a knob away from the value does not jump it, and as a hand would (folded into the song, shown on the panel); CC 115–118 pressed SHALL seek back a bar, seek on a bar, stop and play the song. Other messages SHALL be ignored.
 
-**Implementation:** `crates/dsp/src/midi.rs::decode`, `crates/dsp/src/engine.rs::Engine::midi_in`, `crates/dsp/src/ffi.rs::midi_in`, `crates/dsp/src/ffi.rs::midi_target`, `web/src/audio/midiin.ts` (#10), `crates/dsp/src/midi.rs::knob_params`, `crates/dsp/src/midi.rs::takes_over` (#422); the bend is `PitchBend` × `BendRange` semitones on every voice's pitch (`crates/dsp/src/mono/voice.rs`).
+**Implementation:** `crates/dsp/src/midi.rs::decode`, `crates/dsp/src/engine.rs::Engine::midi_in`, `crates/dsp/src/ffi.rs::midi_in`, `crates/dsp/src/ffi.rs::midi_target`, `web/src/audio/midiin.ts` (#10), `crates/dsp/src/midi.rs::knob_params`, `crates/dsp/src/midi.rs::takes_over` (#422); the bend is `PitchBend` × `BendRange` semitones on every voice's pitch (`crates/dsp/src/mono/voice.rs`, `crates/dsp/src/la.rs`, #437).
 
 #### Scenario: bend
 
@@ -164,7 +164,7 @@ The engine SHALL take raw MIDI channel messages through one export, `midi_in(sta
 - WHEN pitch bend 0x3FFF arrives
 - THEN the voice sounds B4 within 1 cent
 
-**Tests:** `crates/dsp/src/midi.rs::tests::a_note_on_of_velocity_zero_is_a_release`, `crates/dsp/src/midi.rs::tests::the_bend_reads_all_fourteen_bits_and_ends_at_one`, `crates/dsp/src/midi.rs::tests::system_and_broken_messages_are_none`, `crates/dsp/src/engine/tests.rs::midi_wheels_bend_the_pitch_and_move_the_mod_wheel`, `crates/dsp/src/engine/tests.rs::midi_keys_play_the_target_and_release_where_they_started`, `crates/dsp/src/engine/tests.rs::midi_knobs_take_over_softly_and_turn_the_target`, `crates/dsp/src/engine/tests.rs::midi_knobs_turn_a_modular_synths_own_knobs`, `crates/dsp/src/engine/tests.rs::midi_pads_play_the_kit_and_keys_the_target`, `crates/dsp/src/engine/tests.rs::midi_transport_plays_stops_and_seeks_the_song`, `crates/dsp/src/midi.rs::tests::a_knob_takes_over_only_when_it_reaches_the_value`, `crates/dsp/src/midi.rs::tests::a_span_turns_frequencies_and_times_exponentially`, `web/src/audio/midiin.test.ts`
+**Tests:** `crates/dsp/src/midi.rs::tests::a_note_on_of_velocity_zero_is_a_release`, `crates/dsp/src/midi.rs::tests::the_bend_reads_all_fourteen_bits_and_ends_at_one`, `crates/dsp/src/midi.rs::tests::system_and_broken_messages_are_none`, `crates/dsp/src/engine/tests.rs::midi_wheels_bend_the_pitch_and_move_the_mod_wheel`, `crates/dsp/src/engine/tests.rs::the_pitch_wheel_bends_every_pitched_model`, `crates/dsp/src/engine/tests.rs::midi_keys_play_the_target_and_release_where_they_started`, `crates/dsp/src/engine/tests.rs::midi_knobs_take_over_softly_and_turn_the_target`, `crates/dsp/src/engine/tests.rs::midi_knobs_turn_a_modular_synths_own_knobs`, `crates/dsp/src/engine/tests.rs::midi_pads_play_the_kit_and_keys_the_target`, `crates/dsp/src/engine/tests.rs::midi_transport_plays_stops_and_seeks_the_song`, `crates/dsp/src/midi.rs::tests::a_knob_takes_over_only_when_it_reaches_the_value`, `crates/dsp/src/midi.rs::tests::a_span_turns_frequencies_and_times_exponentially`, `web/src/audio/midiin.test.ts`
 
 ### Requirement 9: Presets [SHOULD]
 
@@ -308,7 +308,7 @@ The mixer SHALL take a ring modulator, VCO 1 × VCO 2 (`RingLevel`), and a sub-o
 
 ### Requirement 15: Poly-mod and LFO destinations [MUST]
 
-The voice SHALL add, after the normals and the patch, five poly-mod amounts: filter envelope → VCO 2 pitch (`EnvFreq2`), VCO 1 → VCO 2 pitch (`OscFreq2`), filter envelope → pulse width (`EnvPw`), VCO 1 → pulse width (`OscPw`) and VCO 1 → cutoff (`OscCutoff`), and two modulation amounts, LFO → cutoff (`LfoCutoff`, ±24 semitones at 1, no mod wheel) and LFO → pulse width (`LfoPw`, ±0.45). On a model whose modulator is VCO 3 (the Minimoog, spec 005 Req 3) these, and the vibrato normal, read VCO 3 instead of the LFO. They add to a destination without taking it over from its normals or its patch. Scale: ±24 semitones of pitch, ±0.45 of pulse width, ±48 semitones of cutoff for the poly-mod amounts.
+The voice SHALL add, after the normals and the patch, five poly-mod amounts: filter envelope → VCO 2 pitch (`EnvFreq2`), VCO 1 → VCO 2 pitch (`OscFreq2`), filter envelope → pulse width (`EnvPw`), VCO 1 → pulse width (`OscPw`) and VCO 1 → cutoff (`OscCutoff`), and two modulation amounts, LFO → cutoff (`LfoCutoff`, ±24 semitones at 1, not through the mod wheel except on the models whose wheel scales the whole modulation mix: the Minimoog, Prophet-5 and Pro-One, #440) and LFO → pulse width (`LfoPw`, ±0.45). On a model whose modulator is VCO 3 (the Minimoog, spec 005 Req 3) these, and the vibrato normal, read VCO 3 instead of the LFO. They add to a destination without taking it over from its normals or its patch. Scale: ±24 semitones of pitch, ±0.45 of pulse width, ±48 semitones of cutoff for the poly-mod amounts.
 
 **Implementation:** `crates/dsp/src/mono/patch.rs::modulate` (#36)
 
@@ -318,7 +318,7 @@ The voice SHALL add, after the normals and the patch, five poly-mod amounts: fil
 - WHEN a note is held
 - THEN the cutoff modulation is the sum of both
 
-**Tests:** `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`
+**Tests:** `crates/dsp/src/mono/patch.rs::tests::the_wheel_can_scale_lfo_to_cutoff`, `crates/dsp/src/mono/patch.rs::tests::poly_mod_adds_to_the_normals`, `crates/dsp/src/mono/patch.rs::tests::the_modulation_source_is_the_lfo_or_osc3`
 
 ### Requirement 16: Oscillators voiced per model [SHOULD]
 
