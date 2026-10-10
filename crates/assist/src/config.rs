@@ -233,6 +233,29 @@ mod tests {
         );
     }
 
+    /// #452: every OpenRouter model offered is one OpenRouter has, checked
+    /// against a saved copy of its list so CI needs no network.
+    #[test]
+    fn every_openrouter_model_exists() {
+        let known: Vec<&str> = include_str!("../openrouter-models.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect();
+        let c = Config::from_env(&env(&[("OPENROUTER_API_KEY", "sk-or")]));
+        let p = c
+            .providers
+            .iter()
+            .find(|p| p.id == "openrouter")
+            .expect("offered");
+        assert!(!p.models.is_empty());
+        for m in &p.models {
+            assert!(
+                known.contains(&m.as_str()),
+                "{m} is not an OpenRouter model id"
+            );
+        }
+    }
+
     #[test]
     fn the_public_config_carries_no_key_or_base() {
         let c = Config::from_env(&env(&[

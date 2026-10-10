@@ -238,6 +238,10 @@ fn prices(model: &str) -> Option<(f64, f64, f64)> {
     match model {
         "claude-opus-5-5" => Some((4.0, 0.20, 20.0)),
         "claude-sonnet-5-5" => Some((2.0, 0.20, 10.0)),
+        // OpenRouter's list prices on 2026-10-10 (#452); no cache discount known.
+        "qwen/qwen3.8-max-0902" => Some((2.0, 2.0, 6.0)),
+        "moonshotai/kimi-k3" => Some((0.64, 0.64, 13.5)),
+        "z-ai/glm-5.3" => Some((0.039, 0.039, 4.8)),
         _ => None,
     }
 }
