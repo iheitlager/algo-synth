@@ -1911,7 +1911,12 @@ impl Engine {
                 state: &mut self.mod_state,
                 voice: None,
             };
-            let v = md.signal.eval(t, &mut ctx);
+            // A `~` has no value: the parameter takes its own back for that
+            // step, so a lock lasts only its step (#255).
+            let v = match md.signal.eval(t, &mut ctx) {
+                v if v.is_nan() => self.mod_base.get(m).copied().flatten().unwrap_or(found),
+                v => v,
+            };
             match self.mod_last.get_mut(m) {
                 Some(last) if *last != v => *last = v,
                 _ => continue,

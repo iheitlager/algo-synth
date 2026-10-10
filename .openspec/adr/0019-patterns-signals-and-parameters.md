@@ -1,6 +1,6 @@
 # 0019: One language for patterns, signals and parameters
 
-**Status:** Accepted · **Date:** 2026-10-05 · built in #270, #272, #276
+**Status:** Accepted, extended by #255 and #298 · **Date:** 2026-10-05 · built in #270, #272, #276
 
 ## Context
 
@@ -34,3 +34,8 @@ Two open issues ask for parts of this: #204 (fluent methods on a fragment that s
 - **`mod` lines only (#208 as written).** One syntax, but every change to a fragment's sound moves away from the fragment. Kept as one of the two forms, not the only one.
 - **Evaluate expressions per sample.** Smoother sweeps, but the cost of an interpreter in `render` on every synth. Rejected; per-block evaluation with smoothing, and audio rate only inside the modular voice.
 - **Strudel's syntax verbatim (JavaScript method chains).** Familiar, but it implies a JavaScript runtime and its scheduler, which ADR-0001 and ADR-0012 rule out. The notation stays ours, close enough to read.
+
+## Later decisions
+
+- **Extended (#298):** Strudel's `cosine`, `irand`, `brand`/`brandBy` and bipolar `*2` sources, and its parameter names as aliases printed as written, at our scale.
+- **Extended (#255), per-step parameter locks:** a `~` in a sequence is a step with no value; the parameter takes its own back there, so a parameter method like `.cutoff("~ ~ 800 ~")` locks one step and lets go after it. A per-voice signal takes no `~`. Locks needed no new lane syntax, so ADR-0012 and ADR-0015 stand.

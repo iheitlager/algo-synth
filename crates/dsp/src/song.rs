@@ -2885,6 +2885,9 @@ fn per_voice_fits(
     if signal.lags() {
         return Err(".lag follows one value for the song, not one per voice");
     }
+    if signal.rests() {
+        return Err("a ~ lets go of one value, not one per voice");
+    }
     let track = song.tracks.get(t);
     let model = track.and_then(|tr| tr.preset).map(Preset::model);
     // A drum or sampler track never plays Mono voices, whatever it picks later.
