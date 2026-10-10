@@ -487,6 +487,7 @@ pub fn fast_exp2(x: f32) -> f32 {
 pub struct VoiceState {
     /// The program the note plays, copied when it starts.
     prog: Program,
+    /// A row of `SUB` frames per node (#476).
     vals: Vec<f32>,
     oscs: Vec<Osc>,
     phases: Vec<f32>,
@@ -509,7 +510,7 @@ pub struct VoiceState {
     /// the next (a decimator, a noise, with its last and next value and its
     /// draws) or whether it started (a lag).
     holds: Vec<[f32; 4]>,
-    /// The reverbs, and the right side each left node keeps for its partner.
+    /// The reverbs, and the right side's row each left node keeps for its partner.
     verbs: Vec<verb::FreeVerb>,
     verb_r: Vec<f32>,
     /// The program's nodes in order, split when the note starts (#318):
@@ -533,10 +534,10 @@ impl VoiceState {
         while self.verbs.len() < usize::from(c.verbs) {
             self.verbs.push(verb::FreeVerb::new(sample_rate));
         }
-        self.verb_r.resize(self.verbs.len(), 0.0);
+        self.verb_r.resize(self.verbs.len() * SUB, 0.0);
         let up = |n: usize, now: usize| n.max(now);
         self.vals
-            .resize(up(usize::from(prog.len), self.vals.len()), 0.0);
+            .resize(up(usize::from(prog.len) * SUB, self.vals.len()), 0.0);
         self.oscs
             .resize(up(usize::from(c.oscs), self.oscs.len()), Osc::default());
         self.phases
@@ -602,14 +603,15 @@ impl VoiceState {
             } else {
                 &mut self.moving
             };
+            // A filter is marked: `render` runs a run of them frame by frame.
+            let filter = matches!(
+                self.prog.nodes.get(i),
+                Some(Ugen::Ladder { .. } | Ugen::Svf { .. } | Ugen::PoleHp { .. })
+            );
             if order.len() < order.capacity() {
-                order.push(i as u16);
+                order.push(i as u16 | if filter { FILTER } else { 0 });
             }
         }
-    }
-
-    fn val(&self, i: u16) -> f32 {
-        self.vals.get(usize::from(i)).copied().unwrap_or(0.0)
     }
 
     /// The value of a number or a control node, read outside the sample loop
@@ -626,21 +628,6 @@ impl VoiceState {
                 .clamp(lo, hi),
             _ => 0.0,
         }
-    }
-
-    /// Filter `slot`'s cutoff in hertz as a note, converted only when it
-    /// changes, with the pool's trim.
-    fn cutoff_note(&mut self, slot: u8, hz: f32, trim: f32) -> f32 {
-        let hz = hz.max(1.0);
-        let note = match self.cutoffs.get_mut(usize::from(slot)) {
-            Some((last, note)) if *last == hz => *note,
-            Some(cached) => {
-                *cached = (hz, 69.0 + 12.0 * fast_log2(hz / 440.0));
-                cached.1
-            }
-            None => 0.0,
-        };
-        note + trim
     }
 }
 
@@ -684,7 +671,6 @@ pub struct GraphVoice {
     shapes: [Shape; MAX_ENVS],
     envs: [Env; MAX_ENVS],
     brks: [BrkState; MAX_ENVS],
-    env_vals: [f32; MAX_ENVS],
     /// The loudness of a program without `env`: the synth's ADSR.
     amp: Env,
     noise: Noise,
@@ -715,7 +701,6 @@ impl GraphVoice {
             shapes: [Shape::Adsr; MAX_ENVS],
             envs: [Env::default(); MAX_ENVS],
             brks: [BrkState::default(); MAX_ENVS],
-            env_vals: [0.0; MAX_ENVS],
             amp: Env::default(),
             noise: Noise::new(seed | 1),
             presses: 0,
@@ -865,119 +850,194 @@ impl GraphVoice {
             self.amp.set_sustain(p.adsr.sustain);
         }
         let hz = ctx.pitch.at(self.note + self.trim + p.bend) * sr;
-        let len = usize::from(st.prog.len).min(st.vals.len());
+        let len = usize::from(st.prog.len);
         let _ = NO_TIMES;
-        // What holds over the block, once (#318).
+        // Each envelope's row of the sub-block, stepped before the graph runs.
+        let mut envs = [[0.0_f32; SUB]; MAX_ENVS];
+        // What holds over the block, once and for a whole row (#318).
         for k in 0..st.steady.len() {
             let i = st.steady.get(k).map_or(0, |i| usize::from(*i));
-            let v = self.eval(st, i, hz, inv, gate, ctx);
-            if let Some(slot) = st.vals.get_mut(i) {
-                *slot = v;
-            }
+            self.eval_row(st, i, 0, SUB, hz, inv, gate, ctx, &envs);
         }
-        for (frame, sample) in out.iter_mut().enumerate() {
-            for k in 0..used {
-                let v = match self.shapes.get(k) {
-                    Some(Shape::Brk(b)) => match self.brks.get_mut(k) {
-                        Some(state) => brk_step(state, b, st, ctx, sr),
-                        None => 0.0,
-                    },
-                    _ => self.envs.get_mut(k).map_or(0.0, Env::step),
-                };
-                if let Some(slot) = self.env_vals.get_mut(k) {
-                    *slot = v;
+        // A SynthDef with its own `amp` plays at its own level.
+        let gain = if st.prog.own_amp {
+            1.0
+        } else {
+            OUT_GAIN * self.velocity
+        };
+        let (left, right_row) = (len.saturating_sub(1), usize::from(st.prog.right));
+        let mut done = 0;
+        while done < out.len() {
+            let n = (out.len() - done).min(SUB);
+            let mut amps = [1.0_f32; SUB];
+            // The voice stops at the frame it falls silent, its envelopes
+            // stepped up to it, as when it ran a sample at a time.
+            let mut live = n;
+            for f in 0..n {
+                for k in 0..used {
+                    let v = match self.shapes.get(k) {
+                        Some(Shape::Brk(b)) => match self.brks.get_mut(k) {
+                            Some(state) => brk_step(state, b, st, ctx, sr),
+                            None => 0.0,
+                        },
+                        _ => self.envs.get_mut(k).map_or(0.0, Env::step),
+                    };
+                    if let Some(x) = envs.get_mut(k).and_then(|e| e.get_mut(f)) {
+                        *x = v;
+                    }
+                }
+                let amp = if used > 0 { 1.0 } else { self.amp.step() };
+                if let Some(a) = amps.get_mut(f) {
+                    *a = amp;
+                }
+                if !self.active() {
+                    live = f;
+                    break;
                 }
             }
-            let amp = if used > 0 { 1.0 } else { self.amp.step() };
-            if !self.active() {
+            // Every moving node over the sub-block, one after another
+            // (#476); a run of filters a frame at a time across the run, so
+            // their feedback loops overlap as they did a sample at a time.
+            let mut k = 0;
+            while let Some(&m) = st.moving.get(k) {
+                if m & FILTER == 0 {
+                    self.eval_row(st, usize::from(m), 0, live, hz, inv, gate, ctx, &envs);
+                    k += 1;
+                    continue;
+                }
+                let mut end = k;
+                while st.moving.get(end).is_some_and(|m| m & FILTER != 0) {
+                    end += 1;
+                }
+                for f in 0..live {
+                    for j in k..end {
+                        let i = st.moving.get(j).map_or(0, |m| usize::from(m & !FILTER));
+                        self.eval_row(st, i, f, 1, hz, inv, gate, ctx, &envs);
+                    }
+                }
+                k = end;
+            }
+            let ys = row(&st.vals, left as u16, 0, live);
+            let rs = row(&st.vals, right_row as u16, 0, live);
+            let outs = out.get_mut(done..done + live).unwrap_or_default();
+            for (f, ((sample, y), a)) in outs.iter_mut().zip(ys).zip(amps).enumerate() {
+                let y = y * a;
+                if y.is_finite() {
+                    *sample += y.clamp(-4.0, 4.0) * gain;
+                }
+                if let Some(r) = right.as_deref_mut().and_then(|r| r.get_mut(done + f)) {
+                    // A stereo program's right side; a mono one in a stereo bus sounds on both.
+                    let yr = if st.prog.is_stereo() {
+                        at(rs, f) * a
+                    } else {
+                        y
+                    };
+                    if yr.is_finite() {
+                        *r += yr.clamp(-4.0, 4.0) * gain;
+                    }
+                }
+            }
+            if live < n {
                 return;
             }
-            for k in 0..st.moving.len() {
-                let i = st.moving.get(k).map_or(0, |i| usize::from(*i));
-                let v = self.eval(st, i, hz, inv, gate, ctx);
-                if let Some(slot) = st.vals.get_mut(i) {
-                    *slot = v;
-                }
-            }
-            let y = len.checked_sub(1).map_or(0.0, |i| st.val(i as u16)) * amp;
-            // A SynthDef with its own `amp` plays at its own level.
-            let gain = if st.prog.own_amp {
-                1.0
-            } else {
-                OUT_GAIN * self.velocity
-            };
-            if y.is_finite() {
-                *sample += y.clamp(-4.0, 4.0) * gain;
-            }
-            if let Some(r) = right.as_deref_mut().and_then(|r| r.get_mut(frame)) {
-                // A stereo program's right side; a mono one in a stereo bus sounds on both.
-                let yr = if st.prog.is_stereo() {
-                    st.val(st.prog.right) * amp
-                } else {
-                    y
-                };
-                if yr.is_finite() {
-                    *r += yr.clamp(-4.0, 4.0) * gain;
-                }
-            }
+            done += n;
         }
     }
 
-    /// Node `i` this sample, its inputs already evaluated.
+    /// Node `i` over `n` frames of a sub-block from frame `from`, its
+    /// inputs already evaluated there (#476): dispatched once for them all.
     // Inlined into both of `render`'s loops: as a call it costs more in V8
     // than the nodes it saves (#318).
     #[inline(always)]
-    fn eval(
+    #[allow(clippy::too_many_arguments)]
+    fn eval_row(
         &mut self,
         st: &mut VoiceState,
         i: usize,
+        from: usize,
+        n: usize,
         hz: f32,
         inv: f32,
         gate: bool,
         ctx: &MonoCtx,
-    ) -> f32 {
+        envs: &[[f32; SUB]; MAX_ENVS],
+    ) {
         let Some(node) = st.prog.nodes.get(i).copied() else {
-            return 0.0;
+            return;
         };
+        let VoiceState {
+            prog,
+            vals,
+            oscs,
+            phases,
+            filters,
+            ladders,
+            poles,
+            cutoffs,
+            lines,
+            writes,
+            rands,
+            notes,
+            holds,
+            verbs,
+            verb_r,
+            ..
+        } = st;
+        let at_i = (i * SUB).min(vals.len());
+        let (ins, rest) = vals.split_at_mut(at_i);
+        let Some(out) = rest.get_mut(from..from + n) else {
+            return;
+        };
+        let ins: &[f32] = ins;
+        let row = |a: u16| row(ins, a, from, n);
+        let trim = self.cutoff_trim;
         match node {
-            Ugen::Num(v) => v,
-            Ugen::Freq => hz,
-            Ugen::Gate => f32::from(u8::from(gate)),
-            Ugen::Vel => self.velocity,
-            Ugen::Wheel => ctx.params.mod_wheel,
-            Ugen::Noise => self.noise.white(),
+            Ugen::Num(v) => out.fill(v),
+            Ugen::Freq => out.fill(hz),
+            Ugen::Gate => out.fill(f32::from(u8::from(gate))),
+            Ugen::Vel => out.fill(self.velocity),
+            Ugen::Wheel => out.fill(ctx.params.mod_wheel),
+            Ugen::Noise => out.iter_mut().for_each(|y| *y = self.noise.white()),
             Ugen::Osc {
                 freq, width, slot, ..
             } => {
-                let f = st.val(freq);
-                let w = if width == NONE {
-                    0.5
+                let Some(o) = oscs.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                if width == NONE {
+                    for (y, f) in out.iter_mut().zip(row(freq)) {
+                        o.set_increment(f * inv);
+                        *y = o.step(ctx.blep, ctx.sine, 0.5, None).0;
+                    }
                 } else {
-                    st.val(width).clamp(0.05, 0.95)
-                };
-                let Some(o) = st.oscs.get_mut(usize::from(slot)) else {
-                    return 0.0;
-                };
-                o.set_increment(f * inv);
-                o.step(ctx.blep, ctx.sine, w, None).0
+                    for ((y, f), w) in out.iter_mut().zip(row(freq)).zip(row(width)) {
+                        o.set_increment(f * inv);
+                        *y = o.step(ctx.blep, ctx.sine, w.clamp(0.05, 0.95), None).0;
+                    }
+                }
             }
             Ugen::Sin { freq, slot } => {
-                let inc = st.val(freq) * inv;
-                let Some(ph) = st.phases.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(ph) = phases.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                *ph += inc;
-                *ph -= ph.floor();
-                lookup(ctx.sine, *ph)
+                for (y, f) in out.iter_mut().zip(row(freq)) {
+                    *ph += f * inv;
+                    *ph -= ph.floor();
+                    *y = lookup(ctx.sine, *ph);
+                }
             }
             Ugen::Lfo { rate, wave, slot } => {
-                let inc = st.val(rate) * inv;
-                let Some(ph) = st.phases.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(ph) = phases.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                *ph += inc;
-                *ph -= ph.floor();
-                naive(wave, *ph, 0.5, ctx.sine)
+                for (y, f) in out.iter_mut().zip(row(rate)) {
+                    *ph += f * inv;
+                    *ph -= ph.floor();
+                    *y = naive(wave, *ph, 0.5, ctx.sine);
+                }
             }
             Ugen::Svf {
                 input,
@@ -988,56 +1048,72 @@ impl GraphVoice {
                 rq,
                 ..
             } => {
-                let x = st.val(input);
-                let c = st.val(cutoff).max(1.0);
-                let note = st.cutoff_note(slot, c, self.cutoff_trim);
-                let r = match (res == NONE, rq) {
-                    (true, _) => RES,
-                    // rq 1 is gentle, 0.05 nearly singing.
-                    (false, true) => 1.0 - st.val(res).clamp(0.0, 1.0),
-                    (false, false) => st.val(res),
-                };
-                let v = match st.prog.voicings.get(usize::from(slot)) {
+                let v = match prog.voicings.get(usize::from(slot)) {
                     Some(Filter::Svf(v)) => *v,
                     _ => VOICING,
                 };
-                let Some(f) = st.filters.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(f) = filters.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                let o = f.process(ctx.ladder, &v, x, note, r);
-                if high { o.hp } else { o.lp }
+                let rows = row(input).iter().zip(row(cutoff)).zip(row(res));
+                for (y, ((x, c), rr)) in out.iter_mut().zip(rows) {
+                    let note = cutoff_note(cutoffs, slot, c.max(1.0), trim);
+                    let r = match (res == NONE, rq) {
+                        (true, _) => RES,
+                        // rq 1 is gentle, 0.05 nearly singing.
+                        (false, true) => 1.0 - rr.clamp(0.0, 1.0),
+                        (false, false) => *rr,
+                    };
+                    let o = f.process(ctx.ladder, &v, *x, note, r);
+                    *y = if high { o.hp } else { o.lp };
+                }
             }
             Ugen::PoleHp {
                 input,
                 cutoff,
                 slot,
             } => {
-                let x = st.val(input);
-                let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
-                let Some(p) = st.poles.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(p) = poles.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                p.process(ctx.ladder, x, note)
-            }
-            Ugen::Env { slot } => self.env_vals.get(usize::from(slot)).copied().unwrap_or(0.0),
-            Ugen::Ctl { index, lo, hi } => ctx
-                .params
-                .ctl
-                .get(usize::from(index))
-                .copied()
-                .unwrap_or(lo)
-                .clamp(lo, hi),
-            Ugen::Rand { slot, .. } => st.rands.get(usize::from(slot)).copied().unwrap_or(0.0),
-            Ugen::Latch { input, trig, slot } => {
-                let (x, t) = (st.val(input), st.val(trig));
-                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
-                    return 0.0;
-                };
-                if h[1] <= 0.0 && t > 0.0 {
-                    h[0] = x;
+                let (x, c) = (row(input), row(cutoff));
+                for (k, y) in out.iter_mut().enumerate() {
+                    let note = cutoff_note(cutoffs, slot, at(c, k), trim);
+                    *y = p.process(ctx.ladder, at(x, k), note);
                 }
-                h[1] = t;
-                h[0]
+            }
+            Ugen::Env { slot } => match envs.get(usize::from(slot)) {
+                Some(e) => out
+                    .iter_mut()
+                    .zip(e.iter().skip(from))
+                    .for_each(|(y, v)| *y = *v),
+                None => out.fill(0.0),
+            },
+            Ugen::Ctl { index, lo, hi } => out.fill(
+                ctx.params
+                    .ctl
+                    .get(usize::from(index))
+                    .copied()
+                    .unwrap_or(lo)
+                    .clamp(lo, hi),
+            ),
+            Ugen::Rand { slot, .. } => {
+                out.fill(rands.get(usize::from(slot)).copied().unwrap_or(0.0));
+            }
+            Ugen::Latch { input, trig, slot } => {
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                for ((y, x), t) in out.iter_mut().zip(row(input)).zip(row(trig)) {
+                    if h[1] <= 0.0 && *t > 0.0 {
+                        h[0] = *x;
+                    }
+                    h[1] = *t;
+                    *y = h[0];
+                }
             }
             Ugen::Decimator {
                 input,
@@ -1045,85 +1121,105 @@ impl GraphVoice {
                 bits,
                 slot,
             } => {
-                let x = st.val(input);
-                let step = (st.val(rate) * inv).clamp(0.0, 1.0);
-                let bits = st.val(bits);
-                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                if h[1] <= 0.0 {
-                    h[0] = if bits >= 24.0 {
-                        x
-                    } else {
-                        // 2^bits levels, the outer two at −1 and 1.
-                        let top = fast_exp2(bits.max(1.0)) - 1.0;
-                        let u = (x.clamp(-1.0, 1.0) + 1.0) * 0.5;
-                        (u * top + 0.5).floor() / top * 2.0 - 1.0
-                    };
-                    h[1] += 1.0;
+                let (x, r, b) = (row(input), row(rate), row(bits));
+                for (k, y) in out.iter_mut().enumerate() {
+                    let step = (at(r, k) * inv).clamp(0.0, 1.0);
+                    let bits = at(b, k);
+                    if h[1] <= 0.0 {
+                        let x = at(x, k);
+                        h[0] = if bits >= 24.0 {
+                            x
+                        } else {
+                            // 2^bits levels, the outer two at −1 and 1.
+                            let top = fast_exp2(bits.max(1.0)) - 1.0;
+                            let u = (x.clamp(-1.0, 1.0) + 1.0) * 0.5;
+                            (u * top + 0.5).floor() / top * 2.0 - 1.0
+                        };
+                        h[1] += 1.0;
+                    }
+                    h[1] -= step;
+                    *y = h[0];
                 }
-                h[1] -= step;
-                h[0]
+            }
+            Ugen::MidiRatio(x) => {
+                for (y, x) in out.iter_mut().zip(row(x)) {
+                    *y = fast_exp2(x * (1.0 / 12.0));
+                }
             }
             Ugen::LfNoise { freq, smooth, slot } => {
-                let step = (st.val(freq) * inv).clamp(0.0, 1.0);
-                let note_seed = self.seed ^ st.notes.wrapping_mul(0x9E37_79B9) ^ (self.slot as u32);
-                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let note_seed = self.seed ^ notes.wrapping_mul(0x9E37_79B9) ^ (self.slot as u32);
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                // [time left, last value, next value, draws].
-                if h[0] <= 0.0 {
-                    let r =
-                        crate::algo::mix(crate::algo::mix(note_seed, u32::from(slot)), h[3] as u32);
-                    h[1] = h[2];
-                    h[2] = r as f32 / (u32::MAX as f32 + 1.0) * 2.0 - 1.0;
-                    h[3] += 1.0;
-                    h[0] += 1.0;
+                for (y, f) in out.iter_mut().zip(row(freq)) {
+                    let step = (f * inv).clamp(0.0, 1.0);
+                    // [time left, last value, next value, draws].
+                    if h[0] <= 0.0 {
+                        let r = crate::algo::mix(
+                            crate::algo::mix(note_seed, u32::from(slot)),
+                            h[3] as u32,
+                        );
+                        h[1] = h[2];
+                        h[2] = r as f32 / (u32::MAX as f32 + 1.0) * 2.0 - 1.0;
+                        h[3] += 1.0;
+                        h[0] += 1.0;
+                    }
+                    *y = if smooth {
+                        h[1] + (h[2] - h[1]) * (1.0 - h[0])
+                    } else {
+                        h[2]
+                    };
+                    h[0] -= step;
                 }
-                let y = if smooth {
-                    h[1] + (h[2] - h[1]) * (1.0 - h[0])
-                } else {
-                    h[2]
-                };
-                h[0] -= step;
-                y
             }
             Ugen::LeakDc { input, coef, slot } => {
-                let (x, c) = (st.val(input), st.val(coef).clamp(0.0, 0.9999));
-                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                // h[0] the last input, h[1] the last output.
-                let y = x - h[0] + c * h[1];
-                h[0] = x;
-                h[1] = if y.is_finite() { y } else { 0.0 };
-                h[1]
+                for ((y, x), c) in out.iter_mut().zip(row(input)).zip(row(coef)) {
+                    let c = c.clamp(0.0, 0.9999);
+                    // h[0] the last input, h[1] the last output.
+                    let v = x - h[0] + c * h[1];
+                    h[0] = *x;
+                    h[1] = if v.is_finite() { v } else { 0.0 };
+                    *y = h[1];
+                }
             }
             Ugen::Lag { input, time, slot } => {
-                let (x, t) = (st.val(input), st.val(time));
-                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                if h[1] == 0.0 || t <= 0.0 {
-                    h[1] = 1.0;
-                    h[0] = x;
-                } else {
-                    // Falls 60 dB (a thousandth) in t: log2(0.001) per t·sr samples.
-                    let b = fast_exp2(-9.965_784 * inv / t);
-                    h[0] = x + b * (h[0] - x);
+                for ((y, x), t) in out.iter_mut().zip(row(input)).zip(row(time)) {
+                    let (x, t) = (*x, *t);
+                    if h[1] == 0.0 || t <= 0.0 {
+                        h[1] = 1.0;
+                        h[0] = x;
+                    } else {
+                        // Falls 60 dB (a thousandth) in t: log2(0.001) per t·sr samples.
+                        let b = fast_exp2(-9.965_784 * inv / t);
+                        h[0] = x + b * (h[0] - x);
+                    }
+                    *y = h[0];
                 }
-                h[0]
             }
-            Ugen::MidiRatio(x) => fast_exp2(st.val(x) * (1.0 / 12.0)),
             Ugen::Pan { input, pos, right } => {
-                // Equal power: cos and sin of (pos + 1)·π/4, from the sine table.
-                let phase = (st.val(pos).clamp(-1.0, 1.0) + 1.0) * 0.125;
-                let g = if right {
-                    lookup(ctx.sine, phase)
-                } else {
-                    lookup(ctx.sine, phase + 0.25)
-                };
-                st.val(input) * g
+                for ((y, x), p) in out.iter_mut().zip(row(input)).zip(row(pos)) {
+                    // Equal power: cos and sin of (pos + 1)·π/4, from the sine table.
+                    let phase = (p.clamp(-1.0, 1.0) + 1.0) * 0.125;
+                    let g = if right {
+                        lookup(ctx.sine, phase)
+                    } else {
+                        lookup(ctx.sine, phase + 0.25)
+                    };
+                    *y = x * g;
+                }
             }
             Ugen::Verb {
                 left,
@@ -1133,18 +1229,29 @@ impl GraphVoice {
                 damp,
                 slot,
             } => {
-                let (l, r) = (st.val(left), st.val(right));
-                let (m, rm, d) = (st.val(mix), st.val(room), st.val(damp));
-                let Some(v) = st.verbs.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let s = usize::from(slot);
+                let Some(v) = verbs.get_mut(s) else {
+                    out.fill(0.0);
+                    return;
                 };
-                let (yl, yr) = v.process(l, r, m, rm, d);
-                if let Some(keep) = st.verb_r.get_mut(usize::from(slot)) {
-                    *keep = yr;
+                let mut keep = verb_r.get_mut(s * SUB + from..s * SUB + from + n);
+                let (l, r) = (row(left), row(right));
+                let (m, rm, d) = (row(mix), row(room), row(damp));
+                for (k, y) in out.iter_mut().enumerate() {
+                    let (yl, yr) = v.process(at(l, k), at(r, k), at(m, k), at(rm, k), at(d, k));
+                    if let Some(w) = keep.as_deref_mut().and_then(|w| w.get_mut(k)) {
+                        *w = yr;
+                    }
+                    *y = yl;
                 }
-                yl
             }
-            Ugen::VerbR { slot } => st.verb_r.get(usize::from(slot)).copied().unwrap_or(0.0),
+            Ugen::VerbR { slot } => {
+                let s = usize::from(slot);
+                match verb_r.get(s * SUB + from..s * SUB + from + n) {
+                    Some(r) => out.copy_from_slice(r),
+                    None => out.fill(0.0),
+                }
+            }
             Ugen::Ladder {
                 input,
                 cutoff,
@@ -1154,25 +1261,32 @@ impl GraphVoice {
                 drive,
                 ..
             } => {
-                let x = st.val(input);
-                let note = st.cutoff_note(slot, st.val(cutoff), self.cutoff_trim);
-                let r = if res == NONE { RES } else { st.val(res) };
-                // MoogFF's gain runs 0..4 and whistles at 4, as in
-                // SuperCollider: its range is the knob's (#342).
-                let k = if gain {
-                    r.clamp(0.0, 4.0) / 4.0 * MAX_K
-                } else {
-                    r.clamp(0.0, 1.0) * MAX_K
-                };
-                let d = if drive == NONE { DRIVE } else { st.val(drive) };
-                let v = match st.prog.voicings.get(usize::from(slot)) {
+                let v = match prog.voicings.get(usize::from(slot)) {
                     Some(Filter::Ladder(v)) => *v,
                     _ => MOOG,
                 };
-                let Some(l) = st.ladders.get_mut(usize::from(slot)) else {
-                    return 0.0;
+                let Some(l) = ladders.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
                 };
-                l.voiced(ctx.ladder, &v, x, note, k, 1.0 + 7.0 * d.clamp(0.0, 1.0))
+                let rows = row(input)
+                    .iter()
+                    .zip(row(cutoff))
+                    .zip(row(res))
+                    .zip(row(drive));
+                for (y, (((x, c), rr), dr)) in out.iter_mut().zip(rows) {
+                    let note = cutoff_note(cutoffs, slot, *c, trim);
+                    let r = if res == NONE { RES } else { *rr };
+                    // MoogFF's gain runs 0..4 and whistles at 4, as in
+                    // SuperCollider: its range is the knob's (#342).
+                    let kk = if gain {
+                        r.clamp(0.0, 4.0) / 4.0 * MAX_K
+                    } else {
+                        r.clamp(0.0, 1.0) * MAX_K
+                    };
+                    let d = if drive == NONE { DRIVE } else { *dr };
+                    *y = l.voiced(ctx.ladder, &v, *x, note, kk, 1.0 + 7.0 * d.clamp(0.0, 1.0));
+                }
             }
             Ugen::Fm {
                 carrier,
@@ -1180,20 +1294,23 @@ impl GraphVoice {
                 index,
                 slot,
             } => {
-                let (c, m, k) = (st.val(carrier), st.val(modulator), st.val(index));
                 let s = usize::from(slot);
-                let mph = st.phases.get(s + 1).copied().unwrap_or(0.0) + m * inv;
-                let mph = mph - mph.floor();
-                let cph = st.phases.get(s).copied().unwrap_or(0.0) + c * inv;
-                let cph = cph - cph.floor();
-                if let Some(p) = st.phases.get_mut(s + 1) {
-                    *p = mph;
+                let (cr, mr, kr) = (row(carrier), row(modulator), row(index));
+                for (k, y) in out.iter_mut().enumerate() {
+                    let (c, m, kk) = (at(cr, k), at(mr, k), at(kr, k));
+                    let mph = phases.get(s + 1).copied().unwrap_or(0.0) + m * inv;
+                    let mph = mph - mph.floor();
+                    let cph = phases.get(s).copied().unwrap_or(0.0) + c * inv;
+                    let cph = cph - cph.floor();
+                    if let Some(p) = phases.get_mut(s + 1) {
+                        *p = mph;
+                    }
+                    if let Some(p) = phases.get_mut(s) {
+                        *p = cph;
+                    }
+                    let at = cph + kk * lookup(ctx.sine, mph) * (1.0 / std::f32::consts::TAU);
+                    *y = lookup(ctx.sine, at - at.floor());
                 }
-                if let Some(p) = st.phases.get_mut(s) {
-                    *p = cph;
-                }
-                let at = cph + k * lookup(ctx.sine, mph) * (1.0 / std::f32::consts::TAU);
-                lookup(ctx.sine, at - at.floor())
             }
             Ugen::Delay {
                 input,
@@ -1201,103 +1318,114 @@ impl GraphVoice {
                 feedback,
                 decay,
                 slot,
-                lines,
+                lines: span,
                 wet,
             } => {
-                let x = st.val(input);
-                let fb = match (feedback == NONE, decay) {
-                    (true, _) => 0.0,
-                    // A decay time: each pass loses its share of 60 dB.
-                    (false, true) => {
-                        let t = st.val(time).max(1e-4);
-                        let dec = st.val(feedback);
-                        if dec.abs() < 1e-4 {
-                            0.0
-                        } else {
-                            (dec.signum() * fast_exp2(-9.965_784 * t / dec.abs()))
-                                .clamp(-0.999, 0.999)
-                        }
-                    }
-                    (false, false) => st.val(feedback).clamp(-0.98, 0.98),
-                };
-                let len = usize::from(lines.max(1)) * MAX_DELAY;
-                let d = (st.val(time) / inv).clamp(1.0, (len - 2) as f32);
                 let k = usize::from(slot);
-                let Some(write) = st.writes.get(k).copied() else {
-                    return 0.0;
-                };
                 let base = k * MAX_DELAY;
-                let back = write as f32 + len as f32 - d;
-                let (j, frac) = (back as usize, back - back.floor());
-                let a = st.lines.get(base + j % len).copied().unwrap_or(0.0);
-                let b = st.lines.get(base + (j + 1) % len).copied().unwrap_or(0.0);
-                let delayed = a + (b - a) * frac;
-                let stored = x + fb * delayed;
-                let stored = if stored.is_finite() {
-                    stored.clamp(-8.0, 8.0)
-                } else {
-                    0.0
+                // Its lines, one after another (#323), and where it writes,
+                // held while the row runs.
+                let len = usize::from(span.max(1)) * MAX_DELAY;
+                let (Some(mut write), Some(line)) =
+                    (writes.get(k).copied(), lines.get_mut(base..base + len))
+                else {
+                    out.fill(0.0);
+                    return;
                 };
-                if let Some(w) = st.lines.get_mut(base + write) {
-                    *w = stored;
+                let rows = row(input).iter().zip(row(time)).zip(row(feedback));
+                for (y, ((x, t), fb)) in out.iter_mut().zip(rows) {
+                    let fb = match (feedback == NONE, decay) {
+                        (true, _) => 0.0,
+                        // A decay time: each pass loses its share of 60 dB.
+                        (false, true) => {
+                            let t = t.max(1e-4);
+                            let dec = *fb;
+                            if dec.abs() < 1e-4 {
+                                0.0
+                            } else {
+                                (dec.signum() * fast_exp2(-9.965_784 * t / dec.abs()))
+                                    .clamp(-0.999, 0.999)
+                            }
+                        }
+                        (false, false) => fb.clamp(-0.98, 0.98),
+                    };
+                    let d = (t / inv).clamp(1.0, (len - 2) as f32);
+                    let back = write as f32 + len as f32 - d;
+                    let (j, frac) = (back as usize, back - back.floor());
+                    let a = line.get(j % len).copied().unwrap_or(0.0);
+                    let b = line.get((j + 1) % len).copied().unwrap_or(0.0);
+                    let delayed = a + (b - a) * frac;
+                    let stored = x + fb * delayed;
+                    let stored = if stored.is_finite() {
+                        stored.clamp(-8.0, 8.0)
+                    } else {
+                        0.0
+                    };
+                    if let Some(w) = line.get_mut(write) {
+                        *w = stored;
+                    }
+                    write = (write + 1) % len;
+                    *y = if wet { delayed } else { stored };
                 }
-                if let Some(w) = st.writes.get_mut(k) {
-                    *w = (write + 1) % len;
+                if let Some(w) = writes.get_mut(k) {
+                    *w = write;
                 }
-                if wet { delayed } else { stored }
             }
             Ugen::Clip { input, kind } => {
-                let x = st.val(input);
-                match kind {
-                    // A Padé tanh, exact enough below 3 and 1 above.
-                    0 => {
-                        let x = x.clamp(-3.0, 3.0);
-                        x * (27.0 + x * x) / (27.0 + 9.0 * x * x)
-                    }
-                    1 if x.abs() <= 0.5 => x,
-                    1 => (x.abs() - 0.25) / x,
-                    2 => x / (1.0 + x.abs()),
-                    4 => x.abs(),
-                    5 => x.abs().sqrt().copysign(x),
-                    6 => x * x,
-                    7 => x * x * x,
-                    // atan, within a few thousandths: x / (1 + 0.28 x²) below 1,
-                    // π/2 − 1/x … above.
-                    _ => fast_atan(x),
+                for (y, x) in out.iter_mut().zip(row(input)) {
+                    *y = clip(kind, *x);
                 }
             }
-            Ugen::Mix { inputs, n, mean } => {
-                let n = usize::from(n).max(1);
-                let sum: f32 = inputs.iter().take(n).map(|i| st.val(*i)).sum();
-                if mean { sum / n as f32 } else { sum }
+            Ugen::Mix { inputs, n: m, mean } => {
+                let m = usize::from(m).max(1);
+                let rows = inputs.map(row);
+                for (k, y) in out.iter_mut().enumerate() {
+                    let sum: f32 = rows.iter().take(m).map(|r| at(r, k)).sum();
+                    *y = if mean { sum / m as f32 } else { sum };
+                }
             }
-            Ugen::Select { which, inputs, n } => {
-                let last = usize::from(n).max(1) - 1;
-                let w = st.val(which);
-                let i = if w.is_nan() || w < 0.0 {
-                    0
-                } else {
-                    (w as usize).min(last)
-                };
-                inputs.get(i).map_or(0.0, |i| st.val(*i))
+            Ugen::Select {
+                which,
+                inputs,
+                n: m,
+            } => {
+                let last = usize::from(m).max(1) - 1;
+                let rows = inputs.map(row);
+                for ((k, y), w) in out.iter_mut().enumerate().zip(row(which)) {
+                    let w = *w;
+                    let i = if w.is_nan() || w < 0.0 {
+                        0
+                    } else {
+                        (w as usize).min(last)
+                    };
+                    *y = rows.get(i).map_or(0.0, |r| at(r, k));
+                }
             }
-            Ugen::Neg(a) => -st.val(a),
+            Ugen::Neg(a) => {
+                for (y, x) in out.iter_mut().zip(row(a)) {
+                    *y = -x;
+                }
+            }
             Ugen::Bin(op, a, b) => {
-                let (x, y) = (st.val(a), st.val(b));
+                let xy = out.iter_mut().zip(row(a)).zip(row(b));
                 match op {
-                    Op::Add => x + y,
-                    Op::Sub => x - y,
-                    Op::Mul => x * y,
-                    Op::Div if y == 0.0 => 0.0,
-                    Op::Div => x / y,
-                    Op::Pow => {
-                        let y = x.abs().powf(y).copysign(x);
-                        if y.is_finite() { y } else { 0.0 }
-                    }
-                    Op::Min => x.min(y),
-                    Op::Max => x.max(y),
-                    Op::Round if y == 0.0 => x,
-                    Op::Round => (x / y + 0.5).floor() * y,
+                    Op::Add => xy.for_each(|((o, x), y)| *o = x + y),
+                    Op::Sub => xy.for_each(|((o, x), y)| *o = x - y),
+                    Op::Mul => xy.for_each(|((o, x), y)| *o = x * y),
+                    Op::Div => xy.for_each(|((o, x), y)| *o = if *y == 0.0 { 0.0 } else { x / y }),
+                    Op::Pow => xy.for_each(|((o, x), y)| {
+                        let v = x.abs().powf(*y).copysign(*x);
+                        *o = if v.is_finite() { v } else { 0.0 };
+                    }),
+                    Op::Min => xy.for_each(|((o, x), y)| *o = x.min(*y)),
+                    Op::Max => xy.for_each(|((o, x), y)| *o = x.max(*y)),
+                    Op::Round => xy.for_each(|((o, x), y)| {
+                        *o = if *y == 0.0 {
+                            *x
+                        } else {
+                            (x / y + 0.5).floor() * y
+                        }
+                    }),
                 }
             }
             Ugen::Range {
@@ -1307,21 +1435,81 @@ impl GraphVoice {
                 exp,
                 uni,
             } => {
-                let u = if uni {
-                    st.val(of)
-                } else {
-                    (st.val(of) + 1.0) * 0.5
-                };
-                let (l, h) = (st.val(lo), st.val(hi));
-                if !exp {
-                    l + (h - l) * u
-                } else if l > 0.0 && h > 0.0 {
-                    l * fast_exp2(fast_log2(h / l) * u)
-                } else {
-                    l
+                let (o, lr, hr) = (row(of), row(lo), row(hi));
+                for (k, y) in out.iter_mut().enumerate() {
+                    let u = if uni {
+                        at(o, k)
+                    } else {
+                        (at(o, k) + 1.0) * 0.5
+                    };
+                    let (l, h) = (at(lr, k), at(hr, k));
+                    *y = if !exp {
+                        l + (h - l) * u
+                    } else if l > 0.0 && h > 0.0 {
+                        l * fast_exp2(fast_log2(h / l) * u)
+                    } else {
+                        l
+                    };
                 }
             }
         }
+    }
+}
+
+/// The length of a sub-block (#476): a moving node runs over this many
+/// frames at a time, dispatched once for them.
+const SUB: usize = 32;
+const ZEROS: [f32; SUB] = [0.0; SUB];
+/// A moving node's mark in `VoiceState::moving`: a filter (`MAX_NODES` is
+/// below it).
+const FILTER: u16 = 0x8000;
+
+/// Node `a`'s row in `vals`, `n` frames from `from`, or zeros for none (`NONE`).
+fn row(vals: &[f32], a: u16, from: usize, n: usize) -> &[f32] {
+    let s = usize::from(a) * SUB + from;
+    vals.get(s..s + n)
+        .unwrap_or_else(|| ZEROS.get(..n).unwrap_or(&[]))
+}
+
+/// Frame `k` of a row.
+fn at(r: &[f32], k: usize) -> f32 {
+    r.get(k).copied().unwrap_or(0.0)
+}
+
+/// Filter `slot`'s cutoff in hertz as a note, converted only when it
+/// changes, with the pool's trim.
+fn cutoff_note(cutoffs: &mut [(f32, f32)], slot: u8, hz: f32, trim: f32) -> f32 {
+    let hz = hz.max(1.0);
+    let note = match cutoffs.get_mut(usize::from(slot)) {
+        Some((last, note)) if *last == hz => *note,
+        Some(cached) => {
+            *cached = (hz, 69.0 + 12.0 * fast_log2(hz / 440.0));
+            cached.1
+        }
+        None => 0.0,
+    };
+    note + trim
+}
+
+/// SuperCollider's shapers: 0 `tanh`, 1 `softclip`, 2 `distort`, 3 `atan`,
+/// 4 `abs`, 5 `sqrt` (with the sign, as the server's), 6 `squared`, 7 `cubed`.
+fn clip(kind: u8, x: f32) -> f32 {
+    match kind {
+        // A Padé tanh, exact enough below 3 and 1 above.
+        0 => {
+            let x = x.clamp(-3.0, 3.0);
+            x * (27.0 + x * x) / (27.0 + 9.0 * x * x)
+        }
+        1 if x.abs() <= 0.5 => x,
+        1 => (x.abs() - 0.25) / x,
+        2 => x / (1.0 + x.abs()),
+        4 => x.abs(),
+        5 => x.abs().sqrt().copysign(x),
+        6 => x * x,
+        7 => x * x * x,
+        // atan, within a few thousandths: x / (1 + 0.28 x²) below 1,
+        // π/2 − 1/x … above.
+        _ => fast_atan(x),
     }
 }
 
@@ -1646,6 +1834,7 @@ mod tests {
             let mut st = VoiceState::for_program(&p);
             st.prog = p;
             let len = usize::from(p.len);
+            let envs = [[0.0; SUB]; MAX_ENVS];
             (0..n)
                 .map(|t| {
                     let f = hz(t);
@@ -1653,10 +1842,9 @@ mod tests {
                         v.press(57, 1.0, &p, 48_000.0, 0);
                     }
                     for i in 0..len {
-                        let y = v.eval(&mut st, i, f, 1.0 / 48_000.0, true, &ctx);
-                        st.vals[i] = y;
+                        v.eval_row(&mut st, i, 0, 1, f, 1.0 / 48_000.0, true, &ctx, &envs);
                     }
-                    (st.vals[input], st.vals[len - 1])
+                    (st.vals[input * SUB], st.vals[(len - 1) * SUB])
                 })
                 .collect()
         }
@@ -2006,7 +2194,16 @@ mod tests {
     #[test]
     fn steady_nodes_once_a_block_render_the_same() {
         let mut b = Bench::new();
-        for text in [sc::hoover::HOOVER, sc::hoover::MONO_HOOVER] {
+        for text in [
+            sc::hoover::HOOVER,
+            sc::hoover::MONO_HOOVER,
+            KITCHEN,
+            // #323's DC blocker, long delay and signal math, and its
+            // control lag.
+            "SynthDef(\\m, { |freq = 220| var x = LeakDC.ar(Saw.ar(\\freq.kr(220, 0.05)) + 0.3); (DelayN.ar(x, 0.4, 0.3) + (x.abs ** 1.5).min(0.6).max(-0.6) + x.sqrt.squared.cubed * 0.1) * 0.3 }).add;",
+            // #472's noises and lag, which hold state across a row (#476).
+            "SynthDef(\\n, { |freq = 220| RLPF.ar(Saw.ar(freq * (1 + (LFNoise1.kr(7) * 0.02))), LFNoise0.kr(5).range(400, 3000).lag(0.05), 0.3) * 0.3 }).add;",
+        ] {
             let patch = sc::compile(text).expect("builds");
             for k in &patch.knobs {
                 if let Some(c) = b.params.ctl.get_mut(k.ctl) {
@@ -2037,6 +2234,85 @@ mod tests {
             let (one, block) = (render(1), render(128));
             assert!(one.0.iter().any(|x| x.abs() > 1e-3), "it sounds");
             assert_eq!(one, block);
+        }
+    }
+
+    /// Every unit but `Noise` in one voice (#476): its render is held to
+    /// the per-sample interpreter's, bit for bit.
+    const KITCHEN: &str = r"SynthDef(\kitchen, { |freq = 220, gate = 1, amp = 0.3, cut = 1200, modwheel = 0|
+    var env = EnvGen.kr(Env.adsr(0.01, 0.2, 0.6, 0.3), gate);
+    var bend = Env([0, 3, 0], [0.05, 0.3], [\lin, -4]).kr.midiratio;
+    var lfo = LFSaw.kr(3).range(0.2, 0.8);
+    var a = Mix([Saw.ar(freq * bend * ExpRand(0.99, 1.01)), Pulse.ar(freq * 1.01, lfo), LFTri.ar(freq * 0.5)]);
+    var b = PMOsc.ar(freq, freq * 2, SinOsc.kr(0.5).range(0, 3)) * Rand(0.2, 0.4);
+    var f = MoogFF.ar(a, cut * (1 + modwheel) * env.range(0.5, 2), 2.5) + RLPF.ar(b, cut, 0.3) + HPF.ar(a, 300) + HPF.ar(b, 500, voicing: \odyssey);
+    var d = CombL.ar(f, 0.02, 0.013, 0.4) + DelayN.ar(f.neg, 0.01, 0.004);
+    var g = Latch.ar(d, LFPulse.kr(40)) * 0.3 + Decimator.ar(d.softclip, 8000, 6) * 0.3 + d.distort.round(0.01);
+    var s = Pan2.ar(Select.kr(LFPulse.kr(30), [g, g.neg * 0.5]).tanh * env * amp, SinOsc.kr(0.2));
+    FreeVerb2.ar(s[0], s[1], 0.3, 0.7, 0.4)
+}).add;";
+
+    /// Each sample's bits of `text` rendered in 128-frame blocks, folded (FNV-1a).
+    fn fingerprint(b: &mut Bench, text: &str) -> u64 {
+        let patch = sc::compile(text).unwrap_or_else(|e| panic!("{e:?}"));
+        for k in &patch.knobs {
+            if let Some(c) = b.params.ctl.get_mut(k.ctl) {
+                *c = k.default;
+            }
+        }
+        let p = patch.program;
+        b.params.graph = p;
+        let ctx = MonoCtx {
+            params: &b.params,
+            sine: &b.sine,
+            blep: &b.blep,
+            ladder: &b.ladder,
+            pitch: &b.pitch,
+            shared: None,
+            tables: b.tables,
+        };
+        let mut v = GraphVoice::new(7);
+        let mut st = VoiceState::for_program(&p);
+        v.press(45, 0.8, &p, 48_000.0, 0);
+        let mut h = 0xcbf2_9ce4_8422_2325_u64;
+        let mut loud = 0.0_f32;
+        for n in 0..150 {
+            if n == 100 {
+                v.release_all();
+            }
+            let (mut l, mut r) = ([0.0_f32; 128], [0.0_f32; 128]);
+            v.render(&ctx, &mut st, &mut l, Some(&mut r));
+            for x in l.iter().chain(&r) {
+                loud = loud.max(x.abs());
+                h = (h ^ u64::from(x.to_bits())).wrapping_mul(0x100_0000_01b3);
+            }
+        }
+        assert!(loud > 1e-3, "it sounds");
+        h
+    }
+
+    /// #476: the voice renders bit for bit what the per-sample interpreter
+    /// of #318 rendered: the hoovers, and every unit but `Noise`.
+    #[test]
+    fn the_interpreter_renders_as_it_did() {
+        let mut b = Bench::new();
+        for (text, want) in [
+            (sc::hoover::HOOVER, 0x772a_e6cb_e164_51d4_u64),
+            (sc::hoover::MONO_HOOVER, 0xc387_7eee_9807_13a5),
+            // Its sine and filter tables are built with the platform's
+            // libm (`sin`, `tan`, `exp`), which differ in the last bit
+            // between macOS and glibc: one print per platform, both taken
+            // from the interpreter before #476.
+            (
+                KITCHEN,
+                if cfg!(target_os = "linux") {
+                    0x4c2d_d496_24b1_9622
+                } else {
+                    0xd095_f665_2ba0_135b
+                },
+            ),
+        ] {
+            assert_eq!(fingerprint(&mut b, text), want, "{}", &text[..20]);
         }
     }
 
@@ -2076,9 +2352,15 @@ mod tests {
             best / n as f64
         };
         let n = 48_000;
+        // `make bench`'s largest: eight oscillators, three ladders, a filter and a comb.
+        let max = "SynthDef(\\big, { |freq = 440|
+      var sig = Mix([Saw.ar(freq), Saw.ar(freq), Pulse.ar(freq), LFTri.ar(freq), Saw.ar(freq), Pulse.ar(freq), Saw.ar(freq), LFTri.ar(freq)]);
+      CombN.ar(RLPF.ar(MoogFF.ar(MoogFF.ar(MoogFF.ar(sig, 3000), 2000), 1500), 1000), 0.01, 0.003, 0.5)
+  }).add;";
         for (name, text) in [
             ("hoover", sc::hoover::HOOVER),
             ("mono hoover", sc::hoover::MONO_HOOVER),
+            ("modular max", max),
         ] {
             let p = sc::compile(text).expect("builds").program;
             let len = usize::from(p.len);
