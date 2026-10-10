@@ -136,7 +136,9 @@ pub fn lex(text: &str) -> Vec<Span> {
                     }
                     _ => {}
                 }
-                if KEYWORDS.contains(&kw) {
+                // `master:` is the keyword and its colon, as the parser reads it.
+                let e = if kw == "master:" { e - 1 } else { e };
+                if KEYWORDS.contains(&kw.trim_end_matches(':')) {
                     l.push(s, e, Class::Keyword);
                     l.tokens(e, body, false);
                 } else {
@@ -147,7 +149,8 @@ pub fn lex(text: &str) -> Vec<Span> {
         if body < line.len() {
             l.push(body, line.len(), Class::Comment);
         }
-        at = p + 1;
+        // Past the line as written, its `\r` too, and the `\n`.
+        at = p + u32::from(raw.ends_with('\r')) + 1;
     }
     out
 }
@@ -504,6 +507,35 @@ arrange main main
         assert_eq!(s[1], ("tempo".to_string(), Class::Keyword));
         let raw = lex(text);
         assert!(raw.windows(2).all(|w| w[0].start + w[0].len <= w[1].start));
+    }
+
+    /// The parser reads `master:` as `master` and a colon; so does the lexer.
+    #[test]
+    fn master_and_its_colon() {
+        assert_eq!(
+            spans("master: MasterGain 0.8"),
+            [
+                ("master".to_string(), Class::Keyword),
+                (":".to_string(), Class::Punct),
+                ("MasterGain".to_string(), Class::Name),
+                ("0.8".to_string(), Class::Number),
+            ]
+        );
+    }
+
+    /// A `\r\n` line end moves the spans after it by two units, not one.
+    #[test]
+    fn crlf_lines_keep_their_offsets() {
+        let text = "tempo 120\r\nswing 50\r\n";
+        assert_eq!(
+            spans(text),
+            [
+                ("tempo".to_string(), Class::Keyword),
+                ("120".to_string(), Class::Number),
+                ("swing".to_string(), Class::Keyword),
+                ("50".to_string(), Class::Number),
+            ]
+        );
     }
 
     /// The view colours by `CLASSES` in `web/src/audio/lex.ts`, indexed by
