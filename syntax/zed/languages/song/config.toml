@@ -1,0 +1,12 @@
+name = "Song"
+grammar = "song"
+path_suffixes = ["song"]
+line_comments = ["# "]
+tab_size = 2
+brackets = [
+  { start = "[", end = "]", close = true, newline = false },
+  { start = "(", end = ")", close = true, newline = false },
+  { start = "<", end = ">", close = true, newline = false },
+  { start = "\"", end = "\"", close = true, newline = false },
+  { start = "{", end = "}", close = true, newline = true },
+]

@@ -1,0 +1,5 @@
+# Built by Zed on install.
+/target/
+Cargo.lock
+extension.wasm
+grammars/

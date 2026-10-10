@@ -1,0 +1,16 @@
+# Zed builds this to wasm when the extension is installed; it is its own
+# workspace, not the engine's (#482).
+[package]
+name = "zed-song"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7.0"
+
+[workspace]
