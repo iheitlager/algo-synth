@@ -1,6 +1,6 @@
 # 0024: SuperCollider voices on the Modular synth's panel
 
-**Status:** Accepted · **Date:** 2026-10-06 · supersedes the syntax, storage and Sound-screen parts of ADR-0020 and ADR-0021 · built (`modular/sc.rs`); accepted 2026-10-09 (#227)
+**Status:** Accepted, extended by 0032 · **Date:** 2026-10-06 · supersedes the syntax, storage and Sound-screen parts of ADR-0020 and ADR-0021 · built (`modular/sc.rs`); accepted 2026-10-09 (#227)
 
 ## Context
 
@@ -45,3 +45,7 @@ The acceptance target is a classic hoover written for SuperCollider: 20 detuned 
 - **A closed set without sclang.** No interpreter, but `dup`, `Array.fill` and `Mix.fill` are how SynthDefs are written; the hoover could not be written. Rejected.
 - **Embedding scsynth.** As ADR-0020: AGPL and a second engine. Rejected again.
 - **Knobs only for `|args|`.** Simpler, but the modules on the panel would be empty for code that writes its numbers inline, as most SynthDefs do. Rejected.
+
+## Later decisions
+
+- **ADR-0032** (proposed): the subset grows by the `` `[...] `` literal and `Klang`, `DynKlang`, `Klank`, `DynKlank`, `VOsc` and `Osc`, the last two reading user wavetables where SuperCollider reads buffers; still real sclang, still fixed per voice.

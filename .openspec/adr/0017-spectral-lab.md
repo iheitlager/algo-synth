@@ -1,6 +1,6 @@
 # 0017: The Spectral Lab: a third window with its own engine, analysis in Rust off the audio thread
 
-**Status:** Proposed · **Date:** 2026-10-10 · **Amends:** 0001
+**Status:** Proposed, extended by 0032 · **Date:** 2026-10-10 · **Amends:** 0001
 
 ## Context
 
@@ -41,3 +41,7 @@ Analysis is unlike everything the engine does today. An STFT of a ten-second sou
 - **Analysis on the lab's audio thread.** No worker. A one-second call would make the lab's audio drop out and break ADR-0002's spirit for no gain. Rejected.
 - **Analysis in JavaScript or with the Web Audio `AnalyserNode`.** Quick to build, but it is logic outside Rust (ADR-0001), untestable natively, and an `AnalyserNode` gives magnitudes per block, not tracked partials. Rejected.
 - **An FFT crate.** `rustfft` is fast and tested, but the crate is std-only by choice (ADR-0001) and a radix-2 FFT is a page of code that already exists in the tests. Rejected for now; revisit if the search shows the FFT is the bottleneck.
+
+## Later decisions
+
+- **ADR-0032** (proposed): the lab also transforms and morphs partial sets from more than one source, and sends them as user wavetables, an attack and a body, or a multisample, besides a sample.
