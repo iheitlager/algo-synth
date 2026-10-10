@@ -726,6 +726,72 @@ describe('MIDI files and setups', () => {
     expect(take().map((m) => m.t)).toEqual(['song'])
   })
 
+  it('a song opened from a file is unchanged until it changes, and Save writes it back (#465)', async () => {
+    const { mod, send, posted } = await boot()
+    const into = { text: '' }
+    const handle = {
+      name: 'tune.song',
+      createWritable: async () => ({ write: async (t: string) => void (into.text = t), close: async () => {} }),
+    }
+    await mod.openFiles([new File(['tempo 77'], 'tune.song')], handle)
+    const id = posted.filter((m) => m.t === 'song').at(-1)?.id
+    // A reply to an earlier load (power-on's kept song) is not the file's.
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 120\n'), error: null, tracks: [] })
+    expect(mod.opened.saved).toBe('')
+    // The engine answers the file's load with its canonical text: that is what the file holds.
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 77\n'), error: null, tracks: [], id })
+    expect(mod.songChanged.value).toBe(false)
+    expect(mod.opened.name).toBe('tune.song')
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 90\n'), error: null, tracks: [] })
+    expect(mod.songChanged.value).toBe(true)
+    await mod.saveSong()
+    expect(into.text).toBe('tempo 90\n')
+    expect(mod.songChanged.value).toBe(false)
+  })
+
+  it('Save as… picks a new file and Save writes there after; a failed write says so (#465)', async () => {
+    const { mod, send } = await boot()
+    const written: [string, string][] = []
+    const file = (name: string, fail = false) => ({
+      name,
+      createWritable: async () => {
+        if (fail) throw new Error('permission denied')
+        return { write: async (t: string) => void written.push([name, t]), close: async () => {} }
+      },
+    })
+    const pick = vi.fn(async () => file('copy.song'))
+    vi.stubGlobal('showSaveFilePicker', pick)
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 80\n'), error: null, tracks: [] })
+    await mod.saveSong(true)
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 81\n'), error: null, tracks: [] })
+    await mod.saveSong()
+    expect(pick).toHaveBeenCalledTimes(1)
+    expect(written).toEqual([['copy.song', 'tempo 80\n'], ['copy.song', 'tempo 81\n']])
+    pick.mockImplementation(async () => file('locked.song', true))
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 82\n'), error: null, tracks: [] })
+    await mod.saveSong(true)
+    expect(mod.files.notice).toBe('locked.song was not saved: permission denied')
+    expect(mod.songChanged.value).toBe(true)
+  })
+
+  it('without the API Save downloads; a MIDI import or New has no file to save into (#465)', async () => {
+    const { mod, send, posted } = await boot()
+    const links: { download: string }[] = []
+    vi.stubGlobal('document', { createElement: () => { const l = { href: '', download: '', click: () => links.push(l) }; return l } })
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} })
+    await mod.openFiles([new File(['tempo 77'], 'tune.song')])
+    const id = posted.filter((m) => m.t === 'song').at(-1)?.id
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 78\n'), error: null, tracks: [], id })
+    expect(mod.songChanged.value).toBe(false)
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 79\n'), error: null, tracks: [] })
+    await mod.saveSong()
+    expect(links.map((l) => l.download)).toEqual(['tune.song'])
+    expect(mod.songChanged.value).toBe(false)
+    await mod.loadMidi(new ArrayBuffer(4), 'other.mid')
+    expect(mod.opened).toEqual({ name: '', saved: '' })
+    expect(mod.songChanged.value).toBe(true)
+  })
+
   it('the demo imports its MIDI file and no setup: the song picks its synths (#327)', async () => {
     const fetched: string[] = []
     const { mod, send, take } = await boot({

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
-  clearAll, engineBuild, getEngine, loadDemo, meter, openFiles, params, pauseSong, playSong, power, saveSong, song, songPosition, status, stopSong,
-  view,
+  clearAll, engineBuild, getEngine, loadDemo, meter, opened, openFiles, params, pauseSong, playSong, power, saveSong, song, songChanged, songPosition,
+  status, stopSong, view,
 } from '../audio/engine'
+import { canPick, isSongFile, pickOpen } from '../audio/songfile'
 import { assistant } from '../audio/assistlink'
 import { details, page } from '../audio/buildinfo'
 import { Param } from '../audio/params'
@@ -71,6 +72,19 @@ async function onFile(e: Event) {
   await openFiles(files)
   await onPower()
 }
+// Where the browser can save in place (#465), Open… keeps the song file's handle for Save.
+const picking = canPick()
+async function onPick() {
+  const picked = await pickOpen()
+  if (!picked.length) return
+  await openFiles(picked.map((p) => p.file), picked.find((p) => isSongFile(p.file.name))?.handle ?? null)
+  await onPower()
+}
+const saveTitle = () =>
+  !songChanged.value ? 'Nothing changed since the song was opened or saved'
+  : picking && opened.name ? `Save the song into ${opened.name}`
+  : picking ? 'Save the song as a .song file' : 'Download the song as .song text'
+
 // Which build is running (#197): the page's version and the engine's, with the commits in the details.
 const buildText = () => details(engineBuild)
 const copied = ref(false)
@@ -118,10 +132,13 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
     <button :aria-pressed="assistant.shown" :class="{ on: assistant.shown }" title="Ask a language model to change the song" @click="assistant.shown = !assistant.shown">Assistant</button>
     <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
     <button @click="onDemo">Demo</button>
-    <label class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
+    <button v-if="picking" title="A MIDI file, its .synths.json setup, a .song, or several" @click="onPick">Open…</button>
+    <label v-else class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
       <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json,.song" @change="onFile" />Open…
     </label>
-    <button :disabled="!status.running || !song.text" title="Download the song as .song text" @click="saveSong">Save song</button>
+    <!-- Save writes the song back into its file, lit when it changed; Save as… picks a new one (#465). -->
+    <button :disabled="!status.running || !songChanged" :title="saveTitle()" @click="saveSong()">Save<template v-if="songChanged"> ●</template></button>
+    <button :disabled="!status.running || !song.text" title="Save the song into a new .song file" @click="saveSong(true)">Save as…</button>
     <!-- The transport, the only one (ADR-0022): the song plays, pauses where it is, stops back to the top. -->
     <button :disabled="!status.running" :class="{ on: song.playing }" @click="toggle">{{ song.playing ? '❚❚ Pause' : '▶ Play' }}</button>
     <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
