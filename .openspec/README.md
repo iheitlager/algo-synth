@@ -46,5 +46,6 @@ See [adr/index.md](adr/index.md).
 | [007-samplers](specs/007-samplers/spec.md) | The sample store, the multisampler, the pad sampler and the sample packs |
 | [008-assist](specs/008-assist/spec.md) | The assistant: song tools, providers behind one interface, the loop and the server (ADR-0028) |
 | [009-spectral](specs/009-spectral/spec.md) | The Spectral Lab: STFT analysis, partial tracks, additive resynthesis and the lab window (ADR-0017) |
+| [010-partials](specs/010-partials/spec.md) | Partials, transforms and morphs: the partial set from any source, noise per partial, a Loris-style morph, and playing it as PPG frames, a D-50 attack and body, or `Klang`/`VOsc` in the Modular (ADR-0032) |
 
 Every `**Implementation:**` and `**Tests:**` reference must resolve: a backticked path (`crates/…`, `web/…`, `tools/…`) must exist, and in `path.rs::Type::name` the last segment must be defined in that file (or in its `name/` module directory). `tools/test_specs.py` checks this and runs in `make test-tools`. A requirement that is not built yet starts its line with `(planned)`, as in `**Implementation:** (planned, #10) …`; the check skips that line, and it names no path as if it existed.

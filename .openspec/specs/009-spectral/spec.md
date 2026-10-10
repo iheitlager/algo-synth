@@ -1,6 +1,6 @@
 # 009: The Spectral Lab
 
-Analysis of a WAV into partials, their additive resynthesis, and the lab window that plays them side by side with the original. Epic #192, first stages (#500–#503); the residual and DX7 matching follow as more requirements here, the Synclavier model in spec 006. Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017.
+Analysis of a WAV into partials, their additive resynthesis, and the lab window that plays them side by side with the original. Epic #192, first stages (#500–#503); noise (per partial, in place of a separate residual), transforms, morphs, the ways to play a partial set and the refined DX7 fit are in spec 010 (ADR-0032), which drops the Synclavier model. Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017.
 
 Common to every requirement: analysis and resynthesis are offline calls, not `render`. They may allocate, within the caps of Requirement 1, and SHALL never panic: any input gives a result or a negative code. Tests render known sounds offline at 48 kHz and analyse them natively.
 
