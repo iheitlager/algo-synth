@@ -184,11 +184,26 @@ pub enum Node {
 }
 
 /// A compiled expression: its nodes, the last one the result.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Signal {
     nodes: Vec<Node>,
-    /// The numbers of its sequences.
+    /// The numbers of its sequences; NaN for a `~`, a step with no value
+    /// (#255).
     values: Vec<f32>,
+}
+
+/// Equal when the nodes are and the numbers have the same bits, so two
+/// `~` (NaN) compare equal.
+impl PartialEq for Signal {
+    fn eq(&self, other: &Signal) -> bool {
+        self.nodes == other.nodes
+            && self.values.len() == other.values.len()
+            && self
+                .values
+                .iter()
+                .zip(&other.values)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+    }
 }
 
 /// What `eval` needs besides the position.
@@ -280,12 +295,18 @@ impl Signal {
             .any(|n| matches!(n, Node::Env(_) | Node::List { .. } | Node::LfoList { .. }))
     }
 
+    /// Whether a sequence holds a `~`, a moment with no value (#255).
+    pub fn rests(&self) -> bool {
+        self.values.iter().any(|v| v.is_nan())
+    }
+
     /// Whether it uses `.lag`, whose state is one for the song.
     pub fn lags(&self) -> bool {
         self.nodes.iter().any(|n| matches!(n, Node::Lag { .. }))
     }
 
-    /// The value at `t` cycles. Never allocates.
+    /// The value at `t` cycles, NaN where a `~` leaves it without one
+    /// (#255). Never allocates.
     pub fn eval(&self, t: f64, ctx: &mut Ctx<'_>) -> f32 {
         match self.nodes.len().checked_sub(1) {
             Some(root) => self.at(root, t, ctx) as f32,
@@ -370,6 +391,10 @@ impl Signal {
             }
             Node::Lag { of, secs, slot } => {
                 let x = self.at(of, t, ctx);
+                // No value (a `~`) leaves the lag where it was.
+                if x.is_nan() {
+                    return x;
+                }
                 let Some(s) = ctx.state.get_mut(slot) else {
                     return x;
                 };
@@ -491,7 +516,11 @@ impl Signal {
                     if k > 0 {
                         out.push(' ');
                     }
-                    write!(out, "{v}")?;
+                    if v.is_nan() {
+                        out.push('~');
+                    } else {
+                        write!(out, "{v}")?;
+                    }
                 }
                 out.push_str(close);
                 Ok(())
@@ -876,7 +905,7 @@ impl<'a> Parser<'a, '_> {
             None => (false, inner),
         };
         if inner.contains(['<', '>']) {
-            return Err((at - 1, "a sequence holds numbers, e.g. \"<300 800>\""));
+            return Err((at - 1, "a sequence holds numbers or ~, e.g. \"<300 800>\""));
         }
         let from = self.values.len();
         let mut start: Option<(usize, usize)> = None;
@@ -885,11 +914,17 @@ impl<'a> Parser<'a, '_> {
             match (c.is_whitespace() || c == '<' || c == '>', start) {
                 (false, None) => start = Some((b, col)),
                 (true, Some((s, k))) => {
+                    // `~`: no value on this step, so a lock lets go (#255).
                     let v = text
                         .get(s..b)
-                        .and_then(|w| w.parse::<f32>().ok())
-                        .filter(|v| v.is_finite())
-                        .ok_or((at + k, "a sequence holds numbers, e.g. \"<300 800>\""))?;
+                        .and_then(|w| {
+                            if w == "~" {
+                                Some(f32::NAN)
+                            } else {
+                                w.parse::<f32>().ok().filter(|v| v.is_finite())
+                            }
+                        })
+                        .ok_or((at + k, "a sequence holds numbers or ~, e.g. \"<300 800>\""))?;
                     if self.values.len() - from >= MAX_SEQ {
                         return Err((at + k, "a sequence has at most 64 numbers"));
                     }
@@ -901,7 +936,7 @@ impl<'a> Parser<'a, '_> {
         }
         let len = self.values.len() - from;
         if len == 0 {
-            return Err((at - 1, "a sequence holds numbers, e.g. \"<300 800>\""));
+            return Err((at - 1, "a sequence holds numbers or ~, e.g. \"<300 800>\""));
         }
         self.push(Node::Seq {
             from,
@@ -1127,6 +1162,39 @@ mod tests {
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-3 * b.abs().max(1.0)
+    }
+
+    /// #255: a `~` in a sequence is a moment with no value: it evaluates to
+    /// NaN through methods and operators, prints back, and a lag holds over it.
+    #[test]
+    fn a_rest_in_a_sequence_has_no_value() {
+        let s = sig("\"~ 800\"");
+        assert!(s.rests() && val(&s, 0.25).is_nan());
+        assert_eq!(val(&s, 0.75), 800.0);
+        assert_eq!(s.to_string(), "\"~ 800\"");
+        assert_eq!(sig(&s.to_string()), s, "a ~ equals a ~");
+        let per_bar = sig("\"<~ 0.8>\"");
+        assert!(val(&per_bar, 0.5).is_nan() && val(&per_bar, 1.5) == 0.8);
+        let ranged = sig("\"~ 1\".range(100, 200) + 5");
+        assert!(val(&ranged, 0.1).is_nan() && val(&ranged, 0.9) == 205.0);
+        // The lag follows 1, holds through the rest, and goes on from there.
+        let lagged = sig("\"1 ~\".lag(0.05)");
+        let mut state = [f32::NAN; MAX_NODES];
+        let mut at = |t: f64| {
+            lagged.eval(
+                t,
+                &mut Ctx {
+                    cps: 0.5,
+                    dt: 0.01,
+                    state: &mut state,
+                    voice: None,
+                },
+            )
+        };
+        assert_eq!(at(0.1), 1.0);
+        assert!(at(0.6).is_nan());
+        assert_eq!(at(1.1), 1.0, "the lag kept its value");
+        assert!(!sig("\"1 2\"").rests());
     }
 
     /// #298: Strudel's `cosine`, the bipolar sources from −1 to 1, whole
@@ -1375,12 +1443,20 @@ mod tests {
             ("sine $", 6, "a signal has no such character"),
             ("1e99", 1, "a number is too large"),
             ("\"1 2", 1, "this \" is not closed"),
-            ("\"1 x\"", 4, "a sequence holds numbers, e.g. \"<300 800>\""),
-            ("\"\"", 1, "a sequence holds numbers, e.g. \"<300 800>\""),
+            (
+                "\"1 x\"",
+                4,
+                "a sequence holds numbers or ~, e.g. \"<300 800>\"",
+            ),
+            (
+                "\"\"",
+                1,
+                "a sequence holds numbers or ~, e.g. \"<300 800>\"",
+            ),
             (
                 "\"<1 <2>>\"",
                 1,
-                "a sequence holds numbers, e.g. \"<300 800>\"",
+                "a sequence holds numbers or ~, e.g. \"<300 800>\"",
             ),
         ] {
             let mut n = 0;

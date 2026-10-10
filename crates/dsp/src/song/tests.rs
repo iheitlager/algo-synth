@@ -2263,6 +2263,19 @@ fn a_ghost_note_parses_and_prints_back() {
     assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
 }
 
+/// #255: a `~` locks no value per voice, so a per-voice signal refuses it.
+#[test]
+fn a_rest_is_not_for_a_per_voice_signal() {
+    let e = Song::parse("track lead synth\nmod lead.cutoff = env(perc) * \"~ 1000\"\n")
+        .expect_err("per voice");
+    assert_eq!(e.msg, "a ~ lets go of one value, not one per voice");
+    let ok = Song::parse(
+        "track lead synth\nfrag a = lead .cutoff(\"~ 800\")\n  \"c3 e3\"\nmod lead.resonance = \"<~ 0.7>\"\n",
+    );
+    let song = ok.expect("one value");
+    assert_eq!(Song::parse(&song.print()), Ok(song));
+}
+
 /// #242: a digit after a hit, accent or ghost ratchets it; the lane counts
 /// steps, not digits, and prints back as written. A ratchet goes only on
 /// x, X or o, and is 2, 3 or 4.

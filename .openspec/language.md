@@ -494,6 +494,11 @@ of the frag's track (its synth or strip) while the frag plays, and puts it
 back when it leaves. One per parameter per frag; a pattern method's name wins.
 They count with `mod` lines toward 32.
 
+A `~` in a sequence is a step with no value: the parameter has its own value
+there, so `.cutoff("~ ~ 800 ~")` locks the cutoff on one step of four and lets
+go after it (a per-step lock). Anything combined with a `~` has no value on that
+step either. A per-voice signal takes no `~`.
+
 ```song
 track kit drums
 track bass synth Sh101
@@ -503,6 +508,8 @@ frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
   "c2 c2 eb2 <g2 bb1>"
 frag plain = bass .cutoff("<400 900>")
   "c2 ~ c2 ~"
+frag lock = kit .send1("~ ~ ~ ~ ~ ~ 0.6 ~ ~ ~ ~ ~ ~ ~ 0.6 ~")
+  sn ....x.......x...
 section a 4: beat acid
 section b 4: beat plain
 arrange a b
@@ -588,7 +595,7 @@ term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<m
 | `sine2` `cosine2` `saw2` `tri2` `square2` `rand2` | as Strudel's: the same from −1 to 1 |
 | `irand(<n>)` | a whole number from 0 to n − 1 (n 1–64), new each sixteenth |
 | `brand` `brandBy(<p>)` | 1 with chance p (0–1; 0.5 for `brand`), else 0, new each sixteenth |
-| `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64) |
+| `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64); `~` a step with no value |
 | `env(adsr)` `env(perc)` `env(<a>, <d>, <s>, <r>)` | per voice: an envelope per note, the synth's ADSR, a short one, or seconds |
 | `[a, b, …]` `lfo([a, b, …])` | per voice: number or LFO rate i for voice slot i, round the list (at most 16) |
 

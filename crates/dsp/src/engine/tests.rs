@@ -2346,6 +2346,37 @@ fn a_fragment_method_writes_while_its_fragment_plays() {
     assert_eq!(e.param_value(0, Param::Send1), 0.5, "and again");
 }
 
+/// #255: a `~` in a method's sequence is a step with no lock: the knob has
+/// its own value there, the locked value only on its step, and its own
+/// again when the song stops.
+#[test]
+fn a_parameter_lock_holds_only_its_step() {
+    let mut e = kit(0);
+    e.set_param(0, Param::Send1, 0.1);
+    let text = "track kit drums\nfrag b = kit /16 .send1(\"~ ~ 0.8 ~\")\n  bd x...x...x...x...\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let block = |sample: usize| sample / BLOCK;
+    run(&mut e, block(1_280));
+    assert_eq!(
+        e.param_value(0, Param::Send1),
+        0.1,
+        "the first quarter is unlocked"
+    );
+    run(&mut e, block(52_000) - block(1_280));
+    assert_eq!(
+        e.param_value(0, Param::Send1),
+        0.8,
+        "the third quarter is locked"
+    );
+    run(&mut e, block(80_000) - block(52_000));
+    assert_eq!(e.param_value(0, Param::Send1), 0.1, "and lets go after it");
+    run(&mut e, block(148_000) - block(80_000));
+    assert_eq!(e.param_value(0, Param::Send1), 0.8, "every bar");
+    e.song_stop();
+    assert_eq!(e.param_value(0, Param::Send1), 0.1);
+}
+
 /// A modulation puts back the value it found when the song stops, and one a
 /// reload keeps keeps that value through the takeover.
 #[test]
