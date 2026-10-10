@@ -346,12 +346,25 @@ export async function loadMidi(bytes: ArrayBuffer, fileName: string): Promise<vo
   engine.post({ t: 'midi', bytes }, [bytes])
 }
 
-/** The demo is its MIDI file: the song it imports as picks its own synths (#327). */
-export async function loadDemo(): Promise<void> {
-  const mid = await fetch(`${base}demo.mid`)
+/**
+ * The demos, MIDI files under `public/`: the Canon, and the first movements of
+ * Vivaldi's Four Seasons from Mutopia (#20; `scores/LICENSE.txt`).
+ */
+export const DEMOS = [
+  { file: 'demo.mid', name: 'Canon in D' },
+  { file: 'scores/rv269-spring.mid', name: 'Spring, RV 269' },
+  { file: 'scores/rv315-summer.mid', name: 'Summer, RV 315' },
+  { file: 'scores/rv293-autumn.mid', name: 'Autumn, RV 293' },
+  { file: 'scores/rv297-winter.mid', name: 'Winter, RV 297' },
+]
+
+/** A demo is its MIDI file: the song it imports as picks its own synths (#327). */
+export async function loadDemo(i = 0): Promise<void> {
+  const demo = DEMOS[i] ?? DEMOS[0]
+  const mid = await fetch(`${base}${demo.file}`)
   pending = null
   files.notice = ''
-  await loadMidi(await mid.arrayBuffer(), 'Canon in D (demo)')
+  await loadMidi(await mid.arrayBuffer(), `${demo.name} (demo)`)
 }
 
 // DX7 SysEx: the engine parses the file; the view keeps the voice names it sends back.

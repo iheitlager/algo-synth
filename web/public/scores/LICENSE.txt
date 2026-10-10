@@ -1,0 +1,28 @@
+Antonio Vivaldi, Il cimento dell'armonia e dell'inventione, Op. 8, Nos. 1-4
+("The Four Seasons"), first movements. The music is in the public domain;
+these MIDI files are not, and are used under their own licence.
+
+Source:     The Mutopia Project, https://www.mutopiaproject.org/
+            typeset in LilyPond 2.12.3 from Performers' Facsimiles,
+            maintained by "Anonymous", 2010.
+Licence:    Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0),
+            https://creativecommons.org/licenses/by-sa/3.0/
+Changes:    none. Each file is the first-movement MIDI from the piece's
+            .mid download (`<season>-score.mid`), renamed.
+
+rv269-spring.mid   La Primavera / Spring, Op. 8 No. 1, RV 269
+                   Mutopia-2010/02/08-301
+                   https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=301
+rv315-summer.mid   L'Estate / Summer, Op. 8 No. 2, RV 315
+                   Mutopia-2010/02/08-336
+                   https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=336
+rv293-autumn.mid   L'Autunno / Autumn, Op. 8 No. 3, RV 293
+                   Mutopia-2010/02/08-350
+                   https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=350
+rv297-winter.mid   L'Inverno / Winter, Op. 8 No. 4, RV 297
+                   Mutopia-2010/02/08-351
+                   https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=351
+
+Each has five parts: solo violin, violins I and II, viola and cello.
+Under ShareAlike, these files and any changes to them stay CC BY-SA 3.0;
+the rest of algo-synth keeps its own licence.

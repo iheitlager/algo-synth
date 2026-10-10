@@ -808,6 +808,21 @@ describe('MIDI files and setups', () => {
     send({ t: 'imported', code: 4 })
     expect(take().map((m) => m.t)).toEqual([])
   })
+
+  it('a Season is a demo too: its score under scores/ (#20)', async () => {
+    const fetched: string[] = []
+    const { mod, take } = await boot({
+      fetch: async (url) => {
+        fetched.push(url)
+        return new Response(new Uint8Array(4))
+      },
+    })
+    take()
+    await mod.loadDemo(mod.DEMOS.findIndex((d) => d.name.startsWith('Spring')))
+    expect(fetched.filter((u) => u.includes('scores/'))).toEqual([expect.stringMatching(/scores\/rv269-spring\.mid$/)])
+    expect(mod.files.fileName).toBe('Spring, RV 269 (demo)')
+    expect(take().map((m) => m.t)).toEqual(['midi'])
+  })
 })
 
 describe('user presets', () => {

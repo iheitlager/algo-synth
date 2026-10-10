@@ -6,14 +6,14 @@ algo-synth is built **from working to working**: every MVP is something you can 
 
 **Rerouted again 2026-10-03 (ADR-0012):** the ensemble plays, so the deferred milestones come back, in their original order, around one idea: **the song is text**. A Tidal/Strudel-style notation with classic note names and durations, parsed and printed by the engine; the 16-step drum grid, generators and a language model all edit that text. Drums move forward into MVP 3 (the drum machine is the first thing the clock plays); MVP 6 becomes the samplers. The MIDI player stays a separate path, and a MIDI file also converts into the song (#173).
 
-**Where it stands (v0.32):** M1 to M4 are built, and most of M5. Open: chord symbols (#103, the rest of MVP 4, #102), the Vivaldi score (#20) and per-synth drift (#21) of MVP 5, the PPG's 8-bit path of MVP 7, and the performance half of MVP 11. The language model writes the song (epic #381) and Web MIDI plays in (#10). The song language as built is in [language.md](language.md).
+**Where it stands (v0.32):** M1 to M4 are built, and most of M5. Open: chord symbols (#103, the rest of MVP 4, #102), per-synth drift (#21) of MVP 5, the PPG's 8-bit path of MVP 7, and the performance half of MVP 11. The language model writes the song (epic #381) and Web MIDI plays in (#10). The song language as built is in [language.md](language.md).
 
 **Five milestones, eleven MVPs.** Epics become GitHub issues with the `epic` label; their stories become sub-issues that cite spec requirements (`Refs: 001/Req-3`). Every MVP names a **value signal**: how you know it delivers.
 
 | Milestone | MVPs | Value signal |
 |---|---|---|
 | **M1: A voice** (built) | **MVP 1** the pipeline · **MVP 2** the Mono voice | You play it for ten minutes without wanting a different synth |
-| **M3: The ensemble** (built but #20, #21) | **MVP 5** sixteen synths play a score | RV 269 plays start to finish, six differently voiced synths, no glitches |
+| **M3: The ensemble** (built but #21) | **MVP 5** sixteen synths play a score | RV 269 plays start to finish, six differently voiced synths, no glitches |
 | **M2: Time and text** (built but #103) | **MVP 3** the drum machine · **MVP 4** loops and the arrangement | A beat and a four-track loop you'd keep, written in a few lines |
 | **M4: More sources** (built) | **MVP 6** samplers · **MVP 7** Wave · **MVP 8** effects | A full track: kit, samples, bass, lead, pad, space |
 | **M5: Algo** (MVP 9 built, MVP 10 mostly, MVP 11 next) | **MVP 9** generators · **MVP 10** evolving loops · **MVP 11** the model writes, and performance | Ten minutes of music you didn't write note by note, and want to hear again |
@@ -101,7 +101,7 @@ The second way into the same model: a score instead of a generator. The MIDI pla
 1. **Standard MIDI File parser** in Rust: total (never panics on bad input), tested with malformed files, types 0 and 1, tempo map. *(Built, v0.2.)*
 2. **Mono only** (#18): Wave, Drums, the algo and arrangement panes removed for the reroute. *(Done; they came back in M2 and M4.)*
 3. **Up to 16 synths** (#19), each with its own patch, preallocated, and each one of seven monosynth **models** (epic #28, ADR-0009, spec 005): ARP 2600, Minimoog, Pro-One, MS-20, Yamaha CS-15, Roland SH-101 and ARP Odyssey, with their own controls, filters, presets and panel colours, so the ensemble is different synths, not sixteen 2600s; a MIDI channel plays on one synth, a loaded file gets one per channel. *(Built.)* Then a little detune and timing humanization per synth, the way real machines drift. *(Open, #21.)*
-4. **The score** (#20): a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it. *(Open; the demo is Pachelbel's Canon, written by `tools/make_demo_mid.py`.)*
+4. **The score** (#20): a public-domain Vivaldi (RV 269, *La primavera*, 1st movement) from an openly licensed MIDI source, with its licence recorded next to it. *(Built: all four Seasons' first movements from the Mutopia Project, CC BY-SA 3.0, in `web/public/scores/` beside `LICENSE.txt`, five string parts each, picked from the Demo menu beside Pachelbel's Canon.)*
 5. **Polyphony** (epic #78, ADR-0011, spec 006): a voice pool per synth and eight polyphonic instruments (Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, Roland D-50, Yamaha DX7, Polymoog), so a MIDI file's chords play through the ensemble. *(Built, v0.17.)*
 6. **A MIDI file converted into the notation** (#173), so a score can be edited, arranged, or handed to a generator. *(Built, v0.31.)*
 

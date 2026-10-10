@@ -5450,3 +5450,61 @@ fn a_group_named_in_the_view_is_named_in_the_song() {
     assert_eq!(e.group_name(2), None);
     assert!(!e.song_text().contains("group 3"), "{}", e.song_text());
 }
+
+/// #20, MVP 5: a first movement of Vivaldi's Four Seasons (Mutopia,
+/// CC BY-SA 3.0, `web/public/scores/LICENSE.txt`) imports as five string
+/// parts on synths 0–4 and plays start to finish: every part sounds, the
+/// output stays finite and bounded, and the song reaches its last bar.
+fn plays_start_to_finish(file: &str, bytes: &[u8]) {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(import(&mut e, bytes), Ok(5), "{file}: five parts");
+    let bars = e.song().bars();
+    let frames = (bars as f32 * 4.0 * 60.0 / e.song().tempo * 48_000.0) as u64;
+    e.song_play();
+    let (mut sounded, mut last) = ([false; 5], 0);
+    for _ in (0..frames).step_by(BLOCK) {
+        e.render(BLOCK);
+        assert!(
+            e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "{file}: finite and bounded"
+        );
+        for (s, on) in sounded.iter_mut().enumerate() {
+            *on |= e.pools.get(s).is_some_and(|p| !p.held_notes().is_empty());
+        }
+        last = last.max(e.clock().step().unwrap_or(0));
+    }
+    assert_eq!(sounded, [true; 5], "{file}: every part sounds");
+    assert!(last >= (bars - 1) * 16, "{file}: the last bar of {bars}");
+}
+
+#[test]
+fn spring_rv269_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv269-spring",
+        include_bytes!("../../../../web/public/scores/rv269-spring.mid"),
+    );
+}
+
+#[test]
+fn summer_rv315_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv315-summer",
+        include_bytes!("../../../../web/public/scores/rv315-summer.mid"),
+    );
+}
+
+#[test]
+fn autumn_rv293_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv293-autumn",
+        include_bytes!("../../../../web/public/scores/rv293-autumn.mid"),
+    );
+}
+
+#[test]
+fn winter_rv297_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv297-winter",
+        include_bytes!("../../../../web/public/scores/rv297-winter.mid"),
+    );
+}
