@@ -271,7 +271,7 @@ mod tests {
     use tower::ServiceExt;
 
     const SONG: &str =
-        "tempo 120\ntrack kit drums Tr909 Kit909\nfrag beat = kit /16\n  bd x...x...x...x...\n";
+        "tempo 120\ntrack kit drums Tr909 Kit909\nclip beat = kit /16\n  bd x...x...x...x...\n";
 
     fn state(env: &[(&str, &str)], rates: Rates) -> Arc<AppState> {
         let env: HashMap<String, String> = env
