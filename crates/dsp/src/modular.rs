@@ -32,6 +32,8 @@ pub const MAX_FILTERS: usize = 8;
 pub const MAX_ENVS: usize = 8;
 /// Most random numbers a voice draws when its note starts (`Rand`, `ExpRand`).
 pub const MAX_RANDS: usize = 64;
+/// Most `Latch`es and `Decimator`s in a voice: each holds a value.
+pub const MAX_HOLDS: usize = 32;
 /// Most reverbs a voice runs (`FreeVerb2`): each holds about 100 KB.
 pub const MAX_VERBS: usize = 2;
 /// Most `delay`s in a voice, and the longest one in samples (about 21 ms at
@@ -140,6 +142,9 @@ pub enum Op {
     Sub,
     Mul,
     Div,
+    /// SuperCollider's `round`: to the nearest multiple of the right side,
+    /// halves up; a step of 0 passes the left side.
+    Round,
 }
 
 /// An envelope's shape: the synth's ADSR, or the SynthDef's own.
@@ -273,6 +278,22 @@ pub enum Ugen {
         exp: bool,
         slot: u8,
     },
+    /// `input` held from one rising edge of `trig` (from 0 or below to
+    /// above 0) to the next, as SuperCollider's `Latch`.
+    Latch {
+        input: u16,
+        trig: u16,
+        slot: u8,
+    },
+    /// `input` sampled `rate` times a second and held between, quantized to
+    /// `2^bits` levels from −1 to 1 (sc3-plugins' `Decimator`): `bits` 1 is
+    /// two levels, 24 and above passes the input as it is.
+    Decimator {
+        input: u16,
+        rate: u16,
+        bits: u16,
+        slot: u8,
+    },
     /// Semitones as a frequency ratio, `2^(x/12)`.
     MidiRatio(u16),
     /// One side of an equal-power pan (`Pan2`), `pos` −1 left to 1 right.
@@ -341,6 +362,7 @@ struct Counts {
     delays: u8,
     rands: u8,
     verbs: u8,
+    holds: u8,
 }
 
 impl Default for Program {
@@ -450,6 +472,10 @@ pub struct VoiceState {
     /// slot has started: a voice is rebuilt per note, its slot's state is not.
     rands: Vec<f32>,
     notes: u32,
+    /// Each `Latch` and `Decimator`: the value held, and the trigger last
+    /// sample (a latch) or the share of a sample left until the next (a
+    /// decimator).
+    holds: Vec<[f32; 2]>,
     /// The reverbs, and the right side each left node keeps for its partner.
     verbs: Vec<verb::FreeVerb>,
     verb_r: Vec<f32>,
@@ -487,6 +513,8 @@ impl VoiceState {
         self.lines.resize(d * MAX_DELAY, 0.0);
         self.rands
             .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
+        self.holds
+            .resize(up(usize::from(c.holds), self.holds.len()), [0.0; 2]);
     }
 
     fn val(&self, i: u16) -> f32 {
@@ -658,6 +686,7 @@ impl GraphVoice {
         if self.fresh {
             st.oscs.iter_mut().for_each(|o| *o = Osc::default());
             st.phases.iter_mut().for_each(|p| *p = 0.0);
+            st.holds.iter_mut().for_each(|h| *h = [0.0; 2]);
             st.filters.iter_mut().for_each(|f| *f = Svf::new());
             st.ladders.iter_mut().for_each(|l| *l = Ladder::new());
             st.poles.iter_mut().for_each(|p| *p = OnePole::default());
@@ -895,6 +924,43 @@ impl GraphVoice {
                 .unwrap_or(lo)
                 .clamp(lo, hi),
             Ugen::Rand { slot, .. } => st.rands.get(usize::from(slot)).copied().unwrap_or(0.0),
+            Ugen::Latch { input, trig, slot } => {
+                let (x, t) = (st.val(input), st.val(trig));
+                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                if h[1] <= 0.0 && t > 0.0 {
+                    h[0] = x;
+                }
+                h[1] = t;
+                h[0]
+            }
+            Ugen::Decimator {
+                input,
+                rate,
+                bits,
+                slot,
+            } => {
+                let x = st.val(input);
+                let step = (st.val(rate) * inv).clamp(0.0, 1.0);
+                let bits = st.val(bits);
+                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                if h[1] <= 0.0 {
+                    h[0] = if bits >= 24.0 {
+                        x
+                    } else {
+                        // 2^bits levels, the outer two at −1 and 1.
+                        let top = fast_exp2(bits.max(1.0)) - 1.0;
+                        let u = (x.clamp(-1.0, 1.0) + 1.0) * 0.5;
+                        (u * top + 0.5).floor() / top * 2.0 - 1.0
+                    };
+                    h[1] += 1.0;
+                }
+                h[1] -= step;
+                h[0]
+            }
             Ugen::MidiRatio(x) => fast_exp2(st.val(x) * (1.0 / 12.0)),
             Ugen::Pan { input, pos, right } => {
                 // Equal power: cos and sin of (pos + 1)·π/4, from the sine table.
@@ -1069,6 +1135,8 @@ impl GraphVoice {
                     Op::Mul => x * y,
                     Op::Div if y == 0.0 => 0.0,
                     Op::Div => x / y,
+                    Op::Round if y == 0.0 => x,
+                    Op::Round => (x / y + 0.5).floor() * y,
                 }
             }
             Ugen::Range {
@@ -1476,6 +1544,87 @@ mod tests {
                 assert_eq!(y, f.process(&b.ladder, &v, x, note, 1.0 - 0.1).hp, "{word}");
             }
         }
+    }
+
+    /// The samples where `y` changes, each checked to take `x` there.
+    fn changes(xy: &[(f32, f32)]) -> Vec<usize> {
+        let mut at = Vec::new();
+        for (i, w) in xy.windows(2).enumerate() {
+            let ((_, a), (x, b)) = (w[0], w[1]);
+            if a != b {
+                assert_eq!(b, x, "takes its input at {}", i + 1);
+                at.push(i + 1);
+            }
+        }
+        at
+    }
+
+    /// #471: a `Latch` holds its input from one rising edge of its trigger
+    /// to the next; a high trigger held is not another edge.
+    #[test]
+    fn a_latch_holds_between_rising_edges() {
+        let mut b = Bench::new();
+        let xy = b.nodes("Latch.ar(SinOsc.ar(freq), LFPulse.kr(100))", 4_800);
+        assert_eq!(xy[0].1, xy[0].0, "the trigger starts high");
+        let at = changes(&xy);
+        assert_eq!(at.len(), 10, "{at:?}");
+        assert!(at.windows(2).all(|w| w[1] - w[0] >= 479), "{at:?}");
+        let held = b.nodes("Latch.ar(SinOsc.ar(freq), 1)", 480);
+        assert!(held.iter().all(|(_, y)| *y == held[0].1));
+    }
+
+    /// #471: a `Decimator` at a quarter of the rate takes every fourth sample,
+    /// and at 1 bit has two levels, −1 and 1.
+    #[test]
+    fn a_decimator_holds_and_crushes() {
+        let mut b = Bench::new();
+        let xy = b.nodes("Decimator.ar(SinOsc.ar(freq), 12000)", 4_800);
+        assert_eq!(xy[0].1, xy[0].0);
+        let at = changes(&xy);
+        assert!(at.len() > 1000 && at.iter().all(|i| i % 4 == 0), "{at:?}");
+        let crushed = b.nodes("Decimator.ar(SinOsc.ar(freq), 48000, 1)", 4_800);
+        assert!(crushed.iter().all(|(_, y)| y.abs() == 1.0));
+        assert!(crushed.iter().any(|(_, y)| *y < 0.0) && crushed.iter().any(|(_, y)| *y > 0.0));
+        let four = b.nodes("Decimator.ar(SinOsc.ar(freq), 48000, 2)", 4_800);
+        let mut levels: Vec<f32> = four.iter().map(|(_, y)| *y).collect();
+        levels.sort_by(f32::total_cmp);
+        levels.dedup();
+        assert_eq!(levels.len(), 4, "{levels:?}");
+    }
+
+    /// #471: `round` on a signal steps it; on a number it still folds, as
+    /// SuperCollider's, halves up.
+    #[test]
+    fn round_steps_a_signal_and_folds_a_number() {
+        let mut b = Bench::new();
+        for (x, y) in b.nodes("SinOsc.ar(freq).round(0.5)", 4_800) {
+            assert!((y * 2.0).fract() == 0.0 && (y - x).abs() <= 0.25, "{x} {y}");
+        }
+        let p = patch("SinOsc.ar(2.3.round(0.5) * 100 + (-0.5).round)");
+        assert!(
+            p.program
+                .nodes
+                .iter()
+                .all(|n| !matches!(n, Ugen::Bin(Op::Round, ..)))
+        );
+        assert!(p.program.nodes.contains(&Ugen::Num(250.0)));
+        let ones = b.nodes("SinOsc.ar(freq) * 3.round", 480);
+        assert!(ones.iter().any(|(_, y)| y.abs() > 2.0));
+    }
+
+    /// #471: a voice holds at most 32 latches and decimators.
+    #[test]
+    fn holds_are_limited() {
+        let text = |n: usize| {
+            format!(
+                "SynthDef(\\t, {{ |freq = 440| var s = 0; {n}.do({{ s = s + Latch.ar(WhiteNoise.ar, 1) }}); s }}).add;"
+            )
+        };
+        assert!(sc::compile(&text(32)).is_ok());
+        assert_eq!(
+            sc::compile(&text(33)).expect_err("33").msg,
+            "a voice has at most 32 latches and decimators"
+        );
     }
 
     /// A `MoogFF`'s drive pushes the signal into the ladder's knee.

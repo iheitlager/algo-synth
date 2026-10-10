@@ -25,8 +25,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{
-    Class, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_MIX, MAX_OSCS, MAX_PHASES, NONE, Op,
-    Program, Shape, Ugen, VOICINGS,
+    Class, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_HOLDS, MAX_MIX, MAX_OSCS, MAX_PHASES,
+    NONE, Op, Program, Shape, Ugen, VOICINGS,
 };
 use crate::mono::model::{Filter, Hp};
 use crate::mono::osc::Waveform;
@@ -878,6 +878,17 @@ const PHASE: Spec = Spec {
     hi: std::f32::consts::TAU,
     exp: false,
 };
+/// A `Decimator`'s sample rate, and its bits.
+const SRATE: Spec = Spec {
+    lo: 100.0,
+    hi: 48_000.0,
+    exp: true,
+};
+const BITS: Spec = Spec {
+    lo: 1.0,
+    hi: 24.0,
+    exp: false,
+};
 const ANY: Spec = Spec {
     lo: -1.0,
     hi: 1.0,
@@ -1319,6 +1330,11 @@ impl Builder {
                 }
                 _ => Err(err("this takes a number")),
             },
+            // `round(step)`, step 1 when left out: a node on a signal.
+            (V::Num(..) | V::Sig(..) | V::Arr(_), "round") => {
+                let step = args.first().cloned().unwrap_or(V::Num(1.0, None));
+                self.binop("round", r, step, at)
+            }
             (V::Sig(..), "range" | "exprange") | (V::Arr(_), "range" | "exprange") => {
                 let lo = args.first().cloned().unwrap_or(V::Num(0.0, None));
                 let hi = args.get(1).cloned().unwrap_or(V::Num(1.0, None));
@@ -1372,7 +1388,6 @@ impl Builder {
                     "squared" => x * x,
                     "cubed" => x * x * x,
                     "sqrt" => x.sqrt(),
-                    "round" => x.round(),
                     "floor" => x.floor(),
                     "ceil" => x.ceil(),
                     "asInteger" => x.trunc(),
@@ -1479,6 +1494,14 @@ impl Builder {
                 "/" => V::Num(if y == 0.0 { 0.0 } else { x / y }, None),
                 "%" => V::Num(if y == 0.0 { 0.0 } else { x.rem_euclid(y) }, None),
                 "**" => V::Num(x.powf(y), None),
+                "round" => V::Num(
+                    if y == 0.0 {
+                        x
+                    } else {
+                        (x / y + 0.5).floor() * y
+                    },
+                    None,
+                ),
                 "<" => V::Bool(x < y),
                 ">" => V::Bool(x > y),
                 "<=" => V::Bool(x <= y),
@@ -1493,6 +1516,7 @@ impl Builder {
                     "-" => Op::Sub,
                     "*" => Op::Mul,
                     "/" => Op::Div,
+                    "round" => Op::Round,
                     _ => return Err(err("this operator does not work on a signal here")),
                 };
                 let x = self.node(&a, at)?;
@@ -1941,9 +1965,7 @@ impl Builder {
                     Ok(V::Sig(b.push(Ugen::Rand { lo, hi, exp, slot }, at)?, false))
                 })
             }
-            ("IRand", _) => Err(err(
-                "IRand is not supported yet: Rand(lo, hi).round is not either",
-            )),
+            ("IRand", _) => Err(err("IRand is not supported yet: write Rand(lo, hi).round")),
             ("DelayN" | "DelayL" | "DelayC", "ar" | "kr") => {
                 let bound = bind(
                     &["in", "maxdelaytime", "delaytime", "mul", "add"],
@@ -2274,6 +2296,12 @@ impl Builder {
                 &[FREQ, PHASE, UNIT, MUL, ADD],
             ),
             "WhiteNoise" => (&["mul", "add"], &[Some(1.0), Some(0.0)], &[MUL, ADD]),
+            "Latch" => (&["in", "trig"], &[Some(0.0), Some(0.0)], &[ANY, ANY]),
+            "Decimator" => (
+                &["in", "rate", "bits", "mul", "add"],
+                &[None, Some(44_100.0), Some(24.0), Some(1.0), Some(0.0)],
+                &[ANY, SRATE, BITS, MUL, ADD],
+            ),
             "PMOsc" => (
                 &["carfreq", "modfreq", "pmindex", "modphase", "mul", "add"],
                 &[None, None, Some(0.0), Some(0.0), Some(1.0), Some(0.0)],
@@ -2411,6 +2439,31 @@ impl Builder {
                     (b.push(Ugen::Bin(Op::Mul, up, half), at)?, true, 3)
                 }
                 "WhiteNoise" => (b.push(Ugen::Noise, at)?, false, 0),
+                "Latch" | "Decimator" => {
+                    let x = inp(b, 0)?;
+                    let uni = c == "Latch" && matches!(v.first(), Some(V::Sig(_, true)));
+                    let slot = Self::slot(
+                        &mut b.prog.counts.holds,
+                        MAX_HOLDS,
+                        at,
+                        "a voice has at most 32 latches and decimators",
+                    )?;
+                    let u = if c == "Latch" {
+                        Ugen::Latch {
+                            input: x,
+                            trig: inp(b, 1)?,
+                            slot,
+                        }
+                    } else {
+                        Ugen::Decimator {
+                            input: x,
+                            rate: inp(b, 1)?,
+                            bits: inp(b, 2)?,
+                            slot,
+                        }
+                    };
+                    (b.push(u, at)?, uni, 2)
+                }
                 "PMOsc" => {
                     let (car, md, ix) = (inp(b, 0)?, inp(b, 1)?, inp(b, 2)?);
                     let slot = Self::slot(
@@ -2899,7 +2952,7 @@ mod tests {
                 "{ SinOsc.ar(IRand(200, 800)) }",
                 1,
                 13,
-                "IRand is not supported yet: Rand(lo, hi).round is not either",
+                "IRand is not supported yet: write Rand(lo, hi).round",
             ),
             ("{ Env([0], [0.1]).kr }", 1, 19, "an Env has 2 to 8 levels"),
             (
