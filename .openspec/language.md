@@ -117,7 +117,7 @@ Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
 machines), `Sampler` (multisampler), `PadSampler` (pads), `Modular` (a
 SuperCollider SynthDef). Presets are factory names, as `MiniBass`, `AcidBass`,
 `JunoPad`, `Kit909`; `Modular` has `ModularBasic`, `ModularHoover`,
-`ModularKick`.
+`ModularKick`, `ModularDubSiren`.
 
 ```song
 setting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5

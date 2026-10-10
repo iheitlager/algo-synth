@@ -789,6 +789,7 @@ export const Preset = {
   Heavy808: 89,
   Heavy909: 90,
   ModularKick: 91,
+  ModularDubSiren: 92,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

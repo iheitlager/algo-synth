@@ -801,7 +801,7 @@ fn the_example_songs_parse_and_print_back() {
             sh101 += 1;
         }
     }
-    assert_eq!(seen, 21, "twenty-one examples");
+    assert_eq!(seen, 23, "twenty-three examples");
     assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
 }
 

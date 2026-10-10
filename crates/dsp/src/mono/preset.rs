@@ -105,11 +105,12 @@ pub enum Preset {
     Heavy808 = 89,
     Heavy909 = 90,
     ModularKick = 91,
+    ModularDubSiren = 92,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 92] = [
+    pub const ALL: [(Preset, &'static str); 93] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -202,6 +203,7 @@ impl Preset {
         (Preset::Heavy808, "Heavy808"),
         (Preset::Heavy909, "Heavy909"),
         (Preset::ModularKick, "ModularKick"),
+        (Preset::ModularDubSiren, "ModularDubSiren"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
