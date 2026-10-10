@@ -1758,7 +1758,7 @@ mod tests {
     fn midi_import_and_the_transport_through_the_abi() {
         init(48_000.0);
         assert_eq!(midi_import(), -1); // empty buffer: not MIDI
-        let bytes = include_bytes!("../../../web/public/demo.mid");
+        let bytes = include_bytes!("../../../examples/scores/canon.mid");
         let ptr = midi_buf(bytes.len() as u32);
         assert!(!ptr.is_null());
         query((), |e| {

@@ -29,6 +29,8 @@ COPY Cargo.toml /src/Cargo.toml
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web ./
+# The example songs and scores the build copies into the app (#20).
+COPY examples /src/examples
 COPY --from=rust /src/target/wasm32-unknown-unknown/release/algo_dsp.wasm ./public/dsp.wasm
 # Last, so a new commit does not redo npm ci.
 ARG ALGO_BUILD_SHA=

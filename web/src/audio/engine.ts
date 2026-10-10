@@ -346,12 +346,40 @@ export async function loadMidi(bytes: ArrayBuffer, fileName: string): Promise<vo
   engine.post({ t: 'midi', bytes }, [bytes])
 }
 
-/** The demo is its MIDI file: the song it imports as picks its own synths (#327). */
-export async function loadDemo(): Promise<void> {
-  const mid = await fetch(`${base}demo.mid`)
+/** A demo: a file under `examples/`, served at `/examples/` (vite.config.ts). */
+export interface Demo {
+  file: string
+  name: string
+}
+
+/** The scores: the Canon and the first movements of Vivaldi's Four Seasons from Mutopia (#20). */
+export const SCORES: Demo[] = [
+  { file: 'scores/canon.mid', name: 'Canon in D' },
+  { file: 'scores/rv269-spring.mid', name: 'Spring, RV 269' },
+  { file: 'scores/rv315-summer.mid', name: 'Summer, RV 315' },
+  { file: 'scores/rv293-autumn.mid', name: 'Autumn, RV 293' },
+  { file: 'scores/rv297-winter.mid', name: 'Winter, RV 297' },
+]
+
+/** The example songs, named after their files: `acid-workout.song` as `Acid workout`. */
+export const SONGS: Demo[] = __EXAMPLE_SONGS__.map((f) => {
+  const words = f.replace(/\.song$/, '').replace(/-/g, ' ')
+  return { file: `songs/${f}`, name: words.charAt(0).toUpperCase() + words.slice(1) }
+})
+
+/**
+ * Load a demo: a score imports as the song and picks its own synths (#327);
+ * a song opens as if picked with Open…, unsaved, so Save asks where.
+ */
+export async function loadDemo(demo: Demo = SCORES[0]): Promise<void> {
+  const res = await fetch(`${base}examples/${demo.file}`)
   pending = null
   files.notice = ''
-  await loadMidi(await mid.arrayBuffer(), 'Canon in D (demo)')
+  if (isSongFile(demo.file)) {
+    await openFiles([new File([await res.text()], demo.file.slice(demo.file.indexOf('/') + 1))])
+  } else {
+    await loadMidi(await res.arrayBuffer(), `${demo.name} (demo)`)
+  }
 }
 
 // DX7 SysEx: the engine parses the file; the view keeps the voice names it sends back.

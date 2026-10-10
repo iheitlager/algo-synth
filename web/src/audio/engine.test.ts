@@ -802,11 +802,42 @@ describe('MIDI files and setups', () => {
     })
     take()
     await mod.loadDemo()
-    expect(fetched.filter((u) => u.includes('demo'))).toEqual([expect.stringMatching(/demo\.mid$/)])
+    expect(fetched.filter((u) => u.includes('examples/'))).toEqual([expect.stringMatching(/examples\/scores\/canon\.mid$/)])
     expect(mod.files.fileName).toBe('Canon in D (demo)')
     expect(take().map((m) => m.t)).toEqual(['midi'])
     send({ t: 'imported', code: 4 })
     expect(take().map((m) => m.t)).toEqual([])
+  })
+
+  it('a Season is a demo too: its score under examples/scores/ (#20)', async () => {
+    const fetched: string[] = []
+    const { mod, take } = await boot({
+      fetch: async (url) => {
+        fetched.push(url)
+        return new Response(new Uint8Array(4))
+      },
+    })
+    take()
+    await mod.loadDemo(mod.SCORES.find((d) => d.name.startsWith('Spring')))
+    expect(fetched.filter((u) => u.includes('examples/'))).toEqual([expect.stringMatching(/examples\/scores\/rv269-spring\.mid$/)])
+    expect(mod.files.fileName).toBe('Spring, RV 269 (demo)')
+    expect(take().map((m) => m.t)).toEqual(['midi'])
+  })
+
+  it('an example song is a demo: it opens as the song, named after its file (#20)', async () => {
+    const fetched: string[] = []
+    const { mod, take } = await boot({
+      fetch: async (url) => {
+        fetched.push(url)
+        return new Response('tempo 120')
+      },
+    })
+    take()
+    const acid = mod.SONGS.find((d) => d.file === 'songs/acid-workout.song')
+    expect(acid?.name).toBe('Acid workout')
+    await mod.loadDemo(acid)
+    expect(fetched.filter((u) => u.includes('examples/'))).toEqual([expect.stringMatching(/examples\/songs\/acid-workout\.song$/)])
+    expect(take().map((m) => m.t)).toContain('song')
   })
 })
 

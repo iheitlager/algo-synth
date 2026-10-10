@@ -66,7 +66,7 @@ fn note_starts(e: &mut Engine, frames: u64, step: usize) -> Vec<(u64, usize, u8)
 /// than a tick).
 #[test]
 fn the_demo_imported_plays_the_file() {
-    let bytes = include_bytes!("../../../../web/public/demo.mid");
+    let bytes = include_bytes!("../../../../examples/scores/canon.mid");
     let mut e = Engine::new(48_000.0);
     for s in 0..SYNTHS {
         e.set_param(s, Param::Polyphony, 8.0);
@@ -1834,7 +1834,10 @@ fn bad_files_are_rejected_and_keep_the_old_song() {
 #[test]
 fn demo_file_imports() {
     let mut e = Engine::new(48_000.0);
-    let tracks = import(&mut e, include_bytes!("../../../../web/public/demo.mid"));
+    let tracks = import(
+        &mut e,
+        include_bytes!("../../../../examples/scores/canon.mid"),
+    );
     assert_eq!(tracks, Ok(4));
     let synths: Vec<Option<usize>> = (0..4).map(|t| e.song_routed(t)).collect();
     assert_eq!(
@@ -3881,7 +3884,7 @@ fn the_modular_units_do_what_they_say() {
     assert!(comb.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
 }
 
-/// #471: the robot siren of `examples/siren-system.song`, random semitone
+/// #471: the robot siren of `examples/songs/siren-system.song`, random semitone
 /// steps through a 4-bit crush, sounds bounded and the same twice.
 #[test]
 fn the_robot_siren_steps_and_crushes() {
@@ -3897,7 +3900,7 @@ fn the_robot_siren_steps_and_crushes() {
     );
 }
 
-/// #472: the robot siren of `examples/siren-system.song`, random steps
+/// #472: the robot siren of `examples/songs/siren-system.song`, random steps
 /// from `LFNoise0` under a `lag`, renders the same twice from its seed,
 /// and a new note draws new steps.
 #[test]
@@ -4280,7 +4283,10 @@ fn clear_starts_over_with_one_modular_synth() {
 /// the demo's bass on a Minimoog, its violins on Pro-Ones, synths 0 to 3.
 #[test]
 fn a_midi_import_sets_the_synths_its_text_names() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/public/demo.mid");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/scores/canon.mid"
+    );
     let bytes = std::fs::read(path).expect("the demo MIDI file");
     let mut e = Engine::new(48_000.0);
     // Synth 2 already a Minimoog: the bass still goes to synth 0, in channel order.
@@ -5449,4 +5455,62 @@ fn a_group_named_in_the_view_is_named_in_the_song() {
     assert!(e.set_group_name_from_buffer(2));
     assert_eq!(e.group_name(2), None);
     assert!(!e.song_text().contains("group 3"), "{}", e.song_text());
+}
+
+/// #20, MVP 5: a first movement of Vivaldi's Four Seasons (Mutopia,
+/// CC BY-SA 3.0, `examples/scores/LICENSE.txt`) imports as five string
+/// parts on synths 0–4 and plays start to finish: every part sounds, the
+/// output stays finite and bounded, and the song reaches its last bar.
+fn plays_start_to_finish(file: &str, bytes: &[u8]) {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(import(&mut e, bytes), Ok(5), "{file}: five parts");
+    let bars = e.song().bars();
+    let frames = (bars as f32 * 4.0 * 60.0 / e.song().tempo * 48_000.0) as u64;
+    e.song_play();
+    let (mut sounded, mut last) = ([false; 5], 0);
+    for _ in (0..frames).step_by(BLOCK) {
+        e.render(BLOCK);
+        assert!(
+            e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "{file}: finite and bounded"
+        );
+        for (s, on) in sounded.iter_mut().enumerate() {
+            *on |= e.pools.get(s).is_some_and(|p| !p.held_notes().is_empty());
+        }
+        last = last.max(e.clock().step().unwrap_or(0));
+    }
+    assert_eq!(sounded, [true; 5], "{file}: every part sounds");
+    assert!(last >= (bars - 1) * 16, "{file}: the last bar of {bars}");
+}
+
+#[test]
+fn spring_rv269_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv269-spring",
+        include_bytes!("../../../../examples/scores/rv269-spring.mid"),
+    );
+}
+
+#[test]
+fn summer_rv315_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv315-summer",
+        include_bytes!("../../../../examples/scores/rv315-summer.mid"),
+    );
+}
+
+#[test]
+fn autumn_rv293_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv293-autumn",
+        include_bytes!("../../../../examples/scores/rv293-autumn.mid"),
+    );
+}
+
+#[test]
+fn winter_rv297_plays_start_to_finish() {
+    plays_start_to_finish(
+        "rv297-winter",
+        include_bytes!("../../../../examples/scores/rv297-winter.mid"),
+    );
 }
