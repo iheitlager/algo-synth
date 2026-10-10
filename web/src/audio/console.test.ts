@@ -197,7 +197,7 @@ describe('processor knobs', () => {
 
 describe('insert knobs', () => {
   it('has the knobs of each type and a short name for each', () => {
-    expect(INSERT_SHORT).toHaveLength(7)
+    expect(INSERT_SHORT).toHaveLength(8)
     expect(INSERT_KNOBS[0]).toEqual([])
     for (const t of [1, 2, 3]) expect(INSERT_KNOBS[t]?.map((k) => k.label)).toEqual(['Amount', 'Tone', 'Level'])
     expect(INSERT_KNOBS[4]?.map((k) => k.label)).toEqual(['Low', 'Mid Hz', 'Mid', 'High', 'Mid Q'])
@@ -205,6 +205,10 @@ describe('insert knobs', () => {
     expect(INSERT_KNOBS[6]?.map((k) => k.label)).toEqual(['Shift', 'Release', 'Unvoiced', 'Width', 'Dry'])
     expect(INSERT_KNOBS[6]?.[0]?.text?.(0.5)).toBe('0 st')
     expect(INSERT_KNOBS[6]?.[0]?.text?.(1)).toBe('12 st')
+    // The bitcrusher leaves D unlabelled: the panel shows no knob for it.
+    expect(INSERT_KNOBS[7]?.map((k) => k.label)).toEqual(['Bits', 'Rate', 'Level', '', 'Dry'])
+    expect(INSERT_KNOBS[7]?.[0]?.text?.(0)).toBe('1.0')
+    expect(INSERT_KNOBS[7]?.[0]?.text?.(1)).toBe('off')
   })
 
   it('reads the defaults as neutral', () => {

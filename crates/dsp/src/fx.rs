@@ -3,6 +3,7 @@
 
 pub mod chorus;
 pub mod compressor;
+pub mod crush;
 pub mod drive;
 pub mod echo;
 pub mod ensemble;
