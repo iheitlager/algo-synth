@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-10
+
+### Added
+
+- **The Four Seasons:** the first movements of Vivaldi's Spring, Summer, Autumn and Winter (RV 269, 315, 293, 297), five string parts each, from the Mutopia Project under CC BY-SA 3.0 (#20).
+- **The Seasons as songs:** `examples/songs/vivaldi-spring.song` and its three siblings, each part on a mono synth of its own (Minimoog, ARP 2600, Odyssey, MS-20, CS-15, Pro-One, SH-101), spread across the stereo field in a hall reverb (#20).
+- **A Demo menu:** the scores (the Canon and the Seasons) and the twenty-one example songs, loaded from `examples/`, which the app now serves at `/examples/` (#20).
+- **The song text lights up as it plays:** the steps, notes and calls that sound glow in the editor while the song plays, each for as long as it sounds, as in Strudel (#205).
+- **The song names its samples:** a `samples <track> <id>` line says which pack or kit of the samples manifest a sampler or drums track plays; the app loads it when the song loads, and picking a pack or kit on a sampler's panel writes the line, so a song brings its sounds with it (#214).
+- **Per-step parameter locks:** a `~` in a parameter method's sequence is a step with no lock, so `.cutoff("~ ~ 800 ~")` sets the cutoff on one step and the knob comes back after it; also in `mod` lines (#255).
+- **`make filters`:** a harmonic table for every ladder voicing (3rd to 9th under the fundamental, peak, self-oscillation pitch) at soft, hot and resonant inputs; `ARGS="--wav <dir>"` writes a driven resonant sweep per voicing to A/B by ear, `ARGS="--stages-only"` compares the stage types alone (#319).
+- **More SuperCollider in a SynthDef:** a control's lag glides between legato notes (`\freq.kr(440, 0.08)`), `LeakDC` blocks a DC offset, `f.(x)` calls a function, signals take `** sqrt abs squared cubed min max pow clip`, and a delay or comb may now run up to about 0.68 seconds, long enough for a slapback or a short echo (#323).
+- **The DX7 answers both wheels:** the pitch wheel bends it by `BendRange` semitones, and the mod wheel adds vibrato through the patch's pitch sensitivity, at full as deep as an LFO pitch depth of 99 (#438).
+- **The wheels reach the Sampler and Modular synths:** the pitch wheel bends a sampled or SynthDef voice by `BendRange` semitones, and a SynthDef reads the mod wheel as the control `modwheel` (0..1). The pad sampler, a drum kit, stays unbent like the TR-808 and TR-909 (#439).
+- **A lane on every deck:** time runs up the Decks view like a DJ app's scrolling waveform, the level heard on each step rising above the playhead and the coming sections arriving from below, with bar and phrase lines across (#449).
+- **Clear the Assistant:** a *Clear* button empties the conversation to start fresh, docked or popped out; it asks first when a proposal is still pending. The model keeps nothing between requests, so only the view changes (#451).
+- **The Assistant's acceptance gate:** a proposed song passes one ordered list of named rules (spec 008). New structure rules send a song back to the model when it adds a frag, an auto lane or a track the arrangement never plays. A section that plays nothing, sections without `arrange`, and dropped tracks or sections are shown as warnings above the review's diff. The eval reports which rules fired (#453).
+- **Sleng Teng example:** `examples/sleng-teng.song`, the Casio MT-40 "Rock" riddim; example songs no longer have to automate a filter (#460).
+- **Save in place:** Save writes a song back into the `.song` file it was opened from, lit with a ● only when the song changed; Save as… picks a new file. In browsers without the File System Access API (Firefox, Safari) both download, as Save song did (#465).
+- **A Bitcrush insert:** an insert slot can crush its strip to 8-bit and below: fewer bits (1–16), a lower sample rate (500 Hz to 48 kHz, stair-stepped and aliasing), a level and a dry blend, as `I1Type Bitcrush` in the song (#470).
+- **Latch, Decimator and `round` on signals in a SynthDef:** `Latch.kr(in, trig)` holds a value from one rising edge to the next, `Decimator.ar(in, rate, bits)` crushes rate and bits, and `sig.round(step)` quantizes a signal; the siren example gains a robot siren of random semitone steps (#471).
+- **LFNoise0, LFNoise1 and `lag` in a SynthDef:** stepped and wandering random LFOs drawn from the note's seed, and SuperCollider's 60 dB `lag` to smooth a signal; the siren example's robot is now `LFNoise0.kr(8).exprange(0.5, 3).lag(0.01)` and the two-tone glides (#472).
+- **Song files in your editor:** `syntax/` holds a Vim syntax, a tree-sitter grammar with a Zed extension, and `song-lsp`, a language server that gives Neovim and Zed the engine's own highlighting and its parse errors as you type; `make syntax-test` checks the first two against the engine character by character (#482).
+- **Go to the playing bar:** the arranger's `◎ Now` follows the playhead, scrolling a long arrangement back to the bar it is playing (#483).
+- **Panes show their scrollbars:** a pane that scrolls says so, instead of relying on the overlay scrollbars macOS hides until you reach for them; a wide arrangement no longer looks cut off (#484).
+- **Launch a scene live:** the engine plays a scene in place of the arrangement, looping until the next launch, landing on the next bar, at the end of the playing scene, on the next eight-bar phrase or at once in phase; back to the arrangement goes on where the clock is (#487).
+- **Switch a snapshot from a button:** the engine sets a snapshot's values now or on the next bar, the scene playing on; one landing with a scene's own comes after it, and a modulation still writes over it (#488).
+- **Launch pads and keys:** the arranger has a Launch bar: a pad per scene and per snapshot, landing on the bar, at the end of the scene or on the phrase, Shift at once. The computer keyboard plays it from every view (`1`–`0` scenes, `z`–`m` snapshots, `[` `]` the moment, `\` back to the arrangement, `Esc` cancel, Space play/stop), and Rec writes the scenes you launch as the song's `arrange` line (#489).
+- **What changed, from the app:** the version dropdown in the top bar links to the changelog (#509).
+
+### Changed
+
+- **`examples/` holds the songs and scores:** the example songs move to `examples/songs/`, the demo MIDI file to `examples/scores/canon.mid` (#20).
+- **Group names are the song's:** a `group` line may hold only its name (`group 2 keys`), the song names the group strips, and a group renamed in the mixer or by an opened setup is written into the song. ADR-0018 is accepted; the `.synths.json` importer stays in TypeScript (#214).
+- **Lighter SuperCollider voices:** a Modular voice evaluates what holds over a block, like numbers, knobs, the note and its random draws, once a block instead of every sample. The hoover renders the same samples at about 1.4× the speed in V8 and 1.9× natively (#318).
+- **The mod wheel opens the filter sweep on the Minimoog, Prophet-5 and Pro-One:** on these three, as on the instruments, the wheel scales LFO → cutoff as well as the vibrato, so with the wheel down the filter holds still. `P5Pad` sets the wheel up (without vibrato) to keep its slow sweep (#440).
+- **One song-language reference:** `docs/song.md` is folded into `.openspec/language.md`, which now also has `Select` switches and the Sand and Nile worked example; the README, the plan and the composer's *Song reference* link point there (#445).
+- **In phase from the first bar:** a deck started on Now begins as far into its bar as deck A is, so the two are on the same beat from its first sample, with no jump at A's next bar line; a late cue stays in phase too (#450).
+- **SuperCollider voices run in sub-blocks:** a Modular voice evaluates each node over 32 frames at a time instead of a sample at a time. A run of filters stays frame by frame. The output is the same bit for bit. In V8 the hoover's voices are about 2.2× faster again, and a ladder-heavy SynthDef about 1.14× (#476).
+- **Ableton's words:** the song now says `clip` for a frag, `scene` for a section and `snapshot` for a mixer scene, and so do the composer, the arranger, the assistant and the docs (ADR-0031). Songs in the old words still open and print in the new (#486).
+- **OpenRouter drops Opus and Gemini:** the direct Anthropic and Google providers already offer them; OpenRouter keeps Qwen, Kimi and GLM (#497).
+
+### Fixed
+
+- **The pitch wheel bends the D-50:** the LA voice now follows `PitchBend` × `BendRange` like the mono and poly voices; before, its notes did not move (#437).
+- **OpenRouter offers Qwen and Kimi:** `qwen/qwen3.8-max-0902` and `moonshotai/kimi-k3` join, GLM moves to `z-ai/glm-5.3`, and the Opus and Gemini choices, whose ids did not exist on OpenRouter, are now `anthropic/claude-opus-5.5` and `google/gemini-3.1-pro-preview`. A test checks every OpenRouter id against a saved copy of its list (#452).
+- **Typing in the song text stays put:** when the engine prints the song back after you pause, the caret and scroll stay where you were instead of jumping to the end (#458).
+- **The Assistant's answers read properly:** the model's markdown (bold, lists, code spans and song code blocks in the editor's colours) is rendered instead of shown as raw characters (#459).
+- **The song editor colours `master:`**, the keyword written against its colon, and a song with `\r\n` line ends no longer shifts its colours a character per line (#482).
+- **The arranger follows a muted instrument:** a fragment's row greys when an automation lane mutes the instrument its track plays, or solos another; before, the arranger only watched the track's own mute flag and a hand-over like the one in `vco-vcf-shootout` left every row looking heard (#485).
+- **Play scene plays it:** picking a scene from the arranger's `▶ Play scene…` launches it at once, as its Launch pad with Shift does, instead of quietly adding it to the end of the arrangement; `+ Scene` leaves the arranger (#504).
+- **The image builds again:** the Containerfile copies `syntax/song-lsp`, a workspace member since #482; without it `make serve` failed and went on serving the last image, an engine that no longer read the example songs (#506).
+
 ## [0.40.0] - 2026-10-10
 
 ### Added
