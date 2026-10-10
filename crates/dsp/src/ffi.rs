@@ -136,10 +136,37 @@ pub extern "C" fn cue_frames(every: u32, at_least: u32) -> i32 {
     })
 }
 
+/// Frames past the master's bar line `at_least` frames from now; −1 while
+/// the song is stopped. How far into its bar a deck started then begins.
+#[unsafe(no_mangle)]
+pub extern "C" fn cue_into(at_least: u32) -> i32 {
+    query(-1, |e| {
+        e.cue_into(u64::from(at_least))
+            .and_then(|f| i32::try_from(f).ok())
+            .unwrap_or(-1)
+    })
+}
+
 /// Start the song `frames` from now, on that exact sample (a cued deck).
 #[unsafe(no_mangle)]
 pub extern "C" fn song_play_in(frames: u32) {
     with_engine(|e| e.song_play_in(frames as usize));
+}
+
+/// The same, `into` frames into its first bar: in phase with the master's.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_play_in_bar(frames: u32, into: u32) {
+    with_engine(|e| e.song_play_in_bar(frames as usize, u64::from(into)));
+}
+
+/// The arrangement entry bar `bar` (from 0) of the clock falls in, through
+/// the loop; −1 without an arrangement or past its end.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_bar_entry(bar: u32) -> i32 {
+    query(-1, |e| {
+        e.bar_entry(u64::from(bar))
+            .map_or(-1, |i| i32::try_from(i).unwrap_or(-1))
+    })
 }
 
 /// In `frames` frames the master is on a bar line: pull this song's nearest

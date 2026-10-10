@@ -302,9 +302,9 @@ The view SHALL have an Assistant (#387, ADR-0028): a pane beside every view, sho
 
 ### Requirement 17: The Decks view [SHOULD]
 
-The transport bar SHALL switch to a Decks view (ADR-0029, #391) beside Synths, Mixer and Composer. It SHALL show deck A as the song the rest of the app edits and decks B–D with **Load song…** for a `.song` file, a Start of Next bar, Next phrase or Now (spec 002 Req 18), a **Sync to deck A** switch (on by default) with how far the last bar line pulled the deck or "locked", Play, shown as Cued… until the deck starts, and Stop, the deck's bar and step, a parse error with its line and column, and for every deck a level, a side of the crossfader (Thru, Left, Right), its peak and, for B–D, its dropped blocks; one crossfader runs from Left to Right under them, and the head shows the master's tempo. A worker deck SHALL start the first time a song is loaded into it, after audio is on. The page SHALL be served cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`) by Caddy and Vite; without isolation the view SHALL say decks B–D can't run and offer deck A only.
+The transport bar SHALL switch to a Decks view (ADR-0029, #391) beside Synths, Mixer and Composer. It SHALL show deck A as the song the rest of the app edits and decks B–D with **Load song…** for a `.song` file, a Start of Next bar, Next phrase or Now (spec 002 Req 18), a **Sync to deck A** switch (on by default) with how far the last bar line pulled the deck or "locked", Play, shown as Cued… until the deck starts, and Stop, the deck's bar and step, a parse error with its line and column, and for every deck a level, a side of the crossfader (Thru, Left, Right), its peak and, for B–D, its dropped blocks; one crossfader runs from Left to Right under them, and the head shows the master's tempo. Every deck SHALL have a **lane** (#449) where time runs from the bottom to the top, one pixel a step, 16 bars tall: above the playhead the level heard on each step (over 48 dB, centred), rising as the deck plays; below it the 6 bars to come as bands of the arrangement's sections, coloured by section and named where an entry starts, as the engine names each bar's entry through the loop (`song_bar_entry`); a line on every bar and a brighter one on every 8-bar phrase. A stop or a seek back starts the level history over. A worker deck SHALL start the first time a song is loaded into it, after audio is on. The page SHALL be served cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`) by Caddy and Vite; without isolation the view SHALL say decks B–D can't run and offer deck A only.
 
-**Implementation:** `web/src/components/DecksPane.vue`, `web/src/audio/decks.ts` (`decks`, `loadDeck`, `playDeck`, `stopDeck`, `setDeck`, `setCrossfade`, `onDecks`), `web/src/components/TransportBar.vue`, `web/src/App.vue`, `Caddyfile`, `web/vite.config.ts`
+**Implementation:** `web/src/components/DecksPane.vue`, `web/src/components/DeckLane.vue`, `web/src/audio/decks.ts` (`decks`, `loadDeck`, `playDeck`, `stopDeck`, `setDeck`, `setCrossfade`, `onDecks`, `onDeckPos`, `trails`), `web/src/audio/decktrail.ts`, `crates/dsp/src/engine.rs::Engine::bar_entry`, `crates/dsp/src/ffi.rs` (`song_bar_entry`), `web/public/worklet.js` (`ahead`), `web/public/deck-worker.js` (`ahead`), `web/src/components/TransportBar.vue`, `web/src/App.vue`, `Caddyfile`, `web/vite.config.ts`
 
 #### Scenario: a second song faded in
 
@@ -312,4 +312,10 @@ The transport bar SHALL switch to a Decks view (ADR-0029, #391) beside Synths, M
 - WHEN deck B and the transport play and the crossfader moves all the way right
 - THEN deck B is heard with no dropped blocks and deck A's peak falls to −∞
 
-**Tests:** `web/src/audio/decks.test.ts`
+#### Scenario: the song evolving up the lane
+
+- GIVEN deck A playing an arranged song, its next section starting in 3 bars
+- WHEN the deck plays on
+- THEN its levels rise above the playhead a pixel a step, and the next section's band comes up from below and crosses the playhead on its first bar
+
+**Tests:** `web/src/audio/decks.test.ts`, `web/src/audio/decktrail.test.ts`, `crates/dsp/src/engine/tests.rs::bar_entries_follow_the_arrangement_through_the_loop`

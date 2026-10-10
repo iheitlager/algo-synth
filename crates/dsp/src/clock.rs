@@ -7,6 +7,8 @@
 //! follow the new tempo. Swing only moves the off-beats, from the next one on. Tempo and swing belong to the song (ADR-0012), not to the
 //! parameter registry.
 
+use crate::song::STEPS_PER_BAR;
+
 /// Steps per quarter note: the clock counts sixteenths.
 pub const STEPS_PER_BEAT: u64 = 4;
 /// Ticks per step: notes sit on a grid of 48 ticks to a bar, so 3 to a
@@ -206,6 +208,22 @@ impl Clock {
         Some(self.step_sample(k) - self.pos)
     }
 
+    /// How far past its last bar line the song is `at_least` frames from now,
+    /// in frames; `None` while stopped. A deck started then that far into its
+    /// own bar is in phase with this one from its first bar (#450).
+    pub fn frames_into_bar(&self, at_least: u64) -> Option<u64> {
+        if !self.playing {
+            return None;
+        }
+        let target = self.pos.saturating_add(at_least);
+        let mut k = self.next.div_ceil(STEPS_PER_BAR) * STEPS_PER_BAR;
+        while self.step_sample(k) <= target {
+            k += STEPS_PER_BAR;
+        }
+        // The bar before `k` fired already or falls by `target`.
+        Some(target - self.step_sample(k.saturating_sub(STEPS_PER_BAR)))
+    }
+
     /// Make now the sample of step `k`, at the current tempo from the top: how
     /// a deck locked to its master pulls its bar line onto the master's
     /// (ADR-0029). Steps already fired stay fired, so nothing plays twice;
@@ -293,6 +311,26 @@ mod tests {
     }
 
     /// ADR-0029: a deck is cued to the next bar at least a margin away.
+    #[test]
+    fn frames_into_the_bar() {
+        let mut c = Clock::new(48_000.0);
+        assert_eq!(c.frames_into_bar(0), None, "stopped");
+        c.play();
+        // 120 BPM: a bar is 96 000 samples.
+        assert_eq!(c.frames_into_bar(0), Some(0), "at the top");
+        assert_eq!(c.frames_into_bar(2_000), Some(2_000));
+        run(&mut c, 10_000);
+        assert_eq!(c.frames_into_bar(0), Some(10_000));
+        assert_eq!(c.frames_into_bar(86_000), Some(0), "on the next bar line");
+        assert_eq!(c.frames_into_bar(90_000), Some(4_000), "into the next bar");
+        c.set_swing(75.0);
+        assert_eq!(
+            c.frames_into_bar(0),
+            Some(10_000),
+            "swing never moves a bar"
+        );
+    }
+
     #[test]
     fn frames_to_the_next_bar() {
         let mut c = Clock::new(48_000.0);

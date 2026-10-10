@@ -5,6 +5,7 @@
 // mixer is Rust (deck.rs).
 
 import { reactive } from 'vue'
+import { record, trail, type Ahead } from './decktrail'
 import { getEngine } from './engine'
 import { DeckField, DeckSide } from './params'
 
@@ -41,6 +42,12 @@ export type Deck = {
   sync: boolean
   /** How far the last sync found the deck off deck A's bar, in ms (positive: ahead), or null before one. */
   syncMs: number | null
+  /** The arrangement entry playing, −1 without one, and the entries of the bars ahead (#449). */
+  entry: number
+  ahead: Ahead | null
+  /** A worker deck's song: its sections' names and bars, and their order (deck A's are the app's song). */
+  sections: { name: string; bars: number }[]
+  arrange: number[]
 }
 
 /** Steps to the start a deck is cued to: a bar is 16 steps (ADR-0029). */
@@ -49,7 +56,7 @@ export type Start = keyof typeof STARTS
 
 const fresh = (name: string): Deck => ({
   name, loaded: false, playing: false, step: 0, error: '', level: 1, side: DeckSide.Thru, peak: 0, dropped: 0, start: 'bar', cued: false,
-  sync: true, syncMs: null,
+  sync: true, syncMs: null, entry: -1, ahead: null, sections: [], arrange: [],
 })
 
 export const decks = reactive({
@@ -63,13 +70,28 @@ export const decks = reactive({
 
 const workers: (Worker | null)[] = [null, null, null, null]
 
+/** Each deck's levels by step, for its lane (#449); not reactive, the lane redraws from it. */
+export const trails = [trail(), trail(), trail(), trail()]
+
 /** The worklet's peaks and dropped blocks for every deck, and the master's tempo it sends the decks. */
 export function onDecks(peaks: number[], dropped: number[], bpm: number) {
   decks.list.forEach((d, i) => {
     d.peak = peaks[i] ?? 0
     d.dropped = dropped[i] ?? 0
+    const t = trails[i]
+    if (t && d.playing) record(t, d.step, d.peak, d.entry)
   })
   if (bpm) decks.bpm = bpm
+}
+
+/** Where deck `deck` is: its step, whether it plays, its entry and the bars ahead. */
+export function onDeckPos(deck: number, step: number, playing: boolean, entry: number, ahead: Ahead | null) {
+  const d = decks.list[deck]
+  if (!d) return
+  d.step = step
+  d.playing = playing
+  d.entry = entry
+  d.ahead = ahead
 }
 
 /** Start deck `deck`'s worker (1–3) the first time it is used: its ring, then its engine. */
@@ -114,9 +136,10 @@ function onWorker(deck: number, data: { t: string } & Record<string, unknown>) {
   if (data.t === 'song') {
     d.loaded = data.ok as boolean
     d.error = data.ok ? '' : `The song did not parse (line ${data.line}, column ${data.col}).`
+    d.sections = (data.sections as Deck['sections'] | undefined) ?? []
+    d.arrange = (data.arrange as number[] | undefined) ?? []
   } else if (data.t === 'pos') {
-    d.step = data.step as number
-    d.playing = data.playing as boolean
+    onDeckPos(deck, data.step as number, data.playing as boolean, (data.entry as number | undefined) ?? -1, (data.ahead as Ahead | undefined) ?? null)
     if (d.playing) d.cued = false
   } else if (data.t === 'sync') {
     const rate = getEngine()?.ctx.sampleRate ?? 48_000

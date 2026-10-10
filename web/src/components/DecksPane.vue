@@ -2,9 +2,10 @@
 // Decks (ADR-0029, epic #391): deck A is the song the app edits, decks B–D
 // each play a loaded song from an engine in a Web Worker. Every control is a
 // message; the deck mixer is Rust.
-import { status } from '../audio/engine'
+import { song, status } from '../audio/engine'
 import { decks, loadDeck, playDeck, setCrossfade, setDeck, setSync, stopDeck, type Start } from '../audio/decks'
 import { DeckSide } from '../audio/params'
+import DeckLane from './DeckLane.vue'
 
 const LETTERS = ['A', 'B', 'C', 'D']
 // Where Play starts a deck on the master's clock (ADR-0029).
@@ -49,6 +50,7 @@ const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0
           <b class="letter">{{ LETTERS[i] }}</b>
           <span class="name" :title="d.name">{{ d.name || 'empty' }}</span>
         </div>
+        <DeckLane :deck="i" :sections="i === 0 ? song.sections : d.sections" :arrange="i === 0 ? song.arrange : d.arrange" />
         <template v-if="i > 0">
           <label class="file" :class="{ off: !decks.isolated || !status.running }">
             <input type="file" accept=".song" :disabled="!decks.isolated || !status.running" @change="onFile(i, $event)" />Load song…
