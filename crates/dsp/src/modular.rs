@@ -496,6 +496,11 @@ pub struct VoiceState {
     /// The reverbs, and the right side each left node keeps for its partner.
     verbs: Vec<verb::FreeVerb>,
     verb_r: Vec<f32>,
+    /// The program's nodes in order, split when the note starts (#318):
+    /// those steady over a block, evaluated once a block, and the rest,
+    /// every sample. Room for `MAX_NODES` each, so sorting never allocates.
+    steady: Vec<u16>,
+    moving: Vec<u16>,
 }
 
 impl VoiceState {
@@ -532,6 +537,59 @@ impl VoiceState {
             .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
         self.holds
             .resize(up(usize::from(c.holds), self.holds.len()), [0.0; 4]);
+        for order in [&mut self.steady, &mut self.moving] {
+            order.reserve_exact(MAX_NODES.saturating_sub(order.len()));
+        }
+    }
+
+    /// Split the program's nodes (#318): steady are the numbers, knobs,
+    /// the note's pitch, gate, velocity and random draws, the mod wheel,
+    /// and arithmetic, shaping, panning and picking of only those; they
+    /// hold over a block. The rest moves every sample.
+    fn sort(&mut self) {
+        let len = usize::from(self.prog.len).min(MAX_NODES);
+        let mut steady = [false; MAX_NODES];
+        self.steady.clear();
+        self.moving.clear();
+        for i in 0..len {
+            let s = |n: &u16| steady.get(usize::from(*n)).copied().unwrap_or(false);
+            let is = match self.prog.nodes.get(i).copied() {
+                Some(
+                    Ugen::Num(_)
+                    | Ugen::Freq
+                    | Ugen::Gate
+                    | Ugen::Vel
+                    | Ugen::Wheel
+                    | Ugen::Ctl { .. }
+                    | Ugen::Rand { .. },
+                ) => true,
+                Some(Ugen::Neg(a) | Ugen::MidiRatio(a) | Ugen::Clip { input: a, .. }) => s(&a),
+                Some(
+                    Ugen::Bin(_, a, b)
+                    | Ugen::Pan {
+                        input: a, pos: b, ..
+                    },
+                ) => s(&a) && s(&b),
+                Some(Ugen::Range { of, lo, hi, .. }) => s(&of) && s(&lo) && s(&hi),
+                Some(Ugen::Mix { inputs, n, .. }) => inputs.iter().take(usize::from(n)).all(s),
+                Some(Ugen::Select { which, inputs, n }) => {
+                    s(&which) && inputs.iter().take(usize::from(n)).all(s)
+                }
+                _ => false,
+            };
+            if let Some(x) = steady.get_mut(i) {
+                *x = is;
+            }
+            // Within the room `grow` made, so this never allocates.
+            let order = if is {
+                &mut self.steady
+            } else {
+                &mut self.moving
+            };
+            if order.len() < order.capacity() {
+                order.push(i as u16);
+            }
+        }
     }
 
     fn val(&self, i: u16) -> f32 {
@@ -699,6 +757,7 @@ impl GraphVoice {
     /// afresh on a silent voice, and the note's random numbers drawn.
     fn start(&mut self, ctx: &MonoCtx, st: &mut VoiceState) {
         st.prog = ctx.params.graph;
+        st.sort();
         st.notes = st.notes.wrapping_add(1);
         if self.fresh {
             st.oscs.iter_mut().for_each(|o| *o = Osc::default());
@@ -792,6 +851,14 @@ impl GraphVoice {
         let hz = ctx.pitch.at(self.note + self.trim + p.bend) * sr;
         let len = usize::from(st.prog.len).min(st.vals.len());
         let _ = NO_TIMES;
+        // What holds over the block, once (#318).
+        for k in 0..st.steady.len() {
+            let i = st.steady.get(k).map_or(0, |i| usize::from(*i));
+            let v = self.eval(st, i, hz, inv, gate, ctx);
+            if let Some(slot) = st.vals.get_mut(i) {
+                *slot = v;
+            }
+        }
         for (frame, sample) in out.iter_mut().enumerate() {
             for k in 0..used {
                 let v = match self.shapes.get(k) {
@@ -809,7 +876,8 @@ impl GraphVoice {
             if !self.active() {
                 return;
             }
-            for i in 0..len {
+            for k in 0..st.moving.len() {
+                let i = st.moving.get(k).map_or(0, |i| usize::from(*i));
                 let v = self.eval(st, i, hz, inv, gate, ctx);
                 if let Some(slot) = st.vals.get_mut(i) {
                     *slot = v;
@@ -840,6 +908,9 @@ impl GraphVoice {
     }
 
     /// Node `i` this sample, its inputs already evaluated.
+    // Inlined into both of `render`'s loops: as a call it costs more in V8
+    // than the nodes it saves (#318).
+    #[inline(always)]
     fn eval(
         &mut self,
         st: &mut VoiceState,
@@ -1776,5 +1847,145 @@ mod tests {
             })
         ));
         assert_eq!(p.node(0), Some(Ugen::Freq));
+    }
+
+    /// #318: what is steady over a block is evaluated once a block, so a
+    /// voice renders the same samples in one-frame blocks as in 128-frame ones.
+    #[test]
+    fn steady_nodes_once_a_block_render_the_same() {
+        let mut b = Bench::new();
+        for text in [sc::hoover::HOOVER, sc::hoover::MONO_HOOVER] {
+            let patch = sc::compile(text).expect("builds");
+            for k in &patch.knobs {
+                if let Some(c) = b.params.ctl.get_mut(k.ctl) {
+                    *c = k.default;
+                }
+            }
+            let p = patch.program;
+            b.params.graph = p;
+            let ctx = MonoCtx {
+                params: &b.params,
+                sine: &b.sine,
+                blep: &b.blep,
+                ladder: &b.ladder,
+                pitch: &b.pitch,
+                shared: None,
+                tables: b.tables,
+            };
+            let render = |block: usize| {
+                let mut v = GraphVoice::new(7);
+                let mut st = VoiceState::for_program(&p);
+                v.press(45, 0.8, &p, 48_000.0, 0);
+                let (mut l, mut r) = (vec![0.0_f32; 9_600], vec![0.0_f32; 9_600]);
+                for (l, r) in l.chunks_mut(block).zip(r.chunks_mut(block)) {
+                    v.render(&ctx, &mut st, l, Some(r));
+                }
+                (l, r)
+            };
+            let (one, block) = (render(1), render(128));
+            assert!(one.0.iter().any(|x| x.abs() > 1e-3), "it sounds");
+            assert_eq!(one, block);
+        }
+    }
+
+    /// #318 spike: the interpreter's per-node overhead against the
+    /// hoover's whole cost. `cargo test --release -p algo-dsp dispatch_share -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dispatch_share() {
+        use std::hint::black_box;
+        use std::time::Instant;
+        let mut b = Bench::new();
+        // Through `render`, 128-frame blocks, as the engine plays it.
+        let mut time = |p: &Program, n: usize| {
+            b.params.graph = *p;
+            let ctx = MonoCtx {
+                params: &b.params,
+                sine: &b.sine,
+                blep: &b.blep,
+                ladder: &b.ladder,
+                pitch: &b.pitch,
+                shared: None,
+                tables: b.tables,
+            };
+            let mut v = GraphVoice::new(1);
+            let mut st = VoiceState::for_program(p);
+            let mut out = [0.0_f32; 128];
+            let mut best = f64::MAX;
+            for _ in 0..5 {
+                v.press(45, 1.0, p, 48_000.0, 0);
+                let t = Instant::now();
+                for _ in 0..n / 128 {
+                    v.render(&ctx, &mut st, &mut out, None);
+                }
+                black_box(out[0]);
+                best = best.min(t.elapsed().as_secs_f64());
+            }
+            best / n as f64
+        };
+        let n = 48_000;
+        for (name, text) in [
+            ("hoover", sc::hoover::HOOVER),
+            ("mono hoover", sc::hoover::MONO_HOOVER),
+        ] {
+            let p = sc::compile(text).expect("builds").program;
+            let len = usize::from(p.len);
+            let mut kinds = std::collections::BTreeMap::new();
+            for u in &p.nodes[..len] {
+                let k = format!("{u:?}");
+                let k = k.split([' ', '(', '{']).next().unwrap_or("").to_string();
+                *kinds.entry(k).or_insert(0) += 1;
+            }
+            let t = time(&p, n);
+            // The same number of nodes, each a trivial add: independent of
+            // each other (dispatch throughput), and as one serial chain.
+            let mut trivial = |chain: bool| {
+                let mut q = Program::default();
+                q.nodes[0] = Ugen::Freq;
+                for i in 1..len {
+                    let a = if chain { (i - 1) as u16 } else { 0 };
+                    q.nodes[i] = Ugen::Bin(Op::Add, a, 0);
+                }
+                q.len = len as u16;
+                q.counts = Counts::default();
+                time(&q, n)
+            };
+            let free = trivial(false);
+            let chain = trivial(true);
+            // Its oscillators alone, each off `freq`: the unit work they do.
+            let oscs = usize::from(p.counts.oscs);
+            let mut o = Program::default();
+            o.nodes[0] = Ugen::Freq;
+            for k in 0..oscs {
+                o.nodes[k + 1] = Ugen::Osc {
+                    wave: Waveform::Saw,
+                    freq: 0,
+                    width: NONE,
+                    slot: k as u8,
+                };
+            }
+            o.len = (oscs + 1) as u16;
+            o.counts = Counts {
+                oscs: oscs as u8,
+                ..Counts::default()
+            };
+            let to = time(&o, n);
+            let ns = |x: f64| x * 1e9;
+            println!(
+                "{name}: {len} nodes {kinds:?}\n  voice {:.0} ns/sample = {:.2}% of a core at 48 kHz ({:.2} ns/node)\n  independent trivial nodes {:.2} ns/node: {:.0} ns, {:.0}% of the voice\n  chained trivial nodes {:.2} ns/node: {:.0} ns, {:.0}% of the voice\n  {oscs} saws alone {:.0} ns ({:.1} ns each), {:.0}% of the voice",
+                ns(t),
+                t * 48_000.0 * 100.0,
+                ns(t) / len as f64,
+                ns(free) / len as f64,
+                ns(free),
+                free / t * 100.0,
+                ns(chain) / len as f64,
+                ns(chain),
+                chain / t * 100.0,
+                ns(to),
+                ns(to) / oscs as f64,
+                to / t * 100.0,
+            );
+        }
     }
 }
