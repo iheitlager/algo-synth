@@ -5069,7 +5069,7 @@ fn midi_wheels_bend_the_pitch_and_move_the_mod_wheel() {
 /// #437: the pitch wheel bends every pitched voice, not only the mono ones.
 #[test]
 fn the_pitch_wheel_bends_every_pitched_model() {
-    for model in [Model::D50] {
+    for model in [Model::D50, Model::Dx7] {
         let hz = |bend: (u8, u8)| {
             let mut e = Engine::new(48_000.0);
             e.set_param(0, Param::MasterGain, 1.0);

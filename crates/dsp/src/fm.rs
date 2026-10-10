@@ -227,14 +227,26 @@ impl FmVoice {
     }
 
     /// Work out every operator's gain and step for the next control step.
-    fn control(&mut self, sine: &[f32], algorithm: usize) {
+    /// `wheel` is the mod wheel, 0..1; `bend` the pitch wheel in semitones.
+    fn control(&mut self, sine: &[f32], algorithm: usize, wheel: f32, bend: f32) {
         let lfo = self.lfo.sample(sine);
         let delay = self.lfo.delay();
         let mut pitchmod = i64::from(self.pitch_env.step());
         let pmd = (self.pmd * i64::from(delay)) as u32 as i64;
         let senslfo = self.pms * i64::from(lfo - (1 << 23));
-        pitchmod += (pmd * senslfo) >> 39;
-        let octaves = pitchmod as f64 / f64::from(1_u32 << 24) + f64::from(self.trim) / 12.0;
+        // The patch's LFO depth (faded in by its delay) or the mod wheel,
+        // whichever is deeper, as in Dexed: the wheel at its range of 99
+        // goes as deep as a pitch depth of 99, through the patch's pitch
+        // sensitivity (#438).
+        let by_patch = (pmd * senslfo) >> 39;
+        let cc = i64::from((wheel.clamp(0.0, 1.0) * 127.0 * 0.99) as u8);
+        let by_wheel = (cc * senslfo) >> 14;
+        pitchmod += if by_wheel.abs() > by_patch.abs() {
+            by_wheel
+        } else {
+            by_patch
+        };
+        let octaves = pitchmod as f64 / f64::from(1_u32 << 24) + f64::from(self.trim + bend) / 12.0;
         let carrier = carriers(algorithm);
         let mut loud = false;
         for (i, ((env, base), (gain, inc))) in self
@@ -274,7 +286,7 @@ impl FmVoice {
             }
             if self.step == 0 {
                 self.retrigger = false;
-                self.control(ctx.sine, alg_index);
+                self.control(ctx.sine, alg_index, ctx.params.mod_wheel, ctx.params.bend);
                 if self.idle {
                     return;
                 }
@@ -429,6 +441,47 @@ mod tests {
             let cents = 1200.0 * (measured_hz(&out) / want).log2();
             assert!(cents.abs() < 1.0, "note {note}: {cents} cents");
         }
+    }
+
+    /// The swing of the pitch in cents, from the periods between upward zero crossings.
+    fn swing_cents(out: &[f32]) -> f64 {
+        let mut times = Vec::new();
+        for (i, w) in out.windows(2).enumerate() {
+            if w[0] <= 0.0 && w[1] > 0.0 {
+                times.push(i as f64 + f64::from(-w[0] / (w[1] - w[0])));
+            }
+        }
+        let periods: Vec<f64> = times.windows(2).map(|t| t[1] - t[0]).collect();
+        let lo = periods.iter().copied().fold(f64::MAX, f64::min);
+        let hi = periods.iter().copied().fold(f64::MIN, f64::max);
+        1200.0 * (hi / lo).log2()
+    }
+
+    /// #438: the mod wheel adds vibrato through the patch's pitch sensitivity, at full as
+    /// deep as an LFO pitch depth of 99; down, it leaves the patch as it was.
+    #[test]
+    fn the_mod_wheel_adds_vibrato_like_the_lfo_depth() {
+        let swing = |depth: f32, wheel: f32| {
+            let mut r = Rig::new(&[
+                ALL_CARRIERS,
+                (Param::LfoSpeed, 35.0),
+                (Param::PitchSens, 7.0),
+                (Param::LfoPitchDepth, depth),
+                (Param::ModWheel, wheel),
+            ]);
+            r.press(69, 1.0);
+            r.render(4_800);
+            swing_cents(&r.render(96_000))
+        };
+        let (none, by_depth, by_wheel) = (swing(0.0, 0.0), swing(99.0, 0.0), swing(0.0, 1.0));
+        assert!(none < 1.0, "no depth, no wheel: {none} cents");
+        assert!(by_depth > 100.0, "the LFO depth swings: {by_depth} cents");
+        assert!(
+            (by_wheel / by_depth - 1.0).abs() < 0.05,
+            "the wheel {by_wheel} as the depth {by_depth}"
+        );
+        // The deeper of the two wins; they do not add.
+        assert!((swing(99.0, 1.0) / by_depth - 1.0).abs() < 0.05);
     }
 
     /// An operator that nothing modulates is a sine; modulated, it grows partials, but only
