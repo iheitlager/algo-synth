@@ -7,7 +7,7 @@ tempo 124
 swing 56
 track kit drums
 
-frag beat = kit /16
+clip beat = kit /16
   bd  x...x...x...x...   # four on the floor
   sn  ....X.......X..x
   ch  x.x. x.x. x.x. x.x.
@@ -29,7 +29,7 @@ fn a_beat_parses() {
             solo: false,
         }]
     );
-    let f = &s.frags[0];
+    let f = &s.clips[0];
     assert_eq!((f.name.as_str(), f.track, f.lanes.len()), ("beat", 0, 3));
     assert_eq!(f.lanes[0].pad, Pad::Bd);
     assert_eq!(f.lanes[0].steps.len(), 16);
@@ -44,7 +44,7 @@ fn the_print_is_canonical_and_parses_back() {
     let text = s.print();
     assert_eq!(
         text,
-        "# a comment\ntempo 124\nswing 56\ntrack kit drums Tr808 Kit808\n\nfrag beat = kit /16\n  bd x...x...x...x... # four on the floor\n  sn ....X.......X..x\n  ch x.x.x.x.x.x.x.x.\n"
+        "# a comment\ntempo 124\nswing 56\ntrack kit drums Tr808 Kit808\n\nclip beat = kit /16\n  bd x...x...x...x... # four on the floor\n  sn ....X.......X..x\n  ch x.x.x.x.x.x.x.x.\n"
     );
     assert_eq!(Song::parse(&text), Ok(s));
 }
@@ -82,50 +82,50 @@ fn every_error_says_where() {
             7,
             "there is already a track with this name",
         ),
-        ("frag a = kit", 1, 10, "no track has this name"),
-        ("track kit drums\nfrag a kit", 2, 8, "= and a track go here"),
+        ("clip a = kit", 1, 10, "no track has this name"),
+        ("track kit drums\nclip a kit", 2, 8, "= and a track go here"),
         (
-            "track kit drums\nfrag a = kit /8\n  bd x",
+            "track kit drums\nclip a = kit /8\n  bd x",
             2,
             14,
             "a drum grid is /12, /16, /24, /32 or /48",
         ),
         (
-            "track kit drums\nfrag a = kit\n  zz x...",
+            "track kit drums\nclip a = kit\n  zz x...",
             3,
             3,
             "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
         ),
         (
-            "track kit drums\nfrag a = kit\n  bd x..z",
+            "track kit drums\nclip a = kit\n  bd x..z",
             3,
             9,
             "a step is x, X, o, f, d or .",
         ),
         (
-            "track kit drums\nfrag a = kit\n  bd",
+            "track kit drums\nclip a = kit\n  bd",
             3,
             3,
             "a lane needs its steps: x, X, o, f, d or .",
         ),
         (
-            "track kit drums\nfrag a = kit\n  bd x\n  bd x",
+            "track kit drums\nclip a = kit\n  bd x\n  bd x",
             4,
             3,
             "this pad already has a lane",
         ),
         (
-            "track kit drums\nfrag a = kit\ntempo 120",
+            "track kit drums\nclip a = kit\ntempo 120",
             2,
             1,
-            "a frag needs at least one lane",
+            "a clip needs at least one lane",
         ),
-        ("  bd x...", 1, 3, "a lane goes under a frag"),
+        ("  bd x...", 1, 3, "a lane goes under a clip"),
         (
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -139,7 +139,7 @@ fn every_error_says_where() {
 
 #[test]
 fn limits_hold() {
-    let long = format!("track kit drums\nfrag a = kit\n  bd {}", "x".repeat(65));
+    let long = format!("track kit drums\nclip a = kit\n  bd {}", "x".repeat(65));
     assert_eq!(
         Song::parse(&long).map_err(|e| e.msg),
         Err("a lane has at most 64 steps")
@@ -161,7 +161,7 @@ fn set_step_changes_one_step() {
     );
     assert!(!s.set_step(0, 0, 16, Step::Hit), "past the lane");
     assert!(!s.set_step(0, 3, 0, Step::Hit), "no fourth lane");
-    assert!(!s.set_step(1, 0, 0, Step::Hit), "no second frag");
+    assert!(!s.set_step(1, 0, 0, Step::Hit), "no second clip");
     assert_eq!(Step::from_level(9), None);
 }
 
@@ -206,7 +206,7 @@ fn random_song(r: &mut Rng) -> Song {
     for f in 0..r.below(5) {
         if song.tracks.len() > 1 && r.below(3) == 0 {
             let seq = ["\"c4 [e4 g4]*2 ~\"", "c4:4 e4:8. r:8", "\"<c4 d4> g4?\""][r.below(3)];
-            song.frags.push(Fragment {
+            song.clips.push(Clip {
                 name: format!("f{f}"),
                 track: 1,
                 lanes: Vec::new(),
@@ -232,7 +232,7 @@ fn random_song(r: &mut Rng) -> Song {
                 ratchets: Vec::new(),
             });
         }
-        song.frags.push(Fragment {
+        song.clips.push(Clip {
             name: format!("f{f}"),
             track: 0,
             lanes,
@@ -258,7 +258,7 @@ fn print_then_parse_is_identity() {
 #[test]
 fn never_panics_on_garbage() {
     let mut r = Rng(0x9E37_79B9);
-    let alphabet = b"tempo swing scale c minor track frag drums synth euclid(3,8,1) = /16 bd sn ch c4 xX.#\n\t 0123456789-+e\xc3\xa9";
+    let alphabet = b"tempo swing scale c minor track clip drums synth euclid(3,8,1) = /16 bd sn ch c4 xX.#\n\t 0123456789-+e\xc3\xa9";
     for _ in 0..3000 {
         let n = r.below(200);
         let bytes: Vec<u8> = (0..n).map(|_| alphabet[r.below(alphabet.len())]).collect();
@@ -287,27 +287,27 @@ const RIFF: &str = "\
 track bass synth
 track kit drums
 
-frag riff = bass
+clip riff = bass
   \"c4 [e4 g4] ~ <c5 d5>?\"   # a sharp is not a comment: c#4
-frag line = bass
+clip line = bass
   c#4:4 e4:8. [c4,e4,g4]:2 r:8
-frag beat = kit
+clip beat = kit
   bd x...
 ";
 
 #[test]
-fn note_fragments_parse_and_print_back() {
+fn note_clips_parse_and_print_back() {
     let s = Song::parse(RIFF).expect("parses");
     assert_eq!(s.tracks[0].kind, Kind::Synth);
-    assert_eq!(s.frags[0].notes.as_ref().map(|n| n.bars), Some(8));
-    assert!(s.frags[0].lanes.is_empty());
-    assert_eq!(s.frags[2].notes, None);
+    assert_eq!(s.clips[0].notes.as_ref().map(|n| n.bars), Some(8));
+    assert!(s.clips[0].lanes.is_empty());
+    assert_eq!(s.clips[2].notes, None);
     let text = s.print();
     assert!(text.contains("track bass synth Minimoog MiniBass\ntrack kit drums Tr808 Kit808\n"));
     assert!(text.contains(
-        "frag riff = bass\n  \"c4 [e4 g4] ~ <c5 d5>?\" # a sharp is not a comment: c#4\n"
+        "clip riff = bass\n  \"c4 [e4 g4] ~ <c5 d5>?\" # a sharp is not a comment: c#4\n"
     ));
-    assert!(text.contains("frag line = bass\n  c#4:4 e4:8. [c4,e4,g4]:2 r:8\n"));
+    assert!(text.contains("clip line = bass\n  c#4:4 e4:8. [c4,e4,g4]:2 r:8\n"));
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
@@ -315,49 +315,49 @@ fn note_fragments_parse_and_print_back() {
 fn note_errors_say_line_and_column() {
     let cases: [(&str, usize, usize, &str); 8] = [
         (
-            "track b synth\nfrag a = b\n  \"c4 x4\"",
+            "track b synth\nclip a = b\n  \"c4 x4\"",
             3,
             7,
             "a note is a letter a to g, maybe # or b, and an octave 0 to 9, as c4",
         ),
         (
-            "track b synth\nfrag a = b\n  c4:4 \"e4\"",
+            "track b synth\nclip a = b\n  c4:4 \"e4\"",
             3,
             8,
             "mini-notation goes inside quotes, classic notes outside",
         ),
         (
-            "track b synth\nfrag a = b\n  \"c4:4\"",
+            "track b synth\nclip a = b\n  \"c4:4\"",
             3,
             6,
             "durations go outside the quotes, as c4:4",
         ),
         (
-            "track b synth\nfrag a = b\n  c4:4 e4",
+            "track b synth\nclip a = b\n  c4:4 e4",
             3,
             10,
             "a classic note has a duration, as c4:4",
         ),
         (
-            "track b synth\nfrag a = b\n  c4:4\n  e4:4",
+            "track b synth\nclip a = b\n  c4:4\n  e4:4",
             4,
             3,
-            "a note frag is one line of notes",
+            "a note clip is one line of notes",
         ),
         (
-            "track b synth\nfrag a = b\nfrag c = b\n  c4:4",
+            "track b synth\nclip a = b\nclip c = b\n  c4:4",
             2,
             1,
-            "a frag needs a line of notes",
+            "a clip needs a line of notes",
         ),
         (
-            "track b synth\nfrag a = b /16\n  c4:4",
+            "track b synth\nclip a = b /16\n  c4:4",
             2,
             12,
-            "a note frag has no step grid",
+            "a note clip has no step grid",
         ),
         (
-            "track b drums\nfrag a = b\n  c4:4",
+            "track b drums\nclip a = b\n  c4:4",
             3,
             3,
             "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
@@ -383,12 +383,12 @@ const SAMPLED: &str = "\
 track pads sampler
 track keys sampler
 
-frag hits = pads
+clip hits = pads
   bd x...x...
   sn ....X...
-frag tune = keys
+clip tune = keys
   c4:4 e4:8 g4:8
-frag mini = keys
+clip mini = keys
   \"c4 [e4 g4]\"
 ";
 
@@ -396,12 +396,12 @@ frag mini = keys
 fn sampler_tracks_hold_lanes_or_notes() {
     let s = Song::parse(SAMPLED).expect("parses");
     assert_eq!(s.tracks[0].kind, Kind::Sampler);
-    assert_eq!(s.frags[0].lanes.len(), 2);
-    assert!(s.frags[0].notes.is_none());
-    assert!(s.frags[1].lanes.is_empty() && s.frags[1].notes.is_some());
+    assert_eq!(s.clips[0].lanes.len(), 2);
+    assert!(s.clips[0].notes.is_none());
+    assert!(s.clips[1].lanes.is_empty() && s.clips[1].notes.is_some());
     let text = s.print();
     assert!(text.contains("track pads sampler\ntrack keys sampler\n"));
-    assert!(text.contains("frag hits = pads /16\n  bd x...x...\n  sn ....X...\n"));
+    assert!(text.contains("clip hits = pads /16\n  bd x...x...\n  sn ....X...\n"));
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
@@ -409,35 +409,35 @@ fn sampler_tracks_hold_lanes_or_notes() {
 fn sampler_errors_say_where() {
     let cases: [(&str, usize, usize, &str); 5] = [
         (
-            "track p sampler\nfrag a = p\n  zz x...",
+            "track p sampler\nclip a = p\n  zz x...",
             3,
             3,
             "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
         ),
         (
-            "track p sampler\nfrag a = p\n  bd x...\n  c4:4",
+            "track p sampler\nclip a = p\n  bd x...\n  c4:4",
             4,
             3,
-            "a frag holds lanes or notes, not both",
+            "a clip holds lanes or notes, not both",
         ),
         (
-            "track p sampler\nfrag a = p\n  c4:4\n  bd x...",
+            "track p sampler\nclip a = p\n  c4:4\n  bd x...",
             4,
             3,
-            "a frag holds lanes or notes, not both",
+            "a clip holds lanes or notes, not both",
         ),
         (
-            "track p sampler\nfrag a = p\ntempo 120",
+            "track p sampler\nclip a = p\ntempo 120",
             2,
             1,
-            "a frag needs lanes or a line of notes",
+            "a clip needs lanes or a line of notes",
         ),
-        // #395: a grid is for lanes; a frag of notes has none, as on a synth.
+        // #395: a grid is for lanes; a clip of notes has none, as on a synth.
         (
-            "track s sampler Sampler\nfrag f = s /24\n  \"c4 e4 g4\"",
+            "track s sampler Sampler\nclip f = s /24\n  \"c4 e4 g4\"",
             2,
             12,
-            "a note frag has no step grid",
+            "a note clip has no step grid",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -452,16 +452,16 @@ fn sampler_errors_say_where() {
 #[test]
 fn sampler_tracks_hold_generators() {
     // #251: a call is notes on a sampler track too, never a lane.
-    let text = "scale c minor\ntrack keys sampler\n\nfrag w = keys live\n  walk(c4,8,1)\nfrag a = keys\n  arp([c4,e4,g4],up,16)\nfrag e = keys\n  euclid(3,8) c4\n";
+    let text = "scale c minor\ntrack keys sampler\n\nclip w = keys live\n  walk(c4,8,1)\nclip a = keys\n  arp([c4,e4,g4],up,16)\nclip e = keys\n  euclid(3,8) c4\n";
     let s = Song::parse(text).expect("parses");
     assert!(
-        s.frags
+        s.clips
             .iter()
             .all(|f| f.notes.is_some() && f.lanes.is_empty())
     );
-    assert!(s.frags[0].live);
+    assert!(s.clips[0].live);
     let printed = s.print();
-    assert!(printed.contains("frag w = keys live\n  walk(c4,8,1)\n"));
+    assert!(printed.contains("clip w = keys live\n  walk(c4,8,1)\n"));
     assert!(printed.contains("  euclid(3,8) c4\n"));
     assert_eq!(Song::parse(&printed), Ok(s));
 }
@@ -470,7 +470,7 @@ fn sampler_tracks_hold_generators() {
 fn bars_is_not_for_lanes() {
     // #251: `bars N` before lanes was dropped; it is an error at the `bars`.
     assert_eq!(
-        Song::parse("track p sampler\nfrag a = p bars 2\n  bd x..."),
+        Song::parse("track p sampler\nclip a = p bars 2\n  bd x..."),
         Err(SongError {
             line: 2,
             col: 12,
@@ -502,13 +502,13 @@ scale c minor
 track kit drums
 track lead synth
 
-frag beat = kit
+clip beat = kit
   bd euclid(3,8)
   sn euclid(5,16,2)
   ch x.x.
-frag line = lead
+clip line = lead
   euclid(5,8) scale c4
-frag pulse = lead
+clip pulse = lead
   euclid(3,8,1) g3!
 ";
 
@@ -516,7 +516,7 @@ frag pulse = lead
 fn generators_and_scales_parse_and_print_back() {
     let s = Song::parse(GENERATED).expect("parses");
     assert_eq!(s.scale.map(|k| (k.root, k.mode.name())), Some((0, "minor")));
-    let lanes = &s.frags[0].lanes;
+    let lanes = &s.clips[0].lanes;
     assert_eq!(lanes[0].steps.len(), 8);
     assert_eq!(
         lanes[0].steps.iter().filter(|x| **x == Step::Hit).count(),
@@ -555,19 +555,19 @@ fn generator_errors_say_where() {
         ("scale c", 1, 8, "a mode goes here: scale c minor"),
         ("scale c minor\nscale d major", 2, 1, "a song has one scale"),
         (
-            "track t drums\nfrag a = t\n  bd x\nscale c minor",
+            "track t drums\nclip a = t\n  bd x\nscale c minor",
             4,
             1,
-            "the scale goes before the frags",
+            "the scale goes before the clips",
         ),
         (
-            "track t drums\nfrag a = t\n  bd euclid(9,8)",
+            "track t drums\nclip a = t\n  bd euclid(9,8)",
             3,
             6,
             "euclid cannot have more hits than steps",
         ),
         (
-            "track t synth\nfrag a = t\n  euclid(3,8) scale c4",
+            "track t synth\nclip a = t\n  euclid(3,8) scale c4",
             3,
             15,
             "a scale walk needs a scale line before it",
@@ -583,24 +583,24 @@ fn generator_errors_say_where() {
 }
 
 #[test]
-fn generator_calls_read_earlier_frags_and_print_back() {
+fn generator_calls_read_earlier_clips_and_print_back() {
     let text = "\
 scale d dorian
 track lead synth
 
-frag riff = lead
+clip riff = lead
   d4:4 f4:8 a4:8 c5:2
-frag arp = lead
+clip arp = lead
   arp([d4,f4,a4],updown,16)
-frag wander = lead
+clip wander = lead
   walk(d4,8,3)
-frag learned = lead
+clip learned = lead
   markov(1,riff,9)
-frag changed = lead
+clip changed = lead
   mutate(riff,40,2)
 ";
     let s = Song::parse(text).expect("parses");
-    assert_eq!(s.frags[3].notes.as_ref().map(|n| n.events.len()), Some(4));
+    assert_eq!(s.clips[3].notes.as_ref().map(|n| n.events.len()), Some(4));
     let printed = s.print();
     for call in [
         "arp([d4,f4,a4],updown,16)",
@@ -614,28 +614,28 @@ frag changed = lead
 }
 
 #[test]
-fn a_call_cannot_read_a_later_or_missing_frag() {
-    let text = "track t synth\nfrag a = t\n  mutate(b,10,1)\nfrag b = t\n  c4:4\n";
+fn a_call_cannot_read_a_later_or_missing_clip() {
+    let text = "track t synth\nclip a = t\n  mutate(b,10,1)\nclip b = t\n  c4:4\n";
     assert_eq!(
         Song::parse(text),
         Err(SongError {
             line: 3,
             col: 10,
-            msg: "no note frag with this name comes before this one"
+            msg: "no note clip with this name comes before this one"
         })
     );
-    let own = "track t synth\nfrag a = t\n  markov(1,a,1)\n";
+    let own = "track t synth\nclip a = t\n  markov(1,a,1)\n";
     assert!(Song::parse(own).is_err());
 }
 
 #[test]
-fn a_live_frag_prints_and_parses_back() {
-    let text = "scale c minor\ntrack lead synth\n\nfrag w = lead live\n  walk(c4,8,1)\nfrag s = lead\n  arp([c4,e4],up,8)\n";
+fn a_live_clip_prints_and_parses_back() {
+    let text = "scale c minor\ntrack lead synth\n\nclip w = lead live\n  walk(c4,8,1)\nclip s = lead\n  arp([c4,e4],up,8)\n";
     let s = Song::parse(text).expect("parses");
-    assert!(s.frags[0].live && !s.frags[1].live);
+    assert!(s.clips[0].live && !s.clips[1].live);
     let printed = s.print();
-    assert!(printed.contains("frag w = lead live\n  walk(c4,8,1)\n"));
-    assert!(printed.contains("frag s = lead\n"));
+    assert!(printed.contains("clip w = lead live\n  walk(c4,8,1)\n"));
+    assert!(printed.contains("clip s = lead\n"));
     assert_eq!(Song::parse(&printed), Ok(s));
 }
 
@@ -643,22 +643,22 @@ fn a_live_frag_prints_and_parses_back() {
 fn live_errors_say_where() {
     let cases: [(&str, usize, usize, &str); 3] = [
         (
-            "track k drums\nfrag a = k live\n  bd x",
+            "track k drums\nclip a = k live\n  bd x",
             2,
             12,
-            "only a note frag can be live",
+            "only a note clip can be live",
         ),
         (
-            "track t synth\nfrag a = t live\n  c4:4",
+            "track t synth\nclip a = t live\n  c4:4",
             3,
             3,
-            "a live frag is a call: arp, walk, markov, mutate, root or prog",
+            "a live clip is a call: arp, walk, markov, mutate, root or prog",
         ),
         (
-            "track t synth\nfrag a = t live\n  euclid(3,8) c4",
+            "track t synth\nclip a = t live\n  euclid(3,8) c4",
             3,
             3,
-            "a live frag is a call: arp, walk, markov, mutate, root or prog",
+            "a live clip is a call: arp, walk, markov, mutate, root or prog",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -673,18 +673,18 @@ fn live_errors_say_where() {
 #[test]
 fn freezing_replaces_the_call_with_notes() {
     let mut s = Song::parse(
-        "scale c minor\ntrack t synth\nfrag w = t live\n  walk(c4,4,1)\nfrag p = t\n  c4:4\n",
+        "scale c minor\ntrack t synth\nclip w = t live\n  walk(c4,4,1)\nclip p = t\n  c4:4\n",
     )
     .unwrap();
-    assert!(!s.freeze(1, None), "a written frag has no call");
-    assert!(!s.freeze(9, None), "no such frag");
-    let before = s.frags[0].notes.as_ref().unwrap().events.clone();
+    assert!(!s.freeze(1, None), "a written clip has no call");
+    assert!(!s.freeze(9, None), "no such clip");
+    let before = s.clips[0].notes.as_ref().unwrap().events.clone();
     assert!(s.freeze(0, None));
-    assert!(!s.frags[0].live);
+    assert!(!s.clips[0].live);
     let printed = s.print();
     assert!(!printed.contains("walk(") && !printed.contains("live"));
     assert_eq!(
-        Song::parse(&printed).unwrap().frags[0]
+        Song::parse(&printed).unwrap().clips[0]
             .notes
             .as_ref()
             .unwrap()
@@ -704,35 +704,77 @@ track kit drums
 track bass synth
 track lead synth
 
-frag beat = kit
+clip beat = kit
   bd x..x..x...x..x..
   cp ....x.......x...
   ch x.x.x.x.x.x.x.x.
   oh ..x...x...x...x.
   cb euclid(5,16,2)
 
-frag acid = bass
+clip acid = bass
   \"a1! a1 [a2 a1] ~ a1! ~ [c2 e2] a1\"
 
-frag stabs = lead
+clip stabs = lead
   \"~ [a3!,c4!,e4!] ~ ~ ~ [a3,c4,e4] ~ ~\"
 
-frag arp = lead
+clip arp = lead
   arp([a3,c4,e4,g4],updown,16)
 
-frag drift = lead live
+clip drift = lead live
   walk(a3,16,7)
 ";
 
 #[test]
 fn an_electro_example_parses_and_prints_back() {
     let s = Song::parse(ELECTRO).expect("parses");
-    assert_eq!((s.tracks.len(), s.frags.len()), (3, 5));
+    assert_eq!((s.tracks.len(), s.clips.len()), (3, 5));
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
 /// The songs in `examples/songs/` parse, print back equal and are arranged, and
 /// the SH-101 plays in most of those that are not drum studies.
+/// #486, ADR-0031: a song in the old words (`frag`, `section`, a `scene`
+/// that is a mixer snapshot) reads as the same song in Ableton's words, and
+/// prints in them, its comments kept.
+#[test]
+fn a_song_in_the_old_words_reads_and_prints_in_the_new() {
+    let old = "tempo 120
+track kit drums
+# the beat
+frag beat = kit /16
+  bd x...x...x...x...
+scene dub: kit.Level 0.5
+scene drop : kit.Level 1
+section a 2: beat [dub] # quiet
+section b 2: beat [drop]
+arrange a b
+";
+    let new = "tempo 120
+track kit drums
+# the beat
+clip beat = kit /16
+  bd x...x...x...x...
+snapshot dub: kit.Level 0.5
+snapshot drop: kit.Level 1
+scene a 2: beat [dub] # quiet
+scene b 2: beat [drop]
+arrange a b
+";
+    let (o, n) = (
+        Song::parse(old).expect("old"),
+        Song::parse(new).expect("new"),
+    );
+    assert_eq!(o, n);
+    assert_eq!(o.snapshots.len(), 2);
+    assert_eq!(o.scenes.len(), 2);
+    assert_eq!(o.print(), n.print());
+    let printed = o.print();
+    for gone in ["frag ", "section ", "scene dub", "scene drop"] {
+        assert!(!printed.contains(gone), "{gone} in\n{printed}");
+    }
+    assert!(printed.contains("# the beat") && printed.contains("# quiet"));
+}
+
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs");
@@ -765,54 +807,54 @@ fn the_example_songs_parse_and_print_back() {
 
 const ARRANGED: &str = "\
 track kit drums
-frag beat = kit /16
+clip beat = kit /16
   bd x...x...x...x...
-frag fill = kit /16
+clip fill = kit /16
   sn ..x.
-section intro 2: beat
-section main 4 : beat fill
-section gap 1:
+scene intro 2: beat
+scene main 4 : beat fill
+scene gap 1:
 arrange intro main main gap
 loop 3 6
 ";
 
-/// Spec 002 Req 4: sections, the arrangement and a loop region parse and
+/// Spec 002 Req 4: scenes, the arrangement and a loop region parse and
 /// print canonically.
 #[test]
-fn sections_and_the_arrangement_parse_and_print() {
+fn scenes_and_the_arrangement_parse_and_print() {
     let s = Song::parse(ARRANGED).expect("parses");
-    assert_eq!(s.sections.len(), 3);
+    assert_eq!(s.scenes.len(), 3);
     assert_eq!(
-        s.sections[1],
-        Section {
+        s.scenes[1],
+        Scene {
             name: "main".into(),
             bars: 4,
-            frags: vec![0, 1],
+            clips: vec![0, 1],
             autos: vec![],
-            scenes: vec![],
+            snapshots: vec![],
         }
     );
     assert_eq!(
-        s.sections[2].frags,
+        s.scenes[2].clips,
         Vec::<usize>::new(),
-        "an empty section is silent bars"
+        "an empty scene is silent bars"
     );
     assert_eq!(s.arrange, vec![0, 1, 1, 2]);
     assert_eq!(s.loop_bars, Some((3, 6)));
     assert_eq!(s.bars(), 11);
     let text = s.print();
-    assert!(text.ends_with("section intro 2: beat\nsection main 4: beat fill\nsection gap 1:\narrange intro main main gap\nloop 3 6\n"), "{text}");
+    assert!(text.ends_with("scene intro 2: beat\nscene main 4: beat fill\nscene gap 1:\narrange intro main main gap\nloop 3 6\n"), "{text}");
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
 #[test]
-fn a_step_falls_in_its_section_and_the_loop_wraps() {
+fn a_step_falls_in_its_scene_and_the_loop_wraps() {
     let s = Song::parse(ARRANGED).expect("parses");
     assert_eq!(
         s.at(0),
         At::In {
             entry: 0,
-            section: 0,
+            scene: 0,
             local: 0
         }
     );
@@ -820,7 +862,7 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
         s.at(31),
         At::In {
             entry: 0,
-            section: 0,
+            scene: 0,
             local: 31
         }
     );
@@ -828,7 +870,7 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
         s.at(32),
         At::In {
             entry: 1,
-            section: 1,
+            scene: 1,
             local: 0
         }
     );
@@ -837,7 +879,7 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
         s.at(96),
         At::In {
             entry: 1,
-            section: 1,
+            scene: 1,
             local: 0
         }
     );
@@ -845,7 +887,7 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
         s.at(96 + 63),
         At::In {
             entry: 1,
-            section: 1,
+            scene: 1,
             local: 63
         }
     );
@@ -855,7 +897,7 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
         no_loop.at(96),
         At::In {
             entry: 2,
-            section: 1,
+            scene: 1,
             local: 0
         },
         "main again, from its start"
@@ -864,7 +906,7 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
         no_loop.at(160),
         At::In {
             entry: 3,
-            section: 2,
+            scene: 2,
             local: 0
         }
     );
@@ -877,45 +919,40 @@ fn a_step_falls_in_its_section_and_the_loop_wraps() {
 
 #[test]
 fn arrangement_errors_say_where() {
-    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let head = "track kit drums\nclip b = kit\n  bd x\n";
     let cases: [(&str, usize, usize, &str); 12] = [
         (
-            "section 1a 2: b",
+            "scene 1a 2: b",
             4,
-            9,
+            7,
             "a name is a letter, then letters, digits or _",
         ),
-        ("section a", 4, 10, "a number of bars and : go here"),
-        ("section a 2 b", 4, 13, ": goes here, after the bars"),
-        ("section a 0: b", 4, 11, "a section is 1 to 256 bars"),
-        ("section a 300: b", 4, 11, "a section is 1 to 256 bars"),
+        ("scene a", 4, 8, "a number of bars and : go here"),
+        ("scene a 2 b", 4, 11, ": goes here, after the bars"),
+        ("scene a 0: b", 4, 9, "a scene is 1 to 256 bars"),
+        ("scene a 300: b", 4, 9, "a scene is 1 to 256 bars"),
         (
-            "section a 2: c",
+            "scene a 2: c",
             4,
-            14,
-            "no frag, auto or [scene] has this name",
+            12,
+            "no clip, auto or [snapshot] has this name",
         ),
+        ("scene a 2: b b", 4, 14, "this clip is already in the scene"),
         (
-            "section a 2: b b",
-            4,
-            16,
-            "this frag is already in the section",
-        ),
-        (
-            "section a 2: b\nsection a 1: b",
+            "scene a 2: b\nscene a 1: b",
             5,
-            9,
-            "there is already a section with this name",
+            7,
+            "there is already a scene with this name",
         ),
-        ("arrange x", 4, 9, "no section has this name"),
+        ("arrange x", 4, 9, "no scene has this name"),
         (
-            "section a 2: b\narrange",
+            "scene a 2: b\narrange",
             5,
             8,
-            "sections go here, in the order they play",
+            "scenes go here, in the order they play",
         ),
         (
-            "section a 2: b\narrange a\nloop 2 3",
+            "scene a 2: b\narrange a\nloop 2 3",
             6,
             1,
             "the loop ends after the arrangement",
@@ -927,29 +964,29 @@ fn arrangement_errors_say_where() {
         assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
     }
     let err =
-        Song::parse(&format!("{head}section a 1:\narrange a\nloop 3 2")).expect_err("backwards");
+        Song::parse(&format!("{head}scene a 1:\narrange a\nloop 3 2")).expect_err("backwards");
     assert_eq!(err.msg, "the last bar comes after the first");
-    let err = Song::parse(&format!("{head}section a 1:\narrange a\narrange a")).expect_err("two");
+    let err = Song::parse(&format!("{head}scene a 1:\narrange a\narrange a")).expect_err("two");
     assert_eq!(err.msg, "a song has one arrange line");
 }
 
 const AUTOMATED: &str = "\
 track kit drums
-frag beat = kit /16
+clip beat = kit /16
   bd x...
 auto sweep = kit.Cutoff ramp 300 4000 /2
 auto duck = strip3.Level 1 0.5 0.25 1 /1
 auto wet = master.P2Return 0 0.4 /4
-scene drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4
-section a 2: beat sweep [drop]
-section b 1: duck wet
+snapshot drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4
+scene a 2: beat sweep [drop]
+scene b 1: duck wet
 arrange a b
 ";
 
-/// ADR-0015: automation lanes and scenes, by parameter name on a target,
+/// ADR-0015: automation lanes and snapshots, by parameter name on a target,
 /// parse and print canonically.
 #[test]
-fn automation_and_scenes_parse_and_print() {
+fn automation_and_snapshots_parse_and_print() {
     let s = Song::parse(AUTOMATED).expect("parses");
     assert_eq!(s.autos.len(), 3);
     assert_eq!(s.autos[0].target, Target::Track(0));
@@ -959,7 +996,7 @@ fn automation_and_scenes_parse_and_print() {
     assert_eq!(s.autos[1].shape, Shape::Steps(vec![1.0, 0.5, 0.25, 1.0]));
     assert_eq!(s.autos[2].target, Target::Master);
     assert_eq!(
-        s.scenes[0].sets,
+        s.snapshots[0].sets,
         vec![
             (Target::Strip(0), Param::Mute, 1.0),
             (Target::Strip(17), Param::Send1, 0.5),
@@ -967,20 +1004,20 @@ fn automation_and_scenes_parse_and_print() {
         ]
     );
     assert_eq!(
-        (s.sections[0].autos.clone(), s.sections[0].scenes.clone()),
+        (s.scenes[0].autos.clone(), s.scenes[0].snapshots.clone()),
         (vec![0], vec![0])
     );
-    assert_eq!(s.sections[1].autos, vec![1, 2]);
+    assert_eq!(s.scenes[1].autos, vec![1, 2]);
     let text = s.print();
     assert!(
         text.contains("auto sweep = kit.Cutoff ramp 300 4000 /2\n"),
         "{text}"
     );
     assert!(
-        text.contains("scene drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4\n"),
+        text.contains("snapshot drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4\n"),
         "{text}"
     );
-    assert!(text.contains("section a 2: beat sweep [drop]\n"), "{text}");
+    assert!(text.contains("scene a 2: beat sweep [drop]\n"), "{text}");
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
@@ -1010,7 +1047,7 @@ fn a_lane_steps_or_ramps_over_its_length_and_loops() {
 
 #[test]
 fn automation_errors_say_where() {
-    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let head = "track kit drums\nclip b = kit\n  bd x\n";
     let cases: [(&str, usize, usize, &str); 11] = [
         (
             "auto a = strip1.Level 1 /0",
@@ -1064,15 +1101,15 @@ fn automation_errors_say_where() {
             "auto b = kit.Cutoff 1 /1",
             4,
             6,
-            "there is already a frag or auto with this name",
+            "there is already a clip or auto with this name",
         ),
         (
-            "scene s: strip1.Mute 1 strip2.Mute 1",
+            "snapshot s: strip1.Mute 1 strip2.Mute 1",
             4,
-            24,
+            27,
             "a comma goes between settings",
         ),
-        ("section a 1: [none]", 4, 14, "no scene has this name"),
+        ("scene a 1: [none]", 4, 12, "no snapshot has this name"),
     ];
     for (tail, line, col, msg) in cases {
         let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
@@ -1084,29 +1121,29 @@ fn automation_errors_say_where() {
 #[test]
 fn arranger_edits_change_the_song_and_its_text() {
     let mut s = Song::parse(AUTOMATED).expect("parses");
-    // Toggle: take the beat out of section a, put the lane duck in, the scene out.
+    // Toggle: take the beat out of scene a, put the lane duck in, the snapshot out.
     assert!(s.toggle(0, 0, 0));
     assert!(s.toggle(0, 1, 1));
     assert!(s.toggle(0, 2, 0));
     assert_eq!(
         (
-            s.sections[0].frags.clone(),
-            s.sections[0].autos.clone(),
-            s.sections[0].scenes.clone()
+            s.scenes[0].clips.clone(),
+            s.scenes[0].autos.clone(),
+            s.scenes[0].snapshots.clone()
         ),
         (vec![], vec![0, 1], vec![])
     );
     assert!(
         !s.toggle(0, 0, 9) && !s.toggle(9, 0, 0) && !s.toggle(0, 3, 0),
-        "no such item, section or kind"
+        "no such item, scene or kind"
     );
-    // Add a section: named partN, appended to the arrangement.
-    assert_eq!(s.add_section(4), Some(2));
+    // Add a scene: named partN, appended to the arrangement.
+    assert_eq!(s.add_scene(4), Some(2));
     assert_eq!(
-        (s.sections[2].name.as_str(), s.arrange.clone()),
+        (s.scenes[2].name.as_str(), s.arrange.clone()),
         ("part1", vec![0, 1, 2])
     );
-    assert_eq!(s.add_section(0), None);
+    assert_eq!(s.add_scene(0), None);
     // Insert, move and remove entries.
     assert!(s.arrange_insert(0, 1));
     assert_eq!(s.arrange, vec![1, 0, 1, 2]);
@@ -1124,8 +1161,8 @@ fn arranger_edits_change_the_song_and_its_text() {
     // The text says it all, and parses back to the same song.
     let text = s.print();
     assert!(
-        text.contains("section a 2: sweep duck\n")
-            && text.contains("section part1 8:\n")
+        text.contains("scene a 2: sweep duck\n")
+            && text.contains("scene part1 8:\n")
             && text.contains("arrange a b b\n"),
         "{text}"
     );
@@ -1135,11 +1172,11 @@ fn arranger_edits_change_the_song_and_its_text() {
 #[test]
 fn editing_a_note_rewrites_the_text() {
     use crate::notes::Edit;
-    let mut s = Song::parse("track t synth\nfrag a = t\n  c4:4 e4:4 g4:2\n").unwrap();
+    let mut s = Song::parse("track t synth\nclip a = t\n  c4:4 e4:4 g4:2\n").unwrap();
     assert!(s.edit_note(0, Edit::Add { tick: 36, note: 72 }));
     let text = s.print();
     assert!(
-        text.contains("frag a = t\n  \"c4@12 e4@12 g4@12 c5@3 ~@9\"\n"),
+        text.contains("clip a = t\n  \"c4@12 e4@12 g4@12 c5@3 ~@9\"\n"),
         "{text}"
     );
     assert_eq!(Song::parse(&text), Ok(s.clone()));
@@ -1151,15 +1188,15 @@ fn editing_a_note_rewrites_the_text() {
     );
     assert!(
         !s.edit_note(5, Edit::Add { tick: 0, note: 60 }),
-        "no such frag"
+        "no such clip"
     );
 }
 
 #[test]
-fn a_generated_frag_is_frozen_before_it_is_edited() {
+fn a_generated_clip_is_frozen_before_it_is_edited() {
     use crate::notes::Edit;
     let mut s = Song::parse(
-        "scale c minor\ntrack t synth\nfrag a = t\n  euclid(3,8) c4\nfrag b = t\n  walk(c4,4,1)\n",
+        "scale c minor\ntrack t synth\nclip a = t\n  euclid(3,8) c4\nclip b = t\n  walk(c4,4,1)\n",
     )
     .unwrap();
     assert!(!s.edit_note(0, Edit::Add { tick: 3, note: 60 }));
@@ -1172,12 +1209,12 @@ fn a_generated_frag_is_frozen_before_it_is_edited() {
 /// with its overlaps, velocities and bars.
 #[test]
 fn an_edit_of_timed_notes_stays_timed() {
-    let text = "track v synth\nfrag a = v bars 2\n  d5@0:48:100 f#5@6:6:64\n";
+    let text = "track v synth\nclip a = v bars 2\n  d5@0:48:100 f#5@6:6:64\n";
     let mut s = Song::parse(text).expect("parses");
     assert!(s.edit_note(0, notes::Edit::Add { tick: 24, note: 69 }));
     let printed = s.print();
     assert!(
-        printed.contains("frag a = v bars 2\n  d5@0:48:100 f#5@6:6:64 a4@24:3\n"),
+        printed.contains("clip a = v bars 2\n  d5@0:48:100 f#5@6:6:64 a4@24:3\n"),
         "a sixteenth, nothing shortened: {printed}"
     );
     assert!(s.edit_note(
@@ -1210,17 +1247,17 @@ track bass synth
 track pad synth
 track low synth
 
-frag beat = kit /16
+clip beat = kit /16
   bd x..x..x...x..x..
-frag sub = bass
+clip sub = bass
   \"e2 ~ ~ e2\"
-frag nile = lead
+clip nile = lead
   \"e4 f4 g#4 ~\"
-frag sand = lead live
+clip sand = lead live
   arp([e4,g#4,b4],updown,16)
-frag hold = pad
+clip hold = pad
   \"[e3,g#3,b3]\"
-frag deep = low
+clip deep = low
   \"e1 f1 e2 b1\"
 ";
 
@@ -1244,7 +1281,7 @@ fn a_track_without_a_model_gets_one_for_its_role() {
     assert!(text.contains("track lead synth ProOne ProLead\ntrack bass synth Minimoog MiniBass\n"));
     assert_eq!(Song::parse(&text), Ok(s));
     let roles = Song::parse(
-        "track a synth\ntrack b synth\nfrag x = a\n  \"[c4,e4]\"\nfrag y = b live\n  arp([c4,e4],up,16)\n",
+        "track a synth\ntrack b synth\nclip x = a\n  \"[c4,e4]\"\nclip y = b live\n  arp([c4,e4],up,16)\n",
     )
     .expect("parses");
     assert_eq!(roles.tracks[0].preset, Some(Preset::JunoPad), "chords");
@@ -1381,17 +1418,17 @@ track kit drums
 track bass synth
 
 # the beat
-frag beat = kit /16
+clip beat = kit /16
   # four on the floor
   bd x...x...x...x...
   cp ....x.......x...   # clap on 2 and 4
 
-frag line = bass
+clip line = bass
   # a sharp stays a sharp: c#4
   \"a2 ~ a2 [a2 c3]\"   # root and fifth
 
 # the arrangement
-section intro 4: beat line   # four bars
+scene intro 4: beat line   # four bars
 arrange intro
 # the end
 ";
@@ -1403,11 +1440,11 @@ fn comments_survive_print_and_parse() {
     for kept in [
         "# Voodoo, after Gerald\ntempo 118 # not too fast\n",
         "# the bass\ntrack bass synth",
-        "# the beat\nfrag beat = kit /16\n",
+        "# the beat\nclip beat = kit /16\n",
         "  # four on the floor\n  bd x...x...x...x...\n",
         "  cp ....x.......x... # clap on 2 and 4\n",
-        "frag line = bass\n  # a sharp stays a sharp: c#4\n  \"a2 ~ a2 [a2 c3]\" # root and fifth\n",
-        "# the arrangement\nsection intro 4: beat line # four bars\n",
+        "clip line = bass\n  # a sharp stays a sharp: c#4\n  \"a2 ~ a2 [a2 c3]\" # root and fifth\n",
+        "# the arrangement\nscene intro 4: beat line # four bars\n",
     ] {
         assert!(text.contains(kept), "{kept:?} in\n{text}");
     }
@@ -1437,9 +1474,9 @@ fn a_comment_stays_with_its_item_through_an_edit() {
 #[test]
 fn a_comment_whose_item_is_gone_moves_to_the_end() {
     let with =
-        Song::parse("track k drums\nfrag a = k\n  # the kick\n  bd x...\n  sn ..x. # snare\n")
+        Song::parse("track k drums\nclip a = k\n  # the kick\n  bd x...\n  sn ..x. # snare\n")
             .expect("parses");
-    let without = Song::parse("track k drums\nfrag a = k\n  sn ..x.\n").expect("parses");
+    let without = Song::parse("track k drums\nclip a = k\n  sn ..x.\n").expect("parses");
     let text = Comments::apply(
         &with.comments,
         without.print().lines().map(String::from).collect(),
@@ -1452,10 +1489,10 @@ fn a_comment_whose_item_is_gone_moves_to_the_end() {
 
 #[test]
 fn a_song_without_comments_prints_as_before() {
-    let s = Song::parse("tempo 100\ntrack k drums\nfrag a = k\n  bd x...\n").expect("parses");
+    let s = Song::parse("tempo 100\ntrack k drums\nclip a = k\n  bd x...\n").expect("parses");
     assert_eq!(
         s.print(),
-        "tempo 100\nswing 50\ntrack k drums Tr808 Kit808\n\nfrag a = k /16\n  bd x...\n"
+        "tempo 100\nswing 50\ntrack k drums Tr808 Kit808\n\nclip a = k /16\n  bd x...\n"
     );
 }
 
@@ -1497,7 +1534,7 @@ fn the_language_examples_parse() {
 
 /// #383: the definition grows with the language. Every line keyword has a
 /// heading; every word the parser reads from a fixed list (track kinds and
-/// frag words, generator calls, pattern and signal methods, signal sources,
+/// clip words, generator calls, pattern and signal methods, signal sources,
 /// pads, steps, grids, models, modes, chord qualities, arp modes, insert and
 /// processor types, filter voicings) is written in its code or grammar.
 #[test]
@@ -1588,15 +1625,15 @@ fn the_keywords_are_the_parsers() {
     }
 }
 
-/// #103: a chord frag in the song's key, voiced, prints back as written.
+/// #103: a chord clip in the song's key, voiced, prints back as written.
 #[test]
 fn a_voiced_progression_in_the_key_prints_back() {
     let text =
-        "scale a minor\ntrack chords synth\n\nfrag prog = chords voicing\n  \"<i VI III VII>\"\n";
+        "scale a minor\ntrack chords synth\n\nclip prog = chords voicing\n  \"<i VI III VII>\"\n";
     let s = Song::parse(text).expect("parses");
-    let f = &s.frags[0];
+    let f = &s.clips[0];
     assert!(f.voicing);
-    assert!(s.print().contains("frag prog = chords"));
+    assert!(s.print().contains("clip prog = chords"));
     assert!(s.print().contains("voicing\n  \"<i VI III VII>\""));
     assert_eq!(Song::parse(&s.print()).expect("parses back"), s);
     // Voiced: every chord within C3 to C6, the first Am around middle C.
@@ -1617,16 +1654,16 @@ fn a_voiced_progression_in_the_key_prints_back() {
 fn voicing_errors_say_where() {
     for (text, line, col, msg) in [
         (
-            "track kit drums\nfrag b = kit /16 voicing\n  bd x...\n",
+            "track kit drums\nclip b = kit /16 voicing\n  bd x...\n",
             2,
             18,
-            "voicing is for a frag of notes",
+            "voicing is for a clip of notes",
         ),
         (
-            "scale c minor\ntrack l synth\nfrag w = l live voicing\n  walk(c4,8,1)\n",
+            "scale c minor\ntrack l synth\nclip w = l live voicing\n  walk(c4,8,1)\n",
             3,
             17,
-            "a live frag is not voiced",
+            "a live clip is not voiced",
         ),
     ] {
         assert_eq!(
@@ -1642,29 +1679,29 @@ fn voicing_errors_say_where() {
 #[test]
 fn a_progression_feeds_pad_bass_and_arp() {
     let text = "scale c minor\ntrack pad synth\ntrack bass synth\ntrack arp synth\n\n\
-                frag chords = pad voicing\n  prog(4,7)\n\
-                frag low = bass\n  root(chords)\n\
-                frag ripple = arp\n  arp(chords,updown,16)\n";
+                clip chords = pad voicing\n  prog(4,7)\n\
+                clip low = bass\n  root(chords)\n\
+                clip ripple = arp\n  arp(chords,updown,16)\n";
     let s = Song::parse(text).expect("parses");
     let printed = s.print();
     for line in [
         "  prog(4,7)",
         "  root(chords)",
         "  arp(chords,updown,16)",
-        "frag chords = pad",
+        "clip chords = pad",
     ] {
         assert!(printed.contains(line), "{line} in\n{printed}");
     }
     assert_eq!(Song::parse(&printed).expect("parses back"), s);
     let bars: Vec<u32> = s
-        .frags
+        .clips
         .iter()
         .map(|f| f.notes.as_ref().unwrap().bars)
         .collect();
     assert_eq!(bars, [4, 4, 4]);
     // The bass plays the roots of the voiced chords: the same pitch classes.
-    let chords = &s.frags[0].notes.as_ref().unwrap().events;
-    for e in &s.frags[1].notes.as_ref().unwrap().events {
+    let chords = &s.clips[0].notes.as_ref().unwrap().events;
+    for e in &s.clips[1].notes.as_ref().unwrap().events {
         assert!(
             chords
                 .iter()
@@ -1821,7 +1858,7 @@ fn a_comment_on_the_master_line_stays_with_it() {
 /// parameter, and prints canonically, the parameter in lower case.
 #[test]
 fn a_mod_line_parses_and_prints() {
-    let text = "track kit drums\nfrag b = kit\n  bd x\n\
+    let text = "track kit drums\nclip b = kit\n  bd x\n\
         mod kit.Cutoff = sine.range(300,3000).slow(4)   # sweep\n\
         mod master.p2return = lfo(0.2, saw).range(0, 0.5) + perlin * 0.1\n";
     let s = Song::parse(text).expect("parses");
@@ -1848,7 +1885,7 @@ fn a_mod_line_parses_and_prints() {
 
 #[test]
 fn mod_errors_say_where() {
-    let head = "track kit drums\nfrag b = kit\n  bd x\n";
+    let head = "track kit drums\nclip b = kit\n  bd x\n";
     for (line, col, msg) in [
         ("mod", 4, "a target.param goes here"),
         ("mod kit.nope = 1", 5, "no parameter has this name"),
@@ -1904,7 +1941,7 @@ fn mod_errors_say_where() {
 #[test]
 fn per_voice_mod_errors_say_where() {
     let head = "track kit drums\ntrack lead synth Juno106 JunoPad\n\
-        track buzzer synth Modular ModularBasic\nfrag b = kit\n  bd x\n";
+        track buzzer synth Modular ModularBasic\nclip b = kit\n  bd x\n";
     for (line, col, msg) in [
         (
             "mod strip1.level = [0.5, 1]",
@@ -1937,7 +1974,7 @@ fn per_voice_mod_errors_say_where() {
     }
     // On the track's voice parameters it parses, and so does a method.
     let ok = format!(
-        "{head}frag r = lead .resonance(lfo([1, 3]).range(0, 0.6))\n  \"c3\"\n\
+        "{head}clip r = lead .resonance(lfo([1, 3]).range(0, 0.6))\n  \"c3\"\n\
         mod lead.cutoff = env(perc).exprange(200, 4000)\nmod lead.vco1level = [1, 0.5]\n"
     );
     let song = Song::parse(&ok).expect("parses");
@@ -1945,17 +1982,17 @@ fn per_voice_mod_errors_say_where() {
     assert_eq!(Song::parse(&song.print()), Ok(song));
 }
 
-/// #204: parameter methods on a fragment's line parse with it, belong to its
+/// #204: parameter methods on a clip's line parse with it, belong to its
 /// track, and print after the rest of the line.
 #[test]
-fn fragment_methods_parse_and_print() {
+fn clip_methods_parse_and_print() {
     let text = "track kit drums\ntrack lead synth\ntrack pad synth\n\
-        frag b = kit /16 .Level(0.5)\n  bd x...\n\
-        frag r = lead live  .cutoff(sine.slow(4).range(300,3000)) .resonance( 0.7 )   # acid\n  arp([c4,e4,g4],up,8)\n\
-        frag p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff( \"<300  800>\" )\n  \"[c3,e3,g3] [f3,a3,c4]\"\n\
+        clip b = kit /16 .Level(0.5)\n  bd x...\n\
+        clip r = lead live  .cutoff(sine.slow(4).range(300,3000)) .resonance( 0.7 )   # acid\n  arp([c4,e4,g4],up,8)\n\
+        clip p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff( \"<300  800>\" )\n  \"[c3,e3,g3] [f3,a3,c4]\"\n\
         mod lead.cutoff = 900\n";
     let s = Song::parse(text).expect("parses");
-    let scoped: Vec<_> = s.mods.iter().map(|m| (m.target, m.param, m.frag)).collect();
+    let scoped: Vec<_> = s.mods.iter().map(|m| (m.target, m.param, m.clip)).collect();
     assert_eq!(
         scoped,
         vec![
@@ -1967,12 +2004,12 @@ fn fragment_methods_parse_and_print() {
             (Target::Track(1), Param::Cutoff, None),
         ]
     );
-    assert!(s.frags[1].live && s.frags[2].voicing);
+    assert!(s.clips[1].live && s.clips[2].voicing);
     let printed = s.print();
     for line in [
-        "frag b = kit /16 .level(0.5)\n",
-        "frag r = lead live .cutoff(sine.slow(4).range(300, 3000)) .resonance(0.7) # acid\n",
-        "frag p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff(\"<300 800>\")\n",
+        "clip b = kit /16 .level(0.5)\n",
+        "clip r = lead live .cutoff(sine.slow(4).range(300, 3000)) .resonance(0.7) # acid\n",
+        "clip p = pad voicing .pan(lfo(0.25).range(-1, 1)) .cutoff(\"<300 800>\")\n",
         "\nmod lead.cutoff = 900\n",
     ] {
         assert!(printed.contains(line), "{line}in\n{printed}");
@@ -1985,7 +2022,7 @@ fn fragment_methods_parse_and_print() {
 #[test]
 fn strudels_parameter_names_are_aliases() {
     let text = "track bass synth\n\
-        frag a = bass .lpf(sine.range(300, 3000)) .lpq(0.6) .attack(0.01) .room(0.3)\n  \"c2 ~ c2 ~\"\n\
+        clip a = bass .lpf(sine.range(300, 3000)) .lpq(0.6) .attack(0.01) .room(0.3)\n  \"c2 ~ c2 ~\"\n\
         mod bass.gain = 0.8\n";
     let s = Song::parse(text).expect("parses");
     let params: Vec<_> = s.mods.iter().map(|m| (m.param, m.alias)).collect();
@@ -2011,54 +2048,54 @@ fn strudels_parameter_names_are_aliases() {
         assert!(Param::by_name(a).is_none_or(|q| q == p), "{a}");
         assert!(!Pattern::NAMES.contains(&a), "{a}");
     }
-    let e = Song::parse("track bass synth\nfrag a = bass .distort(0.5)\n  \"c2\"\n")
+    let e = Song::parse("track bass synth\nclip a = bass .distort(0.5)\n  \"c2\"\n")
         .expect_err("no alias");
     assert_eq!(e.msg, "no parameter has this name");
 }
 
 #[test]
-fn fragment_method_errors_say_where() {
+fn clip_method_errors_say_where() {
     let head = "track kit drums\n";
     for (line, col, msg) in [
-        ("frag b = kit .nope(1)", 15, "no parameter has this name"),
+        ("clip b = kit .nope(1)", 15, "no parameter has this name"),
         (
-            "frag b = kit .mastergain(1)",
+            "clip b = kit .mastergain(1)",
             15,
             "this parameter does not belong to this target",
         ),
         (
-            "frag b = kit .model(1)",
+            "clip b = kit .model(1)",
             15,
             "the model and the routing can't be automated",
         ),
         (
-            "frag b = kit .cutoff",
+            "clip b = kit .cutoff",
             21,
             "( and a value go here, e.g. .cutoff(800)",
         ),
         (
-            "frag b = kit .(1)",
+            "clip b = kit .(1)",
             15,
             "a parameter name goes here, e.g. .cutoff(800)",
         ),
-        ("frag b = kit .cutoff(sine", 21, "this ( is not closed"),
+        ("clip b = kit .cutoff(sine", 21, "this ( is not closed"),
         (
-            "frag b = kit .cutoff(sine.wobble(1))",
+            "clip b = kit .cutoff(sine.wobble(1))",
             27,
             "no such method: range exprange slow fast segment lag",
         ),
         (
-            "frag b = kit .cutoff()",
+            "clip b = kit .cutoff()",
             22,
             "a signal goes here, e.g. sine.range(300, 3000)",
         ),
         (
-            "frag b = kit .cutoff(1) x",
+            "clip b = kit .cutoff(1) x",
             25,
             "a parameter method goes here, e.g. .cutoff(800)",
         ),
         (
-            "frag b = kit .cutoff(1) .Cutoff(2)",
+            "clip b = kit .cutoff(1) .Cutoff(2)",
             26,
             "this parameter already has a method",
         ),
@@ -2068,14 +2105,14 @@ fn fragment_method_errors_say_where() {
     }
 }
 
-/// ADR-0019, #215: pattern methods on a frag's line transform its notes when
+/// ADR-0019, #215: pattern methods on a clip's line transform its notes when
 /// the song loads, and print before its parameter methods.
 #[test]
-fn pattern_methods_transform_a_frags_notes() {
+fn pattern_methods_transform_a_clips_notes() {
     let text = "track lead synth\n\
-        frag r = lead .cutoff(900) .fast(2) .every(2, rev) .off( 0.125 ,add(12))\n  \"c4 d4 e4 f4\"\n";
+        clip r = lead .cutoff(900) .fast(2) .every(2, rev) .off( 0.125 ,add(12))\n  \"c4 d4 e4 f4\"\n";
     let s = Song::parse(text).expect("parses");
-    let f = &s.frags[0];
+    let f = &s.clips[0];
     assert_eq!(f.pattern.len(), 3);
     let n = f.notes.as_ref().expect("notes");
     assert_eq!(n.text, "\"c4 d4 e4 f4\"", "the line stays as written");
@@ -2094,7 +2131,7 @@ fn pattern_methods_transform_a_frags_notes() {
     assert_eq!(at(48), vec![60, 72]);
     let printed = s.print();
     assert!(
-        printed.contains("frag r = lead .fast(2) .every(2, rev) .off(1/8, add(12)) .cutoff(900)\n"),
+        printed.contains("clip r = lead .fast(2) .every(2, rev) .off(1/8, add(12)) .cutoff(900)\n"),
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));
@@ -2104,31 +2141,31 @@ fn pattern_methods_transform_a_frags_notes() {
 fn pattern_method_errors_say_where() {
     for (text, line, col, msg) in [
         (
-            "track kit drums\nfrag b = kit .fast(2)\n  bd x",
+            "track kit drums\nclip b = kit .fast(2)\n  bd x",
             2,
             15,
-            "pattern methods are for a frag of notes",
+            "pattern methods are for a clip of notes",
         ),
         (
-            "track l synth\nfrag w = l live .rev()\n  walk(c4,8,1)",
+            "track l synth\nclip w = l live .rev()\n  walk(c4,8,1)",
             2,
             18,
-            "a live frag takes no pattern methods yet",
+            "a live clip takes no pattern methods yet",
         ),
         (
-            "track l synth\nfrag r = l .fast(0)\n  \"c4\"",
+            "track l synth\nclip r = l .fast(0)\n  \"c4\"",
             2,
             13,
             "this takes a whole number from 1 to 16",
         ),
         (
-            "track l synth\nfrag r = l .every(4, cutoff)\n  \"c4\"",
+            "track l synth\nclip r = l .every(4, cutoff)\n  \"c4\"",
             2,
             13,
             "a pattern method goes here, e.g. rev or fast(2)",
         ),
         (
-            "track l synth\nfrag r = l .slow(16) .slow(4)\n  \"c4\"",
+            "track l synth\nclip r = l .slow(16) .slow(4)\n  \"c4\"",
             3,
             3,
             "the pattern runs past 32 bars",
@@ -2145,21 +2182,21 @@ fn pattern_method_errors_say_where() {
 
 /// A note edit from the grid can't bake a pattern into the line.
 #[test]
-fn a_patterned_frag_refuses_a_note_edit() {
-    let mut s = Song::parse("track l synth\nfrag r = l .rev()\n  \"c4 d4\"\n").expect("parses");
+fn a_patterned_clip_refuses_a_note_edit() {
+    let mut s = Song::parse("track l synth\nclip r = l .rev()\n  \"c4 d4\"\n").expect("parses");
     let before = s.clone();
     assert!(!s.edit_note(0, notes::Edit::Add { tick: 6, note: 64 }));
     assert_eq!(s, before);
 }
 
-/// #215: struct, sometimes and scale on a frag line print back as written.
+/// #215: struct, sometimes and scale on a clip line print back as written.
 #[test]
 fn struct_sometimes_and_scale_print_back() {
     let text = "track lead synth\n\
-        frag r = lead .struct(\"x ~ x x\") .sometimes(add(12)) .scale(eb minor)\n  \"c4 e4 g4 b4\"\n";
+        clip r = lead .struct(\"x ~ x x\") .sometimes(add(12)) .scale(eb minor)\n  \"c4 e4 g4 b4\"\n";
     let s = Song::parse(text).expect("parses");
-    assert_eq!(s.frags[0].pattern.len(), 3);
-    let notes = s.frags[0].notes.as_ref().expect("notes");
+    assert_eq!(s.clips[0].pattern.len(), 3);
+    let notes = s.clips[0].notes.as_ref().expect("notes");
     assert!(
         notes
             .events
@@ -2169,7 +2206,7 @@ fn struct_sometimes_and_scale_print_back() {
     let printed = s.print();
     assert!(
         printed
-            .contains("frag r = lead .struct(\"x ~ x x\") .sometimes(add(12)) .scale(d# minor)\n"),
+            .contains("clip r = lead .struct(\"x ~ x x\") .sometimes(add(12)) .scale(d# minor)\n"),
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));
@@ -2189,7 +2226,7 @@ fn a_setting_holds_its_code() {
 
 track lead synth buzz
 track pad synth Modular ModularHoover
-frag r = lead
+clip r = lead
   "c3 e3"
 "#;
     let s = Song::parse(text).expect("parses");
@@ -2231,7 +2268,7 @@ fn setting_code_errors_say_where() {
             "setting v = Minimoog MiniLead\n  SynthDef(\\v, { Saw.ar(440) }).add;\n",
             2,
             3,
-            "a lane goes under a frag",
+            "a lane goes under a clip",
         ),
         (
             "track l synth Modular nope",
@@ -2248,9 +2285,9 @@ fn setting_code_errors_say_where() {
 /// #353: a ghost note `o` parses, prints back and plays at its velocity.
 #[test]
 fn a_ghost_note_parses_and_prints_back() {
-    let text = "tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn o.x.X.o.\n";
+    let text = "tempo 120\ntrack kit drums\n\nclip a = kit /16\n  sn o.x.X.o.\n";
     let song = Song::parse(text).expect("parses");
-    let steps = &song.frags[0].lanes[0].steps;
+    let steps = &song.clips[0].lanes[0].steps;
     assert_eq!(steps[0], Step::Ghost);
     assert_eq!(Step::Ghost.velocity(), Some(crate::song::GHOST_VELOCITY));
     assert_eq!(Step::from_level(3), Some(Step::Ghost));
@@ -2264,7 +2301,7 @@ fn a_rest_is_not_for_a_per_voice_signal() {
         .expect_err("per voice");
     assert_eq!(e.msg, "a ~ lets go of one value, not one per voice");
     let ok = Song::parse(
-        "track lead synth\nfrag a = lead .cutoff(\"~ 800\")\n  \"c3 e3\"\nmod lead.resonance = \"<~ 0.7>\"\n",
+        "track lead synth\nclip a = lead .cutoff(\"~ 800\")\n  \"c3 e3\"\nmod lead.resonance = \"<~ 0.7>\"\n",
     );
     let song = ok.expect("one value");
     assert_eq!(Song::parse(&song.print()), Ok(song));
@@ -2275,9 +2312,9 @@ fn a_rest_is_not_for_a_per_voice_signal() {
 /// x, X or o, and is 2, 3 or 4.
 #[test]
 fn ratchets_parse_print_back_and_say_where_they_are_wrong() {
-    let text = "tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn x3.X2.o4.x...\n";
+    let text = "tempo 120\ntrack kit drums\n\nclip a = kit /16\n  sn x3.X2.o4.x...\n";
     let song = Song::parse(text).expect("parses");
-    let lane = &song.frags[0].lanes[0];
+    let lane = &song.clips[0].lanes[0];
     assert_eq!(lane.steps.len(), 10);
     let reps: Vec<u8> = (0..10).map(|n| lane.ratchet(n)).collect();
     assert_eq!(reps, [3, 1, 2, 1, 4, 1, 1, 1, 1, 1]);
@@ -2287,12 +2324,12 @@ fn ratchets_parse_print_back_and_say_where_they_are_wrong() {
         song.print()
     );
     assert_eq!(Song::parse(&song.print()).expect("prints back"), song);
-    let plain = Song::parse("track kit drums\nfrag a = kit\n  sn x.x.\n").expect("parses");
+    let plain = Song::parse("track kit drums\nclip a = kit\n  sn x.x.\n").expect("parses");
     assert!(
-        plain.frags[0].lanes[0].ratchets.is_empty(),
+        plain.clips[0].lanes[0].ratchets.is_empty(),
         "no ratchet, nothing kept"
     );
-    let head = "track kit drums\nfrag a = kit\n";
+    let head = "track kit drums\nclip a = kit\n";
     for (lane, col, msg) in [
         ("  sn 3x", 6, "a ratchet follows a step: x3"),
         ("  sn f2", 7, "only x, X and o take a ratchet"),
@@ -2344,17 +2381,17 @@ fn at16(text: &str, (start, len): (u32, u32)) -> String {
     )
 }
 
-/// #205: each fragment's spans point at its words in the printed text: a
+/// #205: each clip's spans point at its words in the printed text: a
 /// lane's steps (a ratchet with its digit, a call whole), and the words of a
 /// note line, whatever its form, past comments and non-ASCII text.
 #[test]
 fn spans_point_at_the_words_of_the_printed_text() {
     let text = "# naïve — a beat\ntempo 120\ntrack kit drums\ntrack lead synth\n\
-        frag b = kit /16\n  # the kick\n  bd x3..X...\n  cl euclid(3,8)\n\
-        frag m = lead\n  \"c4 [e4 g4] ~ <c5 [d5,f5]>\"\n\
-        frag c = lead\n  c4:4 r:8 [e4,g4]:8.\n\
-        frag t = lead\n  d5@0:6:90 a4@12:24\n\
-        frag g = lead\n  arp([c4,e4,g4],up,16)\n";
+        clip b = kit /16\n  # the kick\n  bd x3..X...\n  cl euclid(3,8)\n\
+        clip m = lead\n  \"c4 [e4 g4] ~ <c5 [d5,f5]>\"\n\
+        clip c = lead\n  c4:4 r:8 [e4,g4]:8.\n\
+        clip t = lead\n  d5@0:6:90 a4@12:24\n\
+        clip g = lead\n  arp([c4,e4,g4],up,16)\n";
     let song = Song::parse(text).expect("parses");
     let printed = song.print();
     let s = spans::spans(&song, &printed);
@@ -2373,11 +2410,11 @@ fn spans_point_at_the_words_of_the_printed_text() {
     assert_eq!(words(4), ["arp([c4,e4,g4],up,16)"]);
     // Every note event names the word it came from, through a pattern method.
     let rev =
-        Song::parse("track lead synth\nfrag m = lead .rev() .fast(2)\n  \"c4 [e4 g4] <c5 d5>\"\n")
+        Song::parse("track lead synth\nclip m = lead .rev() .fast(2)\n  \"c4 [e4 g4] <c5 d5>\"\n")
             .expect("parses");
     let p = rev.print();
     let sp = spans::spans(&rev, &p);
-    let n = rev.frags[0].notes.as_ref().expect("notes");
+    let n = rev.clips[0].notes.as_ref().expect("notes");
     for e in &n.events {
         let word = at16(&p, sp[0].notes[usize::from(e.word)]);
         assert_eq!(word, crate::notes::note_name(e.note), "{e:?}");

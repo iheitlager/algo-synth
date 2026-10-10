@@ -6,19 +6,19 @@ Common to every requirement: the server serves `127.0.0.1` only, so there is no 
 
 ### Requirement 1: Song tools [MUST]
 
-The `algo-assist` crate SHALL offer, on the engine itself, `check` (the engine's parser: the canonical song with its tracks, fragments, sections and bars, or the first error with its line and column), `render` (the song played offline up to its arrangement's bars, four without one, within a bar and a wall-time limit, measured for non-finite samples, peak, RMS, stereo width, RMS per arrangement entry, each track's peak and level on its strip and each Modular SynthDef's build) and `catalog` (the models with their engines, voices and presets, the pads, every parameter with its range and scope, the scales, the insert and processor types), and an `assist check|render|catalog [file]` command that prints them as JSON (#384).
+The `algo-assist` crate SHALL offer, on the engine itself, `check` (the engine's parser: the canonical song with its tracks, clips, scenes and bars, or the first error with its line and column), `render` (the song played offline up to its arrangement's bars, four without one, within a bar and a wall-time limit, measured for non-finite samples, peak, RMS, stereo width, RMS per arrangement entry, each track's peak and level on its strip and each Modular SynthDef's build) and `catalog` (the models with their engines, voices and presets, the pads, every parameter with its range and scope, the scales, the insert and processor types), and an `assist check|render|catalog [file]` command that prints them as JSON (#384).
 
-A character the SynthDef reader refuses SHALL be named in the error. `audition` SHALL add a fragment to a track that has none, in a song without an arrangement: a phrase over two octaves on a synth or sampler track, a beat on a drums track (#430). `plays` SHALL tell whether a track sounds: not muted or out-soloed, with a fragment that loops (no arrangement) or sits in an arranged section.
+A character the SynthDef reader refuses SHALL be named in the error. `audition` SHALL add a clip to a track that has none, in a song without an arrangement: a phrase over two octaves on a synth or sampler track, a beat on a drums track (#430). `plays` SHALL tell whether a track sounds: not muted or out-soloed, with a clip that loops (no arrangement) or sits in an arranged scene.
 
 **Implementation:** `crates/assist/src/tools.rs::check`, `crates/assist/src/tools.rs::render`, `crates/assist/src/tools.rs::catalog`, `crates/assist/src/tools.rs::audition`, `crates/assist/src/tools.rs::plays`, `crates/assist/src/main.rs`
 
-#### Scenario: a silent section reads silent
+#### Scenario: a silent scene reads silent
 
 - GIVEN a loud bar, a silent bar and a loud bar in an arrangement
 - WHEN it is rendered
-- THEN the middle entry's RMS is below a fifth of the others', and a track no section plays reads zero
+- THEN the middle entry's RMS is below a fifth of the others', and a track no scene plays reads zero
 
-**Tests:** `crates/assist/src/tools.rs::tests::check_gives_the_canonical_song_or_where_it_failed`, `crates/assist/src/tools.rs::tests::render_measures_each_section_and_track`, `crates/assist/src/tools.rs::tests::render_keeps_to_its_limits_and_reports_a_bad_song`, `crates/assist/src/tools.rs::tests::render_reports_a_synthdef`, `crates/assist/src/tools.rs::tests::the_catalog_is_the_engines`, `crates/assist/src/tools.rs::tests::a_character_sclang_does_not_take_is_named`, `crates/assist/src/tools.rs::tests::a_track_without_fragments_is_auditioned`, `crates/assist/src/tools.rs::tests::a_track_plays_when_a_section_holds_its_fragment`
+**Tests:** `crates/assist/src/tools.rs::tests::check_gives_the_canonical_song_or_where_it_failed`, `crates/assist/src/tools.rs::tests::render_measures_each_scene_and_track`, `crates/assist/src/tools.rs::tests::render_keeps_to_its_limits_and_reports_a_bad_song`, `crates/assist/src/tools.rs::tests::render_reports_a_synthdef`, `crates/assist/src/tools.rs::tests::the_catalog_is_the_engines`, `crates/assist/src/tools.rs::tests::a_character_sclang_does_not_take_is_named`, `crates/assist/src/tools.rs::tests::a_track_without_clips_is_auditioned`, `crates/assist/src/tools.rs::tests::a_track_plays_when_a_scene_holds_its_clip`
 
 ### Requirement 2: Providers behind one interface [MUST]
 
@@ -36,7 +36,7 @@ The server SHALL call a model through one `Provider` trait over three wire forma
 
 ### Requirement 3: The loop [MUST]
 
-For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. `render_song` SHALL parse the song too, so the prompt does not ask for `check_song` first. With a track in focus that has no fragment, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its frags, and autos, mods and scene values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its fragments plays) but is silent SHALL go back to the model as an error with the render's measures (#430). These checks, with the structure rules between scope and render, are the gate of Requirement 7. Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
+For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md`, #383) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. `render_song` SHALL parse the song too, so the prompt does not ask for `check_song` first. With a track in focus that has no clip, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its clips, and autos, mods and snapshot values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its clips plays) but is silent SHALL go back to the model as an error with the render's measures (#430). These checks, with the structure rules between scope and render, are the gate of Requirement 7. Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
 
 **Implementation:** `crates/assist/src/assist.rs::run`, `crates/assist/src/scope.rs::check`, `crates/assist/src/assist.rs::system_prompt`, `crates/assist/src/assist.rs::tool_defs`, `crates/assist/src/assist.rs::Event`
 
@@ -50,7 +50,7 @@ For a request, the model SHALL get a system prompt holding how to work, the lang
 
 #### Scenario: the focused track is all that changes
 
-- GIVEN the track `kit` in focus and a model that first proposes the song at a new tempo, then one with only a snare added to `kit`'s frag
+- GIVEN the track `kit` in focus and a model that first proposes the song at a new tempo, then one with only a snare added to `kit`'s clip
 - WHEN the loop runs
 - THEN the first proposal goes back as an error naming the tempo, and the second is the `song` event
 
@@ -58,11 +58,11 @@ For a request, the model SHALL get a system prompt holding how to work, the lang
 
 #### Scenario: an instrument is heard and only a clean song goes
 
-- GIVEN the track `lead` in focus, with no fragment, in a song without an arrangement
+- GIVEN the track `lead` in focus, with no clip, in a song without an arrangement
 - WHEN the model renders and proposes the song as it is
 - THEN the render plays an audition on `lead` and says so, and the song is proposed; a song whose track in focus is silent, or that clips, goes back as an error
 
-**Tests:** `crates/assist/src/assist.rs::tests::an_instrument_without_fragments_is_auditioned`, `crates/assist/src/assist.rs::tests::a_silent_track_in_focus_is_not_proposed`, `crates/assist/src/assist.rs::tests::clipping_and_non_finite_samples_are_faults`
+**Tests:** `crates/assist/src/assist.rs::tests::an_instrument_without_clips_is_auditioned`, `crates/assist/src/assist.rs::tests::a_silent_track_in_focus_is_not_proposed`, `crates/assist/src/assist.rs::tests::clipping_and_non_finite_samples_are_faults`
 
 ### Requirement 4: The server [MUST]
 
@@ -114,8 +114,8 @@ The keys SHALL come from 1Password and never be stored in git:
 ### Requirement 6: An eval set [SHOULD]
 
 The assistant SHALL have an eval set: about thirty requests on starting songs from `examples/songs/`, or on a song given in the case.
-- **What they ask:** add a part, change a groove, re-harmonise, make a section build, write a song from scratch, fix a song that does not load, or answer a question without changing anything.
-- **Grading, by code:** a song expected SHALL be proposed, parse and render clean (no non-finite samples, peak at most 1.0), and then pass the case's checks: fragments and tracks kept, tempo, swing, more lanes of a pad, more fragments, tracks or sections, a track on a model, the text holding something. A question SHALL be answered in words with no song.
+- **What they ask:** add a part, change a groove, re-harmonise, make a scene build, write a song from scratch, fix a song that does not load, or answer a question without changing anything.
+- **Grading, by code:** a song expected SHALL be proposed, parse and render clean (no non-finite samples, peak at most 1.0), and then pass the case's checks: clips and tracks kept, tempo, swing, more lanes of a pad, more clips, tracks or scenes, a track on a model, the text holding something. A question SHALL be answered in words with no song.
 - **The runner:** `assist eval --provider ID --model ID` SHALL run the cases through the real loop and report, per case and in total, the pass, the gate's rules that fired (#453), the rounds, the tokens (input, cached, output), the seconds and, where the prices are known, the cost.
 
 Every run calls the provider and costs money, so it runs on request and never in CI (#388).
@@ -124,7 +124,7 @@ Every run calls the provider and costs money, so it runs on request and never in
 
 #### Scenario: the checks grade what they say
 
-- GIVEN a start with one drum fragment and a proposal at 128 BPM with a snare, a bass on an SH-101 and a section
+- GIVEN a start with one drum clip and a proposal at 128 BPM with a snare, a bass on an SH-101 and a scene
 - WHEN it is graded against every check
 - THEN all pass, and graded against the start itself, every check that asks for a change fails
 
@@ -138,31 +138,31 @@ Every run calls the provider and costs money, so it runs on request and never in
 |---|---|---|
 | `parse` | refuse | it does not parse |
 | `scope` | refuse | with a track in focus, anything else changes (#415) |
-| `unused-frag` | refuse | it has an `arrange` and a frag sits in no arranged section |
-| `unplayed-track` | refuse | a heard track (not muted, not out-soloed, not in focus) plays no frag |
-| `unused-auto` | refuse | it has an `arrange` and an auto lane sits in no arranged section |
+| `unused-clip` | refuse | it has an `arrange` and a clip sits in no arranged scene |
+| `unplayed-track` | refuse | a heard track (not muted, not out-soloed, not in focus) plays no clip |
+| `unused-auto` | refuse | it has an `arrange` and an auto lane sits in no arranged scene |
 | `nonfinite` | refuse | the render has non-finite samples (#430) |
 | `clip` | refuse | the render's peak is above 1.0 (#430) |
 | `silent-focus` | refuse | the track in focus should sound but is silent (#430) |
-| `silent-section` | warn | an arranged section plays no step and no note |
-| `unarranged` | warn | it has sections but no `arrange` |
-| `removed` | warn | a track or section of the current song is gone |
+| `silent-scene` | warn | an arranged scene plays no step and no note |
+| `unarranged` | warn | it has scenes but no `arrange` |
+| `removed` | warn | a track or scene of the current song is gone |
 
-Without an `arrange`, every frag and auto lane loops, so `unused-frag` and `unused-auto` do not apply. A `mod` is not placed by sections; a frag's own methods go with the frag.
+Without an `arrange`, every clip and auto lane loops, so `unused-clip` and `unused-auto` do not apply. A `mod` is not placed by scenes; a clip's own methods go with the clip.
 
 **Implementation:** `crates/assist/src/gate.rs::RULES`, `crates/assist/src/gate.rs::lint`, `crates/assist/src/assist.rs::run_tool`, `crates/assist/src/assist.rs::Event`, `web/src/components/AssistantPane.vue`
 
 #### Scenario: a refusal names its rule and a warning reaches the review
 
-- GIVEN a song with one arranged section and a model that first proposes it with a frag no section plays, then with an empty `gap` section arranged
+- GIVEN a song with one arranged scene and a model that first proposes it with a clip no scene plays, then with an empty `gap` scene arranged
 - WHEN the loop runs
-- THEN the first proposal goes back with `unused-frag` and the frag's name, and the second is the `song` event with a `silent-section` warning
+- THEN the first proposal goes back with `unused-clip` and the clip's name, and the second is the `song` event with a `silent-scene` warning
 
-**Tests:** `crates/assist/src/assist.rs::tests::the_gate_refuses_with_its_rule_and_passes_warnings_on`, `crates/assist/src/gate.rs::tests::the_song_passes_every_rule`, `crates/assist/src/gate.rs::tests::an_unused_frag_is_refused`, `crates/assist/src/gate.rs::tests::an_unplayed_track_is_refused`, `crates/assist/src/gate.rs::tests::an_unused_auto_is_refused`, `crates/assist/src/gate.rs::tests::a_silent_section_is_a_warning`, `crates/assist/src/gate.rs::tests::sections_without_an_arrangement_are_a_warning`, `crates/assist/src/gate.rs::tests::removed_tracks_and_sections_are_warnings`, `crates/assist/src/gate.rs::tests::what_the_current_song_already_breaks_is_not_held_against_it`, `crates/assist/src/gate.rs::tests::the_rules_are_ordered_and_named_in_the_spec`, `crates/assist/src/assist.rs::tests::clipping_and_non_finite_samples_are_faults`, `crates/assist/src/assist.rs::tests::a_silent_track_in_focus_is_not_proposed`, `web/src/audio/assist.test.ts`
+**Tests:** `crates/assist/src/assist.rs::tests::the_gate_refuses_with_its_rule_and_passes_warnings_on`, `crates/assist/src/gate.rs::tests::the_song_passes_every_rule`, `crates/assist/src/gate.rs::tests::an_unused_clip_is_refused`, `crates/assist/src/gate.rs::tests::an_unplayed_track_is_refused`, `crates/assist/src/gate.rs::tests::an_unused_auto_is_refused`, `crates/assist/src/gate.rs::tests::a_silent_scene_is_a_warning`, `crates/assist/src/gate.rs::tests::scenes_without_an_arrangement_are_a_warning`, `crates/assist/src/gate.rs::tests::removed_tracks_and_scenes_are_warnings`, `crates/assist/src/gate.rs::tests::what_the_current_song_already_breaks_is_not_held_against_it`, `crates/assist/src/gate.rs::tests::the_rules_are_ordered_and_named_in_the_spec`, `crates/assist/src/assist.rs::tests::clipping_and_non_finite_samples_are_faults`, `crates/assist/src/assist.rs::tests::a_silent_track_in_focus_is_not_proposed`, `web/src/audio/assist.test.ts`
 
 #### Scenario: the eval records the rules that fired
 
-- GIVEN a case whose proposal has sections but no `arrange`
+- GIVEN a case whose proposal has scenes but no `arrange`
 - WHEN it runs through the loop
 - THEN its outcome and its report row carry `unarranged`
 

@@ -8,7 +8,7 @@ A synth you compose *with*, not just play: sound sources, a sequencer and algori
 
 - **Everything musical is wasm.** Sources, mixer, sequencer, generators and the song model are Rust compiled to one wasm module, running on the browser's audio thread (ADR-0001). JavaScript only forwards messages and draws.
 - **Real time, no excuses.** The render loop never allocates, locks or panics (ADR-0002).
-- **The song is text.** A fragment is written by hand, by a generator (an algo loop), or converted from a score (a MIDI file), all in one song the engine parses and prints (ADR-0005, ADR-0012, ADR-0015).
+- **The song is text.** A clip is written by hand, by a generator (an algo loop), or converted from a score (a MIDI file), all in one song the engine parses and prints (ADR-0005, ADR-0012, ADR-0015).
 - **Working to working.** One good monophonic voice, then the ensemble, then time, then more sources, then the algorithms ([plan.md](plan.md)).
 
 ## Architecture
@@ -38,7 +38,7 @@ See [adr/index.md](adr/index.md).
 | Spec | Scope |
 |---|---|
 | [001-engine](specs/001-engine/spec.md) | The wasm engine: C ABI, render loop, voice pools, parameters and their TypeScript mirror |
-| [002-composition](specs/002-composition/spec.md) | Synth slots and drum machines, the mixer and effects, the song language (fragments, arrangement, generators, scales, automation, settings, limits), MIDI import and playback, the clock |
+| [002-composition](specs/002-composition/spec.md) | Synth slots and drum machines, the mixer and effects, the song language (clips, arrangement, generators, scales, automation, settings, limits), MIDI import and playback, the clock |
 | [003-ui](specs/003-ui/spec.md) | The wide-screen view: transport, synth faceplates, mixer console, composer and song editor, arranger, MIDI player, names, presets, build info |
 | [004-mono](specs/004-mono/spec.md) | The Mono voice: VCOs, noise, filters, envelopes, modulation, note handling, normalled routing, presets; MIDI input (planned) |
 | [005-models](specs/005-models/spec.md) | The monosynth models: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 and Odyssey, each with its own sound, panel and colours |

@@ -2,7 +2,7 @@
 //! the notation, so the view only paints what this returns (ADR-0001).
 //!
 //! The lexer reads a line at a time with the little context the parser has:
-//! which keyword starts the line, and the kind of the frag an indented line
+//! which keyword starts the line, and the kind of the clip an indented line
 //! belongs to (a drum lane, or a line of notes). It does not check the song:
 //! a wrong word is still coloured by its shape, and errors come from `parse`.
 //! It is total, like the parser: any text gives spans, never a panic.
@@ -14,9 +14,9 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Class {
-    /// `tempo`, `frag`, `section`…, and `live`, `bars`, `ramp`, track kinds.
+    /// `tempo`, `clip`, `scene`…, and `live`, `bars`, `ramp`, track kinds.
     Keyword = 1,
-    /// A track, frag, section, auto or scene, and words like `up` or `minor`.
+    /// A track, clip, scene, auto or snapshot, and words like `up` or `minor`.
     Name = 2,
     Number = 3,
     /// A pitch on a line of notes: `c4`, `f#3`, `bb2`.
@@ -29,7 +29,7 @@ pub enum Class {
     Rest = 7,
     /// A generator: `euclid`, `arp`, `walk`, `markov`, `mutate`.
     Call = 8,
-    /// A `target.Param` in an auto or a scene.
+    /// A `target.Param` in an auto or a snapshot.
     Param = 9,
     /// Notation: `= : " [ ] < > ( ) , * @ ? ! /`.
     Punct = 10,
@@ -50,13 +50,13 @@ pub(crate) const WORDS: [&str; 7] = [
     "live", "bars", "ramp", "drums", "synth", "sampler", "voicing",
 ];
 
-/// What the indented lines under the open frag hold.
+/// What the indented lines under the open clip hold.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Under {
     Nothing,
     Lanes,
     Notes,
-    /// A sampler frag: lanes, or notes when written as notes.
+    /// A sampler clip: lanes, or notes when written as notes.
     Either,
     /// A Modular setting's SuperCollider code (ADR-0024).
     Code,
@@ -65,7 +65,7 @@ enum Under {
 /// The spans of `text`.
 pub fn lex(text: &str) -> Vec<Span> {
     let mut out = Vec::new();
-    // Track names and kinds as declared so far, and the open frag's kind.
+    // Track names and kinds as declared so far, and the open clip's kind.
     let mut tracks: Vec<(&str, &str)> = Vec::new();
     let mut under = Under::Nothing;
     let mut at: u32 = 0;
@@ -115,14 +115,15 @@ pub fn lex(text: &str) -> Vec<Span> {
                         .get(k)
                         .and_then(|&(s, e)| raw.get(byte(raw, s)..byte(raw, e)))
                 };
-                match first.as_str() {
+                let kw = super::current_keyword(&first, word(1), word(2));
+                match kw {
                     "track" => {
                         if let (Some(n), Some(k)) = (word(1), word(2)) {
                             tracks.push((n, k));
                         }
                     }
                     "setting" if word(3) == Some("Modular") => under = Under::Code,
-                    "frag" => {
+                    "clip" => {
                         let kind = word(3)
                             .and_then(|t| tracks.iter().rev().find(|(n, _)| *n == t))
                             .map(|(_, k)| *k);
@@ -135,7 +136,7 @@ pub fn lex(text: &str) -> Vec<Span> {
                     }
                     _ => {}
                 }
-                if KEYWORDS.contains(&first.as_str()) {
+                if KEYWORDS.contains(&kw) {
                     l.push(s, e, Class::Keyword);
                     l.tokens(e, body, false);
                 } else {
@@ -394,24 +395,42 @@ mod tests {
     const SONG: &str = "tempo 124 # fast
 track kit drums
 track lead synth
-frag beat = kit /16
+clip beat = kit /16
   bd x...X...
   sn ....x...
   ch euclid(3,8)
-frag riff = lead
+clip riff = lead
   \"c4 [e4 g4] ~ <c5 f#3>*2\"
 setting nile = Minimoog MiniLead: Cutoff 1200
 auto sweep = kit.Cutoff ramp 300 4000 /8
-scene drop: strip1.Mute 1, master.P2Return 0.4
-section main 8: beat riff sweep [drop]
+snapshot drop: strip1.Mute 1, master.P2Return 0.4
+scene main 8: beat riff sweep [drop]
 arrange main main
 ";
+
+    /// #486: today's words are keywords, and so are the old ones a song
+    /// written before still uses, with their lanes and notes read under them.
+    #[test]
+    fn ableton_words_and_the_old_ones_are_keywords() {
+        let new = "track kit drums\nclip beat = kit /16\n  bd x...\nsnapshot dub: kit.Level 1\nscene a 2: beat [dub]";
+        assert_eq!(
+            of(new, Class::Keyword),
+            ["track", "drums", "clip", "snapshot", "scene"]
+        );
+        assert_eq!(of(new, Class::Pad), ["bd"]);
+        let old = "track kit drums\nfrag beat = kit /16\n  bd x...\nscene dub: kit.Level 1\nsection a 2: beat [dub]";
+        assert_eq!(
+            of(old, Class::Keyword),
+            ["track", "drums", "frag", "scene", "section"]
+        );
+        assert_eq!(of(old, Class::Pad), ["bd"]);
+    }
 
     #[test]
     fn keywords_names_and_numbers() {
         let k = of(SONG, Class::Keyword);
         for w in [
-            "tempo", "track", "drums", "synth", "frag", "auto", "ramp", "scene", "section",
+            "tempo", "track", "drums", "synth", "clip", "auto", "ramp", "snapshot", "scene",
             "arrange", "setting",
         ] {
             assert!(k.contains(&w.to_string()), "{w} is a keyword: {k:?}");
@@ -451,7 +470,7 @@ arrange main main
 
     #[test]
     fn a_sampler_line_is_lanes_or_notes() {
-        let text = "track s sampler\nfrag a = s\n  bd x.x.\nfrag b = s\n  c4:4 r:4 g4:8.\n";
+        let text = "track s sampler\nclip a = s\n  bd x.x.\nclip b = s\n  c4:4 r:4 g4:8.\n";
         assert_eq!(of(text, Class::Pad), ["bd"]);
         assert_eq!(of(text, Class::Note), ["c4", "g4"]);
         assert_eq!(of(text, Class::Rest), [".", ".", "r"]);
@@ -460,19 +479,19 @@ arrange main main
 
     #[test]
     fn chord_names_are_notes() {
-        let text = "scale c minor\ntrack k synth\nfrag p = k voicing\n  \"<c:m7 bb3:sus4 i VI bVII viio7> f\"\n";
+        let text = "scale c minor\ntrack k synth\nclip p = k voicing\n  \"<c:m7 bb3:sus4 i VI bVII viio7> f\"\n";
         assert_eq!(
             of(text, Class::Note),
             ["c", "m7", "bb3", "sus4", "i", "VI", "bVII", "viio7", "f"]
         );
         assert!(of(text, Class::Keyword).contains(&"voicing".to_string()));
-        let classic = "track k synth\nfrag p = k\n  c:maj7:2 V7:4\n";
+        let classic = "track k synth\nclip p = k\n  c:maj7:2 V7:4\n";
         assert_eq!(of(classic, Class::Note), ["c", "maj7", "V7"]);
     }
 
     #[test]
     fn a_sharp_is_not_a_comment() {
-        let text = "track l synth\nfrag a = l\n  c#4:4 d5@0:6:90 # end\n";
+        let text = "track l synth\nclip a = l\n  c#4:4 d5@0:6:90 # end\n";
         assert_eq!(of(text, Class::Note), ["c#4", "d5"]);
         assert_eq!(of(text, Class::Comment), ["# end"]);
     }

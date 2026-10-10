@@ -1,6 +1,6 @@
 //! A focus on one instrument (#415): with a track in focus, a proposed song
 //! may change that track and what is aimed at it (its `track` line, its strip
-//! line, its frags, and autos, mods and scene values on it), nothing else.
+//! line, its clips, and autos, mods and snapshot values on it), nothing else.
 
 use algo_dsp::song::{Mix, Song, Target};
 
@@ -34,13 +34,13 @@ pub fn check(before: &str, after: &str, track: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "only the track `{track}` may change (its track line, its strip, its frags, and autos, mods and scene values on it), but this changed: {}; put those back as they were",
+        "only the track `{track}` may change (its track line, its strip, its clips, and autos, mods and snapshot values on it), but this changed: {}; put those back as they were",
         changed.join(", ")
     ))
 }
 
 /// Everything in `song` that is not about track `t`, as labelled items to
-/// compare. Indices are read as names, so a frag added to `t` moves nothing.
+/// compare. Indices are read as names, so a clip added to `t` moves nothing.
 fn outside(song: &Song, t: usize) -> Vec<(String, String)> {
     let mut items = vec![
         ("tempo".into(), format!("{:?}", song.tempo)),
@@ -52,7 +52,7 @@ fn outside(song: &Song, t: usize) -> Vec<(String, String)> {
                 "{:?} {:?}",
                 song.arrange
                     .iter()
-                    .map(|&s| song.sections.get(s).map(|x| &x.name))
+                    .map(|&s| song.scenes.get(s).map(|x| &x.name))
                     .collect::<Vec<_>>(),
                 song.loop_bars
             ),
@@ -75,10 +75,10 @@ fn outside(song: &Song, t: usize) -> Vec<(String, String)> {
             items.push((format!("setting {}", s.name), format!("{s:?} {i}")));
         }
     }
-    let ours = |f: usize| song.frags.get(f).is_some_and(|f| f.track == t);
+    let ours = |f: usize| song.clips.get(f).is_some_and(|f| f.track == t);
     let on_us = |target: &Target| *target == Target::Track(t);
-    for f in song.frags.iter().filter(|f| f.track != t) {
-        items.push((format!("frag {}", f.name), format!("{f:?}")));
+    for f in song.clips.iter().filter(|f| f.track != t) {
+        items.push((format!("clip {}", f.name), format!("{f:?}")));
     }
     for m in song.mix.iter().filter(|m| m.at != Mix::Track(t)) {
         let label = match m.at {
@@ -92,31 +92,31 @@ fn outside(song: &Song, t: usize) -> Vec<(String, String)> {
     for a in song.autos.iter().filter(|a| !on_us(&a.target)) {
         items.push((format!("auto {}", a.name), format!("{a:?}")));
     }
-    for s in &song.scenes {
+    for s in &song.snapshots {
         let sets: Vec<_> = s
             .sets
             .iter()
             .filter(|(target, ..)| !on_us(target))
             .collect();
-        items.push((format!("scene {}", s.name), format!("{sets:?}")));
+        items.push((format!("snapshot {}", s.name), format!("{sets:?}")));
     }
     for m in song
         .mods
         .iter()
-        .filter(|m| !on_us(&m.target) && !m.frag.is_some_and(ours))
+        .filter(|m| !on_us(&m.target) && !m.clip.is_some_and(ours))
     {
-        let frag = m.frag.and_then(|f| song.frags.get(f)).map(|f| &f.name);
+        let clip = m.clip.and_then(|f| song.clips.get(f)).map(|f| &f.name);
         items.push((
             format!("mod on {:?} {:?}", m.target, m.param),
-            format!("{:?} {frag:?}", m.signal),
+            format!("{:?} {clip:?}", m.signal),
         ));
     }
-    for s in &song.sections {
-        let frags: Vec<_> = s
-            .frags
+    for s in &song.scenes {
+        let clips: Vec<_> = s
+            .clips
             .iter()
             .filter(|&&f| !ours(f))
-            .filter_map(|&f| song.frags.get(f).map(|f| &f.name))
+            .filter_map(|&f| song.clips.get(f).map(|f| &f.name))
             .collect();
         let autos: Vec<_> = s
             .autos
@@ -125,14 +125,14 @@ fn outside(song: &Song, t: usize) -> Vec<(String, String)> {
             .filter(|a| !on_us(&a.target))
             .map(|a| &a.name)
             .collect();
-        let scenes: Vec<_> = s
-            .scenes
+        let snapshots: Vec<_> = s
+            .snapshots
             .iter()
-            .filter_map(|&c| song.scenes.get(c).map(|c| &c.name))
+            .filter_map(|&c| song.snapshots.get(c).map(|c| &c.name))
             .collect();
         items.push((
-            format!("section {}", s.name),
-            format!("{} {frags:?} {autos:?} {scenes:?}", s.bars),
+            format!("scene {}", s.name),
+            format!("{} {clips:?} {autos:?} {snapshots:?}", s.bars),
         ));
     }
     items
@@ -147,12 +147,12 @@ track kit drums Tr909 Kit909
 track bass synth Sh101 AcidBass
 strip kit: Level 0.9
 strip bass: Level 0.8
-frag beat = kit /16
+clip beat = kit /16
   bd x...x...x...x...
-frag low = bass
+clip low = bass
   \"c2 ~ c2 g1\"
 auto open = bass.Cutoff ramp 300 4000 /4
-section a 4: beat low open
+scene a 4: beat low open
 arrange a
 ";
 
@@ -169,7 +169,7 @@ arrange a
             with("strip bass: Level 0.8", "strip bass: Level 0.5, Pan -0.3"),
             with("\"c2 ~ c2 g1\"", "\"c2 c3 c2 g1\""),
             with("ramp 300 4000", "ramp 200 5000"),
-            with("auto open", "frag high = bass\n  \"c3 ~ g2 ~\"\nauto open")
+            with("auto open", "clip high = bass\n  \"c3 ~ g2 ~\"\nauto open")
                 .replace("beat low open", "beat low high open"),
         ] {
             Song::parse(&after).expect("the changed song parses");
@@ -188,11 +188,11 @@ arrange a
             ),
             (
                 with("bd x...x...x...x...", "bd x.x.x...x...x."),
-                "frag beat",
+                "clip beat",
             ),
             (
-                with("section a 4: beat low open", "section a 4: low open"),
-                "section a",
+                with("scene a 4: beat low open", "scene a 4: low open"),
+                "scene a",
             ),
             (
                 with("track bass", "track lead synth\ntrack bass"),

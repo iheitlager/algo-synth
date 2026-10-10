@@ -36,7 +36,7 @@ afterEach(() => {
 })
 
 describe('the Assistant window and the main window', () => {
-  it('say hello and get the song, the cued fragment and the fragments', () => {
+  it('say hello and get the song, the cued clip and the clips', () => {
     const main = mainWindow()
     const got: (LinkState | null)[] = []
     connectMain(new FakeChannel(), (s) => got.push(s))
@@ -99,14 +99,14 @@ describe('the Assistant window and the main window', () => {
 
 describe('the default focus', () => {
   const tracks = [{ name: 'kit', synth: 2 }, { name: 'lead', synth: 0 }]
-  const frags = [{ track: 0 }]
-  it('is the selected synth\'s track in the synths view, with or without fragments', () => {
-    expect(defaultFocus(tracks, frags, 0, 'synths', 0)).toBe('lead')
+  const clips = [{ track: 0 }]
+  it('is the selected synth\'s track in the synths view, with or without clips', () => {
+    expect(defaultFocus(tracks, clips, 0, 'synths', 0)).toBe('lead')
     expect(defaultFocus(tracks, [], -1, 'synths', 2)).toBe('kit')
-    expect(defaultFocus(tracks, frags, 0, 'synths', 5)).toBeNull()
+    expect(defaultFocus(tracks, clips, 0, 'synths', 5)).toBeNull()
   })
-  it('is the cued fragment\'s track elsewhere, else the whole song', () => {
-    expect(defaultFocus(tracks, frags, 0, 'composer', 0)).toBe('kit')
-    expect(defaultFocus(tracks, frags, -1, 'mixer', 0)).toBeNull()
+  it('is the cued clip\'s track elsewhere, else the whole song', () => {
+    expect(defaultFocus(tracks, clips, 0, 'composer', 0)).toBe('kit')
+    expect(defaultFocus(tracks, clips, -1, 'mixer', 0)).toBeNull()
   })
 })

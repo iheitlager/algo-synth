@@ -109,12 +109,12 @@ pub fn tool_defs() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "check_song",
-            description: "Parse a song with the engine's parser. Returns ok and its tracks, fragments, sections and bars, or the first error with its line and column. render_song parses too; use this for a quick look at the structure.",
+            description: "Parse a song with the engine's parser. Returns ok and its tracks, clips, scenes and bars, or the first error with its line and column. render_song parses too; use this for a quick look at the structure.",
             schema: json!({"type": "object", "properties": {"song": song}, "required": ["song"], "additionalProperties": false}),
         },
         ToolDef {
             name: "render_song",
-            description: "Play a song offline and measure it: non-finite samples, peak (above 1.0 clips), RMS and stereo width, RMS per arrangement entry, each track's peak and level on its strip, and each Modular SynthDef's build. It parses the song first. A track in focus without fragments, in a song without an arrangement, plays an audition phrase (auditioned: true). Use it to check the mix and that every part sounds.",
+            description: "Play a song offline and measure it: non-finite samples, peak (above 1.0 clips), RMS and stereo width, RMS per arrangement entry, each track's peak and level on its strip, and each Modular SynthDef's build. It parses the song first. A track in focus without clips, in a song without an arrangement, plays an audition phrase (auditioned: true). Use it to check the mix and that every part sounds.",
             schema: json!({"type": "object", "properties": {
                 "song": song,
                 "bars": {"type": "integer", "description": "How many bars to render, at most 64; default the arrangement, or 4 without one."}
@@ -122,7 +122,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "propose_song",
-            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse, stay within the track in focus, leave no frag, auto lane or heard track unplayed by the arrangement, and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the rules it broke and what to change. Propose once, when it renders cleanly.",
+            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse, stay within the track in focus, leave no clip, auto lane or heard track unplayed by the arrangement, and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the rules it broke and what to change. Propose once, when it renders cleanly.",
             schema: json!({"type": "object", "properties": {
                 "song": song,
                 "summary": {"type": "string", "description": "What you changed and why, in one short paragraph."}
@@ -141,8 +141,8 @@ pub fn system_prompt() -> &'static str {
 How to work:\n\
 - You get the current song and a request. Change what the request asks for and keep the rest: names, comments, settings, mixer lines and the arrangement, unless the request is about them.\n\
 - Render every song you write with render_song; it parses it too and reports the first error with its line and column. Aim for no non-finite samples, the peak below 1.0, every new or changed part audible, and the parts balanced (drums and bass lead, pads and arps under them).\n\
-- A track in focus without fragments is auditioned: the render plays a phrase on it (\"auditioned\": true). Don't add a fragment just to hear it.\n\
-- When it renders cleanly, call propose_song once with the whole song and a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent, or that adds a frag, auto lane or track the arrangement never plays. The user reviews a diff and applies it.\n\
+- A track in focus without clips is auditioned: the render plays a phrase on it (\"auditioned\": true). Don't add a clip just to hear it.\n\
+- When it renders cleanly, call propose_song once with the whole song and a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent, or that adds a clip, auto lane or track the arrangement never plays. The user reviews a diff and applies it.\n\
 - If the request is a question, answer it in text and propose nothing.\n\
 - Use only the models, presets, pads, parameters and scales of the catalog.\n\n\
 <language>\n{LANGUAGE}\n</language>\n\n<catalog>\n{}</catalog>\n",
@@ -192,7 +192,7 @@ fn first_message(req: &Request) -> String {
         .as_deref()
         .map(|t| {
             format!(
-                "The request is about the track `{t}`. Change only that track: its track line, its strip line, its frags, and autos, mods and scene values on it; leave everything else exactly as it is.\n"
+                "The request is about the track `{t}`. Change only that track: its track line, its strip line, its clips, and autos, mods and snapshot values on it; leave everything else exactly as it is.\n"
             )
         })
         .unwrap_or_default();
@@ -256,9 +256,9 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
             let c = tools::check(&song);
             let summary = match &c.error {
                 None => format!(
-                    "parses: {} tracks, {} frags, {} bars",
+                    "parses: {} tracks, {} clips, {} bars",
                     c.tracks.len(),
-                    c.frags.len(),
+                    c.clips.len(),
                     c.bars
                 ),
                 Some(e) => format!("line {}, col {}: {}", e.line, e.col, e.msg),
@@ -374,10 +374,10 @@ const SILENT: f32 = 1e-4;
 /// A song as `render_song` and the gate play it.
 struct Measured {
     rendered: tools::Rendered,
-    /// The track in focus had no fragment and played an audition (#430).
+    /// The track in focus had no clip and played an audition (#430).
     auditioned: bool,
     /// The track in focus, when it should sound: it was auditioned or one
-    /// of its fragments plays.
+    /// of its clips plays.
     heard: Option<String>,
 }
 
@@ -420,7 +420,7 @@ impl Measured {
 }
 
 /// Render `song` for at most `bars` bars; with a track in focus that has no
-/// fragment, and no arrangement, it plays an audition phrase on that track
+/// clip, and no arrangement, it plays an audition phrase on that track
 /// (#430). A song that does not load gives its error and a line.
 async fn measure(song: &str, focus: Option<&str>, bars: u64) -> Result<Measured, (Value, String)> {
     let audition = focus.and_then(|t| tools::audition(song, t));
@@ -635,8 +635,8 @@ mod tests {
     }
 
     const GOOD: &str =
-        "tempo 120\ntrack kit drums Tr909 Kit909\nfrag beat = kit /16\n  bd x...x...x...x...\n";
-    const BAD: &str = "tempo 120\ntrack kit drums Tr909 Kit909\nfrag beat = kit /16\n  zz x...\n";
+        "tempo 120\ntrack kit drums Tr909 Kit909\nclip beat = kit /16\n  bd x...x...x...x...\n";
+    const BAD: &str = "tempo 120\ntrack kit drums Tr909 Kit909\nclip beat = kit /16\n  zz x...\n";
 
     async fn events(p: &Scripted, limits: LoopLimits) -> Vec<Event> {
         let req = Request {
@@ -665,11 +665,11 @@ mod tests {
             .collect()
     }
 
-    /// An instrument without fragments (#430) is heard: the render plays an
+    /// An instrument without clips (#430) is heard: the render plays an
     /// audition on it and says so, and the gate hears it too, so the model
-    /// proposes the song as it is, with no test fragment.
+    /// proposes the song as it is, with no test clip.
     #[tokio::test]
-    async fn an_instrument_without_fragments_is_auditioned() {
+    async fn an_instrument_without_clips_is_auditioned() {
         let song = "tempo 120\ntrack lead synth\n";
         let p = Scripted::new(vec![
             Ok(calls(vec![(
@@ -705,7 +705,7 @@ mod tests {
         );
     }
 
-    /// A song whose track in focus has a fragment but makes no sound is
+    /// A song whose track in focus has a clip but makes no sound is
     /// refused with why; the fix goes.
     #[tokio::test]
     async fn a_silent_track_in_focus_is_not_proposed() {
@@ -881,12 +881,12 @@ mod tests {
     /// id; the fix is proposed with the gate's warnings for the review.
     #[tokio::test]
     async fn the_gate_refuses_with_its_rule_and_passes_warnings_on() {
-        let start = format!("{GOOD}section a 1: beat\narrange a\n");
+        let start = format!("{GOOD}scene a 1: beat\narrange a\n");
         let stray = start.replace(
-            "section a",
-            "frag hat = kit /16\n  ch ..x...x...x...x.\nsection a",
+            "scene a",
+            "clip hat = kit /16\n  ch ..x...x...x...x.\nscene a",
         );
-        let gap = start.replace("arrange a", "section gap 1:\narrange a gap");
+        let gap = start.replace("arrange a", "scene gap 1:\narrange a gap");
         let p = Scripted::new(vec![
             Ok(calls(vec![(
                 "propose_song",
@@ -906,7 +906,7 @@ mod tests {
         assert!(
             ev.iter().any(
                 |e| matches!(e, Event::Tool { ok: false, rules, summary, .. }
-                if *rules == ["unused-frag"] && summary.contains("`hat`"))
+                if *rules == ["unused-clip"] && summary.contains("`hat`"))
             ),
             "{ev:?}"
         );
@@ -915,7 +915,7 @@ mod tests {
             panic!("the refusal: {:?}", seen[1])
         };
         assert!(
-            r[0].is_error && r[0].content.contains("unused-frag"),
+            r[0].is_error && r[0].content.contains("unused-clip"),
             "{:?}",
             r[0]
         );
@@ -926,7 +926,7 @@ mod tests {
         let warned = warned.expect("the fix is proposed");
         assert_eq!(
             warned.iter().map(|f| f.rule).collect::<Vec<_>>(),
-            ["silent-section"]
+            ["silent-scene"]
         );
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
     fn the_system_prompt_holds_the_language_and_the_catalog() {
         let s = system_prompt();
         assert!(
-            s.contains("<language>") && s.contains("## frag"),
+            s.contains("<language>") && s.contains("## clip"),
             "the language"
         );
         assert!(

@@ -59,75 +59,75 @@ strip marimba: Level 0.3, Pan -0.25, Send1 0.3, Send2 0.35
 master: MasterGain 0.8, P1Return 0.35, P1A 0.55, P1B 0.45, P1D 1, P2Return 0.3, P2A 0.8, P3Type Chorus, P3Return 0.5, P3A 0.2, P3B 0.6, P3D 1, P3E 0.5
 
 # 909: four on the floor.
-frag kick = kit /16
+clip kick = kit /16
   bd x...x...x...x...
-frag hats = kit /16
+clip hats = kit /16
   ch x.xx x.xx x.xx x.xX
   oh ..x...x...x...x.
-frag clap = kit /16
+clip clap = kit /16
   cp ....x.......x...
   rs ......x.......x.
-frag ride = kit /16
+clip ride = kit /16
   rd x.x.x.x.x.x.x.x.
-frag lift = kit /16
+clip lift = kit /16
   sn ........x.x.xxXX
   oh x...............
 # Ghost notes under the groove: a soft snare between the claps, a rim answering.
-frag ghosts = kit /16
+clip ghosts = kit /16
   sn ..o..o.o..o.o..o
   rs .o.....o.o......
 
 # Breaks, a bar each, where a phrase turns.
-frag brk = kit /16
+clip brk = kit /16
   bd x.....x...x..x..
   sn ....f..o.o..X.od
   ch x.xox.xox.x.....
   oh ..............x.
-frag tripfill = kit /24
+clip tripfill = kit /24
   bd x.....x.....x...........
   sn ..o..f..o..f.oo.f.f.ffXX
   oh x.......................
-frag rollout = kit /32
+clip rollout = kit /32
   sn o.o.o.o.o.o.o.o.x.x.x.x.d.d.xxXX
   bd x...............x...............
 
 # 808: polymeter, each lane its own length.
-frag shaker = perc /16
+clip shaker = perc /16
   ma X.x
-frag congas = perc /16
+clip congas = perc /16
   lc euclid(5,12,1)
   hc euclid(4,10,3)
   cl x......
-frag bell = perc /16
+clip bell = perc /16
   cb euclid(3,16,10)
 
 # The progression: one chord a bar, voiced close.
-frag chords = pad voicing
+clip chords = pad voicing
   "<a2:m9 d3:m9 f2:maj7 e2:m7>"
 # Three against four: the Rhodes on the second and third thirds of each bar.
-frag rhodes = keys voicing
+clip rhodes = keys voicing
   "<[~ a3:m9 a3:m9] [~ d3:m9 d3:m9] [~ f3:maj7 f3:maj7] [~ e3:m7 e3:m7]>"
 # The Juno's stabs in 3-3-3-3-2-2, the dotted pulse that pulls against the kick.
-frag stabs = stab voicing .struct("x ~ ~ x ~ ~ x ~ ~ x ~ ~ x ~ x ~")
+clip stabs = stab voicing .struct("x ~ ~ x ~ ~ x ~ ~ x ~ ~ x ~ x ~")
   "<a3:m7 d3:m7 f3:maj7 e3:m7>"
 
 # The roots, low and syncopated.
-frag low = bass .struct("x ~ ~ x ~ ~ x ~ ~ ~ x ~ x ~ ~ ~")
+clip low = bass .struct("x ~ ~ x ~ ~ x ~ ~ ~ x ~ x ~ ~ ~")
   root(chords,1)
 
 # Five against four: five even notes a bar, walking with the chords.
-frag five = kalimba .every(4, rev)
+clip five = kalimba .every(4, rev)
   "<[e5 c5 a4 g4 a4] [f5 d5 a4 c5 a4] [e5 c5 a4 f4 a4] [g5 e5 b4 g4 e4]>"
 # The glint: up and down the ninth chords, a fifth up echoing a dotted eighth
 # behind, and every third bar backwards.
-frag glimmer = glint .off(3/16, add(7)) .every(3, rev)
+clip glimmer = glint .off(3/16, add(7)) .every(3, rev)
   arp(chords,updown,16)
 # The marimba: down the progression, each note three times in sixteenth
 # triplets against the four, a quarter of them left out, each bar a step on.
-frag cascade = marimba .ply(3) .degrade(0.25) .iter(4) .add(12)
+clip cascade = marimba .ply(3) .degrade(0.25) .iter(4) .add(12)
   arp(chords,down,8)
 # Seven against four.
-frag seven = tick
+clip seven = tick
   "c6*7"
 
 auto bass_low = bass.Cutoff 500 /8
@@ -140,22 +140,22 @@ auto glint_open = glint.Ctl1 ramp 700 2800 /16
 mod pad.resonance = lfo([0.1, 0.13, 0.17, 0.21]).range(0.1, 0.4)
 mod tick.pan = sine.slow(2).range(-0.6, 0.6)
 
-scene dry: master.P1Return 0.35, master.P2Return 0.3
-scene wet: master.P1Return 0.55, master.P2Return 0.55
+snapshot dry: master.P1Return 0.35, master.P2Return 0.3
+snapshot wet: master.P1Return 0.55, master.P2Return 0.55
 
-section intro 7: kick hats shaker chords pad_rise [dry]
-section intro_brk 1: brk shaker chords
-section groove 15: kick hats clap ghosts shaker congas chords low stabs bass_low bass_res stab_dark
-section groove_lift 1: tripfill shaker congas chords low stabs
-section keys 15: kick hats clap ghosts shaker congas chords low rhodes five glimmer bass_open bass_res glint_open
-section keys_brk 1: brk shaker congas chords low rhodes five glimmer
-section break 8: chords rhodes five seven cascade glimmer shaker [wet]
-section main 15: kick hats clap ghosts ride shaker congas bell chords low stabs rhodes five seven glimmer cascade bass_open bass_res stab_open [dry]
-section main_roll 1: rollout shaker congas chords low stabs rhodes five seven
-section deep 7: kick hats clap ghosts shaker congas bell chords low rhodes five cascade bass_low bass_res stab_dark
-section deep_brk 1: tripfill shaker congas chords low rhodes five cascade
-section deep2 7: kick hats clap ghosts shaker congas bell chords low rhodes five glimmer cascade bass_low bass_res stab_dark
-section deep_turn 1: brk shaker congas chords low rhodes five glimmer
-section outro 8: kick hats shaker chords five
+scene intro 7: kick hats shaker chords pad_rise [dry]
+scene intro_brk 1: brk shaker chords
+scene groove 15: kick hats clap ghosts shaker congas chords low stabs bass_low bass_res stab_dark
+scene groove_lift 1: tripfill shaker congas chords low stabs
+scene keys 15: kick hats clap ghosts shaker congas chords low rhodes five glimmer bass_open bass_res glint_open
+scene keys_brk 1: brk shaker congas chords low rhodes five glimmer
+scene break 8: chords rhodes five seven cascade glimmer shaker [wet]
+scene main 15: kick hats clap ghosts ride shaker congas bell chords low stabs rhodes five seven glimmer cascade bass_open bass_res stab_open [dry]
+scene main_roll 1: rollout shaker congas chords low stabs rhodes five seven
+scene deep 7: kick hats clap ghosts shaker congas bell chords low rhodes five cascade bass_low bass_res stab_dark
+scene deep_brk 1: tripfill shaker congas chords low rhodes five cascade
+scene deep2 7: kick hats clap ghosts shaker congas bell chords low rhodes five glimmer cascade bass_low bass_res stab_dark
+scene deep_turn 1: brk shaker congas chords low rhodes five glimmer
+scene outro 8: kick hats shaker chords five
 arrange intro intro_brk groove groove_lift keys keys_brk break main main_roll deep deep_brk deep2 deep_turn outro
 loop 49 80

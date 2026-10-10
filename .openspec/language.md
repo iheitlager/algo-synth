@@ -11,36 +11,47 @@ a choice; anything else is literal.
 ## Conventions
 
 - **Lines.** One item per line. A top-level line starts at column 1 with a
-  keyword: `tempo swing scale setting track strip group master frag auto scene
-  mod section arrange loop`. An indented line (space or tab) belongs to the
-  `frag` above it, or is code of the `Modular` `setting` above it. Blank lines
+  keyword: `tempo swing scale setting track strip group master clip auto snapshot
+  mod scene arrange loop`. An indented line (space or tab) belongs to the
+  `clip` above it, or is code of the `Modular` `setting` above it. Blank lines
   are ignored. Words are split at whitespace.
 - **Comments.** `#` at the start of a line or after whitespace starts a comment
   (so `c#4` is a note), also inside quotes; not in Modular code. Comments are
   kept: a comment line belongs to the item below it, a trailing one to its line.
-- **Names** (settings, tracks, frags, autos, scenes, sections, groups):
-  `[A-Za-z][A-Za-z0-9_]*`, at most 32 chars. Frags and autos share one
+- **Names** (settings, tracks, clips, autos, snapshots, scenes, groups):
+  `[A-Za-z][A-Za-z0-9_]*`, at most 32 chars. Clips and autos share one
   namespace; the others have one each. A setting is not named as a model.
 - **Parameters** are registry names (`Cutoff`, `Level`, `P2Return`), matched in
   any case, values in the parameter's units (Hz, seconds, 0–1), clamped to its
   range. The catalog lists each model's presets and each parameter's range.
 - **Order.** A name is used after the line that makes it: settings before any
-  track; `scale` before any frag; a track before its frags, mixer line and
-  targets; a frag before the frags that read it and the sections that hold it;
-  autos and scenes before their sections; sections before `arrange`.
+  track; `scale` before any clip; a track before its clips, mixer line and
+  targets; a clip before the clips that read it and the scenes that hold it;
+  autos and snapshots before their scenes; scenes before `arrange`.
 - **Once.** At most one `tempo`, `swing`, `scale` and `arrange`; one mixer line
   per strip, group or master; one `mod` per target and parameter; one lane per
-  pad in a frag; a name once in a section.
+  pad in a clip; a name once in a scene.
 - **Defaults.** Empty text is a song: tempo 120, swing 50, silence. Without
-  `arrange` every frag and auto loops from the start and no scene applies.
+  `arrange` every clip and auto loops from the start and no snapshot applies.
 - **Canonical form.** The printer writes: tempo, swing, scale, settings, tracks,
-  mixer lines, frags, autos, scenes, mods, sections, arrange, loop. It always
-  writes `tempo` and `swing`, each track's model and preset, a drum frag's
+  mixer lines, clips, autos, snapshots, mods, scenes, arrange, loop. It always
+  writes `tempo` and `swing`, each track's model and preset, a drum clip's
   grid, flats as sharps (`eb4` → `d#4`), `mod` parameters in lower case, and
   Modular code as written. Layout and blank lines are not kept. Chord names
   print as written.
 - **Errors.** The parser never panics. Text that is not a song gives the first
   problem: line, column (from 1) and a message; the playing song plays on.
+- **Ableton's words** (ADR-0031, #486). A `clip` is one track's loop
+  (Ableton's clip), a `scene` the bars and clips that play together (Ableton's
+  scene, what Launch starts), a `snapshot` mixer values set as a scene starts.
+  Songs written before used other words, which the parser still reads and the
+  printer writes in today's:
+
+  | Before | Now |
+  |---|---|
+  | `frag` | `clip` |
+  | `section` | `scene` |
+  | `scene <name>: …` (no bars) | `snapshot <name>: …` |
 
 ### Limits
 
@@ -49,13 +60,13 @@ a choice; anything else is literal.
 | song text | 1 MB |
 | tempo / swing | 20–300 BPM / 50–75 % |
 | tracks, settings | 16 each |
-| changes in a setting, values in a scene | 32 |
+| changes in a setting, values in a snapshot | 32 |
 | values on a mixer line | 48 |
-| frags, sections, `arrange` entries, bars in a section or auto | 256 |
+| clips, scenes, `arrange` entries, bars in a scene or auto | 256 |
 | steps in a lane | 1–64 |
 | notes a line compiles to / bars before it repeats | 512 / 32 |
 | words in a line of notes | 1100 |
-| autos, scenes, `mod` lines plus parameter methods | 32 each |
+| autos, snapshots, `mod` lines plus parameter methods | 32 each |
 | values in an auto | 64 |
 | nodes in all signals together | 256 |
 
@@ -87,7 +98,7 @@ The song's key, read by `walk`, `prog`, roman numerals and `euclid … scale`.
 ```song
 scale e phrygian-dominant
 track lead synth
-frag wander = lead
+clip wander = lead
   walk(e4,8,3)
 ```
 
@@ -177,7 +188,7 @@ A subset of sclang, run once to build the voice:
   odyssey juno106`) renders as that synth's filter.
 - **Knobs:** every number a UGen, an envelope or a `Rand` takes, and every
   control's default, is a knob, `Ctl1`…`Ctl32` in build order (the SynthDef's
-  arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `scene`,
+  arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `snapshot`,
   `mod` reach them (`sub.Ctl1`).
 - **Limits:** 512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes,
   32 delay lines, 64 random numbers, 32 latches, decimators, noises, lags
@@ -194,7 +205,7 @@ setting hoover = Modular ModularBasic
           * EnvGen.kr(Env.adsr(0.01, 0.3, 0.7, 0.4), gate)
   }).add;
 track lead synth hoover
-frag r = lead
+clip r = lead
   "c3 eb3 g3 <bb3 c4>"
 auto open = lead.Ctl1 ramp 600 4000 /8
 ```
@@ -206,7 +217,7 @@ track <name> <kind> [<Model> [<Preset>] | <setting>] [mute] [solo]
 kind = drums | synth | sampler
 ```
 
-| kind | its frags hold | models |
+| kind | its clips hold | models |
 |---|---|---|
 | `drums` | lanes | `Tr808 Tr909 PadSampler` |
 | `synth` | one line of notes | any but drum machines and samplers |
@@ -226,7 +237,7 @@ is read from the name, else the notes:
 | keys | `key` `piano` `organ` | | `Dx7 FmElectricPiano` |
 | lead | `lead` `melod` `solo` | anything else | `ProOne ProLead` |
 
-`mute` stops the track's frags; while any track is `solo`, only soloed ones
+`mute` stops the track's clips; while any track is `solo`, only soloed ones
 play. Errors: a model that does not play the kind, a preset of another model,
 an unknown model or setting.
 
@@ -235,7 +246,7 @@ track kit909 drums
 track bass synth Sh101 AcidBass
 track pad synth
 track keys synth Dx7 mute
-frag deep = bass
+clip deep = bass
   "e1 f1 e2 b1"
 ```
 
@@ -258,7 +269,7 @@ track keys sampler Sampler SamplerKeys
 track kit drums PadSampler
 samples keys upright-piano-kw
 samples kit audiophob
-frag chords = keys
+clip chords = keys
   "[c3,e3,g3] [a2,c3,e3]"
 ```
 
@@ -293,26 +304,26 @@ strip kit: Level 0.9, Out group1
 strip bass: Level 0.8, Pan -0.2, I1Type Overdrive, I1A 0.6, Send2 0.3
 group 1 drums: Level 0.85, I1Type Comp
 master: MasterGain 0.6, P2Type Reverb, P2Return 0.3
-frag beat = kit
+clip beat = kit
   bd x...x...x...x...
-frag low = bass
+clip low = bass
   "c2 ~ c2 g1"
 ```
 
-## frag
+## clip
 
 ```text
-frag <name> = <track> [/<grid> | live | bars <n>] [voicing] [.<method>(<args>)]…
+clip <name> = <track> [/<grid> | live | bars <n>] [voicing] [.<method>(<args>)]…
   <lane>…            on a drums track, or a sampler track
   <line of notes>    exactly one, on a synth track, or a sampler track
 ```
 
-A fragment is a loop on one track. A sampler frag holds lanes or notes, not
+A clip is a loop on one track. A sampler clip holds lanes or notes, not
 both; a line there is notes when it starts with `"` or `[`, or holds `:` or
-`(`. A frag with nothing under it is an error. `/grid` is for lanes, `live`
-and `voicing` for notes, `bars` for timed notes; methods come last. A frag of
+`(`. A clip with nothing under it is an error. `/grid` is for lanes, `live`
+and `voicing` for notes, `bars` for timed notes; methods come last. A clip of
 notes, on a synth or a sampler track, takes no grid but the default `/16`:
-`a note frag has no step grid`.
+`a note clip has no step grid`.
 
 ### Lanes
 
@@ -328,7 +339,7 @@ maracas, cowbell, cymbal, low/mid/high conga, crash, ride. Spaces between steps
 are for reading. Each lane loops on its own length, 1 to 64 steps
 (polymeter). `euclid` spreads the hits evenly over its steps on the grid (no
 spaces inside, no more hits than steps). A ghost plays softly; a flam adds one
-soft grace 20 ms before its hit, a drag two (30 and 15 ms). Every frag keeps
+soft grace 20 ms before its hit, a drag two (30 and 15 ms). Every clip keeps
 its own grid in time with the others; swing moves a step's hits with it. A
 digit after `x`, `X` or `o` is a ratchet: `x3` plays the hit three times,
 evenly across its step (2 to 4), and counts as one step.
@@ -336,19 +347,19 @@ evenly across its step (2 to 4), and counts as one step.
 ```song
 tempo 124
 track kit drums
-frag beat = kit /16
+clip beat = kit /16
   bd x...x...x...x...
   sn ....X.......X..x
   ch x.x. x.x. x.x. x.x.
   cb euclid(5,16,2)
   oh ..x
-frag roll = kit /32
+clip roll = kit /32
   sn o.o.o.o.x.x.x.x.xxxxxxxxXXXXXXXX
-frag trip = kit /24
+clip trip = kit /24
   sn ..x..x..x..x..x..X..X..X
-frag rudiments = kit
+clip rudiments = kit
   sn f...o.o.d...o.o.f.f.d.d.X...X...
-frag rolls = kit
+clip rolls = kit
   sn x...x3..x...X4..
   ch x2.x.x2.x.x3.x.o2.x.
 ```
@@ -375,11 +386,11 @@ Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
 
 ```song
 track lead synth
-frag riff = lead
+clip riff = lead
   "c4 [e4 g4] ~ <c5 d5>?"
-frag stabs = lead
+clip stabs = lead
   "~ [a3!,c4!,e4!] ~ ~ ~ [a3,c4,e4]@3"
-frag slide = lead
+clip slide = lead
   "c2& c3 ~ c2*2 eb2&"
 ```
 
@@ -394,7 +405,7 @@ line runs as many bars as it fills.
 
 ```song
 track lead synth
-frag tune = lead
+clip tune = lead
   c4:4 e4:8 g4:8 [c4,e4,g4]:2 r:4. c5!:8 c4:8&
 ```
 
@@ -405,12 +416,12 @@ overlap. A line containing `@` outside quotes is timed.
 <pitch>[!]@<start>:<length>[:<velocity>]…     start 0–1535, length 1–1536, velocity 1–127
 ```
 
-The line ends at the bar of its last start, or `bars <n>` (1–32) on the frag
+The line ends at the bar of its last start, or `bars <n>` (1–32) on the clip
 line says how long it is.
 
 ```song
 track v synth
-frag line = v bars 2
+clip line = v bars 2
   d5@0:6 f#5@6:6:90 a4@12:24 d4@48:48:64
 ```
 
@@ -423,17 +434,17 @@ frag line = v bars 2
 - Roman numeral: a degree of the song's seven-note `scale`, upper case major,
   lower case minor, maybe `b`/`#` first (borrowed), then `o` `o7` `+` `7` or
   `maj7`: `i VI bVII V7 viio7`. Change the `scale` and the progression moves.
-- `voicing` on the frag line moves each chord to the notes nearest the chord
+- `voicing` on the clip line moves each chord to the notes nearest the chord
   before it, within C3–C6.
 
 ```song
 scale c minor
 track pad synth
-frag prog = pad voicing
+clip prog = pad voicing
   "<i VI III VII>"
-frag jazz = pad
+clip jazz = pad
   c:m7:2 f:7:2 bb:maj7:2 eb:maj7:2
-frag turn = pad voicing
+clip turn = pad voicing
   "<ii7 V7 i bVII>"
 ```
 
@@ -444,9 +455,9 @@ song's scale from the pitch, hit by hit.
 ```song
 scale a minor
 track bass synth
-frag pulse = bass
+clip pulse = bass
   euclid(5,8) a1
-frag climb = bass
+clip climb = bass
   euclid(7,16,2) scale a2
 ```
 
@@ -457,53 +468,53 @@ notes every run.
 |---|---|
 | `arp(<chord>,<mode>,<rate>)` | a chord (`[c4,e4,g4]` up to 8 notes, or a name) over one bar; mode `up` `down` `updown`; rate 2, 4, 8 or 16 notes a bar |
 | `arp(<chord>,random,<rate>,<seed>)` | random order; only `random` takes a seed, and must |
-| `arp(<frag>,<mode>,<rate>[,<seed>])` | the frag's chords, each arpeggiated from its own start (a frag name wins over a chord name) |
+| `arp(<clip>,<mode>,<rate>[,<seed>])` | the clip's chords, each arpeggiated from its own start (a clip name wins over a chord name) |
 | `walk(<pitch>,<n>,<seed>)` | n notes (1–32) in one bar, a random walk on the scale; needs `scale` |
-| `markov(<order>,<frag>,<seed>)` | a chain of order 1–3 learned from the frag's pitches and rhythm |
-| `mutate(<frag>,<percent>,<seed>)` | the frag with 0–100 % of its notes moved or dropped |
+| `markov(<order>,<clip>,<seed>)` | a chain of order 1–3 learned from the clip's pitches and rhythm |
+| `mutate(<clip>,<percent>,<seed>)` | the clip with 0–100 % of its notes moved or dropped |
 | `prog(<bars>,<seed>)` | 1–16 bars of triads, one a bar: tonic first, dominant last, functional moves; needs a seven-note `scale` |
-| `root(<frag>[,<octave>])` | the root of each of the frag's chords in octave 0–7 (default 2), a bass line |
+| `root(<clip>[,<octave>])` | the root of each of the clip's chords in octave 0–7 (default 2), a bass line |
 
-A frag a call reads is a note frag above it, as it was at load (a `live`
-frag's first bar).
+A clip a call reads is a note clip above it, as it was at load (a `live`
+clip's first bar).
 
 ```song
 scale c minor
 track pad synth
 track bass synth
 track arp synth
-frag chords = pad voicing
+clip chords = pad voicing
   prog(4,7)
-frag low = bass
+clip low = bass
   root(chords)
-frag ripple = arp
+clip ripple = arp
   arp(chords,updown,16)
-frag riff = arp
+clip riff = arp
   "c4 eb4 g4 [bb4 g4]"
-frag chain = arp
+clip chain = arp
   markov(2,riff,3)
-frag drift = arp
+clip drift = arp
   mutate(riff,30,5)
-frag dice = arp
+clip dice = arp
   arp(c:m9,random,8,7)
 ```
 
-**live:** `frag <name> = <track> live` with a generator call (any of the
+**live:** `clip <name> = <track> live` with a generator call (any of the
 table) plays new notes every bar: the seed mixed with the bar, the same every
 run. Not on lanes, other forms of notes, `voicing` or pattern methods.
 
 ```song
 scale e phrygian-dominant
 track lead synth
-frag sand = lead live
+clip sand = lead live
   walk(e4,16,7)
 ```
 
 ### Pattern methods
 
-Written last on a note frag's line; applied in order to its notes at load. A
+Written last on a note clip's line; applied in order to its notes at load. A
 cycle is a bar; times round to the tick grid; the result keeps the limits of
-512 notes and 32 bars. Not on lanes or `live` frags.
+512 notes and 32 bars. Not on lanes or `live` clips.
 
 | method | does |
 |---|---|
@@ -525,17 +536,17 @@ The `m` of `every`, `off` and `sometimes` is a method without its dot:
 
 ```song
 track lead synth
-frag riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))
+clip riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))
   "c4 eb4 g4 bb4"
-frag grid = lead .struct("x ~ x x ~ x x ~") .degrade(0.2) .scale(c minor)
+clip grid = lead .struct("x ~ x x ~ x x ~") .degrade(0.2) .scale(c minor)
   "c4 d4 e4 f4"
 ```
 
 ### Parameter methods
 
-`.<param>(<signal>)` on a frag line, after pattern methods, moves a parameter
-of the frag's track (its synth or strip) while the frag plays, and puts it
-back when it leaves. One per parameter per frag; a pattern method's name wins.
+`.<param>(<signal>)` on a clip line, after pattern methods, moves a parameter
+of the clip's track (its synth or strip) while the clip plays, and puts it
+back when it leaves. One per parameter per clip; a pattern method's name wins.
 They count with `mod` lines toward 32.
 
 A `~` in a sequence is a step with no value: the parameter has its own value
@@ -546,22 +557,22 @@ step either. A per-voice signal takes no `~`.
 ```song
 track kit drums
 track bass synth Sh101
-frag beat = kit /16 .send1(0.3)
+clip beat = kit /16 .send1(0.3)
   bd x...x...x...x...
-frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
+clip acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
   "c2 c2 eb2 <g2 bb1>"
-frag plain = bass .cutoff("<400 900>")
+clip plain = bass .cutoff("<400 900>")
   "c2 ~ c2 ~"
-frag lock = kit .send1("~ ~ ~ ~ ~ ~ 0.6 ~ ~ ~ ~ ~ ~ ~ 0.6 ~")
+clip lock = kit .send1("~ ~ ~ ~ ~ ~ 0.6 ~ ~ ~ ~ ~ ~ ~ 0.6 ~")
   sn ....x.......x...
-section a 4: beat acid
-section b 4: beat plain
+scene a 4: beat acid
+scene b 4: beat plain
 arrange a b
 ```
 
 ## Targets
 
-`auto`, `scene` and `mod` write `<target>.<Param>`:
+`auto`, `snapshot` and `mod` write `<target>.<Param>`:
 
 | target | parameters |
 |---|---|
@@ -580,37 +591,37 @@ auto <name> = <target>.<Param> ramp <from> <to> /<bars>
 ```
 
 An automation lane of 1–256 bars: values (at most 64) spread evenly, each
-held for its share, or a linear ramp. Placed in sections like a frag, it
-starts at the section's first bar and loops inside it.
+held for its share, or a linear ramp. Placed in scenes like a clip, it
+starts at the scene's first bar and loops inside it.
 
 ```song
 track kit drums
-frag beat = kit
+clip beat = kit
   bd x...x...x...x...
 auto sweep = kit.Cutoff ramp 300 4000 /8
 auto duck = strip1.Level 1 0.5 0.25 1 /1
-section main 8: beat sweep duck
+scene main 8: beat sweep duck
 arrange main
 ```
 
-## scene
+## snapshot
 
 ```text
-scene <name>: <target>.<Param> <value>[, <target>.<Param> <value>]…
+snapshot <name>: <target>.<Param> <value>[, <target>.<Param> <value>]…
 ```
 
-Values set together, as a jump, on the first step of each section that lists
+Values set together, as a jump, on the first step of each scene that lists
 `[name]`. 1–32 values.
 
 ```song
 track kit drums
 track bass synth
-frag beat = kit
+clip beat = kit
   bd x...x...x...x...
-scene drop: strip1.Mute 1, master.P2Return 0.4
-scene back: strip1.Mute 0, bass.Cutoff 900
-section main 4: beat [back]
-section quiet 4: beat [drop]
+snapshot drop: strip1.Mute 1, master.P2Return 0.4
+snapshot back: strip1.Mute 0, bass.Cutoff 900
+scene main 4: beat [back]
+scene quiet 4: beat [drop]
 arrange main quiet main
 ```
 
@@ -621,7 +632,7 @@ mod <target>.<param> = <signal>
 ```
 
 A signal written to a parameter for the whole song, once a block (128
-samples), after autos and scenes, so it wins over them. It follows the song's
+samples), after autos and snapshots, so it wins over them. It follows the song's
 position (the same every run and after a seek). When it stops, the parameter
 returns to its value before.
 
@@ -665,7 +676,7 @@ nest at most 32 deep.
 
 ```song
 track lead synth Juno106 JunoPad
-frag chords = lead
+clip chords = lead
   "[c3,e3,g3] ~ [f3,a3,c4] ~"
 mod lead.cutoff = env(perc).exprange(200, 4000) + lfo(3).range(0, 300)
 mod lead.resonance = lfo([1, 3, 5]).range(0.1, 0.6)
@@ -673,29 +684,29 @@ mod strip1.pan = sine.slow(8).range(-1, 1)
 mod master.p2return = perlin.slow(4).range(0.1, 0.4)
 ```
 
-## section, arrange, loop
+## scene, arrange, loop
 
 ```text
-section <name> <bars>: [<frag> | <auto> | [<scene>]]…      bars 1–256; "8:" or "8 :"
-arrange <section>…                                         1–256 entries, repeats allowed
+scene <name> <bars>: [<clip> | <auto> | [<snapshot>]]…      bars 1–256; "8:" or "8 :"
+arrange <scene>…                                           1–256 entries, repeats allowed
 loop <first> <last>                                        bars of the arrangement, from 1, inclusive
 ```
 
-A section is bars and what plays in them: each frag and auto from its first
-bar, looping inside it; each scene on its first step. It may be empty (a
-rest). `arrange` plays sections in order and the song stops after its last
+A scene is bars and what plays in them: each clip and auto from its first
+bar, looping inside it; each snapshot on its first step. It may be empty (a
+rest). `arrange` plays scenes in order and the song stops after its last
 bar. `loop` needs `arrange` and must end inside it: the song plays to `last`,
 then repeats `first`–`last` for good.
 
 ```song
 track kit drums
-frag beat = kit /16
+clip beat = kit /16
   bd x...x...x...x...
-frag fill = kit /16
+clip fill = kit /16
   sn ..x.
-section intro 2: beat
-section main 4 : beat fill
-section gap 1:
+scene intro 2: beat
+scene main 4 : beat fill
+scene gap 1:
 arrange intro main main gap
 loop 3 6
 ```
@@ -710,36 +721,36 @@ tempo 124
 swing 52
 track kit drums Tr909 Kit909
 strip kit: Level 0.9
-frag beat = kit
+clip beat = kit
   bd x...x...x...x...
   cp ....x.......x...
   sn ......o.....o..o
   oh ..x...x...x...x.
   ch x.xxx.xxx.xxx.xx
-frag fill = kit
+clip fill = kit
   bd x...x...x...x...
   sn f.o.x.o.x.x.xxXX
   cr X...............
-section main 7: beat
-section turn 1: fill
+scene main 7: beat
+scene turn 1: fill
 arrange main turn main turn
 ```
 
 **Acid line:** sixteenths on an SH-101 `AcidBass`, accents and slides, the
-cutoff on a lane that rises each section.
+cutoff on a lane that rises each scene.
 
 ```song
 tempo 128
 track kit drums Tr909 Kit909
 track bass synth Sh101 AcidBass
-frag beat = kit
+clip beat = kit
   bd x...x...x...x...
   oh ..x...x...x...x.
-frag acid = bass
+clip acid = bass
   "<[e1! e1 e2& e1 ~ e1! g1& e1 e2!& e1 ~ e1 a1& e1 g1!& e1] [e1! ~ e2& e1 ~ e1! b1& e1 e2! ~ g2& e2& d2& b1& a1& g1!]>"
 auto cut = bass.Cutoff ramp 400 3200 /8
 auto res = bass.Resonance 0.4 0.55 0.7 0.85 /4
-section groove 8: beat acid cut res
+scene groove 8: beat acid cut res
 arrange groove groove
 ```
 
@@ -754,13 +765,13 @@ track bass synth Sh101 Sh101Bass
 track arp synth Juno106 JunoPluck
 strip pad: Level 0.5, Send2 0.4
 strip arp: Level 0.6, Send1 0.3
-frag chords = pad voicing
+clip chords = pad voicing
   prog(8,11)
-frag low = bass .cutoff(sine.slow(8).exprange(300, 1500))
+clip low = bass .cutoff(sine.slow(8).exprange(300, 1500))
   root(chords,1)
-frag ripple = arp .off(3/16, add(12))
+clip ripple = arp .off(3/16, add(12))
   arp(chords,updown,16)
-section main 8: chords low ripple
+scene main 8: chords low ripple
 arrange main main
 ```
 
@@ -771,16 +782,16 @@ and a euclid cowbell, so the pattern turns over slowly.
 tempo 122
 track kit drums Tr909 Kit909
 track perc drums Tr808 Kit808
-frag beat = kit
+clip beat = kit
   bd x...x...x...x...
   ch ..x.
-frag poly = perc
+clip poly = perc
   lc x..
   mc x.x..
   hc ..x..x.
   rs x..x..x.x.x.
   cb euclid(5,16,3)
-section main 16: beat poly
+scene main 16: beat poly
 arrange main
 ```
 
@@ -793,18 +804,18 @@ swing 66
 scale d dorian
 track kit drums
 track lead synth Minimoog MiniLead
-frag shuffle = kit /12
+clip shuffle = kit /12
   bd x.....x.....
   sn ...x.....x..
   ch x.xx.xx.xx.x
-frag tune = lead live
+clip tune = lead live
   walk(d4,6,5)
-section main 8: shuffle tune
+scene main 8: shuffle tune
 arrange main
 ```
 
 **A Modular voice with a knob in motion:** a SynthDef sub whose cutoff (its
-first knob, `Ctl1`) opens over the section, and a scene for the break.
+first knob, `Ctl1`) opens over the scene, and a snapshot for the break.
 
 ```song
 tempo 132
@@ -817,15 +828,15 @@ setting rumble = Modular ModularBasic
   }).add;
 track kit drums Tr909 Kit909
 track sub synth rumble
-frag kick = kit
+clip kick = kit
   bd x...x...x...x...
-frag roll = sub
+clip roll = sub
   "~ g1 g1 g1 ~ g1 g1 bb1"
 auto open = sub.Ctl1 ramp 200 1800 /8
-scene bare: strip1.Mute 1
-scene full: strip1.Mute 0
-section main 8: kick roll open [full]
-section break 4: roll [bare]
+snapshot bare: strip1.Mute 1
+snapshot full: strip1.Mute 0
+scene main 8: kick roll open [full]
+scene break 4: roll [bare]
 arrange main break main
 ```
 
@@ -846,35 +857,35 @@ track arp synth
 track pad synth
 
 # maqsum: dum tek . tek dum . tek .
-frag beat = kit /16
+clip beat = kit /16
   bd x.......x.......
   lc ..x...x.....x...
   ma x.x.x.x.x.x.x.x.
   hc euclid(5,16,3)
-frag roll = kit /16
+clip roll = kit /16
   lc ..x...x.....x...
   hc x.x.x.x.xxxxXXXX
 
-frag groove = bass
+clip groove = bass
   "e2 ~ [e2 f2] ~ e2 ~ [g#2 f2] e2"
-frag call = lead
+clip call = lead
   e4:8 f4:8 g#4:4 a4:8 g#4:8 f4:4 e4:2 r:2
-frag answer = lead
+clip answer = lead
   mutate(call,25,3)
-frag sand = arp live
+clip sand = arp live
   arp([e4,g#4,b4,d5],random,16,7)
-frag hold = pad
+clip hold = pad
   "[e3,g#3,b3] <[f3,a3,c4] [d3,f3,a3]>"
 
 auto open = lead.Cutoff ramp 600 3000 /8
-scene bare: bass.Mute 1, pad.Level 0.4
-scene full: bass.Mute 0, pad.Level 0.8
+snapshot bare: bass.Mute 1, pad.Level 0.4
+snapshot full: bass.Mute 0, pad.Level 0.8
 
-section intro 4: hold beat
-section theme 8: beat groove call open [full]
-section reply 8: beat groove answer sand
-section desert 4: roll hold sand [bare]
-section outro 2: hold
+scene intro 4: hold beat
+scene theme 8: beat groove call open [full]
+scene reply 8: beat groove answer sand
+scene desert 4: roll hold sand [bare]
+scene outro 2: hold
 arrange intro theme reply desert theme reply outro
 loop 5 28
 ```

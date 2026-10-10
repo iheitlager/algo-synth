@@ -28,7 +28,7 @@ function openSynth(s: number) {
 // The Assistant (#387) reads the song as the engine prints it, and Apply loads
 // a song through the engine like any text (ADR-0012). Its own window gets the
 // same over a BroadcastChannel; only this window touches the engine.
-const focus = () => defaultFocus(song.tracks, song.frags, song.cued, view.main, synths.selected)
+const focus = () => defaultFocus(song.tracks, song.clips, song.cued, view.main, synths.selected)
 const linkState = (): LinkState => ({
   song: song.text,
   focus: focus(),

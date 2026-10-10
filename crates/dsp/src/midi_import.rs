@@ -5,10 +5,10 @@
 //! file's track it came from. Times snap to the song's grid of 48 ticks to the
 //! bar (12 to the quarter, so triplet sixteenths stay exact); a note-on pairs
 //! with the first open note-off of its channel and pitch. The song is cut into
-//! sections of 8 bars (or 4, 2, 1 when a chunk would hold too many notes for a
-//! line, or the song too many fragments): one timed-note fragment per channel
-//! and chunk, identical chunks sharing a fragment and identical sections a
-//! section, and `arrange` plays them in order.
+//! scenes of 8 bars (or 4, 2, 1 when a chunk would hold too many notes for a
+//! line, or the song too many clips): one timed-note clip per channel
+//! and chunk, identical chunks sharing a clip and identical scenes a
+//! scene, and `arrange` plays them in order.
 //!
 //! The song lasts until its last note ends. A tempo change keeps each note
 //! at its moment: ticks become time through the file's tempo map, and time
@@ -22,20 +22,20 @@
 
 use crate::notes::{self, Event, MAX_EVENTS, TICKS_PER_BAR};
 use crate::smf::{Kind, Smf};
-use crate::song::{MAX_ARRANGE, MAX_FRAGS, MAX_SECTIONS, MAX_TRACKS};
+use crate::song::{MAX_ARRANGE, MAX_CLIPS, MAX_SCENES, MAX_TRACKS};
 
 /// Ticks of the song's grid to a quarter note.
 const TICKS_PER_QUARTER: u64 = TICKS_PER_BAR as u64 / 4;
 /// Chunk lengths tried, longest first.
 const CHUNKS: [u32; 4] = [8, 4, 2, 1];
-/// Longest track name kept; fragment names add `_N`.
+/// Longest track name kept; clip names add `_N`.
 const NAME_LEN: usize = 24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportError {
     /// The file has no notes.
     NoNotes,
-    /// More notes, fragments or sections than a song can hold.
+    /// More notes, clips or scenes than a song can hold.
     TooBig,
 }
 
@@ -222,10 +222,10 @@ fn layout(
     if usize::try_from(chunks).ok()? > MAX_ARRANGE {
         return None;
     }
-    // Fragments by content: (track, bars, line) → name.
-    let mut frags: Vec<(usize, u32, String, String)> = Vec::new();
-    // Sections by content: (bars, fragment names) → name.
-    let mut sections: Vec<(u32, Vec<String>, String)> = Vec::new();
+    // Clips by content: (track, bars, line) → name.
+    let mut clips: Vec<(usize, u32, String, String)> = Vec::new();
+    // Scenes by content: (bars, clip names) → name.
+    let mut scenes: Vec<(u32, Vec<String>, String)> = Vec::new();
     let mut arrange: Vec<String> = Vec::new();
     for i in 0..chunks {
         let bars = chunk.min(total_bars - i * chunk);
@@ -254,34 +254,34 @@ fn layout(
                 return None;
             }
             let line = timed_line(&events);
-            let name = match frags
+            let name = match clips
                 .iter()
                 .find(|(ft, fb, fl, _)| *ft == t && *fb == bars && *fl == line)
             {
                 Some((_, _, _, n)) => n.clone(),
                 None => {
                     let track = names.get(t)?;
-                    let n = format!("{track}_{}", frags.iter().filter(|f| f.0 == t).count() + 1);
-                    frags.push((t, bars, line, n.clone()));
+                    let n = format!("{track}_{}", clips.iter().filter(|f| f.0 == t).count() + 1);
+                    clips.push((t, bars, line, n.clone()));
                     n
                 }
             };
             playing.push(name);
         }
-        let section = match sections
+        let scene = match scenes
             .iter()
             .find(|(sb, sf, _)| *sb == bars && *sf == playing)
         {
             Some((_, _, n)) => n.clone(),
             None => {
-                let n = format!("s{}", sections.len() + 1);
-                sections.push((bars, playing, n.clone()));
+                let n = format!("s{}", scenes.len() + 1);
+                scenes.push((bars, playing, n.clone()));
                 n
             }
         };
-        arrange.push(section);
+        arrange.push(scene);
     }
-    if frags.len() > MAX_FRAGS || sections.len() > MAX_SECTIONS {
+    if clips.len() > MAX_CLIPS || scenes.len() > MAX_SCENES {
         return None;
     }
     let bpm = tempo.unwrap_or(120.0).clamp(20.0, 300.0);
@@ -290,19 +290,19 @@ fn layout(
         "swing 50".to_string(),
     ];
     out.extend(names.iter().map(|n| format!("track {n} synth")));
-    for (t, bars, line, name) in &frags {
+    for (t, bars, line, name) in &clips {
         out.push(String::new());
-        out.push(format!("frag {name} = {} bars {bars}", names.get(*t)?));
+        out.push(format!("clip {name} = {} bars {bars}", names.get(*t)?));
         out.push(format!("  {line}"));
     }
     out.push(String::new());
-    for (bars, playing, name) in &sections {
+    for (bars, playing, name) in &scenes {
         let list = if playing.is_empty() {
             String::new()
         } else {
             format!(" {}", playing.join(" "))
         };
-        out.push(format!("section {name} {bars}:{list}"));
+        out.push(format!("scene {name} {bars}:{list}"));
     }
     out.push(format!("arrange {}", arrange.join(" ")));
     out.push(String::new());

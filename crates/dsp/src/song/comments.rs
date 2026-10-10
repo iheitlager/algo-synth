@@ -6,8 +6,8 @@
 //!
 //! * a comment line belongs to the next item below it (`# kick` above
 //!   `bd x...`), a comment after an item to that item;
-//! * an item is named by its first words: `tempo`, `frag beat`, `track kit`,
-//!   `section main`, a lane `lane beat bd`, a frag's notes `notes riff`;
+//! * an item is named by its first words: `tempo`, `clip beat`, `track kit`,
+//!   `scene main`, a lane `lane beat bd`, a clip's notes `notes riff`;
 //! * comments after the last item stay at the end, and one whose item is gone
 //!   (a lane taken out) is moved to the end, never lost.
 //!
@@ -44,8 +44,8 @@ impl PartialEq for Comments {
 
 /// The item each line is, `None` for a blank line or one with only a comment.
 fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
-    // The frag the indented lines belong to.
-    let mut frag: Option<&str> = None;
+    // The clip the indented lines belong to.
+    let mut clip: Option<&str> = None;
     // Whether the indented lines are a Modular setting's code.
     let mut code = false;
     lines
@@ -59,10 +59,12 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
             let body = strip_comment(raw);
             let mut words = body.split_whitespace();
             let first = words.next()?;
+            let mut rest = body.split_whitespace().skip(1);
+            let first = super::current_keyword(first, rest.next(), rest.next());
             if body.starts_with([' ', '\t']) {
-                let f = frag?;
+                let f = clip?;
                 let notes = song
-                    .frags
+                    .clips
                     .iter()
                     .find(|x| x.name == f)
                     .is_some_and(|x| x.notes.is_some());
@@ -72,9 +74,9 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
                     format!("lane {f} {first}")
                 });
             }
-            // `scene drop: …` names its scene up to the colon.
+            // `snapshot drop: …` names its snapshot up to the colon.
             let name = words.next().map(|n| n.trim_end_matches(':'));
-            frag = if first == "frag" { name } else { None };
+            clip = if first == "clip" { name } else { None };
             code = first == "setting" && body.split_whitespace().nth(3) == Some("Modular");
             Some(match first {
                 // `master:` has no name before its colon.

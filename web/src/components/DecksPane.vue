@@ -50,7 +50,7 @@ const db = (peak: number) => (peak > 1e-5 ? `${(20 * Math.log10(peak)).toFixed(0
           <b class="letter">{{ LETTERS[i] }}</b>
           <span class="name" :title="d.name">{{ d.name || 'empty' }}</span>
         </div>
-        <DeckLane :deck="i" :sections="i === 0 ? song.sections : d.sections" :arrange="i === 0 ? song.arrange : d.arrange" />
+        <DeckLane :deck="i" :scenes="i === 0 ? song.scenes : d.scenes" :arrange="i === 0 ? song.arrange : d.arrange" />
         <template v-if="i > 0">
           <label class="file" :class="{ off: !decks.isolated || !status.running }">
             <input type="file" accept=".song" :disabled="!decks.isolated || !status.running" @change="onFile(i, $event)" />Load song…

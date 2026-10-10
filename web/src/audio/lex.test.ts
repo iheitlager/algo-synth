@@ -19,7 +19,7 @@ describe('painting the song text (#203)', () => {
   })
 
   it('shows the text plain where spans are out of order or out of bounds', () => {
-    const text = 'frag a = k'
+    const text = 'clip a = k'
     const lines = paint(text, [span(5, 1, 'name'), span(0, 4, 'kw'), span(9, 5, 'name')])
     expect(lines.flat().map((p) => p.text).join('')).toBe(text)
     expect(lines[0].find((p) => p.cls === 'name')?.text).toBe('a')
@@ -28,7 +28,7 @@ describe('painting the song text (#203)', () => {
 
 describe('litLines (#205)', () => {
   it('puts each lit word on its line at its column, in UTF-16 units', () => {
-    const text = '# naïve — beat\nfrag a = kit\n  bd x3..X...\n'
+    const text = '# naïve — beat\nclip a = kit\n  bd x3..X...\n'
     const at = (w: string, from = 0) => [text.indexOf(w, from), w.length] as [number, number]
     expect(litLines(text, [at('x3'), at('X')])).toEqual([[], [], [{ col: 5, len: 2 }, { col: 9, len: 1 }], []])
   })

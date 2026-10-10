@@ -24,7 +24,7 @@ function song(lowest, chord) {
   for (let t = 0; t < 16; t++) lines.push(`track t${t + 1} synth`)
   const spread = (t) => (chord.length > 1 ? 3 * (t % 4) : 3 * t)
   for (let t = 0; t < 16; t++) {
-    lines.push(`frag f${t + 1} = t${t + 1} bars 8`)
+    lines.push(`clip f${t + 1} = t${t + 1} bars 8`)
     lines.push(`  ${chord.map((n) => `${noteName(lowest + spread(t) + n)}@0:384:100`).join(' ')}`)
   }
   return lines.join('\n') + '\n'

@@ -735,12 +735,12 @@ pub extern "C" fn song_text_len() -> u32 {
     query(0, |e| e.song_text().len() as u32)
 }
 
-/// Set step `step` of lane `lane` of fragment `frag` to `level` (0 off, 1
+/// Set step `step` of lane `lane` of clip `clip` to `level` (0 off, 1
 /// hit, 2 accent): 0 when done, −1 when there is no such step or level.
 #[unsafe(no_mangle)]
-pub extern "C" fn set_step(frag: u32, lane: u32, step: u32, level: u32) -> i32 {
+pub extern "C" fn set_step(clip: u32, lane: u32, step: u32, level: u32) -> i32 {
     query(-1, |e| {
-        if e.set_step(frag as usize, lane as usize, step as usize, level) {
+        if e.set_step(clip as usize, lane as usize, step as usize, level) {
             0
         } else {
             -1
@@ -748,13 +748,13 @@ pub extern "C" fn set_step(frag: u32, lane: u32, step: u32, level: u32) -> i32 {
     })
 }
 
-/// Ratchet step `step` of lane `lane` of fragment `frag` (#242): it plays `r`
+/// Ratchet step `step` of lane `lane` of clip `clip` (#242): it plays `r`
 /// (1–4) times in its span; only a hit, accent or ghost repeats. 0 when
 /// done, −1 otherwise.
 #[unsafe(no_mangle)]
-pub extern "C" fn set_ratchet(frag: u32, lane: u32, step: u32, r: u32) -> i32 {
+pub extern "C" fn set_ratchet(clip: u32, lane: u32, step: u32, r: u32) -> i32 {
     query(-1, |e| {
-        if e.set_ratchet(frag as usize, lane as usize, step as usize, r) {
+        if e.set_ratchet(clip as usize, lane as usize, step as usize, r) {
             0
         } else {
             -1
@@ -765,7 +765,7 @@ pub extern "C" fn set_ratchet(frag: u32, lane: u32, step: u32, r: u32) -> i32 {
 fn with_lane<R: Copy>(default: R, f: u32, l: u32, get: impl FnOnce(&Lane) -> R) -> R {
     query(default, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .and_then(|fr| fr.lanes.get(l as usize))
             .map_or(default, get)
@@ -789,14 +789,14 @@ pub extern "C" fn song_stop() {
     with_engine(Engine::song_stop);
 }
 
-/// Play fragment `frag` alone, looping (#375); negative stops it and goes
+/// Play clip `clip` alone, looping (#375); negative stops it and goes
 /// back to the song.
 #[unsafe(no_mangle)]
-pub extern "C" fn song_cue(frag: i32) {
-    with_engine(|e| e.song_cue(usize::try_from(frag).ok()));
+pub extern "C" fn song_cue(clip: i32) {
+    with_engine(|e| e.song_cue(usize::try_from(clip).ok()));
 }
 
-/// The fragment playing alone, −1 when none is cued.
+/// The clip playing alone, −1 when none is cued.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_cued() -> i32 {
     query(-1, |e| {
@@ -885,42 +885,40 @@ pub extern "C" fn arr_edit(op: u32, a: u32, b: u32, c: u32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn song_sections() -> u32 {
-    query(0, |e| e.song().sections.len() as u32)
+pub extern "C" fn song_scenes() -> u32 {
+    query(0, |e| e.song().scenes.len() as u32)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn section_name_ptr(s: u32) -> *const u8 {
+pub extern "C" fn scene_name_ptr(s: u32) -> *const u8 {
     query(std::ptr::null(), |e| {
         e.song()
-            .sections
+            .scenes
             .get(s as usize)
             .map_or(std::ptr::null(), |x| x.name.as_ptr())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn section_name_len(s: u32) -> u32 {
+pub extern "C" fn scene_name_len(s: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .sections
+            .scenes
             .get(s as usize)
             .map_or(0, |x| x.name.len() as u32)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn section_bars(s: u32) -> u32 {
-    query(0, |e| {
-        e.song().sections.get(s as usize).map_or(0, |x| x.bars)
-    })
+pub extern "C" fn scene_bars(s: u32) -> u32 {
+    query(0, |e| e.song().scenes.get(s as usize).map_or(0, |x| x.bars))
 }
 
-/// 1 when section `s` holds fragment (`kind` 0), lane (1) or scene (2) `item`.
+/// 1 when scene `s` holds clip (`kind` 0), lane (1) or snapshot (2) `item`.
 #[unsafe(no_mangle)]
-pub extern "C" fn section_has(s: u32, kind: u32, item: u32) -> u32 {
+pub extern "C" fn scene_has(s: u32, kind: u32, item: u32) -> u32 {
     query(0, |e| {
-        u32::from(e.song().section_has(s as usize, kind, item as usize))
+        u32::from(e.song().scene_has(s as usize, kind, item as usize))
     })
 }
 
@@ -929,7 +927,7 @@ pub extern "C" fn arrange_len() -> u32 {
     query(0, |e| e.song().arrange.len() as u32)
 }
 
-/// The section played at place `i` of the arrangement.
+/// The scene played at place `i` of the arrangement.
 #[unsafe(no_mangle)]
 pub extern "C" fn arrange_at(i: u32) -> u32 {
     query(0, |e| {
@@ -963,25 +961,25 @@ pub extern "C" fn auto_name_len(a: u32) -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn song_scenes() -> u32 {
-    query(0, |e| e.song().scenes.len() as u32)
+pub extern "C" fn song_snapshots() -> u32 {
+    query(0, |e| e.song().snapshots.len() as u32)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn scene_name_ptr(c: u32) -> *const u8 {
+pub extern "C" fn snapshot_name_ptr(c: u32) -> *const u8 {
     query(std::ptr::null(), |e| {
         e.song()
-            .scenes
+            .snapshots
             .get(c as usize)
             .map_or(std::ptr::null(), |x| x.name.as_ptr())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn scene_name_len(c: u32) -> u32 {
+pub extern "C" fn snapshot_name_len(c: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .scenes
+            .snapshots
             .get(c as usize)
             .map_or(0, |x| x.name.len() as u32)
     })
@@ -1305,7 +1303,7 @@ pub extern "C" fn setting_preset(i: u32) -> i32 {
     })
 }
 
-/// What track `t`'s fragments hold: 0 drum lanes, 1 notes, 2 lanes or notes (a sampler).
+/// What track `t`'s clips hold: 0 drum lanes, 1 notes, 2 lanes or notes (a sampler).
 #[unsafe(no_mangle)]
 pub extern "C" fn track_kind(t: u32) -> u32 {
     query(0, |e| {
@@ -1353,48 +1351,48 @@ pub extern "C" fn song_routed(t: u32) -> u32 {
     query(255, |e| e.song_routed(t as usize).map_or(255, |s| s as u32))
 }
 
-/// Fragments in the song.
+/// Clips in the song.
 #[unsafe(no_mangle)]
-pub extern "C" fn song_frags() -> u32 {
-    query(0, |e| e.song().frags.len() as u32)
+pub extern "C" fn song_clips() -> u32 {
+    query(0, |e| e.song().clips.len() as u32)
 }
 
-/// Address and length of fragment `f`'s name.
+/// Address and length of clip `f`'s name.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_name_ptr(f: u32) -> *const u8 {
+pub extern "C" fn clip_name_ptr(f: u32) -> *const u8 {
     query(std::ptr::null(), |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .map_or(std::ptr::null(), |x| x.name.as_ptr())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_name_len(f: u32) -> u32 {
+pub extern "C" fn clip_name_len(f: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .map_or(0, |x| x.name.len() as u32)
     })
 }
 
-/// The track fragment `f` plays on.
+/// The track clip `f` plays on.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_track(f: u32) -> u32 {
+pub extern "C" fn clip_track(f: u32) -> u32 {
     query(0, |e| {
-        e.song().frags.get(f as usize).map_or(0, |x| x.track as u32)
+        e.song().clips.get(f as usize).map_or(0, |x| x.track as u32)
     })
 }
 
-/// Address and length of fragment `f`'s line of notes as printed; empty for a
-/// drum fragment. `frag_bars` is how many bars before it repeats.
+/// Address and length of clip `f`'s line of notes as printed; empty for a
+/// drum clip. `clip_bars` is how many bars before it repeats.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_notes_ptr(f: u32) -> *const u8 {
+pub extern "C" fn clip_notes_ptr(f: u32) -> *const u8 {
     query(std::ptr::null(), |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .and_then(|x| x.notes.as_ref())
             .map_or(std::ptr::null(), |n| n.text.as_ptr())
@@ -1402,10 +1400,10 @@ pub extern "C" fn frag_notes_ptr(f: u32) -> *const u8 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_notes_len(f: u32) -> u32 {
+pub extern "C" fn clip_notes_len(f: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .and_then(|x| x.notes.as_ref())
             .map_or(0, |n| n.text.len() as u32)
@@ -1413,26 +1411,26 @@ pub extern "C" fn frag_notes_len(f: u32) -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_bars(f: u32) -> u32 {
+pub extern "C" fn clip_bars(f: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .and_then(|x| x.notes.as_ref())
             .map_or(0, |n| n.bars)
     })
 }
 
-/// Notes fragment `f` plays, and the start (in ticks, 48 to a bar), length,
+/// Notes clip `f` plays, and the start (in ticks, 48 to a bar), length,
 /// MIDI note and accent (0 or 1) of note `k`.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_events(f: u32) -> u32 {
-    query(0, |e| e.frag_events(f as usize).len() as u32)
+pub extern "C" fn clip_events(f: u32) -> u32 {
+    query(0, |e| e.clip_events(f as usize).len() as u32)
 }
 
 fn with_event(f: u32, k: u32, get: impl FnOnce(&crate::notes::Event) -> u32) -> u32 {
     query(0, |e| {
-        e.frag_events(f as usize).get(k as usize).map_or(0, get)
+        e.clip_events(f as usize).get(k as usize).map_or(0, get)
     })
 }
 
@@ -1456,13 +1454,13 @@ pub extern "C" fn event_accent(f: u32, k: u32) -> u32 {
     with_event(f, k, |ev| u32::from(ev.accent))
 }
 
-/// 1 when fragment `f` is a generator call (euclid, arp, walk, markov, mutate):
+/// 1 when clip `f` is a generator call (euclid, arp, walk, markov, mutate):
 /// its notes cannot be edited until it is frozen.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_generated(f: u32) -> u32 {
+pub extern "C" fn clip_generated(f: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .and_then(|x| x.notes.as_ref())
             .map_or(0, |n| {
@@ -1478,7 +1476,7 @@ fn edit(f: u32, op: crate::notes::Edit) -> i32 {
     query(-1, |e| if e.edit_note(f as usize, op) { 0 } else { -1 })
 }
 
-/// Add a sixteenth note `note` at `tick` of fragment `f`, make its length
+/// Add a sixteenth note `note` at `tick` of clip `f`, make its length
 /// `len` ticks, or remove it: 0 when done, −1 when the song does not take it.
 #[unsafe(no_mangle)]
 pub extern "C" fn note_add(f: u32, tick: u32, note: u32) -> i32 {
@@ -1504,51 +1502,51 @@ pub extern "C" fn note_len(f: u32, tick: u32, note: u32, len: u32) -> i32 {
     }
 }
 
-/// Whether fragment `f` makes new events every cycle.
+/// Whether clip `f` makes new events every cycle.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_live(f: u32) -> u32 {
+pub extern "C" fn clip_live(f: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .map_or(0, |x| u32::from(x.live))
     })
 }
 
-/// Replace fragment `f`'s generator call with the events it is playing, as
-/// notes: 0 when done, −1 when it is not a generated fragment or the events
+/// Replace clip `f`'s generator call with the events it is playing, as
+/// notes: 0 when done, −1 when it is not a generated clip or the events
 /// do not fit the notation. The song is printed again (`song_text_*`).
 #[unsafe(no_mangle)]
 pub extern "C" fn freeze(f: u32) -> i32 {
     query(-1, |e| if e.freeze(f as usize) { 0 } else { -1 })
 }
 
-/// Steps to a bar of drum fragment `f` (#353); 16 for an unknown one.
+/// Steps to a bar of drum clip `f` (#353); 16 for an unknown one.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_grid(f: u32) -> u32 {
+pub extern "C" fn clip_grid(f: u32) -> u32 {
     query(16, |e| {
-        e.song().frags.get(f as usize).map_or(16, |x| x.grid)
+        e.song().clips.get(f as usize).map_or(16, |x| x.grid)
     })
 }
 
-/// Lanes of fragment `f`.
+/// Lanes of clip `f`.
 #[unsafe(no_mangle)]
-pub extern "C" fn frag_lanes(f: u32) -> u32 {
+pub extern "C" fn clip_lanes(f: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .frags
+            .clips
             .get(f as usize)
             .map_or(0, |x| x.lanes.len() as u32)
     })
 }
 
-/// The pad (`Pad` id) lane `l` of fragment `f` plays.
+/// The pad (`Pad` id) lane `l` of clip `f` plays.
 #[unsafe(no_mangle)]
 pub extern "C" fn lane_pad(f: u32, l: u32) -> u32 {
     with_lane(0, f, l, |lane| lane.pad as u32)
 }
 
-/// Steps in lane `l` of fragment `f`.
+/// Steps in lane `l` of clip `f`.
 #[unsafe(no_mangle)]
 pub extern "C" fn lane_steps(f: u32, l: u32) -> u32 {
     with_lane(0, f, l, |lane| lane.steps.len() as u32)
@@ -1568,13 +1566,13 @@ pub extern "C" fn lit_ptr() -> *const u32 {
     query(std::ptr::null(), |e| e.lit_spans().as_ptr())
 }
 
-/// How often step `s` of lane `l` of fragment `f` plays in its span (#242).
+/// How often step `s` of lane `l` of clip `f` plays in its span (#242).
 #[unsafe(no_mangle)]
 pub extern "C" fn step_ratchet(f: u32, l: u32, s: u32) -> u32 {
     with_lane(1, f, l, |lane| u32::from(lane.ratchet(s as usize)))
 }
 
-/// Step `s` of lane `l` of fragment `f`: 0 off, 1 hit, 2 accent.
+/// Step `s` of lane `l` of clip `f`: 0 off, 1 hit, 2 accent.
 #[unsafe(no_mangle)]
 pub extern "C" fn step_level(f: u32, l: u32, s: u32) -> u32 {
     with_lane(0, f, l, |lane| {
@@ -1826,7 +1824,7 @@ mod tests {
     #[test]
     fn song_round_trip_through_the_abi() {
         init(48_000.0);
-        let text = b"track kit drums\nfrag b = kit\n  bd x.X.\n";
+        let text = b"track kit drums\nclip b = kit\n  bd x.X.\n";
         assert!(!song_buf(text.len() as u32).is_null());
         query((), |e| {
             e.song_buffer(text.len())
@@ -1836,10 +1834,10 @@ mod tests {
         assert_eq!(song_load(), 0);
         assert_eq!((song_error_line(), song_error_len()), (0, 0));
         assert_eq!(
-            (song_tracks(), song_frags(), frag_lanes(0), frag_track(0)),
+            (song_tracks(), song_clips(), clip_lanes(0), clip_track(0)),
             (1, 1, 1, 0)
         );
-        assert_eq!((track_name_len(0), frag_name_len(0)), (3, 1));
+        assert_eq!((track_name_len(0), clip_name_len(0)), (3, 1));
         assert_eq!(lane_pad(0, 0), Pad::Bd as u32);
         assert_eq!(lane_steps(0, 0), 4);
         assert_eq!(
@@ -1850,9 +1848,9 @@ mod tests {
             ),
             (1, 2, 0)
         );
-        assert_eq!((track_kind(0), frag_notes_len(0), frag_bars(0)), (0, 0, 0));
-        assert_eq!((frag_events(0), frag_generated(0), frag_live(0)), (0, 0, 0));
-        assert_eq!(note_add(0, 0, 60), -1, "a drum frag takes no notes");
+        assert_eq!((track_kind(0), clip_notes_len(0), clip_bars(0)), (0, 0, 0));
+        assert_eq!((clip_events(0), clip_generated(0), clip_live(0)), (0, 0, 0));
+        assert_eq!(note_add(0, 0, 60), -1, "a drum clip takes no notes");
         assert_eq!(song_routed(0), 0, "the first synth becomes the kit");
         song_route(0, 2);
         assert_eq!(song_routed(0), 2);
@@ -1872,34 +1870,29 @@ mod tests {
         assert_eq!(song_load(), -1);
         assert_eq!((song_error_line(), song_error_col()), (1, 1));
         assert!(song_error_len() > 0 && !song_error_ptr().is_null());
-        assert_eq!(song_frags(), 1, "the old song stays");
+        assert_eq!(song_clips(), 1, "the old song stays");
         assert_eq!(
             (song_bars(), song_entry(), song_local()),
             (0, -1, -1),
             "no arrangement"
         );
-        // The arranger's calls (#171): a section, an entry, a toggle, a loop.
-        assert_eq!(arr_edit(1, 2, 0, 0), 0, "a new section of two bars");
+        // The arranger's calls (#171): a scene, an entry, a toggle, a loop.
+        assert_eq!(arr_edit(1, 2, 0, 0), 0, "a new scene of two bars");
         assert_eq!(
-            (
-                song_sections(),
-                arrange_len(),
-                arrange_at(0),
-                section_bars(0)
-            ),
+            (song_scenes(), arrange_len(), arrange_at(0), scene_bars(0)),
             (1, 1, 0, 2)
         );
-        assert_eq!(section_name_len(0), 5, "part1");
-        assert_eq!(section_has(0, 0, 0), 1, "the first section holds the frag");
-        assert_eq!(arr_edit(0, 0, 0, 0), 0, "the frag out of it");
-        assert_eq!(section_has(0, 0, 0), 0);
+        assert_eq!(scene_name_len(0), 5, "part1");
+        assert_eq!(scene_has(0, 0, 0), 1, "the first scene holds the clip");
+        assert_eq!(arr_edit(0, 0, 0, 0), 0, "the clip out of it");
+        assert_eq!(scene_has(0, 0, 0), 0);
         assert_eq!(arr_edit(0, 0, 0, 0), 0, "and back");
-        assert_eq!(section_has(0, 0, 0), 1);
+        assert_eq!(scene_has(0, 0, 0), 1);
         assert_eq!(arr_edit(6, 1, 2, 0), 0);
         assert_eq!((loop_from(), loop_to(), song_bars()), (1, 2, 2));
         assert_eq!(arr_edit(6, 1, 3, 0), -1, "past the end");
         assert_eq!(arr_edit(9, 0, 0, 0), -1, "no such edit");
-        assert_eq!((song_autos(), song_scenes()), (0, 0));
+        assert_eq!((song_autos(), song_snapshots()), (0, 0));
         assert!(song_buf(u32::MAX).is_null());
         assert_eq!(song_playing(), 0);
         song_play();
@@ -1913,7 +1906,7 @@ mod tests {
     #[test]
     fn notes_are_read_and_edited_through_the_abi() {
         init(48_000.0);
-        let text = b"scale c minor\ntrack t synth\nfrag a = t\n  c4:4 e4:4\nfrag g = t\n  euclid(3,8) c4\n";
+        let text = b"scale c minor\ntrack t synth\nclip a = t\n  c4:4 e4:4\nclip g = t\n  euclid(3,8) c4\n";
         assert!(!song_buf(text.len() as u32).is_null());
         query((), |e| {
             e.song_buffer(text.len())
@@ -1922,7 +1915,7 @@ mod tests {
         });
         assert_eq!(song_load(), 0);
         assert_eq!(
-            (frag_events(0), frag_generated(0), frag_generated(1)),
+            (clip_events(0), clip_generated(0), clip_generated(1)),
             (2, 0, 1)
         );
         assert_eq!(
@@ -1935,17 +1928,17 @@ mod tests {
             (12, 12, 64, 0)
         );
         assert_eq!(note_add(0, 24, 67), 0);
-        assert_eq!(frag_events(0), 3);
+        assert_eq!(clip_events(0), 3);
         assert_eq!(note_len(0, 24, 67, 9), 0);
         assert_eq!(event_len(0, 2), 9);
         assert_eq!(note_remove(0, 0, 60), 0);
         assert_eq!(note_remove(0, 0, 60), -1);
         assert_eq!(note_add(1, 0, 60), -1, "frozen first");
         assert_eq!(freeze(1), 0);
-        assert_eq!((frag_generated(1), note_add(1, 3, 60)), (0, 0));
+        assert_eq!((clip_generated(1), note_add(1, 3, 60)), (0, 0));
         let text = query(String::new(), |e| e.song_text().to_string());
         assert!(
-            text.contains("frag a = t\n  \"~@12 e4@12 g4@9 ~@15\"\n"),
+            text.contains("clip a = t\n  \"~@12 e4@12 g4@9 ~@15\"\n"),
             "{text}"
         );
     }

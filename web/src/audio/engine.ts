@@ -600,39 +600,39 @@ export function mapSample(s: number, slot: number) {
   requestZones(s)
 }
 
-/** A lane of a drum fragment: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent, 3 ghost, 4 flam, 5 drag. */
+/** A lane of a drum clip: its pad (`Pad` id) and its steps, 0 off, 1 hit, 2 accent, 3 ghost, 4 flam, 5 drag. */
 /** A drum lane: its pad, each step's level, and how often each plays in its span (#242). */
 export interface SongLane { pad: number; steps: number[]; ratchets: number[] }
-/** One note of a fragment: start and length in ticks (48 to a bar, 3 to a sixteenth), MIDI note, accent. */
+/** One note of a clip: start and length in ticks (48 to a bar, 3 to a sixteenth), MIDI note, accent. */
 export interface SongNote { start: number; len: number; note: number; accent: boolean }
 /**
- * A note fragment: its line as the engine prints it, the bars before it
+ * A note clip: its line as the engine prints it, the bars before it
  * repeats, its notes, whether it is a generator call (frozen before it is
  * edited) and whether that call is live.
  */
 export interface SongNotes { text: string; bars: number; events: SongNote[]; generated: boolean; live: boolean }
-/** A fragment; `grid` is a drum fragment's steps to a bar (#353): 12, 16, 24, 32 or 48. */
-export interface SongFrag { name: string; track: number; lanes: SongLane[]; grid: number; notes: SongNotes | null }
+/** A clip; `grid` is a drum clip's steps to a bar (#353): 12, 16, 24, 32 or 48. */
+export interface SongClip { name: string; track: number; lanes: SongLane[]; grid: number; notes: SongNotes | null }
 /** A song track (#210, #213): its synth, kind, factory preset and the song setting it plays (−1 for none). */
 export interface SongTrack {
   name: string; synth: Route; kind: 'drums' | 'synth' | 'sampler'; preset: number; setting: number
-  /** Muted or soloed in the song (#355): its frags, not its synth. */
+  /** Muted or soloed in the song (#355): its clips, not its synth. */
   mute: boolean; solo: boolean
 }
 /** A setting of the song (#210): a factory preset and changes, named. */
 export interface SongSetting { name: string; preset: number }
-export interface SongSection { name: string; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
+export interface SongScene { name: string; bars: number; clips: boolean[]; autos: boolean[]; snapshots: boolean[] }
 
 /**
  * The song (ADR-0012) as the engine holds it: the engine parses the text and
- * prints it back; the view draws the grid from `frags` and never parses.
+ * prints it back; the view draws the grid from `clips` and never parses.
  * `draft` is the text being edited, `error` why the last one did not play.
  */
 export const song = reactive({
   text: '',
   draft: '',
   tracks: [] as SongTrack[],
-  frags: [] as SongFrag[],
+  clips: [] as SongClip[],
   error: null as { line: number; col: number; msg: string } | null,
   tempo: 120,
   swing: 50,
@@ -643,15 +643,15 @@ export const song = reactive({
   /** With an arrangement (ADR-0015): the entry playing and the steps into it, −1 without. */
   entry: -1,
   local: -1,
-  /** The fragment playing alone, −1 when none is cued (#375). */
+  /** The clip playing alone, −1 when none is cued (#375). */
   cued: -1,
   /** The words of `text` playing now (#205), as [start, len] in UTF-16 units. */
   lit: [] as [number, number][],
-  /** The arrangement (ADR-0015): sections with what each holds (by index), their order, lanes, scenes, loop bars (0 0 none). */
-  sections: [] as SongSection[],
+  /** The arrangement (ADR-0015): scenes with what each holds (by index), their order, lanes, snapshots, loop bars (0 0 none). */
+  scenes: [] as SongScene[],
   arrange: [] as number[],
   autos: [] as string[],
-  scenes: [] as string[],
+  snapshots: [] as string[],
   settings: [] as SongSetting[],
   /** Per track kind (drums, synth, sampler), which models play it: the engine's rule (#213). */
   fits: [[], [], []] as boolean[][],
@@ -753,15 +753,15 @@ export const setRatchet = (f: number, l: number, s: number, r: number) =>
 export const setTrackFlags = (t: number, mute: boolean, solo: boolean) =>
   engine?.post({ t: 'trackFlags', track: t, flags: (mute ? 1 : 0) | (solo ? 2 : 0) })
 
-/** Add a sixteenth note at `tick` of fragment `f`; the engine sends the song back. */
+/** Add a sixteenth note at `tick` of clip `f`; the engine sends the song back. */
 export const addNote = (f: number, tick: number, note: number) => engine?.post({ t: 'note', f, op: 0, tick, note, len: 0 })
 /** Remove the note that starts at `tick`. */
 export const removeNote = (f: number, tick: number, note: number) => engine?.post({ t: 'note', f, op: 1, tick, note, len: 0 })
 /** Make the note at `tick` `len` ticks long (the engine keeps it inside its bar and clear of the next note). */
 export const setNoteLength = (f: number, tick: number, note: number, len: number) =>
   engine?.post({ t: 'note', f, op: 2, tick, note, len })
-/** Replace fragment `f`'s generator call with the notes it is playing. */
-export const freezeFrag = (f: number) => engine?.post({ t: 'freeze', f })
+/** Replace clip `f`'s generator call with the notes it is playing. */
+export const freezeClip = (f: number) => engine?.post({ t: 'freeze', f })
 
 /** Play song track `t` on synth `s` (255 mutes). */
 export const routeTrack = (t: number, s: Route) => engine?.post({ t: 'songRoute', track: t, s })
@@ -774,13 +774,13 @@ export const setSongSwing = (v: number) => engine?.post({ t: 'songSwing', v })
 export const playSong = () => engine?.post({ t: 'songPlay' })
 export const pauseSong = () => engine?.post({ t: 'songPause' })
 export const stopSong = () => engine?.post({ t: 'songStop' })
-/** Play fragment `f` alone, looping from its first bar (#375); −1 stops it and goes back to the song. */
-export const cueFrag = (f: number) => engine?.post({ t: 'songCue', f })
+/** Play clip `f` alone, looping from its first bar (#375); −1 stops it and goes back to the song. */
+export const cueClip = (f: number) => engine?.post({ t: 'songCue', f })
 
 /** Where the song is, in steps from the top (−1 before the first): in an arrangement it counts from the top of the arrangement, so it follows the loop. */
 export const songPosition = computed(() => {
   if (song.entry < 0) return song.step
-  const start = song.arrange.slice(0, song.entry).reduce((n, s) => n + (song.sections[s]?.bars ?? 0), 0)
+  const start = song.arrange.slice(0, song.entry).reduce((n, s) => n + (song.scenes[s]?.bars ?? 0), 0)
   return song.local < 0 ? -1 : start * 16 + song.local
 })
 
@@ -792,7 +792,7 @@ export const requestSong = () => engine?.post({ t: 'songDump' })
 // converts it; the composer and the arranger show the result.
 const IMPORT_ERRORS: Record<number, string> = {
   [-7]: 'the file has no notes',
-  [-8]: 'the file has more notes, fragments or sections than a song holds',
+  [-8]: 'the file has more notes, clips or scenes than a song holds',
   [-9]: 'the converted text did not parse (a bug)',
 }
 function onImported(code: number) {
@@ -802,7 +802,7 @@ function onImported(code: number) {
     files.notice = `${files.fileName}: ${IMPORT_ERRORS[code] ?? LOAD_ERRORS[code] ?? `import failed (${code})`}`
     return
   }
-  files.notice = `Imported ${files.fileName} as the song: ${code} tracks in sections; edit it in the composer, chain it in the arranger.`
+  files.notice = `Imported ${files.fileName} as the song: ${code} tracks in scenes; edit it in the composer, chain it in the arranger.`
   if (next) applySetup(next.setup, next.warnings)
 }
 
@@ -870,7 +870,7 @@ export function applySong(data: Record<string, unknown>) {
       }
     })
   }
-  song.frags = (data.frags as {
+  song.clips = (data.clips as {
     name: Uint8Array; track: number; lanes: { pad: number; steps: Uint8Array; ratchets?: Uint8Array }[]; grid?: number
     notes: { text: Uint8Array; bars: number; events: [number, number, number, number][]; generated: boolean; live: boolean } | null
   }[]).map((f) => ({
@@ -888,11 +888,11 @@ export function applySong(data: Record<string, unknown>) {
         }
       : null,
   }))
-  type RawSection = { name: Uint8Array; bars: number; frags: boolean[]; autos: boolean[]; scenes: boolean[] }
-  song.sections = ((data.sections as RawSection[] | undefined) ?? []).map((s) => ({ ...s, name: decoder.decode(s.name) }))
+  type RawScene = { name: Uint8Array; bars: number; clips: boolean[]; autos: boolean[]; snapshots: boolean[] }
+  song.scenes = ((data.scenes as RawScene[] | undefined) ?? []).map((s) => ({ ...s, name: decoder.decode(s.name) }))
   song.arrange = (data.arrange as number[] | undefined) ?? []
   song.autos = ((data.autos as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
-  song.scenes = ((data.scenes as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
+  song.snapshots = ((data.snapshots as Uint8Array[] | undefined) ?? []).map((n) => decoder.decode(n))
   song.loop = (data.loop as [number, number] | undefined) ?? [0, 0]
   // The samples the tracks want (#214) load once per synth, after the song that names them.
   song.samples = ((data.samples ?? []) as { synth: number; id: Uint8Array }[]).map((w) => ({
@@ -903,13 +903,13 @@ export function applySong(data: Record<string, unknown>) {
 
 /**
  * Arranger edits (#171); the engine changes the song and sends it back as text.
- * 0 toggle (section, kind 0 frag 1 auto 2 scene, item), 1 add a section (bars),
- * 2 set bars (section, bars), 3 insert (place, section), 4 remove (place),
+ * 0 toggle (scene, kind 0 clip 1 auto 2 snapshot, item), 1 add a scene (bars),
+ * 2 set bars (scene, bars), 3 insert (place, scene), 4 remove (place),
  * 5 move (from, to), 6 loop (first, last; 0 0 clears).
  */
 export const arrange = {
   toggle: (s: number, kind: 0 | 1 | 2, item: number) => engine?.post({ t: 'arr', op: 0, a: s, b: kind, c: item }),
-  addSection: (bars = 4) => engine?.post({ t: 'arr', op: 1, a: bars }),
+  addScene: (bars = 4) => engine?.post({ t: 'arr', op: 1, a: bars }),
   setBars: (s: number, bars: number) => engine?.post({ t: 'arr', op: 2, a: s, b: bars }),
   insert: (at: number, s: number) => engine?.post({ t: 'arr', op: 3, a: at, b: s }),
   remove: (at: number) => engine?.post({ t: 'arr', op: 4, a: at }),

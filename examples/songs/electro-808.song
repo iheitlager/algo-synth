@@ -8,24 +8,24 @@ scale c minor
 track kit drums Tr808 Kit808
 track bass synth Sh101 Sh101Bass
 
-frag beat = kit /16
+clip beat = kit /16
   bd x..x..x...x..x..
   sn ....x.......x...
   ch x.x.x.x.x.x.x.x.
   cb ...............x
-frag lean = kit /16
+clip lean = kit /16
   bd x.....x.........
   ch x.x.x.x.x.x.x.x.
-frag toms = kit /16
+clip toms = kit /16
   lt ............................................................x.x.
   ht ..............................................................xx
   cp ................................................x.x.x.x.x.x.xxxx
 
-frag walk = bass
+clip walk = bass
   "<[c1! ~ c1 ~ ~ c1 ~ c1] [c1! ~ c1 ~ ~ eb1 ~ [g1 f1]]>"
-frag bounce = bass
+clip bounce = bass
   "<[c1! ~ [c2 c1] ~ c1 ~ [eb1 f1] ~] [c1! ~ [c2 c1] ~ g1! ~ [f1 eb1] c1]>"
-frag stabs = bass
+clip stabs = bass
   "~ c2! ~ ~ ~ ~ c2 ~"
 
 auto cut_walk = bass.Cutoff ramp 350 1100 /8
@@ -34,10 +34,10 @@ auto cut_open = bass.Cutoff ramp 400 3600 /4
 auto res_low = bass.Resonance 0.3 /8
 auto res_high = bass.Resonance ramp 0.4 0.8 /8
 
-section intro 4: lean walk cut_walk res_low
-section verse 8: beat walk toms cut_walk res_low
-section chorus 8: beat bounce toms cut_bounce res_high
-section break 4: lean stabs cut_open
-section chorus2 8: beat bounce toms cut_bounce res_high
+scene intro 4: lean walk cut_walk res_low
+scene verse 8: beat walk toms cut_walk res_low
+scene chorus 8: beat bounce toms cut_bounce res_high
+scene break 4: lean stabs cut_open
+scene chorus2 8: beat bounce toms cut_bounce res_high
 arrange intro verse chorus break chorus2 verse
 loop 5 36

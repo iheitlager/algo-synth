@@ -2,13 +2,13 @@
 // A deck's lane (#449), as DJ apps scroll a track: time runs from the bottom
 // to the top, one pixel a step. Above the playhead is the level heard on each
 // step, rising as the song plays; below it the bars to come arrive as bands
-// of the arrangement's sections. Bar and 8-bar phrase lines run across. It
+// of the arrangement's scenes. Bar and 8-bar phrase lines run across. It
 // only draws what the engine reported (decktrail.ts).
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { decks, trails } from '../audio/decks'
-import { PHRASE, STEPS_PER_BAR, aheadEntry, at, sectionColour, width } from '../audio/decktrail'
+import { PHRASE, STEPS_PER_BAR, aheadEntry, at, sceneColour, width } from '../audio/decktrail'
 
-const props = defineProps<{ deck: number; sections: readonly { name: string }[]; arrange: readonly number[] }>()
+const props = defineProps<{ deck: number; scenes: readonly { name: string }[]; arrange: readonly number[] }>()
 
 // Bars of history above the playhead and bars ahead below it: 16 bars, 256 px.
 const HISTORY = 10 * STEPS_PER_BAR
@@ -27,7 +27,7 @@ function draw() {
   if (!c || !d || !t) return
   const dpr = window.devicePixelRatio || 1
   const w = c.clientWidth
-  const key = [w, dpr, d.step, t.last, t.peaks[t.last % t.peaks.length], d.ahead?.from, d.ahead?.entries.join(), props.arrange.join(), props.sections.length].join()
+  const key = [w, dpr, d.step, t.last, t.peaks[t.last % t.peaks.length], d.ahead?.from, d.ahead?.entries.join(), props.arrange.join(), props.scenes.length].join()
   if (key === drawn) return
   drawn = key
   if (c.width !== Math.round(w * dpr)) c.width = Math.round(w * dpr)
@@ -52,9 +52,9 @@ function draw() {
     const s = e >= 0 ? props.arrange[e] : undefined
     if (s !== undefined) {
       g.globalAlpha = k > cur ? 0.32 : 0.16
-      g.fillStyle = sectionColour(s)
+      g.fillStyle = sceneColour(s)
       g.fillRect(0, y, w, 1)
-      if (e !== prev) labels.push({ y, name: props.sections[s]?.name ?? '' })
+      if (e !== prev) labels.push({ y, name: props.scenes[s]?.name ?? '' })
     }
     prev = e
     g.globalAlpha = 1

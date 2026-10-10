@@ -68,7 +68,7 @@ afterEach(() => {
 })
 
 const enc = (s: string) => new TextEncoder().encode(s)
-const ok = { tempo: 120, swing: 50, frags: [] as unknown[] }
+const ok = { tempo: 120, swing: 50, clips: [] as unknown[] }
 const track = (name: string, synth: number, kind = 0) => ({ name: enc(name), synth, kind })
 
 describe('power', () => {
@@ -98,7 +98,7 @@ describe('power', () => {
 })
 
 describe('applySong', () => {
-  it('decodes a song that played: text, tracks, frags, arrangement', async () => {
+  it('decodes a song that played: text, tracks, clips, arrangement', async () => {
     const { mod, storage } = await boot()
     mod.applySong({
       ok: true,
@@ -107,17 +107,17 @@ describe('applySong', () => {
       tempo: 100,
       swing: 55,
       tracks: [track('kick', 0, 0), track('bass', 3, 1), track('pads', 5, 2), track('odd', MUTE, 7)],
-      frags: [
+      clips: [
         { name: enc('beat'), track: 0, lanes: [{ pad: 2, steps: new Uint8Array([1, 0, 2, 0]) }], notes: null },
         {
           name: enc('line'), track: 1, lanes: [],
           notes: { text: enc('c3 e3'), bars: 2, events: [[0, 3, 48, 1], [6, 3, 52, 0]], generated: true, live: false },
         },
       ],
-      sections: [{ name: enc('intro'), bars: 4, frags: [true, false], autos: [], scenes: [] }],
+      scenes: [{ name: enc('intro'), bars: 4, clips: [true, false], autos: [], snapshots: [] }],
       arrange: [0, 0],
       autos: [enc('cutoff')],
-      scenes: [enc('dark')],
+      snapshots: [enc('dark')],
       settings: [{ name: enc('nile'), preset: Preset.MiniLead }],
       fits: [[true], [false], [false]],
       loop: [1, 2],
@@ -133,18 +133,18 @@ describe('applySong', () => {
       { name: 'pads', synth: 5, kind: 'sampler', preset: -1, setting: -1, mute: false, solo: false },
       { name: 'odd', synth: MUTE, kind: 'drums', preset: -1, setting: -1, mute: false, solo: false },
     ])
-    // An engine without frag_grid sends none: the lane is 16ths (#353).
-    expect(mod.song.frags[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0], ratchets: [1, 1, 1, 1] }], grid: 16, notes: null })
-    expect(mod.song.frags[1]?.notes).toEqual({
+    // An engine without clip_grid sends none: the lane is 16ths (#353).
+    expect(mod.song.clips[0]).toEqual({ name: 'beat', track: 0, lanes: [{ pad: 2, steps: [1, 0, 2, 0], ratchets: [1, 1, 1, 1] }], grid: 16, notes: null })
+    expect(mod.song.clips[1]?.notes).toEqual({
       text: 'c3 e3', bars: 2, generated: true, live: false,
       events: [{ start: 0, len: 3, note: 48, accent: true }, { start: 6, len: 3, note: 52, accent: false }],
     })
-    expect(mod.song.sections).toEqual([{ name: 'intro', bars: 4, frags: [true, false], autos: [], scenes: [] }])
+    expect(mod.song.scenes).toEqual([{ name: 'intro', bars: 4, clips: [true, false], autos: [], snapshots: [] }])
     expect(mod.song.arrange).toEqual([0, 0])
     expect(mod.song.autos).toEqual(['cutoff'])
     expect(mod.song.settings).toEqual([{ name: 'nile', preset: Preset.MiniLead }])
     expect(mod.song.fits).toEqual([[true], [false], [false]])
-    expect(mod.song.scenes).toEqual(['dark'])
+    expect(mod.song.snapshots).toEqual(['dark'])
     expect(mod.song.loop).toEqual([1, 2])
   })
 
@@ -189,7 +189,7 @@ describe('applySong', () => {
     // A failed song changes no synths.
     expect(mod.synths.list).toEqual([0])
     // Without an arrangement the fields fall back to empty.
-    expect(mod.song.sections).toEqual([])
+    expect(mod.song.scenes).toEqual([])
     expect(mod.song.arrange).toEqual([])
     expect(mod.song.loop).toEqual([0, 0])
   })
@@ -321,7 +321,7 @@ describe('onMessage', () => {
     // Without an arrangement the engine leaves entry and local out.
     send({ t: 'pos', step: -1, songPlaying: false })
     expect([mod.song.entry, mod.song.local]).toEqual([-1, -1])
-    // A fragment playing alone (#375), and none.
+    // A clip playing alone (#375), and none.
     send({ t: 'pos', step: 3, songPlaying: true, cued: 4 })
     expect(mod.song.cued).toBe(4)
     send({ t: 'pos', step: -1, songPlaying: false, cued: -1 })
@@ -537,14 +537,14 @@ describe('posting', () => {
     mod.playSong()
     mod.pauseSong()
     mod.stopSong()
-    mod.cueFrag(3)
-    mod.cueFrag(-1)
+    mod.cueClip(3)
+    mod.cueClip(-1)
     mod.requestSong()
     mod.setStep(1, 2, 3, 2)
     mod.addNote(0, 6, 60)
     mod.removeNote(0, 6, 60)
     mod.setNoteLength(0, 6, 60, 9)
-    mod.freezeFrag(3)
+    mod.freezeClip(3)
     mod.applySysex(1, 4)
     expect(take()).toEqual([
       { t: 'songRoute', track: 2, s: 5 },
@@ -569,8 +569,8 @@ describe('posting', () => {
     const { mod, take } = await boot()
     take()
     mod.arrange.toggle(1, 2, 3)
-    mod.arrange.addSection()
-    mod.arrange.addSection(8)
+    mod.arrange.addScene()
+    mod.arrange.addScene(8)
     mod.arrange.setBars(1, 2)
     mod.arrange.insert(0, 1)
     mod.arrange.remove(2)
