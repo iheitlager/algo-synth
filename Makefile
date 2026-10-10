@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench filters lint deny image serve stop clean env-check
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench filters syntax-test lint deny image serve stop clean env-check
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -88,6 +88,18 @@ bench: wasm ## Time 16 voices in V8
 # ARGS="--wav <dir>" for the stage types alone or a WAV per voicing.
 filters: ## Compare the ladder voicings
 	cargo run --release --locked -p algo-dsp --example filter_compare -- $(ARGS)
+
+# The editor syntaxes (#482) against the engine: the tree-sitter corpus, the
+# generated parser up to date, Zed's copy of the queries, and Vim's and
+# tree-sitter's colours compared with song-lsp's over the examples. Needs
+# tree-sitter, nvim and a C compiler, so CI does not run it.
+syntax-test: ## Check the editor syntaxes
+	cargo build --locked -q -p song-lsp
+	cd syntax/tree-sitter-song && tree-sitter generate && git diff --exit-code -- src
+	cd syntax/tree-sitter-song && tree-sitter test -p . && tree-sitter build -o song.so .
+	diff -r syntax/tree-sitter-song/queries syntax/zed/languages/song --exclude='*.toml'
+	python3 syntax/compare.py vim target/debug/song-lsp examples/songs/*.song
+	python3 syntax/compare.py ts target/debug/song-lsp examples/songs/*.song
 
 ##@ Code quality
 

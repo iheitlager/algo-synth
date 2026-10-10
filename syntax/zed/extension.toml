@@ -1,0 +1,18 @@
+id = "algo-synth-song"
+name = "algo-synth song"
+version = "0.1.0"
+schema_version = 1
+authors = ["Ilja Heitlager"]
+description = "Song files of algo-synth: tree-sitter highlighting and the song-lsp language server"
+repository = "https://github.com/iheitlager/algo-synth"
+
+# The grammar in this repository; bump rev when it changes (#482). It moves to
+# a repository of its own when the extension is published.
+[grammars.song]
+repository = "https://github.com/iheitlager/algo-synth"
+rev = "31d8be91281e8de75d4da32100931d8baebc543a"
+path = "syntax/tree-sitter-song"
+
+[language_servers.song-lsp]
+name = "song-lsp"
+languages = ["Song"]

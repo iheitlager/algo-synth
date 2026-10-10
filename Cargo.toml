@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/dsp", "crates/assist"]
+members = ["crates/dsp", "crates/assist", "syntax/song-lsp"]
 resolver = "3"
 
 [workspace.package]

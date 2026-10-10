@@ -1,0 +1,92 @@
+==================
+A keyword line and a comment
+==================
+
+tempo 128 # fast
+
+---
+
+(source_file
+  (line (keyword) (number) (comment)))
+
+==================
+master and its colon
+==================
+
+master: MasterGain 0.8
+
+---
+
+(source_file
+  (line (keyword) (punct) (name) (number)))
+
+==================
+A drum lane, a lane of a call and a line of notes
+==================
+
+clip beat = kit /16
+  bd x...X...
+  ch euclid(3,8)
+  "c4 [e4 g4] ~"
+
+---
+
+(source_file
+  (line (keyword) (name) (punct) (name) (punct) (number))
+  (lane (pad) (step) (dots) (step) (dots))
+  (lane (pad) (call name: (name) (punct)) (number) (punct) (number) (punct))
+  (notes (punct) (name) (punct) (name) (name) (punct) (rest) (punct)))
+
+==================
+A param, a word and a call on a param
+==================
+
+track bass synth
+mod lead.pan = sine.slow(8)
+
+---
+
+(source_file
+  (line (keyword) (name) (word))
+  (line (keyword) (param) (punct) (call name: (param) (punct)) (number) (punct)))
+
+==================
+A Modular setting's code keeps its # and its blank lines
+==================
+
+setting s = Modular ModularBasic
+  SynthDef(\a, { #[1] })
+
+  }).add;
+tempo 120
+
+---
+
+(source_file
+  (modular (keyword) (name) (punct) (name) (name)
+    (code (call name: (name) (punct)) (other) (name) (punct) (other) (other) (punct) (number) (punct) (other) (punct))
+    (code (other) (punct) (other) (name) (other)))
+  (line (keyword) (number)))
+
+==================
+The old words still read
+==================
+
+frag beat = kit
+section a 2: beat
+
+---
+
+(source_file
+  (line (keyword) (name) (punct) (name))
+  (line (keyword) (name) (number) (punct) (name)))
+
+==================
+The last line needs no newline
+==================
+
+loop 1 8
+---
+
+(source_file
+  (line (keyword) (number) (number)))

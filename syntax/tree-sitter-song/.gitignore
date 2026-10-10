@@ -1,0 +1,4 @@
+# Built by `tree-sitter build` / `make syntax-test`.
+*.so
+*.dylib
+*.dll
