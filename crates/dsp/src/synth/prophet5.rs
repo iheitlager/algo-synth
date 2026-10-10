@@ -38,6 +38,8 @@ const REVISIONS: [RevisionDef; 4] = [
 ];
 
 pub const DEF: ModelDef = ModelDef {
+    // The mod wheel scales the LFO into the filter as into the pitch (#440).
+    wheel_scales_filter_mod: true,
     // Rev 3's parts are its own; Rev 1/2's SSM chips are the switches'.
     osc: CEM_VCO,
     osc_revs: [Some(SSM_VCO); 2],
@@ -198,7 +200,10 @@ pub const DEF: ModelDef = ModelDef {
                 (EnvCutoff, 0.25),
                 (LfoWave, 3.0),
                 (LfoRate, 0.3),
+                // The sweep goes through the wheel; up, without vibrato (#440).
                 (LfoCutoff, 0.3),
+                (ModWheel, 1.0),
+                (Vibrato, 0.0),
                 (KeyTrack, 0.5),
             ],
         ),

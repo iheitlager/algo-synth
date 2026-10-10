@@ -90,6 +90,9 @@ pub struct ModelDef {
     pub decay_is_release: bool,
     /// VCO 3, not the LFO, modulates the normals.
     pub modulates_with_osc3: bool,
+    /// The mod wheel scales LFO → cutoff as well as the vibrato, as on the
+    /// Minimoog's, Prophet-5's and Pro-One's modulation sections (#440).
+    pub wheel_scales_filter_mod: bool,
     /// The high-pass cutoff follows the AR envelope, not the filter ADSR.
     pub hp_follows_ar: bool,
     /// The normalled cutoff follows the filter ADSR (spec 004 Req 12).
@@ -133,6 +136,7 @@ impl ModelDef {
         pulse_locked: false,
         decay_is_release: false,
         modulates_with_osc3: false,
+        wheel_scales_filter_mod: false,
         hp_follows_ar: false,
         cutoff_follows_filter_env: true,
         revisions: None,

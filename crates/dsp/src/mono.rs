@@ -897,6 +897,7 @@ impl MonoParams {
                     self.normals.cutoff_from_fenv = m.cutoff_follows_filter_env();
                     self.normals.hp_from_ar = m.hp_follows_ar();
                     self.normals.mod_from_osc3 = m.modulates_with_osc3();
+                    self.normals.lfo_cutoff_on_wheel = m.wheel_scales_filter_mod();
                 }
             }
             Param::MasterGain => {}
