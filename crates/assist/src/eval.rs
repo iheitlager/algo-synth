@@ -82,13 +82,20 @@ pub struct Outcome {
     pub rounds: u32,
     pub seconds: f32,
     pub usage: Usage,
+    /// The gate's rules that fired (#453): refusals, then the warnings.
+    pub rules: Vec<String>,
 }
 
 /// Run `req` through the loop and keep what it gave.
 pub async fn run_case<P: Provider>(p: &P, req: &Request, limits: LoopLimits) -> Outcome {
     let mut out = Outcome::default();
     assist::run(p, req, limits, &mut |e| match e {
-        Event::Song { song, .. } => out.song = Some(song),
+        Event::Tool { rules, .. } => out.rules.extend(rules.iter().map(|r| r.to_string())),
+        Event::Song { song, warnings, .. } => {
+            out.song = Some(song);
+            out.rules
+                .extend(warnings.iter().map(|f| f.rule.to_string()));
+        }
         Event::Text { text } => out.text.push_str(&text),
         Event::Error { message, .. } => out.error = Some(message),
         Event::Done {
@@ -261,6 +268,7 @@ pub struct Row {
     pub pass: bool,
     pub failed: Vec<String>,
     pub error: Option<String>,
+    pub rules: Vec<String>,
     pub rounds: u32,
     pub seconds: f32,
     pub usage: Usage,
@@ -279,6 +287,7 @@ impl Row {
             pass: failed.is_empty(),
             failed,
             error: out.error.clone(),
+            rules: out.rules.clone(),
             rounds: out.rounds,
             seconds: out.seconds,
             usage: out.usage,
@@ -290,7 +299,7 @@ impl Row {
 /// The report as a Markdown table, with totals.
 pub fn markdown(provider: &str, model: &str, rows: &[Row]) -> String {
     let mut s = format!(
-        "## {provider} / {model}\n\n| case | pass | failed | rounds | in / cached / out | s | $ |\n|---|---|---|---|---|---|---|\n"
+        "## {provider} / {model}\n\n| case | pass | failed | rules | rounds | in / cached / out | s | $ |\n|---|---|---|---|---|---|---|---|\n"
     );
     let mut total = Usage::default();
     let mut dollars = Some(0.0);
@@ -303,10 +312,11 @@ pub fn markdown(provider: &str, model: &str, rows: &[Row]) -> String {
             (None, false) => r.failed.join(", "),
         };
         s.push_str(&format!(
-            "| {} | {} | {} | {} | {} / {} / {} | {:.0} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} / {} / {} | {:.0} | {} |\n",
             r.id,
             if r.pass { "✓" } else { "✗" },
             failed,
+            r.rules.join(", "),
             r.rounds,
             r.usage.input,
             r.usage.cached,
@@ -487,12 +497,15 @@ section a 2: beat low\narrange a\n";
         );
         assert_eq!(cost("mistral-large-latest", u), None);
         let c = case(vec![Expect::Tempo { value: 128.0 }]);
-        let out = proposed(MORE);
+        let out = Outcome {
+            rules: vec!["unused-frag".into(), "removed".into()],
+            ..proposed(MORE)
+        };
         let row = Row::new(&c, &out, &grade(START, &c, &out), "claude-opus-5-5");
         assert!(row.pass);
         let md = markdown("anthropic", "claude-opus-5-5", &[row]);
         assert!(
-            md.contains("| c | ✓ |") && md.contains("**1/1 passed**"),
+            md.contains("| c | ✓ |  | unused-frag, removed | 2 |") && md.contains("**1/1 passed**"),
             "{md}"
         );
     }
@@ -541,5 +554,10 @@ section a 2: beat low\narrange a\n";
             (out.rounds, out.usage.input, out.text.as_str()),
             (1, 100, "Here it is.")
         );
+        assert!(out.rules.is_empty(), "{:?}", out.rules);
+        // The gate's warnings are recorded with the case (#453).
+        let p = Proposer(Mutex::new(Some(MORE.replace("arrange a\n", ""))));
+        let out = run_case(&p, &req, LoopLimits::default()).await;
+        assert_eq!(out.rules, ["unarranged"]);
     }
 }

@@ -7,7 +7,7 @@
 // pane runs in the app and in its own window (`assistant.html`); the host is
 // the app itself or the main window over a BroadcastChannel.
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { AssistError, assist, canClear, health, pendingProposals, providers as fetchProviders, type AssistEvent, type Provider, type Usage } from '../audio/assist'
+import { AssistError, assist, canClear, health, pendingProposals, providers as fetchProviders, type AssistEvent, type Provider, type Usage, type Warning } from '../audio/assist'
 import type { AssistHost } from '../audio/assistlink'
 import Markdown from './Markdown.vue'
 import { changes, collapse, diffLines } from '../audio/linediff'
@@ -24,7 +24,7 @@ interface Turn {
   model: string
   focus: string | null
   steps: Step[]
-  proposal: { song: string; summary: string } | null
+  proposal: { song: string; summary: string; warnings: Warning[] } | null
   /** The song before Apply, for Undo. */
   before: string
   state: 'running' | 'done' | 'stopped' | 'failed'
@@ -87,7 +87,7 @@ function take(turn: Turn, e: AssistEvent) {
     case 'tool': turn.steps.push({ kind: 'tool', name: e.name, ok: e.ok, text: e.summary }); break
     // Each text event is a whole message of the model's (#385), a step of its own.
     case 'text': turn.steps.push({ kind: 'text', text: e.text }); break
-    case 'song': turn.proposal = { song: e.song, summary: e.summary }; turn.result = 'pending'; break
+    case 'song': turn.proposal = { song: e.song, summary: e.summary, warnings: e.warnings }; turn.result = 'pending'; break
     case 'error': turn.steps.push({ kind: 'error', text: e.message }); turn.state = 'failed'; break
     case 'done': turn.done = { rounds: e.rounds, seconds: e.seconds, usage: e.usage }; break
   }
@@ -195,6 +195,9 @@ onMounted(check)
           <p v-if="turn.state === 'stopped'" class="muted step">Stopped.</p>
           <div v-if="turn.proposal && turn.result !== 'discarded'" class="proposal">
             <Markdown v-if="turn.proposal.summary" class="summary" :text="turn.proposal.summary" />
+            <ul v-if="turn.result === 'pending' && turn.proposal.warnings.length" class="warn warnings">
+              <li v-for="(w, i) in turn.proposal.warnings" :key="i">{{ w.message }}</li>
+            </ul>
             <template v-if="turn.result === 'pending'">
               <div class="diff-head">
                 <span class="muted">{{ changes(diffOf(turn)).added }} added, {{ changes(diffOf(turn)).removed }} removed</span>
@@ -243,6 +246,7 @@ onMounted(check)
 .note { margin: 0; padding: 10px 12px; }
 .note code { font-family: var(--font-mono); color: var(--accent); }
 .warn { color: var(--accent); }
+.warnings { margin: 4px 0; padding-left: 18px; }
 .muted { color: var(--muted); }
 .log { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 14px; }
 .log p { margin: 0; }

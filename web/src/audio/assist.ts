@@ -23,9 +23,12 @@ export type AssistEvent =
   | { type: 'progress'; round: number; message: string }
   | { type: 'tool'; round: number; name: string; ok: boolean; summary: string }
   | { type: 'text'; text: string }
-  | { type: 'song'; song: string; summary: string }
+  | { type: 'song'; song: string; summary: string; warnings: Warning[] }
   | { type: 'error'; message: string; retryable: boolean }
   | { type: 'done'; rounds: number; seconds: number; usage: Usage }
+
+/** A gate rule the proposal breaks, without being refused for it (#453). */
+export interface Warning { rule: string; message: string }
 
 /** The server refused before streaming (400, 429, 503, …), or could not be reached. */
 export class AssistError extends Error {
@@ -64,6 +67,10 @@ export async function health(fetcher: Fetch = fetch): Promise<boolean> {
 
 const str = (v: unknown, or = '') => (typeof v === 'string' ? v : or)
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+const warnings = (v: unknown): Warning[] =>
+  Array.isArray(v)
+    ? v.flatMap((w) => (w && typeof w === 'object' && typeof w.message === 'string' ? [{ rule: str(w.rule), message: w.message }] : []))
+    : []
 
 /** The providers the server has keys for, each with its models. */
 export async function providers(fetcher: Fetch = fetch): Promise<Providers> {
@@ -141,7 +148,7 @@ export function toEvent(name: string, data: string): AssistEvent | null {
     case 'progress': return { type: 'progress', round: num(d.round), message: str(d.message) }
     case 'tool': return { type: 'tool', round: num(d.round), name: str(d.name), ok: d.ok === true, summary: str(d.summary) }
     case 'text': return { type: 'text', text: str(d.text) }
-    case 'song': return typeof d.song === 'string' ? { type: 'song', song: d.song, summary: str(d.summary) } : null
+    case 'song': return typeof d.song === 'string' ? { type: 'song', song: d.song, summary: str(d.summary), warnings: warnings(d.warnings) } : null
     case 'error': return { type: 'error', message: str(d.message, 'The assistant failed'), retryable: d.retryable === true }
     case 'done': {
       const u = (d.usage ?? {}) as Record<string, unknown>

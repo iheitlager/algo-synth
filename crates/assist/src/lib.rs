@@ -5,6 +5,7 @@
 pub mod assist;
 pub mod config;
 pub mod eval;
+pub mod gate;
 pub mod provider;
 pub mod scope;
 pub mod server;

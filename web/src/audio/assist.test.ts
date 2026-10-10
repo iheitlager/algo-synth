@@ -51,7 +51,12 @@ describe('events', () => {
       .toEqual({ type: 'tool', round: 2, name: 'check_song', ok: true, summary: 'parses' })
     expect(toEvent('done', '{"rounds":3,"seconds":12.4,"usage":{"input":9000,"cached":7000,"output":1500}}'))
       .toEqual({ type: 'done', rounds: 3, seconds: 12.4, usage: { input: 9000, cached: 7000, output: 1500 } })
-    expect(toEvent('song', '{"song":"tempo 90\\n","summary":"slower"}')).toEqual({ type: 'song', song: 'tempo 90\n', summary: 'slower' })
+    expect(toEvent('song', '{"song":"tempo 90\\n","summary":"slower"}')).toEqual({ type: 'song', song: 'tempo 90\n', summary: 'slower', warnings: [] })
+  })
+
+  it('a song carries the gate\'s warnings for the review (#453)', () => {
+    const data = JSON.stringify({ song: 'tempo 90', summary: 's', warnings: [{ rule: 'removed', message: 'the track `bass` is gone' }, 'junk', { rule: 'x' }] })
+    expect(toEvent('song', data)).toEqual({ type: 'song', song: 'tempo 90', summary: 's', warnings: [{ rule: 'removed', message: 'the track `bass` is gone' }] })
   })
 
   it('unknown or broken are ignored', () => {
