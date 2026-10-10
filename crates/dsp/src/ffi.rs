@@ -12,6 +12,7 @@ use std::cell::RefCell;
 
 use crate::deck::DeckField;
 use crate::engine::{BLOCK, Engine, METERS, SYNTHS};
+use crate::launch::{Quantize, Target as LaunchTarget};
 use crate::mixer::STRIPS;
 use crate::mono::preset::Preset;
 use crate::padsampler::{PADS, PadField};
@@ -801,6 +802,78 @@ pub extern "C" fn song_cue(clip: i32) {
 pub extern "C" fn song_cued() -> i32 {
     query(-1, |e| {
         e.song_cued().map_or(-1, |f| i32::try_from(f).unwrap_or(-1))
+    })
+}
+
+/// Launch scene `scene` live (#487), landing as `when` says (`Quantize`:
+/// 0 bar, 1 end of the scene, 2 phrase, 3 now); an unknown `when` is a bar.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_launch(scene: u32, when: u32) {
+    let when = Quantize::from_id(when).unwrap_or(Quantize::Bar);
+    with_engine(|e| e.song_launch(scene as usize, when));
+}
+
+/// Back to the written arrangement, landing as `when` says (#487).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_resume_arrangement(when: u32) {
+    let when = Quantize::from_id(when).unwrap_or(Quantize::Bar);
+    with_engine(|e| e.song_resume_arrangement(when));
+}
+
+/// Forget the launch waiting to land (#487).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_launch_cancel() {
+    with_engine(Engine::song_launch_cancel);
+}
+
+/// The scene launched in place of the arrangement, −1 when none (#487).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_launched() -> i32 {
+    query(-1, |e| {
+        e.song_launched()
+            .map_or(-1, |s| i32::try_from(s).unwrap_or(-1))
+    })
+}
+
+/// The launch waiting to land: its scene, −2 for the arrangement, −1 when
+/// nothing waits (#487).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_queued() -> i32 {
+    query(-1, |e| match e.song_queued() {
+        Some((LaunchTarget::Scene(s), _)) => i32::try_from(s).unwrap_or(-1),
+        Some((LaunchTarget::Arrangement, _)) => -2,
+        None => -1,
+    })
+}
+
+/// When the waiting launch lands (`Quantize`), −1 when nothing waits.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_queued_when() -> i32 {
+    query(-1, |e| e.song_queued().map_or(-1, |(_, w)| w as i32))
+}
+
+/// Steps until the waiting launch lands, −1 when nothing waits.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_launch_in() -> i32 {
+    query(-1, |e| {
+        e.song_launch_in()
+            .map_or(-1, |n| i32::try_from(n).unwrap_or(-1))
+    })
+}
+
+/// Switch snapshot `snapshot` on, as `when` says (#488); the scene plays on.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_snapshot(snapshot: u32, when: u32) {
+    let when = Quantize::from_id(when).unwrap_or(Quantize::Bar);
+    with_engine(|e| e.song_snapshot(snapshot as usize, when));
+}
+
+/// The snapshot waiting for its moment, −1 when none (#488).
+#[unsafe(no_mangle)]
+pub extern "C" fn song_snapshot_queued() -> i32 {
+    query(-1, |e| {
+        e.song_snapshot_queued()
+            .map_or(-1, |(s, _)| i32::try_from(s).unwrap_or(-1))
     })
 }
 

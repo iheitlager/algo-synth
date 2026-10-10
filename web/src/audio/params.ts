@@ -833,6 +833,15 @@ export const DeckField = {
 } as const
 export type DeckFieldId = (typeof DeckField)[keyof typeof DeckField]
 
+/** When a launched scene lands (#487); see `launch.rs`. */
+export const Quantize = {
+  Bar: 0,
+  End: 1,
+  Phrase: 2,
+  Now: 3,
+} as const
+export type QuantizeId = (typeof Quantize)[keyof typeof Quantize]
+
 /** A deck's side of the crossfader (`Side` field). */
 export const DeckSide = { Thru: 0, Left: 1, Right: 2 } as const
 

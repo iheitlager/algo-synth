@@ -2418,6 +2418,10 @@ mod tests {
                 "DeckField",
                 rust(&crate::deck::DeckField::ALL, |f| f as u32),
             ),
+            (
+                "Quantize",
+                rust(&crate::launch::Quantize::ALL, |q| q as u32),
+            ),
         ];
         for (name, want) in lists {
             assert_eq!(

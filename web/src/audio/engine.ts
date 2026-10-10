@@ -9,7 +9,7 @@ import { onDeckPos, onDecks } from './decks'
 import type { Ahead } from './decktrail'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
-import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
+import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId, type QuantizeId } from './params'
 import { lexer, scLexer, wasmLexers } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
@@ -645,6 +645,16 @@ export const song = reactive({
   local: -1,
   /** The clip playing alone, −1 when none is cued (#375). */
   cued: -1,
+  /**
+   * Launch (#487, #488): the scene launched in place of the arrangement (−1
+   * none); the one waiting to land (−2 the arrangement, −1 none), when
+   * (`Quantize`) and in how many steps; the snapshot waiting (−1 none).
+   */
+  launched: -1,
+  queued: -1,
+  queuedWhen: -1,
+  launchIn: -1,
+  snapshotQueued: -1,
   /** The words of `text` playing now (#205), as [start, len] in UTF-16 units. */
   lit: [] as [number, number][],
   /** The arrangement (ADR-0015): scenes with what each holds (by index), their order, lanes, snapshots, loop bars (0 0 none). */
@@ -776,6 +786,14 @@ export const pauseSong = () => engine?.post({ t: 'songPause' })
 export const stopSong = () => engine?.post({ t: 'songStop' })
 /** Play clip `f` alone, looping from its first bar (#375); −1 stops it and goes back to the song. */
 export const cueClip = (f: number) => engine?.post({ t: 'songCue', f })
+
+/** Launch (#487, #488): what the engine does when a pad or a key is pressed; `when` is a `Quantize`. */
+export const launch = {
+  scene: (scene: number, when: QuantizeId) => engine?.post({ t: 'launch', scene, when }),
+  resume: (when: QuantizeId) => engine?.post({ t: 'launchResume', when }),
+  cancel: () => engine?.post({ t: 'launchCancel' }),
+  snapshot: (s: number, when: QuantizeId) => engine?.post({ t: 'snapshot', s, when }),
+}
 
 /** Where the song is, in steps from the top (−1 before the first): in an arrangement it counts from the top of the arrangement, so it follows the loop. */
 export const songPosition = computed(() => {
@@ -939,6 +957,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     song.entry = (data.entry as number | undefined) ?? -1
     song.local = (data.local as number | undefined) ?? -1
     song.cued = (data.cued as number | undefined) ?? -1
+    const l = (data.launch as number[] | null | undefined) ?? [-1, -1, -1, -1, -1]
+    ;[song.launched, song.queued, song.queuedWhen, song.launchIn, song.snapshotQueued] = l
     song.lit = (data.lit as [number, number][] | undefined) ?? []
     onDeckPos(0, song.step, song.playing, song.entry, (data.ahead as Ahead | undefined) ?? null)
   } else if (data.t === 'song') {

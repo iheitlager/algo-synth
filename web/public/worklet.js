@@ -124,6 +124,11 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'songPause': w.song_pause(); break
         case 'songStop': w.song_stop(); break
         case 'songCue': w.song_cue(data.f); break
+        // Launch (#487, #488): a scene in place of the arrangement, back to it, or a snapshot, as `when` says.
+        case 'launch': w.song_launch(data.scene, data.when); break
+        case 'launchResume': w.song_resume_arrangement(data.when); break
+        case 'launchCancel': w.song_launch_cancel(); break
+        case 'snapshot': w.song_snapshot(data.s, data.when); break
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
         case 'padsDump': this.sendPads(data.s); break
@@ -400,6 +405,10 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.port.postMessage({
         t: 'pos', step, songPlaying: w.song_playing() === 1,
         entry: w.song_entry(), local: w.song_local(), cued: w.song_cued(), lit, ahead: ahead(w, step),
+        // What Launch shows (#489): the scene launched, the one waiting (−2 the arrangement), when, steps to go.
+        launch: w.song_launched
+          ? [w.song_launched(), w.song_queued(), w.song_queued_when(), w.song_launch_in(), w.song_snapshot_queued()]
+          : null,
       })
       // Automation or a Revision switch moved these strips' values: show them (ADR-0015, #343).
       const touched = w.auto_touched()

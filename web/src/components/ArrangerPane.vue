@@ -9,6 +9,7 @@
 // keeps it (`track … mute`); the synth rail and mixer mute the instrument.
 import { computed } from 'vue'
 import { MUTE, arrange, files, setTrackFlags, song, status, synthColour, type SongScene } from '../audio/engine'
+import LaunchBar from './LaunchBar.vue'
 
 const STEPS_PER_BAR = 16
 /** Pixels per bar: wide enough to read a name, narrow enough for a song. */
@@ -94,6 +95,8 @@ function onBar(bar: number, e: MouseEvent) {
         </select>
       </span>
     </div>
+    <!-- Launch scenes and snapshots live (#489): pads and keys. -->
+    <LaunchBar />
     <!-- What opening files reported: a MIDI file imported as the song, a setup's skipped entries. -->
     <p v-if="files.notice" class="notice">{{ files.notice }}</p>
     <p v-if="!song.arrange.length" class="empty">
