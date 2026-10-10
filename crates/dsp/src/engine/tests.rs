@@ -5069,11 +5069,14 @@ fn midi_wheels_bend_the_pitch_and_move_the_mod_wheel() {
 /// #437: the pitch wheel bends every pitched voice, not only the mono ones.
 #[test]
 fn the_pitch_wheel_bends_every_pitched_model() {
-    for model in [Model::D50, Model::Dx7] {
+    for model in [Model::D50, Model::Dx7, Model::Modular] {
         let hz = |bend: (u8, u8)| {
             let mut e = Engine::new(48_000.0);
             e.set_param(0, Param::MasterGain, 1.0);
             e.set_param(0, Param::Model, model as u32 as f32);
+            if model == Model::Modular {
+                assert_eq!(e.set_code(0, &synthdef("SinOsc.ar(freq, 0, 0.5)")), Ok(()));
+            }
             e.set_param(0, Param::Analog, 0.0);
             e.set_param(0, Param::Cutoff, 400.0);
             e.midi_in(0xE0, bend.0, bend.1);
@@ -5083,6 +5086,24 @@ fn the_pitch_wheel_bends_every_pitched_model() {
         let cents = 1200.0 * (hz((0x7F, 0x7F)) / hz((0x00, 0x40))).log2();
         assert!((cents - 200.0).abs() < 1.0, "{model:?} bends {cents} cents");
     }
+}
+
+/// #439: a Modular voice reads the mod wheel as `modwheel`, 0..1.
+#[test]
+fn a_modular_voice_reads_the_mod_wheel() {
+    let loud = |wheel: u8| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.set_param(0, Param::Model, Model::Modular as u32 as f32);
+        let code = "SynthDef(\\w, { |freq = 440, gate = 1| SinOsc.ar(freq, 0, 0.5 * \\modwheel.kr(0)) }).add;";
+        assert_eq!(e.set_code(0, code), Ok(()));
+        e.midi_in(0xB0, 1, wheel);
+        e.midi_in(0x90, 57, 100);
+        let x = left_of(&mut e, 0.1);
+        x.iter().fold(0.0_f32, |m, v| m.max(v.abs()))
+    };
+    assert!(loud(0) < 1.0e-6, "wheel down, silent: {}", loud(0));
+    assert!(loud(127) > 0.05, "wheel up, heard: {}", loud(127));
 }
 
 /// #422: the MPK's knobs (CC 70–77) turn eight parameters of the target,
