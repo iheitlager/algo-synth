@@ -4,6 +4,8 @@
 //! These are offline calls, not `render`: they allocate what a sound needs,
 //! within `MAX_SECONDS` and `MAX_PEAKS`, and never panic.
 
+pub mod additive;
+pub mod edit;
 pub mod fft;
 pub mod harmonic;
 pub mod peaks;

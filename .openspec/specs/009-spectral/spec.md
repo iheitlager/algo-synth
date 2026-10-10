@@ -54,35 +54,41 @@ For a pitched sound the analysis SHOULD estimate a fundamental per frame from it
 
 ### Requirement 4: Additive resynthesis [MUST]
 
-The engine SHALL resynthesise the tracks with a bank of sine oscillators: each track's frequency and amplitude interpolated linearly between frames, its phase carried by integrating the frequency, and a track's start and end faded over one hop so it never clicks. The resynthesis SHALL come out as mono PCM at the engine's rate, which the lab loads into its own engine as a sample (ADR-0013).
+The engine SHALL resynthesise the tracks with a bank of oscillators: each track's frequency and amplitude interpolated linearly between frames, its phase carried by integrating the frequency, and a track's start and end faded over one hop so it never clicks. Locked, the phase SHALL also land on each frame's measured phase (the nearest turn of it) by a constant frequency correction across the hop, after McAulay and Quatieri, so the resynthesis follows the original's waveform and can be subtracted from it; after a shift, a stretch or a reduction the phase SHALL run unlocked. The resynthesis SHALL come out as mono PCM at the engine's rate, which the lab loads into its own engine as a sample (ADR-0013). A partial at or above Nyquist SHALL be silent.
 
-**Implementation:** `crates/dsp/src/analysis/additive.rs::resynthesise`, `crates/dsp/src/ffi.rs` (`spectral_render`)
+**Implementation:** `crates/dsp/src/analysis/additive.rs::resynthesise`
 
 #### Scenario: round trip
 
-- GIVEN a sound rendered by the engine and analysed
+- GIVEN the engine's sawtooth oscillator, analysed
 - WHEN its tracks are resynthesised and the result analysed again
-- THEN the long tracks match within 1 Hz and 1 dB, and every sample is finite and bounded
+- THEN its f0 is within 1 Hz and its first 16 harmonics within 1 dB, and every sample is finite and bounded
 
-**Tests:** `crates/dsp/src/analysis/additive.rs::tests::round_trip_keeps_the_partials`, `crates/dsp/src/analysis/additive.rs::tests::output_is_finite_and_bounded`, `crates/dsp/src/analysis/additive.rs::tests::tracks_fade_in_and_out`
+#### Scenario: locked phase
+
+- GIVEN the engine's sawtooth oscillator at 110 Hz, analysed
+- WHEN it is resynthesised with the phase locked
+- THEN the difference from the original is more than 40 dB under it, away from the ends
+
+**Tests:** `crates/dsp/src/analysis/additive.rs::tests::round_trip_keeps_the_partials`, `crates/dsp/src/analysis/additive.rs::tests::output_is_finite_and_bounded`, `crates/dsp/src/analysis/additive.rs::tests::locked_resynthesis_follows_the_waveform`, `crates/dsp/src/analysis/additive.rs::tests::tracks_fade_in_and_out`, `crates/dsp/src/analysis/additive.rs::tests::above_nyquist_is_silent_and_nothing_is_nothing`
 
 ### Requirement 5: Reduction, pitch shift and time stretch [SHOULD]
 
-The tracks SHOULD reduce to breakpoints: a frame kept only where the linear path between its neighbours misses it by more than a tolerance (default 0.5 dB and 5 cents). A top-N cut SHOULD keep the N tracks with the most energy. A pitch shift SHOULD scale every frequency by a ratio and a time stretch SHOULD scale the time between frames, each before resynthesis, so neither changes the other.
+A track SHOULD reduce to breakpoints, its first and last frame and every frame where the line between the breakpoints either side misses it by more than a tolerance (0.5 dB and 5 cents in the lab), and SHOULD expand back to a frame each. A top-N cut SHOULD keep the N tracks with the most energy. A pitch shift SHOULD scale every frequency by a ratio; a time stretch SHOULD be a resynthesis with the hop scaled by a factor; neither changes the other.
 
-**Implementation:** `crates/dsp/src/analysis/edit.rs::reduce`, `crates/dsp/src/analysis/edit.rs::top_n`, `crates/dsp/src/analysis/edit.rs::shift`, `crates/dsp/src/analysis/edit.rs::stretch`
+**Implementation:** `crates/dsp/src/analysis/edit.rs::reduce`, `crates/dsp/src/analysis/edit.rs::expand`, `crates/dsp/src/analysis/edit.rs::top_n`, `crates/dsp/src/analysis/edit.rs::shift`, `crates/dsp/src/analysis/additive.rs::resynthesise`
 
 #### Scenario: shift and stretch
 
 - GIVEN an analysed tone at 220 Hz lasting one second
-- WHEN it is shifted by a fifth and stretched by 2
-- THEN the resynthesis is at 330 Hz within 1 Hz and lasts two seconds within a hop
+- WHEN it is shifted by a fifth, or stretched by 2
+- THEN the shifted resynthesis is at 330 Hz within 1 Hz and lasts a second, and the stretched one is at 220 Hz and lasts two
 
 **Tests:** `crates/dsp/src/analysis/edit.rs::tests::reduction_keeps_the_shape`, `crates/dsp/src/analysis/edit.rs::tests::top_n_keeps_the_loudest`, `crates/dsp/src/analysis/edit.rs::tests::shift_moves_pitch_not_time`, `crates/dsp/src/analysis/edit.rs::tests::stretch_moves_time_not_pitch`
 
 ### Requirement 6: A native harness [SHOULD]
 
-`cargo run --release -p algo-dsp --example spectral -- <in.wav> [--out <out.wav>]` SHOULD analyse a WAV, print its tracks (count, the longest, f0 in harmonic mode) and the time the analysis took, and write the resynthesis.
+`cargo run --release -p algo-dsp --example spectral -- <in.wav> [--out <out.wav>]` SHOULD analyse a WAV, print its tracks (count, the longest, f0 in harmonic mode) and the time the analysis took, and with `--out` write the locked resynthesis and print how far under the original the difference is.
 
 **Implementation:** `crates/dsp/examples/spectral.rs`
 
