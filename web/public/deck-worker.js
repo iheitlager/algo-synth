@@ -18,6 +18,8 @@ const READ = 1
 const POSITION_EVERY = 8
 // Blocks a deck may fall behind and still catch up in order (about 1 s).
 const CATCH_UP = 375
+// Bars ahead of the playhead the deck lane shows (#449, as in worklet.js).
+const LANE_BARS = 8
 
 let w = null
 let ring = null
@@ -32,7 +34,7 @@ let synced = false
 // From the worklet, directly (ADR-0029): cues, the master's tempo and bar lines.
 function fromWorklet({ data }) {
   switch (data.t) {
-    case 'playAt': start = { at: data.at, bpm: data.bpm }; break
+    case 'playAt': start = { at: data.at, into: data.into ?? 0, bpm: data.bpm }; break
     case 'tempo': w.tempo(data.bpm); break
     case 'barAt': barAt = data.at; break
   }
@@ -59,21 +61,29 @@ onmessage = ({ data }) => {
       }
       new Uint8Array(w.memory.buffer, ptr, data.bytes.byteLength).set(new Uint8Array(data.bytes))
       const ok = w.song_load() === 0
-      postMessage({ t: 'song', ok, line: ok ? 0 : w.song_error_line(), col: ok ? 0 : w.song_error_col() })
+      // Its sections and their order, for the deck lane's map ahead (#449).
+      const text = new TextDecoder()
+      const sections = []
+      for (let i = 0; ok && i < w.song_sections(); i++) {
+        sections.push({ name: text.decode(new Uint8Array(w.memory.buffer, w.section_name_ptr(i), w.section_name_len(i))), bars: w.section_bars(i) })
+      }
+      const arrange = ok ? Array.from({ length: w.arrange_len() }, (_, i) => w.arrange_at(i)) : []
+      postMessage({ t: 'song', ok, line: ok ? 0 : w.song_error_line(), col: ok ? 0 : w.song_error_col(), sections, arrange })
       break
     }
     case 'stop': start = null; w.song_stop(); break
   }
 }
 
-// The cued start falls in the block about to render: from the top, at the
-// master's tempo, on its exact sample. A cue that arrived too late starts at
-// once and says so.
+// The cued start falls in the block about to render: at the master's tempo,
+// on its exact sample, from the top or as far into its first bar as the
+// master is (#450). A cue that arrived too late starts at once, that much
+// further in so it stays in phase, and says so.
 function startNow() {
   const offset = start.at - written * block
   w.song_stop()
   w.tempo(start.bpm)
-  w.song_play_in(Math.max(0, offset))
+  w.song_play_in_bar(Math.max(0, offset), start.into + Math.max(0, -offset))
   if (offset < 0) postMessage({ t: 'late', frames: -offset })
   start = null
 }
@@ -108,7 +118,10 @@ function pump() {
     ring.audio.set(new Float32Array(w.memory.buffer, w.out_ptr(), 2 * block), slot * 2 * block)
     ring.seq[slot] = written
     Atomics.store(ring.ctrl, WRITE, ++written)
-    if (written % POSITION_EVERY === 0) postMessage({ t: 'pos', step: w.clock_step(), playing: w.song_playing() === 1 })
+    if (written % POSITION_EVERY === 0) {
+      const step = w.clock_step()
+      postMessage({ t: 'pos', step, playing: w.song_playing() === 1, entry: w.song_entry(), ahead: ahead(step) })
+    }
   }
   const read = Atomics.load(ring.ctrl, READ)
   if (typeof Atomics.waitAsync === 'function') {
@@ -118,4 +131,11 @@ function pump() {
   } else {
     setTimeout(pump, 1)
   }
+}
+
+// The arrangement entry of the playing bar and the bars after it (from bar 0
+// while stopped), for the deck lane (#449); −1 where there is none.
+function ahead(step) {
+  const from = step >= 0 ? Math.floor(step / 16) : 0
+  return { from, entries: Array.from({ length: LANE_BARS }, (_, i) => w.song_bar_entry(from + i)) }
 }

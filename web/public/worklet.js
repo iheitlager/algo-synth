@@ -12,6 +12,8 @@ const FOLD_EVERY = 75
 // How far ahead a deck's start is cued, at least: time for the cue to reach its
 // worker before it renders that block (16 blocks, 43 ms at 48 kHz; ADR-0029).
 const CUE_MARGIN = 16
+// Bars ahead of the playhead the deck lane shows (#449).
+const LANE_BARS = 8
 // Some worklet scopes lack performance.now(); Date.now() only ticks in
 // milliseconds, so then only the average over many blocks means anything.
 const precise = typeof globalThis.performance?.now === 'function'
@@ -367,9 +369,10 @@ class EngineProcessor extends AudioWorkletProcessor {
         const raw = new Uint32Array(w.memory.buffer, w.lit_ptr(), n * 2)
         for (let i = 0; i < n; i++) lit.push([raw[i * 2], raw[i * 2 + 1]])
       }
+      const step = w.clock_step()
       this.port.postMessage({
-        t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,
-        entry: w.song_entry(), local: w.song_local(), cued: w.song_cued(), lit,
+        t: 'pos', step, songPlaying: w.song_playing() === 1,
+        entry: w.song_entry(), local: w.song_local(), cued: w.song_cued(), lit, ahead: ahead(w, step),
       })
       // Automation or a Revision switch moved these strips' values: show them (ADR-0015, #343).
       const touched = w.auto_touched()
@@ -387,7 +390,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         this.sendSong(true)
         for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
       }
-      if (this.decks.size || this.deckPeaksSent) this.sendDecks()
+      // Deck A's level goes to the deck lane with or without other decks (#449).
+      this.sendDecks()
       // The meters hold the highest level since the last read.
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()
@@ -430,12 +434,15 @@ class EngineProcessor extends AudioWorkletProcessor {
   // Where deck `deck` starts: the master's next multiple of `every` steps
   // (16 a bar, 128 a phrase) far enough ahead, or right after the margin when
   // `every` is 0 or the song is stopped; as a frame on this worklet's clock.
+  // Started right after the margin, it starts as far into its bar as the
+  // master is then, so the two are in phase from its first bar (#450).
   cueDeck(deck, every) {
     const w = this.w
     const margin = CUE_MARGIN * this.block
     const f = every > 0 ? w.cue_frames(every, margin) : -1
     const at = this.blockNo * this.block + (f < 0 ? margin : f)
-    this.decks.get(deck)?.port.postMessage({ t: 'playAt', at, bpm: w.clock_tempo() })
+    const into = f < 0 ? Math.max(0, w.cue_into(margin)) : 0
+    this.decks.get(deck)?.port.postMessage({ t: 'playAt', at, into, bpm: w.clock_tempo() })
   }
 
   // Sync lock (ADR-0029): each of the master's bar lines, announced to the
@@ -474,7 +481,6 @@ class EngineProcessor extends AudioWorkletProcessor {
     const peaks = [0, 1, 2, 3].map((d) => w.deck_peak(d))
     const dropped = [0, 1, 2, 3].map((d) => this.decks.get(d)?.dropped ?? 0)
     this.port.postMessage({ t: 'decks', peaks, dropped, bpm: this.deckBpm })
-    this.deckPeaksSent = this.decks.size > 0
   }
 
   // Time spent in this callback as a share of the block's real time.
@@ -494,6 +500,13 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.peak = 0
     this.blocks = 0
   }
+}
+
+// The arrangement entry of the playing bar and the bars after it (from bar 0
+// while stopped), for the deck lane (#449); −1 where there is none.
+function ahead(w, step) {
+  const from = step >= 0 ? Math.floor(step / 16) : 0
+  return { from, entries: Array.from({ length: LANE_BARS }, (_, i) => w.song_bar_entry(from + i)) }
 }
 
 registerProcessor('algo-synth', EngineProcessor)

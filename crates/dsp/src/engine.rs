@@ -170,8 +170,10 @@ pub struct Engine {
     limiter: Limiter,
     /// Decks B–D summed with this engine's output, after its master (ADR-0029).
     deck: DeckMixer,
-    /// Frames until a cued start (`song_play_in`), if one is pending.
+    /// Frames until a cued start (`song_play_in`), if one is pending, and
+    /// how far into its first bar it starts.
     start_in: Option<usize>,
+    start_into: u64,
     /// Frames until the master's next bar line, for sync lock (`sync_bar_in`).
     sync_in: Option<usize>,
     /// How far the last sync found the song off the master's bar, in frames.
@@ -295,6 +297,7 @@ impl Engine {
             limiter: Limiter::new(sample_rate),
             deck: DeckMixer::new(sample_rate),
             start_in: None,
+            start_into: 0,
             sync_in: None,
             sync_error: 0,
             master_gain: 0.5,
@@ -1122,7 +1125,14 @@ impl Engine {
     /// Start the song `frames` from now, on that exact sample, even inside a
     /// later block: how a deck starts on the master's bar (ADR-0029).
     pub fn song_play_in(&mut self, frames: usize) {
+        self.song_play_in_bar(frames, 0);
+    }
+
+    /// The same, `into` frames into its first bar: a deck started mid-bar
+    /// in phase with the master's bar (#450). Steps before it don't play.
+    pub fn song_play_in_bar(&mut self, frames: usize, into: u64) {
         self.start_in = Some(frames);
+        self.start_into = into;
     }
 
     /// In `frames` frames the master is on a bar line: then pull this song's
@@ -1154,6 +1164,22 @@ impl Engine {
     /// `at_least` frames away, while the song plays: where to cue a deck.
     pub fn cue_frames(&self, every: u64, at_least: u64) -> Option<u64> {
         self.clock.frames_to_multiple(every, at_least)
+    }
+
+    /// Frames past the bar line `at_least` frames from now, while the song
+    /// plays: how far into its bar a deck started then begins (#450).
+    pub fn cue_into(&self, at_least: u64) -> Option<u64> {
+        self.clock.frames_into_bar(at_least)
+    }
+
+    /// The arrangement entry bar `bar` of the clock falls in, through the
+    /// loop; `None` without an arrangement or past its end. What the deck
+    /// lane draws ahead of the playhead (#449).
+    pub fn bar_entry(&self, bar: u64) -> Option<usize> {
+        match self.place(bar.saturating_mul(STEPS_PER_BAR)) {
+            At::In { entry, .. } => Some(entry),
+            _ => None,
+        }
     }
 
     pub fn song_play(&mut self) {
@@ -2877,6 +2903,9 @@ impl Engine {
             if self.start_in == Some(0) {
                 self.start_in = None;
                 self.song_play();
+                if self.start_into > 0 {
+                    self.clock.seek(self.start_into);
+                }
             }
             if self.sync_in == Some(0) {
                 self.sync_in = None;

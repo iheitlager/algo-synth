@@ -5,7 +5,8 @@
 import { computed, reactive, shallowReactive, watch } from 'vue'
 import * as registryTables from './params'
 import { buildOf, mismatch, versionOf, type Build } from './buildinfo'
-import { onDecks } from './decks'
+import { onDeckPos, onDecks } from './decks'
+import type { Ahead } from './decktrail'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId } from './params'
@@ -829,6 +830,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     song.local = (data.local as number | undefined) ?? -1
     song.cued = (data.cued as number | undefined) ?? -1
     song.lit = (data.lit as [number, number][] | undefined) ?? []
+    onDeckPos(0, song.step, song.playing, song.entry, (data.ahead as Ahead | undefined) ?? null)
   } else if (data.t === 'song') {
     applySong(data)
   } else if (data.t === 'load') {

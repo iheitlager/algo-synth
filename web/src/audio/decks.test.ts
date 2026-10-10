@@ -36,3 +36,15 @@ describe('decks', () => {
     expect(decks.list[1]?.loaded).toBe(false)
   })
 })
+
+describe('deck lanes', () => {
+  it('record a playing deck\'s level on its step, and not a stopped one\'s', async () => {
+    const { onDeckPos, trails } = await import('./decks')
+    const { at } = await import('./decktrail')
+    onDeckPos(2, 20, true, 1, { from: 1, entries: [1, 2] })
+    onDecks([0, 0, 0.5, 0.25], [0, 0, 0, 0], 120)
+    expect(at(trails[2]!, 20)).toEqual({ peak: 0.5, entry: 1 })
+    expect(decks.list[2]?.ahead).toEqual({ from: 1, entries: [1, 2] })
+    expect(trails[3]?.last).toBe(-1)
+  })
+})

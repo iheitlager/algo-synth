@@ -2070,6 +2070,23 @@ fn a_fragment_restarts_with_its_section() {
     assert_eq!(hits, want);
 }
 
+/// #449: the entry each bar falls in, through the loop, for the deck lane.
+#[test]
+fn bar_entries_follow_the_arrangement_through_the_loop() {
+    let mut e = kit(0);
+    assert_eq!(e.bar_entry(0), None, "no arrangement");
+    let text = "track kit drums\nfrag a = kit\n  bd x...............\nfrag b = kit\n  sn x...............\n\
+                section one 2: a\nsection two 1: b\narrange one two one\nloop 3 3\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let bars: Vec<_> = (0..6).map(|b| e.bar_entry(b)).collect();
+    assert_eq!(bars, [Some(0), Some(0), Some(1), Some(1), Some(1), Some(1)]);
+    let text =
+        "track kit drums\nfrag a = kit\n  bd x...............\nsection one 1: a\narrange one one\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let bars: Vec<_> = (0..3).map(|b| e.bar_entry(b)).collect();
+    assert_eq!(bars, [Some(0), Some(1), None], "past the end");
+}
+
 /// The loop region repeats its bars; seek lands on a bar.
 #[test]
 fn the_loop_region_repeats_and_seek_lands_on_a_bar() {
@@ -4983,6 +5000,46 @@ fn stop_cancels_a_cued_start() {
         e.render(BLOCK);
     }
     assert!(!e.clock().playing());
+}
+
+// #450: a deck started mid-bar, as far into its first bar as the master is
+// into its own, is on the master's bar from its first sample.
+#[test]
+fn a_deck_started_mid_bar_is_in_phase_at_once() {
+    let mut master = Engine::new(48_000.0);
+    let mut deck = Engine::new(48_000.0);
+    master.set_tempo(130.0);
+    deck.set_tempo(130.0);
+    assert_eq!(master.cue_into(0), None, "a stopped song has no bar");
+    master.song_play();
+    for _ in 0..300 {
+        master.render(BLOCK);
+    }
+    let into = master.cue_into(700).expect("the master plays");
+    assert!(into > 0, "mid-bar: {into}");
+    deck.song_play_in_bar(700, into);
+    for _ in 0..6 {
+        master.render(BLOCK);
+        deck.render(BLOCK);
+    }
+    let off = (master.clock().step_position() - deck.clock().step_position()).rem_euclid(16.0);
+    assert!(
+        off.min(16.0 - off) < 1e-3,
+        "in phase from the start: {off} steps off"
+    );
+    assert_eq!(deck.clock().position(), 6 * BLOCK as u64 - 700 + into);
+    // The bar-line lock then finds nothing to pull.
+    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
+    deck.sync_bar_in(f);
+    for _ in 0..2000 {
+        master.render(BLOCK);
+        deck.render(BLOCK);
+    }
+    assert!(
+        deck.sync_error().abs() <= 2,
+        "on the bar already: {}",
+        deck.sync_error()
+    );
 }
 
 // ADR-0029: sync lock pulls a deck that is off the master's bar back onto it
