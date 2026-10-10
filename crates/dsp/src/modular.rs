@@ -32,7 +32,8 @@ pub const MAX_FILTERS: usize = 8;
 pub const MAX_ENVS: usize = 8;
 /// Most random numbers a voice draws when its note starts (`Rand`, `ExpRand`).
 pub const MAX_RANDS: usize = 64;
-/// Most `Latch`es and `Decimator`s in a voice: each holds a value.
+/// Most `Latch`es, `Decimator`s, `LFNoise`s and `lag`s in a voice: each
+/// holds a value.
 pub const MAX_HOLDS: usize = 32;
 /// Most reverbs a voice runs (`FreeVerb2`): each holds about 100 KB.
 pub const MAX_VERBS: usize = 2;
@@ -294,6 +295,21 @@ pub enum Ugen {
         bits: u16,
         slot: u8,
     },
+    /// A random value in −1..1 drawn `freq` times a second (`LFNoise0`),
+    /// or the same points joined by straight lines when `smooth`
+    /// (`LFNoise1`); drawn from the note's seed, as `Rand`.
+    LfNoise {
+        freq: u16,
+        smooth: bool,
+        slot: u8,
+    },
+    /// `input` smoothed by a one-pole falling 60 dB in `time` seconds
+    /// (SuperCollider's `lag`), from its first value; 0 passes it.
+    Lag {
+        input: u16,
+        time: u16,
+        slot: u8,
+    },
     /// Semitones as a frequency ratio, `2^(x/12)`.
     MidiRatio(u16),
     /// One side of an equal-power pan (`Pan2`), `pos` −1 left to 1 right.
@@ -472,10 +488,11 @@ pub struct VoiceState {
     /// slot has started: a voice is rebuilt per note, its slot's state is not.
     rands: Vec<f32>,
     notes: u32,
-    /// Each `Latch` and `Decimator`: the value held, and the trigger last
-    /// sample (a latch) or the share of a sample left until the next (a
-    /// decimator).
-    holds: Vec<[f32; 2]>,
+    /// Each `Latch`, `Decimator`, `LFNoise` and `lag`: the value held, and
+    /// the trigger last sample (a latch), the share of a sample left until
+    /// the next (a decimator, a noise, with its last and next value and its
+    /// draws) or whether it started (a lag).
+    holds: Vec<[f32; 4]>,
     /// The reverbs, and the right side each left node keeps for its partner.
     verbs: Vec<verb::FreeVerb>,
     verb_r: Vec<f32>,
@@ -519,7 +536,7 @@ impl VoiceState {
         self.rands
             .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
         self.holds
-            .resize(up(usize::from(c.holds), self.holds.len()), [0.0; 2]);
+            .resize(up(usize::from(c.holds), self.holds.len()), [0.0; 4]);
         for order in [&mut self.steady, &mut self.moving] {
             order.reserve_exact(MAX_NODES.saturating_sub(order.len()));
         }
@@ -745,7 +762,7 @@ impl GraphVoice {
         if self.fresh {
             st.oscs.iter_mut().for_each(|o| *o = Osc::default());
             st.phases.iter_mut().for_each(|p| *p = 0.0);
-            st.holds.iter_mut().for_each(|h| *h = [0.0; 2]);
+            st.holds.iter_mut().for_each(|h| *h = [0.0; 4]);
             st.filters.iter_mut().for_each(|f| *f = Svf::new());
             st.ladders.iter_mut().for_each(|l| *l = Ladder::new());
             st.poles.iter_mut().for_each(|p| *p = OnePole::default());
@@ -1030,6 +1047,44 @@ impl GraphVoice {
                     h[1] += 1.0;
                 }
                 h[1] -= step;
+                h[0]
+            }
+            Ugen::LfNoise { freq, smooth, slot } => {
+                let step = (st.val(freq) * inv).clamp(0.0, 1.0);
+                let note_seed = self.seed ^ st.notes.wrapping_mul(0x9E37_79B9) ^ (self.slot as u32);
+                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                // [time left, last value, next value, draws].
+                if h[0] <= 0.0 {
+                    let r =
+                        crate::algo::mix(crate::algo::mix(note_seed, u32::from(slot)), h[3] as u32);
+                    h[1] = h[2];
+                    h[2] = r as f32 / (u32::MAX as f32 + 1.0) * 2.0 - 1.0;
+                    h[3] += 1.0;
+                    h[0] += 1.0;
+                }
+                let y = if smooth {
+                    h[1] + (h[2] - h[1]) * (1.0 - h[0])
+                } else {
+                    h[2]
+                };
+                h[0] -= step;
+                y
+            }
+            Ugen::Lag { input, time, slot } => {
+                let (x, t) = (st.val(input), st.val(time));
+                let Some(h) = st.holds.get_mut(usize::from(slot)) else {
+                    return 0.0;
+                };
+                if h[1] == 0.0 || t <= 0.0 {
+                    h[1] = 1.0;
+                    h[0] = x;
+                } else {
+                    // Falls 60 dB (a thousandth) in t: log2(0.001) per t·sr samples.
+                    let b = fast_exp2(-9.965_784 * inv / t);
+                    h[0] = x + b * (h[0] - x);
+                }
                 h[0]
             }
             Ugen::MidiRatio(x) => fast_exp2(st.val(x) * (1.0 / 12.0)),
@@ -1683,7 +1738,70 @@ mod tests {
         assert!(ones.iter().any(|(_, y)| y.abs() > 2.0));
     }
 
-    /// #471: a voice holds at most 32 latches and decimators.
+    /// #472: `LFNoise0` steps to a new value in −1..1 `freq` times a second;
+    /// `LFNoise1` runs in straight lines between such points.
+    #[test]
+    fn lfnoise_steps_and_wanders() {
+        let mut b = Bench::new();
+        let y: Vec<f32> = b
+            .nodes("LFNoise0.kr(8) + (SinOsc.ar(freq) * 0)", 24_000)
+            .into_iter()
+            .map(|(_, y)| y)
+            .collect();
+        assert!(y.iter().all(|v| (-1.0..=1.0).contains(v)));
+        let at: Vec<usize> = (1..y.len()).filter(|&i| y[i] != y[i - 1]).collect();
+        assert_eq!(at.len(), 3, "eight a second: {at:?}");
+        assert!(
+            at.iter()
+                .zip([6000, 12000, 18000])
+                .all(|(a, b)| a.abs_diff(b) <= 1),
+            "{at:?}"
+        );
+        let y: Vec<f32> = b
+            .nodes("LFNoise1.kr(8) + (SinOsc.ar(freq) * 0)", 24_000)
+            .into_iter()
+            .map(|(_, y)| y)
+            .collect();
+        assert!(y.iter().all(|v| (-1.0..=1.0).contains(v)));
+        assert!(y.windows(2).all(|w| (w[1] - w[0]).abs() < 1e-3), "no steps");
+        let bends = y
+            .windows(3)
+            .filter(|w| (w[2] - 2.0 * w[1] + w[0]).abs() > 1e-5)
+            .count();
+        assert!(bends <= 8, "straight lines between corners: {bends}");
+    }
+
+    /// #472: `lag` takes a step to its new value smoothly, within a
+    /// thousandth by its time, from its first value; `lag(0)` passes.
+    #[test]
+    fn lag_smooths_a_step() {
+        let mut b = Bench::new();
+        let y: Vec<f32> = b
+            .nodes("LFPulse.kr(10).lag(0.01) + (SinOsc.ar(freq) * 0)", 4_800)
+            .into_iter()
+            .map(|(_, y)| y)
+            .collect();
+        assert_eq!(y[0], 1.0, "starts where its input does");
+        assert!(y[2400] > 0.9, "no jump at the step: {}", y[2400]);
+        assert!(
+            y[2400 + 480] < 0.0011,
+            "settled in 10 ms: {}",
+            y[2400 + 480]
+        );
+        assert!(y[2400 + 240] > 0.01, "not at once: {}", y[2400 + 240]);
+        for (x, y) in b.nodes("SinOsc.ar(freq).lag(0)", 480) {
+            assert_eq!(x, y);
+        }
+        let p = patch("SinOsc.ar(freq * 3.lag(0.2))");
+        assert!(
+            p.program
+                .nodes
+                .iter()
+                .all(|n| !matches!(n, Ugen::Lag { .. }))
+        );
+    }
+
+    /// #471, #472: a voice holds at most 32 latches, decimators, noises and lags.
     #[test]
     fn holds_are_limited() {
         let text = |n: usize| {
@@ -1694,7 +1812,7 @@ mod tests {
         assert!(sc::compile(&text(32)).is_ok());
         assert_eq!(
             sc::compile(&text(33)).expect_err("33").msg,
-            "a voice has at most 32 latches and decimators"
+            "a voice has at most 32 latches, decimators, noises and lags"
         );
     }
 
