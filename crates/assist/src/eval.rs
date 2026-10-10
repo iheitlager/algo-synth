@@ -17,10 +17,10 @@ pub const CASES: &str = include_str!("../eval/cases.json");
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "check", rename_all = "snake_case")]
 pub enum Expect {
-    /// Every fragment of the start is still there.
-    KeepsFrags,
-    /// These fragments are there.
-    KeepsFragsNamed {
+    /// Every clip of the start is still there.
+    KeepsClips,
+    /// These clips are there.
+    KeepsClipsNamed {
         names: Vec<String>,
     },
     /// Every track of the start is still there.
@@ -35,9 +35,9 @@ pub enum Expect {
     PadLanesMore {
         pad: String,
     },
-    FragsMore,
+    ClipsMore,
     TracksMore,
-    SectionsMore,
+    ScenesMore,
     /// A track (or its setting) plays this model.
     TrackModel {
         model: String,
@@ -129,7 +129,7 @@ fn model_name(m: Model) -> &'static str {
 
 fn lanes_of(song: Option<&Song>, pad: &str) -> usize {
     song.map_or(0, |s| {
-        s.frags
+        s.clips
             .iter()
             .flat_map(|f| &f.lanes)
             .filter(|l| {
@@ -177,17 +177,17 @@ pub fn grade(start: &str, case: &Case, out: &Outcome) -> Vec<Graded> {
     )
     .is_ok_and(|r| r.nonfinite == 0 && r.peak <= 1.0);
     put("renders_clean", clean);
-    let names = |s: &Song| s.frags.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
+    let names = |s: &Song| s.clips.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
     for e in &case.expect {
         let (name, ok) = match e {
-            Expect::KeepsFrags => (
-                "keeps_frags".to_string(),
+            Expect::KeepsClips => (
+                "keeps_clips".to_string(),
                 before
                     .as_ref()
                     .is_none_or(|b| names(b).iter().all(|n| names(&after).contains(n))),
             ),
-            Expect::KeepsFragsNamed { names: want } => (
-                "keeps_frags_named".into(),
+            Expect::KeepsClipsNamed { names: want } => (
+                "keeps_clips_named".into(),
                 want.iter().all(|n| names(&after).contains(n)),
             ),
             Expect::KeepsTracks => (
@@ -206,17 +206,17 @@ pub fn grade(start: &str, case: &Case, out: &Outcome) -> Vec<Graded> {
                 format!("more {pad} lanes"),
                 lanes_of(Some(&after), pad) > lanes_of(before.as_ref(), pad),
             ),
-            Expect::FragsMore => (
-                "more frags".into(),
-                after.frags.len() > before.as_ref().map_or(0, |b| b.frags.len()),
+            Expect::ClipsMore => (
+                "more clips".into(),
+                after.clips.len() > before.as_ref().map_or(0, |b| b.clips.len()),
             ),
             Expect::TracksMore => (
                 "more tracks".into(),
                 after.tracks.len() > before.as_ref().map_or(0, |b| b.tracks.len()),
             ),
-            Expect::SectionsMore => (
-                "more sections".into(),
-                after.sections.len() > before.as_ref().map_or(0, |b| b.sections.len()),
+            Expect::ScenesMore => (
+                "more scenes".into(),
+                after.scenes.len() > before.as_ref().map_or(0, |b| b.scenes.len()),
             ),
             Expect::TrackModel { model } => (
                 format!("a {model} track"),
@@ -348,10 +348,10 @@ mod tests {
     use std::sync::Mutex;
 
     const START: &str =
-        "tempo 120\ntrack kit drums Tr909 Kit909\nfrag beat = kit /16\n  bd x...x...x...x...\n";
+        "tempo 120\ntrack kit drums Tr909 Kit909\nclip beat = kit /16\n  bd x...x...x...x...\n";
     const MORE: &str = "tempo 128\nswing 58\ntrack kit drums Tr909 Kit909\ntrack bass synth Sh101 Sh101Bass\n\
-frag beat = kit /16\n  bd x...x...x...x...\n  sn ....x.......x...\nfrag low = bass\n  \"a1 ~ a1 ~\"\n\
-section a 2: beat low\narrange a\n";
+clip beat = kit /16\n  bd x...x...x...x...\n  sn ....x.......x...\nclip low = bass\n  \"a1 ~ a1 ~\"\n\
+scene a 2: beat low\narrange a\n";
 
     fn case(expect: Vec<Expect>) -> Case {
         Case {
@@ -400,17 +400,17 @@ section a 2: beat low\narrange a\n";
     #[test]
     fn checks_grade_what_they_say() {
         let all = vec![
-            Expect::KeepsFrags,
+            Expect::KeepsClips,
             Expect::KeepsTracks,
-            Expect::KeepsFragsNamed {
+            Expect::KeepsClipsNamed {
                 names: vec!["beat".into()],
             },
             Expect::Tempo { value: 128.0 },
             Expect::SwingAtLeast { value: 56.0 },
             Expect::PadLanesMore { pad: "sn".into() },
-            Expect::FragsMore,
+            Expect::ClipsMore,
             Expect::TracksMore,
-            Expect::SectionsMore,
+            Expect::ScenesMore,
             Expect::TrackModel {
                 model: "Sh101".into(),
             },
@@ -434,9 +434,9 @@ section a 2: beat low\narrange a\n";
                 "tempo 128",
                 "swing >= 56",
                 "more sn lanes",
-                "more frags",
+                "more clips",
                 "more tracks",
-                "more sections",
+                "more scenes",
                 "a Sh101 track",
                 "contains \"a1 ~\""
             ]
@@ -444,8 +444,8 @@ section a 2: beat low\narrange a\n";
 
         let g = grade(
             START,
-            &case(vec![Expect::FragsMore]),
-            &proposed("tempo 120\nfrag x = nowhere\n  bd x\n"),
+            &case(vec![Expect::ClipsMore]),
+            &proposed("tempo 120\nclip x = nowhere\n  bd x\n"),
         );
         assert_eq!(
             g,
@@ -454,7 +454,7 @@ section a 2: beat low\narrange a\n";
                 ok: false
             }]
         );
-        let g = grade(START, &case(vec![Expect::FragsMore]), &Outcome::default());
+        let g = grade(START, &case(vec![Expect::ClipsMore]), &Outcome::default());
         assert_eq!(
             g,
             [Graded {
@@ -498,14 +498,14 @@ section a 2: beat low\narrange a\n";
         assert_eq!(cost("mistral-large-latest", u), None);
         let c = case(vec![Expect::Tempo { value: 128.0 }]);
         let out = Outcome {
-            rules: vec!["unused-frag".into(), "removed".into()],
+            rules: vec!["unused-clip".into(), "removed".into()],
             ..proposed(MORE)
         };
         let row = Row::new(&c, &out, &grade(START, &c, &out), "claude-opus-5-5");
         assert!(row.pass);
         let md = markdown("anthropic", "claude-opus-5-5", &[row]);
         assert!(
-            md.contains("| c | ✓ |  | unused-frag, removed | 2 |") && md.contains("**1/1 passed**"),
+            md.contains("| c | ✓ |  | unused-clip, removed | 2 |") && md.contains("**1/1 passed**"),
             "{md}"
         );
     }

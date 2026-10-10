@@ -1,17 +1,17 @@
 <script setup lang="ts">
-// A note fragment as a piano roll (#168, spec 003 Req 5): rows are pitches,
+// A note clip as a piano roll (#168, spec 003 Req 5): rows are pitches,
 // columns are sixteenths. A click on empty grid adds a sixteenth, a click on a
 // note removes it, and the handle at a note's end drags its length. Every edit
 // is a message to the engine, which prints the song back and sends the notes
 // (as `setStep` does); nothing here parses or plays. A generator call is
 // shown with its notes and a Freeze button, since only written notes edit.
 import { computed, ref } from 'vue'
-import { addNote, freezeFrag, removeNote, setNoteLength, song, type SongFrag } from '../audio/engine'
+import { addNote, freezeClip, removeNote, setNoteLength, song, type SongClip } from '../audio/engine'
 import { TICKS_PER_BAR, TICKS_PER_STEP, cellAt, dragLength, isBlack, noteAt, noteBox, noteName, rollRange, stepIn } from '../audio/roll'
 
-const props = defineProps<{ frag: SongFrag; index: number; colour: string }>()
+const props = defineProps<{ clip: SongClip; index: number; colour: string }>()
 
-const notes = computed(() => props.frag.notes)
+const notes = computed(() => props.clip.notes)
 const bars = computed(() => notes.value?.bars ?? 1)
 const events = computed(() => notes.value?.events ?? [])
 const editable = computed(() => !!notes.value && !notes.value.generated)
@@ -22,11 +22,11 @@ const rows = computed(() => {
   return out
 })
 const steps = computed(() => bars.value * (TICKS_PER_BAR / TICKS_PER_STEP))
-// In an arrangement a frag counts from its section's start, and has no step when the section does not play it.
+// In an arrangement a clip counts from its scene's start, and has no step when the scene does not play it.
 const now = computed(() => {
   if (!song.playing) return -1
   if (song.entry < 0) return stepIn(song.step, bars.value)
-  const on = song.sections[song.arrange[song.entry]]?.frags[props.index]
+  const on = song.scenes[song.arrange[song.entry]]?.clips[props.index]
   return on ? stepIn(song.local, bars.value) : -1
 })
 
@@ -88,7 +88,7 @@ function endDrag() {
       <span v-if="bars > 1" class="muted">{{ bars }} bars</span>
       <button
         v-if="notes?.generated" title="Replace the call with the notes it plays now"
-        @click="freezeFrag(index)"
+        @click="freezeClip(index)"
       >Freeze</button>
       <span v-else-if="editable" class="muted">click to add, click a note to remove, drag its end to stretch</span>
     </div>

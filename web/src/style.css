@@ -34,7 +34,7 @@ input[type='range'] { accent-color: var(--accent); width: 100%; }
 .tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
 .soon { font-size: 10px; color: var(--muted); font-style: italic; }
 
-/* A picker in the composer (track synth, model, preset; a frag's synth): a dark
+/* A picker in the composer (track synth, model, preset; a clip's synth): a dark
    panel face with its own chevron, lit in the track's colour (`--c`) on hover
    and focus. */
 select.picker {

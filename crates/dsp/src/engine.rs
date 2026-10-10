@@ -31,7 +31,7 @@ use crate::synth::RevisionDef;
 /// Song notes that may sound at once before one is dropped.
 const NOTE_OFFS: usize = 256;
 
-/// The events of a live fragment: the cycle playing and the next one, made
+/// The events of a live clip: the cycle playing and the next one, made
 /// ahead of time into buffers reserved when the song loads (ADR-0002).
 #[derive(Default)]
 struct Live {
@@ -52,7 +52,7 @@ impl Live {
     }
 }
 
-/// The seed of a live fragment's cycle: the base seed mixed with the cycle
+/// The seed of a live clip's cycle: the base seed mixed with the cycle
 /// counted from the top of the song, so every run plays the same cycles.
 fn cycle_seed(base: u32, cycle: u64) -> u32 {
     mix(
@@ -67,7 +67,7 @@ use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
-use crate::song::spans::{self, FragSpans};
+use crate::song::spans::{self, ClipSpans};
 use crate::song::{
     At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
     STEPS_PER_BAR, Song, SongError, Step, Target, signal,
@@ -103,7 +103,7 @@ struct Pending {
     live: Vec<Live>,
     route: [Option<usize>; MAX_TRACKS],
     /// Where its words are in its text (#205), built with it.
-    spans: Vec<FragSpans>,
+    spans: Vec<ClipSpans>,
 }
 
 /// The most words lit at once (#205).
@@ -218,21 +218,21 @@ pub struct Engine {
     /// Notes of the song waiting for their note-off, as (tick, track, note):
     /// a fixed table, so the clock can end a note without allocating.
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
-    /// One per fragment of the song; empty for all but the live ones.
+    /// One per clip of the song; empty for all but the live ones.
     live: Vec<Live>,
     /// A song loaded while the song plays, ready to take over at the next
     /// bar with its live buffers and track routes (#208).
     pending: Option<Pending>,
-    /// The fragment playing alone, if one is cued (#375), and its name, to
+    /// The clip playing alone, if one is cued (#375), and its name, to
     /// find it again in a song that takes over.
     cue: Option<usize>,
     cue_name: String,
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
-    spent: Option<(Song, Vec<Live>, Vec<FragSpans>)>,
-    /// Where the words of the song's text are, per fragment (#205), the
+    spent: Option<(Song, Vec<Live>, Vec<ClipSpans>)>,
+    /// Where the words of the song's text are, per clip (#205), the
     /// words playing now, and the spans handed out last (`lit_count`).
-    spans: Vec<FragSpans>,
+    spans: Vec<ClipSpans>,
     lit: [Lit; MAX_LIT],
     lit_out: [u32; 2 * MAX_LIT],
     /// A pending song took over on a bar line since the view last asked.
@@ -1303,14 +1303,14 @@ impl Engine {
         self.mod_state = [f32::NAN; signal::MAX_NODES];
     }
 
-    /// Play fragment `frag` alone, looping from its first bar, on the song's
-    /// clock (#375): no arrangement, scenes or automation lanes, only its
-    /// lanes or notes and the song's modulations. `None`, or a fragment the
+    /// Play clip `clip` alone, looping from its first bar, on the song's
+    /// clock (#375): no arrangement, snapshots or automation lanes, only its
+    /// lanes or notes and the song's modulations. `None`, or a clip the
     /// song does not have, stops it and leaves the song as it was. Stop
     /// clears the cue too.
-    pub fn song_cue(&mut self, frag: Option<usize>) {
+    pub fn song_cue(&mut self, clip: Option<usize>) {
         self.song_stop();
-        let Some((f, name)) = frag.and_then(|f| self.song.frags.get(f).map(|x| (f, &x.name)))
+        let Some((f, name)) = clip.and_then(|f| self.song.clips.get(f).map(|x| (f, &x.name)))
         else {
             return;
         };
@@ -1379,13 +1379,13 @@ impl Engine {
         &self.lit_out
     }
 
-    /// The fragment playing alone, if one is cued.
+    /// The clip playing alone, if one is cued.
     pub fn song_cued(&self) -> Option<usize> {
         self.cue
     }
 
     /// Where clock step `k` falls: in the song's arrangement, or free while a
-    /// fragment is cued (#375).
+    /// clip is cued (#375).
     fn place(&self, k: u64) -> At {
         if self.cue.is_some() {
             At::Free(k)
@@ -1394,7 +1394,7 @@ impl Engine {
         }
     }
 
-    /// Whether fragment `f` is silent because another one is cued.
+    /// Whether clip `f` is silent because another one is cued.
     fn cued_out(&self, f: usize) -> bool {
         self.cue.is_some_and(|c| c != f)
     }
@@ -1483,9 +1483,9 @@ impl Engine {
     }
 
     /// Tick `j` of the clock: end the notes that are due, then start what
-    /// every note fragment has on it (spec 002 Req 3, ADR-0016). Each fragment
+    /// every note clip has on it (spec 002 Req 3, ADR-0016). Each clip
     /// loops on its own length in bars; with an arrangement only the current
-    /// section's fragments play, counted from its first tick (ADR-0015).
+    /// scene's clips play, counted from its first tick (ADR-0015).
     /// Reads the song in place and uses the fixed note-off table: nothing
     /// allocates.
     fn play_tick(&mut self, j: u64) {
@@ -1505,33 +1505,33 @@ impl Engine {
             }
         }
         // Where the tick falls in the arrangement: the tick to count from and
-        // the section that plays, if any. Note-offs above use the clock's own
-        // ticks, so a note started in one section ends where it should.
+        // the scene that plays, if any. Note-offs above use the clock's own
+        // ticks, so a note started in one scene ends where it should.
         let step = j / TICKS_PER_STEP;
-        let (from, section) = match self.place(step) {
+        let (from, scene) = match self.place(step) {
             At::Free(_) => (j, None),
-            At::In { section, local, .. } => {
-                (local * TICKS_PER_STEP + j % TICKS_PER_STEP, Some(section))
+            At::In { scene, local, .. } => {
+                (local * TICKS_PER_STEP + j % TICKS_PER_STEP, Some(scene))
             }
             At::End => return,
         };
-        for f in 0..self.song.frags.len() {
+        for f in 0..self.song.clips.len() {
             if self.cued_out(f) {
                 continue;
             }
-            if let Some(s) = section {
+            if let Some(s) = scene {
                 if !self
                     .song
-                    .sections
+                    .scenes
                     .get(s)
-                    .is_some_and(|sec| sec.frags.contains(&f))
+                    .is_some_and(|sec| sec.clips.contains(&f))
                 {
                     continue;
                 }
             }
             let Some((track, span, live)) = self
                 .song
-                .frags
+                .clips
                 .get(f)
                 .and_then(|fr| Some((fr, fr.notes.as_ref()?)))
                 .map(|(fr, n)| {
@@ -1569,9 +1569,9 @@ impl Engine {
         }
     }
 
-    /// Event `k` of fragment `f` for the cycle now playing.
+    /// Event `k` of clip `f` for the cycle now playing.
     fn note_event(&self, f: usize, k: usize) -> Option<Event> {
-        let fr = self.song.frags.get(f)?;
+        let fr = self.song.clips.get(f)?;
         if fr.live {
             self.live.get(f)?.cur.get(k).copied()
         } else {
@@ -1579,9 +1579,9 @@ impl Engine {
         }
     }
 
-    /// Index of the first event of fragment `f` at or after tick `local`.
+    /// Index of the first event of clip `f` at or after tick `local`.
     fn first_event(&self, f: usize, local: u32) -> usize {
-        let Some(fr) = self.song.frags.get(f) else {
+        let Some(fr) = self.song.clips.get(f) else {
             return 0;
         };
         if fr.live {
@@ -1595,14 +1595,14 @@ impl Engine {
         }
     }
 
-    /// Have live fragment `f`'s events for `cycle` ready, and, a tick into the
+    /// Have live clip `f`'s events for `cycle` ready, and, a tick into the
     /// cycle, those of the next, so the swap at the cycle line is a move and
     /// not a computation. A seek or a new song makes the cycle on the spot.
     /// The buffers were sized when the song loaded: nothing allocates.
     fn step_live(&mut self, f: usize, cycle: u64, local: u32) {
         let Some(Seq::Generated(call)) = self
             .song
-            .frags
+            .clips
             .get(f)
             .and_then(|fr| fr.notes.as_ref())
             .map(|n| &n.seq)
@@ -1628,15 +1628,15 @@ impl Engine {
         }
     }
 
-    /// One buffer pair per fragment, sized for its call; only live fragments
+    /// One buffer pair per clip, sized for its call; only live clips
     /// get room.
     fn rebuild_live(&mut self) {
         self.live = Self::live_for(&self.song);
     }
 
-    /// The live buffers of `song`'s fragments, sized for their generators.
+    /// The live buffers of `song`'s clips, sized for their generators.
     fn live_for(song: &Song) -> Vec<Live> {
-        song.frags
+        song.clips
             .iter()
             .map(|fr| match fr.notes.as_ref().map(|n| &n.seq) {
                 Some(Seq::Generated(call)) if fr.live => Live::with_room(call.max_events()),
@@ -1645,39 +1645,39 @@ impl Engine {
             .collect()
     }
 
-    /// The events fragment `frag` is playing: a live one's current cycle, else
-    /// what it was written as (empty for a drum fragment).
-    pub fn frag_events(&self, frag: usize) -> &[Event] {
-        match (self.song.frags.get(frag), self.live.get(frag)) {
+    /// The events clip `clip` is playing: a live one's current cycle, else
+    /// what it was written as (empty for a drum clip).
+    pub fn clip_events(&self, clip: usize) -> &[Event] {
+        match (self.song.clips.get(clip), self.live.get(clip)) {
             (Some(fr), Some(l)) if fr.live && l.cycle.is_some() => &l.cur,
             (Some(fr), _) => fr.notes.as_ref().map_or(&[], |n| &n.events),
             _ => &[],
         }
     }
 
-    /// Edit a note of fragment `frag` and print the song again; false when
+    /// Edit a note of clip `clip` and print the song again; false when
     /// the song does not take it (`Song::edit_note`).
-    pub fn edit_note(&mut self, frag: usize, op: Edit) -> bool {
+    pub fn edit_note(&mut self, clip: usize, op: Edit) -> bool {
         self.commit_song();
-        if !self.song.edit_note(frag, op) {
+        if !self.song.edit_note(clip, op) {
             return false;
         }
         self.reprint();
         true
     }
 
-    /// Replace fragment `frag`'s generator call with the events it is playing
+    /// Replace clip `clip`'s generator call with the events it is playing
     /// now (a live one: this cycle's), as notes in the same notation, and
-    /// print the song again. False when it is not a generated fragment or
+    /// print the song again. False when it is not a generated clip or
     /// the events do not fit the notation.
-    pub fn freeze(&mut self, frag: usize) -> bool {
+    pub fn freeze(&mut self, clip: usize) -> bool {
         self.commit_song();
         let playing = self
             .live
-            .get(frag)
+            .get(clip)
             .filter(|l| l.cycle.is_some())
             .map(|l| l.cur.clone());
-        if !self.song.freeze(frag, playing.as_deref()) {
+        if !self.song.freeze(clip, playing.as_deref()) {
             return false;
         }
         self.rebuild_live();
@@ -1695,15 +1695,15 @@ impl Engine {
     }
 
     /// Hit what every lane of the song has on clock step `k`; each lane loops
-    /// on its own length. With an arrangement only the current section's
-    /// fragments play, counted from the section's first step, and the song
+    /// on its own length. With an arrangement only the current scene's
+    /// clips play, counted from the scene's first step, and the song
     /// stops after its last bar (ADR-0015). Reads the song in place: nothing
     /// allocates.
     fn play_step(&mut self, step: u64) {
         match self.place(step) {
             At::In {
-                section, local: 0, ..
-            } => self.apply_scenes(section),
+                scene, local: 0, ..
+            } => self.apply_snapshots(scene),
             At::End => {
                 self.song_stop();
                 return;
@@ -1722,42 +1722,42 @@ impl Engine {
     /// only the grace strokes that fall before the step are queued; without,
     /// the hits and the graces that fall after it.
     fn lane_hits(&mut self, step: u64, ahead: bool) {
-        let (k, section) = match self.place(step) {
+        let (k, scene) = match self.place(step) {
             At::Free(k) => (k, None),
-            At::In { section, local, .. } => (local, Some(section)),
+            At::In { scene, local, .. } => (local, Some(scene)),
             At::End => return,
         };
         let on_step = self.clock.step_sample(step);
         let before = step.checked_sub(1).map(|p| self.clock.step_sample(p));
         let ms = f64::from(self.sample_rate) / 1000.0;
-        for f in 0..self.song.frags.len() {
+        for f in 0..self.song.clips.len() {
             if self.cued_out(f) {
                 continue;
             }
-            let Some(frag) = self.song.frags.get(f) else {
+            let Some(clip) = self.song.clips.get(f) else {
                 continue;
             };
-            if let Some(s) = section {
+            if let Some(s) = scene {
                 if !self
                     .song
-                    .sections
+                    .scenes
                     .get(s)
-                    .is_some_and(|sec| sec.frags.contains(&f))
+                    .is_some_and(|sec| sec.clips.contains(&f))
                 {
                     continue;
                 }
             }
-            if !self.song.heard(frag.track) {
+            if !self.song.heard(clip.track) {
                 continue;
             }
-            let owner = Owner::Track(u8::try_from(frag.track).unwrap_or(u8::MAX));
-            let g = u64::from(frag.grid.max(1));
+            let owner = Owner::Track(u8::try_from(clip.track).unwrap_or(u8::MAX));
+            let g = u64::from(clip.grid.max(1));
             let (first, end) = ((k * g).div_ceil(16), ((k + 1) * g).div_ceil(16));
-            for l in 0..frag.lanes.len() {
+            for l in 0..clip.lanes.len() {
                 for n in first..end {
                     let hit = self
                         .song
-                        .frags
+                        .clips
                         .get(f)
                         .and_then(|fr| fr.lanes.get(l))
                         .and_then(|lane| {
@@ -1892,25 +1892,29 @@ impl Engine {
             .map_or(remaining, |gap| gap.clamp(1, remaining.max(1)))
     }
 
-    /// Set the values of every scene section `s` lists (ADR-0015).
-    fn apply_scenes(&mut self, s: usize) {
-        let count = self.song.sections.get(s).map_or(0, |sec| sec.scenes.len());
+    /// Set the values of every snapshot scene `s` lists (ADR-0015).
+    fn apply_snapshots(&mut self, s: usize) {
+        let count = self.song.scenes.get(s).map_or(0, |sec| sec.snapshots.len());
         for i in 0..count {
-            let Some(scene) = self
+            let Some(snapshot) = self
                 .song
-                .sections
+                .scenes
                 .get(s)
-                .and_then(|sec| sec.scenes.get(i))
+                .and_then(|sec| sec.snapshots.get(i))
                 .copied()
             else {
                 continue;
             };
-            let sets = self.song.scenes.get(scene).map_or(0, |sc| sc.sets.len());
+            let sets = self
+                .song
+                .snapshots
+                .get(snapshot)
+                .map_or(0, |sc| sc.sets.len());
             for j in 0..sets {
                 if let Some((t, p, v)) = self
                     .song
-                    .scenes
-                    .get(scene)
+                    .snapshots
+                    .get(snapshot)
                     .and_then(|sc| sc.sets.get(j))
                     .copied()
                 {
@@ -1937,26 +1941,26 @@ impl Engine {
     }
 
     /// The automation lanes at the clock's position, once per block: each
-    /// writes only when its value changed. Lanes of the current section play,
+    /// writes only when its value changed. Lanes of the current scene play,
     /// counted from its first step; without an arrangement every lane loops.
     fn run_automation(&mut self) {
-        // A cued fragment plays without the arrangement's lanes (#375).
+        // A cued clip plays without the arrangement's lanes (#375).
         if !self.clock.playing() || self.song.autos.is_empty() || self.cue.is_some() {
             return;
         }
         let pos = self.clock.step_position().max(0.0);
         let whole = pos.floor();
         let frac = pos - whole;
-        let (local, section) = match self.place(whole as u64) {
+        let (local, scene) = match self.place(whole as u64) {
             At::Free(k) => (k as f64 + frac, None),
-            At::In { section, local, .. } => (local as f64 + frac, Some(section)),
+            At::In { scene, local, .. } => (local as f64 + frac, Some(scene)),
             At::End => return,
         };
         for a in 0..self.song.autos.len() {
-            if let Some(s) = section {
+            if let Some(s) = scene {
                 if !self
                     .song
-                    .sections
+                    .scenes
                     .get(s)
                     .is_some_and(|sec| sec.autos.contains(&a))
                 {
@@ -1995,7 +1999,7 @@ impl Engine {
 
     /// The modulations at the clock's position, once per block, after the
     /// lanes: each signal is evaluated at the song's position in bars and
-    /// writes only when its value changed (ADR-0019). A fragment's methods
+    /// writes only when its value changed (ADR-0019). A clip's methods
     /// write while it plays (#204); a modulation that begins to write keeps
     /// the value it found and puts it back when it stops.
     fn run_mods(&mut self, frames: usize) {
@@ -2003,9 +2007,9 @@ impl Engine {
             return;
         }
         let pos = self.clock.step_position().max(0.0);
-        let section = match self.place(pos.floor() as u64) {
+        let scene = match self.place(pos.floor() as u64) {
             At::Free(_) => None,
-            At::In { section, .. } => Some(section),
+            At::In { scene, .. } => Some(scene),
             At::End => return,
         };
         let t = pos / STEPS_PER_BAR as f64;
@@ -2016,13 +2020,13 @@ impl Engine {
                 continue;
             };
             let (target, param) = (md.target, md.param);
-            let playing = md.frag.is_none_or(|f| {
+            let playing = md.clip.is_none_or(|f| {
                 !self.cued_out(f)
-                    && section.is_none_or(|s| {
+                    && scene.is_none_or(|s| {
                         self.song
-                            .sections
+                            .scenes
                             .get(s)
-                            .is_some_and(|sec| sec.frags.contains(&f))
+                            .is_some_and(|sec| sec.clips.contains(&f))
                     })
             });
             if md.signal.per_voice() {
@@ -2142,7 +2146,7 @@ impl Engine {
 
     /// A parameter a hand set (a knob, a library preset, a setup opened):
     /// set as `set_param` does, and marked to be folded into the song.
-    /// Automation, scenes and modulation call `set_param` and are not.
+    /// Automation, snapshots and modulation call `set_param` and are not.
     pub fn edit_param(&mut self, synth: usize, param: Param, value: f32) {
         self.set_param(synth, param, value);
         self.mark(synth, param);
@@ -2259,7 +2263,7 @@ impl Engine {
         self.fold |= bit;
     }
 
-    /// Whether a lane, a scene or a modulation of the song sets `param` on
+    /// Whether a lane, a snapshot or a modulation of the song sets `param` on
     /// `strip`: its value is the song's, never folded back.
     fn driven(&self, strip: usize, param: Param) -> bool {
         let on = |target: Target| match target {
@@ -2278,7 +2282,7 @@ impl Engine {
                 .any(|m| m.param == param && on(m.target))
             || self
                 .song
-                .scenes
+                .snapshots
                 .iter()
                 .any(|sc| sc.sets.iter().any(|(tg, p, _)| *p == param && on(*tg)))
     }
@@ -2340,9 +2344,9 @@ impl Engine {
         self.song_route = p.route;
         self.clock.set_tempo(self.song.tempo);
         self.clock.set_swing(self.song.swing);
-        // A cued fragment is found again by its name; gone, it stops (#375).
+        // A cued clip is found again by its name; gone, it stops (#375).
         let lost = self.cue.is_some() && {
-            self.cue = self.song.frags.iter().position(|f| f.name == self.cue_name);
+            self.cue = self.song.clips.iter().position(|f| f.name == self.cue_name);
             self.cue.is_none()
         };
         self.auto_last = [f32::NAN; MAX_AUTOS];
@@ -2367,7 +2371,7 @@ impl Engine {
                 let kept = self.song.mods.iter().position(|n| {
                     n.target == md.target
                         && n.param == md.param
-                        && n.frag.is_some() == md.frag.is_some()
+                        && n.clip.is_some() == md.clip.is_some()
                 });
                 match kept.and_then(|n| self.mod_base.get_mut(n)) {
                     Some(slot) if slot.is_none() => *slot = Some(base),
@@ -2506,7 +2510,7 @@ impl Engine {
                             *r = synth;
                         }
                     } else if routed.is_none() {
-                        let notes = song.frags.iter().any(|f| f.track == t && f.notes.is_some());
+                        let notes = song.clips.iter().any(|f| f.track == t && f.notes.is_some());
                         let synth = match track.kind {
                             Kind::Synth => voiced,
                             Kind::Sampler if notes => multi.or(voiced),
@@ -2584,12 +2588,12 @@ impl Engine {
 
     /// Set one step of the song (level 0 off, 1 hit, 2 accent) and print it
     /// again; false when there is no such step or level.
-    pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, level: u32) -> bool {
+    pub fn set_step(&mut self, clip: usize, lane: usize, step: usize, level: u32) -> bool {
         self.commit_song();
         let Some(to) = Step::from_level(level) else {
             return false;
         };
-        if !self.song.set_step(frag, lane, step, to) {
+        if !self.song.set_step(clip, lane, step, to) {
             return false;
         }
         self.reprint();
@@ -2598,19 +2602,19 @@ impl Engine {
 
     /// Ratchet a step (#242): it plays `r` (1–4) times in its span. The text
     /// follows.
-    pub fn set_ratchet(&mut self, frag: usize, lane: usize, step: usize, r: u32) -> bool {
+    pub fn set_ratchet(&mut self, clip: usize, lane: usize, step: usize, r: u32) -> bool {
         self.commit_song();
         let Ok(r) = u8::try_from(r) else {
             return false;
         };
-        if !self.song.set_ratchet(frag, lane, step, r) {
+        if !self.song.set_ratchet(clip, lane, step, r) {
             return false;
         }
         self.reprint();
         true
     }
 
-    /// Mute and solo track `t` (#355): its frags stop or play again, the
+    /// Mute and solo track `t` (#355): its clips stop or play again, the
     /// notes of every track no longer heard let go, and the text says so.
     /// The synth and its strip are left alone.
     pub fn set_track_flags(&mut self, t: usize, mute: bool, solo: bool) -> bool {
@@ -2882,9 +2886,9 @@ impl Engine {
         (sets.len() <= crate::song::MAX_SETS).then_some(sets)
     }
 
-    /// An arranger edit (#171): 0 toggle (section, kind, item), 1 add a
-    /// section (bars), 2 set a section's bars (section, bars), 3 insert an
-    /// entry (place, section), 4 remove an entry (place), 5 move an entry
+    /// An arranger edit (#171): 0 toggle (scene, kind, item), 1 add a
+    /// scene (bars), 2 set a scene's bars (scene, bars), 3 insert an
+    /// entry (place, scene), 4 remove an entry (place), 5 move an entry
     /// (from, to), 6 set the loop (first, last; 0 0 clears). The song is
     /// printed again; false when refused.
     pub fn arrange_edit(&mut self, op: u32, a: u32, b: u32, c: u32) -> bool {
@@ -2893,10 +2897,10 @@ impl Engine {
         let ok = match op {
             0 => self.song.toggle(a, b as u32, cu),
             1 => {
-                // The first section turns the arrangement on: the clock keeps its
+                // The first scene turns the arrangement on: the clock keeps its
                 // place in the bar instead of landing past the new end and stopping.
                 let first = self.song.arrange.is_empty();
-                let ok = self.song.add_section(a as u32).is_some();
+                let ok = self.song.add_scene(a as u32).is_some();
                 if let Some(k) = self.clock.step().filter(|_| ok && first) {
                     let len = u64::from(a as u32).max(1) * STEPS_PER_BAR;
                     self.clock.seek_step((k + 1) % len);

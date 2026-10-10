@@ -60,5 +60,5 @@ export const aheadEntry = (a: Ahead | null, bar: number) => a?.entries[bar - a.f
 /** A linear level as the lane's width, 0..1, over 48 dB. */
 export const width = (peak: number) => (peak > 0 ? Math.min(1, Math.max(0, 1 + (20 * Math.log10(peak)) / 48)) : 0)
 
-/** A section's band colour, by its index. */
-export const sectionColour = (s: number) => `hsl(${(160 + 67 * s) % 360} 45% 50%)`
+/** A scene's band colour, by its index. */
+export const sceneColour = (s: number) => `hsl(${(160 + 67 * s) % 360} 45% 50%)`

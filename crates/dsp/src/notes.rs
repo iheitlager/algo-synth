@@ -1,4 +1,4 @@
-//! Note fragments (spec 002 Req 3, ADR-0016): the text of a pitched line,
+//! Note clips (spec 002 Req 3, ADR-0016): the text of a pitched line,
 //! parsed, printed and compiled to events on a grid of 48 ticks to the bar.
 //!
 //! Two notations, never mixed in one line:
@@ -20,7 +20,7 @@
 //! A third form, timed notes, says exactly where each note is (#173, the
 //! form MIDI import writes): `d5@0:6 f#5@6:6:90 a4@12:24` is a note at tick
 //! 0 for 6 ticks, one at 6 with velocity 90 of 127, one at 12 for a half bar.
-//! Notes may overlap and run past the line's end; the frag line may say how
+//! Notes may overlap and run past the line's end; the clip line may say how
 //! many bars the line is (`bars 8`), else it ends at the bar of its last start.
 //!
 //! Parsing and compiling allocate and happen when a song is loaded, never in
@@ -38,7 +38,7 @@ use crate::algo::{Euclid, Rng, Scale, mix};
 
 /// Ticks in a bar of four quarters.
 pub const TICKS_PER_BAR: u32 = 48;
-/// Most events a fragment may compile to, and most bars it may run before it
+/// Most events a clip may compile to, and most bars it may run before it
 /// repeats.
 pub const MAX_EVENTS: usize = 512;
 pub const MAX_BARS: u32 = 32;
@@ -637,7 +637,7 @@ pub fn parse_in(text: &str, base: usize, scale: Option<&Scale>) -> Result<Notes,
     parse_with(text, base, scale, &|_| None)
 }
 
-/// As `parse_in`, with `srcs` to find the note fragments `markov` and
+/// As `parse_in`, with `srcs` to find the note clips `markov` and
 /// `mutate` read.
 pub fn parse_with(
     text: &str,
@@ -716,7 +716,7 @@ pub fn parse_with(
 }
 
 impl Notes {
-    /// A timed line made `bars` bars long (`frag … bars N`): at least as long
+    /// A timed line made `bars` bars long (`clip … bars N`): at least as long
     /// as its last start, at most 32 bars. Other lines keep their own length.
     pub fn with_bars(mut self, bars: u32) -> Result<Notes, &'static str> {
         if !matches!(self.seq, Seq::Timed(_)) {
@@ -730,7 +730,7 @@ impl Notes {
     }
 
     /// Each chord moved to the inversion nearest the one before (#103): the
-    /// frag line's `voicing`. The text stays as written.
+    /// clip line's `voicing`. The text stays as written.
     pub fn voiced(mut self) -> Notes {
         chord::voice(&mut self.events);
         self

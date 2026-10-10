@@ -263,7 +263,7 @@ class EngineProcessor extends AudioWorkletProcessor {
   }
 
   // The song as the engine holds it: its printed text, the tracks and their
-  // synths, every fragment's lanes and steps, and the last load's error.
+  // synths, every clip's lanes and steps, and the last load's error.
   // Text travels as bytes (the worklet has no TextDecoder).
   sendSong(ok, id) {
     const w = this.w
@@ -276,10 +276,10 @@ class EngineProcessor extends AudioWorkletProcessor {
         preset: w.track_preset(t), setting: w.track_setting(t),
       })
     }
-    const frags = []
-    for (let f = 0; f < w.song_frags(); f++) {
+    const clips = []
+    for (let f = 0; f < w.song_clips(); f++) {
       const lanes = []
-      for (let l = 0; l < w.frag_lanes(f); l++) {
+      for (let l = 0; l < w.clip_lanes(f); l++) {
         const steps = new Uint8Array(w.lane_steps(f, l))
         for (let s = 0; s < steps.length; s++) steps[s] = w.step_level(f, l, s)
         // How often each step plays in its span (#242): 1 from an engine without ratchets.
@@ -288,34 +288,34 @@ class EngineProcessor extends AudioWorkletProcessor {
         lanes.push({ pad: w.lane_pad(f, l), steps, ratchets })
       }
       // Its steps to a bar (#353): 16 from an engine that has no other.
-      const grid = w.frag_grid ? w.frag_grid(f) : 16
+      const grid = w.clip_grid ? w.clip_grid(f) : 16
       let notes = null
-      if (w.frag_notes_len(f)) {
+      if (w.clip_notes_len(f)) {
         // Each note as [start, length, note, accent]; the start and length are in ticks, 48 to a bar.
         const events = []
-        for (let k = 0; k < w.frag_events(f); k++) {
+        for (let k = 0; k < w.clip_events(f); k++) {
           events.push([w.event_start(f, k), w.event_len(f, k), w.event_note(f, k), w.event_accent(f, k)])
         }
         notes = {
-          text: bytes(w.frag_notes_ptr(f), w.frag_notes_len(f)), bars: w.frag_bars(f),
-          live: w.frag_live(f) === 1, generated: w.frag_generated(f) === 1, events,
+          text: bytes(w.clip_notes_ptr(f), w.clip_notes_len(f)), bars: w.clip_bars(f),
+          live: w.clip_live(f) === 1, generated: w.clip_generated(f) === 1, events,
         }
       }
-      frags.push({ name: bytes(w.frag_name_ptr(f), w.frag_name_len(f)), track: w.frag_track(f), lanes, grid, notes })
+      clips.push({ name: bytes(w.clip_name_ptr(f), w.clip_name_len(f)), track: w.clip_track(f), lanes, grid, notes })
     }
-    // The arrangement (ADR-0015): sections with what each holds, the order, lanes, scenes, loop.
-    const nF = w.song_frags(), nA = w.song_autos(), nC = w.song_scenes()
-    const has = (s, kind, n) => Array.from({ length: n }, (_, i) => w.section_has(s, kind, i) === 1)
-    const sections = []
-    for (let s = 0; s < w.song_sections(); s++) {
-      sections.push({
-        name: bytes(w.section_name_ptr(s), w.section_name_len(s)), bars: w.section_bars(s),
-        frags: has(s, 0, nF), autos: has(s, 1, nA), scenes: has(s, 2, nC),
+    // The arrangement (ADR-0015): scenes with what each holds, the order, lanes, snapshots, loop.
+    const nF = w.song_clips(), nA = w.song_autos(), nC = w.song_snapshots()
+    const has = (s, kind, n) => Array.from({ length: n }, (_, i) => w.scene_has(s, kind, i) === 1)
+    const scenes = []
+    for (let s = 0; s < w.song_scenes(); s++) {
+      scenes.push({
+        name: bytes(w.scene_name_ptr(s), w.scene_name_len(s)), bars: w.scene_bars(s),
+        clips: has(s, 0, nF), autos: has(s, 1, nA), snapshots: has(s, 2, nC),
       })
     }
     const arrange = Array.from({ length: w.arrange_len() }, (_, i) => w.arrange_at(i))
     const autos = Array.from({ length: nA }, (_, a) => bytes(w.auto_name_ptr(a), w.auto_name_len(a)))
-    const scenes = Array.from({ length: nC }, (_, c) => bytes(w.scene_name_ptr(c), w.scene_name_len(c)))
+    const snapshots = Array.from({ length: nC }, (_, c) => bytes(w.snapshot_name_ptr(c), w.snapshot_name_len(c)))
     // The song's own settings (#210) and, per track kind, the models that play it (#213).
     const settings = Array.from({ length: w.song_settings() }, (_, i) => ({
       name: bytes(w.setting_name_ptr(i), w.setting_name_len(i)), preset: w.setting_preset(i),
@@ -332,9 +332,9 @@ class EngineProcessor extends AudioWorkletProcessor {
       synth: w.samples_synth(i), id: bytes(w.samples_id_ptr(i), w.samples_id_len(i)),
     }))
     this.port.postMessage({
-      t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
+      t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id,
     })
   }
 

@@ -1,27 +1,27 @@
 //! The song as text (ADR-0012, spec 002 Req 3 and 6): a parser and a
-//! canonical printer, first cut. Drum tracks and fragments of lanes:
+//! canonical printer, first cut. Drum tracks and clips of lanes:
 //!
 //! ```text
 //! tempo 124
 //! swing 56
 //! track kit drums
 //!
-//! frag beat = kit /16
+//! clip beat = kit /16
 //!   bd x...x...x...x...
 //!   sn ....X.......X..x
 //!
-//! section intro 4: beat
-//! section main 8: beat fill
+//! scene intro 4: beat
+//! scene main 8: beat fill
 //! arrange intro main main
 //! loop 5 12
 //! ```
 //!
-//! A `synth` track holds note fragments instead (spec 002 Req 3, ADR-0016):
+//! A `synth` track holds note clips instead (spec 002 Req 3, ADR-0016):
 //!
 //! ```text
 //! track lead synth
 //!
-//! frag riff = lead
+//! clip riff = lead
 //!   "c4 [e4 g4] ~ <c5 d5>"      # or classic: c4:4 e4:8 g4:8 c5:2
 //! ```
 //!
@@ -36,37 +36,37 @@
 //! track pad synth              # prints as: track pad synth Juno106 JunoPad
 //! ```
 //!
-//! Sections and the arrangement (ADR-0015, spec 002 Req 4): a section is a
-//! number of bars and the fragments that play in it, each from the section's
-//! first bar and looping inside it; `arrange` plays sections in order, and
+//! Scenes and the arrangement (ADR-0015, spec 002 Req 4): a scene is a
+//! number of bars and the clips that play in it, each from the scene's
+//! first bar and looping inside it; `arrange` plays scenes in order, and
 //! `loop` repeats a range of the arrangement's bars (from 1, inclusive).
-//! Without `arrange` every fragment loops, as before.
+//! Without `arrange` every clip loops, as before.
 //!
-//! Scenes and automation (ADR-0015): any parameter, by its registry name, on a
+//! Snapshots and automation (ADR-0015): any parameter, by its registry name, on a
 //! target: a track (its synth), `strip1`–`strip16`, `group1`–`group8` or
 //! `master` (the global parameters):
 //!
 //! ```text
 //! auto sweep = kit.Cutoff ramp 300 4000 /8
 //! auto duck = strip3.Level 1 0.5 0.25 1 /1
-//! scene drop: strip1.Mute 1, master.P2Return 0.4
-//! section main 8: beat sweep duck [drop]
+//! snapshot drop: strip1.Mute 1, master.P2Return 0.4
+//! scene main 8: beat sweep duck [drop]
 //! ```
 //!
 //! A lane of values (spread evenly over its bars) or a ramp is placed in
-//! sections like a fragment and loops inside them; a scene sets its values on
-//! the first step of a section that lists it. Without `arrange` every lane
-//! loops and no scene is applied.
+//! scenes like a clip and loops inside them; a snapshot sets its values on
+//! the first step of a scene that lists it. Without `arrange` every lane
+//! loops and no snapshot is applied.
 //!
 //! A modulation (ADR-0019) writes a signal to a parameter for the whole song,
-//! once per block and after lanes and scenes; see `signal` for the language:
+//! once per block and after lanes and snapshots; see `signal` for the language:
 //!
 //! ```text
 //! mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)
-//! frag acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
+//! clip acid = bass .cutoff(sine.slow(4).exprange(300, 3000)) .resonance(0.7)
 //! ```
 //!
-//! A method on a fragment's line writes to its track while the fragment plays
+//! A method on a clip's line writes to its track while the clip plays
 //! (#204).
 //!
 //! Parsing and printing allocate, so they run when a song is loaded or a step
@@ -89,21 +89,21 @@ use crate::params::Param;
 pub use comments::Comments;
 pub use signal::Signal;
 
-/// Most tracks, fragments, lanes per fragment and steps per lane a song may have.
+/// Most tracks, clips, lanes per clip and steps per lane a song may have.
 pub const MAX_TRACKS: usize = 16;
-pub const MAX_FRAGS: usize = 256;
+pub const MAX_CLIPS: usize = 256;
 pub const MAX_STEPS: usize = 64;
 /// The steps to a bar a drum lane may have (#353): 16ths, their triplets,
 /// 32nds and 32nd triplets.
 pub const GRIDS: [u32; 5] = [12, 16, 24, 32, 48];
-/// Most sections, entries in the arrangement and bars in a section.
-pub const MAX_SECTIONS: usize = 256;
+/// Most scenes, entries in the arrangement and bars in a scene.
+pub const MAX_SCENES: usize = 256;
 pub const MAX_ARRANGE: usize = 256;
 pub const MAX_BARS: u32 = 256;
-/// Most automation lanes, values in a lane, scenes and settings in a scene.
+/// Most automation lanes, values in a lane, snapshots and settings in a snapshot.
 pub const MAX_AUTOS: usize = 32;
 pub const MAX_VALUES: usize = 64;
-pub const MAX_SCENES: usize = 32;
+pub const MAX_SNAPSHOTS: usize = 32;
 pub const MAX_SETS: usize = 32;
 /// Most modulations (`mod` lines); their signals share `signal::MAX_NODES`.
 pub const MAX_MODS: usize = 32;
@@ -114,15 +114,27 @@ const GROUPS: usize = 8;
 pub const STEPS_PER_BAR: u64 = 16;
 /// Longest song text accepted, in bytes.
 pub const MAX_TEXT: usize = 1 << 20;
-/// Longest name of a track or fragment.
+/// Longest name of a track or clip.
 const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
 /// names them. The parser reads no other, and `.openspec/language.md` must
 /// define each (a test holds it to that).
 pub const KEYWORDS: [&str; 16] = [
-    "tempo", "swing", "scale", "setting", "track", "samples", "strip", "group", "master", "frag",
-    "auto", "scene", "mod", "section", "arrange", "loop",
+    "tempo", "swing", "scale", "setting", "track", "samples", "strip", "group", "master", "clip",
+    "auto", "snapshot", "mod", "scene", "arrange", "loop",
 ];
+/// A line's keyword in today's words (#486, ADR-0031): a song written
+/// before reads on, `frag` as `clip`, `section` as `scene`, and the old
+/// `scene <name>: …` (a name and a colon, no bars) as a `snapshot`.
+pub fn current_keyword<'a>(first: &'a str, second: Option<&str>, third: Option<&str>) -> &'a str {
+    match first {
+        "frag" => "clip",
+        "section" => "scene",
+        "scene" if second.is_some_and(|w| w.ends_with(':')) || third == Some(":") => "snapshot",
+        _ => first,
+    }
+}
+
 /// Tempo and swing ranges, as the clock has them.
 const TEMPO: (f32, f32) = crate::clock::TEMPO;
 const SWING: (f32, f32) = crate::clock::SWING;
@@ -268,22 +280,22 @@ impl Lane {
 /// A loop on a track: one lane per pad on a drum track, one line of notes on
 /// a synth track (the other is then empty).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Fragment {
+pub struct Clip {
     pub name: String,
     pub track: usize,
     pub lanes: Vec<Lane>,
     pub notes: Option<Notes>,
-    /// A generator call that makes new events every cycle (`frag a = t live`).
+    /// A generator call that makes new events every cycle (`clip a = t live`).
     pub live: bool,
-    /// Chords moved to the inversion nearest the one before (`frag a = t voicing`, #103).
+    /// Chords moved to the inversion nearest the one before (`clip a = t voicing`, #103).
     pub voicing: bool,
     /// Pattern methods (`.fast(2) .rev()`, ADR-0019), applied to its notes in order.
     pub pattern: Vec<Pattern>,
-    /// A drum frag's steps to a bar (`/16`, #353): one of `GRIDS`.
+    /// A drum clip's steps to a bar (`/16`, #353): one of `GRIDS`.
     pub grid: u32,
 }
 
-/// What a track's fragments hold.
+/// What a track's clips hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Drums,
@@ -302,19 +314,19 @@ impl Kind {
     }
 }
 
-/// Bars of the song and the fragments that play in them.
+/// Bars of the song and the clips that play in them.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Section {
+pub struct Scene {
     pub name: String,
     pub bars: u32,
-    /// Indices into `Song::frags`.
-    pub frags: Vec<usize>,
-    /// Indices into `Song::autos` and `Song::scenes`.
+    /// Indices into `Song::clips`.
+    pub clips: Vec<usize>,
+    /// Indices into `Song::autos` and `Song::snapshots`.
     pub autos: Vec<usize>,
-    pub scenes: Vec<usize>,
+    pub snapshots: Vec<usize>,
 }
 
-/// What a scene or lane sets: a track's synth, a strip (synths 0–15, groups
+/// What a snapshot or lane sets: a track's synth, a strip (synths 0–15, groups
 /// 16–23) or the global parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -359,14 +371,14 @@ impl Auto {
 
 /// A modulation (ADR-0019): a signal written to one parameter of one target
 /// while the song plays: a `mod` line for the whole song, or a parameter
-/// method on a fragment (`frag a = t .cutoff(…)`, #204) while it plays.
+/// method on a clip (`clip a = t .cutoff(…)`, #204) while it plays.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mod {
     pub target: Target,
     pub param: Param,
     pub signal: Signal,
-    /// The fragment a method belongs to; `None` for a `mod` line.
-    pub frag: Option<usize>,
+    /// The clip a method belongs to; `None` for a `mod` line.
+    pub clip: Option<usize>,
     /// The Strudel name it was written with (#298), printed back as written.
     pub alias: Option<&'static str>,
 }
@@ -398,9 +410,9 @@ fn alias(name: &str) -> Option<(&'static str, Param)> {
     ALIASES.iter().find(|(a, _)| *a == name).copied()
 }
 
-/// Values set together on the first step of a section.
+/// Values set together on the first step of a scene.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Scene {
+pub struct Snapshot {
     pub name: String,
     pub sets: Vec<(Target, Param, f32)>,
 }
@@ -432,12 +444,12 @@ pub const MAX_MIX: usize = 48;
 /// Where clock step `k` falls in the song.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum At {
-    /// No arrangement: every fragment loops on the clock's step.
+    /// No arrangement: every clip loops on the clock's step.
     Free(u64),
-    /// In arrangement entry `entry`, which plays `section`, `local` steps in.
+    /// In arrangement entry `entry`, which plays `scene`, `local` steps in.
     In {
         entry: usize,
-        section: usize,
+        scene: usize,
         local: u64,
     },
     /// Past the end of the arrangement.
@@ -459,7 +471,7 @@ pub struct Track {
     /// the role, and the engine may pick again from the synths it has.
     pub picked: bool,
     /// Muted, or soloed (#355): written `mute` / `solo` at the end of its
-    /// line. A frag plays when its track is heard (`Song::heard`).
+    /// line. A clip plays when its track is heard (`Song::heard`).
     pub mute: bool,
     pub solo: bool,
 }
@@ -520,12 +532,12 @@ pub struct Song {
     pub samples: Vec<(usize, String)>,
     /// Starting values for strips, groups and the master (ADR-0018).
     pub mix: Vec<MixLine>,
-    pub frags: Vec<Fragment>,
+    pub clips: Vec<Clip>,
     pub autos: Vec<Auto>,
-    pub scenes: Vec<Scene>,
+    pub snapshots: Vec<Snapshot>,
     pub mods: Vec<Mod>,
-    pub sections: Vec<Section>,
-    /// The order sections play in, by index; empty means no arrangement.
+    pub scenes: Vec<Scene>,
+    /// The order scenes play in, by index; empty means no arrangement.
     pub arrange: Vec<usize>,
     /// Bars of the arrangement to repeat, from 1 and inclusive.
     pub loop_bars: Option<(u32, u32)>,
@@ -543,11 +555,11 @@ impl Default for Song {
             tracks: Vec::new(),
             samples: Vec::new(),
             mix: Vec::new(),
-            frags: Vec::new(),
+            clips: Vec::new(),
             autos: Vec::new(),
-            scenes: Vec::new(),
+            snapshots: Vec::new(),
             mods: Vec::new(),
-            sections: Vec::new(),
+            scenes: Vec::new(),
             arrange: Vec::new(),
             loop_bars: None,
             comments: Comments::default(),
@@ -627,12 +639,12 @@ impl Song {
     /// Parse a song; the first problem found is the error.
     pub fn parse(text: &str) -> Result<Song, SongError> {
         let mut song = Song::default();
-        // The fragment that indented lines add lanes to, and the line it began on.
+        // The clip that indented lines add lanes to, and the line it began on.
         let mut open: Option<(usize, usize)> = None;
-        // `frag … bars N`: the length the open frag's line of timed notes is given.
+        // `clip … bars N`: the length the open clip's line of timed notes is given.
         let mut open_bars: Option<(u32, usize, usize)> = None;
-        // `frag … /N` other than /16 on a sampler: its column and line, refused
-        // if the frag turns out to hold notes (#395).
+        // `clip … /N` other than /16 on a sampler: its column and line, refused
+        // if the clip turns out to hold notes (#395).
         let mut open_grid: Option<(usize, usize)> = None;
         // The line of the `loop`, checked against the arrangement at the end.
         let mut loop_at: Option<usize> = None;
@@ -659,18 +671,23 @@ impl Song {
                 close_code(&mut song, c)?;
             }
             let body = strip_comment(raw);
-            // `frag … .cutoff(…) .resonance(…)` (#204): parameter methods from
+            // `clip … .cutoff(…) .resonance(…)` (#204): parameter methods from
             // the first word that starts with a dot, taken off and read with
-            // the frag.
-            let (body, methods) = match body.trim_start().starts_with("frag ") {
+            // the clip.
+            let (body, methods) = match ["clip ", "frag "]
+                .iter()
+                .any(|k| body.trim_start().starts_with(k))
+            {
                 true => split_methods(body),
                 false => (body, None),
             };
             let mut ws = words(body);
-            // `frag a = t … voicing` (#103): the last word, taken off before the rest is read.
+            // `clip a = t … voicing` (#103): the last word, taken off before the rest is read.
             let mut voicing = None;
             if ws.len() > 4
-                && ws.first().is_some_and(|w| w.text == "frag")
+                && ws
+                    .first()
+                    .is_some_and(|w| matches!(w.text, "clip" | "frag"))
                 && ws.last().is_some_and(|w| w.text == "voicing")
             {
                 voicing = ws.pop().map(|w| w.col);
@@ -680,10 +697,10 @@ impl Song {
             };
             if body.starts_with([' ', '\t']) {
                 let Some((f, _)) = open else {
-                    return Err(err(first.col, "a lane goes under a frag"));
+                    return Err(err(first.col, "a lane goes under a clip"));
                 };
                 let kind = song
-                    .frags
+                    .clips
                     .get(f)
                     .and_then(|fr| song.tracks.get(fr.track))
                     .map(|t| t.kind);
@@ -699,37 +716,37 @@ impl Song {
                 };
                 if kind == Some(Kind::Sampler) {
                     let has = song
-                        .frags
+                        .clips
                         .get(f)
                         .map(|fr| (fr.notes.is_some(), !fr.lanes.is_empty()));
                     if (as_notes && has.is_some_and(|h| h.1))
                         || (!as_notes && has.is_some_and(|h| h.0))
                     {
-                        return Err(err(first.col, "a frag holds lanes or notes, not both"));
+                        return Err(err(first.col, "a clip holds lanes or notes, not both"));
                     }
                 }
                 if as_notes {
-                    if song.frags.get(f).is_some_and(|fr| fr.notes.is_some()) {
-                        return Err(err(first.col, "a note frag is one line of notes"));
+                    if song.clips.get(f).is_some_and(|fr| fr.notes.is_some()) {
+                        return Err(err(first.col, "a note clip is one line of notes"));
                     }
-                    // A grid is for lanes: a sampler frag that holds notes has
+                    // A grid is for lanes: a sampler clip that holds notes has
                     // none, as on a synth track (#395).
                     if let Some((col, at)) = open_grid.take() {
                         return Err(SongError {
                             line: at,
                             col,
-                            msg: "a note frag has no step grid",
+                            msg: "a note clip has no step grid",
                         });
                     }
                     let srcs = |name: &str| {
-                        song.frags
+                        song.clips
                             .iter()
                             .find(|f| f.name == name)
                             .and_then(|f| f.notes.as_ref())
                             .map(|n| (n.events.clone(), n.bars))
                     };
-                    let live = song.frags.get(f).is_some_and(|fr| fr.live);
-                    let voiced = song.frags.get(f).is_some_and(|fr| fr.voicing);
+                    let live = song.clips.get(f).is_some_and(|fr| fr.live);
+                    let voiced = song.clips.get(f).is_some_and(|fr| fr.voicing);
                     let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
@@ -741,24 +758,24 @@ impl Song {
                     if live && !matches!(n.seq, notes::Seq::Generated(_)) {
                         return Err(err(
                             first.col,
-                            "a live frag is a call: arp, walk, markov, mutate, root or prog",
+                            "a live clip is a call: arp, walk, markov, mutate, root or prog",
                         ));
                     }
-                    let frag = song
-                        .frags
+                    let clip = song
+                        .clips
                         .get_mut(f)
-                        .ok_or(err(first.col, "a lane goes under a frag"))?;
+                        .ok_or(err(first.col, "a lane goes under a clip"))?;
                     let mut n = if voiced { n.voiced() } else { n };
-                    if !frag.pattern.is_empty() {
+                    if !clip.pattern.is_empty() {
                         let line = Line {
                             events: std::mem::take(&mut n.events),
                             bars: n.bars,
                         };
-                        let line = pattern::apply_all(&frag.pattern, line)
+                        let line = pattern::apply_all(&clip.pattern, line)
                             .map_err(|m| err(first.col, m))?;
                         (n.events, n.bars) = (line.events, line.bars);
                     }
-                    frag.notes = Some(n);
+                    clip.notes = Some(n);
                     continue;
                 }
                 if let Some((_, col, at)) = open_bars {
@@ -769,17 +786,17 @@ impl Song {
                     });
                 }
                 let lane = parse_lane(&ws, line)?;
-                let frag = song
-                    .frags
+                let clip = song
+                    .clips
                     .get_mut(f)
-                    .ok_or(err(first.col, "a lane goes under a frag"))?;
-                if !frag.pattern.is_empty() {
-                    return Err(err(first.col, "pattern methods are for a frag of notes"));
+                    .ok_or(err(first.col, "a lane goes under a clip"))?;
+                if !clip.pattern.is_empty() {
+                    return Err(err(first.col, "pattern methods are for a clip of notes"));
                 }
-                if frag.lanes.iter().any(|l| l.pad == lane.pad) {
+                if clip.lanes.iter().any(|l| l.pad == lane.pad) {
                     return Err(err(first.col, "this pad already has a lane"));
                 }
-                frag.lanes.push(lane);
+                clip.lanes.push(lane);
                 continue;
             }
             if let Some((f, at)) = open.take() {
@@ -793,14 +810,23 @@ impl Song {
                 Some(w) => Err(err(w.col, "unexpected text")),
                 None => Ok(()),
             };
-            let keyword = first.text.strip_suffix(':').unwrap_or(first.text);
+            let keyword = current_keyword(
+                first.text,
+                ws.get(1).map(|w| w.text),
+                ws.get(2).map(|w| w.text),
+            );
+            let keyword = keyword.strip_suffix(':').unwrap_or(keyword);
             if !KEYWORDS.contains(&keyword) {
                 return Err(err(
                     first.col,
-                    "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                    "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                 ));
             }
-            match first.text {
+            match current_keyword(
+                first.text,
+                ws.get(1).map(|w| w.text),
+                ws.get(2).map(|w| w.text),
+            ) {
                 "tempo" | "swing" => {
                     let w = arg(1, "a number goes here")?;
                     let (range, msg) = if first.text == "tempo" {
@@ -837,8 +863,8 @@ impl Song {
                     if song.scale.is_some() {
                         return Err(err(first.col, "a song has one scale"));
                     }
-                    if !song.frags.is_empty() {
-                        return Err(err(first.col, "the scale goes before the frags"));
+                    if !song.clips.is_empty() {
+                        return Err(err(first.col, "the scale goes before the clips"));
                     }
                     song.scale = Some(Scale { root: pc, mode: m });
                 }
@@ -917,7 +943,7 @@ impl Song {
                         mute,
                         solo,
                     });
-                    // A model without a preset: one is picked once the frags are in.
+                    // A model without a preset: one is picked once the clips are in.
                     if let (Some(m), None) = (model, preset) {
                         models.push((song.tracks.len() - 1, m));
                     }
@@ -1012,20 +1038,20 @@ impl Song {
                         });
                     }
                 }
-                "frag" => {
-                    let name = arg(1, "a fragment name goes here")?;
+                "clip" => {
+                    let name = arg(1, "a clip name goes here")?;
                     if !is_name(name.text) {
                         return Err(err(
                             name.col,
                             "a name is a letter, then letters, digits or _",
                         ));
                     }
-                    if song.frags.iter().any(|f| f.name == name.text)
+                    if song.clips.iter().any(|f| f.name == name.text)
                         || song.autos.iter().any(|a| a.name == name.text)
                     {
                         return Err(err(
                             name.col,
-                            "there is already a frag or auto with this name",
+                            "there is already a clip or auto with this name",
                         ));
                     }
                     let eq = arg(2, "= and a track go here")?;
@@ -1041,15 +1067,15 @@ impl Song {
                     let live = ws.get(4).is_some_and(|w| w.text == "live");
                     if let Some(col) = voicing {
                         if kind == Some(Kind::Drums) {
-                            return Err(err(col, "voicing is for a frag of notes"));
+                            return Err(err(col, "voicing is for a clip of notes"));
                         }
                         if live {
-                            return Err(err(col, "a live frag is not voiced"));
+                            return Err(err(col, "a live clip is not voiced"));
                         }
                     }
                     if live && kind == Some(Kind::Drums) {
                         let col = ws.get(4).map_or(first.col, |w| w.col);
-                        return Err(err(col, "only a note frag can be live"));
+                        return Err(err(col, "only a note clip can be live"));
                     }
                     // `bars N` for a line of timed notes (#173).
                     open_bars = None;
@@ -1070,7 +1096,7 @@ impl Song {
                     open_grid = None;
                     if let Some(w) = ws.get(4).filter(|_| !live && open_bars.is_none()) {
                         if synth {
-                            return Err(err(w.col, "a note frag has no step grid"));
+                            return Err(err(w.col, "a note clip has no step grid"));
                         }
                         grid = w
                             .text
@@ -1083,10 +1109,10 @@ impl Song {
                         }
                     }
                     expect_end(if open_bars.is_some() { 6 } else { 5 })?;
-                    if song.frags.len() >= MAX_FRAGS {
-                        return Err(err(first.col, "a song has at most 256 frags"));
+                    if song.clips.len() >= MAX_CLIPS {
+                        return Err(err(first.col, "a song has at most 256 clips"));
                     }
-                    song.frags.push(Fragment {
+                    song.clips.push(Clip {
                         name: name.text.to_string(),
                         track: t,
                         lanes: Vec::new(),
@@ -1096,16 +1122,16 @@ impl Song {
                         pattern: Vec::new(),
                         grid,
                     });
-                    let f = song.frags.len() - 1;
+                    let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
                         for (name, ncol, sig, scol) in
                             parse_methods(text).map_err(|(c, m)| err(at + c - 1, m))?
                         {
                             if Pattern::NAMES.contains(&name) {
                                 let msg = if kind == Some(Kind::Drums) {
-                                    Some("pattern methods are for a frag of notes")
+                                    Some("pattern methods are for a clip of notes")
                                 } else if live {
-                                    Some("a live frag takes no pattern methods yet")
+                                    Some("a live clip takes no pattern methods yet")
                                 } else {
                                     None
                                 };
@@ -1114,8 +1140,8 @@ impl Song {
                                     None => Pattern::parse(name, sig),
                                 }
                                 .map_err(|m| err(at + ncol - 1, m))?;
-                                if let Some(frag) = song.frags.get_mut(f) {
-                                    frag.pattern.push(p);
+                                if let Some(clip) = song.clips.get_mut(f) {
+                                    clip.pattern.push(p);
                                 }
                                 continue;
                             }
@@ -1125,7 +1151,7 @@ impl Song {
                             if song
                                 .mods
                                 .iter()
-                                .any(|m| m.frag == Some(f) && m.param == param)
+                                .any(|m| m.clip == Some(f) && m.param == param)
                             {
                                 return Err(err(
                                     at + ncol - 1,
@@ -1144,22 +1170,22 @@ impl Song {
                                 target,
                                 param,
                                 signal,
-                                frag: Some(f),
+                                clip: Some(f),
                             });
                         }
                     }
                     open = Some((f, line));
                 }
-                "section" => {
-                    let name = arg(1, "a section name goes here")?;
+                "scene" => {
+                    let name = arg(1, "a scene name goes here")?;
                     if !is_name(name.text) {
                         return Err(err(
                             name.col,
                             "a name is a letter, then letters, digits or _",
                         ));
                     }
-                    if song.sections.iter().any(|s| s.name == name.text) {
-                        return Err(err(name.col, "there is already a section with this name"));
+                    if song.scenes.iter().any(|s| s.name == name.text) {
+                        return Err(err(name.col, "there is already a scene with this name"));
                     }
                     let bars_word = arg(2, "a number of bars and : go here")?;
                     // `8:` or `8 :`.
@@ -1177,44 +1203,48 @@ impl Song {
                         .parse()
                         .ok()
                         .filter(|b| (1..=MAX_BARS).contains(b))
-                        .ok_or(err(bars_word.col, "a section is 1 to 256 bars"))?;
-                    let (mut frags, mut autos, mut scenes) = (Vec::new(), Vec::new(), Vec::new());
+                        .ok_or(err(bars_word.col, "a scene is 1 to 256 bars"))?;
+                    let (mut clips, mut autos, mut snapshots) =
+                        (Vec::new(), Vec::new(), Vec::new());
                     while let Some(w) = ws.get(k) {
                         k += 1;
                         if let Some(name) =
                             w.text.strip_prefix('[').and_then(|n| n.strip_suffix(']'))
                         {
-                            let Some(s) = song.scenes.iter().position(|s| s.name == name) else {
-                                return Err(err(w.col, "no scene has this name"));
+                            let Some(s) = song.snapshots.iter().position(|s| s.name == name) else {
+                                return Err(err(w.col, "no snapshot has this name"));
                             };
-                            if scenes.contains(&s) {
-                                return Err(err(w.col, "this scene is already in the section"));
+                            if snapshots.contains(&s) {
+                                return Err(err(w.col, "this snapshot is already in the scene"));
                             }
-                            scenes.push(s);
+                            snapshots.push(s);
                         } else if let Some(a) = song.autos.iter().position(|a| a.name == w.text) {
                             if autos.contains(&a) {
-                                return Err(err(w.col, "this auto is already in the section"));
+                                return Err(err(w.col, "this auto is already in the scene"));
                             }
                             autos.push(a);
                         } else {
-                            let Some(f) = song.frags.iter().position(|f| f.name == w.text) else {
-                                return Err(err(w.col, "no frag, auto or [scene] has this name"));
+                            let Some(f) = song.clips.iter().position(|f| f.name == w.text) else {
+                                return Err(err(
+                                    w.col,
+                                    "no clip, auto or [snapshot] has this name",
+                                ));
                             };
-                            if frags.contains(&f) {
-                                return Err(err(w.col, "this frag is already in the section"));
+                            if clips.contains(&f) {
+                                return Err(err(w.col, "this clip is already in the scene"));
                             }
-                            frags.push(f);
+                            clips.push(f);
                         }
                     }
-                    if song.sections.len() >= MAX_SECTIONS {
-                        return Err(err(first.col, "a song has at most 256 sections"));
+                    if song.scenes.len() >= MAX_SCENES {
+                        return Err(err(first.col, "a song has at most 256 scenes"));
                     }
-                    song.sections.push(Section {
+                    song.scenes.push(Scene {
                         name: name.text.to_string(),
                         bars,
-                        frags,
+                        clips,
                         autos,
-                        scenes,
+                        snapshots,
                     });
                 }
                 "auto" => {
@@ -1226,11 +1256,11 @@ impl Song {
                         ));
                     }
                     if song.autos.iter().any(|a| a.name == name.text)
-                        || song.frags.iter().any(|f| f.name == name.text)
+                        || song.clips.iter().any(|f| f.name == name.text)
                     {
                         return Err(err(
                             name.col,
-                            "there is already a frag or auto with this name",
+                            "there is already a clip or auto with this name",
                         ));
                     }
                     let eq = arg(2, "= and a target.Param go here")?;
@@ -1316,14 +1346,14 @@ impl Song {
                     }
                     song.mix.push(line);
                 }
-                "scene" => {
-                    let w = arg(1, "a scene name and : go here")?;
+                "snapshot" => {
+                    let w = arg(1, "a snapshot name and : go here")?;
                     let name = w.text.strip_suffix(':').unwrap_or(w.text);
                     if !is_name(name) {
                         return Err(err(w.col, "a name is a letter, then letters, digits or _"));
                     }
-                    if song.scenes.iter().any(|s| s.name == name) {
-                        return Err(err(w.col, "there is already a scene with this name"));
+                    if song.snapshots.iter().any(|s| s.name == name) {
+                        return Err(err(w.col, "there is already a snapshot with this name"));
                     }
                     let mut k = 2;
                     if !w.text.ends_with(':') {
@@ -1348,7 +1378,7 @@ impl Song {
                             .filter(|x| x.is_finite())
                             .ok_or(err(v.col, "a value is a number"))?;
                         if sets.len() >= MAX_SETS {
-                            return Err(err(tp.col, "a scene has at most 32 settings"));
+                            return Err(err(tp.col, "a snapshot has at most 32 settings"));
                         }
                         sets.push((target, param, value));
                         k += 2;
@@ -1364,10 +1394,10 @@ impl Song {
                             "settings go here: target.Param value, …",
                         ));
                     }
-                    if song.scenes.len() >= MAX_SCENES {
-                        return Err(err(first.col, "a song has at most 32 scenes"));
+                    if song.snapshots.len() >= MAX_SNAPSHOTS {
+                        return Err(err(first.col, "a song has at most 32 snapshots"));
                     }
-                    song.scenes.push(Scene {
+                    song.snapshots.push(Snapshot {
                         name: name.to_string(),
                         sets,
                     });
@@ -1379,7 +1409,7 @@ impl Song {
                     if song
                         .mods
                         .iter()
-                        .any(|m| m.frag.is_none() && m.target == target && m.param == param)
+                        .any(|m| m.clip.is_none() && m.target == target && m.param == param)
                     {
                         return Err(err(tp.col, "this parameter already has a mod"));
                     }
@@ -1405,7 +1435,7 @@ impl Song {
                         target,
                         param,
                         signal,
-                        frag: None,
+                        clip: None,
                         alias: tp
                             .text
                             .split_once('.')
@@ -1419,18 +1449,18 @@ impl Song {
                     }
                     let mut order = Vec::new();
                     for w in ws.iter().skip(1) {
-                        let Some(s) = song.sections.iter().position(|s| s.name == w.text) else {
-                            return Err(err(w.col, "no section has this name"));
+                        let Some(s) = song.scenes.iter().position(|s| s.name == w.text) else {
+                            return Err(err(w.col, "no scene has this name"));
                         };
                         if order.len() >= MAX_ARRANGE {
-                            return Err(err(w.col, "an arrangement has at most 256 sections"));
+                            return Err(err(w.col, "an arrangement has at most 256 scenes"));
                         }
                         order.push(s);
                     }
                     if order.is_empty() {
                         return Err(err(
                             body.trim_end().chars().count() + 1,
-                            "sections go here, in the order they play",
+                            "scenes go here, in the order they play",
                         ));
                     }
                     song.arrange = order;
@@ -1455,7 +1485,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, frag, auto, scene, mod, section, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                     ));
                 }
             }
@@ -1496,12 +1526,12 @@ impl Song {
     pub fn bars(&self) -> u64 {
         self.arrange
             .iter()
-            .filter_map(|s| self.sections.get(*s))
+            .filter_map(|s| self.scenes.get(*s))
             .map(|s| u64::from(s.bars))
             .sum()
     }
 
-    /// Whether track `t`'s frags play (#355): while any track is soloed only
+    /// Whether track `t`'s clips play (#355): while any track is soloed only
     /// the soloed ones, muted or not; else every track not muted.
     pub fn heard(&self, t: usize) -> bool {
         let Some(track) = self.tracks.get(t) else {
@@ -1540,14 +1570,14 @@ impl Song {
         }
         let mut begin = 0;
         for (entry, sec) in self.arrange.iter().enumerate() {
-            let Some(section) = self.sections.get(*sec) else {
+            let Some(scene) = self.scenes.get(*sec) else {
                 continue;
             };
-            let len = u64::from(section.bars) * STEPS_PER_BAR;
+            let len = u64::from(scene.bars) * STEPS_PER_BAR;
             if s < begin + len {
                 return At::In {
                     entry,
-                    section: *sec,
+                    scene: *sec,
                     local: s - begin,
                 };
             }
@@ -1649,7 +1679,7 @@ impl Song {
                 lines.push(format!("{at}: {}", sets.join(", ")));
             }
         }
-        for (fi, f) in self.frags.iter().enumerate() {
+        for (fi, f) in self.clips.iter().enumerate() {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
             if let Some(n) = &f.notes {
@@ -1661,7 +1691,7 @@ impl Song {
                 };
                 let voicing = if f.voicing { " voicing" } else { "" };
                 lines.push(format!(
-                    "frag {} = {}{live}{bars}{voicing}{}",
+                    "clip {} = {}{live}{bars}{voicing}{}",
                     f.name,
                     track,
                     self.methods_of(fi)
@@ -1670,7 +1700,7 @@ impl Song {
                 continue;
             }
             lines.push(format!(
-                "frag {} = {} /{}{}",
+                "clip {} = {} /{}{}",
                 f.name,
                 track,
                 f.grid,
@@ -1684,8 +1714,8 @@ impl Song {
                 lines.push(format!("  {} {}", l.pad.name(), steps));
             }
         }
-        let mod_lines = self.mods.iter().any(|m| m.frag.is_none());
-        if !self.autos.is_empty() || !self.scenes.is_empty() || mod_lines {
+        let mod_lines = self.mods.iter().any(|m| m.clip.is_none());
+        if !self.autos.is_empty() || !self.snapshots.is_empty() || mod_lines {
             lines.push(String::new());
         }
         for a in &self.autos {
@@ -1706,7 +1736,7 @@ impl Song {
                 a.bars
             ));
         }
-        for s in &self.scenes {
+        for s in &self.snapshots {
             let sets: Vec<String> = s
                 .sets
                 .iter()
@@ -1719,9 +1749,9 @@ impl Song {
                     )
                 })
                 .collect();
-            lines.push(format!("scene {}: {}", s.name, sets.join(", ")));
+            lines.push(format!("snapshot {}: {}", s.name, sets.join(", ")));
         }
-        for m in self.mods.iter().filter(|m| m.frag.is_none()) {
+        for m in self.mods.iter().filter(|m| m.clip.is_none()) {
             lines.push(format!(
                 "mod {}.{} = {}",
                 self.target_name(m.target),
@@ -1730,24 +1760,24 @@ impl Song {
                 m.signal
             ));
         }
-        if !self.sections.is_empty() {
+        if !self.scenes.is_empty() {
             lines.push(String::new());
         }
-        for s in &self.sections {
-            let mut line = format!("section {} {}:", s.name, s.bars);
+        for s in &self.scenes {
+            let mut line = format!("scene {} {}:", s.name, s.bars);
             let names = s
-                .frags
+                .clips
                 .iter()
-                .filter_map(|f| self.frags.get(*f).map(|x| x.name.clone()))
+                .filter_map(|f| self.clips.get(*f).map(|x| x.name.clone()))
                 .chain(
                     s.autos
                         .iter()
                         .filter_map(|a| self.autos.get(*a).map(|x| x.name.clone())),
                 )
                 .chain(
-                    s.scenes
+                    s.snapshots
                         .iter()
-                        .filter_map(|c| self.scenes.get(*c).map(|x| format!("[{}]", x.name))),
+                        .filter_map(|c| self.snapshots.get(*c).map(|x| format!("[{}]", x.name))),
                 );
             for n in names {
                 line.push(' ');
@@ -1759,7 +1789,7 @@ impl Song {
             let names: Vec<&str> = self
                 .arrange
                 .iter()
-                .filter_map(|s| self.sections.get(*s).map(|s| s.name.as_str()))
+                .filter_map(|s| self.scenes.get(*s).map(|s| s.name.as_str()))
                 .collect();
             lines.push(format!("arrange {}", names.join(" ")));
         }
@@ -1771,12 +1801,12 @@ impl Song {
         lines.join("\n")
     }
 
-    /// Replace the generator call of note frag `frag` with the events it
+    /// Replace the generator call of note clip `clip` with the events it
     /// plays (`events`, or its own when `None`), written as mini-notation, and
-    /// make it a fixed frag. False when it is not a generated frag or the
+    /// make it a fixed clip. False when it is not a generated clip or the
     /// events cannot be written back exactly.
-    pub fn freeze(&mut self, frag: usize, events: Option<&[notes::Event]>) -> bool {
-        let Some(f) = self.frags.get_mut(frag) else {
+    pub fn freeze(&mut self, clip: usize, events: Option<&[notes::Event]>) -> bool {
+        let Some(f) = self.clips.get_mut(clip) else {
             return false;
         };
         let Some(n) = f.notes.as_ref() else {
@@ -1797,22 +1827,22 @@ impl Song {
 
     // --- Arranger edits (#171): each keeps the song valid, false when refused.
 
-    /// Put fragment (`kind` 0), lane (1) or scene (2) `item` in section `s`,
+    /// Put clip (`kind` 0), lane (1) or snapshot (2) `item` in scene `s`,
     /// or take it out.
     pub fn toggle(&mut self, s: usize, kind: u32, item: usize) -> bool {
         let exists = match kind {
-            0 => item < self.frags.len(),
+            0 => item < self.clips.len(),
             1 => item < self.autos.len(),
-            2 => item < self.scenes.len(),
+            2 => item < self.snapshots.len(),
             _ => false,
         };
-        let Some(sec) = self.sections.get_mut(s) else {
+        let Some(sec) = self.scenes.get_mut(s) else {
             return false;
         };
         let list = match kind {
-            0 => &mut sec.frags,
+            0 => &mut sec.clips,
             1 => &mut sec.autos,
-            _ => &mut sec.scenes,
+            _ => &mut sec.snapshots,
         };
         if !exists {
             return false;
@@ -1826,10 +1856,10 @@ impl Song {
         true
     }
 
-    /// A new empty section of `bars` bars named `partN`, added to the end of
+    /// A new empty scene of `bars` bars named `partN`, added to the end of
     /// the arrangement; its index.
-    pub fn add_section(&mut self, bars: u32) -> Option<usize> {
-        if self.sections.len() >= MAX_SECTIONS
+    pub fn add_scene(&mut self, bars: u32) -> Option<usize> {
+        if self.scenes.len() >= MAX_SCENES
             || self.arrange.len() >= MAX_ARRANGE
             || !(1..=MAX_BARS).contains(&bars)
         {
@@ -1837,28 +1867,28 @@ impl Song {
         }
         let name = (1..)
             .map(|n| format!("part{n}"))
-            .find(|n| !self.sections.iter().any(|s| &s.name == n))?;
-        // The first section holds every frag, so turning the arrangement on
+            .find(|n| !self.scenes.iter().any(|s| &s.name == n))?;
+        // The first scene holds every clip, so turning the arrangement on
         // keeps the music that was looping instead of silencing it.
-        let frags = if self.arrange.is_empty() {
-            (0..self.frags.len()).collect()
+        let clips = if self.arrange.is_empty() {
+            (0..self.clips.len()).collect()
         } else {
             Vec::new()
         };
-        self.sections.push(Section {
+        self.scenes.push(Scene {
             name,
             bars,
-            frags,
+            clips,
             autos: Vec::new(),
-            scenes: Vec::new(),
+            snapshots: Vec::new(),
         });
-        let s = self.sections.len() - 1;
+        let s = self.scenes.len() - 1;
         self.arrange.push(s);
         Some(s)
     }
 
     pub fn set_bars(&mut self, s: usize, bars: u32) -> bool {
-        match self.sections.get_mut(s) {
+        match self.scenes.get_mut(s) {
             Some(sec) if (1..=MAX_BARS).contains(&bars) => {
                 sec.bars = bars;
                 self.fit_loop();
@@ -1868,10 +1898,9 @@ impl Song {
         }
     }
 
-    /// Play section `s` at place `at` of the arrangement (`at` may be its length).
+    /// Play scene `s` at place `at` of the arrangement (`at` may be its length).
     pub fn arrange_insert(&mut self, at: usize, s: usize) -> bool {
-        if s >= self.sections.len() || at > self.arrange.len() || self.arrange.len() >= MAX_ARRANGE
-        {
+        if s >= self.scenes.len() || at > self.arrange.len() || self.arrange.len() >= MAX_ARRANGE {
             return false;
         }
         self.arrange.insert(at, s);
@@ -1919,22 +1948,22 @@ impl Song {
         }
     }
 
-    /// Whether section `s` holds fragment (`kind` 0), lane (1) or scene (2) `item`.
-    pub fn section_has(&self, s: usize, kind: u32, item: usize) -> bool {
-        self.sections.get(s).is_some_and(|sec| match kind {
-            0 => sec.frags.contains(&item),
+    /// Whether scene `s` holds clip (`kind` 0), lane (1) or snapshot (2) `item`.
+    pub fn scene_has(&self, s: usize, kind: u32, item: usize) -> bool {
+        self.scenes.get(s).is_some_and(|sec| match kind {
+            0 => sec.clips.contains(&item),
             1 => sec.autos.contains(&item),
-            2 => sec.scenes.contains(&item),
+            2 => sec.snapshots.contains(&item),
             _ => false,
         })
     }
 
-    /// Do `op` on note frag `frag` (from the composer's note view) and write
+    /// Do `op` on note clip `clip` (from the composer's note view) and write
     /// it back as notes, whatever notation it was in. False when it is not a
-    /// written note frag (a generated one is frozen first), the edit names no
+    /// written note clip (a generated one is frozen first), the edit names no
     /// note, or the result cannot be written.
-    pub fn edit_note(&mut self, frag: usize, op: notes::Edit) -> bool {
-        let Some(f) = self.frags.get_mut(frag) else {
+    pub fn edit_note(&mut self, clip: usize, op: notes::Edit) -> bool {
+        let Some(f) = self.clips.get_mut(clip) else {
             return false;
         };
         let Some(n) = f.notes.as_ref() else {
@@ -1967,8 +1996,8 @@ impl Song {
     /// Set one step; false when there is no such step.
     /// Set step `step` of a lane to play `r` times in its span (#242); see
     /// `Lane::set_ratchet`. Editing drops the lane's call, as a step does.
-    pub fn set_ratchet(&mut self, frag: usize, lane: usize, step: usize, r: u8) -> bool {
-        let Some(l) = self.frags.get_mut(frag).and_then(|f| f.lanes.get_mut(lane)) else {
+    pub fn set_ratchet(&mut self, clip: usize, lane: usize, step: usize, r: u8) -> bool {
+        let Some(l) = self.clips.get_mut(clip).and_then(|f| f.lanes.get_mut(lane)) else {
             return false;
         };
         if !l.set_ratchet(step, r) {
@@ -1978,16 +2007,16 @@ impl Song {
         true
     }
 
-    pub fn set_step(&mut self, frag: usize, lane: usize, step: usize, to: Step) -> bool {
+    pub fn set_step(&mut self, clip: usize, lane: usize, step: usize, to: Step) -> bool {
         let slot = self
-            .frags
-            .get_mut(frag)
+            .clips
+            .get_mut(clip)
             .and_then(|f| f.lanes.get_mut(lane))
             .and_then(|l| l.steps.get_mut(step));
         match slot {
             Some(s) => {
                 *s = to;
-                if let Some(l) = self.frags.get_mut(frag).and_then(|f| f.lanes.get_mut(lane)) {
+                if let Some(l) = self.clips.get_mut(clip).and_then(|f| f.lanes.get_mut(lane)) {
                     l.call = None;
                     // A step that can't repeat loses its ratchet (#242).
                     if !to.repeats() {
@@ -2160,16 +2189,16 @@ impl Song {
     }
 
     /// Take track `t` out (ADR-0027), when nothing of the song plays or moves
-    /// it: no fragment, lane, modulation or scene names it. Its mixer line
+    /// it: no clip, lane, modulation or snapshot names it. Its mixer line
     /// goes; later tracks move down one. False when it has music.
     pub fn remove_track(&mut self, t: usize) -> bool {
         let names = |target: Target| target == Target::Track(t);
         if t >= self.tracks.len()
-            || self.frags.iter().any(|f| f.track == t)
+            || self.clips.iter().any(|f| f.track == t)
             || self.autos.iter().any(|a| names(a.target))
             || self.mods.iter().any(|m| names(m.target))
             || self
-                .scenes
+                .snapshots
                 .iter()
                 .any(|s| s.sets.iter().any(|(tg, _, _)| names(*tg)))
         {
@@ -2183,7 +2212,7 @@ impl Song {
                 *u -= 1;
             }
         };
-        for f in &mut self.frags {
+        for f in &mut self.clips {
             down(&mut f.track);
         }
         for (u, _) in &mut self.samples {
@@ -2201,7 +2230,7 @@ impl Song {
         };
         self.autos.iter_mut().for_each(|a| target(&mut a.target));
         self.mods.iter_mut().for_each(|m| target(&mut m.target));
-        for s in &mut self.scenes {
+        for s in &mut self.snapshots {
             s.sets.iter_mut().for_each(|(tg, _, _)| target(tg));
         }
         true
@@ -2242,17 +2271,17 @@ impl Song {
         }
     }
 
-    /// ` .fast(2) .cutoff(…)`: the pattern methods of fragment `f`, then its
+    /// ` .fast(2) .cutoff(…)`: the pattern methods of clip `f`, then its
     /// parameter methods.
     fn methods_of(&self, f: usize) -> String {
         let patterns = self
-            .frags
+            .clips
             .get(f)
             .map(|fr| fr.pattern.as_slice())
             .unwrap_or(&[])
             .iter()
             .map(|p| format!(" .{}", p.print()));
-        let params = self.mods.iter().filter(|m| m.frag == Some(f)).map(|m| {
+        let params = self.mods.iter().filter(|m| m.clip == Some(f)).map(|m| {
             format!(
                 " .{}({})",
                 m.alias
@@ -2447,7 +2476,7 @@ fn role(song: &Song, t: usize) -> Role {
         return Role::Lead;
     }
     let notes: Vec<&Notes> = song
-        .frags
+        .clips
         .iter()
         .filter(|f| f.track == t)
         .filter_map(|f| f.notes.as_ref())
@@ -2587,7 +2616,7 @@ fn param_for(target: Target, name: &str) -> Result<Param, &'static str> {
     }
 }
 
-/// A frag line split before its parameter methods: the line up to the first
+/// A clip line split before its parameter methods: the line up to the first
 /// word that starts with a dot, and the methods with their column.
 fn split_methods(body: &str) -> (&str, Option<(usize, &str)>) {
     let mut prev_space = false;
@@ -2660,14 +2689,14 @@ fn parse_methods(text: &str) -> Result<Vec<(&str, usize, &str, usize)>, (usize, 
 }
 
 fn check_lanes(song: &Song, f: usize, line: usize) -> Result<(), SongError> {
-    match song.frags.get(f) {
-        Some(frag) if frag.lanes.is_empty() && frag.notes.is_none() => Err(SongError {
+    match song.clips.get(f) {
+        Some(clip) if clip.lanes.is_empty() && clip.notes.is_none() => Err(SongError {
             line,
             col: 1,
-            msg: match song.tracks.get(frag.track).map(|t| t.kind) {
-                Some(Kind::Synth) => "a frag needs a line of notes",
-                Some(Kind::Sampler) => "a frag needs lanes or a line of notes",
-                _ => "a frag needs at least one lane",
+            msg: match song.tracks.get(clip.track).map(|t| t.kind) {
+                Some(Kind::Synth) => "a clip needs a line of notes",
+                Some(Kind::Sampler) => "a clip needs lanes or a line of notes",
+                _ => "a clip needs at least one lane",
             },
         }),
         _ => Ok(()),

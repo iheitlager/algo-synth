@@ -60,20 +60,20 @@ track kit drums
 track bass synth Minimoog
 track lead synth Sh101
 
-frag beat = kit /16
+clip beat = kit /16
   bd x...x...x...x...
   sn ....X.......X..x
   ch euclid(7,16)
-frag riff = bass
+clip riff = bass
   "e2 g2 a2 g2 d3 c3 d3 e3"
-frag tune = lead
+clip tune = lead
   e4:4 g4:8 a4:8 b4:2
-frag roam = lead live
+clip roam = lead live
   walk(e4,8,1)
 
-section a 8: beat riff
-section b 8: beat riff tune
-section c 8: beat riff roam
+scene a 8: beat riff
+scene b 8: beat riff tune
+scene c 8: beat riff roam
 arrange a b a c
 ```
 
@@ -81,15 +81,15 @@ arrange a b a c
 
 - **A sample-accurate clock in the engine** (ADR-0005, #98): tempo, swing, a transport (play, stop, position). Events fire on the exact sample, not on a JavaScript timer.
 - **Drums** as a synth model of synthesized analog pads (#99, #114, #140): the TR-808's sixteen voices (kick, snare, toms, congas, rimshot, claves, clap, maracas, cowbell, cymbal, closed and open hats with a choke), per-pad tune, decay, tone, level, an accent and an individual out (#162). The TR-909 plays the same pads with its own sounds (#148).
-- **The notation, first cut** (#100): `tempo`, `track`, and drum fragments as lanes (`x` hit, `X` accent, `.` rest). The engine parses it outside `render` and prints it back canonically; a bad text is rejected with line and column and the old song keeps playing.
+- **The notation, first cut** (#100): `tempo`, `track`, and drum clips as lanes (`x` hit, `X` accent, `.` rest). The engine parses it outside `render` and prints it back canonically; a bad text is rejected with line and column and the old song keeps playing.
 - **The 16-step grid** (#101): a row of steps per pad. A click sends `set_step`; the engine edits the song and returns the text, so grid and text never disagree. The text is shown next to the grid, in a highlighting editor (#203), and can be edited directly.
 
 ### MVP 4: loops and the arrangement *(built but chord symbols, #102)*
 
-- **Pitched fragments** on synth tracks (#163): mini-notation (`[ ]`, `~`, `*n`, `<a b>`, `?`) and classic notes with durations (`c4:4`, `e4:8.`). Fragments of any length (polymeter), looping. *(Built.)*
+- **Pitched clips** on synth tracks (#163): mini-notation (`[ ]`, `~`, `*n`, `<a b>`, `?`) and classic notes with durations (`c4:4`, `e4:8.`). Clips of any length (polymeter), looping. *(Built.)*
 - **Chord symbols** in the notation (`c:m7`, `f:maj7`): a chord on a Poly track, the input of `arp`. *(Open, #103; chords are written as `[c4,e4,g4]` for now.)*
 - **A live arpeggiator per synth** (#110): hold a chord, the engine plays it in time with the clock (up, down, up-down, as played, seeded random; octaves, rate, gate, latch). One arp core in `arp.rs` serves the live arp and `arp` in the notation (MVP 9). *(Built.)*
-- **The arrangement** (#170, #171): sections of a number of bars, each naming the fragments that play; a loop region; a track routed to a synth or muted. The arranger shows and edits it as a timeline. *(Built.)*
+- **The arrangement** (#170, #171): scenes of a number of bars, each naming the clips that play; a loop region; a track routed to a synth or muted. The arranger shows and edits it as a timeline. *(Built.)*
 - **Save and load** a song (#105): the `.song` file you download and open, plus the last song in `localStorage`. No server. The synth setup (patches, mixer) stays its own JSON file (spec 003 Req 7). *(Built.)*
 
 ## M3: The ensemble (second base)
@@ -125,20 +125,20 @@ Three insert slots on every synth strip and group (Overdrive, Distortion, Fuzz, 
 
 - **Seeded PRNG in the engine** (same seed, same music), scales and keys (`scale e dorian`, eleven modes, #165, #201).
 - **Generators are functions in the notation** (ADR-0012): `euclid(k, n, rotation)` for a lane or a rhythm (#165), `walk` over a scale and `arp` over given chords (#166). Each takes an explicit seed.
-- **Live and frozen** (#167): a live fragment regenerates every cycle; freezing replaces the call with the events it produced, in the same notation.
+- **Live and frozen** (#167): a live clip regenerates every cycle; freezing replaces the call with the events it produced, in the same notation.
 
 ### MVP 10: evolving loops *(mostly built)*
 
-- **Markov** chains learned from a fragment (`markov`, #166), or from a score through the MIDI import (#173). *(Built.)*
+- **Markov** chains learned from a clip (`markov`, #166), or from a score through the MIDI import (#173). *(Built.)*
 - **Mutate:** `mutate(riff, amount, seed)`, a share of the notes changed each time (#166). *(Built.)*
-- **Modulators:** automation lanes and scenes move any parameter over the arrangement (#172). *(Built.)* LFOs and random sources reach any parameter as signals (ADR-0019), and a `~` in a method's sequence is a per-step parameter lock (#255). *(Built.)*
-- **Loops that feed loops:** one generator's output as another's input (`markov` and `mutate` read an earlier fragment). *(Built for those two.)*
+- **Modulators:** automation lanes and snapshots move any parameter over the arrangement (#172). *(Built.)* LFOs and random sources reach any parameter as signals (ADR-0019), and a `~` in a method's sequence is a per-step parameter lock (#255). *(Built.)*
+- **Loops that feed loops:** one generator's output as another's input (`markov` and `mutate` read an earlier clip). *(Built for those two.)*
 
 ### MVP 11: the model writes, and performance *(the model writes: built, #381; Web MIDI in: #10)*
 
 - **A language model writes the song.** It gets the current text and a request ("a busier snare in B", "continue for 16 bars", "a darker lead") and returns a new text. The engine's parser is the check: a parse error goes back to the model for another try, and nothing reaches the engine that did not parse. The model never touches the engine directly.
 - **Where the call runs: behind a proxy next to Caddy, on localhost** (ADR-0028, epic #381). Option (b) of the three: (a) a key pasted into the browser and (c) pasting a text written elsewhere were weighed; (c) stays the fallback when the assist server is not running.
-- **Performance:** quantized launching, Web MIDI in from a hardware keyboard (note on/off, velocity, pitch bend, mod wheel; #10, moved here from MVP 2), MIDI out to hardware, SIMD (`simd128`) and table optimizations where profiling says so. Scenes are built (#172).
+- **Performance:** quantized launching, Web MIDI in from a hardware keyboard (note on/off, velocity, pitch bend, mod wheel; #10, moved here from MVP 2), MIDI out to hardware, SIMD (`simd128`) and table optimizations where profiling says so. Snapshots are built (#172).
 - **MIDI export** as a converter from the notation to a MIDI file. Import is built (#173).
 
 ## Assumptions to confirm

@@ -6,7 +6,7 @@
 //! arp([c4,e4,g4],up,16)          a chord, up|down|updown, a rate (a sixteenth)
 //! arp([c4,e4,g4],random,16,7)    random takes a seed
 //! walk(c4,8,1)                   8 notes, a random walk on the song's scale
-//! markov(1,riff,3)               learn order 1 from the frag riff, seed 3
+//! markov(1,riff,3)               learn order 1 from the clip riff, seed 3
 //! mutate(riff,30,5)              change 30 percent of riff's notes, seed 5
 //! prog(4,7)                      four bars of chords in the song's key, seed 7
 //! root(prog)                     the root of each chord of prog, as a bass line
@@ -55,7 +55,7 @@ impl ArpMode {
 }
 
 /// A generator call. `from` and `src` of Markov and Mutate keep the events of
-/// the fragment they read, so a call can run again without looking it up.
+/// the clip they read, so a call can run again without looking it up.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Gen {
     Arp {
@@ -85,7 +85,7 @@ pub enum Gen {
         bars: u32,
         seed: u32,
     },
-    /// The chords of an earlier frag, each arpeggiated from where it starts (#103).
+    /// The chords of an earlier clip, each arpeggiated from where it starts (#103).
     ArpProg {
         from: String,
         src: Vec<Event>,
@@ -94,7 +94,7 @@ pub enum Gen {
         rate: u8,
         seed: u32,
     },
-    /// The lowest note of each chord of an earlier frag, moved to `octave` (#103).
+    /// The lowest note of each chord of an earlier clip, moved to `octave` (#103).
     Root {
         from: String,
         src: Vec<Event>,
@@ -112,7 +112,7 @@ pub enum Gen {
 const MAX_PROG: u32 = 16;
 const ROOT_OCTAVE: u8 = 2;
 
-/// A fragment a call may read: its events and bars.
+/// A clip a call may read: its events and bars.
 pub type Source = (Vec<Event>, u32);
 
 impl Gen {
@@ -186,7 +186,7 @@ impl Gen {
     }
 
     /// The events of the call for `seed` (its own, or a cycle's for a live
-    /// fragment), sorted.
+    /// clip), sorted.
     pub fn events(&self, seed: u32, scale: Option<&Scale>) -> Vec<Event> {
         let mut out = Vec::with_capacity(self.max_events());
         self.events_into(seed, scale, &mut out);
@@ -617,7 +617,7 @@ fn source(
         Some(s) => Ok((name, s)),
         None => err(
             cur.base + r.0,
-            "no note frag with this name comes before this one",
+            "no note clip with this name comes before this one",
         ),
     }
 }
@@ -661,7 +661,7 @@ pub(super) fn parse_call(
                 &[3, 4],
                 "arp takes a chord, a mode, a rate and for random a seed: arp([c4,e4,g4],up,16)",
             )?;
-            // A frag's name: its progression, chord by chord (#103).
+            // A clip's name: its progression, chord by chord (#103).
             let prog = Some(text(cur, arg(0)))
                 .filter(|t| !t.starts_with('['))
                 .and_then(|t| srcs(&t).map(|s| (t, s)));
@@ -709,7 +709,7 @@ pub(super) fn parse_call(
         "root" => {
             want(
                 &[1, 2],
-                "root takes a frag and maybe an octave: root(prog) or root(prog,3)",
+                "root takes a clip and maybe an octave: root(prog) or root(prog,3)",
             )?;
             let (from, (src, bars)) = source(cur, arg(0), srcs)?;
             let octave = if list.len() == 2 {
@@ -763,7 +763,7 @@ pub(super) fn parse_call(
         "markov" => {
             want(
                 &[3],
-                "markov takes an order, a frag and a seed: markov(1,riff,3)",
+                "markov takes an order, a clip and a seed: markov(1,riff,3)",
             )?;
             let order = number(cur, arg(0), u32::from(MAX_ORDER), "an order is 1 to 3")?;
             if order == 0 {
@@ -781,7 +781,7 @@ pub(super) fn parse_call(
         _ => {
             want(
                 &[3],
-                "mutate takes a frag, a percent and a seed: mutate(riff,30,5)",
+                "mutate takes a clip, a percent and a seed: mutate(riff,30,5)",
             )?;
             let (from, (src, bars)) = source(cur, arg(0), srcs)?;
             let amount = number(cur, arg(1), 100, "a percent is 0 to 100")?;

@@ -7,17 +7,17 @@
 
 use super::Song;
 
-/// A fragment's words: one span per word of its note line, in
+/// A clip's words: one span per word of its note line, in
 /// `Notes::word_spans` order, or one per step of each lane.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FragSpans {
+pub struct ClipSpans {
     pub notes: Vec<(u32, u32)>,
     pub lanes: Vec<Vec<(u32, u32)>>,
 }
 
-/// Each fragment's spans in `text`, which is `song` printed (comments kept).
-/// A fragment whose lines are not found as printed gets none.
-pub fn spans(song: &Song, text: &str) -> Vec<FragSpans> {
+/// Each clip's spans in `text`, which is `song` printed (comments kept).
+/// A clip whose lines are not found as printed gets none.
+pub fn spans(song: &Song, text: &str) -> Vec<ClipSpans> {
     // Each line with where it starts, in UTF-16 units.
     let mut lines = Vec::new();
     let mut at = 0u32;
@@ -26,21 +26,21 @@ pub fn spans(song: &Song, text: &str) -> Vec<FragSpans> {
         at += line.encode_utf16().count() as u32 + 1;
     }
     let u16_len = |s: &str| s.encode_utf16().count() as u32;
-    song.frags
+    song.clips
         .iter()
-        .map(|frag| {
-            let mut out = FragSpans::default();
-            let head = format!("frag {} ", frag.name);
+        .map(|clip| {
+            let mut out = ClipSpans::default();
+            let head = format!("clip {} ", clip.name);
             let Some(h) = lines.iter().position(|(_, l)| l.starts_with(&head)) else {
                 return out;
             };
-            // The fragment's own lines follow its header; comment lines between
+            // The clip's own lines follow its header; comment lines between
             // them are skipped.
             let mut body = lines
                 .iter()
                 .skip(h + 1)
                 .filter(|(_, l)| !l.trim_start().starts_with('#'));
-            if let Some(n) = &frag.notes {
+            if let Some(n) = &clip.notes {
                 if let Some((off, line)) = body.next() {
                     let at = format!("  {}", n.text);
                     if line.starts_with(&at) {
@@ -58,7 +58,7 @@ pub fn spans(song: &Song, text: &str) -> Vec<FragSpans> {
                 }
                 return out;
             }
-            for lane in &frag.lanes {
+            for lane in &clip.lanes {
                 let Some((off, line)) = body.next() else {
                     break;
                 };

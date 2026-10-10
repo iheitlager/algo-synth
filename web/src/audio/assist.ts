@@ -12,7 +12,7 @@ export interface AssistRequest {
   request: string
   provider: string
   model: string
-  /** A fragment's name to work on, or null for the whole song. */
+  /** A clip's name to work on, or null for the whole song. */
   focus: string | null
 }
 

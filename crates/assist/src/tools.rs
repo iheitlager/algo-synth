@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 /// The sample rate the tools render at.
 const SAMPLE_RATE: f32 = 48_000.0;
-/// Bars rendered of a song without an arrangement, where every fragment loops.
+/// Bars rendered of a song without an arrangement, where every clip loops.
 const FREE_BARS: u64 = 4;
 
 /// Where a text stopped parsing.
@@ -46,8 +46,8 @@ pub struct Checked {
     /// The song as the engine prints it, when it parses.
     pub canonical: Option<String>,
     pub tracks: Vec<String>,
-    pub frags: Vec<String>,
-    pub sections: Vec<String>,
+    pub clips: Vec<String>,
+    pub scenes: Vec<String>,
     /// Bars in the arrangement; 0 without one.
     pub bars: u64,
 }
@@ -77,8 +77,8 @@ pub fn check(text: &str) -> Checked {
             error: None,
             canonical: Some(s.print()),
             tracks: s.tracks.iter().map(|t| t.name.clone()).collect(),
-            frags: s.frags.iter().map(|f| f.name.clone()).collect(),
-            sections: s.sections.iter().map(|x| x.name.clone()).collect(),
+            clips: s.clips.iter().map(|f| f.name.clone()).collect(),
+            scenes: s.scenes.iter().map(|x| x.name.clone()).collect(),
             bars: s.bars(),
         },
         Err(e) => Checked {
@@ -86,8 +86,8 @@ pub fn check(text: &str) -> Checked {
             error: Some(named(text, e.into())),
             canonical: None,
             tracks: Vec::new(),
-            frags: Vec::new(),
-            sections: Vec::new(),
+            clips: Vec::new(),
+            scenes: Vec::new(),
             bars: 0,
         },
     }
@@ -113,7 +113,7 @@ impl Default for Limits {
 
 /// The level of one arrangement entry, on the master output.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct SectionLevel {
+pub struct SceneLevel {
     pub name: String,
     /// The bar it starts on, from 1.
     pub bar: u64,
@@ -157,7 +157,7 @@ pub struct Rendered {
     pub rms: f32,
     /// The side over the mid, in RMS: 0 is mono.
     pub width: f32,
-    pub sections: Vec<SectionLevel>,
+    pub scenes: Vec<SceneLevel>,
     pub tracks: Vec<TrackLevel>,
     pub synthdefs: Vec<SynthDefInfo>,
 }
@@ -247,17 +247,17 @@ pub fn render(text: &str, limits: Limits) -> Result<Rendered, ErrorAt> {
             (sum / count as f64).sqrt() as f32
         }
     };
-    let mut sections = Vec::new();
+    let mut scenes = Vec::new();
     let mut at = 0_u64;
     for &i in &song.arrange {
-        let Some(sec) = song.sections.get(i) else {
+        let Some(sec) = song.scenes.get(i) else {
             continue;
         };
         let n = u64::from(sec.bars);
         if at >= bars {
             break;
         }
-        sections.push(SectionLevel {
+        scenes.push(SceneLevel {
             name: sec.name.clone(),
             bar: at + 1,
             bars: n.min(bars - at),
@@ -320,14 +320,14 @@ pub fn render(text: &str, limits: Limits) -> Result<Rendered, ErrorAt> {
         } else {
             0.0
         },
-        sections,
+        scenes,
         tracks,
         synthdefs,
     })
 }
 
 /// Whether track `t` of `song` plays: not muted or out-soloed, and one of
-/// its fragments loops (no arrangement) or sits in an arranged section.
+/// its clips loops (no arrangement) or sits in an arranged scene.
 pub fn plays(song: &Song, t: usize) -> bool {
     let Some(track) = song.tracks.get(t) else {
         return false;
@@ -336,20 +336,20 @@ pub fn plays(song: &Song, t: usize) -> bool {
     if track.mute || (soloed && !track.solo) {
         return false;
     }
-    let mine = |f: &usize| song.frags.get(*f).is_some_and(|x| x.track == t);
+    let mine = |f: &usize| song.clips.get(*f).is_some_and(|x| x.track == t);
     if song.arrange.is_empty() {
-        (0..song.frags.len()).any(|f| mine(&f))
+        (0..song.clips.len()).any(|f| mine(&f))
     } else {
         song.arrange
             .iter()
-            .filter_map(|s| song.sections.get(*s))
-            .any(|s| s.frags.iter().any(mine))
+            .filter_map(|s| song.scenes.get(*s))
+            .any(|s| s.clips.iter().any(mine))
     }
 }
 
-/// `text` with a fragment that plays `track`, when it has none and the song
+/// `text` with a clip that plays `track`, when it has none and the song
 /// has no arrangement (#430): an instrument is heard without the model
-/// writing a test fragment and taking it out again. Notes over two octaves
+/// writing a test clip and taking it out again. Notes over two octaves
 /// (a run, a held note, low repeats, a chord) or a beat on a drums track.
 pub fn audition(text: &str, track: &str) -> Option<String> {
     let song = Song::parse(text).ok()?;
@@ -359,7 +359,7 @@ pub fn audition(text: &str, track: &str) -> Option<String> {
         .enumerate()
         .find(|(_, x)| x.name == track)
         .map(|(t, x)| (t, x.kind))?;
-    if !song.arrange.is_empty() || song.frags.iter().any(|f| f.track == t) {
+    if !song.arrange.is_empty() || song.clips.iter().any(|f| f.track == t) {
         return None;
     }
     let name = (1..)
@@ -370,13 +370,13 @@ pub fn audition(text: &str, track: &str) -> Option<String> {
                 format!("audition{i}")
             }
         })
-        .find(|n| song.frags.iter().all(|f| &f.name != n))?;
+        .find(|n| song.clips.iter().all(|f| &f.name != n))?;
     let body = match kind {
         Kind::Drums => "  bd x...x...x...x...\n  sn ....x.......x...\n  ch x.x.x.x.x.x.x.x.\n",
         Kind::Synth | Kind::Sampler => "  \"<[c3 eb3 g3 c4] [c4@3 ~] c2*4 [g3,c4,eb4]>\"\n",
     };
     Some(format!(
-        "{}\nfrag {name} = {track}\n{body}",
+        "{}\nclip {name} = {track}\n{body}",
         text.trim_end()
     ))
 }
@@ -485,16 +485,16 @@ mod tests {
     use super::*;
 
     const BEAT: &str = "tempo 120\ntrack kit drums Tr909 Kit909\ntrack bass synth Sh101 Sh101Bass\n\
-frag beat = kit /16\n  bd x...x...x...x...\nfrag low = bass\n  \"a1 a1 a1 a1\"\n\
-section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap again\n";
+clip beat = kit /16\n  bd x...x...x...x...\nclip low = bass\n  \"a1 a1 a1 a1\"\n\
+scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n";
 
     #[test]
     fn check_gives_the_canonical_song_or_where_it_failed() {
         let c = check(BEAT);
         assert!(c.ok && c.error.is_none());
         assert_eq!(c.tracks, ["kit", "bass"]);
-        assert_eq!(c.frags, ["beat", "low"]);
-        assert_eq!(c.sections, ["loud", "gap", "again"]);
+        assert_eq!(c.clips, ["beat", "low"]);
+        assert_eq!(c.scenes, ["loud", "gap", "again"]);
         assert_eq!(c.bars, 3);
         let canonical = c.canonical.expect("printed");
         assert_eq!(
@@ -502,7 +502,7 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
             Some(canonical.as_str())
         );
 
-        let bad = check("tempo 120\ntrack kit drums\nfrag b = kit\n  bd x\nfrag b = kit\n  sn x\n");
+        let bad = check("tempo 120\ntrack kit drums\nclip b = kit\n  bd x\nclip b = kit\n  sn x\n");
         assert!(!bad.ok && bad.canonical.is_none());
         let e = bad.error.expect("an error");
         assert_eq!((e.line, e.col), (5, 6), "{}", e.msg);
@@ -511,12 +511,12 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
     /// Each arrangement entry is measured on its own bars: a silent one
     /// between two loud ones reads near silence.
     #[test]
-    fn render_measures_each_section_and_track() {
+    fn render_measures_each_scene_and_track() {
         let r = render(BEAT, Limits::default()).expect("renders");
         assert_eq!((r.bars, r.cut_short, r.nonfinite), (3, false, 0));
         assert!(r.peak > 0.05 && r.peak <= 1.0, "peak {}", r.peak);
         let s: Vec<(&str, u64, f32)> = r
-            .sections
+            .scenes
             .iter()
             .map(|x| (x.name.as_str(), x.bar, x.rms))
             .collect();
@@ -535,7 +535,7 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
         assert_eq!(
             (bass.peak, bass.level),
             (0.0, 0.0),
-            "no section plays the bass"
+            "no scene plays the bass"
         );
         assert_ne!(kit.synth, bass.synth);
         assert!(r.synthdefs.is_empty());
@@ -552,7 +552,7 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
         )
         .expect("renders");
         assert_eq!(one.bars, 1);
-        assert_eq!(one.sections.len(), 1);
+        assert_eq!(one.scenes.len(), 1);
         let none = render(
             BEAT,
             Limits {
@@ -562,7 +562,7 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
         )
         .expect("renders");
         assert!(none.cut_short && none.bars == 0);
-        let e = render("tempo 120\nfrag b = nowhere\n  bd x\n", Limits::default())
+        let e = render("tempo 120\nclip b = nowhere\n  bd x\n", Limits::default())
             .expect_err("no track");
         assert_eq!(e.line, 2);
     }
@@ -576,7 +576,7 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
             "      Pan2.ar(SinOsc.ar(freq) * EnvGen.kr(Env.perc(0.01, 0.2), gate), 0.3)\n",
             "  }).add;\n",
             "track lead synth beep\n",
-            "frag r = lead\n",
+            "clip r = lead\n",
             "  \"a4 ~ c5 ~\"\n",
         );
         let r = render(song, Limits::default()).expect("renders");
@@ -606,10 +606,10 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
         assert!(e.msg.ends_with("`$`"), "{e:?}");
     }
 
-    /// A track without fragments is auditioned: a synth plays the phrase, a
+    /// A track without clips is auditioned: a synth plays the phrase, a
     /// drums track a beat, and the track sounds on its strip.
     #[test]
-    fn a_track_without_fragments_is_auditioned() {
+    fn a_track_without_clips_is_auditioned() {
         for (song, track) in [
             ("tempo 120\ntrack lead synth\n", "lead"),
             ("tempo 120\ntrack kit drums Tr909 Kit909\n", "kit"),
@@ -622,14 +622,14 @@ section loud 1: beat\nsection gap 1:\nsection again 1: beat\narrange loud gap ag
             assert!(r.tracks[0].peak > 0.01, "{track}: {:?}", r.tracks[0]);
         }
         assert_eq!(audition("tempo 120\ntrack lead synth\n", "bass"), None);
-        assert_eq!(audition(BEAT, "kit"), None, "it has fragments");
+        assert_eq!(audition(BEAT, "kit"), None, "it has clips");
         let pad = BEAT.replace("arrange", "track pad synth\narrange");
         assert_eq!(audition(&pad, "pad"), None, "an arrangement");
     }
 
-    /// The bass of `BEAT` has a fragment but no section plays it.
+    /// The bass of `BEAT` has a clip but no scene plays it.
     #[test]
-    fn a_track_plays_when_a_section_holds_its_fragment() {
+    fn a_track_plays_when_a_scene_holds_its_clip() {
         let song = Song::parse(BEAT).unwrap();
         assert!(plays(&song, 0) && !plays(&song, 1));
     }

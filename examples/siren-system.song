@@ -143,67 +143,67 @@ strip wailer: Level 0.5, Send1 0.5, Send2 0.25
 master: MasterGain 0.8, P1Return 0.6, P1A 0.84, P1B 0.7, P1C 0.3, P1D 1, P2Return 0.3
 
 # one-drop: kick and rim together on 3, hats on the eighths
-frag drop = drums /16
+clip drop = drums /16
   bd ........x.......
   rs ........x.......
   ch x.x.x.x.x.x.x.xX
 # steppers: four on the floor for the peak
-frag steppers = drums /16
+clip steppers = drums /16
   bd x...x...x...x...
   sn ........x.......
   ch x.x.x.x.x.x.x.x.
   oh ..x...x...x...x.
 # dub drums: only the kick and a snare thrown into the echo
-frag dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~ ~ ~ ~ ~")
+clip dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~ ~ ~ ~ ~")
   bd ........x.......
   sn ........x.......
 
 # the bassline, two bars
-frag line = bass
+clip line = bass
   g1:4. g1:8 r:8 bb1:8 c2:4 d2:4. r:8 f1:8 g1:8 r:4 bb1:8 a1:8
-frag line_drop = bass
+clip line_drop = bass
   g1:4. g1:8 r:2 r:1
 
 # sirens: held notes, a bar or two at a time
-frag up_down = updown
+clip up_down = updown
   g4:1 r:1
-frag air_raid = wail
+clip air_raid = wail
   d4:1 d4:1
-frag nee_naw = twotone
+clip nee_naw = twotone
   r:2 g4:2 r:1
-frag zaps = zap
+clip zaps = zap
   r:4 g5:8 r:8 r:4 d5:8 r:8 r:4 g5:8 r:8 bb5:4
-frag speeding = accel
+clip speeding = accel
   r:1 g3:1
-frag sound_system = warble
+clip sound_system = warble
   g3:1 g3:1
-frag bubbles = bubble
+clip bubbles = bubble
   r:2 d4:4 r:4 r:2 g4:4 r:4
 
-frag robots = robot
+clip robots = robot
   r:1 g4:1
 
 # the dub sirens: press, hold, let go and hear it dive into the echo
-frag whoops = whoop
+clip whoops = whoop
   g4:4. r:8 r:2 g4:4. r:8 r:2
-frag lasers = laser
+clip lasers = laser
   r:2 d5:8 r:8 d5:8 r:8 r:2 g5:8 r:8 r:4
-frag trills = trill
+clip trills = trill
   r:1 bb4:2 r:2
-frag wails = wailer
+clip wails = wailer
   g3:1 r:1
 
-# the switch flips each section: up in the build, down in the dub
-scene up: updown.Ctl1 0, whoop.Ctl1 2, master.P1Return 0.5
-scene down: updown.Ctl1 1, whoop.Ctl1 3, master.P1Return 0.7
+# the switch flips each scene: up in the build, down in the dub
+snapshot up: updown.Ctl1 0, whoop.Ctl1 2, master.P1Return 0.5
+snapshot down: updown.Ctl1 1, whoop.Ctl1 3, master.P1Return 0.7
 
-section intro 4: drop up_down [up]
-section riddim 8: drop line zaps [up]
-section sirens 8: drop line air_raid nee_naw bubbles [up]
-section dub 8: dub_drums line_drop up_down sound_system zaps [down]
-section peak 8: steppers line speeding air_raid zaps robots [up]
-section dub2 8: dub_drums line_drop sound_system bubbles nee_naw [down]
-section soundclash 8: drop line whoops lasers trills [up]
-section dub3 8: dub_drums line_drop whoops wails lasers [down]
-section outro 4: drop up_down [down]
+scene intro 4: drop up_down [up]
+scene riddim 8: drop line zaps [up]
+scene sirens 8: drop line air_raid nee_naw bubbles [up]
+scene dub 8: dub_drums line_drop up_down sound_system zaps [down]
+scene peak 8: steppers line speeding air_raid zaps robots [up]
+scene dub2 8: dub_drums line_drop sound_system bubbles nee_naw [down]
+scene soundclash 8: drop line whoops lasers trills [up]
+scene dub3 8: dub_drums line_drop whoops wails lasers [down]
+scene outro 4: drop up_down [down]
 arrange intro riddim sirens dub peak dub2 soundclash dub3 outro

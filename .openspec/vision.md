@@ -19,13 +19,13 @@ Each of the sixteen synth slots is one of nineteen models, in four families. Eve
 
 ## Composing: the song is text
 
-A song is a short text the engine parses, prints and plays (ADR-0012, ADR-0015): `track`s name their synth, `frag`ments hold the music, `section`s say which fragments play for how many bars, and `arrange` puts the sections in order. A fragment comes from one of three places:
+A song is a short text the engine parses, prints and plays (ADR-0012, ADR-0015): `track`s name their synth, `clip`ments hold the music, `scene`s say which clips play for how many bars, and `arrange` puts the scenes in order. A clip comes from one of three places:
 
 1. **By hand:** drum lanes of steps (`bd x...x...`) and notes in mini-notation or classic durations (`"c4 [e4 g4] ~"`, `e4:4 g4:8`), typed or edited in the step grid and piano roll.
-2. **By a generator:** a seeded function in the notation (`euclid`, `walk`, `arp`, `markov`, `mutate`) on the song's scale. A *live* fragment plays new notes every cycle; *freezing* writes the notes it played back into the text.
+2. **By a generator:** a seeded function in the notation (`euclid`, `walk`, `arp`, `markov`, `mutate`) on the song's scale. A *live* clip plays new notes every cycle; *freezing* writes the notes it played back into the text.
 3. **From a score:** a MIDI file played by the MIDI player, one synth per part, or converted into song text, one track per part.
 
-Automation lanes and scenes move any parameter over the arrangement. The same clock, the same synths and the same mixer serve all three; a hand-played riff, a Euclidean kick and a line from a score are all just fragments.
+Automation lanes and snapshots move any parameter over the arrangement. The same clock, the same synths and the same mixer serve all three; a hand-played riff, a Euclidean kick and a line from a score are all just clips.
 
 ## Sound path
 

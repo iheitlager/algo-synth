@@ -105,8 +105,8 @@ async function copyBuild() {
 }
 // The one transport (ADR-0022): play and pause the song, stop back to the top.
 const toggle = () => (song.playing ? pauseSong() : playSong())
-// The section playing now, in an arrangement.
-const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[song.entry] ?? -1] : undefined))
+// The scene playing now, in an arrangement.
+const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.entry] ?? -1] : undefined))
 </script>
 
 <template>
@@ -143,7 +143,7 @@ const section = computed(() => (song.entry >= 0 ? song.sections[song.arrange[son
     <button :disabled="!status.running" :class="{ on: song.playing }" @click="toggle">{{ song.playing ? '❚❚ Pause' : '▶ Play' }}</button>
     <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
     <span v-if="songPosition >= 0" class="field">
-      <b>bar {{ Math.floor(songPosition / 16) + 1 }}</b> · step {{ (songPosition % 16) + 1 }}<template v-if="section"> · {{ section.name }}</template>
+      <b>bar {{ Math.floor(songPosition / 16) + 1 }}</b> · step {{ (songPosition % 16) + 1 }}<template v-if="scene"> · {{ scene.name }}</template>
     </span>
     <button :disabled="!status.running" @click="getEngine()?.panic()">All notes off</button>
     <!-- A controller connected (#10): its keys play the selected synth; the light blinks on input. -->

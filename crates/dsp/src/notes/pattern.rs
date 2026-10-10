@@ -1,8 +1,8 @@
 //! Pattern methods (ADR-0019, #215): Strudel's musical transformations,
-//! written on a frag's line and applied to its events when the song loads.
+//! written on a clip's line and applied to its events when the song loads.
 //!
 //! ```text
-//! frag riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))
+//! clip riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))
 //! ```
 //!
 //! A cycle is a bar. `fast(n)` and `slow(n)` squeeze or stretch the line;
@@ -198,7 +198,7 @@ impl Pattern {
         }
     }
 
-    /// The method as written on a frag line, without its dot.
+    /// The method as written on a clip line, without its dot.
     pub fn print(&self) -> String {
         let bare = |p: &Pattern| match p {
             Pattern::Rev => "rev".to_string(),
@@ -316,7 +316,7 @@ impl Pattern {
     }
 }
 
-/// Every pattern of a frag applied in order.
+/// Every pattern of a clip applied in order.
 pub fn apply_all(patterns: &[Pattern], line: Line) -> Result<Line, &'static str> {
     patterns.iter().try_fold(line, |l, p| p.apply(&l))
 }

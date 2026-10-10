@@ -72,7 +72,7 @@ fn the_demo_imported_plays_the_file() {
         e.set_param(s, Param::Polyphony, 8.0);
     }
     assert_eq!(import(&mut e, bytes), Ok(4));
-    assert!(e.song().arrange.len() > 1, "in sections");
+    assert!(e.song().arrange.len() > 1, "in scenes");
     e.song_play();
     let frames = 48_000 * 24;
     let want = file_starts(bytes, 48_000.0, frames);
@@ -1751,7 +1751,7 @@ fn clock_steps_land_on_their_samples_through_render() {
 }
 
 /// #295: an imported note held past the last start sounds until its end, on
-/// through the empty sections after it.
+/// through the empty scenes after it.
 #[test]
 fn an_imported_held_note_rings_to_its_end() {
     // At 120 BPM a bar is 2 s: a note from 0.5 s held 12 bars.
@@ -1977,7 +1977,7 @@ fn load_text(e: &mut Engine, text: &str) -> Result<(), SongError> {
     e.load_song()
 }
 
-const FOUR: &str = "tempo 120\ntrack kit drums\nfrag b = kit /16\n  bd x...x...x...x...\n";
+const FOUR: &str = "tempo 120\ntrack kit drums\nclip b = kit /16\n  bd x...x...x...x...\n";
 
 /// #100: `bd x...x...x...x...` at 120 BPM and 48 kHz hits on 0, 24000,
 /// 48000 and 72000, rendered a frame at a time.
@@ -1999,11 +1999,11 @@ fn a_drum_lane_hits_on_its_exact_samples() {
     assert_eq!(hits, vec![0, 24_000, 48_000, 72_000]);
 }
 
-/// The arranger's first "+ Section" on a looping beat keeps it playing: the
-/// section holds every frag and the clock keeps its place in the bar, even
+/// The arranger's first "+ Scene" on a looping beat keeps it playing: the
+/// scene holds every clip and the clock keeps its place in the bar, even
 /// when it was already past the new end.
 #[test]
-fn the_first_section_keeps_the_beat_playing() {
+fn the_first_scene_keeps_the_beat_playing() {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     e.song_play();
@@ -2011,9 +2011,9 @@ fn the_first_section_keeps_the_beat_playing() {
         hit_steps(&mut e, 40),
         vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36]
     );
-    assert!(e.arrange_edit(1, 1, 0, 0), "a 1-bar section");
-    assert_eq!(e.song().sections[0].frags, vec![0]);
-    // Step 40 is step 8 of the 1-bar section: hits on 8 and 12, then the
+    assert!(e.arrange_edit(1, 1, 0, 0), "a 1-bar scene");
+    assert_eq!(e.song().scenes[0].clips, vec![0]);
+    // Step 40 is step 8 of the 1-bar scene: hits on 8 and 12, then the
     // arrangement (without a loop) ends.
     assert_eq!(hit_steps(&mut e, 16), vec![0, 4]);
 }
@@ -2035,13 +2035,13 @@ fn hit_steps(e: &mut Engine, steps: u64) -> Vec<u64> {
     hits
 }
 
-/// Spec 002 Req 4: each section plays its own fragments from its first
+/// Spec 002 Req 4: each scene plays its own clips from its first
 /// bar, on the exact sample, and the song stops after the last bar.
 #[test]
-fn sections_play_in_order_and_the_song_ends() {
+fn scenes_play_in_order_and_the_song_ends() {
     let mut e = kit(0);
-    let text = "tempo 120\ntrack kit drums\nfrag a = kit\n  bd x...\nfrag b = kit\n  sn x.\n\
-                section one 1: a\nsection two 1: b\narrange one two\n";
+    let text = "tempo 120\ntrack kit drums\nclip a = kit\n  bd x...\nclip b = kit\n  sn x.\n\
+                scene one 1: a\nscene two 1: b\narrange one two\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let hits = hit_steps(&mut e, 40);
@@ -2050,14 +2050,14 @@ fn sections_play_in_order_and_the_song_ends() {
     assert_eq!(e.clock().position(), 0, "and goes back to the top");
 }
 
-/// A fragment starts again at each section's first bar: a long one is cut,
+/// A clip starts again at each scene's first bar: a long one is cut,
 /// a short one loops inside it.
 #[test]
-fn a_fragment_restarts_with_its_section() {
+fn a_clip_restarts_with_its_scene() {
     let mut e = kit(0);
     let long = format!("x{}x{}", ".".repeat(19), ".".repeat(11));
     let text = format!(
-        "track kit drums\nfrag l = kit\n  bd {long}\nfrag s = kit\n  sn x..\nsection a 1: l s\narrange a a\n"
+        "track kit drums\nclip l = kit\n  bd {long}\nclip s = kit\n  sn x..\nscene a 1: l s\narrange a a\n"
     );
     assert_eq!(load_text(&mut e, &text), Ok(()));
     e.song_play();
@@ -2075,13 +2075,13 @@ fn a_fragment_restarts_with_its_section() {
 fn bar_entries_follow_the_arrangement_through_the_loop() {
     let mut e = kit(0);
     assert_eq!(e.bar_entry(0), None, "no arrangement");
-    let text = "track kit drums\nfrag a = kit\n  bd x...............\nfrag b = kit\n  sn x...............\n\
-                section one 2: a\nsection two 1: b\narrange one two one\nloop 3 3\n";
+    let text = "track kit drums\nclip a = kit\n  bd x...............\nclip b = kit\n  sn x...............\n\
+                scene one 2: a\nscene two 1: b\narrange one two one\nloop 3 3\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     let bars: Vec<_> = (0..6).map(|b| e.bar_entry(b)).collect();
     assert_eq!(bars, [Some(0), Some(0), Some(1), Some(1), Some(1), Some(1)]);
     let text =
-        "track kit drums\nfrag a = kit\n  bd x...............\nsection one 1: a\narrange one one\n";
+        "track kit drums\nclip a = kit\n  bd x...............\nscene one 1: a\narrange one one\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     let bars: Vec<_> = (0..3).map(|b| e.bar_entry(b)).collect();
     assert_eq!(bars, [Some(0), Some(1), None], "past the end");
@@ -2091,8 +2091,8 @@ fn bar_entries_follow_the_arrangement_through_the_loop() {
 #[test]
 fn the_loop_region_repeats_and_seek_lands_on_a_bar() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag a = kit\n  bd x...............\nfrag b = kit\n  sn x...............\n\
-                section one 1: a\nsection two 1: b\narrange one two one\nloop 2 2\n";
+    let text = "track kit drums\nclip a = kit\n  bd x...............\nclip b = kit\n  sn x...............\n\
+                scene one 1: a\nscene two 1: b\narrange one two one\nloop 2 2\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     hit_steps(&mut e, 16);
@@ -2111,12 +2111,12 @@ fn the_loop_region_repeats_and_seek_lands_on_a_bar() {
     );
 }
 
-/// ADR-0015: a scene sets its values on the first sample of its section.
+/// ADR-0015: a snapshot sets its values on the first sample of its scene.
 #[test]
-fn a_scene_lands_on_its_sections_first_sample() {
+fn a_snapshot_lands_on_its_scenes_first_sample() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag b = kit\n  bd x...\nscene s: strip1.Send2 0.25, master.P2Return 0.6\n\
-                section one 1: b\nsection two 1: b [s]\narrange one two\n";
+    let text = "track kit drums\nclip b = kit\n  bd x...\nsnapshot s: strip1.Send2 0.25, master.P2Return 0.6\n\
+                scene one 1: b\nscene two 1: b [s]\narrange one two\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let before = e.param_value(0, Param::Send2);
@@ -2138,23 +2138,23 @@ fn a_scene_lands_on_its_sections_first_sample() {
     assert_eq!(e.take_touched(), 0, "once");
 }
 
-/// #225: a scene's solo still reworks who is heard, now that only a
+/// #225: a snapshot's solo still reworks who is heard, now that only a
 /// solo or a route does; synth 1's strip falls silent at bar 2.
 #[test]
-fn a_scene_solo_silences_the_other_strips() {
+fn a_snapshot_solo_silences_the_other_strips() {
     let mut e = kit(0);
     e.note_on(1, 64, 1.0);
-    let text = "track kit drums\nfrag b = kit\n  bd x...\nscene s: strip1.Solo 1\n\
-                section one 1: b\nsection two 1: b [s]\narrange one two\n";
+    let text = "track kit drums\nclip b = kit\n  bd x...\nsnapshot s: strip1.Solo 1\n\
+                scene one 1: b\nscene two 1: b [s]\narrange one two\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     assert_eq!(e.song_routed(0), Some(0), "the kit plays the track");
     e.song_play();
     run(&mut e, 90_000 / BLOCK);
-    assert!(e.meters()[1] > 0.0, "synth 1 is heard before the scene");
+    assert!(e.meters()[1] > 0.0, "synth 1 is heard before the snapshot");
     run(&mut e, 10_000 / BLOCK);
     e.clear_meters();
     run(&mut e, 4_000 / BLOCK);
-    assert_eq!(e.meters()[1], 0.0, "the scene soloed strip 1 only");
+    assert_eq!(e.meters()[1], 0.0, "the snapshot soloed strip 1 only");
 }
 
 /// A ramp climbs over its bars and reaches its end value at its end, a
@@ -2162,7 +2162,7 @@ fn a_scene_solo_silences_the_other_strips() {
 #[test]
 fn a_ramp_reaches_its_end_value() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag b = kit\n  bd x\nauto r = strip1.Send1 ramp 0 1 /1\n";
+    let text = "track kit drums\nclip b = kit\n  bd x\nauto r = strip1.Send1 ramp 0 1 /1\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let mut last = -1.0;
@@ -2182,7 +2182,7 @@ fn a_ramp_reaches_its_end_value() {
 fn automation_is_bit_identical_to_a_hand_set_value() {
     let song = |auto: bool| {
         format!(
-            "track kit drums\nfrag b = kit\n  bd x...\n{}",
+            "track kit drums\nclip b = kit\n  bd x...\n{}",
             if auto {
                 "auto l = strip1.Level 0.3 /1\n"
             } else {
@@ -2210,7 +2210,7 @@ fn automation_is_bit_identical_to_a_hand_set_value() {
 #[test]
 fn a_mod_follows_its_signal() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag b = kit\n  bd x...\nmod strip1.send1 = saw.range(0, 0.5)\n";
+    let text = "track kit drums\nclip b = kit\n  bd x...\nmod strip1.send1 = saw.range(0, 0.5)\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.render(BLOCK);
     assert_eq!(e.param_value(0, Param::Send1), 0.0, "stopped, nothing runs");
@@ -2227,7 +2227,7 @@ fn a_mod_follows_its_signal() {
 /// A constant modulation is the same as setting the value by hand.
 #[test]
 fn a_constant_mod_is_bit_identical_to_a_hand_set_value() {
-    let song = |m: &str| format!("track kit drums\nfrag b = kit\n  bd x...\n{m}");
+    let song = |m: &str| format!("track kit drums\nclip b = kit\n  bd x...\n{m}");
     let mut a = kit(0);
     let mut b = kit(0);
     assert_eq!(load_text(&mut a, &song("mod strip1.level = 0.3\n")), Ok(()));
@@ -2243,19 +2243,19 @@ fn a_constant_mod_is_bit_identical_to_a_hand_set_value() {
     assert!(a.output().iter().any(|s| *s != 0.0) || a.note_count > 0);
 }
 
-/// ADR-0019: scenes, then lanes, then modulations; the last write wins, so a
-/// modulation holds its parameter against a lane and a scene on it.
+/// ADR-0019: snapshots, then lanes, then modulations; the last write wins, so a
+/// modulation holds its parameter against a lane and a snapshot on it.
 #[test]
-fn a_mod_writes_after_a_lane_and_a_scene() {
+fn a_mod_writes_after_a_lane_and_a_snapshot() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag b = kit\n  bd x...\n\
-        auto l = strip1.Level 0.9 0.8 /1\nscene s: strip1.Level 1\n\
-        mod strip1.level = 0.3\nsection a 1: b l [s]\narrange a a\n";
+    let text = "track kit drums\nclip b = kit\n  bd x...\n\
+        auto l = strip1.Level 0.9 0.8 /1\nsnapshot s: strip1.Level 1\n\
+        mod strip1.level = 0.3\nscene a 1: b l [s]\narrange a a\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     for k in 0..(2 * 96_000 / BLOCK) {
         e.render(BLOCK);
-        // A scene lands inside a block; the modulation takes over at the next.
+        // A snapshot lands inside a block; the modulation takes over at the next.
         if k % (96_000 / BLOCK) != 0 {
             assert_eq!(e.param_value(0, Param::Level), 0.3, "block {k}");
         }
@@ -2266,7 +2266,7 @@ fn a_mod_writes_after_a_lane_and_a_scene() {
 /// swept by an LFO, renders the same twice and stays bounded.
 #[test]
 fn a_swept_filter_renders_deterministically() {
-    let text = "tempo 120\ntrack lead synth Minimoog\nfrag r = lead\n  \"c3 eb3 g3 c4\"\n\
+    let text = "tempo 120\ntrack lead synth Minimoog\nclip r = lead\n  \"c3 eb3 g3 c4\"\n\
         mod lead.cutoff = lfo(1).exprange(100, 2000) + lfo(3).range(0, 300)\n";
     let render = || {
         let mut e = Engine::new(48_000.0);
@@ -2320,7 +2320,7 @@ fn a_song_loaded_while_playing_takes_over_at_the_next_bar() {
     e.song_stop();
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     assert_eq!(
-        e.song().frags[0].lanes[0].steps[4],
+        e.song().clips[0].lanes[0].steps[4],
         Step::Hit,
         "stopped: at once"
     );
@@ -2333,30 +2333,30 @@ fn an_edit_before_the_bar_line_edits_the_new_song() {
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     e.song_play();
     run(&mut e, 4);
-    let two = FOUR.replace("frag b", "frag c");
+    let two = FOUR.replace("clip b", "clip c");
     assert_eq!(load_text(&mut e, &two), Ok(()));
     assert!(e.set_step(0, 0, 1, 1));
-    assert_eq!(e.song().frags[0].name, "c");
+    assert_eq!(e.song().clips[0].name, "c");
     assert!(
         e.song_text()
-            .contains("frag c = kit /16\n  bd xx..x...x...x..."),
+            .contains("clip c = kit /16\n  bd xx..x...x...x..."),
         "{}",
         e.song_text()
     );
 }
 
-/// #204: a fragment's method writes while the fragment plays, and the value
-/// it found comes back when the fragment stops (ADR-0019).
+/// #204: a clip's method writes while the clip plays, and the value
+/// it found comes back when the clip stops (ADR-0019).
 #[test]
-fn a_fragment_method_writes_while_its_fragment_plays() {
+fn a_clip_method_writes_while_its_clip_plays() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag b = kit /16 .send1(0.5)\n  bd x...\n\
-        frag q = kit\n  sn x...\nsection one 1: b\nsection two 1: q\narrange one two one\n";
+    let text = "track kit drums\nclip b = kit /16 .send1(0.5)\n  bd x...\n\
+        clip q = kit\n  sn x...\nscene one 1: b\nscene two 1: q\narrange one two one\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let bar = 96_000 / BLOCK;
     run(&mut e, bar - 1);
-    assert_eq!(e.param_value(0, Param::Send1), 0.5, "in its section");
+    assert_eq!(e.param_value(0, Param::Send1), 0.5, "in its scene");
     run(&mut e, 2);
     assert_eq!(e.param_value(0, Param::Send1), 0.0, "the value it found");
     run(&mut e, bar);
@@ -2370,7 +2370,7 @@ fn a_fragment_method_writes_while_its_fragment_plays() {
 fn a_parameter_lock_holds_only_its_step() {
     let mut e = kit(0);
     e.set_param(0, Param::Send1, 0.1);
-    let text = "track kit drums\nfrag b = kit /16 .send1(\"~ ~ 0.8 ~\")\n  bd x...x...x...x...\n";
+    let text = "track kit drums\nclip b = kit /16 .send1(\"~ ~ 0.8 ~\")\n  bd x...x...x...x...\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let block = |sample: usize| sample / BLOCK;
@@ -2401,7 +2401,7 @@ fn a_mod_puts_back_the_value_it_found() {
     let mut e = kit(0);
     e.set_param(0, Param::Send1, 0.1);
     let song =
-        |v: f32| format!("track kit drums\nfrag b = kit\n  bd x...\nmod strip1.send1 = {v}\n");
+        |v: f32| format!("track kit drums\nclip b = kit\n  bd x...\nmod strip1.send1 = {v}\n");
     assert_eq!(load_text(&mut e, &song(0.4)), Ok(()));
     e.song_play();
     run(&mut e, 10);
@@ -2423,12 +2423,12 @@ fn a_mod_puts_back_the_value_it_found() {
     assert_eq!(e.param_value(0, Param::Send1), 0.1);
 }
 
-/// #215: a frag plays the notes its pattern methods make, not its line.
+/// #215: a clip plays the notes its pattern methods make, not its line.
 #[test]
-fn a_patterned_frag_plays_its_transformed_notes() {
+fn a_patterned_clip_plays_its_transformed_notes() {
     let count = |methods: &str| {
         let mut e = Engine::new(48_000.0);
-        let text = format!("tempo 120\ntrack lead synth\nfrag r = lead{methods}\n  \"c4 ~\"\n");
+        let text = format!("tempo 120\ntrack lead synth\nclip r = lead{methods}\n  \"c4 ~\"\n");
         assert_eq!(load_text(&mut e, &text), Ok(()));
         e.song_play();
         run(&mut e, 2 * 96_000 / BLOCK);
@@ -2440,13 +2440,13 @@ fn a_patterned_frag_plays_its_transformed_notes() {
 }
 
 /// #208 stage 5: the engine names the parameters its modulations write, a
-/// fragment's only while it plays, so the view can mark their knobs.
+/// clip's only while it plays, so the view can mark their knobs.
 #[test]
 fn the_engine_names_what_its_modulations_write() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag b = kit /16 .send1(0.5)\n  bd x...\n\
-        frag q = kit\n  sn x...\nmod master.p2return = 0.3\n\
-        section one 1: b\nsection two 1: q\narrange one two\n";
+    let text = "track kit drums\nclip b = kit /16 .send1(0.5)\n  bd x...\n\
+        clip q = kit\n  sn x...\nmod master.p2return = 0.3\n\
+        scene one 1: b\nscene two 1: q\narrange one two\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     assert_eq!(e.modulated(0), None, "nothing while stopped");
     e.song_play();
@@ -2457,7 +2457,7 @@ fn the_engine_names_what_its_modulations_write() {
     assert_eq!(
         all(&e),
         vec![(0, Param::P2Return)],
-        "the frag's section is over"
+        "the clip's scene is over"
     );
     e.song_stop();
     assert_eq!(all(&e), vec![]);
@@ -2466,7 +2466,7 @@ fn the_engine_names_what_its_modulations_write() {
 #[test]
 fn each_lane_loops_on_its_own_length() {
     let mut e = kit(0);
-    let text = "track kit drums\nfrag p = kit\n  bd x..\n  sn x...\n";
+    let text = "track kit drums\nclip p = kit\n  bd x..\n  sn x...\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     // Twelve steps at 6000 samples: the kick on 0, 3, 6, 9; the snare on 0, 4, 8.
@@ -2479,7 +2479,7 @@ fn a_bad_text_is_reported_and_the_song_plays_on() {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
     let good = e.song().clone();
-    let bad = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd x..z\n";
+    let bad = "tempo 120\ntrack kit drums\nclip b = kit\n  bd x..z\n";
     let err = load_text(&mut e, bad).expect_err("z is not a step");
     assert_eq!((err.line, err.col), (4, 9));
     assert_eq!(e.song_error(), Some(err));
@@ -2616,7 +2616,7 @@ fn set_step_edits_the_playing_song_and_its_text() {
 #[test]
 fn the_song_text_keeps_its_comments_through_edits() {
     let mut e = kit(0);
-    let text = "# my beat\ntempo 120 # steady\ntrack kit drums\nfrag b = kit /16\n  # the kick\n  bd x...x...x...x...\n";
+    let text = "# my beat\ntempo 120 # steady\ntrack kit drums\nclip b = kit /16\n  # the kick\n  bd x...x...x...x...\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     assert!(e.song_text().starts_with("# my beat\ntempo 120 # steady\n"));
     assert!(e.set_step(0, 0, 2, 2));
@@ -2667,9 +2667,9 @@ fn held_changes(text: &str, frames: u64) -> Vec<(u64, Vec<u8>)> {
 /// #163: `"c4 e4 g4 c5"` at 120 BPM and 48 kHz starts a note every beat
 /// (24000 samples), each ending as the next begins.
 #[test]
-fn note_fragments_sound_at_their_samples_and_pitches() {
+fn note_clips_sound_at_their_samples_and_pitches() {
     let got = held_changes(
-        "tempo 120\ntrack lead synth\nfrag r = lead\n  \"c4 e4 g4 c5\"\n",
+        "tempo 120\ntrack lead synth\nclip r = lead\n  \"c4 e4 g4 c5\"\n",
         48_000 * 4,
     );
     assert_eq!(
@@ -2687,14 +2687,14 @@ fn note_fragments_sound_at_their_samples_and_pitches() {
     );
 }
 
-/// ADR-0015 with ADR-0016: a note fragment plays only in its sections,
-/// from each section's first bar. Two bars of `c4 e4` (one bar long) in
+/// ADR-0015 with ADR-0016: a note clip plays only in its scenes,
+/// from each scene's first bar. Two bars of `c4 e4` (one bar long) in
 /// `b`, after a silent bar `a`: notes from 96000, starting over at
 /// 192000 rather than running on from where the line would be.
 #[test]
-fn a_note_fragment_plays_in_its_section_from_its_start() {
+fn a_note_clip_plays_in_its_scene_from_its_start() {
     let got = held_changes(
-        "tempo 120\ntrack lead synth\nfrag r = lead\n  c4:2 e4:4 g4:4\nsection a 1:\nsection b 1: r\narrange a b b\n",
+        "tempo 120\ntrack lead synth\nclip r = lead\n  c4:2 e4:4 g4:4\nscene a 1:\nscene b 1: r\narrange a b b\n",
         300_000,
     );
     let starts: Vec<(u64, Vec<u8>)> = got.into_iter().filter(|(_, n)| !n.is_empty()).collect();
@@ -2717,7 +2717,7 @@ fn a_note_fragment_plays_in_its_section_from_its_start() {
 fn a_slide_glides_into_the_next_note() {
     let run = |line: &str| {
         let mut e = Engine::new(48_000.0);
-        let text = format!("tempo 120\ntrack b synth Sh101 AcidBass\nfrag r = b\n  {line}\n");
+        let text = format!("tempo 120\ntrack b synth Sh101 AcidBass\nclip r = b\n  {line}\n");
         assert_eq!(load_text(&mut e, &text), Ok(()));
         e.song_play();
         let (mut rises, mut gate, mut between) = (0, false, false);
@@ -2744,7 +2744,7 @@ fn a_slide_glides_into_the_next_note() {
 fn a_note_lasts_its_written_length() {
     // a quarter note, then a rest: held 0 to 24000.
     let got = held_changes(
-        "tempo 120\ntrack lead synth\nfrag r = lead\n  c4:4 r:4 r:2\n",
+        "tempo 120\ntrack lead synth\nclip r = lead\n  c4:4 r:4 r:2\n",
         60_000,
     );
     assert_eq!(got, vec![(0, vec![60]), (24_000, vec![])]);
@@ -2754,7 +2754,7 @@ fn a_note_lasts_its_written_length() {
 fn a_triplet_lands_between_the_sixteenths() {
     // three notes in a bar: ticks 0, 16 and 32, at 2000 samples a tick.
     let got = held_changes(
-        "tempo 120\ntrack lead synth\nfrag r = lead\n  \"c4 d4 e4\"\n",
+        "tempo 120\ntrack lead synth\nclip r = lead\n  \"c4 d4 e4\"\n",
         96_000,
     );
     let starts: Vec<u64> = got.iter().map(|(s, _)| *s).collect();
@@ -2764,7 +2764,7 @@ fn a_triplet_lands_between_the_sixteenths() {
 #[test]
 fn a_chord_uses_the_voice_pool() {
     let got = held_changes(
-        "tempo 120\ntrack lead synth\nfrag r = lead\n  \"[c4,e4,g4] ~\"\n",
+        "tempo 120\ntrack lead synth\nclip r = lead\n  \"[c4,e4,g4] ~\"\n",
         60_000,
     );
     assert!(got.iter().any(|(s, n)| *s == 0 && n == &vec![60, 64, 67]));
@@ -2778,7 +2778,7 @@ fn a_chord_uses_the_voice_pool() {
 fn stopping_the_song_ends_its_notes() {
     let mut e = Engine::new(48_000.0);
     e.set_param(0, Param::Polyphony, 8.0);
-    let text = "track lead synth\nfrag r = lead\n  c4:1\n";
+    let text = "track lead synth\nclip r = lead\n  c4:1\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     for _ in 0..4 {
@@ -2792,9 +2792,9 @@ fn stopping_the_song_ends_its_notes() {
 #[test]
 fn a_song_load_with_a_bad_note_keeps_the_old_one_playing() {
     let mut e = Engine::new(48_000.0);
-    let good = "track lead synth\nfrag r = lead\n  c4:4\n";
+    let good = "track lead synth\nclip r = lead\n  c4:4\n";
     assert_eq!(load_text(&mut e, good), Ok(()));
-    let bad = "track lead synth\nfrag r = lead\n  c4:4 x4:4\n";
+    let bad = "track lead synth\nclip r = lead\n  c4:4 x4:4\n";
     let err = load_text(&mut e, bad).unwrap_err();
     assert_eq!((err.line, err.col), (3, 8));
     assert_eq!(e.song_text(), Song::parse(good).unwrap().print());
@@ -2855,7 +2855,7 @@ fn a_sampler_track_with_lanes_plays_the_pad_sampler() {
 fn a_sampler_track_with_notes_plays_the_multisampler_at_pitch() {
     let mut e = Engine::new(48_000.0);
     e.preset(3, Preset::SamplerKeys);
-    let text = "track keys sampler\nfrag r = keys\n  c4:1\n";
+    let text = "track keys sampler\nclip r = keys\n  c4:1\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     assert_eq!(e.song_routed(0), Some(3));
     e.song_play();
@@ -2868,7 +2868,7 @@ fn a_sampler_track_with_notes_plays_the_multisampler_at_pitch() {
 #[test]
 fn a_euclid_lane_plays_like_a_written_one() {
     let mut e = kit(0);
-    let text = "tempo 120\ntrack kit drums\nfrag b = kit\n  bd euclid(3,8)\n";
+    let text = "tempo 120\ntrack kit drums\nclip b = kit\n  bd euclid(3,8)\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let mut hits = Vec::new();
@@ -2887,7 +2887,7 @@ fn a_euclid_lane_plays_like_a_written_one() {
 #[test]
 fn a_euclid_note_line_walks_the_scale_deterministically() {
     let text =
-        "tempo 120\nscale c minor\ntrack lead synth\nfrag r = lead\n  euclid(4,8) scale c4\n";
+        "tempo 120\nscale c minor\ntrack lead synth\nclip r = lead\n  euclid(4,8) scale c4\n";
     let a = held_changes(text, 96_000);
     let b = held_changes(text, 96_000);
     assert_eq!(a, b);
@@ -2900,7 +2900,7 @@ fn a_euclid_note_line_walks_the_scale_deterministically() {
 }
 
 const LIVE: &str =
-    "tempo 120\nscale c minor\ntrack lead synth\nfrag w = lead live\n  walk(c4,8,1)\n";
+    "tempo 120\nscale c minor\ntrack lead synth\nclip w = lead live\n  walk(c4,8,1)\n";
 
 /// The notes the song starts, in order, over `frames`: each new entry of
 /// the note-off table is one start (a repeated note ends at another tick).
@@ -2926,15 +2926,15 @@ fn poly() -> Engine {
     e
 }
 
-/// #167: a live fragment plays a new walk each bar, the same ones every run.
+/// #167: a live clip plays a new walk each bar, the same ones every run.
 #[test]
-fn a_live_fragment_changes_each_cycle_and_repeats_each_run() {
+fn a_live_clip_changes_each_cycle_and_repeats_each_run() {
     let mut e = poly();
     assert_eq!(load_text(&mut e, LIVE), Ok(()));
     e.song_play();
     let played = started(&mut e, 96_000 * 3);
-    let Some(Seq::Generated(call)) = e.song().frags[0].notes.as_ref().map(|n| n.seq.clone()) else {
-        panic!("a generated frag");
+    let Some(Seq::Generated(call)) = e.song().clips[0].notes.as_ref().map(|n| n.seq.clone()) else {
+        panic!("a generated clip");
     };
     let scale = e.song().scale;
     let mut want = Vec::new();
@@ -2953,7 +2953,7 @@ fn a_live_fragment_changes_each_cycle_and_repeats_each_run() {
 
 /// #167: nothing grows in `render`: the buffers keep the room reserved at load.
 #[test]
-fn a_live_fragment_does_not_grow_its_buffers() {
+fn a_live_clip_does_not_grow_its_buffers() {
     let mut e = poly();
     assert_eq!(load_text(&mut e, LIVE), Ok(()));
     let room = (e.live[0].cur.capacity(), e.live[0].nxt.capacity());
@@ -2976,9 +2976,9 @@ fn freezing_keeps_the_bar_that_was_playing() {
     let second = started(&mut e, 48_000); // half way into bar 2
     assert_eq!(first.len() + second.len(), 12);
     assert!(e.freeze(0));
-    assert!(!e.song().frags[0].live);
+    assert!(!e.song().clips[0].live);
     assert!(!e.song_text().contains("live") && !e.song_text().contains("walk("));
-    let frozen: Vec<u8> = e.song().frags[0]
+    let frozen: Vec<u8> = e.song().clips[0]
         .notes
         .as_ref()
         .unwrap()
@@ -2994,7 +2994,7 @@ fn freezing_keeps_the_bar_that_was_playing() {
     other.song_play();
     let again = started(&mut other, 96_000 * 2);
     assert_eq!([frozen.clone(), frozen].concat(), again);
-    assert!(!e.freeze(0), "a frozen frag has no call to freeze");
+    assert!(!e.freeze(0), "a frozen clip has no call to freeze");
 }
 
 /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.
@@ -3249,7 +3249,7 @@ fn an_808_beat_plays_on_a_909() {
     let mut e = Engine::new(48_000.0);
     e.set_param(0, Param::MasterGain, 1.0);
     e.preset(0, Preset::Kit909);
-    let beat = "tempo 120\ntrack kit drums\nfrag b = kit /16\n  bd x...\n  sn .x..\n  cl ..x.\n  cb ...x\n  ma x...\n  lc .x..\n  cy ..x.\n  cr ...X\n";
+    let beat = "tempo 120\ntrack kit drums\nclip b = kit /16\n  bd x...\n  sn .x..\n  cl ..x.\n  cb ...x\n  ma x...\n  lc .x..\n  cy ..x.\n  cr ...X\n";
     assert_eq!(load_text(&mut e, beat), Ok(()));
     assert_eq!(
         e.song_routed(0),
@@ -3680,7 +3680,7 @@ fn a_modular_voice_with_a_percussive_env_ends_while_held() {
 #[test]
 fn a_setting_code_plays_on_its_track() {
     let text = "tempo 120\nsetting beep = Modular ModularBasic\n  SynthDef(\\beep, { |freq = 440|\n    SinOsc.ar(freq) * EnvGen.kr(Env.perc(0.01, 0.3))\n  }).add;\n\
-        track lead synth beep\nfrag r = lead\n  \"a4 ~ ~ ~\"\n";
+        track lead synth beep\nclip r = lead\n  \"a4 ~ ~ ~\"\n";
     let mut e = Engine::new(48_000.0);
     e.set_param(0, Param::MasterGain, 1.0);
     assert_eq!(load_text(&mut e, text), Ok(()));
@@ -3709,7 +3709,7 @@ fn a_setting_code_plays_on_its_track() {
 fn a_setting_knob_starts_and_holds() {
     let song = |v: &str| {
         format!(
-            "setting s = Modular ModularBasic\n  SynthDef(\\s, {{ |freq = 440| SinOsc.ar(freq, 0, {v}) }}).add;\ntrack l synth s\nfrag r = l\n  \"a4\"\n"
+            "setting s = Modular ModularBasic\n  SynthDef(\\s, {{ |freq = 440| SinOsc.ar(freq, 0, {v}) }}).add;\ntrack l synth s\nclip r = l\n  \"a4\"\n"
         )
     };
     let mut e = Engine::new(48_000.0);
@@ -3979,7 +3979,7 @@ fn the_hoover_sounds_right() {
 #[test]
 fn a_saved_setting_keeps_the_code() {
     let mut e = Engine::new(48_000.0);
-    let song = "track l synth Modular ModularBasic\nfrag r = l\n  \"c3\"\n";
+    let song = "track l synth Modular ModularBasic\nclip r = l\n  \"c3\"\n";
     assert_eq!(load_text(&mut e, song), Ok(()));
     let s = e.song_routed(0).expect("routed");
     let code = "SynthDef(\\b, { |freq = 440| RLPF.ar(Saw.ar(freq), 900, 0.5) }).add;";
@@ -4054,7 +4054,7 @@ fn voice_cutoffs(e: &Engine, track: usize) -> Vec<f32> {
 /// note, each voice its own, while the synth's own cutoff is left alone.
 #[test]
 fn an_envelope_on_the_cutoff_restarts_with_each_note_of_a_poly_synth() {
-    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nfrag r = lead\n  \"c3 ~ e3 ~\"\n\
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nclip r = lead\n  \"c3 ~ e3 ~\"\n\
         mod lead.cutoff = env(perc).exprange(200, 4000)\n";
     let mut e = Engine::new(48_000.0);
     assert_eq!(load_text(&mut e, text), Ok(()));
@@ -4091,7 +4091,7 @@ fn an_envelope_on_the_cutoff_restarts_with_each_note_of_a_poly_synth() {
 /// #273's acceptance: `lfo([1, 3])` runs each voice of a chord at its own rate.
 #[test]
 fn a_list_gives_two_held_voices_their_own_values() {
-    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nfrag r = lead\n  \"[c3,e3]\"\n\
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nclip r = lead\n  \"[c3,e3]\"\n\
         mod lead.cutoff = lfo([1, 3]).exprange(200, 4000)\n";
     let mut e = Engine::new(48_000.0);
     assert_eq!(load_text(&mut e, text), Ok(()));
@@ -4252,7 +4252,7 @@ fn clear_starts_over_with_one_modular_synth() {
     e.clear();
     assert!(!e.clock().playing(), "stopped");
     // An empty song but for synth 0's track (ADR-0027).
-    assert!(e.song().frags.is_empty(), "no music");
+    assert!(e.song().clips.is_empty(), "no music");
     assert_eq!(e.song().tracks.len(), 1);
     assert_eq!(e.song_routed(0), Some(0));
     assert_eq!(e.param_value(0, Param::Model), Model::Modular as u32 as f32);
@@ -4480,7 +4480,7 @@ fn the_prophets_ssm_attack_is_straighter_than_its_curtis_one() {
 fn snare_peak(lane: &str) -> f32 {
     let mut e = kit(0);
     e.set_param(0, Param::MasterGain, 1.0);
-    let text = format!("tempo 120\ntrack kit drums\n\nfrag a = kit /16\n  sn {lane}\n");
+    let text = format!("tempo 120\ntrack kit drums\n\nclip a = kit /16\n  sn {lane}\n");
     assert_eq!(load_text(&mut e, &text), Ok(()));
     e.song_play();
     let mut peak = 0.0_f32;
@@ -4522,7 +4522,7 @@ fn lanes_hit_on_their_grid() {
     for grid in [12u64, 16, 24, 32, 48] {
         let mut e = kit(0);
         let lane = "x".repeat(grid as usize);
-        let text = format!("tempo 120\ntrack kit drums\nfrag a = kit /{grid}\n  bd {lane}\n");
+        let text = format!("tempo 120\ntrack kit drums\nclip a = kit /{grid}\n  bd {lane}\n");
         assert_eq!(load_text(&mut e, &text), Ok(()));
         e.song_play();
         let want: Vec<u64> = (0..grid).map(|n| n * 96_000 / grid).collect();
@@ -4530,13 +4530,13 @@ fn lanes_hit_on_their_grid() {
     }
 }
 
-/// #353: lanes on different grids keep time together, and with a note frag:
+/// #353: lanes on different grids keep time together, and with a note clip:
 /// a triplet lane meets the 16ths on every beat, and swing moves a hit
 /// between steps with its step.
 #[test]
 fn mixed_grids_keep_time_and_follow_swing() {
     let mut e = kit(0);
-    let text = "tempo 120\ntrack kit drums\nfrag a = kit /16\n  bd x...x...x...x...\nfrag b = kit /12\n  ch x..x..x..x..\n";
+    let text = "tempo 120\ntrack kit drums\nclip a = kit /16\n  bd x...x...x...x...\nclip b = kit /12\n  ch x..x..x..x..\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let starts = starts_within(&mut e, 96_000);
@@ -4547,7 +4547,7 @@ fn mixed_grids_keep_time_and_follow_swing() {
     // At swing 66 the second 16th lands 2/3 of the way to the third: a
     // /32 hit halfway into the first 16th sits halfway to the swung one.
     let mut e = kit(0);
-    let text = "tempo 120\nswing 66\ntrack kit drums\nfrag a = kit /32\n  bd .x.x\n";
+    let text = "tempo 120\nswing 66\ntrack kit drums\nclip a = kit /32\n  bd .x.x\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let swung = e.clock.step_sample(1);
@@ -4561,19 +4561,19 @@ fn mixed_grids_keep_time_and_follow_swing() {
 #[test]
 fn a_grid_prints_back_and_a_bad_one_is_refused() {
     for grid in [12, 16, 24, 32, 48] {
-        let text = format!("tempo 120\ntrack kit drums\n\nfrag a = kit /{grid}\n  bd x..x\n");
+        let text = format!("tempo 120\ntrack kit drums\n\nclip a = kit /{grid}\n  bd x..x\n");
         let song = Song::parse(&text).expect("parses");
-        assert_eq!(song.frags[0].grid, grid);
-        assert!(song.print().contains(&format!("frag a = kit /{grid}\n")));
+        assert_eq!(song.clips[0].grid, grid);
+        assert!(song.print().contains(&format!("clip a = kit /{grid}\n")));
     }
-    let err = Song::parse("track kit drums\nfrag a = kit /20\n  bd x\n").expect_err("/20");
+    let err = Song::parse("track kit drums\nclip a = kit /20\n  bd x\n").expect_err("/20");
     assert_eq!((err.line, err.col), (2, 14));
 }
 
 /// The note starts of a one-lane drum song at `tempo` within `frames`.
 fn lane_starts(tempo: u32, grid: u32, lane: &str, frames: u64) -> Vec<u64> {
     let mut e = kit(0);
-    let text = format!("tempo {tempo}\ntrack kit drums\nfrag a = kit /{grid}\n  sn {lane}\n");
+    let text = format!("tempo {tempo}\ntrack kit drums\nclip a = kit /{grid}\n  sn {lane}\n");
     assert_eq!(load_text(&mut e, &text), Ok(()));
     e.song_play();
     starts_within(&mut e, frames)
@@ -4625,7 +4625,7 @@ fn set_ratchet_edits_the_song_and_its_text() {
         "{}",
         e.song_text()
     );
-    assert!(e.song().frags[0].lanes[0].ratchets.is_empty());
+    assert!(e.song().clips[0].lanes[0].ratchets.is_empty());
 }
 
 /// #353: a flam on the first step of play has nothing before it to sound
@@ -4667,7 +4667,7 @@ fn graces_fit_between_close_hits() {
 fn a_grace_is_softer_than_its_hit() {
     let mut e = kit(0);
     e.set_param(0, Param::MasterGain, 1.0);
-    let text = "tempo 120\ntrack kit drums\nfrag a = kit /16\n  sn f...............\n";
+    let text = "tempo 120\ntrack kit drums\nclip a = kit /16\n  sn f...............\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let mut out = Vec::new();
@@ -4684,7 +4684,7 @@ fn a_grace_is_softer_than_its_hit() {
 fn two_tracks(flags: &str) -> Engine {
     let mut e = kit(0);
     let text = format!(
-        "tempo 120\ntrack a drums{flags}\ntrack b drums\nfrag fa = a /16\n  bd x...x...x...x...\nfrag fb = b /16\n  sn ..x...x...x...x.\n"
+        "tempo 120\ntrack a drums{flags}\ntrack b drums\nclip fa = a /16\n  bd x...x...x...x...\nclip fb = b /16\n  sn ..x...x...x...x.\n"
     );
     assert_eq!(load_text(&mut e, &text), Ok(()));
     e.song_route(0, Some(0));
@@ -4692,7 +4692,7 @@ fn two_tracks(flags: &str) -> Engine {
     e
 }
 
-/// #355: a muted track's frags are silent, while its synth still plays a
+/// #355: a muted track's clips are silent, while its synth still plays a
 /// live key, and the other track on the same synth plays on.
 #[test]
 fn a_muted_track_is_silent_and_its_synth_plays_on() {
@@ -4719,7 +4719,7 @@ fn solo_plays_only_the_soloed_tracks() {
 #[test]
 fn muting_a_track_lets_its_notes_go_and_writes_the_text() {
     let mut e = Engine::new(48_000.0);
-    let text = "tempo 120\ntrack lead synth\nfrag l = lead\n  c3:1\n";
+    let text = "tempo 120\ntrack lead synth\nclip l = lead\n  c3:1\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     e.render(BLOCK);
@@ -4838,7 +4838,7 @@ fn a_mixer_line_taken_out_resets_its_values() {
 fn a_synth_on_screen_is_a_track() {
     let mut e = Engine::new(48_000.0);
     assert_eq!(
-        load_text(&mut e, "track kit drums\nfrag beat = kit /16\n  bd x...\n"),
+        load_text(&mut e, "track kit drums\nclip beat = kit /16\n  bd x...\n"),
         Ok(())
     );
     let kit = e.song_routed(0).expect("the kit");
@@ -4862,7 +4862,7 @@ fn a_synth_on_screen_is_a_track() {
     // With music it is muted, its music kept.
     assert_eq!(e.track_remove(kit), 0);
     assert_eq!(e.song_routed(0), None);
-    assert_eq!(e.song().frags.len(), 1);
+    assert_eq!(e.song().clips.len(), 1);
     assert_eq!(e.track_remove(9), -1, "no track");
 }
 
@@ -4887,8 +4887,8 @@ fn what_the_song_cannot_hold_is_reported() {
 /// #375: a kit and a bass on their own synths, in a two-bar arrangement
 /// whose automation closes the bass's filter.
 const CUE: &str = "tempo 120\ntrack kit drums Tr909 Kit909\ntrack bass synth Sh101 Sh101Bass\n\
-frag beat = kit /16\n  bd x...x...x...x...\nfrag low = bass\n  \"a1 a1 a1 a1\"\n\
-auto shut = bass.Cutoff 100 /1\nsection a 2: beat low shut\narrange a\n";
+clip beat = kit /16\n  bd x...x...x...x...\nclip low = bass\n  \"a1 a1 a1 a1\"\n\
+auto shut = bass.Cutoff 100 /1\nscene a 2: beat low shut\narrange a\n";
 
 /// The peak of each track's strip over `blocks` blocks.
 fn track_peaks(e: &mut Engine, blocks: usize) -> [f32; 2] {
@@ -4904,10 +4904,10 @@ fn track_peaks(e: &mut Engine, blocks: usize) -> [f32; 2] {
     })
 }
 
-/// #375: a cued fragment plays alone, looping past the end of the
+/// #375: a cued clip plays alone, looping past the end of the
 /// arrangement, without its lanes; stop ends it and the song plays as before.
 #[test]
-fn a_cued_fragment_plays_alone() {
+fn a_cued_clip_plays_alone() {
     let mut e = Engine::new(48_000.0);
     assert_eq!(load_text(&mut e, CUE), Ok(()));
     let bass = e.song_routed(1).expect("routed");
@@ -4938,18 +4938,18 @@ fn a_cued_fragment_plays_alone() {
     assert!(kit > 0.01 && low > 0.01, "the song again: {kit} {low}");
 }
 
-/// #375: the cue follows its fragment by name through a new song text, and
-/// stops when the fragment is gone; a fragment the song lacks cues nothing.
+/// #375: the cue follows its clip by name through a new song text, and
+/// stops when the clip is gone; a clip the song lacks cues nothing.
 #[test]
-fn a_cue_follows_its_fragment_through_an_edit() {
+fn a_cue_follows_its_clip_through_an_edit() {
     let mut e = Engine::new(48_000.0);
     assert_eq!(load_text(&mut e, CUE), Ok(()));
     e.song_cue(Some(1));
     track_peaks(&mut e, 10);
-    // A fragment before it moves it to index 2; the new text takes over at the bar.
+    // A clip before it moves it to index 2; the new text takes over at the bar.
     let edited = CUE.replace(
-        "frag beat",
-        "frag hat = kit /16\n  ch x.x.x.x.x.x.x.x.\nfrag beat",
+        "clip beat",
+        "clip hat = kit /16\n  ch x.x.x.x.x.x.x.x.\nclip beat",
     );
     assert_eq!(load_text(&mut e, &edited), Ok(()));
     let [kit, low] = track_peaks(&mut e, 2 * 96_000 / BLOCK);
@@ -4957,11 +4957,11 @@ fn a_cue_follows_its_fragment_through_an_edit() {
     assert!(kit == 0.0 && low > 0.01, "still alone: {kit} {low}");
 
     let gone = edited
-        .replace("frag low = bass\n  \"a1 a1 a1 a1\"\n", "")
+        .replace("clip low = bass\n  \"a1 a1 a1 a1\"\n", "")
         .replace(" low shut", " shut");
     assert_eq!(load_text(&mut e, &gone), Ok(()));
     track_peaks(&mut e, 2 * 96_000 / BLOCK);
-    assert_eq!(e.song_cued(), None, "gone with its fragment");
+    assert_eq!(e.song_cued(), None, "gone with its clip");
     assert!(!e.clock().playing(), "and the song stopped");
 
     e.song_cue(Some(99));
@@ -5375,7 +5375,7 @@ fn lit_words(e: &mut Engine) -> Vec<String> {
 #[test]
 fn the_words_that_play_are_lit() {
     let mut e = kit(0);
-    let text = "tempo 120\ntrack kit drums\ntrack lead synth\nfrag a = kit /16\n  bd x3..X...\nfrag m = lead\n  \"c4@2 ~ e4\"\n";
+    let text = "tempo 120\ntrack kit drums\ntrack lead synth\nclip a = kit /16\n  bd x3..X...\nclip m = lead\n  \"c4@2 ~ e4\"\n";
     assert_eq!(load_text(&mut e, text), Ok(()));
     assert!(lit_words(&mut e).is_empty(), "stopped");
     e.song_play();

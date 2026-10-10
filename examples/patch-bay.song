@@ -78,53 +78,53 @@ strip zap: Level 0.3, Send1 0.3
 strip hoover: Level 0.45, Send2 0.3
 master: MasterGain 0.8, P1Return 0.3, P1B 0.5, P2Return 0.3
 
-frag kick = kit /16
+clip kick = kit /16
   bd x...x...x...x...
-frag tick = kit /16
+clip tick = kit /16
   ch x.x.x.x.x.x.x.x.
-frag hats = kit /16
+clip hats = kit /16
   ch xxXx xxXx xxXx xxXX
   oh ..x...x...x...x.
-frag clap = kit /16
+clip clap = kit /16
   cp ....x.......x...
   rs euclid(5,16,3)
-frag ride = kit /16
+clip ride = kit /16
   rd x.x.x.x.x.x.x.x.
-frag toms = kit /16
+clip toms = kit /16
   lt euclid(3,16,2)
   ht euclid(5,16,7)
-frag roll = kit /16
+clip roll = kit /16
   sn x.x.x.x.xxxxXXXX
-frag crash = kit /16
+clip crash = kit /16
   cr x...............................................................
 
-frag rolling = sub
+clip rolling = sub
   "[~ g1! g1 g1] [~ g1! g1 g1] [~ g1! g1 g1] [~ <g1 f1 bb1 c2> g1 g1]"
-frag pulse = sub
+clip pulse = sub
   "~ g1 ~ g1 ~ g1 ~ g1"
 
-frag line = acid
+clip line = acid
   "g2 g2& bb2 g3 ~ g2 f2& g2 ~ g2 c3& d3 g2 ~ bb2 g2"
-frag line_b = acid .every(4, rev)
+clip line_b = acid .every(4, rev)
   mutate(line,30,4)
 
-frag chord = stab
+clip chord = stab
   "~ ~ [g3!,bb3!,d4!] ~ ~ ~ ~ [g3,bb3,d4] ~ ~ [g3,bb3,d4] ~ ~ ~ ~ ~"
-frag chord_dub = stab .send1(0.7)
+clip chord_dub = stab .send1(0.7)
   "~ ~ <[g3,bb3,d4] [eb3,g3,bb3]> ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~"
 
-frag bells = ping
+clip bells = ping
   euclid(5,16,2) scale g4
-frag sparks = ping live
+clip sparks = ping live
   arp([g4,bb4,d5,f5,g5],random,16,9)
 
-frag wash = pad .slow(2)
+clip wash = pad .slow(2)
   "<[g2,d3,bb3] [eb2,bb2,g3] [c3,g3,eb4] [d3,a3,f4]>"
 
-frag zaps = zap
+clip zaps = zap
   euclid(3,8,1) c5
 
-frag theme = hoover
+clip theme = hoover
   g3:2. bb3:8 a3:8 g3:2 f3:4 d3:4
 
 auto acid_shut = acid.Cutoff 350 /8
@@ -136,16 +136,16 @@ auto acid_peak = acid.Resonance 0.75 /4
 auto riser = zap.Level ramp 0 0.5 /4
 auto echo_up = master.P1Return ramp 0.3 0.6 /4
 
-scene dry: master.P1Return 0.3, master.P2Return 0.3
-scene wet: master.P1Return 0.55, master.P2Return 0.5
+snapshot dry: master.P1Return 0.3, master.P2Return 0.3
+snapshot wet: master.P1Return 0.55, master.P2Return 0.5
 
-section intro 8: kick tick wash [dry]
-section groove 16: kick hats clap pulse bells
-section acid 16: kick hats clap rolling line acid_open acid_soft
-section breakdown 8: wash chord_dub sparks [wet]
-section build 4: roll chord line_b zaps acid_shut acid_build riser echo_up
-section drop 16: crash kick hats clap ride rolling line chord theme acid_scream acid_peak [dry]
-section peak 16: crash kick hats clap ride toms rolling line_b chord sparks zaps acid_scream acid_peak
-section outro 8: kick tick pulse wash acid_shut acid_soft
+scene intro 8: kick tick wash [dry]
+scene groove 16: kick hats clap pulse bells
+scene acid 16: kick hats clap rolling line acid_open acid_soft
+scene breakdown 8: wash chord_dub sparks [wet]
+scene build 4: roll chord line_b zaps acid_shut acid_build riser echo_up
+scene drop 16: crash kick hats clap ride rolling line chord theme acid_scream acid_peak [dry]
+scene peak 16: crash kick hats clap ride toms rolling line_b chord sparks zaps acid_scream acid_peak
+scene outro 8: kick tick pulse wash acid_shut acid_soft
 arrange intro groove acid breakdown build drop peak outro
 loop 53 84

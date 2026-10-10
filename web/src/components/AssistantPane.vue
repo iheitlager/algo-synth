@@ -73,7 +73,7 @@ function onProvider(id: string) {
   model.value = pickModel(id)
 }
 
-// The cued fragment's track (#375) is the default focus; the user may pick
+// The cued clip's track (#375) is the default focus; the user may pick
 // another. With a track in focus the server refuses changes outside it (#415).
 watch(() => props.host.link.focus, (f) => (focus.value = f ?? ''), { immediate: true })
 
