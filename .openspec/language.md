@@ -128,16 +128,20 @@ SynthDef(\<name>, { |freq = <hz>, gate = 1, <ctl> = <n>…| <statements>; <signa
 A subset of sclang, run once to build the voice:
 
 - **Language:** numbers, `pi`, symbols `\x`, arrays, `var`, functions and
-  closures, `value`, `dup` and `!`, `do`, `collect`, `sum`, `size`, `reverse`,
+  closures, `value` (or `f.(x)`), `dup` and `!`, `do`, `collect`, `sum`, `size`, `reverse`,
   `first`, `last`, `at`, `Array.fill`, `Mix.fill`, `if` on numbers, keyword
   arguments, `mul`/`add`. Binary operators run left to right with no
-  precedence, as in sclang; on signals only `+ - * /`.
+  precedence, as in sclang; on signals `+ - * / **` (`**` keeps the sign
+  of its left side, so a negative base stays finite).
 - **Controls:** `freq` is the note's pitch (bent by the pitch wheel), `gate`
   its gate, `amp` the velocity times its default, `modwheel` the mod wheel
-  (0..1); any other argument (or `\name.kr(n)`) is a knob.
+  (0..1); any other argument (or `\name.kr(n)`) is a knob. A second
+  argument is the control's lag: `\freq.kr(440, 0.08)` glides from one
+  legato note to the next (with `Voices 1`).
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 Out`.
+  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out`.
+  `LeakDC.ar(in, coef)` (0.995 when left out) takes away a DC offset.
   `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
   (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a
   second); `Decimator.ar(in, rate, bits)` samples `in` `rate` times a second
@@ -155,13 +159,15 @@ A subset of sclang, run once to build the voice:
   or `env.kr`. A voice ends when its envelopes do; without one it uses the
   synth's ADSR.
 - **Signal methods:** `range exprange tanh softclip distort atan midiratio
-  midicps neg round lag`; `round(step)` (step 1 when left out) steps to the
+  midicps neg round lag abs sqrt squared cubed min max pow clip`; `sqrt`
+  keeps the sign, as the server's, and `clip(lo, hi)` (0 and 1 when left
+  out) is `max(lo).min(hi)`; `round(step)` (step 1 when left out) steps to the
   nearest multiple, halves up, as SuperCollider's: `sweep.round(1/12)`;
   `lag(time)` (0.1 s when left out) smooths a signal, falling 60 dB in
   `time` from its first value, `lag(0)` passing it:
   `LFNoise0.kr(8).exprange(0.5, 3).lag(0.01)`.
-  Numbers take also `abs reciprocal squared cubed sqrt floor ceil asInteger
-  cpsmidi ratiomidi dbamp ampdb min max`.
+  Numbers take also `reciprocal floor ceil asInteger cpsmidi ratiomidi
+  dbamp ampdb`.
 - **Stereo:** multichannel expansion; a final array of two channels is
   stereo (`Pan2`, `Splay`, `FreeVerb2`).
 - **Filter voicings:** `voicing: \<synth>` on `MoogFF` (ladders: `arp2600
@@ -174,10 +180,11 @@ A subset of sclang, run once to build the voice:
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `scene`,
   `mod` reach them (`sub.Ctl1`).
 - **Limits:** 512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes,
-  32 delays, 64 random numbers, 32 latches, decimators, noises and lags, 2
-  reverbs, 32 knobs. A comb or delay holds
-  at most 0.02 seconds (a flanger, a chorus, a resonator, not an echo): a
-  long echo is the strip's send to the master's Echo.
+  32 delay lines, 64 random numbers, 32 latches, decimators, noises, lags
+  and LeakDCs, 2 reverbs, 32 knobs. A delay line holds 1024 samples (about
+  0.02 seconds); a comb or delay takes as many as its `maxdelaytime` needs,
+  so a voice's delays hold about 0.68 seconds in all: a slapback, a chorus
+  or a short echo. A long echo is the strip's send to the master's Echo.
 
 ```song
 setting hoover = Modular ModularBasic

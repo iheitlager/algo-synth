@@ -577,10 +577,15 @@ impl Parser<'_> {
                 } else {
                     self.pos()
                 };
-                let Some(T::Name(name)) = self.peek().cloned() else {
-                    return Err(self.err("a method name goes here"));
+                // `f.(x)` is `f.value(x)`.
+                let name = match self.peek().cloned() {
+                    Some(T::Name(name)) => {
+                        self.at += 1;
+                        name
+                    }
+                    Some(T::P("(")) => "value".to_string(),
+                    _ => return Err(self.err("a method name goes here")),
                 };
-                self.at += 1;
                 let (mut args, kws) = if self.eat("(") {
                     self.args()?
                 } else {
@@ -868,6 +873,13 @@ const DELAY: Spec = Spec {
     hi: 0.02,
     exp: true,
 };
+/// A delay time's knob: up to the delay's `maxdelaytime`, 0.02 s at least.
+fn delay_spec(max: f32) -> Spec {
+    Spec {
+        hi: max.max(DELAY.hi),
+        ..DELAY
+    }
+}
 const DECAY: Spec = Spec {
     lo: 0.01,
     hi: 10.0,
@@ -1021,6 +1033,32 @@ impl Builder {
         }
         *count += 1;
         Ok(*count - 1)
+    }
+
+    /// The lines a delay or comb of `max` seconds takes, one after another
+    /// from the next free one (#323): `MAX_DELAY` samples each at 48 kHz, so
+    /// the voice's 32 hold about 0.68 seconds in all.
+    fn delay_lines(count: &mut u8, max: f32, at: Pos) -> R<(u8, u8)> {
+        let err = |msg| CodeError {
+            line: at.0,
+            col: at.1,
+            msg,
+        };
+        let samples = (max.max(0.0) * 48_000.0) as usize + 2;
+        let n = samples.div_ceil(MAX_DELAY).max(1);
+        if n > MAX_DELAYS {
+            return Err(err("a delay or comb holds at most 0.68 seconds"));
+        }
+        if usize::from(*count) + n > MAX_DELAYS {
+            return Err(err(if n == 1 {
+                "a voice has at most 32 delays and combs"
+            } else {
+                "a voice's delays and combs hold 0.68 seconds in all"
+            }));
+        }
+        let first = *count;
+        *count += n as u8;
+        Ok((first, n as u8))
     }
 
     fn module(&mut self, name: &str, at: Pos) -> usize {
@@ -1258,9 +1296,15 @@ impl Builder {
         match (&r, name) {
             (V::Class(c), _) => self.class(c, name, args, kws, at),
             // Controls written where they are used: `\cutoff.kr(800)`.
+            // A second argument is the control's lag: `\freq.kr(440, 0.08)` glides.
             (V::Sym(s), "kr" | "ar" | "ir") => {
                 let default = args.first().cloned().unwrap_or(V::Num(0.0, None));
-                self.control(s, &default, at)
+                let v = self.control(s, &default, at)?;
+                match args.get(1) {
+                    Some(V::Num(t, _)) if *t <= 0.0 => Ok(v),
+                    Some(lag) => self.call(v, "lag", vec![lag.clone()], Vec::new(), at),
+                    None => Ok(v),
+                }
             }
             (
                 V::Def(_) | V::Func(_),
@@ -1326,16 +1370,21 @@ impl Builder {
                 self.envgen(spec, gate, at)
             }
             (_, "value") => Ok(r),
-            (_, "max" | "min") if matches!(r, V::Num(..)) => match args.first() {
-                Some(V::Num(b, _)) => {
-                    let a = num(&r);
-                    Ok(V::Num(
-                        if name == "max" { a.max(*b) } else { a.min(*b) },
-                        None,
-                    ))
-                }
-                _ => Err(err("this takes a number")),
-            },
+            // On numbers worked out now, on signals as nodes (#323).
+            (V::Num(..) | V::Sig(..) | V::Arr(_), "max" | "min" | "pow") => {
+                let Some(b) = args.first().cloned() else {
+                    return Err(err("this takes a number or a signal"));
+                };
+                let op = if name == "pow" { "**" } else { name };
+                self.binop(op, r, b, at)
+            }
+            // `clip(lo, hi)`, as SuperCollider's: 0 and 1 when left out.
+            (V::Num(..) | V::Sig(..) | V::Arr(_), "clip") => {
+                let lo = args.first().cloned().unwrap_or(V::Num(0.0, None));
+                let hi = args.get(1).cloned().unwrap_or(V::Num(1.0, None));
+                let up = self.binop("max", r, lo, at)?;
+                self.binop("min", up, hi, at)
+            }
             // `lag(time)`, 0.1 s when left out: a number is as it is.
             (V::Num(..), "lag") => Ok(r),
             (V::Sig(..) | V::Arr(_), "lag") => {
@@ -1460,6 +1509,10 @@ impl Builder {
                     "softclip" => 1,
                     "distort" => 2,
                     "atan" => 3,
+                    "abs" => 4,
+                    "sqrt" => 5,
+                    "squared" => 6,
+                    "cubed" => 7,
                     _ => return Err(err("this method is not supported on a signal yet")),
                 };
                 let _ = uni;
@@ -1524,6 +1577,8 @@ impl Builder {
                 "/" => V::Num(if y == 0.0 { 0.0 } else { x / y }, None),
                 "%" => V::Num(if y == 0.0 { 0.0 } else { x.rem_euclid(y) }, None),
                 "**" => V::Num(x.powf(y), None),
+                "min" => V::Num(x.min(y), None),
+                "max" => V::Num(x.max(y), None),
                 "round" => V::Num(
                     if y == 0.0 {
                         x
@@ -1547,6 +1602,9 @@ impl Builder {
                     "*" => Op::Mul,
                     "/" => Op::Div,
                     "round" => Op::Round,
+                    "**" => Op::Pow,
+                    "min" => Op::Min,
+                    "max" => Op::Max,
                     _ => return Err(err("this operator does not work on a signal here")),
                 };
                 let x = self.node(&a, at)?;
@@ -1703,6 +1761,56 @@ impl Builder {
             self.push(Ugen::Select { which, inputs, n }, at)?,
             false,
         ))
+    }
+
+    /// `LeakDC.ar(in, coef, mul, add)`: a one-pole DC blocker (#323).
+    fn leak_dc(&mut self, args: Vec<V>, kws: Vec<(String, V)>, at: Pos) -> R<V> {
+        const NAMES: [&str; 4] = ["in", "coef", "mul", "add"];
+        let bound = bind(
+            &NAMES,
+            &[None, Some(0.995), Some(1.0), Some(0.0)],
+            &args,
+            &kws,
+        )
+        .map_err(|msg| CodeError {
+            line: at.0,
+            col: at.1,
+            msg,
+        })?;
+        let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
+        let (mul_given, add_given) = (
+            args_given(&args, &kws, &NAMES, 2),
+            args_given(&args, &kws, &NAMES, 3),
+        );
+        self.expand(&inputs, &mut |b, v| {
+            let module = b.module("LeakDC", at);
+            let x = b.input(v.first().unwrap_or(&V::Nil), module, "in", ANY, at)?;
+            let coef = b.input(v.get(1).unwrap_or(&V::Nil), module, "coef", UNIT, at)?;
+            let slot = Self::slot(
+                &mut b.prog.counts.holds,
+                MAX_HOLDS,
+                at,
+                "a voice has at most 32 latches, decimators, noises, lags and LeakDCs",
+            )?;
+            let mut out = b.push(
+                Ugen::LeakDc {
+                    input: x,
+                    coef,
+                    slot,
+                },
+                at,
+            )?;
+            for (given, k, name, op, spec) in [
+                (mul_given, 2, "mul", Op::Mul, MUL),
+                (add_given, 3, "add", Op::Add, ADD),
+            ] {
+                if given {
+                    let n = b.input(v.get(k).unwrap_or(&V::Nil), module, name, spec, at)?;
+                    out = b.push(Ugen::Bin(op, out, n), at)?;
+                }
+            }
+            Ok(V::Sig(out, false))
+        })
     }
 
     /// If `node` is a knob, make it a switch through `choices` positions
@@ -2005,9 +2113,7 @@ impl Builder {
                 )
                 .map_err(err)?;
                 let max = num_or(&bound.get(1).cloned().flatten().unwrap_or(V::Nil)) as f32;
-                if max * 48_000.0 > (MAX_DELAY - 2) as f32 {
-                    return Err(err("a delay holds at most 0.02 seconds here"));
-                }
+                let spec = delay_spec(max);
                 let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
                 let name = c.to_string();
                 let written = |k: usize| {
@@ -2022,13 +2128,8 @@ impl Builder {
                 self.expand(&inputs, &mut |b, v| {
                     let module = b.module(&name, at);
                     let x = b.input(v.first().unwrap_or(&V::Nil), module, "in", ANY, at)?;
-                    let t = b.input(v.get(2).unwrap_or(&V::Nil), module, "delaytime", DELAY, at)?;
-                    let slot = Self::slot(
-                        &mut b.prog.counts.delays,
-                        MAX_DELAYS,
-                        at,
-                        "a voice has at most 32 delays and combs",
-                    )?;
+                    let t = b.input(v.get(2).unwrap_or(&V::Nil), module, "delaytime", spec, at)?;
+                    let (slot, lines) = Self::delay_lines(&mut b.prog.counts.delays, max, at)?;
                     let mut out = b.push(
                         Ugen::Delay {
                             input: x,
@@ -2036,6 +2137,7 @@ impl Builder {
                             feedback: NONE,
                             decay: false,
                             slot,
+                            lines,
                             wet: true,
                         },
                         at,
@@ -2085,6 +2187,7 @@ impl Builder {
                 }
             }
             ("Select", "ar" | "kr") => self.select(args, kws, at),
+            ("LeakDC", "ar" | "kr") => self.leak_dc(args, kws, at),
             (_, "ar" | "kr") => self.ugen(c, method == "kr", args, kws, at),
             _ => Err(err("this class is not part of a SynthDef here")),
         }
@@ -2602,22 +2705,16 @@ impl Builder {
                 _ => {
                     // CombL, CombN, CombC.
                     let max = num_or(v.get(1).unwrap_or(&V::Nil)) as f32;
-                    if max * 48_000.0 > (MAX_DELAY - 2) as f32 {
-                        return Err(CodeError {
-                            line: at.0,
-                            col: at.1,
-                            msg: "a comb holds at most 0.02 seconds here",
-                        });
-                    }
                     let x = inp(b, 0)?;
-                    let t = inp(b, 2)?;
-                    let d = inp(b, 3)?;
-                    let slot = Self::slot(
-                        &mut b.prog.counts.delays,
-                        MAX_DELAYS,
+                    let t = b.input(
+                        v.get(2).unwrap_or(&V::Nil),
+                        module,
+                        "delaytime",
+                        delay_spec(max),
                         at,
-                        "a voice has at most 32 delays and combs",
                     )?;
+                    let d = inp(b, 3)?;
+                    let (slot, lines) = Self::delay_lines(&mut b.prog.counts.delays, max, at)?;
                     (
                         b.push(
                             Ugen::Delay {
@@ -2626,6 +2723,7 @@ impl Builder {
                                 feedback: d,
                                 decay: true,
                                 slot,
+                                lines,
                                 wet: true,
                             },
                             at,
@@ -2725,10 +2823,6 @@ fn flatten(items: Vec<V>, out: &mut Vec<V>) {
             other => out.push(other),
         }
     }
-}
-
-fn num(v: &V) -> f64 {
-    num_or(v)
 }
 
 fn num_or(v: &V) -> f64 {
@@ -2943,6 +3037,16 @@ mod tests {
     }
 
     /// #433: a knob as `Select`'s index is a switch through the choices.
+    /// #323: `f.(x)` is `f.value(x)`.
+    #[test]
+    fn a_function_is_called_with_a_dot() {
+        let dot = patch("{ var g = { |x, y = 3| x * y }; SinOsc.ar(g.(110) + g.(1, 2)) }");
+        let value =
+            patch("{ var g = { |x, y = 3| x * y }; SinOsc.ar(g.value(110) + g.value(1, 2)) }");
+        assert_eq!(nodes(&dot), nodes(&value));
+        assert!(nodes(&dot).contains(&Ugen::Num(332.0)));
+    }
+
     #[test]
     fn a_select_index_is_a_switch() {
         let p =
@@ -3018,10 +3122,16 @@ mod tests {
                 "a voice has at most 64 oscillators",
             ),
             (
-                "{ CombL.ar(Saw.ar(440), 0.2, 0.1, 1) }",
+                "{ CombL.ar(Saw.ar(440), 0.8, 0.1, 1) }",
                 1,
                 3,
-                "a comb holds at most 0.02 seconds here",
+                "a delay or comb holds at most 0.68 seconds",
+            ),
+            (
+                "{ DelayN.ar(Saw.ar(440), 0.4, 0.3) + DelayN.ar(Saw.ar(440), 0.4, 0.3) }",
+                1,
+                38,
+                "a voice's delays and combs hold 0.68 seconds in all",
             ),
             (
                 "{ \"text\" }",
