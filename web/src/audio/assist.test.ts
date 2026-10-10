@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AssistError, SseParser, assist, health, providers, toEvent, type AssistEvent } from './assist'
+import { AssistError, SseParser, assist, canClear, health, pendingProposals, providers, toEvent, type AssistEvent } from './assist'
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -116,5 +116,21 @@ describe('the API client', () => {
     ctl.abort()
     await expect(assist({ song: '', request: 'x', provider: 'p', model: 'm', focus: null }, () => {}, { signal: ctl.signal, fetcher }))
       .rejects.toThrow('aborted')
+  })
+})
+
+describe('clearing the conversation (#451)', () => {
+  const turn = (state: string, result = 'pending', proposal: unknown = null) => ({ state, result, proposal })
+
+  it('clears when there is something and nothing runs', () => {
+    expect(canClear([])).toBe(false)
+    expect(canClear([turn('done')])).toBe(true)
+    expect(canClear([turn('done'), turn('running')])).toBe(false)
+  })
+
+  it('counts the proposals clearing would lose', () => {
+    const song = { song: 'tempo 120', summary: '' }
+    expect(pendingProposals([turn('done'), turn('failed')])).toBe(0)
+    expect(pendingProposals([turn('done', 'pending', song), turn('done', 'applied', song), turn('done', 'discarded', song)])).toBe(1)
   })
 })
