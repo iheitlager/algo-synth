@@ -7,7 +7,7 @@
 // pane runs in the app and in its own window (`assistant.html`); the host is
 // the app itself or the main window over a BroadcastChannel.
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { AssistError, assist, health, providers as fetchProviders, type AssistEvent, type Provider, type Usage } from '../audio/assist'
+import { AssistError, assist, canClear, health, pendingProposals, providers as fetchProviders, type AssistEvent, type Provider, type Usage } from '../audio/assist'
 import type { AssistHost } from '../audio/assistlink'
 import { changes, collapse, diffLines } from '../audio/linediff'
 
@@ -138,6 +138,15 @@ async function undo(turn: Turn) {
 }
 const discard = (turn: Turn) => (turn.result = 'discarded')
 
+// Start fresh (#451): the model keeps nothing between requests, so this only
+// empties the conversation; a proposal not yet applied or discarded is asked about.
+function clear() {
+  if (!canClear(turns.value)) return
+  const pending = pendingProposals(turns.value)
+  if (pending && !window.confirm(pending === 1 ? 'Discard the pending proposal?' : `Discard ${pending} pending proposals?`)) return
+  turns.value = []
+}
+
 // The diff of what Apply would do now, against the song as it is.
 const diffOf = (turn: Turn) => diffLines(props.host.link.song, turn.proposal?.song ?? '')
 const stats = (d: NonNullable<Turn['done']>) =>
@@ -157,6 +166,7 @@ onMounted(check)
   <section class="pane assistant">
     <div class="pane-head">
       <span>Assistant</span>
+      <button class="small clear" title="Clear the conversation and start fresh" :disabled="!canClear(turns)" @click="clear">Clear</button>
       <button v-if="popout" class="small" title="Open the Assistant in its own window" @click="emit('popout')">Pop out ↗</button>
     </div>
     <p v-if="avail === 'checking'" class="note muted">Looking for the assist server…</p>
@@ -227,6 +237,7 @@ onMounted(check)
 <style scoped>
 .assistant { display: flex; flex-direction: column; overflow: hidden; }
 .small { padding: 2px 8px; font-size: 11px; text-transform: none; letter-spacing: 0; }
+.clear { margin-left: auto; }
 .note { margin: 0; padding: 10px 12px; }
 .note code { font-family: var(--font-mono); color: var(--accent); }
 .warn { color: var(--accent); }

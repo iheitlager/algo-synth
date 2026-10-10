@@ -34,6 +34,19 @@ export class AssistError extends Error {
   }
 }
 
+/** What Clear needs of a turn (#451). */
+export interface Clearable { state: string; proposal: unknown; result: string }
+
+/**
+ * Whether the conversation can be cleared: it has turns and none is running.
+ * The model keeps nothing between requests, so clearing only empties the view.
+ */
+export const canClear = (turns: readonly Clearable[]) => turns.length > 0 && !turns.some((t) => t.state === 'running')
+
+/** Proposals not yet applied or discarded: clearing loses them, so it asks first. */
+export const pendingProposals = (turns: readonly Clearable[]) =>
+  turns.filter((t) => t.proposal && t.result === 'pending').length
+
 type Fetch = typeof fetch
 const API = '/api'
 
