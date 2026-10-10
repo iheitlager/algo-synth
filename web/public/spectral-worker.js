@@ -6,6 +6,9 @@
 
 let w = null
 
+// A copy of the original's (0) or the resynthesis's (1) spectrogram bytes.
+const spectrogram = (which) => new Uint8Array(w.memory.buffer, w.spectral_gram_ptr(which), w.spectral_gram_len(which)).slice()
+
 self.onmessage = ({ data }) => {
   switch (data.t) {
     case 'init':
@@ -23,13 +26,15 @@ self.onmessage = ({ data }) => {
       const code = w.spectral_analyse(data.rate, data.window, data.hop)
       const tracks = code < 0 ? new Float32Array(0)
         : new Float32Array(w.memory.buffer, w.spectral_tracks_ptr(), w.spectral_tracks_len()).slice()
-      self.postMessage({ t: 'analysed', code, tracks }, [tracks.buffer])
+      const gram = code < 0 ? new Uint8Array(0) : spectrogram(0)
+      self.postMessage({ t: 'analysed', code, tracks, gram, bands: w.spectral_bands() }, [tracks.buffer, gram.buffer])
       break
     }
     case 'render': {
       const len = w.spectral_render(data.top, data.shift, data.stretch)
       const wav = new Uint8Array(w.memory.buffer, w.spectral_wav_ptr(), len).slice()
-      self.postMessage({ t: 'rendered', id: data.id, wav: wav.buffer }, [wav.buffer])
+      const gram = spectrogram(1)
+      self.postMessage({ t: 'rendered', id: data.id, wav: wav.buffer, gram }, [wav.buffer, gram.buffer])
       break
     }
   }

@@ -5,6 +5,7 @@
 
 use super::additive::resynthesise;
 use super::edit::{shift, top_n};
+use super::spectrogram::spectrogram;
 use super::{Analysis, Settings, analyse};
 use crate::sample;
 
@@ -19,6 +20,10 @@ pub struct Lab {
     root: u8,
     tracks: Vec<f32>,
     out: Vec<u8>,
+    /// The spectrograms of the original (0) and the last resynthesis (1).
+    grams: [Vec<u8>; 2],
+    /// The analysis window, which the spectrograms use too.
+    window: usize,
 }
 
 impl Lab {
@@ -39,6 +44,8 @@ impl Lab {
         self.analysis = None;
         self.tracks.clear();
         self.out.clear();
+        self.grams = [Vec::new(), Vec::new()];
+        self.window = window;
         let s = match sample::parse(&self.input, rate) {
             Ok(s) => s,
             Err(e) => return e.code(),
@@ -58,6 +65,7 @@ impl Lab {
         match analyse(&mono, rate, &settings) {
             Ok(a) => {
                 let frames = a.frames();
+                self.grams[0] = spectrogram(&mono, rate, window, hop);
                 self.tracks = flatten(&a);
                 self.analysis = Some(a);
                 i32::try_from(frames).unwrap_or(i32::MAX)
@@ -99,8 +107,15 @@ impl Lab {
         shift(&mut tracks, ratio);
         let lock = ratio == 1.0 && stretch == 1.0;
         let pcm = resynthesise(&tracks, a.frames(), a.hop as f32 * stretch, a.rate, lock);
+        self.grams[1] = spectrogram(&pcm, a.rate, self.window, a.hop);
         self.out = sample::float_wav(&pcm, a.rate as u32, self.root);
         self.out.len()
+    }
+
+    /// The spectrogram of the original (`which` 0) or the last resynthesis (1):
+    /// `spectrogram::BANDS` bytes a frame, at the analysis hop.
+    pub fn spectrogram(&self, which: usize) -> &[u8] {
+        self.grams.get(which).map_or(&[], |g| g.as_slice())
     }
 
     /// The last `render`'s WAV.
@@ -155,6 +170,10 @@ mod tests {
         assert_eq!(back.root, 69, "the resynthesis keeps the original's root");
         let peak = back.data.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         assert!((peak - 0.5).abs() < 0.02, "{peak}");
+        // Both spectrograms are drawn, a frame of bands each.
+        let bands = crate::analysis::spectrogram::BANDS;
+        assert_eq!(lab.spectrogram(0).len(), (24_000 / 256 + 1) * bands);
+        assert!(lab.spectrogram(1).len() >= lab.spectrogram(0).len());
         // Stretched by 2 it is twice as long.
         lab.render(0, 1.0, 2.0);
         let long = sample::parse(lab.rendered(), RATE).unwrap();

@@ -29,6 +29,7 @@ pub mod sample;
 pub mod sampler;
 pub mod smf;
 pub mod song;
+pub mod spectrum;
 pub mod synth;
 pub mod table;
 pub mod voice;
