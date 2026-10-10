@@ -1,6 +1,6 @@
 # 0001: Everything musical is wasm
 
-**Status:** Accepted, amended by 0029 · **Date:** 2026-09-30
+**Status:** Accepted, amended by 0029 and 0017 · **Date:** 2026-09-30
 
 ## Context
 
@@ -19,6 +19,8 @@ algo-synth must run entirely in the browser. Audio in a browser is produced on a
 **No dependencies in the engine**, std only. `cargo deny` keeps it deliberate.
 
 **Amended by ADR-0029:** the module also runs in Web Workers, one engine per worker, for decks beyond the main one; still one module, no imports, no logic in the worker shim. The main engine stays on the audio thread.
+
+**Amended by ADR-0017:** the Spectral Lab window runs its own engine and a Web Worker that calls offline analysis and resynthesis in a second instance; the analysis is Rust, the worker only relays.
 
 ## Consequences
 
