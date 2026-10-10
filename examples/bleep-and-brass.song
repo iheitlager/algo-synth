@@ -75,53 +75,53 @@ strip pluck: Level 0.4, Send1 0.25
 strip clank: Level 0.45, Send2 0.25
 master: MasterGain 0.8, P1Return 0.3, P1B 0.45, P2Return 0.3, P2A 0.8, P3Type Chorus, P3Return 0.5, P3A 0.3, P3B 0.6, P3C 0.5, P3D 0.9, P3E 0.55, P4Type Reverb, P4Return 0.35, P4A 0.75, P4B 0.25, P4C 0.35
 
-frag kick = kit /16
+clip kick = kit /16
   bd x...x...x...x...
-frag tick = kit /16
+clip tick = kit /16
   ch x.x.x.x.x.x.x.x.
-frag hats = kit /16
+clip hats = kit /16
   ch xxXx xxXx xxXx xxXX
   oh ..x...x...x...x.
-frag clap = kit /16
+clip clap = kit /16
   cp ....x.......x...
-frag ride = kit /16
+clip ride = kit /16
   rd x.x.x.x.x.x.x.x.
   rs euclid(3,8,2)
-frag roll = kit /16
+clip roll = kit /16
   sn x...x...x.x.xxXX
   cp ............x.x.
-frag crash = kit /16
+clip crash = kit /16
   cr x...............................................................
 
-frag chords = strings voicing
+clip chords = strings voicing
   "<i VI III VII>"
-frag high = poly
+clip high = poly
   "<[d5,f5,a5] [d5,f5,bb5] [c5,f5,a5] [c5,e5,g5]>"
-frag stab = stabs voicing .struct("~ ~ x ~ ~ x ~ ~ ~ ~ x ~ ~ x ~ ~")
+clip stab = stabs voicing .struct("~ ~ x ~ ~ x ~ ~ ~ ~ x ~ ~ x ~ ~")
   "<i7 VImaj7 III VII7>"
-frag stab_half = stabs voicing .struct("~ ~ x ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~")
+clip stab_half = stabs voicing .struct("~ ~ x ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~")
   "<i7 VImaj7 III VII7>"
 
-frag roll_low = sub .struct("~ x x x ~ x x x ~ x x x ~ x x x")
+clip roll_low = sub .struct("~ x x x ~ x x x ~ x x x ~ x x x")
   root(chords,1)
-frag ripple = pluck
+clip ripple = pluck
   arp(chords,updown,16)
 
-frag line = acid
+clip line = acid
   "d2! d2& d3 d2 ~ d2! c3& d3 a1 d2& f2 d2! ~ g2& a2 d3!"
-frag line_b = acid .every(2, rev)
+clip line_b = acid .every(2, rev)
   mutate(line,35,6)
 
-frag jet = sweep bars 4
+clip jet = sweep bars 4
   d3@0:192:100
 
-frag bleeps = bleep .off(3/16, add(12))
+clip bleeps = bleep .off(3/16, add(12))
   "~ d6 ~ ~ a5 ~ d6 ~ ~ ~ f6 ~ a5 ~ ~ c6"
-frag bloops = chirp
+clip bloops = chirp
   euclid(5,16,1) scale d5
-frag drift = chirp live
+clip drift = chirp live
   walk(d5,16,4)
-frag metal = clank
+clip metal = clank
   "~ ~ ~ a4 ~ ~ d5 ~ ~ ~ ~ a4 ~ d5 ~ ~"
 
 auto jet_rise = sweep.Cutoff ramp 200 6000 /4
@@ -135,16 +135,16 @@ auto pluck_open = pluck.Ctl1 ramp 300 2000 /8
 auto stab_open = stabs.Cutoff ramp 800 4000 /4
 auto brass_bloom = master.P4Return ramp 0.35 0.7 /4
 
-scene dry: master.P1Return 0.3, master.P2Return 0.3, master.P4Return 0.35
-scene wet: master.P1Return 0.5, master.P2Return 0.55
+snapshot dry: master.P1Return 0.3, master.P2Return 0.3, master.P4Return 0.35
+snapshot wet: master.P1Return 0.5, master.P2Return 0.55
 
-section intro 8: kick tick chords bleeps [dry]
-section rise 8: kick hats chords roll_low bloops jet jet_rise jet_res
-section main 16: kick hats clap roll_low line stab_half bleeps metal acid_open acid_soft
-section groove 16: kick hats clap ride roll_low line_b stab ripple bloops pluck_open acid_scream acid_soft
-section breakdown 8: chords high drift jet jet_rise jet_res [wet]
-section build 4: roll stab line acid_shut acid_peak stab_open brass_bloom
-section drop 16: crash kick hats clap ride roll_low line stab ripple bleeps metal acid_scream acid_peak [dry]
-section outro 8: kick tick roll_low chords bleeps
+scene intro 8: kick tick chords bleeps [dry]
+scene rise 8: kick hats chords roll_low bloops jet jet_rise jet_res
+scene main 16: kick hats clap roll_low line stab_half bleeps metal acid_open acid_soft
+scene groove 16: kick hats clap ride roll_low line_b stab ripple bloops pluck_open acid_scream acid_soft
+scene breakdown 8: chords high drift jet jet_rise jet_res [wet]
+scene build 4: roll stab line acid_shut acid_peak stab_open brass_bloom
+scene drop 16: crash kick hats clap ride roll_low line stab ripple bleeps metal acid_scream acid_peak [dry]
+scene outro 8: kick tick roll_low chords bleeps
 arrange intro rise main groove breakdown build drop outro
 loop 61 76

@@ -4,7 +4,7 @@
 # ping-pong, an FM sparkle that rolls new notes every bar and an SH-101 line
 # chained by markov from a riff. A 909 keeps time, an 808 plays percussion in
 # polymeter; one-bar fills, a breakbeat and a four-bar snare roll break it up
-# between the sections. The synths are spread wide by Splay, Pan2, chorus and
+# between the scenes. The synths are spread wide by Splay, Pan2, chorus and
 # pans.
 tempo 128
 swing 55
@@ -75,81 +75,81 @@ strip dust: Level 0.35, Send1 0.4
 master: MasterGain 0.8, P1Return 0.35, P1A 0.6, P1B 0.5, P1D 1, P2Return 0.3, P2A 0.85, P2C 0.3, P3Type Chorus, P3Return 0.65, P3A 0.25, P3B 0.7, P3D 1, P3E 0.6
 
 # 909: the clock.
-frag kick = k9 /16
+clip kick = k9 /16
   bd x...x...x...x...
-frag hats = k9 /16
+clip hats = k9 /16
   ch x.xx x.xx x.xx x.xX
   oh ..x...x...x...x.
-frag clap = k9 /16
+clip clap = k9 /16
   cp ....x.......x...
-frag ride = k9 /16
+clip ride = k9 /16
   rd x.x.x.x.x.x.x.x.
-frag roll = k9 /16
+clip roll = k9 /16
   sn x...x...x...x...x.x.x.x.x.x.x.x.xxxxxxxxxxxxxxxxXXXXXXXXXXXXXXXX
   bd x...x...x...x...x...x...x...x...x...x...x...x...................
-frag crash = k9 /16
+clip crash = k9 /16
   cr x...............................................................
-# Fills and breaks, a bar at a time between the sections.
-frag fill = k9 /16
+# Fills and breaks, a bar at a time between the scenes.
+clip fill = k9 /16
   bd x.....x.........
   sn ........xxXXxXXX
   oh x...............
   cp ............x.x.
-frag breakbeat = k9 /16
+clip breakbeat = k9 /16
   bd x.....x...x..x..
   sn ....X..x.x..X..x
   ch xxXxxxXxxxXxxxXx
   oh ..............x.
 
 # 808: percussion in polymeter, each lane its own length.
-frag poly = k8 /16
+clip poly = k8 /16
   cl euclid(5,16,2)
   rs euclid(3,7)
   ma x.x.x
   hc euclid(4,11,1)
   lc euclid(3,13,4)
-frag cow = k8 /16
+clip cow = k8 /16
   cb euclid(3,16,5)
-frag toms = k8 /16
+clip toms = k8 /16
   lt x.....x.....
   mt ...x.....x
   ht .....x.....x.x
-frag tomfill = k8 /16
+clip tomfill = k8 /16
   ht x.x.............
   mt ....x.x.........
   lt ........x.x.xXX.
-frag tomroll = k8 /16
+clip tomroll = k8 /16
   ht ................................................xx..xx..........
   mt ....................................................xx..xx......
   lt ........................................................xxxxXXXX
 
 # The progression and everything it feeds.
-frag chords = pad voicing
+clip chords = pad voicing
   prog(8,11)
-frag roots = low .struct("~ x x x ~ x x x ~ x x x ~ x x x")
+clip roots = low .struct("~ x x x ~ x x x ~ x x x ~ x x x")
   root(chords,1)
-frag glassy = glass .every(4, rev)
+clip glassy = glass .every(4, rev)
   arp(chords,updown,16)
-frag plucks = pluck .off(3/16, add(12)) .degrade(0.15)
+clip plucks = pluck .off(3/16, add(12)) .degrade(0.15)
   arp(chords,up,8)
-frag sparks = spark live
+clip sparks = spark live
   arp([f5,g#5,c6,d#6,g6],random,16,13)
 
 # The SH-101: a riff, then a markov chain of it, new every bar.
-frag riff = seq
+clip riff = seq
   "f2 f3 c3 f2 g#2 f3 c3 d#3 f2 f3 c3 f2 a#2 c3 d#3 g2"
-frag chain = seq live
+clip chain = seq live
   markov(2,riff,7)
-frag bent = seq .palindrome()
+clip bent = seq .palindrome()
   mutate(riff,40,9)
 
 # The lead: a theme, and a walk on the scale for the peak.
-frag theme = lead
+clip theme = lead
   c5:2 g#4:4 a#4:4 c5:4. d#5:8 c5:4 g#4:4
-frag wander = lead live
+clip wander = lead live
   walk(c5,8,21)
 
-frag specks = dust .iter(4)
+clip specks = dust .iter(4)
   euclid(7,16,2) scale f5
 
 auto seq_shut = seq.Cutoff 500 /8
@@ -164,22 +164,22 @@ mod glass.ctl1 = perlin.slow(4).exprange(700, 3500)
 mod pluck.pan = sine.slow(4).range(-0.7, 0.7)
 mod lead.pan = sine.slow(8).range(-0.4, 0.4)
 
-scene dry: master.P1Return 0.35, master.P2Return 0.3
-scene wet: master.P1Return 0.55, master.P2Return 0.55
+snapshot dry: master.P1Return 0.35, master.P2Return 0.3
+snapshot wet: master.P1Return 0.55, master.P2Return 0.55
 
-section intro 7: kick poly chords [dry]
-section intro_fill 1: kick tomfill chords
-section arps 15: kick hats poly roots chords glassy plucks
-section arps_fill 1: fill tomfill roots chords glassy plucks
-section chain 12: kick hats clap poly cow roots glassy chain specks seq_open seq_res
-section chain_break 4: breakbeat poly cow roots glassy chain specks seq_res
-section break 8: chords sparks glassy specks [wet]
-section build 4: roll tomroll bent plucks seq_shut seq_build rise
-section peak 7: crash kick hats clap ride poly roots glassy plucks chain theme seq_peak seq_res [dry]
-section peak_fill 1: fill tomfill ride roots glassy plucks chain theme seq_peak seq_res
-section climb 6: crash kick hats clap ride poly cow toms roots glassy sparks bent wander specks seq_peak seq_build
-section climb_break 1: breakbeat cow roots glassy sparks bent wander specks
-section climb_fill 1: fill tomfill sparks wander specks
-section outro 8: kick poly chords plucks
+scene intro 7: kick poly chords [dry]
+scene intro_fill 1: kick tomfill chords
+scene arps 15: kick hats poly roots chords glassy plucks
+scene arps_fill 1: fill tomfill roots chords glassy plucks
+scene chain 12: kick hats clap poly cow roots glassy chain specks seq_open seq_res
+scene chain_break 4: breakbeat poly cow roots glassy chain specks seq_res
+scene break 8: chords sparks glassy specks [wet]
+scene build 4: roll tomroll bent plucks seq_shut seq_build rise
+scene peak 7: crash kick hats clap ride poly roots glassy plucks chain theme seq_peak seq_res [dry]
+scene peak_fill 1: fill tomfill ride roots glassy plucks chain theme seq_peak seq_res
+scene climb 6: crash kick hats clap ride poly cow toms roots glassy sparks bent wander specks seq_peak seq_build
+scene climb_break 1: breakbeat cow roots glassy sparks bent wander specks
+scene climb_fill 1: fill tomfill sparks wander specks
+scene outro 8: kick poly chords plucks
 arrange intro intro_fill arps arps_fill chain chain_break break build peak peak_fill peak peak_fill climb climb_break climb_fill climb climb_break climb_fill outro
 loop 53 84

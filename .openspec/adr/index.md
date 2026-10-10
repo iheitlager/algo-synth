@@ -16,10 +16,10 @@
 | [0012](0012-the-song-is-text.md) | The song is text: a Tidal/Strudel-style notation with classic note names and durations and drum lanes, parsed and printed by the engine; the drum grid and generators edit it; a language model writes it | Accepted, amended by 0015, 0022, 0028 |
 | [0013](0013-sample-store.md) | The sample store: Rust parses and resamples WAV at load, in bounded memory; fixed slots, a hard cap, errors as codes | Accepted |
 | [0014](0014-user-presets.md) | User presets: four kinds (synth, insert, processor, strip) stored by name, applied on the synth defaults, kept in a browser library with export and import, apart from setups | Accepted |
-| [0015](0015-the-arrangement.md) | The arrangement: sections and an `arrange` order in the song text, drum, synth, sampler and MIDI tracks, scenes and automation lanes for any parameter by name, MIDI files converted into notes, the arranger pane | Accepted, amended by 0018, 0022, 0027 |
+| [0015](0015-the-arrangement.md) | The arrangement: sections and an `arrange` order in the song text, drum, synth, sampler and MIDI tracks, scenes and automation lanes for any parameter by name, MIDI files converted into notes, the arranger pane | Accepted, amended by 0018, 0022, 0027, 0031 (its words) |
 | [0016](0016-note-events-on-a-tick-grid.md) | Note events on a tick grid: 48 ticks per bar, events compiled at load, fired at their tick with a fixed note-off queue, a seeded integer generator per cycle | Accepted |
 | 0017 | Never written: the number was skipped | — |
-| [0018](0018-the-song-is-the-session.md) | The song is the session: mixer, groups, master, processors and samples as lines in the song text, one namespace for tracks and strips, the setup file an import | Accepted, amended by 0027 and #214 (setup import stays in TS) |
+| [0018](0018-the-song-is-the-session.md) | The song is the session: mixer, groups, master, processors and samples as lines in the song text, one namespace for tracks and strips, the setup file an import | Accepted, amended by 0027, 0031 and #214 (setup import stays in TS) |
 | [0019](0019-patterns-signals-and-parameters.md) | One language for patterns, signals and parameters: pattern methods, control-rate signals with mathematics, parameters as methods, one precedence, compiled to a node pool | Accepted, extended (#255, #298) |
 | [0020](0020-modular-voice-and-sound-screen.md) | A modular voice: unit-generator graphs in the song compiled per song and played per note, controls as generic parameters, a Sound screen; our own language, not scsynth | Accepted, superseded in part by 0024 |
 | [0021](0021-modular-voice-language.md) | The modular voice's language: bipolar audio-rate calls in hertz apart from the signals, `|>` as a postfix, one line, fixed per-voice limits, the program copied per note, no transcendental call per sample | Accepted, superseded in part by 0024 |
@@ -32,6 +32,7 @@
 | [0028](0028-an-llm-proxy-beside-caddy.md) | An LLM proxy beside Caddy, on localhost only: a Rust (axum) assist server linking algo-dsp for its tools, one loop over five providers behind one trait, keys from 1Password, SSE to the Assistant; everything binds to 127.0.0.1, so no authentication for now | Accepted, amended by 0030 |
 | [0029](0029-decks.md) | Decks: the main engine stays on the audio thread, up to three more in Web Workers rendering 4 blocks ahead into SharedArrayBuffer rings; a deck mixer in Rust, one clock per instance, a late deck drops its block; cross-origin isolation headers | Accepted |
 | [0030](0030-one-server.md) | One binary, one server, one port: `algo-synth serve` on 127.0.0.1:6340 serves the app and `/api`, with isolation, no-cache and compression; one image; Caddy and the second process go | Accepted |
+| [0031](0031-abletons-words.md) | Ableton's words: `frag` → `clip`, `section` → `scene`, `scene` → `snapshot` in the song, the engine, the app, the assistant and the docs; the parser still reads the old words, the printer writes the new | Accepted |
 
 ## Status and later decisions
 

@@ -84,7 +84,7 @@ Output SHALL be finite and within ±1, whatever the input: the master limiter is
 
 #### Scenario: a busy song allocates nothing
 
-- GIVEN a song with drum lanes, chords, a live arp, automation and scenes, loaded and playing
+- GIVEN a song with drum lanes, chords, a live arp, automation and snapshots, loaded and playing
 - WHEN six bars are rendered under a counting allocator
 - THEN `render` makes no allocation, reallocation or deallocation, and the song is heard
 

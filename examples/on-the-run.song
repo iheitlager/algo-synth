@@ -127,41 +127,41 @@ strip boom: Level 1, Send2 0.7
 master: MasterGain 0.8, P1Type Echo, P1A 0.738, P1B 0.45, P1D 1, P1Return 0.35, P2Type Reverb, P2A 0.8, P2Return 0.35, P3Type Flanger, P3A 0.3, P3B 0.7, P3D 0.7, P3Return 0.4
 
 # The sequence, twice a bar.
-frag seq_in = seq .cutoff(sine.slow(8).exprange(200, 900)) .resonance(0.5)
+clip seq_in = seq .cutoff(sine.slow(8).exprange(200, 900)) .resonance(0.5)
   "e2 g2 a2 g2 d3 c3 d3 e3 e2 g2 a2 g2 d3 c3 d3 e3"
-frag seq_run = seq .cutoff(sine.slow(8).exprange(300, 3200)) .resonance(tri.slow(16).range(0.35, 0.8))
+clip seq_run = seq .cutoff(sine.slow(8).exprange(300, 3200)) .resonance(tri.slow(16).range(0.35, 0.8))
   "e2 g2 a2 g2 d3 c3 d3 e3 e2 g2 a2 g2 d3 c3 d3 e3"
-frag seq_wild = seq .cutoff(lfo(0.6).exprange(180, 5000)) .resonance(perlin.range(0.55, 0.92))
+clip seq_wild = seq .cutoff(lfo(0.6).exprange(180, 5000)) .resonance(perlin.range(0.55, 0.92))
   "e2 g2 a2 g2 d3 c3 d3 e3 e2 g2 a2 g2 d3 c3 d3 e3"
 
-frag ticks = hat
+clip ticks = hat
   "[c6! c6 c6 c6]*4"
 
-frag run = feet
+clip run = feet
   "c2 c#2 c2 c#2"
 
-frag gasp = breath
+clip gasp = breath
   "[c7 g6] ~ [c7 g6] ~"
 
-frag dingdong = chime
+clip dingdong = chime
   "<[g5 e5 c5 ~] ~ ~ ~ ~ ~ ~ ~>"
 
 # Syllables, some bars only, in the pitch of a speaking voice.
-frag announce = pa
+clip announce = pa
   "<~ [a2 c3? b2 ~ g2 a2? ~ ~ c3 d3? b2 a2 ~ g2 ~ ~] [b2 a2 ~ c3? a2 g2 a2? ~ d3 c3 ~ b2? a2 ~ ~ ~] [a2 a2? c3 b2 ~ ~ g2 a2 b2? c3 ~ a2 g2? ~ ~ ~] [c3 b2 a2? ~ g2 a2 ~ b2? a2 ~ ~ ~ ~ ~ ~ ~] ~ ~ ~>"
 
-frag flyby = jet
+clip flyby = jet
   "<~ ~ a1 ~ ~ ~ ~ ~ ~ ~ ~ ~>"
-frag flybys = jet
+clip flybys = jet
   "<~ ~ ~ ~ e1 ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ c2 ~ ~ ~ ~ ~ ~ ~ ~>"
 
-frag swoops = swoop
+clip swoops = swoop
   "<[~ c5 ~ ~] ~ [~ ~ g5? ~] [e5 ~ ~ ~] ~ [~ ~ ~ a5] ~ ~>"
 
-frag fall = dive
+clip fall = dive
   "<e1 ~ ~ ~ ~ ~ ~ ~>"
 
-frag crash = boom
+clip crash = boom
   "<e1 ~ ~ ~ ~ ~>"
 
 # The sequence and the hats fade in.
@@ -169,16 +169,16 @@ auto fade_seq = seq.Level ramp 0 0.75 /8
 auto fade_hat = hat.Level ramp 0 0.45 /8
 
 # The flanger on the sequence in the swirl, off again.
-scene phase: seq.Send3 0.7
-scene plain: seq.Send3 0
+snapshot phase: seq.Send3 0.7
+snapshot plain: seq.Send3 0
 
-section intro 8: seq_in ticks fade_seq fade_hat
-section run 24: seq_run ticks run gasp
-section gate 8: seq_run ticks run dingdong announce
-section flyby 12: seq_run ticks run gasp flyby
-section run2 24: seq_wild ticks run gasp swoops
-section gate2 8: seq_run ticks run dingdong announce
-section swirl 24: seq_wild ticks gasp swoops flybys [phase]
-section dive 8: seq_wild ticks run gasp fall [plain]
-section crash 6: crash
+scene intro 8: seq_in ticks fade_seq fade_hat
+scene run 24: seq_run ticks run gasp
+scene gate 8: seq_run ticks run dingdong announce
+scene flyby 12: seq_run ticks run gasp flyby
+scene run2 24: seq_wild ticks run gasp swoops
+scene gate2 8: seq_run ticks run dingdong announce
+scene swirl 24: seq_wild ticks gasp swoops flybys [phase]
+scene dive 8: seq_wild ticks run gasp fall [plain]
+scene crash 6: crash
 arrange intro run gate flyby run2 gate2 swirl dive crash

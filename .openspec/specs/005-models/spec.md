@@ -128,7 +128,7 @@ The SH-101 SHALL have one VCO whose saw and pulse are mixed (the pulse VCO 2, lo
 
 ### Requirement 8: Panels and colours [MUST]
 
-The view SHALL draw each synth with a panel of its model: the sections, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the models are told apart at a glance. The palette SHALL be the instrument's own where it is known by its colours, and a section MAY take its own accent where the instrument colours its controls: the TR-808's pads its step buttons' red, orange, yellow and off-white, the Jupiter-8's and Juno-106's sections their buttons' colours (#312). A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
+The view SHALL draw each synth with a panel of its model: the scenes, control names and order of that instrument, and a palette of its own (panel, lettering, trim and accent) as CSS variables, so the models are told apart at a glance. The palette SHALL be the instrument's own where it is known by its colours, and a scene MAY take its own accent where the instrument colours its controls: the TR-808's pads its step buttons' red, orange, yellow and off-white, the Jupiter-8's and Juno-106's scenes their buttons' colours (#312). A panel SHALL show only the controls its instrument has and SHALL send edits only (spec 003 Req 6). Selecting a model SHALL send the model's first preset.
 
 **Implementation:** `web/src/audio/models.ts`, `web/src/components/SynthFaceplate.vue`, `web/src/components/InstrumentsPane.vue` (#30, #312, drawn as faceplates by spec 003 Req 9)
 
