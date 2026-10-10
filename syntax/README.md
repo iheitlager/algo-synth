@@ -14,7 +14,7 @@ them. It knows which track a clip plays, which a regex or a grammar does not,
 so those two read an indented line by its shape: a pad and steps
 (`bd x...X...`) or a pad and a call (`ch euclid(3,8)`) is a drum lane,
 anything else is notes, and the body under `setting … = Modular` is code.
-`make syntax-test` checks every character of `examples/*.song` against the
+`make syntax-test` checks every character of `examples/songs/*.song` against the
 engine. Both are at 100% today.
 
 ## Neovim

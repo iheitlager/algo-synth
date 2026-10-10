@@ -243,7 +243,7 @@ clip beat = kit /16
     /// The examples are songs: an editor opening one shows no error.
     #[test]
     fn the_examples_have_no_diagnostics() -> std::io::Result<()> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs");
         let mut seen = 0;
         for entry in std::fs::read_dir(dir)? {
             let path = entry?.path();
