@@ -1,0 +1,75 @@
+# Dub Siren: a one-drop at 76 in G minor for the ModularDubSiren preset. Piano
+# chops the skank on 2 and 4, the snare rolls into each bar, and the rim shots
+# leave the kit on their own out (RsOut 1) for group 1, which throws them deep
+# into a long reverb (P2) while the rest of the kit stays dry.
+# The siren's panel: mode (Ctl1: square, triangle, saw up, saw down, random
+# step, random smooth), amount (Ctl2, the base in semitones from the key), rate
+# (Ctl3), depth (Ctl4), sweep (Ctl5, the glide time on release) and dir (Ctl6,
+# 0 down, 1 up). Each scene's snapshot sets it; hold a key and let go.
+tempo 76
+swing 50
+scale g minor
+
+setting kit = Tr808 Kit808: RsOut 1
+setting siren = Modular ModularDubSiren
+
+track drums drums kit
+track bass synth Minimoog MiniBass
+track keys sampler Sampler SamplerKeys
+samples keys upright-piano-kw
+track siren synth siren
+
+# the rim shots' own bus: almost all reverb
+group 1 rims: Level 0.7, Send2 1
+strip drums: Level 0.9
+strip bass: Level 0.85
+strip keys: Level 0.6, Pan 0.25, Send2 0.12
+strip siren: Level 0.45, Pan -0.2, Send1 0.6, Send2 0.2
+# P1 echo: a dotted eighth at 76, dark repeats; P2 a long, wide room for the rims
+master: MasterGain 0.8, P1Return 0.55, P1A 0.84, P1B 0.65, P1C 0.3, P1D 1, P2Type Reverb, P2Return 0.5, P2A 0.95, P2C 0.3
+
+# one-drop: kick and rim on 3, a little roll into the one
+clip drop = drums /16
+  bd ........x.......
+  rs ........x.....x.
+  sn ..............o2o3
+  ch x.x.x.x.x.x.x.x.
+# the fill: the snare rolls through beat 4, ratchets climbing
+clip roll = drums /16
+  bd ........x.......
+  rs ....x...x.......
+  sn ........x...o2o3x3X4
+  ch x.x.x.x.x.x.....
+# dub: kick and rim alone, the rim thrown into the echo too
+clip dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~ ~ ~ ~ ~")
+  bd ........x.......
+  rs ........x.......
+
+# i i iv v under it
+clip line = bass
+  g1:4. d2:8 r:4 g1:8 a#1:8 g1:4. d2:8 r:4 f1:8 g1:8 c2:4. g1:8 r:4 c2:8 d#2:8 d2:4. a1:8 r:4 d2:8 f1:8
+# the skank: short piano chords on 2 and 4
+clip skank = keys
+  r:4 i:8 r:8 r:4 i:8 r:8 r:4 i:8 r:8 r:4 i:8 r:8 r:4 iv:8 r:8 r:4 iv:8 r:8 r:4 v:8 r:8 r:4 v:8 r:8
+
+# the siren: press, hold, let go and it glides into the echo
+clip call = siren
+  r:1 g4:2 r:2
+clip hits = siren
+  d5:8 r:8 r:4 d5:8 r:8 r:4 r:1
+clip wail = siren
+  g4:1 r:1
+
+snapshot wailing: siren.Ctl1 1, siren.Ctl3 0.8, siren.Ctl6 0
+snapshot whoop: siren.Ctl1 2, siren.Ctl3 5, siren.Ctl6 1
+snapshot laser: siren.Ctl1 3, siren.Ctl3 9, siren.Ctl6 0
+snapshot robot: siren.Ctl1 4, siren.Ctl3 8, siren.Ctl6 0
+
+scene intro 4: drop skank wail [wailing]
+scene riddim 8: drop skank line [wailing]
+scene call 8: drop skank line call [whoop]
+scene fill 4: roll skank line hits [laser]
+scene dub 8: dub_drums line call [laser]
+scene robots 8: drop skank line hits [robot]
+scene outro 4: drop skank wail [whoop]
+arrange intro riddim call fill dub robots fill outro

@@ -4182,6 +4182,86 @@ fn a_noise_siren_is_seeded() {
     assert!(a.iter().flatten().all(|v| v.is_finite() && v.abs() <= 1.0));
 }
 
+/// The dub siren preset's panel leads with its six controls, in order: mode
+/// a six-way switch, amount, rate, depth and sweep knobs, dir an up/down switch.
+#[test]
+fn the_dub_siren_panel_is_its_six_controls() {
+    let code = crate::mono::preset::Preset::ModularDubSiren
+        .code()
+        .expect("code");
+    let p = crate::modular::sc::compile(code).expect("it builds");
+    let first: Vec<_> = p
+        .knobs
+        .iter()
+        .take(6)
+        .map(|k| (k.name.as_str(), k.step, k.lo, k.hi))
+        .collect();
+    assert_eq!(
+        first,
+        [
+            ("mode", 1.0, 0.0, 5.0),
+            ("amount", 0.0, -24.0, 24.0),
+            ("rate", 0.0, 0.0, 12.0),
+            ("depth", 0.0, 0.0, 38.0),
+            ("sweep", 0.0, 0.0, 3.0),
+            ("dir", 1.0, 0.0, 1.0),
+        ]
+    );
+    let controls = p
+        .knobs
+        .iter()
+        .filter(|k| {
+            p.modules
+                .get(k.module)
+                .is_some_and(|m| m.name == "Controls")
+        })
+        .count();
+    assert_eq!(controls, 6, "only the six: the key is the pitch");
+}
+
+/// The dub siren sounds in all six modes, plays the key an `amount` away, and
+/// let go glides down, or up with `dir`, as it fades.
+#[test]
+fn the_dub_siren_sweeps_down_or_up() {
+    let ctl = |i| Param::ctl_param(i).expect("ctl");
+    let play = |mode: f32, depth: f32, dir: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularDubSiren);
+        e.set_param(0, ctl(0), mode);
+        e.set_param(0, ctl(3), depth);
+        e.set_param(0, ctl(5), dir);
+        e.note_on(0, 69, 1.0);
+        let held = left_of(&mut e, 0.5);
+        e.note_off(0, 69);
+        let gone = left_of(&mut e, 1.0);
+        (held, gone)
+    };
+    for mode in 0..6 {
+        let (held, gone) = play(mode as f32, 19.0, 0.0);
+        assert!(
+            held.iter()
+                .chain(&gone)
+                .all(|v| v.is_finite() && v.abs() <= 1.0),
+            "mode {mode} bounded"
+        );
+        assert!(level(&held[4800..]) > 0.05, "mode {mode} sounds");
+    }
+    // Depth 0: a steady tone at the key (440 Hz) an octave down, the default amount.
+    let (held, down) = play(0.0, 0.0, 0.0);
+    let secs = |x: &[f32]| x.len() as f32 / 48_000.0;
+    let hz = ups(&held[4800..]) as f32 / secs(&held[4800..]);
+    assert!((hz - 220.0).abs() < 6.0, "the base: {hz} Hz");
+    let fell = ups(&down[12_000..36_000]) as f32 / 0.5;
+    let (_, up) = play(0.0, 0.0, 1.0);
+    let rose = ups(&up[12_000..36_000]) as f32 / 0.5;
+    assert!(fell < hz * 0.7, "down glides down: {fell} Hz from {hz}");
+    assert!(rose > hz * 1.4, "up glides up: {rose} Hz from {hz}");
+    assert!(
+        level(&down[12_000..]) < level(&held[4800..]),
+        "it fades as it glides"
+    );
+}
+
 /// #216's acceptance: the gabber kick falls in pitch, is driven square, ends
 /// by itself and renders the same twice.
 #[test]
