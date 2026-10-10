@@ -22,6 +22,8 @@ const analyser = shallowRef<Analyser | null>(null)
 const state = reactive({
   name: '', busy: '', error: '', main: false, sent: '',
   frames: 0, side: 'b' as Side,
+  /** The main window's user slot (0-7) a table or an attack goes to. */
+  slot: 0,
 })
 const settings = reactive({ window: 4096, hop: 256, top: 0, semitones: 0, stretch: 1 })
 const original = shallowRef<ArrayBuffer | null>(null)
@@ -132,6 +134,25 @@ async function send() {
   const base = state.name.replace(/\.wav$/i, '') || 'sound'
   const code = await main.send(`${base} (resynth).wav`, resynth.value.slice(0))
   state.sent = code < 0 ? codeMessage(code) : 'sent to the main window'
+}
+
+// The analysed sound as a wavetable for the PPG, or its attack for the D-50, into
+// the main window's user slot (spec 010 Req 9-10).
+async function sendUser(kind: 'table' | 'attack') {
+  const a = analyser.value
+  if (!a || !tracks.value.length) return
+  const { values, root } = await a.extract(kind)
+  if (!values.length) {
+    state.sent = codeMessage(-101)
+    return
+  }
+  const slot = state.slot
+  const code = kind === 'table' ? await main.sendTable(slot, values.buffer as ArrayBuffer) : await main.sendAttack(slot, root, values.buffer as ArrayBuffer)
+  state.sent = code < 0
+    ? codeMessage(code)
+    : kind === 'table'
+      ? `table in User ${slot + 1}: pick it as a PPG's Table`
+      : `attack in User ${slot + 1}: pick it as a D-50 partial's PCM`
 }
 
 function onDrop(e: DragEvent) {
@@ -288,6 +309,17 @@ onBeforeUnmount(() => {
       <button :disabled="!resynth || !state.main" :title="state.main ? 'Load the resynthesis into the main window\'s samples' : 'Open the app to send it there'" @click="send">
         Send to main window
       </button>
+      <label class="slot">to
+        <select v-model.number="state.slot" aria-label="User slot">
+          <option v-for="n in 8" :key="n" :value="n - 1">User {{ n }}</option>
+        </select>
+      </label>
+      <button :disabled="!tracks.length || !state.main" title="The sound's harmonics as a 64-wave table for the PPG Wave" @click="sendUser('table')">
+        Send as table
+      </button>
+      <button :disabled="!tracks.length || !state.main" title="The sound's attack as a PCM sample for a D-50 partial" @click="sendUser('attack')">
+        Send attack
+      </button>
       <span class="status">{{ state.main ? state.sent : 'no main window: open the app to send' }}</span>
     </div>
 
@@ -312,6 +344,7 @@ h1 { font-size: 15px; margin: 0; }
 .waves svg { width: 100%; height: 48px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 .waves .a { fill: #8ab4d8; }
 .waves .b { fill: var(--accent); }
+.slot { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .layers { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .layers label { display: flex; align-items: center; gap: 4px; min-width: 0; flex-direction: row; }
 .seg { display: inline-flex; }

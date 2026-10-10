@@ -5769,3 +5769,130 @@ fn winter_rv297_plays_start_to_finish() {
         include_bytes!("../../../../examples/scores/rv297-winter.mid"),
     );
 }
+
+/// Amplitude of `hz` in `x` at 48 kHz (a Goertzel bin, scaled to a sine's peak).
+fn amplitude_at(x: &[f32], hz: f32) -> f32 {
+    let w = std::f32::consts::TAU * hz / 48_000.0;
+    let (mut re, mut im) = (0.0, 0.0);
+    for (i, y) in x.iter().enumerate() {
+        re += y * (w * i as f32).cos();
+        im += y * (w * i as f32).sin();
+    }
+    2.0 * re.hypot(im) / x.len() as f32
+}
+
+/// A user wavetable whose waves go from a saw (wave 0) to a square (the last).
+fn saw_to_square() -> Vec<f32> {
+    use crate::table::{WAVE_LEN, WAVES};
+    let mut t = vec![0.0; WAVES * WAVE_LEN];
+    for (k, wave) in t.chunks_exact_mut(WAVE_LEN).enumerate() {
+        let square = k as f32 / (WAVES - 1) as f32;
+        for (i, y) in wave.iter_mut().enumerate() {
+            let x = std::f32::consts::TAU * i as f32 / WAVE_LEN as f32;
+            *y = (1..=31)
+                .map(|n| {
+                    let even = n % 2 == 0;
+                    let a = if even { 1.0 - square } else { 1.0 };
+                    a * (n as f32 * x).sin() / n as f32
+                })
+                .sum::<f32>()
+                * 0.5;
+        }
+    }
+    t
+}
+
+/// The PPG playing user table 0 (its table 8) at position `pos`: one second of A3.
+fn ppg_user_table(pos: f32, loaded: bool) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::PpgSweepPad);
+    if loaded {
+        let t = saw_to_square();
+        e.user_buffer(t.len()).expect("fits").copy_from_slice(&t);
+        e.load_user_table(0).expect("loads");
+    }
+    for (p, v) in [
+        (Param::MasterGain, 1.0),
+        (Param::Wt1Table, 8.0),
+        (Param::Wt2Table, 8.0),
+        (Param::Wt1Pos, pos),
+        (Param::Wt2Pos, pos),
+        (Param::EnvWt, 0.0),
+        (Param::LfoWt, 0.0),
+        // The table alone: one oscillator, no chorus, drift or filter movement.
+        (Param::Vco2Level, 0.0),
+        (Param::ChorusMode, 0.0),
+        (Param::Analog, 0.0),
+        (Param::Resonance, 0.0),
+        (Param::EnvCutoff, 0.0),
+        (Param::Cutoff, 20_000.0),
+        (Param::AdsrAttack, 0.0),
+        (Param::AdsrSustain, 1.0),
+    ] {
+        e.set_param(0, p, v);
+    }
+    e.note_on(0, 57, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..(48_000 / BLOCK) {
+        e.render(BLOCK);
+        assert!(e.output().iter().all(|s| s.is_finite()));
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    out
+}
+
+/// Spec 010 Req 9: the PPG plays a user table, and its position morphs
+/// through the table's waves: a saw's even harmonics fade as it becomes a square.
+#[test]
+fn the_ppg_plays_a_user_table_and_its_position_morphs() {
+    let tail = |x: Vec<f32>| x[24_000..].to_vec();
+    let saw = tail(ppg_user_table(0.0, true));
+    let square = tail(ppg_user_table(1.0, true));
+    let (h1, h2) = (amplitude_at(&saw, 220.0), amplitude_at(&saw, 440.0));
+    assert!(h1 > 0.01, "the table sounds: {h1}");
+    let db = 20.0 * (h2 / h1).log10();
+    assert!((db + 6.0).abs() < 3.0, "a saw's second harmonic: {db} dB");
+    let (s1, s2) = (amplitude_at(&square, 220.0), amplitude_at(&square, 440.0));
+    assert!(
+        20.0 * (s2 / s1).log10() < -30.0,
+        "a square has no second harmonic"
+    );
+    // An empty user slot is silence, not a generated table.
+    let empty = tail(ppg_user_table(0.0, false));
+    assert!(empty.iter().all(|s| s.abs() < 1e-6));
+}
+
+/// Spec 010 Req 10: the D-50 plays a user attack on partial 1 (its PCM 9).
+#[test]
+fn the_d50_plays_a_user_attack() {
+    let first_blocks = |loaded: bool| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (p, v) in [
+            (Param::Model, 12.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::P2Cutoff, 20_000.0),
+            (Param::Pcm1Sample, 9.0),
+        ] {
+            e.set_param(0, p, v);
+        }
+        if loaded {
+            let burst: Vec<f32> = (0..2_400)
+                .map(|i| 0.5 * (std::f32::consts::TAU * 1_000.0 * i as f32 / 48_000.0).sin())
+                .collect();
+            e.user_buffer(burst.len())
+                .expect("fits")
+                .copy_from_slice(&burst);
+            e.load_user_attack(0, 60).expect("loads");
+        }
+        e.note_on(0, 60, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..15 {
+            e.render(BLOCK);
+            out.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        amplitude_at(&out, 1_000.0)
+    };
+    let (with, without) = (first_blocks(true), first_blocks(false));
+    assert!(with > 10.0 * without.max(1e-4), "{with} vs {without}");
+}

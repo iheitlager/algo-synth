@@ -30,6 +30,14 @@ self.onmessage = ({ data }) => {
       self.postMessage({ t: 'analysed', code, tracks, gram, bands: w.spectral_bands() }, [tracks.buffer, gram.buffer])
       break
     }
+    // The analysed sound as a PPG wavetable, or its attack as a D-50 PCM sample (spec 010 Req 9-10).
+    case 'table':
+    case 'attack': {
+      const n = data.t === 'table' ? w.spectral_table() : w.spectral_attack()
+      const values = new Float32Array(w.memory.buffer, w.spectral_values_ptr(), n).slice()
+      self.postMessage({ t: data.t, values, root: w.spectral_root() }, [values.buffer])
+      break
+    }
     case 'render': {
       const len = w.spectral_render(data.top, data.shift, data.stretch)
       const wav = new Uint8Array(w.memory.buffer, w.spectral_wav_ptr(), len).slice()

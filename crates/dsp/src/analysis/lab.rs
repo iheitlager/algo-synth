@@ -5,6 +5,7 @@
 
 use super::additive::resynthesise;
 use super::edit::{shift, top_n};
+use super::frames::{split_attack, to_table};
 use super::spectrogram::spectrogram;
 use super::{Analysis, Settings, analyse};
 use crate::sample;
@@ -24,6 +25,10 @@ pub struct Lab {
     grams: [Vec<u8>; 2],
     /// The analysis window, which the spectrograms use too.
     window: usize,
+    /// The original, mono at the analysis rate, for its attack.
+    source: Vec<f32>,
+    /// The last `table` or `attack`, for the view to copy out.
+    values: Vec<f32>,
 }
 
 impl Lab {
@@ -46,6 +51,8 @@ impl Lab {
         self.out.clear();
         self.grams = [Vec::new(), Vec::new()];
         self.window = window;
+        self.source.clear();
+        self.values.clear();
         let s = match sample::parse(&self.input, rate) {
             Ok(s) => s,
             Err(e) => return e.code(),
@@ -66,6 +73,7 @@ impl Lab {
             Ok(a) => {
                 let frames = a.frames();
                 self.grams[0] = spectrogram(&mono, rate, window, hop);
+                self.source = mono;
                 self.tracks = flatten(&a);
                 self.analysis = Some(a);
                 i32::try_from(frames).unwrap_or(i32::MAX)
@@ -116,6 +124,30 @@ impl Lab {
     /// `spectrogram::BANDS` bytes a frame, at the analysis hop.
     pub fn spectrogram(&self, which: usize) -> &[u8] {
         self.grams.get(which).map_or(&[], |g| g.as_slice())
+    }
+
+    /// The analysed sound as a wavetable for the PPG: `WAVES * WAVE_LEN`
+    /// values, or none without an analysis or a voiced frame (spec 010 Req 9).
+    pub fn table(&mut self) -> &[f32] {
+        self.values = self.analysis.as_ref().map(to_table).unwrap_or_default();
+        &self.values
+    }
+
+    /// The original's attack as a PCM sample for the D-50 (spec 010 Req 10).
+    pub fn attack(&mut self) -> &[f32] {
+        let rate = self.analysis.as_ref().map_or(0.0, |a| a.rate);
+        self.values = split_attack(&self.source, rate);
+        &self.values
+    }
+
+    /// The last `table` or `attack`.
+    pub fn values(&self) -> &[f32] {
+        &self.values
+    }
+
+    /// The original's root note: where its table and attack play at their own pitch.
+    pub fn root(&self) -> u8 {
+        self.root
     }
 
     /// The last `render`'s WAV.

@@ -1,6 +1,6 @@
 # 010: Partials, transforms and morphs
 
-A sound as a partial set, from any source the engine has; transforms and morphs on partial sets; and three ways to play one: as a sample, as a PPG wavetable through the analog filters with a D-50 attack, and in the Modular's SuperCollider subset. Epic #192, after its first stages (spec 009). Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0021, ADR-0024, ADR-0032.
+A sound as a partial set, from any source the engine has; transforms and morphs on partial sets; and three ways to play one: as a sample, as a PPG wavetable through the analog filters (with its attack on a D-50 partial), and in the Modular's SuperCollider subset. Epic #192, after its first stages (spec 009). Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0021, ADR-0024, ADR-0032.
 
 Status: proposed. The implementation and test paths below are where the work goes, marked (planned) until they exist; none of it is built yet.
 
@@ -199,43 +199,46 @@ A partial set SHOULD come from more than a WAV:
 ### Requirement 9: User wavetables (the PPG path) [MUST]
 
 The engine SHALL hold user wavetables beside its generated ones (spec 006 Req 10):
-- **Storage.** A fixed number of slots (8), each of up to 64 waves of 256 samples, written through a buffer outside `render` (as a sample, ADR-0013) and never allocated in it.
-- **Rendering.** A partial set SHALL render into a user table: up to 64 frames chosen evenly over its length, or at given times, each frame's labelled partials up to 31 harmonics written as one wave. Inharmonic partials are rounded to the nearest harmonic, and anything above harmonic 31 is dropped.
-- **Selection.** `Wt1Table` and `Wt2Table` SHALL reach the user tables after the generated ones, and `Wt1Pos`/`Wt2Pos` SHALL move through their frames as through any table. So the PPG model plays an analysed sound through its filters and envelopes, and a morph between two frames is a position.
+- **Storage.** 8 slots, each 64 waves of 256 samples, loaded through a buffer outside `render` (as a sample, ADR-0013). A slot is allocated when it is loaded, never in `render`, and an empty slot reads as silence.
+- **Rendering a partial set.** `WAVES` frames SHALL be chosen evenly from the analysis's first voiced frame to its last. Each frame's first 31 harmonics SHALL be written as one wave in sine phase, so neighbouring waves never cancel when crossfaded, and normalised to a peak of 1, since the synth's envelope gives the loudness. An unvoiced frame SHALL take the nearest voiced frame's harmonics. Without a voiced frame there is no table.
+- **Selection.** `Wt1Table` and `Wt2Table` SHALL reach the user tables as 8 to 15, after the generated ones. `Wt1Pos`/`Wt2Pos` SHALL move through their waves as through any table. So the PPG model plays an analysed sound through its filters and envelopes, and a morph between two waves is a position.
+- **Sending.** The lab SHALL send a table to a user slot in the main window, which the PPG panel offers as "User 1" to "User 8".
 
-**Implementation:** (planned) `crates/dsp/src/table.rs::UserTables`, `crates/dsp/src/analysis/frames.rs::to_table`, `crates/dsp/src/ffi.rs` (`table_buf`, `table_load`, `spectral_table`), `crates/dsp/src/params.rs` (`Wt1Table`, `Wt2Table` ranges), `web/src/audio/params.ts`
+**Implementation:** `crates/dsp/src/table.rs::UserTables`, `crates/dsp/src/table.rs::TableSet`, `crates/dsp/src/analysis/frames.rs::to_table`, `crates/dsp/src/engine.rs::Engine::load_user_table`, `crates/dsp/src/ffi.rs` (`user_buf`, `table_load`, `spectral_table`, `spectral_values_ptr`), `crates/dsp/src/params.rs` (`Wt1Table`, `Wt2Table` ranges), `web/public/worklet.js` (`userTable`), `web/src/audio/engine.ts` (`loadUserTable`), `web/src/audio/spectral.ts` (`sendTable`, `serveLab`), `web/src/audio/models.ts` (`WAVETABLES`)
 
-#### Scenario: an analysed sound on the PPG
+#### Scenario: an analysed saw on the PPG
 
-- GIVEN a sawtooth rendered into user table 0
-- WHEN the PPG model plays C4 with `Wt1Table` on user table 0 at position 0
-- THEN the output's harmonics fall as 1/k within 1.5 dB up to the 16th
+- GIVEN the engine's sawtooth, analysed and rendered into a table
+- WHEN its middle wave is measured
+- THEN its harmonics fall as 1/k within 1.5 dB up to the 16th, and its peak is 1
 
 #### Scenario: a morph as a position
 
-- GIVEN a table whose first wave is a saw and whose last is a square
-- WHEN `Wt1Pos` sweeps from 0 to 1
-- THEN the even harmonics fall from saw level to under −40 dB, and every sample is finite and bounded
+- GIVEN a user table whose first wave is a saw and whose last is a square
+- WHEN the PPG plays it at position 0 and at position 1
+- THEN the second harmonic is about 6 dB under the first at 0 and more than 30 dB under it at 1. An empty user slot is silence.
 
-**Tests:** (planned) `crates/dsp/src/table.rs::tests::user_tables_load_outside_render`, `crates/dsp/src/analysis/frames.rs::tests::a_saw_becomes_a_saw_table`, `crates/dsp/src/engine/tests.rs::the_ppg_plays_a_user_table`, `crates/dsp/src/engine/tests.rs::a_table_position_is_a_morph`
+**Tests:** `crates/dsp/src/analysis/frames.rs::tests::a_saw_becomes_a_saw_table`, `crates/dsp/src/analysis/frames.rs::tests::noise_makes_no_table`, `crates/dsp/src/engine/tests.rs::the_ppg_plays_a_user_table_and_its_position_morphs`, `crates/dsp/src/ffi.rs::tests::user_tables_and_attacks_through_the_abi`, `web/src/audio/spectral.test.ts`
 
-### Requirement 10: Attack and body (the D-50 path) [SHOULD]
+### Requirement 10: The attack on the D-50 [SHOULD]
 
-A partial set SHOULD split at the end of its attack (Requirement 6's feature), to give two parts:
-- **The attack:** the original's samples up to there plus a 10 ms fade, as a sample for an LA partial's PCM slot (`Pcm1Sample`/`Pcm2Sample` taking a user sample after the built-in ones).
-- **The body:** the partials after it, as a user table (Requirement 9).
+A D-50 partial cannot play a wavetable: it is either a PCM attack or a synthesised oscillator, as the D-50's was. So an analysed sound SHOULD give the D-50 its attack, and the body SHALL stay the D-50's own synth partial, which is the instrument's own recipe.
 
-The D-50 model playing both SHALL sound the original's transient over a body that its filter, envelopes and table position shape.
+- **The attack.** The original SHOULD be cut up to its loudest 20 ms, at least 30 ms long, then faded out over 10 ms. It goes into one of 8 user attack slots, at the original's root.
+- **Selection.** `Pcm1Sample`/`Pcm2Sample` SHALL reach the slots as 9 to 16, after the generated attacks, and the D-50 panel offers them as "User 1" to "User 8".
+- **Sending.** The lab SHALL send the attack to a user slot in the main window.
 
-**Implementation:** (planned) `crates/dsp/src/analysis/frames.rs::split_attack`, `crates/dsp/src/la.rs`, `crates/dsp/src/params.rs` (`Pcm1Sample`, `Pcm2Sample` ranges)
+The body as partial frames belongs to the PPG (Requirement 9). The two can be layered on two tracks.
 
-#### Scenario: a piano's hammer
+**Implementation:** `crates/dsp/src/analysis/frames.rs::split_attack`, `crates/dsp/src/table.rs::UserTables`, `crates/dsp/src/la.rs`, `crates/dsp/src/engine.rs::Engine::load_user_attack`, `crates/dsp/src/ffi.rs` (`attack_load`, `spectral_attack`, `spectral_root`), `crates/dsp/src/params.rs` (`Pcm1Sample`, `Pcm2Sample` ranges), `web/src/audio/engine.ts` (`loadUserAttack`), `web/src/audio/spectral.ts` (`sendAttack`), `web/src/audio/models.ts` (`PCM`)
 
-- GIVEN an analysed piano note
-- WHEN it is split and played on the D-50 model at its own root
-- THEN the first 30 ms differ from the original by less than −20 dB, and the body's harmonics follow the original's within 3 dB at 200 ms
+#### Scenario: an attack on partial 1
 
-**Tests:** (planned) `crates/dsp/src/analysis/frames.rs::tests::split_finds_the_attack`, `crates/dsp/src/engine/tests.rs::the_d50_plays_attack_and_body`
+- GIVEN a 50 ms 1 kHz burst in user attack 1
+- WHEN the D-50 plays it on partial 1 (PCM 9)
+- THEN the first 40 ms hold 1 kHz at more than ten times the level an empty slot gives
+
+**Tests:** `crates/dsp/src/analysis/frames.rs::tests::split_finds_the_attack`, `crates/dsp/src/engine/tests.rs::the_d50_plays_a_user_attack`, `crates/dsp/src/ffi.rs::tests::user_tables_and_attacks_through_the_abi`
 
 ### Requirement 11: Partials in the Modular (the SuperCollider path) [SHOULD]
 

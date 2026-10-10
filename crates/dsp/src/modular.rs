@@ -1821,7 +1821,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
-                tables: self.tables,
+                tables: self.tables.into(),
             };
             let p = patch.program;
             let input = p
@@ -2219,7 +2219,7 @@ mod tests {
                 ladder: &b.ladder,
                 pitch: &b.pitch,
                 shared: None,
-                tables: b.tables,
+                tables: b.tables.into(),
             };
             let render = |block: usize| {
                 let mut v = GraphVoice::new(7);
@@ -2269,7 +2269,7 @@ mod tests {
             ladder: &b.ladder,
             pitch: &b.pitch,
             shared: None,
-            tables: b.tables,
+            tables: b.tables.into(),
         };
         let mut v = GraphVoice::new(7);
         let mut st = VoiceState::for_program(&p);
@@ -2334,7 +2334,7 @@ mod tests {
                 ladder: &b.ladder,
                 pitch: &b.pitch,
                 shared: None,
-                tables: b.tables,
+                tables: b.tables.into(),
             };
             let mut v = GraphVoice::new(1);
             let mut st = VoiceState::for_program(p);
