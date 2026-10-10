@@ -9,6 +9,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { AssistError, assist, canClear, health, pendingProposals, providers as fetchProviders, type AssistEvent, type Provider, type Usage } from '../audio/assist'
 import type { AssistHost } from '../audio/assistlink'
+import Markdown from './Markdown.vue'
 import { changes, collapse, diffLines } from '../audio/linediff'
 
 const props = defineProps<{ host: AssistHost; popout?: boolean }>()
@@ -187,12 +188,13 @@ onMounted(check)
           <div v-for="(s, i) in turn.steps" :key="i" class="step" :class="s.kind">
             <template v-if="s.kind === 'tool'"><span :class="s.ok ? 'ok' : 'bad'">{{ s.ok ? '✓' : '✗' }}</span> <b>{{ s.name }}</b> {{ s.text }}</template>
             <template v-else-if="s.kind === 'progress'">… {{ s.text }}</template>
+            <Markdown v-else-if="s.kind === 'text'" :text="s.text" />
             <template v-else>{{ s.text }}</template>
           </div>
           <p v-if="turn.state === 'running'" class="muted step">working…</p>
           <p v-if="turn.state === 'stopped'" class="muted step">Stopped.</p>
           <div v-if="turn.proposal && turn.result !== 'discarded'" class="proposal">
-            <p v-if="turn.proposal.summary" class="summary">{{ turn.proposal.summary }}</p>
+            <Markdown v-if="turn.proposal.summary" class="summary" :text="turn.proposal.summary" />
             <template v-if="turn.result === 'pending'">
               <div class="diff-head">
                 <span class="muted">{{ changes(diffOf(turn)).added }} added, {{ changes(diffOf(turn)).removed }} removed</span>
@@ -255,7 +257,7 @@ onMounted(check)
 .ok { color: #7fd18b; }
 .bad { color: #ff9a85; }
 .proposal { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; background: var(--panel-2); }
-.summary { white-space: pre-wrap; }
+.summary { font-size: 12px; }
 .diff-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .actions { display: flex; gap: 6px; }
 .primary { border-color: var(--accent); color: var(--accent); }
