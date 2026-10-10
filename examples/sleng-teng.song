@@ -4,7 +4,7 @@ swing 50
 scale c minor
 # Casio MT-40 bass: a round, hollow square with a sine body; held for the note's length, short gaps between notes
 setting mt40 = Modular ModularBasic
-  SynthDef(\mt40, { |freq = 65, gate = 1, cutoff = 2399.9316|
+  SynthDef(\mt40, { |freq = 65, gate = 1, cutoff = 10994.8027|
       var body = SinOsc.ar(freq) * 0.9;
       var sq = Pulse.ar(freq, 0.4961) * 0.45;
       var oct = Pulse.ar(freq * 2, 0.5039) * 0.08;
@@ -13,7 +13,8 @@ setting mt40 = Modular ModularBasic
       sig = (sig * 1.1).tanh * EnvGen.kr(Env.adsr(0.0011, 0.2, 0.75, 0.06), gate) * 0.8;
       Pan2.ar(sig, 0.0659)
   }).add;
-track drums drums Tr808 TightKit
+setting drums = Tr808 Kit808: BdTune 3.307087
+track drums drums drums
 track bass synth mt40
 strip drums: Level 0.95, Send1 0.12
 strip bass: Level 0.95, Send1 0.08, Send2 0.82734376
@@ -27,7 +28,7 @@ frag rock = drums /16
   ch xoxoxoxoxoxoxoXX
 
 # dub drums: hats out, echo throw on the snare on 4
-frag dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 0.7 ~ ~ ~")
+frag dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~")
   bd x.......x.x.....
   sn ........X...x...
 
