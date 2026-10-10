@@ -91,6 +91,7 @@ const saveTitle = () =>
 
 // Which build is running (#197): the page's version and the engine's, with the commits in the details.
 const buildText = () => details(engineBuild)
+const CHANGELOG = 'https://github.com/iheitlager/algo-synth/blob/main/CHANGELOG.md'
 const copied = ref(false)
 // The bar hides its overflow, so the details float as `fixed`, placed under the summary when opened.
 const popAt = ref({ top: '0px', left: '0px' })
@@ -121,6 +122,7 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
       <div class="build-pop" :style="popAt">
         <pre>{{ buildText() }}</pre>
         <button @click="copyBuild">{{ copied ? 'Copied' : 'Copy' }}</button>
+        <a :href="CHANGELOG" target="_blank" rel="noopener">Changelog</a>
       </div>
     </details>
     <button :class="{ on: status.running }" @click="onPower">
@@ -183,6 +185,7 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
 .build { position: relative; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .build summary { cursor: pointer; }
 .build-pop { position: fixed; z-index: 10; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 6px; }
+.build-pop a { color: var(--accent); }
 .build-pop pre { margin: 0; font-family: var(--font-mono); color: inherit; }
 .on { border-color: var(--accent); color: var(--accent); }
 .seg { display: inline-flex; }
