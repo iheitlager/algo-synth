@@ -143,6 +143,11 @@ pub enum Op {
     Sub,
     Mul,
     Div,
+    /// SuperCollider's `**` on a signal: |x|^y with x's sign, so a negative
+    /// base stays finite.
+    Pow,
+    Min,
+    Max,
     /// SuperCollider's `round`: to the nearest multiple of the right side,
     /// halves up; a step of 0 passes the left side.
     Round,
@@ -246,13 +251,17 @@ pub enum Ugen {
         /// `feedback` is a `CombL` decay time in seconds: the echoes fall
         /// 60 dB in it.
         decay: bool,
-        /// Its line among the voice's delays.
+        /// Its first line among the voice's delays, and how many lines it
+        /// spans: `MAX_DELAY` samples each, one after another (#323).
         slot: u8,
+        lines: u8,
         /// Only the delayed signal comes out (SuperCollider's delays and
         /// combs), not the input with it.
         wet: bool,
     },
-    /// SuperCollider's shapers on a signal: 0 `tanh`, 1 `softclip`, 2 `distort`.
+    /// SuperCollider's shapers on a signal: 0 `tanh`, 1 `softclip`, 2 `distort`,
+    /// 3 `atan`, 4 `abs`, 5 `sqrt` (with the sign, as the server's), 6
+    /// `squared`, 7 `cubed`.
     Clip {
         input: u16,
         kind: u8,
@@ -301,6 +310,12 @@ pub enum Ugen {
     LfNoise {
         freq: u16,
         smooth: bool,
+        slot: u8,
+    },
+    /// A DC blocker (SuperCollider's `LeakDC`): y = x − x₋₁ + coef · y₋₁.
+    LeakDc {
+        input: u16,
+        coef: u16,
         slot: u8,
     },
     /// `input` smoothed by a one-pole falling 60 dB in `time` seconds
@@ -482,7 +497,8 @@ pub struct VoiceState {
     /// Each filter's last cutoff in hertz and as a note, so a steady
     /// cutoff is converted once.
     cutoffs: Vec<(f32, f32)>,
-    /// The delays' lines, `MAX_DELAY` each, and where each writes next.
+    /// The delays' lines, `MAX_DELAY` each, and where each writes next (a
+    /// delay spanning several lines keeps its place in the first).
     lines: Vec<f32>,
     writes: Vec<usize>,
     /// The numbers drawn when the note started, and how many notes this
@@ -1161,6 +1177,20 @@ impl GraphVoice {
                     h[0] -= step;
                 }
             }
+            Ugen::LeakDc { input, coef, slot } => {
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                for ((y, x), c) in out.iter_mut().zip(row(input)).zip(row(coef)) {
+                    let c = c.clamp(0.0, 0.9999);
+                    // h[0] the last input, h[1] the last output.
+                    let v = x - h[0] + c * h[1];
+                    h[0] = *x;
+                    h[1] = if v.is_finite() { v } else { 0.0 };
+                    *y = h[1];
+                }
+            }
             Ugen::Lag { input, time, slot } => {
                 let Some(h) = holds.get_mut(usize::from(slot)) else {
                     out.fill(0.0);
@@ -1288,15 +1318,17 @@ impl GraphVoice {
                 feedback,
                 decay,
                 slot,
+                lines: span,
                 wet,
             } => {
                 let k = usize::from(slot);
                 let base = k * MAX_DELAY;
-                // Its line and where it writes, held while the row runs.
-                let (Some(mut write), Some(line)) = (
-                    writes.get(k).copied(),
-                    lines.get_mut(base..base + MAX_DELAY),
-                ) else {
+                // Its lines, one after another (#323), and where it writes,
+                // held while the row runs.
+                let len = usize::from(span.max(1)) * MAX_DELAY;
+                let (Some(mut write), Some(line)) =
+                    (writes.get(k).copied(), lines.get_mut(base..base + len))
+                else {
                     out.fill(0.0);
                     return;
                 };
@@ -1317,11 +1349,11 @@ impl GraphVoice {
                         }
                         (false, false) => fb.clamp(-0.98, 0.98),
                     };
-                    let d = (t / inv).clamp(1.0, (MAX_DELAY - 2) as f32);
-                    let back = write as f32 + MAX_DELAY as f32 - d;
+                    let d = (t / inv).clamp(1.0, (len - 2) as f32);
+                    let back = write as f32 + len as f32 - d;
                     let (j, frac) = (back as usize, back - back.floor());
-                    let a = line.get(j % MAX_DELAY).copied().unwrap_or(0.0);
-                    let b = line.get((j + 1) % MAX_DELAY).copied().unwrap_or(0.0);
+                    let a = line.get(j % len).copied().unwrap_or(0.0);
+                    let b = line.get((j + 1) % len).copied().unwrap_or(0.0);
                     let delayed = a + (b - a) * frac;
                     let stored = x + fb * delayed;
                     let stored = if stored.is_finite() {
@@ -1332,7 +1364,7 @@ impl GraphVoice {
                     if let Some(w) = line.get_mut(write) {
                         *w = stored;
                     }
-                    write = (write + 1) % MAX_DELAY;
+                    write = (write + 1) % len;
                     *y = if wet { delayed } else { stored };
                 }
                 if let Some(w) = writes.get_mut(k) {
@@ -1381,6 +1413,12 @@ impl GraphVoice {
                     Op::Sub => xy.for_each(|((o, x), y)| *o = x - y),
                     Op::Mul => xy.for_each(|((o, x), y)| *o = x * y),
                     Op::Div => xy.for_each(|((o, x), y)| *o = if *y == 0.0 { 0.0 } else { x / y }),
+                    Op::Pow => xy.for_each(|((o, x), y)| {
+                        let v = x.abs().powf(*y).copysign(*x);
+                        *o = if v.is_finite() { v } else { 0.0 };
+                    }),
+                    Op::Min => xy.for_each(|((o, x), y)| *o = x.min(*y)),
+                    Op::Max => xy.for_each(|((o, x), y)| *o = x.max(*y)),
                     Op::Round => xy.for_each(|((o, x), y)| {
                         *o = if *y == 0.0 {
                             *x
@@ -1453,7 +1491,8 @@ fn cutoff_note(cutoffs: &mut [(f32, f32)], slot: u8, hz: f32, trim: f32) -> f32 
     note + trim
 }
 
-/// SuperCollider's shapers: 0 `tanh`, 1 `softclip`, 2 `distort`, else `atan`.
+/// SuperCollider's shapers: 0 `tanh`, 1 `softclip`, 2 `distort`, 3 `atan`,
+/// 4 `abs`, 5 `sqrt` (with the sign, as the server's), 6 `squared`, 7 `cubed`.
 fn clip(kind: u8, x: f32) -> f32 {
     match kind {
         // A Padé tanh, exact enough below 3 and 1 above.
@@ -1464,6 +1503,10 @@ fn clip(kind: u8, x: f32) -> f32 {
         1 if x.abs() <= 0.5 => x,
         1 => (x.abs() - 0.25) / x,
         2 => x / (1.0 + x.abs()),
+        4 => x.abs(),
+        5 => x.abs().sqrt().copysign(x),
+        6 => x * x,
+        7 => x * x * x,
         // atan, within a few thousandths: x / (1 + 0.28 x²) below 1,
         // π/2 − 1/x … above.
         _ => fast_atan(x),
@@ -1759,6 +1802,12 @@ mod tests {
         /// Each sample's value of the first oscillator (the filter's input)
         /// and of the last node, with the note held at 110 Hz.
         fn nodes(&mut self, body: &str, n: usize) -> Vec<(f32, f32)> {
+            self.play(body, n, |_| 110.0)
+        }
+
+        /// As `nodes`, the note's pitch `hz(i)` at sample `i`: a new pitch is
+        /// a new key pressed legato on the same voice.
+        fn play(&mut self, body: &str, n: usize, hz: impl Fn(usize) -> f32) -> Vec<(f32, f32)> {
             let patch = patch(body);
             for k in &patch.knobs {
                 if let Some(c) = self.params.ctl.get_mut(k.ctl) {
@@ -1787,9 +1836,13 @@ mod tests {
             let len = usize::from(p.len);
             let envs = [[0.0; SUB]; MAX_ENVS];
             (0..n)
-                .map(|_| {
+                .map(|t| {
+                    let f = hz(t);
+                    if t > 0 && f != hz(t - 1) {
+                        v.press(57, 1.0, &p, 48_000.0, 0);
+                    }
                     for i in 0..len {
-                        v.eval_row(&mut st, i, 0, 1, 110.0, 1.0 / 48_000.0, true, &ctx, &envs);
+                        v.eval_row(&mut st, i, 0, 1, f, 1.0 / 48_000.0, true, &ctx, &envs);
                     }
                     (st.vals[input * SUB], st.vals[(len - 1) * SUB])
                 })
@@ -1953,6 +2006,113 @@ mod tests {
 
     /// #472: `lag` takes a step to its new value smoothly, within a
     /// thousandth by its time, from its first value; `lag(0)` passes.
+    /// #323: `\freq.kr(440, lag)` glides from one legato note to the next.
+    #[test]
+    fn a_control_lag_glides_between_legato_notes() {
+        let mut b = Bench::new();
+        let hz = |t: usize| if t < 2_400 { 110.0 } else { 220.0 };
+        let y: Vec<f32> = b
+            .play("\\freq.kr(440, 0.05) + (SinOsc.ar(freq) * 0)", 7_200, hz)
+            .into_iter()
+            .map(|(_, y)| y)
+            .collect();
+        assert_eq!(y[2_399], 110.0, "settled on the first note");
+        assert!(y[2_400] < 112.0, "no jump at the second: {}", y[2_400]);
+        assert!(
+            y[2_400 + 600] > 150.0 && y[2_400 + 600] < 219.0,
+            "on its way: {}",
+            y[3_000]
+        );
+        assert!(
+            (y[2_400 + 2_400] - 220.0).abs() < 0.3,
+            "there in 50 ms: {}",
+            y[4_800]
+        );
+        let plain = b.play("\\freq.kr(440) + (SinOsc.ar(freq) * 0)", 4_800, hz);
+        assert_eq!(plain[2_400].1, 220.0, "without a lag it jumps");
+    }
+
+    /// #323: `LeakDC` takes an offset away and keeps the wave.
+    #[test]
+    fn leak_dc_blocks_an_offset() {
+        let mut b = Bench::new();
+        let y: Vec<f32> = b
+            .nodes("LeakDC.ar(SinOsc.ar(freq) + 0.5)", 48_000)
+            .into_iter()
+            .map(|(_, y)| y)
+            .collect();
+        let tail = &y[24_000..];
+        let mean = tail.iter().sum::<f32>() / tail.len() as f32;
+        let peak = tail.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        assert!(mean.abs() < 0.01, "no offset left: {mean}");
+        assert!(peak > 0.9 && peak < 1.1, "the wave kept: {peak}");
+    }
+
+    /// #323: signal math as on numbers: `**` and `sqrt` keep the sign,
+    /// `abs`, `squared`, `cubed`, `min`, `max` and `clip`.
+    #[test]
+    fn signal_math_works_as_on_numbers() {
+        let mut b = Bench::new();
+        let check = |b: &mut Bench, body: &str, f: fn(f32) -> f32| {
+            for (x, y) in b.nodes(body, 960) {
+                assert!(
+                    (y - f(x)).abs() < 1e-5,
+                    "{body}: {x} gives {y}, not {}",
+                    f(x)
+                );
+            }
+        };
+        check(&mut b, "SinOsc.ar(freq) ** 2", |x| {
+            x.abs().powi(2).copysign(x)
+        });
+        check(&mut b, "SinOsc.ar(freq).pow(3)", |x| {
+            x.abs().powi(3).copysign(x)
+        });
+        check(&mut b, "SinOsc.ar(freq).sqrt", |x| {
+            x.abs().sqrt().copysign(x)
+        });
+        check(&mut b, "SinOsc.ar(freq).abs", f32::abs);
+        check(&mut b, "SinOsc.ar(freq).squared", |x| x * x);
+        check(&mut b, "SinOsc.ar(freq).cubed", |x| x * x * x);
+        check(&mut b, "SinOsc.ar(freq).min(0.2)", |x| x.min(0.2));
+        check(&mut b, "SinOsc.ar(freq).max(-0.2)", |x| x.max(-0.2));
+        check(&mut b, "SinOsc.ar(freq).clip(-0.5, 0.25)", |x| {
+            x.clamp(-0.5, 0.25)
+        });
+        // A number still folds, and a fractional power of a negative stays finite.
+        let p = patch("SinOsc.ar(freq * 0.5.clip(0, 0.25) * 2.max(3) * (2 ** 2))");
+        assert!(p.program.nodes.contains(&Ugen::Num(3.0)));
+        for (_, y) in b.nodes("SinOsc.ar(freq) ** 0.5", 960) {
+            assert!(y.is_finite());
+        }
+    }
+
+    /// #323: a delay longer than one line spans several, up to the voice's
+    /// 32, and comes out its time late.
+    #[test]
+    fn a_long_delay_spans_lines_and_is_on_time() {
+        let mut b = Bench::new();
+        let xy = b.nodes("DelayN.ar(SinOsc.ar(freq), 0.4, 0.3)", 24_000);
+        let late = 14_400;
+        assert!(xy[..late].iter().all(|(_, y)| *y == 0.0), "silent first");
+        for i in late..xy.len() {
+            assert!((xy[i].1 - xy[i - late].0).abs() < 1e-4, "at {i}");
+        }
+        let p = patch(
+            "DelayN.ar(SinOsc.ar(freq), 0.4, 0.3) + CombL.ar(SinOsc.ar(freq), 0.01, 0.01, 1)",
+        );
+        let spans: Vec<(u8, u8)> = p
+            .program
+            .nodes
+            .iter()
+            .filter_map(|n| match n {
+                Ugen::Delay { slot, lines, .. } => Some((*slot, *lines)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(spans, vec![(0, 19), (19, 1)], "one after another");
+    }
+
     #[test]
     fn lag_smooths_a_step() {
         let mut b = Bench::new();
@@ -2038,6 +2198,9 @@ mod tests {
             sc::hoover::HOOVER,
             sc::hoover::MONO_HOOVER,
             KITCHEN,
+            // #323's DC blocker, long delay and signal math, and its
+            // control lag.
+            "SynthDef(\\m, { |freq = 220| var x = LeakDC.ar(Saw.ar(\\freq.kr(220, 0.05)) + 0.3); (DelayN.ar(x, 0.4, 0.3) + (x.abs ** 1.5).min(0.6).max(-0.6) + x.sqrt.squared.cubed * 0.1) * 0.3 }).add;",
             // #472's noises and lag, which hold state across a row (#476).
             "SynthDef(\\n, { |freq = 220| RLPF.ar(Saw.ar(freq * (1 + (LFNoise1.kr(7) * 0.02))), LFNoise0.kr(5).range(400, 3000).lag(0.05), 0.3) * 0.3 }).add;",
         ] {
