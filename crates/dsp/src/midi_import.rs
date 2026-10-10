@@ -244,6 +244,7 @@ fn layout(
                     note: n.note,
                     accent: false,
                     vel: n.vel,
+                    word: 0,
                 })
                 .collect();
             if events.is_empty() {

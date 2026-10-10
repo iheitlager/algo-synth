@@ -41,6 +41,8 @@ const choices = computed<{ label: string; value: Route }[]>(() => [
 ])
 const noKit = computed(() => song.tracks.some((t) => t.kind === 'drums') && !synths.list.some(isKit))
 const dirty = computed(() => song.draft !== song.text)
+// The words playing light up (#205) only while the editor shows the text the
+// engine plays: its spans point into that text, not into a draft.
 
 // Off → hit → accent → off.
 // A click cycles off → hit → accent → off; a ghost, flam or drag (written in the text) clicks off.
@@ -158,7 +160,10 @@ watch(() => status.running, (on) => on && requestSong())
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
           <span v-else-if="dirty" class="muted">applies when you pause · Ctrl+Enter now</span>
         </div>
-        <SongEditor :model-value="song.draft" :disabled="!status.running" :error="song.error" @update:model-value="typeSong" @keydown="onKey" />
+        <SongEditor
+          :model-value="song.draft" :disabled="!status.running" :error="song.error"
+          :lit="song.draft === song.text ? song.lit : []" @update:model-value="typeSong" @keydown="onKey"
+        />
       </div>
     </div>
   </section>

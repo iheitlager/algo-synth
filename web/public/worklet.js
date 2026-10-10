@@ -360,9 +360,16 @@ class EngineProcessor extends AudioWorkletProcessor {
       }
     }
     if (++this.tick % POSITION_EVERY === 0) {
+      // The words of the song text playing now (#205), as [start, len] pairs.
+      const lit = []
+      const n = w.lit_count ? w.lit_count() : 0
+      if (n) {
+        const raw = new Uint32Array(w.memory.buffer, w.lit_ptr(), n * 2)
+        for (let i = 0; i < n; i++) lit.push([raw[i * 2], raw[i * 2 + 1]])
+      }
       this.port.postMessage({
         t: 'pos', step: w.clock_step(), songPlaying: w.song_playing() === 1,
-        entry: w.song_entry(), local: w.song_local(), cued: w.song_cued(),
+        entry: w.song_entry(), local: w.song_local(), cued: w.song_cued(), lit,
       })
       // Automation or a Revision switch moved these strips' values: show them (ADR-0015, #343).
       const touched = w.auto_touched()

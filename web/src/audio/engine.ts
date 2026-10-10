@@ -564,6 +564,8 @@ export const song = reactive({
   local: -1,
   /** The fragment playing alone, −1 when none is cued (#375). */
   cued: -1,
+  /** The words of `text` playing now (#205), as [start, len] in UTF-16 units. */
+  lit: [] as [number, number][],
   /** The arrangement (ADR-0015): sections with what each holds (by index), their order, lanes, scenes, loop bars (0 0 none). */
   sections: [] as SongSection[],
   arrange: [] as number[],
@@ -826,6 +828,7 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     song.entry = (data.entry as number | undefined) ?? -1
     song.local = (data.local as number | undefined) ?? -1
     song.cued = (data.cued as number | undefined) ?? -1
+    song.lit = (data.lit as [number, number][] | undefined) ?? []
   } else if (data.t === 'song') {
     applySong(data)
   } else if (data.t === 'load') {

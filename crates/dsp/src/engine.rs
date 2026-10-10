@@ -67,6 +67,7 @@ use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
+use crate::song::spans::{self, FragSpans};
 use crate::song::{
     At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
     STEPS_PER_BAR, Song, SongError, Step, Target, signal,
@@ -101,6 +102,20 @@ struct Pending {
     song: Song,
     live: Vec<Live>,
     route: [Option<usize>; MAX_TRACKS],
+    /// Where its words are in its text (#205), built with it.
+    spans: Vec<FragSpans>,
+}
+
+/// The most words lit at once (#205).
+pub const MAX_LIT: usize = 64;
+
+/// A word of the song's text that plays (#205): its span in UTF-16 units and
+/// the clock step it stops sounding at.
+#[derive(Clone, Copy, Debug, Default)]
+struct Lit {
+    start: u32,
+    len: u32,
+    until: f64,
 }
 
 /// A drum hit between the clock's steps (#353), played when the clock
@@ -212,7 +227,12 @@ pub struct Engine {
     cue_name: String,
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
-    spent: Option<(Song, Vec<Live>)>,
+    spent: Option<(Song, Vec<Live>, Vec<FragSpans>)>,
+    /// Where the words of the song's text are, per fragment (#205), the
+    /// words playing now, and the spans handed out last (`lit_count`).
+    spans: Vec<FragSpans>,
+    lit: [Lit; MAX_LIT],
+    lit_out: [u32; 2 * MAX_LIT],
     /// A pending song took over on a bar line since the view last asked.
     taken: bool,
     /// The value each automation lane last wrote, so it writes only changes
@@ -304,6 +324,9 @@ impl Engine {
             cue: None,
             cue_name: String::new(),
             spent: None,
+            spans: Vec::new(),
+            lit: [Lit::default(); MAX_LIT],
+            lit_out: [0; 2 * MAX_LIT],
             taken: false,
             auto_last: [f32::NAN; MAX_AUTOS],
             mod_last: [f32::NAN; MAX_MODS],
@@ -1212,6 +1235,66 @@ impl Engine {
         self.song_play();
     }
 
+    /// Print the song into its text again after an edit, and find its words
+    /// there (#205). Not for `render`: it allocates.
+    fn reprint(&mut self) {
+        self.song_text = self.song.print();
+        self.spans = spans::spans(&self.song, &self.song_text);
+    }
+
+    /// Light a word of the text until clock step `until` (#205): in a free
+    /// slot, the one already holding it, or the one that ends first.
+    fn light(&mut self, span: Option<(u32, u32)>, until: f64) {
+        let Some((start, len)) = span else {
+            return;
+        };
+        let now = self.clock.step_position();
+        let slot = self
+            .lit
+            .iter()
+            .position(|l| l.start == start && l.len == len)
+            .or_else(|| self.lit.iter().position(|l| l.until <= now))
+            .or_else(|| {
+                (0..MAX_LIT).min_by(|a, b| {
+                    let u = |i: &usize| self.lit.get(*i).map_or(0.0, |l| l.until);
+                    u(a).total_cmp(&u(b))
+                })
+            });
+        if let Some(l) = slot.and_then(|i| self.lit.get_mut(i)) {
+            // The same word again lights as long as the longer of the two.
+            let same = l.start == start && l.len == len;
+            *l = Lit {
+                start,
+                len,
+                until: if same { until.max(l.until) } else { until },
+            };
+        }
+    }
+
+    /// The words of the text playing now (#205), as (start, length) pairs in
+    /// UTF-16 units from `lit_ptr`; their count. None while the song is
+    /// stopped or a new one waits for its bar, when the text is not the one
+    /// that sounds.
+    pub fn lit_count(&mut self) -> usize {
+        if !self.clock.playing() || self.pending.is_some() {
+            return 0;
+        }
+        let now = self.clock.step_position();
+        let mut n = 0;
+        for l in self.lit.iter().filter(|l| l.until > now && l.len > 0) {
+            if let Some(pair) = self.lit_out.get_mut(2 * n..2 * n + 2) {
+                pair.copy_from_slice(&[l.start, l.len]);
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// The spans `lit_count` handed out.
+    pub fn lit_spans(&self) -> &[u32] {
+        &self.lit_out
+    }
+
     /// The fragment playing alone, if one is cued.
     pub fn song_cued(&self) -> Option<usize> {
         self.cue
@@ -1391,6 +1474,13 @@ impl Engine {
                 };
                 *slot = Some((j + u64::from(ev.len), track, ev.note));
                 self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                let span = self
+                    .spans
+                    .get(f)
+                    .and_then(|s| s.notes.get(usize::from(ev.word)))
+                    .copied();
+                let until = (j + u64::from(ev.len)) as f64 / TICKS_PER_STEP as f64;
+                self.light(span, until);
             }
         }
     }
@@ -1488,7 +1578,7 @@ impl Engine {
         if !self.song.edit_note(frag, op) {
             return false;
         }
-        self.song_text = self.song.print();
+        self.reprint();
         true
     }
 
@@ -1507,7 +1597,7 @@ impl Engine {
             return false;
         }
         self.rebuild_live();
-        self.song_text = self.song.print();
+        self.reprint();
         true
     }
 
@@ -1590,9 +1680,9 @@ impl Engine {
                             let len = lane.steps.len() as u64;
                             let i = usize::try_from(n % len.max(1)).ok()?;
                             let st = lane.steps.get(i)?;
-                            Some((lane.pad.note(), *st, lane.ratchet(i)))
+                            Some((lane.pad.note(), *st, lane.ratchet(i), i))
                         });
-                    let Some((note, st, ratchet)) = hit else {
+                    let Some((note, st, ratchet, i)) = hit else {
                         continue;
                     };
                     let off = n * 16 - k * g;
@@ -1602,6 +1692,15 @@ impl Engine {
                         self.clock.between_sample(step, off as f64 / g as f64)
                     };
                     if let (Some(velocity), false) = (st.velocity(), ahead) {
+                        // The step lights until its span ends (#205).
+                        let span = self
+                            .spans
+                            .get(f)
+                            .and_then(|s| s.lanes.get(l)?.get(i))
+                            .copied();
+                        let until =
+                            step.saturating_sub(k) as f64 + ((n + 1) * 16) as f64 / g as f64;
+                        self.light(span, until);
                         if off == 0 {
                             self.start_voice(owner, note, velocity);
                         } else {
@@ -2000,7 +2099,7 @@ impl Engine {
             .add_track(&format!("{word}_{}", synth + 1), preset)?;
         self.song_route(t, Some(synth));
         self.mark_synth(synth);
-        self.song_text = self.song.print();
+        self.reprint();
         Some(t)
     }
 
@@ -2023,7 +2122,7 @@ impl Engine {
             self.song_route(t, None);
             0
         };
-        self.song_text = self.song.print();
+        self.reprint();
         done
     }
 
@@ -2150,7 +2249,9 @@ impl Engine {
         };
         let song = std::mem::replace(&mut self.song, p.song);
         let live = std::mem::replace(&mut self.live, p.live);
-        self.spent = Some((song, live));
+        let spans = std::mem::replace(&mut self.spans, p.spans);
+        self.spent = Some((song, live, spans));
+        self.lit = [Lit::default(); MAX_LIT];
         self.taken = true;
         self.song_route = p.route;
         self.clock.set_tempo(self.song.tempo);
@@ -2171,7 +2272,7 @@ impl Engine {
         for pool in self.pools.iter_mut() {
             pool.clear_all_voices();
         }
-        if let Some((spent, _)) = &self.spent {
+        if let Some((spent, _, _)) = &self.spent {
             for (o, md) in spent.mods.iter().enumerate() {
                 let Some(base) = old.get(o).copied().flatten() else {
                     continue;
@@ -2338,6 +2439,7 @@ impl Engine {
                 self.spent = None;
                 self.pending = Some(Pending {
                     live: Self::live_for(&song),
+                    spans: spans::spans(&song, &self.song_text),
                     song,
                     route,
                 });
@@ -2406,7 +2508,7 @@ impl Engine {
         if !self.song.set_step(frag, lane, step, to) {
             return false;
         }
-        self.song_text = self.song.print();
+        self.reprint();
         true
     }
 
@@ -2420,7 +2522,7 @@ impl Engine {
         if !self.song.set_ratchet(frag, lane, step, r) {
             return false;
         }
-        self.song_text = self.song.print();
+        self.reprint();
         true
     }
 
@@ -2446,7 +2548,7 @@ impl Engine {
                 self.stop_note(Owner::Track(track), note);
             }
         }
-        self.song_text = self.song.print();
+        self.reprint();
         true
     }
 
@@ -2609,7 +2711,7 @@ impl Engine {
             });
         }
         self.song.mix = mix;
-        self.song_text = self.song.print();
+        self.reprint();
     }
 
     /// A track edit from the composer (#213): 0 plays factory preset `a`, 1
@@ -2646,7 +2748,7 @@ impl Engine {
                 }
             }
         }
-        self.song_text = self.song.print();
+        self.reprint();
         true
     }
 
@@ -2726,7 +2828,7 @@ impl Engine {
             _ => false,
         };
         if ok {
-            self.song_text = self.song.print();
+            self.reprint();
         }
         ok
     }
@@ -2737,7 +2839,7 @@ impl Engine {
         self.commit_song();
         self.clock.set_tempo(bpm);
         self.song.tempo = self.clock.tempo();
-        self.song_text = self.song.print();
+        self.reprint();
     }
 
     /// Set the song's swing (percent, 50 to 75) and print it again.
@@ -2745,7 +2847,7 @@ impl Engine {
         self.commit_song();
         self.clock.set_swing(pct);
         self.song.swing = self.clock.swing();
-        self.song_text = self.song.print();
+        self.reprint();
     }
 
     /// Play song track `track` on `synth`, or mute it with `None`.

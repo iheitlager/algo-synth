@@ -42,6 +42,28 @@ export function wasmLexers(module: WebAssembly.Module): { song: Lexer; sc: Lexer
   return { song: run(() => w.lex()), sc: run(() => (typeof w.sc_lex === 'function' ? w.sc_lex() : 0)) }
 }
 
+/** A lit word on a line (#205): its column and length, in UTF-16 units. */
+export interface Lit { col: number; len: number }
+
+/**
+ * The words playing (#205), `[start, len]` over the whole text as the engine
+ * reports them, by line. A span that runs past its line or the text is dropped.
+ */
+export function litLines(text: string, lit: readonly (readonly [number, number])[]): Lit[][] {
+  const starts = [0]
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1)
+  const out: Lit[][] = starts.map(() => [])
+  for (const [start, len] of lit) {
+    if (len <= 0 || start + len > text.length) continue
+    let line = starts.length - 1
+    while (line > 0 && starts[line] > start) line--
+    const col = start - starts[line]
+    if (text.slice(start, start + len).includes('\n')) continue
+    out[line].push({ col, len })
+  }
+  return out
+}
+
 /** A run of text and its class ('' for plain). */
 export interface Piece { text: string; cls: string }
 

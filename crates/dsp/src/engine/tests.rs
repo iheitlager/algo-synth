@@ -5251,3 +5251,51 @@ fn midi_transport_plays_stops_and_seeks_the_song() {
     e.midi_in(0xB0, 117, 127);
     assert!(!e.clock().playing());
 }
+
+/// The words of the song's text the engine reports lit now (#205).
+fn lit_words(e: &mut Engine) -> Vec<String> {
+    let n = e.lit_count();
+    let units: Vec<u16> = e.song_text().encode_utf16().collect();
+    e.lit_spans()
+        .chunks(2)
+        .take(n)
+        .map(|p| {
+            String::from_utf16_lossy(
+                units
+                    .get(p[0] as usize..(p[0] + p[1]) as usize)
+                    .unwrap_or(&[]),
+            )
+        })
+        .collect()
+}
+
+/// #205: while the song plays, the steps and notes sounding are lit in its
+/// text, each for as long as it sounds; nothing while stopped, or while a new
+/// song waits for its bar.
+#[test]
+fn the_words_that_play_are_lit() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack kit drums\ntrack lead synth\nfrag a = kit /16\n  bd x3..X...\nfrag m = lead\n  \"c4@2 ~ e4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert!(lit_words(&mut e).is_empty(), "stopped");
+    e.song_play();
+    run(&mut e, 2);
+    let mut now = lit_words(&mut e);
+    now.sort();
+    assert_eq!(now, ["c4", "x3"]);
+    // The third sixteenth (12 000 samples): the kick's step is over, c4 sounds.
+    run(&mut e, 12_000 / BLOCK - 2);
+    assert_eq!(lit_words(&mut e), ["c4"]);
+    // The second quarter: X on step 4 (18 000) has gone, c4@2 holds half the bar.
+    run(&mut e, 34_000 / BLOCK - 12_000 / BLOCK);
+    assert_eq!(lit_words(&mut e), ["c4"]);
+    // The third quarter is a rest: nothing lit.
+    run(&mut e, 56_000 / BLOCK - 34_000 / BLOCK);
+    assert!(lit_words(&mut e).is_empty(), "{:?}", lit_words(&mut e));
+    // A song loaded while playing waits for the bar: nothing lit until then.
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    run(&mut e, 2);
+    assert!(lit_words(&mut e).is_empty());
+    e.song_stop();
+    assert!(lit_words(&mut e).is_empty());
+}

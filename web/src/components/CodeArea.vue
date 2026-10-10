@@ -4,7 +4,7 @@
 // under it, the same text in colours from the engine's lexer (audio/lex.ts),
 // which the caller picks. The parse error, if any, marks its line and column.
 import { computed, ref } from 'vue'
-import { paint, type Lexer } from '../audio/lex'
+import { litLines, paint, type Lexer } from '../audio/lex'
 
 const text = defineModel<string>({ required: true })
 const props = withDefaults(
@@ -15,11 +15,15 @@ const props = withDefaults(
     error?: { line: number; col: number; msg: string } | null
     /** What Tab inserts. */
     indent?: string
+    /** Words playing now (#205), `[start, len]` in UTF-16 units over the text. */
+    lit?: readonly (readonly [number, number])[]
   }>(),
-  { disabled: false, error: null, indent: '  ' },
+  { disabled: false, error: null, indent: '  ', lit: () => [] },
 )
 
 const lines = computed(() => paint(text.value, props.lexer?.(text.value) ?? []))
+// Lit apart from the colours, so the playhead's 20 ms updates never relex.
+const lit = computed(() => litLines(text.value, props.lit))
 
 const area = ref<HTMLTextAreaElement>()
 const code = ref<HTMLElement>()
@@ -52,7 +56,9 @@ function onKey(e: KeyboardEvent) {
     <div class="code-wrap">
       <pre ref="code" class="code" aria-hidden="true"><div
         v-for="(line, i) in lines" :key="i" class="ln" :class="{ err: error?.line === i + 1 }"
-      ><span v-for="(p, k) in line" :key="k" :class="p.cls">{{ p.text }}</span><span
+      ><span
+        v-for="(l, k) in lit[i] ?? []" :key="`lit${k}`" class="lit" :style="{ left: `${l.col}ch`, width: `${l.len}ch` }"
+      /><span v-for="(p, k) in line" :key="k" :class="p.cls">{{ p.text }}</span><span
         v-if="error?.line === i + 1" class="mark" :style="{ left: `${error.col - 1}ch` }" :title="error.msg"
       /></div></pre>
       <textarea
@@ -84,8 +90,14 @@ function onKey(e: KeyboardEvent) {
   font: inherit; line-height: inherit; white-space: pre; tab-size: 2; letter-spacing: normal;
 }
 .code { overflow: hidden; color: var(--text); pointer-events: none; }
-.ln { position: relative; min-height: var(--lh); }
+.ln { position: relative; z-index: 0; min-height: var(--lh); }
 .ln.err { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* A word playing now (#205), under the text. */
+.lit {
+  position: absolute; top: 1px; bottom: 1px; border-radius: 3px; z-index: -1;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 .mark {
   position: absolute; bottom: 1px; width: 1ch; height: 2px; background: var(--accent);
 }

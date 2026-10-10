@@ -129,7 +129,7 @@ pub enum Seq {
 }
 
 /// One note to play: where it starts in the loop, how long it lasts, in ticks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct Event {
     pub start: u32,
     pub len: u32,
@@ -137,7 +137,19 @@ pub struct Event {
     pub accent: bool,
     /// A velocity of 1 to 127 from a timed note; 0 takes it from `accent`.
     pub vel: u8,
+    /// The word of the line it came from, in `Notes::word_spans` order, so a
+    /// view can light it while it plays (#205); 0 for a generated line.
+    pub word: u16,
 }
+
+/// Equal as music: which word an event came from is not part of it.
+impl PartialEq for Event {
+    fn eq(&self, o: &Event) -> bool {
+        sort_key(self) == sort_key(o)
+    }
+}
+
+impl Eq for Event {}
 
 impl Event {
     pub fn velocity(&self) -> f32 {
@@ -340,6 +352,7 @@ impl Cursor<'_> {
             note: p.note,
             accent: p.accent,
             vel: u8::try_from(vel).unwrap_or(0),
+            word: 0,
         })
     }
 
@@ -775,7 +788,47 @@ fn slot_text(s: &Slot) -> String {
     out
 }
 
+/// Where each word of `slots` sits in `slots_text(slots)` from `at`, in print
+/// order: the word itself, without its suffixes.
+fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
+    for (k, s) in slots.iter().enumerate() {
+        if k > 0 {
+            at += 1;
+        }
+        match &s.item {
+            Item::Group(g) | Item::Alt(g) => mini_spans(g, at + 1, out),
+            Item::Rest => out.push((at, 1)),
+            Item::Note(p) => out.push((at, pitch_text(p).len())),
+            Item::Chord(ps) => out.push((at, chord_text(ps).len())),
+            Item::Symbol(sym) => out.push((at, sym.text.len())),
+        }
+        at += slot_text(s).len();
+    }
+}
+
 impl Notes {
+    /// Where each word of `text` is, as (byte offset, length), in the order
+    /// `Event::word` counts them (#205). A generated line is one word: all of it.
+    pub fn word_spans(&self) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        match &self.seq {
+            Seq::Mini(slots) => mini_spans(slots, 1, &mut out),
+            Seq::Classic(_) | Seq::Timed(_) => {
+                let mut at = 0;
+                for word in self.text.split(' ') {
+                    // A classic word lights up to its length, `c4` of `c4:8`.
+                    let what = word
+                        .find(':')
+                        .filter(|_| matches!(self.seq, Seq::Classic(_)));
+                    out.push((at, what.unwrap_or(word.len())));
+                    at += word.len() + 1;
+                }
+            }
+            Seq::Generated(_) | Seq::Euclid(..) => out.push((0, self.text.len())),
+        }
+        out
+    }
+
     /// The canonical text of the line: parsing it gives these notes back.
     pub fn print(&self) -> String {
         match &self.seq {
@@ -857,13 +910,27 @@ impl Frac {
     }
 }
 
-struct Compiler {
+struct Compiler<'a> {
     events: Vec<Event>,
     rng: Rng,
     full: bool,
+    /// The line's words in print order, to tag each event with its own.
+    leaves: Vec<&'a Item>,
+    /// The word being compiled.
+    word: u16,
 }
 
-impl Compiler {
+/// The words of `slots` (notes, chords, names, rests), in the order they print.
+fn leaves_of<'a>(slots: &'a [Slot], out: &mut Vec<&'a Item>) {
+    for s in slots {
+        match &s.item {
+            Item::Group(g) | Item::Alt(g) => leaves_of(g, out),
+            leaf => out.push(leaf),
+        }
+    }
+}
+
+impl Compiler<'_> {
     fn slots(&mut self, slots: &[Slot], at: Frac, span: Frac, bar: u32) {
         let total: u128 = slots.iter().map(|s| u128::from(s.weight)).sum();
         let mut before = 0u128;
@@ -887,6 +954,9 @@ impl Compiler {
     }
 
     fn item(&mut self, item: &Item, at: Frac, span: Frac, bar: u32, slide: bool) {
+        if let Some(w) = self.leaves.iter().position(|l| std::ptr::eq(*l, item)) {
+            self.word = u16::try_from(w).unwrap_or(u16::MAX);
+        }
         match item {
             Item::Rest => {}
             Item::Note(p) => self.note(*p, at, span, bar, slide),
@@ -919,6 +989,7 @@ impl Compiler {
             note: p.note,
             accent: p.accent,
             vel: 0,
+            word: self.word,
         });
     }
 }
@@ -1047,6 +1118,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     note,
                     accent: false,
                     vel: 0,
+                    word: 0,
                 });
             }
         }
@@ -1084,6 +1156,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     note,
                     accent: false,
                     vel: 0,
+                    word: 0,
                 });
             }
         }
@@ -1166,17 +1239,25 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
     let (events, bars) = match &seq {
         Seq::Timed(events) => {
             let last = events.iter().map(|e| e.start).max().unwrap_or(0);
-            (events.clone(), last / TICKS_PER_BAR + 1)
+            let words = events.iter().enumerate().map(|(w, e)| Event {
+                word: u16::try_from(w).unwrap_or(u16::MAX),
+                ..*e
+            });
+            (words.collect(), last / TICKS_PER_BAR + 1)
         }
         Seq::Mini(slots) => {
             let bars = period(slots);
             if bars > MAX_BARS {
                 return Err("this line takes more than 32 bars to repeat");
             }
+            let mut leaves = Vec::new();
+            leaves_of(slots, &mut leaves);
             let mut c = Compiler {
                 events: Vec::new(),
                 rng: Rng::new(0),
                 full: false,
+                leaves,
+                word: 0,
             };
             for bar in 0..bars {
                 c.rng = Rng::new(mix(bar, 0x5EED));
@@ -1209,6 +1290,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     note,
                     accent,
                     vel: 0,
+                    word: 0,
                 });
             }
             (events, 1)
@@ -1216,7 +1298,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
         Seq::Classic(beats) => {
             let mut events = Vec::new();
             let mut at = 0u32;
-            for b in beats {
+            for (w, b) in beats.iter().enumerate() {
                 let len = classic_ticks(b);
                 for p in &b.pitches {
                     events.push(Event {
@@ -1225,6 +1307,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         note: p.note,
                         accent: p.accent,
                         vel: 0,
+                        word: u16::try_from(w).unwrap_or(u16::MAX),
                     });
                 }
                 at += len;

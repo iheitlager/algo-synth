@@ -273,6 +273,7 @@ fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>
                 note,
                 accent,
                 vel: 0,
+                word: 0,
             });
         }
     }
@@ -301,6 +302,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             note: scale.walk(low, u32::try_from(pos).unwrap_or(0)),
             accent: false,
             vel: 0,
+            word: 0,
         });
     }
 }
@@ -419,6 +421,7 @@ fn arp_prog(src: &[Event], bars: u32, mode: ArpMode, rate: u8, seed: u32, out: &
                 note,
                 accent: false,
                 vel: 0,
+                word: 0,
             });
         }
     }
@@ -444,6 +447,7 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             note: u8::try_from(note.min(127)).unwrap_or(127),
             accent: false,
             vel: 0,
+            word: 0,
         });
         i = j.max(i + 1);
     }
@@ -502,6 +506,7 @@ fn prog(bars: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
                 note,
                 accent: false,
                 vel: 0,
+                word: 0,
             });
         }
     }

@@ -232,7 +232,7 @@ impl Lane {
     }
 
     /// Step `n` with its ratchet, as the text writes it: `x`, `x3`.
-    fn step_text(&self, n: usize) -> String {
+    pub(crate) fn step_text(&self, n: usize) -> String {
         let st = self.steps.get(n).map_or('.', |s| s.char());
         match self.ratchet(n) {
             1 => st.to_string(),
@@ -2861,6 +2861,7 @@ impl Song {
 
 pub mod lex;
 pub mod signal;
+pub mod spans;
 
 /// A signal with `env` or a list has a value per voice (ADR-0023): it goes
 /// on a track's Mono or Poly synth, onto a parameter a voice holds, without
