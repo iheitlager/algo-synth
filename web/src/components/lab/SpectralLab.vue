@@ -7,7 +7,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, watch }
 import { spectrogramPixels } from '../../audio/colormap'
 import { peakPath } from '../../audio/sampler'
 import {
-  Analyser, LAB_CHANNEL, LabEngine, codeMessage, connectMain, type Spectrogram, type Track,
+  Analyser, Edit, LAB_CHANNEL, LabEngine, NO_EDITS, codeMessage, connectMain, type Spectrogram, type Track,
 } from '../../audio/spectral'
 import Keyboard from '../synth/Keyboard.vue'
 
@@ -25,7 +25,26 @@ const state = reactive({
   /** The main window's user slot (0-7) a table or an attack goes to. */
   slot: 0,
 })
-const settings = reactive({ window: 4096, hop: 256, top: 0, semitones: 0, stretch: 1 })
+const settings = reactive({ window: 4096, hop: 256, top: 0, semitones: 0, stretch: 1, noise: true })
+// The transforms (spec 010 Req 4), by `Edit` id; `NO_EDITS` leaves the sound alone.
+const edits = reactive<number[]>([...NO_EDITS])
+// Low- and high-pass cutoffs as slider positions: 0 off, else 50 Hz to 20 kHz.
+const cut = reactive({ low: 0, high: 0 })
+const cutHz = (x: number) => (x <= 0 ? 0 : 50 * 400 ** x)
+watch(cut, () => {
+  edits[Edit.LowPass] = cutHz(cut.low)
+  edits[Edit.HighPass] = cutHz(cut.high)
+})
+const freezeOn = ref(false)
+const freezeAt = ref(0.1)
+watch([freezeOn, freezeAt], () => (edits[Edit.Freeze] = freezeOn.value ? freezeAt.value : -1))
+function resetEdits() {
+  edits.splice(0, edits.length, ...NO_EDITS)
+  cut.low = 0
+  cut.high = 0
+  freezeOn.value = false
+}
+const fmtHz = (hz: number) => (hz <= 0 ? 'off' : hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`)
 const original = shallowRef<ArrayBuffer | null>(null)
 const resynth = shallowRef<ArrayBuffer | null>(null)
 const tracks = shallowRef<Track[]>([])
@@ -76,7 +95,7 @@ async function analyse() {
     return
   }
   peaks.a = loaded.peaks
-  const r = await a.analyse(bytes, rate.value, settings.window, settings.hop)
+  const r = await a.analyse(bytes, rate.value, settings.window, settings.hop, settings.noise)
   state.busy = ''
   if (r.code < 0) {
     state.error = codeMessage(r.code)
@@ -94,7 +113,7 @@ async function render() {
   const a = analyser.value
   if (!e || !a || !tracks.value.length) return
   state.busy = 'resynthesising…'
-  const { wav, gram } = await a.render(settings.top, ratio.value, settings.stretch)
+  const { wav, gram } = await a.render(settings.top, ratio.value, settings.stretch, edits)
   resynth.value = wav
   grams.value = { ...grams.value, b: gram }
   const loaded = await e.play(SIDES.b.s, SIDES.b.slot, wav)
@@ -105,11 +124,11 @@ async function render() {
 }
 
 let renderTimer: ReturnType<typeof setTimeout> | undefined
-watch(() => [settings.top, settings.semitones, settings.stretch], () => {
+watch(() => [settings.top, settings.semitones, settings.stretch, ...edits], () => {
   clearTimeout(renderTimer)
   renderTimer = setTimeout(() => void render(), 150)
 })
-watch(() => [settings.window, settings.hop], () => void analyse())
+watch(() => [settings.window, settings.hop, settings.noise], () => void analyse())
 
 // A/B: a held key moves to the other side, so the switch is heard at once.
 function down(n: number) {
@@ -133,7 +152,7 @@ async function send() {
   if (!resynth.value) return
   const base = state.name.replace(/\.wav$/i, '') || 'sound'
   const code = await main.send(`${base} (resynth).wav`, resynth.value.slice(0))
-  state.sent = code < 0 ? codeMessage(code) : 'sent to the main window'
+  state.sent = code < 0 ? codeMessage(code) : 'in the app\'s samples: put it on a Sampler\'s zone'
 }
 
 // The analysed sound as a wavetable for the PPG, or its attack for the D-50, into
@@ -141,7 +160,7 @@ async function send() {
 async function sendUser(kind: 'table' | 'attack') {
   const a = analyser.value
   if (!a || !tracks.value.length) return
-  const { values, root } = await a.extract(kind)
+  const { values, root } = await a.extract(kind, edits)
   if (!values.length) {
     state.sent = codeMessage(-101)
     return
@@ -294,6 +313,49 @@ onBeforeUnmount(() => {
       </span>
     </div>
 
+    <details class="transforms" open>
+      <summary>Transforms <button class="reset" title="Back to the sound as analysed" @click.prevent="resetEdits">Reset</button></summary>
+      <div class="row settings">
+        <label title="Each partial's noise, kept from the analysis: breath, bow and hammer">
+          <span><input v-model="settings.noise" type="checkbox"> Noise</span>
+          <input v-model.number="edits[Edit.Noise]" type="range" min="0" max="3" step="0.05" aria-label="Noise amount" :disabled="!settings.noise">
+        </label>
+        <label>Harmonic stretch <b>×{{ edits[Edit.Stretch].toFixed(2) }}</b>
+          <input v-model.number="edits[Edit.Stretch]" type="range" min="0.5" max="2" step="0.01" aria-label="Harmonic stretch">
+        </label>
+        <label title="The higher a partial, the further it moves: a string becomes a bell">Inharmonic <b>×{{ edits[Edit.Inharmonic].toFixed(2) }}</b>
+          <input v-model.number="edits[Edit.Inharmonic]" type="range" min="0.5" max="3" step="0.01" aria-label="Inharmonic stretch">
+        </label>
+        <label>Freq shift <b>{{ Math.round(edits[Edit.FreqShift]) }} Hz</b>
+          <input v-model.number="edits[Edit.FreqShift]" type="range" min="-500" max="500" step="1" aria-label="Frequency shift">
+        </label>
+        <label>Formant <b>×{{ edits[Edit.Formant].toFixed(2) }}</b>
+          <input v-model.number="edits[Edit.Formant]" type="range" min="0.5" max="2" step="0.01" aria-label="Formant scale">
+          <span><input type="checkbox" :checked="edits[Edit.KeepFormants] >= 0.5" @change="edits[Edit.KeepFormants] = ($event.target as HTMLInputElement).checked ? 1 : 0"> keep on shift</span>
+        </label>
+        <label>Smear <b>{{ Math.round(edits[Edit.Smear] * 100) }}%</b>
+          <input v-model.number="edits[Edit.Smear]" type="range" min="0" max="0.95" step="0.01" aria-label="Smear">
+        </label>
+        <label title="Left: odd harmonics only (hollow); right: even only">Odd ↔ even
+          <input v-model.number="edits[Edit.OddEven]" type="range" min="0" max="1" step="0.01" aria-label="Odd and even balance">
+        </label>
+        <label>Low-pass <b>{{ fmtHz(edits[Edit.LowPass]) }}</b>
+          <input v-model.number="cut.low" type="range" min="0" max="1" step="0.005" aria-label="Spectral low-pass">
+          <input v-model.number="edits[Edit.LowRes]" type="range" min="0" max="1" step="0.01" aria-label="Spectral low-pass resonance" title="Resonance">
+        </label>
+        <label>High-pass <b>{{ fmtHz(edits[Edit.HighPass]) }}</b>
+          <input v-model.number="cut.high" type="range" min="0" max="1" step="0.005" aria-label="Spectral high-pass">
+        </label>
+        <label title="Harmor's Pluck: the higher a partial, the faster it dies (negative: the other way)">Decay by number <b>{{ edits[Edit.Decay].toFixed(1) }}</b>
+          <input v-model.number="edits[Edit.Decay]" type="range" min="-1" max="4" step="0.1" aria-label="Decay by number">
+        </label>
+        <label>
+          <span><input v-model="freezeOn" type="checkbox"> Freeze</span>
+          <input v-model.number="freezeAt" type="range" min="0" max="1" step="0.005" aria-label="Freeze position" :disabled="!freezeOn">
+        </label>
+      </div>
+    </details>
+
     <canvas ref="canvas" class="tracks" aria-label="Spectrogram and partial tracks of the side playing: time across, frequency up" />
 
     <div class="waves">
@@ -306,8 +368,8 @@ onBeforeUnmount(() => {
         <button :aria-pressed="state.side === 'a'" @click="choose('a')">A original</button>
         <button :aria-pressed="state.side === 'b'" @click="choose('b')">B resynthesis</button>
       </span>
-      <button :disabled="!resynth || !state.main" :title="state.main ? 'Load the resynthesis into the main window\'s samples' : 'Open the app to send it there'" @click="send">
-        Send to main window
+      <button :disabled="!resynth || !state.main" :title="state.main ? 'Load what B plays into a free sample slot of the app, for a Sampler' : 'Open the app to send it there'" @click="send">
+        Send as sample
       </button>
       <label class="slot">to
         <select v-model.number="state.slot" aria-label="User slot">
@@ -344,6 +406,9 @@ h1 { font-size: 15px; margin: 0; }
 .waves svg { width: 100%; height: 48px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 .waves .a { fill: #8ab4d8; }
 .waves .b { fill: var(--accent); }
+.transforms summary { cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 10px; }
+.transforms .reset { font-size: 11px; padding: 1px 8px; }
+.transforms label span { display: flex; align-items: center; gap: 4px; }
 .slot { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .layers { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .layers label { display: flex; align-items: center; gap: 4px; min-width: 0; flex-direction: row; }

@@ -99,6 +99,16 @@ export function connectMain(port: Port, onMain: (here: boolean) => void, waitMs 
   }
 }
 
+/**
+ * The lab's transforms by id, as `crates/dsp/src/analysis/lab.rs` numbers them
+ * (spec 010 Req 4), and the values that leave a sound alone (`NO_EDITS` there).
+ */
+export const Edit = {
+  Stretch: 0, Inharmonic: 1, FreqShift: 2, Formant: 3, Smear: 4, OddEven: 5,
+  LowPass: 6, LowRes: 7, HighPass: 8, Freeze: 9, Decay: 10, Noise: 11, KeepFormants: 12,
+} as const
+export const NO_EDITS: readonly number[] = [1, 1, 0, 1, 0, 0.5, 0, 0, 0, -1, 0, 1, 0]
+
 /** A spectrogram from the engine: `bands` byte levels a frame, log frequency from 30 Hz to Nyquist. */
 export interface Spectrogram { levels: Uint8Array; bands: number }
 
@@ -162,22 +172,22 @@ export class Analyser {
    * Analyse a copy of a WAV at `rate`: the frame count (or a negative code),
    * the tracks, and its spectrogram (`bands` byte levels a frame).
    */
-  async analyse(bytes: ArrayBuffer, rate: number, window: number, hop: number): Promise<{ code: number; tracks: Track[]; gram: Spectrogram }> {
+  async analyse(bytes: ArrayBuffer, rate: number, window: number, hop: number, noise = false): Promise<{ code: number; tracks: Track[]; gram: Spectrogram }> {
     const copy = bytes.slice(0)
-    const r = await this.ask({ t: 'analyse', bytes: copy, rate, window, hop }, [copy])
+    const r = await this.ask({ t: 'analyse', bytes: copy, rate, window, hop, noise }, [copy])
     this.bands = r.bands ?? 0
     return { code: r.code, tracks: parseTracks(r.tracks), gram: { levels: r.gram, bands: this.bands } }
   }
 
   /** The analysed sound as a PPG wavetable (64 waves of 256), or its attack as a D-50 PCM sample, and its root note. */
-  async extract(kind: 'table' | 'attack'): Promise<{ values: Float32Array; root: number }> {
-    const r = await this.ask({ t: kind })
+  async extract(kind: 'table' | 'attack', edits: readonly number[] = NO_EDITS): Promise<{ values: Float32Array; root: number }> {
+    const r = await this.ask({ t: kind, edits: [...edits] })
     return { values: r.values, root: r.root }
   }
 
   /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes, with its spectrogram. */
-  async render(top: number, shift: number, stretch: number): Promise<{ wav: ArrayBuffer; gram: Spectrogram }> {
-    const r = await this.ask({ t: 'render', top, shift, stretch })
+  async render(top: number, shift: number, stretch: number, edits: readonly number[] = NO_EDITS): Promise<{ wav: ArrayBuffer; gram: Spectrogram }> {
+    const r = await this.ask({ t: 'render', top, shift, stretch, edits: [...edits] })
     return { wav: r.wav, gram: { levels: r.gram, bands: this.bands } }
   }
 }

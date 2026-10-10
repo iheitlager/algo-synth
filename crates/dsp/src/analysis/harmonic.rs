@@ -111,6 +111,27 @@ pub fn harmonics(a: &Analysis, count: usize) -> Harmonics {
     h
 }
 
+/// Label every track of `a` with its harmonic number: the rounded mean, over
+/// its frames that have an f0, of its frequency over that f0 (unweighted, as
+/// Loris does); 0 when none of its frames has one (spec 010 Req 5).
+pub fn label(a: &mut Analysis) {
+    let f0s: Vec<f32> = a.peaks.iter().map(|p| f0(p).unwrap_or(0.0)).collect();
+    for t in &mut a.tracks {
+        let (mut sum, mut n) = (0.0f32, 0usize);
+        for (i, f) in t.freq.iter().enumerate() {
+            if let Some(&g) = f0s.get(t.start + i).filter(|g| **g > 0.0) {
+                sum += f / g;
+                n += 1;
+            }
+        }
+        t.label = if n > 0 {
+            (sum / n as f32).round().max(0.0) as usize
+        } else {
+            0
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,12 +184,26 @@ mod tests {
     }
 
     #[test]
+    fn labels_follow_f0() {
+        let mut a = analyse(&saw(220.0), RATE, &Settings::default()).unwrap();
+        label(&mut a);
+        for t in a
+            .tracks
+            .iter()
+            .filter(|t| 2 * t.len() >= a.frames() && t.freq[t.len() / 2] < 5_000.0)
+        {
+            let f = t.freq[t.len() / 2];
+            assert_eq!(t.label, (f / 220.0).round() as usize, "{f} Hz");
+        }
+    }
+
+    #[test]
     fn an_octave_below_never_wins() {
         let peaks: Vec<Peak> = (1..=10)
             .map(|k| Peak {
                 freq: 300.0 * k as f32,
                 amp: 1.0 / k as f32,
-                phase: 0.0,
+                ..Peak::default()
             })
             .collect();
         assert_eq!(f0(&peaks).map(f32::round), Some(300.0));

@@ -11,6 +11,8 @@ pub struct Stft {
     window: Vec<f32>,
     /// Scales a bin's magnitude to the amplitude of the sine that made it.
     gain: f32,
+    /// What a sine of amplitude 1 puts into its lobe, in squared scaled magnitudes.
+    lobe_energy: f32,
     re: Vec<f32>,
     im: Vec<f32>,
     mag: Vec<f32>,
@@ -34,15 +36,37 @@ impl Stft {
             .collect();
         let gain = 2.0 / window.iter().sum::<f32>();
         let bins = size + 1;
+        // The window's own spectrum, peak 1: a sine's lobe has its shape.
+        let lobe_energy = {
+            let n = 2 * size;
+            let (mut re, mut im) = (vec![0.0; n], vec![0.0; n]);
+            for (r, w) in re.iter_mut().zip(&window) {
+                *r = *w;
+            }
+            fft.forward(&mut re, &mut im);
+            let peak = re.first().map_or(1.0, |r| r.hypot(0.0)).max(1e-12);
+            re.iter()
+                .zip(&im)
+                .map(|(r, i)| (r * r + i * i) / (peak * peak))
+                .sum::<f32>()
+        };
         Some(Stft {
             fft,
             window,
             gain,
+            lobe_energy,
             re: vec![0.0; 2 * size],
             im: vec![0.0; 2 * size],
             mag: vec![0.0; bins],
             phase: vec![0.0; bins],
         })
+    }
+
+    /// What a sine of amplitude 1 puts into the bins of its lobe, in squared
+    /// amplitudes as `frame` gives them: the sum of the window's spectrum
+    /// squared over its peak squared.
+    pub fn lobe_energy(&self) -> f32 {
+        self.lobe_energy
     }
 
     /// Bins from DC to Nyquist.

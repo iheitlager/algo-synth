@@ -1,7 +1,10 @@
-//! Editing partial tracks before resynthesis (spec 009 Req 5): reduction to
-//! breakpoints, a top-N cut and a pitch shift. Time stretch is a longer hop
-//! given to `additive::resynthesise`.
+//! Editing partial tracks before resynthesis (spec 009 Req 5, spec 010 Req 4):
+//! reduction to breakpoints, a top-N cut, a pitch shift, and the transforms
+//! that make a sound new, each one function with one amount. Time stretch is a
+//! longer hop given to `additive::resynthesise`. The transforms follow the
+//! formulas of the research behind ADR-0032, not any synth's code.
 
+use super::envelope::Envelope;
 use super::track::Track;
 
 /// A track's value at one frame, kept where a straight line misses.
@@ -119,6 +122,203 @@ pub fn shift(tracks: &mut [Track], ratio: f32) {
     }
 }
 
+/// The frames every track spans together: one past the last.
+fn span(tracks: &[Track]) -> usize {
+    tracks.iter().map(|t| t.start + t.len()).max().unwrap_or(0)
+}
+
+/// Harmonic stretch: labelled partial n moves to `((n − 1)·s + 1)` times the
+/// fundamental, so 1 stays, the series spreads (s > 1) or squeezes (s < 1).
+pub fn stretch(tracks: &mut [Track], s: f32) {
+    if !(s.is_finite() && s > 0.0) {
+        return;
+    }
+    for t in tracks.iter_mut().filter(|t| t.label > 0) {
+        let n = t.label as f32;
+        let ratio = ((n - 1.0) * s + 1.0) / n;
+        t.freq.iter_mut().for_each(|f| *f *= ratio);
+    }
+}
+
+/// Inharmonic stretch: labelled partial n moves by `s^(log2 n / log2 N)`, N the
+/// highest label, so the higher a partial, the further it moves: a string
+/// becomes a bell.
+pub fn inharmonic(tracks: &mut [Track], s: f32) {
+    let top = tracks.iter().map(|t| t.label).max().unwrap_or(0);
+    if !(s.is_finite() && s > 0.0) || top < 2 {
+        return;
+    }
+    let log_top = (top as f32).log2();
+    for t in tracks.iter_mut().filter(|t| t.label > 1) {
+        let ratio = s.powf((t.label as f32).log2() / log_top);
+        t.freq.iter_mut().for_each(|f| *f *= ratio);
+    }
+}
+
+/// Frequency shift: every partial moves by `hz`, which breaks the harmonic
+/// series; a partial pushed to or below 0 Hz falls silent.
+pub fn freq_shift(tracks: &mut [Track], hz: f32) {
+    if !hz.is_finite() {
+        return;
+    }
+    for t in tracks.iter_mut() {
+        for (f, a) in t.freq.iter_mut().zip(t.amp.iter_mut()) {
+            *f += hz;
+            if *f <= 0.0 {
+                *f = 1.0;
+                *a = 0.0;
+            }
+        }
+    }
+}
+
+/// Formant scale: each partial takes the envelope's level at its frequency over
+/// `r`, so the formants move by `r` and the pitch stays. `env` describes the
+/// partials as they are, so a formant-preserving pitch shift by `s` scales
+/// the formants by `1/s` first and shifts after.
+pub fn formant_scale(tracks: &mut [Track], env: &Envelope, r: f32) {
+    if !(r.is_finite() && r > 0.0) {
+        return;
+    }
+    for t in tracks.iter_mut() {
+        for (i, (f, a)) in t.freq.iter().zip(t.amp.iter_mut()).enumerate() {
+            let frame = t.start + i;
+            let here = env.at(frame, *f).max(1e-9);
+            // At most 40 dB either way, so an envelope's floor never blows up a partial.
+            *a *= (env.at(frame, f / r) / here).clamp(0.01, 100.0);
+        }
+    }
+}
+
+/// Smear: in each frame, every partial's level leaks into the next one up in
+/// frequency, `a ← (1 − m)·a + m·a_below`, then the frame is scaled back to its
+/// energy, so the sound blurs without getting louder.
+pub fn smear(tracks: &mut [Track], m: f32) {
+    let m = if m.is_finite() {
+        m.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if m == 0.0 {
+        return;
+    }
+    let mut alive: Vec<(f32, usize, usize)> = Vec::new();
+    for frame in 0..span(tracks) {
+        alive.clear();
+        for (k, t) in tracks.iter().enumerate() {
+            if let Some(i) = frame.checked_sub(t.start).filter(|i| *i < t.len()) {
+                alive.push((t.freq.get(i).copied().unwrap_or(0.0), k, i));
+            }
+        }
+        alive.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let level = |k: usize, i: usize| {
+            tracks
+                .get(k)
+                .and_then(|t| t.amp.get(i))
+                .copied()
+                .unwrap_or(0.0)
+        };
+        let before: f32 = alive.iter().map(|&(_, k, i)| level(k, i).powi(2)).sum();
+        let mut below = 0.0;
+        let mut after = 0.0;
+        let mut new = Vec::with_capacity(alive.len());
+        for &(_, k, i) in &alive {
+            let a = (1.0 - m) * level(k, i) + m * below;
+            below = a;
+            after += a * a;
+            new.push(a);
+        }
+        let gain = if after > 0.0 {
+            (before / after).sqrt()
+        } else {
+            1.0
+        };
+        for (&(_, k, i), a) in alive.iter().zip(new) {
+            if let Some(v) = tracks.get_mut(k).and_then(|t| t.amp.get_mut(i)) {
+                *v = a * gain;
+            }
+        }
+    }
+}
+
+/// Odd and even: `b` 0.5 leaves both; towards 0 the even harmonics fade (a
+/// hollow, clarinet-like sound), towards 1 the odd ones.
+pub fn odd_even(tracks: &mut [Track], b: f32) {
+    let b = if b.is_finite() {
+        b.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+    let (odd, even) = ((2.0 * (1.0 - b)).min(1.0), (2.0 * b).min(1.0));
+    for t in tracks.iter_mut().filter(|t| t.label > 0) {
+        let g = if t.label % 2 == 1 { odd } else { even };
+        t.amp.iter_mut().for_each(|a| *a *= g);
+    }
+}
+
+/// A two-pole low-pass (or high-pass) on the partials themselves: each partial
+/// scaled by the filter's magnitude at its frequency, `resonance` 0 to 1
+/// taking Q from 0.707 to 10.
+pub fn spectral_filter(tracks: &mut [Track], cutoff: f32, resonance: f32, high: bool) {
+    if !(cutoff.is_finite() && cutoff > 0.0) {
+        return;
+    }
+    let q = 0.707 * (10.0f32 / 0.707).powf(resonance.clamp(0.0, 1.0));
+    for t in tracks.iter_mut() {
+        for (f, a) in t.freq.iter().zip(t.amp.iter_mut()) {
+            let x = f / cutoff;
+            let denom = ((1.0 - x * x).powi(2) + (x / q).powi(2)).sqrt().max(1e-6);
+            *a *= if high { x * x } else { 1.0 } / denom;
+        }
+    }
+}
+
+/// Freeze: the partials sounding at `frame`, held as they are there for the
+/// whole sound; the rest is gone.
+pub fn freeze(tracks: &[Track], frame: usize) -> Vec<Track> {
+    let len = span(tracks);
+    tracks
+        .iter()
+        .filter_map(|t| {
+            let i = frame.checked_sub(t.start).filter(|i| *i < t.len())?;
+            let (f, a, p) = (*t.freq.get(i)?, *t.amp.get(i)?, *t.phase.get(i)?);
+            Some(Track {
+                start: 0,
+                freq: vec![f; len],
+                amp: vec![a; len],
+                phase: vec![p; len],
+                noise: vec![t.noise_at(i); len],
+                label: t.label,
+            })
+        })
+        .collect()
+}
+
+/// Decay by number: each partial falls by `exp(−d·n·t)`, n its harmonic number
+/// (1 when unlabelled) and t seconds from the sound's start, so the highs die
+/// first (d > 0) or last (d < 0), after Harmor's Pluck.
+pub fn decay_by_number(tracks: &mut [Track], d: f32, hop: usize, rate: f32) {
+    if !(d.is_finite() && rate > 0.0) || d == 0.0 {
+        return;
+    }
+    for t in tracks.iter_mut() {
+        let n = t.label.max(1) as f32;
+        for (i, a) in t.amp.iter_mut().enumerate() {
+            let secs = ((t.start + i) * hop) as f32 / rate;
+            // Never more than 40 dB up, so a negative decay cannot blow up.
+            *a *= (-d * n * secs).exp().min(100.0);
+        }
+    }
+}
+
+/// Noise amount: every partial's noise share times `g`, within 0..=1.
+pub fn noise_amount(tracks: &mut [Track], g: f32) {
+    let g = if g.is_finite() { g.max(0.0) } else { 1.0 };
+    for t in tracks.iter_mut() {
+        t.noise.iter_mut().for_each(|b| *b = (*b * g).min(1.0));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +335,7 @@ mod tests {
             freq,
             amp,
             phase,
+            ..Track::default()
         }
     }
 
@@ -213,5 +414,178 @@ mod tests {
             "{}",
             sounding(&y)
         );
+    }
+
+    /// A saw at 220 Hz with its labels: harmonic n at n·220, level 1/n.
+    fn labelled_saw(frames: usize) -> Vec<Track> {
+        (1..=16)
+            .map(|n| Track {
+                start: 0,
+                freq: vec![220.0 * n as f32; frames],
+                amp: vec![0.5 / n as f32; frames],
+                phase: vec![0.0; frames],
+                noise: vec![],
+                label: n,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn stretch_moves_harmonics_apart() {
+        let mut t = labelled_saw(4);
+        stretch(&mut t, 1.1);
+        assert_eq!(t[0].freq[0], 220.0);
+        assert!(
+            (t[3].freq[0] - 220.0 * 4.3).abs() < 0.01,
+            "{}",
+            t[3].freq[0]
+        );
+    }
+
+    #[test]
+    fn inharmonic_moves_high_partials_most() {
+        let mut t = labelled_saw(4);
+        inharmonic(&mut t, 1.5);
+        assert_eq!(t[0].freq[0], 220.0);
+        // 1.5^(log2 8 / log2 16) = 1.5^0.75 ≈ 1.355.
+        assert!(
+            (t[7].freq[0] / (8.0 * 220.0) - 1.5f32.powf(0.75)).abs() < 1e-4,
+            "{}",
+            t[7].freq[0]
+        );
+        assert!((t[15].freq[0] / (16.0 * 220.0) - 1.5).abs() < 1e-4);
+        let ratios: Vec<f32> = t
+            .iter()
+            .map(|t| t.freq[0] / (220.0 * t.label as f32))
+            .collect();
+        assert!(ratios.windows(2).all(|w| w[1] >= w[0]));
+    }
+
+    #[test]
+    fn freq_shift_adds_hertz() {
+        let mut t = labelled_saw(2);
+        freq_shift(&mut t, 100.0);
+        assert_eq!(t[0].freq[0], 320.0);
+        assert_eq!(t[1].freq[0], 540.0);
+        freq_shift(&mut t, -400.0);
+        assert_eq!(t[0].amp[0], 0.0, "pushed below 0 Hz: silent");
+    }
+
+    #[test]
+    fn formants_stay_when_pitch_moves() {
+        use crate::analysis::envelope::true_envelope;
+        use crate::analysis::harmonic::label;
+        use crate::analysis::{Settings, analyse};
+        // Harmonics of 110 Hz under a resonance at 1 kHz.
+        let x: Vec<f32> = (0..24_000)
+            .map(|i| {
+                let t = i as f32 / RATE;
+                (1..=60)
+                    .map(|k| {
+                        let f = 110.0 * k as f32;
+                        let g = 1.0 / (1.0 + ((f - 1_000.0) / 250.0).powi(2));
+                        0.3 * g * (std::f32::consts::TAU * f * t).sin()
+                    })
+                    .sum::<f32>()
+            })
+            .collect();
+        let mut a = analyse(&x, RATE, &Settings::default()).unwrap();
+        label(&mut a);
+        let env = true_envelope(&a);
+        let mut t = a.tracks.clone();
+        // Formants down first, against the envelope of the partials as they
+        // are; then everything up a fifth brings the formant back.
+        formant_scale(&mut t, &env, 1.0 / 1.5);
+        shift(&mut t, 1.5);
+        // The loudest partial is still near 1 kHz, though every partial moved a fifth up.
+        let mid = a.frames() / 2;
+        let loudest = t
+            .iter()
+            .filter_map(|t| {
+                mid.checked_sub(t.start)
+                    .and_then(|i| Some((*t.freq.get(i)?, *t.amp.get(i)?)))
+            })
+            .max_by(|x, y| x.1.total_cmp(&y.1))
+            .unwrap();
+        assert!(
+            (loudest.0 / 1_000.0).log2().abs() < 1.0 / 3.0,
+            "{} Hz",
+            loudest.0
+        );
+    }
+
+    #[test]
+    fn smear_keeps_energy() {
+        let mut t = labelled_saw(3);
+        let energy = |t: &[Track]| t.iter().map(|t| t.amp[1].powi(2)).sum::<f32>();
+        let before = energy(&t);
+        smear(&mut t, 0.7);
+        assert!((energy(&t) - before).abs() < 1e-4);
+        // The highs got some of the lows: the top's share rose.
+        assert!(t[15].amp[1] > 0.5 / 16.0);
+    }
+
+    #[test]
+    fn odd_even_hollows_the_sound() {
+        let mut t = labelled_saw(2);
+        odd_even(&mut t, 0.0);
+        assert_eq!(t[1].amp[0], 0.0);
+        assert_eq!(t[2].amp[0], 0.5 / 3.0);
+    }
+
+    #[test]
+    fn spectral_filter_shapes_and_resonates() {
+        let mut t = labelled_saw(2);
+        spectral_filter(&mut t, 880.0, 0.0, false);
+        assert!((t[0].amp[0] - 0.5).abs() < 0.01, "the passband stays");
+        assert!(t[15].amp[0] < 0.5 / 16.0 * 0.1, "the top falls away");
+        let mut r = labelled_saw(2);
+        spectral_filter(&mut r, 880.0, 1.0, false);
+        assert!(r[3].amp[0] > 0.5 / 4.0 * 5.0, "a resonance at the cutoff");
+    }
+
+    #[test]
+    fn freeze_holds_a_frame() {
+        let mut t = labelled_saw(10);
+        t[0].amp[5] = 0.9;
+        let f = freeze(&t, 5);
+        assert_eq!(f.len(), 16);
+        assert!(f[0].amp.iter().all(|a| *a == 0.9));
+        assert_eq!(f[0].len(), 10);
+    }
+
+    #[test]
+    fn decay_by_number_kills_the_highs_first() {
+        let mut t = labelled_saw(400);
+        decay_by_number(&mut t, 2.0, 256, RATE);
+        let last = 399;
+        assert!(t[0].amp[last] / t[0].amp[0] > t[7].amp[last] / t[7].amp[0]);
+        assert!(t[7].amp[last] < t[7].amp[0] * 0.01);
+    }
+
+    #[test]
+    fn nothing_passes_nyquist() {
+        use crate::analysis::additive::resynthesise;
+        let mut t = labelled_saw(40);
+        inharmonic(&mut t, 4.0);
+        let y = resynthesise(&t, 40, 256.0, RATE, false);
+        assert!(y.iter().all(|s| s.is_finite()));
+        // Partial 16 was sent to 14 kHz; a partial past Nyquist adds nothing.
+        let mut over = labelled_saw(40);
+        over.iter_mut()
+            .for_each(|t| t.freq.iter_mut().for_each(|f| *f = 30_000.0));
+        assert!(
+            resynthesise(&over, 40, 256.0, RATE, false)
+                .iter()
+                .all(|s| *s == 0.0)
+        );
+    }
+
+    #[test]
+    fn noise_amount_scales_the_share() {
+        let mut t = labelled_saw(2);
+        t[0].noise = vec![0.4, 0.8];
+        noise_amount(&mut t, 2.0);
+        assert_eq!(t[0].noise, vec![0.8, 1.0]);
     }
 }

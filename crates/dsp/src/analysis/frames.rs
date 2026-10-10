@@ -3,7 +3,8 @@
 //! sample.
 
 use super::Analysis;
-use super::harmonic::harmonics;
+use super::harmonic::f0;
+use super::track::Track;
 use crate::table::{MAX_USER_SAMPLE, WAVE_LEN, WAVES};
 
 /// Harmonics in a wave: those the generated tables have, well under Nyquist of
@@ -17,16 +18,18 @@ const FADE: f32 = 0.01;
 /// a few cycles of a low note, so a cycle's phase never decides the peak.
 const ENVELOPE: f32 = 0.02;
 
-/// `WAVES` waves of `WAVE_LEN` samples from the voiced frames of `a`, spread
-/// evenly from its first voiced frame to its last. Each wave is its frame's
-/// harmonics in sine phase, so neighbouring waves never cancel when crossfaded,
-/// normalised to a peak of 1 (the synth's envelope gives the loudness). An
-/// unvoiced frame takes the nearest voiced one's harmonics. Empty when no frame
-/// is voiced.
-pub fn to_table(a: &Analysis) -> Vec<f32> {
-    let h = harmonics(a, HARMONICS);
-    let voiced: Vec<usize> = (0..h.f0.len())
-        .filter(|&f| h.f0.get(f).is_some_and(|f0| *f0 > 0.0))
+/// `WAVES` waves of `WAVE_LEN` samples from `tracks` (the analysis's own, or
+/// transformed ones) over the voiced frames of `a`, spread evenly from its
+/// first voiced frame to its last. A partial goes to the harmonic nearest its
+/// frequency over the frame's f0, so an inharmonic one is rounded: a table
+/// holds whole harmonics only. Each wave is in sine phase, so neighbouring
+/// waves never cancel when crossfaded, and normalised to a peak of 1 (the
+/// synth's envelope gives the loudness). An unvoiced frame takes the nearest
+/// voiced one's harmonics. Empty when no frame is voiced.
+pub fn to_table(a: &Analysis, tracks: &[Track]) -> Vec<f32> {
+    let f0s: Vec<f32> = a.peaks.iter().map(|p| f0(p).unwrap_or(0.0)).collect();
+    let voiced: Vec<usize> = (0..f0s.len())
+        .filter(|&f| f0s.get(f).is_some_and(|f0| *f0 > 0.0))
         .collect();
     let (Some(&first), Some(&last)) = (voiced.first(), voiced.last()) else {
         return Vec::new();
@@ -44,8 +47,23 @@ pub fn to_table(a: &Analysis) -> Vec<f32> {
     };
     let mut out = vec![0.0; WAVES * WAVE_LEN];
     for (k, wave) in out.chunks_exact_mut(WAVE_LEN).enumerate() {
-        let frame = first + (last - first) * k / (WAVES - 1).max(1);
-        let amps = h.frame(nearest(frame));
+        let frame = nearest(first + (last - first) * k / (WAVES - 1).max(1));
+        let fund = f0s.get(frame).copied().unwrap_or(1.0);
+        let mut amps = [0.0f32; HARMONICS];
+        for t in tracks {
+            let Some(i) = frame.checked_sub(t.start).filter(|i| *i < t.len()) else {
+                continue;
+            };
+            let (f, a) = (
+                t.freq.get(i).copied().unwrap_or(0.0),
+                t.amp.get(i).copied().unwrap_or(0.0),
+            );
+            let n = (f / fund).round() as usize;
+            if let Some(slot) = n.checked_sub(1).and_then(|n| amps.get_mut(n)) {
+                // Partials rounded onto one harmonic add their energy.
+                *slot = (*slot * *slot + a * a).sqrt();
+            }
+        }
         for (i, y) in wave.iter_mut().enumerate() {
             let x = std::f32::consts::TAU * i as f32 / WAVE_LEN as f32;
             *y = amps
@@ -133,7 +151,7 @@ mod tests {
     #[test]
     fn a_saw_becomes_a_saw_table() {
         let a = analyse(&saw(220.0, 48_000), RATE, &Settings::default()).unwrap();
-        let t = to_table(&a);
+        let t = to_table(&a, &a.tracks);
         assert_eq!(t.len(), WAVES * WAVE_LEN);
         let wave = &t[32 * WAVE_LEN..33 * WAVE_LEN];
         assert!((wave.iter().fold(0.0f32, |m, y| m.max(y.abs())) - 1.0).abs() < 1e-4);
@@ -152,7 +170,7 @@ mod tests {
             .collect();
         let a = analyse(&x, RATE, &Settings::default()).unwrap();
         // A frame or two may look voiced in noise; a table needs at least one.
-        let t = to_table(&a);
+        let t = to_table(&a, &a.tracks);
         assert!(t.is_empty() || t.len() == WAVES * WAVE_LEN);
     }
 

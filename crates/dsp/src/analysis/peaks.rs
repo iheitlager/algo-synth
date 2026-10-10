@@ -7,6 +7,9 @@ pub struct Peak {
     pub freq: f32,
     pub amp: f32,
     pub phase: f32,
+    /// How much of `amp` is noise around the sinusoid, 0..=1 (bandwidth,
+    /// spec 010 Req 2); 0 unless the analysis associates noise.
+    pub noise: f32,
 }
 
 /// Peaks quieter than this (−100 dBFS) are never kept, so silence has none.
@@ -43,6 +46,7 @@ pub fn peaks(
             freq: (bin as f32 + p) * bin_hz,
             amp: (lb - 0.25 * (la - lc) * p).exp(),
             phase: phase.get(bin).copied().unwrap_or(0.0),
+            noise: 0.0,
         });
     }
     if out.len() > max {
