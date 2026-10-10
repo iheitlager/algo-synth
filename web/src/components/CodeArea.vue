@@ -3,7 +3,8 @@
 // (#203) and the Modular code (#329). Typing goes into a plain textarea;
 // under it, the same text in colours from the engine's lexer (audio/lex.ts),
 // which the caller picks. The parse error, if any, marks its line and column.
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { keepCaret } from '../audio/caret'
 import { litLines, paint, type Lexer } from '../audio/lex'
 
 const text = defineModel<string>({ required: true })
@@ -37,6 +38,21 @@ function onScroll() {
   }
   if (gutter.value) gutter.value.scrollTop = a.scrollTop
 }
+
+// Text replaced from outside while editing (autocommit, ADR-0027) keeps the
+// caret and the scroll where they were, instead of jumping to the end (#458).
+watch(text, (next) => {
+  const a = area.value
+  if (!a || a.value === next || document.activeElement !== a) return
+  const before = a.value
+  const [from, to, top, left] = [a.selectionStart, a.selectionEnd, a.scrollTop, a.scrollLeft]
+  void nextTick(() => {
+    a.setSelectionRange(keepCaret(before, next, from), keepCaret(before, next, to))
+    a.scrollTop = top
+    a.scrollLeft = left
+    onScroll()
+  })
+}, { flush: 'pre' })
 
 // Tab indents instead of leaving the text.
 function onKey(e: KeyboardEvent) {
