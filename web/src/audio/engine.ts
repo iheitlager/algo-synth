@@ -19,7 +19,7 @@ import {
   parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
 import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
-import { forgetSong, isSongFile, keepSong, lastSong, songFileName } from './songfile'
+import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
 import { keepView, lastView } from './viewstate'
 import { startMidi } from './midiin'
 
@@ -324,6 +324,7 @@ export function clearAll() {
   files.notice = ''
   song.draft = ''
   forgetSong()
+  forgetFile()
 }
 
 // --- MIDI files (ADR-0022): opening one imports it as the song ----------------
@@ -341,6 +342,7 @@ export async function loadMidi(bytes: ArrayBuffer, fileName: string): Promise<vo
   await power()
   if (!engine) return
   files.fileName = fileName
+  forgetFile()
   engine.post({ t: 'midi', bytes }, [bytes])
 }
 
@@ -674,12 +676,12 @@ export function setCode(s: number, text: string) {
 let sent: string | null = null
 
 /** Send `text` to the engine to parse and play. */
-export function loadSong(text: string) {
+export function loadSong(text: string, id?: number) {
   clearTimeout(typing)
   song.draft = text
   sent = text
   const bytes = new TextEncoder().encode(text)
-  engine?.post({ t: 'song', bytes: bytes.buffer }, [bytes.buffer])
+  engine?.post({ t: 'song', bytes: bytes.buffer, id }, [bytes.buffer])
 }
 
 /** How long typing rests before the text applies (ADR-0027). */
@@ -781,6 +783,7 @@ export function applySong(data: Record<string, unknown>) {
   const decoder = new TextDecoder('utf-8')
   if (data.tooLong) {
     song.error = { line: 1, col: 1, msg: 'the text is too long' }
+    if (opening && data.id === opening.id) opening = null
     return
   }
   const text = decoder.decode(data.text as Uint8Array)
@@ -793,7 +796,15 @@ export function applySong(data: Record<string, unknown>) {
     if (song.draft === song.text || song.draft === sent) song.draft = text
     if ((data.tracks as unknown[]).length) keepSong(text)
     else forgetSong()
+    // The answer to a song file's load is what the file holds, as the engine
+    // prints it: unchanged. Other replies (a song loaded before, a fold) are not.
+    if (opening && data.id === opening.id) {
+      handle = opening.handle
+      opened.name = opening.name
+      opened.saved = text
+    }
   }
+  if (opening && data.id === opening.id) opening = null
   song.text = text
   holdFold(song.draft !== song.text)
   song.tempo = data.tempo as number
@@ -1021,12 +1032,55 @@ function download(text: string, type: string, name: string) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
-/** The song file last opened, so Save song writes it back under its name. */
-let songName = ''
+/**
+ * The song's file (#465): its name, and its text as last loaded or saved, so
+ * the view can tell the song changed. Where the browser can write files
+ * (`canPick`), the handle is where Save writes it back.
+ */
+export const opened = reactive({ name: '', saved: '' })
+let handle: SongHandle | null = null
+/** A song file sent to the engine: it is the song's file once the engine took it. */
+let opening: { id: number; name: string; handle: SongHandle | null } | null = null
+let loads = 0
 
-/** Download the song the engine plays as `.song` text (#105), named after the song or MIDI file opened. */
-export function saveSong() {
-  download(song.text, 'text/plain', songFileName(songName || files.fileName || 'algo-synth'))
+/** The song changed since it was opened from or saved to a file; a song from no file always has. */
+export const songChanged = computed(() => !!song.text && song.text !== opened.saved)
+
+/** The song came from no file (New, a MIDI import): Save asks where. */
+function forgetFile() {
+  handle = null
+  opening = null
+  opened.name = ''
+  opened.saved = ''
+}
+
+/**
+ * Save the song the engine plays as `.song` text (#105): back into its file,
+ * or with `as` (or no file yet) into one the user picks. Without the File
+ * System Access API it downloads, named after the song or MIDI file opened.
+ */
+export async function saveSong(as = false) {
+  const text = song.text
+  const name = songFileName(opened.name || files.fileName || 'algo-synth')
+  let into = as ? null : handle
+  try {
+    if (!into) {
+      const picked = await pickSave(name)
+      if (picked === 'cancel') return
+      if (!picked) {
+        download(text, 'text/plain', name)
+        opened.saved = text
+        return
+      }
+      into = picked
+    }
+    await writeSong(into, text)
+    handle = into
+    opened.name = into.name
+    opened.saved = text
+  } catch (e) {
+    files.notice = `${into?.name ?? name} was not saved: ${e instanceof Error ? e.message : String(e)}`
+  }
 }
 
 /**
@@ -1035,7 +1089,7 @@ export function saveSong() {
  * applies to the synths on screen. A song goes to the composer; one that does
  * not parse shows its error there and the playing song plays on.
  */
-export async function openFiles(picked: File[]): Promise<void> {
+export async function openFiles(picked: File[], songHandle: SongHandle | null = null): Promise<void> {
   const isSetup = (f: File) => /\.json$/i.test(f.name)
   const setupFile = picked.find(isSetup)
   const songFile = picked.find((f) => isSongFile(f.name))
@@ -1043,8 +1097,9 @@ export async function openFiles(picked: File[]): Promise<void> {
   files.notice = ''
   if (songFile) {
     await power()
-    songName = songFile.name
-    loadSong(await songFile.text())
+    const text = await songFile.text()
+    opening = { id: ++loads, name: songFile.name, handle: songHandle }
+    loadSong(text, opening.id)
     view.main = 'composer'
   }
   let parsed: ReturnType<typeof parseSetup> | null = null

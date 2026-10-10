@@ -82,7 +82,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'zone': w.zone_set(data.s, data.zone, data.field, data.v); break
         case 'zonesClear': w.zones_clear(data.s); break
         case 'zonesDump': this.sendZones(data.s); break
-        case 'song': this.loadSong(new Uint8Array(data.bytes)); break
+        case 'song': this.loadSong(new Uint8Array(data.bytes), data.id); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
         case 'samples': this.setSamples(data.s, new Uint8Array(data.bytes)); break
         case 'groupName': this.setGroupName(data.g, new Uint8Array(data.bytes)); break
@@ -246,16 +246,17 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (w.group_name_set(g) === 0) this.sendSong(true)
   }
 
-  loadSong(bytes) {
+  // The reply carries the load's `id`, so the view knows which text answers it (#465).
+  loadSong(bytes, id) {
     const w = this.w
     const ptr = w.song_buf(bytes.length)
     if (!ptr) {
-      this.port.postMessage({ t: 'song', ok: false, tooLong: true })
+      this.port.postMessage({ t: 'song', ok: false, tooLong: true, id })
       return
     }
     new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
     const ok = w.song_load() === 0
-    this.sendSong(ok)
+    this.sendSong(ok, id)
     // A track's preset or setting (#210) and the mixer lines (ADR-0018) may have
     // just been set: every strip and group the view shows follows.
     if (ok) for (let s = 0; s < w.strip_count(); s++) this.sendParams(s)
@@ -264,7 +265,7 @@ class EngineProcessor extends AudioWorkletProcessor {
   // The song as the engine holds it: its printed text, the tracks and their
   // synths, every fragment's lanes and steps, and the last load's error.
   // Text travels as bytes (the worklet has no TextDecoder).
-  sendSong(ok) {
+  sendSong(ok, id) {
     const w = this.w
     const bytes = (ptr, len) => new Uint8Array(w.memory.buffer, ptr, len).slice()
     const tracks = []
@@ -333,7 +334,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, frags,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups,
+      sections, arrange, autos, scenes, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id,
     })
   }
 

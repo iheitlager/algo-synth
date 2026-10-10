@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { applySong, song } from './engine'
-import { forgetSong, isSongFile, keepSong, lastSong, SONG_KEY, songFileName } from './songfile'
+import { canPick, forgetSong, isSongFile, keepSong, lastSong, pickOpen, pickSave, SONG_KEY, songFileName, writeSong, type SongHandle } from './songfile'
 
 const memory = () => {
   const items = new Map<string, string>()
@@ -67,5 +67,53 @@ describe('the song file (#105, spec 003 Req 5)', () => {
     expect(song.text).toBe(playing)
     expect(song.draft).toBe('tempo nope\n')
     expect(song.error).toEqual({ line: 1, col: 7, msg: 'a tempo is a number' })
+  })
+})
+
+/** A file the fake pickers hand out: what was written into it, and whether it was closed. */
+const fakeFile = (name: string) => {
+  const file = { name, text: '', closed: false }
+  const handle: SongHandle & { kind: string; getFile(): Promise<File> } = {
+    name,
+    kind: 'file',
+    getFile: async () => new File([file.text], name),
+    createWritable: async () => ({
+      write: async (t: string) => void (file.text = t),
+      close: async () => void (file.closed = true),
+    }),
+  }
+  return { file, handle }
+}
+const abort = () => Promise.reject(new DOMException('The user aborted a request.', 'AbortError'))
+
+describe('saving in place (#465)', () => {
+  it('needs both pickers', () => {
+    expect(canPick({})).toBe(false)
+    expect(canPick({ showOpenFilePicker: abort })).toBe(false)
+    expect(canPick({ showOpenFilePicker: abort, showSaveFilePicker: abort })).toBe(true)
+  })
+
+  it('opens the files picked with their handles, and nothing when cancelled', async () => {
+    const { handle } = fakeFile('groove.song')
+    const opened = await pickOpen({ showOpenFilePicker: async () => [handle] })
+    expect(opened.map((o) => [o.file.name, o.handle.name])).toEqual([['groove.song', 'groove.song']])
+    expect(await pickOpen({ showOpenFilePicker: abort })).toEqual([])
+    expect(await pickOpen({})).toEqual([])
+  })
+
+  it('picks a file to save into, suggesting the song\'s name; null without the API, cancel when cancelled', async () => {
+    const { handle } = fakeFile('new.song')
+    const pick = vi.fn(async () => handle)
+    expect(await pickSave('groove.song', { showSaveFilePicker: pick })).toBe(handle)
+    expect(pick).toHaveBeenCalledWith(expect.objectContaining({ suggestedName: 'groove.song' }))
+    expect(await pickSave('groove.song', {})).toBeNull()
+    expect(await pickSave('groove.song', { showSaveFilePicker: abort })).toBe('cancel')
+    await expect(pickSave('x.song', { showSaveFilePicker: () => Promise.reject(new Error('denied')) })).rejects.toThrow('denied')
+  })
+
+  it('writes the text into the file and closes it', async () => {
+    const { file, handle } = fakeFile('groove.song')
+    await writeSong(handle, 'tempo 120\n')
+    expect(file).toEqual({ name: 'groove.song', text: 'tempo 120\n', closed: true })
   })
 })
