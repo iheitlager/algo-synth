@@ -44,6 +44,8 @@ TS = {
 DUMP = r"""
 local map, ts = vim.json.decode(vim.env.SONG_MAP), vim.env.SONG_TS == '1'
 local out = {}
+-- Headless Neovim never redraws, so nothing has parsed the buffer yet.
+if ts then vim.treesitter.get_parser(0, 'song'):parse(true) end
 for l, text in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
   local row, i = {}, 1
   while i <= #text do
@@ -102,7 +104,8 @@ def editor(mode: str, path: str) -> dict[tuple[int, int], str]:
         setup = (["--cmd", f"set rtp^={HERE}/vim", "-c", "syntax on", "-c", "set ft=song"]
                  if mode == "vim" else
                  ["-c", f"lua vim.treesitter.language.add('song', {{ path = '{HERE}/tree-sitter-song/song.so' }})",
-                  "-c", f"set rtp^={HERE}/tree-sitter-song",
+                  "-c", f"lua vim.treesitter.query.set('song', 'highlights', "
+                        f"table.concat(vim.fn.readfile('{HERE}/tree-sitter-song/queries/highlights.scm'), '\\n'))",
                   "-c", "lua vim.treesitter.start(0, 'song')"])
         subprocess.run(["nvim", "--headless", "--clean", path, *setup, "-c", f"luafile {script}"],
                        check=True, env=env, capture_output=True, timeout=60)

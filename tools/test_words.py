@@ -56,6 +56,8 @@ ALLOWED = (
     "section b 2",
     "`frag`",
     "`section`",
+    # The editor grammars read them as the parser does (#482).
+    "'frag', 'section'",
 )
 
 

@@ -1,0 +1,19 @@
+{
+  "grammars": [
+    {
+      "name": "song",
+      "camelcase": "Song",
+      "scope": "source.song",
+      "path": ".",
+      "file-types": ["song"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "description": "algo-synth song files",
+    "links": { "repository": "https://github.com/iheitlager/algo-synth" }
+  }
+}
