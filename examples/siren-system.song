@@ -1,4 +1,4 @@
-# Siren System: a steppers dub at 76 with seven siren sounds and four real dub sirens over a one-drop,
+# Siren System: a steppers dub at 76 with eight siren sounds and four real dub sirens over a one-drop,
 # every siren thrown into the dotted-eighth echo (P1) on Send1
 tempo 76
 swing 50
@@ -56,6 +56,14 @@ setting bubble = Modular ModularBasic
       var sig = SinOsc.ar(freq * sweep) * 0.6;
       Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0.2)
   }).add;
+# Robot: random steps. No LFNoise0 or Latch yet (#471), so a ramp walks a
+# Select through eight random pitches, drawn fresh for every note
+setting robot = Modular ModularBasic
+  SynthDef(\robot, { |freq = 440, gate = 1, rate = 1|
+      var steps = Select.kr(LFSaw.kr(rate).range(0, 8), { ExpRand(0.5, 3) }.dup(8));
+      var sig = Pulse.ar(freq * steps, 0.3) * 0.9;
+      Pan2.ar(sig * EnvGen.kr(Env.asr(0.01, 1, 0.3), gate), 0)
+  }).add;
 # The real thing: the two-555 dub siren of the sound-system boxes and DIY kits.
 # One 555 is the LFO, its wave a four-way switch (wave: 0 square, 1 triangle,
 # 2 saw up, 3 saw down) at rate; the other is the square-wave tone, its pitch
@@ -112,6 +120,7 @@ track zap synth zap
 track accel synth accel
 track warble synth warble
 track bubble synth bubble
+track robot synth robot
 track whoop synth whoop
 track laser synth laser
 track trill synth trill
@@ -126,6 +135,7 @@ strip zap: Level 0.6, Send1 0.6, Send2 0.1
 strip accel: Level 0.45, Send1 0.5, Send2 0.25
 strip warble: Level 0.5, Send1 0.5, Send2 0.3
 strip bubble: Level 0.5, Send1 0.55, Send2 0.15
+strip robot: Level 0.5, Send1 0.5, Send2 0.2
 strip whoop: Level 0.55, Send1 0.6, Send2 0.2
 strip laser: Level 0.5, Send1 0.6, Send2 0.15
 strip trill: Level 0.5, Send1 0.5, Send2 0.2
@@ -171,6 +181,9 @@ frag sound_system = warble
 frag bubbles = bubble
   r:2 d4:4 r:4 r:2 g4:4 r:4
 
+frag robots = robot
+  r:1 g4:1
+
 # the dub sirens: press, hold, let go and hear it dive into the echo
 frag whoops = whoop
   g4:4. r:8 r:2 g4:4. r:8 r:2
@@ -189,7 +202,7 @@ section intro 4: drop up_down [up]
 section riddim 8: drop line zaps [up]
 section sirens 8: drop line air_raid nee_naw bubbles [up]
 section dub 8: dub_drums line_drop up_down sound_system zaps [down]
-section peak 8: steppers line speeding air_raid zaps [up]
+section peak 8: steppers line speeding air_raid zaps robots [up]
 section dub2 8: dub_drums line_drop sound_system bubbles nee_naw [down]
 section soundclash 8: drop line whoops lasers trills [up]
 section dub3 8: dub_drums line_drop whoops wails lasers [down]
