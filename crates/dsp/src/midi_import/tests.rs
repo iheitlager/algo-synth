@@ -52,12 +52,12 @@ fn notes_land_on_the_grid_with_their_lengths() {
     assert!(imp.text.contains("track violin_i synth\n"), "{}", imp.text);
     assert!(
         imp.text
-            .contains("frag violin_i_1 = violin_i bars 2\n  d5@0:48:100 f#5@6:6:64 a4@48:6:90\n"),
+            .contains("clip violin_i_1 = violin_i bars 2\n  d5@0:48:100 f#5@6:6:64 a4@48:6:90\n"),
         "{}",
         imp.text
     );
     assert!(
-        imp.text.contains("section s1 2: violin_i_1\narrange s1\n"),
+        imp.text.contains("scene s1 2: violin_i_1\narrange s1\n"),
         "{}",
         imp.text
     );
@@ -65,9 +65,9 @@ fn notes_land_on_the_grid_with_their_lengths() {
     assert_eq!(Song::parse(&song.print()), Ok(song), "and prints back");
 }
 
-/// Repeats in a score share their fragment and their section.
+/// Repeats in a score share their clip and their scene.
 #[test]
-fn identical_chunks_share_a_fragment_and_a_section() {
+fn identical_chunks_share_a_clip_and_a_scene() {
     let bar = 1920;
     let mut ev = Vec::new();
     for b in 0..24u32 {
@@ -78,7 +78,7 @@ fn identical_chunks_share_a_fragment_and_a_section() {
     }
     let imp = import_file(&[track("Bass", &ev)]).expect("imports");
     assert!(imp.text.contains("arrange s1 s2 s1\n"), "{}", imp.text);
-    assert_eq!(imp.text.matches("\nfrag ").count(), 2, "{}", imp.text);
+    assert_eq!(imp.text.matches("\nclip ").count(), 2, "{}", imp.text);
     assert_eq!(imp.channels, vec![2]);
 }
 
@@ -164,7 +164,7 @@ fn a_held_last_note_rings_out() {
     let bars: u32 = song
         .arrange
         .iter()
-        .filter_map(|s| song.sections.get(*s).map(|sec| sec.bars))
+        .filter_map(|s| song.scenes.get(*s).map(|sec| sec.bars))
         .sum();
     assert_eq!(bars, 30, "{}", imp.text);
 }

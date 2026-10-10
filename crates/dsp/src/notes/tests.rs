@@ -285,7 +285,7 @@ fn minor() -> crate::algo::Scale {
     }
 }
 
-/// `riff` is `c4:4 e4:4 g4:4 e4:4` for the calls that read a fragment.
+/// `riff` is `c4:4 e4:4 g4:4 e4:4` for the calls that read a clip.
 fn with_riff(text: &str) -> Result<Notes, NoteError> {
     let riff = parse("c4:4 e4:4 g4:4 e4:4 d4:4 f4:4 a4:4 c5:4", 1).unwrap();
     parse_with(text, 1, Some(&minor()), &|name| {
@@ -439,7 +439,7 @@ fn generator_errors_say_where() {
         (
             "markov(1,nope,1)",
             10,
-            "no note frag with this name comes before this one",
+            "no note clip with this name comes before this one",
         ),
         ("mutate(riff,101,1)", 13, "a percent is 0 to 100"),
         ("mutate(riff,5,1) x", 18, "nothing goes after a call"),
@@ -733,7 +733,7 @@ fn every_edit_can_be_written_back_and_plays_the_same() {
 }
 
 /// #233: every call, for every seed, fits the room `max_events` reserves, so
-/// a live fragment's buffers never grow on the audio thread (ADR-0002).
+/// a live clip's buffers never grow on the audio thread (ADR-0002).
 #[test]
 fn every_call_fits_the_room_it_reserves() {
     let notes = ["c4", "e4", "g4", "b4", "d5", "f5", "a5", "c6"];
@@ -1001,7 +1001,7 @@ fn an_arp_takes_a_chord_by_name() {
 
 // --- Progressions feed other parts (#103) --------------------------------------
 
-/// A line read with frag `prog` (Cm Ab Eb Bb, a bar each) in scope, in C minor.
+/// A line read with clip `prog` (Cm Ab Eb Bb, a bar each) in scope, in C minor.
 fn with_prog(text: &str) -> Result<Notes, NoteError> {
     let prog = parse_in("\"<i VI III VII>\"", 1, Some(&minor())).unwrap();
     parse_with(text, 1, Some(&minor()), &|name| {
@@ -1044,7 +1044,7 @@ fn an_arp_over_a_progression_follows_its_chords() {
             assert!(a.events.len() <= g.max_events());
         }
     }
-    // A chord by name still works where no frag has the name.
+    // A chord by name still works where no clip has the name.
     assert_eq!(
         pitches(&with_prog("arp(c:m,up,4)").unwrap()),
         [60, 63, 67, 60]
@@ -1094,18 +1094,18 @@ fn progression_errors_say_where() {
         (
             "root(nope)",
             6,
-            "no note frag with this name comes before this one",
+            "no note clip with this name comes before this one",
         ),
         ("root(prog,9)", 11, "an octave is 0 to 7"),
         (
             "root()",
             6,
-            "no note frag with this name comes before this one",
+            "no note clip with this name comes before this one",
         ),
         (
             "root(prog,2,1)",
             1,
-            "root takes a frag and maybe an octave: root(prog) or root(prog,3)",
+            "root takes a clip and maybe an octave: root(prog) or root(prog,3)",
         ),
         ("prog(0,1)", 6, "a prog is 1 to 16 bars"),
         ("prog(17,1)", 6, "a prog is 1 to 16 bars"),

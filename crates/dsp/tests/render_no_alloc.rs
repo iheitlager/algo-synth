@@ -1,6 +1,6 @@
 //! `render` never allocates (ADR-0002, #233), checked by counting every
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
-//! walk, strip and synth automation, scenes that solo, mute and send,
+//! walk, strip and synth automation, snapshots that solo, mute and send,
 //! modulations, Modular settings with their code, a new song taking over on a bar line,
 //! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, and a
 //! cued start and a sync to a bar (ADR-0029).
@@ -39,35 +39,35 @@ track bass synth
 track buzzer synth buzz
 track bell synth metal
 
-frag beat = kit /16
+clip beat = kit /16
   bd x..x..x...x..x..
   sn ....x.......X3..
   ch x2.x.x4.x3.x.o2.x.
   cl euclid(7,16,2)
-frag hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\")
+clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\")
   \"[e3,g#3,b3] [f3,a3,c4]\"
-frag sand = lead live
+clip sand = lead live
   arp([e4,g#4,b4,d5],random,16,3)
-frag roam = bass live
+clip roam = bass live
   walk(e2,16,5)
-frag ring = bell
+clip ring = bell
   \"[e4,b4] ~ g#4 ~\"
-frag zap = buzzer
+clip zap = buzzer
   \"e3 [g3 b3] ~ <e4 d4>\"
 
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
 auto sweep = lead.Cutoff ramp 300 4000 /2
-scene solo: strip1.Solo 1, strip2.Mute 1, strip3.Send1 0.5
-scene open: strip1.Solo 0, strip2.Mute 0, master.P2Return 0.4
+snapshot solo: strip1.Solo 1, strip2.Mute 1, strip3.Send1 0.5
+snapshot open: strip1.Solo 0, strip2.Mute 0, master.P2Return 0.4
 mod lead.resonance = lfo(0.5, tri).range(0.1, 0.6).lag(0.05)
 mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
 mod buzzer.ctl1 = sine.slow(2).range(0.4, 0.6)
 mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
 
-section a 2: beat hold sand roam zap ring fade pan sweep [open]
-section b 1: beat sand roam zap [solo]
+scene a 2: beat hold sand roam zap ring fade pan sweep [open]
+scene b 1: beat sand roam zap [solo]
 arrange a b a b
 ";
 
@@ -86,7 +86,7 @@ fn a_busy_song_renders_without_allocating() {
         e.deck().set(d, DeckField::Side, 2.0);
     }
     e.deck().set_crossfade(0.5);
-    // Six bars at 180 BPM, past every section change, scene and live cycle.
+    // Six bars at 180 BPM, past every scene change, snapshot and live cycle.
     let blocks = 6 * 4 * 48_000 * 60 / 180 / 128;
     let region = Region::new(GLOBAL);
     for _ in 0..blocks {
