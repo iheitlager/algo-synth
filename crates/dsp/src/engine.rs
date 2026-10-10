@@ -16,6 +16,7 @@ use crate::fx::ensemble::Ensemble;
 use crate::fx::eq::{EqBand, Equalizer};
 use crate::fx::limiter::Limiter;
 use crate::fx::processor::Processor;
+use crate::launch::{Launch, Quantize, Target as LaunchTarget};
 use crate::midi::{self, MidiIn};
 use crate::mixer::{Mixer, SENDS, STRIP_DEFAULTS, STRIPS};
 use crate::mono::MonoParams;
@@ -227,6 +228,11 @@ pub struct Engine {
     /// find it again in a song that takes over.
     cue: Option<usize>,
     cue_name: String,
+    /// The scene launched live in place of the arrangement and what waits
+    /// to land (#487), with their scenes' names, to find them again in a
+    /// song that takes over.
+    launch: Launch,
+    launch_names: [String; 2],
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
     spent: Option<(Song, Vec<Live>, Vec<ClipSpans>)>,
@@ -326,6 +332,8 @@ impl Engine {
             pending: None,
             cue: None,
             cue_name: String::new(),
+            launch: Launch::default(),
+            launch_names: [String::new(), String::new()],
             spent: None,
             spans: Vec::new(),
             lit: [Lit::default(); MAX_LIT],
@@ -1273,6 +1281,7 @@ impl Engine {
     pub fn song_stop(&mut self) {
         self.commit_song();
         self.cue = None;
+        self.launch = Launch::default();
         self.start_in = None;
         self.sync_in = None;
         self.hand_arps_over();
@@ -1384,14 +1393,128 @@ impl Engine {
         self.cue
     }
 
-    /// Where clock step `k` falls: in the song's arrangement, or free while a
-    /// clip is cued (#375).
+    /// Where clock step `k` falls: free while a clip is cued (#375), in the
+    /// scene launched in place of the arrangement (#487), or in the song's
+    /// arrangement. A launched scene has no entry of the arrangement:
+    /// `entry` is `usize::MAX`.
     fn place(&self, k: u64) -> At {
         if self.cue.is_some() {
-            At::Free(k)
-        } else {
-            self.song.at(k)
+            return At::Free(k);
         }
+        if let Some((scene, from)) = self.launch.playing
+            && let Some(s) = self.song.scenes.get(scene)
+        {
+            return At::In {
+                entry: usize::MAX,
+                scene,
+                local: Launch::local(from, k, s.bars),
+            };
+        }
+        self.song.at(k)
+    }
+
+    /// Launch scene `scene` live (#487): it plays in place of the
+    /// arrangement, looping, from the moment `when` gives, until the next
+    /// launch. Stopped, the song starts with it at the bar the clock is in.
+    /// A scene the song does not have is ignored. Not for `render`: it may
+    /// allocate the name.
+    pub fn song_launch(&mut self, scene: usize, when: Quantize) {
+        let Some(name) = self.song.scenes.get(scene).map(|s| &s.name) else {
+            return;
+        };
+        self.cue = None;
+        if !self.clock.playing() {
+            self.launch_names[0].clone_from(name);
+            let next = self.clock.step().map_or(0, |k| k + 1);
+            let bar = next - next % STEPS_PER_BAR;
+            self.clock.seek_step(bar);
+            self.launch = Launch {
+                playing: Some((scene, bar)),
+                queued: None,
+            };
+            self.song_play();
+            return;
+        }
+        if when == Quantize::Now {
+            self.launch_names[0].clone_from(name);
+            let k = self.clock.step().unwrap_or(0);
+            self.launch = Launch {
+                playing: Some((scene, k - k % STEPS_PER_BAR)),
+                queued: None,
+            };
+            self.apply_snapshots(scene);
+            return;
+        }
+        self.launch_names[1].clone_from(name);
+        self.launch.queued = Some((LaunchTarget::Scene(scene), when));
+    }
+
+    /// Go back to the written arrangement at the moment `when` gives: it
+    /// goes on where the clock is, as Ableton's Back to Arrangement. Nothing
+    /// launched, nothing changes.
+    pub fn song_resume_arrangement(&mut self, when: Quantize) {
+        if self.launch.playing.is_none() {
+            self.launch.queued = None;
+        } else if when == Quantize::Now {
+            self.launch = Launch::default();
+        } else {
+            self.launch.queued = Some((LaunchTarget::Arrangement, when));
+        }
+    }
+
+    /// Forget the launch waiting to land.
+    pub fn song_launch_cancel(&mut self) {
+        self.launch.queued = None;
+    }
+
+    /// The scene launched in place of the arrangement, if any.
+    pub fn song_launched(&self) -> Option<usize> {
+        self.launch.playing.map(|(s, _)| s)
+    }
+
+    /// The launch waiting to land, and when.
+    pub fn song_queued(&self) -> Option<(LaunchTarget, Quantize)> {
+        self.launch.queued
+    }
+
+    /// Steps until the waiting launch lands, from the step after the last
+    /// one fired; `None` with nothing waiting. Looks at most 256 bars ahead.
+    pub fn song_launch_in(&self) -> Option<u64> {
+        let (_, when) = self.launch.queued?;
+        let next = self.clock.step().map_or(0, |k| k + 1);
+        let mut bar = next.div_ceil(STEPS_PER_BAR) * STEPS_PER_BAR;
+        for _ in 0..256 {
+            if when.due(bar, self.scene_starts(bar)) {
+                return Some(bar - next);
+            }
+            bar += STEPS_PER_BAR;
+        }
+        None
+    }
+
+    /// Whether a scene starts on clock step `k`: an entry of the
+    /// arrangement or a loop of the launched scene; any bar without one.
+    fn scene_starts(&self, k: u64) -> bool {
+        matches!(self.place(k), At::In { local: 0, .. } | At::Free(_))
+    }
+
+    /// Land the waiting launch on the bar line at `k`, if its moment is due:
+    /// only moves values, so `render` may call it (ADR-0002).
+    fn land_launch(&mut self, k: u64) {
+        let Some((target, when)) = self.launch.queued else {
+            return;
+        };
+        if !when.due(k, self.scene_starts(k)) {
+            return;
+        }
+        self.launch.queued = None;
+        self.launch.playing = match target {
+            LaunchTarget::Scene(s) => {
+                self.launch_names.swap(0, 1);
+                Some((s, k))
+            }
+            LaunchTarget::Arrangement => None,
+        };
     }
 
     /// Whether clip `f` is silent because another one is cued.
@@ -1418,6 +1541,7 @@ impl Engine {
         while let Some(k) = self.clock.due() {
             if k % STEPS_PER_BAR == 0 {
                 self.commit_song();
+                self.land_launch(k);
             }
             self.play_step(k);
             self.play_tick(k * TICKS_PER_STEP);
@@ -2349,6 +2473,15 @@ impl Engine {
             self.cue = self.song.clips.iter().position(|f| f.name == self.cue_name);
             self.cue.is_none()
         };
+        // A launched or waiting scene too (#487); gone, the arrangement plays.
+        let find = |song: &Song, name: &str| song.scenes.iter().position(|s| s.name == name);
+        if let Some((_, from)) = self.launch.playing {
+            self.launch.playing = find(&self.song, &self.launch_names[0]).map(|s| (s, from));
+        }
+        if let Some((LaunchTarget::Scene(_), when)) = self.launch.queued {
+            self.launch.queued =
+                find(&self.song, &self.launch_names[1]).map(|s| (LaunchTarget::Scene(s), when));
+        }
         self.auto_last = [f32::NAN; MAX_AUTOS];
         self.mod_last = [f32::NAN; MAX_MODS];
         self.mod_state = [f32::NAN; signal::MAX_NODES];

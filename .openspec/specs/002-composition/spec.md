@@ -415,3 +415,35 @@ With decks (ADR-0029, #391), deck A's clock SHALL lead and every worker deck's c
 - THEN deck B's nearest bar line is pulled onto it, both are on the same step of the bar from then on, and the deck shows how far it was pulled, then "locked"
 
 **Tests:** `crates/dsp/src/clock.rs::tests::frames_to_the_next_bar`, `crates/dsp/src/engine/tests.rs::a_cued_deck_starts_on_the_masters_bar`, `crates/dsp/src/engine/tests.rs::stop_cancels_a_cued_start`, `crates/dsp/src/clock.rs::tests::align_to_a_step`, `crates/dsp/src/clock.rs::tests::frames_into_the_bar`, `crates/dsp/src/engine/tests.rs::a_deck_started_mid_bar_is_in_phase_at_once`, `crates/dsp/src/engine/tests.rs::sync_pulls_a_deck_onto_the_masters_bar`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`, `web/src/audio/decks.test.ts`
+
+### Requirement 19: Launching scenes live [SHOULD]
+
+The song SHALL launch a scene live (#487, epic #491), as Ableton's Session view does (ADR-0031). A launched scene SHALL play in place of the arrangement, from its first step and looping, until the next launch. It lands on the next bar line (`Bar`), when the playing scene ends (`End`: an entry of the arrangement or a loop of the launched scene; a bar without an arrangement), on the next eight-bar phrase line (`Phrase`), or at once (`Now`), as far into its first bar as the clock is into its own. A scene's snapshot SHALL be set when it lands, and its clips and autos SHALL start from their first bar. Stopped, a launch SHALL start the song with the scene at the bar the clock is in. Back to the arrangement SHALL go on where the clock is, at the moment chosen. A launch waiting to land SHALL be cancellable, and a later launch SHALL replace it. Stop SHALL forget the launch. A song that takes over SHALL find the launched and the waiting scene by their names, and without them the arrangement SHALL play. The launch SHALL only move values on the bar line, so `render` never allocates (ADR-0002), and the same launches at the same steps SHALL render the same samples. The song text SHALL NOT change: a launch is a performance (ADR-0018).
+
+**Implementation:** `crates/dsp/src/launch.rs::Launch`, `crates/dsp/src/launch.rs::Quantize`, `crates/dsp/src/engine.rs::Engine::song_launch`, `crates/dsp/src/engine.rs::Engine::song_resume_arrangement`, `crates/dsp/src/ffi.rs::song_launch`
+
+#### Scenario: launched mid-bar, on the next bar
+
+- GIVEN the arrangement playing, 5 steps into bar 1
+- WHEN scene `two` (two bars, with a snapshot) is launched on Bar
+- THEN it starts on step 16 from its first step, its snapshot is set there, and it plays again from step 48
+
+#### Scenario: at the end of the scene
+
+- GIVEN scene `two` (two bars) launched from step 0
+- WHEN scene `three` is launched on End at step 5
+- THEN `two` plays to step 31 and `three` starts on step 32
+
+#### Scenario: now, in phase
+
+- GIVEN the arrangement playing, 5 steps into bar 2
+- WHEN a scene is launched on Now
+- THEN it plays at once from its own step 5, and its snapshot is set
+
+#### Scenario: back to the arrangement
+
+- GIVEN a launched scene playing, the clock at step 20
+- WHEN the arrangement is resumed on Bar
+- THEN from step 32 the arrangement's third bar plays, as if it had played all along
+
+**Tests:** `crates/dsp/src/launch.rs::tests::a_launched_scene_loops_from_its_bar`, `crates/dsp/src/launch.rs::tests::quantize_lands_on_its_line`, `crates/dsp/src/engine/tests.rs::a_launched_scene_lands_on_the_next_bar_and_loops`, `crates/dsp/src/engine/tests.rs::a_launch_at_the_end_waits_for_the_scene`, `crates/dsp/src/engine/tests.rs::a_launch_on_the_phrase_waits_eight_bars`, `crates/dsp/src/engine/tests.rs::a_launch_now_keeps_the_phase`, `crates/dsp/src/engine/tests.rs::back_to_the_arrangement_goes_on_where_the_clock_is`, `crates/dsp/src/engine/tests.rs::a_launched_scene_is_found_again_by_name`, `crates/dsp/src/engine/tests.rs::launches_render_the_same_every_time`
