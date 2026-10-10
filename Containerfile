@@ -13,6 +13,8 @@ COPY rust-toolchain.toml ./
 RUN rustup toolchain install
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# A workspace member (#482): cargo loads the whole workspace, so it must be here.
+COPY syntax/song-lsp ./syntax/song-lsp
 # The assistant's system prompt includes the language (#383) at build time.
 COPY .openspec/language.md ./.openspec/language.md
 # The commit the wasm is built from (#197). Declared here, after the copies, so a new commit
