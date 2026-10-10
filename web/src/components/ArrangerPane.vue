@@ -80,7 +80,8 @@ const pane = ref<HTMLElement>()
 function goToHead() {
   const el = pane.value
   if (!el || head.value < 0) return
-  el.scrollTo({ left: Math.max(0, GUTTER + head.value * BAR - el.clientWidth / 2), behavior: 'smooth' })
+  // Centred in what the pinned label column leaves visible.
+  el.scrollTo({ left: Math.max(0, head.value * BAR - (el.clientWidth - GUTTER) / 2), behavior: 'smooth' })
 }
 
 // A scene that isn't in the arrangement yet can be added at its end.
@@ -187,10 +188,13 @@ function onBar(bar: number, e: MouseEvent) {
 .tools { display: flex; gap: 6px; align-items: center; text-transform: none; letter-spacing: 0; }
 .tools button.on { border-color: var(--accent); color: var(--accent); }
 .tools select { font: inherit; font-size: 11px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; }
+/* Scrolling sideways keeps the head (and ◎ Now) and the row labels in place;
+   the bars slide under the labels. */
+.arranger > .pane-head { left: 0; }
 .empty { color: var(--muted); padding: 12px; margin: 0; }
 .notice { margin: 4px 12px; color: var(--accent); }
 .grid { position: relative; display: grid; grid-template-columns: 170px max-content; row-gap: 2px; padding: 6px 10px 10px; }
-.label { font-size: 11px; color: var(--muted); padding: 3px 8px 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+.label { position: sticky; left: 0; z-index: 1; margin-left: -10px; padding-left: 10px; background: var(--panel); font-size: 11px; color: var(--muted); padding-top: 3px; padding-right: 8px; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
 .label i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .ms { display: flex; gap: 2px; flex: none; }
 .ms button {
