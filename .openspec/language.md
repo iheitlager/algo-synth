@@ -8,7 +8,7 @@ tagged `song` is a whole song that parses and prints back the same.
 It comes in two parts. This one is the composer's: the conventions and limits
 both parts share, then tempo, scale, tracks, clips, autos, snapshots, mods
 and scenes. [sound-design.md](sound-design.md) is the sound designer's:
-`setting` and its Modular code, `samples` and `zone`, `table` and `attack`, and the mix
+`setting` and its Modular code, `samples`, `zone` and `pad`, `table` and `attack`, and the mix
 (`strip`, `group`, `master`).
 
 Grammar lines: `<x>` a placeholder, `[x]` optional, `x…` one or more, `a | b`
@@ -17,8 +17,8 @@ a choice; anything else is literal.
 ## Conventions
 
 - **Lines.** One item per line. A top-level line starts at column 1 with a
-  keyword: `tempo swing scale setting track samples zone table attack strip
-  group master clip auto snapshot mod scene arrange loop`. An indented line (space or tab) belongs to the
+  keyword: `tempo swing scale setting track samples zone pad table attack
+  strip group master clip auto snapshot mod scene arrange loop`. An indented line (space or tab) belongs to the
   `clip` above it, or is code of the `Modular` `setting` above it. Blank lines
   are ignored. Words are split at whitespace.
 - **Comments.** `#` at the start of a line or after whitespace starts a comment

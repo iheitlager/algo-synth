@@ -965,7 +965,7 @@ describe('zone lines (#522)', () => {
   const loaded = (slot: number) => ({ t: 'sample', slot, code: 100, frames: 100, root: 60, loopStart: 0, loopEnd: 100, peaks: new Float32Array(4), used: 200, cap: 1000 })
   // Fields by `ZoneField` id: sample -1, keys 0-59, velocity 1-127, root c3, the rest at their defaults.
   const values = [-1, 0, 59, 1, 127, 48, 0, 1, 0, 0, 0, 1, 1, 0]
-  const line = (source: string, held = false) => ({ synth: 3, zone: 2, source: enc(source), values: new Float32Array(values), held })
+  const line = (source: string, held = false) => ({ synth: 3, at: 2, source: enc(source), values: new Float32Array(values), held })
   const song = (...zones: ReturnType<typeof line>[]) => ({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], zones })
   const decode = (m: Msg) => new TextDecoder().decode(m.bytes as ArrayBuffer)
 
@@ -999,6 +999,23 @@ describe('zone lines (#522)', () => {
     expect(mod.sampleStore.error).toBe('zones are silent: @0123456789abcdef0123456789abcdef: the file is not kept in this browser')
     const sets = take().find((m) => m.t === 'zoneSets') as unknown as { sets: number[] }
     expect(sets.sets).toEqual([])
+  })
+
+  it('a song`s pad line lays its pad out in one go (#527)', async () => {
+    const { send, take } = await boot({ fetch: fetchAll })
+    take()
+    // Fields by `PadField` id: sample -1, tune -2, level 0.8, pan 0, decay 0, choke 1, the rest at their defaults.
+    const pad = { synth: 3, at: 4, source: enc('sweep-pad/c4'), values: new Float32Array([-1, -2, 0.8, 0, 0, 1, 1, 0, 1, 0]), held: false }
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], pads: [pad] })
+    let msgs: Msg[] = []
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const slot = (msgs.find((m) => m.t === 'sample') as unknown as { slot: number }).slot
+    send(loaded(slot))
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'padSets'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const sets = msgs.find((m) => m.t === 'padSets') as unknown as { s: number; sets: number[] }
+    expect(sets.s).toBe(3)
+    expect(sets.sets.slice(0, 6)).toEqual([4, 0, slot, 4, 1, -2])
+    expect(sets.sets.length).toBe(3 * 10)
   })
 
   it('a dropped WAV is named by its hash once it loads', async () => {

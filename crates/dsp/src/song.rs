@@ -119,9 +119,9 @@ const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
 /// names them. The parser reads no other, and `.openspec/language.md` (or
 /// `sound-design.md`) must define each (a test holds it to that).
-pub const KEYWORDS: [&str; 19] = [
-    "tempo", "swing", "scale", "setting", "track", "samples", "zone", "table", "attack", "strip",
-    "group", "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",
+pub const KEYWORDS: [&str; 20] = [
+    "tempo", "swing", "scale", "setting", "track", "samples", "zone", "pad", "table", "attack",
+    "strip", "group", "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",
 ];
 /// A line's keyword in today's words (#486, ADR-0031): a song written
 /// before reads on, `frag` as `clip`, `section` as `scene`, and the old
@@ -533,6 +533,9 @@ pub struct Song {
     /// The Sampler zones a sampler track without a `samples` line plays
     /// (#522): the view loads each source and lays the zones out.
     pub zones: Vec<zone::SongZone>,
+    /// The pads of a pad sampler a drums or sampler track without a
+    /// `samples` line plays (#527), laid out as its zones are.
+    pub pads: Vec<pad::SongPad>,
     /// The recipes of the user wavetables and attacks (ADR-0033): the view
     /// rebuilds them when the song loads, one per slot of each kind.
     pub recipes: Vec<recipe::Recipe>,
@@ -561,6 +564,7 @@ impl Default for Song {
             tracks: Vec::new(),
             samples: Vec::new(),
             zones: Vec::new(),
+            pads: Vec::new(),
             recipes: Vec::new(),
             mix: Vec::new(),
             clips: Vec::new(),
@@ -827,7 +831,7 @@ impl Song {
             if !KEYWORDS.contains(&keyword) {
                 return Err(err(
                     first.col,
-                    "a line starts with tempo, swing, scale, setting, track, samples, zone, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                    "a line starts with tempo, swing, scale, setting, track, samples, zone, pad, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                 ));
             }
             match current_keyword(
@@ -1341,6 +1345,12 @@ impl Song {
                             "this track has zone lines: a track has a pack or its zones, not both",
                         ));
                     }
+                    if song.pads.iter().any(|p| p.track == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has pad lines: a track has a kit or its pads, not both",
+                        ));
+                    }
                     let id = arg(2, "a pack or kit id goes here, as upright-piano-kw")?;
                     if !is_sample_id(id.text) {
                         return Err(err(
@@ -1422,6 +1432,79 @@ impl Song {
                     song.zones.push(zone::SongZone {
                         track: t,
                         zone: number - 1,
+                        source: source.to_string(),
+                        fields,
+                    });
+                }
+                "pad" => {
+                    let track = arg(1, "a track goes here, then a pad number, 1 to 16")?;
+                    let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
+                        return Err(err(track.col, "no track has this name"));
+                    };
+                    if song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth) {
+                        return Err(err(track.col, "pads go on a drums or sampler track"));
+                    }
+                    if song.samples.iter().any(|(u, _)| *u == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has a samples line: a track has a kit or its pads, not both",
+                        ));
+                    }
+                    let n = arg(2, "a pad number goes here, 1 to 16")?;
+                    let number = n
+                        .text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| pad::is_pad_number(*n))
+                        .ok_or(err(n.col, "a pad number is 1 to 16"))?;
+                    if song
+                        .pads
+                        .iter()
+                        .any(|p| p.track == t && p.pad + 1 == number)
+                    {
+                        return Err(err(n.col, "this track already has this pad"));
+                    }
+                    let eq = arg(3, "= and a source go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a source go here"));
+                    }
+                    let src = arg(4, "a source goes here, as audiophob/kick")?;
+                    let source = src.text.strip_suffix(':').unwrap_or(src.text);
+                    if !zone::is_zone_source(source) {
+                        return Err(err(
+                            src.col,
+                            "a pad's source is a pack's sample, as audiophob/kick, or @ and a file's hash",
+                        ));
+                    }
+                    let mut k = 5;
+                    if !src.text.ends_with(':') {
+                        if let Some(colon) = ws.get(k) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the pad's fields go here"));
+                            }
+                            k += 1;
+                        }
+                    }
+                    let mut fields = crate::padsampler::PadCfg::default();
+                    while let Some(name) = ws.get(k) {
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let value = v.text.strip_suffix(',').unwrap_or(v.text);
+                        if !pad::FIELD_NAMES.contains(&name.text) {
+                            return Err(err(
+                                name.col,
+                                "a pad field: tune level pan decay choke vellevel velstart oneshot out",
+                            ));
+                        }
+                        pad::set_field(&mut fields, name.text, value)
+                            .map_err(|msg| err(v.col, msg))?;
+                        k += 2;
+                    }
+                    song.pads.push(pad::SongPad {
+                        track: t,
+                        pad: number - 1,
                         source: source.to_string(),
                         fields,
                     });
@@ -1652,7 +1735,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, samples, zone, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, samples, zone, pad, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                     ));
                 }
             }
@@ -1824,6 +1907,10 @@ impl Song {
         for z in &self.zones {
             let name = self.tracks.get(z.track).map_or("", |x| x.name.as_str());
             lines.push(z.print(name));
+        }
+        for p in &self.pads {
+            let name = self.tracks.get(p.track).map_or("", |x| x.name.as_str());
+            lines.push(p.print(name));
         }
         lines.extend(self.recipes.iter().map(recipe::Recipe::print));
         for m in &self.mix {
@@ -2357,8 +2444,33 @@ impl Song {
             Some((_, have)) => id.clone_into(have),
             None => self.samples.push((t, id.to_string())),
         }
-        // A pack or its zones, not both (#522).
+        // A pack or its zones, a kit or its pads, not both (#522, #527).
         self.zones.retain(|z| z.track != t);
+        self.pads.retain(|p| p.track != t);
+        true
+    }
+
+    /// Track `t`'s pad lines (#527), replacing any, in pad order; they take
+    /// the place of its `samples` line. None takes both away. False for no
+    /// such track or a synth track.
+    pub fn set_pads(&mut self, t: usize, mut pads: Vec<pad::SongPad>) -> bool {
+        if self.tracks.get(t).is_none_or(|x| x.kind == Kind::Synth) {
+            return false;
+        }
+        pads.sort_by_key(|p| p.pad);
+        pads.dedup_by_key(|p| p.pad);
+        self.samples.retain(|(u, _)| *u != t);
+        let at = self
+            .pads
+            .iter()
+            .position(|p| p.track == t)
+            .unwrap_or(self.pads.len());
+        self.pads.retain(|p| p.track != t);
+        let at = at.min(self.pads.len());
+        self.pads.splice(
+            at..at,
+            pads.into_iter().map(|p| pad::SongPad { track: t, ..p }),
+        );
         true
     }
 
@@ -2418,6 +2530,7 @@ impl Song {
         self.mix.retain(|m| m.at != Mix::Track(t));
         self.samples.retain(|(u, _)| *u != t);
         self.zones.retain(|z| z.track != t);
+        self.pads.retain(|p| p.track != t);
         let down = |u: &mut usize| {
             if *u > t {
                 *u -= 1;
@@ -2431,6 +2544,9 @@ impl Song {
         }
         for z in &mut self.zones {
             down(&mut z.track);
+        }
+        for p in &mut self.pads {
+            down(&mut p.track);
         }
         for m in &mut self.mix {
             if let Mix::Track(u) = &mut m.at {
@@ -3205,6 +3321,7 @@ impl Song {
 }
 
 pub mod lex;
+pub mod pad;
 pub mod recipe;
 pub mod signal;
 pub mod spans;

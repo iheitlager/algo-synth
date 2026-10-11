@@ -125,7 +125,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, samples, zone, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, samples, zone, pad, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -2562,6 +2562,78 @@ fn zone_lines_parse_print_and_say_where_they_are_wrong() {
             "zone keys 1 = a/b\nsamples keys piano",
             9,
             "this track has zone lines: a track has a pack or its zones, not both",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
+        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+    }
+}
+
+/// #527: a pad sampler's pads are lines of their own, as zones are: on a
+/// drums or sampler track, by a hash or a pack's sample, in place of a
+/// `samples` line, following a track taken out.
+#[test]
+fn pad_lines_parse_print_and_say_where_they_are_wrong() {
+    let hash = "@0123456789abcdef0123456789abcdef";
+    let text = format!(
+        "track kit drums PadSampler\ntrack keys sampler PadSampler\n# kick\npad kit 1 = {hash} : tune -2, choke 1\npad kit 16 = audiophob/snare : level 1.2, pan -0.5, decay 0.3, vellevel 0.5, velstart 0.25, oneshot 0, out 3\npad keys 2 = {hash}\n"
+    );
+    let song = Song::parse(&text).expect("parses");
+    assert_eq!(song.pads.len(), 3);
+    let p = &song.pads[1];
+    assert_eq!(
+        (p.track, p.pad, p.source.as_str()),
+        (0, 15, "audiophob/snare")
+    );
+    assert_eq!((p.fields.out, p.fields.one_shot), (3, false));
+    let printed = song.print();
+    assert!(
+        printed.contains(&format!("# kick\npad kit 1 = {hash} : tune -2, choke 1\n")),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    let mut gone = song.clone();
+    assert!(gone.remove_track(0));
+    assert_eq!((gone.pads.len(), gone.pads[0].track), (1, 0));
+    // A kit or its pads, not both: each setter takes the other away.
+    let mut set = song.clone();
+    assert!(set.set_samples(0, "audiophob"));
+    assert_eq!(set.pads.len(), 1);
+    assert!(set.set_pads(0, song.pads[..2].to_vec()));
+    assert!(set.samples.is_empty() && set.pads.len() == 3);
+    assert_eq!(Song::parse(&set.print()), Ok(set.clone()));
+    assert!(set.set_pads(0, Vec::new()));
+    assert_eq!(set.pads.len(), 1);
+    let head = "track kit drums\ntrack lead synth\n";
+    for (line, col, msg) in [
+        ("pad", 4, "a track goes here, then a pad number, 1 to 16"),
+        ("pad lead 1 = a/b", 5, "pads go on a drums or sampler track"),
+        ("pad kit 17 = a/b", 9, "a pad number is 1 to 16"),
+        (
+            "pad kit 1 = plaits:0.1:0.2:0.3",
+            13,
+            "a pad's source is a pack's sample, as audiophob/kick, or @ and a file's hash",
+        ),
+        (
+            "pad kit 1 = a/b : wah 1",
+            19,
+            "a pad field: tune level pan decay choke vellevel velstart oneshot out",
+        ),
+        ("pad kit 1 = a/b : choke 9", 25, "a choke group is 0 to 8"),
+        (
+            "pad kit 1 = a/b\npad kit 1 = a/c",
+            9,
+            "this track already has this pad",
+        ),
+        (
+            "samples kit audiophob\npad kit 1 = a/b",
+            5,
+            "this track has a samples line: a track has a kit or its pads, not both",
+        ),
+        (
+            "pad kit 1 = a/b\nsamples kit audiophob",
+            9,
+            "this track has pad lines: a track has a kit or its pads, not both",
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
