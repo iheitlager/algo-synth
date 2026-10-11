@@ -596,22 +596,23 @@ export async function loadDroppedSample(slot: number, bytes: ArrayBuffer, name: 
 }
 
 /**
- * Lay out the zones the song's zone lines name (#522) on each synth that does not hold them yet:
- * each source from a pack or this browser into a slot (one already loaded is reused), then the
- * zones in one go. A source that cannot be found leaves its zone out and says so.
+ * Lay out the zones (#522) or pads (#527) the song's lines name on each synth that does not hold
+ * them yet: each source from a pack or this browser into a slot (one already loaded is reused),
+ * then the layout in one go. A source that cannot be found leaves its zone or pad out and says so.
  */
-export async function loadSongZones(lines: readonly SongZoneLine[]): Promise<void> {
-  const bySynth = new Map<number, SongZoneLine[]>()
+export async function loadSongLayout(kind: 'zone' | 'pad', lines: readonly SongLayoutLine[]): Promise<void> {
+  const bySynth = new Map<number, SongLayoutLine[]>()
   for (const l of lines) if (l.synth >= 0) bySynth.set(l.synth, [...(bySynth.get(l.synth) ?? []), l])
   const missing: string[] = []
-  for (const [s, zones] of bySynth) {
-    // A track has a pack or its zones (#522): a pack this synth had is not its sound any more.
+  const laidOut = kind === 'zone' ? zonesOn : padsOn
+  for (const [s, layout] of bySynth) {
+    // A track has a pack or kit, or its own zones or pads: a pack or kit this synth had is not its sound any more.
     samplesOn.delete(s)
-    const key = JSON.stringify(zones.map((z) => [z.zone, z.source, z.values]))
-    if (zones.every((z) => z.held) || zonesOn.get(s) === key) continue
-    zonesOn.set(s, key)
+    const key = JSON.stringify(layout.map((l) => [l.at, l.source, l.values]))
+    if (layout.every((l) => l.held) || laidOut.get(s) === key) continue
+    laidOut.set(s, key)
     const slots = new Map<string, number>()
-    for (const source of new Set(zones.map((z) => z.source))) {
+    for (const source of new Set(layout.map((l) => l.source))) {
       const have = slotOfSource(source)
       if (have >= 0) {
         slots.set(source, have)
@@ -632,22 +633,25 @@ export async function loadSongZones(lines: readonly SongZoneLine[]): Promise<voi
       sampleSource(slot, source)
       slots.set(source, slot)
     }
+    const sample = kind === 'zone' ? ZoneField.Sample : PadField.Sample
     const sets: number[] = []
-    for (const z of zones) {
-      const slot = slots.get(z.source)
+    for (const l of layout) {
+      const slot = slots.get(l.source)
       if (slot === undefined) continue
-      sets.push(z.zone, ZoneField.Sample, slot)
-      z.values.forEach((v, f) => { if (f !== ZoneField.Sample) sets.push(z.zone, f, v) })
+      sets.push(l.at, sample, slot)
+      l.values.forEach((v, f) => { if (f !== sample) sets.push(l.at, f, v) })
     }
-    engine?.post({ t: 'zoneSets', s, sets })
-    requestZones(s)
+    engine?.post({ t: kind === 'zone' ? 'zoneSets' : 'padSets', s, sets })
+    if (kind === 'zone') requestZones(s)
+    else requestPads(s)
   }
-  if (missing.length) sampleStore.error = `zones are silent: ${missing.join('; ')}`
+  if (missing.length) sampleStore.error = `${kind}s are silent: ${missing.join('; ')}`
 }
-/** The zone lines laid out on each synth, so a song sent again does not load them twice. */
+/** The zone and pad lines laid out on each synth, so a song sent again does not load them twice. */
 const zonesOn = new Map<number, string>()
-/** A zone line of the song (#522), as the worklet sends it: `values` by `ZoneField` id. */
-export interface SongZoneLine { synth: number; zone: number; source: string; values: number[]; held: boolean }
+const padsOn = new Map<number, string>()
+/** A zone or pad line of the song (#522, #527), as the worklet sends it: `at` from 0, `values` by `ZoneField` or `PadField` id. */
+export interface SongLayoutLine { synth: number; at: number; source: string; values: number[]; held: boolean }
 export const requestZones = (s: number) => engine?.post({ t: 'zonesDump', s })
 export const requestPads = (s: number) => engine?.post({ t: 'padsDump', s })
 /** Set one field of a zone (`ZoneField`); the engine clamps it and the view re-reads the zones. */
@@ -770,7 +774,9 @@ export async function loadPack(s: number, pack: Pack, fromSong = false): Promise
 export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<void> {
   sampleStore.error = ''
   const files = kitFiles(kit)
-  engine?.post({ t: 'padsClear', s })
+  // Nor is a kit's (#527).
+  engine?.post({ t: 'padSets', s, sets: [] })
+  padsOn.delete(s)
   for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
@@ -778,7 +784,7 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
   }
   try {
     await loadFiles(kit.name, files, kit.id)
-    for (const [pad, field, v] of padSets(kit, (f) => slotOfFile.get(f))) engine?.post({ t: 'pad', s, pad, field, v })
+    engine?.post({ t: 'padSets', s, sets: padSets(kit, (f) => slotOfFile.get(f)).flat() })
     requestPads(s)
     samplesOn.set(s, kit.id)
     if (!fromSong) samplesIntoSong(s, kit.id)
@@ -1155,10 +1161,12 @@ export function applySong(data: Record<string, unknown>) {
   }))
   if (data.ok) void loadSongRecipes(recipes)
   // The Sampler zones (#522): laid out on the synths that do not hold them.
-  const zones = ((data.zones ?? []) as { synth: number; zone: number; source: Uint8Array; values: Float32Array; held: boolean }[]).map((z) => ({
-    synth: z.synth, zone: z.zone, source: decoder.decode(z.source), values: Array.from(z.values), held: z.held,
+  // The pads likewise (#527).
+  type RawLine = { synth: number; at: number; source: Uint8Array; values: Float32Array; held: boolean }
+  const lines = (raw: unknown) => ((raw ?? []) as RawLine[]).map((l) => ({
+    synth: l.synth, at: l.at, source: decoder.decode(l.source), values: Array.from(l.values), held: l.held,
   }))
-  if (data.ok) void loadSongZones(zones)
+  if (data.ok) void loadSongLayout('zone', lines(data.zones)).then(() => loadSongLayout('pad', lines(data.pads)))
 }
 
 /**

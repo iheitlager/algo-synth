@@ -89,6 +89,12 @@ class EngineProcessor extends AudioWorkletProcessor {
           for (let i = 0; i + 2 < data.sets.length; i += 3) w.zone_set(data.s, data.sets[i], data.sets[i + 1], data.sets[i + 2])
           w.zones_settle(data.s)
           break
+        // A kit's or the song's pads (#527), [pad, field, value]… flat, likewise.
+        case 'padSets':
+          w.pads_clear(data.s)
+          for (let i = 0; i + 2 < data.sets.length; i += 3) w.pad_set(data.s, data.sets[i], data.sets[i + 1], data.sets[i + 2])
+          w.pads_settle(data.s)
+          break
         // Where a slot's sample came from (#522), `@<hash>` or `<pack>/<sample>`, so its zones can be in the song.
         case 'sampleSource': this.setSampleSource(data.slot, new Uint8Array(data.bytes)); break
         case 'zonesDump': this.sendZones(data.s); break
@@ -401,14 +407,20 @@ class EngineProcessor extends AudioWorkletProcessor {
     }))
     // The Sampler zones the song names (#522): the view loads those its synth does not hold.
     const zones = Array.from({ length: w.song_zone_count ? w.song_zone_count() : 0 }, (_, i) => ({
-      synth: w.song_zone_synth(i), zone: w.song_zone_index(i), held: w.song_zone_held(i) === 1,
+      synth: w.song_zone_synth(i), at: w.song_zone_index(i), held: w.song_zone_held(i) === 1,
       source: bytes(w.song_zone_source_ptr(i), w.song_zone_source_len(i)),
       values: new Float32Array(w.memory.buffer, w.song_zone_values_ptr(i), w.zone_fields()).slice(),
+    }))
+    // The pads the song names (#527), as its zones.
+    const pads = Array.from({ length: w.song_pad_count ? w.song_pad_count() : 0 }, (_, i) => ({
+      synth: w.song_pad_synth(i), at: w.song_pad_index(i), held: w.song_pad_held(i) === 1,
+      source: bytes(w.song_pad_source_ptr(i), w.song_pad_source_len(i)),
+      values: new Float32Array(w.memory.buffer, w.song_pad_values_ptr(i), w.pad_fields()).slice(),
     }))
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes, zones,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes, zones, pads,
     })
   }
 

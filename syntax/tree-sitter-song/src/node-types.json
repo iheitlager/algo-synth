@@ -396,6 +396,10 @@
   },
   {
     "type": "pad",
+    "named": false
+  },
+  {
+    "type": "pad",
     "named": true
   },
   {

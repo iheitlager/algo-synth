@@ -694,6 +694,74 @@ pub extern "C" fn song_zone_held(i: u32) -> u32 {
     query(0, |e| u32::from(e.song_zone_held(i as usize)))
 }
 
+/// The pads of `synth` were laid out by the view from a kit or the song
+/// (#527), not by a hand: they do not fold into the song.
+#[unsafe(no_mangle)]
+pub extern "C" fn pads_settle(synth: u32) {
+    with_engine(|e| e.settle_pads(synth as usize));
+}
+
+// The song's pad lines (#527), as its zone lines.
+
+/// How many pad lines the song has.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_count() -> u32 {
+    query(0, |e| e.song().pads.len() as u32)
+}
+
+/// The synth the track of pad line `i` plays on, or −1.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_synth(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .pads
+            .get(i as usize)
+            .and_then(|p| e.song_routed(p.track))
+            .map_or(-1, |s| s as i32)
+    })
+}
+
+/// The pad (from 0) pad line `i` sets, or −1.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_index(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song().pads.get(i as usize).map_or(-1, |p| p.pad as i32)
+    })
+}
+
+/// The source of pad line `i`: its length in bytes and where it is.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_source_len(i: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .pads
+            .get(i as usize)
+            .map_or(0, |p| p.source.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_source_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .pads
+            .get(i as usize)
+            .map_or(std::ptr::null(), |p| p.source.as_ptr())
+    })
+}
+
+/// Pad line `i`'s fields by `PadField` id (its sample −1), `pad_fields` of them.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_values_ptr(i: u32) -> *const f32 {
+    query(std::ptr::null(), |e| e.song_pad_values(i as usize).as_ptr())
+}
+
+/// 1 when pad line `i`'s synth plays it already, else 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_pad_held(i: u32) -> u32 {
+    query(0, |e| u32::from(e.song_pad_held(i as usize)))
+}
+
 /// Fields in a zone: the length of `ZoneField`'s id range.
 #[unsafe(no_mangle)]
 pub extern "C" fn zone_fields() -> u32 {

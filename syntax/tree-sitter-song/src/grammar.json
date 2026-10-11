@@ -339,6 +339,10 @@
         },
         {
           "type": "STRING",
+          "value": "pad"
+        },
+        {
+          "type": "STRING",
           "value": "table"
         },
         {

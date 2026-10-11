@@ -2,7 +2,8 @@
 
 The second half of the song language's definition: the lines that make a
 sound rather than play one. Synth patches and Modular SynthDefs (`setting`),
-the samples a track loads and its Sampler zones (`samples`, `zone`), user
+the samples a track loads, its Sampler zones and pads (`samples`, `zone`,
+`pad`), user
 wavetables and attacks (`table`, `attack`),
 and the mix (`strip`, `group`, `master`). The conventions, limits, grammar
 notation and the composer's lines (tracks, clips, autos, scenes) are in
@@ -191,6 +192,37 @@ zone keys 1 = upright-piano-kw/C4vH : keyhi b3, root c4
 zone keys 2 = upright-piano-kw/C4vH : keylo c4, tune 7, loop sustain
 clip chords = keys
   "[c3,e3,g3] [a4,c5,e5]"
+```
+
+## pad
+
+```text
+pad <track> <n> = <source> [: <field> <value>, …]
+field = tune level pan decay choke vellevel velstart oneshot out
+```
+
+A pad of a `PadSampler` set by hand (#527), n from 1 to 16 (pad 1 answers
+note 36, `bd`), as a zone: the sample it plays, by the same sources, and its
+fields away from their defaults. `tune` is semitones (−24–24); `level` 0–2;
+`pan` −1–1; `decay` seconds to fall 60 dB (0 plays the sample out); `choke` a
+group 1–8 whose pads silence each other (0 none); `vellevel` and `velstart`
+0–1, how much velocity moves the level and the start; `oneshot 0` lets the
+key coming up fade the pad; `out` 0 for the sampler's strip or a group bus
+1–8.
+
+Dropping a WAV on a pad or changing a pad writes the lines. A track has a
+`samples` line or pad lines, not both: changing a kit's pads by hand turns its
+`samples` line into pad lines, and picking a kit takes them away. One line per
+pad, on a `drums` or `sampler` track, after it. A pad whose source cannot be
+found stays empty and the sampler's panel says so.
+
+```song
+track kit drums PadSampler
+pad kit 1 = upright-piano-kw/C4vH : tune -12, decay 0.4
+pad kit 3 = upright-piano-kw/C4vH : tune 7, choke 1, out 2
+clip beat = kit
+  bd x...x...x...x...
+  sn ....x.......x...
 ```
 
 ## strip, group, master

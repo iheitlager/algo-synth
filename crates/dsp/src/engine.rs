@@ -207,6 +207,8 @@ pub struct Engine {
     sample_sources: Vec<Option<String>>,
     /// Song zone `i`'s fields, as `zone_value` gives them, for the view.
     zone_vals: Vec<f32>,
+    /// Song pad `i`'s fields, as `pad_value` gives them, for the view.
+    pad_vals: Vec<f32>,
     samples: SampleStore,
     /// The waveform peaks `sample_peaks` last computed, for the view to read.
     peaks: Vec<f32>,
@@ -281,6 +283,8 @@ pub struct Engine {
     /// The synths whose zones a hand changed since the last fold (bit per
     /// synth, #522): they fold into their track's zone lines.
     zone_fold: u32,
+    /// The same for pads (#527).
+    pad_fold: u32,
     /// Drum hits between steps, waiting for their sample (#353), and how many.
     hits: [Hit; HITS],
     hit_count: usize,
@@ -342,6 +346,7 @@ impl Engine {
             recipe_vals: Vec::new(),
             sample_sources: vec![None; sample::SLOTS],
             zone_vals: Vec::with_capacity(ZoneField::ALL.len()),
+            pad_vals: Vec::with_capacity(PadField::ALL.len()),
             samples: SampleStore::new(),
             peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
@@ -377,6 +382,7 @@ impl Engine {
             touched: 0,
             fold: 0,
             zone_fold: 0,
+            pad_fold: 0,
             hits: [NO_HIT; HITS],
             hit_count: 0,
             arps: [Arp::default(); SYNTHS],
@@ -1210,12 +1216,19 @@ impl Engine {
             return false;
         };
         *have = Some(source);
-        // Zones already playing it may fold now.
+        // Zones and pads already playing it may fold now.
         for (s, zones) in self.zones.iter().enumerate() {
             if (0..crate::sampler::ZONES)
                 .any(|z| zones.get(z).is_some_and(|z| z.sample == Some(slot)))
             {
                 self.zone_fold |= 1u32.checked_shl(s as u32).unwrap_or(0);
+            }
+        }
+        for (s, synth) in self.synths.iter().enumerate() {
+            if (0..crate::padsampler::PADS)
+                .any(|p| synth.pad_kit.pad(p).is_some_and(|c| c.sample == Some(slot)))
+            {
+                self.pad_fold |= 1u32.checked_shl(s as u32).unwrap_or(0);
             }
         }
         true
@@ -1344,10 +1357,12 @@ impl Engine {
         &self.peaks
     }
 
-    /// Set a field of one of `synth`'s pads (see `padsampler::PadField`).
+    /// Set a field of one of `synth`'s pads (see `padsampler::PadField`): a
+    /// hand's change, folded into the song (#527).
     pub fn set_pad(&mut self, synth: usize, pad: usize, field: PadField, value: f32) {
         if let Some(p) = self.synths.get_mut(synth) {
             p.pad_kit.set(pad, field, value);
+            self.pad_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
             // The pads' outs feed groups directly; the solos follow them (#220).
             if field == PadField::Out {
                 self.mixer.set_feeds(synth, p.pad_groups());
@@ -1367,8 +1382,64 @@ impl Engine {
     pub fn clear_pads(&mut self, synth: usize) {
         if let Some(p) = self.synths.get_mut(synth) {
             p.pad_kit.clear();
+            self.pad_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
             self.mixer.set_feeds(synth, p.pad_groups());
         }
+    }
+
+    /// The pads of `synth` are a kit's or the song's, laid out by the view
+    /// (#527): not a hand's change, so nothing folds.
+    pub fn settle_pads(&mut self, synth: usize) {
+        self.pad_fold &= !1u32.checked_shl(synth as u32).unwrap_or(0);
+    }
+
+    /// `synth`'s sampled pads as pad lines of track `t`, or `None` when one
+    /// plays a sample the view gave no source for.
+    fn song_pads(&self, synth: usize, t: usize) -> Option<Vec<crate::song::pad::SongPad>> {
+        let kit = &self.synths.get(synth)?.pad_kit;
+        (0..crate::padsampler::PADS)
+            .filter_map(|i| kit.pad(i).filter(|c| c.sample.is_some()).map(|c| (i, c)))
+            .map(|(i, c)| {
+                let source = self.sample_source(c.sample?)?;
+                Some(crate::song::pad::SongPad {
+                    track: t,
+                    pad: i,
+                    source: source.to_string(),
+                    fields: crate::padsampler::PadCfg { sample: None, ..*c },
+                })
+            })
+            .collect()
+    }
+
+    /// Whether song pad line `i` is what its synth plays already, so the
+    /// view need not load it again.
+    pub fn song_pad_held(&self, i: usize) -> bool {
+        let Some(line) = self.song.pads.get(i) else {
+            return false;
+        };
+        let Some(c) = self
+            .song_routed(line.track)
+            .and_then(|s| self.synths.get(s))
+            .and_then(|p| p.pad_kit.pad(line.pad))
+        else {
+            return false;
+        };
+        c.sample
+            .and_then(|slot| self.sample_source(slot))
+            .is_some_and(|src| src == line.source)
+            && crate::padsampler::PadCfg { sample: None, ..*c } == line.fields
+    }
+
+    /// Song pad line `i`'s fields by `PadField` id, as `pad_value` gives
+    /// them (its sample −1).
+    pub fn song_pad_values(&mut self, i: usize) -> &[f32] {
+        self.pad_vals.clear();
+        if let Some(p) = self.song.pads.get(i) {
+            let fields = p.fields;
+            self.pad_vals
+                .extend(PadField::ALL.iter().map(|(f, _)| fields.get(*f)));
+        }
+        &self.pad_vals
     }
 
     pub fn zones(&self, synth: usize) -> Option<&ZoneMap> {
@@ -2675,10 +2746,12 @@ impl Engine {
         }) {
             bits |= LIVE_ZONES;
         }
+        // A pad too (#527).
         let kit = self.synths.get(synth).map(|p| &p.pad_kit);
         if (0..crate::padsampler::PADS).any(|i| {
             kit.and_then(|k| k.pad(i))
-                .is_some_and(|c| c.sample.is_some())
+                .and_then(|c| c.sample)
+                .is_some_and(|slot| self.sample_source(slot).is_none())
         }) {
             bits |= LIVE_PADS;
         }
@@ -2736,7 +2809,8 @@ impl Engine {
     pub fn fold(&mut self) -> bool {
         let marks = std::mem::take(&mut self.fold);
         let zone_marks = std::mem::take(&mut self.zone_fold);
-        if marks == 0 && zone_marks == 0 {
+        let pad_marks = std::mem::take(&mut self.pad_fold);
+        if marks == 0 && zone_marks == 0 && pad_marks == 0 {
             return false;
         }
         self.commit_song();
@@ -2755,6 +2829,17 @@ impl Engine {
             if zone_marks & (1 << s) != 0 && sampler {
                 if let Some(zones) = self.song_zones(s, t) {
                     self.song.set_zones(t, zones);
+                }
+            }
+            // Pads likewise, on a drums or sampler track (#527).
+            let synth_track = self
+                .song
+                .tracks
+                .get(t)
+                .is_none_or(|x| x.kind == crate::song::Kind::Synth);
+            if pad_marks & (1 << s) != 0 && !synth_track {
+                if let Some(pads) = self.song_pads(s, t) {
+                    self.song.set_pads(t, pads);
                 }
             }
             if marks & (1 << s) == 0 {

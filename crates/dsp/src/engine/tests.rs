@@ -5757,6 +5757,56 @@ fn hand_set_zones_fold_into_zone_lines() {
     assert!(!e.song_text().contains("zone keys"), "{}", e.song_text());
 }
 
+/// #527: pads a hand sets on a pad sampler fold into pad lines once their
+/// samples have a source, in place of the track's `samples` line; a kit's
+/// layout settles without folding.
+#[test]
+fn hand_set_pads_fold_into_pad_lines() {
+    let mut e = kit(0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track kit drums PadSampler\nsamples kit audiophob\n"
+        ),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    let tone: Vec<f32> = (0..4_800).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(7).expect("loads");
+    // A kit's layout: no fold.
+    e.set_pad(s, 0, PadField::Sample, 7.0);
+    e.settle_pads(s);
+    assert!(!e.fold());
+    // A hand's pad on a sample without a source: live-only, unfolded.
+    e.set_pad(s, 4, PadField::Sample, 7.0);
+    e.set_pad(s, 4, PadField::Choke, 2.0);
+    e.fold();
+    assert!(e.song_text().contains("samples kit"), "{}", e.song_text());
+    assert_ne!(e.live_only(s) & LIVE_PADS, 0);
+    let source = b"audiophob/kick";
+    e.song_buffer(source.len())
+        .expect("fits")
+        .copy_from_slice(source);
+    assert!(e.set_sample_source_from_buffer(7));
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(!text.contains("samples kit"), "{text}");
+    assert!(
+        text.contains("pad kit 1 = audiophob/kick\npad kit 5 = audiophob/kick : choke 2\n"),
+        "{text}"
+    );
+    assert_eq!(e.live_only(s) & LIVE_PADS, 0);
+    assert!(e.song_pad_held(0) && e.song_pad_held(1));
+    assert_eq!(e.song_pad_values(1)[PadField::Choke as usize], 2.0);
+    e.clear_pads(s);
+    assert!(e.fold());
+    assert!(!e.song_text().contains("pad kit"), "{}", e.song_text());
+}
+
 /// #214: a group named in the view is named in the song, through the song
 /// buffer; an empty buffer takes the name away.
 #[test]

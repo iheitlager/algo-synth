@@ -85,9 +85,9 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
                 }
                 // `mod kit.Cutoff` prints as `mod kit.cutoff`.
                 "mod" => format!("mod {}", name.unwrap_or("").to_ascii_lowercase()),
-                // A track has many zones: `zone keys 2`.
-                "zone" => format!(
-                    "zone {} {}",
+                // A track has many zones and pads: `zone keys 2`, `pad kit 3`.
+                "zone" | "pad" => format!(
+                    "{first} {} {}",
                     name.unwrap_or(""),
                     body.split_whitespace().nth(2).unwrap_or("")
                 ),
