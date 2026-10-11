@@ -661,11 +661,12 @@ impl Engine {
         &self.recipe_out
     }
 
-    /// Recipe `i`'s transforms by id, then its window and hop.
+    /// Recipe `i`'s transforms by id, its morph and sweep, then its window and hop.
     pub fn recipe_values(&mut self, i: usize) -> &[f32] {
         self.recipe_vals.clear();
         if let Some(r) = self.song.recipes.get(i) {
             self.recipe_vals.extend_from_slice(&r.edits);
+            self.recipe_vals.extend_from_slice(&r.morph);
             self.recipe_vals.extend([r.window as f32, r.hop as f32]);
         }
         &self.recipe_vals

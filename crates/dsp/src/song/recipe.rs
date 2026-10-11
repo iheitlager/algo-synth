@@ -22,6 +22,11 @@ pub const EDIT_NAMES: [&str; EDITS] = [
     "noise",
     "keepformants",
 ];
+/// The morph's positions and its table sweep by the names a recipe gives
+/// them (spec 010 Req 7, 13), in `analysis::lab`'s morph id order.
+pub const MORPH_NAMES: [&str; MORPHS] = ["mpitch", "mamp", "mnoise", "mformant", "sweep"];
+pub use crate::analysis::lab::{MORPHS, NO_MORPH};
+
 /// The analysis a recipe runs unless it says otherwise.
 pub const WINDOW: usize = 4096;
 pub const HOP: usize = 256;
@@ -57,8 +62,12 @@ pub struct Recipe {
     pub kind: Kind,
     /// 1 to 8: "User 1" to "User 8".
     pub slot: usize,
-    /// `<pack>/<sample>` of the samples manifest, or `@<hash>` of a dropped file.
+    /// `<pack>/<sample>` of the samples manifest, `@<hash>` of a dropped file,
+    /// a preset at a note or Plaits macros.
     pub source: String,
+    /// A second sound to morph with (`A ~ B`), and where between them.
+    pub other: Option<String>,
+    pub morph: [f32; MORPHS],
     /// Every transform's value, by `analysis::lab` id.
     pub edits: [f32; EDITS],
     pub window: usize,
@@ -71,6 +80,8 @@ impl Recipe {
             kind,
             slot,
             source: source.to_string(),
+            other: None,
+            morph: NO_MORPH,
             edits: NO_EDITS,
             window: WINDOW,
             hop: HOP,
@@ -87,13 +98,24 @@ impl Recipe {
             .filter(|((v, d), _)| (*v - d).abs() > 1e-6)
             .map(|((v, _), name)| format!("{name} {v}"))
             .collect();
+        changes.extend(
+            self.morph
+                .iter()
+                .zip(NO_MORPH)
+                .zip(MORPH_NAMES)
+                .filter(|((v, d), _)| (*v - d).abs() > 1e-6)
+                .map(|((v, _), name)| format!("{name} {v}")),
+        );
         if self.window != WINDOW {
             changes.push(format!("window {}", self.window));
         }
         if self.hop != HOP {
             changes.push(format!("hop {}", self.hop));
         }
-        let line = format!("{} {} = {}", self.kind.word(), self.slot, self.source);
+        let mut line = format!("{} {} = {}", self.kind.word(), self.slot, self.source);
+        if let Some(other) = &self.other {
+            line = format!("{line} ~ {other}");
+        }
         if changes.is_empty() {
             line
         } else {
@@ -110,6 +132,19 @@ impl Recipe {
         match name {
             "window" if [1024.0, 2048.0, 4096.0, 8192.0].contains(&v) => self.window = v as usize,
             "hop" if (16.0..=4096.0).contains(&v) && v.fract() == 0.0 => self.hop = v as usize,
+            m if MORPH_NAMES.contains(&m) => {
+                let Some(slot) = MORPH_NAMES
+                    .iter()
+                    .position(|n| *n == m)
+                    .and_then(|i| self.morph.get_mut(i))
+                else {
+                    return false;
+                };
+                if !(0.0..=1.0).contains(&v) {
+                    return false;
+                }
+                *slot = v;
+            }
             _ => match EDIT_NAMES
                 .iter()
                 .position(|n| *n == name)
@@ -123,18 +158,76 @@ impl Recipe {
     }
 }
 
-/// A recipe's source: a manifest sample, `upright-piano-kw/C4vH` (a pack id,
-/// then the sample's file name without `.wav`), or `@` and 32 hex digits.
-pub fn is_source(s: &str) -> bool {
+/// Where a recipe's sound comes from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Source<'a> {
+    /// A sample of a manifest pack or kit: its id, and the file name without `.wav`.
+    Pack(&'a str, &'a str),
+    /// A dropped file the browser keeps, by the first hex digits of its SHA-256.
+    Hash(&'a str),
+    /// A factory preset rendered by the engine at a MIDI note (spec 010 Req 8).
+    Synth(crate::mono::preset::Preset, u8),
+    /// Plaits-style harmonics, timbre and morph macros, each 0 to 1 (spec 010 Req 8).
+    Plaits(f32, f32, f32),
+}
+
+/// A note name as `c4`, `eb3` or `f#5` (C4 is MIDI 60).
+pub fn note_number(s: &str) -> Option<u8> {
+    let mut chars = s.chars();
+    let base = match chars.next()? {
+        'c' => 0,
+        'd' => 2,
+        'e' => 4,
+        'f' => 5,
+        'g' => 7,
+        'a' => 9,
+        'b' => 11,
+        _ => return None,
+    };
+    let rest: String = chars.collect();
+    let (accidental, octave) = match rest.strip_prefix('#') {
+        Some(o) => (1, o.to_string()),
+        None => match rest.strip_prefix('b') {
+            Some(o) if !o.is_empty() => (-1, o.to_string()),
+            _ => (0, rest.clone()),
+        },
+    };
+    let octave: i32 = octave.parse().ok().filter(|o| (-1..=9).contains(o))?;
+    u8::try_from((octave + 1) * 12 + base + accidental)
+        .ok()
+        .filter(|n| *n <= 127)
+}
+
+/// A recipe's source: a manifest sample (`upright-piano-kw/C4vH`, a pack id
+/// then the sample's file name without `.wav`), `@` and 32 hex digits, a
+/// preset at a note (`synth:LaChoir:c4`), or macros (`plaits:0.3:0.5:0.8`).
+pub fn parse_source(s: &str) -> Option<Source<'_>> {
     if let Some(hash) = s.strip_prefix('@') {
-        return hash.len() == HASH_DIGITS
+        let ok = hash.len() == HASH_DIGITS
             && hash
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+        return ok.then_some(Source::Hash(hash));
     }
-    let Some((pack, sample)) = s.split_once('/') else {
-        return false;
-    };
+    if let Some(rest) = s.strip_prefix("synth:") {
+        let (name, note) = rest.split_once(':')?;
+        let preset = crate::mono::preset::Preset::ALL
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(p, _)| *p)?;
+        return Some(Source::Synth(preset, note_number(note)?));
+    }
+    if let Some(rest) = s.strip_prefix("plaits:") {
+        let v: Vec<f32> = rest
+            .split(':')
+            .map(|x| x.parse::<f32>().ok().filter(|v| (0.0..=1.0).contains(v)))
+            .collect::<Option<_>>()?;
+        let [h, t, m] = v.as_slice() else {
+            return None;
+        };
+        return Some(Source::Plaits(*h, *t, *m));
+    }
+    let (pack, sample) = s.split_once('/')?;
     let pack_ok = !pack.is_empty()
         && pack.len() <= 64
         && pack
@@ -145,7 +238,11 @@ pub fn is_source(s: &str) -> bool {
         && sample
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    pack_ok && sample_ok
+    (pack_ok && sample_ok).then_some(Source::Pack(pack, sample))
+}
+
+pub fn is_source(s: &str) -> bool {
+    parse_source(s).is_some()
 }
 
 #[cfg(test)]
@@ -178,6 +275,42 @@ mod tests {
             "@0123456789ABCDEF0123456789abcdef",
             "/x",
             "x/",
+        ] {
+            assert!(!is_source(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_morph_recipe_prints_both_sounds() {
+        let mut r = Recipe::new(Kind::Table, 3, "upright-piano-kw/C4vH");
+        r.other = Some("synth-pad-choir/C4".into());
+        assert!(r.set("sweep", 1.0) && r.set("mformant", 0.3));
+        assert!(!r.set("mamp", 2.0));
+        assert_eq!(
+            r.print(),
+            "table 3 = upright-piano-kw/C4vH ~ synth-pad-choir/C4 : mformant 0.3, sweep 1"
+        );
+    }
+
+    #[test]
+    fn synth_and_plaits_sources() {
+        assert_eq!(note_number("c4"), Some(60));
+        assert_eq!(note_number("eb3"), Some(51));
+        assert_eq!(note_number("f#5"), Some(78));
+        assert_eq!(note_number("h4"), None);
+        assert!(matches!(
+            parse_source("synth:LaChoir:c4"),
+            Some(Source::Synth(_, 60))
+        ));
+        assert_eq!(
+            parse_source("plaits:0.3:0.5:0.8"),
+            Some(Source::Plaits(0.3, 0.5, 0.8))
+        );
+        for bad in [
+            "synth:Nope:c4",
+            "synth:LaChoir:x9",
+            "plaits:0.3:0.5",
+            "plaits:2:0:0",
         ] {
             assert!(!is_source(bad), "{bad}");
         }

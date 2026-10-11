@@ -1372,17 +1372,32 @@ impl Song {
                     if !recipe::is_source(source) {
                         return Err(err(
                             src.col,
-                            "a source is a pack's sample, as upright-piano-kw/C4vH, or @ and a file's hash",
+                            "a source is a pack's sample, as upright-piano-kw/C4vH, @ and a file's hash, synth:Preset:note or plaits:h:t:m",
                         ));
                     }
                     let mut r = recipe::Recipe::new(kind, slot, source);
                     let mut k = 4;
-                    if !src.text.ends_with(':') {
-                        if let Some(colon) = ws.get(4) {
+                    let mut last = src.text;
+                    // `A ~ B`: a second sound to morph with.
+                    if !src.text.ends_with(':') && ws.get(4).is_some_and(|w| w.text == "~") {
+                        let b = arg(5, "a second source goes here, to morph with")?;
+                        let other = b.text.strip_suffix(':').unwrap_or(b.text);
+                        if !recipe::is_source(other) {
+                            return Err(err(
+                                b.col,
+                                "a source is a pack's sample, @ and a file's hash, synth:Preset:note or plaits:h:t:m",
+                            ));
+                        }
+                        r.other = Some(other.to_string());
+                        last = b.text;
+                        k = 6;
+                    }
+                    if !last.ends_with(':') {
+                        if let Some(colon) = ws.get(k) {
                             if colon.text != ":" {
                                 return Err(err(colon.col, ": and the transforms go here"));
                             }
-                            k = 5;
+                            k += 1;
                         }
                     }
                     while let Some(name) = ws.get(k) {
@@ -1401,7 +1416,7 @@ impl Song {
                         if !r.set(name.text, value) {
                             return Err(err(
                                 name.col,
-                                "a transform of the lab (as inharmonic), or window or hop, with a value it takes",
+                                "a transform of the lab (as inharmonic), a morph position (mamp …, sweep), or window or hop, with a value it takes",
                             ));
                         }
                         k += 2;

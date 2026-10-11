@@ -22,7 +22,7 @@ import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
 import { keepView, lastView } from './viewstate'
 import { keptFile } from './audiostore'
-import { Analyser, recipeOf, type SongRecipe } from './spectral'
+import { Analyser, isGenerated, recipeOf, type SongRecipe } from './spectral'
 import { startMidi } from './midiin'
 
 const base = import.meta.env.BASE_URL
@@ -483,7 +483,7 @@ async function sourceBytes(source: string): Promise<ArrayBuffer | string> {
 /** Rebuild each recipe the song names whose slot does not hold it yet, one after the other. */
 export async function loadSongRecipes(recipes: readonly SongRecipe[]): Promise<void> {
   for (const r of recipes) {
-    const { kind, slot, source, edits, window, hop } = recipeOf(r)
+    const { kind, slot, source, other, edits, morph, window, hop } = recipeOf(r)
     const slots = kind === 0 ? userSlots.table : userSlots.attack
     const have = slots[slot - 1]
     if (have && have.recipe === r.text && have.state !== 'failed') continue
@@ -492,20 +492,36 @@ export async function loadSongRecipes(recipes: readonly SongRecipe[]): Promise<v
       // A newer recipe for the slot may have arrived meanwhile: it decides.
       if (slots[slot - 1]?.recipe === r.text) slots[slot - 1] = { recipe: r.text, state, why }
     }
-    const bytes = await sourceBytes(source)
-    if (typeof bytes === 'string') {
-      done('missing', bytes)
-      continue
-    }
     if (!engine) return
     rebuilder ??= Analyser.start(engine.module)
     const a = await rebuilder
-    const analysed = await a.analyse(bytes, engine.ctx.sampleRate, window, hop, true)
-    if (analysed.code < 0) {
-      done('failed', `the source could not be analysed (${analysed.code})`)
+    const rate = engine.ctx.sampleRate
+    // A sound, as A or as B: one the engine makes, or bytes fetched or kept.
+    const load = async (src: string, which: 0 | 1): Promise<string | null> => {
+      if (isGenerated(src)) {
+        const g = await a.generate(which, src, rate, window, hop, true)
+        return g.code < 0 ? `the engine cannot make ${src}` : null
+      }
+      const bytes = await sourceBytes(src)
+      if (typeof bytes === 'string') return bytes
+      const analysed = await a.analyse(bytes, rate, window, hop, true, which)
+      return analysed.code < 0 ? `${src} could not be analysed (${analysed.code})` : null
+    }
+    const whyA = await load(source, 0)
+    if (whyA) {
+      done(whyA.startsWith('no pack') || whyA.startsWith('the file') || whyA.startsWith('could not fetch') ? 'missing' : 'failed', whyA)
       continue
     }
-    const { values, root } = await a.extract(kind === 0 ? 'table' : 'attack', edits)
+    if (other) {
+      const whyB = await load(other, 1)
+      if (whyB) {
+        done('missing', whyB)
+        continue
+      }
+    } else {
+      await a.clearOther()
+    }
+    const { values, root } = await a.extract(kind === 0 ? 'table' : 'attack', edits, morph)
     if (!values.length) {
       done('failed', 'the source has no pitch to make a table from')
       continue

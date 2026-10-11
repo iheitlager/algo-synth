@@ -110,6 +110,12 @@ export const Edit = {
 } as const
 export const NO_EDITS: readonly number[] = [1, 1, 0, 1, 0, 0.5, 0, 0, 0, -1, 0, 1, 0]
 
+/** The morph's positions by id (`MPITCH` … in lab.rs, spec 010 Req 7), and the table sweep. */
+export const Morph = { Pitch: 0, Amp: 1, Noise: 2, Formant: 3, Sweep: 4 } as const
+export const NO_MORPH: readonly number[] = [0, 0, 0, 0, 0]
+/** A source the engine makes itself rather than fetches: a preset or macros (spec 010 Req 8). */
+export const isGenerated = (source: string) => source.startsWith('synth:') || source.startsWith('plaits:')
+
 /** A spectrogram from the engine: `bands` byte levels a frame, log frequency from 30 Hz to Nyquist. */
 export interface Spectrogram { levels: Uint8Array; bands: number }
 
@@ -173,27 +179,39 @@ export class Analyser {
    * Analyse a copy of a WAV at `rate`: the frame count (or a negative code),
    * the tracks, and its spectrogram (`bands` byte levels a frame).
    */
-  async analyse(bytes: ArrayBuffer, rate: number, window: number, hop: number, noise = false): Promise<{ code: number; tracks: Track[]; gram: Spectrogram }> {
+  async analyse(bytes: ArrayBuffer, rate: number, window: number, hop: number, noise = false, which: 0 | 1 = 0): Promise<{ code: number; tracks: Track[]; gram: Spectrogram }> {
     const copy = bytes.slice(0)
-    const r = await this.ask({ t: 'analyse', bytes: copy, rate, window, hop, noise }, [copy])
+    const r = await this.ask({ t: 'analyse', bytes: copy, rate, window, hop, noise, which }, [copy])
     this.bands = r.bands ?? 0
     return { code: r.code, tracks: parseTracks(r.tracks), gram: { levels: r.gram, bands: this.bands } }
   }
 
+  /** A sound the engine makes from `source` (a preset at a note, or macros) as A (0) or B (1). */
+  async generate(which: 0 | 1, source: string, rate: number, window: number, hop: number, noise = true): Promise<{ code: number; tracks: Track[]; gram: Spectrogram; root: number }> {
+    const r = await this.ask({ t: 'generate', which, source, rate, window, hop, noise })
+    this.bands = r.bands ?? this.bands
+    return { code: r.code, tracks: parseTracks(r.tracks), gram: { levels: r.gram, bands: this.bands }, root: r.root }
+  }
+
+  /** Forget B. */
+  async clearOther(): Promise<void> {
+    await this.ask({ t: 'clearOther' })
+  }
+
   /** The analysed sound as a PPG wavetable (64 waves of 256), or its attack as a D-50 PCM sample, and its root note. */
-  async extract(kind: 'table' | 'attack', edits: readonly number[] = NO_EDITS): Promise<{ values: Float32Array; root: number }> {
-    const r = await this.ask({ t: kind, edits: [...edits] })
+  async extract(kind: 'table' | 'attack', edits: readonly number[] = NO_EDITS, morph: readonly number[] = NO_MORPH): Promise<{ values: Float32Array; root: number }> {
+    const r = await this.ask({ t: kind, edits: [...edits], morph: [...morph] })
     return { values: r.values, root: r.root }
   }
 
   /** The recipe line (ADR-0033) of the table (`kind` 0) or attack (1) into user slot `slot` (1-8) from `source`; '' when not one. */
-  async recipe(kind: 0 | 1, slot: number, source: string, edits: readonly number[] = NO_EDITS): Promise<string> {
-    return (await this.ask({ t: 'recipe', kind, slot, source, edits: [...edits] })).line
+  async recipe(kind: 0 | 1, slot: number, source: string, edits: readonly number[] = NO_EDITS, morph: readonly number[] = NO_MORPH): Promise<string> {
+    return (await this.ask({ t: 'recipe', kind, slot, source, edits: [...edits], morph: [...morph] })).line
   }
 
   /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes, with its spectrogram. */
-  async render(top: number, shift: number, stretch: number, edits: readonly number[] = NO_EDITS): Promise<{ wav: ArrayBuffer; gram: Spectrogram }> {
-    const r = await this.ask({ t: 'render', top, shift, stretch, edits: [...edits] })
+  async render(top: number, shift: number, stretch: number, edits: readonly number[] = NO_EDITS, morph: readonly number[] = NO_MORPH): Promise<{ wav: ArrayBuffer; gram: Spectrogram }> {
+    const r = await this.ask({ t: 'render', top, shift, stretch, edits: [...edits], morph: [...morph] })
     return { wav: r.wav, gram: { levels: r.gram, bands: this.bands } }
   }
 }
@@ -255,15 +273,19 @@ export class LabEngine {
 export interface SongRecipe { slot: number; text: string; values: readonly number[] }
 
 /** What a recipe fills: `kind` 0 a table, 1 an attack; `slot` 1-8; its source from the line. */
-export function recipeOf(r: SongRecipe): { kind: 0 | 1; slot: number; source: string; edits: number[]; window: number; hop: number } {
+export function recipeOf(r: SongRecipe): { kind: 0 | 1; slot: number; source: string; other: string | null; edits: number[]; morph: number[]; window: number; hop: number } {
   const source = /=\s*(\S+)/.exec(r.text)?.[1] ?? ''
+  const other = /=\s*\S+\s+~\s+(\S+)/.exec(r.text)?.[1] ?? null
   const n = NO_EDITS.length
+  const m = NO_MORPH.length
   return {
     kind: r.slot >= 16 ? 1 : 0,
     slot: r.slot % 16,
     source,
+    other,
     edits: Array.from(r.values.slice(0, n)),
-    window: r.values[n] ?? 4096,
-    hop: r.values[n + 1] ?? 256,
+    morph: Array.from(r.values.slice(n, n + m)),
+    window: r.values[n + m] ?? 4096,
+    hop: r.values[n + m + 1] ?? 256,
   }
 }

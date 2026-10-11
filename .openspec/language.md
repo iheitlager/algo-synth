@@ -276,16 +276,21 @@ clip chords = keys
 ## table, attack
 
 ```text
-table <n> = <source> [: <transform> <value>, …]
-attack <n> = <source> [: <transform> <value>, …]
+table <n> = <source> [~ <source>] [: <change> <value>, …]
+attack <n> = <source> [~ <source>] [: <change> <value>, …]
 ```
 
 The recipe of a user wavetable or attack (ADR-0033): `table <n>` fills the PPG
 Wave's Table "User n" (`Wt1Table`/`Wt2Table` 7 + n), `attack <n>` a D-50
 partial's Source "User n" (`Pcm1Sample`/`Pcm2Sample` 8 + n), n from 1 to 8.
 The source is a sample of a pack of the samples manifest, its file name
-without `.wav` (`upright-piano-kw/C4vH`), or `@` and the first 32 hex digits
-of a dropped file's SHA-256, which only the browser that kept the file has.
+without `.wav` (`upright-piano-kw/C4vH`), `@` and the first 32 hex digits
+of a dropped file's SHA-256 (which only the browser that kept the file has),
+a factory preset the engine renders at a note (`synth:LaChoir:c4`), or
+Plaits-style harmonics, timbre and morph macros (`plaits:0.3:0.5:0.8`).
+`A ~ B` morphs two sources: `mpitch`, `mamp`, `mnoise` and `mformant` say
+where between them (0 is A, 1 is B), and `sweep 1` makes a table run from A
+to B across its waves instead of over the sound's time.
 After a colon come the Spectral Lab's transforms by name (`stretch`,
 `inharmonic`, `freqshift`, `formant`, `smear`, `oddeven`, `lowpass`, `lowres`,
 `highpass`, `freeze`, `decay`, `noise`, `keepformants`), and the analysis's
@@ -297,6 +302,7 @@ plays on.
 
 ```song
 table 1 = upright-piano-kw/C4vH : inharmonic 1.6, noise 1.5
+table 2 = upright-piano-kw/C4vH ~ synth-pad-choir/C4 : sweep 1
 attack 1 = upright-piano-kw/C4vH
 track bell synth PpgWave PpgSweepPad
 track hammer synth D50 LaFantasia

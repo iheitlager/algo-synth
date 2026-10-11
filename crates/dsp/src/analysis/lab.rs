@@ -9,8 +9,11 @@ use super::edit::{
     smear, spectral_filter, stretch, top_n,
 };
 use super::envelope::{Envelope, true_envelope};
-use super::frames::{split_attack, to_table};
+use super::frames::{
+    by_label_table, harmonic_wave, label_amps, split_attack, steady_frame, to_table,
+};
 use super::harmonic::label;
+use super::morph::{Positions, from_analysis, morph};
 use super::spectrogram::spectrogram;
 use super::track::Track;
 use super::{Analysis, Settings, analyse};
@@ -44,9 +47,27 @@ pub const NO_EDITS: [f32; EDITS] = [
     1.0, 1.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0,
 ];
 
+/// The morph (spec 010 Req 7, 13), by id as `spectral_morph` takes them:
+/// where between A (0) and B (1) pitch, amplitude, noise and formant lie, and
+/// whether a table runs from A to B across its waves instead of over time.
+pub const MPITCH: usize = 0;
+pub const MAMP: usize = 1;
+pub const MNOISE: usize = 2;
+pub const MFORMANT: usize = 3;
+pub const SWEEP: usize = 4;
+pub const MORPHS: usize = 5;
+pub const NO_MORPH: [f32; MORPHS] = [0.0; MORPHS];
+/// A rendered preset or macros sound this long before its release (s).
+const GENERATED: f32 = 1.2;
+
 pub struct Lab {
     /// The transforms, by the ids above.
     edits: [f32; EDITS],
+    /// The morph, by the ids above.
+    morph: [f32; MORPHS],
+    /// The second sound, B, to morph with, and its envelope once a formant morph needs it.
+    other: Option<Analysis>,
+    other_envelope: Option<Envelope>,
     /// The envelope of the analysis, made the first time a transform needs it.
     envelope: Option<Envelope>,
     input: Vec<u8>,
@@ -75,6 +96,9 @@ impl Default for Lab {
     fn default() -> Lab {
         Lab {
             edits: NO_EDITS,
+            morph: NO_MORPH,
+            other: None,
+            other_envelope: None,
             envelope: None,
             input: Vec::new(),
             analysis: None,
@@ -117,26 +141,70 @@ impl Lab {
         }
     }
 
-    /// The analysis's tracks with the transforms applied, and the pitch
-    /// shifted by `ratio` (formants kept when asked).
-    fn edited(&mut self, ratio: f32) -> Vec<Track> {
-        let Some(a) = &self.analysis else {
-            return Vec::new();
+    /// Set morph position `id` (out of range is ignored), 0 to 1.
+    pub fn set_morph(&mut self, id: usize, v: f32) {
+        if let Some(m) = self.morph.get_mut(id).filter(|_| v.is_finite()) {
+            *m = v.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Whether the sound is a morph: a B, and a position off A or a sweep.
+    fn morphing(&self) -> bool {
+        self.other.is_some() && self.morph.iter().any(|m| *m > 0.0)
+    }
+
+    /// The tracks a render starts from, and their frames: A's, or A and B
+    /// morphed at `pos`.
+    fn base(&mut self, pos: Positions) -> (Vec<Track>, usize) {
+        let (Some(a), Some(b)) = (&self.analysis, &self.other) else {
+            return self
+                .analysis
+                .as_ref()
+                .map_or((Vec::new(), 0), |a| (a.tracks.clone(), a.frames()));
         };
+        let (da, db) = (from_analysis(a, &a.tracks), from_analysis(b, &b.tracks));
+        // The formant needs both envelopes only when it differs from the amplitude.
+        if (pos.formant - pos.amp).abs() > 1e-6 {
+            let ea = self.envelope.get_or_insert_with(|| true_envelope(a));
+            let eb = self.other_envelope.get_or_insert_with(|| true_envelope(b));
+            morph(&da, &db, pos, Some((ea, eb)))
+        } else {
+            morph(&da, &db, pos, None)
+        }
+    }
+
+    /// The morph's positions as set.
+    fn positions(&self) -> Positions {
+        let at = |id: usize| self.morph.get(id).copied().unwrap_or(0.0);
+        Positions {
+            pitch: at(MPITCH),
+            amp: at(MAMP),
+            noise: at(MNOISE),
+            formant: at(MFORMANT),
+        }
+    }
+
+    /// `t` (of `frames` frames) with the transforms applied, and the pitch
+    /// shifted by `ratio` (formants kept when asked).
+    fn apply_edits(&mut self, t: Vec<Track>, frames: usize, ratio: f32) -> Vec<Track> {
+        let Some(a) = &self.analysis else {
+            return t;
+        };
+        let (hop, rate) = (a.hop, a.rate);
         let e = self.edits;
         let at = |id: usize| e.get(id).copied().unwrap_or(0.0);
         let mut t = if at(FREEZE) >= 0.0 {
             freeze(
-                &a.tracks,
-                (at(FREEZE).min(1.0) * a.frames().saturating_sub(1) as f32) as usize,
+                &t,
+                (at(FREEZE).min(1.0) * frames.saturating_sub(1) as f32) as usize,
             )
         } else {
-            a.tracks.clone()
+            t
         };
         stretch(&mut t, at(STRETCH));
         inharmonic(&mut t, at(INHARMONIC));
         odd_even(&mut t, at(ODD_EVEN));
-        decay_by_number(&mut t, at(DECAY), a.hop, a.rate);
+        decay_by_number(&mut t, at(DECAY), hop, rate);
         smear(&mut t, at(SMEAR));
         if at(LOW_PASS) > 0.0 {
             spectral_filter(&mut t, at(LOW_PASS), at(LOW_RES), false);
@@ -162,6 +230,16 @@ impl Lab {
         t
     }
 
+    /// The sound's tracks (A, or the morph) with the transforms, and their frames.
+    fn edited(&mut self, ratio: f32) -> (Vec<Track>, usize) {
+        let (t, frames) = if self.morphing() {
+            self.base(self.positions())
+        } else {
+            self.base(Positions::default())
+        };
+        (self.apply_edits(t, frames, ratio), frames)
+    }
+
     /// Size the WAV buffer for `len` bytes; `None` past `sample::MAX_WAV`.
     pub fn buffer(&mut self, len: usize) -> Option<&mut [u8]> {
         if len > sample::MAX_WAV {
@@ -172,10 +250,73 @@ impl Lab {
         Some(&mut self.input)
     }
 
-    /// Parse the buffer at `rate`, mix it to mono and analyse it: the frame
-    /// count, or a negative `sample::Error` code, or an `analysis::Error`
-    /// code minus 10. A failure keeps nothing.
+    /// Parse the buffer at `rate` and mix it to mono: the samples and the
+    /// file's root note, or a negative `sample::Error` code.
+    fn input_mono(&self, rate: f32) -> Result<(Vec<f32>, u8), i32> {
+        let s = sample::parse(&self.input, rate).map_err(|e| e.code())?;
+        let ch = usize::from(s.channels.max(1));
+        let mono = s
+            .data
+            .chunks(ch)
+            .map(|f| f.iter().sum::<f32>() / ch as f32)
+            .collect();
+        Ok((mono, s.root))
+    }
+
+    /// Parse the buffer at `rate`, mix it to mono and analyse it as A: the
+    /// frame count, or a negative `sample::Error` code, or an
+    /// `analysis::Error` code minus 10. A failure keeps nothing.
     pub fn analyse(&mut self, rate: f32, window: usize, hop: usize, noise: bool) -> i32 {
+        self.clear_a(window, noise);
+        match self.input_mono(rate) {
+            Ok((mono, root)) => self.take_a(mono, root, rate, window, hop, noise),
+            Err(code) => code,
+        }
+    }
+
+    /// The buffer as B, the sound to morph with (spec 010 Req 7): the frame
+    /// count or a negative code, as `analyse`. A failure clears B.
+    pub fn analyse_other(&mut self, rate: f32, window: usize, hop: usize, noise: bool) -> i32 {
+        self.other = None;
+        self.other_envelope = None;
+        match self.input_mono(rate) {
+            Ok((mono, _)) => self.take_b(&mono, rate, window, hop, noise),
+            Err(code) => code,
+        }
+    }
+
+    /// A sound the engine makes from the source in the text buffer (a preset
+    /// at a note, or Plaits macros; spec 010 Req 8), as A (`which` 0) or B (1):
+    /// the frame count, or −1 for a source that is not one of those.
+    pub fn generate(
+        &mut self,
+        which: usize,
+        rate: f32,
+        window: usize,
+        hop: usize,
+        noise: bool,
+    ) -> i32 {
+        let text = String::from_utf8_lossy(&self.text).into_owned();
+        let Some((mono, root)) = generated(&text, rate) else {
+            return -1;
+        };
+        if which == 0 {
+            self.clear_a(window, noise);
+            self.take_a(mono, root, rate, window, hop, noise)
+        } else {
+            self.other = None;
+            self.other_envelope = None;
+            self.take_b(&mono, rate, window, hop, noise)
+        }
+    }
+
+    /// Forget B.
+    pub fn clear_other(&mut self) {
+        self.other = None;
+        self.other_envelope = None;
+    }
+
+    fn clear_a(&mut self, window: usize, noise: bool) {
         self.analysis = None;
         self.envelope = None;
         self.tracks.clear();
@@ -185,17 +326,18 @@ impl Lab {
         self.noise = noise;
         self.source.clear();
         self.values.clear();
-        let s = match sample::parse(&self.input, rate) {
-            Ok(s) => s,
-            Err(e) => return e.code(),
-        };
-        self.root = s.root;
-        let ch = usize::from(s.channels.max(1));
-        let mono: Vec<f32> = s
-            .data
-            .chunks(ch)
-            .map(|f| f.iter().sum::<f32>() / ch as f32)
-            .collect();
+    }
+
+    fn take_a(
+        &mut self,
+        mono: Vec<f32>,
+        root: u8,
+        rate: f32,
+        window: usize,
+        hop: usize,
+        noise: bool,
+    ) -> i32 {
+        self.root = root;
         let settings = Settings {
             window,
             hop,
@@ -210,6 +352,24 @@ impl Lab {
                 self.source = mono;
                 self.tracks = flatten(&a);
                 self.analysis = Some(a);
+                i32::try_from(frames).unwrap_or(i32::MAX)
+            }
+            Err(e) => ANALYSIS_ERRORS + e.code(),
+        }
+    }
+
+    fn take_b(&mut self, mono: &[f32], rate: f32, window: usize, hop: usize, noise: bool) -> i32 {
+        let settings = Settings {
+            window,
+            hop,
+            noise,
+            ..Settings::default()
+        };
+        match analyse(mono, rate, &settings) {
+            Ok(mut b) => {
+                label(&mut b);
+                let frames = b.frames();
+                self.other = Some(b);
                 i32::try_from(frames).unwrap_or(i32::MAX)
             }
             Err(e) => ANALYSIS_ERRORS + e.code(),
@@ -242,9 +402,9 @@ impl Lab {
         } else {
             1.0
         };
-        let (frames, hop, rate) = (a.frames(), a.hop, a.rate);
-        let untouched = self.edits == NO_EDITS;
-        let mut tracks = self.edited(ratio);
+        let (hop, rate) = (a.hop, a.rate);
+        let untouched = self.edits == NO_EDITS && !self.morphing();
+        let (mut tracks, frames) = self.edited(ratio);
         if n > 0 {
             top_n(&mut tracks, n);
         }
@@ -268,14 +428,38 @@ impl Lab {
     /// The analysed sound as a wavetable for the PPG: `WAVES * WAVE_LEN`
     /// values, or none without an analysis or a voiced frame (spec 010 Req 9).
     pub fn table(&mut self) -> &[f32] {
+        if self.other.is_some() && self.morph.get(SWEEP).is_some_and(|s| *s >= 0.5) {
+            self.values = self.sweep_table();
+            return &self.values;
+        }
         // The transforms, but not the pitch: the PPG plays a table at the note's.
-        let tracks = self.edited(1.0);
-        self.values = self
-            .analysis
-            .as_ref()
-            .map(|a| to_table(a, &tracks))
-            .unwrap_or_default();
+        let (tracks, frames) = self.edited(1.0);
+        self.values = if self.morphing() {
+            // A morph's partials carry their harmonic numbers.
+            by_label_table(&tracks, frames)
+        } else {
+            self.analysis
+                .as_ref()
+                .map(|a| to_table(a, &tracks))
+                .unwrap_or_default()
+        };
         &self.values
+    }
+
+    /// A table whose waves run from A to B (spec 010 Req 13): wave k is the
+    /// morph at `k / (WAVES − 1)` in every dimension, at a steady moment of
+    /// the sound (a third of the way from its peak to its release).
+    fn sweep_table(&mut self) -> Vec<f32> {
+        use crate::table::{WAVE_LEN, WAVES};
+        let mut out = Vec::with_capacity(WAVES * WAVE_LEN);
+        for k in 0..WAVES {
+            let x = k as f32 / (WAVES - 1) as f32;
+            let (t, frames) = self.base(Positions::all(x));
+            let t = self.apply_edits(t, frames, 1.0);
+            let at = steady_frame(&t, frames);
+            out.extend_from_slice(&harmonic_wave(&label_amps(&t, at)));
+        }
+        out
     }
 
     /// The original's attack as a PCM sample for the D-50 (spec 010 Req 10).
@@ -286,14 +470,23 @@ impl Lab {
     }
 
     /// The recipe (ADR-0033) of what `table` or `attack` gives, from `source`
-    /// (a manifest sample or `@` and a hash) into user slot `slot` (1-8): the
+    /// (`A`, or `A ~ B` when the lab morphs) into user slot `slot` (1-8): the
     /// line the song keeps. Empty for a source that is not one.
     pub fn recipe(&self, kind: crate::song::recipe::Kind, slot: usize, source: &str) -> String {
         use crate::song::recipe::{Recipe, is_source};
-        if !is_source(source) || !(1..=kind.slots()).contains(&slot) {
+        let (a, b) = match source.split_once(" ~ ") {
+            Some((a, b)) => (a.trim(), Some(b.trim())),
+            None => (source.trim(), None),
+        };
+        if !is_source(a) || b.is_some_and(|b| !is_source(b)) || !(1..=kind.slots()).contains(&slot)
+        {
             return String::new();
         }
-        let mut r = Recipe::new(kind, slot, source);
+        let mut r = Recipe::new(kind, slot, a);
+        if let Some(b) = b.filter(|_| self.other.is_some()) {
+            r.other = Some(b.to_string());
+            r.morph = self.morph;
+        }
         r.edits = self.edits;
         // A recipe always analyses with noise per partial: without it, none.
         if !self.noise {
@@ -333,6 +526,87 @@ impl Lab {
     pub fn rendered(&self) -> &[u8] {
         &self.out
     }
+}
+
+/// The sound a source of the engine's own makes, mono at `rate`, and its
+/// root note: a factory preset rendered at a note, or Plaits-style macros
+/// played at C4 (spec 010 Req 8). `None` for any other source.
+fn generated(source: &str, rate: f32) -> Option<(Vec<f32>, u8)> {
+    use crate::song::recipe::{Source, parse_source};
+    let held = (GENERATED * rate) as usize;
+    let tail = held / 3;
+    let mut out = match parse_source(source)? {
+        Source::Synth(preset, note) => {
+            let mut e = crate::engine::Engine::new(rate);
+            e.preset(0, preset);
+            e.note_on(0, note, 1.0);
+            let block = crate::engine::BLOCK;
+            let mut x = Vec::with_capacity(held + tail + block);
+            while x.len() < held {
+                e.render(block);
+                x.extend_from_slice(e.output().get(..block).unwrap_or(&[]));
+            }
+            e.note_off(0, note);
+            while x.len() < held + tail {
+                e.render(block);
+                x.extend_from_slice(e.output().get(..block).unwrap_or(&[]));
+            }
+            (x, note)
+        }
+        Source::Plaits(h, t, m) => {
+            let amps = plaits(h, t, m);
+            let f0 = crate::voice::midi_to_hz(60);
+            let fade = (0.01 * rate) as usize;
+            let x = (0..held + tail)
+                .map(|i| {
+                    let g = (i.min(held + tail - i) as f32 / fade as f32).min(1.0);
+                    let ph = std::f32::consts::TAU * f0 * i as f32 / rate;
+                    g * amps
+                        .iter()
+                        .enumerate()
+                        .map(|(k, a)| a * ((k + 1) as f32 * ph).sin())
+                        .sum::<f32>()
+                })
+                .collect();
+            (x, 60)
+        }
+        Source::Pack(..) | Source::Hash(_) => return None,
+    };
+    // A level to analyse at: the peak at 0.5.
+    let peak = out.0.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    if peak > 1e-6 {
+        out.0.iter_mut().for_each(|v| *v *= 0.5 / peak);
+    }
+    Some(out)
+}
+
+/// Harmonic amplitudes from three macros, after Plaits' additive model (MIT,
+/// Mutable Instruments), as its manual describes it: `harmonics` the number of
+/// spectral bumps, `timbre` the most prominent harmonic, `morph` the bumps'
+/// shape from wide to peaked; normalised to sum to 1.
+pub fn plaits(harmonics: f32, timbre: f32, morph: f32) -> [f32; 24] {
+    let (h, t, m) = (
+        harmonics.clamp(0.0, 1.0),
+        timbre.clamp(0.0, 1.0),
+        morph.clamp(0.0, 1.0),
+    );
+    let centre = t * 23.0;
+    let bumps = 16.0 * h * h;
+    let raw = (1.0 - 0.6 * h) * m;
+    let slope = 0.01 + 1.99 * raw * raw * raw;
+    let mut amps = [0.0f32; 24];
+    for (i, a) in amps.iter_mut().enumerate() {
+        let order = (i as f32 - centre).abs() * slope;
+        let gain = (1.0 - order).max(0.0);
+        let shaped =
+            gain * gain * (1.0 + (std::f32::consts::TAU * (0.25 + order * bumps)).sin()) * 0.5;
+        *a = shaped * shaped;
+    }
+    let sum: f32 = amps.iter().sum();
+    if sum > 1e-9 {
+        amps.iter_mut().for_each(|a| *a /= sum);
+    }
+    amps
 }
 
 fn flatten(a: &Analysis) -> Vec<f32> {
@@ -493,5 +767,89 @@ mod tests {
         // Without noise in the analysis, the recipe clears it.
         assert!(lab.analyse(RATE, 4096, 256, false) > 0);
         assert!(lab.recipe(Kind::Table, 1, "a/b").ends_with("noise 0"));
+    }
+
+    /// A saw (A) and a square (B) as WAVs at 220 Hz.
+    fn wave_wav(odd_only: bool) -> Vec<u8> {
+        let x: Vec<f32> = (0..24_000)
+            .map(|i| {
+                let ph = std::f32::consts::TAU * 220.0 * i as f32 / RATE;
+                (1..=20)
+                    .filter(|k| !odd_only || k % 2 == 1)
+                    .map(|k| 0.3 * (k as f32 * ph).sin() / k as f32)
+                    .sum::<f32>()
+            })
+            .collect();
+        sample::test_wav(48_000, &x, Some((57, 0, 0)))
+    }
+
+    #[test]
+    fn two_sources_morph_and_sweep_into_a_table() {
+        let mut lab = Lab::default();
+        let (saw, square) = (wave_wav(false), wave_wav(true));
+        lab.buffer(saw.len()).unwrap().copy_from_slice(&saw);
+        assert!(lab.analyse(RATE, 4096, 256, true) > 0);
+        lab.buffer(square.len()).unwrap().copy_from_slice(&square);
+        assert!(lab.analyse_other(RATE, 4096, 256, true) > 0);
+        let plain = lab.render(0, 1.0, 1.0);
+        let saw_render = lab.rendered()[..plain].to_vec();
+        lab.set_morph(MAMP, 1.0);
+        let n = lab.render(0, 1.0, 1.0);
+        assert_ne!(lab.rendered()[..n], saw_render[..], "the morph sounds");
+        // A sweep table: wave 0 a saw, the last a square.
+        lab.set_morph(SWEEP, 1.0);
+        let t = lab.table().to_vec();
+        assert_eq!(t.len(), crate::table::WAVES * crate::table::WAVE_LEN);
+        let h = |wave: &[f32], k: f32| {
+            let (mut s, mut c) = (0.0f32, 0.0f32);
+            for (i, y) in wave.iter().enumerate() {
+                let p = std::f32::consts::TAU * k * i as f32 / crate::table::WAVE_LEN as f32;
+                s += y * p.sin();
+                c += y * p.cos();
+            }
+            s.hypot(c)
+        };
+        let (first, last) = (
+            &t[..crate::table::WAVE_LEN],
+            &t[t.len() - crate::table::WAVE_LEN..],
+        );
+        assert!(
+            h(first, 2.0) > 0.3 * h(first, 1.0),
+            "wave 0 has the saw's second harmonic"
+        );
+        assert!(
+            h(last, 2.0) < 0.01 * h(last, 1.0),
+            "the last wave is a square"
+        );
+        assert_eq!(
+            lab.recipe(crate::song::recipe::Kind::Table, 3, "a/saw ~ a/square"),
+            "table 3 = a/saw ~ a/square : mamp 1, sweep 1"
+        );
+    }
+
+    #[test]
+    fn a_preset_and_macros_are_sources() {
+        let mut lab = Lab::default();
+        let src = b"synth:LaChoir:c4";
+        lab.text_buffer(src.len()).unwrap().copy_from_slice(src);
+        assert!(lab.generate(0, RATE, 4096, 256, true) > 0);
+        assert_eq!(lab.root(), 60);
+        assert!(
+            !lab.table().is_empty(),
+            "a choir has a pitch to make a table from"
+        );
+        let mac = b"plaits:0.2:0.4:0.6";
+        lab.text_buffer(mac.len()).unwrap().copy_from_slice(mac);
+        assert!(lab.generate(1, RATE, 4096, 256, true) > 0);
+        assert!(lab.other.is_some());
+        let none = b"upright-piano-kw/C4vH";
+        lab.text_buffer(none.len()).unwrap().copy_from_slice(none);
+        assert_eq!(
+            lab.generate(1, RATE, 4096, 256, true),
+            -1,
+            "a pack sample comes as bytes"
+        );
+        let amps = plaits(0.3, 0.5, 0.8);
+        assert!((amps.iter().sum::<f32>() - 1.0).abs() < 1e-4);
     }
 }

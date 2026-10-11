@@ -1166,7 +1166,8 @@ pub extern "C" fn recipe_text_ptr(i: u32) -> *const u8 {
     query(std::ptr::null(), |e| e.recipe_text(i as usize).as_ptr())
 }
 
-/// Recipe `i`'s transforms, every one by `analysis::lab` id, then its window and hop.
+/// Recipe `i`'s transforms, every one by `analysis::lab` id, then its morph
+/// positions and sweep, then its window and hop.
 #[unsafe(no_mangle)]
 pub extern "C" fn recipe_values_ptr(i: u32) -> *const f32 {
     query(std::ptr::null(), |e| e.recipe_values(i as usize).as_ptr())
@@ -1175,7 +1176,7 @@ pub extern "C" fn recipe_values_ptr(i: u32) -> *const f32 {
 /// How many values `recipe_values_ptr` points at.
 #[unsafe(no_mangle)]
 pub extern "C" fn recipe_values_len() -> u32 {
-    (crate::analysis::lab::EDITS + 2) as u32
+    (crate::analysis::lab::EDITS + crate::analysis::lab::MORPHS + 2) as u32
 }
 
 /// The recipe line in the song buffer as its slot's recipe: 0, or −1 when it is not one.
@@ -1824,6 +1825,59 @@ pub extern "C" fn spectral_gram_ptr(which: u32) -> *const u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn spectral_bands() -> u32 {
     crate::analysis::spectrogram::BANDS as u32
+}
+
+/// The buffer as the lab's B, the sound to morph with (spec 010 Req 7): the
+/// frame count or a negative code, as `spectral_analyse`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_analyse_other(rate: f32, window: u32, hop: u32, noise: u32) -> i32 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab.analyse_other(rate, window as usize, hop as usize, noise == 1),
+        Err(_) => -9,
+    })
+}
+
+/// A sound the engine makes from the source in the text buffer (a preset at
+/// a note, or Plaits macros; spec 010 Req 8), as A (`which` 0) or B (1): the
+/// frame count, or −1 for a source that is not one of those.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_generate(
+    which: u32,
+    rate: f32,
+    window: u32,
+    hop: u32,
+    noise: u32,
+) -> i32 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab.generate(
+            which as usize,
+            rate,
+            window as usize,
+            hop as usize,
+            noise == 1,
+        ),
+        Err(_) => -9,
+    })
+}
+
+/// Forget the lab's B.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_other_clear() {
+    LAB.with(|cell| {
+        if let Ok(mut lab) = cell.try_borrow_mut() {
+            lab.clear_other();
+        }
+    });
+}
+
+/// Set the lab's morph position `id` (`analysis::lab::MPITCH` …, spec 010 Req 7) to `v`.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_morph(id: u32, v: f32) {
+    LAB.with(|cell| {
+        if let Ok(mut lab) = cell.try_borrow_mut() {
+            lab.set_morph(id as usize, v);
+        }
+    });
 }
 
 /// Set the lab's transform `id` (`analysis::lab::STRETCH` …, spec 010 Req 4)

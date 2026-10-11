@@ -10,6 +10,89 @@ use crate::table::{MAX_USER_SAMPLE, WAVE_LEN, WAVES};
 /// Harmonics in a wave: those the generated tables have, well under Nyquist of
 /// a 256-sample cycle.
 pub const HARMONICS: usize = 31;
+/// One wave of `WAVE_LEN` samples from harmonic amplitudes (harmonic 1
+/// first) in sine phase, normalised to a peak of 1; silence stays silence.
+pub fn harmonic_wave(amps: &[f32]) -> [f32; WAVE_LEN] {
+    let mut wave = [0.0f32; WAVE_LEN];
+    for (i, y) in wave.iter_mut().enumerate() {
+        let x = std::f32::consts::TAU * i as f32 / WAVE_LEN as f32;
+        *y = amps
+            .iter()
+            .enumerate()
+            .map(|(n, a)| a * ((n + 1) as f32 * x).sin())
+            .sum();
+    }
+    let peak = wave.iter().fold(0.0f32, |m, y| m.max(y.abs()));
+    if peak > 1e-9 {
+        wave.iter_mut().for_each(|y| *y /= peak);
+    }
+    wave
+}
+
+/// The labelled partials' amplitudes at `frame` by harmonic number (1 first):
+/// a morph's partials carry their numbers, so no fundamental is needed.
+pub fn label_amps(tracks: &[Track], frame: usize) -> [f32; HARMONICS] {
+    let mut amps = [0.0f32; HARMONICS];
+    for t in tracks.iter().filter(|t| t.label > 0) {
+        let Some(i) = frame.checked_sub(t.start).filter(|i| *i < t.len()) else {
+            continue;
+        };
+        if let (Some(slot), Some(a)) = (amps.get_mut(t.label - 1), t.amp.get(i)) {
+            *slot = (*slot * *slot + a * a).sqrt();
+        }
+    }
+    amps
+}
+
+/// Each frame's energy of `tracks` over `frames` frames.
+fn energy(tracks: &[Track], frames: usize) -> Vec<f32> {
+    let mut e = vec![0.0f32; frames];
+    for t in tracks {
+        for (i, a) in t.amp.iter().enumerate() {
+            if let Some(x) = e.get_mut(t.start + i) {
+                *x += a * a;
+            }
+        }
+    }
+    e
+}
+
+/// A steady moment of `tracks`: a third of the way from the loudest frame
+/// to where the sound last stays over −30 dB of it.
+pub fn steady_frame(tracks: &[Track], frames: usize) -> usize {
+    let e = energy(tracks, frames);
+    let (peak, top) =
+        e.iter().enumerate().fold(
+            (0, 0.0f32),
+            |best, (i, x)| if *x > best.1 { (i, *x) } else { best },
+        );
+    let release = e
+        .iter()
+        .rposition(|x| *x > top * 1e-3)
+        .unwrap_or(peak)
+        .max(peak);
+    peak + (release - peak) / 3
+}
+
+/// A table from labelled partials (a morph's): `WAVES` waves spread over the
+/// frames where the sound is over −30 dB of its loudest, each by harmonic number.
+pub fn by_label_table(tracks: &[Track], frames: usize) -> Vec<f32> {
+    let e = energy(tracks, frames);
+    let top = e.iter().copied().fold(0.0f32, f32::max);
+    let (Some(first), Some(last)) = (
+        e.iter().position(|x| *x > top * 1e-3),
+        e.iter().rposition(|x| *x > top * 1e-3),
+    ) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(WAVES * WAVE_LEN);
+    for k in 0..WAVES {
+        let frame = first + (last - first) * k / (WAVES - 1).max(1);
+        out.extend_from_slice(&harmonic_wave(&label_amps(tracks, frame)));
+    }
+    out
+}
+
 /// An attack is at least this long (s), so a fast hammer or pluck keeps its body.
 const MIN_ATTACK: f32 = 0.03;
 /// The fade at the end of an attack (s).
@@ -64,18 +147,7 @@ pub fn to_table(a: &Analysis, tracks: &[Track]) -> Vec<f32> {
                 *slot = (*slot * *slot + a * a).sqrt();
             }
         }
-        for (i, y) in wave.iter_mut().enumerate() {
-            let x = std::f32::consts::TAU * i as f32 / WAVE_LEN as f32;
-            *y = amps
-                .iter()
-                .enumerate()
-                .map(|(n, a)| a * ((n + 1) as f32 * x).sin())
-                .sum();
-        }
-        let peak = wave.iter().fold(0.0f32, |m, y| m.max(y.abs()));
-        if peak > 1e-9 {
-            wave.iter_mut().for_each(|y| *y /= peak);
-        }
+        wave.copy_from_slice(&harmonic_wave(&amps));
     }
     out
 }

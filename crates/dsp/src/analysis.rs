@@ -12,6 +12,7 @@ pub mod fft;
 pub mod frames;
 pub mod harmonic;
 pub mod lab;
+pub mod morph;
 pub mod peaks;
 pub mod spectrogram;
 pub mod stft;

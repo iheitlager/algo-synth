@@ -1,7 +1,7 @@
 // The Spectral Lab and the main window over a fake BroadcastChannel (a message
 // reaches every other port, never the sender), and the worker's flat tracks.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { codeMessage, connectMain, parseTracks, recipeOf, serveLab, NO_EDITS, type Port } from './spectral'
+import { codeMessage, connectMain, parseTracks, recipeOf, serveLab, NO_EDITS, NO_MORPH, type Port } from './spectral'
 
 class FakeChannel implements Port {
   static all: FakeChannel[] = []
@@ -98,11 +98,13 @@ describe('the tracks', () => {
 
 describe('a recipe from the engine', () => {
   it('says its kind, slot, source and transforms', () => {
-    const values = [...NO_EDITS, 2048, 256]
+    const values = [...NO_EDITS, ...NO_MORPH, 2048, 256]
     values[1] = 1.6
     const r = recipeOf({ slot: 16 + 3, text: 'attack 3 = upright-piano-kw/C4vH : inharmonic 1.6, window 2048', values })
-    expect(r).toMatchObject({ kind: 1, slot: 3, source: 'upright-piano-kw/C4vH', window: 2048, hop: 256 })
+    expect(r).toMatchObject({ kind: 1, slot: 3, source: 'upright-piano-kw/C4vH', other: null, window: 2048, hop: 256 })
     expect(r.edits[1]).toBe(1.6)
-    expect(recipeOf({ slot: 1, text: 'table 1 = @00ff', values: [...NO_EDITS, 4096, 256] })).toMatchObject({ kind: 0, slot: 1, source: '@00ff' })
+    expect(recipeOf({ slot: 1, text: 'table 1 = @00ff', values: [...NO_EDITS, ...NO_MORPH, 4096, 256] })).toMatchObject({ kind: 0, slot: 1, source: '@00ff' })
+    const m = [...NO_EDITS, 0, 1, 0, 0, 1, 4096, 256]
+    expect(recipeOf({ slot: 3, text: 'table 3 = a/saw ~ synth:LaChoir:c4 : mamp 1, sweep 1', values: m })).toMatchObject({ source: 'a/saw', other: 'synth:LaChoir:c4', morph: [0, 1, 0, 0, 1] })
   })
 })

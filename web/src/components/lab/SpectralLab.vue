@@ -8,8 +8,9 @@ import { spectrogramPixels } from '../../audio/colormap'
 import { keepFile } from '../../audio/audiostore'
 import { parseKits, parseManifest, peakPath, sourceFile, sourcesOf, type Kit, type Pack } from '../../audio/sampler'
 import {
-  Analyser, Edit, LAB_CHANNEL, LabEngine, NO_EDITS, codeMessage, connectMain, type Spectrogram, type Track,
+  Analyser, Edit, LAB_CHANNEL, LabEngine, Morph, NO_EDITS, NO_MORPH, codeMessage, connectMain, isGenerated, type Spectrogram, type Track,
 } from '../../audio/spectral'
+import { Preset } from '../../audio/params'
 import Keyboard from '../synth/Keyboard.vue'
 
 /** Synth and slot of each side: A the original, B the resynthesis. */
@@ -114,6 +115,59 @@ watch(pick, (source) => {
   if (source) void openPack(source)
 })
 
+// B, the sound to morph A with (spec 010 Req 7-8): a pack sample, a preset the
+// engine renders at C4, or Plaits-style macros.
+const morph = reactive<number[]>([...NO_MORPH])
+const linked = ref(true)
+const b = reactive({ source: '', kind: '' as '' | 'pack' | 'synth' | 'plaits', macros: [0.3, 0.5, 0.6] })
+const presetSources = Object.keys(Preset).map((n) => `synth:${n}:c4`)
+const bPick = ref('')
+const plaitsSource = () => `plaits:${b.macros.map((v) => v.toFixed(2)).join(':')}`
+async function loadOther(source: string) {
+  const a = analyser.value
+  if (!a || !tracks.value.length) return
+  state.busy = 'analysing B…'
+  let code: number
+  if (isGenerated(source)) code = (await a.generate(1, source, rate.value, settings.window, settings.hop, true)).code
+  else {
+    const file = sourceFile(source, manifest.value.packs, manifest.value.kits)
+    const res = file ? await fetch(`${import.meta.env.BASE_URL}samples/${file}`).catch(() => null) : null
+    code = res?.ok ? (await a.analyse(await res.arrayBuffer(), rate.value, settings.window, settings.hop, true, 1)).code : -100
+  }
+  state.busy = ''
+  if (code < 0) {
+    state.error = `B: ${code === -100 ? 'could not fetch it' : codeMessage(code)}`
+    b.source = ''
+    return
+  }
+  b.source = source
+  // A fresh B starts halfway, so the morph is heard at once.
+  if (morph.every((m) => m === 0)) setMorph(Morph.Amp, 0.5)
+  await render()
+}
+watch(bPick, (v) => {
+  if (v === 'plaits') void loadOther(plaitsSource())
+  else if (v) void loadOther(v)
+})
+let macroTimer: ReturnType<typeof setTimeout> | undefined
+watch(() => [...b.macros], () => {
+  if (bPick.value !== 'plaits') return
+  clearTimeout(macroTimer)
+  macroTimer = setTimeout(() => void loadOther(plaitsSource()), 250)
+})
+async function clearOther() {
+  bPick.value = ''
+  b.source = ''
+  morph.splice(0, morph.length, ...NO_MORPH)
+  await analyser.value?.clearOther()
+  await render()
+}
+/** One morph position moved; linked, the others follow (the sweep is its own). */
+function setMorph(id: number, v: number) {
+  if (linked.value) for (const k of [Morph.Pitch, Morph.Amp, Morph.Noise, Morph.Formant]) morph[k] = v
+  else morph[id] = v
+}
+
 async function analyse() {
   const e = engine.value
   const a = analyser.value
@@ -146,7 +200,7 @@ async function render() {
   const a = analyser.value
   if (!e || !a || !tracks.value.length) return
   state.busy = 'resynthesising…'
-  const { wav, gram } = await a.render(settings.top, ratio.value, settings.stretch, edits)
+  const { wav, gram } = await a.render(settings.top, ratio.value, settings.stretch, edits, b.source ? morph : NO_MORPH)
   resynth.value = wav
   grams.value = { ...grams.value, b: gram }
   const loaded = await e.play(SIDES.b.s, SIDES.b.slot, wav)
@@ -157,7 +211,7 @@ async function render() {
 }
 
 let renderTimer: ReturnType<typeof setTimeout> | undefined
-watch(() => [settings.top, settings.semitones, settings.stretch, ...edits], () => {
+watch(() => [settings.top, settings.semitones, settings.stretch, ...edits, ...morph], () => {
   clearTimeout(renderTimer)
   renderTimer = setTimeout(() => void render(), 150)
 })
@@ -193,14 +247,16 @@ async function send() {
 async function sendUser(kind: 'table' | 'attack') {
   const a = analyser.value
   if (!a || !tracks.value.length) return
-  const { values, root } = await a.extract(kind, edits)
+  const mix = b.source ? morph : NO_MORPH
+  const { values, root } = await a.extract(kind, edits, mix)
   if (!values.length) {
     state.sent = codeMessage(-101)
     return
   }
   const slot = state.slot
   // Its recipe (ADR-0033), so the song keeps the slot across a reload.
-  const recipe = state.source ? await a.recipe(kind === 'table' ? 0 : 1, slot + 1, state.source, edits) : ''
+  const source = b.source ? `${state.source} ~ ${b.source}` : state.source
+  const recipe = state.source ? await a.recipe(kind === 'table' ? 0 : 1, slot + 1, source, edits, mix) : ''
   const code = kind === 'table'
     ? await main.sendTable(slot, values.buffer as ArrayBuffer, recipe)
     : await main.sendAttack(slot, root, values.buffer as ArrayBuffer, recipe)
@@ -397,6 +453,39 @@ onBeforeUnmount(() => {
           <span><input v-model="freezeOn" type="checkbox"> Freeze</span>
           <input v-model.number="freezeAt" type="range" min="0" max="1" step="0.005" aria-label="Freeze position" :disabled="!freezeOn">
         </label>
+      </div>
+    </details>
+
+    <details class="transforms morph" open>
+      <summary>Morph with B <button v-if="b.source" class="reset" title="Back to A alone" @click.prevent="clearOther">Clear B</button></summary>
+      <div class="row settings">
+        <label>B
+          <select v-model="bPick" aria-label="Sound B" :disabled="!tracks.length">
+            <option value="">a second sound…</option>
+            <optgroup label="Pack samples">
+              <option v-for="src in packSources" :key="src" :value="src">{{ src }}</option>
+            </optgroup>
+            <optgroup label="Synth presets at C4">
+              <option v-for="src in presetSources" :key="src" :value="src">{{ src.split(':')[1] }}</option>
+            </optgroup>
+            <option value="plaits">Plaits macros</option>
+          </select>
+        </label>
+        <template v-if="bPick === 'plaits'">
+          <label v-for="(name, i) in ['Harmonics', 'Timbre', 'Morph']" :key="name">{{ name }} <b>{{ b.macros[i].toFixed(2) }}</b>
+            <input v-model.number="b.macros[i]" type="range" min="0" max="1" step="0.01" :aria-label="`Plaits ${name}`">
+          </label>
+        </template>
+        <template v-if="b.source">
+          <label v-for="[name, id] in ([['Pitch', Morph.Pitch], ['Amplitude', Morph.Amp], ['Noise', Morph.Noise], ['Formant', Morph.Formant]] as const)" :key="name">
+            {{ name }} <b>A {{ Math.round((1 - morph[id]) * 100) }} · B {{ Math.round(morph[id] * 100) }}</b>
+            <input :value="morph[id]" type="range" min="0" max="1" step="0.01" :aria-label="`Morph ${name}`" @input="setMorph(id, Number(($event.target as HTMLInputElement).value))">
+          </label>
+          <label>
+            <span><input v-model="linked" type="checkbox"> move together</span>
+            <span title="Send as table makes 64 waves from A to B instead of A's life over time"><input type="checkbox" :checked="morph[Morph.Sweep] >= 0.5" aria-label="Table runs A to B" @change="morph[Morph.Sweep] = ($event.target as HTMLInputElement).checked ? 1 : 0"> table runs A→B</span>
+          </label>
+        </template>
       </div>
     </details>
 

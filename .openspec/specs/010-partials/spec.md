@@ -129,94 +129,85 @@ Resynthesis SHALL fade a partial out over the last tenth of the band below Nyqui
 
 ### Requirement 5: Labels and distillation [MUST]
 
-To morph, a partial set SHALL be labelled and distilled, after Loris:
-- **Labelling.** A partial SHALL take the label `round(mean over its frames of fₖ / f0(t))`, from the frame's f0 (spec 009 Req 3), unweighted. Frames without an f0 SHALL not count, and a partial without any SHALL keep label 0.
-- **Distillation.** For each label, the longest partial SHALL be kept.
-  - The parts of shorter partials with the same label SHALL be spliced in where the kept partial is silent, with a fade either side (5 ms).
-  - The energy of whatever overlaps SHALL be added to the kept partial as noise: `a' = sqrt(a² + o²)`, `β' = (a²·β + o²) / (a² + o²)`.
-  - A distilled set has at most one partial per label at any time.
+To morph, a partial set SHALL be labelled (Requirement 1) and distilled, after Loris: per harmonic number one partial over the frames, absent where it is silent. Where partials share a number in a frame, the loudest SHALL be the sinusoid and the others' energy SHALL join it as noise: `a' = sqrt(a² + o²)`, `β' = (a²·β + o²) / (a² + o²)`. Partials without a number are kept apart.
 
-**Implementation:** (planned) `crates/dsp/src/analysis/morph.rs::label`, `crates/dsp/src/analysis/morph.rs::distill`
+**Implementation:** `crates/dsp/src/analysis/harmonic.rs::label`, `crates/dsp/src/analysis/morph.rs::distill`, `crates/dsp/src/analysis/morph.rs::from_analysis`
 
 #### Scenario: a broken harmonic
 
-- GIVEN a sawtooth whose 5th harmonic is tracked as two partials with a gap of two frames between them
-- WHEN the set is labelled and distilled
-- THEN there is one partial with label 5, spanning both
+- GIVEN harmonic 5 as two partials with a gap between them, and a third overlapping the first
+- WHEN they are distilled
+- THEN there is one channel for harmonic 5 spanning both, and the overlap is its noise
 
-**Tests:** (planned) `crates/dsp/src/analysis/morph.rs::tests::labels_follow_f0`, `crates/dsp/src/analysis/morph.rs::tests::distilling_joins_a_broken_harmonic`, `crates/dsp/src/analysis/morph.rs::tests::overlap_becomes_noise`, `crates/dsp/src/analysis/morph.rs::tests::no_f0_no_label`
+**Tests:** `crates/dsp/src/analysis/harmonic.rs::tests::labels_follow_f0`, `crates/dsp/src/analysis/morph.rs::tests::distilling_joins_a_broken_harmonic_and_folds_overlap_into_noise`
 
 ### Requirement 6: Time alignment [SHOULD]
 
-Before a morph, two partial sets SHOULD be aligned on feature times: the attack onset, the end of the attack (the energy peak) and the release (the last fall below −30 dB of the peak), found from the set's energy envelope or given by hand. Each set's frame times SHOULD be mapped piecewise-linearly so its features fall on the shared times, the mean of the two sets' unless given. Before the first feature they SHOULD be scaled, and after the last shifted.
+Before a morph, two distilled sounds SHOULD be aligned on their onset (the first frame over −30 dB of their loudest), peak and release (the last frame over −30 dB). Each sound's frames SHOULD be mapped piecewise-linearly so its features fall on the mean of the two sounds' features: scaled before the onset, shifted after the release. The morph lasts as long as the longer sound on that shared time.
 
-**Implementation:** (planned) `crates/dsp/src/analysis/morph.rs::features`, `crates/dsp/src/analysis/morph.rs::dilate`
+**Implementation:** `crates/dsp/src/analysis/morph.rs::features`, `crates/dsp/src/analysis/morph.rs::morph`
 
 #### Scenario: a short and a long attack
 
-- GIVEN a sound with a 10 ms attack and one with a 200 ms attack
-- WHEN both are aligned
-- THEN both reach their peaks at 105 ms
+- GIVEN a sound peaking at frame 2 and one peaking at frame 40
+- WHEN they are morphed
+- THEN each maps its own peak to frame 21, and the morph is loudest there
 
-**Tests:** (planned) `crates/dsp/src/analysis/morph.rs::tests::features_find_attack_and_release`, `crates/dsp/src/analysis/morph.rs::tests::dilation_aligns_the_peaks`
+**Tests:** `crates/dsp/src/analysis/morph.rs::tests::alignment_meets_the_peaks`
 
 ### Requirement 7: Morph [MUST]
 
-The engine SHALL morph two labelled, distilled and aligned partial sets A and B into one, with four positions from 0 (A) to 1 (B): **pitch, amplitude, noise and formant**. Each position is a number or a curve over time.
+The engine SHALL morph two distilled, aligned sounds A and B with four positions from 0 (A) to 1 (B): **pitch, amplitude, noise and formant**.
 
-- **Matched pairs.**
-  - A partial in A and one in B with the same label SHALL make one partial at the union of their frame times.
-  - Frequency is interpolated linearly by pitch; log frequency is an option.
-  - Amplitude is interpolated by `(x+s)·((y+s)/(x+s))^α − s`, clamped at 0, with α the amplitude position and s = 1e-5.
-  - Noise is interpolated the same way by its position.
-- **Formant.** The formant position SHALL interpolate the two spectral envelopes (Req 3) in log amplitude. A partial's amplitude SHALL then be re-weighted by that envelope at its morphed frequency, over the amplitude morph. Without envelopes it has no effect.
-- **A partial without a counterpart.**
-  - When the other set has an f0, it SHALL glide to its label's place there (`label · f0_other(t)`) while its amplitude goes to 0 by the amplitude position.
-  - When the other set has no f0, it SHALL fade in place.
-- **Unlabelled partials** SHALL be crossfaded by the amplitude position.
-- **Pre-cleaning.** Frames below −90 dB SHALL have their frequency drawn to `label · f0` before interpolating, so near-silent noise never glides audibly.
+- **Matched partials.** Partials of the same harmonic number SHALL interpolate as follows:
+  - Frequency is linear by the pitch position.
+  - Amplitude follows `(x+s)·((y+s)/(x+s))^α − s`, clamped at 0, with α the amplitude position and s = 1e-5.
+  - Noise interpolates the same way by its position.
+- **Formant.** The formant position SHALL re-weight each partial by the two spectral envelopes (Req 3) blended in log amplitude at its position, over the blend the amplitude position gave: a gain of `exp((ln E_B − ln E_A)·(formant − amp))`, clamped to ±40 dB.
+- **A partial without a counterpart.** It SHALL glide to its number's place in the other sound (`n · f0`) while its amplitude falls to 0 by the amplitude position, or fade in place when the other sound has no f0 there.
+- **Quiet frames.** Frames under −90 dB SHALL take their number's place first, so near-silent noise never glides audibly.
+- **Unlabelled partials** SHALL crossfade by the amplitude position.
 
-**Implementation:** (planned) `crates/dsp/src/analysis/morph.rs::morph`, `crates/dsp/src/analysis/morph.rs::Positions`
+**Implementation:** `crates/dsp/src/analysis/morph.rs::morph`, `crates/dsp/src/analysis/morph.rs::Positions`, `crates/dsp/src/analysis/morph.rs::log_lerp`
 
 #### Scenario: ends
 
-- GIVEN any two sets A and B
+- GIVEN two sounds A and B
 - WHEN they are morphed at all positions 0, and then all positions 1
-- THEN the result is A, then B, within 0.1 dB and 1 cent on every partial
+- THEN the result is A, then B, within 1e-4 and 0.01 Hz
 
 #### Scenario: pitch of one, timbre of the other
 
 - GIVEN a sawtooth at 220 Hz (A) and a square at 330 Hz (B)
-- WHEN the pitch position is 0 and amplitude 1
+- WHEN the pitch position is 0 and the rest 1
 - THEN the result is at 220 Hz with only odd harmonics
 
 #### Scenario: an orphan glides
 
-- GIVEN A with harmonics 1–10 and B with harmonics 1–5
-- WHEN they are morphed at amplitude 0.5
-- THEN A's harmonic 8 is present at half its level (in the log sense) and moves towards 8 · f0(B)
+- GIVEN A with harmonics 1–10 at 200 Hz and B with harmonics 1–5 at 300 Hz
+- WHEN they are morphed at 0.5
+- THEN A's harmonic 8 sits at 8 × 250 Hz, faded in the log sense
 
-**Tests:** (planned) `crates/dsp/src/analysis/morph.rs::tests::ends_are_the_sources`, `crates/dsp/src/analysis/morph.rs::tests::pitch_of_one_timbre_of_the_other`, `crates/dsp/src/analysis/morph.rs::tests::orphans_glide_to_their_place`, `crates/dsp/src/analysis/morph.rs::tests::amplitude_morph_is_logarithmic`, `crates/dsp/src/analysis/morph.rs::tests::formant_morph_moves_the_formant`, `crates/dsp/src/analysis/morph.rs::tests::unlabelled_partials_crossfade`
+**Tests:** `crates/dsp/src/analysis/morph.rs::tests::ends_are_the_sources`, `crates/dsp/src/analysis/morph.rs::tests::pitch_of_one_timbre_of_the_other`, `crates/dsp/src/analysis/morph.rs::tests::orphans_glide_to_their_place`, `crates/dsp/src/analysis/morph.rs::tests::amplitude_morph_is_logarithmic`, `crates/dsp/src/analysis/morph.rs::tests::unlabelled_partials_crossfade`
 
-### Requirement 8: Partial sets from other sources [SHOULD]
+### Requirement 8: Sounds the engine makes [SHOULD]
 
 A partial set SHOULD come from more than a WAV:
 
-- **A patch's spectrum.**
-  - The harmonics of an oscillator wave (saw 1/k, square odd 1/k, pulse sin(kπd)/k, triangle odd 1/k²) at a pitch, times the response of a filter at each harmonic, as one frame, or as frames over an envelope's time.
-  - The response SHALL be measured once per model, filter voicing, cutoff and resonance step, by running the filter itself on sines, because the ladder is non-linear. It SHALL be read by interpolation, so the patch's cutoff and resonance stay parameters of the set.
-- **Macros (after Plaits, MIT).** Three values, harmonics, timbre and morph, SHALL give 24 harmonic amplitudes by Plaits' closed form, normalised by their sum.
-- **A wavetable.** Each wave of a table SHALL be one frame of up to 31 harmonics, by an FFT of the wave.
+- **A preset at a note** (`synth:LaChoir:c4`). The engine SHALL render the factory preset itself, held 1.2 s and released for 0.4 s, and analyse that. This replaces measuring a filter's response once: the render is exact, the ladder's non-linearity included.
+- **Macros, after Plaits** (`plaits:0.3:0.5:0.8`, MIT). Harmonics, timbre and morph SHALL give 24 harmonic amplitudes by a closed form: the bumps, their centre and their sharpness, normalised to sum 1. They are played at C4 and analysed.
 
-**Implementation:** (planned) `crates/dsp/src/analysis/sources.rs::patch_spectrum`, `crates/dsp/src/analysis/sources.rs::FilterResponse`, `crates/dsp/src/analysis/sources.rs::macros`, `crates/dsp/src/analysis/sources.rs::from_table`
+Either SHALL be usable as B in the lab and as a recipe's source; A stays a recording, since the lab plays it as the original.
 
-#### Scenario: a filtered saw
+**Implementation:** `crates/dsp/src/song/recipe.rs::parse_source`, `crates/dsp/src/song/recipe.rs::note_number`, `crates/dsp/src/analysis/lab.rs::Lab::generate`, `crates/dsp/src/analysis/lab.rs::plaits`
 
-- GIVEN a sawtooth at 110 Hz through the Minimoog ladder at 1 kHz with no resonance
-- WHEN its patch spectrum is made, and the same patch is rendered by the engine and analysed
-- THEN the two agree within 1.5 dB on the first 20 harmonics
+#### Scenario: a choir preset and macros
 
-**Tests:** (planned) `crates/dsp/src/analysis/sources.rs::tests::patch_spectrum_matches_the_engine`, `crates/dsp/src/analysis/sources.rs::tests::macros_are_normalised`, `crates/dsp/src/analysis/sources.rs::tests::a_table_wave_is_its_harmonics`
+- GIVEN `synth:LaChoir:c4` and `plaits:0.2:0.4:0.6`
+- WHEN each is generated
+- THEN the choir is analysed at root C4 with a pitch to make a table from, the macros as B, and the macro amplitudes sum to 1
+
+**Tests:** `crates/dsp/src/analysis/lab.rs::tests::a_preset_and_macros_are_sources`, `crates/dsp/src/song/recipe.rs::tests::synth_and_plaits_sources`
 
 ### Requirement 9: User wavetables (the PPG path) [MUST]
 
@@ -355,22 +346,28 @@ A signal SHOULD also be sampleable at each note-on and held for that note (`.wt1
 ### Requirement 13: Morphing in the lab [SHOULD]
 
 The Spectral Lab (spec 009 Req 7) SHOULD:
-- hold two sounds, A and B, each from a WAV, a patch spectrum or macros
-- morph them with the four positions as sliders, and the transforms of Requirement 4 as controls
-- offer three ways to send the result:
-  - as a sample (as now)
-  - as a multisample, one rendering per root note over a range, into a Sampler's zones
-  - as a user table, or as an attack and a body (Requirements 9 and 10)
 
-**Implementation:** (planned) `crates/dsp/src/analysis/lab.rs`, `crates/dsp/src/ffi.rs` (`spectral_*`), `web/src/components/lab/SpectralLab.vue`, `web/src/audio/spectral.ts`
+- **Hold a second sound, B**, chosen from a pack sample, a preset at C4 or Plaits macros (with their three sliders). B starts halfway so the morph is heard at once.
+- **Morph A with B** by four sliders, which move together unless unlinked. The transforms of Requirement 4 apply to the morph.
+- **Send a table that runs from A to B** ("table runs A→B"). Wave k is the morph at k/63 in every dimension, at a steady moment: a third of the way from the peak to the release.
+- **Write the morph into the recipe**: `A ~ B` with `mpitch`, `mamp`, `mnoise`, `mformant` and `sweep`, which the song rebuilds as it rebuilds any recipe (ADR-0033).
+- **Not yet:** sending as a multisample (#520).
 
-#### Scenario: a morph sent as a table
+**Implementation:** `crates/dsp/src/analysis/lab.rs` (`Lab::analyse_other`, `Lab::set_morph`, `Lab::table`, `Lab::recipe`), `crates/dsp/src/analysis/frames.rs` (`by_label_table`, `steady_frame`, `label_amps`, `harmonic_wave`), `crates/dsp/src/ffi.rs` (`spectral_analyse_other`, `spectral_generate`, `spectral_morph`, `spectral_other_clear`), `web/public/spectral-worker.js`, `web/src/audio/spectral.ts` (`Morph`, `NO_MORPH`, `Analyser.generate`), `web/src/audio/engine.ts` (`loadSongRecipes`), `web/src/components/lab/SpectralLab.vue`, `examples/songs/piano-to-choir.song`
 
-- GIVEN A a sawtooth and B an analysed bell in the lab
-- WHEN the amplitude position is swept into a 16-wave table and sent
-- THEN the main window's PPG synth can play it with `Wt1Pos` moving from the saw to the bell
+#### Scenario: a saw into a square, as a table
 
-**Tests:** (planned) `crates/dsp/src/analysis/lab.rs::tests::two_sources_morph`, `crates/dsp/src/analysis/lab.rs::tests::a_morph_renders_a_table`, `web/src/audio/spectral.test.ts`
+- GIVEN a saw as A and a square as B in the lab, with the table running A→B
+- WHEN the table is made
+- THEN its first wave has the saw's second harmonic and its last wave none, and the recipe reads `table 3 = a/saw ~ a/square : mamp 1, sweep 1`
+
+#### Scenario: Piano to Choir
+
+- GIVEN the example song Piano to Choir
+- WHEN it loads
+- THEN its morph tables rebuild, and its PPG synths play them with no note on their panels
+
+**Tests:** `crates/dsp/src/analysis/lab.rs::tests::two_sources_morph_and_sweep_into_a_table`, `crates/dsp/src/song/recipe.rs::tests::a_morph_recipe_prints_both_sounds`, `crates/dsp/src/song/tests.rs::the_example_songs_parse_and_print_back`, `web/src/audio/spectral.test.ts`
 
 ### Requirement 14: Fitting a DX7 voice (stage 6, refined) [MAY]
 

@@ -50,3 +50,7 @@ What is there to build on:
 - **Keep the rendered tables in IndexedDB.** It is simple to restore, but a song would no longer be self-contained or shareable, and an example song could not use a user table. Rejected for the song; the store keeps sources, not results.
 - **Put the table's numbers in the song.** 64 × 256 values a table is far too much for a text the composer reads (ADR-0012). Rejected.
 - **Rebuild in the main engine.** That needs no worker, but an analysis on the audio thread is a glitch (ADR-0002). Rejected.
+
+## Later decisions
+
+- **#517:** a recipe may morph two sources (`A ~ B` with `mpitch`, `mamp`, `mnoise`, `mformant`, `sweep`), and a source may be one the engine makes, a preset at a note (`synth:LaChoir:c4`) or Plaits macros (`plaits:h:t:m`), which needs no fetch.

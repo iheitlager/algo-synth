@@ -5911,6 +5911,10 @@ fn a_recipe_line_from_the_view_joins_the_song() {
     assert_eq!(e.recipe_text(0), &line[..]);
     let values = e.recipe_values(0).to_vec();
     assert_eq!(values[crate::analysis::lab::SMEAR], 0.4);
+    assert_eq!(
+        values.len(),
+        crate::analysis::lab::EDITS + crate::analysis::lab::MORPHS + 2
+    );
     assert_eq!(&values[values.len() - 2..], &[4096.0, 256.0]);
     // The same slot again replaces it; anything but one recipe line is refused.
     let again = b"table 3 = upright-piano-kw/C4vH";
