@@ -30,6 +30,7 @@ All notable changes to this project are documented here. The format is based on 
 ### Fixed
 
 - **The PPG's wave display draws the user tables:** User 1–8 are sketched with the generated tables and sketched again when one loads, so a table from the Spectral Lab or a song's recipe shows on the faceplate (#523, #192).
+- **`make image` builds again:** the Containerfile copies `.openspec/sound-design.md`, which the assistant's prompt includes since #514 (#530).
 
 ## [0.41.0] - 2026-10-10
 

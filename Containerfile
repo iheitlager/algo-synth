@@ -15,8 +15,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 # A workspace member (#482): cargo loads the whole workspace, so it must be here.
 COPY syntax/song-lsp ./syntax/song-lsp
-# The assistant's system prompt includes the language (#383) at build time.
-COPY .openspec/language.md ./.openspec/language.md
+# The assistant's system prompt includes the language and sound design (#383, #514) at build time.
+COPY .openspec/language.md .openspec/sound-design.md ./.openspec/
 # The commit the wasm is built from (#197). Declared here, after the copies, so a new commit
 # also rebuilds this layer.
 ARG ALGO_BUILD_SHA=
