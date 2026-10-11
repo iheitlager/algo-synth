@@ -13,8 +13,13 @@ use serde_json::{Value, json};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-/// The language, as the model reads it (#383).
-const LANGUAGE: &str = include_str!("../../../.openspec/language.md");
+/// The language, as the model reads it (#383): the composer's part and the
+/// sound designer's (#514), one text so it caches.
+const LANGUAGE: &str = concat!(
+    include_str!("../../../.openspec/language.md"),
+    "\n",
+    include_str!("../../../.openspec/sound-design.md"),
+);
 
 /// What the browser asks for.
 #[derive(Clone, Debug)]

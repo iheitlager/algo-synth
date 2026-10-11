@@ -117,8 +117,8 @@ pub const MAX_TEXT: usize = 1 << 20;
 /// Longest name of a track or clip.
 const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
-/// names them. The parser reads no other, and `.openspec/language.md` must
-/// define each (a test holds it to that).
+/// names them. The parser reads no other, and `.openspec/language.md` (or
+/// `sound-design.md`) must define each (a test holds it to that).
 pub const KEYWORDS: [&str; 18] = [
     "tempo", "swing", "scale", "setting", "track", "samples", "table", "attack", "strip", "group",
     "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",

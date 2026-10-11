@@ -69,7 +69,7 @@ Its nearest relatives are TidalCycles with SuperDirt (patterns playing SuperColl
 - **Code synths beside modelled instruments.** A SynthDef can borrow a modelled instrument's filter (`voicing: \ms20`) and play in the same song as a Prophet-5 voiced down to its oscillators, envelopes and VCA.
 - **Generators read the song.** `root(chords)`, `arp(chords, …)` and `markov(2, riff, 7)` take other clips as their input, so one progression can drive the pad, the bass and the arps.
 
-Every keyword, with examples, is in [.openspec/language.md](.openspec/language.md).
+Every keyword, with examples, is in [.openspec/language.md](.openspec/language.md) (composing) and [.openspec/sound-design.md](.openspec/sound-design.md) (sound design).
 
 ## Quick start
 
@@ -120,6 +120,7 @@ Containerfile   wasm and server → web → one image
 ## Documentation
 
 - [The song language](.openspec/language.md): every keyword of the composer's song text, its meaning, limits and errors, with examples
+- [Sound design](.openspec/sound-design.md): the song language's settings, Modular code, samples, user tables and mix
 - [Vision](.openspec/vision.md) · [Plan](.openspec/plan.md) · [ADRs](.openspec/adr/index.md) · [Specs](.openspec/README.md#specifications)
 
 ## Licence
