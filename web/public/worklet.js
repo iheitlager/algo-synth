@@ -32,12 +32,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     // The same for its version and the commit it was built from (#197); 0 when there is none to tell.
     const num = (name) => (typeof this.w[name] === 'function' ? this.w[name]() : 0)
     this.port.postMessage({ t: 'ready', models: num('model_count'), version: num('version_code'), build: num('build_id') })
-    // The generated wavetables, sketched once for the PPG's wave display.
-    if (this.w.wavetable_sketch) {
-      const n = this.w.wavetable_sketch(64)
-      const points = new Float32Array(this.w.memory.buffer, this.w.peaks_ptr(), n).slice()
-      this.port.postMessage({ t: 'wavetables', points }, [points.buffer])
-    }
+    this.sendWavetables()
     this.block = this.w.block_len()
     // The block number every deck's ring counts in, and the attached decks by number (1–3).
     this.blockNo = 0
@@ -154,6 +149,7 @@ class EngineProcessor extends AudioWorkletProcessor {
             code = data.t === 'userTable' ? w.table_load(data.slot) : w.attack_load(data.slot, data.root)
           }
           this.port.postMessage({ t: 'userLoaded', kind: data.t, slot: data.slot, code })
+          if (data.t === 'userTable' && code >= 0) this.sendWavetables()
           break
         }
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
@@ -161,6 +157,15 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'padsDump': this.sendPads(data.s); break
       }
     }
+  }
+
+  // The wavetables, generated and user, sketched for the PPG's wave display:
+  // at start, and again when a user table loads.
+  sendWavetables() {
+    if (!this.w.wavetable_sketch) return
+    const n = this.w.wavetable_sketch(64)
+    const points = new Float32Array(this.w.memory.buffer, this.w.peaks_ptr(), n).slice()
+    this.port.postMessage({ t: 'wavetables', points }, [points.buffer])
   }
 
   // Every parameter's current value on synth `s`, indexed by id, so the view

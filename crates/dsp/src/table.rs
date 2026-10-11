@@ -225,6 +225,22 @@ impl<'a> TableSet<'a> {
         a + (b - a) * (x - k as f32)
     }
 
+    /// Every wave of every table, the generated ones then the user's, table by
+    /// table, as `points` evenly spaced samples of its cycle, into `out`: what the
+    /// view draws. An empty user slot sketches flat. Allocates.
+    pub fn sketch(&self, points: usize, out: &mut Vec<f32>) {
+        let points = points.clamp(1, WAVE_LEN);
+        out.clear();
+        for table in 0..TABLES + USER_TABLES {
+            for k in 0..WAVES {
+                let wave = self.wave(table, k);
+                out.extend(
+                    (0..points).map(|i| wave.get(i * WAVE_LEN / points).copied().unwrap_or(0.0)),
+                );
+            }
+        }
+    }
+
     /// Attack `k` (0-based): a generated one below `SAMPLES`, a user slot from
     /// there; `None` for an empty or unknown one.
     pub fn sample(&self, k: usize) -> Option<&'a Sample> {
@@ -378,21 +394,6 @@ impl Tables {
     pub fn wave(&self, table: usize, k: usize) -> &[f32] {
         let base = (table.min(TABLES - 1) * WAVES + k.min(WAVES - 1)) * STRIDE;
         self.waves.get(base..base + STRIDE).unwrap_or(&[])
-    }
-
-    /// Every wave of every table, table by table, as `points` evenly spaced samples
-    /// of its cycle, into `out`: what the view draws. Allocates.
-    pub fn sketch(&self, points: usize, out: &mut Vec<f32>) {
-        let points = points.clamp(1, WAVE_LEN);
-        out.clear();
-        for table in 0..TABLES {
-            for k in 0..WAVES {
-                let wave = self.wave(table, k);
-                out.extend(
-                    (0..points).map(|i| wave.get(i * WAVE_LEN / points).copied().unwrap_or(0.0)),
-                );
-            }
-        }
     }
 }
 
@@ -647,13 +648,24 @@ mod tests {
     #[test]
     fn a_sketch_holds_every_wave_at_the_points_asked_for() {
         let t = Tables::new(SR);
+        let mut user = UserTables::empty();
+        let ramp: Vec<f32> = (0..WAVE_LEN).map(|i| i as f32 / WAVE_LEN as f32).collect();
+        user.load_table(1, &ramp).expect("a table");
+        let set = TableSet {
+            builtin: &t,
+            user: &user,
+        };
         let mut out = Vec::new();
-        t.sketch(64, &mut out);
-        assert_eq!(out.len(), TABLES * WAVES * 64);
+        set.sketch(64, &mut out);
+        assert_eq!(out.len(), (TABLES + USER_TABLES) * WAVES * 64);
         assert!(out.iter().all(|y| y.is_finite() && y.abs() <= 1.0 + 1e-6));
         // Wave 5 of table 2, every fourth sample.
         let at = (2 * WAVES + 5) * 64;
         assert_eq!(out[at + 3], t.wave(2, 5)[12]);
+        // User 2 (table 9) is the ramp, User 1 (table 8) empty and flat.
+        let at = |table: usize| (table * WAVES + 7) * 64;
+        assert_eq!(out[at(9) + 32], 0.5);
+        assert!(out[at(8)..at(8) + 64].iter().all(|y| *y == 0.0));
     }
 
     /// The frequency in Hz of an oscillator playing wave `k` of `table` at `note`, from

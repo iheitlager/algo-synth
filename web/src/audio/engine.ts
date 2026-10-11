@@ -433,7 +433,7 @@ export const sampleStore = reactive({
   error: '',
   busy: '',
 })
-/** The engine's wavetables (`Tables::sketch`): every wave of every table at `WAVE_POINTS` points, table by table. */
+/** The engine's wavetables, generated then user (`TableSet::sketch`): every wave of every table at `WAVE_POINTS` points, table by table; sent again when a user table loads. */
 export const WAVE_POINTS = 64
 export const wavetables = shallowReactive({ points: null as Float32Array | null })
 /** Each synth's zones by engine index, as the engine last reported them. */
