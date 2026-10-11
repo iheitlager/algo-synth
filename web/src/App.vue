@@ -3,7 +3,7 @@
 // console or the composer, with the arranger across the bottom, and the
 // Assistant beside them when shown (#387).
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
-import { loadSample, loadSong, loadUserAttack, loadUserTable, sampleStore, song, status, synths, view } from './audio/engine'
+import { loadSample, loadSong, loadUserFromLab, sampleStore, song, status, synths, view } from './audio/engine'
 import { CHANNEL, assistant, defaultFocus, serveWindow, type AssistHost, type LinkState } from './audio/assistlink'
 import { freeSlot } from './audio/sampler'
 import { LAB_CHANNEL, serveLab } from './audio/spectral'
@@ -69,7 +69,11 @@ const goodbye = () => {
 onMounted(() => {
   if (typeof BroadcastChannel === 'undefined') return
   server = serveWindow(new BroadcastChannel(CHANNEL), { state: linkState, apply: applySong, popped: (open) => (assistant.popped = open) })
-  lab = serveLab(new BroadcastChannel(LAB_CHANNEL), { sample: labSample, table: loadUserTable, attack: loadUserAttack })
+  lab = serveLab(new BroadcastChannel(LAB_CHANNEL), {
+    sample: labSample,
+    table: (slot, values, recipe) => loadUserFromLab('table', slot, values, recipe),
+    attack: (slot, root, values, recipe) => loadUserFromLab('attack', slot, values, recipe, root),
+  })
   window.addEventListener('pagehide', goodbye)
 })
 watch(() => [song.text, focus(), status.running], () => server?.push())

@@ -273,6 +273,39 @@ clip chords = keys
   "[c3,e3,g3] [a2,c3,e3]"
 ```
 
+## table, attack
+
+```text
+table <n> = <source> [: <transform> <value>, …]
+attack <n> = <source> [: <transform> <value>, …]
+```
+
+The recipe of a user wavetable or attack (ADR-0033): `table <n>` fills the PPG
+Wave's Table "User n" (`Wt1Table`/`Wt2Table` 7 + n), `attack <n>` a D-50
+partial's Source "User n" (`Pcm1Sample`/`Pcm2Sample` 8 + n), n from 1 to 8.
+The source is a sample of a pack of the samples manifest, its file name
+without `.wav` (`upright-piano-kw/C4vH`), or `@` and the first 32 hex digits
+of a dropped file's SHA-256, which only the browser that kept the file has.
+After a colon come the Spectral Lab's transforms by name (`stretch`,
+`inharmonic`, `freqshift`, `formant`, `smear`, `oddeven`, `lowpass`, `lowres`,
+`highpass`, `freeze`, `decay`, `noise`, `keepformants`), and the analysis's
+`window` and `hop` when they are not 4096 and 256. The app analyses the source
+and rebuilds the slot when the song loads; the lab's Send as table and Send
+attack write the line. One line per slot of each kind. A slot whose source
+cannot be found stays empty and the PPG's or D-50's panel says so; the song
+plays on.
+
+```song
+table 1 = upright-piano-kw/C4vH : inharmonic 1.6, noise 1.5
+attack 1 = upright-piano-kw/C4vH
+track bell synth PpgWave PpgSweepPad
+track hammer synth D50 LaFantasia
+clip ring = bell .wt1table(8) .wt2table(8)
+  "c4 ~ g4 ~"
+clip hit = hammer .pcm1sample(9)
+  "c4 ~ g4 ~"
+```
+
 ## strip, group, master
 
 ```text

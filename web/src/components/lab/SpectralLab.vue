@@ -5,7 +5,8 @@
 // this page sends, draws and plays.
 import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
 import { spectrogramPixels } from '../../audio/colormap'
-import { peakPath } from '../../audio/sampler'
+import { keepFile } from '../../audio/audiostore'
+import { parseKits, parseManifest, peakPath, sourceFile, sourcesOf, type Kit, type Pack } from '../../audio/sampler'
 import {
   Analyser, Edit, LAB_CHANNEL, LabEngine, NO_EDITS, codeMessage, connectMain, type Spectrogram, type Track,
 } from '../../audio/spectral'
@@ -24,7 +25,17 @@ const state = reactive({
   frames: 0, side: 'b' as Side,
   /** The main window's user slot (0-7) a table or an attack goes to. */
   slot: 0,
+  /** What a recipe names as the sound's source (ADR-0033): a pack's sample, or `@` and a kept file's hash. */
+  source: '',
 })
+// The samples manifest's packs and kits, for the From pack picker.
+const manifest = shallowRef<{ packs: Pack[]; kits: Kit[] }>({ packs: [], kits: [] })
+const packSources = computed(() => sourcesOf(manifest.value.packs, manifest.value.kits))
+const pick = ref('')
+void fetch(`${import.meta.env.BASE_URL}samples/manifest.json`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((json: unknown) => (manifest.value = { packs: parseManifest(json), kits: parseKits(json) }))
+  .catch(() => {})
 const settings = reactive({ window: 4096, hop: 256, top: 0, semitones: 0, stretch: 1, noise: true })
 // The transforms (spec 010 Req 4), by `Edit` id; `NO_EDITS` leaves the sound alone.
 const edits = reactive<number[]>([...NO_EDITS])
@@ -75,11 +86,33 @@ async function power() {
 }
 
 async function open(file: File) {
+  const bytes = await file.arrayBuffer()
+  // A dropped file is kept in the browser, so its recipe can name it by hash.
+  await openBytes(file.name, bytes, `@${await keepFile(bytes)}`)
+}
+
+async function openBytes(name: string, bytes: ArrayBuffer, source: string) {
   await power()
-  state.name = file.name
-  original.value = await file.arrayBuffer()
+  state.name = name
+  state.source = source
+  original.value = bytes
   await analyse()
 }
+
+// A sample of a manifest pack: its recipe is shareable, as `upright-piano-kw/C4vH`.
+async function openPack(source: string) {
+  const file = sourceFile(source, manifest.value.packs, manifest.value.kits)
+  if (!file) return
+  const res = await fetch(`${import.meta.env.BASE_URL}samples/${file}`).catch(() => null)
+  if (!res?.ok) {
+    state.error = `could not fetch ${file}`
+    return
+  }
+  await openBytes(source, await res.arrayBuffer(), source)
+}
+watch(pick, (source) => {
+  if (source) void openPack(source)
+})
 
 async function analyse() {
   const e = engine.value
@@ -166,12 +199,17 @@ async function sendUser(kind: 'table' | 'attack') {
     return
   }
   const slot = state.slot
-  const code = kind === 'table' ? await main.sendTable(slot, values.buffer as ArrayBuffer) : await main.sendAttack(slot, root, values.buffer as ArrayBuffer)
+  // Its recipe (ADR-0033), so the song keeps the slot across a reload.
+  const recipe = state.source ? await a.recipe(kind === 'table' ? 0 : 1, slot + 1, state.source, edits) : ''
+  const code = kind === 'table'
+    ? await main.sendTable(slot, values.buffer as ArrayBuffer, recipe)
+    : await main.sendAttack(slot, root, values.buffer as ArrayBuffer, recipe)
   state.sent = code < 0
     ? codeMessage(code)
     : kind === 'table'
       ? `table in User ${slot + 1}: pick it as a PPG's Table`
       : `attack in User ${slot + 1}: pick it as a D-50 partial's PCM`
+  if (code >= 0 && recipe) state.sent += ' · kept in the song'
 }
 
 function onDrop(e: DragEvent) {
@@ -282,6 +320,12 @@ onBeforeUnmount(() => {
       <button v-if="!engine" class="on" @click="power">Power on</button>
     </header>
 
+    <label v-if="packSources.length" class="frompack">From pack
+      <select v-model="pick" aria-label="From pack">
+        <option value="">a sample of a pack…</option>
+        <option v-for="src in packSources" :key="src" :value="src">{{ src }}</option>
+      </select>
+    </label>
     <label class="drop" :class="{ over }" @dragover.prevent="over = true" @dragleave="over = false" @drop.prevent="onDrop">
       <input type="file" accept=".wav,audio/wav" aria-label="Open a WAV file" @change="onPick">
       Drop a WAV here, or click to open one
@@ -409,6 +453,7 @@ h1 { font-size: 15px; margin: 0; }
 .transforms summary { cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 10px; }
 .transforms .reset { font-size: 11px; padding: 1px 8px; }
 .transforms label span { display: flex; align-items: center; gap: 4px; }
+.frompack { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .slot { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .layers { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .layers label { display: flex; align-items: center; gap: 4px; min-width: 0; flex-direction: row; }

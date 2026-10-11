@@ -92,6 +92,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'song': this.loadSong(new Uint8Array(data.bytes), data.id); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
         case 'samples': this.setSamples(data.s, new Uint8Array(data.bytes)); break
+        // A recipe line from the Spectral Lab (ADR-0033): its slot's line in the song.
+        case 'recipe': this.setRecipe(new Uint8Array(data.bytes)); break
         case 'groupName': this.setGroupName(data.g, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
         case 'ratchet': w.set_ratchet(data.f, data.l, data.s, data.r); this.sendSong(true); break
@@ -267,6 +269,15 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (w.samples_set(s) === 0) this.sendSong(true)
   }
 
+  // A recipe line (ADR-0033), `table 1 = …`, as its slot's recipe in the song.
+  setRecipe(bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (!ptr) return
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    if (w.recipe_set() === 0) this.sendSong(true)
+  }
+
   // A group bus named in the view (#214): the song's `group` line takes the name; none takes it away.
   setGroupName(g, bytes) {
     const w = this.w
@@ -361,10 +372,15 @@ class EngineProcessor extends AudioWorkletProcessor {
     const samples = Array.from({ length: w.samples_count ? w.samples_count() : 0 }, (_, i) => ({
       synth: w.samples_synth(i), id: bytes(w.samples_id_ptr(i), w.samples_id_len(i)),
     }))
+    // The recipes of the user tables and attacks (ADR-0033): the view rebuilds them.
+    const recipes = Array.from({ length: w.recipe_count ? w.recipe_count() : 0 }, (_, i) => ({
+      slot: w.recipe_slot(i), text: bytes(w.recipe_text_ptr(i), w.recipe_text_len(i)),
+      values: new Float32Array(w.memory.buffer, w.recipe_values_ptr(i), w.recipe_values_len()).slice(),
+    }))
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes,
     })
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   NEW_AMOUNT, amountToPos, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, keySwitches, keyTrackOf, nearestStep, posToAmount, pressCell, stepIndex, wavePath, waveStack, TABLE_WAVES,
+  userSlotNotes,
   type PatchSlot,
 } from './faceplate'
 

@@ -1,6 +1,6 @@
 # 0032: Partials as the common currency: one partial set from every source, transforms and morphs on it, played live through the table oscillator and the Modular
 
-**Status:** Proposed · **Date:** 2026-10-10 · **Extends:** 0017, 0024 · **Amends:** #192 stages 4 and 5
+**Status:** Proposed, extended by 0033 · **Date:** 2026-10-10 · **Extends:** 0017, 0024 · **Amends:** #192 stages 4 and 5
 
 ## Context
 
@@ -130,3 +130,7 @@ Resynthesis on its own only copies a sound. The question became what partials gi
 - A. Horner, J. Beauchamp, L. Haken, "Machine Tongues XVI: Genetic algorithms and their application to FM matching synthesis", Computer Music Journal 17(4), 1993. doi:10.2307/3680541
 - P. Bogdan, "INSTRUMENTAL: Automatic synthesizer parameter recovery from audio via evolutionary optimization", 2026. arXiv:2603.15905 (preprint; weak evidence)
 - Vital spectral morph (source, `src/synthesis/producers/spectral_morph.h`, GPL-3.0: formulas only); Mutable Instruments Plaits additive engine (source, `plaits/dsp/engine/additive_engine.cc`, MIT); Image-Line Harmor and Native Instruments Razor manuals; Apple Logic Pro Alchemy manual; SuperCollider documentation (`Klang`, `DynKlang`, `PV_*`).
+
+## Later decisions
+
+- **ADR-0033:** user tables and attacks persist as recipes in the song, rebuilt when it loads.

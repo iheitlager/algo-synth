@@ -1131,6 +1131,59 @@ pub extern "C" fn samples_count() -> u32 {
     query(0, |e| e.song().samples.len() as u32)
 }
 
+// The recipes of the user wavetables and attacks (ADR-0033): the view reads
+// them after each song and rebuilds their slots in a worker.
+
+/// How many recipe lines the song has.
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_count() -> u32 {
+    query(0, |e| e.song().recipes.len() as u32)
+}
+
+/// Recipe `i`'s kind (0 a table, 1 an attack) times 16 plus its slot (1-8); −1 past the end.
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_slot(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song().recipes.get(i as usize).map_or(-1, |r| {
+            let kind = match r.kind {
+                crate::song::recipe::Kind::Table => 0,
+                crate::song::recipe::Kind::Attack => 1,
+            };
+            kind * 16 + r.slot as i32
+        })
+    })
+}
+
+/// Recipe `i`'s line as the song prints it, for the view to read its source
+/// and to tell whether a slot needs rebuilding.
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_text_len(i: u32) -> u32 {
+    query(0, |e| e.recipe_text(i as usize).len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_text_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| e.recipe_text(i as usize).as_ptr())
+}
+
+/// Recipe `i`'s transforms, every one by `analysis::lab` id, then its window and hop.
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_values_ptr(i: u32) -> *const f32 {
+    query(std::ptr::null(), |e| e.recipe_values(i as usize).as_ptr())
+}
+
+/// How many values `recipe_values_ptr` points at.
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_values_len() -> u32 {
+    (crate::analysis::lab::EDITS + 2) as u32
+}
+
+/// The recipe line in the song buffer as its slot's recipe: 0, or −1 when it is not one.
+#[unsafe(no_mangle)]
+pub extern "C" fn recipe_set() -> i32 {
+    query(-1, |e| if e.set_recipe_from_buffer() { 0 } else { -1 })
+}
+
 /// The synth the track of `samples` line `i` plays on, or −1.
 #[unsafe(no_mangle)]
 pub extern "C" fn samples_synth(i: u32) -> i32 {
@@ -1801,6 +1854,43 @@ pub extern "C" fn spectral_attack() -> u32 {
     LAB.with(|cell| {
         cell.try_borrow_mut()
             .map_or(0, |mut lab| lab.attack().len() as u32)
+    })
+}
+
+/// Size the lab's text buffer for `len` bytes and return it: the source a recipe names.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_text_buf(len: u32) -> *mut u8 {
+    LAB.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut lab) => lab
+            .text_buffer(len as usize)
+            .map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()),
+        Err(_) => std::ptr::null_mut(),
+    })
+}
+
+/// The recipe line (ADR-0033) of the lab's table (`kind` 0) or attack (1) into
+/// user slot `slot`, from the source in the text buffer: its length in bytes at
+/// `spectral_recipe_ptr`, 0 for a source or slot that is not one.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_recipe(kind: u32, slot: u32) -> u32 {
+    let kind = if kind == 0 {
+        crate::song::recipe::Kind::Table
+    } else {
+        crate::song::recipe::Kind::Attack
+    };
+    LAB.with(|cell| {
+        cell.try_borrow_mut().map_or(0, |mut lab| {
+            let line = lab.recipe_from_text(kind, slot as usize);
+            lab.set_recipe_line(line).len() as u32
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_recipe_ptr() -> *const u8 {
+    LAB.with(|cell| {
+        cell.try_borrow()
+            .map_or(std::ptr::null(), |lab| lab.recipe_line().as_ptr())
     })
 }
 

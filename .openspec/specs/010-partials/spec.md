@@ -1,6 +1,6 @@
 # 010: Partials, transforms and morphs
 
-A sound as a partial set, from any source the engine has; transforms and morphs on partial sets; and three ways to play one: as a sample, as a PPG wavetable through the analog filters (with its attack on a D-50 partial), and in the Modular's SuperCollider subset. Epic #192, after its first stages (spec 009). Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0021, ADR-0024, ADR-0032.
+A sound as a partial set, from any source the engine has; transforms and morphs on partial sets; and three ways to play one: as a sample, as a PPG wavetable through the analog filters (with its attack on a D-50 partial), and in the Modular's SuperCollider subset. Epic #192, after its first stages (spec 009). Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0021, ADR-0024, ADR-0032, ADR-0033.
 
 Status: proposed. The implementation and test paths below are where the work goes, marked (planned) until they exist; none of it is built yet.
 
@@ -261,6 +261,41 @@ The body as partial frames belongs to the PPG (Requirement 9). The two can be la
 - THEN the first 40 ms hold 1 kHz at more than ten times the level an empty slot gives
 
 **Tests:** `crates/dsp/src/analysis/frames.rs::tests::split_finds_the_attack`, `crates/dsp/src/engine/tests.rs::the_d50_plays_a_user_attack`, `crates/dsp/src/ffi.rs::tests::user_tables_and_attacks_through_the_abi`
+
+### Requirement 15: Recipes in the song [MUST]
+
+A user table or attack SHALL be kept in the song as its recipe (ADR-0033), and rebuilt when the song loads.
+
+**The lines.** `table <n> = <source> [: <transform> <value>, …]` and `attack <n> = …`, with n from 1 to 8:
+- **The source** is a manifest sample (`upright-piano-kw/C4vH`) or `@` and the first 32 hex digits of a dropped file's SHA-256.
+- **The transforms** are the lab's, by name, plus `window` and `hop`. Only what differs from the defaults is printed.
+- **One line per slot of each kind.** A bad slot, source or transform is an error at its column.
+
+**Loading a song.** For each recipe whose slot does not hold it yet, the view SHALL:
+1. fetch the source, from the manifest or from the browser's store of dropped files
+2. analyse it with noise per partial in a worker
+3. apply the transforms
+4. load the table or attack into its slot
+
+**The lab.** Send as table and Send attack SHALL write the slot's line into the main window's song. A dropped file SHALL be kept in the browser under its hash, and a pack's sample can be opened by name.
+
+**Missing.** A synth that plays an empty, loading, missing or failed user slot SHALL say so on its panel. The song plays on.
+
+**Implementation:** `crates/dsp/src/song/recipe.rs::Recipe`, `crates/dsp/src/song.rs::Song::set_recipe`, `crates/dsp/src/engine.rs::Engine::set_recipe_from_buffer`, `crates/dsp/src/analysis/lab.rs::Lab::recipe`, `crates/dsp/src/ffi.rs` (`recipe_count`, `recipe_slot`, `recipe_text_ptr`, `recipe_values_ptr`, `recipe_set`, `spectral_recipe`), `web/public/worklet.js` (`recipes`, `setRecipe`), `web/public/spectral-worker.js` (`recipe`), `web/src/audio/engine.ts` (`userSlots`, `loadSongRecipes`, `loadUserFromLab`), `web/src/audio/audiostore.ts`, `web/src/audio/sampler.ts` (`sourceFile`, `sourcesOf`), `web/src/audio/faceplate.ts` (`userSlotNotes`), `web/src/components/SynthFaceplate.vue`, `web/src/components/lab/SpectralLab.vue`, `examples/songs/glass-piano.song`
+
+#### Scenario: across a reload
+
+- GIVEN Glass Piano, whose glass synth plays user table 1 from `upright-piano-kw/C4vH`
+- WHEN the song is loaded, played, and the page reloaded and powered on
+- THEN the table is rebuilt both times and a key sounds, with no note on the panel
+
+#### Scenario: a missing source
+
+- GIVEN the same song with its source renamed to a sample no pack has
+- WHEN it loads
+- THEN the slot stays silent and the PPG's panel says "User 1 is silent: no pack or kit has the sample …"
+
+**Tests:** `crates/dsp/src/song/recipe.rs::tests::a_recipe_prints_only_its_changes`, `crates/dsp/src/song/recipe.rs::tests::sources_are_a_pack_sample_or_a_hash`, `crates/dsp/src/song/tests.rs::recipes_parse_and_print_back`, `crates/dsp/src/song/tests.rs::bad_recipes_say_where`, `crates/dsp/src/engine/tests.rs::a_recipe_line_from_the_view_joins_the_song`, `crates/dsp/src/analysis/lab.rs::tests::the_lab_writes_its_recipe`, `crates/dsp/src/song/tests.rs::the_example_songs_parse_and_print_back`, `web/src/audio/spectral.test.ts`, `web/src/audio/sampler.test.ts`, `web/src/audio/faceplate.test.ts`
 
 ### Requirement 11: Partials in the Modular (the SuperCollider path) [SHOULD]
 

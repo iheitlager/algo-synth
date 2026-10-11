@@ -59,6 +59,12 @@ pub struct Lab {
     grams: [Vec<u8>; 2],
     /// The analysis window, which the spectrograms use too.
     window: usize,
+    /// Whether the analysis gave each partial its noise.
+    noise: bool,
+    /// A text from the view: the source a recipe names.
+    text: Vec<u8>,
+    /// The last recipe line, for the view to copy.
+    line: Vec<u8>,
     /// The original, mono at the analysis rate, for its attack.
     source: Vec<f32>,
     /// The last `table` or `attack`, for the view to copy out.
@@ -77,6 +83,9 @@ impl Default for Lab {
             out: Vec::new(),
             grams: [Vec::new(), Vec::new()],
             window: 0,
+            noise: false,
+            text: Vec::new(),
+            line: Vec::new(),
             source: Vec::new(),
             values: Vec::new(),
         }
@@ -84,6 +93,22 @@ impl Default for Lab {
 }
 
 impl Lab {
+    /// Size the text buffer for `len` bytes (at most 256), for the source a recipe names.
+    pub fn text_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
+        if len > 256 {
+            return None;
+        }
+        self.text.clear();
+        self.text.resize(len, 0);
+        Some(&mut self.text)
+    }
+
+    /// The recipe of `kind` into `slot` from the source in the text buffer.
+    pub fn recipe_from_text(&mut self, kind: crate::song::recipe::Kind, slot: usize) -> String {
+        let source = String::from_utf8_lossy(&self.text).into_owned();
+        self.recipe(kind, slot, &source)
+    }
+
     /// Set transform `id` (out of range is ignored); the next render, table
     /// or spectrogram uses it.
     pub fn set(&mut self, id: usize, v: f32) {
@@ -157,6 +182,7 @@ impl Lab {
         self.out.clear();
         self.grams = [Vec::new(), Vec::new()];
         self.window = window;
+        self.noise = noise;
         self.source.clear();
         self.values.clear();
         let s = match sample::parse(&self.input, rate) {
@@ -257,6 +283,40 @@ impl Lab {
         let rate = self.analysis.as_ref().map_or(0.0, |a| a.rate);
         self.values = split_attack(&self.source, rate);
         &self.values
+    }
+
+    /// The recipe (ADR-0033) of what `table` or `attack` gives, from `source`
+    /// (a manifest sample or `@` and a hash) into user slot `slot` (1-8): the
+    /// line the song keeps. Empty for a source that is not one.
+    pub fn recipe(&self, kind: crate::song::recipe::Kind, slot: usize, source: &str) -> String {
+        use crate::song::recipe::{Recipe, is_source};
+        if !is_source(source) || !(1..=kind.slots()).contains(&slot) {
+            return String::new();
+        }
+        let mut r = Recipe::new(kind, slot, source);
+        r.edits = self.edits;
+        // A recipe always analyses with noise per partial: without it, none.
+        if !self.noise {
+            if let Some(n) = r.edits.get_mut(NOISE) {
+                *n = 0.0;
+            }
+        }
+        r.window = self.window;
+        r.hop = self
+            .analysis
+            .as_ref()
+            .map_or(crate::song::recipe::HOP, |a| a.hop);
+        r.print()
+    }
+
+    /// Keep a recipe line for the view to copy.
+    pub fn set_recipe_line(&mut self, line: String) -> &[u8] {
+        self.line = line.into_bytes();
+        &self.line
+    }
+
+    pub fn recipe_line(&self) -> &[u8] {
+        &self.line
     }
 
     /// The last `table` or `attack`.
@@ -413,5 +473,25 @@ mod tests {
         assert!(h(2.0) < 0.01 * h(1.0), "no second harmonic in the table");
         // Unknown ids are ignored.
         lab.set(99, 5.0);
+    }
+
+    #[test]
+    fn the_lab_writes_its_recipe() {
+        use crate::song::recipe::Kind;
+        let mut lab = Lab::default();
+        lab.buffer(sine_wav().len())
+            .unwrap()
+            .copy_from_slice(&sine_wav());
+        assert!(lab.analyse(RATE, 2048, 256, true) > 0);
+        lab.set(INHARMONIC, 1.6);
+        assert_eq!(
+            lab.recipe(Kind::Table, 2, "upright-piano-kw/C4vH"),
+            "table 2 = upright-piano-kw/C4vH : inharmonic 1.6, window 2048"
+        );
+        assert_eq!(lab.recipe(Kind::Attack, 9, "a/b"), "", "no slot 9");
+        assert_eq!(lab.recipe(Kind::Attack, 1, "nope"), "", "not a source");
+        // Without noise in the analysis, the recipe clears it.
+        assert!(lab.analyse(RATE, 4096, 256, false) > 0);
+        assert!(lab.recipe(Kind::Table, 1, "a/b").ends_with("noise 0"));
     }
 }

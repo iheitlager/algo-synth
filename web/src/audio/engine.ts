@@ -16,11 +16,13 @@ import { capture, modified, plan, type PresetRegistry, type Target, type UserPre
 import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setNames, stripName, trackLabel } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
-  parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
+  parseManifest, slotsUsedElsewhere, sourceFile, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
 import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
 import { keepView, lastView } from './viewstate'
+import { keptFile } from './audiostore'
+import { Analyser, recipeOf, type SongRecipe } from './spectral'
 import { startMidi } from './midiin'
 
 const base = import.meta.env.BASE_URL
@@ -453,6 +455,79 @@ export function watchSpectrum(s: number) {
   spectrum.s = s
   spectrum.bands = null
   engine?.post({ t: 'spectrum', s })
+}
+
+/**
+ * What fills each user table and attack (ADR-0033): the recipe line that made
+ * it, and whether it is loading, loaded, or why not. Null: nothing was asked.
+ */
+export interface UserSlot { recipe: string; state: 'loading' | 'ok' | 'missing' | 'failed'; why?: string }
+export const userSlots = reactive({
+  table: Array.from({ length: 8 }, () => null) as (UserSlot | null)[],
+  attack: Array.from({ length: 8 }, () => null) as (UserSlot | null)[],
+})
+
+// The worker that rebuilds recipes: the lab's, with this window's dsp.wasm (ADR-0017).
+let rebuilder: Promise<Analyser> | null = null
+
+/** The bytes a recipe's source names: a manifest sample, or a file this browser kept. */
+async function sourceBytes(source: string): Promise<ArrayBuffer | string> {
+  if (source.startsWith('@')) return (await keptFile(source.slice(1))) ?? 'the file is not kept in this browser'
+  if (!packs.loaded) await fetchPacks()
+  const file = sourceFile(source, packs.list, packs.kits)
+  if (!file) return `no pack or kit has the sample ${source}`
+  const res = await fetch(`${base}samples/${file}`).catch(() => null)
+  return res?.ok ? res.arrayBuffer() : `could not fetch ${file}`
+}
+
+/** Rebuild each recipe the song names whose slot does not hold it yet, one after the other. */
+export async function loadSongRecipes(recipes: readonly SongRecipe[]): Promise<void> {
+  for (const r of recipes) {
+    const { kind, slot, source, edits, window, hop } = recipeOf(r)
+    const slots = kind === 0 ? userSlots.table : userSlots.attack
+    const have = slots[slot - 1]
+    if (have && have.recipe === r.text && have.state !== 'failed') continue
+    slots[slot - 1] = { recipe: r.text, state: 'loading' }
+    const done = (state: UserSlot['state'], why?: string) => {
+      // A newer recipe for the slot may have arrived meanwhile: it decides.
+      if (slots[slot - 1]?.recipe === r.text) slots[slot - 1] = { recipe: r.text, state, why }
+    }
+    const bytes = await sourceBytes(source)
+    if (typeof bytes === 'string') {
+      done('missing', bytes)
+      continue
+    }
+    if (!engine) return
+    rebuilder ??= Analyser.start(engine.module)
+    const a = await rebuilder
+    const analysed = await a.analyse(bytes, engine.ctx.sampleRate, window, hop, true)
+    if (analysed.code < 0) {
+      done('failed', `the source could not be analysed (${analysed.code})`)
+      continue
+    }
+    const { values, root } = await a.extract(kind === 0 ? 'table' : 'attack', edits)
+    if (!values.length) {
+      done('failed', 'the source has no pitch to make a table from')
+      continue
+    }
+    const code = kind === 0
+      ? await loadUserTable(slot - 1, values.buffer as ArrayBuffer)
+      : await loadUserAttack(slot - 1, root, values.buffer as ArrayBuffer)
+    done(code < 0 ? 'failed' : 'ok', code < 0 ? `the engine refused it (${code})` : undefined)
+  }
+}
+
+/**
+ * A table or attack the Spectral Lab sent, into user slot `slot` (0-7), with
+ * its recipe line for the song (ADR-0033); the slot counts as rebuilt.
+ */
+export async function loadUserFromLab(kind: 'table' | 'attack', slot: number, values: ArrayBuffer, recipe: string, root = 60): Promise<number> {
+  const code = kind === 'table' ? await loadUserTable(slot, values) : await loadUserAttack(slot, root, values)
+  if (code >= 0 && recipe) {
+    ;(kind === 'table' ? userSlots.table : userSlots.attack)[slot] = { recipe, state: 'ok' }
+    engine?.post({ t: 'recipe', bytes: new TextEncoder().encode(recipe).buffer })
+  }
+  return code
 }
 
 // User wavetables and attacks waiting for the engine's answer, by kind and slot (spec 010 Req 9-10).
@@ -949,6 +1024,11 @@ export function applySong(data: Record<string, unknown>) {
     synth: w.synth, id: decoder.decode(w.id),
   }))
   if (data.ok) void loadSongSamples(song.samples)
+  // The recipes of the user tables and attacks (ADR-0033): rebuilt once per line.
+  const recipes = ((data.recipes ?? []) as { slot: number; text: Uint8Array; values: Float32Array }[]).map((r) => ({
+    slot: r.slot, text: decoder.decode(r.text), values: Array.from(r.values),
+  }))
+  if (data.ok) void loadSongRecipes(recipes)
 }
 
 /**

@@ -119,9 +119,9 @@ const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
 /// names them. The parser reads no other, and `.openspec/language.md` must
 /// define each (a test holds it to that).
-pub const KEYWORDS: [&str; 16] = [
-    "tempo", "swing", "scale", "setting", "track", "samples", "strip", "group", "master", "clip",
-    "auto", "snapshot", "mod", "scene", "arrange", "loop",
+pub const KEYWORDS: [&str; 18] = [
+    "tempo", "swing", "scale", "setting", "track", "samples", "table", "attack", "strip", "group",
+    "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",
 ];
 /// A line's keyword in today's words (#486, ADR-0031): a song written
 /// before reads on, `frag` as `clip`, `section` as `scene`, and the old
@@ -530,6 +530,9 @@ pub struct Song {
     /// the samples manifest (#214, ADR-0018): the view fetches and loads them,
     /// since the engine can't fetch (ADR-0013).
     pub samples: Vec<(usize, String)>,
+    /// The recipes of the user wavetables and attacks (ADR-0033): the view
+    /// rebuilds them when the song loads, one per slot of each kind.
+    pub recipes: Vec<recipe::Recipe>,
     /// Starting values for strips, groups and the master (ADR-0018).
     pub mix: Vec<MixLine>,
     pub clips: Vec<Clip>,
@@ -554,6 +557,7 @@ impl Default for Song {
             settings: Vec::new(),
             tracks: Vec::new(),
             samples: Vec::new(),
+            recipes: Vec::new(),
             mix: Vec::new(),
             clips: Vec::new(),
             autos: Vec::new(),
@@ -819,7 +823,7 @@ impl Song {
             if !KEYWORDS.contains(&keyword) {
                 return Err(err(
                     first.col,
-                    "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                    "a line starts with tempo, swing, scale, setting, track, samples, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                 ));
             }
             match current_keyword(
@@ -1339,6 +1343,71 @@ impl Song {
                     }
                     song.samples.push((t, id.text.to_string()));
                 }
+                "table" | "attack" => {
+                    let kind = if keyword == "table" {
+                        recipe::Kind::Table
+                    } else {
+                        recipe::Kind::Attack
+                    };
+                    let n = arg(1, "a user slot goes here, 1 to 8")?;
+                    let slot = n
+                        .text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|s| (1..=kind.slots()).contains(s))
+                        .ok_or(err(n.col, "a user slot is 1 to 8"))?;
+                    if song
+                        .recipes
+                        .iter()
+                        .any(|r| r.kind == kind && r.slot == slot)
+                    {
+                        return Err(err(n.col, "this user slot already has its recipe"));
+                    }
+                    let eq = arg(2, "= and a source go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a source go here"));
+                    }
+                    let src = arg(3, "a source goes here, as upright-piano-kw/C4vH")?;
+                    let source = src.text.strip_suffix(':').unwrap_or(src.text);
+                    if !recipe::is_source(source) {
+                        return Err(err(
+                            src.col,
+                            "a source is a pack's sample, as upright-piano-kw/C4vH, or @ and a file's hash",
+                        ));
+                    }
+                    let mut r = recipe::Recipe::new(kind, slot, source);
+                    let mut k = 4;
+                    if !src.text.ends_with(':') {
+                        if let Some(colon) = ws.get(4) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the transforms go here"));
+                            }
+                            k = 5;
+                        }
+                    }
+                    while let Some(name) = ws.get(k) {
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let value = v
+                            .text
+                            .strip_suffix(',')
+                            .unwrap_or(v.text)
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|x| x.is_finite())
+                            .ok_or(err(v.col, "a value is a number"))?;
+                        if !r.set(name.text, value) {
+                            return Err(err(
+                                name.col,
+                                "a transform of the lab (as inharmonic), or window or hop, with a value it takes",
+                            ));
+                        }
+                        k += 2;
+                    }
+                    song.recipes.push(r);
+                }
                 "strip" | "group" | "master" | "master:" => {
                     let line = parse_mix(&song, &ws, line, body)?;
                     if song.mix.iter().any(|m| m.at == line.at) {
@@ -1485,7 +1554,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, samples, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                     ));
                 }
             }
@@ -1654,6 +1723,7 @@ impl Song {
             let name = self.tracks.get(*t).map_or("", |x| x.name.as_str());
             lines.push(format!("samples {name} {id}"));
         }
+        lines.extend(self.recipes.iter().map(recipe::Recipe::print));
         for m in &self.mix {
             let at = match m.at {
                 Mix::Track(t) => format!(
@@ -2186,6 +2256,18 @@ impl Song {
             None => self.samples.push((t, id.to_string())),
         }
         true
+    }
+
+    /// The recipe of a user slot (ADR-0033): replaced or added.
+    pub fn set_recipe(&mut self, r: recipe::Recipe) {
+        match self
+            .recipes
+            .iter_mut()
+            .find(|have| have.kind == r.kind && have.slot == r.slot)
+        {
+            Some(have) => *have = r,
+            None => self.recipes.push(r),
+        }
     }
 
     /// Take track `t` out (ADR-0027), when nothing of the song plays or moves
@@ -2991,6 +3073,7 @@ impl Song {
 }
 
 pub mod lex;
+pub mod recipe;
 pub mod signal;
 pub mod spans;
 

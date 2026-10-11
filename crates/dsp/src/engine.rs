@@ -199,6 +199,9 @@ pub struct Engine {
     wav: Vec<u8>,
     /// Values of a user wavetable or attack on their way in (spec 010 Req 9-10).
     user_buf: Vec<f32>,
+    /// A recipe's line and values for the view to copy (ADR-0033).
+    recipe_out: Vec<u8>,
+    recipe_vals: Vec<f32>,
     samples: SampleStore,
     /// The waveform peaks `sample_peaks` last computed, for the view to read.
     peaks: Vec<f32>,
@@ -327,6 +330,8 @@ impl Engine {
             sysex_voices: Vec::new(),
             wav: Vec::new(),
             user_buf: Vec::new(),
+            recipe_out: Vec::new(),
+            recipe_vals: Vec::new(),
             samples: SampleStore::new(),
             peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
@@ -638,6 +643,47 @@ impl Engine {
         if !self.song.set_samples(t, &id) {
             return false;
         }
+        self.reprint();
+        true
+    }
+
+    /// The recipe line in the song buffer (`table 1 = …`, ADR-0033) as its
+    /// slot's recipe in the song, replacing any: false when the text is not one
+    /// recipe line.
+    /// Recipe `i`'s line, kept so its bytes stay put for the view to copy.
+    pub fn recipe_text(&mut self, i: usize) -> &[u8] {
+        self.recipe_out = self
+            .song
+            .recipes
+            .get(i)
+            .map(|r| r.print().into_bytes())
+            .unwrap_or_default();
+        &self.recipe_out
+    }
+
+    /// Recipe `i`'s transforms by id, then its window and hop.
+    pub fn recipe_values(&mut self, i: usize) -> &[f32] {
+        self.recipe_vals.clear();
+        if let Some(r) = self.song.recipes.get(i) {
+            self.recipe_vals.extend_from_slice(&r.edits);
+            self.recipe_vals.extend([r.window as f32, r.hop as f32]);
+        }
+        &self.recipe_vals
+    }
+
+    pub fn set_recipe_from_buffer(&mut self) -> bool {
+        self.commit_song();
+        let text = String::from_utf8_lossy(&self.song_buf).into_owned();
+        let Ok(parsed) = Song::parse(&text) else {
+            return false;
+        };
+        let [r] = parsed.recipes.as_slice() else {
+            return false;
+        };
+        if self.song.recipes.contains(r) {
+            return true;
+        }
+        self.song.set_recipe(r.clone());
         self.reprint();
         true
     }

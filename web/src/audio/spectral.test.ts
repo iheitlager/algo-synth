@@ -1,7 +1,7 @@
 // The Spectral Lab and the main window over a fake BroadcastChannel (a message
 // reaches every other port, never the sender), and the worker's flat tracks.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { codeMessage, connectMain, parseTracks, serveLab, type Port } from './spectral'
+import { codeMessage, connectMain, parseTracks, recipeOf, serveLab, NO_EDITS, type Port } from './spectral'
 
 class FakeChannel implements Port {
   static all: FakeChannel[] = []
@@ -45,13 +45,13 @@ describe('the lab and the main window', () => {
     const got: string[] = []
     serveLab(new FakeChannel(), {
       sample: async () => 0,
-      table: async (slot, values) => { got.push(`table ${slot} ${values.byteLength}`); return 0 },
-      attack: async (slot, root, values) => { got.push(`attack ${slot} ${root} ${values.byteLength}`); return 0 },
+      table: async (slot, values, recipe) => { got.push(`table ${slot} ${values.byteLength} ${recipe}`); return 0 },
+      attack: async (slot, root, values, recipe) => { got.push(`attack ${slot} ${root} ${values.byteLength} ${recipe}`); return 0 },
     })
     const lab = connectMain(new FakeChannel(), () => {})
-    expect(await lab.sendTable(2, new Float32Array(64 * 256).buffer)).toBe(0)
+    expect(await lab.sendTable(2, new Float32Array(64 * 256).buffer, 'table 3 = a/b')).toBe(0)
     expect(await lab.sendAttack(3, 45, new Float32Array(1000).buffer)).toBe(0)
-    expect(got).toEqual([`table 2 ${64 * 256 * 4}`, 'attack 3 45 4000'])
+    expect(got).toEqual([`table 2 ${64 * 256 * 4} table 3 = a/b`, 'attack 3 45 4000 '])
   })
 
   it('a lab without a main window hears nothing and a send gives up', async () => {
@@ -93,5 +93,16 @@ describe('the tracks', () => {
     expect(codeMessage(-1)).toBe('not a WAV file')
     expect(codeMessage(-12)).toBe('longer than 60 seconds')
     expect(codeMessage(-99)).toBe('error -99')
+  })
+})
+
+describe('a recipe from the engine', () => {
+  it('says its kind, slot, source and transforms', () => {
+    const values = [...NO_EDITS, 2048, 256]
+    values[1] = 1.6
+    const r = recipeOf({ slot: 16 + 3, text: 'attack 3 = upright-piano-kw/C4vH : inharmonic 1.6, window 2048', values })
+    expect(r).toMatchObject({ kind: 1, slot: 3, source: 'upright-piano-kw/C4vH', window: 2048, hop: 256 })
+    expect(r.edits[1]).toBe(1.6)
+    expect(recipeOf({ slot: 1, text: 'table 1 = @00ff', values: [...NO_EDITS, 4096, 256] })).toMatchObject({ kind: 0, slot: 1, source: '@00ff' })
   })
 })

@@ -42,6 +42,20 @@ self.onmessage = ({ data }) => {
       self.postMessage({ t: data.t, values, root: w.spectral_root() }, [values.buffer])
       break
     }
+    // The recipe line (ADR-0033) of the table (kind 0) or attack (1) as the lab has it now.
+    case 'recipe': {
+      const text = new TextEncoder().encode(data.source)
+      const ptr = w.spectral_text_buf(text.length)
+      let line = ''
+      if (ptr) {
+        new Uint8Array(w.memory.buffer, ptr, text.length).set(text)
+        setEdits(data.edits)
+        const n = w.spectral_recipe(data.kind, data.slot)
+        line = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.spectral_recipe_ptr(), n))
+      }
+      self.postMessage({ t: 'recipe', line })
+      break
+    }
     case 'render': {
       setEdits(data.edits)
       const len = w.spectral_render(data.top, data.shift, data.stretch)

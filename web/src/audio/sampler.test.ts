@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { LoopMode, PadField, ZoneField } from './params'
 import {
   EMPTY_PAD, EMPTY_ZONE, PADS, PAD_FIELDS, PAD_ROWS, ZONES, evictable, slotsUsedElsewhere, ZONE_FIELDS, decodePads, kitFiles, padSets, parseKits, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
-  zoneRect, zoneSets, type Kit, type Pack,
+  sourceFile, sourcesOf, zoneRect, zoneSets, type Kit, type Pack,
 } from './sampler'
 
 const zone = (o: Record<string, unknown> = {}) => ({
@@ -164,5 +164,20 @@ describe('drawing', () => {
     expect(loopOf({ ...EMPTY_ZONE, loopStart: 20, loopEnd: 40 }, sample)).toEqual([20, 40])
     expect(loopOf(EMPTY_ZONE, { loopStart: 0, loopEnd: 0 })).toBeNull()
     expect(loopOf(EMPTY_ZONE, null)).toBeNull()
+  })
+})
+
+describe('recipe sources', () => {
+  const packs = [{ id: 'upright-piano-kw', name: 'Piano', license: '', credit: '', zones: [{ sample: 'instruments/upright-piano-kw/C4vH.wav' }, { sample: 'instruments/upright-piano-kw/B1vH.wav' }] }] as never
+  const kits = [{ id: 'audiophob', name: 'Kit', license: '', credit: '', pads: [{ sample: 'kits/audiophob/kick.wav' }] }] as never
+  it('find a pack or kit sample by its stem', () => {
+    expect(sourceFile('upright-piano-kw/B1vH', packs, kits)).toBe('instruments/upright-piano-kw/B1vH.wav')
+    expect(sourceFile('audiophob/kick', packs, kits)).toBe('kits/audiophob/kick.wav')
+    expect(sourceFile('upright-piano-kw/nope', packs, kits)).toBeNull()
+    expect(sourceFile('@0123', packs, kits)).toBeNull()
+    expect(sourceFile('a/b/c', packs, kits)).toBeNull()
+  })
+  it('list every sample as a source', () => {
+    expect(sourcesOf(packs, kits)).toEqual(['upright-piano-kw/C4vH', 'upright-piano-kw/B1vH', 'audiophob/kick'])
   })
 })

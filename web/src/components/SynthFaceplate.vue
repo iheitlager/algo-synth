@@ -7,9 +7,10 @@ import { computed } from 'vue'
 import { exp, lin, visibleOuts } from '../audio/console'
 import { keySwitches, keyTrackOf, stepped } from '../audio/faceplate'
 import { fmtUnit } from '../audio/faceplate'
-import { getEngine, layout, outText, params, status } from '../audio/engine'
+import { getEngine, layout, outText, params, status, userSlots } from '../audio/engine'
 import { PAD_OUTS, scaleOf, type Control, type ModelDef } from '../audio/models'
-import type { ParamId } from '../audio/params'
+import { Model, Param, type ParamId } from '../audio/params'
+import { userSlotNotes } from '../audio/faceplate'
 import ParamKnob from './console/ParamKnob.vue'
 import AlgoDiagram from './synth/AlgoDiagram.vue'
 import Eg4Graph from './synth/Eg4Graph.vue'
@@ -29,6 +30,12 @@ import WaveStack from './synth/WaveStack.vue'
 const props = defineProps<{ s: number; def: ModelDef }>()
 
 const val = (id: ParamId) => params.values[props.s]?.[id] ?? 0
+// A user table or attack this synth plays that nothing loaded (ADR-0033): said, not silent.
+const slotNotes = computed(() => {
+  if (props.def.id === Model.PpgWave) return userSlotNotes('table', [val(Param.Wt1Table), val(Param.Wt2Table)], userSlots.table)
+  if (props.def.id === Model.D50) return userSlotNotes('attack', [val(Param.Pcm1Sample), val(Param.Pcm2Sample)], userSlots.attack)
+  return []
+})
 const send = (id: ParamId, v: number) => getEngine()?.param(props.s, id, v)
 // A pad's Out lists the groups that exist, as a strip's does (#218).
 const optionsOf = (c: { options: readonly (readonly [string, number])[]; param: ParamId }) =>
@@ -77,6 +84,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 <template>
   <div class="plate" :class="{ wood: !!def.theme.wood }" :style="vars">
     <i v-if="def.theme.wood" class="cheek l" aria-hidden="true" /><i v-if="def.theme.wood" class="cheek r" aria-hidden="true" />
+    <p v-for="n in slotNotes" :key="n" class="slotnote" role="status">{{ n }}</p>
     <div class="mods" :class="{ row: def.row }">
       <section
         v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column, pairs: sec.pairs, grow: sec.grow }"
@@ -173,6 +181,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 </template>
 
 <style scoped>
+.slotnote { margin: 0 0 8px; padding: 4px 10px; border-radius: 4px; background: #00000055; color: #ffd27a; font-size: 12px; }
 .plate {
   position: relative; padding: 14px 22px 16px; border-radius: 6px; border: 1px solid var(--trim); color: var(--con-silk-dim);
   background: linear-gradient(180deg, color-mix(in srgb, var(--plate) 90%, white 10%), var(--plate) 18%, color-mix(in srgb, var(--plate) 88%, black 12%));

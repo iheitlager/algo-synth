@@ -5896,3 +5896,30 @@ fn the_d50_plays_a_user_attack() {
     let (with, without) = (first_blocks(true), first_blocks(false));
     assert!(with > 10.0 * without.max(1e-4), "{with} vs {without}");
 }
+
+/// ADR-0033: a recipe from the lab becomes its slot's line in the song, and
+/// the view can read it back.
+#[test]
+fn a_recipe_line_from_the_view_joins_the_song() {
+    let mut e = Engine::new(48_000.0);
+    let line = b"table 3 = upright-piano-kw/C4vH : smear 0.4";
+    e.song_buffer(line.len())
+        .expect("fits")
+        .copy_from_slice(line);
+    assert!(e.set_recipe_from_buffer());
+    assert_eq!(e.song().recipes.len(), 1);
+    assert_eq!(e.recipe_text(0), &line[..]);
+    let values = e.recipe_values(0).to_vec();
+    assert_eq!(values[crate::analysis::lab::SMEAR], 0.4);
+    assert_eq!(&values[values.len() - 2..], &[4096.0, 256.0]);
+    // The same slot again replaces it; anything but one recipe line is refused.
+    let again = b"table 3 = upright-piano-kw/C4vH";
+    e.song_buffer(again.len())
+        .expect("fits")
+        .copy_from_slice(again);
+    assert!(e.set_recipe_from_buffer());
+    assert_eq!(e.song().recipes.len(), 1);
+    let bad = b"tempo 120";
+    e.song_buffer(bad.len()).expect("fits").copy_from_slice(bad);
+    assert!(!e.set_recipe_from_buffer());
+}

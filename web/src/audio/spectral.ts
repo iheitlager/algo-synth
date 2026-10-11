@@ -17,15 +17,16 @@ export interface Port {
 export type ToMain =
   | { t: 'hello' }
   | { t: 'sample'; id: number; name: string; bytes: ArrayBuffer }
-  | { t: 'table'; id: number; slot: number; values: ArrayBuffer }
-  | { t: 'attack'; id: number; slot: number; root: number; values: ArrayBuffer }
+  | { t: 'table'; id: number; slot: number; values: ArrayBuffer; recipe: string }
+  | { t: 'attack'; id: number; slot: number; root: number; values: ArrayBuffer; recipe: string }
 export type ToLab = { t: 'here' } | { t: 'loaded'; id: number; code: number } | { t: 'gone' }
 
 /** What the main window does with what the lab sends: each answers a count or 0, or a negative code. */
 export interface LabLoads {
   sample(name: string, bytes: ArrayBuffer): Promise<number>
-  table(slot: number, values: ArrayBuffer): Promise<number>
-  attack(slot: number, root: number, values: ArrayBuffer): Promise<number>
+  /** `recipe` is the slot's line for the song (ADR-0033), empty when it has none. */
+  table(slot: number, values: ArrayBuffer, recipe: string): Promise<number>
+  attack(slot: number, root: number, values: ArrayBuffer, recipe: string): Promise<number>
 }
 
 /**
@@ -39,8 +40,8 @@ export function serveLab(port: Port, load: LabLoads) {
     const m = e.data as ToMain
     if (m?.t === 'hello') send({ t: 'here' })
     else if (m?.t === 'sample' && m.bytes instanceof ArrayBuffer) answer(m.id, load.sample(m.name, m.bytes))
-    else if (m?.t === 'table' && m.values instanceof ArrayBuffer) answer(m.id, load.table(m.slot, m.values))
-    else if (m?.t === 'attack' && m.values instanceof ArrayBuffer) answer(m.id, load.attack(m.slot, m.root, m.values))
+    else if (m?.t === 'table' && m.values instanceof ArrayBuffer) answer(m.id, load.table(m.slot, m.values, m.recipe ?? ''))
+    else if (m?.t === 'attack' && m.values instanceof ArrayBuffer) answer(m.id, load.attack(m.slot, m.root, m.values, m.recipe ?? ''))
   }
   // A lab opened before this page (a reload) learns it is back.
   send({ t: 'here' })
@@ -89,9 +90,9 @@ export function connectMain(port: Port, onMain: (here: boolean) => void, waitMs 
     /** Load `bytes` into the main window's sample store: its frames, or a negative code (−100: no answer). */
     send: (name: string, bytes: ArrayBuffer) => ask((id) => ({ t: 'sample', id, name, bytes })),
     /** Load a wavetable into the main window's user slot `slot` (0-7): 0, or a negative code. */
-    sendTable: (slot: number, values: ArrayBuffer) => ask((id) => ({ t: 'table', id, slot, values })),
+    sendTable: (slot: number, values: ArrayBuffer, recipe = '') => ask((id) => ({ t: 'table', id, slot, values, recipe })),
     /** Load an attack, at its own pitch `root`, into the main window's user slot `slot` (0-7): 0, or a negative code. */
-    sendAttack: (slot: number, root: number, values: ArrayBuffer) => ask((id) => ({ t: 'attack', id, slot, root, values })),
+    sendAttack: (slot: number, root: number, values: ArrayBuffer, recipe = '') => ask((id) => ({ t: 'attack', id, slot, root, values, recipe })),
     close() {
       clearTimeout(silent)
       port.close()
@@ -185,6 +186,11 @@ export class Analyser {
     return { values: r.values, root: r.root }
   }
 
+  /** The recipe line (ADR-0033) of the table (`kind` 0) or attack (1) into user slot `slot` (1-8) from `source`; '' when not one. */
+  async recipe(kind: 0 | 1, slot: number, source: string, edits: readonly number[] = NO_EDITS): Promise<string> {
+    return (await this.ask({ t: 'recipe', kind, slot, source, edits: [...edits] })).line
+  }
+
   /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes, with its spectrogram. */
   async render(top: number, shift: number, stretch: number, edits: readonly number[] = NO_EDITS): Promise<{ wav: ArrayBuffer; gram: Spectrogram }> {
     const r = await this.ask({ t: 'render', top, shift, stretch, edits: [...edits] })
@@ -243,4 +249,21 @@ export class LabEngine {
   noteOn(s: number, n: number, v = 0.8) { this.post({ t: 'on', s, n, v }) }
   noteOff(s: number, n: number) { this.post({ t: 'off', s, n }) }
   panic() { this.post({ t: 'panic' }) }
+}
+
+/** A recipe line as the engine sends it (ADR-0033): its slot code, text and values. */
+export interface SongRecipe { slot: number; text: string; values: readonly number[] }
+
+/** What a recipe fills: `kind` 0 a table, 1 an attack; `slot` 1-8; its source from the line. */
+export function recipeOf(r: SongRecipe): { kind: 0 | 1; slot: number; source: string; edits: number[]; window: number; hop: number } {
+  const source = /=\s*(\S+)/.exec(r.text)?.[1] ?? ''
+  const n = NO_EDITS.length
+  return {
+    kind: r.slot >= 16 ? 1 : 0,
+    slot: r.slot % 16,
+    source,
+    edits: Array.from(r.values.slice(0, n)),
+    window: r.values[n] ?? 4096,
+    hop: r.values[n + 1] ?? 256,
+  }
 }
