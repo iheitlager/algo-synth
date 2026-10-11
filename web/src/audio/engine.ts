@@ -21,7 +21,7 @@ import {
 import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
 import { keepView, lastView } from './viewstate'
-import { keptFile } from './audiostore'
+import { keepFile, keptFile } from './audiostore'
 import { Analyser, isGenerated, recipeOf, type KeySample, type SongRecipe } from './spectral'
 import { startMidi } from './midiin'
 
@@ -568,12 +568,86 @@ const loading = new Map<number, { name: string; done: (code: number) => void }[]
 export async function loadSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
   await power()
   if (!engine) return -5
+  if (slot >= 0 && slot < SAMPLE_SLOTS) sourceOfSlot[slot] = null
   return new Promise((done) => {
     loading.set(slot, [...(loading.get(slot) ?? []), { name, done }])
     engine?.post({ t: 'sample', slot, bytes }, [bytes])
   })
 }
 export const clearSample = (slot: number) => engine?.post({ t: 'sampleClear', slot })
+
+/** Where each slot's sample came from, as a zone line names it (#522): `@<hash>` or `<pack>/<sample>`. */
+const sourceOfSlot: (string | null)[] = Array.from({ length: SAMPLE_SLOTS }, () => null)
+/** Tell the engine where the sample in `slot` came from, so the zones playing it go into the song (#522). */
+function sampleSource(slot: number, source: string) {
+  sourceOfSlot[slot] = source
+  const bytes = new TextEncoder().encode(source).buffer
+  engine?.post({ t: 'sampleSource', slot, bytes }, [bytes])
+}
+/** The slot holding the sample of `source`, or -1. */
+const slotOfSource = (source: string) => sourceOfSlot.findIndex((s, i) => s === source && sampleStore.slots[i])
+
+/** A dropped or made WAV into `slot`, kept in this browser by its hash so the song can name it (#522). */
+export async function loadDroppedSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
+  const hash = await keepFile(bytes)
+  const code = await loadSample(slot, bytes, name)
+  if (code >= 0) sampleSource(slot, `@${hash}`)
+  return code
+}
+
+/**
+ * Lay out the zones the song's zone lines name (#522) on each synth that does not hold them yet:
+ * each source from a pack or this browser into a slot (one already loaded is reused), then the
+ * zones in one go. A source that cannot be found leaves its zone out and says so.
+ */
+export async function loadSongZones(lines: readonly SongZoneLine[]): Promise<void> {
+  const bySynth = new Map<number, SongZoneLine[]>()
+  for (const l of lines) if (l.synth >= 0) bySynth.set(l.synth, [...(bySynth.get(l.synth) ?? []), l])
+  const missing: string[] = []
+  for (const [s, zones] of bySynth) {
+    // A track has a pack or its zones (#522): a pack this synth had is not its sound any more.
+    samplesOn.delete(s)
+    const key = JSON.stringify(zones.map((z) => [z.zone, z.source, z.values]))
+    if (zones.every((z) => z.held) || zonesOn.get(s) === key) continue
+    zonesOn.set(s, key)
+    const slots = new Map<string, number>()
+    for (const source of new Set(zones.map((z) => z.source))) {
+      const have = slotOfSource(source)
+      if (have >= 0) {
+        slots.set(source, have)
+        continue
+      }
+      const bytes = await sourceBytes(source)
+      const slot = freeSlot(sampleStore.slots)
+      if (typeof bytes === 'string' || slot < 0) {
+        missing.push(`${source}: ${typeof bytes === 'string' ? bytes : 'all sample slots are used; free some'}`)
+        continue
+      }
+      const name = source.startsWith('@') ? `${source.slice(0, 9)}…` : source
+      const code = await loadSample(slot, bytes, name)
+      if (code < 0) {
+        missing.push(`${source}: ${SAMPLE_ERRORS[code] ?? code}`)
+        continue
+      }
+      sampleSource(slot, source)
+      slots.set(source, slot)
+    }
+    const sets: number[] = []
+    for (const z of zones) {
+      const slot = slots.get(z.source)
+      if (slot === undefined) continue
+      sets.push(z.zone, ZoneField.Sample, slot)
+      z.values.forEach((v, f) => { if (f !== ZoneField.Sample) sets.push(z.zone, f, v) })
+    }
+    engine?.post({ t: 'zoneSets', s, sets })
+    requestZones(s)
+  }
+  if (missing.length) sampleStore.error = `zones are silent: ${missing.join('; ')}`
+}
+/** The zone lines laid out on each synth, so a song sent again does not load them twice. */
+const zonesOn = new Map<number, string>()
+/** A zone line of the song (#522), as the worklet sends it: `values` by `ZoneField` id. */
+export interface SongZoneLine { synth: number; zone: number; source: string; values: number[]; held: boolean }
 export const requestZones = (s: number) => engine?.post({ t: 'zonesDump', s })
 export const requestPads = (s: number) => engine?.post({ t: 'padsDump', s })
 /** Set one field of a zone (`ZoneField`); the engine clamps it and the view re-reads the zones. */
@@ -614,8 +688,8 @@ export async function fetchPacks(): Promise<void> {
 /** Files already in the store, by their path under `samples/`, so a pack used twice is loaded once. */
 const slotOfFile = new Map<string, number>()
 
-/** Fetch `files` (paths under `samples/`) into free slots, the ones already in the store excepted; throws what went wrong. */
-async function loadFiles(label: string, files: string[]) {
+/** Fetch `files` (paths under `samples/`) of pack or kit `id` into free slots, the ones already in the store excepted; throws what went wrong. */
+async function loadFiles(label: string, files: string[], id: string) {
   for (const [i, file] of files.entries()) {
     sampleStore.busy = `${label}: ${i + 1} of ${files.length}`
     const known = slotOfFile.get(file)
@@ -627,6 +701,8 @@ async function loadFiles(label: string, files: string[]) {
     const code = await loadSample(slot, await r.arrayBuffer(), file.split('/').pop() ?? file)
     if (code < 0) throw new Error(`${file}: ${SAMPLE_ERRORS[code] ?? code}`)
     slotOfFile.set(file, slot)
+    // Named as a zone line names it (#522), should a hand change the zones.
+    sampleSource(slot, `${id}/${(file.split('/').pop() ?? file).replace(/\.wav$/, '')}`)
   }
 }
 
@@ -668,16 +744,17 @@ export async function loadPack(s: number, pack: Pack, fromSong = false): Promise
   const files = packFiles(pack)
   // The store is shared and capped: a pack replaces the one this synth had, keeping what other
   // synths play and what this pack shares with it.
-  engine?.post({ t: 'zonesClear', s })
+  // A pack's layout is not a hand's change: it goes in one go and does not fold (#522).
+  engine?.post({ t: 'zoneSets', s, sets: [] })
+  zonesOn.delete(s)
   for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
   }
   try {
-    await loadFiles(pack.name, files)
-    engine?.post({ t: 'zonesClear', s })
-    for (const [zone, field, v] of zoneSets(pack, (f) => slotOfFile.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
+    await loadFiles(pack.name, files, pack.id)
+    engine?.post({ t: 'zoneSets', s, sets: zoneSets(pack, (f) => slotOfFile.get(f)).flat() })
     requestZones(s)
     samplesOn.set(s, pack.id)
     if (!fromSong) samplesIntoSong(s, pack.id)
@@ -700,7 +777,7 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
   }
   try {
-    await loadFiles(kit.name, files)
+    await loadFiles(kit.name, files, kit.id)
     for (const [pad, field, v] of padSets(kit, (f) => slotOfFile.get(f))) engine?.post({ t: 'pad', s, pad, field, v })
     requestPads(s)
     samplesOn.set(s, kit.id)
@@ -715,7 +792,8 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
 
 /**
  * A multisample from the Spectral Lab (#520): each key's WAV into a free slot, mapped between its
- * neighbouring roots on the selected synth if it is a Sampler, else on a new one. Live only (#522).
+ * neighbouring roots on the selected synth if it is a Sampler, else on a new one. Each WAV is kept
+ * in this browser, so the zones go into the song as zone lines (#522).
  * How many loaded, or a negative code: −7 too few free slots, −102 no synth to add.
  */
 export async function loadMultisample(name: string, samples: KeySample[]): Promise<number> {
@@ -730,7 +808,7 @@ export async function loadMultisample(name: string, samples: KeySample[]): Promi
   for (const [i, k] of keys.entries()) {
     sampleStore.busy = `${name}: ${i + 1} of ${keys.length}`
     const file = pack.zones[i]?.sample ?? name
-    const code = await loadSample(free[i] ?? -1, k.bytes, file)
+    const code = await loadDroppedSample(free[i] ?? -1, k.bytes, file)
     if (code < 0) {
       sampleStore.busy = ''
       return code
@@ -1076,6 +1154,11 @@ export function applySong(data: Record<string, unknown>) {
     slot: r.slot, text: decoder.decode(r.text), values: Array.from(r.values),
   }))
   if (data.ok) void loadSongRecipes(recipes)
+  // The Sampler zones (#522): laid out on the synths that do not hold them.
+  const zones = ((data.zones ?? []) as { synth: number; zone: number; source: Uint8Array; values: Float32Array; held: boolean }[]).map((z) => ({
+    synth: z.synth, zone: z.zone, source: decoder.decode(z.source), values: Array.from(z.values), held: z.held,
+  }))
+  if (data.ok) void loadSongZones(zones)
 }
 
 /**

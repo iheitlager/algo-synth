@@ -202,6 +202,11 @@ pub struct Engine {
     /// A recipe's line and values for the view to copy (ADR-0033).
     recipe_out: Vec<u8>,
     recipe_vals: Vec<f32>,
+    /// Where each sample slot's sound came from, as a zone line names it
+    /// (`@<hash>` or `<pack>/<sample>`, #522): the view says so after a load.
+    sample_sources: Vec<Option<String>>,
+    /// Song zone `i`'s fields, as `zone_value` gives them, for the view.
+    zone_vals: Vec<f32>,
     samples: SampleStore,
     /// The waveform peaks `sample_peaks` last computed, for the view to read.
     peaks: Vec<f32>,
@@ -273,6 +278,9 @@ pub struct Engine {
     /// The strips a hand changed since the last fold (bit per strip), and
     /// the master in `FOLD_GLOBAL` (ADR-0027).
     fold: u32,
+    /// The synths whose zones a hand changed since the last fold (bit per
+    /// synth, #522): they fold into their track's zone lines.
+    zone_fold: u32,
     /// Drum hits between steps, waiting for their sample (#353), and how many.
     hits: [Hit; HITS],
     hit_count: usize,
@@ -332,6 +340,8 @@ impl Engine {
             user_buf: Vec::new(),
             recipe_out: Vec::new(),
             recipe_vals: Vec::new(),
+            sample_sources: vec![None; sample::SLOTS],
+            zone_vals: Vec::with_capacity(ZoneField::ALL.len()),
             samples: SampleStore::new(),
             peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
@@ -366,6 +376,7 @@ impl Engine {
             mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
             fold: 0,
+            zone_fold: 0,
             hits: [NO_HIT; HITS],
             hit_count: 0,
             arps: [Arp::default(); SYNTHS],
@@ -1180,7 +1191,39 @@ impl Engine {
     /// the frame count.
     pub fn load_sample(&mut self, slot: usize) -> Result<usize, sample::Error> {
         let rate = self.sample_rate;
+        // New bytes: where they came from is the view's to say next.
+        if let Some(s) = self.sample_sources.get_mut(slot) {
+            *s = None;
+        }
         self.samples.load(slot, &self.wav, rate).map(Sample::frames)
+    }
+
+    /// The sample in `slot` came from the source in the song buffer (#522),
+    /// `@<hash>` or `<pack>/<sample>`: zones playing it can be written in
+    /// the song. False for an empty slot or a source that isn't one.
+    pub fn set_sample_source_from_buffer(&mut self, slot: usize) -> bool {
+        let source = String::from_utf8_lossy(&self.song_buf).into_owned();
+        if !crate::song::zone::is_zone_source(&source) || self.samples.get(slot).is_none() {
+            return false;
+        }
+        let Some(have) = self.sample_sources.get_mut(slot) else {
+            return false;
+        };
+        *have = Some(source);
+        // Zones already playing it may fold now.
+        for (s, zones) in self.zones.iter().enumerate() {
+            if (0..crate::sampler::ZONES)
+                .any(|z| zones.get(z).is_some_and(|z| z.sample == Some(slot)))
+            {
+                self.zone_fold |= 1u32.checked_shl(s as u32).unwrap_or(0);
+            }
+        }
+        true
+    }
+
+    /// Where the sample in `slot` came from, if the view said.
+    pub fn sample_source(&self, slot: usize) -> Option<&str> {
+        self.sample_sources.get(slot)?.as_deref()
     }
 
     pub fn samples(&self) -> &SampleStore {
@@ -1189,12 +1232,17 @@ impl Engine {
 
     pub fn clear_sample(&mut self, slot: usize) {
         self.samples.clear(slot);
+        if let Some(s) = self.sample_sources.get_mut(slot) {
+            *s = None;
+        }
     }
 
-    /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`).
+    /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`): a
+    /// hand's change, folded into the song (#522).
     pub fn set_zone(&mut self, synth: usize, zone: usize, field: ZoneField, value: f32) {
         if let Some(z) = self.zones.get_mut(synth) {
             z.set(zone, field, value);
+            self.zone_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
         }
     }
 
@@ -1202,7 +1250,63 @@ impl Engine {
     pub fn clear_zones(&mut self, synth: usize) {
         if let Some(z) = self.zones.get_mut(synth) {
             z.clear();
+            self.zone_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
         }
+    }
+
+    /// The zones of `synth` are a pack's or the song's, laid out by the view
+    /// (#522): not a hand's change, so nothing folds.
+    pub fn settle_zones(&mut self, synth: usize) {
+        self.zone_fold &= !1u32.checked_shl(synth as u32).unwrap_or(0);
+    }
+
+    /// `synth`'s zones as zone lines of track `t`, or `None` when one plays
+    /// a sample the view gave no source for.
+    fn song_zones(&self, synth: usize, t: usize) -> Option<Vec<crate::song::zone::SongZone>> {
+        let zones = self.zones.get(synth)?;
+        (0..crate::sampler::ZONES)
+            .filter_map(|i| zones.get(i).filter(|z| z.sample.is_some()).map(|z| (i, z)))
+            .map(|(i, z)| {
+                let source = self.sample_source(z.sample?)?;
+                Some(crate::song::zone::SongZone {
+                    track: t,
+                    zone: i,
+                    source: source.to_string(),
+                    fields: crate::sampler::Zone { sample: None, ..*z },
+                })
+            })
+            .collect()
+    }
+
+    /// Whether song zone line `i` is what its synth plays already, so the
+    /// view need not load it again.
+    pub fn song_zone_held(&self, i: usize) -> bool {
+        let Some(line) = self.song.zones.get(i) else {
+            return false;
+        };
+        let Some(z) = self
+            .song_routed(line.track)
+            .and_then(|s| self.zones.get(s))
+            .and_then(|m| m.get(line.zone))
+        else {
+            return false;
+        };
+        z.sample
+            .and_then(|slot| self.sample_source(slot))
+            .is_some_and(|src| src == line.source)
+            && crate::sampler::Zone { sample: None, ..*z } == line.fields
+    }
+
+    /// Song zone line `i`'s fields by `ZoneField` id, as `zone_value` gives
+    /// them (its sample −1).
+    pub fn song_zone_values(&mut self, i: usize) -> &[f32] {
+        self.zone_vals.clear();
+        if let Some(z) = self.song.zones.get(i) {
+            let fields = z.fields;
+            self.zone_vals
+                .extend(ZoneField::ALL.iter().map(|(f, _)| fields.get(*f)));
+        }
+        &self.zone_vals
     }
 
     /// A field of one of `synth`'s zones, as `set_zone` would take it back.
@@ -2561,11 +2665,13 @@ impl Engine {
         {
             bits |= LIVE_ARP;
         }
+        // A zone is held once its sample has a source (#522).
         let zones = self.zones.get(synth);
         if (0..crate::sampler::ZONES).any(|z| {
             zones
                 .and_then(|m| m.get(z))
-                .is_some_and(|z| z.sample.is_some())
+                .and_then(|z| z.sample)
+                .is_some_and(|slot| self.sample_source(slot).is_none())
         }) {
             bits |= LIVE_ZONES;
         }
@@ -2629,7 +2735,8 @@ impl Engine {
     /// from `render`.
     pub fn fold(&mut self) -> bool {
         let marks = std::mem::take(&mut self.fold);
-        if marks == 0 {
+        let zone_marks = std::mem::take(&mut self.zone_fold);
+        if marks == 0 && zone_marks == 0 {
             return false;
         }
         self.commit_song();
@@ -2638,6 +2745,18 @@ impl Engine {
             let Some(s) = self.song_routed(t).filter(|s| *s < SYNTHS) else {
                 continue;
             };
+            // Zones a hand set become the track's zone lines (#522); while
+            // one plays a sample without a source they stay live-only.
+            let sampler = self
+                .song
+                .tracks
+                .get(t)
+                .is_some_and(|x| x.kind == crate::song::Kind::Sampler);
+            if zone_marks & (1 << s) != 0 && sampler {
+                if let Some(zones) = self.song_zones(s, t) {
+                    self.song.set_zones(t, zones);
+                }
+            }
             if marks & (1 << s) == 0 {
                 continue;
             }

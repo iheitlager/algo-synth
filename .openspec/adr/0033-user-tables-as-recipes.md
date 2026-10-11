@@ -1,6 +1,6 @@
 # 0033: User tables and attacks are recipes in the song, rebuilt when it loads
 
-**Status:** Accepted · **Date:** 2026-10-11 · **Extends:** 0018, 0032
+**Status:** Accepted, extended by #522 (Sampler zones) · **Date:** 2026-10-11 · **Extends:** 0018, 0032
 
 ## Context
 
@@ -54,3 +54,13 @@ What is there to build on:
 ## Later decisions
 
 - **#517:** a recipe may morph two sources (`A ~ B` with `mpitch`, `mamp`, `mnoise`, `mformant`, `sweep`), and a source may be one the engine makes, a preset at a note (`synth:LaChoir:c4`) or Plaits macros (`plaits:h:t:m`), which needs no fetch.
+
+## Extended (#522): Sampler zones
+
+Dropped Sampler samples and the zones set on them by hand get the same treatment as a recipe's source:
+
+- **A zone is a line.** `zone keys 1 = @3fa9… : keylo c2, keyhi e3, root c3` names the sample by its source (`@<hash>` or `<pack>/<sample>`) and writes only the fields away from their defaults; one line per zone, numbered as the engine's zones.
+- **A pack or its zones, not both.** A track keeps its `samples` line while its zones are the pack's. The first change by hand turns them into zone lines, the pack's samples named `<pack>/<sample>`; picking a pack takes the zone lines away.
+- **The engine writes them.** The view tells the engine where each slot's sample came from when it loads one (`sample_source_set`), and keeps a dropped or lab-made WAV in `algo-synth-audio` by its hash. A zone set by hand marks its synth, and the fold (ADR-0027) prints the synth's zones as its track's lines once every zone's sample has a source. A pack's or the song's layout is laid out in one go (`zones_settle`) and does not fold.
+- **The view restores them.** When a song loads, the view loads each source a synth does not hold yet into a slot and lays the zones out; a source it cannot find leaves its zone empty and the sampler's panel says so.
+- **Pads stay live-only** for now; the same form for the pad sampler is a follow-up.

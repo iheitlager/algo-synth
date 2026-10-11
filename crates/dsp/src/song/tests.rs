@@ -125,7 +125,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, samples, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, samples, zone, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -2477,6 +2477,91 @@ fn samples_lines_parse_print_and_say_where_they_are_wrong() {
             "samples keys a\nsamples keys b",
             9,
             "this track already has its samples",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
+        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+    }
+}
+
+/// #522: a sampler track's zones are lines of their own, by a dropped
+/// file's hash or a pack's sample; they print back with their comments, take
+/// the place of a `samples` line, follow a track taken out and say where they
+/// are wrong.
+#[test]
+fn zone_lines_parse_print_and_say_where_they_are_wrong() {
+    let hash = "@0123456789abcdef0123456789abcdef";
+    let text = format!(
+        "track keys sampler Sampler SamplerKeys\ntrack pno sampler Sampler SamplerKeys\n# low\nzone keys 1 = {hash} : keyhi b2, root c2, loop sustain\nzone keys 3 = upright-piano-kw/C4vH : keylo c3, vello 40, tune -5, level 0.8, seqlen 2, seqpos 2, release 1\nzone pno 1 = {hash}\n"
+    );
+    let song = Song::parse(&text).expect("parses");
+    assert_eq!(song.zones.len(), 3);
+    let z = &song.zones[0];
+    assert_eq!((z.track, z.zone, z.source.as_str()), (0, 0, hash));
+    assert_eq!((z.fields.key_hi, z.fields.root), (47, Some(36)));
+    let printed = song.print();
+    assert!(
+        printed.contains(&format!(
+            "# low\nzone keys 1 = {hash} : keyhi b2, root c2, loop sustain\n"
+        )),
+        "{printed}"
+    );
+    assert!(printed.contains("zone pno 1 = @"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    // A track taken out takes its zones; the next one moves down.
+    let mut gone = song.clone();
+    assert!(gone.remove_track(0));
+    assert_eq!(gone.zones.len(), 1);
+    assert_eq!(gone.zones[0].track, 0);
+    // A pack or its zones, not both: each setter takes the other away.
+    let mut set = song.clone();
+    assert!(set.set_samples(0, "sweep-pad"));
+    assert_eq!(set.zones.len(), 1);
+    let zones = song.zones[..2].to_vec();
+    assert!(set.set_zones(0, zones));
+    assert!(set.samples.is_empty() && set.zones.len() == 3);
+    assert_eq!(Song::parse(&set.print()), Ok(set.clone()));
+    assert!(set.set_zones(0, Vec::new()));
+    assert_eq!(set.zones.len(), 1);
+    let head = "track keys sampler\ntrack lead synth\ntrack kit drums\n";
+    for (line, col, msg) in [
+        ("zone", 5, "a track goes here, then a zone number, 1 to 64"),
+        ("zone nobody 1 = a/b", 6, "no track has this name"),
+        ("zone lead 1 = a/b", 6, "zones go on a sampler track"),
+        ("zone kit 1 = a/b", 6, "zones go on a sampler track"),
+        ("zone keys 65 = a/b", 11, "a zone number is 1 to 64"),
+        ("zone keys 1 a/b", 13, "= and a source go here"),
+        (
+            "zone keys 1 = synth:LaChoir:c4",
+            15,
+            "a zone's source is a pack's sample, as upright-piano-kw/C4vH, or @ and a file's hash",
+        ),
+        ("zone keys 1 = a/b x", 19, ": and the zone's fields go here"),
+        (
+            "zone keys 1 = a/b : wobble 1",
+            21,
+            "a zone field: keylo keyhi vello velhi root tune level loop loopstart loopend seqlen seqpos release",
+        ),
+        (
+            "zone keys 1 = a/b : keylo h9",
+            27,
+            "a key is a note, as c4, or 0 to 127",
+        ),
+        ("zone keys 1 = a/b : keylo", 26, "a value goes here"),
+        (
+            "zone keys 1 = a/b\nzone keys 1 = a/c",
+            11,
+            "this track already has this zone",
+        ),
+        (
+            "samples keys piano\nzone keys 1 = a/b",
+            6,
+            "this track has a samples line: a track has a pack or its zones, not both",
+        ),
+        (
+            "zone keys 1 = a/b\nsamples keys piano",
+            9,
+            "this track has zone lines: a track has a pack or its zones, not both",
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);

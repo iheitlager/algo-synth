@@ -119,9 +119,9 @@ const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
 /// names them. The parser reads no other, and `.openspec/language.md` (or
 /// `sound-design.md`) must define each (a test holds it to that).
-pub const KEYWORDS: [&str; 18] = [
-    "tempo", "swing", "scale", "setting", "track", "samples", "table", "attack", "strip", "group",
-    "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",
+pub const KEYWORDS: [&str; 19] = [
+    "tempo", "swing", "scale", "setting", "track", "samples", "zone", "table", "attack", "strip",
+    "group", "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",
 ];
 /// A line's keyword in today's words (#486, ADR-0031): a song written
 /// before reads on, `frag` as `clip`, `section` as `scene`, and the old
@@ -530,6 +530,9 @@ pub struct Song {
     /// the samples manifest (#214, ADR-0018): the view fetches and loads them,
     /// since the engine can't fetch (ADR-0013).
     pub samples: Vec<(usize, String)>,
+    /// The Sampler zones a sampler track without a `samples` line plays
+    /// (#522): the view loads each source and lays the zones out.
+    pub zones: Vec<zone::SongZone>,
     /// The recipes of the user wavetables and attacks (ADR-0033): the view
     /// rebuilds them when the song loads, one per slot of each kind.
     pub recipes: Vec<recipe::Recipe>,
@@ -557,6 +560,7 @@ impl Default for Song {
             settings: Vec::new(),
             tracks: Vec::new(),
             samples: Vec::new(),
+            zones: Vec::new(),
             recipes: Vec::new(),
             mix: Vec::new(),
             clips: Vec::new(),
@@ -823,7 +827,7 @@ impl Song {
             if !KEYWORDS.contains(&keyword) {
                 return Err(err(
                     first.col,
-                    "a line starts with tempo, swing, scale, setting, track, samples, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                    "a line starts with tempo, swing, scale, setting, track, samples, zone, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                 ));
             }
             match current_keyword(
@@ -1331,6 +1335,12 @@ impl Song {
                     if song.samples.iter().any(|(u, _)| *u == t) {
                         return Err(err(track.col, "this track already has its samples"));
                     }
+                    if song.zones.iter().any(|z| z.track == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has zone lines: a track has a pack or its zones, not both",
+                        ));
+                    }
                     let id = arg(2, "a pack or kit id goes here, as upright-piano-kw")?;
                     if !is_sample_id(id.text) {
                         return Err(err(
@@ -1342,6 +1352,79 @@ impl Song {
                         return Err(err(extra.col, "unexpected text"));
                     }
                     song.samples.push((t, id.text.to_string()));
+                }
+                "zone" => {
+                    let track = arg(1, "a track goes here, then a zone number, 1 to 64")?;
+                    let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
+                        return Err(err(track.col, "no track has this name"));
+                    };
+                    if song.tracks.get(t).is_some_and(|t| t.kind != Kind::Sampler) {
+                        return Err(err(track.col, "zones go on a sampler track"));
+                    }
+                    if song.samples.iter().any(|(u, _)| *u == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has a samples line: a track has a pack or its zones, not both",
+                        ));
+                    }
+                    let n = arg(2, "a zone number goes here, 1 to 64")?;
+                    let number = n
+                        .text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| zone::is_zone_number(*n))
+                        .ok_or(err(n.col, "a zone number is 1 to 64"))?;
+                    if song
+                        .zones
+                        .iter()
+                        .any(|z| z.track == t && z.zone + 1 == number)
+                    {
+                        return Err(err(n.col, "this track already has this zone"));
+                    }
+                    let eq = arg(3, "= and a source go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a source go here"));
+                    }
+                    let src = arg(4, "a source goes here, as upright-piano-kw/C4vH")?;
+                    let source = src.text.strip_suffix(':').unwrap_or(src.text);
+                    if !zone::is_zone_source(source) {
+                        return Err(err(
+                            src.col,
+                            "a zone's source is a pack's sample, as upright-piano-kw/C4vH, or @ and a file's hash",
+                        ));
+                    }
+                    let mut k = 5;
+                    if !src.text.ends_with(':') {
+                        if let Some(colon) = ws.get(k) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the zone's fields go here"));
+                            }
+                            k += 1;
+                        }
+                    }
+                    let mut fields = crate::sampler::Zone::default();
+                    while let Some(name) = ws.get(k) {
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let value = v.text.strip_suffix(',').unwrap_or(v.text);
+                        if !zone::FIELD_NAMES.contains(&name.text) {
+                            return Err(err(
+                                name.col,
+                                "a zone field: keylo keyhi vello velhi root tune level loop loopstart loopend seqlen seqpos release",
+                            ));
+                        }
+                        zone::set_field(&mut fields, name.text, value)
+                            .map_err(|msg| err(v.col, msg))?;
+                        k += 2;
+                    }
+                    song.zones.push(zone::SongZone {
+                        track: t,
+                        zone: number - 1,
+                        source: source.to_string(),
+                        fields,
+                    });
                 }
                 "table" | "attack" => {
                     let kind = if keyword == "table" {
@@ -1569,7 +1652,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, samples, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, samples, zone, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                     ));
                 }
             }
@@ -1737,6 +1820,10 @@ impl Song {
         for (t, id) in &self.samples {
             let name = self.tracks.get(*t).map_or("", |x| x.name.as_str());
             lines.push(format!("samples {name} {id}"));
+        }
+        for z in &self.zones {
+            let name = self.tracks.get(z.track).map_or("", |x| x.name.as_str());
+            lines.push(z.print(name));
         }
         lines.extend(self.recipes.iter().map(recipe::Recipe::print));
         for m in &self.mix {
@@ -2270,6 +2357,32 @@ impl Song {
             Some((_, have)) => id.clone_into(have),
             None => self.samples.push((t, id.to_string())),
         }
+        // A pack or its zones, not both (#522).
+        self.zones.retain(|z| z.track != t);
+        true
+    }
+
+    /// Track `t`'s zone lines (#522), replacing any, in zone order; they
+    /// take the place of its `samples` line. None takes both away. False for
+    /// no such track or one that isn't a sampler.
+    pub fn set_zones(&mut self, t: usize, mut zones: Vec<zone::SongZone>) -> bool {
+        if self.tracks.get(t).is_none_or(|x| x.kind != Kind::Sampler) {
+            return false;
+        }
+        zones.sort_by_key(|z| z.zone);
+        zones.dedup_by_key(|z| z.zone);
+        self.samples.retain(|(u, _)| *u != t);
+        let at = self
+            .zones
+            .iter()
+            .position(|z| z.track == t)
+            .unwrap_or(self.zones.len());
+        self.zones.retain(|z| z.track != t);
+        let at = at.min(self.zones.len());
+        self.zones.splice(
+            at..at,
+            zones.into_iter().map(|z| zone::SongZone { track: t, ..z }),
+        );
         true
     }
 
@@ -2304,6 +2417,7 @@ impl Song {
         self.tracks.remove(t);
         self.mix.retain(|m| m.at != Mix::Track(t));
         self.samples.retain(|(u, _)| *u != t);
+        self.zones.retain(|z| z.track != t);
         let down = |u: &mut usize| {
             if *u > t {
                 *u -= 1;
@@ -2314,6 +2428,9 @@ impl Song {
         }
         for (u, _) in &mut self.samples {
             down(u);
+        }
+        for z in &mut self.zones {
+            down(&mut z.track);
         }
         for m in &mut self.mix {
             if let Mix::Track(u) = &mut m.at {
@@ -3091,6 +3208,7 @@ pub mod lex;
 pub mod recipe;
 pub mod signal;
 pub mod spans;
+pub mod zone;
 
 /// A signal with `env` or a list has a value per voice (ADR-0023): it goes
 /// on a track's Mono or Poly synth, onto a parameter a voice holds, without
