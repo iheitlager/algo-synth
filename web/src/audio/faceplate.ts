@@ -293,3 +293,22 @@ export function userSlotNotes(
     return []
   })
 }
+
+/** A knob of a Modular synth's code, as far as an envelope needs it. */
+interface EnvKnob { module: number; ugen: string; name: string }
+
+/**
+ * The amplitude envelope of a Modular synth's code (#519): the last `EnvGen`
+ * with an attack and a release (the one a SynthDef usually multiplies its
+ * output by), its knobs by stage; null when the code has none, and the
+ * synth's own ADSR shapes the voice.
+ */
+export function ampEnvelope<K extends EnvKnob>(knobs: readonly K[]): { module: number; a?: K; d?: K; s?: K; r?: K } | null {
+  const modules = [...new Set(knobs.filter((k) => k.ugen === 'EnvGen').map((k) => k.module))]
+  for (const m of modules.reverse()) {
+    const of = (name: string) => knobs.find((k) => k.module === m && k.name === name)
+    const [a, d, s, r] = [of('attack'), of('decay'), of('sustain'), of('release')]
+    if (a && r) return { module: m, a, d, s, r }
+  }
+  return null
+}

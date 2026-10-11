@@ -68,6 +68,10 @@ export interface Section {
   pairs?: boolean
   /** Takes the rest of its row: the Modular code beside the envelope (#329). */
   grow?: boolean
+  /** As tall as the tallest section in its row, its controls filling it (#519). */
+  fill?: boolean
+  /** A Modular synth's amplifier envelope: its code's own `EnvGen` when it has one, else the synth's ADSR (#519). */
+  panelEnv?: boolean
   /** Its own accent where the instrument colours its sections, as the TR-808's step buttons. */
   colour?: string
 }
@@ -1261,10 +1265,11 @@ const modular: ModelDef = {
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
   presets: ['ModularBasic', 'ModularHoover', 'ModularKick'],
   sections: [
-    { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
+    // The code's amplitude envelope when it writes one out, else the voice's own ADSR.
+    { title: 'Amplifier envelope', panelEnv: true, controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
     { title: 'Code', grow: true, controls: [{ kind: 'code' }] },
-    // Beside the code, so a change to the SynthDef shows in the sound as it is typed.
-    { title: 'Spectrum', controls: [{ kind: 'spectrum' }] },
+    // Beside the code and as tall, so a change to the SynthDef shows in the sound as it is typed.
+    { title: 'Spectrum', fill: true, controls: [{ kind: 'spectrum' }] },
     { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
   ],
 }

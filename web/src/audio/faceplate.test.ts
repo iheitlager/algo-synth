@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   NEW_AMOUNT, amountToPos, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, keySwitches, keyTrackOf, nearestStep, posToAmount, pressCell, stepIndex, wavePath, waveStack, TABLE_WAVES,
-  userSlotNotes,
+  ampEnvelope, userSlotNotes,
   type PatchSlot,
 } from './faceplate'
 
@@ -172,6 +172,16 @@ describe('Minimoog keyboard control', () => {
   })
 })
 
+describe('user slots on a panel', () => {
+  it('say what is empty, loading or missing, and nothing for a loaded or built-in one', () => {
+    const slots = [null, { state: 'loading' }, { state: 'missing', why: 'no pack has it' }, { state: 'ok' }, null, null, null, null]
+    expect(userSlotNotes('table', [3, 7], slots)).toEqual([])
+    expect(userSlotNotes('table', [8, 8], slots)).toEqual(['User 1 is empty: send a table from the Spectral Lab, or add a `table 1 = …` line to the song'])
+    expect(userSlotNotes('table', [9, 10], slots)).toEqual(['User 2 is being rebuilt from its recipe…', 'User 3 is silent: no pack has it'])
+    expect(userSlotNotes('attack', [12, 0], slots)).toEqual([])
+  })
+})
+
 describe('wavetable stack', () => {
   const points = 8
   // Two tables; wave k of table 1 is flat at k / 63, so a drawn wave's height tells which it is.
@@ -194,5 +204,19 @@ describe('wavetable stack', () => {
     const front = ys(waveStack(sketch, points, 1, 0, 120, 60).lit)
     expect(new Set(back).size).toBe(1)
     expect(back[0]).toBeLessThan(front[0])
+  })
+})
+
+describe('a Modular synth\'s amplitude envelope', () => {
+  const k = (module: number, ugen: string, name: string) => ({ module, ugen, name })
+  it('is the last EnvGen with an attack and a release', () => {
+    // mt40: a percussive filter envelope, then the amplitude ADSR.
+    const knobs = [k(1, 'Pulse', 'width'), k(3, 'EnvGen', 'attack'), k(3, 'EnvGen', 'release'), k(5, 'EnvGen', 'attack'), k(5, 'EnvGen', 'decay'), k(5, 'EnvGen', 'sustain'), k(5, 'EnvGen', 'release'), k(6, 'Pan2', 'pos')]
+    const e = ampEnvelope(knobs)
+    expect(e?.module).toBe(5)
+    expect(e?.s?.name).toBe('sustain')
+  })
+  it('is none when the code has no envelope', () => {
+    expect(ampEnvelope([k(1, 'RLPF', 'freq')])).toBeNull()
   })
 })
