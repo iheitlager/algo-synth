@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-11
+
+### Added
+
+- **Spectral Lab design:** ADR-0017 and spec 009 for analysis, additive resynthesis and the lab window (#500).
+- **Spectral analysis:** an FFT, STFT, peak picking, partial tracking and a harmonic mode in the engine, with a `spectral` example that takes a WAV apart (#501).
+- **Additive resynthesis:** the partial tracks played back by a phase-locked sine bank, with breakpoint reduction, a top-N cut, pitch shift and time stretch; `spectral --out` writes it (#502).
+- **Spectral Lab:** a window of its own (the Lab button) that takes a WAV apart into partials, plays it against its resynthesis, and sends the resynthesis to the app's samples (#503).
+- **Partials on the PPG and the D-50:** the Spectral Lab sends an analysed sound as a 64-wave table to the PPG's Table ("User 1"–"User 8") and its attack as a PCM sample to a D-50 partial's Source (#515).
+- **Partial transforms and noise:** noise per partial (breath, bow and hammer kept as bandwidth), a spectral envelope, and ten transforms in the Spectral Lab: harmonic and inharmonic stretch, frequency shift, formant scale with formants kept through a shift, smear, odd/even, spectral low- and high-pass, freeze, decay by number and noise amount; "Send to main window" is now "Send as sample", and the Modular's spectrum sits beside its code (#516).
+- **Morph between two sounds:** the Spectral Lab morphs A with a second sound B (a pack sample, a synth preset the engine renders, or Plaits-style macros) by pitch, amplitude, noise and formant, after Loris; a table can run from A to B across its waves; recipes keep morphs as `A ~ B`; a Piano to Choir example song (#517).
+- **Partials in the Modular:** the SuperCollider subset gains the `` `[…] `` literal, `Klang`/`DynKlang` (a bank of sines), `Klank`/`DynKlank` and `Ringz` (resonators, 32 a voice), `Impulse`, and `VOsc`/`Osc` playing the Spectral Lab's user wavetables; every number a knob (#518).
+- **A timbre per note:** `.onNote` samples a signal as each note starts and holds it for the note, `.wt1pos(rand.onNote)`; a PPG voice holds its own `wt1pos`/`wt2pos`. A Partial Garden example song with Klank bells, a Klang organ and a VOsc through a Moog ladder (#518).
+- **Spectra:** a colourful spectrogram behind the partials in the Spectral Lab, and an optional live spectrum of a Modular synth's own output on its faceplate (#519).
+- **Send as multisample:** the Spectral Lab renders its resynthesis at every root of a range (C2–C6 every fifth, say), each at its pitch and the original's length, and maps the keys between them on the selected Sampler or a new one (#520).
+- **User tables and attacks kept in the song:** `table` and `attack` lines hold their recipe (source sample, analysis, transforms) and are rebuilt when the song loads; dropped lab files are kept in the browser; a panel says when a user slot is missing; the lab opens pack samples by name; a Glass Piano example song (#521).
+- **Dropped Sampler samples survive a reload:** a WAV dropped on a Sampler (or a multisample from the lab) is kept in the browser by its hash, and zones set by hand become `zone keys 1 = @3fa9… : keylo c2, root c3` lines in the song, by a dropped file's hash or a pack's sample; a pack's zones changed by hand become zone lines too. A zone whose file this browser did not keep says so on the sampler's panel (#522).
+- **A wave display on the PPG Wave:** each wavetable section shows its table as a stack of its 64 waves, the wave at the Position knob lit; the engine sketches the generated tables for the view (#523).
+
+### Changed
+
+- **The song language in two parts:** `.openspec/language.md` keeps the conventions, limits and the composer's lines; `.openspec/sound-design.md` holds settings and Modular code, samples, user tables and attacks and the mix, with a section for ADR-0032. The assistant reads both as one prompt (#514).
+
+### Fixed
+
+- **The PPG's wave display draws the user tables:** User 1–8 are sketched with the generated tables and sketched again when one loads, so a table from the Spectral Lab or a song's recipe shows on the faceplate (#523, #192).
+
 ## [0.41.0] - 2026-10-10
 
 ### Added
