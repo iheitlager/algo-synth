@@ -550,7 +550,14 @@ pub extern "C" fn sample_peaks(slot: u32, bins: u32) -> u32 {
     query(0, |e| e.sample_peaks(slot as usize, bins as usize) as u32)
 }
 
-/// Address of the peaks `sample_peaks` computed.
+/// Sketch every wave of every wavetable at `points` samples a cycle, table by
+/// table; the number of values written. Read them at `peaks_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn wavetable_sketch(points: u32) -> u32 {
+    query(0, |e| e.wavetable_sketch(points as usize) as u32)
+}
+
+/// Address of the peaks `sample_peaks` or `wavetable_sketch` computed.
 #[unsafe(no_mangle)]
 pub extern "C" fn peaks_ptr() -> *const f32 {
     ENGINE.with(|cell| match cell.try_borrow() {
@@ -1718,6 +1725,7 @@ mod tests {
         assert_eq!(sample_peaks(2, 2), 4);
         assert!(!peaks_ptr().is_null());
         assert_eq!(sample_peaks(9, 2), 0, "an empty slot has no peaks");
+        assert_eq!(wavetable_sketch(64), 8 * 64 * 64);
         zone_set(0, 5, 0, 2.0);
         zone_set(0, 5, 1, 40.0);
         assert_eq!(zone_get(0, 5, 0), 2.0);

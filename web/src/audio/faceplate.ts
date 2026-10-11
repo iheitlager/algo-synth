@@ -105,6 +105,45 @@ export function wavePath(name: string, w: number, h: number, pad = 2): string | 
 // --- stepped selectors --------------------------------------------------------------
 
 /** The index of the option whose value is nearest `v` (an f32 reported by the engine is not exact). */
+/** The waves in a wavetable, as the engine sketches them (`WAVES` in table.rs). */
+export const TABLE_WAVES = 64
+/** Every how many waves the stack draws one behind the lit wave. */
+const STACK_EVERY = 4
+
+/**
+ * A wavetable drawn the way the PPG's Waveterm did: its waves in a stack that
+ * runs back and up to the right, wave 0 in front, and the wave nearest `pos`
+ * (0..1) on its own so it can be lit. `sketch` holds every table's waves at
+ * `points` samples each, table by table; null until the engine has sent it.
+ */
+export function waveStack(
+  sketch: Float32Array | null, points: number, table: number, pos: number, w: number, h: number,
+): { ghosts: string[]; lit: string } {
+  const base = Math.round(table) * TABLE_WAVES * points
+  if (!sketch || points < 2 || base < 0 || base + TABLE_WAVES * points > sketch.length) return { ghosts: [], lit: '' }
+  const depthX = w * 0.3
+  const depthY = h * 0.45
+  const amp = (h - depthY) / 2 - 2
+  const span = w - depthX - 4
+  const f = (n: number) => n.toFixed(1)
+  const path = (k: number) => {
+    const d = k / (TABLE_WAVES - 1)
+    const x0 = 2 + d * depthX
+    const y0 = h - 2 - amp - d * depthY
+    let out = ''
+    for (let i = 0; i < points; i++) {
+      const y = sketch[base + k * points + i] ?? 0
+      out += `${i ? 'L' : 'M'}${f(x0 + (span * i) / (points - 1))} ${f(y0 - y * amp)}`
+    }
+    return out
+  }
+  const k = Math.round(clamp01(pos) * (TABLE_WAVES - 1))
+  // Back to front, so the nearer waves are drawn over the farther ones.
+  const ghosts: string[] = []
+  for (let g = TABLE_WAVES - 1; g >= 0; g -= STACK_EVERY) ghosts.push(path(g))
+  return { ghosts, lit: path(k) }
+}
+
 export function nearestStep(options: readonly (readonly [string, number])[], v: number): number {
   let best = 0
   let dist = Infinity
