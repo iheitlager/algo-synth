@@ -15,7 +15,7 @@
 // @ts-check
 
 const KEYWORDS = [
-  'tempo', 'swing', 'scale', 'setting', 'track', 'samples', 'strip', 'group', 'master',
+  'tempo', 'swing', 'scale', 'setting', 'track', 'samples', 'zone', 'table', 'attack', 'strip', 'group', 'master',
   'clip', 'auto', 'snapshot', 'mod', 'scene', 'arrange', 'loop',
   // The words of a song written before ADR-0031, which still parse.
   'frag', 'section',

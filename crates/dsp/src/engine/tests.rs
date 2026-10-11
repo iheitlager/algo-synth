@@ -5689,6 +5689,74 @@ fn a_pack_picked_on_a_synth_becomes_its_samples_line() {
     assert!(!e.set_samples_from_buffer(15), "no track plays synth 16");
 }
 
+/// #522: zones a hand sets on a sampler fold into its track's zone lines once
+/// their samples have a source, taking the place of its `samples` line; a
+/// pack's or the song's layout settles without folding, and a zone line the
+/// synth plays already is held.
+#[test]
+fn hand_set_zones_fold_into_zone_lines() {
+    let mut e = kit(0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track keys sampler Sampler SamplerKeys\nsamples keys upright-piano-kw\n"
+        ),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    let tone: Vec<f32> = (0..4_800).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(5).expect("loads");
+    // A pack's layout: no fold, and the samples line stays.
+    e.set_zone(s, 0, ZoneField::Sample, 5.0);
+    e.settle_zones(s);
+    assert!(!e.fold());
+    // A hand's zone on a sample with no source yet: live-only, unfolded.
+    e.set_zone(s, 2, ZoneField::Sample, 5.0);
+    e.set_zone(s, 2, ZoneField::KeyHi, 59.0);
+    e.fold();
+    assert!(e.song_text().contains("samples keys"), "{}", e.song_text());
+    assert_ne!(e.live_only(s) & LIVE_ZONES, 0);
+    // Its source said: the zones fold, the samples line goes.
+    let hash = b"@0123456789abcdef0123456789abcdef";
+    e.song_buffer(hash.len())
+        .expect("fits")
+        .copy_from_slice(hash);
+    assert!(e.set_sample_source_from_buffer(5));
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(!text.contains("samples keys"), "{text}");
+    assert!(
+        text.contains("zone keys 1 = @0123456789abcdef0123456789abcdef\nzone keys 3 = @0123456789abcdef0123456789abcdef : keyhi b3\n"),
+        "{text}"
+    );
+    assert_eq!(e.live_only(s) & LIVE_ZONES, 0);
+    assert_eq!(e.song().zones.len(), 2);
+    assert!(e.song_zone_held(0) && e.song_zone_held(1));
+    assert_eq!(e.song_zone_values(1)[ZoneField::KeyHi as usize], 59.0);
+    // A source that isn't one, or an empty slot, is refused.
+    let bad = b"synth:LaChoir:c4";
+    e.song_buffer(bad.len()).expect("fits").copy_from_slice(bad);
+    assert!(!e.set_sample_source_from_buffer(5));
+    e.song_buffer(hash.len())
+        .expect("fits")
+        .copy_from_slice(hash);
+    assert!(!e.set_sample_source_from_buffer(6));
+    // The slot's sample replaced: its zones are no longer held.
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(5).expect("loads");
+    assert!(!e.song_zone_held(0));
+    // Every zone emptied by hand: no zone lines, no samples line.
+    e.clear_zones(s);
+    assert!(e.fold());
+    assert!(!e.song_text().contains("zone keys"), "{}", e.song_text());
+}
+
 /// #214: a group named in the view is named in the song, through the song
 /// buffer; an empty buffer takes the name away.
 #[test]

@@ -2,7 +2,8 @@
 
 The second half of the song language's definition: the lines that make a
 sound rather than play one. Synth patches and Modular SynthDefs (`setting`),
-the samples a track loads, user wavetables and attacks (`table`, `attack`),
+the samples a track loads and its Sampler zones (`samples`, `zone`), user
+wavetables and attacks (`table`, `attack`),
 and the mix (`strip`, `group`, `master`). The conventions, limits, grammar
 notation and the composer's lines (tracks, clips, autos, scenes) are in
 [language.md](language.md); what it says holds here too. Every block tagged
@@ -156,6 +157,40 @@ samples keys upright-piano-kw
 samples kit audiophob
 clip chords = keys
   "[c3,e3,g3] [a2,c3,e3]"
+```
+
+## zone
+
+```text
+zone <track> <n> = <source> [: <field> <value>, …]
+source = <pack>/<sample> | @<hash>
+field  = keylo keyhi vello velhi root tune level loop loopstart loopend seqlen seqpos release
+```
+
+A Sampler zone set by hand (#522), n from 1 to 64: the sample it plays and
+its fields away from their defaults. The source is a sample of a pack, its
+file name without `.wav` (`upright-piano-kw/C4vH`), or `@` and the first 32
+hex digits of a dropped file's SHA-256, as in a `table` line. `keylo`,
+`keyhi` and `root` are notes (`c2`) or 0–127, the root left out takes the
+sample's own; `vello` and `velhi` 1–127; `tune` cents (−1200–1200); `level`
+0–2; `loop` `off`, `loop` or `sustain`, its points in frames (0 and 0 take the
+sample's); `seqlen` and `seqpos` 1–16 for round-robin; `release 1` sounds
+when the key comes up.
+
+Dropping a WAV on a Sampler, setting a zone or sending a multisample from the
+lab writes the lines; a dropped file is kept in the browser that dropped it.
+A track has a `samples` line or zone lines, not both: changing a pack's zones
+by hand turns its `samples` line into zone lines, and picking a pack takes
+them away. One line per zone, on a `sampler` track, after it. A zone whose
+source cannot be found stays empty and the sampler's panel says so; the song
+plays on.
+
+```song
+track keys sampler Sampler SamplerKeys
+zone keys 1 = upright-piano-kw/C4vH : keyhi b3, root c4
+zone keys 2 = upright-piano-kw/C4vH : keylo c4, tune 7, loop sustain
+clip chords = keys
+  "[c3,e3,g3] [a4,c5,e5]"
 ```
 
 ## strip, group, master

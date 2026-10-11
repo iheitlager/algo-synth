@@ -83,6 +83,14 @@ class EngineProcessor extends AudioWorkletProcessor {
           break
         case 'zone': w.zone_set(data.s, data.zone, data.field, data.v); break
         case 'zonesClear': w.zones_clear(data.s); break
+        // A pack's or the song's zones (#522), [zone, field, value]… flat: laid out in one go, not a hand's change.
+        case 'zoneSets':
+          w.zones_clear(data.s)
+          for (let i = 0; i + 2 < data.sets.length; i += 3) w.zone_set(data.s, data.sets[i], data.sets[i + 1], data.sets[i + 2])
+          w.zones_settle(data.s)
+          break
+        // Where a slot's sample came from (#522), `@<hash>` or `<pack>/<sample>`, so its zones can be in the song.
+        case 'sampleSource': this.setSampleSource(data.slot, new Uint8Array(data.bytes)); break
         case 'zonesDump': this.sendZones(data.s); break
         case 'song': this.loadSong(new Uint8Array(data.bytes), data.id); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
@@ -274,6 +282,15 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (w.samples_set(s) === 0) this.sendSong(true)
   }
 
+  // The source of the sample in `slot` (#522): the next fold may write its zones.
+  setSampleSource(slot, bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (!ptr) return
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    w.sample_source_set(slot)
+  }
+
   // A recipe line (ADR-0033), `table 1 = …`, as its slot's recipe in the song.
   setRecipe(bytes) {
     const w = this.w
@@ -382,10 +399,16 @@ class EngineProcessor extends AudioWorkletProcessor {
       slot: w.recipe_slot(i), text: bytes(w.recipe_text_ptr(i), w.recipe_text_len(i)),
       values: new Float32Array(w.memory.buffer, w.recipe_values_ptr(i), w.recipe_values_len()).slice(),
     }))
+    // The Sampler zones the song names (#522): the view loads those its synth does not hold.
+    const zones = Array.from({ length: w.song_zone_count ? w.song_zone_count() : 0 }, (_, i) => ({
+      synth: w.song_zone_synth(i), zone: w.song_zone_index(i), held: w.song_zone_held(i) === 1,
+      source: bytes(w.song_zone_source_ptr(i), w.song_zone_source_len(i)),
+      values: new Float32Array(w.memory.buffer, w.song_zone_values_ptr(i), w.zone_fields()).slice(),
+    }))
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes, zones,
     })
   }
 

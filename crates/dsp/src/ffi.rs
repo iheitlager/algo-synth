@@ -610,6 +610,90 @@ pub extern "C" fn zones_clear(synth: u32) {
     with_engine(|e| e.clear_zones(synth as usize));
 }
 
+/// The zones of `synth` were laid out by the view from a pack or the song
+/// (#522), not by a hand: they do not fold into the song.
+#[unsafe(no_mangle)]
+pub extern "C" fn zones_settle(synth: u32) {
+    with_engine(|e| e.settle_zones(synth as usize));
+}
+
+/// The sample in `slot` came from the source in `song_buf` (#522): 0, or −1
+/// for an empty slot or a source that isn't one.
+#[unsafe(no_mangle)]
+pub extern "C" fn sample_source_set(slot: u32) -> i32 {
+    query(-1, |e| {
+        if e.set_sample_source_from_buffer(slot as usize) {
+            0
+        } else {
+            -1
+        }
+    })
+}
+
+// The song's zone lines (#522): the view loads each source and lays the
+// zones out on the track's synth, unless the synth plays them already.
+
+/// How many zone lines the song has.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_count() -> u32 {
+    query(0, |e| e.song().zones.len() as u32)
+}
+
+/// The synth the track of zone line `i` plays on, or −1.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_synth(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .zones
+            .get(i as usize)
+            .and_then(|z| e.song_routed(z.track))
+            .map_or(-1, |s| s as i32)
+    })
+}
+
+/// The zone (from 0) zone line `i` sets, or −1.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_index(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song().zones.get(i as usize).map_or(-1, |z| z.zone as i32)
+    })
+}
+
+/// The source of zone line `i`: its length in bytes and where it is.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_source_len(i: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .zones
+            .get(i as usize)
+            .map_or(0, |z| z.source.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_source_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .zones
+            .get(i as usize)
+            .map_or(std::ptr::null(), |z| z.source.as_ptr())
+    })
+}
+
+/// Zone line `i`'s fields by `ZoneField` id (its sample −1), `zone_fields` of them.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_values_ptr(i: u32) -> *const f32 {
+    query(std::ptr::null(), |e| {
+        e.song_zone_values(i as usize).as_ptr()
+    })
+}
+
+/// 1 when zone line `i`'s synth plays it already, else 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_zone_held(i: u32) -> u32 {
+    query(0, |e| u32::from(e.song_zone_held(i as usize)))
+}
+
 /// Fields in a zone: the length of `ZoneField`'s id range.
 #[unsafe(no_mangle)]
 pub extern "C" fn zone_fields() -> u32 {
