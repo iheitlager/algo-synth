@@ -1521,14 +1521,17 @@ fn song_blocks_parse(name: &str, doc: &str) -> usize {
     blocks.len()
 }
 
-/// The normative definition of the language (#383).
+/// The normative definition of the language (#383): the composer's part and
+/// the sound designer's (#514).
 const LANGUAGE: &str = include_str!("../../../../.openspec/language.md");
+const SOUND_DESIGN: &str = include_str!("../../../../.openspec/sound-design.md");
 
 /// #383: every ```song block of the language's definition parses and prints
 /// back equal.
 #[test]
 fn the_language_examples_parse() {
-    let n = song_blocks_parse(".openspec/language.md", LANGUAGE);
+    let n = song_blocks_parse(".openspec/language.md", LANGUAGE)
+        + song_blocks_parse(".openspec/sound-design.md", SOUND_DESIGN);
     assert!(n >= 20, "{n} song blocks");
 }
 
@@ -1543,7 +1546,7 @@ fn the_language_definition_covers_the_parser() {
     let (mut code, mut prose) = (String::new(), String::new());
     let mut fenced = false;
     let mut headings = Vec::new();
-    for line in LANGUAGE.lines() {
+    for line in LANGUAGE.lines().chain(SOUND_DESIGN.lines()) {
         if line.starts_with("```") {
             fenced = !fenced;
             continue;
@@ -1606,7 +1609,7 @@ fn the_language_definition_covers_the_parser() {
     }
     assert!(
         missing.is_empty(),
-        ".openspec/language.md does not define: {missing:?}"
+        ".openspec/language.md and sound-design.md do not define: {missing:?}"
     );
 }
 

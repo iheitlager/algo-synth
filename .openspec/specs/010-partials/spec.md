@@ -337,7 +337,7 @@ A signal SHOULD also be sampleable at each note-on and held for that note (`.wt1
 
 The method is `.onNote`, written bare. On a voice parameter of a Mono or Poly synth (now with `wt1pos` and `wt2pos`) each voice holds its note's value; on any other parameter, a Modular knob among them, the synth holds it until the track's next note. Live morph positions, freeze and live transform amounts are not registry parameters: a morph and the transforms are baked into a user table when it is built (Requirement 9), so the table position is the sequenced dimension, and a `sweep` table makes that position the morph.
 
-**Implementation:** `crates/dsp/src/song/signal.rs` (`Node::OnNote`, `Signal::on_note`), `crates/dsp/src/engine.rs` (`Engine::sample_on_note`), `crates/dsp/src/mono/voice.rs::VOICE_PARAMS`, `crates/dsp/src/poly.rs` (`PolyPool::pressed`), `.openspec/language.md` (the sound-design part moves with #514)
+**Implementation:** `crates/dsp/src/song/signal.rs` (`Node::OnNote`, `Signal::on_note`), `crates/dsp/src/engine.rs` (`Engine::sample_on_note`), `crates/dsp/src/mono/voice.rs::VOICE_PARAMS`, `crates/dsp/src/poly.rs` (`PolyPool::pressed`), `.openspec/sound-design.md`
 
 #### Scenario: a timbre per note
 
