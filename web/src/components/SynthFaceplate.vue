@@ -23,6 +23,7 @@ import CodeEditor from './synth/CodeEditor.vue'
 import CodeKnobs from './synth/CodeKnobs.vue'
 import Rocker from './synth/Rocker.vue'
 import Switch from './synth/Switch.vue'
+import WaveStack from './synth/WaveStack.vue'
 
 const props = defineProps<{ s: number; def: ModelDef }>()
 
@@ -154,6 +155,7 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
                 :color="def.theme.accent" :text="(v: number) => `${Math.round(v) + 1}`"
               />
             </div>
+            <WaveStack v-else-if="c.kind === 'wave'" :table="val(c.table)" :pos="val(c.pos)" :label="`${def.name} ${c.label}`" />
             <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
             <SamplerPane v-else-if="c.kind === 'sampler'" :s="s" />
             <PadGrid v-else-if="c.kind === 'pads'" :s="s" />

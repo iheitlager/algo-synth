@@ -431,6 +431,9 @@ export const sampleStore = reactive({
   error: '',
   busy: '',
 })
+/** The engine's wavetables (`Tables::sketch`): every wave of every table at `WAVE_POINTS` points, table by table. */
+export const WAVE_POINTS = 64
+export const wavetables = shallowReactive({ points: null as Float32Array | null })
 /** Each synth's zones by engine index, as the engine last reported them. */
 export const zoneState = reactive({ zones: [] as Zone[][] })
 export const zonesOf = (s: number): Zone[] => zoneState.zones[s] ?? Array.from({ length: ZONES }, () => EMPTY_ZONE)
@@ -1007,6 +1010,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
       sampleStore.cap = data.cap as number
     }
     wait?.done(code)
+  } else if (data.t === 'wavetables') {
+    wavetables.points = data.points as Float32Array
   } else if (data.t === 'sampleCleared') {
     const slot = data.slot as number
     sampleStore.slots[slot] = null

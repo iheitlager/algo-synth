@@ -1141,6 +1141,13 @@ impl Engine {
         self.peaks.len()
     }
 
+    /// Sketch every wavetable (see `Tables::sketch`) into the peaks buffer and return
+    /// how many values it holds. Allocates: a control-thread call, never `render`.
+    pub fn wavetable_sketch(&mut self, points: usize) -> usize {
+        self.tables.sketch(points, &mut self.peaks);
+        self.peaks.len()
+    }
+
     pub fn peaks(&self) -> &[f32] {
         &self.peaks
     }

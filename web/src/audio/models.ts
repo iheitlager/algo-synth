@@ -37,6 +37,8 @@ export type Control =
   | { kind: 'eg4'; label: string; rates: ParamId[]; levels: ParamId[] }
   /** The DX7 algorithm number, drawn as the manual does. */
   | { kind: 'algo'; label: string; param: ParamId }
+  /** A wavetable drawn as a stack of its waves, the one at the position lit; it shows, it sets nothing. */
+  | { kind: 'wave'; label: string; table: ParamId; pos: ParamId }
   /** Load DX7 voices from a SysEx file; the engine reads it, the view only forwards the bytes. */
   | { kind: 'sysex' }
   /** The sampler's pack browser, sample slots, zone map and zone editor (#125). */
@@ -655,6 +657,7 @@ const ppgWave: ModelDef = {
     {
       title: 'Wavetable 1',
       controls: [
+        { kind: 'wave', label: 'Wavetable 1', table: Param.Wt1Table, pos: Param.Wt1Pos },
         select('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
         range('Range', Param.Vco1Coarse, -24, 24, 1), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
@@ -662,6 +665,7 @@ const ppgWave: ModelDef = {
     {
       title: 'Wavetable 2',
       controls: [
+        { kind: 'wave', label: 'Wavetable 2', table: Param.Wt2Table, pos: Param.Wt2Pos },
         select('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
         range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],

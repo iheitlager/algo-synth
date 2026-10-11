@@ -190,6 +190,21 @@ impl Tables {
         let base = (table.min(TABLES - 1) * WAVES + k.min(WAVES - 1)) * STRIDE;
         self.waves.get(base..base + STRIDE).unwrap_or(&[])
     }
+
+    /// Every wave of every table, table by table, as `points` evenly spaced samples
+    /// of its cycle, into `out`: what the view draws. Allocates.
+    pub fn sketch(&self, points: usize, out: &mut Vec<f32>) {
+        let points = points.clamp(1, WAVE_LEN);
+        out.clear();
+        for table in 0..TABLES {
+            for k in 0..WAVES {
+                let wave = self.wave(table, k);
+                out.extend(
+                    (0..points).map(|i| wave.get(i * WAVE_LEN / points).copied().unwrap_or(0.0)),
+                );
+            }
+        }
+    }
 }
 
 /// One cycle's worth of a read: `phase` 0..1 into a wave, interpolated.
@@ -442,6 +457,18 @@ mod tests {
     use super::*;
 
     const SR: f32 = 48_000.0;
+
+    #[test]
+    fn a_sketch_holds_every_wave_at_the_points_asked_for() {
+        let t = Tables::new(SR);
+        let mut out = Vec::new();
+        t.sketch(64, &mut out);
+        assert_eq!(out.len(), TABLES * WAVES * 64);
+        assert!(out.iter().all(|y| y.is_finite() && y.abs() <= 1.0 + 1e-6));
+        // Wave 5 of table 2, every fourth sample.
+        let at = (2 * WAVES + 5) * 64;
+        assert_eq!(out[at + 3], t.wave(2, 5)[12]);
+    }
 
     /// The frequency in Hz of an oscillator playing wave `k` of `table` at `note`, from
     /// the interpolated times of its upward zero crossings over many cycles.

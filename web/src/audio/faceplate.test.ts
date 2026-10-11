@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  NEW_AMOUNT, amountToPos, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, keySwitches, keyTrackOf, nearestStep, posToAmount, pressCell, stepIndex, wavePath,
+  NEW_AMOUNT, amountToPos, jackName, stepped, envPath, envPoints, envWidths, findSlot, fmtUnit, freeSlot, keySwitches, keyTrackOf, nearestStep, posToAmount, pressCell, stepIndex, wavePath, waveStack, TABLE_WAVES,
   type PatchSlot,
 } from './faceplate'
 
@@ -168,5 +168,30 @@ describe('Minimoog keyboard control', () => {
     const steps = [0, Math.fround(1 / 3), Math.fround(2 / 3), 1]
     expect(steps.map(keySwitches)).toEqual([[false, false], [true, false], [false, true], [true, true]])
     for (const v of steps) expect(keyTrackOf(...keySwitches(v))).toBe(v)
+  })
+})
+
+describe('wavetable stack', () => {
+  const points = 8
+  // Two tables; wave k of table 1 is flat at k / 63, so a drawn wave's height tells which it is.
+  const sketch = new Float32Array(2 * TABLE_WAVES * points)
+  for (let k = 0; k < TABLE_WAVES; k++) sketch.fill(k / (TABLE_WAVES - 1), (TABLE_WAVES + k) * points, (TABLE_WAVES + k + 1) * points)
+  const ys = (d: string) => [...d.matchAll(/[ML][\d.]+ ([\d.-]+)/g)].map((m) => Number(m[1]))
+
+  it('draws nothing until the engine has sent the tables, or for a table it does not have', () => {
+    expect(waveStack(null, points, 0, 0.5, 120, 60)).toEqual({ ghosts: [], lit: '' })
+    expect(waveStack(sketch, points, 2, 0.5, 120, 60).lit).toBe('')
+  })
+
+  it('lights the wave nearest the position, a line of one point per sample, inside the box', () => {
+    const { ghosts, lit } = waveStack(sketch, points, 1, 1, 120, 60)
+    expect(lit.match(/[ML]/g)).toHaveLength(points)
+    expect(ghosts.length).toBeGreaterThan(10)
+    for (const d of [lit, ...ghosts]) for (const y of ys(d)) expect(y).toBeGreaterThanOrEqual(0), expect(y).toBeLessThanOrEqual(60)
+    // The back wave (63) is flat at full height; the front one (0) at its rest line, lower down.
+    const back = ys(lit)
+    const front = ys(waveStack(sketch, points, 1, 0, 120, 60).lit)
+    expect(new Set(back).size).toBe(1)
+    expect(back[0]).toBeLessThan(front[0])
   })
 })
