@@ -6,9 +6,9 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
 import { spectrogramPixels } from '../../audio/colormap'
 import { keepFile } from '../../audio/audiostore'
-import { parseKits, parseManifest, peakPath, sourceFile, sourcesOf, type Kit, type Pack } from '../../audio/sampler'
+import { keyName, parseKits, parseManifest, peakPath, rootsBetween, sourceFile, sourcesOf, type Kit, type Pack } from '../../audio/sampler'
 import {
-  Analyser, Edit, LAB_CHANNEL, LabEngine, Morph, NO_EDITS, NO_MORPH, codeMessage, connectMain, isGenerated, type Spectrogram, type Track,
+  Analyser, Edit, LAB_CHANNEL, LabEngine, Morph, NO_EDITS, NO_MORPH, codeMessage, connectMain, isGenerated, type KeySample, type Spectrogram, type Track,
 } from '../../audio/spectral'
 import { Preset } from '../../audio/params'
 import Keyboard from '../synth/Keyboard.vue'
@@ -26,6 +26,8 @@ const state = reactive({
   frames: 0, side: 'b' as Side,
   /** The main window's user slot (0-7) a table or an attack goes to. */
   slot: 0,
+  /** A multisample's lowest and highest root and the step between roots (#520). */
+  multi: { lo: 36, hi: 84, step: 7 },
   /** What a recipe names as the sound's source (ADR-0033): a pack's sample, or `@` and a kept file's hash. */
   source: '',
 })
@@ -66,6 +68,10 @@ const peaks = reactive<{ a: ArrayLike<number>; b: ArrayLike<number> }>({ a: [], 
 const held = reactive(new Set<number>())
 const canvas = ref<HTMLCanvasElement | null>(null)
 const over = ref(false)
+
+// The roots a multisample may span, and its steps (#520).
+const KEYS = Array.from({ length: 85 }, (_, i) => 24 + i)
+const STEPS: [number, string][] = [[1, 'semitone'], [2, 'tone'], [3, 'minor third'], [4, 'major third'], [5, 'fourth'], [7, 'fifth'], [12, 'octave']]
 
 const rate = computed(() => engine.value?.ctx.sampleRate ?? 48_000)
 const ratio = computed(() => 2 ** (settings.semitones / 12))
@@ -240,6 +246,33 @@ async function send() {
   const base = state.name.replace(/\.wav$/i, '') || 'sound'
   const code = await main.send(`${base} (resynth).wav`, resynth.value.slice(0))
   state.sent = code < 0 ? codeMessage(code) : 'in the app\'s samples: put it on a Sampler\'s zone'
+}
+
+// The resynthesis at every root of a range, each its own length and pitch, onto
+// a Sampler in the main window (#520). Keys over two octaves from the original's
+// root are left out: the render shifts no further.
+async function sendMulti() {
+  const a = analyser.value
+  if (!a || !tracks.value.length) return
+  const mix = b.source ? morph : NO_MORPH
+  const base = state.name.replace(/\.wav$/i, '') || 'sound'
+  const samples: KeySample[] = []
+  let skipped = 0
+  const roots = rootsBetween(state.multi.lo, state.multi.hi, state.multi.step)
+  for (const [i, root] of roots.entries()) {
+    state.busy = `rendering ${keyName(root)} (${i + 1} of ${roots.length})…`
+    const { wav, original } = await a.renderAt(settings.top, root, settings.stretch, edits, mix)
+    if (Math.abs(root - original) > 24) skipped++
+    else if (wav.byteLength) samples.push({ root, bytes: wav })
+  }
+  state.busy = ''
+  if (!samples.length) {
+    state.sent = 'no key within two octaves of the sound\'s root'
+    return
+  }
+  const code = await main.sendMulti(base, samples)
+  state.sent = code < 0 ? codeMessage(code) : `${code} keys on a Sampler in the app`
+  if (code >= 0 && skipped) state.sent += ` · ${skipped} more than two octaves away left out`
 }
 
 // The analysed sound as a wavetable for the PPG, or its attack for the D-50, into
@@ -514,6 +547,22 @@ onBeforeUnmount(() => {
       </button>
       <button :disabled="!tracks.length || !state.main" title="The sound's attack as a PCM sample for a D-50 partial" @click="sendUser('attack')">
         Send attack
+      </button>
+      <label class="slot">keys
+        <select v-model.number="state.multi.lo" aria-label="Lowest root">
+          <option v-for="n in KEYS" :key="n" :value="n">{{ keyName(n) }}</option>
+        </select>
+        to
+        <select v-model.number="state.multi.hi" aria-label="Highest root">
+          <option v-for="n in KEYS" :key="n" :value="n">{{ keyName(n) }}</option>
+        </select>
+        every
+        <select v-model.number="state.multi.step" aria-label="Step between roots">
+          <option v-for="[n, label] in STEPS" :key="n" :value="n">{{ label }}</option>
+        </select>
+      </label>
+      <button :disabled="!tracks.length || !state.main || state.multi.hi < state.multi.lo" title="B rendered at every root, mapped on a Sampler in the app between them" @click="sendMulti">
+        Send as multisample
       </button>
       <span class="status">{{ state.main ? state.sent : 'no main window: open the app to send' }}</span>
     </div>

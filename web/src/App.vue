@@ -3,7 +3,7 @@
 // console or the composer, with the arranger across the bottom, and the
 // Assistant beside them when shown (#387).
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
-import { loadSample, loadSong, loadUserFromLab, sampleStore, song, status, synths, view } from './audio/engine'
+import { loadMultisample, loadSample, loadSong, loadUserFromLab, sampleStore, song, status, synths, view } from './audio/engine'
 import { CHANNEL, assistant, defaultFocus, serveWindow, type AssistHost, type LinkState } from './audio/assistlink'
 import { freeSlot } from './audio/sampler'
 import { LAB_CHANNEL, serveLab } from './audio/spectral'
@@ -54,7 +54,8 @@ const appHost: AssistHost = {
 }
 let server: ReturnType<typeof serveWindow> | null = null
 // The Spectral Lab (ADR-0017) sends a resynthesis here, into a free sample slot, and
-// wavetables and attacks into the PPG's and the D-50's user slots (spec 010 Req 9-10).
+// wavetables and attacks into the PPG's and the D-50's user slots (spec 010 Req 9-10),
+// and renderings at several roots onto a Sampler (#520).
 let lab: ReturnType<typeof serveLab> | null = null
 function labSample(name: string, bytes: ArrayBuffer): Promise<number> {
   const slot = freeSlot(sampleStore.slots)
@@ -73,6 +74,7 @@ onMounted(() => {
     sample: labSample,
     table: (slot, values, recipe) => loadUserFromLab('table', slot, values, recipe),
     attack: (slot, root, values, recipe) => loadUserFromLab('attack', slot, values, recipe, root),
+    multisample: loadMultisample,
   })
   window.addEventListener('pagehide', goodbye)
 })

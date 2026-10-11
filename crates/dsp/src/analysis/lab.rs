@@ -388,6 +388,19 @@ impl Lab {
     /// bytes, 0 without an analysis. The phase is locked only when neither
     /// shift nor stretch moves it.
     pub fn render(&mut self, n: usize, ratio: f32, stretch: f32) -> usize {
+        self.render_root(n, ratio, stretch, self.root)
+    }
+
+    /// Resynthesise as `render` does, shifted to sound at `root` (within two
+    /// octaves of the original's), its WAV marked with that root: one key of a
+    /// multisample (#520). Its length is the original's, stretched.
+    pub fn render_at(&mut self, n: usize, root: u8, stretch: f32) -> usize {
+        let root = root.clamp(self.root.saturating_sub(24), self.root.saturating_add(24));
+        let ratio = 2f32.powf((f32::from(root) - f32::from(self.root)) / 12.0);
+        self.render_root(n, ratio, stretch, root)
+    }
+
+    fn render_root(&mut self, n: usize, ratio: f32, stretch: f32, root: u8) -> usize {
         self.out.clear();
         let Some(a) = &self.analysis else {
             return 0;
@@ -415,7 +428,7 @@ impl Lab {
             return 0;
         };
         self.grams[1] = spectrogram(&pcm, a.rate, self.window, a.hop);
-        self.out = sample::float_wav(&pcm, a.rate as u32, self.root);
+        self.out = sample::float_wav(&pcm, a.rate as u32, root);
         self.out.len()
     }
 
@@ -663,6 +676,29 @@ mod tests {
         lab.render(0, 1.0, 2.0);
         let long = sample::parse(lab.rendered(), RATE).unwrap();
         assert!(long.frames() >= 2 * 24_000);
+    }
+
+    #[test]
+    fn a_render_at_a_root_keeps_the_length() {
+        let mut lab = Lab::default();
+        load(&mut lab, &sine_wav());
+        let n = lab.render(0, 1.0, 1.0);
+        let frames = sample::parse(&lab.rendered()[..n], RATE).unwrap().frames();
+        // A fifth up: E5, the same length, the pitch 440 * 2^(7/12).
+        let n = lab.render_at(0, 76, 1.0);
+        let up = sample::parse(&lab.rendered()[..n], RATE).unwrap();
+        assert_eq!(up.root, 76);
+        assert_eq!(up.frames(), frames);
+        let zero = |d: &[f32]| d.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
+        let mid = &up.data[4_000..20_000];
+        let hz = zero(mid) as f32 * RATE / mid.len() as f32;
+        assert!((hz - 440.0 * 2f32.powf(7.0 / 12.0)).abs() < 3.0, "{hz}");
+        // Beyond two octaves it stops at two.
+        let n = lab.render_at(0, 120, 1.0);
+        assert_eq!(
+            sample::parse(&lab.rendered()[..n], RATE).unwrap().root,
+            69 + 24
+        );
     }
 
     #[test]

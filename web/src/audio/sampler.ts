@@ -149,6 +149,27 @@ export function zoneSets(pack: Pack, slotOf: (file: string) => number | undefine
   return sets
 }
 
+/** The roots from `lo` up to `hi` every `step` semitones, at most `ZONES` of them (#520). */
+export function rootsBetween(lo: number, hi: number, step: number): number[] {
+  const roots: number[] = []
+  for (let r = lo; r <= hi && step >= 1 && roots.length < ZONES; r += step) roots.push(r)
+  return roots
+}
+
+/**
+ * A multisample as a pack (#520): one sample a root, named `${name} ${key}`, its
+ * zone reaching halfway to each neighbouring root and the outer ones to the ends.
+ */
+export function splitZones(name: string, roots: readonly number[]): Pack {
+  const zones = roots.map((root, i): PackZone => ({
+    sample: `${name} ${keyName(root)}`,
+    keyLo: i === 0 ? 0 : Math.floor((roots[i - 1] + root) / 2) + 1,
+    keyHi: i === roots.length - 1 ? 127 : Math.floor((root + roots[i + 1]) / 2),
+    velLo: 1, velHi: 127, root, tune: 0, loop: 0, seqLen: 1, seqPos: 1, release: false,
+  }))
+  return { id: '', name, license: '', credit: '', zones }
+}
+
 // --- Drawing -----------------------------------------------------------------
 
 /** The rectangle of a zone in a `w` x `h` map with the key across and the velocity up. */

@@ -1794,6 +1794,17 @@ pub extern "C" fn spectral_render(n: u32, ratio: f32, stretch: f32) -> u32 {
     })
 }
 
+/// Resynthesise the `n` loudest tracks (0 all) at `root`, stretched by
+/// `stretch`, as a WAV marked with that root (#520): its length in bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn spectral_render_at(n: u32, root: u32, stretch: f32) -> u32 {
+    let root = u8::try_from(root.min(127)).unwrap_or(60);
+    LAB.with(|cell| {
+        cell.try_borrow_mut()
+            .map_or(0, |mut lab| lab.render_at(n as usize, root, stretch) as u32)
+    })
+}
+
 /// The last `spectral_render`'s WAV bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn spectral_wav_ptr() -> *const u8 {
@@ -2091,6 +2102,11 @@ mod tests {
         let bytes = spectral_render(0, 1.0, 1.0);
         assert!(bytes as usize >= 44 + 4 * 12_000);
         assert!(!spectral_wav_ptr().is_null());
+        assert_eq!(
+            spectral_render_at(0, 67, 1.0),
+            bytes,
+            "a key keeps the length"
+        );
         assert_eq!(spectral_analyse(48_000.0, 2048, 0, 0), -13);
         assert_eq!(spectral_render(0, 1.0, 1.0), 0);
     }

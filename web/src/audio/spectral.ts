@@ -19,7 +19,11 @@ export type ToMain =
   | { t: 'sample'; id: number; name: string; bytes: ArrayBuffer }
   | { t: 'table'; id: number; slot: number; values: ArrayBuffer; recipe: string }
   | { t: 'attack'; id: number; slot: number; root: number; values: ArrayBuffer; recipe: string }
+  | { t: 'multisample'; id: number; name: string; samples: KeySample[] }
 export type ToLab = { t: 'here' } | { t: 'loaded'; id: number; code: number } | { t: 'gone' }
+
+/** One key of a multisample: a WAV that sounds at `root`. */
+export interface KeySample { root: number; bytes: ArrayBuffer }
 
 /** What the main window does with what the lab sends: each answers a count or 0, or a negative code. */
 export interface LabLoads {
@@ -27,6 +31,8 @@ export interface LabLoads {
   /** `recipe` is the slot's line for the song (ADR-0033), empty when it has none. */
   table(slot: number, values: ArrayBuffer, recipe: string): Promise<number>
   attack(slot: number, root: number, values: ArrayBuffer, recipe: string): Promise<number>
+  /** Samples at several roots, mapped onto a Sampler between them (#520). */
+  multisample(name: string, samples: KeySample[]): Promise<number>
 }
 
 /**
@@ -42,6 +48,9 @@ export function serveLab(port: Port, load: LabLoads) {
     else if (m?.t === 'sample' && m.bytes instanceof ArrayBuffer) answer(m.id, load.sample(m.name, m.bytes))
     else if (m?.t === 'table' && m.values instanceof ArrayBuffer) answer(m.id, load.table(m.slot, m.values, m.recipe ?? ''))
     else if (m?.t === 'attack' && m.values instanceof ArrayBuffer) answer(m.id, load.attack(m.slot, m.root, m.values, m.recipe ?? ''))
+    else if (m?.t === 'multisample' && Array.isArray(m.samples) && m.samples.every((k) => k?.bytes instanceof ArrayBuffer)) {
+      answer(m.id, load.multisample(m.name, m.samples))
+    }
   }
   // A lab opened before this page (a reload) learns it is back.
   send({ t: 'here' })
@@ -72,13 +81,13 @@ export function connectMain(port: Port, onMain: (here: boolean) => void, waitMs 
   port.postMessage({ t: 'hello' } satisfies ToMain)
   const silent = setTimeout(() => { if (!heard) onMain(false) }, waitMs)
   // Send `msg` with a fresh id; its answer, or −100 when none comes.
-  const ask = (msg: (id: number) => ToMain): Promise<number> => {
+  const ask = (msg: (id: number) => ToMain, wait = waitMs): Promise<number> => {
     const id = next++
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         pending.delete(id)
         resolve(-100)
-      }, waitMs)
+      }, wait)
       pending.set(id, (code) => {
         clearTimeout(timer)
         resolve(code)
@@ -93,6 +102,8 @@ export function connectMain(port: Port, onMain: (here: boolean) => void, waitMs 
     sendTable: (slot: number, values: ArrayBuffer, recipe = '') => ask((id) => ({ t: 'table', id, slot, values, recipe })),
     /** Load an attack, at its own pitch `root`, into the main window's user slot `slot` (0-7): 0, or a negative code. */
     sendAttack: (slot: number, root: number, values: ArrayBuffer, recipe = '') => ask((id) => ({ t: 'attack', id, slot, root, values, recipe })),
+    /** Load samples at several roots and map them onto a Sampler: how many, or a negative code. Each sample loads in turn, so the wait grows with them. */
+    sendMulti: (name: string, samples: KeySample[]) => ask((id) => ({ t: 'multisample', id, name, samples }), waitMs * (1 + samples.length)),
     close() {
       clearTimeout(silent)
       port.close()
@@ -150,6 +161,7 @@ export function codeMessage(code: number): string {
     [-13]: 'bad analysis settings',
     [-101]: 'nothing voiced: the sound has no pitch to make a table from',
     [-100]: 'the main window did not answer',
+    [-102]: 'all 16 synths are shown: remove one for a Sampler',
   }
   return messages[code] ?? `error ${code}`
 }
@@ -207,6 +219,15 @@ export class Analyser {
   /** The recipe line (ADR-0033) of the table (`kind` 0) or attack (1) into user slot `slot` (1-8) from `source`; '' when not one. */
   async recipe(kind: 0 | 1, slot: number, source: string, edits: readonly number[] = NO_EDITS, morph: readonly number[] = NO_MORPH): Promise<string> {
     return (await this.ask({ t: 'recipe', kind, slot, source, edits: [...edits], morph: [...morph] })).line
+  }
+
+  /**
+   * The resynthesis at `root` (#520), stretched, as WAV bytes marked with that root, and the
+   * original's root: a key more than two octaves from it renders two octaves away.
+   */
+  async renderAt(top: number, root: number, stretch: number, edits: readonly number[] = NO_EDITS, morph: readonly number[] = NO_MORPH): Promise<{ wav: ArrayBuffer; original: number }> {
+    const r = await this.ask({ t: 'renderAt', top, root, stretch, edits: [...edits], morph: [...morph] })
+    return { wav: r.wav, original: r.root }
   }
 
   /** The resynthesis of the `top` loudest tracks (0 all), shifted and stretched, as WAV bytes, with its spectrogram. */

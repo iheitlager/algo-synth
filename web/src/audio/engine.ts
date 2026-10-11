@@ -16,13 +16,13 @@ import { capture, modified, plan, type PresetRegistry, type Target, type UserPre
 import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setNames, stripName, trackLabel } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
-  parseManifest, slotsUsedElsewhere, sourceFile, zoneSets, type Kit, type Pack, type Pad, type Zone,
+  parseManifest, slotsUsedElsewhere, sourceFile, splitZones, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
 import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
 import { keepView, lastView } from './viewstate'
 import { keptFile } from './audiostore'
-import { Analyser, isGenerated, recipeOf, type SongRecipe } from './spectral'
+import { Analyser, isGenerated, recipeOf, type KeySample, type SongRecipe } from './spectral'
 import { startMidi } from './midiin'
 
 const base = import.meta.env.BASE_URL
@@ -711,6 +711,37 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
   } finally {
     sampleStore.busy = ''
   }
+}
+
+/**
+ * A multisample from the Spectral Lab (#520): each key's WAV into a free slot, mapped between its
+ * neighbouring roots on the selected synth if it is a Sampler, else on a new one. Live only (#522).
+ * How many loaded, or a negative code: −7 too few free slots, −102 no synth to add.
+ */
+export async function loadMultisample(name: string, samples: KeySample[]): Promise<number> {
+  const keys = [...samples].sort((a, b) => a.root - b.root)
+  const free = Array.from({ length: SAMPLE_SLOTS }, (_, i) => i).filter((i) => !sampleStore.slots[i])
+  if (free.length < keys.length) return -7
+  const sampler = params.values[synths.selected]?.[Param.Model] === Model.Sampler
+  if (!sampler && !addSynth(modelDef(Model.Sampler))) return -102
+  const s = synths.selected
+  const pack = splitZones(name, keys.map((k) => k.root))
+  const slotOf = new Map<string, number>()
+  for (const [i, k] of keys.entries()) {
+    sampleStore.busy = `${name}: ${i + 1} of ${keys.length}`
+    const file = pack.zones[i]?.sample ?? name
+    const code = await loadSample(free[i] ?? -1, k.bytes, file)
+    if (code < 0) {
+      sampleStore.busy = ''
+      return code
+    }
+    slotOf.set(file, free[i] ?? -1)
+  }
+  sampleStore.busy = ''
+  engine?.post({ t: 'zonesClear', s })
+  for (const [zone, field, v] of zoneSets(pack, (f) => slotOf.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
+  requestZones(s)
+  return keys.length
 }
 
 /** Put the sample in `slot` across the keys on the first empty zone of `s`, at its own root. */
