@@ -274,3 +274,24 @@ export function padSets(kit: Kit, slotOf: (file: string) => number | undefined):
     ] as [number, number, number][]
   })
 }
+
+/**
+ * The manifest file a recipe's source names (ADR-0033): `upright-piano-kw/C4vH`
+ * is the sample `C4vH.wav` of pack (or kit) `upright-piano-kw`. Null when no
+ * pack or kit has it; an `@hash` source is not a manifest file either.
+ */
+export function sourceFile(source: string, packs: readonly Pack[], kits: readonly Kit[]): string | null {
+  const [id, stem, extra] = source.split('/')
+  if (!id || !stem || extra !== undefined || source.startsWith('@')) return null
+  const files = [
+    ...(packs.find((p) => p.id === id)?.zones.map((z) => z.sample) ?? []),
+    ...(kits.find((k) => k.id === id)?.pads.map((p) => p.sample) ?? []),
+  ]
+  return files.find((f) => f.endsWith(`/${stem}.wav`)) ?? null
+}
+
+/** Every sample a pack or kit has, as `<id>/<stem>` recipe sources. */
+export function sourcesOf(packs: readonly Pack[], kits: readonly Kit[]): string[] {
+  const of = (id: string, files: string[]) => files.map((f) => `${id}/${f.split('/').pop()?.replace(/\.wav$/, '')}`)
+  return [...packs.flatMap((p) => of(p.id, p.zones.map((z) => z.sample))), ...kits.flatMap((k) => of(k.id, k.pads.map((p) => p.sample)))]
+}

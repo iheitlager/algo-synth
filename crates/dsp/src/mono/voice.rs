@@ -29,7 +29,7 @@ use crate::mono::{MonoParams, VCOS};
 use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::ZoneMap;
-use crate::table::{TableOsc, Tables};
+use crate::table::{TableOsc, TableSet};
 use crate::voice::Gains;
 use crate::voice::midi_to_hz;
 
@@ -148,7 +148,7 @@ pub struct Tools<'a> {
     pub blep: &'a Blep,
     pub ladder: &'a LadderTables,
     pub pitch: &'a PitchTable,
-    pub tables: &'a Tables,
+    pub tables: TableSet<'a>,
     /// The sample store and this synth's zones, for the sampler's voices.
     pub samples: &'a SampleStore,
     pub zones: &'a ZoneMap,
@@ -164,7 +164,7 @@ pub struct MonoCtx<'a> {
     /// A poly synth's shared LFO; `None` gives the voice its own.
     pub shared: Option<&'a SharedMod>,
     /// The generated wavetables and samples.
-    pub tables: &'a Tables,
+    pub tables: TableSet<'a>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -223,7 +223,7 @@ pub struct MonoVoice {
 
 /// The parameters a voice can hold a value of its own for (ADR-0023), in the
 /// order of `VoiceSet`'s slots.
-pub const VOICE_PARAMS: [Param; 8] = [
+pub const VOICE_PARAMS: [Param; 10] = [
     Param::Cutoff,
     Param::Resonance,
     Param::Vco1Level,
@@ -232,6 +232,8 @@ pub const VOICE_PARAMS: [Param; 8] = [
     Param::NoiseLevel,
     Param::RingLevel,
     Param::SubLevel,
+    Param::Wt1Pos,
+    Param::Wt2Pos,
 ];
 
 /// One voice's own values (ADR-0023): a per-voice signal writes them, and the
@@ -239,7 +241,7 @@ pub const VOICE_PARAMS: [Param; 8] = [
 /// voice reads them: the cutoff as a note, the resonance as a feedback.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct VoiceSet {
-    mask: u8,
+    mask: u16,
     v: [f32; VOICE_PARAMS.len()],
 }
 
@@ -582,8 +584,9 @@ impl MonoVoice {
                 t1.set_increment(inc1);
                 t2.set_increment(ctx.pitch.at(base + p.tune[1] + m2));
                 let sweep = fenv * p.env_wt + lfo * p.lfo_wt;
-                let pos =
-                    |i: usize| (p.wt_pos.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
+                // A voice may hold its own positions (`.wt1pos(rand.onNote)`).
+                let wt = [own.or(8, p.wt_pos[0]), own.or(9, p.wt_pos[1])];
+                let pos = |i: usize| (wt.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
                 let tab = |i: usize| p.wt_table.get(i).copied().unwrap_or(0);
                 (
                     t1.step(ctx.tables, tab(0), pos(0), p.wt_steps),
@@ -683,6 +686,7 @@ impl MonoVoice {
 mod tests {
     use super::*;
     use crate::params::Param;
+    use crate::table::Tables;
     use crate::voice::sine_table;
 
     const SR: f32 = 48_000.0;
@@ -734,7 +738,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
-                tables: self.tables,
+                tables: self.tables.into(),
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {

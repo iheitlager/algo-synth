@@ -405,11 +405,11 @@ pub enum Param {
     Patch20Dest = 197,
     /// Patch slot 20 amount, −1..=1.
     Patch20Amount = 198,
-    /// Wavetable of the first table oscillator, 0..=7 (the PPG Wave).
+    /// Wavetable of the first table oscillator, 0..=7 (the PPG Wave), 8..=15 a user table.
     Wt1Table = 199,
     /// Wave position of the first oscillator in its table, 0..=1.
     Wt1Pos = 200,
-    /// Wavetable of the second oscillator, 0..=7.
+    /// Wavetable of the second oscillator, 0..=7, 8..=15 a user table.
     Wt2Table = 201,
     /// Wave position of the second oscillator, 0..=1.
     Wt2Pos = 202,
@@ -419,9 +419,9 @@ pub enum Param {
     EnvWt = 204,
     /// LFO → wave position of both oscillators, 0..=1.
     LfoWt = 205,
-    /// Partial 1's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample (the D-50).
+    /// Partial 1's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample (the D-50), 9..=16 a user attack.
     Pcm1Sample = 206,
-    /// Partial 2's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample.
+    /// Partial 2's PCM attack: 0 is a synthesised oscillator, 1..=8 a sample, 9..=16 a user attack.
     Pcm2Sample = 207,
     /// How the two partials combine: 0 add, 1 sync (partial 2 to 1), 2 ring (1 × 2).
     Structure = 208,
@@ -1986,12 +1986,14 @@ impl Param {
             Param::PitchBend => (-1.0, 1.0),
             Param::BendRange => (0.0, 24.0),
             Param::Revision => (0.0, 4.0),
-            Param::Wt1Table | Param::Wt2Table => (0.0, 7.0),
+            // 0..=7 the generated tables, 8..=15 the user's (spec 010 Req 9).
+            Param::Wt1Table | Param::Wt2Table => (0.0, 15.0),
             Param::Wt1Pos | Param::Wt2Pos | Param::LfoWt => (0.0, 1.0),
             Param::WtSteps => (0.0, 1.0),
             Param::EnvWt => (-1.0, 1.0),
-            Param::Pcm1Sample => (0.0, 8.0),
-            Param::Pcm2Sample => (0.0, 8.0),
+            // 1..=8 the generated attacks, 9..=16 the user's (spec 010 Req 10).
+            Param::Pcm1Sample => (0.0, 16.0),
+            Param::Pcm2Sample => (0.0, 16.0),
             Param::Structure => (0.0, 2.0),
             Param::P2Cutoff => (20.0, 20_000.0),
             Param::P2Resonance => (0.0, 1.0),

@@ -272,3 +272,43 @@ export function keySwitches(v: number): [boolean, boolean] {
 /** The key-track amount the two keyboard control switches give. */
 export const keyTrackOf = (one: boolean, two: boolean): number =>
   one && two ? 1 : two ? TWO_THIRDS : one ? THIRD : 0
+
+/**
+ * What to say about the user tables or attacks a synth plays (ADR-0033):
+ * `values` are its selector values (a table 8-15 or an attack 9-16 is user
+ * slot 1-8); a slot that is empty, loading, missing or failed gets a line.
+ */
+export function userSlotNotes(
+  kind: 'table' | 'attack', values: readonly number[],
+  slots: readonly ({ state: string; why?: string } | null)[],
+): string[] {
+  const first = kind === 'table' ? 8 : 9
+  const used = [...new Set(values.map((v) => Math.round(v) - first + 1).filter((n) => n >= 1 && n <= 8))]
+  return used.flatMap((n) => {
+    const slot = slots[n - 1]
+    const name = `User ${n}`
+    if (!slot) return [`${name} is empty: send a ${kind} from the Spectral Lab, or add a \`${kind} ${n} = …\` line to the song`]
+    if (slot.state === 'loading') return [`${name} is being rebuilt from its recipe…`]
+    if (slot.state === 'missing' || slot.state === 'failed') return [`${name} is silent: ${slot.why ?? 'its recipe could not be rebuilt'}`]
+    return []
+  })
+}
+
+/** A knob of a Modular synth's code, as far as an envelope needs it. */
+interface EnvKnob { module: number; ugen: string; name: string }
+
+/**
+ * The amplitude envelope of a Modular synth's code (#519): the last `EnvGen`
+ * with an attack and a release (the one a SynthDef usually multiplies its
+ * output by), its knobs by stage; null when the code has none, and the
+ * synth's own ADSR shapes the voice.
+ */
+export function ampEnvelope<K extends EnvKnob>(knobs: readonly K[]): { module: number; a?: K; d?: K; s?: K; r?: K } | null {
+  const modules = [...new Set(knobs.filter((k) => k.ugen === 'EnvGen').map((k) => k.module))]
+  for (const m of modules.reverse()) {
+    const of = (name: string) => knobs.find((k) => k.module === m && k.name === name)
+    const [a, d, s, r] = [of('attack'), of('decay'), of('sustain'), of('release')]
+    if (a && r) return { module: m, a, d, s, r }
+  }
+  return null
+}

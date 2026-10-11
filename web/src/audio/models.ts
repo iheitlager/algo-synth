@@ -49,6 +49,8 @@ export type Control =
   | { kind: 'code' }
   /** A knob for each number of the Modular synth's SynthDef, by UGen (#329). */
   | { kind: 'knobs' }
+  /** An optional live spectrum of the synth's own output (#519). */
+  | { kind: 'spectrum' }
   | { kind: 'note'; text: string }
   /** An empty slot the size of a knob, so a column lines up with its neighbours (#364). */
   | { kind: 'gap' }
@@ -66,6 +68,10 @@ export interface Section {
   pairs?: boolean
   /** Takes the rest of its row: the Modular code beside the envelope (#329). */
   grow?: boolean
+  /** As tall as the tallest section in its row, its controls filling it (#519). */
+  fill?: boolean
+  /** A Modular synth's amplifier envelope: its code's own `EnvGen` when it has one, else the synth's ADSR (#519). */
+  panelEnv?: boolean
   /** Its own accent where the instrument colours its sections, as the TR-808's step buttons. */
   colour?: string
 }
@@ -150,6 +156,8 @@ const int = (label: string, param: ParamId, max: number, def = 0): Control =>
 const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: ParamId, decayIsRelease = false): Control =>
   ({ kind: 'env', label, a, d, s, r, decayIsRelease })
 const select = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options })
+/** A select too long for a row of buttons: a dropdown. */
+const dropdown = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options, dropdown: true })
 const sw = (label: string, param: ParamId): Control => ({ kind: 'switch', label, param })
 const rocker = (label: string, param: ParamId, colour: RockerColour): Control => ({ kind: 'switch', label, param, rocker: colour })
 
@@ -639,8 +647,11 @@ const matrix12: ModelDef = {
   ],
 }
 
-/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs). */
-const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7]]
+/** Eight user slots after `first`: tables and attacks the Spectral Lab sends (spec 010 Req 9-10). */
+const userSlots = (first: number): Options => Array.from({ length: 8 }, (_, i) => [`User ${i + 1}`, first + i] as [string, number])
+
+/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs), then the user's. */
+const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7], ...userSlots(8)]
 
 // Eight voices of two wavetable oscillators whose wave position the filter
 // envelope and the LFO move, in stepped transitions or crossfaded, into a
@@ -658,7 +669,7 @@ const ppgWave: ModelDef = {
       title: 'Wavetable 1',
       controls: [
         { kind: 'wave', label: 'Wavetable 1', table: Param.Wt1Table, pos: Param.Wt1Pos },
-        select('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
+        dropdown('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
         range('Range', Param.Vco1Coarse, -24, 24, 1), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
     },
@@ -666,7 +677,7 @@ const ppgWave: ModelDef = {
       title: 'Wavetable 2',
       controls: [
         { kind: 'wave', label: 'Wavetable 2', table: Param.Wt2Table, pos: Param.Wt2Pos },
-        select('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
+        dropdown('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
         range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],
     },
@@ -701,8 +712,8 @@ const ppgWave: ModelDef = {
   ],
 }
 
-/** A partial's source: synthesised, or one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs). */
-const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8]]
+/** A partial's source: synthesised, one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs), or a user attack. */
+const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8], ...userSlots(9)]
 const SYNTH_WAVES: Options = [['Saw', 0], ['Pulse', 1], ['Triangle', 2]]
 const STRUCTURE: Options = [['Add', 0], ['Sync', 1], ['Ring', 2]]
 
@@ -721,7 +732,7 @@ const d50: ModelDef = {
     {
       title: 'Partial 1',
       controls: [
-        select('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
+        dropdown('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
         range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
     },
@@ -737,7 +748,7 @@ const d50: ModelDef = {
     {
       title: 'Partial 2',
       controls: [
-        select('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
+        dropdown('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
         range('Pitch', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],
     },
@@ -1254,8 +1265,11 @@ const modular: ModelDef = {
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
   presets: ['ModularBasic', 'ModularHoover', 'ModularKick'],
   sections: [
-    { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
+    // The code's amplitude envelope when it writes one out, else the voice's own ADSR.
+    { title: 'Amplifier envelope', panelEnv: true, controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
     { title: 'Code', grow: true, controls: [{ kind: 'code' }] },
+    // Beside the code and as tall, so a change to the SynthDef shows in the sound as it is typed.
+    { title: 'Spectrum', fill: true, controls: [{ kind: 'spectrum' }] },
     { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
   ],
 }

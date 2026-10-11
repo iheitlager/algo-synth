@@ -1,0 +1,36 @@
+# Piano to Choir (ADR-0032, ADR-0033): a piano note and a choir pad of the
+# sample packs, morphed partial by partial in the Spectral Lab and rebuilt
+# when the song loads. User 3 is a PPG table that runs from the piano (its
+# first wave) to the choir (its last): the wave position is the morph. User 4
+# is the piano's own life with the choir's formants: a piano that sings.
+# Scene a walks from piano to choir and back, a step at a time; scene b lets a
+# slow sine breathe through the morph; scene c adds the singing piano.
+# Needs the sample packs (make samples).
+tempo 76
+swing 50
+setting morph = PpgWave PpgSweepPad: Wt1Table 10, Wt2Table 10, EnvWt 0, LfoWt 0, Wt1Pos 0, Wt2Pos 0.05
+setting singer = PpgWave PpgGlassBell: Wt1Table 11, Wt2Table 11, EnvWt -0.6
+setting hammer = D50 LaFantasia: Pcm1Sample 9
+track morph synth morph
+track singer synth singer
+track hammer synth hammer
+table 3 = upright-piano-kw/C4vH ~ synth-pad-choir/C4 : sweep 1
+table 4 = upright-piano-kw/C4vH ~ synth-pad-choir/C4 : mformant 1
+attack 1 = upright-piano-kw/C4vH
+
+clip walk = morph .wt1pos("0 0.25 0.5 0.75 1 0.75 0.5 0.25")
+  "c3 d#3 g3 a#3 c4 a#3 g3 d#3"
+
+clip strike = hammer
+  "c3 d#3 g3 a#3 c4 a#3 g3 d#3"
+
+clip breathe = morph .wt1pos(sine.slow(8).range(0, 1)) .wt2pos(sine.slow(6).range(0, 1))
+  "<[c3,g3] [g#2,d#3] [f2,c3] [g2,d3]>"
+
+clip sing = singer
+  "c4 ~ ~ g4 ~ ~ d#4 ~"
+
+scene a 4: walk strike
+scene b 4: breathe
+scene c 4: breathe sing
+arrange a b c a

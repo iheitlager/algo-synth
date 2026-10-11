@@ -125,7 +125,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, samples, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -801,7 +801,7 @@ fn the_example_songs_parse_and_print_back() {
             sh101 += 1;
         }
     }
-    assert_eq!(seen, 21, "twenty-one examples");
+    assert_eq!(seen, 24, "twenty-four examples");
     assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
 }
 
@@ -1908,7 +1908,7 @@ fn mod_errors_say_where() {
         (
             "mod kit.cutoff =  sine.wobble(2)",
             24,
-            "no such method: range exprange slow fast segment lag",
+            "no such method: range exprange slow fast segment lag onNote",
         ),
         (
             "mod kit.cutoff = lfo(1, pink)",
@@ -1951,7 +1951,7 @@ fn per_voice_mod_errors_say_where() {
         (
             "mod lead.pan = env(perc)",
             16,
-            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel, sublevel, wt1pos or wt2pos",
         ),
         (
             "mod lead.cutoff = env(perc).range(200, 900).lag(0.1)",
@@ -2082,7 +2082,7 @@ fn clip_method_errors_say_where() {
         (
             "clip b = kit .cutoff(sine.wobble(1))",
             27,
-            "no such method: range exprange slow fast segment lag",
+            "no such method: range exprange slow fast segment lag onNote",
         ),
         (
             "clip b = kit .cutoff()",
@@ -2506,4 +2506,40 @@ fn a_group_is_named_in_its_line() {
         "its values stay"
     );
     assert!(!song.set_group_name(8, Some("x")) && !song.set_group_name(0, Some("drum bus")));
+}
+
+/// ADR-0033: recipe lines parse, print back as they read, and keep one per slot.
+#[test]
+fn recipes_parse_and_print_back() {
+    let text = "table 1 = upright-piano-kw/C4vH : inharmonic 1.6, noise 1.5\nattack 1 = @0123456789abcdef0123456789abcdef\ntable 2 = strings/A3 : window 2048\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.recipes.len(), 3);
+    assert_eq!(s.recipes[0].edits[crate::analysis::lab::INHARMONIC], 1.6);
+    let printed = s.print();
+    assert!(
+        printed.contains("table 1 = upright-piano-kw/C4vH : inharmonic 1.6, noise 1.5"),
+        "{printed}"
+    );
+    assert!(printed.contains("attack 1 = @0123456789abcdef0123456789abcdef"));
+    assert!(printed.contains("table 2 = strings/A3 : window 2048"));
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn bad_recipes_say_where() {
+    for (text, col) in [
+        ("table 9 = a/b", 7),
+        ("table 1 = piano", 11),
+        ("table 1 = a/b : wobble 2", 17),
+        ("table 1 = a/b : window 3000", 17),
+        ("table 1 = a/b : inharmonic x", 28),
+        ("table 1 a/b", 9),
+    ] {
+        let e = Song::parse(text).expect_err(text);
+        assert_eq!((e.line, e.col), (1, col), "{text}: {}", e.msg);
+    }
+    let twice = Song::parse("table 1 = a/b\ntable 1 = a/c").expect_err("twice");
+    assert_eq!(twice.line, 2);
+    // A table and an attack may share a number.
+    assert!(Song::parse("table 1 = a/b\nattack 1 = a/b").is_ok());
 }

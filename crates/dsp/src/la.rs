@@ -98,7 +98,7 @@ impl LaVoice {
         for (o, w) in self.osc.iter_mut().zip(p.wave) {
             o.wave = w;
         }
-        let samples = &ctx.tables.samples;
+        let tables = ctx.tables;
         // What each partial is, read once for the block.
         let parts = [
             Part {
@@ -138,7 +138,7 @@ impl LaVoice {
                 let inc = ctx
                     .pitch
                     .at(self.note + self.trim + p.bend + part.tune + vibrato);
-                let pcm = part.pcm.checked_sub(1).and_then(|k| samples.get(k));
+                let pcm = part.pcm.checked_sub(1).and_then(|k| tables.sample(k));
                 *y = match (pcm, self.pcm.get_mut(n), self.osc.get_mut(n)) {
                     (Some(sample), Some(player), _) => player.step(sample, inc),
                     (None, _, Some(o)) => {
