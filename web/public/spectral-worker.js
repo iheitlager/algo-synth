@@ -92,5 +92,12 @@ self.onmessage = ({ data }) => {
       self.postMessage({ t: 'rendered', id: data.id, wav: wav.buffer, gram }, [wav.buffer, gram.buffer])
       break
     }
+    case 'renderAt': {
+      setEdits(data.edits, data.morph)
+      const len = w.spectral_render_at(data.top, data.root, data.stretch)
+      const wav = new Uint8Array(w.memory.buffer, w.spectral_wav_ptr(), len).slice()
+      self.postMessage({ t: 'rendered', id: data.id, wav: wav.buffer, root: w.spectral_root() }, [wav.buffer])
+      break
+    }
   }
 }

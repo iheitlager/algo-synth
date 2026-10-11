@@ -30,6 +30,7 @@ describe('the lab and the main window', () => {
       },
       table: async () => 0,
       attack: async () => 0,
+      multisample: async () => 0,
     })
     const here: boolean[] = []
     const lab = connectMain(new FakeChannel(), (h) => here.push(h))
@@ -47,11 +48,32 @@ describe('the lab and the main window', () => {
       sample: async () => 0,
       table: async (slot, values, recipe) => { got.push(`table ${slot} ${values.byteLength} ${recipe}`); return 0 },
       attack: async (slot, root, values, recipe) => { got.push(`attack ${slot} ${root} ${values.byteLength} ${recipe}`); return 0 },
+      multisample: async () => 0,
     })
     const lab = connectMain(new FakeChannel(), () => {})
     expect(await lab.sendTable(2, new Float32Array(64 * 256).buffer, 'table 3 = a/b')).toBe(0)
     expect(await lab.sendAttack(3, 45, new Float32Array(1000).buffer)).toBe(0)
     expect(got).toEqual([`table 2 ${64 * 256 * 4} table 3 = a/b`, 'attack 3 45 4000 '])
+  })
+
+  it('a multisample reaches the main window as one message, its wait growing with its keys', async () => {
+    vi.useFakeTimers()
+    const got: string[] = []
+    let finish = (_: number) => {}
+    serveLab(new FakeChannel(), {
+      sample: async () => 0, table: async () => 0, attack: async () => 0,
+      multisample: (name, samples) => {
+        got.push(`${name}: ${samples.map((k) => `${k.root}/${k.bytes.byteLength}`).join(' ')}`)
+        return new Promise((done) => (finish = done))
+      },
+    })
+    const lab = connectMain(new FakeChannel(), () => {}, 500)
+    const sent = lab.sendMulti('bell', [36, 43, 50].map((root) => ({ root, bytes: new ArrayBuffer(root) })))
+    expect(got).toEqual(['bell: 36/36 43/43 50/50'])
+    // Three keys load for longer than one send may take.
+    vi.advanceTimersByTime(1_500)
+    finish(3)
+    expect(await sent).toBe(3)
   })
 
   it('a lab without a main window hears nothing and a send gives up', async () => {
@@ -67,7 +89,7 @@ describe('the lab and the main window', () => {
   it('a main window that closes says so, and one that opens later says it is there', () => {
     const here: boolean[] = []
     connectMain(new FakeChannel(), (h) => here.push(h))
-    const main = serveLab(new FakeChannel(), { sample: async () => 0, table: async () => 0, attack: async () => 0 })
+    const main = serveLab(new FakeChannel(), { sample: async () => 0, table: async () => 0, attack: async () => 0, multisample: async () => 0 })
     main.close()
     expect(here).toEqual([true, false])
   })

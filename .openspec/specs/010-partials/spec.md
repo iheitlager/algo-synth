@@ -355,9 +355,9 @@ The Spectral Lab (spec 009 Req 7) SHOULD:
 - **Morph A with B** by four sliders, which move together unless unlinked. The transforms of Requirement 4 apply to the morph.
 - **Send a table that runs from A to B** ("table runs A→B"). Wave k is the morph at k/63 in every dimension, at a steady moment: a third of the way from the peak to the release.
 - **Write the morph into the recipe**: `A ~ B` with `mpitch`, `mamp`, `mnoise`, `mformant` and `sweep`, which the song rebuilds as it rebuilds any recipe (ADR-0033).
-- **Not yet:** sending as a multisample (#520).
+- **Send as a multisample** (#520): the resynthesis at every root of a range and step, each at its pitch and the original's length, on the main window's selected Sampler (or a new one), each key split halfway to its neighbours. Roots more than two octaves from the original's are left out. It lives for the session; zones in the song are #522.
 
-**Implementation:** `crates/dsp/src/analysis/lab.rs` (`Lab::analyse_other`, `Lab::set_morph`, `Lab::table`, `Lab::recipe`), `crates/dsp/src/analysis/frames.rs` (`by_label_table`, `steady_frame`, `label_amps`, `harmonic_wave`), `crates/dsp/src/ffi.rs` (`spectral_analyse_other`, `spectral_generate`, `spectral_morph`, `spectral_other_clear`), `web/public/spectral-worker.js`, `web/src/audio/spectral.ts` (`Morph`, `NO_MORPH`, `Analyser.generate`), `web/src/audio/engine.ts` (`loadSongRecipes`), `web/src/components/lab/SpectralLab.vue`, `examples/songs/piano-to-choir.song`
+**Implementation:** `crates/dsp/src/analysis/lab.rs` (`Lab::analyse_other`, `Lab::set_morph`, `Lab::table`, `Lab::recipe`, `Lab::render_at`), `crates/dsp/src/analysis/frames.rs` (`by_label_table`, `steady_frame`, `label_amps`, `harmonic_wave`), `crates/dsp/src/ffi.rs` (`spectral_analyse_other`, `spectral_generate`, `spectral_morph`, `spectral_other_clear`, `spectral_render_at`), `web/public/spectral-worker.js`, `web/src/audio/spectral.ts` (`Morph`, `NO_MORPH`, `Analyser.generate`, `Analyser.renderAt`, `KeySample`), `web/src/audio/sampler.ts` (`rootsBetween`, `splitZones`), `web/src/audio/engine.ts` (`loadSongRecipes`, `loadMultisample`), `web/src/components/lab/SpectralLab.vue`, `examples/songs/piano-to-choir.song`
 
 #### Scenario: a saw into a square, as a table
 
@@ -365,13 +365,19 @@ The Spectral Lab (spec 009 Req 7) SHOULD:
 - WHEN the table is made
 - THEN its first wave has the saw's second harmonic and its last wave none, and the recipe reads `table 3 = a/saw ~ a/square : mamp 1, sweep 1`
 
+#### Scenario: a multisample from C2 to C6 every fifth
+
+- GIVEN an A4 tone in the lab and the app open
+- WHEN it is sent as a multisample from C2 to C6 every fifth
+- THEN D3, A3, E4, B4 and F♯5 load as samples of the tone's length, each at its pitch, on a Sampler whose keys split halfway between them, and C2 and G2 (more than two octaves down) are left out
+
 #### Scenario: Piano to Choir
 
 - GIVEN the example song Piano to Choir
 - WHEN it loads
 - THEN its morph tables rebuild, and its PPG synths play them with no note on their panels
 
-**Tests:** `crates/dsp/src/analysis/lab.rs::tests::two_sources_morph_and_sweep_into_a_table`, `crates/dsp/src/song/recipe.rs::tests::a_morph_recipe_prints_both_sounds`, `crates/dsp/src/song/tests.rs::the_example_songs_parse_and_print_back`, `web/src/audio/spectral.test.ts`
+**Tests:** `crates/dsp/src/analysis/lab.rs::tests::two_sources_morph_and_sweep_into_a_table`, `crates/dsp/src/analysis/lab.rs::tests::a_render_at_a_root_keeps_the_length`, `web/src/audio/sampler.test.ts`, `crates/dsp/src/song/recipe.rs::tests::a_morph_recipe_prints_both_sounds`, `crates/dsp/src/song/tests.rs::the_example_songs_parse_and_print_back`, `web/src/audio/spectral.test.ts`
 
 ### Requirement 14: Fitting a DX7 voice (stage 6, refined) [MAY]
 

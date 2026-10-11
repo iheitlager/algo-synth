@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { LoopMode, PadField, ZoneField } from './params'
 import {
   EMPTY_PAD, EMPTY_ZONE, PADS, PAD_FIELDS, PAD_ROWS, ZONES, evictable, slotsUsedElsewhere, ZONE_FIELDS, decodePads, kitFiles, padSets, parseKits, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
-  sourceFile, sourcesOf, zoneRect, zoneSets, type Kit, type Pack,
+  rootsBetween, sourceFile, sourcesOf, splitZones, zoneRect, zoneSets, type Kit, type Pack,
 } from './sampler'
 
 const zone = (o: Record<string, unknown> = {}) => ({
@@ -65,6 +65,27 @@ describe('the pack manifest', () => {
     expect(sets).toContainEqual([0, ZoneField.Loop, 1])
     // A file that did not load leaves its zones out.
     expect(zoneSets(pack, (f) => (f.endsWith('C2.wav') ? 4 : undefined)).every(([z]) => z !== 2)).toBe(true)
+  })
+})
+
+describe('a multisample from the lab (#520)', () => {
+  it('lists the roots of a range every step', () => {
+    expect(rootsBetween(36, 84, 7)).toEqual([36, 43, 50, 57, 64, 71, 78])
+    expect(rootsBetween(60, 60, 12)).toEqual([60])
+    expect(rootsBetween(60, 50, 1)).toEqual([])
+    expect(rootsBetween(60, 72, 0)).toEqual([])
+    expect(rootsBetween(0, 127, 1)).toHaveLength(ZONES)
+  })
+
+  it('splits the keys halfway between neighbouring roots, the outer ones to the ends', () => {
+    const pack = splitZones('bell', [36, 43, 50])
+    expect(pack.zones.map((z) => [z.sample, z.keyLo, z.keyHi, z.root])).toEqual([
+      ['bell C2', 0, 39, 36], ['bell G2', 40, 46, 43], ['bell D3', 47, 127, 50],
+    ])
+    expect(splitZones('one', [60]).zones[0]).toMatchObject({ keyLo: 0, keyHi: 127, root: 60, velLo: 1, velHi: 127 })
+    const sets = zoneSets(pack, (f) => ({ 'bell C2': 3, 'bell G2': 4, 'bell D3': 5 })[f])
+    expect(sets).toContainEqual([1, ZoneField.Sample, 4])
+    expect(sets).toContainEqual([2, ZoneField.Root, 50])
   })
 })
 
