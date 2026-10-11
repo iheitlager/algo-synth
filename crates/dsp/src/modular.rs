@@ -18,6 +18,7 @@ use crate::mono::noise::Noise;
 use crate::mono::osc::{Osc, Waveform, naive};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::voice::MonoCtx;
+use crate::table::{TABLES, USER_TABLES};
 use crate::voice::lookup;
 
 pub mod lex;
@@ -37,6 +38,8 @@ pub const MAX_RANDS: usize = 64;
 pub const MAX_HOLDS: usize = 32;
 /// Most reverbs a voice runs (`FreeVerb2`): each holds about 100 KB.
 pub const MAX_VERBS: usize = 2;
+/// Most resonators in a voice (`Ringz`, one per partial of a `Klank`).
+pub const MAX_RESONATORS: usize = 32;
 /// Most `delay`s in a voice, and the longest one in samples (about 21 ms at
 /// 48 kHz: combs, flangers and chorus, not echoes).
 pub const MAX_DELAYS: usize = 32;
@@ -47,6 +50,10 @@ const MAX_MIX: usize = 8;
 const NONE: u16 = u16::MAX;
 /// No release node in a breakpoint envelope.
 const NO_RELEASE: u8 = u8::MAX;
+/// A resonator at rest: no output yet, its coefficients due.
+const RING_REST: [f32; 6] = [0.0, 0.0, 0.0, 0.0, f32::NAN, f32::NAN];
+/// `log2(0.001)`: a decay time is the time to fall 60 dB.
+const LOG2_MILLI: f32 = -9.965_784;
 /// Output level, as the other voices'.
 const OUT_GAIN: f32 = 0.5;
 /// The resonance of a filter that names none.
@@ -325,6 +332,29 @@ pub enum Ugen {
         time: u16,
         slot: u8,
     },
+    /// A wavetable oscillator on the user tables (spec 010 Req 11): `pos`'s
+    /// whole part is the slot, its fraction the place across the waves
+    /// (`VOsc`), or the first wave alone when `first` (`Osc`).
+    Wave {
+        pos: u16,
+        freq: u16,
+        slot: u8,
+        first: bool,
+    },
+    /// A two-pole resonator ringing `decay` seconds down to −60 dB
+    /// (SuperCollider's `Ringz`; a `Klank` is a bank of them).
+    Ring {
+        input: u16,
+        freq: u16,
+        decay: u16,
+        slot: u8,
+    },
+    /// 1 once a cycle of `freq`, else 0, the first at the note's start
+    /// (`Impulse`; at 0 Hz a single click).
+    Impulse {
+        freq: u16,
+        slot: u8,
+    },
     /// Semitones as a frequency ratio, `2^(x/12)`.
     MidiRatio(u16),
     /// One side of an equal-power pan (`Pan2`), `pos` −1 left to 1 right.
@@ -394,6 +424,7 @@ struct Counts {
     rands: u8,
     verbs: u8,
     holds: u8,
+    rings: u8,
 }
 
 impl Default for Program {
@@ -444,6 +475,7 @@ impl Program {
             + 2.0 * f32::from(c.filters)
             + f32::from(c.phases)
             + 1.5 * f32::from(c.delays)
+            + 1.5 * f32::from(c.rings)
             + 0.25 * f32::from(self.len);
         ((BUDGET / cost.max(1.0)) as usize).clamp(1, crate::poly::MAX_VOICES)
     }
@@ -510,6 +542,9 @@ pub struct VoiceState {
     /// the next (a decimator, a noise, with its last and next value and its
     /// draws) or whether it started (a lag).
     holds: Vec<[f32; 4]>,
+    /// Each resonator's last two outputs, its two coefficients and the
+    /// frequency and decay they were worked out for.
+    rings: Vec<[f32; 6]>,
     /// The reverbs, and the right side's row each left node keeps for its partner.
     verbs: Vec<verb::FreeVerb>,
     verb_r: Vec<f32>,
@@ -554,6 +589,8 @@ impl VoiceState {
             .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
         self.holds
             .resize(up(usize::from(c.holds), self.holds.len()), [0.0; 4]);
+        self.rings
+            .resize(up(usize::from(c.rings), self.rings.len()), RING_REST);
         for order in [&mut self.steady, &mut self.moving] {
             order.reserve_exact(MAX_NODES.saturating_sub(order.len()));
         }
@@ -764,6 +801,7 @@ impl GraphVoice {
             st.oscs.iter_mut().for_each(|o| *o = Osc::default());
             st.phases.iter_mut().for_each(|p| *p = 0.0);
             st.holds.iter_mut().for_each(|h| *h = [0.0; 4]);
+            st.rings.iter_mut().for_each(|r| *r = RING_REST);
             st.filters.iter_mut().for_each(|f| *f = Svf::new());
             st.ladders.iter_mut().for_each(|l| *l = Ladder::new());
             st.poles.iter_mut().for_each(|p| *p = OnePole::default());
@@ -781,6 +819,12 @@ impl GraphVoice {
                 Some(Ugen::Osc { wave, slot, .. }) => {
                     if let Some(o) = st.oscs.get_mut(usize::from(slot)) {
                         o.wave = wave;
+                    }
+                }
+                // Every note's first sample is an impulse's first click.
+                Some(Ugen::Impulse { slot, .. }) => {
+                    if let Some(h) = st.holds.get_mut(usize::from(slot)) {
+                        h[0] = 1.0;
                     }
                 }
                 Some(Ugen::Rand { lo, hi, exp, slot }) => {
@@ -979,6 +1023,7 @@ impl GraphVoice {
             rands,
             notes,
             holds,
+            rings,
             verbs,
             verb_r,
             ..
@@ -1026,6 +1071,81 @@ impl GraphVoice {
                     *ph += f * inv;
                     *ph -= ph.floor();
                     *y = lookup(ctx.sine, *ph);
+                }
+            }
+            Ugen::Wave {
+                pos,
+                freq,
+                slot,
+                first,
+            } => {
+                let Some(ph) = phases.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                for ((y, f), p) in out.iter_mut().zip(row(freq)).zip(row(pos)) {
+                    let p = if p.is_finite() { p.max(0.0) } else { 0.0 };
+                    let table = p as usize;
+                    let at = if first { 0.0 } else { p - table as f32 };
+                    *y = if table < USER_TABLES {
+                        ctx.tables.at(TABLES + table, at, *ph)
+                    } else {
+                        0.0
+                    };
+                    *ph += f * inv;
+                    *ph -= ph.floor();
+                }
+            }
+            Ugen::Ring {
+                input,
+                freq,
+                decay,
+                slot,
+            } => {
+                let Some(r) = rings.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let [y1, y2, b1, b2, f0, d0] = r;
+                let rows = row(input).iter().zip(row(freq)).zip(row(decay));
+                for (y, ((x, f), d)) in out.iter_mut().zip(rows) {
+                    // As SuperCollider's Ringz, the coefficients worked out
+                    // again only when the frequency or decay moves.
+                    if f != f0 || d != d0 {
+                        (*f0, *d0) = (*f, *d);
+                        let w = if f.is_finite() {
+                            (f * inv).clamp(0.0, 0.49)
+                        } else {
+                            0.0
+                        };
+                        let r = if d.is_finite() && *d > 0.0 {
+                            fast_exp2(LOG2_MILLI * inv / d)
+                        } else {
+                            0.0
+                        };
+                        let cos = lookup(ctx.sine, w + 0.25);
+                        *b1 = 2.0 * r * (2.0 * r * cos / (1.0 + r * r));
+                        *b2 = -r * r;
+                    }
+                    let y0 = x + *b1 * *y1 + *b2 * *y2;
+                    *y = 0.5 * (y0 - *y2);
+                    *y2 = *y1;
+                    *y1 = if y0.is_finite() { y0 } else { 0.0 };
+                }
+            }
+            Ugen::Impulse { freq, slot } => {
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                for (y, f) in out.iter_mut().zip(row(freq)) {
+                    *y = if h[0] >= 1.0 {
+                        h[0] -= h[0].floor();
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    h[0] += (f * inv).clamp(0.0, 1.0);
                 }
             }
             Ugen::Lfo { rate, wave, slot } => {
@@ -2289,6 +2409,169 @@ mod tests {
         }
         assert!(loud > 1e-3, "it sounds");
         h
+    }
+
+    /// `text` played at `note` for `n` samples through `render`, its knobs at
+    /// their numbers, reading `user`'s tables.
+    fn hear(
+        b: &mut Bench,
+        text: &str,
+        user: &crate::table::UserTables,
+        note: u8,
+        n: usize,
+    ) -> Vec<f32> {
+        let patch = sc::compile(text).unwrap_or_else(|e| panic!("{e:?}"));
+        for k in &patch.knobs {
+            if let Some(c) = b.params.ctl.get_mut(k.ctl) {
+                *c = k.default;
+            }
+        }
+        let p = patch.program;
+        b.params.graph = p;
+        let ctx = MonoCtx {
+            params: &b.params,
+            sine: &b.sine,
+            blep: &b.blep,
+            ladder: &b.ladder,
+            pitch: &b.pitch,
+            shared: None,
+            tables: crate::table::TableSet {
+                builtin: b.tables,
+                user,
+            },
+        };
+        let mut v = GraphVoice::new(7);
+        let mut st = VoiceState::for_program(&p);
+        v.press(note, 1.0, &p, 48_000.0, 0);
+        let mut out = vec![0.0_f32; n];
+        for block in out.chunks_mut(128) {
+            v.render(&ctx, &mut st, block, None);
+        }
+        out
+    }
+
+    /// The level of `hz` in `x` at 48 kHz (a single DFT bin).
+    fn level(x: &[f32], hz: f64) -> f64 {
+        let w = std::f64::consts::TAU * hz / 48_000.0;
+        let (mut re, mut im) = (0.0, 0.0);
+        for (k, v) in x.iter().enumerate() {
+            re += f64::from(*v) * (w * k as f64).cos();
+            im -= f64::from(*v) * (w * k as f64).sin();
+        }
+        2.0 * re.hypot(im) / x.len() as f64
+    }
+
+    fn db(a: f64, b: f64) -> f64 {
+        20.0 * (a / b).log10()
+    }
+
+    /// Spec 010 Req 11: a `Klang` holds its sines at their levels.
+    #[test]
+    fn klang_is_a_bank_of_sines() {
+        let mut b = Bench::new();
+        let text = "{ |amp = 1, gate = 1| Klang.ar(`[[220, 440, 660], [0.3, 0.2, 0.1], nil]) \
+                    * amp * EnvGen.kr(Env.asr(0.001, 1, 0.1), gate) }";
+        let x = hear(&mut b, text, &crate::table::NO_USER_TABLES, 45, 9_600);
+        // A tenth of a second after the attack: whole cycles of each.
+        let tail = &x[4_800..];
+        for (hz, want) in [(220.0, 0.3), (440.0, 0.2), (660.0, 0.1)] {
+            let got = level(tail, hz);
+            assert!(db(got, want).abs() < 0.5, "{hz} Hz at {got}, not {want}");
+        }
+        assert!(level(tail, 330.0) < 0.003, "nothing between");
+    }
+
+    /// Spec 010 Req 11: a `DynKlank` struck by an `Impulse` at the note's
+    /// start rings at its frequencies, falling 60 dB in its ring time.
+    #[test]
+    fn dynklank_rings() {
+        let mut b = Bench::new();
+        let text = "{ |freq, amp = 1, gate = 1| DynKlank.ar(`[[500, 1200], [1, 0.5], [0.5, 0.2]], \
+                    Impulse.ar(0)) * amp * EnvGen.kr(Env.asr(0, 1, 0.1), gate) }";
+        let x = hear(&mut b, text, &crate::table::NO_USER_TABLES, 45, 24_000);
+        assert!(x.iter().all(|v| v.is_finite() && v.abs() < 2.0));
+        let early = &x[..2_400];
+        let late = &x[12_000..14_400];
+        // Struck at its amplitude, a resonator's mean level over the first
+        // 50 ms is that of a sine falling 60 dB in its ring time.
+        let mean = |amp: f64, ring: f64| {
+            let tau = ring / 1000.0_f64.ln();
+            amp * tau / 0.05 * (1.0 - (-0.05 / tau).exp())
+        };
+        assert!(db(level(early, 500.0), mean(1.0, 0.5)).abs() < 0.5);
+        assert!(db(level(early, 1_200.0), mean(0.5, 0.2)).abs() < 0.5);
+        // 0.25 s on, a 0.5 s ring time is 30 dB down.
+        let fell = db(level(late, 500.0), level(early, 500.0));
+        assert!((fell + 30.0).abs() < 3.0, "fell {fell} dB");
+        assert!(level(late, 1_200.0) < 0.001, "the short one has died");
+        // Ringz is one resonator; an Impulse clicks once per cycle.
+        let ring = hear(
+            &mut b,
+            "{ |amp = 1| Ringz.ar(Impulse.ar(100), 2000, 0.05) * amp }",
+            &crate::table::NO_USER_TABLES,
+            45,
+            48_000,
+        );
+        assert!(level(&ring[24_000..], 2_000.0) > 0.05);
+        let clicks = hear(
+            &mut b,
+            "{ |amp = 1, gate = 1| Impulse.ar(100) * amp * EnvGen.kr(Env.asr(0, 1, 0.1), gate) }",
+            &crate::table::NO_USER_TABLES,
+            45,
+            48_000,
+        );
+        let n = clicks.iter().filter(|v| **v > 0.5).count();
+        assert!((99..=101).contains(&n), "{n} clicks");
+    }
+
+    /// Spec 010 Req 11: `VOsc` crossfades across a user table's waves by its
+    /// position's fraction; `Osc` reads the first; an empty slot is silent.
+    #[test]
+    fn vosc_crossfades_tables() {
+        use crate::table::{UserTables, WAVE_LEN};
+        let mut user = UserTables::empty();
+        let sine = |h: f32| {
+            (0..WAVE_LEN)
+                .map(move |k| (std::f32::consts::TAU * h * k as f32 / WAVE_LEN as f32).sin())
+        };
+        let waves: Vec<f32> = sine(1.0).chain(sine(3.0)).collect();
+        user.load_table(1, &waves).expect("a table");
+        let mut b = Bench::new();
+        let play = |b: &mut Bench, osc: &str| {
+            let text = format!(
+                "{{ |amp = 1, gate = 1| {osc} * amp * EnvGen.kr(Env.asr(0, 1, 0.1), gate) }}"
+            );
+            let x = hear(b, &text, &user, 45, 9_600);
+            (level(&x[4_800..], 100.0), level(&x[4_800..], 300.0))
+        };
+        let (f, t) = play(&mut b, "VOsc.ar(1, 100)");
+        assert!(f > 0.95 && t < 0.02, "the first wave: {f} {t}");
+        let (f, t) = play(&mut b, "VOsc.ar(1.999, 100)");
+        assert!(f < 0.02 && t > 0.95, "the last wave: {f} {t}");
+        let (f, t) = play(&mut b, "VOsc.ar(1.5, 100)");
+        assert!(
+            (f - 0.5).abs() < 0.05 && (t - 0.5).abs() < 0.05,
+            "halfway: {f} {t}"
+        );
+        let (f, t) = play(&mut b, "Osc.ar(1, 100)");
+        assert!(f > 0.95 && t < 0.02, "Osc reads the first wave");
+        for empty in ["VOsc.ar(0.5, 100)", "VOsc.ar(9, 100)"] {
+            let (f, t) = play(&mut b, empty);
+            assert!(f < 1e-6 && t < 1e-6, "{empty} is silent");
+        }
+        // The spec's patch: an analysed table through a Moog ladder, its
+        // position and cutoff knobs, finite and bounded.
+        let text = "{ |freq, amp = 1, gate = 1| MoogFF.ar(VOsc.ar(\\pos.kr(1.3), freq), \\cutoff.kr(2000)) \
+                    * amp * EnvGen.kr(Env.asr(0.01, 1, 0.1), gate) }";
+        let patch = sc::compile(text).expect("builds");
+        let names: Vec<&str> = patch.knobs.iter().map(|k| k.name.as_str()).collect();
+        assert!(
+            names.contains(&"pos") && names.contains(&"cutoff"),
+            "{names:?}"
+        );
+        let x = hear(&mut b, text, &user, 45, 9_600);
+        assert!(x.iter().all(|v| v.is_finite() && v.abs() < 4.0));
+        assert!(x.iter().any(|v| v.abs() > 0.05), "it sounds");
     }
 
     /// #476: the voice renders bit for bit what the per-sample interpreter

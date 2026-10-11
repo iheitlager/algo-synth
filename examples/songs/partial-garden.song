@@ -1,0 +1,60 @@
+# Partial Garden (ADR-0032, spec 010 Req 11-12): partials in the Modular, and
+# a timbre per note. The bells are a Klank, five inharmonic modes rung by a
+# click; the organ is a Klang of six drawbars; the glass is a VOsc on User 1
+# through a Moog ladder. User 1 is a wavetable the engine builds when the song
+# loads, from one Plaits-style timbre morphed into another across its waves.
+# Each glass note picks its own place in that table (.ctl1(rand.onNote)), and
+# so does each note of the PPG reading the same table (.wt1pos(rand.onNote)).
+# Needs no sample packs.
+tempo 92
+swing 52
+scale c minor
+
+# Five modes of a small bell, rung by a click and a breath of noise.
+setting bell = Modular ModularBasic
+  SynthDef(\bell, { |freq = 440, gate = 1, decay = 1.4, amp = 0.5|
+      var strike = Impulse.ar(0) + (WhiteNoise.ar * EnvGen.kr(Env.perc(0.001, 0.012), gate) * 0.3);
+      var modes = DynKlank.ar(`[[1, 2.76, 5.4, 8.93, 13.34], [1, 0.6, 0.4, 0.25, 0.15], [1, 0.7, 0.45, 0.3, 0.2]], strike, freq, 0, decay);
+      Pan2.ar(modes * amp * 0.25 * EnvGen.kr(Env.asr(0.001, 1, 2.5), gate), Rand(-0.4, 0.4))
+  }).add;
+
+# Drawbars: a sub-octave, the fundamental, the fifth and the octaves above.
+setting organ = Modular ModularBasic
+  SynthDef(\organ, { |freq = 440, gate = 1, amp = 0.5|
+      var bars = Klang.ar(`[[0.5, 1, 1.5, 2, 3, 4], [0.35, 0.5, 0.3, 0.25, 0.12, 0.08], nil], freq);
+      var env = EnvGen.kr(Env.asr(0.02, 1, 0.3), gate);
+      Pan2.ar(bars * amp * 0.25 * env, 0)
+  }).add;
+
+# The table, detuned against itself, through a ladder that opens with the note.
+setting glass = Modular ModularBasic
+  SynthDef(\glass, { |freq = 440, gate = 1, pos = 0.3, cutoff = 2400, amp = 0.5|
+      var sig = VOsc.ar(pos, freq) + VOsc.ar(pos, freq * 1.006);
+      var env = EnvGen.kr(Env.adsr(0.004, 0.35, 0.4, 0.5), gate);
+      Pan2.ar(MoogFF.ar(sig * 0.35, cutoff * (env + 0.4), 2.2) * amp * env, Rand(-0.3, 0.3))
+  }).add;
+
+setting ppg = PpgWave PpgSweepPad: Wt1Table 8, Wt2Table 8, EnvWt 0, LfoWt 0, Wt2Pos 0.5
+
+track bells synth bell
+track organ synth organ
+track glass synth glass
+track ppg synth ppg
+table 1 = plaits:0.2:0.25:0.15 ~ plaits:0.7:0.8:0.65 : sweep 1
+
+clip ring = bells
+  "c5 ~ ~ g4 ~ ~ d#5 ~ ~ ~ a#4 ~ ~ ~ ~ ~"
+
+clip chords = organ
+  "<[c3,g3,d#4] [g#2,d#3,c4] [f2,c3,g#3] [g2,d3,a#3]>"
+
+clip shards = glass .ctl1(rand.onNote.range(0, 0.99))
+  "c4 d#4 g4 a#4 c5 a#4 g4 d#4"
+
+clip glints = ppg .wt1pos(rand.onNote)
+  "c4 ~ g4 d#4 ~ a#4 g4 ~ c5 ~ d#5 ~ g4 ~ ~ ~"
+
+scene a 4: ring chords
+scene b 4: chords shards
+scene c 4: ring chords glints
+arrange a b c a

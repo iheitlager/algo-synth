@@ -5927,3 +5927,84 @@ fn a_recipe_line_from_the_view_joins_the_song() {
     e.song_buffer(bad.len()).expect("fits").copy_from_slice(bad);
     assert!(!e.set_recipe_from_buffer());
 }
+
+/// Spec 010 Req 12: `.wt1pos(rand.onNote)` gives each of eight notes on a
+/// PPG its own wave position, held by its voice for its length; a parameter
+/// no voice holds (`lfowt`) is sampled for the synth and held to the next note.
+#[test]
+fn a_signal_held_per_note() {
+    let text = "tempo 120\ntrack lead synth PpgWave PpgSweepPad\n\
+        clip r = lead .wt1pos(rand.onNote) .lfowt(rand.onNote.range(0.2, 0.8))\n  \"c3 e3 g3 b3 c4 e4 g4 b4\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let own = e.param_value(s, Param::Wt1Pos);
+    e.song_play();
+    let mut at = 0.0;
+    let mut until = |e: &mut Engine, secs: f32| {
+        while at < secs {
+            e.render(BLOCK);
+            at += BLOCK as f32 / 48_000.0;
+        }
+    };
+    // Each note is a quarter of a second: early and late in each, the
+    // newest voice's position and the synth's lfowt.
+    let newest = |e: &Engine| {
+        (0..MAX_VOICES)
+            .filter_map(|i| Some((e.pools[s].voice_times(i, 48_000.0)?, i)))
+            .filter(|((_, off), _)| off.is_none())
+            .min_by(|a, b| a.0.0.total_cmp(&b.0.0))
+            .and_then(|(_, i)| e.pools[s].voice_value(i, Param::Wt1Pos))
+    };
+    let mut held = Vec::new();
+    for k in 0..8 {
+        let start = k as f32 * 0.25;
+        until(&mut e, start + 0.05);
+        let (early, lfo) = (newest(&e), e.param_value(s, Param::LfoWt));
+        until(&mut e, start + 0.2);
+        let (late, lfo_late) = (newest(&e), e.param_value(s, Param::LfoWt));
+        assert_eq!(early, late, "note {k} holds its position");
+        assert_eq!(lfo, lfo_late, "the synth holds its lfowt through note {k}");
+        assert!((0.2..=0.8).contains(&lfo), "{lfo}");
+        held.push((early.expect("a position of its own"), lfo));
+    }
+    let mut positions: Vec<f32> = held.iter().map(|h| h.0).collect();
+    positions.sort_by(f32::total_cmp);
+    positions.dedup();
+    assert_eq!(positions.len(), 8, "eight notes, eight positions: {held:?}");
+    assert!(held.windows(2).all(|w| w[0].1 != w[1].1), "{held:?}");
+    assert_eq!(
+        e.param_value(s, Param::Wt1Pos),
+        own,
+        "the synth's own is left"
+    );
+    e.song_stop();
+    assert!(
+        (0..MAX_VOICES).all(|i| e.pools[s].voice_value(i, Param::Wt1Pos).is_none()),
+        "stopped, the voices follow the synth"
+    );
+}
+
+/// Spec 010 Req 12: a lock on a table position holds for its step, and a `~`
+/// gives the synth's own back.
+#[test]
+fn a_locked_table_position() {
+    let text = "tempo 120\ntrack lead synth PpgWave PpgSweepPad\n\
+        clip r = lead .wt1pos(\"0.9 ~ 0.4 ~\")\n  \"c3 c3 c3 c3\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let own = e.param_value(s, Param::Wt1Pos);
+    e.song_play();
+    let mut at = 0.0;
+    let mut pos = |e: &mut Engine, secs: f32| {
+        while at < secs {
+            e.render(BLOCK);
+            at += BLOCK as f32 / 48_000.0;
+        }
+        e.param_value(s, Param::Wt1Pos)
+    };
+    assert_eq!(pos(&mut e, 0.1), 0.9);
+    assert_eq!(pos(&mut e, 0.6), own, "a ~ gives the synth's own back");
+    assert_eq!(pos(&mut e, 1.1), 0.4);
+}

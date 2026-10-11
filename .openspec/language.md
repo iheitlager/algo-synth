@@ -151,7 +151,8 @@ A subset of sclang, run once to build the voice:
   legato note to the next (with `Voices 1`).
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out`.
+  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
+  Impulse Ringz Klang DynKlang Klank DynKlank VOsc Osc`.
   `LeakDC.ar(in, coef)` (0.995 when left out) takes away a DC offset.
   `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
   (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a
@@ -160,6 +161,22 @@ A subset of sclang, run once to build the voice:
   `LFNoise0.kr(freq)` draws a random value in −1..1 `freq` times a second
   and holds it; `LFNoise1` joins the same points with straight lines. Both
   draw from the note's seed, as `Rand`, so a note renders the same each time.
+- **Partials** (spec 010 Req 11): `` `[…] `` is a `Ref`, an array kept whole
+  rather than expanded across channels.
+  `Klang.ar(`[freqs, amps, phases], freqscale, freqoffset)` is a bank of
+  sines, `Klank.ar(`[freqs, amps, ringtimes], input, freqscale, freqoffset,
+  decayscale)` a bank of resonators struck by `input`; a `nil` list is all 1
+  (phases 0). Their specs are numbers, each a knob (`freq 1`, `amp 1`,
+  `ring 1`…); `DynKlang` and `DynKlank` take signals too. `Ringz.ar(in, freq,
+  decaytime)` is one resonator, ringing `decaytime` seconds down to −60 dB;
+  `Impulse.ar(freq)` clicks once a cycle, the first at the note's start
+  (`Impulse.ar(0)` once: `Klank.ar(`[[400, 1071, 1820], nil, [1.2, 0.8, 0.5]],
+  Impulse.ar(0))` is a struck bell). `VOsc.ar(bufpos, freq)` plays the user
+  wavetables of the Spectral Lab (`table` lines) where SuperCollider reads
+  buffers: `bufpos`'s whole number is the table, 0 to 7 for User 1–8, and
+  its fraction the place across its waves, crossfaded, as the PPG's
+  position; `Osc.ar(bufnum, freq)` plays a table's first wave. An empty table
+  is silent. Phases other than 0 are not supported yet.
 - **Switches:** `Select.kr(which, [a, b, …])` (and `.ar`) plays one of 1 to 8
   choices, its index truncated and clipped as SuperCollider's; an `if` on a
   signal is an error pointing to it. A knob used as a `Select` index is a
@@ -190,9 +207,11 @@ A subset of sclang, run once to build the voice:
   control's default, is a knob, `Ctl1`…`Ctl32` in build order (the SynthDef's
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `snapshot`,
   `mod` reach them (`sub.Ctl1`).
-- **Limits:** 512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes,
-  32 delay lines, 64 random numbers, 32 latches, decimators, noises, lags
-  and LeakDCs, 2 reverbs, 32 knobs. A delay line holds 1024 samples (about
+- **Limits:** 512 nodes, 64 oscillators, 32 phases (a sine, an LFO, a
+  `VOsc`; a `Klang` takes one per frequency), 8 filters, 8 envelopes, 32
+  resonators (a `Klank` takes one per frequency), 32 delay lines, 64 random
+  numbers, 32 latches, decimators, noises, lags, impulses and LeakDCs, 2
+  reverbs, 32 knobs. A delay line holds 1024 samples (about
   0.02 seconds); a comb or delay takes as many as its `maxdelaytime` needs,
   so a voice's delays hold about 0.68 seconds in all: a slapback, a chorus
   or a short echo. A long echo is the strip's send to the master's Echo.
@@ -700,6 +719,7 @@ term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<m
 | `.slow(n)` `.fast(n)` | n (> 0) times slower or faster |
 | `.segment(n)` | n steady values a bar |
 | `.lag(s)` | follow the input smoothly, s seconds |
+| `.onNote` | sampled as each note of the track starts, held for the note: `.wt1pos(rand.onNote)` gives each note its own timbre |
 
 **Strudel's parameter names** stand for ours in a `mod` line and a parameter
 method, printed as written: `lpf` `ctf` (Cutoff), `lpq` (Resonance), `hpf`
@@ -710,7 +730,10 @@ Q; a `pan` is −1..1, not 0..1. Strudel's `distort` has no one parameter here.
 
 A per-voice signal goes on a track whose synth is Mono or Poly (not FM, LA,
 drums, samplers, Modular) and a voice parameter: `cutoff resonance vco1level
-vco2level vco3level noiselevel ringlevel sublevel`; it can't `.lag`. Brackets
+vco2level vco3level noiselevel ringlevel sublevel wt1pos wt2pos`; it can't `.lag`.
+`.onNote` modulates a track; on a voice parameter of a Mono or Poly synth
+each voice holds its note's value, on any other the synth holds it until the
+next note. It can't take `env` or a list. Brackets
 nest at most 32 deep.
 
 ```song

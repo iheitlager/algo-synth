@@ -26,7 +26,7 @@ use std::rc::Rc;
 
 use super::{
     Class, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_HOLDS, MAX_MIX, MAX_OSCS, MAX_PHASES,
-    NONE, Op, Program, Shape, Ugen, VOICINGS,
+    MAX_RESONATORS, NONE, Op, Program, Shape, Ugen, VOICINGS,
 };
 use crate::mono::model::{Filter, Hp};
 use crate::mono::osc::Waveform;
@@ -209,9 +209,9 @@ fn end_pos(src: &str) -> (usize, usize) {
 }
 
 const PUNCT2: [&str; 5] = ["==", "!=", "<=", ">=", "**"];
-const PUNCT1: [&str; 20] = [
+const PUNCT1: [&str; 21] = [
     "(", ")", "{", "}", "[", "]", ",", ";", ".", "|", "=", "+", "-", "*", "/", "%", "<", ">", "!",
-    ":",
+    ":", "`",
 ];
 
 fn lex(src: &str) -> Result<Vec<Tok>, CodeError> {
@@ -376,6 +376,8 @@ enum E {
     Class(String),
     Sym(String),
     Arr(Vec<E>),
+    /// `` `x ``: a `Ref`, kept whole rather than expanded across channels.
+    Ref(Box<E>),
     Func(Rc<FuncDef>),
     Bin(&'static str, Box<E>, Box<E>, Pos),
     Neg(Box<E>, Pos),
@@ -518,6 +520,9 @@ impl Parser<'_> {
     }
 
     fn unary(&mut self) -> R<E> {
+        if self.eat("`") {
+            return Ok(E::Ref(Box::new(self.unary()?)));
+        }
         if self.is("-") {
             let pos = self.pos();
             let minus = self.at;
@@ -749,6 +754,8 @@ enum V {
     /// A node of the graph; `uni` when it runs 0..1 (an envelope, the gate).
     Sig(u16, bool),
     Arr(Vec<V>),
+    /// A `Ref`: an array a `Klang` or `Klank` takes whole.
+    Ref(Box<V>),
     Func(Rc<Closure>),
     Def(Rc<Closure>),
     Sym(String),
@@ -878,6 +885,15 @@ fn delay_spec(max: f32) -> Spec {
     Spec {
         hi: max.max(DELAY.hi),
         ..DELAY
+    }
+}
+/// A `VOsc`'s or `Osc`'s table: the knob stays within the slot it names.
+fn table_spec(x: f64) -> Spec {
+    let slot = x.max(0.0).floor() as f32;
+    Spec {
+        lo: slot,
+        hi: slot + 0.999,
+        exp: false,
     }
 }
 const DECAY: Spec = Spec {
@@ -1184,6 +1200,7 @@ impl Builder {
                     .map(|i| self.eval(i, scope))
                     .collect::<R<_>>()?,
             )),
+            E::Ref(e) => Ok(V::Ref(Box::new(self.eval(e, scope)?))),
             E::Func(def) => Ok(V::Func(Rc::new(Closure {
                 def: def.clone(),
                 scope: scope.clone(),
@@ -1764,6 +1781,156 @@ impl Builder {
     }
 
     /// `LeakDC.ar(in, coef, mul, add)`: a one-pole DC blocker (#323).
+    /// `Klang`/`DynKlang`, a bank of sines, and `Klank`/`DynKlank`, a bank
+    /// of resonators (spec 010 Req 11), from a `` `[freqs, amps, phases or
+    /// ringtimes] ``: a sine or `Ringz` per partial at its level, mixed. Each
+    /// takes a slot, so a bank past the voice's limit is refused.
+    fn bank(&mut self, c: &str, args: Vec<V>, kws: Vec<(String, V)>, at: Pos) -> R<V> {
+        let err = |msg| CodeError {
+            line: at.0,
+            col: at.1,
+            msg,
+        };
+        let ring = c.ends_with("ank");
+        let (names, defaults): (&[&str], &[Option<f64>]) = if ring {
+            (
+                &[
+                    "specificationsArrayRef",
+                    "input",
+                    "freqscale",
+                    "freqoffset",
+                    "decayscale",
+                ],
+                &[None, None, Some(1.0), Some(0.0), Some(1.0)],
+            )
+        } else {
+            (
+                &["specificationsArrayRef", "freqscale", "freqoffset"],
+                &[None, Some(1.0), Some(0.0)],
+            )
+        };
+        let mut inputs: Vec<V> = bind(names, defaults, &args, &kws)
+            .map_err(err)?
+            .into_iter()
+            .map(|v| v.unwrap_or(V::Nil))
+            .collect();
+        let shape = if ring {
+            "a Klank takes `[freqs, amps, ringtimes]"
+        } else {
+            "a Klang takes `[freqs, amps, phases]"
+        };
+        let V::Ref(spec) = inputs.remove(0) else {
+            return Err(err(shape));
+        };
+        let V::Arr(parts) = *spec else {
+            return Err(err(shape));
+        };
+        let list = |k: usize| match parts.get(k) {
+            Some(V::Arr(a)) => a.clone(),
+            Some(V::Nil) | None => Vec::new(),
+            Some(v) => vec![v.clone()],
+        };
+        let (freqs, amps, third) = (list(0), list(1), list(2));
+        if freqs.is_empty() {
+            return Err(err(shape));
+        }
+        let signal = |l: &[V]| l.iter().any(|v| matches!(v, V::Sig(..)));
+        if !c.starts_with("Dyn") && (signal(&freqs) || signal(&amps) || signal(&third)) {
+            return Err(err(if ring {
+                "a Klank's specs are numbers: DynKlank takes signals"
+            } else {
+                "a Klang's specs are numbers: DynKlang takes signals"
+            }));
+        }
+        if !ring && third.iter().any(|p| num_or(p) != 0.0) {
+            return Err(err("a Klang's phases are not supported yet"));
+        }
+        let (used, limit, full) = if ring {
+            (
+                self.prog.counts.rings,
+                MAX_RESONATORS,
+                "a voice has at most 32 resonators, a Klank taking one per frequency",
+            )
+        } else {
+            (
+                self.prog.counts.phases,
+                MAX_PHASES,
+                "a voice has at most 32 sines and LFOs, a Klang taking one per frequency",
+            )
+        };
+        if usize::from(used) + freqs.len() > limit {
+            return Err(err(full));
+        }
+        let c = c.to_string();
+        self.expand(&inputs, &mut |b, v| {
+            let module = b.module(&c, at);
+            let get = |k: usize| v.get(k).cloned().unwrap_or(V::Nil);
+            // A scale or offset left out costs no node.
+            let scaled = |b: &mut Builder, v: V, name: &str, unit: f64| -> R<Option<u16>> {
+                match v {
+                    V::Num(x, None) if x == unit => Ok(None),
+                    v => {
+                        let spec = ANY_SPEC(&v);
+                        b.input(&v, module, name, spec, at).map(Some)
+                    }
+                }
+            };
+            let first = usize::from(ring);
+            let scale = scaled(b, get(first), "freqscale", 1.0)?;
+            let offset = scaled(b, get(first + 1), "freqoffset", 0.0)?;
+            let decay = if ring {
+                scaled(b, get(3), "decayscale", 1.0)?
+            } else {
+                None
+            };
+            let input = match (ring, get(0)) {
+                (false, _) => NONE,
+                (true, V::Nil) => return Err(err("a Klank needs its input")),
+                (true, x) => b.input(&x, module, "input", ANY, at)?,
+            };
+            let mut outs = Vec::with_capacity(freqs.len());
+            for (k, f) in freqs.iter().enumerate() {
+                let n = k + 1;
+                let mut fr = b.input(f, module, &format!("freq {n}"), FREQ, at)?;
+                if let Some(s) = scale {
+                    fr = b.push(Ugen::Bin(Op::Mul, fr, s), at)?;
+                }
+                if let Some(o) = offset {
+                    fr = b.push(Ugen::Bin(Op::Add, fr, o), at)?;
+                }
+                let mut node = if ring {
+                    let t = match third.get(k) {
+                        Some(V::Nil) | None => V::Num(1.0, None),
+                        Some(t) => t.clone(),
+                    };
+                    let mut d = b.input(&t, module, &format!("ring {n}"), DECAY, at)?;
+                    if let Some(s) = decay {
+                        d = b.push(Ugen::Bin(Op::Mul, d, s), at)?;
+                    }
+                    let slot = Self::slot(&mut b.prog.counts.rings, MAX_RESONATORS, at, full)?;
+                    b.push(
+                        Ugen::Ring {
+                            input,
+                            freq: fr,
+                            decay: d,
+                            slot,
+                        },
+                        at,
+                    )?
+                } else {
+                    let slot = Self::slot(&mut b.prog.counts.phases, MAX_PHASES, at, full)?;
+                    b.push(Ugen::Sin { freq: fr, slot }, at)?
+                };
+                if let Some(a) = amps.get(k).filter(|a| !matches!(a, V::Nil)) {
+                    let a = b.input(a, module, &format!("amp {n}"), UNIT, at)?;
+                    node = b.push(Ugen::Bin(Op::Mul, node, a), at)?;
+                }
+                outs.push(V::Sig(node, false));
+            }
+            b.mix(outs, at)
+        })
+    }
+
     fn leak_dc(&mut self, args: Vec<V>, kws: Vec<(String, V)>, at: Pos) -> R<V> {
         const NAMES: [&str; 4] = ["in", "coef", "mul", "add"];
         let bound = bind(
@@ -2188,6 +2355,9 @@ impl Builder {
             }
             ("Select", "ar" | "kr") => self.select(args, kws, at),
             ("LeakDC", "ar" | "kr") => self.leak_dc(args, kws, at),
+            ("Klang" | "DynKlang" | "Klank" | "DynKlank", "ar" | "kr") => {
+                self.bank(c, args, kws, at)
+            }
             (_, "ar" | "kr") => self.ugen(c, method == "kr", args, kws, at),
             _ => Err(err("this class is not part of a SynthDef here")),
         }
@@ -2429,6 +2599,27 @@ impl Builder {
                 &[FREQ, PHASE, UNIT, MUL, ADD],
             ),
             "WhiteNoise" => (&["mul", "add"], &[Some(1.0), Some(0.0)], &[MUL, ADD]),
+            "Impulse" => (
+                &["freq", "phase", "mul", "add"],
+                &[Some(440.0), Some(0.0), Some(1.0), Some(0.0)],
+                &[FREQ, PHASE, MUL, ADD],
+            ),
+            // The user tables where SuperCollider reads buffers (spec 010 Req 11).
+            "VOsc" => (
+                &["bufpos", "freq", "phase", "mul", "add"],
+                &[Some(0.0), Some(440.0), Some(0.0), Some(1.0), Some(0.0)],
+                &[ANY, FREQ, PHASE, MUL, ADD],
+            ),
+            "Osc" => (
+                &["bufnum", "freq", "phase", "mul", "add"],
+                &[Some(0.0), Some(440.0), Some(0.0), Some(1.0), Some(0.0)],
+                &[ANY, FREQ, PHASE, MUL, ADD],
+            ),
+            "Ringz" => (
+                &["in", "freq", "decaytime", "mul", "add"],
+                &[None, Some(440.0), Some(1.0), Some(1.0), Some(0.0)],
+                &[ANY, FREQ, DECAY, MUL, ADD],
+            ),
             "Latch" => (&["in", "trig"], &[Some(0.0), Some(0.0)], &[ANY, ANY]),
             "LFNoise0" | "LFNoise1" => (
                 &["freq", "mul", "add"],
@@ -2577,6 +2768,64 @@ impl Builder {
                     (b.push(Ugen::Bin(Op::Mul, up, half), at)?, true, 3)
                 }
                 "WhiteNoise" => (b.push(Ugen::Noise, at)?, false, 0),
+                "Impulse" => {
+                    let f = inp(b, 0)?;
+                    if num_or(v.get(1).unwrap_or(&V::Nil)) != 0.0 {
+                        return Err(CodeError {
+                            line: at.0,
+                            col: at.1,
+                            msg: "an Impulse's phase is not supported yet",
+                        });
+                    }
+                    let slot = Self::slot(
+                        &mut b.prog.counts.holds,
+                        MAX_HOLDS,
+                        at,
+                        "a voice has at most 32 latches, decimators, noises, lags and impulses",
+                    )?;
+                    (b.push(Ugen::Impulse { freq: f, slot }, at)?, true, 2)
+                }
+                "VOsc" | "Osc" => {
+                    let p = v.first().cloned().unwrap_or(V::Nil);
+                    let pos = b.input(&p, module, named(0), table_spec(num_or(&p)), at)?;
+                    let f = inp(b, 1)?;
+                    if num_or(v.get(2).unwrap_or(&V::Nil)) != 0.0 {
+                        return Err(CodeError {
+                            line: at.0,
+                            col: at.1,
+                            msg: "a VOsc's or Osc's phase is not supported yet",
+                        });
+                    }
+                    let slot = Self::slot(
+                        &mut b.prog.counts.phases,
+                        MAX_PHASES,
+                        at,
+                        "a voice has at most 32 sines and LFOs",
+                    )?;
+                    let u = Ugen::Wave {
+                        pos,
+                        freq: f,
+                        slot,
+                        first: c == "Osc",
+                    };
+                    (b.push(u, at)?, false, 3)
+                }
+                "Ringz" => {
+                    let (x, f, d) = (inp(b, 0)?, inp(b, 1)?, inp(b, 2)?);
+                    let slot = Self::slot(
+                        &mut b.prog.counts.rings,
+                        MAX_RESONATORS,
+                        at,
+                        "a voice has at most 32 resonators",
+                    )?;
+                    let u = Ugen::Ring {
+                        input: x,
+                        freq: f,
+                        decay: d,
+                        slot,
+                    };
+                    (b.push(u, at)?, false, 3)
+                }
                 "LFNoise0" | "LFNoise1" => {
                     let f = inp(b, 0)?;
                     let slot = Self::slot(
@@ -3173,6 +3422,82 @@ mod tests {
             let e = compile(src).expect_err(src);
             assert_eq!((e.line, e.col, e.msg), (line, col, msg), "{src}");
         }
+    }
+
+    /// Spec 010 Req 11: `` ` `` keeps an array whole, so a `Klang` takes it
+    /// as its specs, one channel; without it, it is refused.
+    #[test]
+    fn backtick_keeps_an_array_whole() {
+        let p = patch("{ Klang.ar(`[[220, 440, 660], [0.3, 0.2, 0.1], nil]) }");
+        assert_eq!(count(&p, |u| matches!(u, Ugen::Sin { .. })), 3);
+        assert!(!p.program.is_stereo(), "one channel");
+        let knobs: Vec<&str> = p.knobs.iter().map(|k| k.name.as_str()).collect();
+        assert_eq!(
+            knobs,
+            ["freq 1", "amp 1", "freq 2", "amp 2", "freq 3", "amp 3"]
+        );
+        assert_eq!(p.modules.first().map(|m| m.name.as_str()), Some("Klang"));
+        let bare = compile("{ Klang.ar([[220, 440], [0.3, 0.2], nil]) }").expect_err("no Ref");
+        assert_eq!(bare.msg, "a Klang takes `[freqs, amps, phases]");
+        let input = compile("{ SinOsc.ar(`[220, 330]) }").expect_err("a Ref as an input");
+        assert_eq!(input.msg, "a UGen input is a number or a signal");
+        // The scale and offset of SuperCollider, and its multichannel input.
+        let scaled = patch("{ |freq| DynKlang.ar(`[[1, 2, 3], nil, nil], freq, 5) }");
+        assert_eq!(count(&scaled, |u| matches!(u, Ugen::Sin { .. })), 3);
+        assert_eq!(count(&scaled, |u| matches!(u, Ugen::Bin(Op::Mul, ..))), 3);
+        let two = patch("{ Klank.ar(`[[500, 900], nil, [1, 2]], [WhiteNoise.ar, WhiteNoise.ar]) }");
+        assert!(two.program.is_stereo(), "a bank per channel of its input");
+        assert_eq!(count(&two, |u| matches!(u, Ugen::Ring { .. })), 4);
+    }
+
+    /// Spec 010 Req 11: a bank past the voice's limit is refused where it is
+    /// written, naming the limit; a `Klang`'s specs are numbers.
+    #[test]
+    fn too_many_partials_are_refused() {
+        let bank = |class: &str, n: usize| {
+            let freqs: Vec<String> = (1..=n).map(|k| (k * 100).to_string()).collect();
+            format!(
+                "{{ {class}.ar(`[[{}], nil, nil], WhiteNoise.ar) }}",
+                freqs.join(", ")
+            )
+        };
+        assert!(compile(&bank("Klang", 32).replace(", WhiteNoise.ar", "")).is_ok());
+        let e = compile(&bank("Klang", 40).replace(", WhiteNoise.ar", "")).expect_err("40 sines");
+        assert_eq!(
+            (e.line, e.col, e.msg),
+            (
+                1,
+                3,
+                "a voice has at most 32 sines and LFOs, a Klang taking one per frequency"
+            )
+        );
+        assert!(compile(&bank("Klank", 32)).is_ok());
+        let e = compile(&bank("Klank", 33)).expect_err("33 resonators");
+        assert_eq!(
+            e.msg,
+            "a voice has at most 32 resonators, a Klank taking one per frequency"
+        );
+        let e = compile("{ |freq| Klang.ar(`[[freq, freq * 2], nil, nil]) }").expect_err("signals");
+        assert_eq!(e.msg, "a Klang's specs are numbers: DynKlang takes signals");
+        assert!(compile("{ |freq| DynKlang.ar(`[[freq, freq * 2], nil, nil]) }").is_ok());
+        let e = compile("{ Klank.ar(`[[500], nil, nil]) }").expect_err("no input");
+        assert_eq!(e.msg, "a Klank needs its input");
+    }
+
+    /// A `VOsc`'s position knob stays within the user table it names.
+    #[test]
+    fn a_table_position_is_a_knob_in_its_slot() {
+        let p = patch("{ |freq| VOsc.ar(2.25, freq) + Osc.ar(1, freq) }");
+        let k = p.knobs.iter().find(|k| k.name == "bufpos").expect("bufpos");
+        assert_eq!((k.lo, k.hi, k.default), (2.0, 2.999, 2.25));
+        assert_eq!(
+            count(&p, |u| matches!(u, Ugen::Wave { first: true, .. })),
+            1
+        );
+        assert_eq!(
+            count(&p, |u| matches!(u, Ugen::Wave { first: false, .. })),
+            1
+        );
     }
 }
 

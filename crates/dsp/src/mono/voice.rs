@@ -223,7 +223,7 @@ pub struct MonoVoice {
 
 /// The parameters a voice can hold a value of its own for (ADR-0023), in the
 /// order of `VoiceSet`'s slots.
-pub const VOICE_PARAMS: [Param; 8] = [
+pub const VOICE_PARAMS: [Param; 10] = [
     Param::Cutoff,
     Param::Resonance,
     Param::Vco1Level,
@@ -232,6 +232,8 @@ pub const VOICE_PARAMS: [Param; 8] = [
     Param::NoiseLevel,
     Param::RingLevel,
     Param::SubLevel,
+    Param::Wt1Pos,
+    Param::Wt2Pos,
 ];
 
 /// One voice's own values (ADR-0023): a per-voice signal writes them, and the
@@ -239,7 +241,7 @@ pub const VOICE_PARAMS: [Param; 8] = [
 /// voice reads them: the cutoff as a note, the resonance as a feedback.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct VoiceSet {
-    mask: u8,
+    mask: u16,
     v: [f32; VOICE_PARAMS.len()],
 }
 
@@ -582,8 +584,9 @@ impl MonoVoice {
                 t1.set_increment(inc1);
                 t2.set_increment(ctx.pitch.at(base + p.tune[1] + m2));
                 let sweep = fenv * p.env_wt + lfo * p.lfo_wt;
-                let pos =
-                    |i: usize| (p.wt_pos.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
+                // A voice may hold its own positions (`.wt1pos(rand.onNote)`).
+                let wt = [own.or(8, p.wt_pos[0]), own.or(9, p.wt_pos[1])];
+                let pos = |i: usize| (wt.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
                 let tab = |i: usize| p.wt_table.get(i).copied().unwrap_or(0);
                 (
                     t1.step(ctx.tables, tab(0), pos(0), p.wt_steps),

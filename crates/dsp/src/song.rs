@@ -3101,6 +3101,9 @@ fn per_voice_fits(
     param: Param,
     signal: &Signal,
 ) -> Result<(), &'static str> {
+    if signal.on_note() && !matches!(target, Target::Track(_)) {
+        return Err("onNote samples a track's notes: it modulates a track");
+    }
     if !signal.per_voice() {
         return Ok(());
     }
@@ -3109,7 +3112,7 @@ fn per_voice_fits(
     };
     if !crate::mono::voice::VOICE_PARAMS.contains(&param) {
         return Err(
-            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel, sublevel, wt1pos or wt2pos",
         );
     }
     if signal.lags() {

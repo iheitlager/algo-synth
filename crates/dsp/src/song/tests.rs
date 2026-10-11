@@ -801,7 +801,7 @@ fn the_example_songs_parse_and_print_back() {
             sh101 += 1;
         }
     }
-    assert_eq!(seen, 23, "twenty-three examples");
+    assert_eq!(seen, 24, "twenty-four examples");
     assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
 }
 
@@ -1908,7 +1908,7 @@ fn mod_errors_say_where() {
         (
             "mod kit.cutoff =  sine.wobble(2)",
             24,
-            "no such method: range exprange slow fast segment lag",
+            "no such method: range exprange slow fast segment lag onNote",
         ),
         (
             "mod kit.cutoff = lfo(1, pink)",
@@ -1951,7 +1951,7 @@ fn per_voice_mod_errors_say_where() {
         (
             "mod lead.pan = env(perc)",
             16,
-            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel, sublevel, wt1pos or wt2pos",
         ),
         (
             "mod lead.cutoff = env(perc).range(200, 900).lag(0.1)",
@@ -2082,7 +2082,7 @@ fn clip_method_errors_say_where() {
         (
             "clip b = kit .cutoff(sine.wobble(1))",
             27,
-            "no such method: range exprange slow fast segment lag",
+            "no such method: range exprange slow fast segment lag onNote",
         ),
         (
             "clip b = kit .cutoff()",

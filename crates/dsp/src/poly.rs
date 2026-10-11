@@ -320,6 +320,15 @@ impl Pool {
         self.sets.get(i)?.get(param)
     }
 
+    /// The voice slots the note numbered `clock` pressed: one, or its unison.
+    pub fn pressed(&self, clock: u64) -> impl Iterator<Item = usize> + '_ {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(move |(_, s)| s.owner.is_some() && s.age == clock)
+            .map(|(i, _)| i)
+    }
+
     /// Every voice goes back to the synth's value of `param`.
     pub fn clear_voices(&mut self, param: Param) {
         for s in self.sets.iter_mut() {

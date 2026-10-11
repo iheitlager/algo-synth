@@ -2,7 +2,7 @@
 
 A sound as a partial set, from any source the engine has; transforms and morphs on partial sets; and three ways to play one: as a sample, as a PPG wavetable through the analog filters (with its attack on a D-50 partial), and in the Modular's SuperCollider subset. Epic #192, after its first stages (spec 009). Decisions: ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0021, ADR-0024, ADR-0032, ADR-0033.
 
-Status: proposed. The implementation and test paths below are where the work goes, marked (planned) until they exist; none of it is built yet.
+Status: in progress (epic #192). Paths marked (planned) are where the work goes; the rest exist.
 
 Common to every requirement:
 - **Offline work.** Analysis, transforms and morphs are offline calls (ADR-0017). They may allocate within spec 009's caps (60 s, 256 partials a frame), and they never panic.
@@ -305,7 +305,9 @@ The Modular's subset of sclang (ADR-0024) SHOULD gain these words, each behaving
 
 A number in any of these SHALL be a knob as every number in a SynthDef is (ADR-0024).
 
-**Implementation:** (planned) `crates/dsp/src/modular/sc.rs` (lexer: `` ` ``; `ugen()`: `Klang`, `DynKlang`, `Klank`, `DynKlank`, `VOsc`, `Osc`), `crates/dsp/src/modular.rs` (`MAX_RESONATORS`, table reads)
+`Ringz` (one resonator) and `Impulse` (a click per cycle, the first at the note's start, to strike a `Klank`) come with them. In `VOsc`, `bufpos`'s whole number picks user table 0–7 and its fraction is the place across that table's waves. A `Klang`'s or `Klank`'s phases other than 0 are refused, as `SinOsc`'s are.
+
+**Implementation:** `crates/dsp/src/modular/sc.rs` (lexer: `` ` ``; `Builder::bank`: `Klang`, `DynKlang`, `Klank`, `DynKlank`; `ugen()`: `VOsc`, `Osc`, `Ringz`, `Impulse`), `crates/dsp/src/modular.rs` (`MAX_RESONATORS`, `Ugen::Wave`, `Ugen::Ring`, `Ugen::Impulse`), `crates/dsp/src/table.rs::TableSet::at`
 
 #### Scenario: a bank of sines
 
@@ -325,7 +327,7 @@ A number in any of these SHALL be a knob as every number in a SynthDef is (ADR-0
 - WHEN the code is built
 - THEN it is refused with a message naming the limit, and the synth plays on as it was
 
-**Tests:** (planned) `crates/dsp/src/modular/sc.rs::tests::backtick_keeps_an_array_whole`, `crates/dsp/src/modular/sc.rs::tests::klang_is_a_bank_of_sines`, `crates/dsp/src/modular/sc.rs::tests::dynklank_rings`, `crates/dsp/src/modular/sc.rs::tests::vosc_crossfades_tables`, `crates/dsp/src/modular/sc.rs::tests::too_many_partials_are_refused`
+**Tests:** `crates/dsp/src/modular/sc.rs::tests::backtick_keeps_an_array_whole`, `crates/dsp/src/modular.rs::tests::klang_is_a_bank_of_sines`, `crates/dsp/src/modular.rs::tests::dynklank_rings`, `crates/dsp/src/modular.rs::tests::vosc_crossfades_tables`, `crates/dsp/src/modular/sc.rs::tests::too_many_partials_are_refused`, `crates/dsp/src/modular/sc.rs::tests::a_table_position_is_a_knob_in_its_slot`, `examples/songs/partial-garden.song`
 
 ### Requirement 12: Sequencing timbre [SHOULD]
 
@@ -333,7 +335,9 @@ The table positions, the morph positions of a live morph, freeze as a 0/1 gate, 
 
 A signal SHOULD also be sampleable at each note-on and held for that note (`.wt1pos(rand.onNote)`, the name to be settled with #514), as Tidal samples a continuous pattern per event. That gives each note its own timbre from a random or generative signal.
 
-**Implementation:** (planned) `crates/dsp/src/song` (parameter methods, a per-note-on hold), `.openspec/language.md` (sound-design part, #514)
+The method is `.onNote`, written bare. On a voice parameter of a Mono or Poly synth (now with `wt1pos` and `wt2pos`) each voice holds its note's value; on any other parameter, a Modular knob among them, the synth holds it until the track's next note. Live morph positions, freeze and live transform amounts are not registry parameters: a morph and the transforms are baked into a user table when it is built (Requirement 9), so the table position is the sequenced dimension, and a `sweep` table makes that position the morph.
+
+**Implementation:** `crates/dsp/src/song/signal.rs` (`Node::OnNote`, `Signal::on_note`), `crates/dsp/src/engine.rs` (`Engine::sample_on_note`), `crates/dsp/src/mono/voice.rs::VOICE_PARAMS`, `crates/dsp/src/poly.rs` (`PolyPool::pressed`), `.openspec/language.md` (the sound-design part moves with #514)
 
 #### Scenario: a timbre per note
 
@@ -341,7 +345,7 @@ A signal SHOULD also be sampleable at each note-on and held for that note (`.wt1
 - WHEN it plays
 - THEN each note holds one position for its length, and the positions differ between notes
 
-**Tests:** (planned) `crates/dsp/src/engine/tests.rs::a_signal_held_per_note`, `crates/dsp/src/engine/tests.rs::a_locked_table_position`
+**Tests:** `crates/dsp/src/engine/tests.rs::a_signal_held_per_note`, `crates/dsp/src/engine/tests.rs::a_locked_table_position`, `crates/dsp/src/song/signal.rs::tests::printing_is_canonical_and_parses_back`, `crates/dsp/src/song/signal.rs::tests::errors_say_where`
 
 ### Requirement 13: Morphing in the lab [SHOULD]
 

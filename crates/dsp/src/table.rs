@@ -215,6 +215,16 @@ impl<'a> TableSet<'a> {
         }
     }
 
+    /// `table` at `phase` (0..1 of a cycle) and wave position `pos` (0..1),
+    /// crossfading between the two nearest waves.
+    pub fn at(&self, table: usize, pos: f32, phase: f32) -> f32 {
+        let x = pos.clamp(0.0, 1.0) * (WAVES - 1) as f32;
+        let k = x as usize;
+        let a = read(self.wave(table, k), phase);
+        let b = read(self.wave(table, k + 1), phase);
+        a + (b - a) * (x - k as f32)
+    }
+
     /// Attack `k` (0-based): a generated one below `SAMPLES`, a user slot from
     /// there; `None` for an empty or unknown one.
     pub fn sample(&self, k: usize) -> Option<&'a Sample> {
@@ -421,14 +431,11 @@ impl TableOsc {
     /// One sample of `table` at wave position `pos` (0..1): crossfading between the
     /// two nearest waves, or with `steps` on the nearest one alone.
     pub fn step(&mut self, t: TableSet, table: usize, pos: f32, steps: bool) -> f32 {
-        let x = pos.clamp(0.0, 1.0) * (WAVES - 1) as f32;
-        let k = x as usize;
         let y = if steps {
+            let x = pos.clamp(0.0, 1.0) * (WAVES - 1) as f32;
             read(t.wave(table, (x + 0.5) as usize), self.phase)
         } else {
-            let a = read(t.wave(table, k), self.phase);
-            let b = read(t.wave(table, k + 1), self.phase);
-            a + (b - a) * (x - k as f32)
+            t.at(table, pos, self.phase)
         };
         self.phase += self.inc;
         if self.phase >= 1.0 {

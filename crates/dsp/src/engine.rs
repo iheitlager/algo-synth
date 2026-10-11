@@ -1817,6 +1817,7 @@ impl Engine {
                 };
                 *slot = Some((j + u64::from(ev.len), track, ev.note));
                 self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                self.sample_on_note(usize::from(track), f, j);
                 let span = self
                     .spans
                     .get(f)
@@ -2282,7 +2283,7 @@ impl Engine {
             let Some(md) = self.song.mods.get(m) else {
                 continue;
             };
-            let (target, param) = (md.target, md.param);
+            let (target, param, on_note) = (md.target, md.param, md.signal.on_note());
             let playing = md.clip.is_none_or(|f| {
                 !self.cued_out(f)
                     && scene.is_none_or(|s| {
@@ -2348,12 +2349,25 @@ impl Engine {
                         *last = f32::NAN;
                     }
                     self.automate(target, param, base);
+                    // What `.onNote` held per voice goes too.
+                    if on_note {
+                        if let Target::Track(t) = target {
+                            let s = self.song_route.get(t).copied().flatten();
+                            if let Some(pool) = s.and_then(|s| self.pools.get_mut(s)) {
+                                pool.clear_voices(param);
+                            }
+                        }
+                    }
                 }
                 continue;
             }
             let found = self.target_value(target, param);
             if let Some(base @ None) = self.mod_base.get_mut(m) {
                 *base = Some(found);
+            }
+            // Sampled as each note starts (`sample_on_note`), not here.
+            if on_note {
+                continue;
             }
             let mut ctx = signal::Ctx {
                 cps,
@@ -2372,6 +2386,59 @@ impl Engine {
                 _ => continue,
             }
             self.automate(target, param, v);
+        }
+    }
+
+    /// The `.onNote` signals on `track` (spec 010 Req 12), sampled as a note
+    /// of clip `clip` starts at tick `tick` and held for it: by the voices it
+    /// pressed where a voice holds that parameter, else by the synth.
+    fn sample_on_note(&mut self, track: usize, clip: usize, tick: u64) {
+        let t = tick as f64 / TICKS_PER_STEP as f64 / STEPS_PER_BAR as f64;
+        let cps = f64::from(self.clock.tempo()) / 240.0;
+        let synth = self.song_route.get(track).copied().flatten();
+        let own = synth
+            .and_then(|s| self.synths.get(s))
+            .is_some_and(|p| p.model.uses_mono_voice());
+        for m in 0..self.song.mods.len().min(MAX_MODS) {
+            let Some(md) = self.song.mods.get(m) else {
+                continue;
+            };
+            if !md.signal.on_note()
+                || md.target != Target::Track(track)
+                || md.clip.is_some_and(|c| c != clip)
+            {
+                continue;
+            }
+            let mut ctx = signal::Ctx {
+                cps,
+                dt: 0.0,
+                state: &mut self.mod_state,
+                voice: None,
+            };
+            let (param, v) = (md.param, md.signal.eval(t, &mut ctx));
+            // A `~` leaves the parameter as it is.
+            if v.is_nan() {
+                continue;
+            }
+            let pool = synth.and_then(|s| self.pools.get_mut(s));
+            match pool {
+                Some(pool) if own && crate::mono::voice::VOICE_PARAMS.contains(&param) => {
+                    let count = self.note_count;
+                    let mut slots = [usize::MAX; MAX_VOICES];
+                    for (k, i) in slots.iter_mut().zip(pool.pressed(count)) {
+                        *k = i;
+                    }
+                    for i in slots.into_iter().filter(|i| *i != usize::MAX) {
+                        pool.set_voice(i, param, v);
+                    }
+                }
+                _ => {
+                    if let Some(last) = self.mod_last.get_mut(m) {
+                        *last = v;
+                    }
+                    self.automate(Target::Track(track), param, v);
+                }
+            }
         }
     }
 
