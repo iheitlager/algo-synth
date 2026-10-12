@@ -111,6 +111,19 @@ impl Default for Limits {
     }
 }
 
+#[cfg(test)]
+impl Limits {
+    /// The default bars with no deadline to speak of (#535): a render cut
+    /// short changes what is measured, so a test with a deadline depends on
+    /// the machine's speed, and fails under coverage instrumentation.
+    pub fn unhurried() -> Limits {
+        Limits {
+            max_time: Duration::from_secs(3600),
+            ..Limits::default()
+        }
+    }
+}
+
 /// The level of one arrangement entry, on the master output.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SceneLevel {
@@ -512,7 +525,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
     /// between two loud ones reads near silence.
     #[test]
     fn render_measures_each_scene_and_track() {
-        let r = render(BEAT, Limits::default()).expect("renders");
+        let r = render(BEAT, Limits::unhurried()).expect("renders");
         assert_eq!((r.bars, r.cut_short, r.nonfinite), (3, false, 0));
         assert!(r.peak > 0.05 && r.peak <= 1.0, "peak {}", r.peak);
         let s: Vec<(&str, u64, f32)> = r
@@ -547,7 +560,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
             BEAT,
             Limits {
                 max_bars: 1,
-                ..Limits::default()
+                ..Limits::unhurried()
             },
         )
         .expect("renders");
@@ -562,7 +575,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
         )
         .expect("renders");
         assert!(none.cut_short && none.bars == 0);
-        let e = render("tempo 120\nclip b = nowhere\n  bd x\n", Limits::default())
+        let e = render("tempo 120\nclip b = nowhere\n  bd x\n", Limits::unhurried())
             .expect_err("no track");
         assert_eq!(e.line, 2);
     }
@@ -579,7 +592,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
             "clip r = lead\n",
             "  \"a4 ~ c5 ~\"\n",
         );
-        let r = render(song, Limits::default()).expect("renders");
+        let r = render(song, Limits::unhurried()).expect("renders");
         let d = &r.synthdefs[0];
         assert!(d.ok && d.voices > 0 && d.stereo && d.knobs > 0, "{d:?}");
         assert_eq!(r.bars, FREE_BARS, "no arrangement: a few bars of the loops");
@@ -602,7 +615,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
             (e.line, e.msg.as_str()),
             (4, "this character is not part of sclang here: `$`")
         );
-        let e = render(song, Limits::default()).expect_err("refused");
+        let e = render(song, Limits::unhurried()).expect_err("refused");
         assert!(e.msg.ends_with("`$`"), "{e:?}");
     }
 
@@ -618,7 +631,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
             let heard = audition(song, track).expect("auditioned");
             let parsed = Song::parse(&heard).expect("parses");
             assert!(plays(&parsed, 0), "{heard}");
-            let r = render(&heard, Limits::default()).expect("renders");
+            let r = render(&heard, Limits::unhurried()).expect("renders");
             assert!(r.tracks[0].peak > 0.01, "{track}: {:?}", r.tracks[0]);
         }
         assert_eq!(audition("tempo 120\ntrack lead synth\n", "bass"), None);
