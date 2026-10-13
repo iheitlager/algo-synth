@@ -225,3 +225,164 @@ impl Provider for Any {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{self, Kind};
+    use axum::Router;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::post;
+    use serde_json::json;
+
+    /// A fake of every provider and of what goes wrong, on a free port.
+    async fn fake() -> String {
+        let key = |h: &HeaderMap, name: &str| {
+            h.get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+        let app = Router::new()
+            .route(
+                "/v1/messages",
+                post(move |h: HeaderMap| async move {
+                    assert_eq!(key(&h, "x-api-key").as_deref(), Some("k"));
+                    axum::Json(json!({
+                        "content": [{"type": "text", "text": "hi"}],
+                        "stop_reason": "end_turn",
+                    }))
+                }),
+            )
+            .route(
+                "/chat/completions",
+                post(move |h: HeaderMap| async move {
+                    assert_eq!(key(&h, "authorization").as_deref(), Some("Bearer k"));
+                    axum::Json(json!({"choices": [{
+                        "message": {"role": "assistant", "content": "hi"},
+                        "finish_reason": "stop",
+                    }]}))
+                }),
+            )
+            .route(
+                "/models/{call}",
+                post(move |h: HeaderMap| async move {
+                    assert_eq!(key(&h, "x-goog-api-key").as_deref(), Some("k"));
+                    axum::Json(json!({"candidates": [{
+                        "content": {"role": "model", "parts": [{"text": "hi"}]},
+                        "finishReason": "STOP",
+                    }]}))
+                }),
+            )
+            .route(
+                "/busy",
+                post(|| async {
+                    (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        axum::Json(json!({"error": {"message": "slow down"}})),
+                    )
+                }),
+            )
+            .route(
+                "/broken",
+                post(|| async { (StatusCode::BAD_GATEWAY, "upstream gone") }),
+            )
+            .route(
+                "/bad",
+                post(|| async {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        axum::Json(json!({"message": "no such model"})),
+                    )
+                }),
+            )
+            .route("/garbled", post(|| async { "not json" }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        format!("http://{addr}")
+    }
+
+    async fn post_to(url: &str) -> Result<Value, ProviderError> {
+        post_json(&reqwest::Client::new(), url, &[], &json!({})).await
+    }
+
+    /// A rate limit or a server error is worth a retry; a bad request or a
+    /// reply that is not JSON is not. Each says what the provider said.
+    #[tokio::test]
+    async fn failures_are_transient_or_fatal() {
+        let base = fake().await;
+        assert_eq!(
+            post_to(&format!("{base}/busy")).await,
+            Err(ProviderError::Transient(
+                "the provider answered 429 Too Many Requests: slow down".into()
+            ))
+        );
+        assert_eq!(
+            post_to(&format!("{base}/broken")).await,
+            Err(ProviderError::Transient(
+                "the provider answered 502 Bad Gateway: ".into()
+            ))
+        );
+        assert_eq!(
+            post_to(&format!("{base}/bad")).await,
+            Err(ProviderError::Fatal(
+                "the provider answered 400 Bad Request: no such model".into()
+            ))
+        );
+        assert_eq!(
+            post_to(&format!("{base}/garbled")).await,
+            Err(ProviderError::Fatal(
+                "the provider's reply is not JSON".into()
+            ))
+        );
+    }
+
+    /// No server at all is transient, and says nothing more.
+    #[tokio::test]
+    async fn an_unreachable_provider_is_transient() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        drop(listener);
+        assert_eq!(
+            post_to(&format!("http://{addr}/v1/messages")).await,
+            Err(ProviderError::Transient(
+                "the provider could not connect".into()
+            ))
+        );
+    }
+
+    /// Each kind of provider in the config reaches its own wire format,
+    /// with its key in its own header.
+    #[tokio::test]
+    async fn any_provider_takes_a_turn() {
+        let base = fake().await;
+        for (kind, base) in [
+            (Kind::Anthropic, format!("{base}/v1/messages")),
+            (Kind::Openai, base.clone()),
+            (Kind::Gemini, base.clone()),
+        ] {
+            let p = config::Provider {
+                id: "p".into(),
+                name: "P".into(),
+                kind,
+                base,
+                key: Some("k".into()),
+                models: vec!["m".into()],
+            };
+            let any = Any::new(&p, "m", reqwest::Client::new(), "high");
+            let turn = any
+                .turn("system", &[], &[Msg::User("hello".into())])
+                .await
+                .expect("a turn");
+            assert_eq!(
+                (turn.text.as_str(), turn.stop),
+                ("hi", Stop::End),
+                "{kind:?}"
+            );
+        }
+    }
+}
