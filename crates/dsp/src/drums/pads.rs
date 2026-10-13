@@ -34,6 +34,12 @@ use crate::voice::{lookup, wrap};
 const HAT_HZ: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
 /// The 909's metal: six inharmonic squares under its hats and cymbals.
 const METAL_909: [f32; 6] = [263.0, 400.0, 421.0, 474.0, 587.0, 845.0];
+/// A soft clip for the metal: linear for small input, saturating at 0.5 so a
+/// hit at the kit's loudest (gain 2) stays under 1.
+fn soft(x: f32) -> f32 {
+    0.5 * (2.0 * x).tanh()
+}
+
 /// Below this an envelope counts as silent: −80 dB.
 const SILENT: f32 = 1.0e-4;
 
@@ -279,10 +285,12 @@ impl PadVoice {
                 for (o, hz) in self.osc.iter_mut().zip(HAT_HZ) {
                     o.inc = inc(hz);
                 }
-                let decay = if self.sound == Pad::Ch { 0.06 } else { 0.5 };
+                let decay = if self.sound == Pad::Ch { 0.07 } else { 0.5 };
                 self.bp.set(7000.0 + 3000.0 * p.tone, 1.0, sr);
                 self.hp.set(6000.0, 0.7, sr);
-                self.amp.start(0.5, decay * d, sr);
+                self.amp.start(0.9, decay * d, sr);
+                // The attack burst, as on the 909's hats.
+                self.amp2.start(1.2, 0.006, sr);
             }
             // The 808 has no crash or ride: its cymbal plays them.
             Pad::Cy | Pad::Cr | Pad::Rd => {
@@ -393,8 +401,11 @@ impl PadVoice {
                     Pad::Ch | Pad::Oh => {
                         let sq: f32 = self.osc.iter_mut().map(Osc::square).sum();
                         let (b, _) = self.bp.process(sq / 6.0);
-                        let (_, h) = self.hp.process(b);
-                        3.0 * h * self.amp.next()
+                        // Clipped, then high-passed: the clip folds energy down low.
+                        let (_, h) = self
+                            .hp
+                            .process(soft(2.5 * b * (self.amp.next() + self.amp2.next())));
+                        h
                     }
                     Pad::Cy | Pad::Cr | Pad::Rd => {
                         let sq: f32 = self.osc.iter_mut().map(Osc::square).sum::<f32>() / 6.0;
@@ -403,7 +414,7 @@ impl PadVoice {
                         let mixed = (1.0 - self.mix) * low * self.amp.next()
                             + (0.5 + self.mix) * high * self.hi.next();
                         let (_, h) = self.hp.process(mixed);
-                        1.4 * h
+                        soft(2.5 * h)
                     }
                     Pad::Lt | Pad::Mt | Pad::Ht | Pad::Lc | Pad::Mc | Pad::Hc => {
                         let [o, ..] = &mut self.osc;
@@ -525,16 +536,30 @@ impl PadVoice {
                 self.tail_s = 0.18 * d;
                 self.amp.start(0.5, self.burst_s, sr);
             }
-            Pad::Ch | Pad::Oh | Pad::Cr | Pad::Rd => {
+            Pad::Ch | Pad::Oh => {
+                for (o, hz) in self.osc.iter_mut().zip(METAL_909) {
+                    o.inc = inc(hz);
+                }
+                // A wide band from about 5 kHz up, not a whistle at 9: the sizzle.
+                self.bp.set(8_000.0 + 3_000.0 * p.tone, 0.5, sr);
+                self.hp.set(4_500.0, 0.7, sr);
+                self.mix = 0.55;
+                let decay = if self.sound == Pad::Ch { 0.07 } else { 0.45 };
+                self.amp.start(1.0, decay * d, sr);
+                // The "tch": a burst of a few milliseconds over the body.
+                self.amp2.start(1.5, 0.006, sr);
+                // Into a soft clip for grit; `makeup` is the level after it.
+                self.drive = 4.0;
+                self.makeup = 0.38;
+            }
+            Pad::Cr | Pad::Rd => {
                 for (o, hz) in self.osc.iter_mut().zip(METAL_909) {
                     o.inc = inc(hz);
                 }
                 // Centre, Q, high-pass and decay; `drive` is each one's level.
                 let (centre, q, high, decay, level) = match self.sound {
-                    Pad::Ch => (9_000.0, 1.2, 7_000.0, 0.05, 2.6),
-                    Pad::Oh => (9_000.0, 1.2, 7_000.0, 0.4, 2.3),
-                    Pad::Cr => (5_500.0, 0.8, 4_000.0, 0.7, 2.0),
-                    _ => (6_500.0, 2.0, 5_000.0, 0.7, 3.6),
+                    Pad::Cr => (5_500.0, 0.8, 4_000.0, 0.7, 2.2),
+                    _ => (6_500.0, 2.0, 5_000.0, 0.7, 5.2),
                 };
                 self.drive = level;
                 self.bp.set(centre + 2_000.0 * p.tone, q, sr);
@@ -589,12 +614,27 @@ impl PadVoice {
                 let (b, _) = self.bp.process(self.noise.white());
                 1.28 * b * self.amp.next()
             }
-            Pad::Ch | Pad::Oh | Pad::Cr | Pad::Rd => {
+            Pad::Ch | Pad::Oh => {
+                let mut q = [0.0_f32; 6];
+                for (v, o) in q.iter_mut().zip(self.osc.iter_mut()) {
+                    *v = o.square();
+                }
+                // The squares summed and ring-modulated in pairs: a denser metal.
+                let ring = (q[0] * q[1] + q[2] * q[3] + q[4] * q[5]) / 3.0;
+                let sq = 0.5 * (q.iter().sum::<f32>() / 6.0 + ring);
+                let metal = (1.0 - self.mix) * sq + self.mix * self.noise.white();
+                let (b, _) = self.bp.process(metal);
+                let x = self.drive * b * (self.amp.next() + self.amp2.next());
+                // High-passed after the clip, which folds some energy down low.
+                let (_, h) = self.hp.process(x / (1.0 + x.abs()));
+                self.makeup * h
+            }
+            Pad::Cr | Pad::Rd => {
                 let sq: f32 = self.osc.iter_mut().map(Osc::square).sum::<f32>() / 6.0;
                 let metal = (1.0 - self.mix) * sq + self.mix * self.noise.white();
                 let (b, _) = self.bp.process(metal);
                 let (_, h) = self.hp.process(b);
-                self.drive * h * self.amp.next()
+                soft(self.drive * h * self.amp.next())
             }
             _ => 0.0,
         }
