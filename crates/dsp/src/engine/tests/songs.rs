@@ -366,6 +366,27 @@ fn scenes_play_in_order_and_the_song_ends() {
     assert_eq!(e.clock().position(), 0, "and goes back to the top");
 }
 
+/// #547's recursive modulator as a song: its one track is heard, finite and
+/// bounded, from the first block.
+#[test]
+fn composed_drone_sounds_as_its_song() {
+    let mut e = Engine::new(48_000.0);
+    let text = include_str!("../../../../../examples/songs/composed-drone.song");
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut heard = 0.0_f32;
+    for _ in 0..(3 * 48_000 / BLOCK) {
+        e.clear_meters();
+        e.render(BLOCK);
+        assert!(
+            e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "finite and bounded"
+        );
+        heard = heard.max(e.meters()[e.song_routed(0).expect("routed")]);
+    }
+    assert!(heard > 0.001, "the drone is heard");
+}
+
 /// The algorave example, nearly all of it generated: it plays to its end,
 /// finite and bounded, and every one of its fourteen tracks is heard.
 #[test]
