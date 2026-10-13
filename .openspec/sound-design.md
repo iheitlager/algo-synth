@@ -51,8 +51,11 @@ A subset of sclang, run once to build the voice:
 
 - **Language:** numbers, `pi`, symbols `\x`, arrays, `var`, functions and
   closures, `value` (or `f.(x)`), `dup` and `!`, `do`, `collect`, `sum`, `size`, `reverse`,
-  `first`, `last`, `at`, `Array.fill`, `Mix.fill`, `if` on numbers, keyword
-  arguments, `mul`/`add`. Binary operators run left to right with no
+  `first`, `last`, `at`, `product`, `Array.fill`, `Mix.fill`, `if` on
+  numbers, `( … )` regions, keyword arguments, `mul`/`add`; `f <> g`
+  composes two functions (`f.(g.(x))`), and `p.coin` and `array.choose`
+  draw as the code builds, the same each time it is built (#547). A `nil`
+  argument takes the default. Binary operators run left to right with no
   precedence, as in sclang; on signals `+ - * / **` (`**` keeps the sign
   of its left side, so a negative base stays finite).
 - **Controls:** `freq` is the note's pitch (bent by the pitch wheel), `gate`
@@ -61,8 +64,8 @@ A subset of sclang, run once to build the voice:
   argument is the control's lag: `\freq.kr(440, 0.08)` glides from one
   legato note to the next (with `Polyphony 1`).
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
-  PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
+  PMOsc RLPF RHPF LPF HPF BPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
+  ExpRand LinExp EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
   Impulse Ringz Klang DynKlang Klank DynKlank VOsc Osc SidOsc SidEnv
   SidFilter NesPulse NesTri NesNoise NesDmc`.
   The SID's parts (#112) take their registers as numbers:
@@ -85,6 +88,9 @@ A subset of sclang, run once to build the voice:
   levels with `direct: 1`. Each swings about half its volume, −1..1 at
   full volume, silent at 0.
   `LeakDC.ar(in, coef)` (0.995 when left out) takes away a DC offset.
+  `BPF.ar(in, freq, rq)` is the 12 dB filter's band output, at unity in
+  its centre; `LinExp.kr(in, srclo, srchi, dstlo, dsthi)` maps a linear
+  range onto an exponential one, unclipped; `clip2(x)` is `clip(x.neg, x)`.
   `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
   (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a
   second); `Decimator.ar(in, rate, bits)` samples `in` `rate` times a second

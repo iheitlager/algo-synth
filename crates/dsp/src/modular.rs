@@ -192,6 +192,15 @@ pub struct Brk {
     pub release: u8,
 }
 
+/// Which output of a state-variable filter a node takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pass {
+    Low,
+    High,
+    /// `BPF` (#547).
+    Band,
+}
+
 /// One unit generator; `u16` fields index earlier nodes, `slot` its state.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Ugen {
@@ -220,7 +229,7 @@ pub enum Ugen {
     Noise,
     Svf {
         input: u16,
-        high: bool,
+        pass: Pass,
         cutoff: u16,
         res: u16,
         slot: u8,
@@ -1439,7 +1448,7 @@ impl GraphVoice {
             }
             Ugen::Svf {
                 input,
-                high,
+                pass,
                 cutoff,
                 res,
                 slot,
@@ -1464,7 +1473,11 @@ impl GraphVoice {
                         (false, false) => *rr,
                     };
                     let o = f.process(ctx.ladder, &v, *x, note, r);
-                    *y = if high { o.hp } else { o.lp };
+                    *y = match pass {
+                        Pass::Low => o.lp,
+                        Pass::High => o.hp,
+                        Pass::Band => o.bp,
+                    };
                 }
             }
             Ugen::PoleHp {
@@ -2704,6 +2717,99 @@ mod tests {
             let (one, block) = (render(1), render(128));
             assert!(one.0.iter().any(|x| x.abs() > 1e-3), "it sounds");
             assert_eq!(one, block);
+        }
+    }
+
+    /// #547's recursive modulator: `f` composed with itself `2^depth` times
+    /// drives a ring-modulated pair of saws through four band-passes.
+    fn composed(depth: usize) -> String {
+        format!(
+            r"(
+  var f, g;
+  f = {{ | saw |
+    var freq, u, amp, rate;
+    rate = ExpRand(0.1, 2);
+    freq = if (0.6.coin) {{
+      LFNoise1.kr(rate.dup).exprange(0.01, 10)
+    }} {{
+      LFNoise1.kr(rate.dup).exprange(10, 50)
+    }};
+    u = LFSaw.kr(LinExp.kr(saw, -1, 1, freq, freq * LFNoise1.kr(rate.dup).exprange(2, 10)));
+    u = if (0.5.coin) {{
+      u * [1 - saw, saw.reverse].choose
+    }} {{
+      u * LFSaw.kr(freq * 0.1, 0, 0.1, 1)
+    }};
+    u.clip2(1.0)
+  }};
+  g = {{ | func, n = 5 |
+    n.do {{ func = func <> func }};
+    func
+  }};
+  {{
+    var freq;
+    freq = g.(f, {depth}).value(LFSaw.kr(0.2 * [1, 1.1])).exprange(6, 11000);
+    BPF.ar(Saw.ar(freq).product, [70, 800, 9000, 5242], 0.2).sum.dup * 0.3
+  }}.play
+)"
+        )
+    }
+
+    /// #547: the recursive modulator plays at depth 2, finite and bounded;
+    /// at depth 4 it is past the voice's noises and says so.
+    #[test]
+    fn the_composed_modulator_plays() {
+        let b = Bench::new();
+        let patch = sc::compile(&composed(2)).unwrap_or_else(|e| panic!("{e:?}"));
+        let mut params = crate::mono::MonoParams::new(48_000.0);
+        for k in &patch.knobs {
+            if let Some(c) = params.ctl.get_mut(k.ctl) {
+                *c = k.default;
+            }
+        }
+        let p = patch.program;
+        params.graph = p;
+        let ctx = MonoCtx {
+            params: &params,
+            sine: &b.sine,
+            blep: &b.blep,
+            ladder: &b.ladder,
+            pitch: &b.pitch,
+            shared: None,
+            tables: b.tables.into(),
+        };
+        let mut v = GraphVoice::new(7);
+        let mut st = VoiceState::for_program(&p);
+        v.press(45, 0.8, &p, 48_000.0, 0);
+        let (mut l, mut r) = (vec![0.0_f32; 48_000], vec![0.0_f32; 48_000]);
+        for (l, r) in l.chunks_mut(128).zip(r.chunks_mut(128)) {
+            v.render(&ctx, &mut st, l, Some(r));
+        }
+        assert!(l.iter().chain(&r).all(|x| x.is_finite() && x.abs() < 4.0));
+        assert!(l.iter().any(|x| x.abs() > 1e-3), "it sounds");
+        let e = sc::compile(&composed(4)).expect_err("too big");
+        assert!(e.msg.starts_with("a voice has at most"), "{}", e.msg);
+    }
+
+    /// #547: `BPF` passes its centre and takes away what is far from it; at
+    /// a low level, under the state's saturation.
+    #[test]
+    fn a_band_pass_passes_its_centre() {
+        let mut b = Bench::new();
+        let rms = |hz: f32, b: &mut Bench| {
+            let out = b.nodes(
+                &format!("BPF.ar(SinOsc.ar({hz}, 0, 0.05), 1000, 0.2)"),
+                24_000,
+            );
+            let tail = &out[12_000..];
+            (tail.iter().map(|(_, y)| y * y).sum::<f32>() / tail.len() as f32).sqrt()
+        };
+        let centre = rms(1000.0, &mut b);
+        let level = 0.05 * 0.5_f32.sqrt();
+        assert!((0.6..1.1).contains(&(centre / level)), "centre {centre}");
+        for far in [100.0, 10_000.0] {
+            let off = rms(far, &mut b);
+            assert!(off < centre * 0.1, "{far} Hz: {off} against {centre}");
         }
     }
 

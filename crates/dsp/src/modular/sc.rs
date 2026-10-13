@@ -26,7 +26,7 @@ use std::rc::Rc;
 
 use super::{
     Class, MAX_CHIPS, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_HOLDS, MAX_MIX, MAX_OSCS,
-    MAX_PHASES, MAX_RESONATORS, NONE, Op, Program, Shape, Ugen, VOICINGS,
+    MAX_PHASES, MAX_RESONATORS, NONE, Op, Pass, Program, Shape, Ugen, VOICINGS,
 };
 use crate::mono::model::{Filter, Hp};
 use crate::mono::osc::Waveform;
@@ -208,7 +208,7 @@ fn end_pos(src: &str) -> (usize, usize) {
     (line, col)
 }
 
-const PUNCT2: [&str; 5] = ["==", "!=", "<=", ">=", "**"];
+const PUNCT2: [&str; 6] = ["==", "!=", "<=", ">=", "**", "<>"];
 const PUNCT1: [&str; 21] = [
     "(", ")", "{", "}", "[", "]", ",", ";", ".", "|", "=", "+", "-", "*", "/", "%", "<", ">", "!",
     ":", "`",
@@ -504,7 +504,7 @@ impl Parser<'_> {
             let op = match self.peek() {
                 Some(T::P(p))
                     if [
-                        "+", "-", "*", "/", "%", "**", "<", ">", "<=", ">=", "==", "!=", "!",
+                        "+", "-", "*", "/", "%", "**", "<", ">", "<=", ">=", "==", "!=", "!", "<>",
                     ]
                     .contains(p) =>
                 {
@@ -675,10 +675,22 @@ impl Parser<'_> {
                 self.expect(")", ") goes here")?;
                 match body.len() {
                     1 => Ok(body.remove(0)),
-                    _ => Err(CodeError {
+                    0 => Err(CodeError {
                         line: pos.0,
                         col: pos.1,
-                        msg: "brackets hold one expression",
+                        msg: "an expression goes here",
+                    }),
+                    // `( var f; … )`, a region as sclang runs it (#547): its
+                    // statements in turn, with its own variables.
+                    _ => Ok(E::Call {
+                        recv: Box::new(E::Func(Rc::new(FuncDef {
+                            params: Vec::new(),
+                            body,
+                        }))),
+                        name: "value".into(),
+                        args: Vec::new(),
+                        kws: Vec::new(),
+                        pos,
                     }),
                 }
             }
@@ -998,6 +1010,8 @@ fn control_spec(name: &str, default: f32) -> Spec {
 /// How evaluation is bounded.
 const MAX_STEPS: usize = 200_000;
 const MAX_CALLS: usize = 64;
+/// Most arguments a composed function (`f <> g`) passes on to `g`.
+const COMPOSE_ARGS: usize = 4;
 const MAX_COUNT: usize = 256;
 
 struct Builder {
@@ -1015,6 +1029,9 @@ struct Builder {
     calls: usize,
     /// The node of each number in the graph, by its bits.
     consts: HashMap<u32, u16>,
+    /// The state of `coin` and `choose`, drawn as the code is built: a fixed
+    /// start, so the same code builds the same graph, knobs turned or not.
+    seed: u64,
 }
 
 impl Builder {
@@ -1034,7 +1051,18 @@ impl Builder {
             steps: 0,
             calls: 0,
             consts: HashMap::new(),
+            seed: 0x9E37_79B9_7F4A_7C15,
         }
+    }
+
+    /// A number in 0..1 for `coin` and `choose` (SplitMix64).
+    fn draw(&mut self) -> f64 {
+        self.seed = self.seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.seed;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        (z >> 11) as f64 / (1u64 << 53) as f64
     }
 
     fn push(&mut self, u: Ugen, at: Pos) -> R<u16> {
@@ -1313,9 +1341,10 @@ impl Builder {
         }
         let scope = Scope::child(&f.scope);
         for (k, (name, default, _)) in f.def.params.iter().enumerate() {
+            // As in sclang, a `nil` argument takes the default.
             let v = match (args.get(k), default) {
+                (Some(V::Nil) | None, Some(d)) => self.eval(d, &scope)?,
                 (Some(v), _) => v.clone(),
-                (None, Some(d)) => self.eval(d, &scope)?,
                 (None, None) => V::Nil,
             };
             scope.define(name, v);
@@ -1398,6 +1427,20 @@ impl Builder {
                 Ok(if name == "do" { r.clone() } else { V::Arr(out) })
             }
             (V::Arr(items), "sum") => self.mix(items.clone(), at),
+            // The items multiplied, as `sum` adds them (#547).
+            (V::Arr(items), "product") => {
+                let mut out = V::Num(1.0, None);
+                for v in items {
+                    out = self.binop("*", out, v.clone(), at)?;
+                }
+                Ok(out)
+            }
+            // Drawn as the code is built, as sclang draws them (#547).
+            (V::Num(p, _), "coin") => Ok(V::Bool(self.draw() < *p)),
+            (V::Arr(items), "choose") => {
+                let k = (self.draw() * items.len() as f64) as usize;
+                Ok(items.get(k).cloned().unwrap_or(V::Nil))
+            }
             (V::Arr(items), "size") => Ok(V::Num(items.len() as f64, None)),
             (V::Arr(items), "reverse") => Ok(V::Arr(items.iter().rev().cloned().collect())),
             (V::Arr(items), "first") => Ok(items.first().cloned().unwrap_or(V::Nil)),
@@ -1431,6 +1474,13 @@ impl Builder {
             (V::Num(..) | V::Sig(..) | V::Arr(_), "clip") => {
                 let lo = args.first().cloned().unwrap_or(V::Num(0.0, None));
                 let hi = args.get(1).cloned().unwrap_or(V::Num(1.0, None));
+                let up = self.binop("max", r, lo, at)?;
+                self.binop("min", up, hi, at)
+            }
+            // `clip2(x)` is `clip(x.neg, x)`, 1 when left out (#547).
+            (V::Num(..) | V::Sig(..) | V::Arr(_), "clip2") => {
+                let hi = args.first().cloned().unwrap_or(V::Num(1.0, None));
+                let lo = self.unop(hi.clone(), "neg", at)?;
                 let up = self.binop("max", r, lo, at)?;
                 self.binop("min", up, hi, at)
             }
@@ -1583,6 +1633,9 @@ impl Builder {
             col: at.1,
             msg,
         };
+        if op == "<>" {
+            return self.compose(a, b, at);
+        }
         if op == "!" {
             let n = Self::count(&b, at)?;
             return match a {
@@ -1662,6 +1715,45 @@ impl Builder {
             }
             _ => Err(err("this operator does not work on these values")),
         }
+    }
+
+    /// `f <> g`: a function calling `g` with its arguments, then `f` with
+    /// what `g` gives (#547). Built as code, so it calls as any function.
+    fn compose(&mut self, f: V, g: V, at: Pos) -> R<V> {
+        let (V::Func(_), V::Func(_)) = (&f, &g) else {
+            return Err(CodeError {
+                line: at.0,
+                col: at.1,
+                msg: "<> composes two functions",
+            });
+        };
+        let scope = Rc::new(Scope::default());
+        scope.define("f", f);
+        scope.define("g", g);
+        let params: Vec<_> = (0..COMPOSE_ARGS)
+            .map(|k| (format!("a{k}"), None, at))
+            .collect();
+        let inner = E::Call {
+            recv: Box::new(E::Name("g".into(), at)),
+            name: "value".into(),
+            args: params
+                .iter()
+                .map(|(n, ..)| E::Name(n.clone(), at))
+                .collect(),
+            kws: Vec::new(),
+            pos: at,
+        };
+        let body = vec![E::Call {
+            recv: Box::new(E::Name("f".into(), at)),
+            name: "value".into(),
+            args: vec![inner],
+            kws: Vec::new(),
+            pos: at,
+        }];
+        Ok(V::Func(Rc::new(Closure {
+            def: Rc::new(FuncDef { params, body }),
+            scope,
+        })))
     }
 
     /// A number or a signal as a node, without a knob.
@@ -1810,6 +1902,48 @@ impl Builder {
             self.push(Ugen::Select { which, inputs, n }, at)?,
             false,
         ))
+    }
+
+    /// `LinExp.kr(in, srclo, srchi, dstlo, dsthi)`: `in` from a linear range
+    /// to an exponential one, `dstlo · (dsthi/dstlo)^((in − srclo)/(srchi −
+    /// srclo))`, unclipped as SuperCollider's (#547).
+    fn lin_exp(&mut self, args: Vec<V>, kws: Vec<(String, V)>, at: Pos) -> R<V> {
+        let err = |msg| CodeError {
+            line: at.0,
+            col: at.1,
+            msg,
+        };
+        let bound = bind(
+            &["in", "srclo", "srchi", "dstlo", "dsthi"],
+            &[None, Some(0.0), Some(1.0), Some(1.0), Some(2.0)],
+            &args,
+            &kws,
+        )
+        .map_err(err)?;
+        let inputs: Vec<V> = bound.iter().map(|v| v.clone().unwrap_or(V::Nil)).collect();
+        self.expand(&inputs, &mut |b, v| {
+            let [x, slo, shi, dlo, dhi] = v else {
+                return Err(err("LinExp takes in, srclo, srchi, dstlo and dsthi"));
+            };
+            if matches!(x, V::Nil) {
+                return Err(err("this UGen needs its input"));
+            }
+            if matches!((dlo, dhi), (V::Num(..), V::Num(..))) && num_or(dlo) * num_or(dhi) <= 0.0 {
+                return Err(err("LinExp needs dstlo and dsthi of one sign, not 0"));
+            }
+            let module = b.module("LinExp", at);
+            let knob = |b: &mut Builder, name: &str, v: &V| -> R<V> {
+                Ok(V::Sig(b.input(v, module, name, ANY_SPEC(v), at)?, false))
+            };
+            let (slo, shi) = (knob(b, "srclo", slo)?, knob(b, "srchi", shi)?);
+            let (dlo, dhi) = (knob(b, "dstlo", dlo)?, knob(b, "dsthi", dhi)?);
+            let num = b.binop("-", x.clone(), slo.clone(), at)?;
+            let den = b.binop("-", shi, slo, at)?;
+            let t = b.binop("/", num, den, at)?;
+            let ratio = b.binop("/", dhi, dlo.clone(), at)?;
+            let curve = b.binop("**", ratio, t, at)?;
+            b.binop("*", dlo, curve, at)
+        })
     }
 
     /// `LeakDC.ar(in, coef, mul, add)`: a one-pole DC blocker (#323).
@@ -2386,6 +2520,7 @@ impl Builder {
                 }
             }
             ("Select", "ar" | "kr") => self.select(args, kws, at),
+            ("LinExp", "ar" | "kr") => self.lin_exp(args, kws, at),
             ("LeakDC", "ar" | "kr") => self.leak_dc(args, kws, at),
             ("Klang" | "DynKlang" | "Klank" | "DynKlank", "ar" | "kr") => {
                 self.bank(c, args, kws, at)
@@ -2668,7 +2803,7 @@ impl Builder {
                 &[None, None, Some(0.0), Some(0.0), Some(1.0), Some(0.0)],
                 &[FREQ, FREQ, INDEX, PHASE, MUL, ADD],
             ),
-            "RLPF" | "RHPF" => (
+            "RLPF" | "RHPF" | "BPF" => (
                 &["in", "freq", "rq", "mul", "add"],
                 &[None, Some(440.0), Some(1.0), Some(1.0), Some(0.0)],
                 &[ANY, FREQ, RQ, MUL, ADD],
@@ -3072,10 +3207,10 @@ impl Builder {
                         4,
                     )
                 }
-                "RLPF" | "RHPF" | "LPF" | "HPF" => {
+                "RLPF" | "RHPF" | "LPF" | "HPF" | "BPF" => {
                     let x = inp(b, 0)?;
                     let f = inp(b, 1)?;
-                    let resonant = c.starts_with('R');
+                    let resonant = c.starts_with('R') || c == "BPF";
                     let res = if resonant {
                         inp(b, 2)?
                     } else {
@@ -3087,7 +3222,11 @@ impl Builder {
                         at,
                         "a voice has at most 8 filters",
                     )?;
-                    let high = c.ends_with("HPF");
+                    let pass = match c.as_str() {
+                        "BPF" => Pass::Band,
+                        _ if c.ends_with("HPF") => Pass::High,
+                        _ => Pass::Low,
+                    };
                     if voicing == Some(Voicing::OnePole) {
                         let u = Ugen::PoleHp {
                             input: x,
@@ -3099,7 +3238,7 @@ impl Builder {
                         b.voice(slot, voicing);
                         let u = Ugen::Svf {
                             input: x,
-                            high,
+                            pass,
                             cutoff: f,
                             res,
                             slot,
@@ -3332,7 +3471,7 @@ mod tests {
             nodes(&p).last(),
             Some(Ugen::Svf {
                 rq: true,
-                high: false,
+                pass: Pass::Low,
                 ..
             })
         ));
@@ -3680,6 +3819,77 @@ mod tests {
         assert_eq!(
             count(&p, |u| matches!(u, Ugen::Wave { first: false, .. })),
             1
+        );
+    }
+
+    /// #547: `f <> g` is `f.(g.(x))`, a `nil` argument takes its default.
+    #[test]
+    fn functions_compose() {
+        let p =
+            patch("{ var f = { |x| x * 3 }, g = { |x, y = 2| x + y }; SinOsc.ar((f <> g).(5)) }");
+        assert!(nodes(&p).contains(&Ugen::Num(21.0)), "{:?}", nodes(&p));
+        let e = compile("{ SinOsc.ar(1 <> 2) }").expect_err("numbers");
+        assert_eq!(e.msg, "<> composes two functions");
+    }
+
+    /// #547: `coin` and `choose` are drawn as the code builds, the same each
+    /// time; a sure `coin` is sure.
+    #[test]
+    fn coin_and_choose_build_the_same_each_time() {
+        let src = "{ SinOsc.ar([100, 200, 300, 400].choose + if (0.5.coin) { 1 } { 2 }) }";
+        let one = nodes(&patch(src));
+        for _ in 0..3 {
+            assert_eq!(nodes(&patch(src)), one);
+        }
+        // A literal is a knob: what was picked is its default.
+        let pick = |src: &str| patch(src).knobs.first().map(|k| k.default);
+        assert_eq!(pick("{ SinOsc.ar(if (1.coin) { 7 } { 9 }) }"), Some(7.0));
+        let picks: std::collections::HashSet<_> = (0..8)
+            .map(|k| {
+                let coins = "0.5.coin; ".repeat(k);
+                pick(&format!("{{ {coins} SinOsc.ar([1, 2, 3, 4].choose) }}")).map(f32::to_bits)
+            })
+            .collect();
+        assert!(picks.len() > 1, "choose picks more than one item");
+    }
+
+    /// #547: `clip2`, `product` and `LinExp` on numbers, worked out now.
+    #[test]
+    fn clip2_product_and_lin_exp() {
+        let n = |src: &str| {
+            let p = patch(&format!("{{ SinOsc.ar({src}) }}"));
+            nodes(&p).into_iter().find_map(|u| match u {
+                Ugen::Num(v) => Some(v),
+                _ => None,
+            })
+        };
+        assert_eq!(n("5.clip2(2)"), Some(2.0));
+        assert_eq!(n("-5.clip2(2)"), Some(-2.0));
+        assert_eq!(n("[2, 3, 4].product"), Some(24.0));
+        let p = patch("{ SinOsc.ar(LinExp.kr(LFSaw.kr(1), -1, 1, 100, 400)) }");
+        assert_eq!(
+            p.knobs
+                .iter()
+                .map(|k| (k.name.as_str(), k.default))
+                .filter(|(n, _)| n.starts_with("ds"))
+                .collect::<Vec<_>>(),
+            vec![("dstlo", 100.0), ("dsthi", 400.0)]
+        );
+        assert!(
+            nodes(&p)
+                .iter()
+                .any(|u| matches!(u, Ugen::Bin(Op::Pow, ..)))
+        );
+        assert!(
+            nodes(&patch("{ BPF.ar(Saw.ar(100), 800, 0.2) }"))
+                .iter()
+                .any(|u| matches!(
+                    u,
+                    Ugen::Svf {
+                        pass: Pass::Band,
+                        ..
+                    }
+                ))
         );
     }
 }
