@@ -1,0 +1,122 @@
+# Night Temple: mystic acid house in D phrygian (#536), the flat second doing
+# the mystery. The TB-303 glides in from the octave, squelches in the middle
+# of its range and drops to its lowest notes for the break; an SH-101 sings
+# the melody over Jupiter-8 strings, Juno-106 stabs and an eighties house
+# piano. An 808 plays the kick, cowbell, toms and the rolling snare, a second
+# 808 the claps into the reverb, a 909 the hats; a Modular SynthDef throws
+# bleeps into the echo. The piano needs the sample packs (make samples).
+tempo 118
+swing 55
+scale d phrygian
+
+# A sine blip with a thin pulse an octave up, short, panned at random.
+setting bleep = Modular ModularBasic
+  SynthDef(\bleep, { |freq = 880, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.08), gate);
+      var sig = SinOsc.ar(freq) + (Pulse.ar(freq * 2, 0.2) * 0.12);
+      Pan2.ar(sig * env * 0.5, Rand(-0.7, 0.7))
+  }).add;
+
+track kit drums Tr808 Kit808
+track clap drums Tr808 Kit808
+track hats drums Tr909 Kit909
+track bass synth Tb303 Tb303Acid
+track lead synth Sh101 Sh101Lead
+track strings synth Jupiter8 JupiterStrings
+track stab synth Juno106 JunoPoly
+track bleep synth bleep
+track keys sampler Sampler SamplerKeys
+samples keys upright-piano-kw
+
+strip kit: Level 1
+strip clap: Level 0.9, Send2 0.65
+strip hats: Level 0.65, Pan 0.15
+strip bass: Level 0.6, I1Type Overdrive, I1A 0.3, Send1 0.08
+strip lead: Level 0.8, Pan -0.15, Send1 0.3, Send2 0.25
+strip strings: Level 0.2, Send2 0.45
+strip stab: Level 0.5, Pan 0.2, Send1 0.35, Send2 0.15
+strip bleep: Level 0.6, Send1 0.5, Send2 0.15
+strip keys: Level 0.4, Pan -0.2, Send2 0.3
+master: P1Return 0.35, P1B 0.55, P2Return 0.35
+
+clip kick = kit /16
+  bd x...x...x...x...
+clip floor = kit /16
+  bd x...x...x...x...
+  cb ..........x.....
+  lt .......x......x.
+# A bar's fill at the end of four.
+clip fill = kit /16
+  sn ................................................x.x.x.x.xxxxXXXX
+# The rolling snare over four bars: quarters, eighths, then sixteenths and
+# thirty-seconds, the last bar loud.
+clip roll_in = kit /16
+  sn x...x...x...x...x.x.x.x.x.x.x.x.
+clip roll = kit /32
+  sn x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.xxxxxxxxxxxxxxxxXXXXXXXXXXXXXXXX
+
+clip claps = clap /16
+  cp ....x.......x...
+clip claps_push = clap /16
+  cp ....x.......x..x
+
+clip tick = hats /16
+  ch ..x...x...x...x.
+clip hats16 = hats /16
+  ch x.xxx.xxx.xxx.xx
+  oh ..x...x...x...x.
+
+# The way in: a slide down from the octave through the scale to the root.
+clip glide = bass
+  "d2& c2& a1& f1& d1! ~ d1 ~ d1 ~ d2& d1 ~ eb1! d1 ~"
+# The line: the root with the flat second, accents off the beat.
+clip line = bass
+  "<[d1! d1 d2& d1 eb1 d1! ~ a1& d1 d1 c2! d1 ~ d1 eb2!& d1] [d1 ~ d1! f1 d1 a1& g1 d1! ~ d1 bb1& a1 f1 eb1! d1 ~]>"
+clip line_b = bass
+  mutate(line,25,3)
+# The lowest notes, long, for the break.
+clip low = bass
+  "<[d1*8] [eb1*8] [c1*8] [a0*4 bb0*4]>"
+
+clip melody = lead
+  "<[d4@3 eb4 f4@2 a4 g4] [f4@3 eb4 d4@4] [a4@2 bb4 a4 g4@2 f4 eb4] [d4@6 c4 eb4]>"
+
+clip pads = strings
+  "<[d3,f3,a3] [eb3,g3,bb3] [d3,g3,bb3] [c3,f3,a3]>"
+
+clip stabs = stab
+  "~ ~ <[d4,f4,a4] [eb4,g4,bb4] [d4,g4,bb4] [c4,f4,a4]> ~ ~ ~ <[d4,f4,a4] [eb4,g4,bb4] [d4,g4,bb4] [c4,f4,a4]> ~ ~ ~ ~ ~ ~ <[d4,f4,a4] [eb4,g4,bb4] [d4,g4,bb4] [c4,f4,a4]> ~ ~"
+
+# The house piano: sevenths on the off-beats, two bars each.
+clip piano = keys .slow(2)
+  "<[d:m7 ~ ~ d:m7 ~ ~ d:m7 ~ ~ ~ d:m7 ~ ~ ~ ~ ~] [eb:maj7 ~ ~ eb:maj7 ~ ~ eb:maj7 ~ ~ ~ c:m7 ~ ~ ~ ~ ~]>"
+
+clip bleeps = bleep
+  euclid(5,16,3) scale d5
+clip sparkle = bleep
+  "~ a5 ~ ~ eb6 ~ ~ d6 ~ ~ ~ a5 ~ f5 ~ ~"
+
+auto cut_low = bass.Cutoff ramp 250 600 /8
+auto cut_mid = bass.Cutoff 900 1400 1100 1700 /4
+auto cut_dark = bass.Cutoff ramp 200 800 /8
+auto cut_rise = bass.Cutoff ramp 600 1600 /2
+auto cut_roll = bass.Cutoff ramp 1600 3000 /2
+auto cut_wild = bass.Cutoff 1600 900 2400 1200 /4
+auto res_mid = bass.Resonance 0.6 /8
+auto res_squelch = bass.Resonance ramp 0.75 0.88 /16
+auto res_low = bass.Resonance 0.5 /8
+auto res_rise = bass.Resonance ramp 0.7 0.82 /2
+auto res_roll = bass.Resonance ramp 0.82 0.93 /2
+
+snapshot dry: master.P2Return 0.35
+snapshot wet: master.P2Return 0.6
+
+scene intro 8: kick tick glide cut_low res_mid [dry]
+scene groove 16: floor claps hats16 line stabs fill cut_mid res_squelch
+scene temple 16: floor claps hats16 line melody pads stabs bleeps fill cut_mid res_squelch
+scene break 8: pads piano low sparkle cut_dark res_low [wet]
+scene rise 2: roll_in claps_push line pads piano cut_rise res_rise
+scene roll 2: roll claps_push line pads piano cut_roll res_roll
+scene peak 16: floor claps_push hats16 line_b melody pads stabs piano sparkle fill cut_wild res_squelch [dry]
+scene outro 8: kick tick glide pads cut_low res_mid
+arrange intro groove temple break rise roll peak outro
