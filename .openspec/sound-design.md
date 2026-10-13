@@ -20,11 +20,11 @@ A synth patch kept in the song: a factory preset and changes to it. A track
 plays it by name. The preset must be the model's; parameters are the synth's
 own (not `Model`, mixer or master ones).
 
-Models: `Arp2600 Minimoog ProOne Ms20 Cs15 Sh101 Odyssey Prophet5 Juno106
-Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
+Models: `Arp2600 Minimoog ProOne Ms20 Cs15 Sh101 Odyssey Tb303 Prophet5
+Juno106 Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
 machines), `Sampler` (multisampler), `PadSampler` (pads), `Modular` (a
 SuperCollider SynthDef). Presets are factory names, as `MiniBass`, `AcidBass`,
-`JunoPad`, `Kit909`; `Modular` has `ModularBasic`, `ModularHoover`,
+`Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`, `ModularHoover`,
 `ModularKick`.
 
 ```song
@@ -108,7 +108,7 @@ A subset of sclang, run once to build the voice:
   stereo (`Pan2`, `Splay`, `FreeVerb2`).
 - **Filter voicings:** `voicing: \<synth>` on `MoogFF` (ladders: `arp2600
   minimoog proone prophet5 sh101 juno106 jupiter8 matrix12 ppgwave d50 odyssey
-  prophet5rev1 odysseyrev2`, plus `drive: 0..1`), on `RLPF RHPF LPF` (12 dB:
+  tb303 prophet5rev1 odysseyrev2`, plus `drive: 0..1`), on `RLPF RHPF LPF` (12 dB:
   `ms20 cs15 polymoog jupiter8 matrix12 odysseyrev1`), on `HPF` (`ms20 cs15
   odyssey juno106`) renders as that synth's filter.
 - **Knobs:** every number a UGen, an envelope or a `Rand` takes, and every

@@ -1057,6 +1057,9 @@ pub enum Param {
     PitchBend = 537,
     /// How far the pitch wheel bends, in semitones each way, 0..=24.
     BendRange = 538,
+    /// The TB-303's accent, 0..=1: how much an accented note opens the
+    /// filter and lifts the VCA, through the sweep circuit (#536).
+    Accent = 539,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1144,7 +1147,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 539] = [
+    pub const ALL: [(Param, &'static str); 540] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1684,6 +1687,7 @@ impl Param {
         (Param::EnvRev, "EnvRev"),
         (Param::PitchBend, "PitchBend"),
         (Param::BendRange, "BendRange"),
+        (Param::Accent, "Accent"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -1985,6 +1989,7 @@ impl Param {
             Param::FilterRev | Param::VcoRev | Param::EnvRev => (1.0, 3.0),
             Param::PitchBend => (-1.0, 1.0),
             Param::BendRange => (0.0, 24.0),
+            Param::Accent => (0.0, 1.0),
             Param::Revision => (0.0, 4.0),
             // 0..=7 the generated tables, 8..=15 the user's (spec 010 Req 9).
             Param::Wt1Table | Param::Wt2Table => (0.0, 15.0),

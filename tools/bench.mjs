@@ -34,8 +34,8 @@ const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
 
 // One preset of each model, so the ensemble is the family: ARP 2600, Minimoog,
-// Pro-One, MS-20, CS-15, SH-101, Odyssey.
-const family = ['Bass', 'MiniLead', 'ProLead', 'Ms20Lead', 'Cs15Brass', 'Sh101Lead', 'CurrieLead']
+// Pro-One, MS-20, CS-15, SH-101, Odyssey, TB-303.
+const family = ['Bass', 'MiniLead', 'ProLead', 'Ms20Lead', 'Cs15Brass', 'Sh101Lead', 'CurrieLead', 'Tb303Squelch']
 
 // Two mod lines per synth, by strip so no track claims a synth: each a sum of
 // two LFOs through a lag, the deepest a song is likely to write.
@@ -103,6 +103,9 @@ const scenarios = {
   'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
   // Sixteen synths cycling through every model (spec 005 Req 9).
   'all models': [(w, s) => w.mono_preset(s, Preset[family[s % family.length]]), 36],
+  // A TB-303 on every synth, its diode ladder at the edge of the whistle
+  // (#536).
+  'tb303': [(w, s) => w.mono_preset(s, Preset.Tb303Squelch), 36],
   // Chord pads on every polyphonic model: sixteen synths, four voices each,
   // which is the whole voice budget (spec 006 Req 15).
   'poly pads': [(w, s) => w.mono_preset(s, Preset[polys[s % polys.length]]), 48, CHORD],

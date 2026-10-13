@@ -1020,6 +1020,31 @@ const ODYSSEY_REVS: Options = [['Rev 1', 1], ['Rev 2', 2], ['Rev 3', 3]]
 // noise, a 24 dB ladder and a 6 dB high-pass after it, one ADSR to filter and
 // VCA. Not modular, so no patch bay: the presets' patch slots still play.
 // Black and gold.
+/** The TB-303's two waves from its one oscillator (#536). */
+const TB_WAVES: Options = [['Saw', Waveform.Saw], ['Square', Waveform.Pulse]]
+const tb303: ModelDef = {
+  id: Model.Tb303,
+  family: 'mono',
+  name: 'TB-303',
+  maker: 'Roland · bass line, diode ladder',
+  tagline: 'One oscillator into a diode ladder, a decay for the filter, accent and slide from the song',
+  theme: { panel: '#c8cacc', ink: '#1d1e20', soft: '#55585c', trim: '#8f9296', accent: '#e8742c' },
+  presets: ['Tb303Acid', 'Tb303Squelch', 'Tb303Square'],
+  sections: [
+    { title: 'VCO', controls: [select('Waveform', Param.Vco1Wave, TB_WAVES), range('Tuning', Param.Vco1Fine, -50, 50, 1), vintage()] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'),
+        range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Env mod', Param.EnvCutoff, 0, 1, 0.01),
+        range('Decay', Param.FenvDecay, 0.001, 3, 0.001),
+        range('Accent', Param.Accent, 0, 1, 0.01),
+      ],
+    },
+  ],
+}
+
 const odyssey: ModelDef = {
   id: Model.Odyssey,
   family: 'mono',
@@ -1295,7 +1320,7 @@ const ARP_SECTION: Section = {
 const withArp = (m: ModelDef): ModelDef =>
   m.family === 'mono' || m.family === 'poly' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular].map(withArp)
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular, tb303].map(withArp)
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

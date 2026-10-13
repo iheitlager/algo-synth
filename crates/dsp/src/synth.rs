@@ -28,6 +28,7 @@ mod proone;
 mod prophet5;
 mod sampler;
 mod sh101;
+mod tb303;
 mod tr808;
 mod tr909;
 
@@ -97,6 +98,9 @@ pub struct ModelDef {
     pub hp_follows_ar: bool,
     /// The normalled cutoff follows the filter ADSR (spec 004 Req 12).
     pub cutoff_follows_filter_env: bool,
+    /// An accented note charges the TB-303's sweep circuit, which opens the
+    /// filter and lifts the VCA; its filter envelope is a decay (#536).
+    pub accent_sweep: bool,
     /// What each revision of the instrument sets, Rev 1 to Rev 4, if it
     /// has the Revision switch (#343).
     pub revisions: Option<&'static [RevisionDef; 4]>,
@@ -139,6 +143,7 @@ impl ModelDef {
         wheel_scales_filter_mod: false,
         hp_follows_ar: false,
         cutoff_follows_filter_env: true,
+        accent_sweep: false,
         revisions: None,
         presets: &[],
     };
@@ -212,6 +217,7 @@ impl Model {
             Model::PadSampler => &padsampler::DEF,
             Model::Tr909 => &tr909::DEF,
             Model::Modular => &modular::DEF,
+            Model::Tb303 => &tb303::DEF,
         }
     }
 }

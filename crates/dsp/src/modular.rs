@@ -87,7 +87,7 @@ impl Class {
     pub(crate) fn words(self) -> &'static str {
         match self {
             Class::Ladder => {
-                "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 \\odyssey \\prophet5rev1 or \\odysseyrev2"
+                "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 \\odyssey \\tb303 \\prophet5rev1 or \\odysseyrev2"
             }
             Class::Lp12 => {
                 "a filter voicing is \\ms20 \\cs15 \\polymoog \\jupiter8 \\matrix12 or \\odysseyrev1"
@@ -104,7 +104,7 @@ impl Class {
 /// at a setting of its switches: its ladder for `MoogFF`, its 12 dB filter
 /// (the two-pole setting where it has a slope switch) for `RLPF`, `RHPF`
 /// and `LPF`, its high-pass for `HPF`.
-pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 25] = [
+pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 26] = [
     ("arp2600", Class::Ladder, Model::Arp2600, Setting::OWN),
     ("minimoog", Class::Ladder, Model::Minimoog, Setting::OWN),
     ("proone", Class::Ladder, Model::ProOne, Setting::OWN),
@@ -116,6 +116,7 @@ pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 25] = [
     ("ppgwave", Class::Ladder, Model::PpgWave, Setting::OWN),
     ("d50", Class::Ladder, Model::D50, Setting::OWN),
     ("odyssey", Class::Ladder, Model::Odyssey, Setting::OWN),
+    ("tb303", Class::Ladder, Model::Tb303, Setting::OWN),
     (
         "prophet5rev1",
         Class::Ladder,
