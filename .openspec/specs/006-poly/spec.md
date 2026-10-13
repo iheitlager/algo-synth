@@ -104,7 +104,7 @@ The Prophet-5 SHALL have 5 voices of two oscillators (A is VCO 2, B is VCO 1, A 
 - WHEN it is played
 - THEN the SSM2030 plays a key more than 1.3 times further off at the same Vintage, and a quarter into a long attack the CEM3310's envelope stands higher than the SSM2050's
 
-**Tests:** `crates/dsp/src/engine/tests.rs::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine/tests.rs::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`, `crates/dsp/src/engine/tests.rs::a_revision_sets_its_parts_and_drift`, `crates/dsp/src/engine/tests.rs::a_part_turned_away_makes_it_custom`, `crates/dsp/src/engine/tests.rs::revisions_load_in_any_order_and_old_setups_keep_their_sound`, `crates/dsp/src/engine/tests.rs::only_a_model_with_revisions_links_them`, `crates/dsp/src/engine/tests.rs::the_prophets_ssm_vcos_drift_more_than_its_curtis_ones`, `crates/dsp/src/engine/tests.rs::the_prophets_ssm_attack_is_straighter_than_its_curtis_one`
+**Tests:** `crates/dsp/src/engine/tests.rs::the_prophet_5_has_five_voices_and_the_sixth_steals_one`, `crates/dsp/src/engine/tests.rs::the_prophet_bass_plays_one_note_on_all_five_voices`, `crates/dsp/src/mono/model.rs::tests::polyphonic_models_have_their_own_voice_count`, `crates/dsp/src/mono/preset/tests/songs.rs::every_poly_preset_plays_a_full_chord`, `crates/dsp/src/engine/tests.rs::a_revision_sets_its_parts_and_drift`, `crates/dsp/src/engine/tests.rs::a_part_turned_away_makes_it_custom`, `crates/dsp/src/engine/tests.rs::revisions_load_in_any_order_and_old_setups_keep_their_sound`, `crates/dsp/src/engine/tests.rs::only_a_model_with_revisions_links_them`, `crates/dsp/src/engine/tests.rs::the_prophets_ssm_vcos_drift_more_than_its_curtis_ones`, `crates/dsp/src/engine/tests.rs::the_prophets_ssm_attack_is_straighter_than_its_curtis_one`
 
 ### Requirement 7: Juno-106 [MUST]
 
@@ -230,7 +230,7 @@ Chord pads on every poly model SHALL render within the performance budget, and e
 - WHEN they are held
 - THEN the load is within 30% of a core and every sample is within ±1
 
-**Tests:** `tools/bench.mjs` (`make bench`: the `poly pads` and `poly worst` scenarios), `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_poly_preset_plays_a_full_chord`
+**Tests:** `tools/bench.mjs` (`make bench`: the `poly pads` and `poly worst` scenarios), `crates/dsp/src/mono/preset/tests/songs.rs::every_preset_is_bounded`, `crates/dsp/src/mono/preset/tests/songs.rs::every_poly_preset_plays_a_full_chord`
 
 ### Requirement 16: Polymoog [SHOULD]
 
@@ -244,7 +244,7 @@ The Polymoog model SHALL play sixteen voices, each with its own resonant filter 
 - WHEN the filter envelope falls from its peak to its sustain
 - THEN the most prominent harmonic stands out by several dB and moves down
 
-**Tests:** `crates/dsp/src/engine/tests.rs::the_polymoog_has_sixteen_voices`, `crates/dsp/src/engine/tests.rs::the_vox_humana_resonance_peak_follows_the_filter_envelope`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`
+**Tests:** `crates/dsp/src/engine/tests.rs::the_polymoog_has_sixteen_voices`, `crates/dsp/src/engine/tests.rs::the_vox_humana_resonance_peak_follows_the_filter_envelope`, `crates/dsp/src/mono/preset/tests/songs.rs::every_preset_is_bounded`
 
 ### Requirement 17: Per-voice values [SHOULD]
 

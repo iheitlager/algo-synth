@@ -22,7 +22,7 @@ Every synth SHALL have a model, `Param::Model`, held with the synth's parameters
 - WHEN a note across the keyboard is held and released
 - THEN every sample is finite and bounded, and the voice falls silent after its release
 
-**Tests:** `crates/dsp/src/mono/model.rs::tests::ids_round_trip`, `crates/dsp/src/engine/tests.rs::models_are_per_synth`, `crates/dsp/src/engine/tests.rs::models_sound_different`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_preset_sets_its_model`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
+**Tests:** `crates/dsp/src/mono/model.rs::tests::ids_round_trip`, `crates/dsp/src/engine/tests.rs::models_are_per_synth`, `crates/dsp/src/engine/tests.rs::models_sound_different`, `crates/dsp/src/mono/preset/tests/songs.rs::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_preset_sets_its_model`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`, `crates/dsp/src/mono/preset.rs::tests::a_new_synth_is_an_arp_2600`
 
 ### Requirement 2: ARP 2600 [MUST]
 
@@ -172,7 +172,7 @@ The Odyssey (the Mk II and III of about 1975-81) SHALL be two VCOs (saw, pulse w
 - WHEN a note's attack runs
 - THEN the cutoff follows the loudness at every point, and the filter ADSR plays no part
 
-**Tests:** `crates/dsp/src/mono/voice.rs::tests::odyssey_high_pass_takes_out_the_lows`, `crates/dsp/src/mono/voice.rs::tests::odyssey_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/model.rs::tests::single_envelope_models_follow_the_adsr`, `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`
+**Tests:** `crates/dsp/src/mono/voice.rs::tests::odyssey_high_pass_takes_out_the_lows`, `crates/dsp/src/mono/voice.rs::tests::odyssey_one_envelope_moves_cutoff_and_loudness`, `crates/dsp/src/mono/voice.rs::tests::ladder_voicings_differ_and_stay_bounded`, `crates/dsp/src/mono/model.rs::tests::single_envelope_models_follow_the_adsr`, `crates/dsp/src/mono/preset/tests/songs.rs::every_preset_is_bounded`, `crates/dsp/src/mono/preset.rs::tests::every_model_has_at_least_two_presets`
 
 ### Requirement 11: Modular [SHOULD]
 
