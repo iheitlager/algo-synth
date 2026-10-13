@@ -1,0 +1,65 @@
+# NES Dynamo (#112): an original tune in the style of the late NES scores
+# that leaned on the DMC: a sampled bass under the pulses, sampled drums.
+#
+# The DMC in both its modes. The bass is a piano's F#2 from the Upright Piano
+# KW pack, played as 1-bit deltas at 33 kHz and pitched by how fast it is
+# read: the gritty, buzzing sampled bass of the Sunsoft scores. The drums are
+# the whole Audiophob kit on pads, written straight to the DMC's 7-bit
+# counter at the rate (NesDmcDirect, the $4011 trick): cleaner PCM. Over them
+# a 50 % pulse lead with a late vibrato and a 12.5 % arpeggio bed.
+tempo 140
+
+setting lead = Nes NesLead: NesP1Duty 2, NesP1Volume 11, NesP2On 0, NesVibrato 0.2, NesVibratoDelay 15
+setting arp_min = Nes NesArp: Polyphony 1, NesArp 2, NesP1Duty 0, NesP1Volume 15, NesP1Decay 0
+setting arp_maj = Nes NesArp: Polyphony 1, NesArp 1, NesP1Duty 0, NesP1Volume 15, NesP1Decay 0
+setting dmc_bass = Nes NesBass: NesTriOn 0, NesDmcSample 1, NesDmcRate 15
+setting pcm_kit = Nes NesKit: NesDmcDirect 1, NesDmcRate 15
+
+track lead synth lead
+track arp_min synth arp_min
+track arp_maj synth arp_maj
+track bass synth dmc_bass
+pad bass 1 = upright-piano-kw/F_2vH
+track kit drums pcm_kit
+samples kit audiophob
+
+strip lead: Level 0.65, Send1 0.15
+strip arp_min: Level 0.7, Pan 0.3
+strip arp_maj: Level 0.7, Pan 0.3
+strip bass: Level 0.9
+strip kit: Level 0.85
+master: MasterGain 0.8, P1Return 0.2, P1A 0.55, P1B 0.25
+
+# D minor: Dm Bb C A.
+clip bass_line = bass
+  "<[d2 d2 d3 d2 c2 d2 f2 a1] [bb1 bb1 bb2 bb1 a1 bb1 d2 f2] [c2 c2 c3 c2 bb1 c2 e2 g2] [a1 a1 a2 a1 c#2 e2 a2 e2]>"
+
+clip chords_min = arp_min
+  "<d4 ~ ~ ~>"
+clip chords_maj = arp_maj
+  "<~ bb3 c4 a3>"
+
+clip lead_a = lead
+  d5:8 f5:8 a5:4 g5:8 f5:8 e5:8 d5:8 f5:8 d5:8 bb4:4 c5:8 d5:8 f5:4 e5:8 g5:8 c6:4 bb5:8 a5:8 g5:8 e5:8 c#5:4. e5:8 a5:2
+clip lead_b = lead
+  a5:4 g5:16 f5:16 e5:16 d5:16 f5:4 a5:4 bb5:4 a5:8 g5:8 f5:4 d5:4 g5:8 e5:8 c5:8 e5:8 g5:8 c6:8 bb5:8 g5:8 a5:2 c#6:4 e6:4
+
+clip beat = kit /16
+  bd x.....x...x.....
+  sn ....x.......x...
+  ch x.x.x.x.x.x.x.x.
+  oh ..............x.
+clip break = kit /16
+  bd x.x.......xx....
+  sn ....x..x.x..x..x
+  ch xxxxxxxxxxxxxxxx
+clip fill = kit /16
+  cp x...............
+  sn ....x.x.xxxxXXXX
+
+scene intro 4: bass_line beat
+scene verse 8: bass_line chords_min chords_maj lead_a beat
+scene breakdown 4: bass_line chords_min chords_maj break
+scene turn 8: bass_line chords_min chords_maj lead_b break
+scene fill 1: bass_line fill
+arrange intro verse breakdown turn fill verse

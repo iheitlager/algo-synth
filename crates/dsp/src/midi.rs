@@ -66,6 +66,30 @@ pub fn knob_params(model: Model) -> Option<[Param; KNOBS]> {
         Some([
             BdTune, BdDecay, SnTune, SnDecay, ChDecay, OhDecay, CpLevel, DrumAccent,
         ])
+    } else if model.uses_sid() {
+        // The same controllers, on the SID's registers and voice 1's ADSR.
+        Some([
+            SidFilterBias,
+            SidResonance,
+            Sid1Release,
+            Sid1Attack,
+            SidCutoff,
+            Sid1Decay,
+            Sid1Pw,
+            Sid1Sustain,
+        ])
+    } else if model.uses_nes() {
+        // Duty, volume and sweep of the pulses, the noise and the DMC rate.
+        Some([
+            NesP1Duty,
+            NesP1Volume,
+            NesP1Sweep,
+            NesP2Duty,
+            NesP2Volume,
+            NesNoisePeriod,
+            NesDmcRate,
+            NesVibrato,
+        ])
     } else if model.uses_fm() {
         Some([
             Feedback,

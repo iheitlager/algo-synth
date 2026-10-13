@@ -1,0 +1,85 @@
+# SID Gauntlet (#112): an original tune in the style of Rob Hubbard's mid-80s
+# C64 scores (Monty on the Run, Commando), on the SID model and its parts.
+#
+# 125 BPM is six frames a sixteenth at 50 Hz, the speed a PAL player routine
+# runs at. A pulse bass pumps octaves under a closing resonant 6581 filter, its
+# width sweeping every frame; chords are single notes the player arpeggiates
+# once a frame (the chip has three voices, so chords are faked); the lead is a
+# swept pulse with a delayed vibrato. The drums are the chip's parts in
+# Modular: a triangle diving from eight times its pitch for the kick, noise and
+# a pulse for the snare, high-passed noise for the hat.
+tempo 125
+
+setting bass = Sid SidBass: Sid1Pw 1200, Sid1PwSweep 40, Sid2Wave 0, SidCutoff 1500, SidResonance 12, SidCutoffSweep -20, Sid1Decay 5, Sid1Sustain 6
+setting lead = Sid SidLead: Sid1Release 6, SidVibratoDelay 18
+setting minor = Sid SidArp: Polyphony 1, SidArp 2, Sid1Pw 900, Sid1PwSweep 28, Sid1Sustain 9
+setting major = Sid SidArp: Polyphony 1, SidArp 1, Sid1Pw 900, Sid1PwSweep 28, Sid1Sustain 9
+
+setting kick = Modular ModularSid
+  SynthDef(\kick, { |freq = 50, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.22), gate);
+      SidOsc.ar(freq * EnvGen.kr(Env([8, 1], [0.06], [-4]), gate), 1) * env
+  }).add;
+
+setting snare = Modular ModularSid
+  SynthDef(\snare, { |freq = 3000, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.16), gate);
+      var body = SidOsc.ar(190 * EnvGen.kr(Env([1.6, 1], [0.03]), gate), 4, 1024);
+      ((SidOsc.ar(freq, 8) * 0.8) + (body * 0.5)) * env
+  }).add;
+
+setting hat = Modular ModularSid
+  SynthDef(\hat, { |freq = 3600, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.035), gate);
+      SidFilter.ar(SidOsc.ar(freq, 8), 600, 0, 4, 1) * env
+  }).add;
+
+track bass synth bass
+track lead synth lead
+track minor synth minor
+track major synth major
+track kick synth kick
+track snare synth snare
+track hat synth hat
+
+strip bass: Level 0.8
+strip lead: Level 0.6, Send1 0.15
+strip minor: Level 0.4, Pan -0.3
+strip major: Level 0.4, Pan -0.3
+strip kick: Level 0.9
+strip snare: Level 0.55, Pan 0.1
+strip hat: Level 0.5, Pan 0.3
+master: MasterGain 0.8, P1Return 0.25, P1A 0.55, P1B 0.3, P2Return 0.1
+
+# A minor: Am F G E. B: C G F E.
+clip bass_a = bass
+  "<[a1 a2 a1 a2 a1 a2 g1 a2 a1 a2 a1 a2 c2 a2 g1 e1] [f1 f2 f1 f2 f1 f2 e1 f2 f1 f2 f1 f2 a1 f2 c2 f1] [g1 g2 g1 g2 g1 g2 f1 g2 g1 g2 g1 g2 b1 g2 d2 g1] [e1 e2 e1 e2 e1 e2 d1 e2 e1 e2 g1 e2 b1 e2 g#1 e1]>"
+clip bass_b = bass
+  "<[c2 c3 c2 c3 c2 c3 b1 c3 c2 c3 c2 c3 e2 c3 g1 c2] [g1 g2 g1 g2 g1 g2 f1 g2 g1 g2 g1 g2 b1 g2 d2 g1] [f1 f2 f1 f2 f1 f2 e1 f2 f1 f2 f1 f2 a1 f2 c2 f1] [e1 e2 e1 e2 e1 e2 d1 e2 e1 e2 g1 e2 b1 e2 g#1 e1]>"
+
+clip minor_a = minor
+  "<a3 ~ ~ ~>"
+clip major_a = major
+  "<~ f3 g3 e3>"
+clip major_b = major
+  "<c4 g3 f3 e3>"
+
+clip lead_a = lead
+  a4:8 c5:16 e5:16 d5:8 c5:16 b4:16 a4:4 e4:8 a4:16 b4:16 c5:8 f5:8 e5:16 c5:16 a4:8 c5:4 a5:8 g5:16 f5:16 d5:8 b4:16 g4:16 b4:8 d5:8 g5:4 f5:16 e5:16 d5:16 b4:16 e5:4. b4:8 g#4:8 b4:8 e5:16 d5:16 c5:16 b4:16
+clip lead_b = lead
+  e5:8 g5:8 c6:8 g5:16 e5:16 g5:4 e5:16 d5:16 c5:16 d5:16 d5:8 b4:8 g4:8 b4:16 d5:16 g5:4. f5:8 a5:8 f5:16 c5:16 f5:8 a5:8 c6:4 a5:16 g5:16 f5:16 e5:16 g#5:4 e5:8 b4:8 g#4:8 b4:8 e5:8 r:8
+
+clip kicks = kick
+  "c2 ~ ~ ~ c2 ~ ~ c2 c2 ~ ~ ~ c2 ~ ~ ~"
+clip snares = snare
+  "~ ~ ~ ~ c7 ~ ~ ~ ~ ~ ~ ~ c7 ~ ~ c7?"
+clip hats = hat
+  "c7*16"
+clip roll = snare
+  "c7*4 c7*4 c7*8 [c7 c7 c7 c7 c7 c7 c7 c7]*2"
+
+scene intro 4: bass_a kicks hats
+scene verse 8: bass_a minor_a major_a lead_a kicks snares hats
+scene bridge 8: bass_b major_b lead_b kicks snares hats
+scene fill 1: bass_a roll hats
+arrange intro verse bridge fill verse

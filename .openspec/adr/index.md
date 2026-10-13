@@ -35,6 +35,7 @@
 | [0031](0031-abletons-words.md) | Ableton's words: `frag` → `clip`, `section` → `scene`, `scene` → `snapshot` in the song, the engine, the app, the assistant and the docs; the parser still reads the old words, the printer writes the new | Accepted |
 | [0032](0032-partials-as-common-currency.md) | Partials as the common currency: every source becomes a partial set (analysis, a patch's spectrum, macros, wavetables) with noise per partial; transforms and a Loris-style morph on it; played as a sample, as PPG wavetable frames with a D-50 attack through the analog filters, or in the Modular by `Klang`/`Klank`/`VOsc`; sequenced by locks and per-note signals; the Synclavier model of #192 dropped | Proposed, extended by 0033 |
 | [0033](0033-user-tables-as-recipes.md) | User tables and attacks are recipes in the song (`table 1 = upright-piano-kw/C4vH : inharmonic 1.6`), rebuilt in a worker when it loads; a dropped source kept in IndexedDB by its hash (`@…`); a missing slot said on the panel; Sampler zones and pads as `zone` and `pad` lines by the same sources (#522, #527) | Accepted, extended by #522, #527 |
+| [0034](0034-chip-sources.md) | Chip instruments at register precision: `Sid` and `Nes` models (Chips family), a chip per note, stepped per sample in chip cycles on the registers' grids, BLEP at register steps; a frame-rate player; NES drums from GM keys and DMC from the sample store; the same parts as Modular UGens (#112) | Accepted |
 
 ## Status and later decisions
 

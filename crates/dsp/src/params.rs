@@ -1060,6 +1060,198 @@ pub enum Param {
     /// The TB-303's accent, 0..=1: how much an accented note opens the
     /// filter and lifts the VCA, through the sweep circuit (#536).
     Accent = 539,
+    /// SID oscillator 1. Waveform bits: 1 triangle, 2 saw, 4 pulse, 8 noise, combined by adding; 0 is off. 0..=15.
+    Sid1Wave = 540,
+    /// SID oscillator 1. Pulse width, the 12-bit register, 0..=4095.
+    Sid1Pw = 541,
+    /// SID oscillator 1. Tuning in semitones, −24..=24.
+    Sid1Coarse = 542,
+    /// SID oscillator 1. Fine tuning in cents, −50..=50.
+    Sid1Fine = 543,
+    /// SID oscillator 1. Ring modulation from the source oscillator when ≥ 0.5.
+    Sid1Ring = 544,
+    /// SID oscillator 1. Hard sync to the source oscillator when ≥ 0.5.
+    Sid1Sync = 545,
+    /// SID oscillator 1. Attack rate, 4 bits: 0 is 2 ms, 15 is 8 s.
+    Sid1Attack = 546,
+    /// SID oscillator 1. Decay rate, 4 bits: 0 is 6 ms, 15 is 24 s.
+    Sid1Decay = 547,
+    /// SID oscillator 1. Sustain level, 4 bits (the counter's S × 0x11).
+    Sid1Sustain = 548,
+    /// SID oscillator 1. Release rate, 4 bits: 0 is 6 ms, 15 is 24 s.
+    Sid1Release = 549,
+    /// SID oscillator 1. Routed through the filter when ≥ 0.5.
+    Sid1Filter = 550,
+    /// SID oscillator 1. Pulse width added each frame, wrapping in 12 bits, −256..=256.
+    Sid1PwSweep = 551,
+    /// SID oscillator 2. Waveform bits: 1 triangle, 2 saw, 4 pulse, 8 noise, combined by adding; 0 is off. 0..=15.
+    Sid2Wave = 552,
+    /// SID oscillator 2. Pulse width, the 12-bit register, 0..=4095.
+    Sid2Pw = 553,
+    /// SID oscillator 2. Tuning in semitones, −24..=24.
+    Sid2Coarse = 554,
+    /// SID oscillator 2. Fine tuning in cents, −50..=50.
+    Sid2Fine = 555,
+    /// SID oscillator 2. Ring modulation from the source oscillator when ≥ 0.5.
+    Sid2Ring = 556,
+    /// SID oscillator 2. Hard sync to the source oscillator when ≥ 0.5.
+    Sid2Sync = 557,
+    /// SID oscillator 2. Attack rate, 4 bits: 0 is 2 ms, 15 is 8 s.
+    Sid2Attack = 558,
+    /// SID oscillator 2. Decay rate, 4 bits: 0 is 6 ms, 15 is 24 s.
+    Sid2Decay = 559,
+    /// SID oscillator 2. Sustain level, 4 bits (the counter's S × 0x11).
+    Sid2Sustain = 560,
+    /// SID oscillator 2. Release rate, 4 bits: 0 is 6 ms, 15 is 24 s.
+    Sid2Release = 561,
+    /// SID oscillator 2. Routed through the filter when ≥ 0.5.
+    Sid2Filter = 562,
+    /// SID oscillator 2. Pulse width added each frame, wrapping in 12 bits, −256..=256.
+    Sid2PwSweep = 563,
+    /// SID oscillator 3. Waveform bits: 1 triangle, 2 saw, 4 pulse, 8 noise, combined by adding; 0 is off. 0..=15.
+    Sid3Wave = 564,
+    /// SID oscillator 3. Pulse width, the 12-bit register, 0..=4095.
+    Sid3Pw = 565,
+    /// SID oscillator 3. Tuning in semitones, −24..=24.
+    Sid3Coarse = 566,
+    /// SID oscillator 3. Fine tuning in cents, −50..=50.
+    Sid3Fine = 567,
+    /// SID oscillator 3. Ring modulation from the source oscillator when ≥ 0.5.
+    Sid3Ring = 568,
+    /// SID oscillator 3. Hard sync to the source oscillator when ≥ 0.5.
+    Sid3Sync = 569,
+    /// SID oscillator 3. Attack rate, 4 bits: 0 is 2 ms, 15 is 8 s.
+    Sid3Attack = 570,
+    /// SID oscillator 3. Decay rate, 4 bits: 0 is 6 ms, 15 is 24 s.
+    Sid3Decay = 571,
+    /// SID oscillator 3. Sustain level, 4 bits (the counter's S × 0x11).
+    Sid3Sustain = 572,
+    /// SID oscillator 3. Release rate, 4 bits: 0 is 6 ms, 15 is 24 s.
+    Sid3Release = 573,
+    /// SID oscillator 3. Routed through the filter when ≥ 0.5.
+    Sid3Filter = 574,
+    /// SID oscillator 3. Pulse width added each frame, wrapping in 12 bits, −256..=256.
+    Sid3PwSweep = 575,
+    /// SID. The chip: 0 the 6581, 1 the 8580.
+    SidChip = 576,
+    /// SID. The machine: 0 PAL (985 248 Hz, 50 Hz frames), 1 NTSC (1 022 727 Hz, 60 Hz).
+    SidClock = 577,
+    /// SID. Filter cutoff, the 11-bit register, 0..=2047.
+    SidCutoff = 578,
+    /// SID. Filter resonance, 4 bits, 0..=15.
+    SidResonance = 579,
+    /// SID. Filter mode bits: 1 low-pass, 2 band-pass, 4 high-pass; 0..=7.
+    SidFilterMode = 580,
+    /// SID. Master volume, 4 bits, 0..=15.
+    SidVolume = 581,
+    /// SID. Mutes oscillator 3 when it is not filtered, when ≥ 0.5.
+    SidVoice3Off = 582,
+    /// SID. Band-limits saw and pulse edges and sync resets when ≥ 0.5; off plays the raw steps.
+    SidBandLimit = 583,
+    /// SID. Cutoff added each frame from the note's start, −128..=128.
+    SidCutoffSweep = 584,
+    /// SID. The chord arpeggio, stepped by frames: 0 off, 1 major, 2 minor, 3 octave, 4 sus4, 5 major 7th, 6 minor 7th, 7 diminished, 8 power; 0..=8.
+    SidArp = 585,
+    /// SID. Frames per arpeggio step, 1..=16.
+    SidArpSpeed = 586,
+    /// SID. Clears the envelopes and oscillators on each note when ≥ 0.5; off keeps them, ADSR bug and all.
+    SidHardRestart = 587,
+    /// SID. The 6581 filter's offset from the typical chip, in octaves, −1..=1.
+    SidFilterBias = 588,
+    /// SID. Player vibrato depth in semitones each way, stepped by frames, 0..=2.
+    SidVibrato = 589,
+    /// SID. Player vibrato rate in Hz, 0..=12.
+    SidVibratoRate = 590,
+    /// SID. Frames from the note's start before the vibrato begins, 0..=100.
+    SidVibratoDelay = 591,
+    /// NES pulse 1. On when ≥ 0.5.
+    NesP1On = 592,
+    /// NES pulse 1. Duty: 0 12.5 %, 1 25 %, 2 50 %, 3 75 %.
+    NesP1Duty = 593,
+    /// NES pulse 1. The 4-bit volume, or the decay's period with Decay on, 0..=15.
+    NesP1Volume = 594,
+    /// NES pulse 1. The envelope decays from 15 when ≥ 0.5; off holds Volume.
+    NesP1Decay = 595,
+    /// NES pulse 1. The decay loops when ≥ 0.5.
+    NesP1Loop = 596,
+    /// NES pulse 1. Tuning in semitones, −24..=24.
+    NesP1Coarse = 597,
+    /// NES pulse 1. Fine tuning in cents, −50..=50.
+    NesP1Fine = 598,
+    /// NES pulse 1. The sweep's shift, −7..=7: below 0 the pitch rises, above it falls; 0 off.
+    NesP1Sweep = 599,
+    /// NES pulse 1. The sweep's divider period in half frames, 0..=7.
+    NesP1SweepPeriod = 600,
+    /// NES pulse 2. On when ≥ 0.5.
+    NesP2On = 601,
+    /// NES pulse 2. Duty: 0 12.5 %, 1 25 %, 2 50 %, 3 75 %.
+    NesP2Duty = 602,
+    /// NES pulse 2. The 4-bit volume, or the decay's period with Decay on, 0..=15.
+    NesP2Volume = 603,
+    /// NES pulse 2. The envelope decays from 15 when ≥ 0.5; off holds Volume.
+    NesP2Decay = 604,
+    /// NES pulse 2. The decay loops when ≥ 0.5.
+    NesP2Loop = 605,
+    /// NES pulse 2. Tuning in semitones, −24..=24.
+    NesP2Coarse = 606,
+    /// NES pulse 2. Fine tuning in cents, −50..=50.
+    NesP2Fine = 607,
+    /// NES pulse 2. The sweep's shift, −7..=7: below 0 the pitch rises, above it falls; 0 off.
+    NesP2Sweep = 608,
+    /// NES pulse 2. The sweep's divider period in half frames, 0..=7.
+    NesP2SweepPeriod = 609,
+    /// NES triangle. On when ≥ 0.5.
+    NesTriOn = 610,
+    /// NES triangle. Tuning in semitones, −24..=24 (the triangle sounds an octave under a pulse at the same timer).
+    NesTriCoarse = 611,
+    /// NES triangle. Fine tuning in cents, −50..=50.
+    NesTriFine = 612,
+    /// NES triangle. The linear counter in quarter frames, 0..=127; 0 holds the note.
+    NesTriLength = 613,
+    /// NES noise. On when ≥ 0.5.
+    NesNoiseOn = 614,
+    /// NES noise. The 4-bit volume, or the decay's period with Decay on, 0..=15.
+    NesNoiseVolume = 615,
+    /// NES noise. The envelope decays when ≥ 0.5.
+    NesNoiseDecay = 616,
+    /// NES noise. The decay loops when ≥ 0.5.
+    NesNoiseLoop = 617,
+    /// NES noise. The period index, 0..=15 (4 to 4068 CPU cycles on NTSC).
+    NesNoisePeriod = 618,
+    /// NES noise. The short, 93-step mode when ≥ 0.5.
+    NesNoiseShort = 619,
+    /// NES noise. The period follows the note when ≥ 0.5.
+    NesNoiseTrack = 620,
+    /// NES DMC. The pad of the synth's kit (a `samples` or `pad` line) whose
+    /// sample it plays on each note, 1..=16; 0 none. With `NesKit` a drum
+    /// key's own pad, when it holds a sample, plays instead.
+    NesDmcSample = 621,
+    /// NES DMC. The rate index, 0..=15 (4.2 to 33.1 kHz on NTSC).
+    NesDmcRate = 622,
+    /// NES DMC. The sample loops when ≥ 0.5.
+    NesDmcLoop = 623,
+    /// NES DMC. The counter's level at the note's start ($4011), 0..=127.
+    NesDmcLevel = 624,
+    /// NES DMC. Writes 7-bit levels at the rate ($4011 PCM) when ≥ 0.5, instead of 1-bit deltas.
+    NesDmcDirect = 625,
+    /// NES. 0 NTSC (1 789 773 Hz, 60 Hz frames), 1 PAL (1 662 607 Hz, 50 Hz).
+    NesRegion = 626,
+    /// NES. The output filters: 0 a Famicom's, 1 a NES's, 2 clean.
+    NesOutput = 627,
+    /// NES. Band-limits the mixed output's steps when ≥ 0.5; off plays them raw.
+    NesBandLimit = 628,
+    /// NES. The chord arpeggio, stepped by frames, as SidArp: 0..=8.
+    NesArp = 629,
+    /// NES. Frames per arpeggio step, 1..=16.
+    NesArpSpeed = 630,
+    /// NES. Driver vibrato depth in semitones each way, 0..=2.
+    NesVibrato = 631,
+    /// NES. Driver vibrato rate in Hz, 0..=12.
+    NesVibratoRate = 632,
+    /// NES. Frames from the note's start before the vibrato begins, 0..=100.
+    NesVibratoDelay = 633,
+    /// NES. A General MIDI drum key plays a drum when ≥ 0.5 (for drum tracks).
+    NesKit = 634,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1147,7 +1339,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 540] = [
+    pub const ALL: [(Param, &'static str); 635] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1688,12 +1880,119 @@ impl Param {
         (Param::PitchBend, "PitchBend"),
         (Param::BendRange, "BendRange"),
         (Param::Accent, "Accent"),
+        (Param::Sid1Wave, "Sid1Wave"),
+        (Param::Sid1Pw, "Sid1Pw"),
+        (Param::Sid1Coarse, "Sid1Coarse"),
+        (Param::Sid1Fine, "Sid1Fine"),
+        (Param::Sid1Ring, "Sid1Ring"),
+        (Param::Sid1Sync, "Sid1Sync"),
+        (Param::Sid1Attack, "Sid1Attack"),
+        (Param::Sid1Decay, "Sid1Decay"),
+        (Param::Sid1Sustain, "Sid1Sustain"),
+        (Param::Sid1Release, "Sid1Release"),
+        (Param::Sid1Filter, "Sid1Filter"),
+        (Param::Sid1PwSweep, "Sid1PwSweep"),
+        (Param::Sid2Wave, "Sid2Wave"),
+        (Param::Sid2Pw, "Sid2Pw"),
+        (Param::Sid2Coarse, "Sid2Coarse"),
+        (Param::Sid2Fine, "Sid2Fine"),
+        (Param::Sid2Ring, "Sid2Ring"),
+        (Param::Sid2Sync, "Sid2Sync"),
+        (Param::Sid2Attack, "Sid2Attack"),
+        (Param::Sid2Decay, "Sid2Decay"),
+        (Param::Sid2Sustain, "Sid2Sustain"),
+        (Param::Sid2Release, "Sid2Release"),
+        (Param::Sid2Filter, "Sid2Filter"),
+        (Param::Sid2PwSweep, "Sid2PwSweep"),
+        (Param::Sid3Wave, "Sid3Wave"),
+        (Param::Sid3Pw, "Sid3Pw"),
+        (Param::Sid3Coarse, "Sid3Coarse"),
+        (Param::Sid3Fine, "Sid3Fine"),
+        (Param::Sid3Ring, "Sid3Ring"),
+        (Param::Sid3Sync, "Sid3Sync"),
+        (Param::Sid3Attack, "Sid3Attack"),
+        (Param::Sid3Decay, "Sid3Decay"),
+        (Param::Sid3Sustain, "Sid3Sustain"),
+        (Param::Sid3Release, "Sid3Release"),
+        (Param::Sid3Filter, "Sid3Filter"),
+        (Param::Sid3PwSweep, "Sid3PwSweep"),
+        (Param::SidChip, "SidChip"),
+        (Param::SidClock, "SidClock"),
+        (Param::SidCutoff, "SidCutoff"),
+        (Param::SidResonance, "SidResonance"),
+        (Param::SidFilterMode, "SidFilterMode"),
+        (Param::SidVolume, "SidVolume"),
+        (Param::SidVoice3Off, "SidVoice3Off"),
+        (Param::SidBandLimit, "SidBandLimit"),
+        (Param::SidCutoffSweep, "SidCutoffSweep"),
+        (Param::SidArp, "SidArp"),
+        (Param::SidArpSpeed, "SidArpSpeed"),
+        (Param::SidHardRestart, "SidHardRestart"),
+        (Param::SidFilterBias, "SidFilterBias"),
+        (Param::SidVibrato, "SidVibrato"),
+        (Param::SidVibratoRate, "SidVibratoRate"),
+        (Param::SidVibratoDelay, "SidVibratoDelay"),
+        (Param::NesP1On, "NesP1On"),
+        (Param::NesP1Duty, "NesP1Duty"),
+        (Param::NesP1Volume, "NesP1Volume"),
+        (Param::NesP1Decay, "NesP1Decay"),
+        (Param::NesP1Loop, "NesP1Loop"),
+        (Param::NesP1Coarse, "NesP1Coarse"),
+        (Param::NesP1Fine, "NesP1Fine"),
+        (Param::NesP1Sweep, "NesP1Sweep"),
+        (Param::NesP1SweepPeriod, "NesP1SweepPeriod"),
+        (Param::NesP2On, "NesP2On"),
+        (Param::NesP2Duty, "NesP2Duty"),
+        (Param::NesP2Volume, "NesP2Volume"),
+        (Param::NesP2Decay, "NesP2Decay"),
+        (Param::NesP2Loop, "NesP2Loop"),
+        (Param::NesP2Coarse, "NesP2Coarse"),
+        (Param::NesP2Fine, "NesP2Fine"),
+        (Param::NesP2Sweep, "NesP2Sweep"),
+        (Param::NesP2SweepPeriod, "NesP2SweepPeriod"),
+        (Param::NesTriOn, "NesTriOn"),
+        (Param::NesTriCoarse, "NesTriCoarse"),
+        (Param::NesTriFine, "NesTriFine"),
+        (Param::NesTriLength, "NesTriLength"),
+        (Param::NesNoiseOn, "NesNoiseOn"),
+        (Param::NesNoiseVolume, "NesNoiseVolume"),
+        (Param::NesNoiseDecay, "NesNoiseDecay"),
+        (Param::NesNoiseLoop, "NesNoiseLoop"),
+        (Param::NesNoisePeriod, "NesNoisePeriod"),
+        (Param::NesNoiseShort, "NesNoiseShort"),
+        (Param::NesNoiseTrack, "NesNoiseTrack"),
+        (Param::NesDmcSample, "NesDmcSample"),
+        (Param::NesDmcRate, "NesDmcRate"),
+        (Param::NesDmcLoop, "NesDmcLoop"),
+        (Param::NesDmcLevel, "NesDmcLevel"),
+        (Param::NesDmcDirect, "NesDmcDirect"),
+        (Param::NesRegion, "NesRegion"),
+        (Param::NesOutput, "NesOutput"),
+        (Param::NesBandLimit, "NesBandLimit"),
+        (Param::NesArp, "NesArp"),
+        (Param::NesArpSpeed, "NesArpSpeed"),
+        (Param::NesVibrato, "NesVibrato"),
+        (Param::NesVibratoRate, "NesVibratoRate"),
+        (Param::NesVibratoDelay, "NesVibratoDelay"),
+        (Param::NesKit, "NesKit"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
     pub fn ctl(self) -> Option<usize> {
         let i = (self as u32).checked_sub(Param::Ctl1 as u32)? as usize;
         (i < CTLS).then_some(i)
+    }
+
+    /// The field of the SID patch a parameter sets (`chip::sid_voice::SidPatch::set`).
+    pub fn sid(self) -> Option<usize> {
+        let i = (self as u32).checked_sub(Param::Sid1Wave as u32)? as usize;
+        (i < crate::chip::sid_voice::FIELDS).then_some(i)
+    }
+
+    /// The field of the NES patch a parameter sets (`chip::nes_voice::NesPatch::set`).
+    pub fn nes(self) -> Option<usize> {
+        let i = (self as u32).checked_sub(Param::NesP1On as u32)? as usize;
+        (i < crate::chip::nes_voice::FIELDS).then_some(i)
     }
 
     /// The parameter of control `i`.
@@ -1990,6 +2289,84 @@ impl Param {
             Param::PitchBend => (-1.0, 1.0),
             Param::BendRange => (0.0, 24.0),
             Param::Accent => (0.0, 1.0),
+            Param::Sid1Wave
+            | Param::Sid1Attack
+            | Param::Sid1Decay
+            | Param::Sid1Sustain
+            | Param::Sid1Release
+            | Param::Sid2Wave
+            | Param::Sid2Attack
+            | Param::Sid2Decay
+            | Param::Sid2Sustain
+            | Param::Sid2Release
+            | Param::Sid3Wave
+            | Param::Sid3Attack
+            | Param::Sid3Decay
+            | Param::Sid3Sustain
+            | Param::Sid3Release
+            | Param::SidResonance
+            | Param::SidVolume => (0.0, 15.0),
+            Param::Sid1Pw | Param::Sid2Pw | Param::Sid3Pw => (0.0, 4095.0),
+            Param::Sid1Coarse | Param::Sid2Coarse | Param::Sid3Coarse => (-24.0, 24.0),
+            Param::Sid1Fine | Param::Sid2Fine | Param::Sid3Fine => (-50.0, 50.0),
+            Param::Sid1Ring
+            | Param::Sid1Sync
+            | Param::Sid1Filter
+            | Param::Sid2Ring
+            | Param::Sid2Sync
+            | Param::Sid2Filter
+            | Param::Sid3Ring
+            | Param::Sid3Sync
+            | Param::Sid3Filter
+            | Param::SidChip
+            | Param::SidClock
+            | Param::SidVoice3Off
+            | Param::SidBandLimit
+            | Param::SidHardRestart => (0.0, 1.0),
+            Param::Sid1PwSweep | Param::Sid2PwSweep | Param::Sid3PwSweep => (-256.0, 256.0),
+            Param::SidCutoff => (0.0, 2047.0),
+            Param::SidFilterMode => (0.0, 7.0),
+            Param::SidCutoffSweep => (-128.0, 128.0),
+            Param::SidArp => (0.0, 8.0),
+            Param::SidArpSpeed => (1.0, 16.0),
+            Param::SidFilterBias => (-1.0, 1.0),
+            Param::SidVibrato => (0.0, 2.0),
+            Param::SidVibratoRate => (0.0, 12.0),
+            Param::SidVibratoDelay => (0.0, 100.0),
+            Param::NesP1On
+            | Param::NesP1Decay
+            | Param::NesP1Loop
+            | Param::NesP2On
+            | Param::NesP2Decay
+            | Param::NesP2Loop
+            | Param::NesTriOn
+            | Param::NesNoiseOn
+            | Param::NesNoiseDecay
+            | Param::NesNoiseLoop
+            | Param::NesNoiseShort
+            | Param::NesNoiseTrack
+            | Param::NesDmcLoop
+            | Param::NesDmcDirect
+            | Param::NesRegion
+            | Param::NesBandLimit
+            | Param::NesKit => (0.0, 1.0),
+            Param::NesP1Duty | Param::NesP2Duty => (0.0, 3.0),
+            Param::NesP1Volume
+            | Param::NesP2Volume
+            | Param::NesNoiseVolume
+            | Param::NesNoisePeriod
+            | Param::NesDmcRate => (0.0, 15.0),
+            Param::NesP1Coarse | Param::NesP2Coarse | Param::NesTriCoarse => (-24.0, 24.0),
+            Param::NesP1Fine | Param::NesP2Fine | Param::NesTriFine => (-50.0, 50.0),
+            Param::NesP1Sweep | Param::NesP2Sweep => (-7.0, 7.0),
+            Param::NesP1SweepPeriod | Param::NesP2SweepPeriod => (0.0, 7.0),
+            Param::NesTriLength | Param::NesDmcLevel => (0.0, 127.0),
+            Param::NesDmcSample => (0.0, 16.0),
+            Param::NesOutput | Param::NesVibrato => (0.0, 2.0),
+            Param::NesArp => (0.0, 8.0),
+            Param::NesArpSpeed => (1.0, 16.0),
+            Param::NesVibratoRate => (0.0, 12.0),
+            Param::NesVibratoDelay => (0.0, 100.0),
             Param::Revision => (0.0, 4.0),
             // 0..=7 the generated tables, 8..=15 the user's (spec 010 Req 9).
             Param::Wt1Table | Param::Wt2Table => (0.0, 15.0),

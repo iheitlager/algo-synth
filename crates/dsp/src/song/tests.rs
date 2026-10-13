@@ -791,7 +791,7 @@ fn the_example_songs_parse_and_print_back() {
         assert!(!s.arrange.is_empty(), "{name}: arranged");
         seen += 1;
     }
-    assert_eq!(seen, 28, "twenty-eight examples");
+    assert_eq!(seen, 33, "thirty-three examples");
 }
 
 const ARRANGED: &str = "\
@@ -2596,7 +2596,11 @@ fn pad_lines_parse_print_and_say_where_they_are_wrong() {
     let head = "track kit drums\ntrack lead synth\n";
     for (line, col, msg) in [
         ("pad", 4, "a track goes here, then a pad number, 1 to 16"),
-        ("pad lead 1 = a/b", 5, "pads go on a drums or sampler track"),
+        (
+            "pad lead 1 = a/b",
+            5,
+            "pads go on a drums or sampler track, or a Nes synth",
+        ),
         ("pad kit 17 = a/b", 9, "a pad number is 1 to 16"),
         (
             "pad kit 1 = plaits:0.1:0.2:0.3",

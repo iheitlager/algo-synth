@@ -64,7 +64,7 @@ impl Blep {
     }
 
     /// The step at `t` samples from its edge: 0 well before, 1 well after.
-    fn at(&self, t: f32) -> f32 {
+    pub(crate) fn at(&self, t: f32) -> f32 {
         let pos = ((t + ZEROS as f32) * PHASES as f32).max(0.0);
         let i = pos as usize;
         let frac = pos - i as f32;

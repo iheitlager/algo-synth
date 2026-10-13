@@ -20,6 +20,7 @@ mod matrix12;
 mod minimoog;
 mod modular;
 mod ms20;
+mod nes;
 mod odyssey;
 mod padsampler;
 mod polymoog;
@@ -28,6 +29,7 @@ mod proone;
 mod prophet5;
 mod sampler;
 mod sh101;
+mod sid;
 mod tb303;
 mod tr808;
 mod tr909;
@@ -49,6 +51,10 @@ pub enum Engine {
     Pads,
     /// A graph of unit generators (ADR-0020).
     Graph,
+    /// The SID chip, one per note (#112).
+    Sid,
+    /// The NES's 2A03, one per note (#112).
+    Nes,
 }
 
 /// What a model is: plain data, read by the voice; nothing is boxed or
@@ -218,6 +224,8 @@ impl Model {
             Model::Tr909 => &tr909::DEF,
             Model::Modular => &modular::DEF,
             Model::Tb303 => &tb303::DEF,
+            Model::Sid => &sid::DEF,
+            Model::Nes => &nes::DEF,
         }
     }
 }
@@ -251,6 +259,8 @@ mod tests {
                     | Model::Sampler
                     | Model::PadSampler
                     | Model::Modular
+                    | Model::Sid
+                    | Model::Nes
             );
             assert_eq!(m.def().engine == Engine::Mono, !mono, "{name}");
         }

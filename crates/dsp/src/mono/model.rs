@@ -43,11 +43,15 @@ pub enum Model {
     Modular = 19,
     /// The TB-303 (#536): a diode ladder, accent and slide.
     Tb303 = 20,
+    /// The MOS 6581/8580 SID chip (#112): one chip per note.
+    Sid = 21,
+    /// The NES's Ricoh 2A03 (#112): one chip per note, or a drum kit.
+    Nes = 22,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 21] = [
+    pub const ALL: [(Model, &'static str); 23] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -69,6 +73,8 @@ impl Model {
         (Model::Tr909, "Tr909"),
         (Model::Modular, "Modular"),
         (Model::Tb303, "Tb303"),
+        (Model::Sid, "Sid"),
+        (Model::Nes, "Nes"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -663,6 +669,16 @@ impl Model {
     /// Whether the voice is the D-50's two-partial LA voice (spec 006 Req 12).
     pub fn uses_la(self) -> bool {
         self.def().engine == Engine::La
+    }
+
+    /// Whether the voice is the SID chip's (#112).
+    pub fn uses_sid(self) -> bool {
+        self.def().engine == Engine::Sid
+    }
+
+    /// Whether the voice is the NES's 2A03 (#112).
+    pub fn uses_nes(self) -> bool {
+        self.def().engine == Engine::Nes
     }
 
     /// Whether the voice is a graph of unit generators (ADR-0020).
