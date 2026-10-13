@@ -2597,4 +2597,362 @@ mod tests {
             "{text}"
         );
     }
+
+    /// Values a confused or hostile view could pass: zero, small ids, the
+    /// first past each table, the type's extremes and, for floats, the
+    /// non-finite.
+    trait Hostile: Copy + 'static {
+        const VALUES: &'static [Self];
+    }
+    impl Hostile for u32 {
+        const VALUES: &'static [u32] = &[0, 1, 7, 16, 300, u32::MAX];
+    }
+    impl Hostile for i32 {
+        const VALUES: &'static [i32] = &[i32::MIN, -1, 0, 3, i32::MAX];
+    }
+    impl Hostile for f32 {
+        const VALUES: &'static [f32] = &[0.0, -1.0, 0.5, 1.0e9, f32::NAN, f32::INFINITY];
+    }
+
+    /// Call `$r` to set the scene, then the export with every combination of
+    /// its arguments' `VALUES`.
+    macro_rules! sweep {
+        ($r:expr, $f:ident()) => {
+            $r();
+            std::hint::black_box($f());
+        };
+        ($r:expr, $f:ident(_)) => {
+            $r();
+            for &a in Hostile::VALUES {
+                std::hint::black_box($f(a));
+            }
+        };
+        ($r:expr, $f:ident(_, _)) => {
+            $r();
+            for &a in Hostile::VALUES {
+                for &b in Hostile::VALUES {
+                    std::hint::black_box($f(a, b));
+                }
+            }
+        };
+        ($r:expr, $f:ident(_, _, _)) => {
+            $r();
+            for &a in Hostile::VALUES {
+                for &b in Hostile::VALUES {
+                    for &c in Hostile::VALUES {
+                        std::hint::black_box($f(a, b, c));
+                    }
+                }
+            }
+        };
+        ($r:expr, $f:ident(_, _, _, _)) => {
+            $r();
+            for &a in Hostile::VALUES {
+                for &b in Hostile::VALUES {
+                    for &c in Hostile::VALUES {
+                        for &d in Hostile::VALUES {
+                            std::hint::black_box($f(a, b, c, d));
+                        }
+                    }
+                }
+            }
+        };
+        ($r:expr, $f:ident(_, _, _, _, _)) => {
+            $r();
+            for &a in Hostile::VALUES {
+                for &b in Hostile::VALUES {
+                    for &c in Hostile::VALUES {
+                        for &d in Hostile::VALUES {
+                            for &e in Hostile::VALUES {
+                                std::hint::black_box($f(a, b, c, d, e));
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    /// Every export (but `init`), with every combination of hostile
+    /// arguments: the audio thread never panics (ADR-0002), so no id,
+    /// index or value the view sends may (#535).
+    fn sweep_every_export(reset: impl Fn()) {
+        sweep!(reset, block_len());
+        sweep!(reset, out_ptr());
+        sweep!(reset, meters_len());
+        sweep!(reset, meters_ptr());
+        sweep!(reset, meters_clear());
+        sweep!(reset, deck_in_ptr(_));
+        sweep!(reset, deck_fed(_));
+        sweep!(reset, deck_set(_, _, _));
+        sweep!(reset, deck_crossfade(_));
+        sweep!(reset, cue_frames(_, _));
+        sweep!(reset, cue_into(_));
+        sweep!(reset, song_play_in(_));
+        sweep!(reset, song_play_in_bar(_, _));
+        sweep!(reset, song_bar_entry(_));
+        sweep!(reset, song_sync_bar_in(_));
+        sweep!(reset, sync_error());
+        sweep!(reset, deck_peak(_));
+        sweep!(reset, process(_));
+        sweep!(reset, set_param(_, _, _));
+        sweep!(reset, strip_count());
+        sweep!(reset, model_count());
+        sweep!(reset, version_code());
+        sweep!(reset, build_id());
+        sweep!(reset, synth_count());
+        sweep!(reset, synth_reset(_));
+        sweep!(reset, synth_defaults(_));
+        sweep!(reset, param_count());
+        sweep!(reset, param_value(_, _));
+        sweep!(reset, mono_preset(_, _));
+        sweep!(reset, note_on(_, _, _));
+        sweep!(reset, midi_in(_, _, _));
+        sweep!(reset, midi_target(_));
+        sweep!(reset, note_off(_, _));
+        sweep!(reset, engine_clear());
+        sweep!(reset, track_add(_, _));
+        sweep!(reset, track_remove(_));
+        sweep!(reset, live_only(_));
+        sweep!(reset, song_fold());
+        sweep!(reset, all_off());
+        sweep!(reset, active_voices());
+        sweep!(reset, gain_reduction_db());
+        sweep!(reset, midi_buf(_));
+        sweep!(reset, sysex_buf(_));
+        sweep!(reset, sysex_load());
+        sweep!(reset, sysex_name_ptr(_));
+        sweep!(reset, sysex_name_len(_));
+        sweep!(reset, sysex_apply(_, _));
+        sweep!(reset, sample_buf(_));
+        sweep!(reset, sample_load(_));
+        sweep!(reset, sample_clear(_));
+        sweep!(reset, sample_slots());
+        sweep!(reset, sample_frames(_));
+        sweep!(reset, sample_root(_));
+        sweep!(reset, sample_loop(_, _));
+        sweep!(reset, sample_used());
+        sweep!(reset, sample_cap());
+        sweep!(reset, zone_set(_, _, _, _));
+        sweep!(reset, zone_get(_, _, _));
+        sweep!(reset, sample_peaks(_, _));
+        sweep!(reset, wavetable_sketch(_));
+        sweep!(reset, peaks_ptr());
+        sweep!(reset, pad_set(_, _, _, _));
+        sweep!(reset, pad_get(_, _, _));
+        sweep!(reset, pads_clear(_));
+        sweep!(reset, pad_count());
+        sweep!(reset, pad_fields());
+        sweep!(reset, zones_clear(_));
+        sweep!(reset, zones_settle(_));
+        sweep!(reset, sample_source_set(_));
+        sweep!(reset, song_zone_count());
+        sweep!(reset, song_zone_synth(_));
+        sweep!(reset, song_zone_index(_));
+        sweep!(reset, song_zone_source_len(_));
+        sweep!(reset, song_zone_source_ptr(_));
+        sweep!(reset, song_zone_values_ptr(_));
+        sweep!(reset, song_zone_held(_));
+        sweep!(reset, pads_settle(_));
+        sweep!(reset, song_pad_count());
+        sweep!(reset, song_pad_synth(_));
+        sweep!(reset, song_pad_index(_));
+        sweep!(reset, song_pad_source_len(_));
+        sweep!(reset, song_pad_source_ptr(_));
+        sweep!(reset, song_pad_values_ptr(_));
+        sweep!(reset, song_pad_held(_));
+        sweep!(reset, zone_fields());
+        sweep!(reset, zone_count());
+        sweep!(reset, song_buf(_));
+        sweep!(reset, song_load());
+        sweep!(reset, song_error_line());
+        sweep!(reset, song_error_col());
+        sweep!(reset, song_error_ptr());
+        sweep!(reset, song_error_len());
+        sweep!(reset, lex_buf(_));
+        sweep!(reset, lex());
+        sweep!(reset, sc_lex());
+        sweep!(reset, lex_ptr());
+        sweep!(reset, song_text_ptr());
+        sweep!(reset, song_text_len());
+        sweep!(reset, set_step(_, _, _, _));
+        sweep!(reset, set_ratchet(_, _, _, _));
+        sweep!(reset, song_play());
+        sweep!(reset, song_pause());
+        sweep!(reset, song_stop());
+        sweep!(reset, song_cue(_));
+        sweep!(reset, song_cued());
+        sweep!(reset, song_launch(_, _));
+        sweep!(reset, song_resume_arrangement(_));
+        sweep!(reset, song_launch_cancel());
+        sweep!(reset, song_launched());
+        sweep!(reset, song_queued());
+        sweep!(reset, song_queued_when());
+        sweep!(reset, song_launch_in());
+        sweep!(reset, song_snapshot(_, _));
+        sweep!(reset, song_snapshot_queued());
+        sweep!(reset, song_seek_bar(_));
+        sweep!(reset, song_bars());
+        sweep!(reset, song_entry());
+        sweep!(reset, song_local());
+        sweep!(reset, auto_touched());
+        sweep!(reset, mod_count());
+        sweep!(reset, mod_strip(_));
+        sweep!(reset, mod_param(_));
+        sweep!(reset, song_taken());
+        sweep!(reset, arr_edit(_, _, _, _));
+        sweep!(reset, song_scenes());
+        sweep!(reset, scene_name_ptr(_));
+        sweep!(reset, scene_name_len(_));
+        sweep!(reset, scene_bars(_));
+        sweep!(reset, scene_has(_, _, _));
+        sweep!(reset, arrange_len());
+        sweep!(reset, arrange_at(_));
+        sweep!(reset, song_autos());
+        sweep!(reset, auto_name_ptr(_));
+        sweep!(reset, auto_name_len(_));
+        sweep!(reset, song_snapshots());
+        sweep!(reset, snapshot_name_ptr(_));
+        sweep!(reset, snapshot_name_len(_));
+        sweep!(reset, loop_from());
+        sweep!(reset, loop_to());
+        sweep!(reset, midi_import());
+        sweep!(reset, song_playing());
+        sweep!(reset, song_tempo(_));
+        sweep!(reset, song_swing(_));
+        sweep!(reset, clock_tempo());
+        sweep!(reset, clock_swing());
+        sweep!(reset, song_tracks());
+        sweep!(reset, samples_count());
+        sweep!(reset, recipe_count());
+        sweep!(reset, recipe_slot(_));
+        sweep!(reset, recipe_text_len(_));
+        sweep!(reset, recipe_text_ptr(_));
+        sweep!(reset, recipe_values_ptr(_));
+        sweep!(reset, recipe_values_len());
+        sweep!(reset, recipe_set());
+        sweep!(reset, samples_synth(_));
+        sweep!(reset, samples_id_len(_));
+        sweep!(reset, samples_id_ptr(_));
+        sweep!(reset, samples_set(_));
+        sweep!(reset, group_name_len(_));
+        sweep!(reset, group_name_ptr(_));
+        sweep!(reset, group_name_set(_));
+        sweep!(reset, code_set(_));
+        sweep!(reset, code_error_line());
+        sweep!(reset, code_error_col());
+        sweep!(reset, code_error_ptr());
+        sweep!(reset, code_error_len());
+        sweep!(reset, code_text(_));
+        sweep!(reset, code_text_ptr());
+        sweep!(reset, knob_list(_));
+        sweep!(reset, knob_list_ptr());
+        sweep!(reset, track_name_ptr(_));
+        sweep!(reset, track_name_len(_));
+        sweep!(reset, track_preset(_));
+        sweep!(reset, track_setting(_));
+        sweep!(reset, model_fits(_, _));
+        sweep!(reset, song_write_mixer());
+        sweep!(reset, track_edit(_, _, _));
+        sweep!(reset, song_settings());
+        sweep!(reset, setting_name_ptr(_));
+        sweep!(reset, setting_name_len(_));
+        sweep!(reset, setting_preset(_));
+        sweep!(reset, track_kind(_));
+        sweep!(reset, track_flags(_));
+        sweep!(reset, set_track_flags(_, _));
+        sweep!(reset, song_route(_, _));
+        sweep!(reset, song_routed(_));
+        sweep!(reset, song_clips());
+        sweep!(reset, clip_name_ptr(_));
+        sweep!(reset, clip_name_len(_));
+        sweep!(reset, clip_track(_));
+        sweep!(reset, clip_notes_ptr(_));
+        sweep!(reset, clip_notes_len(_));
+        sweep!(reset, clip_bars(_));
+        sweep!(reset, clip_events(_));
+        sweep!(reset, event_start(_, _));
+        sweep!(reset, event_len(_, _));
+        sweep!(reset, event_note(_, _));
+        sweep!(reset, event_accent(_, _));
+        sweep!(reset, clip_generated(_));
+        sweep!(reset, note_add(_, _, _));
+        sweep!(reset, note_remove(_, _, _));
+        sweep!(reset, note_len(_, _, _, _));
+        sweep!(reset, clip_live(_));
+        sweep!(reset, freeze(_));
+        sweep!(reset, clip_grid(_));
+        sweep!(reset, clip_lanes(_));
+        sweep!(reset, lane_pad(_, _));
+        sweep!(reset, lane_steps(_, _));
+        sweep!(reset, lit_count());
+        sweep!(reset, lit_ptr());
+        sweep!(reset, step_ratchet(_, _, _));
+        sweep!(reset, step_level(_, _, _));
+        sweep!(reset, tempo(_));
+        sweep!(reset, swing(_));
+        sweep!(reset, clock_step());
+        sweep!(reset, spectral_buf(_));
+        sweep!(reset, spectral_analyse(_, _, _, _));
+        sweep!(reset, spectral_tracks_len());
+        sweep!(reset, spectral_tracks_ptr());
+        sweep!(reset, spectral_render(_, _, _));
+        sweep!(reset, spectral_render_at(_, _, _));
+        sweep!(reset, spectral_wav_ptr());
+        sweep!(reset, spectral_gram_len(_));
+        sweep!(reset, spectral_gram_ptr(_));
+        sweep!(reset, spectral_bands());
+        sweep!(reset, spectral_analyse_other(_, _, _, _));
+        sweep!(reset, spectral_generate(_, _, _, _, _));
+        sweep!(reset, spectral_other_clear());
+        sweep!(reset, spectral_morph(_, _));
+        sweep!(reset, spectral_set(_, _));
+        sweep!(reset, spectral_table());
+        sweep!(reset, spectral_attack());
+        sweep!(reset, spectral_text_buf(_));
+        sweep!(reset, spectral_recipe(_, _));
+        sweep!(reset, spectral_recipe_ptr());
+        sweep!(reset, spectral_values_ptr());
+        sweep!(reset, spectral_root());
+        sweep!(reset, user_buf(_));
+        sweep!(reset, table_load(_));
+        sweep!(reset, attack_load(_, _));
+        sweep!(reset, spectrum_watch(_));
+        sweep!(reset, spectrum_compute());
+        sweep!(reset, spectrum_ptr());
+    }
+
+    #[test]
+    fn no_export_panics_before_init() {
+        sweep_every_export(|| ());
+    }
+
+    #[test]
+    fn no_export_panics_on_hostile_arguments() {
+        init(48_000.0);
+        sweep_every_export(|| ());
+    }
+
+    /// The sweep again over a playing song, each export starting from it, so
+    /// the calls reach its tracks, clips, scenes and lanes, not only the
+    /// early returns of an empty engine.
+    #[test]
+    fn no_export_panics_over_a_playing_song() {
+        for text in [
+            include_str!("../../../examples/songs/clockwork-arps.song"),
+            include_str!("../../../examples/songs/patch-bay.song"),
+        ] {
+            sweep_every_export(|| {
+                init(48_000.0);
+                query((), |e| {
+                    e.song_buffer(text.len())
+                        .expect("fits")
+                        .copy_from_slice(text.as_bytes())
+                });
+                assert_eq!(song_load(), 0);
+                song_play();
+                process(BLOCK as u32);
+            });
+        }
+    }
 }
