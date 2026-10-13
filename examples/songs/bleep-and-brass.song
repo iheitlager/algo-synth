@@ -1,14 +1,14 @@
 # Bleep and Brass: melodic techno in D minor, half classic polysynths, half
-# SuperCollider. Prophet-5 brass stabs, Jupiter-8 and Polymoog strings, an
-# SH-101 acid line and MS-20 jet sweeps; Modular bleeps, chirps, a rolling sub,
+# SuperCollider. Prophet-5 brass stabs, Jupiter-8 and Polymoog strings, a
+# TB-303 acid line and MS-20 jet sweeps; Modular bleeps, chirps, a rolling sub,
 # a Jupiter-filtered pluck and a metal clank. One progression feeds the
 # strings, the stabs, the sub and the pluck.
 tempo 126
 swing 54
 scale d minor
 
-# A squelchier AcidBass: more resonance and envelope, a snappier decay.
-setting tb = Sh101 AcidBass: Resonance 0.9, Drive 0.7, EnvCutoff 0.95, AdsrDecay 0.18, AdsrSustain 0.1, Glide 0.08
+# The TB-303 squelching: driven, a snappier decay, the accents hard.
+setting tb = Tb303 Tb303Squelch: Drive 0.7, EnvCutoff 0.85, FenvDecay 0.25, FenvRelease 0.25, Accent 0.85, Glide 0.08
 
 # Sheffield bleep: a square and its octave sine, short, a little apart.
 setting bleep = Modular ModularBasic

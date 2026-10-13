@@ -56,7 +56,7 @@ A subset of sclang, run once to build the voice:
   its gate, `amp` the velocity times its default, `modwheel` the mod wheel
   (0..1); any other argument (or `\name.kr(n)`) is a knob. A second
   argument is the control's lag: `\freq.kr(440, 0.08)` glides from one
-  legato note to the next (with `Voices 1`).
+  legato note to the next (with `Polyphony 1`).
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
   ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
