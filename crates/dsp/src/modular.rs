@@ -27,16 +27,16 @@ pub mod sc;
 pub mod verb;
 
 /// Most nodes in a voice, and most of each kind of state it may hold.
-pub const MAX_NODES: usize = 512;
+pub const MAX_NODES: usize = 1024;
 pub const MAX_OSCS: usize = 64;
-pub const MAX_PHASES: usize = 32;
+pub const MAX_PHASES: usize = 64;
 pub const MAX_FILTERS: usize = 8;
 pub const MAX_ENVS: usize = 8;
 /// Most random numbers a voice draws when its note starts (`Rand`, `ExpRand`).
 pub const MAX_RANDS: usize = 64;
 /// Most `Latch`es, `Decimator`s, `LFNoise`s and `lag`s in a voice: each
 /// holds a value.
-pub const MAX_HOLDS: usize = 32;
+pub const MAX_HOLDS: usize = 64;
 /// Most reverbs a voice runs (`FreeVerb2`): each holds about 100 KB.
 pub const MAX_VERBS: usize = 2;
 /// Most resonators in a voice (`Ringz`, one per partial of a `Klank`).
@@ -2624,7 +2624,7 @@ mod tests {
         );
     }
 
-    /// #471, #472: a voice holds at most 32 latches, decimators, noises and lags.
+    /// #471, #472: a voice holds at most 64 latches, decimators, noises and lags.
     #[test]
     fn holds_are_limited() {
         let text = |n: usize| {
@@ -2632,10 +2632,10 @@ mod tests {
                 "SynthDef(\\t, {{ |freq = 440| var s = 0; {n}.do({{ s = s + Latch.ar(WhiteNoise.ar, 1) }}); s }}).add;"
             )
         };
-        assert!(sc::compile(&text(32)).is_ok());
+        assert!(sc::compile(&text(64)).is_ok());
         assert_eq!(
-            sc::compile(&text(33)).expect_err("33").msg,
-            "a voice has at most 32 latches, decimators, noises and lags"
+            sc::compile(&text(65)).expect_err("65").msg,
+            "a voice has at most 64 latches, decimators, noises and lags"
         );
     }
 
@@ -2755,12 +2755,13 @@ mod tests {
         )
     }
 
-    /// #547: the recursive modulator plays at depth 2, finite and bounded;
-    /// at depth 4 it is past the voice's noises and says so.
+    /// #547: the recursive modulator plays as pasted (depth 4, sixteen
+    /// copies of `f`), finite and bounded; at depth 5 it is past the
+    /// voice's noises and says so.
     #[test]
     fn the_composed_modulator_plays() {
         let b = Bench::new();
-        let patch = sc::compile(&composed(2)).unwrap_or_else(|e| panic!("{e:?}"));
+        let patch = sc::compile(&composed(4)).unwrap_or_else(|e| panic!("{e:?}"));
         let mut params = crate::mono::MonoParams::new(48_000.0);
         for k in &patch.knobs {
             if let Some(c) = params.ctl.get_mut(k.ctl) {
@@ -2787,7 +2788,7 @@ mod tests {
         }
         assert!(l.iter().chain(&r).all(|x| x.is_finite() && x.abs() < 4.0));
         assert!(l.iter().any(|x| x.abs() > 1e-3), "it sounds");
-        let e = sc::compile(&composed(4)).expect_err("too big");
+        let e = sc::compile(&composed(5)).expect_err("too big");
         assert!(e.msg.starts_with("a voice has at most"), "{}", e.msg);
     }
 

@@ -1077,7 +1077,7 @@ impl Builder {
             return Err(CodeError {
                 line: at.0,
                 col: at.1,
-                msg: "the voice needs more than 512 nodes",
+                msg: "the voice needs more than 1024 nodes",
             });
         };
         *slot = u;
@@ -1498,7 +1498,7 @@ impl Builder {
                         &mut b.prog.counts.holds,
                         MAX_HOLDS,
                         at,
-                        "a voice has at most 32 latches, decimators, noises and lags",
+                        "a voice has at most 64 latches, decimators, noises and lags",
                     )?;
                     let u = Ugen::Lag {
                         input: *of,
@@ -2021,7 +2021,7 @@ impl Builder {
             (
                 self.prog.counts.phases,
                 MAX_PHASES,
-                "a voice has at most 32 sines and LFOs, a Klang taking one per frequency",
+                "a voice has at most 64 sines and LFOs, a Klang taking one per frequency",
             )
         };
         if usize::from(used) + freqs.len() > limit {
@@ -2123,7 +2123,7 @@ impl Builder {
                 &mut b.prog.counts.holds,
                 MAX_HOLDS,
                 at,
-                "a voice has at most 32 latches, decimators, noises, lags and LeakDCs",
+                "a voice has at most 64 latches, decimators, noises, lags and LeakDCs",
             )?;
             let mut out = b.push(
                 Ugen::LeakDc {
@@ -2946,7 +2946,7 @@ impl Builder {
                     &mut b.prog.counts.phases,
                     MAX_PHASES,
                     at,
-                    "a voice has at most 32 sines and LFOs",
+                    "a voice has at most 64 sines and LFOs",
                 )?;
                 b.push(Ugen::Lfo { rate, wave, slot }, at)
             };
@@ -2964,7 +2964,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES,
                         at,
-                        "a voice has at most 32 sines and LFOs",
+                        "a voice has at most 64 sines and LFOs",
                     )?;
                     (b.push(Ugen::Sin { freq: f, slot }, at)?, false, 2)
                 }
@@ -3099,7 +3099,7 @@ impl Builder {
                         &mut b.prog.counts.holds,
                         MAX_HOLDS,
                         at,
-                        "a voice has at most 32 latches, decimators, noises, lags and impulses",
+                        "a voice has at most 64 latches, decimators, noises, lags and impulses",
                     )?;
                     (b.push(Ugen::Impulse { freq: f, slot }, at)?, true, 2)
                 }
@@ -3118,7 +3118,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES,
                         at,
-                        "a voice has at most 32 sines and LFOs",
+                        "a voice has at most 64 sines and LFOs",
                     )?;
                     let u = Ugen::Wave {
                         pos,
@@ -3150,7 +3150,7 @@ impl Builder {
                         &mut b.prog.counts.holds,
                         MAX_HOLDS,
                         at,
-                        "a voice has at most 32 latches, decimators, noises and lags",
+                        "a voice has at most 64 latches, decimators, noises and lags",
                     )?;
                     let u = Ugen::LfNoise {
                         freq: f,
@@ -3166,7 +3166,7 @@ impl Builder {
                         &mut b.prog.counts.holds,
                         MAX_HOLDS,
                         at,
-                        "a voice has at most 32 latches, decimators, noises and lags",
+                        "a voice has at most 64 latches, decimators, noises and lags",
                     )?;
                     let u = if c == "Latch" {
                         Ugen::Latch {
@@ -3190,7 +3190,7 @@ impl Builder {
                         &mut b.prog.counts.phases,
                         MAX_PHASES - 1,
                         at,
-                        "a voice has at most 32 sines and LFOs, a PMOsc counting two",
+                        "a voice has at most 64 sines and LFOs, a PMOsc counting two",
                     )?;
                     b.prog.counts.phases += 1;
                     (
@@ -3784,13 +3784,13 @@ mod tests {
             )
         };
         assert!(compile(&bank("Klang", 32).replace(", WhiteNoise.ar", "")).is_ok());
-        let e = compile(&bank("Klang", 40).replace(", WhiteNoise.ar", "")).expect_err("40 sines");
+        let e = compile(&bank("Klang", 70).replace(", WhiteNoise.ar", "")).expect_err("70 sines");
         assert_eq!(
             (e.line, e.col, e.msg),
             (
                 1,
                 3,
-                "a voice has at most 32 sines and LFOs, a Klang taking one per frequency"
+                "a voice has at most 64 sines and LFOs, a Klang taking one per frequency"
             )
         );
         assert!(compile(&bank("Klank", 32)).is_ok());

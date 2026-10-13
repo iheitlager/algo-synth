@@ -144,10 +144,10 @@ A subset of sclang, run once to build the voice:
   control's default, is a knob, `Ctl1`…`Ctl32` in build order (the SynthDef's
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `snapshot`,
   `mod` reach them (`sub.Ctl1`).
-- **Limits:** 512 nodes, 64 oscillators, 32 phases (a sine, an LFO, a
+- **Limits:** 1024 nodes, 64 oscillators, 64 phases (a sine, an LFO, a
   `VOsc`; a `Klang` takes one per frequency), 8 filters, 8 envelopes, 32
   resonators (a `Klank` takes one per frequency), 32 delay lines, 64 random
-  numbers, 32 latches, decimators, noises, lags, impulses and LeakDCs, 2
+  numbers, 64 latches, decimators, noises, lags, impulses and LeakDCs, 2
   reverbs, 32 knobs. A delay line holds 1024 samples (about
   0.02 seconds); a comb or delay takes as many as its `maxdelaytime` needs,
   so a voice's delays hold about 0.68 seconds in all: a slapback, a chorus
