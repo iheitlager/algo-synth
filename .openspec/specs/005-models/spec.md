@@ -194,7 +194,7 @@ A `Modular` synth's voice SHALL be a SuperCollider SynthDef (ADR-0024, supersedi
 
 #### Scenario: a recursive modulator composes and draws as it builds
 
-- GIVEN a function of `LFNoise1`, `LFSaw`, `LinExp`, `coin`, `choose` and `clip2`, chained into sixteen copies by `<>` (the fragment as pasted), driving `Saw.ar(freq).product` into four `BPF`s in a `( var …; )` region (#547)
+- GIVEN a function of `LFNoise1`, `LFSaw`, `LinExp`, `coin`, `choose` and `clip2`, chained into sixteen copies by `<>` (as pasted), driving `Saw.ar(freq).product` into four `BPF`s in a `( var …; )` region (#547)
 - WHEN it is built and played
 - THEN it builds the same graph each time and sounds finite and bounded, and chained into thirty-two it is refused as past the voice's limits
 
