@@ -36,6 +36,8 @@ pub struct Request {
 pub struct LoopLimits {
     pub rounds: u32,
     pub time: Duration,
+    /// The most wall time one render of a song may take.
+    pub render_time: Duration,
 }
 
 impl Default for LoopLimits {
@@ -43,6 +45,7 @@ impl Default for LoopLimits {
         LoopLimits {
             rounds: 8,
             time: Duration::from_secs(600),
+            render_time: Limits::default().max_time,
         }
     }
 }
@@ -228,7 +231,7 @@ struct Ran {
     proposed: Option<(String, String, Vec<Finding>)>,
 }
 
-async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
+async fn run_tool(call: &ToolCall, req: &Request, render_time: Duration) -> Ran {
     let answer = |content: Value, ok: bool, summary: String| Ran {
         result: ToolResult {
             id: call.id.clone(),
@@ -282,7 +285,7 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
                 .and_then(Value::as_u64)
                 .unwrap_or(64)
                 .clamp(1, 64);
-            match measure(&song, req.focus.as_deref(), bars).await {
+            match measure(&song, req.focus.as_deref(), bars, render_time).await {
                 Ok(m) => {
                     let fault = m.fault();
                     let summary = format!(
@@ -348,7 +351,7 @@ async fn run_tool(call: &ToolCall, req: &Request) -> Ran {
                 );
             }
             // Only a song that renders cleanly reaches the user (#430).
-            match measure(&song, req.focus.as_deref(), 64).await {
+            match measure(&song, req.focus.as_deref(), 64, render_time).await {
                 Ok(m) => match m.fault() {
                     Some(f) => {
                         let mut v = m.report();
@@ -427,7 +430,12 @@ impl Measured {
 /// Render `song` for at most `bars` bars; with a track in focus that has no
 /// clip, and no arrangement, it plays an audition phrase on that track
 /// (#430). A song that does not load gives its error and a line.
-async fn measure(song: &str, focus: Option<&str>, bars: u64) -> Result<Measured, (Value, String)> {
+async fn measure(
+    song: &str,
+    focus: Option<&str>,
+    bars: u64,
+    render_time: Duration,
+) -> Result<Measured, (Value, String)> {
     let audition = focus.and_then(|t| tools::audition(song, t));
     let auditioned = audition.is_some();
     let heard = focus.filter(|t| {
@@ -443,7 +451,7 @@ async fn measure(song: &str, focus: Option<&str>, bars: u64) -> Result<Measured,
     let text = audition.unwrap_or_else(|| song.to_string());
     let limits = Limits {
         max_bars: bars,
-        ..Limits::default()
+        max_time: render_time,
     };
     match tokio::task::spawn_blocking(move || tools::render(&text, limits)).await {
         Ok(Ok(rendered)) => Ok(Measured {
@@ -548,7 +556,7 @@ pub async fn run<P: Provider>(
         let mut results = Vec::new();
         let mut proposed = None;
         for call in &turn.calls {
-            let ran = run_tool(call, req).await;
+            let ran = run_tool(call, req, limits.render_time).await;
             emit(Event::Tool {
                 round: rounds,
                 name: call.name.clone(),
@@ -652,8 +660,14 @@ mod tests {
         events_for(p, &req, limits).await
     }
 
+    /// Renders here run to the end however slow the machine (#535): a render
+    /// cut short skips the silent-focus rule.
     async fn events_for(p: &Scripted, req: &Request, limits: LoopLimits) -> Vec<Event> {
         let mut out = Vec::new();
+        let limits = LoopLimits {
+            render_time: Limits::unhurried().max_time,
+            ..limits
+        };
         run(p, req, limits, &mut |e| out.push(e)).await;
         out
     }
@@ -737,7 +751,7 @@ mod tests {
 
     #[test]
     fn clipping_and_non_finite_samples_are_faults() {
-        let r = tools::render(GOOD, Limits::default()).expect("renders");
+        let r = tools::render(GOOD, Limits::unhurried()).expect("renders");
         let m = |peak, nonfinite| Measured {
             rendered: tools::Rendered {
                 peak,

@@ -34,4 +34,8 @@ pub mod synth;
 pub mod table;
 pub mod voice;
 
+// The worklet's ABI, only for wasm (and its tests): a native build that
+// links the engine (algo-synth, song-lsp) would carry the same no_mangle
+// symbols, whose coverage records then clash with the tests' (#535).
+#[cfg(any(target_arch = "wasm32", test))]
 mod ffi;

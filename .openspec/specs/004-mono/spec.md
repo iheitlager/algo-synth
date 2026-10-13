@@ -178,7 +178,7 @@ The engine SHALL ship four Mono presets as Rust data, selected by id: bass, lead
 - WHEN a note across the keyboard is held and released
 - THEN every sample is finite and bounded, and the voice falls silent after its release
 
-**Tests:** `crates/dsp/src/mono/preset.rs::tests::every_preset_is_bounded`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/mono/preset.rs::tests::a_preset_sets_every_mono_parameter`, `crates/dsp/src/mono/preset.rs::tests::defaults_cover_every_mono_parameter_once`
+**Tests:** `crates/dsp/src/mono/preset/tests/songs.rs::every_preset_is_bounded`, `crates/dsp/src/params.rs::tests::typescript_mirror_matches`, `crates/dsp/src/mono/preset.rs::tests::a_preset_sets_every_mono_parameter`, `crates/dsp/src/mono/preset.rs::tests::defaults_cover_every_mono_parameter_once`
 
 ### Requirement 10: Independent synths [MUST]
 

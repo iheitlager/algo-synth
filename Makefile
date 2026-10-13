@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-tools test-web coverage-web typecheck bench filters syntax-test lint deny image serve stop clean env-check
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-songs test-tools test-web coverage-web coverage check-coverage typecheck bench filters syntax-test lint deny image serve stop clean env-check
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -73,11 +73,50 @@ test-tools: ## Python tool tests
 	python3 -m unittest discover -s tools -p 'test_*.py'
 test-rust: ## Engine unit tests (native)
 	cargo test --locked --workspace
+# The tests that render minutes of audio, in the songs.rs modules: whole
+# songs, launches over many bars, every preset. Ignored by cargo test, so
+# neither test-rust, CI nor coverage runs them (#535); run them before a
+# change to the engine's playback or the presets.
+test-songs: ## Long song and preset renders
+	cargo test --locked --workspace --profile fast-test -- --ignored songs::
 test-web: install ## UI unit tests (vitest)
 	cd web && npm test
 # Line coverage of the UI (vitest, v8); the HTML report is web/coverage/index.html.
 coverage-web: install ## UI test coverage
 	cd web && npm run test:coverage
+
+# The coverage floor (#535, after t-rust-db/db-core): every file at least
+# COVERAGE_MIN % of its lines, not only the total, so a thin file cannot hide
+# behind well-covered ones. Every exception is named here, with why:
+#   crates/assist/src/main.rs, syntax/song-lsp/src/main.rs: binary entry
+#   points (argument parsing, the server loop); their logic is in lib.rs.
+#   */songs.rs: the long renders, which only test-songs runs; ignored, they
+#   would read as uncovered lines.
+COVERAGE_MIN := 85
+COVERAGE_EXCLUDE_REGEX := (crates/assist/src/main\.rs|syntax/song-lsp/src/main\.rs|/songs\.rs)$$
+# The same tests as test-rust, instrumented (cargo-llvm-cov; needs
+# `rustup component add llvm-tools`) and built with Cargo.toml's fast-test
+# profile, optimized: debug renders the DSP tests too slowly. The report
+# also lands as JSON in target/llvm-cov.json for check-coverage.
+coverage: ## Rust line coverage report
+	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
+		echo "cargo-llvm-cov not found: cargo install cargo-llvm-cov --locked"; exit 1; }
+	cargo llvm-cov clean --workspace
+	cargo llvm-cov --locked --workspace --profile fast-test --no-report --no-fail-fast
+	cargo llvm-cov report --profile fast-test --ignore-filename-regex '$(COVERAGE_EXCLUDE_REGEX)'
+	cargo llvm-cov report --profile fast-test --ignore-filename-regex '$(COVERAGE_EXCLUDE_REGEX)' \
+		--json --output-path target/llvm-cov.json
+# Lists every file under the floor in one run.
+check-coverage: coverage ## Fail under the coverage floor
+	@python3 -c "import json, os, sys; \
+	  root = os.getcwd() + '/'; \
+	  d = json.load(open('target/llvm-cov.json'))['data'][0]; \
+	  total = d['totals']['lines']['percent']; \
+	  print(f'Line coverage: {total:.2f}% (floor: $(COVERAGE_MIN)%)'); \
+	  below = sorted((f['summary']['lines']['percent'], f['filename'].removeprefix(root)) for f in d['files'] if f['summary']['lines']['percent'] < $(COVERAGE_MIN)); \
+	  [print(f'  {pct:6.2f}%  {name}') for pct, name in below]; \
+	  print(f'{len(below)} file(s) under $(COVERAGE_MIN)%' if below else 'every file is at or over $(COVERAGE_MIN)%'); \
+	  sys.exit(0 if total >= $(COVERAGE_MIN) and not below else 1)"
 typecheck: install ## vue-tsc over the UI
 	cd web && npm run typecheck
 # 16 Mono voices in Node's V8 against the 25% budget (plan.md); confirm with
