@@ -366,6 +366,37 @@ fn scenes_play_in_order_and_the_song_ends() {
     assert_eq!(e.clock().position(), 0, "and goes back to the top");
 }
 
+/// The algorave example, nearly all of it generated: it plays to its end,
+/// finite and bounded, and every one of its fourteen tracks is heard.
+#[test]
+#[ignore = "a long render: make test-songs"]
+fn seed_rave_plays_start_to_finish() {
+    let mut e = Engine::new(48_000.0);
+    let text = include_str!("../../../../../examples/songs/seed-rave.song");
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let tracks = e.song().tracks.len();
+    assert_eq!(tracks, 14);
+    let bars = e.song().bars();
+    let frames = (bars as f32 * 4.0 * 60.0 / e.song().tempo * 48_000.0) as u64;
+    e.song_play();
+    let mut heard = vec![0.0_f32; tracks];
+    for _ in (0..frames).step_by(BLOCK) {
+        e.clear_meters();
+        e.render(BLOCK);
+        assert!(
+            e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "finite and bounded"
+        );
+        for (t, h) in heard.iter_mut().enumerate() {
+            let strip = e.song_routed(t).expect("routed");
+            *h = h.max(e.meters()[strip]);
+        }
+    }
+    for (t, h) in heard.iter().enumerate() {
+        assert!(*h > 0.001, "track {t} is heard");
+    }
+}
+
 /// #355: while a track is soloed only soloed tracks play; solo outranks mute.
 #[test]
 #[ignore = "a long render: make test-songs"]

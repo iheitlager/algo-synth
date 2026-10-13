@@ -1,0 +1,225 @@
+# Seed Rave: an algorave set in D minor, where the engine writes nearly every
+# note and hit and the text only plants the seeds. One seeded progression,
+# prog(8,23), feeds the pad, a rolling sub (its roots) and three arps: a
+# Juno pluck echoing an octave up, a Modular glint whose filter is sampled and
+# held every sixteenth, and in the break a pluck rolling new notes every bar.
+# A TB-303 riff is only a seed: a live markov chain of it plays new acid every
+# bar, a mutation of it turns back on itself, and a second 303 squelches a
+# fresh random walk each bar under a sample-and-hold filter. The lead's theme
+# comes back on a DX7 as a markov chain, and in the chaos the lead walks the
+# scale anew each bar. Under the 909, the 808 plays six Euclidean lanes of 5,
+# 7, 9, 11, 12 and 13 steps, so the percussion never lines up the same way
+# twice; a Modular metal walks the scale in Euclidean hits, each strike its
+# own ring, some dropped and some doubled, a bit-crushed noise answers in
+# threes and Modular lasers fall a random distance each. Euclidean breaks,
+# polymetric toms and ratchets turn the phrases.
+tempo 136
+swing 54
+scale d minor
+
+# Two tuned resonators struck by a click, each note its own ring (Ctl1).
+setting metal = Modular ModularBasic
+  SynthDef(\metal, { |freq = 2000, decay = 0.2, gate = 1|
+      var hit = Impulse.ar(0) + (WhiteNoise.ar * Env.perc(0.001, 0.004).kr * 0.5);
+      var sig = Ringz.ar(hit, freq, decay) + (Ringz.ar(hit, freq * 1.47, decay * 0.6) * 0.6);
+      Pan2.ar(sig * EnvGen.kr(Env.perc(0.001, 0.4), gate) * 0.12, Rand(-0.8, 0.8))
+  }).add;
+
+# A burst of noise through a bit-crusher, its rate set by the note.
+setting crush = Modular ModularBasic
+  SynthDef(\crush, { |freq = 200, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.12), gate);
+      var sig = Decimator.ar(WhiteNoise.ar + Pulse.ar(freq, 0.3), freq * 40, 5);
+      Pan2.ar(RHPF.ar(sig, 1200, 0.6) * env * 0.35, Rand(-0.3, 0.3))
+  }).add;
+
+# A sine with a little saw on top, short and warm: the rolling sub.
+setting sub = Modular ModularBasic
+  SynthDef(\sub, { |freq = 55, gate = 1|
+      var sig = SinOsc.ar(freq) + (Saw.ar(freq) * 0.15);
+      (sig * 1.6).tanh * EnvGen.kr(Env.perc(0.003, 0.22), gate) * 0.7
+  }).add;
+
+# Two detuned saws, one each side, through the Juno-106's ladder; the
+# cutoff (Ctl1) is a sample-and-hold below.
+setting glint = Modular ModularBasic
+  SynthDef(\glint, { |freq = 440, cutoff = 1400, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.002, 0.2), gate);
+      var sig = { Saw.ar(freq * Rand(0.995, 1.005)) }.dup(2);
+      MoogFF.ar(sig, cutoff * (env * 3 + 1), 2.2, voicing: \juno106, drive: 0.3) * env * 0.4
+  }).add;
+
+# A laser: a sine falling from up to four octaves above its note, an FM
+# growl on top; how far it falls (Ctl1) is drawn for each note.
+setting zap = Modular ModularBasic
+  SynthDef(\zap, { |freq = 400, drop = 24, gate = 1|
+      var f = freq * Env([drop, 0], [0.06], [\lin]).kr.midiratio;
+      var env = EnvGen.kr(Env.perc(0.001, 0.14), gate);
+      Pan2.ar(PMOsc.ar(f, f * 0.5, env * 2) * env * 0.5, Rand(-0.7, 0.7))
+  }).add;
+
+# A sine blip with a quick pitch drop, thrown anywhere across the field.
+setting bleep = Modular ModularBasic
+  SynthDef(\bleep, { |freq = 1200, gate = 1|
+      var f = freq * Env([12, 0], [0.015], [\lin]).kr.midiratio;
+      var env = EnvGen.kr(Env.perc(0.001, 0.09), gate);
+      Pan2.ar(SinOsc.ar(f) * env * 0.8, Rand(-0.9, 0.9))
+  }).add;
+
+track kit drums Tr909 Kit909
+track perc drums Tr808 Kit808
+track metal synth metal
+track crush synth crush
+track low synth sub
+track acid synth Tb303 Tb303Acid
+track squelch synth Tb303 Tb303Squelch
+track zap synth zap
+track pad synth Jupiter8 JupiterPad
+track pluck synth Juno106 JunoPluck
+track glint synth glint
+track bleep synth bleep
+track bells synth Dx7 FmMarimba
+track lead synth Ms20 Ms20Lead
+
+strip kit: Level 1
+strip perc: Level 0.5, Pan -0.1, Send2 0.15
+strip metal: Level 0.45, Send1 0.3, Send2 0.2
+strip crush: Level 0.35, Pan 0.1, Send1 0.25
+strip low: Level 0.6
+strip acid: Level 0.35, I1Type Overdrive, I1A 0.35, Send1 0.25
+strip squelch: Level 0.25, Pan -0.3, I1Type Overdrive, I1A 0.5, Send1 0.35
+strip zap: Level 0.3, Send1 0.35, Send2 0.15
+strip pad: Level 0.16, Send2 0.4, Send3 0.8
+strip pluck: Level 0.4, Pan 0.2, Send1 0.45, Send3 0.3
+strip glint: Level 0.35, Pan -0.25, Send1 0.35, Send3 0.3
+strip bleep: Level 0.3, Send1 0.4, Send2 0.2
+strip bells: Level 0.3, Pan 0.25, Send1 0.3, Send2 0.35
+strip lead: Level 0.3, Send1 0.3, Send2 0.3, Send3 0.3
+master: MasterGain 0.8, P1Return 0.35, P1A 0.55, P1B 0.5, P1D 1, P2Return 0.3, P2A 0.85, P2C 0.3, P3Type Chorus, P3Return 0.55, P3A 0.25, P3B 0.7, P3D 1, P3E 0.6
+
+# 909: the clock, and Euclidean turns away from it.
+clip kick = kit /16
+  bd x...x...x...x...
+clip hats = kit /16
+  ch euclid(11,16,1)
+  oh euclid(3,8,2)
+clip clap = kit /16
+  cp ....x.......x...
+# Ratchets: hats rolled two, three and four times inside a step.
+clip rattle = kit /16
+  ch x.x3x.xx.x2x.x4x
+  oh ..x.......x.....
+clip kick5 = kit /16
+  bd euclid(5,16)
+  rs euclid(3,8,1)
+clip brk = kit /16
+  bd euclid(3,8)
+  sn euclid(5,16,4)
+  ch euclid(13,16,2)
+  oh ..............x.
+clip fill = kit /16
+  bd x.....x.........
+  sn ....x.x.xxXXx3X4
+  oh x...............
+clip roll = kit /16
+  sn x...x...x...x...x.x.x.x.x.x.x.x.xxxxxxxxxxxxxxxxX2X2X2X2X3X3X4X4
+  bd x...x...x...x...x...x...x...x...x...x...x...x...................
+# Toms in three Euclidean lanes of 5, 7 and 9: a polymeter on the 909 too.
+clip toms = kit /16
+  lt euclid(2,5,1)
+  mt euclid(3,7,2)
+  ht euclid(4,9,5)
+clip crash = kit /16
+  cr x...............................................................
+
+# 808: six Euclidean lanes of six lengths; they line up once in 360360 steps.
+clip poly = perc /16
+  cl euclid(3,5)
+  lc euclid(3,7,3)
+  rs euclid(4,9,2)
+  hc euclid(4,11,1)
+  ma euclid(7,12,1)
+  cb euclid(5,13,4)
+
+# The metal: nine hits a bar walking up the scale, a third dropped, some
+# doubled, every fourth bar backwards; each strike rings its own length.
+clip metals = metal .degrade(0.3) .sometimes(ply(2)) .every(4, rev) .ctl1(rand.onNote.exprange(0.04, 0.5))
+  euclid(9,16,3) scale d6
+# The crush in threes against the four, twice as fast every third bar.
+clip crushes = crush .every(3, fast(2)) .degrade(0.2)
+  euclid(3,8,2) scale d3
+
+# The progression and everything it feeds.
+clip chords = pad voicing
+  prog(8,23)
+clip roots = low .struct("~ x x x ~ x x x ~ x x x ~ x x x")
+  root(chords,1)
+clip plucks = pluck .off(3/16, add(12)) .degrade(0.2)
+  arp(chords,up,8)
+clip glints = glint .every(3, rev) .iter(4)
+  arp(chords,updown,16)
+clip sparks = pluck live
+  arp(chords,random,16,9)
+
+# The TB-303: a riff is only the seed.
+clip riff = acid
+  "d2! d2 d3 d2 ~ d2! f2 d2 c3! d2 ~ d2 a#1 d2! g2 a2"
+clip chain = acid live
+  markov(2,riff,11)
+clip bent = acid .palindrome() .every(4, add(12))
+  mutate(riff,45,4)
+# The second 303: a walk on the scale from the low D, new every bar.
+clip squelches = squelch live
+  walk(d2,16,5)
+
+# Lasers: eleven a bar, half dropped, some twice as fast, every other bar
+# turned a quarter on; each falls its own distance.
+clip zaps = zap .degrade(0.5) .sometimes(fast(2)) .every(2, iter(4)) .ctl1(rand.onNote.range(7, 48))
+  euclid(11,16,5) scale d4
+
+# Bleeps: seven a bar up the scale, and five in twelve against them.
+clip bleeps = bleep .every(2, palindrome) .off(1/8, add(7))
+  euclid(7,16,2) scale d5
+clip bleeps2 = bleep .iter(3)
+  euclid(5,12,1) scale a5
+
+# The lead's theme, its markov echo on the DX7, and a walk for the peak.
+clip theme = lead
+  d5:4. f5:8 e5:4 a4:4 c5:4. d5:8 a4:2
+clip echo = bells .ply(2) .degrade(0.35)
+  markov(1,theme,77)
+clip wander = lead live
+  walk(a4,8,3)
+
+auto acid_res = acid.Resonance 0.55 /8
+auto acid_build = acid.Resonance ramp 0.55 0.9 /4
+auto pad_rise = pad.Cutoff ramp 400 2400 /8
+auto rise = master.P1Return ramp 0.35 0.7 /4
+
+mod acid.cutoff = perlin.slow(2).exprange(350, 2800)
+mod glint.ctl1 = rand.exprange(500, 4500)
+mod squelch.cutoff = rand.segment(8).exprange(300, 3500)
+mod squelch.resonance = perlin.slow(4).range(0.6, 0.95)
+mod pad.cutoff = lfo([0.11, 0.17, 0.23, 0.29]).exprange(600, 3000)
+mod pluck.pan = sine.slow(4).range(-0.7, 0.7)
+mod lead.pan = perlin.slow(8).range(-0.4, 0.4)
+
+snapshot dry: master.P1Return 0.35, master.P2Return 0.3
+snapshot wet: master.P1Return 0.6, master.P2Return 0.55
+
+scene intro 8: poly metals chords pad_rise [dry]
+scene seed 7: kick poly metals chords roots
+scene seed_fill 1: fill poly metals chords roots
+scene acid 15: kick hats clap poly metals roots chain acid_res
+scene acid_brk 1: brk poly metals chain acid_res
+scene arps 15: kick hats clap poly metals crushes roots plucks glints chain bleeps zaps acid_res
+scene arps_brk 1: brk crushes plucks glints chain bleeps acid_res
+scene break 8: chords sparks echo bleeps2 glints [wet]
+scene build 4: roll metals crushes bent squelches zaps acid_build rise
+scene peak 7: crash kick rattle clap poly metals crushes roots plucks glints chain squelches theme echo acid_res [dry]
+scene peak_fill 1: fill poly metals roots glints chain theme acid_res
+scene chaos 7: crash kick5 hats clap toms poly metals crushes roots sparks glints bent squelches zaps wander bleeps bleeps2 acid_res
+scene chaos_brk 1: brk toms poly crushes sparks bent squelches zaps wander bleeps2 acid_res
+scene outro 8: kick poly metals chords bleeps2
+arrange intro seed seed_fill acid acid_brk arps arps_brk break build peak peak_fill peak peak_fill chaos chaos_brk chaos chaos_brk outro
+loop 61 92
