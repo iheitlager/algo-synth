@@ -813,6 +813,8 @@ mod tests {
     }
 
     #[test]
+
+    #[ignore = "a long render: make test-songs"]
     fn every_preset_is_bounded() {
         for_every_preset(|preset, name| {
             // A sampler with nothing loaded is silent; `sampler::tests` and `padsampler::tests` play them.
@@ -873,6 +875,7 @@ mod tests {
 
     /// No leftovers: a preset after another sounds like it does from fresh.
     #[test]
+    #[ignore = "a long render: make test-songs"]
     fn a_preset_after_another_renders_like_a_fresh_one() {
         let render = |presets: &[Preset]| {
             let mut e = Engine::new(48_000.0);
@@ -954,6 +957,7 @@ mod tests {
     /// Spec 006 Req 15: every polyphonic preset plays a full chord, bounded,
     /// audible, and silent once released.
     #[test]
+    #[ignore = "a long render: make test-songs"]
     fn every_poly_preset_plays_a_full_chord() {
         for_every_preset(|preset, name| {
             let mut probe = Engine::new(48_000.0);

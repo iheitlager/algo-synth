@@ -65,6 +65,7 @@ fn note_starts(e: &mut Engine, frames: u64, step: usize) -> Vec<(u64, usize, u8)
 /// time in the file (to the eight frames the test renders at once, far finer
 /// than a tick).
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn the_demo_imported_plays_the_file() {
     let bytes = include_bytes!("../../../../examples/scores/canon.mid");
     let mut e = Engine::new(48_000.0);
@@ -2006,6 +2007,7 @@ fn a_drum_lane_hits_on_its_exact_samples() {
 /// scene holds every clip and the clock keeps its place in the bar, even
 /// when it was already past the new end.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn the_first_scene_keeps_the_beat_playing() {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, FOUR), Ok(()));
@@ -2041,6 +2043,7 @@ fn hit_steps(e: &mut Engine, steps: u64) -> Vec<u64> {
 /// Spec 002 Req 4: each scene plays its own clips from its first
 /// bar, on the exact sample, and the song stops after the last bar.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn scenes_play_in_order_and_the_song_ends() {
     let mut e = kit(0);
     let text = "tempo 120\ntrack kit drums\nclip a = kit\n  bd x...\nclip b = kit\n  sn x.\n\
@@ -2056,6 +2059,7 @@ fn scenes_play_in_order_and_the_song_ends() {
 /// A clip starts again at each scene's first bar: a long one is cut,
 /// a short one loops inside it.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_clip_restarts_with_its_scene() {
     let mut e = kit(0);
     let long = format!("x{}x{}", ".".repeat(19), ".".repeat(11));
@@ -2094,6 +2098,7 @@ fn launch_song() -> Engine {
 /// #487: a scene launched mid-bar lands on the next bar line, from its
 /// first step, its snapshot set, and loops until the next launch.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_launched_scene_lands_on_the_next_bar_and_loops() {
     let mut e = launch_song();
     e.song_play();
@@ -2129,6 +2134,7 @@ fn a_launched_scene_lands_on_the_next_bar_and_loops() {
 /// #487: stopped, a launch starts the song with the scene; End waits for
 /// the scene to finish, not the bar.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_launch_at_the_end_waits_for_the_scene() {
     let mut e = launch_song();
     e.song_launch(1, Quantize::Bar);
@@ -2148,6 +2154,7 @@ fn a_launch_at_the_end_waits_for_the_scene() {
 
 /// #487: Phrase waits for the next eight-bar line.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_launch_on_the_phrase_waits_eight_bars() {
     let mut e = launch_song();
     e.song_play();
@@ -2168,6 +2175,7 @@ fn a_launch_on_the_phrase_waits_eight_bars() {
 /// #487: Now starts the scene at once, as far into its first bar as the
 /// clock is into its own; its snapshot is set at once.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_launch_now_keeps_the_phase() {
     let mut e = launch_song();
     e.song_play();
@@ -2181,6 +2189,7 @@ fn a_launch_now_keeps_the_phase() {
 
 /// #487: back to the arrangement on the next bar, where the clock is.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn back_to_the_arrangement_goes_on_where_the_clock_is() {
     let mut e = launch_song();
     e.song_launch(2, Quantize::Bar);
@@ -2206,6 +2215,7 @@ fn back_to_the_arrangement_goes_on_where_the_clock_is() {
 
 /// #487: a song that takes over finds the launched scene by its name.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_launched_scene_is_found_again_by_name() {
     let mut e = launch_song();
     e.song_launch(2, Quantize::Bar);
@@ -2291,6 +2301,7 @@ fn a_snapshot_switched_from_a_button_lands_on_the_bar() {
 /// #488: the next scene's own snapshot still lands; a button landing on
 /// the same bar line comes after it.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_scenes_own_snapshot_still_lands_and_the_button_wins() {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, SNAPS), Ok(()));
@@ -2347,6 +2358,7 @@ fn bar_entries_follow_the_arrangement_through_the_loop() {
 
 /// The loop region repeats its bars; seek lands on a bar.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn the_loop_region_repeats_and_seek_lands_on_a_bar() {
     let mut e = kit(0);
     let text = "track kit drums\nclip a = kit\n  bd x...............\nclip b = kit\n  sn x...............\n\
@@ -2925,6 +2937,7 @@ fn held_changes(text: &str, frames: u64) -> Vec<(u64, Vec<u8>)> {
 /// #163: `"c4 e4 g4 c5"` at 120 BPM and 48 kHz starts a note every beat
 /// (24000 samples), each ending as the next begins.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn note_clips_sound_at_their_samples_and_pitches() {
     let got = held_changes(
         "tempo 120\ntrack lead synth\nclip r = lead\n  \"c4 e4 g4 c5\"\n",
@@ -2950,6 +2963,7 @@ fn note_clips_sound_at_their_samples_and_pitches() {
 /// `b`, after a silent bar `a`: notes from 96000, starting over at
 /// 192000 rather than running on from where the line would be.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_note_clip_plays_in_its_scene_from_its_start() {
     let got = held_changes(
         "tempo 120\ntrack lead synth\nclip r = lead\n  c4:2 e4:4 g4:4\nscene a 1:\nscene b 1: r\narrange a b b\n",
@@ -3143,6 +3157,7 @@ fn a_euclid_lane_plays_like_a_written_one() {
 
 /// #165: a euclid note line plays the same events on every run.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_euclid_note_line_walks_the_scale_deterministically() {
     let text =
         "tempo 120\nscale c minor\ntrack lead synth\nclip r = lead\n  euclid(4,8) scale c4\n";
@@ -3186,6 +3201,7 @@ fn poly() -> Engine {
 
 /// #167: a live clip plays a new walk each bar, the same ones every run.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_live_clip_changes_each_cycle_and_repeats_each_run() {
     let mut e = poly();
     assert_eq!(load_text(&mut e, LIVE), Ok(()));
@@ -3226,6 +3242,7 @@ fn a_live_clip_does_not_grow_its_buffers() {
 
 /// #167: freezing prints the bar it was playing; parsing that plays the same.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn freezing_keeps_the_bar_that_was_playing() {
     let mut e = poly();
     assert_eq!(load_text(&mut e, LIVE), Ok(()));
@@ -4058,6 +4075,7 @@ fn pitch_of(x: &[f32]) -> f64 {
 /// off each time as its oscillators drift; the Juno-106's DCOs play it in
 /// tune every time, on every voice. `Analog` 0 holds every model in tune.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn vcos_drift_between_notes_and_dcos_do_not() {
     let spread = |model: Model, analog: f32| {
         let mut e = Engine::new(48_000.0);
@@ -4435,6 +4453,7 @@ fn the_supercollider_hoover_plays_mono() {
 /// FreeVerb2 included, plays a held chord on two different sides, bounded
 /// and the same twice, and ends after its release (ADR-0024).
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn the_supercollider_hoover_plays_as_pasted() {
     let play = || {
         let mut e = Engine::new(48_000.0);
@@ -4689,6 +4708,7 @@ fn only_a_model_with_revisions_links_them() {
 /// #343: the SSM2030 of Rev 1/2 lacks the CEM3340's temperature
 /// compensation: with the same Vintage it plays a key further off.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn the_prophets_ssm_vcos_drift_more_than_its_curtis_ones() {
     let spread = |vco: f32| {
         let mut e = prophet();
@@ -4779,6 +4799,7 @@ fn starts_within(e: &mut Engine, frames: u64) -> Vec<u64> {
 /// #353: a lane of 12, 24, 32 or 48 steps a bar hits every bar / grid, on
 /// its exact sample: at 120 BPM and 48 kHz a bar is 96 000 samples.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn lanes_hit_on_their_grid() {
     for grid in [12u64, 16, 24, 32, 48] {
         let mut e = kit(0);
@@ -4892,6 +4913,7 @@ fn set_ratchet_edits_the_song_and_its_text() {
 /// #353: a flam on the first step of play has nothing before it to sound
 /// its grace in; from the second time round it has.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn a_flam_on_the_first_step_graces_from_the_second_bar() {
     assert_eq!(
         lane_starts(120, 16, "f...............", 192_000),
@@ -4968,6 +4990,7 @@ fn a_muted_track_is_silent_and_its_synth_plays_on() {
 
 /// #355: while a track is soloed only soloed tracks play; solo outranks mute.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn solo_plays_only_the_soloed_tracks() {
     let mut e = two_tracks(" mute solo");
     e.song_play();
@@ -5349,6 +5372,7 @@ fn a_deck_started_mid_bar_is_in_phase_at_once() {
 // ADR-0029: sync lock pulls a deck that is off the master's bar back onto it
 // at the master's next bar line, and leaves one that is on it alone.
 #[test]
+#[ignore = "a long render: make test-songs"]
 fn sync_pulls_a_deck_onto_the_masters_bar() {
     let mut master = Engine::new(48_000.0);
     let mut deck = Engine::new(48_000.0);
@@ -5857,6 +5881,8 @@ fn plays_start_to_finish(file: &str, bytes: &[u8]) {
 }
 
 #[test]
+
+#[ignore = "a long render: make test-songs"]
 fn spring_rv269_plays_start_to_finish() {
     plays_start_to_finish(
         "rv269-spring",
@@ -5865,6 +5891,8 @@ fn spring_rv269_plays_start_to_finish() {
 }
 
 #[test]
+
+#[ignore = "a long render: make test-songs"]
 fn summer_rv315_plays_start_to_finish() {
     plays_start_to_finish(
         "rv315-summer",
@@ -5873,6 +5901,8 @@ fn summer_rv315_plays_start_to_finish() {
 }
 
 #[test]
+
+#[ignore = "a long render: make test-songs"]
 fn autumn_rv293_plays_start_to_finish() {
     plays_start_to_finish(
         "rv293-autumn",
@@ -5881,6 +5911,8 @@ fn autumn_rv293_plays_start_to_finish() {
 }
 
 #[test]
+
+#[ignore = "a long render: make test-songs"]
 fn winter_rv297_plays_start_to_finish() {
     plays_start_to_finish(
         "rv297-winter",

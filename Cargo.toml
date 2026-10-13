@@ -29,3 +29,10 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+
+# make coverage and make test-songs (#535): debug code renders the DSP
+# tests' audio too slowly; optimized, but without release's LTO, it builds
+# and runs fast. Overflow checks and debug assertions stay on, from dev.
+[profile.fast-test]
+inherits = "dev"
+opt-level = 2
