@@ -73,12 +73,12 @@ test-tools: ## Python tool tests
 	python3 -m unittest discover -s tools -p 'test_*.py'
 test-rust: ## Engine unit tests (native)
 	cargo test --locked --workspace
-# The tests that render minutes of audio: whole songs, launches over many
-# bars, every preset. Ignored by cargo test, so neither test-rust, CI nor
-# coverage runs them (#535); run them before a change to the engine's
-# playback or the presets. dispatch_share is a benchmark, ignored too.
+# The tests that render minutes of audio, in the songs.rs modules: whole
+# songs, launches over many bars, every preset. Ignored by cargo test, so
+# neither test-rust, CI nor coverage runs them (#535); run them before a
+# change to the engine's playback or the presets.
 test-songs: ## Long song and preset renders
-	cargo test --locked --workspace --profile fast-test -- --ignored --skip dispatch_share
+	cargo test --locked --workspace --profile fast-test -- --ignored songs::
 test-web: install ## UI unit tests (vitest)
 	cd web && npm test
 # Line coverage of the UI (vitest, v8); the HTML report is web/coverage/index.html.
@@ -90,8 +90,10 @@ coverage-web: install ## UI test coverage
 # behind well-covered ones. Every exception is named here, with why:
 #   crates/assist/src/main.rs, syntax/song-lsp/src/main.rs: binary entry
 #   points (argument parsing, the server loop); their logic is in lib.rs.
+#   */songs.rs: the long renders, which only test-songs runs; ignored, they
+#   would read as uncovered lines.
 COVERAGE_MIN := 85
-COVERAGE_EXCLUDE_REGEX := (crates/assist/src/main\.rs|syntax/song-lsp/src/main\.rs)$$
+COVERAGE_EXCLUDE_REGEX := (crates/assist/src/main\.rs|syntax/song-lsp/src/main\.rs|/songs\.rs)$$
 # The same tests as test-rust, instrumented (cargo-llvm-cov; needs
 # `rustup component add llvm-tools`) and built with Cargo.toml's fast-test
 # profile, optimized: debug renders the DSP tests too slowly. The report
