@@ -791,7 +791,7 @@ fn the_example_songs_parse_and_print_back() {
         assert!(!s.arrange.is_empty(), "{name}: arranged");
         seen += 1;
     }
-    assert_eq!(seen, 33, "thirty-three examples");
+    assert_eq!(seen, 34, "thirty-four examples");
 }
 
 const ARRANGED: &str = "\
