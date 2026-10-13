@@ -17,11 +17,16 @@ setting bleep = Modular ModularBasic
       Pan2.ar(sig * env * 0.5, Rand(-0.7, 0.7))
   }).add;
 
+# The 101 lead without its pulse-width sweep and quick vibrato, which sound
+# like a chip: the saw and a little sub, the filter lower and opened by the
+# envelope, a soft attack and tail, a slow vibrato and a long glide.
+setting warm = Sh101 Sh101Lead: Analog 0.6, Vco2Level 0, SubLevel 0.25, LfoPw 0, Cutoff 1100, Resonance 0.45, EnvCutoff 0.45, FenvAttack 0.06, FenvDecay 0.8, AdsrAttack 0.03, AdsrRelease 0.6, LfoRate 4.5, Vibrato 0.06, Glide 0.15
+
 track kit drums Tr808 Kit808
 track clap drums Tr808 Kit808
 track hats drums Tr909 Kit909
 track bass synth Tb303 Tb303Acid
-track lead synth Sh101 Sh101Lead
+track lead synth warm
 track strings synth Jupiter8 JupiterStrings
 track stab synth Juno106 JunoPoly
 track bleep synth bleep
@@ -32,7 +37,7 @@ strip kit: Level 1
 strip clap: Level 0.9, Send2 0.65
 strip hats: Level 0.65, Pan 0.15
 strip bass: Level 0.6, I1Type Overdrive, I1A 0.3, Send1 0.08
-strip lead: Level 0.8, Pan -0.15, Send1 0.3, Send2 0.25
+strip lead: Level 1, Pan -0.15, Send1 0.3, Send2 0.25
 strip strings: Level 0.2, Send2 0.45
 strip stab: Level 0.5, Pan 0.2, Send1 0.35, Send2 0.15
 strip bleep: Level 0.6, Send1 0.5, Send2 0.15
