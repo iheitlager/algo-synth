@@ -117,7 +117,7 @@ kind = drums | synth | sampler
 
 | kind | its clips hold | models |
 |---|---|---|
-| `drums` | lanes | `Tr808 Tr909 PadSampler` |
+| `drums` | lanes | `Tr808 Tr909 PadSampler Nes` (`Nes NesKit`) |
 | `synth` | one line of notes | any but drum machines and samplers |
 | `sampler` | lanes (`PadSampler`) or notes (`Sampler`) | `Sampler PadSampler` |
 

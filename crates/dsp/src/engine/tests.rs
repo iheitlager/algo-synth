@@ -5548,3 +5548,361 @@ fn a_locked_table_position() {
     assert_eq!(pos(&mut e, 0.6), own, "a ~ gives the synth's own back");
     assert_eq!(pos(&mut e, 1.1), 0.4);
 }
+
+/// A SID voice (#112) with the given settings over one unfiltered
+/// oscillator, playing `note`; its left channel for `blocks` blocks.
+fn sid_note(settings: &[(Param, f32)], note: u8, blocks: usize) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    e.preset(0, Preset::SidArp);
+    for (p, v) in [
+        (Param::Polyphony, 1.0),
+        (Param::SidArp, 0.0),
+        (Param::Sid1PwSweep, 0.0),
+        (Param::Sid1Sustain, 15.0),
+    ]
+    .iter()
+    .chain(settings)
+    {
+        e.set_param(0, *p, *v);
+    }
+    e.note_on(0, note, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..blocks {
+        e.render(BLOCK);
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    out
+}
+
+fn rising(x: &[f32]) -> usize {
+    x.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+}
+
+/// Rising crossings with hysteresis: below −`h`, then above `h`. A 4-bit
+/// staircase rings a little at each band-limited step.
+fn rising_past(x: &[f32], h: f32) -> usize {
+    let mut low = false;
+    let mut n = 0;
+    for v in x {
+        if *v < -h {
+            low = true;
+        } else if *v > h && low {
+            low = false;
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The magnitude of `x` at `hz` (Goertzel over a Hann window), per sample.
+fn tone(x: &[f32], hz: f64) -> f64 {
+    let w = std::f64::consts::TAU * hz / 48_000.0;
+    let n = x.len() as f64;
+    let (mut s1, mut s2) = (0.0_f64, 0.0_f64);
+    for (i, v) in x.iter().enumerate() {
+        let hann = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / n).cos();
+        let s = f64::from(*v) * hann + 2.0 * w.cos() * s1 - s2;
+        s2 = s1;
+        s1 = s;
+    }
+    (s1 * s1 + s2 * s2 - 2.0 * w.cos() * s1 * s2).sqrt() / x.len() as f64
+}
+
+/// The SID plays the frequency its 16-bit register holds: A4 is 7493 on a
+/// PAL chip, 440.03 Hz. On the 8580, whose DAC rises with every code (the
+/// 6581's wiggles about zero).
+#[test]
+fn the_sid_plays_its_frequency_register() {
+    let x = sid_note(
+        &[(Param::Sid1Wave, 1.0), (Param::SidChip, 1.0)],
+        69,
+        48_000 / BLOCK + 1,
+    );
+    let second = &x[x.len() - 48_000..];
+    let hz = 7493.0 * crate::chip::sid::PAL / f64::from(1u32 << 24);
+    let got = rising(second) as f64;
+    assert!((got - hz).abs() <= 2.0, "{got} vs {hz}");
+    assert!(second.iter().all(|v| v.is_finite() && v.abs() < 1.0));
+}
+
+/// Band-limiting takes off the aliases a raw saw folds back between its
+/// harmonics; the harmonics themselves stay.
+#[test]
+fn the_sid_band_limits_its_edges() {
+    let at = |bl: f32| {
+        let x = sid_note(
+            &[(Param::Sid1Wave, 2.0), (Param::SidBandLimit, bl)],
+            96,
+            300,
+        );
+        let x = &x[x.len() - 32_768..];
+        let reg = crate::chip::sid::freq_register(2093.0, crate::chip::sid::PAL);
+        let f0 = f64::from(reg) * crate::chip::sid::PAL / f64::from(1u32 << 24);
+        let between: f64 = (1..8).map(|k| tone(x, (k as f64 + 0.5) * f0)).sum();
+        (tone(x, f0), between)
+    };
+    let (raw_f0, raw_alias) = at(0.0);
+    let (bl_f0, bl_alias) = at(1.0);
+    assert!((bl_f0 / raw_f0 - 1.0).abs() < 0.1, "{bl_f0} {raw_f0}");
+    assert!(bl_alias < 0.3 * raw_alias, "{bl_alias} vs {raw_alias}");
+}
+
+/// A closed low-pass takes the filtered oscillator down; an open one passes it.
+#[test]
+fn the_sid_filter_closes() {
+    let at = |fc: f32| {
+        let x = sid_note(
+            &[
+                (Param::Sid1Wave, 2.0),
+                (Param::Sid1Filter, 1.0),
+                (Param::SidChip, 1.0),
+                (Param::SidCutoff, fc),
+            ],
+            72,
+            40,
+        );
+        rms(&x[x.len() / 2..])
+    };
+    assert!(at(30.0) < 0.2 * at(2047.0), "{} {}", at(30.0), at(2047.0));
+}
+
+/// The player steps the arpeggio once a video frame: an octave arpeggio
+/// alternates the pitch every 19.95 ms on a PAL machine.
+#[test]
+fn the_sid_arpeggio_steps_by_frames() {
+    let x = sid_note(
+        &[
+            (Param::Sid1Wave, 1.0),
+            (Param::SidChip, 1.0),
+            (Param::SidArp, 3.0),
+            (Param::SidArpSpeed, 1.0),
+        ],
+        81,
+        90,
+    );
+    let frame = 48_000.0 * f64::from(crate::chip::sid::PAL_FRAME) / crate::chip::sid::PAL;
+    let counts: Vec<usize> = (2..10)
+        .map(|k| {
+            let a = (k as f64 * frame) as usize + 150;
+            rising(x.get(a..a + 650).unwrap_or_default())
+        })
+        .collect();
+    for w in counts.windows(2) {
+        let (lo, hi) = (w[0].min(w[1]) as f64, w[0].max(w[1]) as f64);
+        assert!(hi / lo > 1.6, "{counts:?}");
+    }
+}
+
+/// Modular reaches the chip (#112): a SynthDef of `SidOsc`, `SidFilter` and
+/// `SidEnv` builds, sounds and holds the register's pitch.
+#[test]
+fn a_modular_voice_plays_the_sid_parts() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    e.preset(0, Preset::ModularSid);
+    e.set_code(
+        0,
+        "SynthDef(\\t, { |freq = 440, gate = 1|\n    SidOsc.ar(freq, 1, 2048, 1) * SidEnv.kr(gate, 0, 0, 15, 0)\n}).add;\n",
+    )
+    .expect("builds");
+    e.note_on(0, 69, 1.0);
+    let mut x = Vec::new();
+    for _ in 0..(48_000 / BLOCK + 1) {
+        e.render(BLOCK);
+        x.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let second = &x[x.len() - 48_000..];
+    assert!(
+        (rising(second) as f64 - 440.03).abs() <= 2.0,
+        "{}",
+        rising(second)
+    );
+    // The preset itself sounds.
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::ModularSid);
+    e.note_on(0, 60, 1.0);
+    let mut y = Vec::new();
+    for _ in 0..40 {
+        e.render(BLOCK);
+        y.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    assert!(rms(&y) > 0.01 && y.iter().all(|v| v.is_finite()));
+}
+
+/// A NES voice (#112) of the given preset and settings, playing `note`; its
+/// left channel for `blocks` blocks.
+fn nes_note(preset: Preset, settings: &[(Param, f32)], note: u8, blocks: usize) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    e.preset(0, preset);
+    for (p, v) in settings {
+        e.set_param(0, *p, *v);
+    }
+    e.note_on(0, note, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..blocks {
+        e.render(BLOCK);
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    out
+}
+
+/// The NES pulse plays its 11-bit timer: A4 is t = 253 on NTSC, 440.4 Hz;
+/// the triangle an octave lower holds t = 253 too.
+#[test]
+fn the_nes_plays_its_timers() {
+    let one = [(Param::NesP2On, 0.0), (Param::NesVibrato, 0.0)];
+    let x = nes_note(Preset::NesLead, &one, 69, 48_000 / BLOCK + 1);
+    let second = &x[x.len() - 48_000..];
+    let hz = crate::chip::nes::NTSC / (16.0 * 254.0);
+    assert!(
+        (rising(second) as f64 - hz).abs() <= 2.0,
+        "{} vs {hz}",
+        rising(second)
+    );
+    let x = nes_note(Preset::NesBass, &[], 57, 48_000 / BLOCK + 1);
+    let second = &x[x.len() - 48_000..];
+    let hz = crate::chip::nes::NTSC / (32.0 * 254.0);
+    let n = rising_past(second, 0.02) as f64;
+    assert!((n - hz).abs() <= 2.0, "{n} vs {hz}");
+    assert!(second.iter().all(|v| v.is_finite() && v.abs() < 1.0));
+}
+
+/// A let-go pulse falls silent; a triangle holds its step and the output
+/// filter takes the offset away.
+#[test]
+fn a_nes_note_ends() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::NesLead);
+    e.note_on(0, 69, 1.0);
+    run(&mut e, 20);
+    e.note_off(0, 69);
+    run(&mut e, 20);
+    let tail = run(&mut e, 10);
+    assert!(tail < 1e-3, "{tail}");
+}
+
+/// With `NesKit` the NES plays a drum track's lanes (#99): a kick of the
+/// triangle diving, a hat of noise.
+#[test]
+fn the_nes_kit_plays_from_lanes() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = FOUR.replace("track kit drums", "track kit drums Nes NesKit");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    e.song_play();
+    let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
+    assert!(heard > 0.05, "the kick at 0.5 s: {heard}");
+    let hit = |note: u8| {
+        let x = nes_note(Preset::NesKit, &[], note, 30);
+        (rising(&x) as f64 / x.len() as f64, rms(&x))
+    };
+    let (kick, kick_rms) = hit(36);
+    let (hat, hat_rms) = hit(42);
+    assert!(kick_rms > 0.01 && hat_rms > 0.005, "{kick_rms} {hat_rms}");
+    assert!(hat > 4.0 * kick, "the hat is brighter: {hat} {kick}");
+}
+
+/// The DMC plays a sample from the store as 1-bit deltas at its rate: a
+/// slow sine comes through, its steps 2 apart.
+#[test]
+fn the_nes_dmc_plays_a_sample() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 / 48_000.0 * 200.0 * std::f32::consts::TAU).sin() * 0.8)
+        .collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("loads");
+    e.preset(0, Preset::NesBass);
+    for (p, v) in [
+        (Param::NesTriOn, 0.0),
+        (Param::NesDmcSample, 1.0),
+        (Param::NesDmcRate, 15.0),
+        (Param::NesOutput, 2.0),
+    ] {
+        e.set_param(0, p, v);
+    }
+    e.note_on(0, 60, 1.0);
+    let mut x = Vec::new();
+    for _ in 0..100 {
+        e.render(BLOCK);
+        x.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let part = &x[4_800..9_600];
+    assert!(rms(part) > 0.02, "{}", rms(part));
+    let r = rising(part) as f64 / (part.len() as f64 / 48_000.0);
+    assert!((r - 200.0).abs() < 30.0, "{r}");
+}
+
+/// Modular reaches the 2A03 (#112): `NesPulse` holds the timer's pitch and
+/// `NesDmc` follows a slow sine.
+#[test]
+fn a_modular_voice_plays_the_nes_channels() {
+    let play = |code: &str, note: u8| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::ModularSid);
+        e.set_code(0, code).expect("builds");
+        e.note_on(0, note, 1.0);
+        let mut x = Vec::new();
+        for _ in 0..(48_000 / BLOCK + 1) {
+            e.render(BLOCK);
+            x.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        x
+    };
+    let x = play(
+        "SynthDef(\\p, { |freq = 440, gate = 1| NesPulse.ar(freq, 2, 15) }).add;\n",
+        69,
+    );
+    let second = &x[x.len() - 48_000..];
+    let hz = crate::chip::nes::NTSC / (16.0 * 254.0);
+    assert!(
+        (rising(second) as f64 - hz).abs() <= 2.0,
+        "{}",
+        rising(second)
+    );
+    let x = play(
+        "SynthDef(\\d, { |freq = 440, gate = 1| NesDmc.ar(SinOsc.ar(freq) * 0.8, 15) + NesNoise.ar(15, 1, 0) + NesTri.ar(freq, 0) }).add;\n",
+        48,
+    );
+    let second = &x[x.len() - 48_000..];
+    let n = rising_past(second, 0.05) as f64;
+    assert!((n - 130.8).abs() < 4.0, "{n}");
+}
+
+/// A song lets go of a key and presses the next in the same block: the SID
+/// and the NES retrigger every note, low ones included, not only the first
+/// (#112).
+#[test]
+fn chips_play_notes_back_to_back() {
+    for preset in [
+        Preset::SidBass,
+        Preset::SidLead,
+        Preset::NesLead,
+        Preset::NesBass,
+    ] {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, preset);
+        let mut last = None;
+        for n in [33_u8, 45, 33, 45, 33] {
+            if let Some(l) = last {
+                e.note_off(0, l);
+            }
+            e.note_on(0, n, 1.0);
+            last = Some(n);
+            let mut x = Vec::new();
+            for _ in 0..20 {
+                e.render(BLOCK);
+                x.extend_from_slice(&e.output()[..BLOCK]);
+            }
+            assert!(rms(&x) > 0.005, "{preset:?} note {n}: {}", rms(&x));
+        }
+    }
+}

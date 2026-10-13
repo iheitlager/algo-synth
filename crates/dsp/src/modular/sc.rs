@@ -25,8 +25,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{
-    Class, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_HOLDS, MAX_MIX, MAX_OSCS, MAX_PHASES,
-    MAX_RESONATORS, NONE, Op, Program, Shape, Ugen, VOICINGS,
+    Class, MAX_CHIPS, MAX_DELAY, MAX_DELAYS, MAX_ENVS, MAX_FILTERS, MAX_HOLDS, MAX_MIX, MAX_OSCS,
+    MAX_PHASES, MAX_RESONATORS, NONE, Op, Program, Shape, Ugen, VOICINGS,
 };
 use crate::mono::model::{Filter, Hp};
 use crate::mono::osc::Waveform;
@@ -921,6 +921,38 @@ const SRATE: Spec = Spec {
 const BITS: Spec = Spec {
     lo: 1.0,
     hi: 24.0,
+    exp: false,
+};
+/// The SID's registers (#112): waveform bits, 12-bit pulse width, a
+/// nibble, the 11-bit cutoff, the filter mode bits and the chip.
+const SID_WAVE: Spec = Spec {
+    lo: 0.0,
+    hi: 15.0,
+    exp: false,
+};
+const SID_PW: Spec = Spec {
+    lo: 0.0,
+    hi: 4095.0,
+    exp: false,
+};
+const NIBBLE: Spec = Spec {
+    lo: 0.0,
+    hi: 15.0,
+    exp: false,
+};
+const SID_FC: Spec = Spec {
+    lo: 0.0,
+    hi: 2047.0,
+    exp: false,
+};
+const SID_MODE: Spec = Spec {
+    lo: 0.0,
+    hi: 7.0,
+    exp: false,
+};
+const NES_DUTY: Spec = Spec {
+    lo: 0.0,
+    hi: 3.0,
     exp: false,
 };
 const ANY: Spec = Spec {
@@ -2665,6 +2697,74 @@ impl Builder {
                 &[None, Some(0.2), Some(0.2), Some(1.0), Some(1.0), Some(0.0)],
                 &[ANY, DELAY, DELAY, DECAY, MUL, ADD],
             ),
+            // The SID's parts (#112), at their registers' widths.
+            "SidOsc" => (
+                &[
+                    "freq", "wave", "width", "chip", "sync", "ring", "mul", "add",
+                ],
+                &[
+                    Some(440.0),
+                    Some(2.0),
+                    Some(2048.0),
+                    Some(0.0),
+                    Some(0.0),
+                    Some(0.0),
+                    Some(1.0),
+                    Some(0.0),
+                ],
+                &[FREQ, SID_WAVE, SID_PW, UNIT, ANY, ANY, MUL, ADD],
+            ),
+            "SidEnv" => (
+                &[
+                    "gate", "attack", "decay", "sustain", "release", "chip", "mul", "add",
+                ],
+                &[
+                    Some(1.0),
+                    Some(0.0),
+                    Some(9.0),
+                    Some(10.0),
+                    Some(9.0),
+                    Some(0.0),
+                    Some(1.0),
+                    Some(0.0),
+                ],
+                &[UNIT, NIBBLE, NIBBLE, NIBBLE, NIBBLE, UNIT, MUL, ADD],
+            ),
+            "SidFilter" => (
+                &["in", "cutoff", "res", "mode", "chip", "bias", "mul", "add"],
+                &[
+                    None,
+                    Some(1024.0),
+                    Some(0.0),
+                    Some(1.0),
+                    Some(0.0),
+                    Some(0.0),
+                    Some(1.0),
+                    Some(0.0),
+                ],
+                &[ANY, SID_FC, NIBBLE, SID_MODE, UNIT, ANY, MUL, ADD],
+            ),
+            // The NES's channels (#112), at their registers' widths.
+            "NesPulse" => (
+                &["freq", "duty", "volume", "mul", "add"],
+                &[Some(440.0), Some(2.0), Some(15.0), Some(1.0), Some(0.0)],
+                &[FREQ, NES_DUTY, NIBBLE, MUL, ADD],
+            ),
+            "NesTri" => (
+                &["freq", "mul", "add"],
+                &[Some(440.0), Some(1.0), Some(0.0)],
+                &[FREQ, MUL, ADD],
+            ),
+            "NesNoise" => (
+                &["period", "short", "volume", "mul", "add"],
+                &[Some(8.0), Some(0.0), Some(15.0), Some(1.0), Some(0.0)],
+                &[NIBBLE, UNIT, NIBBLE, MUL, ADD],
+            ),
+            "NesDmc" => (
+                &["in", "rate", "direct", "mul", "add"],
+                &[None, Some(15.0), Some(0.0), Some(1.0), Some(0.0)],
+                &[ANY, NIBBLE, UNIT, MUL, ADD],
+            ),
             _ => return Err(err("this UGen is not part of a SynthDef here")),
         };
         let bound = bind(names, defaults, &args, &kws).map_err(err)?;
@@ -2768,6 +2868,89 @@ impl Builder {
                     (b.push(Ugen::Bin(Op::Mul, up, half), at)?, true, 3)
                 }
                 "WhiteNoise" => (b.push(Ugen::Noise, at)?, false, 0),
+                "NesPulse" | "NesTri" | "NesNoise" | "NesDmc" => {
+                    let n = match c.as_str() {
+                        "NesTri" => 1,
+                        "NesPulse" | "NesNoise" | "NesDmc" => 3,
+                        _ => 0,
+                    };
+                    let mut x = [0_u16; 3];
+                    for (k, a) in x.iter_mut().enumerate().take(n) {
+                        *a = inp(b, k)?;
+                    }
+                    let [a, bb, cc] = x;
+                    let slot = Self::slot(
+                        &mut b.prog.counts.chips,
+                        MAX_CHIPS,
+                        at,
+                        "a voice has at most 16 chip parts",
+                    )?;
+                    let u = match c.as_str() {
+                        "NesPulse" => Ugen::NesPulse {
+                            freq: a,
+                            duty: bb,
+                            volume: cc,
+                            slot,
+                        },
+                        "NesTri" => Ugen::NesTri { freq: a, slot },
+                        "NesNoise" => Ugen::NesNoise {
+                            period: a,
+                            short: bb,
+                            volume: cc,
+                            slot,
+                        },
+                        _ => Ugen::NesDmc {
+                            input: a,
+                            rate: bb,
+                            direct: cc,
+                            slot,
+                        },
+                    };
+                    (b.push(u, at)?, false, n)
+                }
+                "SidOsc" | "SidEnv" | "SidFilter" => {
+                    let mut x = [0_u16; 6];
+                    for (k, n) in x.iter_mut().enumerate() {
+                        *n = inp(b, k)?;
+                    }
+                    let [a, bb, cc, d, e, f] = x;
+                    let slot = Self::slot(
+                        &mut b.prog.counts.chips,
+                        MAX_CHIPS,
+                        at,
+                        "a voice has at most 16 chip parts",
+                    )?;
+                    let u = match c.as_str() {
+                        "SidOsc" => Ugen::SidOsc {
+                            freq: a,
+                            wave: bb,
+                            width: cc,
+                            chip: d,
+                            sync: e,
+                            ring: f,
+                            slot,
+                        },
+                        "SidEnv" => Ugen::SidEnv {
+                            gate: a,
+                            attack: bb,
+                            decay: cc,
+                            sustain: d,
+                            release: e,
+                            chip: f,
+                            slot,
+                        },
+                        _ => Ugen::SidFilter {
+                            input: a,
+                            cutoff: bb,
+                            res: cc,
+                            mode: d,
+                            chip: e,
+                            bias: f,
+                            slot,
+                        },
+                    };
+                    (b.push(u, at)?, c == "SidEnv", 6)
+                }
                 "Impulse" => {
                     let f = inp(b, 0)?;
                     if num_or(v.get(1).unwrap_or(&V::Nil)) != 0.0 {

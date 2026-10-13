@@ -17,6 +17,8 @@ pub mod preset;
 pub mod svf;
 pub mod voice;
 
+use crate::chip::nes_voice::NesPatch;
+use crate::chip::sid_voice::SidPatch;
 use crate::drums::{PADS, Pad, PadOut, PadParams};
 use crate::fm::patch::FmPatch;
 use crate::padsampler::PadKit;
@@ -76,6 +78,10 @@ pub struct MonoParams {
     pub p2_adsr: EnvTimes,
     /// The DX7 voice (spec 006 Req 13).
     pub fm: FmPatch,
+    /// The SID's registers and player settings (#112).
+    pub sid: SidPatch,
+    /// The NES's registers and driver settings (#112).
+    pub nes: NesPatch,
     /// The drum kit's pads and its accent (`Model::Tr808`).
     pub drums: [PadParams; PADS],
     pub drum_accent: f32,
@@ -236,6 +242,8 @@ impl MonoParams {
             p2_fadsr: off,
             p2_adsr: off,
             fm: FmPatch::default(),
+            sid: SidPatch::default(),
+            nes: NesPatch::default(),
             drums: [PadParams::default(); PADS],
             drum_accent: 0.5,
             pad_outs: [PadOut::default(); PADS],
@@ -581,6 +589,109 @@ impl MonoParams {
             Param::EnvRev => self.env_rev = v.round().clamp(1.0, 3.0) as u8,
             // The engine sets the switches it stands for (#343).
             Param::Revision => {}
+            Param::NesP1On
+            | Param::NesP1Duty
+            | Param::NesP1Volume
+            | Param::NesP1Decay
+            | Param::NesP1Loop
+            | Param::NesP1Coarse
+            | Param::NesP1Fine
+            | Param::NesP1Sweep
+            | Param::NesP1SweepPeriod
+            | Param::NesP2On
+            | Param::NesP2Duty
+            | Param::NesP2Volume
+            | Param::NesP2Decay
+            | Param::NesP2Loop
+            | Param::NesP2Coarse
+            | Param::NesP2Fine
+            | Param::NesP2Sweep
+            | Param::NesP2SweepPeriod
+            | Param::NesTriOn
+            | Param::NesTriCoarse
+            | Param::NesTriFine
+            | Param::NesTriLength
+            | Param::NesNoiseOn
+            | Param::NesNoiseVolume
+            | Param::NesNoiseDecay
+            | Param::NesNoiseLoop
+            | Param::NesNoisePeriod
+            | Param::NesNoiseShort
+            | Param::NesNoiseTrack
+            | Param::NesDmcSample
+            | Param::NesDmcRate
+            | Param::NesDmcLoop
+            | Param::NesDmcLevel
+            | Param::NesDmcDirect
+            | Param::NesRegion
+            | Param::NesOutput
+            | Param::NesBandLimit
+            | Param::NesArp
+            | Param::NesArpSpeed
+            | Param::NesVibrato
+            | Param::NesVibratoRate
+            | Param::NesVibratoDelay
+            | Param::NesKit => {
+                if let Some(i) = param.nes() {
+                    self.nes.set(i, v);
+                }
+            }
+            Param::Sid1Wave
+            | Param::Sid1Pw
+            | Param::Sid1Coarse
+            | Param::Sid1Fine
+            | Param::Sid1Ring
+            | Param::Sid1Sync
+            | Param::Sid1Attack
+            | Param::Sid1Decay
+            | Param::Sid1Sustain
+            | Param::Sid1Release
+            | Param::Sid1Filter
+            | Param::Sid1PwSweep
+            | Param::Sid2Wave
+            | Param::Sid2Pw
+            | Param::Sid2Coarse
+            | Param::Sid2Fine
+            | Param::Sid2Ring
+            | Param::Sid2Sync
+            | Param::Sid2Attack
+            | Param::Sid2Decay
+            | Param::Sid2Sustain
+            | Param::Sid2Release
+            | Param::Sid2Filter
+            | Param::Sid2PwSweep
+            | Param::Sid3Wave
+            | Param::Sid3Pw
+            | Param::Sid3Coarse
+            | Param::Sid3Fine
+            | Param::Sid3Ring
+            | Param::Sid3Sync
+            | Param::Sid3Attack
+            | Param::Sid3Decay
+            | Param::Sid3Sustain
+            | Param::Sid3Release
+            | Param::Sid3Filter
+            | Param::Sid3PwSweep
+            | Param::SidChip
+            | Param::SidClock
+            | Param::SidCutoff
+            | Param::SidResonance
+            | Param::SidFilterMode
+            | Param::SidVolume
+            | Param::SidVoice3Off
+            | Param::SidBandLimit
+            | Param::SidCutoffSweep
+            | Param::SidArp
+            | Param::SidArpSpeed
+            | Param::SidHardRestart
+            | Param::SidFilterBias
+            | Param::SidVibrato
+            | Param::SidVibratoRate
+            | Param::SidVibratoDelay => {
+                if let Some(i) = param.sid() {
+                    self.sid.set(i, v);
+                }
+            }
             Param::Patch9Source => self.patch.set_source(8, v),
             Param::Patch9Dest => self.patch.set_dest(8, v),
             Param::Patch9Amount => self.patch.set_amount(8, v),

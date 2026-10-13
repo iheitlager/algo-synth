@@ -115,6 +115,10 @@ Two synth models that play samples (ADR-0013, spec 007): WAV bytes sent to the e
 
 The PPG-style wavetable voice: 64-wave tables built from keyframes, the wave position swept by an envelope and LFO, band-limited by mip-mapped tables, 8 voices. The table oscillator also serves the D-50's PCM attacks. The optional 8-bit path (reduced bit depth and a lower internal rate) is not built (epic #209).
 
+### MVP 7b: chips *(built, #112, ADR-0034, spec 011)*
+
+The MOS 6581/8580 SID and the NES's Ricoh 2A03 as models of a Chips family, one chip per note at register precision (16-bit frequency, 12-bit waveforms, the SID's ADSR rate table and DACs and filter; the NES's 11-bit timers, duty sequences, triangle, LFSR noise, DMC and non-linear mixer), band-limited at the registers' steps, with a frame-rate player for sweeps, arpeggios and vibrato. The NES plays drum lanes with `NesKit` and samples through its DMC; the Modular reaches every part as `Sid*` and `Nes*` UGens.
+
 ### MVP 8: effects *(built, v0.8–v0.29, epic #62, ADR-0010)*
 
 Three insert slots on every synth strip and group (Overdrive, Distortion, Fuzz, EQ, Compressor, Vocoder), four sends per strip (pre or post fader) into four processors P1–P4 (Echo, Reverb, Chorus, Flanger, chainable in series), eight group buses, and a master equalizer, compressor and limiter. All preallocated; the slot order is the signal order, their count fixed.

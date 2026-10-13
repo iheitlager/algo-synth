@@ -23,9 +23,11 @@ own (not `Model`, mixer or master ones).
 Models: `Arp2600 Minimoog ProOne Ms20 Cs15 Sh101 Odyssey Tb303 Prophet5
 Juno106 Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
 machines), `Sampler` (multisampler), `PadSampler` (pads), `Modular` (a
-SuperCollider SynthDef). Presets are factory names, as `MiniBass`, `AcidBass`,
-`Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`, `ModularHoover`,
-`ModularKick`.
+SuperCollider SynthDef), `Sid` (the C64's chip), `Nes` (the NES's 2A03; with
+`NesKit` also a drum machine). Presets are factory names, as `MiniBass`,
+`AcidBass`, `Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`,
+`ModularHoover`, `ModularKick`, `ModularSid`; `Sid` has `SidLead`, `SidBass`,
+`SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`.
 
 ```song
 setting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5
@@ -60,7 +62,27 @@ A subset of sclang, run once to build the voice:
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
   PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
   ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
-  Impulse Ringz Klang DynKlang Klank DynKlank VOsc Osc`.
+  Impulse Ringz Klang DynKlang Klank DynKlank VOsc Osc SidOsc SidEnv
+  SidFilter NesPulse NesTri NesNoise NesDmc`.
+  The SID's parts (#112) take their registers as numbers:
+  `SidOsc.ar(freq, wave, width, chip, sync, ring)` plays `freq` on the 16-bit
+  frequency register of a PAL chip, `wave` the waveform bits (1 triangle, 2
+  saw, 4 pulse, 8 noise; added for the chip's combined waveforms), `width`
+  the 12-bit pulse width, `chip` 0 the 6581's DAC or 1 the 8580's; `sync`
+  resets it on a rising edge and `ring` flips its triangle while above 0
+  (`ring: SidOsc.ar(freq * 1.5, 4)`). `SidEnv.kr(gate, attack, decay,
+  sustain, release, chip)` is the chip's envelope, 4-bit rates (attack 2 ms
+  to 8 s) and sustain, 0..1. `SidFilter.ar(in, cutoff, res, mode, chip,
+  bias)` is its filter: an 11-bit cutoff, 4-bit resonance, mode bits 1
+  low-pass, 2 band-pass, 4 high-pass, and the 6581's bias in octaves.
+  The NES's channels (#112) are an NTSC 2A03's: `NesPulse.ar(freq, duty,
+  volume)` on the 11-bit timer, duty 0..3 (12.5, 25, 50, 75 %), a 4-bit
+  volume; `NesTri.ar(freq)` its 32-step triangle; `NesNoise.ar(period,
+  short, volume)` the LFSR at a period index 0..15, `short: 1` its 93-step
+  metallic mode; `NesDmc.ar(in, rate, direct)` the DMC on any signal,
+  delta-encoded a bit at a time at rate index 0..15 (4.2 to 33 kHz), or 7-bit
+  levels with `direct: 1`. Each swings about half its volume, −1..1 at
+  full volume, silent at 0.
   `LeakDC.ar(in, coef)` (0.995 when left out) takes away a DC offset.
   `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
   (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a

@@ -42,6 +42,22 @@ pub const DEF: ModelDef = ModelDef {
             ),
             ..PresetDef::of(Preset::ModularKick, &[(Polyphony, 4.0)])
         },
+        // The SID's parts in a graph (#112): a pulse whose 12-bit width an LFO
+        // sweeps, through the 6581's resonant low-pass, under the chip's envelope.
+        PresetDef {
+            code: Some(
+                "SynthDef(\\sid, { |freq = 440, gate = 1|\n    var osc = SidOsc.ar(freq, 4, SinOsc.kr(0.7).range(600, 3400));\n    SidFilter.ar(osc, 900, 9, 1) * SidEnv.kr(gate, 0, 8, 11, 8)\n}).add;\n",
+            ),
+            ..PresetDef::of(
+                Preset::ModularSid,
+                &[
+                    (Polyphony, 4.0),
+                    (AdsrAttack, 0.001),
+                    (AdsrSustain, 1.0),
+                    (AdsrRelease, 1.0),
+                ],
+            )
+        },
     ],
     ..ModelDef::MONO
 };
