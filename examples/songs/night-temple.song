@@ -89,6 +89,11 @@ clip low = bass
 clip melody = lead
   "<[~@2 a4&@8 g4@2 f4@4] [d#5&@6 d5@2 a#4@8] [~@4 d5@4 c5@2 a#4@2 a4@4] [a4@12 ~@4] [~@2 d5@6 d#5&@4 d5@4] [a#4@10 g4@6] [~@6 g4&@4 a4@6] [d#4&@4 d4@12]>"
 
+# The hypnotic riff: two notes, the D repeating off the beat and the flat
+# second sighing down onto it, round and round.
+clip riff = lead
+  "<[d5 ~ ~ d5 ~ ~ d5 ~ ~ ~ d#5&@2 d5@4] [d5 ~ ~ d5 ~ ~ d5 ~ d#5&@4 d5@4]>"
+
 clip pads = strings
   "<[d3,f3,a3] [eb3,g3,bb3] [d3,g3,bb3] [c3,f3,a3]>"
 
@@ -120,11 +125,11 @@ snapshot dry: master.P2Return 0.35
 snapshot wet: master.P2Return 0.6
 
 scene intro 8: kick tick glide cut_low res_mid [dry]
-scene groove 16: floor claps hats16 line stabs fill cut_mid res_squelch
+scene groove 16: floor claps hats16 line riff stabs fill cut_mid res_squelch
 scene temple 16: floor claps hats16 line melody pads stabs bleeps fill cut_mid res_squelch
 scene break 8: pads piano low sparkle cut_dark res_low [wet]
 scene rise 2: roll_in claps_push line pads piano cut_rise res_rise
 scene roll 2: roll claps_push line pads piano cut_roll res_roll
 scene peak 16: floor claps_push hats16 line_b melody pads stabs piano sparkle fill cut_wild res_squelch [dry]
-scene outro 8: kick tick glide pads cut_low res_mid
+scene outro 8: kick tick glide riff pads cut_low res_mid
 arrange intro groove temple break rise roll peak outro
