@@ -4,9 +4,10 @@
 # 150 BPM is six frames a sixteenth at the NTSC console's 60 Hz. The lead is
 # a 25 % pulse with a quieter 50 % pulse a few cents off under it and a late
 # vibrato; the chords are a thin 12.5 % pulse the driver arpeggiates every
-# frame; the bass is the triangle, octaves in eighths; the drums are the
-# chip's own, played from lanes by NesKit: the triangle diving for the kick,
-# noise for snare and hats, triangle toms for the fill.
+# frame; the bass is the triangle, octaves in eighths; the drums are played
+# from lanes by NesKit, as NES scores mixed them: a sampled kick and snare
+# from the Audiophob kit through the DMC, 1-bit deltas at 33 kHz, beside the
+# chip's own noise hats and triangle toms.
 tempo 150
 
 setting lead = Nes NesLead: NesVibrato 0.15, NesVibratoDelay 12
@@ -19,6 +20,8 @@ track arp_min synth arp_min
 track arp_maj synth arp_maj
 track bass synth bass
 track kit drums Nes NesKit
+pad kit 1 = audiophob/01-Kick
+pad kit 3 = audiophob/05-Snare_Rock
 
 strip lead: Level 0.7, Send1 0.15
 strip arp_min: Level 0.6, Pan -0.3

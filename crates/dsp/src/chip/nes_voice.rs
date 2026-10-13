@@ -84,7 +84,8 @@ pub struct NesPatch {
     pub noise_short: bool,
     /// The period follows the note.
     pub noise_track: bool,
-    /// The sample store's slot + 1 the DMC plays; 0 none.
+    /// The pad (1..16) of the synth's kit whose sample the DMC plays on a
+    /// note; 0 none.
     pub dmc_sample: u8,
     pub dmc_rate: u8,
     pub dmc_loop: bool,
@@ -178,7 +179,7 @@ impl NesPatch {
             _ if i == NOISE_BASE + 4 => self.noise_period = int(15.0) as u8,
             _ if i == NOISE_BASE + 5 => self.noise_short = on,
             _ if i == NOISE_BASE + 6 => self.noise_track = on,
-            _ if i == DMC_BASE => self.dmc_sample = int(64.0) as u8,
+            _ if i == DMC_BASE => self.dmc_sample = int(16.0) as u8,
             _ if i == DMC_BASE + 1 => self.dmc_rate = int(15.0) as u8,
             _ if i == DMC_BASE + 2 => self.dmc_loop = on,
             _ if i == DMC_BASE + 3 => self.dmc_level = int(127.0) as u8,
@@ -281,7 +282,9 @@ pub struct NesVoice {
     noise: Noise,
     dmc: Dmc,
     dmc_on: bool,
-    /// Where the DMC reads the sample, in its frames, and how far a bit moves.
+    /// The store slot the DMC reads, where in it, in frames, and how far a
+    /// bit moves.
+    dmc_slot: usize,
     dmc_pos: f32,
     dmc_step: f32,
     levels: [u8; 5],
@@ -358,32 +361,41 @@ impl NesVoice {
         self.noise.on = p.noise_on && !p.kit;
         self.noise.env.restart();
         self.dmc_on = false;
-        if !p.kit && p.dmc_sample > 0 {
-            self.start_dmc(ctx, samples, self.note);
+        if !p.kit {
+            // The melodic DMC plays the patch's pad, tuned by the note
+            // against the sample's root.
+            if let Some((slot, _)) =
+                pad_sample(ctx, samples, usize::from(p.dmc_sample).checked_sub(1))
+            {
+                let root = samples.get(slot).map_or(60.0, |s| f32::from(s.root));
+                self.start_dmc(ctx, slot, ((self.note - root) / 12.0).exp2());
+            }
         }
         if let Some(d) = self.drum {
-            self.start_drum(d, ctx, samples);
+            // A drum key whose pad holds a sample plays it through the DMC,
+            // as NES scores put a sampled kick or snare beside the noise.
+            match pad_sample(ctx, samples, crate::padsampler::pad_of(self.note as u8)) {
+                Some((slot, tune)) => {
+                    self.drum = Some(Drum::Sample);
+                    self.start_dmc(ctx, slot, (tune / 12.0).exp2());
+                }
+                None => self.start_drum(d, ctx, samples),
+            }
         }
         self.frame(ctx);
     }
 
-    /// Start the DMC on the patch's sample, read at the speed `note` asks
-    /// of the sample's root, from the patch's `$4011` level.
-    fn start_dmc(&mut self, ctx: &MonoCtx, samples: &SampleStore, note: f32) {
+    /// Start the DMC on the sample in `slot`, read `speed` times as fast as
+    /// it was recorded, from the patch's `$4011` level.
+    fn start_dmc(&mut self, ctx: &MonoCtx, slot: usize, speed: f32) {
         let p = &ctx.params.nes;
-        let Some(s) = usize::from(p.dmc_sample)
-            .checked_sub(1)
-            .and_then(|k| samples.get(k))
-        else {
-            return;
-        };
         self.dmc.rate = p.dmc_rate;
         self.dmc.direct = p.dmc_direct;
         self.dmc.load(p.dmc_level);
         self.dmc.restart();
         self.dmc_on = true;
+        self.dmc_slot = slot;
         self.dmc_pos = 0.0;
-        let speed = ((note - f32::from(s.root)) / 12.0).exp2();
         let bit = f64::from(p.region.dmc_period(p.dmc_rate)) / p.region.clock();
         self.dmc_step = (bit * f64::from(ctx.params.sample_rate())) as f32 * speed;
     }
@@ -409,12 +421,16 @@ impl NesVoice {
             Drum::Crash => noise(2, false, 8),
             Drum::Ride => noise(3, true, 5),
             Drum::Tom(_) => {}
+            // A key without a drum or a pad sample: the patch's pad, or noise
+            // at its pitch.
             Drum::Sample => {
-                if ctx.params.nes.dmc_sample > 0 {
-                    self.start_dmc(ctx, samples, 60.0);
-                } else {
-                    let hz = ctx.pitch.at(self.note) * ctx.params.sample_rate();
-                    noise(noise_index(hz, ctx.params.nes.region), false, 2);
+                let pad = usize::from(ctx.params.nes.dmc_sample).checked_sub(1);
+                match pad_sample(ctx, samples, pad) {
+                    Some((slot, tune)) => self.start_dmc(ctx, slot, (tune / 12.0).exp2()),
+                    None => {
+                        let hz = ctx.pitch.at(self.note) * ctx.params.sample_rate();
+                        noise(noise_index(hz, ctx.params.nes.region), false, 2);
+                    }
                 }
             }
         }
@@ -512,9 +528,7 @@ impl NesVoice {
         let hp = |hz: f32| 1.0 / (1.0 + std::f32::consts::TAU * hz / fs);
         let lp = 1.0 - (-std::f32::consts::TAU * 14_000.0 / fs).exp();
         let gain = OUT_GAIN * self.velocity;
-        let sample = usize::from(s.dmc_sample)
-            .checked_sub(1)
-            .and_then(|k| samples.get(k));
+        let sample = samples.get(self.dmc_slot);
         let mut ev = Events::default();
         for y in out.iter_mut() {
             if !self.active() {
@@ -607,6 +621,14 @@ impl NesVoice {
             }
         }
     }
+}
+
+/// The store slot and tune of pad `pad` of the synth's kit (the pad
+/// sampler's pads, #124, #527), if it holds a loaded sample.
+fn pad_sample(ctx: &MonoCtx, samples: &SampleStore, pad: Option<usize>) -> Option<(usize, f32)> {
+    let cfg = ctx.params.pad_kit.pad(pad?)?;
+    let slot = cfg.sample?;
+    samples.get(slot).map(|_| (slot, cfg.tune))
 }
 
 #[cfg(test)]

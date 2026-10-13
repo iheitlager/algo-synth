@@ -1222,7 +1222,9 @@ pub enum Param {
     NesNoiseShort = 619,
     /// NES noise. The period follows the note when ≥ 0.5.
     NesNoiseTrack = 620,
-    /// NES DMC. The sample store's slot it plays, 1..=64; 0 none.
+    /// NES DMC. The pad of the synth's kit (a `samples` or `pad` line) whose
+    /// sample it plays on each note, 1..=16; 0 none. With `NesKit` a drum
+    /// key's own pad, when it holds a sample, plays instead.
     NesDmcSample = 621,
     /// NES DMC. The rate index, 0..=15 (4.2 to 33.1 kHz on NTSC).
     NesDmcRate = 622,
@@ -2359,7 +2361,7 @@ impl Param {
             Param::NesP1Sweep | Param::NesP2Sweep => (-7.0, 7.0),
             Param::NesP1SweepPeriod | Param::NesP2SweepPeriod => (0.0, 7.0),
             Param::NesTriLength | Param::NesDmcLevel => (0.0, 127.0),
-            Param::NesDmcSample => (0.0, 64.0),
+            Param::NesDmcSample => (0.0, 16.0),
             Param::NesOutput | Param::NesVibrato => (0.0, 2.0),
             Param::NesArp => (0.0, 8.0),
             Param::NesArpSpeed => (1.0, 16.0),

@@ -24,7 +24,8 @@ Models: `Arp2600 Minimoog ProOne Ms20 Cs15 Sh101 Odyssey Tb303 Prophet5
 Juno106 Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
 machines), `Sampler` (multisampler), `PadSampler` (pads), `Modular` (a
 SuperCollider SynthDef), `Sid` (the C64's chip), `Nes` (the NES's 2A03; with
-`NesKit` also a drum machine). Presets are factory names, as `MiniBass`,
+`NesKit` also a drum machine, whose `samples` kit or `pad` lines play
+through its DMC). Presets are factory names, as `MiniBass`,
 `AcidBass`, `Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`,
 `ModularHoover`, `ModularKick`, `ModularSid`; `Sid` has `SidLead`, `SidBass`,
 `SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`.

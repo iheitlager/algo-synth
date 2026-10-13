@@ -1407,7 +1407,7 @@ const nes: ModelDef = {
     {
       title: 'DMC',
       controls: [
-        steps('Sample', Param.NesDmcSample, 0, 64), steps('Rate', Param.NesDmcRate, 0, 15, 15), sw('Loop', Param.NesDmcLoop),
+        steps('Pad', Param.NesDmcSample, 0, 16), steps('Rate', Param.NesDmcRate, 0, 15, 15), sw('Loop', Param.NesDmcLoop),
         steps('Level', Param.NesDmcLevel, 0, 127), sw('Direct', Param.NesDmcDirect),
       ],
     },

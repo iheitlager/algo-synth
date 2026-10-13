@@ -42,7 +42,7 @@ The best-known instruments split the same way. Plogue's chipsynth C64 and chipso
 
   Trackers make chords and vibrato the same way.
 - **The NES as a drum machine.** With `NesKit`, a General MIDI key plays the drums NES scores make of the channels: a diving triangle and a noise click for the kick, noise for snares and hats, triangle toms. Other keys play the DMC's sample. A `drums` track takes `Nes`, so lanes play it.
-- **The DMC reads the sample store** (ADR-0013): a slot by `NesDmcSample`. It delta-encodes the slot's audio on the fly, one bit at a time at the rate table, or writes 7-bit levels (`$4011` PCM). Playback is capped at the chip's longest sample, 4081 bytes.
+- **The DMC reads the synth's pads** (ADR-0013, #124, #527): a drums track's `samples` kit or `pad` lines lay samples on the NES as on the pad sampler. Pads are named in the song, where store slots are handed out as samples load. With `NesKit` a drum key whose pad holds a sample plays it through the DMC, and the chip's own drum plays otherwise (a sampled kick and snare beside noise hats, as NES scores mixed them). `NesDmcSample` names a pad for every note. The DMC delta-encodes the sample on the fly, one bit at a time at the rate table, or writes 7-bit levels (`$4011` PCM). Playback is capped at the chip's longest sample, 4081 bytes.
 - **Modular addresses the chips** (ADR-0024): `SidOsc`, `SidEnv`, `SidFilter`, `NesPulse`, `NesTri`, `NesNoise` and `NesDmc` run the same code as the models, with knobs at the registers' widths.
 - **Written from public documentation:** datasheets, Bob Yannes's interviews, the NESdev wiki and published measurements. No reSID, resid-rs, Mesen or blip_buf code. Not cycle-exact.
 

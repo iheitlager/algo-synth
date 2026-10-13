@@ -5805,8 +5805,8 @@ fn the_nes_kit_plays_from_lanes() {
     assert!(hat > 4.0 * kick, "the hat is brighter: {hat} {kick}");
 }
 
-/// The DMC plays a sample from the store as 1-bit deltas at its rate: a
-/// slow sine comes through, its steps 2 apart.
+/// The DMC plays a pad's sample as 1-bit deltas at its rate: a slow sine
+/// comes through, its steps 2 apart.
 #[test]
 fn the_nes_dmc_plays_a_sample() {
     let mut e = Engine::new(48_000.0);
@@ -5820,6 +5820,8 @@ fn the_nes_dmc_plays_a_sample() {
         .copy_from_slice(&wav);
     e.load_sample(0).expect("loads");
     e.preset(0, Preset::NesBass);
+    // Pad 1 of the synth's kit holds it, as a `pad` or `samples` line puts it.
+    e.set_pad(0, 0, crate::padsampler::PadField::Sample, 0.0);
     for (p, v) in [
         (Param::NesTriOn, 0.0),
         (Param::NesDmcSample, 1.0),
@@ -5905,4 +5907,46 @@ fn chips_play_notes_back_to_back() {
             assert!(rms(&x) > 0.005, "{preset:?} note {n}: {}", rms(&x));
         }
     }
+}
+
+/// With `NesKit`, a drum key whose pad holds a sample plays it through the
+/// DMC (a sampled kick beside the chip's hats); a key without one plays
+/// the chip's drum.
+#[test]
+fn the_nes_kit_plays_pad_samples_through_the_dmc() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 / 48_000.0 * 200.0 * std::f32::consts::TAU).sin() * 0.8)
+        .collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("loads");
+    e.preset(0, Preset::NesKit);
+    e.set_param(0, Param::NesOutput, 2.0);
+    e.set_pad(0, 0, crate::padsampler::PadField::Sample, 0.0);
+    let hit = |e: &mut Engine, note: u8| {
+        e.note_on(0, note, 1.0);
+        let mut x = Vec::new();
+        for _ in 0..60 {
+            e.render(BLOCK);
+            x.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        e.note_off(0, note);
+        for _ in 0..200 {
+            e.render(BLOCK);
+        }
+        x
+    };
+    let kick = hit(&mut e, 36);
+    let part = &kick[2_400..7_200];
+    let r = rising_past(part, 0.02) as f64 / 0.1;
+    assert!((r - 200.0).abs() < 30.0, "the pad's sine: {r}");
+    let hat = hit(&mut e, 42);
+    assert!(
+        rising(&hat) > 4 * rising(&kick[..hat.len()]),
+        "the chip's hat"
+    );
 }
