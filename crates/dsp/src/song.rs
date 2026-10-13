@@ -1441,8 +1441,19 @@ impl Song {
                     let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
                         return Err(err(track.col, "no track has this name"));
                     };
-                    if song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth) {
-                        return Err(err(track.col, "pads go on a drums or sampler track"));
+                    // A NES synth plays its pads through the DMC (#112).
+                    let nes = song.tracks.get(t).is_some_and(|tr| {
+                        tr.setting
+                            .and_then(|i| song.settings.get(i))
+                            .map(|st| st.preset)
+                            .or(tr.preset)
+                            .is_some_and(|p| p.model().uses_nes())
+                    });
+                    if song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth) && !nes {
+                        return Err(err(
+                            track.col,
+                            "pads go on a drums or sampler track, or a Nes synth",
+                        ));
                     }
                     if song.samples.iter().any(|(u, _)| *u == t) {
                         return Err(err(

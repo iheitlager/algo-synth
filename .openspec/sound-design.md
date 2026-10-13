@@ -224,7 +224,8 @@ pad <track> <n> = <source> [: <field> <value>, …]
 field = tune level pan decay choke vellevel velstart oneshot out
 ```
 
-A pad of a `PadSampler` set by hand (#527), n from 1 to 16 (pad 1 answers
+A pad of a `PadSampler` set by hand (#527), or of a `Nes` (its DMC's
+samples, on a drums track or its own synth track, #112), n from 1 to 16 (pad 1 answers
 note 36, `bd`), as a zone: the sample it plays, by the same sources, and its
 fields away from their defaults. `tune` is semitones (−24–24); `level` 0–2;
 `pan` −1–1; `decay` seconds to fall 60 dB (0 plays the sample out); `choke` a

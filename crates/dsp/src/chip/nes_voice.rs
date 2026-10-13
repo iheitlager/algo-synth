@@ -363,12 +363,12 @@ impl NesVoice {
         self.dmc_on = false;
         if !p.kit {
             // The melodic DMC plays the patch's pad, tuned by the note
-            // against the sample's root.
-            if let Some((slot, _)) =
+            // against the sample's root, and the pad's tune.
+            if let Some((slot, tune)) =
                 pad_sample(ctx, samples, usize::from(p.dmc_sample).checked_sub(1))
             {
                 let root = samples.get(slot).map_or(60.0, |s| f32::from(s.root));
-                self.start_dmc(ctx, slot, ((self.note - root) / 12.0).exp2());
+                self.start_dmc(ctx, slot, ((self.note - root + tune) / 12.0).exp2());
             }
         }
         if let Some(d) = self.drum {
@@ -523,6 +523,8 @@ impl NesVoice {
             self.pulse.iter_mut().for_each(|p| p.on = false);
             self.noise.on = false;
             self.tri.running = false;
+            // A driver stops the DMC with the note; its counter holds.
+            self.dmc_on = false;
         }
         // The output filters' coefficients, for the block.
         let hp = |hz: f32| 1.0 / (1.0 + std::f32::consts::TAU * hz / fs);
