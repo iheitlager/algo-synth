@@ -1,4 +1,4 @@
-//! The Mono voice (spec 004): one shared voice, seven models (spec 005).
+//! The Mono voice (spec 004): one shared voice, eight models (spec 005).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
 //! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `voice` one
@@ -31,6 +31,9 @@ use voice::NotePriority;
 
 /// Number of VCOs per Mono voice.
 pub const VCOS: usize = 3;
+/// The time constant of the TB-303's accent sweep, in seconds (#536): the
+/// capacitor that its accents charge, so a run of them stacks up.
+const ACCENT_SWEEP: f32 = 0.1;
 
 /// The Mono parameters, with what `render` needs precomputed.
 #[derive(Clone, Copy)]
@@ -131,6 +134,10 @@ pub struct MonoParams {
     pitch_bend: f32,
     bend_range: f32,
     pub bend: f32,
+    /// The TB-303's accent (0..1), and its sweep circuit's one-pole
+    /// coefficient per sample (#536).
+    pub accent: f32,
+    pub accent_coef: f32,
     /// A Modular synth's voice (ADR-0020): a preset's or the song's; each
     /// note takes a copy when it starts.
     pub graph: crate::modular::Program,
@@ -283,6 +290,8 @@ impl MonoParams {
             pitch_bend: 0.0,
             bend_range: 2.0,
             bend: 0.0,
+            accent: 0.5,
+            accent_coef: 1.0 - (-1.0 / (ACCENT_SWEEP * sample_rate)).exp(),
         };
         for (param, v) in preset::DEFAULTS {
             p.set(param, param.clamp(v));
@@ -468,6 +477,7 @@ impl MonoParams {
                 self.bend_range = v;
                 self.bend = self.pitch_bend * v;
             }
+            Param::Accent => self.accent = v,
             // The mixer's (`mixer::Mixer`), not the voice's.
             Param::Level
             | Param::Pan

@@ -4,9 +4,9 @@ import { modelDef } from './models'
 import { Model, Preset } from './params'
 import { choiceOf, modelOfPreset, modelsFor, parseChoice, presetChoices } from './trackpick'
 
-// As the engine sends it: drums, synth, sampler × the 19 models.
+// As the engine sends it: drums, synth, sampler × every model.
 const fits = [0, 1, 2].map((k) =>
-  Array.from({ length: 19 }, (_, m) => {
+  Array.from({ length: Object.keys(Model).length }, (_, m) => {
     const drums = m === Model.Tr808 || m === Model.Tr909 || m === Model.PadSampler
     const sampler = m === Model.Sampler || m === Model.PadSampler
     return k === 0 ? drums : k === 2 ? sampler : !drums && !sampler

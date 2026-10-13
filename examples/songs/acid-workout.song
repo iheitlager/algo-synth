@@ -1,12 +1,13 @@
-# Sixteenth-note acid in E minor on the SH-101's AcidBass. Accents (!) drive the
-# filter envelope; the peak's bass slides between notes, longer each bar; the resonance climbs
+# Sixteenth-note acid in E minor on the TB-303. Accents (!) charge its sweep
+# circuit, so a run of them opens the filter further each time; the peak's bass
+# slides between notes, longer each bar; the resonance climbs
 # through the arrangement and the break strips back to long notes so the cutoff
 # sweep carries it.
 tempo 128
 swing 50
 
 track kit drums Tr909 Kit909
-track bass synth Sh101 AcidBass
+track bass synth Tb303 Tb303Acid
 
 clip kick = kit /16
   bd x...x...x...x...
