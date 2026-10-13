@@ -41,7 +41,7 @@ See [adr/index.md](adr/index.md).
 | [002-composition](specs/002-composition/spec.md) | Synth slots and drum machines, the mixer and effects, the song language (clips, arrangement, generators, scales, automation, settings, limits), MIDI import and playback, the clock |
 | [003-ui](specs/003-ui/spec.md) | The wide-screen view: transport, synth faceplates, mixer console, composer and song editor, arranger, MIDI player, names, presets, build info |
 | [004-mono](specs/004-mono/spec.md) | The Mono voice: VCOs, noise, filters, envelopes, modulation, note handling, normalled routing, presets; MIDI input (planned) |
-| [005-models](specs/005-models/spec.md) | The monosynth models: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 and Odyssey, each with its own sound, panel and colours |
+| [005-models](specs/005-models/spec.md) | The monosynth models: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101, Odyssey and TB-303, each with its own sound, panel and colours |
 | [006-poly](specs/006-poly/spec.md) | Polyphony: the voice pool, allocation and stealing, unison, analog variance, and the Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, D-50, DX7 and Polymoog |
 | [007-samplers](specs/007-samplers/spec.md) | The sample store, the multisampler, the pad sampler and the sample packs |
 | [008-assist](specs/008-assist/spec.md) | The assistant: song tools, providers behind one interface, the loop and the server (ADR-0028) |

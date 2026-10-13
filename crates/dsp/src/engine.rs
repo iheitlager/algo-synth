@@ -1940,7 +1940,16 @@ impl Engine {
                 if let Some(slot) = self.note_offs.get_mut(i) {
                     *slot = None;
                 }
-                self.stop_note(Owner::Track(track), note);
+                // A note slid into the same pitch was pressed again before
+                // this release: it ends with the later note's (#536).
+                let again = self
+                    .note_offs
+                    .iter()
+                    .flatten()
+                    .any(|(at, t, n)| *at > j && *t == track && *n == note);
+                if !again {
+                    self.stop_note(Owner::Track(track), note);
+                }
             }
         }
         // Where the tick falls in the arrangement: the tick to count from and

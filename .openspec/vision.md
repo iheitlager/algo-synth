@@ -8,11 +8,11 @@ It is a personal instrument first: built for playing and for learning DSP and ge
 
 ## The instruments
 
-Each of the sixteen synth slots is one of nineteen models, in four families. Every model is a variant of one Rust enum and plays through the same voice pool (ADR-0011), not a plugin system.
+Each of the sixteen synth slots is one of twenty-one models, in four families. Every model is a variant of one Rust enum and plays through the same voice pool (ADR-0011), not a plugin system.
 
 | Family | Models | Character |
 |---|---|---|
-| **Mono** | ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101, Odyssey | One shared semi-modular voice (spec 004): three VCOs, noise, a 4-pole ladder or 12 dB filters, envelopes, LFO, and *normalled* routing that a patch overrides. Each model sets the filter, envelopes and panel of its instrument (spec 005). |
+| **Mono** | ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101, Odyssey, TB-303 | One shared semi-modular voice (spec 004): three VCOs, noise, a 4-pole ladder or 12 dB filters, envelopes, LFO, and *normalled* routing that a patch overrides. Each model sets the filter, envelopes and panel of its instrument (spec 005). |
 | **Poly** | Prophet-5, Juno-106, Jupiter-8, Matrix-12, PPG Wave, D-50, DX7, Polymoog | A pool of voices with stealing, unison and analog drift (spec 006); the PPG plays wavetables, the D-50 PCM attacks over a synth body, the DX7 six-operator FM and loads `.syx` banks. |
 | **Drums** | TR-808, TR-909, Pad Sampler | The 808 and 909 are kits where every pad is a small synth model (a bridged-T kick, a noise-plus-tone snare, metallic hats), not samples; the same pads on both, so a beat plays on either. The Pad Sampler is sixteen MPC-style pads of samples (spec 007). Each pad can go to its own group bus. |
 | **Samplers** | Sampler | A multisampler that maps samples across keys and velocities, with loops, round robin and release samples (spec 007). |

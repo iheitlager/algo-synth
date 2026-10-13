@@ -206,8 +206,9 @@ clip rolls = kit
 ### Notes
 
 A pitch is `a`–`g`, maybe `#` or `b`, an octave `0`–`9`: `c4` is middle C
-(MIDI 60). `!` right after it accents it (`c4!`). A line is one of five
-forms, never mixed; 48 ticks make a bar.
+(MIDI 60). `!` right after it accents it (`c4!`: louder; on a TB-303 it
+opens the filter through the accent sweep). A line is one of five forms,
+never mixed; 48 ticks make a bar.
 
 **Mini-notation:** one quoted cycle is one bar; its words share it.
 
@@ -221,7 +222,8 @@ suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ? some
 one option per bar, `?` plays on a fixed, seeded set of bars (repeats after 8).
 Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
 (slide: the note runs one tick into the next; with Legato and Glide, as on
-`AcidBass`, the pitch glides) goes on a note or chord, not a rest or group.
+`AcidBass` and the TB-303's presets, the pitch glides on one gate, also into
+the same note) goes on a note or chord, not a rest or group.
 
 ```song
 track lead synth
@@ -579,13 +581,13 @@ scene turn 1: fill
 arrange main turn main turn
 ```
 
-**Acid line:** sixteenths on an SH-101 `AcidBass`, accents and slides, the
-cutoff on a lane that rises each scene.
+**Acid line:** sixteenths on a TB-303, accents and slides, the cutoff on a
+lane that rises each scene.
 
 ```song
 tempo 128
 track kit drums Tr909 Kit909
-track bass synth Sh101 AcidBass
+track bass synth Tb303 Tb303Acid
 clip beat = kit
   bd x...x...x...x...
   oh ..x...x...x...x.

@@ -2691,6 +2691,39 @@ fn a_slide_glides_into_the_next_note() {
     assert!(!run("e1:8 g1:8 r:4 r:2").1, "plain: the pitch jumps");
 }
 
+/// #536: on the TB-303 a slid note glides into the next on one gate, and a
+/// plain one jumps; a slide into the same pitch holds
+/// the gate through both notes instead of closing a tick after the first.
+#[test]
+fn the_tb303_slides_where_the_song_says() {
+    // Gate rises, whether the pitch passed between E1 and G1, and the
+    // samples the gate was open.
+    let run = |line: &str| {
+        let mut e = Engine::new(48_000.0);
+        let text = format!("tempo 120\ntrack b synth Tb303 Tb303Acid\nclip r = b\n  {line}\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let (mut rises, mut gate, mut between, mut open) = (0, false, false, 0);
+        for _ in 0..40_000 {
+            e.render(1);
+            let v = e.voice(Owner::Track(0));
+            let g = v.is_some_and(|v| v.gated());
+            rises += usize::from(g && !gate);
+            open += usize::from(g);
+            gate = g;
+            between |= v.is_some_and(|v| (28.5..30.5).contains(&v.pitch()));
+        }
+        (rises, between, open)
+    };
+    let (rises, between, _) = run("e1:8& g1:8 r:4 r:2");
+    assert_eq!((rises, between), (1, true), "slid: one gate, a glide");
+    assert!(!run("e1:8 g1:8 r:4 r:2").1, "plain: the pitch jumps");
+    // Two eighths at 120 BPM are 24 000 samples.
+    let (rises, _, open) = run("c2:8& c2:8 r:4 r:2");
+    assert_eq!(rises, 1, "one gate");
+    assert!(open > 23_000, "held through both notes: {open} samples");
+}
+
 #[test]
 fn a_note_lasts_its_written_length() {
     // a quarter note, then a rest: held 0 to 24000.

@@ -105,11 +105,14 @@ pub enum Preset {
     Heavy808 = 89,
     Heavy909 = 90,
     ModularKick = 91,
+    Tb303Acid = 92,
+    Tb303Squelch = 93,
+    Tb303Square = 94,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 92] = [
+    pub const ALL: [(Preset, &'static str); 95] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -202,6 +205,9 @@ impl Preset {
         (Preset::Heavy808, "Heavy808"),
         (Preset::Heavy909, "Heavy909"),
         (Preset::ModularKick, "ModularKick"),
+        (Preset::Tb303Acid, "Tb303Acid"),
+        (Preset::Tb303Squelch, "Tb303Squelch"),
+        (Preset::Tb303Square, "Tb303Square"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -239,7 +245,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 448] = [
+pub const DEFAULTS: [(Param, f32); 449] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -584,6 +590,7 @@ pub const DEFAULTS: [(Param, f32); 448] = [
     (Param::EnvRev, 3.0),
     (Param::PitchBend, 0.0),
     (Param::BendRange, 2.0),
+    (Param::Accent, 0.5),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
     (Param::SnTone, 0.5),

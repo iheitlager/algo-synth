@@ -1,0 +1,94 @@
+# Silver Box Modular: Silver Box (#536) with its bass as a SuperCollider
+# SynthDef instead of the TB-303 model. The parts are what the 303 is made
+# of: a saw through the 303's diode ladder (MoogFF with voicing: \tb303),
+# a decay that opens it, the VCA's long decay cut by the gate. A song's ! plays
+# at full velocity, so amp tells an accent from a plain note: an accent opens
+# the filter with the decay, charges a lagged sweep that a run of accents
+# stacks, and lifts the VCA. \freq.kr's lag is the slide, gliding between
+# legato notes on one voice. The knobs move on lanes as in Silver Box.
+tempo 126
+swing 54
+
+# The 303 as code. The arguments are the knobs, Ctl1 to Ctl5 in order:
+# cutoff, resonance (MoogFF's gain; its default is the top of its range),
+# env mod, decay and accent.
+setting acid = Modular ModularBasic: Polyphony 1, Legato 1
+  SynthDef(\acid, { |cutoff = 500, res = 4.4, envmod = 2500, decay = 0.25, accent = 3000, gate = 1, amp = 0.5|
+      var f, acc, env, sweep, vca, sig;
+      f = \freq.kr(110, 0.06);
+      acc = (amp - 0.4).max(0) * 10;
+      env = EnvGen.kr(Env.perc(0.003, decay), gate);
+      sweep = (env * acc).lag(0.5);
+      vca = EnvGen.kr(Env.adsr(0.003, 3, 0, 0.01), gate);
+      sig = MoogFF.ar(Saw.ar(f), (env * envmod) + (sweep * accent) + cutoff, res, voicing: \tb303, drive: 0.4);
+      sig * vca * (1 + (env * acc)) * 0.8
+  }).add;
+
+# The squelch an octave up: the same code, more resonance and a longer decay.
+setting acid_high = Modular ModularBasic: Polyphony 1, Legato 1
+  SynthDef(\acid, { |cutoff = 900, res = 4.4, envmod = 3500, decay = 0.9, accent = 4000, gate = 1, amp = 0.5|
+      var f, acc, env, sweep, vca, sig;
+      f = \freq.kr(220, 0.06);
+      acc = (amp - 0.4).max(0) * 10;
+      env = EnvGen.kr(Env.perc(0.003, decay), gate);
+      sweep = (env * acc).lag(0.5);
+      vca = EnvGen.kr(Env.adsr(0.003, 3, 0, 0.01), gate);
+      sig = MoogFF.ar(Saw.ar(f), (env * envmod) + (sweep * accent) + cutoff, res, voicing: \tb303, drive: 0.4);
+      sig * vca * (1 + (env * acc)) * 0.8
+  }).add;
+
+track kit drums Tr909 Kit909
+track bass synth acid
+track high synth acid_high
+
+strip bass: Level 0.9, I1Type Overdrive, I1A 0.25
+strip high: Level 0.45, Pan 0.25, Send1 0.3
+
+clip kick = kit /16
+  bd x...x...x...x...
+clip beat = kit /16
+  bd x...x...x...x...
+  cp ....x.......x...
+  oh ..x...x...x...x.
+clip hats = kit /16
+  ch x.xxx.xxx.xxx.xx
+clip ride = kit /16
+  rd x.x.x.x.x.x.x.x.
+clip fill = kit /16
+  sn ................................................x.x.x.x.xxxxxxXX
+
+# The line: one A with accents on the off-beats and slides into the octave.
+clip line = bass
+  "a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1"
+# Its answer, every other bar.
+clip turn = bass
+  "<[a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1] [a1 ~ a1! c2 a1 e2& d2 a1! ~ a1 g2& f2 e2 c2! a1 ~]>"
+# Every note accented: the run that screams, each accent charging the
+# sweep further. Slid notes don't retrigger the envelope, so only a few.
+clip scream = bass
+  "a1! a2! a1! c2! a1! e2!& a1! g2! a1! a2! a1! c2!& d2! c2! g1!& a1!"
+# Long notes for the break, so the knobs carry it.
+clip hold = bass
+  "<[a1*8] [c2*8] [d2*8] [e2*4 g2*4]>"
+# An octave up on the squelch, sparse, from the peak on.
+clip spark = high
+  "~ ~ a3! ~ ~ e3& g3 ~ ~ ~ a3! ~ c4& a3 ~ ~"
+
+auto cut_low = bass.Ctl1 ramp 300 700 /8
+auto cut_open = bass.Ctl1 ramp 600 2400 /16
+auto cut_wild = bass.Ctl1 1800 900 2600 1200 /4
+auto cut_break = bass.Ctl1 ramp 250 3200 /8
+auto res_mid = bass.Ctl2 2.8 /8
+auto res_up = bass.Ctl2 ramp 2.8 4.4 /16
+auto res_top = bass.Ctl2 4.3 /8
+auto decay_short = bass.Ctl4 0.2 /8
+auto decay_long = bass.Ctl4 ramp 0.2 1.2 /8
+auto accent_up = bass.Ctl5 ramp 1500 4500 /16
+
+scene intro 8: kick hats line cut_low res_mid decay_short
+scene groove 16: beat hats turn fill cut_open res_up accent_up decay_short
+scene break 8: hats hold cut_break res_top decay_long
+scene scream 8: beat ride scream fill cut_wild res_top decay_short
+scene peak 16: beat hats ride turn spark fill cut_wild res_top decay_long
+scene outro 8: kick hats line cut_low res_mid decay_short
+arrange intro groove break scream peak outro

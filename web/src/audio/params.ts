@@ -543,6 +543,7 @@ export const Param = {
   EnvRev: 536,
   PitchBend: 537,
   BendRange: 538,
+  Accent: 539,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -693,6 +694,7 @@ export const Model = {
   PadSampler: 17,
   Tr909: 18,
   Modular: 19,
+  Tb303: 20,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -789,6 +791,9 @@ export const Preset = {
   Heavy808: 89,
   Heavy909: 90,
   ModularKick: 91,
+  Tb303Acid: 92,
+  Tb303Squelch: 93,
+  Tb303Square: 94,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

@@ -35,5 +35,5 @@ These machines share most of their parts: VCOs, noise, a low-pass filter, envelo
 
 ## Later decisions
 
-- **Grown:** the six monosynths became twenty models (`Model::ALL`): the monosynths with the ARP Odyssey (#64); the polysynths of ADR-0011 with the PolyMoog (#330); the PPG Wave, Roland D-50 and Yamaha DX7 on their own voices; the TR-808 and TR-909 drum kits; the Sampler and PadSampler; and Modular (ADR-0020, ADR-0024). Every one is a `Model` on a synth slot, chosen by the same parameter.
+- **Grown:** the six monosynths became twenty-one models (`Model::ALL`): the monosynths with the ARP Odyssey (#64) and the TB-303 (#536); the polysynths of ADR-0011 with the PolyMoog (#330); the PPG Wave, Roland D-50 and Yamaha DX7 on their own voices; the TR-808 and TR-909 drum kits; the Sampler and PadSampler; and Modular (ADR-0020, ADR-0024). Every one is a `Model` on a synth slot, chosen by the same parameter.
 - **Superseded in part by ADR-0025:** what each model decides lives in its own definition in `synth/`, with `Model::def` the one match, not in `mono/model.rs`.

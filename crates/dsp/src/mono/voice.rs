@@ -40,6 +40,18 @@ pub const KEYS: usize = 16;
 const MONO_GAIN: f32 = 0.7;
 /// The release in seconds of a contour whose Decay switch is off (#308).
 const QUICK_RELEASE: f32 = 0.01;
+/// The TB-303's accent (#536): a note at this velocity or above is accented
+/// (a song's `!` plays at 1, a plain note at 0.75).
+const ACCENTED: f32 = 0.9;
+/// An accent's filter decay, in seconds: the shortest, whatever the knob.
+const ACCENT_DECAY: f32 = 0.2;
+/// How far the sweep circuit opens the filter at full charge, in semitones,
+/// and how much an accent lifts the VCA at the envelope's peak.
+const ACCENT_CUTOFF: f32 = 30.0;
+const ACCENT_LEVEL: f32 = 1.0;
+/// The TB-303's level, for every note alike: its dark diode ladder brought
+/// up to an SH-101 bass's loudness.
+const SWEEP_LEVEL: f32 = 1.6;
 
 /// Which held key sounds; the ids are mirrored in `web/src/audio/params.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -219,6 +231,10 @@ pub struct MonoVoice {
     levels: Gains<6>,
     /// Its own values, which the pool sets each block (ADR-0023).
     pub set: VoiceSet,
+    /// Whether the sounding note is accented, and the charge on the
+    /// TB-303's accent sweep capacitor (#536).
+    accented: bool,
+    sweep: f32,
 }
 
 /// The parameters a voice can hold a value of its own for (ADR-0023), in the
@@ -403,6 +419,7 @@ impl MonoVoice {
         };
         self.note = note;
         self.velocity = velocity;
+        self.accented = velocity >= ACCENTED;
         self.target = f32::from(note);
         let samples = p.glide.max(0.0) as u32;
         if glide && samples > 0 {
@@ -440,10 +457,19 @@ impl MonoVoice {
         // Within the model's ranges and under its sustain ceiling (#340).
         let voiced = p.env();
         let sr = p.sample_rate();
-        let (adsr_times, fadsr_times) = (
+        let (adsr_times, mut fadsr_times) = (
             voiced.clamp(&times(&p.adsr), sr),
             voiced.clamp(&times(&p.fadsr), sr),
         );
+        // The TB-303's filter envelope decays from each note, gate or not,
+        // and an accent takes its shortest decay (#536).
+        let sweep = p.model.accent_sweep();
+        if sweep {
+            if self.accented {
+                fadsr_times.decay = fadsr_times.decay.min(ACCENT_DECAY * sr);
+            }
+            fadsr_times.release = fadsr_times.decay;
+        }
         for (env, times) in [
             (&mut self.adsr, &adsr_times),
             (&mut self.ar, &p.ar),
@@ -509,6 +535,16 @@ impl MonoVoice {
             if !self.active() {
                 return;
             }
+            // An accent follows the filter envelope into the VCA at once,
+            // and into the sweep capacitor, which a run of accents charges
+            // further each time (#536).
+            let (lift, open) = if sweep {
+                let charge = if self.accented { fenv * p.accent } else { 0.0 };
+                self.sweep += (charge - self.sweep) * p.accent_coef;
+                (charge, self.sweep * ACCENT_CUTOFF)
+            } else {
+                (0.0, 0.0)
+            };
             if self.glide_left > 0 {
                 self.glide_left -= 1;
                 self.pitch = if self.glide_left == 0 {
@@ -654,7 +690,7 @@ impl MonoVoice {
                     ctx.ladder,
                     &v,
                     x,
-                    cutoff + m.cutoff + self.cutoff_trim,
+                    cutoff + m.cutoff + self.cutoff_trim + open,
                     feedback + m.resonance * MAX_K,
                     p.drive,
                 ),
@@ -674,7 +710,13 @@ impl MonoVoice {
                 None => y,
             };
             let vca = if expo { amp.gain(m.vca) } else { m.vca };
-            *sample += y * MONO_GAIN * vca * self.velocity;
+            // The TB-303 has no velocity: its accent is its dynamics.
+            let level = if sweep {
+                SWEEP_LEVEL * (1.0 + ACCENT_LEVEL * lift)
+            } else {
+                self.velocity
+            };
+            *sample += y * MONO_GAIN * vca * level;
             self.last = [y1, y2, y3];
             self.mods = m;
         }
@@ -746,6 +788,51 @@ mod tests {
             }
             out
         }
+    }
+
+    /// #536: on the TB-303 a run of accents charges the sweep circuit
+    /// further each time, so each accent opens the filter more than the one
+    /// before; plain notes leave it alone, and an accent is louder.
+    #[test]
+    fn a_run_of_accents_stacks_on_the_tb303() {
+        use crate::mono::model::Model;
+        use crate::mono::preset::Preset;
+        // Four sixteenths at 120 BPM: the sweep's peak, and the loudest sample.
+        let run = |velocity: f32| {
+            let mut settings = vec![(Param::Model, Model::Tb303 as u32 as f32)];
+            settings.extend_from_slice(Preset::Tb303Acid.changes());
+            let mut rig = Rig::new(&settings);
+            let mut loudest = 0.0_f32;
+            let sweeps: Vec<f32> = (0..4)
+                .map(|_| {
+                    rig.voice.press(36, velocity, &rig.params);
+                    let mut top = 0.0_f32;
+                    for _ in 0..(SR * 0.125) as usize / 128 {
+                        let out = rig.render(128);
+                        loudest = out.iter().fold(loudest, |m, s| m.max(s.abs()));
+                        top = top.max(rig.voice.sweep);
+                    }
+                    rig.release(36);
+                    top
+                })
+                .collect();
+            (sweeps, loudest)
+        };
+        let (accented, loud) = run(1.0);
+        // It charges toward a level, so each accent adds less than the last.
+        assert!(
+            accented.windows(2).all(|w| w[1] > w[0]) && accented[1] > 1.2 * accented[0],
+            "each accent opens further: {accented:?}"
+        );
+        let (plain, soft) = run(0.75);
+        assert!(
+            plain.iter().all(|s| *s == 0.0),
+            "no accent, no sweep: {plain:?}"
+        );
+        assert!(
+            loud > 1.3 * soft,
+            "an accent is louder: {loud} against {soft}"
+        );
     }
 
     /// #271: an oscillator level written every block, as a `mod` line or a
