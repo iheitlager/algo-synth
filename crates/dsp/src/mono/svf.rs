@@ -17,11 +17,13 @@ const K0: f32 = 1.4;
 /// rings up with no input.
 const FLOOR: f32 = 1.0e-3;
 
-/// A low-pass and a high-pass output of the same input.
+/// A low-pass, a high-pass and a band-pass output of the same input; the
+/// band-pass is at unity at its centre.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Outputs {
     pub lp: f32,
     pub hp: f32,
+    pub bp: f32,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -68,7 +70,7 @@ impl Svf {
         self.s1 = v.ceiling * saturate((g * hp + bp) * inv);
         self.s2 = v.ceiling * saturate((g * bp + lp) * inv);
         if lp.is_finite() && hp.is_finite() {
-            Outputs { lp, hp }
+            Outputs { lp, hp, bp: k * bp }
         } else {
             *self = Svf {
                 note: self.note,

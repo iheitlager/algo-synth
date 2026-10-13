@@ -51,8 +51,11 @@ A subset of sclang, run once to build the voice:
 
 - **Language:** numbers, `pi`, symbols `\x`, arrays, `var`, functions and
   closures, `value` (or `f.(x)`), `dup` and `!`, `do`, `collect`, `sum`, `size`, `reverse`,
-  `first`, `last`, `at`, `Array.fill`, `Mix.fill`, `if` on numbers, keyword
-  arguments, `mul`/`add`. Binary operators run left to right with no
+  `first`, `last`, `at`, `product`, `Array.fill`, `Mix.fill`, `if` on
+  numbers, `( … )` regions, keyword arguments, `mul`/`add`; `f <> g`
+  composes two functions (`f.(g.(x))`), and `p.coin` and `array.choose`
+  draw as the code builds, the same each time it is built (#547). A `nil`
+  argument takes the default. Binary operators run left to right with no
   precedence, as in sclang; on signals `+ - * / **` (`**` keeps the sign
   of its left side, so a negative base stays finite).
 - **Controls:** `freq` is the note's pitch (bent by the pitch wheel), `gate`
@@ -61,8 +64,8 @@ A subset of sclang, run once to build the voice:
   argument is the control's lag: `\freq.kr(440, 0.08)` glides from one
   legato note to the next (with `Polyphony 1`).
 - **UGens** (`.ar`/`.kr`): `SinOsc Saw Pulse LFSaw LFTri LFPulse WhiteNoise
-  PMOsc RLPF RHPF LPF HPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
-  ExpRand EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
+  PMOsc RLPF RHPF LPF HPF BPF MoogFF CombN CombL CombC DelayN DelayL DelayC Rand
+  ExpRand LinExp EnvGen Mix Pan2 Splay FreeVerb FreeVerb2 Select Latch Decimator LFNoise0 LFNoise1 LeakDC Out
   Impulse Ringz Klang DynKlang Klank DynKlank VOsc Osc SidOsc SidEnv
   SidFilter NesPulse NesTri NesNoise NesDmc`.
   The SID's parts (#112) take their registers as numbers:
@@ -85,6 +88,9 @@ A subset of sclang, run once to build the voice:
   levels with `direct: 1`. Each swings about half its volume, −1..1 at
   full volume, silent at 0.
   `LeakDC.ar(in, coef)` (0.995 when left out) takes away a DC offset.
+  `BPF.ar(in, freq, rq)` is the 12 dB filter's band output, at unity in
+  its centre; `LinExp.kr(in, srclo, srchi, dstlo, dsthi)` maps a linear
+  range onto an exponential one, unclipped; `clip2(x)` is `clip(x.neg, x)`.
   `Latch.kr(in, trig)` holds `in` from one rising edge of `trig` to the next
   (`Latch.kr(WhiteNoise.kr, LFPulse.kr(8))` is a random step eight times a
   second); `Decimator.ar(in, rate, bits)` samples `in` `rate` times a second
@@ -138,10 +144,10 @@ A subset of sclang, run once to build the voice:
   control's default, is a knob, `Ctl1`…`Ctl32` in build order (the SynthDef's
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `snapshot`,
   `mod` reach them (`sub.Ctl1`).
-- **Limits:** 512 nodes, 64 oscillators, 32 phases (a sine, an LFO, a
+- **Limits:** 1024 nodes, 64 oscillators, 64 phases (a sine, an LFO, a
   `VOsc`; a `Klang` takes one per frequency), 8 filters, 8 envelopes, 32
   resonators (a `Klank` takes one per frequency), 32 delay lines, 64 random
-  numbers, 32 latches, decimators, noises, lags, impulses and LeakDCs, 2
+  numbers, 64 latches, decimators, noises, lags, impulses and LeakDCs, 2
   reverbs, 32 knobs. A delay line holds 1024 samples (about
   0.02 seconds); a comb or delay takes as many as its `maxdelaytime` needs,
   so a voice's delays hold about 0.68 seconds in all: a slapback, a chorus
