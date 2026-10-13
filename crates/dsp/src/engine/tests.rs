@@ -5950,3 +5950,66 @@ fn the_nes_kit_plays_pad_samples_through_the_dmc() {
         "the chip's hat"
     );
 }
+
+/// A new song's track keeps the strip values its mixer line sets, even on a
+/// strip another song's track left: the old values' reset comes first.
+#[test]
+fn a_new_track_keeps_its_own_strip_values() {
+    let mut e = Engine::new(48_000.0);
+    let first = "tempo 120\ntrack a synth Sh101\nstrip a: Level 0.9, Send1 0.6, Pan -0.5\n";
+    assert_eq!(load_text(&mut e, first), Ok(()));
+    let second = "tempo 120\ntrack b synth Sh101\nstrip b: Level 0.3, Send1 0.2, Pan 0.4\n";
+    assert_eq!(load_text(&mut e, second), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Level), 0.3);
+    assert_eq!(e.param_value(s, Param::Send1), 0.2);
+    assert_eq!(e.param_value(s, Param::Pan), 0.4);
+}
+
+/// After several songs, a song's mixer is what it is on a fresh engine: a
+/// strip new to its track starts from the defaults, not from what an older
+/// song left on it.
+#[test]
+fn songs_loaded_in_turn_leave_no_mix_behind() {
+    let read = |name: &str| {
+        let path = format!(
+            "{}/../../examples/songs/{name}.song",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(path).expect("example")
+    };
+    let song = read("seed-rave");
+    let mut fresh = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut fresh, &song), Ok(()));
+    let mut e = Engine::new(48_000.0);
+    for name in [
+        "clockwork-arps",
+        "on-the-run",
+        "nes-dynamo",
+        "silver-box-modular",
+        "patch-bay",
+    ] {
+        assert_eq!(load_text(&mut e, &read(name)), Ok(()));
+    }
+    assert_eq!(load_text(&mut e, &song), Ok(()));
+    for t in 0..song.lines().filter(|l| l.starts_with("track ")).count() {
+        let (a, b) = (fresh.song_routed(t), e.song_routed(t));
+        let (Some(a), Some(b)) = (a, b) else {
+            panic!("track {t} is routed in both");
+        };
+        for (p, name) in Param::ALL.iter().filter(|(p, _)| p.is_strip()) {
+            assert_eq!(
+                fresh.param_value(a, *p),
+                e.param_value(b, *p),
+                "track {t} {name}"
+            );
+        }
+    }
+    for (p, name) in Param::ALL.iter().filter(|(p, _)| p.is_global()) {
+        assert_eq!(
+            fresh.param_value(0, *p),
+            e.param_value(0, *p),
+            "master {name}"
+        );
+    }
+}

@@ -230,6 +230,10 @@ pub struct Engine {
     /// The knob list handed out last (`knob_list`).
     knob_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
+    /// Which of each strip's values (`STRIP_DEFAULTS`, by index) a song's
+    /// mixer lines set, so a strip new to its track drops what an older
+    /// song left and keeps what a hand set.
+    mix_from_text: [u64; crate::mixer::STRIPS],
     /// While a MIDI file is imported every part's patch is set on its synth,
     /// so the synths are what the imported text says (#327).
     import_patches: bool,
@@ -360,6 +364,7 @@ impl Engine {
             code_text: String::new(),
             knob_text: String::new(),
             song_route: [None; MAX_TRACKS],
+            mix_from_text: [0; crate::mixer::STRIPS],
             import_patches: false,
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
@@ -3217,6 +3222,63 @@ impl Engine {
         before: &[Option<usize>; MAX_TRACKS],
         route: &[Option<usize>; MAX_TRACKS],
     ) {
+        // A value the old text set and the new one leaves out goes back to its
+        // default (ADR-0027): the text is the mix, so a line taken out is gone.
+        // First, so a new track on the strip an old one left keeps its own.
+        let mut resets = Vec::new();
+        for line in &self.song.mix {
+            let (strip, defaults): (Option<usize>, &[(Param, f32)]) = match line.at {
+                Mix::Track(t) => (before.get(t).copied().flatten(), &STRIP_DEFAULTS),
+                Mix::Strip(i) => (Some(i), &STRIP_DEFAULTS),
+                Mix::Group(g) => (Some(SYNTHS + g), &STRIP_DEFAULTS),
+                Mix::Master => (Some(0), &GLOBAL_DEFAULTS),
+            };
+            let Some(strip) = strip else {
+                continue;
+            };
+            for (p, _) in &line.sets {
+                let kept = match line.at {
+                    // Kept only by the same track on the same strip.
+                    Mix::Track(t) => self.song.tracks.get(t).is_some_and(|old| {
+                        song.tracks
+                            .iter()
+                            .position(|new| new.name == old.name)
+                            .filter(|u| route.get(*u).copied().flatten() == Some(strip))
+                            .is_some_and(|u| song.mix_value(Mix::Track(u), *p).is_some())
+                    }),
+                    at => song.mix_value(at, *p).is_some(),
+                };
+                if let Some((_, d)) = defaults.iter().find(|(q, _)| q == p).filter(|_| !kept) {
+                    resets.push((strip, *p, *d));
+                }
+            }
+        }
+        // A strip new to its track drops what an older song's text set on it,
+        // as on a fresh engine; what a hand set stays.
+        for (t, track) in song.tracks.iter().enumerate() {
+            let Some(strip) = route.get(t).copied().flatten() else {
+                continue;
+            };
+            let stays = self.song.tracks.iter().enumerate().any(|(u, old)| {
+                old.name == track.name && before.get(u).copied().flatten() == Some(strip)
+            });
+            if stays {
+                continue;
+            }
+            let Some(marks) = self.mix_from_text.get_mut(strip) else {
+                continue;
+            };
+            for (i, (p, d)) in STRIP_DEFAULTS.iter().enumerate() {
+                if *marks & (1 << i) != 0 {
+                    resets.push((strip, *p, *d));
+                }
+            }
+            *marks = 0;
+        }
+        for (strip, p, d) in resets {
+            self.set_param(strip, p, d);
+        }
+        // Then what the new text sets.
         for line in &song.mix {
             let (strip, moved) = match line.at {
                 Mix::Track(t) => {
@@ -3244,38 +3306,15 @@ impl Engine {
                 if moved || was != Some(*v) {
                     self.set_param(strip, *p, *v);
                 }
-            }
-        }
-        // A value the old text set and the new one leaves out goes back to its
-        // default (ADR-0027): the text is the mix, so a line taken out is gone.
-        let mut resets = Vec::new();
-        for line in &self.song.mix {
-            let (strip, defaults): (Option<usize>, &[(Param, f32)]) = match line.at {
-                Mix::Track(t) => (before.get(t).copied().flatten(), &STRIP_DEFAULTS),
-                Mix::Strip(i) => (Some(i), &STRIP_DEFAULTS),
-                Mix::Group(g) => (Some(SYNTHS + g), &STRIP_DEFAULTS),
-                Mix::Master => (Some(0), &GLOBAL_DEFAULTS),
-            };
-            let Some(strip) = strip else {
-                continue;
-            };
-            for (p, _) in &line.sets {
-                let kept = match line.at {
-                    Mix::Track(t) => self.song.tracks.get(t).is_some_and(|old| {
-                        song.tracks
-                            .iter()
-                            .position(|new| new.name == old.name)
-                            .is_some_and(|u| song.mix_value(Mix::Track(u), *p).is_some())
-                    }),
-                    at => song.mix_value(at, *p).is_some(),
-                };
-                if let Some((_, d)) = defaults.iter().find(|(q, _)| q == p).filter(|_| !kept) {
-                    resets.push((strip, *p, *d));
+                if let (Some(i), Some(marks)) = (
+                    STRIP_DEFAULTS.iter().position(|(q, _)| q == p),
+                    self.mix_from_text
+                        .get_mut(strip)
+                        .filter(|_| line.at != Mix::Master),
+                ) {
+                    *marks |= 1 << i;
                 }
             }
-        }
-        for (strip, p, d) in resets {
-            self.set_param(strip, p, d);
         }
     }
 
