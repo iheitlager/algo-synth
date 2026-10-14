@@ -15,13 +15,15 @@
 //! sounding at each hit of a rhythm, each bar; `sometimes(m)` takes about half
 //! the moments from the line with m applied, from a fixed seed; `scale(c minor)`
 //! moves each note to the nearest note of the scale and makes each degree a
-//! note, counted from the root in octave 3 or the one written (`a1`, #570).
+//! note, counted from the root in octave 3 or the one written (`a1`, #570);
+//! `scale(<a1 d2>/4 minor)` takes the roots in turn, a bar each or `/n` bars
+//! each, by the bar a note starts in (#571).
 //!
 //! Every method maps a line (events and a length in bars) to a line, so
 //! nothing happens in `render`. The result is held to `MAX_EVENTS` events and
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
-use super::{Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm, resolve};
+use super::{DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
 use crate::algo::{Mode, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
@@ -48,11 +50,130 @@ pub enum Pattern {
     /// Hits and rests sharing each bar.
     Struct(Vec<bool>),
     Sometimes(Box<Pattern>),
-    Scale(Key),
+    Scale(Keys),
 }
 
-/// The scale of `.scale(a1 minor)`: a scale and the octave of its root, if
-/// written.
+/// Most roots in a `scale` progression.
+const MAX_ROOTS: usize = 16;
+
+/// The scales of `.scale(…)` (#571): one, or a progression `<a1 d2>/4`
+/// whose roots take turns, each for `hold` bars.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Keys {
+    pub steps: Vec<Step>,
+    pub hold: u32,
+    /// The mode after the roots, for those that name none.
+    pub mode: Option<Mode>,
+}
+
+/// A root of a progression and whether it names its own mode (`a1:dorian`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Step {
+    pub key: Key,
+    pub own: bool,
+}
+
+impl Keys {
+    /// `a1 minor`, `<a1 d2>/4 minor` or `<a1:minor d1:dorian>`.
+    fn parse(arg: &str) -> Result<Keys, &'static str> {
+        let bad = "this takes a root and a mode, e.g. scale(c minor)";
+        let arg = arg.trim();
+        let (roots, hold, rest): (Vec<&str>, u32, &str) = if let Some(inner) = arg.strip_prefix('<')
+        {
+            let (inner, after) = inner.split_once('>').ok_or("a < of roots is not closed")?;
+            let (hold, rest) = match after.strip_prefix('/') {
+                Some(h) => {
+                    let (n, rest) = h.split_once(char::is_whitespace).unwrap_or((h, ""));
+                    let n = n
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|n| (1..=MAX_FACTOR).contains(n))
+                        .ok_or("a root is held 1 to 16 bars, as <a1 d2>/4")?;
+                    (n, rest)
+                }
+                None => (1, after),
+            };
+            (inner.split_whitespace().collect(), hold, rest)
+        } else {
+            let (root, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
+            (vec![root], 1, rest)
+        };
+        if roots.is_empty() || roots.iter().any(|r| r.is_empty()) {
+            return Err(bad);
+        }
+        if roots.len() > MAX_ROOTS {
+            return Err("a progression has at most 16 roots");
+        }
+        let mut words = rest.split_whitespace();
+        let mode = match (words.next(), words.next()) {
+            (None, _) => None,
+            (Some(m), None) => Some(Mode::from_name(m).ok_or("no scale has this mode")?),
+            _ => return Err(bad),
+        };
+        let steps = roots
+            .iter()
+            .map(|r| {
+                let (root, own) = match r.split_once(':') {
+                    Some((root, m)) => (
+                        root,
+                        Some(Mode::from_name(m).ok_or("no scale has this mode")?),
+                    ),
+                    None => (*r, None),
+                };
+                Ok(Step {
+                    key: Key::parse(root, own.or(mode).ok_or(bad)?)?,
+                    own: own.is_some(),
+                })
+            })
+            .collect::<Result<Vec<Step>, &'static str>>()?;
+        // One root is held for good: the same scale however long.
+        let hold = if steps.len() == 1 { 1 } else { hold };
+        Ok(Keys { steps, hold, mode })
+    }
+
+    fn print(&self) -> String {
+        let roots: Vec<String> = self
+            .steps
+            .iter()
+            .map(|s| {
+                let root = s.key.root_text();
+                if s.own {
+                    format!("{root}:{}", s.key.scale.mode.name())
+                } else {
+                    root
+                }
+            })
+            .collect();
+        let mut out = match roots.as_slice() {
+            [one] => one.clone(),
+            many => format!("<{}>", many.join(" ")),
+        };
+        if self.hold != 1 {
+            out.push_str(&format!("/{}", self.hold));
+        }
+        if let Some(m) = self.mode {
+            out.push_str(&format!(" {}", m.name()));
+        }
+        out
+    }
+
+    /// Bars before the progression comes round again.
+    fn bars(&self) -> u32 {
+        match self.steps.len() {
+            0 | 1 => 1,
+            n => u32::try_from(n).unwrap_or(1) * self.hold,
+        }
+    }
+
+    /// The key in force in bar `bar`.
+    fn at(&self, bar: u32) -> Option<&Key> {
+        let n = u32::try_from(self.steps.len()).unwrap_or(1).max(1);
+        let i = usize::try_from(bar / self.hold.max(1) % n).unwrap_or(0);
+        self.steps.get(i).map(|s| &s.key)
+    }
+}
+
+/// A scale and the octave of its root, if written: a step of `.scale(…)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
     pub scale: Scale,
@@ -79,15 +200,27 @@ impl Key {
         (self.octave.unwrap_or(super::ROOT_OCTAVE) + 1) * 12 + self.scale.root
     }
 
-    fn print(&self) -> String {
+    /// `a1` or `a`, as written.
+    fn root_text(&self) -> String {
         let name = super::NAMES
             .get(usize::from(self.scale.root))
             .copied()
             .unwrap_or("c");
         match self.octave {
-            Some(o) => format!("{name}{o} {}", self.scale.mode.name()),
-            None => format!("{name} {}", self.scale.mode.name()),
+            Some(o) => format!("{name}{o}"),
+            None => name.to_string(),
         }
+    }
+
+    /// A degree made a note of this key, a note moved to the nearest of it.
+    fn place(&self, e: &mut Event) {
+        e.note = if e.degree {
+            let d = i32::from(e.note) - i32::from(DEGREE_ZERO);
+            self.scale.degree_note(self.root_note(), d)
+        } else {
+            self.scale.snap(e.note)
+        };
+        e.degree = false;
     }
 }
 
@@ -224,16 +357,7 @@ impl Pattern {
                 Ok(Pattern::Struct(steps))
             }
             "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?)?))),
-            "scale" => {
-                let bad = "this takes a root and a mode, e.g. scale(c minor)";
-                let mut words = one()?.split_whitespace();
-                let (Some(root), Some(mode), None) = (words.next(), words.next(), words.next())
-                else {
-                    return Err(bad);
-                };
-                let mode = Mode::from_name(mode).ok_or("no scale has this mode")?;
-                Ok(Pattern::Scale(Key::parse(root, mode)?))
-            }
+            "scale" => Ok(Pattern::Scale(Keys::parse(one()?)?)),
             _ => Err("no such pattern method"),
         }
     }
@@ -265,7 +389,7 @@ impl Pattern {
                 format!("struct(\"{}\")", words.join(" "))
             }
             Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
-            Pattern::Scale(key) => format!("scale({})", key.print()),
+            Pattern::Scale(keys) => format!("scale({})", keys.print()),
         }
     }
 
@@ -332,24 +456,18 @@ impl Pattern {
                 events.extend(other.repeat(bars).events.into_iter().filter(heads));
                 Line { events, bars }
             }
-            Pattern::Scale(key) => {
-                let mut events: Vec<Event> = line
-                    .events
-                    .iter()
-                    .map(|e| Event {
-                        note: if e.degree {
-                            e.note
-                        } else {
-                            key.scale.snap(e.note)
-                        },
-                        ..*e
-                    })
-                    .collect();
-                resolve(&mut events, &key.scale, key.root_note());
-                Line {
-                    events,
-                    bars: line.bars,
+            Pattern::Scale(keys) => {
+                // Long enough for the line and the progression to come round
+                // together; each note takes the key of the bar it starts in.
+                let bars = lcm(line.bars, keys.bars());
+                check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+                let mut out = line.repeat(bars);
+                for e in &mut out.events {
+                    if let Some(k) = keys.at(e.start / BAR) {
+                        k.place(e);
+                    }
                 }
+                out
             }
         };
         check(out.bars, out.events.len())?;
@@ -364,7 +482,7 @@ pub fn apply_all(patterns: &[Pattern], line: Line) -> Result<Line, &'static str>
 
 fn check(bars: u32, events: usize) -> Result<(), &'static str> {
     if bars > MAX_BARS {
-        Err("the pattern runs past 32 bars")
+        Err("the pattern runs past 64 bars")
     } else if events > MAX_EVENTS {
         Err("the pattern makes more than 512 notes")
     } else {
@@ -753,6 +871,47 @@ mod tests {
         assert_eq!(notes, vec![60, 60, 62, 63, 63, 65, 65, 67, 68, 68, 70, 70]);
     }
 
+    /// #571: each note takes the key of the bar it starts in, and the line
+    /// runs until it and the progression come round together.
+    #[test]
+    fn a_scale_progression_changes_key_by_the_bar() {
+        // degree 0 and 1 in each of three bars
+        let line = Line {
+            events: (0..6u8).map(|k| deg(u32::from(k) * 24, k % 2)).collect(),
+            bars: 3,
+        };
+        let out = run("scale(<a1 d2>/2 minor-pentatonic)", &line);
+        assert_eq!(out.bars, 12, "3 bars against 4");
+        assert!(out.events.iter().all(|e| !e.degree));
+        let notes: Vec<u8> = out.events.iter().map(|e| e.note).collect();
+        // a1 c2 | a1 c2 | d2 f2 | d2 f2 | a1 c2 | ...
+        assert_eq!(notes.get(..8), Some(&[33, 36, 33, 36, 38, 41, 38, 41][..]));
+        // a note is snapped to the key of its bar
+        let line = Line {
+            events: vec![ev(0, 4, 59), ev(BAR, 4, 59)],
+            bars: 2,
+        };
+        let out = run("scale(<c4:major d4:minor>)", &line);
+        let notes: Vec<u8> = out.events.iter().map(|e| e.note).collect();
+        // b3 is in c major; in d minor it ties between bb3 and c4 and goes down
+        assert_eq!(notes, [59, 58]);
+        // too long to come round
+        let long = Line {
+            events: vec![deg(0, 0)],
+            bars: 7,
+        };
+        let p = Pattern::parse("scale", "<a1 d1 e1>/4 minor").expect("parses");
+        assert_eq!(p.apply(&long), Err("the pattern runs past 64 bars"));
+    }
+
+    fn deg(start: u32, d: u8) -> Event {
+        Event {
+            note: DEGREE_ZERO + d,
+            degree: true,
+            ..ev(start, 4, 0)
+        }
+    }
+
     #[test]
     fn degrade_is_seeded() {
         let line = run("ply(16)", &four());
@@ -781,6 +940,19 @@ mod tests {
             ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
             ("sometimes", "fast(2)", "sometimes(fast(2))"),
             ("scale", " eb  minor ", "scale(d# minor)"),
+            ("scale", "a1 minor-pentatonic", "scale(a1 minor-pentatonic)"),
+            ("scale", "<a1  d2>/4 minor", "scale(<a1 d2>/4 minor)"),
+            (
+                "scale",
+                "<a1:minor d1:dorian>",
+                "scale(<a1:minor d1:dorian>)",
+            ),
+            (
+                "scale",
+                "<a1 d1:dorian> minor",
+                "scale(<a1 d1:dorian> minor)",
+            ),
+            ("scale", "<a1>/4 minor", "scale(a1 minor)"),
         ] {
             let p = Pattern::parse(name, args).expect(name);
             assert_eq!(p.print(), printed);
@@ -844,6 +1016,33 @@ mod tests {
                 "a root is a letter a to g, maybe # or b, maybe an octave",
             ),
             ("scale", "c weird", "no scale has this mode"),
+            (
+                "scale",
+                "<a1 d1>",
+                "this takes a root and a mode, e.g. scale(c minor)",
+            ),
+            (
+                "scale",
+                "<a1:minor d1>",
+                "this takes a root and a mode, e.g. scale(c minor)",
+            ),
+            (
+                "scale",
+                "<> minor",
+                "this takes a root and a mode, e.g. scale(c minor)",
+            ),
+            ("scale", "<a1 d1 minor", "a < of roots is not closed"),
+            (
+                "scale",
+                "<a1 d1>/0 minor",
+                "a root is held 1 to 16 bars, as <a1 d2>/4",
+            ),
+            ("scale", "<a1:weird> minor", "no scale has this mode"),
+            (
+                "scale",
+                "a1 minor major",
+                "this takes a root and a mode, e.g. scale(c minor)",
+            ),
         ] {
             assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
         }
@@ -852,8 +1051,8 @@ mod tests {
             bars: 16,
         };
         assert_eq!(
-            Pattern::Slow(4).apply(&long),
-            Err("the pattern runs past 32 bars")
+            Pattern::Slow(8).apply(&long),
+            Err("the pattern runs past 64 bars")
         );
         let many = run("ply(8)", &run("ply(16)", &four()));
         assert_eq!(many.events.len(), 512);

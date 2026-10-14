@@ -177,7 +177,7 @@ fn every_error_says_where() {
 fn too_much_is_an_error_not_a_hang() {
     let long = format!("\"{}\"", "c4 ".repeat(1200));
     assert!(parse(&long, 1).is_err());
-    assert!(parse("\"<a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4>\"", 1).is_err());
+    assert!(parse(&format!("\"<{}>\"", "a4 ".repeat(65)), 1).is_err());
     assert!(parse("\"[[[[[c4]]]]]\"", 1).is_err());
 }
 
@@ -603,10 +603,10 @@ fn timed_note_errors_say_where() {
     let cases: [(&str, usize, &str); 7] = [
         ("c4@", 4, "a number goes here"),
         ("c4@0", 5, "a length in ticks goes after :, as d5@0:6"),
-        ("c4@0:0", 6, "a length is 1 to 1536 ticks"),
+        ("c4@0:0", 6, "a length is 1 to 3072 ticks"),
         ("c4@0:6:0", 8, "a velocity is 1 to 127"),
         ("c4@0:6:200", 8, "a velocity is 1 to 127"),
-        ("c4@1536:6", 4, "a timed note starts within 32 bars"),
+        ("c4@3072:6", 4, "a timed note starts within 64 bars"),
         ("c4@0:6x", 7, "a word ends at a space"),
     ];
     for (text, col, msg) in cases {

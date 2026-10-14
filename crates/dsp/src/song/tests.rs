@@ -2176,10 +2176,10 @@ fn pattern_method_errors_say_where() {
             "a pattern method goes here, e.g. rev or fast(2)",
         ),
         (
-            "track l synth\nclip r = l .slow(16) .slow(4)\n  \"c4\"",
+            "track l synth\nclip r = l .slow(16) .slow(8)\n  \"c4\"",
             3,
             3,
-            "the pattern runs past 32 bars",
+            "the pattern runs past 64 bars",
         ),
     ] {
         let err = Song::parse(text).expect_err(text);
@@ -2253,6 +2253,31 @@ fn degrees_play_the_clips_scale_from_its_root() {
     let printed = s.print();
     assert!(
         printed.contains("clip arp = bass .fast(8) .scale(a1 minor-pentatonic)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #571: Strudel's `n("<0 2 1 3 2>*8").scale("<A1 D2>/4:minor:pentatonic")`,
+/// the degrees running on unbroken across the change of root.
+#[test]
+fn a_scale_progression_plays_the_degrees_on_each_root() {
+    let text = "track bass synth\n\
+        clip arp = bass .fast(8) .scale(<a1 d2>/4 minor-pentatonic)\n  \"<0 2 1 3 2>\"\n";
+    let s = Song::parse(text).expect("parses");
+    let n = s.clips[0].notes.as_ref().expect("notes");
+    assert_eq!((n.bars, n.events.len()), (40, 320));
+    let notes = clip_notes(&s, 0);
+    // bar 1 on a1: degrees 0 2 1 3 2 0 2 1
+    assert_eq!(notes.get(..8), Some(&[33, 38, 36, 40, 38, 33, 38, 36][..]));
+    // bar 5 on d2 (d f g a c), the cycle 32 steps in: degrees 1 3 2 0 2 1 3 2
+    assert_eq!(
+        notes.get(32..40),
+        Some(&[41, 45, 43, 38, 43, 41, 45, 43][..])
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("clip arp = bass .fast(8) .scale(<a1 d2>/4 minor-pentatonic)\n"),
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));

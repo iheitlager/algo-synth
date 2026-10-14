@@ -46,7 +46,7 @@ pub const TICKS_PER_BAR: u32 = 48;
 /// Most events a clip may compile to, and most bars it may run before it
 /// repeats.
 pub const MAX_EVENTS: usize = 512;
-pub const MAX_BARS: u32 = 32;
+pub const MAX_BARS: u32 = 64;
 /// Most words (slots and notes) in one line.
 const MAX_ITEMS: usize = 1100;
 /// A line with `?` repeats after this many bars.
@@ -376,13 +376,13 @@ impl Cursor<'_> {
         let at = self.col();
         let start = self.number()?;
         if start >= MAX_BARS * TICKS_PER_BAR {
-            return err(at, "a timed note starts within 32 bars");
+            return err(at, "a timed note starts within 64 bars");
         }
         expect(self, ':', "a length in ticks goes after :, as d5@0:6")?;
         let at = self.col();
         let len = self.number()?;
         if len == 0 || len > MAX_BARS * TICKS_PER_BAR {
-            return err(at, "a length is 1 to 1536 ticks");
+            return err(at, "a length is 1 to 3072 ticks");
         }
         let mut vel = 0;
         if self.peek() == Some(':') {
@@ -773,13 +773,13 @@ pub fn parse_with(
 
 impl Notes {
     /// A timed line made `bars` bars long (`clip … bars N`): at least as long
-    /// as its last start, at most 32 bars. Other lines keep their own length.
+    /// as its last start, at most 64 bars. Other lines keep their own length.
     pub fn with_bars(mut self, bars: u32) -> Result<Notes, &'static str> {
         if !matches!(self.seq, Seq::Timed(_)) {
             return Err("bars N is for a line of timed notes");
         }
         if bars < self.bars || bars > MAX_BARS {
-            return Err("the bars hold the line's notes, and are at most 32");
+            return Err("the bars hold the line's notes, and are at most 64");
         }
         self.bars = bars;
         Ok(self)
@@ -1329,7 +1329,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
         Seq::Mini(slots) => {
             let bars = period(slots);
             if bars > MAX_BARS {
-                return Err("this line takes more than 32 bars to repeat");
+                return Err("this line takes more than 64 bars to repeat");
             }
             let mut leaves = Vec::new();
             leaves_of(slots, &mut leaves);
@@ -1400,7 +1400,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
             }
             let bars = at.div_ceil(TICKS_PER_BAR).max(1);
             if bars > MAX_BARS {
-                return Err("a line is at most 32 bars long");
+                return Err("a line is at most 64 bars long");
             }
             (events, bars)
         }

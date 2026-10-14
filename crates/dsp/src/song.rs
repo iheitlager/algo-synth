@@ -1117,7 +1117,7 @@ impl Song {
                             .parse()
                             .ok()
                             .filter(|b| (1..=notes::MAX_BARS).contains(b))
-                            .ok_or(err(n.col, "a line is 1 to 32 bars"))?;
+                            .ok_or(err(n.col, "a line is 1 to 64 bars"))?;
                         open_bars = Some((bars, w.col, line));
                     }
                     let mut grid = 16;

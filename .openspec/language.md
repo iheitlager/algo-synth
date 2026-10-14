@@ -266,10 +266,10 @@ clip tune = lead
 overlap. A line containing `@` outside quotes is timed.
 
 ```text
-<pitch>[!]@<start>:<length>[:<velocity>]…     start 0–1535, length 1–1536, velocity 1–127
+<pitch>[!]@<start>:<length>[:<velocity>]…     start 0–3071, length 1–3072, velocity 1–127
 ```
 
-The line ends at the bar of its last start, or `bars <n>` (1–32) on the clip
+The line ends at the bar of its last start, or `bars <n>` (1–64) on the clip
 line says how long it is.
 
 ```song
@@ -367,7 +367,7 @@ clip sand = lead live
 
 Written last on a note clip's line; applied in order to its notes at load. A
 cycle is a bar; times round to the tick grid; the result keeps the limits of
-512 notes and 32 bars. Not on lanes or `live` clips.
+512 notes and 64 bars. Not on lanes or `live` clips.
 
 | method | does |
 |---|---|
@@ -383,6 +383,7 @@ cycle is a bar; times round to the tick grid; the result keeps the limits of
 | `.struct("x ~ x x")` | each bar on a rhythm of 1–48 steps: at each `x`, the notes sounding there |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
+| `.scale(<<root>…>[/n] [<mode>])` | a progression: the roots (up to 16) take turns, a bar each or n (1–16) bars each, by the bar a note starts in; `a1:dorian` gives a root its own mode, and the shared mode may go when each has one |
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:
 `rev`, `fast(2)`, `add(12)`.
@@ -393,7 +394,13 @@ clip riff = lead .fast(2) .every(4, rev) .off(1/8, add(12))
   "c4 eb4 g4 bb4"
 clip grid = lead .struct("x ~ x x ~ x x ~") .degrade(0.2) .scale(c minor)
   "c4 d4 e4 f4"
+clip arp = lead .fast(8) .scale(<a1 d2>/4 minor-pentatonic)
+  "<0 2 1 3 2>"
 ```
+
+A progression runs the line on until both come round together: the `arp`
+above is 5 bars of degrees against 8 of roots, so it is 40 bars long and
+its five-step cycle runs on unbroken through the change of root.
 
 ### Parameter methods
 
