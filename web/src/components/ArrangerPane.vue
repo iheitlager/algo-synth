@@ -9,6 +9,7 @@
 // keeps it (`track … mute`); the synth rail and mixer mute the instrument.
 import { computed, ref } from 'vue'
 import { MUTE, arrange, files, launch, params, setTrackFlags, song, status, synthColour, synths, type SongScene } from '../audio/engine'
+import { msLight } from '../audio/console'
 import { Param, Quantize } from '../audio/params'
 import LaunchBar from './LaunchBar.vue'
 
@@ -56,6 +57,23 @@ const instrumentSilent = (t: number) => {
  * either way nothing is heard through a silenced instrument. */
 const silenced = (r: Row) =>
   r.track != null && ((anySolo.value ? !soloed(r.track) : muted(r.track)) || instrumentSilent(r.track))
+/** Whether the track's instrument strip has `id` (Mute or Solo) set. */
+const stripOn = (t: number, id: number) => {
+  const s = synthOf(t)
+  return s !== undefined && val(s, id) >= 0.5
+}
+// M and S also light, outlined, when only the mixer strip mutes or solos the
+// instrument (#499); a click still toggles the track flag, never the strip.
+const muteLight = (t: number) => msLight(muted(t), stripOn(t, Param.Mute))
+const soloLight = (t: number) => msLight(soloed(t), stripOn(t, Param.Solo))
+const MS_TITLE = {
+  m: 'Mute the track: its clips stop, its synth plays on',
+  s: 'Solo the track: only soloed tracks play',
+}
+const msTitle = (k: 'm' | 's', t: number) =>
+  (k === 'm' ? muteLight(t) : soloLight(t)) === 'strip'
+    ? `${k === 'm' ? 'Muted' : 'Soloed'} on the mixer strip. ${MS_TITLE[k]}`
+    : MS_TITLE[k]
 
 /** The entries with where each starts, in bars. */
 const entries = computed(() => {
@@ -157,13 +175,13 @@ function onBar(bar: number, e: MouseEvent) {
         <div class="label" :class="{ silenced: silenced(r) }" :title="r.label">
           <span v-if="r.track != null" class="ms">
             <button
-              class="m" :aria-pressed="muted(r.track)" :disabled="!status.running"
-              :aria-label="`Mute ${song.tracks[r.track]?.name}`" title="Mute the track: its clips stop, its synth plays on"
+              class="m" :class="{ strip: muteLight(r.track) === 'strip' }" :aria-pressed="muted(r.track)" :disabled="!status.running"
+              :aria-label="`Mute ${song.tracks[r.track]?.name}`" :title="msTitle('m', r.track)"
               @click="toggleMute(r.track)"
             >M</button>
             <button
-              class="s" :aria-pressed="soloed(r.track)" :disabled="!status.running"
-              :aria-label="`Solo ${song.tracks[r.track]?.name}`" title="Solo the track: only soloed tracks play"
+              class="s" :class="{ strip: soloLight(r.track) === 'strip' }" :aria-pressed="soloed(r.track)" :disabled="!status.running"
+              :aria-label="`Solo ${song.tracks[r.track]?.name}`" :title="msTitle('s', r.track)"
               @click="toggleSolo(r.track)"
             >S</button>
           </span>
@@ -202,6 +220,8 @@ function onBar(bar: number, e: MouseEvent) {
 }
 .ms .m[aria-pressed='true'] { background: #7a2a22; color: #fff; border-color: #e0654f; box-shadow: 0 0 6px #e0654f55; }
 .ms .s[aria-pressed='true'] { background: #8a6a10; color: #fff; border-color: #f0c23a; box-shadow: 0 0 6px #f0c23a55; }
+.ms .m.strip { color: #e0654f; border-color: #e0654f; }
+.ms .s.strip { color: #f0c23a; border-color: #f0c23a; }
 .label .name { overflow: hidden; text-overflow: ellipsis; }
 .label.silenced > i, .label.silenced > .name, .track.silenced { opacity: 0.4; }
 .track { position: relative; height: 22px; }

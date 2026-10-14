@@ -360,3 +360,9 @@ export function moveBefore(order: number[], id: number, target: number): number[
 
 /** The colour of group `g`, apart from the synth hues. */
 export const groupColour = (g: number) => `hsl(${(205 + 47 * g) % 360} 52% 58%)`
+
+/** How an arranger M or S button lights (#499): `track` when the song's track
+ * flag is set (clicking toggles that), `strip` when only the instrument's mixer
+ * strip is, else `off`. */
+export type MsLight = 'track' | 'strip' | 'off'
+export const msLight = (track: boolean, strip: boolean): MsLight => (track ? 'track' : strip ? 'strip' : 'off')
