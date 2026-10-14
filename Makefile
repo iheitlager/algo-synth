@@ -140,8 +140,8 @@ syntax-test: ## Check the editor syntaxes
 	cd syntax/tree-sitter-song && tree-sitter generate && git diff --exit-code -- src
 	cd syntax/tree-sitter-song && tree-sitter test -p . && tree-sitter build -o song.so .
 	diff -r syntax/tree-sitter-song/queries syntax/zed/languages/song --exclude='*.toml'
-	python3 syntax/compare.py vim target/debug/song-lsp examples/songs/*.song
-	python3 syntax/compare.py ts target/debug/song-lsp examples/songs/*.song
+	python3 syntax/compare.py vim target/debug/song-lsp examples/songs/*.song examples/sounds/*.song
+	python3 syntax/compare.py ts target/debug/song-lsp examples/songs/*.song examples/sounds/*.song
 
 ##@ Code quality
 

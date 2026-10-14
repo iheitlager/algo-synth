@@ -18,7 +18,7 @@ What changed in each version is in [CHANGELOG.md](CHANGELOG.md). See [.openspec/
 
 ## The song language and its relatives
 
-A song is one text file: the instruments, their sound, the mix, the patterns and the arrangement. A taste, from [examples/songs/clockwork-arps.song](examples/songs/clockwork-arps.song):
+A song is one text file: the instruments, their sound, the mix, the patterns and the arrangement. A taste (the [example songs](examples/songs/) and [sounds](examples/sounds/) go further):
 
 ```
 tempo 128

@@ -272,7 +272,7 @@ A user table or attack SHALL be kept in the song as its recipe (ADR-0033), and r
 
 **Missing.** A synth that plays an empty, loading, missing or failed user slot SHALL say so on its panel. The song plays on.
 
-**Implementation:** `crates/dsp/src/song/recipe.rs::Recipe`, `crates/dsp/src/song.rs::Song::set_recipe`, `crates/dsp/src/engine.rs::Engine::set_recipe_from_buffer`, `crates/dsp/src/analysis/lab.rs::Lab::recipe`, `crates/dsp/src/ffi.rs` (`recipe_count`, `recipe_slot`, `recipe_text_ptr`, `recipe_values_ptr`, `recipe_set`, `spectral_recipe`), `web/public/worklet.js` (`recipes`, `setRecipe`), `web/public/spectral-worker.js` (`recipe`), `web/src/audio/engine.ts` (`userSlots`, `loadSongRecipes`, `loadUserFromLab`), `web/src/audio/audiostore.ts`, `web/src/audio/sampler.ts` (`sourceFile`, `sourcesOf`), `web/src/audio/faceplate.ts` (`userSlotNotes`), `web/src/components/SynthFaceplate.vue`, `web/src/components/lab/SpectralLab.vue`, `examples/songs/glass-piano.song`
+**Implementation:** `crates/dsp/src/song/recipe.rs::Recipe`, `crates/dsp/src/song.rs::Song::set_recipe`, `crates/dsp/src/engine.rs::Engine::set_recipe_from_buffer`, `crates/dsp/src/analysis/lab.rs::Lab::recipe`, `crates/dsp/src/ffi.rs` (`recipe_count`, `recipe_slot`, `recipe_text_ptr`, `recipe_values_ptr`, `recipe_set`, `spectral_recipe`), `web/public/worklet.js` (`recipes`, `setRecipe`), `web/public/spectral-worker.js` (`recipe`), `web/src/audio/engine.ts` (`userSlots`, `loadSongRecipes`, `loadUserFromLab`), `web/src/audio/audiostore.ts`, `web/src/audio/sampler.ts` (`sourceFile`, `sourcesOf`), `web/src/audio/faceplate.ts` (`userSlotNotes`), `web/src/components/SynthFaceplate.vue`, `web/src/components/lab/SpectralLab.vue`, `examples/sounds/glass-piano.song`
 
 #### Scenario: across a reload
 
@@ -327,7 +327,7 @@ A number in any of these SHALL be a knob as every number in a SynthDef is (ADR-0
 - WHEN the code is built
 - THEN it is refused with a message naming the limit, and the synth plays on as it was
 
-**Tests:** `crates/dsp/src/modular/sc.rs::tests::backtick_keeps_an_array_whole`, `crates/dsp/src/modular.rs::tests::klang_is_a_bank_of_sines`, `crates/dsp/src/modular.rs::tests::dynklank_rings`, `crates/dsp/src/modular.rs::tests::vosc_crossfades_tables`, `crates/dsp/src/modular/sc.rs::tests::too_many_partials_are_refused`, `crates/dsp/src/modular/sc.rs::tests::a_table_position_is_a_knob_in_its_slot`, `examples/songs/partial-garden.song`
+**Tests:** `crates/dsp/src/modular/sc.rs::tests::backtick_keeps_an_array_whole`, `crates/dsp/src/modular.rs::tests::klang_is_a_bank_of_sines`, `crates/dsp/src/modular.rs::tests::dynklank_rings`, `crates/dsp/src/modular.rs::tests::vosc_crossfades_tables`, `crates/dsp/src/modular/sc.rs::tests::too_many_partials_are_refused`, `crates/dsp/src/modular/sc.rs::tests::a_table_position_is_a_knob_in_its_slot`, `examples/sounds/partial-garden.song`
 
 ### Requirement 12: Sequencing timbre [SHOULD]
 
@@ -357,7 +357,7 @@ The Spectral Lab (spec 009 Req 7) SHOULD:
 - **Write the morph into the recipe**: `A ~ B` with `mpitch`, `mamp`, `mnoise`, `mformant` and `sweep`, which the song rebuilds as it rebuilds any recipe (ADR-0033).
 - **Send as a multisample** (#520): the resynthesis at every root of a range and step, each at its pitch and the original's length, on the main window's selected Sampler (or a new one), each key split halfway to its neighbours. Roots more than two octaves from the original's are left out. It lives for the session; zones in the song are #522.
 
-**Implementation:** `crates/dsp/src/analysis/lab.rs` (`Lab::analyse_other`, `Lab::set_morph`, `Lab::table`, `Lab::recipe`, `Lab::render_at`), `crates/dsp/src/analysis/frames.rs` (`by_label_table`, `steady_frame`, `label_amps`, `harmonic_wave`), `crates/dsp/src/ffi.rs` (`spectral_analyse_other`, `spectral_generate`, `spectral_morph`, `spectral_other_clear`, `spectral_render_at`), `web/public/spectral-worker.js`, `web/src/audio/spectral.ts` (`Morph`, `NO_MORPH`, `Analyser.generate`, `Analyser.renderAt`, `KeySample`), `web/src/audio/sampler.ts` (`rootsBetween`, `splitZones`), `web/src/audio/engine.ts` (`loadSongRecipes`, `loadMultisample`), `web/src/components/lab/SpectralLab.vue`, `examples/songs/piano-to-choir.song`
+**Implementation:** `crates/dsp/src/analysis/lab.rs` (`Lab::analyse_other`, `Lab::set_morph`, `Lab::table`, `Lab::recipe`, `Lab::render_at`), `crates/dsp/src/analysis/frames.rs` (`by_label_table`, `steady_frame`, `label_amps`, `harmonic_wave`), `crates/dsp/src/ffi.rs` (`spectral_analyse_other`, `spectral_generate`, `spectral_morph`, `spectral_other_clear`, `spectral_render_at`), `web/public/spectral-worker.js`, `web/src/audio/spectral.ts` (`Morph`, `NO_MORPH`, `Analyser.generate`, `Analyser.renderAt`, `KeySample`), `web/src/audio/sampler.ts` (`rootsBetween`, `splitZones`), `web/src/audio/engine.ts` (`loadSongRecipes`, `loadMultisample`), `web/src/components/lab/SpectralLab.vue`, `examples/sounds/piano-to-choir.song`
 
 #### Scenario: a saw into a square, as a table
 

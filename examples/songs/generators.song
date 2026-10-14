@@ -1,0 +1,42 @@
+# Generators: notes the engine writes, the same every run (language.md,
+# Notes). prog writes eight bars of chords in the scale, root takes their
+# roots for the bass and arp breaks them into sixteenths. A four-note riff
+# seeds the lead: markov chains new phrases from it, mutate moves a third of
+# its notes, and in the last scene a live walk plays new notes every bar.
+# Change a seed (the last number of a call) for another song in the same style.
+tempo 122
+scale a minor
+track kit drums Tr909 Kit909
+track pad synth Jupiter8 JupiterPad
+track bass synth Sh101 Sh101Bass
+track arp synth Juno106 JunoPluck
+track lead synth Ms20 Ms20Lead
+strip pad: Level 0.6
+strip arp: Level 0.6, Send1 0.3
+strip lead: Level 0.7, Send2 0.3
+
+clip beat = kit /16
+  bd x...x...x...x...
+  ch ..x...x...x...x.
+  cp euclid(3,8,2)
+# Eight bars of chords: the tonic first, the dominant last.
+clip chords = pad voicing
+  prog(8,5)
+# The root of each chord, in octave 2.
+clip low = bass
+  root(chords,2)
+clip ripple = arp
+  arp(chords,updown,16)
+clip riff = lead
+  "a4 c5 e5 [d5 c5]"
+clip chain = lead
+  markov(1,riff,9)
+clip moved = lead
+  mutate(riff,35,4)
+clip wander = lead live
+  walk(a4,8,3)
+scene seed 8: beat chords low riff
+scene chain 8: beat chords low ripple chain
+scene moved 8: beat chords low ripple moved
+scene wander 8: beat chords low ripple wander
+arrange seed chain moved wander
