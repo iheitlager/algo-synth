@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   INSERT_KNOBS, INSERT_SHORT, STRIPS, feedsOf, feedsTag, heardStrips, moveBefore, namedOuts, orderStrips, outChoices, outGroup, padsOnGroup, routeOk, visibleOuts, PROC_KNOBS, SWEEP, arcPath, exp, hzText, lin, bandDb, compOutDb, dbText, dbToPos, dragValue, eqDb, knobAngle, knobArc, ledSegments, levelToPos,
-  logMap, logPos, polar, posToDb, posToLevel,
+  logMap, logPos, polar, posToDb, posToLevel, msLight,
 } from './console'
 
 describe('knob geometry', () => {
@@ -344,5 +344,14 @@ describe('console order', () => {
     expect(moveBefore([0, 1, 2, 3], 0, -1)).toEqual([1, 2, 3, 0])
     expect(moveBefore([0, 1, 2], 1, 9)).toEqual([0, 1, 2])
     expect(moveBefore([0, 1, 2], 7, 1)).toEqual([0, 1, 2])
+  })
+})
+
+describe('arranger M/S light', () => {
+  it('shows the track flag first, then the mixer strip, else nothing', () => {
+    expect(msLight(true, false)).toBe('track')
+    expect(msLight(true, true)).toBe('track')
+    expect(msLight(false, true)).toBe('strip')
+    expect(msLight(false, false)).toBe('off')
   })
 })
