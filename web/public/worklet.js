@@ -396,6 +396,8 @@ class EngineProcessor extends AudioWorkletProcessor {
       : { line: w.song_error_line(), col: w.song_error_col(), msg: bytes(w.song_error_ptr(), w.song_error_len()) }
     // The group buses' names in the song (#214), empty for none.
     const groups = Array.from({ length: w.group_name_len ? 8 : 0 }, (_, g) => bytes(w.group_name_ptr(g), w.group_name_len(g)))
+    // The group buses it uses, bit g for group g (#568), so the mixer shows their strips.
+    const groupsUsed = w.song_groups ? w.song_groups() : 0
     // The samples each track wants (#214): the view fetches and loads them.
     const samples = Array.from({ length: w.samples_count ? w.samples_count() : 0 }, (_, i) => ({
       synth: w.samples_synth(i), id: bytes(w.samples_id_ptr(i), w.samples_id_len(i)),
@@ -420,7 +422,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes, zones, pads,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, groupsUsed, id, recipes, zones, pads,
     })
   }
 

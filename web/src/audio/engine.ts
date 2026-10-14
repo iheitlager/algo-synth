@@ -1134,6 +1134,12 @@ export function applySong(data: Record<string, unknown>) {
     nameByTrack(t.synth, t.name)
   }
   if (replaces) hideUnused()
+  // The group buses the song uses show their strips (#568); an opened song's replace the last one's.
+  if (data.ok) {
+    const used = Array.from({ length: GROUPS }, (_, g) => g).filter((g) => ((data.groupsUsed as number | undefined) ?? 0) & (1 << g))
+    const groups = replaces ? used : [...new Set([...layout.groups, ...used])].sort((a, b) => a - b)
+    if (groups.join() !== layout.groups.join()) layout.groups = groups
+  }
   // Group buses are named by the song's `group` lines (#214): one namespace with the tracks.
   if (data.ok) {
     ;((data.groups ?? []) as Uint8Array[]).forEach((bytes, g) => {
