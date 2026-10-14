@@ -14,13 +14,14 @@
 //! copy t of a bar later with m applied; `struct("x ~ x x")` plays the notes
 //! sounding at each hit of a rhythm, each bar; `sometimes(m)` takes about half
 //! the moments from the line with m applied, from a fixed seed; `scale(c minor)`
-//! moves each note to the nearest note of the scale.
+//! moves each note to the nearest note of the scale and makes each degree a
+//! note, counted from the root in octave 3 or the one written (`a1`, #570).
 //!
 //! Every method maps a line (events and a length in bars) to a line, so
 //! nothing happens in `render`. The result is held to `MAX_EVENTS` events and
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
-use super::{Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
+use super::{Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm, resolve};
 use crate::algo::{Mode, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
@@ -47,7 +48,47 @@ pub enum Pattern {
     /// Hits and rests sharing each bar.
     Struct(Vec<bool>),
     Sometimes(Box<Pattern>),
-    Scale(Scale),
+    Scale(Key),
+}
+
+/// The scale of `.scale(a1 minor)`: a scale and the octave of its root, if
+/// written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Key {
+    pub scale: Scale,
+    pub octave: Option<u8>,
+}
+
+impl Key {
+    /// `a1` or `a`: a root and maybe its octave, 0 to 9.
+    fn parse(root: &str, mode: Mode) -> Result<Key, &'static str> {
+        let bad = "a root is a letter a to g, maybe # or b, maybe an octave";
+        let (name, octave) = match root.char_indices().last() {
+            Some((i, d)) if d.is_ascii_digit() => (&root[..i], d.to_digit(10)),
+            _ => (root, None),
+        };
+        let root = pitch_class(name).ok_or(bad)?;
+        Ok(Key {
+            scale: Scale { root, mode },
+            octave: octave.and_then(|o| u8::try_from(o).ok()),
+        })
+    }
+
+    /// The root as a MIDI note: degree 0.
+    pub fn root_note(&self) -> u8 {
+        (self.octave.unwrap_or(super::ROOT_OCTAVE) + 1) * 12 + self.scale.root
+    }
+
+    fn print(&self) -> String {
+        let name = super::NAMES
+            .get(usize::from(self.scale.root))
+            .copied()
+            .unwrap_or("c");
+        match self.octave {
+            Some(o) => format!("{name}{o} {}", self.scale.mode.name()),
+            None => format!("{name} {}", self.scale.mode.name()),
+        }
+    }
 }
 
 /// A line of events looping over `bars` bars.
@@ -190,9 +231,8 @@ impl Pattern {
                 else {
                     return Err(bad);
                 };
-                let root = pitch_class(root).ok_or("a root is a letter a to g, maybe # or b")?;
                 let mode = Mode::from_name(mode).ok_or("no scale has this mode")?;
-                Ok(Pattern::Scale(Scale { root, mode }))
+                Ok(Pattern::Scale(Key::parse(root, mode)?))
             }
             _ => Err("no such pattern method"),
         }
@@ -225,14 +265,7 @@ impl Pattern {
                 format!("struct(\"{}\")", words.join(" "))
             }
             Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
-            Pattern::Scale(sc) => format!(
-                "scale({} {})",
-                super::NAMES
-                    .get(usize::from(sc.root))
-                    .copied()
-                    .unwrap_or("c"),
-                sc.mode.name()
-            ),
+            Pattern::Scale(key) => format!("scale({})", key.print()),
         }
     }
 
@@ -299,17 +332,25 @@ impl Pattern {
                 events.extend(other.repeat(bars).events.into_iter().filter(heads));
                 Line { events, bars }
             }
-            Pattern::Scale(sc) => Line {
-                events: line
+            Pattern::Scale(key) => {
+                let mut events: Vec<Event> = line
                     .events
                     .iter()
                     .map(|e| Event {
-                        note: sc.snap(e.note),
+                        note: if e.degree {
+                            e.note
+                        } else {
+                            key.scale.snap(e.note)
+                        },
                         ..*e
                     })
-                    .collect(),
-                bars: line.bars,
-            },
+                    .collect();
+                resolve(&mut events, &key.scale, key.root_note());
+                Line {
+                    events,
+                    bars: line.bars,
+                }
+            }
         };
         check(out.bars, out.events.len())?;
         Ok(out.sorted())
@@ -553,6 +594,7 @@ mod tests {
             accent: false,
             vel: 0,
             word: 0,
+            degree: false,
         }
     }
 
@@ -799,7 +841,7 @@ mod tests {
             (
                 "scale",
                 "h minor",
-                "a root is a letter a to g, maybe # or b",
+                "a root is a letter a to g, maybe # or b, maybe an octave",
             ),
             ("scale", "c weird", "no scale has this mode"),
         ] {

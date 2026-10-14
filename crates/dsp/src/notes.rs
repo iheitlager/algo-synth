@@ -17,6 +17,11 @@
 //! to it (#241). Classic: `c4:4` is a quarter, `:1 :2 :4 :8 :16` with a dot
 //! for one and a half, `r:4` rests, and `c4:8&` slides.
 //!
+//! A number where a note goes is a degree of the scale (#570): `"0 2 [1 3]"`,
+//! `-1` below the root. The clip's `.scale(a1 minor)` or the song's `scale`
+//! line makes it a note when the song loads; until then an event holds the
+//! degree, offset by `DEGREE_ZERO`, so `add(n)` moves it by n degrees.
+//!
 //! A third form, timed notes, says exactly where each note is (#173, the
 //! form MIDI import writes): `d5@0:6 f#5@6:6:90 a4@12:24` is a note at tick
 //! 0 for 6 ticks, one at 6 with velocity 90 of 127, one at 12 for a half bar.
@@ -49,6 +54,12 @@ const CHANCE_BARS: u32 = 8;
 /// Nesting of `[ ]` and `< >`.
 const MAX_DEPTH: usize = 4;
 const MAX_FACTOR: u32 = 16;
+/// A degree is held in a note number this far up, so a negative one fits.
+pub const DEGREE_ZERO: u8 = 64;
+/// Degrees reach this far above and below the root.
+const MAX_DEGREE: i32 = 24;
+/// The octave of a scale root written without one, as in Strudel: `a` is a3.
+pub const ROOT_OCTAVE: u8 = 3;
 /// Velocities, as drums have them.
 pub const HIT_VELOCITY: f32 = 0.75;
 pub const ACCENT_VELOCITY: f32 = 1.0;
@@ -58,6 +69,8 @@ pub const ACCENT_VELOCITY: f32 = 1.0;
 pub struct Pitch {
     pub note: u8,
     pub accent: bool,
+    /// `note` is a scale degree plus `DEGREE_ZERO`, not yet a note.
+    pub degree: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,6 +153,8 @@ pub struct Event {
     /// The word of the line it came from, in `Notes::word_spans` order, so a
     /// view can light it while it plays (#205); 0 for a generated line.
     pub word: u16,
+    /// `note` is a scale degree plus `DEGREE_ZERO`, until a scale resolves it.
+    pub degree: bool,
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -267,9 +282,13 @@ impl Cursor<'_> {
         Ok(())
     }
 
-    /// `c4`, `c#4`, `eb3`, then an optional `!` for an accent.
+    /// `c4`, `c#4`, `eb3` or a degree `2`, `-1`, then an optional `!` for an
+    /// accent.
     fn pitch(&mut self) -> Result<Pitch, NoteError> {
         let at = self.col();
+        if self.peek().is_some_and(|c| c == '-' || c.is_ascii_digit()) {
+            return self.degree();
+        }
         let bad = "a note is a letter a to g, maybe # or b, and an octave 0 to 9, as c4";
         let letter = self.peek().ok_or(NoteError { col: at, msg: bad })?;
         let base: i32 = match letter {
@@ -303,11 +322,42 @@ impl Cursor<'_> {
         let Some(note) = u8::try_from(n).ok().filter(|n| *n <= 127) else {
             return err(at, "this note is out of range");
         };
+        let accent = self.accent();
+        Ok(Pitch {
+            note,
+            accent,
+            degree: false,
+        })
+    }
+
+    /// An optional `!` after a note.
+    fn accent(&mut self) -> bool {
         let accent = self.peek() == Some('!');
         if accent {
             self.i += 1;
         }
-        Ok(Pitch { note, accent })
+        accent
+    }
+
+    /// A scale degree, `2` or `-1`, kept as a degree until a scale resolves it.
+    fn degree(&mut self) -> Result<Pitch, NoteError> {
+        let at = self.col();
+        let minus = self.peek() == Some('-');
+        if minus {
+            self.i += 1;
+        }
+        let n = i32::try_from(self.number()?).unwrap_or(i32::MAX);
+        if n > MAX_DEGREE {
+            return err(at, "a degree is -24 to 24");
+        }
+        let d = if minus { -n } else { n };
+        let note = u8::try_from(i32::from(DEGREE_ZERO) + d).unwrap_or(DEGREE_ZERO);
+        let accent = self.accent();
+        Ok(Pitch {
+            note,
+            accent,
+            degree: true,
+        })
     }
 
     /// `d5@0:6` or `d5!@0:6` or `d5@0:6:90`: a note at a tick, its length in
@@ -353,6 +403,7 @@ impl Cursor<'_> {
             accent: p.accent,
             vel: u8::try_from(vel).unwrap_or(0),
             word: 0,
+            degree: p.degree,
         })
     }
 
@@ -444,7 +495,8 @@ impl Cursor<'_> {
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
                 let end = self.word_end(&['*', '@', '?', '&', ']', '>']);
-                if chord::is_note(self.c.get(self.i..end).unwrap_or(&[])) {
+                let word = self.c.get(self.i..end).unwrap_or(&[]);
+                if chord::is_note(word) || is_degree(word) {
                     Item::Note(self.pitch()?)
                 } else {
                     Item::Symbol(self.symbol(end)?)
@@ -536,7 +588,8 @@ impl Cursor<'_> {
                     .iter()
                     .rposition(|c| *c == ':')
                     .map_or(end, |k| self.i + k);
-                if chord::is_note(self.c.get(self.i..head).unwrap_or(&[])) || head == self.i {
+                let what = self.c.get(self.i..head).unwrap_or(&[]);
+                if chord::is_note(what) || is_degree(what) || head == self.i {
                     vec![self.pitch()?]
                 } else {
                     let s = self.symbol(head)?;
@@ -617,6 +670,9 @@ fn parse_euclid(cur: &mut Cursor<'_>, scale: Option<&Scale>) -> Result<Option<Se
             return err(fill_at, "a scale walk needs a scale line before it");
         }
         let p = cur.pitch()?;
+        if p.degree {
+            return err(fill_at, "a walk starts from a note, as c4");
+        }
         Fill::Walk(p.note)
     } else {
         if cur.peek().is_none() {
@@ -751,7 +807,19 @@ impl Notes {
 // --- Printing --------------------------------------------------------------
 
 fn pitch_text(p: &Pitch) -> String {
-    format!("{}{}", note_name(p.note), if p.accent { "!" } else { "" })
+    let what = if p.degree {
+        (i32::from(p.note) - i32::from(DEGREE_ZERO)).to_string()
+    } else {
+        note_name(p.note)
+    };
+    format!("{what}{}", if p.accent { "!" } else { "" })
+}
+
+/// Is `w` a degree: maybe `-`, digits, maybe `!`?
+fn is_degree(w: &[char]) -> bool {
+    let w = w.strip_prefix(&['-']).unwrap_or(w);
+    let w = w.strip_suffix(&['!']).unwrap_or(w);
+    !w.is_empty() && w.iter().all(char::is_ascii_digit)
 }
 
 fn chord_text(ps: &[Pitch]) -> String {
@@ -843,6 +911,7 @@ impl Notes {
                         let p = pitch_text(&Pitch {
                             note: e.note,
                             accent: e.accent,
+                            degree: e.degree,
                         });
                         if e.vel > 0 {
                             format!("{p}@{}:{}:{}", e.start, e.len, e.vel)
@@ -990,14 +1059,23 @@ impl Compiler<'_> {
             accent: p.accent,
             vel: 0,
             word: self.word,
+            degree: p.degree,
         });
+    }
+}
+
+/// Each degree of `events` made a note of `scale`, degree 0 being `root`.
+pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
+    for e in events.iter_mut().filter(|e| e.degree) {
+        e.note = scale.degree_note(root, i32::from(e.note) - i32::from(DEGREE_ZERO));
+        e.degree = false;
     }
 }
 
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
-pub(crate) fn sort_key(e: &Event) -> (u32, u8, u32, bool, u8) {
-    (e.start, e.note, e.len, e.accent, e.vel)
+pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8) {
+    (e.start, e.degree, e.note, e.len, e.accent, e.vel)
 }
 
 /// A line of mini-notation that plays exactly `events` (sorted, within
@@ -1034,6 +1112,7 @@ pub fn freeze(events: &[Event], bars: u32) -> Option<Notes> {
                     pitch_text(&Pitch {
                         note: e.note,
                         accent: e.accent,
+                        degree: e.degree,
                     })
                 })
                 .collect();
@@ -1119,6 +1198,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     accent: false,
                     vel: 0,
                     word: 0,
+                    degree: false,
                 });
             }
         }
@@ -1157,6 +1237,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     accent: false,
                     vel: 0,
                     word: 0,
+                    degree: false,
                 });
             }
         }
@@ -1279,9 +1360,9 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                 }
                 let start = Frac::new(i as u128, n).tick();
                 let end = Frac::new(i as u128 + 1, n).tick().max(start + 1);
-                let (note, accent) = match fill {
-                    Fill::Pitch(p) => (p.note, p.accent),
-                    Fill::Walk(from) => (scale.map_or(*from, |s| s.walk(*from, hit)), false),
+                let (note, accent, degree) = match fill {
+                    Fill::Pitch(p) => (p.note, p.accent, p.degree),
+                    Fill::Walk(from) => (scale.map_or(*from, |s| s.walk(*from, hit)), false, false),
                 };
                 hit += 1;
                 events.push(Event {
@@ -1291,6 +1372,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     accent,
                     vel: 0,
                     word: 0,
+                    degree,
                 });
             }
             (events, 1)
@@ -1308,6 +1390,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         accent: p.accent,
                         vel: 0,
                         word: u16::try_from(w).unwrap_or(u16::MAX),
+                        degree: p.degree,
                     });
                 }
                 at += len;

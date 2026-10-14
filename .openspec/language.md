@@ -93,13 +93,15 @@ swing 58
 ```text
 scale <root> <mode>
 root  = a–g [# | b]
-mode  = major minor dorian phrygian lydian mixolydian locrian pentatonic blues phrygian-dominant harmonic-minor
+mode  = major minor dorian phrygian lydian mixolydian locrian pentatonic minor-pentatonic blues phrygian-dominant harmonic-minor
 ```
 
-The song's key, read by `walk`, `prog`, roman numerals and `euclid … scale`.
+The song's key, read by `walk`, `prog`, roman numerals, `euclid … scale` and
+degrees in a clip without `.scale` (from the root in octave 3).
 `major`…`locrian`, `phrygian-dominant` (0 1 4 5 7 8 10) and `harmonic-minor`
-(0 2 3 5 7 8 11) have seven notes; `pentatonic` (0 2 4 7 9) and `blues`
-(0 3 5 6 7 10) do not, so `prog` and roman numerals refuse them.
+(0 2 3 5 7 8 11) have seven notes; `pentatonic` (0 2 4 7 9),
+`minor-pentatonic` (0 3 5 7 10) and `blues` (0 3 5 6 7 10) do not, so `prog`
+and roman numerals refuse them.
 
 ```song
 scale e phrygian-dominant
@@ -210,11 +212,19 @@ A pitch is `a`–`g`, maybe `#` or `b`, an octave `0`–`9`: `c4` is middle C
 opens the filter through the accent sweep). A line is one of five forms,
 never mixed; 48 ticks make a bar.
 
+A number where a pitch goes is a **degree** of the scale, `-24` to `24`: `0`
+is the root, `-1` the scale note below it, and past the last degree it goes
+on into the next octave. The clip's `.scale(a1 minor-pentatonic)` makes the
+degrees notes, after the methods before it (so `.add(1)` before it moves a
+degree up one); without `.scale`, the song's `scale` line does, from its root
+in octave 3; with neither, a degree is an error. Not in generators, a scale
+walk or a `voicing` clip.
+
 **Mini-notation:** one quoted cycle is one bar; its words share it.
 
 ```text
 "<word>…"
-word   = <pitch> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+word   = <pitch> | <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ? some bars only | & slide
 ```
 
@@ -233,6 +243,8 @@ clip stabs = lead
   "~ [a3!,c4!,e4!] ~ ~ ~ [a3,c4,e4]@3"
 clip slide = lead
   "c2& c3 ~ c2*2 eb2&"
+clip arp = lead .fast(8) .scale(a1 minor-pentatonic)
+  "<0 2 1 3 2>"
 ```
 
 **Classic:** notes one after another, each with a duration.
@@ -370,7 +382,7 @@ cycle is a bar; times round to the tick grid; the result keeps the limits of
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |
 | `.struct("x ~ x x")` | each bar on a rhythm of 1–48 steps: at each `x`, the notes sounding there |
 | `.sometimes(m)` | m on about half the moments, seeded |
-| `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie) |
+| `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:
 `rev`, `fast(2)`, `add(12)`.

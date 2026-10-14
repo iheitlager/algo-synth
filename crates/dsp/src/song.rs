@@ -777,6 +777,20 @@ impl Song {
                         .clips
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a clip"))?;
+                    // Degrees (#570): the clip's `.scale` makes them notes after
+                    // the methods before it; without one, the song's scale does,
+                    // at once, so `add` and voicing see notes.
+                    let keyed = clip
+                        .pattern
+                        .iter()
+                        .any(|p| matches!(p, pattern::Pattern::Scale(_)));
+                    if !keyed {
+                        song_degrees(&mut n.events, song.scale.as_ref())
+                            .map_err(|m| err(first.col, m))?;
+                    }
+                    if voiced && n.events.iter().any(|e| e.degree) {
+                        return Err(err(first.col, "voicing takes notes, not degrees"));
+                    }
                     let mut n = if voiced { n.voiced() } else { n };
                     if !clip.pattern.is_empty() {
                         let line = Line {
@@ -787,6 +801,8 @@ impl Song {
                             .map_err(|m| err(first.col, m))?;
                         (n.events, n.bars) = (line.events, line.bars);
                     }
+                    song_degrees(&mut n.events, song.scale.as_ref())
+                        .map_err(|m| err(first.col, m))?;
                     clip.notes = Some(n);
                     continue;
                 }
@@ -869,7 +885,7 @@ impl Song {
                     let mode = arg(2, "a mode goes here: scale c minor")?;
                     let m = Mode::from_name(mode.text).ok_or(err(
                         mode.col,
-                        "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, phrygian-dominant or harmonic-minor",
+                        "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, minor-pentatonic, blues, phrygian-dominant or harmonic-minor",
                     ))?;
                     expect_end(3)?;
                     if song.scale.is_some() {
@@ -2870,6 +2886,19 @@ fn pick(song: &Song, t: usize, model: Option<Model>) -> Option<Preset> {
             .find(|p| p.model() == m)
             .or_else(|| Preset::ALL.iter().map(|(p, _)| *p).find(|p| p.model() == m)),
     }
+}
+
+/// The degrees left in `events` made notes of the song's scale, from its
+/// root in octave 3; an error when there are some and the song has no scale.
+fn song_degrees(events: &mut [notes::Event], scale: Option<&Scale>) -> Result<(), &'static str> {
+    if !events.iter().any(|e| e.degree) {
+        return Ok(());
+    }
+    let sc =
+        scale.ok_or("a degree needs a scale: a scale line, or .scale(a1 minor) on the clip")?;
+    notes::resolve(events, sc, (notes::ROOT_OCTAVE + 1) * 12 + sc.root);
+    events.sort_unstable_by_key(notes::sort_key);
+    Ok(())
 }
 
 /// A parameter's registry name (ADR-0004).

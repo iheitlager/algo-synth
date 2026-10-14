@@ -127,13 +127,14 @@ pub enum Mode {
     Mixolydian,
     Locrian,
     Pentatonic,
+    MinorPentatonic,
     Blues,
     PhrygianDominant,
     HarmonicMinor,
 }
 
 impl Mode {
-    pub const ALL: [(Mode, &'static str, &'static [u8]); 11] = [
+    pub const ALL: [(Mode, &'static str, &'static [u8]); 12] = [
         (Mode::Major, "major", &[0, 2, 4, 5, 7, 9, 11]),
         (Mode::Minor, "minor", &[0, 2, 3, 5, 7, 8, 10]),
         (Mode::Dorian, "dorian", &[0, 2, 3, 5, 7, 9, 10]),
@@ -142,6 +143,7 @@ impl Mode {
         (Mode::Mixolydian, "mixolydian", &[0, 2, 4, 5, 7, 9, 10]),
         (Mode::Locrian, "locrian", &[0, 1, 3, 5, 6, 8, 10]),
         (Mode::Pentatonic, "pentatonic", &[0, 2, 4, 7, 9]),
+        (Mode::MinorPentatonic, "minor-pentatonic", &[0, 3, 5, 7, 10]),
         (Mode::Blues, "blues", &[0, 3, 5, 6, 7, 10]),
         (
             Mode::PhrygianDominant,
@@ -231,6 +233,21 @@ impl Scale {
             .min_by_key(|d| (d.abs(), *d > 0))
             .unwrap_or(0);
         u8::try_from((i32::from(note) + best).clamp(0, 127)).unwrap_or(127)
+    }
+
+    /// The note of `degree` (0 is the root, negative below it) counted from
+    /// `root`, a MIDI note of this scale's pitch class: past the last degree
+    /// it goes on into the next octave, without a walk's start-over (#570).
+    pub fn degree_note(&self, root: u8, degree: i32) -> u8 {
+        let iv = self.mode.intervals();
+        let len = i32::try_from(iv.len()).unwrap_or(1).max(1);
+        let (oct, deg) = (degree.div_euclid(len), degree.rem_euclid(len));
+        let step = iv
+            .get(usize::try_from(deg).unwrap_or(0))
+            .copied()
+            .unwrap_or(0);
+        let n = i32::from(root) + 12 * oct + i32::from(step);
+        u8::try_from(n.clamp(0, 127)).unwrap_or(127)
     }
 
     /// The note `steps` scale degrees above the scale note at or above
@@ -340,6 +357,22 @@ mod tests {
         ] {
             assert!(matches!(Euclid::parse(bad), Some(Err(_))), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_degree_counts_up_the_scale_through_the_octaves() {
+        let a_minor_pent = Scale {
+            root: 9,
+            mode: Mode::MinorPentatonic,
+        };
+        // A1 is 33: degrees 0..5 are a1 c2 d2 e2 g2 a2
+        let up: Vec<u8> = (0..6).map(|d| a_minor_pent.degree_note(33, d)).collect();
+        assert_eq!(up, [33, 36, 38, 40, 43, 45]);
+        assert_eq!(a_minor_pent.degree_note(33, -1), 31, "below the root, g1");
+        assert_eq!(a_minor_pent.degree_note(33, -5), 21, "an octave down");
+        assert_eq!(a_minor_pent.degree_note(33, 15), 69, "three octaves up");
+        assert_eq!(a_minor_pent.degree_note(120, 30), 127, "held in range");
+        assert_eq!(a_minor_pent.degree_note(2, -30), 0);
     }
 
     #[test]
