@@ -9,7 +9,8 @@ The engine only reads WAV (#122) and mixes to mono (#123), so nothing is lost
 by converting here. Standard library only; unpacking .7z needs 7zz/7z/7za (bsdtar reads the newer archives).
 
 A "voice" pack (#184) is a list of single WAV files, each with its own URL and
-checksum, built into a kit for the pad sampler: one phrase per pad.
+checksum, built into a kit for the pad sampler: one phrase per pad. A "drums"
+pack may be one too (#573): each file names its pad and choke group.
 """
 
 from __future__ import annotations
@@ -402,7 +403,8 @@ def fetch_file(pack: dict, i: int, entry: dict) -> Path:
 
 def build_voice(pack: dict, fetch=fetch_file) -> None:
     """Convert a pack of single WAV files into OUT/kits/<id>/: pad i plays file i
-    as a one-shot, named after what it says. The pack's notice goes with it."""
+    (or the file's `pad`) as a one-shot, named after what it says. The pack's
+    notice goes with it."""
     dest = OUT / "kits" / pack["id"]
     if dest.exists():
         for old in dest.glob("*"):
@@ -411,12 +413,13 @@ def build_voice(pack: dict, fetch=fetch_file) -> None:
     pads = []
     for i, entry in enumerate(pack["files"][:PADS]):
         rate, channels, samples = read_wav(fetch(pack, i, entry).read_bytes())
+        pad = entry.get("pad", i)
         stem = re.sub(r"[^A-Za-z0-9_-]+", "_", entry["name"]).strip("_")[:32]
-        name = f"{i + 1:02d}-{stem}.wav"
+        name = f"{pad + 1:02d}-{stem}.wav"
         (dest / name).write_bytes(write_mono_wav(rate, channels, samples, 60, None))
         pads.append({
-            "pad": i, "name": entry["name"], "tune": 0, "level": 0.8, "pan": 0.0,
-            "decay": 0, "choke": 0, "velLevel": 1.0, "velStart": 0.0, "oneShot": True,
+            "pad": pad, "name": entry["name"], "tune": 0, "level": 0.8, "pan": 0.0,
+            "decay": 0, "choke": entry.get("choke", 0), "velLevel": 1.0, "velStart": 0.0, "oneShot": True,
             "sample": f"kits/{pack['id']}/{name}",
         })
     meta = {"id": pack["id"], "name": pack["name"], "license": pack["license"],
@@ -453,7 +456,7 @@ def main() -> None:
             print(f"{pack['id']}: up to date")
             continue
         print(f"{pack['id']}")
-        if kind == "voice":
+        if "files" in pack:
             build_voice(pack)
         else:
             (build if kind == "instrument" else build_kit)(pack, download(pack))
