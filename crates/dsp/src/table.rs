@@ -407,6 +407,12 @@ fn read(wave: &[f32], phase: f32) -> f32 {
     a + (b - a) * frac
 }
 
+/// A wave sample as the PPG's DAC played it (#254): on the 8-bit grid, steps of
+/// 1/127 so ±1 stay exact. `floor`, not `round`: one instruction in wasm.
+pub fn dac8(y: f32) -> f32 {
+    (y * 127.0 + 0.5).floor() * (1.0 / 127.0)
+}
+
 /// A wavetable oscillator: a phase and its step.
 #[derive(Clone, Copy, Default)]
 pub struct TableOsc {
@@ -855,5 +861,26 @@ mod tests {
         so.start();
         assert!((0..100).all(|_| so.step(&t.samples[0], f32::NAN).is_finite()));
         assert_eq!(t.wave(99, 99).len(), STRIDE, "out-of-range clamps");
+    }
+
+    /// #254: through the PPG's DAC a wave sits on the 8-bit grid, crossfaded
+    /// positions too, within half a step of the clean wave; ±1 stay exact.
+    #[test]
+    fn the_dac_puts_waves_on_an_8_bit_grid() {
+        let t = Tables::new(SR);
+        let mut osc = TableOsc::default();
+        osc.set_increment(0.0123);
+        for steps in [false, true] {
+            for i in 0..2_000 {
+                let y = osc.step((&t).into(), 0, i as f32 / 2_000.0, steps);
+                let q = dac8(y);
+                let k = q * 127.0;
+                assert!((k - k.round()).abs() < 1e-4, "{q} is on the grid");
+                assert!((q - y).abs() <= 0.5 / 127.0 + 1e-6, "{y} to {q}");
+            }
+        }
+        assert_eq!(dac8(1.0), 1.0);
+        assert_eq!(dac8(-1.0), -1.0);
+        assert_eq!(dac8(0.0), 0.0);
     }
 }

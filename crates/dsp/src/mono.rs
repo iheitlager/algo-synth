@@ -64,6 +64,8 @@ pub struct MonoParams {
     pub wt_table: [usize; 2],
     pub wt_pos: [f32; 2],
     pub wt_steps: bool,
+    /// Waves on the PPG's 8-bit grid (`Param::Character`, #254).
+    pub wt_8bit: bool,
     pub env_wt: f32,
     pub lfo_wt: f32,
     /// The D-50's partials (spec 006 Req 12): each one's PCM attack (0 is synthesised), how
@@ -232,6 +234,7 @@ impl MonoParams {
             wt_table: [0; 2],
             wt_pos: [0.0; 2],
             wt_steps: false,
+            wt_8bit: false,
             env_wt: 0.0,
             lfo_wt: 0.0,
             pcm: [0; 2],
@@ -733,6 +736,7 @@ impl MonoParams {
             Param::Wt1Pos => self.wt_pos[0] = v,
             Param::Wt2Pos => self.wt_pos[1] = v,
             Param::WtSteps => self.wt_steps = v >= 0.5,
+            Param::Character => self.wt_8bit = v >= 0.5,
             Param::EnvWt => self.env_wt = v,
             Param::LfoWt => self.lfo_wt = v,
             Param::Pcm1Sample => self.pcm[0] = v.round() as usize,

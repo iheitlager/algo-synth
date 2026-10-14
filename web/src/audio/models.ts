@@ -686,7 +686,7 @@ const ppgWave: ModelDef = {
       title: 'Wave motion',
       controls: [
         range('Env → wave', Param.EnvWt, -1, 1, 0.01), range('LFO → wave', Param.LfoWt, 0, 1, 0.01),
-        sw('Steps', Param.WtSteps),
+        sw('Steps', Param.WtSteps), sw('8-bit', Param.Character),
       ],
     },
     { title: 'Noise', controls: [range('Level', Param.NoiseLevel, 0, 1, 0.01)] },

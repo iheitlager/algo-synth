@@ -29,7 +29,7 @@ use crate::mono::{MonoParams, VCOS};
 use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::ZoneMap;
-use crate::table::{TableOsc, TableSet};
+use crate::table::{TableOsc, TableSet, dac8};
 use crate::voice::Gains;
 use crate::voice::midi_to_hz;
 
@@ -624,10 +624,12 @@ impl MonoVoice {
                 let wt = [own.or(8, p.wt_pos[0]), own.or(9, p.wt_pos[1])];
                 let pos = |i: usize| (wt.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
                 let tab = |i: usize| p.wt_table.get(i).copied().unwrap_or(0);
+                // Authentic: each wave through the PPG's 8-bit DAC, after its crossfade.
+                let dac = |y: f32| if p.wt_8bit { dac8(y) } else { y };
                 (
-                    t1.step(ctx.tables, tab(0), pos(0), p.wt_steps),
+                    dac(t1.step(ctx.tables, tab(0), pos(0), p.wt_steps)),
                     None,
-                    t2.step(ctx.tables, tab(1), pos(1), p.wt_steps),
+                    dac(t2.step(ctx.tables, tab(1), pos(1), p.wt_steps)),
                 )
             } else {
                 let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
@@ -1138,6 +1140,45 @@ mod tests {
         assert!(
             (a / b - 1.0).abs() < 0.05,
             "and stands still without it: {a} {b}"
+        );
+    }
+
+    /// #254: Character Authentic plays the PPG's waves through its 8-bit DAC: a
+    /// quantisation floor near 8 bits under the clean wave. Clean is the default
+    /// and renders as before, and another model ignores the switch.
+    #[test]
+    fn ppg_authentic_is_8_bit_and_clean_is_unchanged() {
+        let render = |model: f32, character: Option<f32>| {
+            let mut patch = vec![
+                (Param::Model, model),
+                (Param::Wt1Table, 2.0),
+                (Param::Wt1Pos, 0.4),
+                (Param::Vco1Level, 1.0),
+                (Param::Vco2Level, 0.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvSustain, 1.0),
+            ];
+            patch.extend(character.map(|c| (Param::Character, c)));
+            let mut r = Rig::new(&patch);
+            r.press(45);
+            r.render(9_600)
+        };
+        let clean = render(11.0, None);
+        assert_eq!(render(11.0, Some(0.0)), clean, "Clean is the default");
+        let authentic = render(11.0, Some(1.0));
+        let rms = |x: &mut dyn Iterator<Item = f32>| {
+            let (sum, n) = x.fold((0.0_f64, 0), |(s, n), v| (s + f64::from(v * v), n + 1));
+            (sum / f64::from(n)).sqrt()
+        };
+        let signal = rms(&mut clean.iter().copied());
+        let floor = rms(&mut clean.iter().zip(&authentic).map(|(a, b)| a - b));
+        let db = 20.0 * (floor / signal).log10();
+        assert!((-55.0..-35.0).contains(&db), "an 8-bit floor: {db:.1} dB");
+        assert_eq!(
+            render(1.0, Some(1.0)),
+            render(1.0, None),
+            "the Minimoog has no wavetables to quantise"
         );
     }
 
