@@ -731,8 +731,6 @@ fn an_electro_example_parses_and_prints_back() {
     assert_eq!(Song::parse(&s.print()), Ok(s));
 }
 
-/// The songs in `examples/songs/` parse, print back equal and are arranged, and
-/// the SH-101 plays in most of those that are not drum studies.
 /// #486, ADR-0031: a song in the old words (`frag`, `section`, a `scene`
 /// that is a mixer snapshot) reads as the same song in Ableton's words, and
 /// prints in them, its comments kept.
@@ -775,23 +773,26 @@ arrange a b
     assert!(printed.contains("# the beat") && printed.contains("# quiet"));
 }
 
+/// The example songs and sounds (#562) parse, print back equal and are arranged.
 #[test]
 fn the_example_songs_parse_and_print_back() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs");
-    let mut seen = 0;
-    for entry in std::fs::read_dir(&dir).expect("examples dir") {
-        let path = entry.expect("entry").path();
-        if path.extension().is_none_or(|e| e != "song") {
-            continue;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    for (dir, want) in [("songs", 25), ("sounds", 8)] {
+        let mut seen = 0;
+        for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
+            let path = entry.expect("entry").path();
+            if path.extension().is_none_or(|e| e != "song") {
+                continue;
+            }
+            let name = path.display().to_string();
+            let text = std::fs::read_to_string(&path).expect("reads");
+            let s = Song::parse(&text).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{name}");
+            assert!(!s.arrange.is_empty(), "{name}: arranged");
+            seen += 1;
         }
-        let name = path.display().to_string();
-        let text = std::fs::read_to_string(&path).expect("reads");
-        let s = Song::parse(&text).unwrap_or_else(|e| panic!("{name}: {e:?}"));
-        assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{name}");
-        assert!(!s.arrange.is_empty(), "{name}: arranged");
-        seen += 1;
+        assert_eq!(seen, want, "examples/{dir}");
     }
-    assert_eq!(seen, 39, "thirty-nine examples");
 }
 
 const ARRANGED: &str = "\

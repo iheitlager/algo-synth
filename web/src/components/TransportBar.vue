@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
   clearAll, engineBuild, getEngine, loadDemo, meter, opened, openFiles, params, pauseSong, playSong, power, saveSong, song, songChanged, songPosition,
-  SCORES, SONGS, status, stopSong, view,
+  SCORES, SONGS, SOUNDS, status, stopSong, view,
 } from '../audio/engine'
 import { canPick, isSongFile, pickOpen } from '../audio/songfile'
 import { assistant } from '../audio/assistlink'
@@ -64,7 +64,7 @@ async function onNew() {
 // Loading a demo powers audio on, so start the scope.
 async function onDemo(e: Event) {
   const select = e.target as HTMLSelectElement
-  const demo = [...SCORES, ...SONGS].find((d) => d.file === select.value)
+  const demo = [...SCORES, ...SONGS, ...SOUNDS].find((d) => d.file === select.value)
   select.value = ''
   if (!demo) return
   await loadDemo(demo)
@@ -142,13 +142,16 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
     <!-- The Spectral Lab (ADR-0017): its own window, with its own engine. -->
     <button title="Take a WAV apart and resynthesise it, in a window of its own" @click="openLab">Lab</button>
     <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
-    <select class="picker" aria-label="Load a demo" title="Load a demo: a score or an example song" @change="onDemo">
+    <select class="picker" aria-label="Load a demo" title="Load a demo: a score, an example song or a sound" @change="onDemo">
       <option value="">Demo…</option>
       <optgroup label="Scores">
         <option v-for="d in SCORES" :key="d.file" :value="d.file">{{ d.name }}</option>
       </optgroup>
       <optgroup label="Songs">
         <option v-for="d in SONGS" :key="d.file" :value="d.file">{{ d.name }}</option>
+      </optgroup>
+      <optgroup label="Sounds">
+        <option v-for="d in SOUNDS" :key="d.file" :value="d.file">{{ d.name }}</option>
       </optgroup>
     </select>
     <button v-if="picking" title="A MIDI file, its .synths.json setup, a .song, or several" @click="onPick">Open…</button>

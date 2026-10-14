@@ -1,0 +1,37 @@
+# Moving parameters: four ways to turn a knob (language.md, auto, snapshot,
+# mod, Parameter methods). A parameter method moves a parameter while its
+# clip plays, a ~ leaving a step alone; an auto is a ramp or a lane of values
+# placed in a scene; a snapshot sets values together as a scene starts; a mod
+# line is a signal on a parameter for the whole song, per voice with env or a
+# list of LFO rates. A mod wins over an auto, so each moves its own parameter.
+tempo 118
+scale d minor
+track kit drums Tr808 Kit808
+track bass synth Sh101 Sh101Bass
+track pad synth Juno106 JunoPad
+strip pad: Level 0.6, Send2 0.4
+
+clip beat = kit /16
+  bd x...x...x...x...
+  sn ....x.......x...
+  ch x.x.x.x.x.x.x.x.
+# The cutoff follows a slow sine while this clip plays.
+clip acid = bass .cutoff(sine.slow(2).exprange(300, 2500)) .resonance(0.6)
+  "d2 d2 [f2 d2] <a1 c2>"
+# A lock: the echo send on two steps of sixteen, the knob's own value between.
+clip plain = bass .send1("~ ~ ~ ~ ~ ~ 0.5 ~ ~ ~ ~ ~ ~ ~ 0.5 ~")
+  "d2 ~ d2 ~"
+clip chords = pad voicing
+  "<i VI III VII>"
+# The pad's fader over the scene's eight bars.
+auto swell = pad.Level ramp 0.2 0.8 /8
+snapshot dry: master.P2Return 0.05, kit.Level 0.7
+snapshot wet: master.P2Return 0.4, kit.Level 0.9
+# Each pad voice its own envelope on the cutoff and its own LFO on the resonance.
+mod pad.cutoff = env(perc).exprange(300, 3000)
+mod pad.resonance = lfo([0.5, 1, 2, 3]).range(0.1, 0.5)
+mod bass.pan = sine.slow(4).range(-0.4, 0.4)
+scene a 8: beat acid chords [dry]
+scene b 8: beat plain chords swell [wet]
+scene c 8: beat acid chords [dry]
+arrange a b c

@@ -1,3 +1,8 @@
+# Rudiments: the drum lane's vocabulary, on the snare of an 808 over a click.
+# Rolls, diddles, flams and drags of the standard rudiments, two bars each,
+# then ghost notes in a groove. A lane's letters are its strokes: X an accent,
+# x a stroke, o the soft second stroke of a diddle, f a flam's grace just
+# before the stroke, d a drag's two graces; /16, /24 and /32 set the grid.
 tempo 96
 swing 50
 track kit drums Tr808 TightKit
