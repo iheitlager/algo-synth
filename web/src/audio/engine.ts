@@ -197,6 +197,20 @@ export function addSynth(model?: ModelDef): boolean {
   return true
 }
 
+/** Take the synths no song track plays off the screen, keeping one (#562). */
+function hideUnused() {
+  const used = new Set(song.tracks.map((t) => t.synth))
+  const keep = synths.list.filter((s) => used.has(s))
+  if (!keep.length) return
+  for (const s of synths.list) {
+    if (keep.includes(s)) continue
+    delete names.strips[s]
+    fromSong.delete(s)
+  }
+  synths.list = keep
+  if (!keep.includes(synths.selected)) synths.selected = keep[0]
+}
+
 /** Give synth `s` a song track on its model's first preset (ADR-0027). */
 function trackFor(s: number, model: ModelDef) {
   const first = model.presets[0]
@@ -363,11 +377,16 @@ export const SCORES: Demo[] = [
   { file: 'scores/rv297-winter.mid', name: 'Winter, RV 297' },
 ]
 
-/** The example songs, named after their files: `acid-workout.song` as `Acid workout`. */
-export const SONGS: Demo[] = __EXAMPLE_SONGS__.map((f) => {
-  const words = f.replace(/\.song$/, '').replace(/-/g, ' ')
-  return { file: `songs/${f}`, name: words.charAt(0).toUpperCase() + words.slice(1) }
-})
+/** Example files under `examples/<dir>/`, named after their files: `silver-box.song` as `Silver box`. */
+const named = (dir: string, files: string[]): Demo[] =>
+  files.map((f) => {
+    const words = f.replace(/\.song$/, '').replace(/-/g, ' ')
+    return { file: `${dir}/${f}`, name: words.charAt(0).toUpperCase() + words.slice(1) }
+  })
+/** The example songs: the song language, from simple to complex. */
+export const SONGS: Demo[] = named('songs', __EXAMPLE_SONGS__)
+/** The example sounds (#562): sound design, one idea each. */
+export const SOUNDS: Demo[] = named('sounds', __EXAMPLE_SOUNDS__)
 
 /**
  * Load a demo: a score imports as the song and picks its own synths (#327);
@@ -1088,6 +1107,8 @@ export function applySong(data: Record<string, unknown>) {
       opened.saved = text
     }
   }
+  // An opened song (a file or a demo) replaces the last one's synths, not adds to them (#562).
+  const replaces = Boolean(data.ok && opening && data.id === opening.id)
   if (opening && data.id === opening.id) opening = null
   song.text = text
   holdFold(song.draft !== song.text)
@@ -1112,6 +1133,7 @@ export function applySong(data: Record<string, unknown>) {
     show(t.synth, true)
     nameByTrack(t.synth, t.name)
   }
+  if (replaces) hideUnused()
   // Group buses are named by the song's `group` lines (#214): one namespace with the tracks.
   if (data.ok) {
     ;((data.groups ?? []) as Uint8Array[]).forEach((bytes, g) => {

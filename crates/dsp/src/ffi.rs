@@ -2939,7 +2939,7 @@ mod tests {
     #[test]
     fn no_export_panics_over_a_playing_song() {
         for text in [
-            include_str!("../../../examples/songs/clockwork-arps.song"),
+            include_str!("../../../examples/songs/seed-rave.song"),
             include_str!("../../../examples/songs/patch-bay.song"),
         ] {
             sweep_every_export(|| {

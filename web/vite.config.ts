@@ -18,7 +18,7 @@ const version = (() => {
   }
 })()
 
-// examples/ (#20): the example songs and the scores, at /examples/ in the app. The build copies
+// examples/ (#20): the example songs, the sounds (#562) and the scores, at /examples/ in the app. The build copies
 // them into dist (which algo-synth serve serves); Vite's own server serves them from the source.
 const EXAMPLES = fileURLToPath(new URL('../examples', import.meta.url))
 const exampleFiles = (sub: string) => {
@@ -29,7 +29,7 @@ const exampleFiles = (sub: string) => {
   }
 }
 function examples(): Plugin {
-  const all = () => ['songs', 'scores'].flatMap((sub) => exampleFiles(sub).map((f) => `${sub}/${f}`))
+  const all = () => ['songs', 'sounds', 'scores'].flatMap((sub) => exampleFiles(sub).map((f) => `${sub}/${f}`))
   return {
     name: 'algo-examples',
     buildStart() {
@@ -56,6 +56,7 @@ export default defineConfig({
   plugins: [vue(), examples()],
   define: {
     __EXAMPLE_SONGS__: JSON.stringify(exampleFiles('songs')),
+    __EXAMPLE_SOUNDS__: JSON.stringify(exampleFiles('sounds')),
     __APP_VERSION__: JSON.stringify(version),
     __APP_BUILD__: JSON.stringify(process.env.ALGO_BUILD_SHA || 'dev'),
     __APP_BUILT__: JSON.stringify(new Date().toISOString()),

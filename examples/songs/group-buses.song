@@ -1,0 +1,38 @@
+# Group buses: strips summed on a bus with its own level, inserts and sends
+# (sound-design.md, strip, group, master). Both drum machines go to group 1,
+# a compressed drum bus; bass and keys go to group 2, a lightly driven music
+# bus; both buses go on to group 3, so one fader rides the band (a group goes
+# only to a higher one). A snapshot mutes the drum bus for the break, an auto
+# fades the music bus in.
+tempo 124
+track kit drums Tr909 Kit909
+track perc drums Tr808 Kit808
+track bass synth Sh101 Sh101Bass
+track keys synth Dx7 FmElectricPiano
+strip kit: Out group1
+strip perc: Level 0.7, Pan 0.3, Out group1
+strip bass: Out group2
+strip keys: Level 0.7, Send2 0.3, Out group2
+group 1 drums: Level 0.9, I1Type Comp, Out group3
+group 2 music: Level 0.8, I1Type Overdrive, I1A 0.3, Out group3
+group 3 band: Level 0.9
+
+clip beat = kit /16
+  bd x...x...x...x...
+  cp ....x.......x...
+  oh ..x...x...x...x.
+clip congas = perc /16
+  lc x..x..x...x.x...
+  hc ..x...x..x....x.
+clip low = bass
+  "c2 ~ c2 [eb2 c2] ~ c2 g1 ~"
+clip chords = keys voicing
+  "<c3:m7 ab2:maj7 f2:m7 g2:7>"
+auto fade = group2.Level ramp 0 0.8 /8
+snapshot cut: group1.Mute 1
+snapshot back: group1.Mute 0
+scene intro 8: beat congas low chords fade [back]
+scene main 8: beat congas low chords [back]
+scene break 4: beat congas low chords [cut]
+scene drop 8: beat congas low chords [back]
+arrange intro main break drop
