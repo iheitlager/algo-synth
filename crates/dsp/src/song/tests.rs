@@ -1713,6 +1713,24 @@ const MIXED: &str = "track kit drums\ntrack bass synth\n\
     group 3: Out none\n\
     master: MasterGain 0.6, P1Type Echo, P1Return 0.25, P3Type Chorus\n";
 
+/// #568: the groups a song uses are those with a `group` line and those an
+/// `Out` or a pad's `out` goes to; `Out none` and the master are none.
+#[test]
+fn a_song_uses_its_group_lines_and_the_groups_it_routes_to() {
+    // group 1 and 3 have lines, group 1 is routed to, `Out none` is no group.
+    assert_eq!(Song::parse(MIXED).expect("parses").groups_used(), 0b101);
+    let routed = "track kit drums PadSampler\ntrack bass synth\n\
+        strip bass: Out group2\n\
+        pad kit 1 = upright-piano-kw/C4vH : out 5\n";
+    assert_eq!(Song::parse(routed).expect("parses").groups_used(), 0b1_0010);
+    assert_eq!(
+        Song::parse("track bass synth\nstrip bass: Out master\n")
+            .expect("parses")
+            .groups_used(),
+        0
+    );
+}
+
 #[test]
 fn mixer_lines_parse_and_print_back() {
     let s = Song::parse(MIXED).expect("parses");

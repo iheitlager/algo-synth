@@ -764,6 +764,19 @@ describe('MIDI files and setups', () => {
     expect(mod.synths.list).toEqual([0, 1])
   })
 
+  it("a song's group buses show their strips; an opened song replaces them (#568)", async () => {
+    const { mod, send, posted } = await boot()
+    send({ t: 'song', ...ok, ok: true, text: enc('buses\n'), error: null, tracks: [track('kit', 0)], groupsUsed: 0b101 })
+    expect(mod.layout.groups).toEqual([0, 2])
+    // An edit adds a group and takes none away.
+    send({ t: 'song', ...ok, ok: true, text: enc('edit\n'), error: null, tracks: [track('kit', 0)], groupsUsed: 0b010 })
+    expect(mod.layout.groups).toEqual([0, 1, 2])
+    await mod.openFiles([new File(['plain'], 'plain.song')])
+    const id = posted.filter((m) => m.t === 'song').at(-1)?.id
+    send({ t: 'song', ...ok, ok: true, text: enc('plain\n'), error: null, tracks: [track('kit', 0)], groupsUsed: 0, id })
+    expect(mod.layout.groups).toEqual([])
+  })
+
   it('Save as… picks a new file and Save writes there after; a failed write says so (#465)', async () => {
     const { mod, send } = await boot()
     const written: [string, string][] = []

@@ -1404,6 +1404,13 @@ pub extern "C" fn group_name_ptr(g: u32) -> *const u8 {
     })
 }
 
+/// The group buses the song uses, bit g for group g (#568): a `group` line,
+/// or an `Out` or a pad's `out` going to it.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_groups() -> u32 {
+    query(0, |e| u32::from(e.song().groups_used()))
+}
+
 /// Name group `g` with the name in `song_buf`, or none when it is empty: 0
 /// when the song says so, −1 for a name that isn't one.
 #[unsafe(no_mangle)]
@@ -2477,6 +2484,19 @@ mod tests {
     }
 
     #[test]
+    fn a_songs_groups_reach_the_view() {
+        init(48_000.0);
+        let text = b"track kit drums\nstrip kit: Out group2\ngroup 3 band: Level 0.9\n";
+        query((), |e| {
+            e.song_buffer(text.len())
+                .expect("fits")
+                .copy_from_slice(text)
+        });
+        assert_eq!(song_load(), 0);
+        assert_eq!(song_groups(), 0b110, "group 2 routed to, group 3 a line");
+    }
+
+    #[test]
     fn song_round_trip_through_the_abi() {
         init(48_000.0);
         let text = b"track kit drums\nclip b = kit\n  bd x.X.\n";
@@ -2492,6 +2512,7 @@ mod tests {
             (song_tracks(), song_clips(), clip_lanes(0), clip_track(0)),
             (1, 1, 1, 0)
         );
+        assert_eq!(song_groups(), 0, "no group buses");
         assert_eq!((track_name_len(0), clip_name_len(0)), (3, 1));
         assert_eq!(lane_pad(0, 0), Pad::Bd as u32);
         assert_eq!(lane_steps(0, 0), 4);
@@ -2838,6 +2859,7 @@ mod tests {
         sweep!(reset, group_name_len(_));
         sweep!(reset, group_name_ptr(_));
         sweep!(reset, group_name_set(_));
+        sweep!(reset, song_groups());
         sweep!(reset, code_set(_));
         sweep!(reset, code_error_line());
         sweep!(reset, code_error_col());

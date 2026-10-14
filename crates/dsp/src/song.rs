@@ -3330,6 +3330,28 @@ impl Song {
             .and_then(|m| m.sets.iter().find(|(p, _)| *p == param))
             .map(|(_, v)| *v)
     }
+
+    /// The group buses the song uses, bit g for group g (#568): those with a
+    /// `group` line, and those a mixer line or a pad sends to with `Out`.
+    pub fn groups_used(&self) -> u8 {
+        let bit = |out: usize| (1..=GROUPS).contains(&out).then(|| 1 << (out - 1));
+        let lines = self.mix.iter().map(|m| {
+            let named = match m.at {
+                Mix::Group(g) if g < GROUPS => 1 << g,
+                _ => 0,
+            };
+            let out = m.sets.iter().filter(|(p, _)| *p == Param::Out);
+            named
+                | out
+                    .filter_map(|(_, v)| bit(*v as usize))
+                    .fold(0, |a, b| a | b)
+        });
+        let pads = self
+            .pads
+            .iter()
+            .filter_map(|p| bit(usize::from(p.fields.out)));
+        lines.chain(pads).fold(0, |a, b| a | b)
+    }
 }
 
 pub mod lex;
