@@ -1252,6 +1252,9 @@ pub enum Param {
     NesVibratoDelay = 633,
     /// NES. A General MIDI drum key plays a drum when ≥ 0.5 (for drum tracks).
     NesKit = 634,
+    /// A digital model's converter (#209): ≥ 0.5 Authentic, as the instrument's
+    /// DAC shaped it, else Clean. The PPG Wave's waves sit on an 8-bit grid (#254).
+    Character = 635,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1339,7 +1342,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 635] = [
+    pub const ALL: [(Param, &'static str); 636] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1975,6 +1978,7 @@ impl Param {
         (Param::NesVibratoRate, "NesVibratoRate"),
         (Param::NesVibratoDelay, "NesVibratoDelay"),
         (Param::NesKit, "NesKit"),
+        (Param::Character, "Character"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -2349,7 +2353,8 @@ impl Param {
             | Param::NesDmcDirect
             | Param::NesRegion
             | Param::NesBandLimit
-            | Param::NesKit => (0.0, 1.0),
+            | Param::NesKit
+            | Param::Character => (0.0, 1.0),
             Param::NesP1Duty | Param::NesP2Duty => (0.0, 3.0),
             Param::NesP1Volume
             | Param::NesP2Volume

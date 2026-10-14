@@ -639,6 +639,7 @@ export const Param = {
   NesVibratoRate: 632,
   NesVibratoDelay: 633,
   NesKit: 634,
+  Character: 635,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
