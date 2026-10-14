@@ -149,6 +149,222 @@
           "name": "That's what Carnegie did."
         }
       ]
+    },
+    {
+      "id": "boss-dr550",
+      "name": "Boss DR-550",
+      "kind": "drums",
+      "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
+      "redistribute": false,
+      "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Boss DR-550's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-bd/Bassdrum-01.wav",
+          "sha256": "5285cd2cb734b20c5a0a318827183dff2957a71479d520f3c37fb5422bd4a96c",
+          "name": "Bass drum",
+          "pad": 0
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-rim/Rim%20Shot.wav",
+          "sha256": "7c8cb2b8862980bf83184f21f5486f35062f1c99f7481058eff26898a8e21109",
+          "name": "Rim shot",
+          "pad": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-sd/Snaredrum-01.wav",
+          "sha256": "1aa9e7acaedad168d05655a09474c7df17517d72b1c7a4efaa60aaa9ea94c227",
+          "name": "Snare",
+          "pad": 2
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-cp/Clap.wav",
+          "sha256": "6f44f968c75ae63675929bd2bc683ce0beeeeb622051f2d06924f547c717cf36",
+          "name": "Clap",
+          "pad": 3
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-perc/Agogo%20H.wav",
+          "sha256": "2c37feed375260b4830cb08f78fd639f87344833e360e6f10ec84183cff589c9",
+          "name": "Percussion",
+          "pad": 4
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-sh/Cabasa-01.wav",
+          "sha256": "e7bababbfbd0a2f858df0667919b9b7e54f81e8728a26bf68d36a2e073d63322",
+          "name": "Shaker",
+          "pad": 5
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-hh/Hat%20Closed-01.wav",
+          "sha256": "174b6088ff08e79f69869f034981dd4371cd8130dffe67f78e2b3aacd8cc528a",
+          "name": "Closed hat",
+          "pad": 6,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-tb/Tambourine.wav",
+          "sha256": "ef3814c8266d02dfd88fabc207a2162193fd31084d0e93471053f63a6ea3fe8b",
+          "name": "Tambourine",
+          "pad": 7
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-cb/Cowbell-01.wav",
+          "sha256": "2c576de8b36ac6d70cb52c6b92157f69bb6ce1e4dd06052ee810c17cb02a1c1f",
+          "name": "Cowbell",
+          "pad": 8
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-lt/Tom%20L-01.wav",
+          "sha256": "9257997caf0e7a164741250129a0cfb249d1c3c0dd78248700e5c35363a0e3db",
+          "name": "Low tom",
+          "pad": 9
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-oh/Hat%20Open-01.wav",
+          "sha256": "24c5d1e4c0685d23d115c918da170e2e54595153dadaf11b34af7f08f14d86a9",
+          "name": "Open hat",
+          "pad": 10,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-mt/Tom%20M-01.wav",
+          "sha256": "3564da2aa62fcbb7f656c54ce6819365823ea41c3e8ca131183b78cee2d3c5b5",
+          "name": "Mid tom",
+          "pad": 11
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-misc/Hi%20Q.wav",
+          "sha256": "46a5da2bc05fa9ae81a6c07aa2a6041d907636a0b220ba6445600df466b4bc7d",
+          "name": "Misc",
+          "pad": 12
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-cr/Crash.wav",
+          "sha256": "3a6b04439da5a28f61fab8d4bad3c12531a0049536c29bcd12ecd833d48604dd",
+          "name": "Crash",
+          "pad": 13
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-ht/Tom%20H-01.wav",
+          "sha256": "063ff35f8e23324cd8540e2dec68c6386a4e7b46b7c909b76cb37d3adcdfe178",
+          "name": "High tom",
+          "pad": 14
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-rd/Ride-01.wav",
+          "sha256": "721e07928ca9fcc5e20f8fd0d02f5013fba2807cddbf0c546ccf023aef3b1389",
+          "name": "Ride",
+          "pad": 15
+        }
+      ]
+    },
+    {
+      "id": "yamaha-rm50",
+      "name": "Yamaha RM50",
+      "kind": "drums",
+      "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
+      "redistribute": false,
+      "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Yamaha RM50's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-bd/BD-001.wav",
+          "sha256": "a3c118e01e4950ff2c8bc88d2bdc712806099b6686d0152a9be56f0507c2fad7",
+          "name": "Bass drum",
+          "pad": 0
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-sd/SNAREDRUM_002.wav",
+          "sha256": "bf7483c4353de3cbcac8dcdcdfa4b7b466927c706a9a6904deb0baa2bea53859",
+          "name": "Snare 2",
+          "pad": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-sd/SNAREDRUM_001.wav",
+          "sha256": "4e07fa457e82e89f409be0040cdec6a81580d37d534264e4edae6b9007543007",
+          "name": "Snare",
+          "pad": 2
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-cp/FX_059.wav",
+          "sha256": "90d11aefeddcf8abcffe81fd5a674a184e767efa88257522384734e264b0ad33",
+          "name": "Clap",
+          "pad": 3
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-perc/FX_003.wav",
+          "sha256": "496fe64a3308397608f36392bb9076b463d688f6914237b64afba575f0f5f391",
+          "name": "Percussion",
+          "pad": 4
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-sh/FX_010.wav",
+          "sha256": "70d59b62e6eee557dc77e3eceb03611818bd324972fe306300dc7a682962cee2",
+          "name": "Shaker",
+          "pad": 5
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-hh/CYMBAL_001.wav",
+          "sha256": "d4fa233d9de2214cb15cd0d714a8a8f44be9bc7240362d497ad1ff46577d2c1d",
+          "name": "Closed hat",
+          "pad": 6,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-tb/FX_030.wav",
+          "sha256": "7ecbdd9a25493356e31809a541d91c62a42918769852accef6aae552c53c423f",
+          "name": "Tambourine",
+          "pad": 7
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-cb/FX_001.wav",
+          "sha256": "d730b79409b63147d71480905e38b24492e63e5e93b5fec8cbca1f5246917493",
+          "name": "Cowbell",
+          "pad": 8
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-lt/TOMS_004.wav",
+          "sha256": "15e2f4f7e6591416408f2b4fb4229c9bbd9c76fde406db85346facc3aa2f8ba5",
+          "name": "Low tom",
+          "pad": 9
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-oh/CYMBAL_003.wav",
+          "sha256": "fd976c3992e0eef6133a1029fca3394933fa8dc6b47d65150f21fdd8686b284f",
+          "name": "Open hat",
+          "pad": 10,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-mt/TOMS_002.wav",
+          "sha256": "b09d0783e0c6a3d93fe9b2f16a7b26a9a4a476e5997667ddd3eaf880479b54c6",
+          "name": "Mid tom",
+          "pad": 11
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-misc/CYMBAL_062.wav",
+          "sha256": "7b6d4798bdf651b4f6a7f5ae7c966fa5a6b1d63d57b4421cf54e0e0c062141fe",
+          "name": "Misc",
+          "pad": 12
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-cr/CYMBAL_043.wav",
+          "sha256": "7861c60437b5dbfd68b3d185c4a7ff96e05c4d71015e038bc5aaa0002ae122f4",
+          "name": "Crash",
+          "pad": 13
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-ht/TOMS_001.wav",
+          "sha256": "ea212a7d6a5196533e433a07022664a32344837d0134fc79568b3ea2e5ae709a",
+          "name": "High tom",
+          "pad": 14
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-rd/CYMBAL_030.wav",
+          "sha256": "f7bc44c39aa0b1688b593733df7b19167cb506a97bdc7fd7c9eca56e9b079e93",
+          "name": "Ride",
+          "pad": 15
+        }
+      ]
     }
   ]
 }

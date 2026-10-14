@@ -148,15 +148,15 @@ class Ledger(unittest.TestCase):
         ids = [p["id"] for p in packs]
         self.assertEqual(len(ids), len(set(ids)))
         for p in packs:
-            self.assertRegex(p["sha256"], r"^[0-9a-f]{64}$", p["id"])
-            # The checksum, not the transport, is what guards a download (one kit is only on http).
-            self.assertTrue(p["url"].startswith(("https://", "http://")), p["id"])
+            # A pack of single files pins each one (#184).
+            for f in p.get("files", [p]):
+                self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$", p["id"])
+                # The checksum, not the transport, is what guards a download (one kit is only on http).
+                self.assertTrue(f["url"].startswith(("https://", "http://")), p["id"])
             self.assertTrue(p["license"] and p["credit"], p["id"])
-            self.assertIn(p["license"], {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}, p["id"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+            # Any other license keeps its notice (CMU), or the pack is for this machine only (#573).
+            if p["license"] not in {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}:
+                self.assertTrue("notice" in p or p.get("redistribute") is False, p["id"])
 
 
 def wav_bytes(n: int = 1600, rate: int = 16000) -> bytes:
@@ -199,6 +199,13 @@ class Voice(unittest.TestCase):
         self.assertEqual(kit["notice"], "Keep this notice.\n")
         self.assertEqual(kit["sha256"], fs.pinned(self.pack))
 
+    def test_a_file_may_name_its_pad_and_choke_group(self):
+        self.pack["files"] = [{**self.pack["files"][0], "pad": 6, "choke": 1}, {**self.pack["files"][1], "pad": 10, "choke": 1}]
+        fs.build_voice(self.pack, fetch=self.fake_fetch)
+        kit = json.loads((fs.OUT / "kits" / "voices" / "kit.json").read_text())
+        self.assertEqual([(p["pad"], p["choke"]) for p in kit["pads"]], [(6, 1), (10, 1)])
+        self.assertEqual(kit["pads"][1]["sample"], "kits/voices/11-Phrase_1_said.wav")
+
     def test_the_notice_and_the_change_reach_the_credits(self):
         fs.build_voice(self.pack, fetch=self.fake_fetch)
         fs.write_manifest()
@@ -222,7 +229,7 @@ class Voice(unittest.TestCase):
             fs.fetch_file(self.pack, 1, bad)
 
 
-class Ledger(unittest.TestCase):
+class VoiceLedger(unittest.TestCase):
     def test_every_voice_file_is_pinned_and_named(self):
         ledger = json.loads(fs.LEDGER.read_text())
         voices = [p for p in ledger["packs"] if p.get("kind") == "voice"]
@@ -233,3 +240,7 @@ class Ledger(unittest.TestCase):
             for f in p["files"]:
                 self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$")
                 self.assertTrue(f["url"].startswith("http") and f["name"])
+
+
+if __name__ == "__main__":
+    unittest.main()
