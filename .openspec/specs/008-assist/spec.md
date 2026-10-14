@@ -36,17 +36,25 @@ The server SHALL call a model through one `Provider` trait over three wire forma
 
 ### Requirement 3: The loop [MUST]
 
-For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md` and `.openspec/sound-design.md`, one text, #383, #514) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `check_song`, `render_song` and `propose_song`. `render_song` SHALL parse the song too, so the prompt does not ask for `check_song` first. With a track in focus that has no clip, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its clips, and autos, mods and snapshot values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its clips plays) but is silent SHALL go back to the model as an error with the render's measures (#430). These checks, with the structure rules between scope and render, are the gate of Requirement 7. Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
+For a request, the model SHALL get a system prompt holding how to work, the language (`.openspec/language.md` and `.openspec/sound-design.md`, one text, #383, #514) and the catalog, all the same on every request so it caches. Its first message SHALL hold the song, the track in focus and the request. Its tools SHALL be `edit_song`, `write_song`, `check_song`, `render_song` and `propose_song`. They SHALL act on a draft held by the server, seeded with the song, so the song is sent to the model once (#431): `edit_song` replaces text that occurs exactly once in the draft, or changes nothing and says why (missing, occurring more than once, empty); `write_song` replaces the whole draft; both say whether the draft parses. `check_song`, `render_song` and `propose_song` take no song. `render_song` SHALL parse the draft too, so the prompt does not ask for `check_song` first. With a track in focus that has no clip, in a song without an arrangement, `render_song` SHALL play an audition on it and say so (`auditioned`) (#430). A proposed song that does not parse SHALL go back to the model as an error. With a track in focus (#415), a proposed song that changes anything but that track (its `track` line, its strip line, its clips, and autos, mods and snapshot values on it) SHALL go back to the model as an error naming what changed. A proposed song SHALL then be rendered as `render_song` does, and one with non-finite samples, a peak above 1.0, or a track in focus that should sound (auditioned, or one of its clips plays) but is silent SHALL go back to the model as an error with the render's measures (#430). These checks, with the structure rules between scope and render, are the gate of Requirement 7. Any other song SHALL end the loop as a `song` event. A turn without tool calls SHALL end it as an answer. The loop SHALL stop at a refusal, a fatal provider error, its round limit (8) or its time limit (10 minutes), and SHALL always end with `done`, which carries the rounds, the seconds and the tokens (input, cached, output).
 
 **Implementation:** `crates/assist/src/assist.rs::run`, `crates/assist/src/scope.rs::check`, `crates/assist/src/assist.rs::system_prompt`, `crates/assist/src/assist.rs::tool_defs`, `crates/assist/src/assist.rs::Event`
 
 #### Scenario: a parse error is fixed
 
-- GIVEN a model that first writes a song with an unknown pad, then renders and proposes the fixed one
+- GIVEN a model that first edits in an unknown pad, then edits it back, renders and proposes the draft
 - WHEN the loop runs
 - THEN the check's error goes back to the model, the fixed song is the `song` event, and `done` counts three rounds and their tokens
 
 **Tests:** `crates/assist/src/assist.rs::tests::a_parse_error_goes_back_and_the_fix_is_proposed`, `crates/assist/src/assist.rs::tests::a_song_that_does_not_parse_is_not_proposed`, `crates/assist/src/assist.rs::tests::the_loop_stops_at_its_rounds_and_on_errors`, `crates/assist/src/assist.rs::tests::bad_tool_input_is_told_to_the_model`, `crates/assist/src/assist.rs::tests::the_system_prompt_holds_the_language_and_the_catalog`, `crates/assist/src/assist.rs::tests::events_serialise_as_the_contract_says`
+
+#### Scenario: the song is sent once
+
+- GIVEN a model that edits a snare into the draft, renders it, makes an edit whose `old` is not in the draft, and proposes
+- WHEN the loop runs
+- THEN the render and the proposal act on the edited draft, the bad edit goes back as an error and changes nothing, the `song` event carries the edited song, and no message after the first holds the song
+
+**Tests:** `crates/assist/src/assist.rs::tests::the_tools_act_on_a_draft_the_song_is_sent_once`, `crates/assist/src/assist.rs::tests::an_edit_replaces_text_that_occurs_once`
 
 #### Scenario: the focused track is all that changes
 
@@ -114,7 +122,7 @@ The keys SHALL come from 1Password and never be stored in git:
 ### Requirement 6: An eval set [SHOULD]
 
 The assistant SHALL have an eval set: about thirty requests on starting songs from `examples/songs/`, or on a song given in the case.
-- **What they ask:** add a part, change a groove, re-harmonise, make a scene build, write a song from scratch, fix a song that does not load, or answer a question without changing anything.
+- **What they ask:** add a part, change a groove, re-harmonise, make a scene build, write a song from scratch, fix a song that does not load, or answer a question without changing anything. A few ask a small change of a long song, where the tokens show what the draft (#431) saves.
 - **Grading, by code:** a song expected SHALL be proposed, parse and render clean (no non-finite samples, peak at most 1.0), and then pass the case's checks: clips and tracks kept, tempo, swing, more lanes of a pad, more clips, tracks or scenes, a track on a model, the text holding something. A question SHALL be answered in words with no song.
 - **The runner:** `assist eval --provider ID --model ID` SHALL run the cases through the real loop and report, per case and in total, the pass, the gate's rules that fired (#453), the rounds, the tokens (input, cached, output), the seconds and, where the prices are known, the cost.
 

@@ -1,7 +1,7 @@
 //! The assist loop (#385, ADR-0028): the model gets the language, the
-//! engine's catalog, the song and a request; it checks and renders songs
-//! with the tools and ends by proposing one, which the engine has parsed.
-//! Every step goes out as an event.
+//! engine's catalog, the song and a request; it edits a draft of the song
+//! held here, checks and renders it with the tools and ends by proposing
+//! it, which the engine has parsed. Every step goes out as an event.
 
 use crate::gate::{self, Finding};
 use crate::provider::{Msg, Provider, ProviderError, Stop, ToolCall, ToolDef, ToolResult, Usage};
@@ -111,30 +111,43 @@ impl Event {
     }
 }
 
-/// The tools the model may call.
+/// The tools the model may call. They act on a draft of the song held here
+/// (#431), so the song goes to the model once and never comes back.
 pub fn tool_defs() -> Vec<ToolDef> {
-    let song = json!({"type": "string", "description": "The whole song text."});
     vec![
         ToolDef {
-            name: "check_song",
-            description: "Parse a song with the engine's parser. Returns ok and its tracks, clips, scenes and bars, or the first error with its line and column. render_song parses too; use this for a quick look at the structure.",
-            schema: json!({"type": "object", "properties": {"song": song}, "required": ["song"], "additionalProperties": false}),
+            name: "edit_song",
+            description: "Change the draft: replace the text `old`, which must occur exactly once in it, with `new`. Copy `old` exactly, with its spaces, and give enough of it to be unique; keep edits small. Returns whether the draft parses after the edit, or its first error with its line and column. Nothing changes if `old` occurs no time or more than once.",
+            schema: json!({"type": "object", "properties": {
+                "old": {"type": "string", "description": "The exact text to replace, occurring once in the draft."},
+                "new": {"type": "string", "description": "The text to put in its place."}
+            }, "required": ["old", "new"], "additionalProperties": false}),
         },
         ToolDef {
-            name: "render_song",
-            description: "Play a song offline and measure it: non-finite samples, peak (above 1.0 clips), RMS and stereo width, RMS per arrangement entry, each track's peak and level on its strip, and each Modular SynthDef's build. It parses the song first. A track in focus without clips, in a song without an arrangement, plays an audition phrase (auditioned: true). Use it to check the mix and that every part sounds.",
+            name: "write_song",
+            description: "Replace the whole draft with a song. Only for a song written from nothing or rewritten throughout; change an existing song with edit_song. Returns whether it parses, or its first error with its line and column.",
             schema: json!({"type": "object", "properties": {
-                "song": song,
-                "bars": {"type": "integer", "description": "How many bars to render, at most 64; default the arrangement, or 4 without one."}
+                "song": {"type": "string", "description": "The whole song text."}
             }, "required": ["song"], "additionalProperties": false}),
         },
         ToolDef {
-            name: "propose_song",
-            description: "Propose the finished song to the user, who sees a diff and applies it. It must parse, stay within the track in focus, leave no clip, auto lane or heard track unplayed by the arrangement, and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the rules it broke and what to change. Propose once, when it renders cleanly.",
+            name: "check_song",
+            description: "Parse the draft with the engine's parser. Returns ok and its tracks, clips, scenes and bars, or the first error with its line and column. render_song parses too; use this for a quick look at the structure.",
+            schema: json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        },
+        ToolDef {
+            name: "render_song",
+            description: "Play the draft offline and measure it: non-finite samples, peak (above 1.0 clips), RMS and stereo width, RMS per arrangement entry, each track's peak and level on its strip, and each Modular SynthDef's build. It parses the song first. A track in focus without clips, in a song without an arrangement, plays an audition phrase (auditioned: true). Use it to check the mix and that every part sounds.",
             schema: json!({"type": "object", "properties": {
-                "song": song,
+                "bars": {"type": "integer", "description": "How many bars to render, at most 64; default the arrangement, or 4 without one."}
+            }, "additionalProperties": false}),
+        },
+        ToolDef {
+            name: "propose_song",
+            description: "Propose the draft to the user, who sees a diff and applies it. It must parse, stay within the track in focus, leave no clip, auto lane or heard track unplayed by the arrangement, and render cleanly: no non-finite samples, no clipping, the track in focus not silent; otherwise it is refused with the rules it broke and what to change. Propose once, when it renders cleanly.",
+            schema: json!({"type": "object", "properties": {
                 "summary": {"type": "string", "description": "What you changed and why, in one short paragraph."}
-            }, "required": ["song", "summary"], "additionalProperties": false}),
+            }, "required": ["summary"], "additionalProperties": false}),
         },
     ]
 }
@@ -148,9 +161,10 @@ pub fn system_prompt() -> &'static str {
             "You write and change songs for algo-synth, a synthesizer in the browser. A song is a text in the language defined below; the user's engine parses it and plays it.\n\n\
 How to work:\n\
 - You get the current song and a request. Change what the request asks for and keep the rest: names, comments, settings, mixer lines and the arrangement, unless the request is about them.\n\
-- Render every song you write with render_song; it parses it too and reports the first error with its line and column. Aim for no non-finite samples, the peak below 1.0, every new or changed part audible, and the parts balanced (drums and bass lead, pads and arps under them).\n\
+- The song is your draft. Change it with edit_song, in small edits, each replacing text that occurs once in it; never send the whole song to change part of it. Use write_song only for a song written from nothing or rewritten throughout. The other tools act on the draft.\n\
+- Render the draft with render_song when you have changed it; it parses it too and reports the first error with its line and column. Aim for no non-finite samples, the peak below 1.0, every new or changed part audible, and the parts balanced (drums and bass lead, pads and arps under them).\n\
 - A track in focus without clips is auditioned: the render plays a phrase on it (\"auditioned\": true). Don't add a clip just to hear it.\n\
-- When it renders cleanly, call propose_song once with the whole song and a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent, or that adds a clip, auto lane or track the arrangement never plays. The user reviews a diff and applies it.\n\
+- When it renders cleanly, call propose_song once with a short summary. It renders the song again and refuses one that clips, has non-finite samples or leaves the track in focus silent, or that adds a clip, auto lane or track the arrangement never plays. The user reviews a diff and applies it.\n\
 - If the request is a question, answer it in text and propose nothing.\n\
 - Use only the models, presets, pads, parameters and scales of the catalog.\n\n\
 <language>\n{LANGUAGE}\n</language>\n\n<catalog>\n{}</catalog>\n",
@@ -211,13 +225,48 @@ fn first_message(req: &Request) -> String {
     )
 }
 
-/// The song in a tool's input, or why there is none.
-fn song_of(call: &ToolCall) -> Result<&str, String> {
-    match call.input.get("song").and_then(Value::as_str) {
-        Some(s) if s.len() <= 1 << 20 => Ok(s),
-        Some(_) => Err("the song is longer than 1 MB".into()),
-        None => Err("`song` must be the song text, as a string".into()),
+/// The longest draft, in bytes.
+const DRAFT_LIMIT: usize = 1 << 20;
+
+/// A string field of a tool's input, or why there is none.
+fn text_of<'a>(call: &'a ToolCall, field: &str) -> Result<&'a str, String> {
+    call.input
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("`{field}` must be a string"))
+}
+
+/// The draft with `old`, which must occur once, replaced by `new` (#431),
+/// and the line the edit starts on; or why it can't be.
+fn edit(draft: &str, old: &str, new: &str) -> Result<(String, usize), String> {
+    if old.is_empty() {
+        return Err(
+            "`old` is empty: give the text to replace, or write the whole song with write_song"
+                .into(),
+        );
     }
+    // Every start of `old`, overlapping ones too: in `x...x...x`, `x...x`
+    // occurs twice.
+    let at: Vec<usize> = draft
+        .char_indices()
+        .map(|(i, _)| i)
+        .filter(|&i| draft[i..].starts_with(old))
+        .collect();
+    let i = match at[..] {
+        [] => return Err("`old` is not in the draft: copy it exactly, with its spaces".into()),
+        [i] => i,
+        _ => {
+            return Err(format!(
+                "`old` occurs {} times in the draft: give lines around it so it occurs once",
+                at.len()
+            ));
+        }
+    };
+    let song = format!("{}{new}{}", &draft[..i], &draft[i + old.len()..]);
+    if song.len() > DRAFT_LIMIT {
+        return Err("the song would be longer than 1 MB".into());
+    }
+    Ok((song, draft[..i].matches('\n').count() + 1))
 }
 
 /// What a tool did: its answer to the model, a line for the browser, the
@@ -231,7 +280,12 @@ struct Ran {
     proposed: Option<(String, String, Vec<Finding>)>,
 }
 
-async fn run_tool(call: &ToolCall, req: &Request, render_time: Duration) -> Ran {
+async fn run_tool(
+    call: &ToolCall,
+    req: &Request,
+    draft: &mut String,
+    render_time: Duration,
+) -> Ran {
     let answer = |content: Value, ok: bool, summary: String| Ran {
         result: ToolResult {
             id: call.id.clone(),
@@ -255,13 +309,59 @@ async fn run_tool(call: &ToolCall, req: &Request, render_time: Duration) -> Ran 
             ..answer(v, false, summary)
         }
     };
-    let song = match song_of(call) {
-        Ok(s) => s.to_string(),
-        Err(why) => return answer(json!({"error": why}), false, why),
+    // An edit or a write sets the draft and says whether it parses.
+    let wrote = |draft: &str, did: String| {
+        let c = tools::check(draft);
+        let summary = match &c.error {
+            None => did,
+            Some(e) => format!("{did}; line {}, col {}: {}", e.line, e.col, e.msg),
+        };
+        answer(
+            json!({"ok": true, "parses": c.ok, "error": c.error}),
+            true,
+            summary,
+        )
     };
+    // The song is the draft's (#431): a song sent to a tool that acts on it
+    // would be dropped unseen, so say so.
+    let on_draft = matches!(
+        call.name.as_str(),
+        "check_song" | "render_song" | "propose_song"
+    );
+    if on_draft && call.input.get("song").is_some() {
+        let why = format!(
+            "{} takes no song: it acts on the draft; change the draft with edit_song or write_song",
+            call.name
+        );
+        return answer(json!({"error": why}), false, why);
+    }
     match call.name.as_str() {
+        "edit_song" => {
+            let edited = text_of(call, "old").and_then(|old| {
+                let new = text_of(call, "new")?;
+                edit(draft, old, new)
+            });
+            match edited {
+                Ok((song, line)) => {
+                    *draft = song;
+                    wrote(draft, format!("edited from line {line}"))
+                }
+                Err(why) => answer(json!({"error": why}), false, why),
+            }
+        }
+        "write_song" => match text_of(call, "song") {
+            Ok(s) if s.len() > DRAFT_LIMIT => {
+                let why = "the song is longer than 1 MB".to_string();
+                answer(json!({"error": why}), false, why)
+            }
+            Ok(s) => {
+                *draft = s.to_string();
+                wrote(draft, format!("wrote {} lines", draft.lines().count()))
+            }
+            Err(why) => answer(json!({"error": why}), false, why),
+        },
         "check_song" => {
-            let c = tools::check(&song);
+            let c = tools::check(draft);
             let summary = match &c.error {
                 None => format!(
                     "parses: {} tracks, {} clips, {} bars",
@@ -285,7 +385,7 @@ async fn run_tool(call: &ToolCall, req: &Request, render_time: Duration) -> Ran 
                 .and_then(Value::as_u64)
                 .unwrap_or(64)
                 .clamp(1, 64);
-            match measure(&song, req.focus.as_deref(), bars, render_time).await {
+            match measure(draft, req.focus.as_deref(), bars, render_time).await {
                 Ok(m) => {
                     let fault = m.fault();
                     let summary = format!(
@@ -306,6 +406,7 @@ async fn run_tool(call: &ToolCall, req: &Request, render_time: Duration) -> Ran 
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
+            let song = draft.clone();
             // The gate (#453), in the order of `gate::RULES`.
             let after = match Song::parse(&song) {
                 Ok(s) => s,
@@ -502,6 +603,7 @@ pub async fn run<P: Provider>(
     let defs = tool_defs();
     let system = system_prompt();
     let mut msgs = vec![Msg::User(first_message(req))];
+    let mut draft = req.song.clone();
     let mut usage = Usage::default();
     let mut rounds = 0;
     let fail = |message: String, retryable: bool| Event::Error { message, retryable };
@@ -556,7 +658,7 @@ pub async fn run<P: Provider>(
         let mut results = Vec::new();
         let mut proposed = None;
         for call in &turn.calls {
-            let ran = run_tool(call, req, limits.render_time).await;
+            let ran = run_tool(call, req, &mut draft, limits.render_time).await;
             emit(Event::Tool {
                 round: rounds,
                 name: call.name.clone(),
@@ -691,14 +793,8 @@ mod tests {
     async fn an_instrument_without_clips_is_auditioned() {
         let song = "tempo 120\ntrack lead synth\n";
         let p = Scripted::new(vec![
-            Ok(calls(vec![(
-                "render_song",
-                json!({"song": song, "bars": 2}),
-            )])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": song, "summary": "a lead"}),
-            )])),
+            Ok(calls(vec![("render_song", json!({"bars": 2}))])),
+            Ok(calls(vec![("propose_song", json!({"summary": "a lead"}))])),
         ]);
         let req = Request {
             song: song.into(),
@@ -728,22 +824,24 @@ mod tests {
     /// refused with why; the fix goes.
     #[tokio::test]
     async fn a_silent_track_in_focus_is_not_proposed() {
-        let hush = GOOD.replace("bd x...x...x...x...", "bd ................");
+        let (kick, hush) = ("bd x...x...x...x...", "bd ................");
         let p = Scripted::new(vec![
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": hush, "summary": "quiet"}),
-            )])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": GOOD, "summary": "a kick"}),
-            )])),
+            Ok(calls(vec![
+                ("edit_song", json!({"old": kick, "new": hush})),
+                ("propose_song", json!({"summary": "quiet"})),
+            ])),
+            Ok(calls(vec![
+                ("edit_song", json!({"old": hush, "new": kick})),
+                ("propose_song", json!({"summary": "a kick"})),
+            ])),
         ]);
         let ev = events(&p, LoopLimits::default()).await;
         assert_eq!(
             tool_lines(&ev),
             [
+                ("edit_song".into(), true, "edited from line 4".into()),
                 ("propose_song".into(), false, "`kit` is silent".into()),
+                ("edit_song".into(), true, "edited from line 4".into()),
                 ("propose_song".into(), true, "proposed".into())
             ]
         );
@@ -774,20 +872,21 @@ mod tests {
         );
     }
 
-    /// The model's bad song is checked, the error goes back, the fix is
+    /// The model's bad edit is checked, the error goes back, the fix is
     /// rendered and proposed: the song event carries it, done counts it all.
     #[tokio::test]
     async fn a_parse_error_goes_back_and_the_fix_is_proposed() {
+        let (kick, bad) = ("bd x...x...x...x...", "zz x...");
         let p = Scripted::new(vec![
-            Ok(calls(vec![("check_song", json!({"song": BAD}))])),
-            Ok(calls(vec![(
-                "render_song",
-                json!({"song": GOOD, "bars": 1}),
-            )])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": GOOD, "summary": "a kick"}),
-            )])),
+            Ok(calls(vec![
+                ("edit_song", json!({"old": kick, "new": bad})),
+                ("check_song", json!({})),
+            ])),
+            Ok(calls(vec![
+                ("edit_song", json!({"old": bad, "new": kick})),
+                ("render_song", json!({"bars": 1})),
+            ])),
+            Ok(calls(vec![("propose_song", json!({"summary": "a kick"}))])),
         ]);
         let ev = events(&p, LoopLimits::default()).await;
         let tools: Vec<(String, bool)> = ev
@@ -800,7 +899,9 @@ mod tests {
         assert_eq!(
             tools,
             [
+                ("edit_song".into(), true),
                 ("check_song".into(), false),
+                ("edit_song".into(), true),
                 ("render_song".into(), true),
                 ("propose_song".into(), true)
             ]
@@ -835,23 +936,28 @@ mod tests {
             panic!("the check's result: {:?}", seen[1])
         };
         assert!(
-            r[0].is_error && r[0].content.contains("a pad is"),
-            "{:?}",
+            !r[0].is_error && r[0].content.contains("\"parses\":false"),
+            "the edit went in and does not parse: {:?}",
             r[0]
+        );
+        assert!(
+            r[1].is_error && r[1].content.contains("a pad is"),
+            "{:?}",
+            r[1]
         );
     }
 
     #[tokio::test]
     async fn a_song_that_does_not_parse_is_not_proposed() {
         let p = Scripted::new(vec![
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": BAD, "summary": "x"}),
-            )])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": GOOD, "summary": "fixed"}),
-            )])),
+            Ok(calls(vec![
+                ("write_song", json!({"song": BAD})),
+                ("propose_song", json!({"summary": "x"})),
+            ])),
+            Ok(calls(vec![
+                ("write_song", json!({"song": GOOD})),
+                ("propose_song", json!({"summary": "fixed"})),
+            ])),
         ]);
         let ev = events(&p, LoopLimits::default()).await;
         assert!(
@@ -873,14 +979,14 @@ mod tests {
         let faster = GOOD.replace("tempo 120", "tempo 128");
         let snare = format!("{GOOD}  sn ....x.......x...\n");
         let p = Scripted::new(vec![
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": faster, "summary": "x"}),
-            )])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": snare, "summary": "a snare"}),
-            )])),
+            Ok(calls(vec![
+                ("write_song", json!({"song": faster})),
+                ("propose_song", json!({"summary": "x"})),
+            ])),
+            Ok(calls(vec![
+                ("write_song", json!({"song": snare})),
+                ("propose_song", json!({"summary": "a snare"})),
+            ])),
         ]);
         let ev = events(&p, LoopLimits::default()).await;
         assert!(
@@ -907,14 +1013,14 @@ mod tests {
         );
         let gap = start.replace("arrange a", "scene gap 1:\narrange a gap");
         let p = Scripted::new(vec![
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": stray, "summary": "x"}),
-            )])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": gap, "summary": "a break"}),
-            )])),
+            Ok(calls(vec![
+                ("write_song", json!({"song": stray})),
+                ("propose_song", json!({"summary": "x"})),
+            ])),
+            Ok(calls(vec![
+                ("write_song", json!({"song": gap})),
+                ("propose_song", json!({"summary": "a break"})),
+            ])),
         ]);
         let req = Request {
             song: start,
@@ -934,9 +1040,9 @@ mod tests {
             panic!("the refusal: {:?}", seen[1])
         };
         assert!(
-            r[0].is_error && r[0].content.contains("unused-clip"),
+            r[1].is_error && r[1].content.contains("unused-clip"),
             "{:?}",
-            r[0]
+            r[1]
         );
         let warned = ev.iter().find_map(|e| match e {
             Event::Song { warnings, .. } => Some(warnings.clone()),
@@ -952,7 +1058,7 @@ mod tests {
     #[tokio::test]
     async fn the_loop_stops_at_its_rounds_and_on_errors() {
         let busy: Vec<_> = (0..5)
-            .map(|_| Ok(calls(vec![("check_song", json!({"song": GOOD}))])))
+            .map(|_| Ok(calls(vec![("check_song", json!({}))])))
             .collect();
         let ev = events(
             &Scripted::new(busy),
@@ -1008,13 +1114,10 @@ mod tests {
     async fn bad_tool_input_is_told_to_the_model() {
         let p = Scripted::new(vec![
             Ok(calls(vec![
-                ("check_song", json!("{not json")),
-                ("nope", json!({"song": GOOD})),
+                ("edit_song", json!("{not json")),
+                ("nope", json!({})),
             ])),
-            Ok(calls(vec![(
-                "propose_song",
-                json!({"song": GOOD, "summary": ""}),
-            )])),
+            Ok(calls(vec![("propose_song", json!({"summary": ""}))])),
         ]);
         let ev = events(&p, LoopLimits::default()).await;
         let bad: Vec<_> = ev
@@ -1022,6 +1125,63 @@ mod tests {
             .filter(|e| matches!(e, Event::Tool { ok: false, .. }))
             .collect();
         assert_eq!(bad.len(), 2, "{ev:?}");
+    }
+
+    /// An edit replaces text that occurs once (#431); text that is missing,
+    /// occurs twice or is empty changes nothing and says why.
+    #[test]
+    fn an_edit_replaces_text_that_occurs_once() {
+        let (song, line) = edit(GOOD, "tempo 120", "tempo 128").expect("once");
+        assert_eq!((song, line), (GOOD.replace("120", "128"), 1));
+        let (_, line) = edit(GOOD, "  bd", "  sn").expect("once");
+        assert_eq!(line, 4);
+        let err = |old: &str| edit(GOOD, old, "x").unwrap_err();
+        assert!(err("tempo 140").contains("not in the draft"));
+        assert!(err("kit").contains("occurs 2 times"));
+        assert!(
+            edit("bd x...x...x", "x...x", "-")
+                .unwrap_err()
+                .contains("occurs 2 times"),
+            "overlapping occurrences count"
+        );
+        assert!(err("").contains("write_song"));
+    }
+
+    /// The draft (#431): an edit changes it, render and propose act on it,
+    /// the song event carries it, and after the first message the song is
+    /// never sent to the model again.
+    #[tokio::test]
+    async fn the_tools_act_on_a_draft_the_song_is_sent_once() {
+        let kick = "  bd x...x...x...x...\n";
+        let more = format!("{kick}  sn ....x.......x...\n");
+        let p = Scripted::new(vec![
+            Ok(calls(vec![
+                ("edit_song", json!({"old": kick, "new": more})),
+                ("render_song", json!({"bars": 1})),
+            ])),
+            Ok(calls(vec![
+                ("edit_song", json!({"old": "nope", "new": "x"})),
+                ("check_song", json!({"song": GOOD})),
+                ("propose_song", json!({"summary": "a snare"})),
+            ])),
+        ]);
+        let ev = events(&p, LoopLimits::default()).await;
+        let lines = tool_lines(&ev);
+        assert!(lines[1].1, "the edited draft renders: {lines:?}");
+        assert!(!lines[2].1 && lines[2].2.contains("not in the draft"));
+        assert!(!lines[3].1 && lines[3].2.contains("takes no song"));
+        assert!(ev.contains(&Event::Song {
+            song: GOOD.replace(kick, &more),
+            summary: "a snare".into(),
+            warnings: vec![],
+        }));
+        let seen = p.seen.lock().unwrap();
+        let Msg::User(first) = &seen[1][0] else {
+            panic!("a user message first")
+        };
+        assert!(first.contains("track kit drums"));
+        let rest = format!("{:?}", &seen[1][1..]);
+        assert!(!rest.contains("track kit drums"), "{rest}");
     }
 
     #[test]
