@@ -1,0 +1,78 @@
+# SID Shadows (#112): an original tune in the style of Ben Daglish's and
+# Anthony Lees's moody C64 scores (The Last Ninja), on the 8580.
+#
+# 107 BPM is seven frames a sixteenth at 50 Hz. A minor/major arpeggio bed
+# steps every second frame; a saw pad sits behind a resonant 8580 low-pass the
+# clip sweeps register by register; the bass is a triangle synced to a lower
+# oscillator; the lead sings slowly with a long, late vibrato.
+tempo 107
+
+setting arp_min = Sid SidArp: Polyphony 1, SidChip 1, SidArp 2, SidArpSpeed 2, Sid1Wave 4, Sid1Pw 600, Sid1PwSweep 12, Sid1Sustain 8, Sid1Release 7
+setting arp_maj = Sid SidArp: Polyphony 1, SidChip 1, SidArp 1, SidArpSpeed 2, Sid1Wave 4, Sid1Pw 600, Sid1PwSweep 12, Sid1Sustain 8, Sid1Release 7
+setting pad = Sid SidLead: Polyphony 3, SidChip 1, Sid1Wave 2, Sid1Pw 2048, Sid1PwSweep 0, Sid1Attack 10, Sid1Decay 10, Sid1Sustain 12, Sid1Release 11, SidResonance 13, SidVibrato 0
+setting bass = Sid SidSync: SidChip 1, Sid1Wave 1, Sid1Coarse 0, Sid1Sync 0, Sid2Wave 4, Sid2Coarse -12, Sid2Pw 1800, Sid2Ring 0, Sid1Decay 7, Sid1Sustain 9, Sid2Decay 6, Sid2Sustain 6, SidVibrato 0
+setting lead = Sid SidLead: SidChip 1, Sid1Wave 4, Sid1Pw 1600, Sid1PwSweep 10, Sid1Attack 3, Sid1Release 9, SidCutoff 1300, SidResonance 6, SidVibrato 0.35, SidVibratoRate 5, SidVibratoDelay 30
+
+setting tick = Modular ModularSid
+  SynthDef(\tick, { |freq = 3000, gate = 1|
+      SidFilter.ar(SidOsc.ar(freq, 8), 600, 4, 4, 1) * EnvGen.kr(Env.perc(0.001, 0.05), gate)
+  }).add;
+
+setting thud = Modular ModularSid
+  SynthDef(\thud, { |freq = 45, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.35), gate);
+      SidOsc.ar(freq * EnvGen.kr(Env([5, 1], [0.08], [-4]), gate), 1, 2048, 1) * env
+  }).add;
+
+track arp_min synth arp_min
+track arp_maj synth arp_maj
+track pad synth pad
+track bass synth bass
+track lead synth lead
+track tick synth tick
+track thud synth thud
+
+strip arp_min: Level 0.4, Pan 0.25, Send1 0.2
+strip arp_maj: Level 0.4, Pan 0.25, Send1 0.2
+strip pad: Level 0.35, Pan -0.25, Send2 0.3
+strip bass: Level 0.75
+strip lead: Level 0.55, Send1 0.25, Send2 0.2
+strip tick: Level 0.45, Pan 0.4
+strip thud: Level 0.8
+master: MasterGain 0.8, P1Return 0.3, P1A 0.7, P1B 0.4, P1D 1, P2Return 0.3, P2A 0.75
+
+# D minor: Dm Bb C Am, then Gm Bb A.
+clip arps_min = arp_min
+  "<d4 ~ ~ a3>"
+clip arps_maj = arp_maj
+  "<~ bb3 c4 ~>"
+clip arps_min2 = arp_min
+  "<g3 ~ ~ ~>"
+clip arps_maj2 = arp_maj
+  "<~ bb3 a3 a3>"
+
+clip pads = pad .sidcutoff(sine.slow(8).range(250, 1100))
+  "<[d3,f3,a3] [d3,f3,bb3] [e3,g3,c4] [c3,e3,a3]>"
+clip pads2 = pad .sidcutoff(sine.slow(8).range(350, 1400))
+  "<[d3,g3,bb3] [d3,f3,bb3] [c#3,e3,a3] [c#3,e3,a3]>"
+
+clip bass_a = bass
+  "<[d2 ~ d2 a1 ~ d2 ~ c2] [bb1 ~ bb1 f1 ~ bb1 ~ a1] [c2 ~ c2 g1 ~ c2 ~ e2] [a1 ~ a1 e1 ~ a1 ~ c2]>"
+clip bass_b = bass
+  "<[g1 ~ g1 d2 ~ g1 ~ f1] [bb1 ~ bb1 f1 ~ bb1 ~ c2] [a1 ~ a1 e1 ~ a1 ~ c#2] [a1 ~ e1 a1 c#2 e2 a2 ~]>"
+
+clip lead_a = lead
+  d5:4. e5:8 f5:4 e5:8 d5:8 bb4:2. c5:8 d5:8 e5:4. g5:8 f5:8 e5:8 c5:4 a4:1
+clip lead_b = lead
+  bb4:8 d5:8 g5:4. f5:8 d5:8 bb4:8 f5:4. d5:8 bb4:4 c#5:4 e5:4 a5:4 g5:8 f5:8 e5:2
+
+clip ticks = tick
+  "~ c7 ~ c7 ~ c7 ~ [c7 c7]"
+clip thuds = thud
+  "c2 ~ ~ ~ ~ ~ c2 ~"
+
+scene intro 4: arps_min arps_maj pads
+scene verse 8: arps_min arps_maj pads bass_a lead_a ticks thuds
+scene turn 4: arps_min2 arps_maj2 pads2 bass_b lead_b ticks thuds
+scene outro 4: arps_min arps_maj pads
+arrange intro verse turn verse outro

@@ -38,3 +38,4 @@ ADR-0020 decides that a Modular synth's voice is a graph of unit generators writ
 ## Later decisions
 
 - **Superseded in part by ADR-0024:** the lowercase language and `|>` gave way to a subset of sclang, run once at build time. How a built program runs holds: fixed per-voice limits, the program copied per note, no transcendental call per sample.
+- **The fixed limits became caps (ADR-0024, #216).** The limits above are those of the first voice language. A program's state is now sized when its code is set, within caps that grew with the UGens (512 nodes, 64 oscillators, 32 phases, 8 filters, 8 envelopes, 32 resonators, 32 delay lines, …), and a voice cap from a rough cost per voice bounds how many of its voices sound. The caps are the `MAX_*` constants in `crates/dsp/src/modular.rs`; `.openspec/sound-design.md` lists them for a sound designer. Lists are sclang arrays, evaluated at build time, with no limit of their own.

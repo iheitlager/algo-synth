@@ -1,5 +1,6 @@
-# Patch Bay: peak-time techno in G minor. A 909 does the drums; every other
-# voice but the acid line is a SuperCollider SynthDef on the Modular synth.
+# Patch Bay: peak-time techno in G minor. A 909 does the drums and a TB-303
+# the acid line; every other voice is a SuperCollider SynthDef on the
+# Modular synth.
 # A rolling sub, an ms20-filtered dub stab into the echo, an FM ping, a
 # Splay pad, a noise zap and a rave hoover for the drop.
 tempo 132
@@ -61,7 +62,7 @@ setting hoov = Modular ModularBasic
 
 track kit drums Tr909 Kit909
 track sub synth rumble
-track acid synth Sh101 AcidBass
+track acid synth Tb303 Tb303Acid
 track stab synth stab
 track ping synth ping
 track pad synth haze
@@ -104,7 +105,7 @@ clip pulse = sub
   "~ g1 ~ g1 ~ g1 ~ g1"
 
 clip line = acid
-  "g2 g2& bb2 g3 ~ g2 f2& g2 ~ g2 c3& d3 g2 ~ bb2 g2"
+  "g2! g2& bb2 g3! ~ g2 f2!& g2 ~ g2! c3& d3 g2 ~ bb2! g2"
 clip line_b = acid .every(4, rev)
   mutate(line,30,4)
 

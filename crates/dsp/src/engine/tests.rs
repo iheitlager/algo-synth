@@ -4,6 +4,8 @@ use crate::mono::osc::LATENCY;
 use crate::poly::VOICE_BUDGET;
 use crate::smf::tests::file;
 
+mod songs;
+
 /// Whether `owner`'s voice has a key held.
 fn gated(e: &Engine, owner: Owner) -> bool {
     e.voice(owner).is_some_and(MonoVoice::gated)
@@ -58,32 +60,6 @@ fn note_starts(e: &mut Engine, frames: u64, step: usize) -> Vec<(u64, usize, u8)
         }
     }
     out
-}
-
-/// #173, ADR-0022: the demo Canon imported as a song starts every note of
-/// the file on the synth of its channel (in channel order, from 0), at its
-/// time in the file (to the eight frames the test renders at once, far finer
-/// than a tick).
-#[test]
-fn the_demo_imported_plays_the_file() {
-    let bytes = include_bytes!("../../../../examples/scores/canon.mid");
-    let mut e = Engine::new(48_000.0);
-    for s in 0..SYNTHS {
-        e.set_param(s, Param::Polyphony, 8.0);
-    }
-    assert_eq!(import(&mut e, bytes), Ok(4));
-    assert!(e.song().arrange.len() > 1, "in scenes");
-    e.song_play();
-    let frames = 48_000 * 24;
-    let want = file_starts(bytes, 48_000.0, frames);
-    let mut got = note_starts(&mut e, frames, 8);
-    got.sort_unstable();
-    assert!(want.len() > 40, "the demo plays: {}", want.len());
-    assert_eq!(want.len(), got.len());
-    for (x, y) in want.iter().zip(&got) {
-        assert_eq!((x.1, x.2), (y.1, y.2), "{x:?} {y:?}");
-        assert!(x.0.abs_diff(y.0) <= 8, "{x:?} {y:?}");
-    }
 }
 
 /// Every note-on of a one-tempo file before `frames`, as (frame, synth,
@@ -2002,25 +1978,6 @@ fn a_drum_lane_hits_on_its_exact_samples() {
     assert_eq!(hits, vec![0, 24_000, 48_000, 72_000]);
 }
 
-/// The arranger's first "+ Scene" on a looping beat keeps it playing: the
-/// scene holds every clip and the clock keeps its place in the bar, even
-/// when it was already past the new end.
-#[test]
-fn the_first_scene_keeps_the_beat_playing() {
-    let mut e = kit(0);
-    assert_eq!(load_text(&mut e, FOUR), Ok(()));
-    e.song_play();
-    assert_eq!(
-        hit_steps(&mut e, 40),
-        vec![0, 4, 8, 12, 16, 20, 24, 28, 32, 36]
-    );
-    assert!(e.arrange_edit(1, 1, 0, 0), "a 1-bar scene");
-    assert_eq!(e.song().scenes[0].clips, vec![0]);
-    // Step 40 is step 8 of the 1-bar scene: hits on 8 and 12, then the
-    // arrangement (without a loop) ends.
-    assert_eq!(hit_steps(&mut e, 16), vec![0, 4]);
-}
-
 /// The clock steps (at 120 BPM and 48 kHz, 6000 samples each) that start
 /// a note within `steps` steps, rendered a frame at a time.
 fn hit_steps(e: &mut Engine, steps: u64) -> Vec<u64> {
@@ -2036,41 +1993,6 @@ fn hit_steps(e: &mut Engine, steps: u64) -> Vec<u64> {
         }
     }
     hits
-}
-
-/// Spec 002 Req 4: each scene plays its own clips from its first
-/// bar, on the exact sample, and the song stops after the last bar.
-#[test]
-fn scenes_play_in_order_and_the_song_ends() {
-    let mut e = kit(0);
-    let text = "tempo 120\ntrack kit drums\nclip a = kit\n  bd x...\nclip b = kit\n  sn x.\n\
-                scene one 1: a\nscene two 1: b\narrange one two\n";
-    assert_eq!(load_text(&mut e, text), Ok(()));
-    e.song_play();
-    let hits = hit_steps(&mut e, 40);
-    assert_eq!(hits, vec![0, 4, 8, 12, 16, 18, 20, 22, 24, 26, 28, 30]);
-    assert!(!e.clock().playing(), "the song stops after its last bar");
-    assert_eq!(e.clock().position(), 0, "and goes back to the top");
-}
-
-/// A clip starts again at each scene's first bar: a long one is cut,
-/// a short one loops inside it.
-#[test]
-fn a_clip_restarts_with_its_scene() {
-    let mut e = kit(0);
-    let long = format!("x{}x{}", ".".repeat(19), ".".repeat(11));
-    let text = format!(
-        "track kit drums\nclip l = kit\n  bd {long}\nclip s = kit\n  sn x..\nscene a 1: l s\narrange a a\n"
-    );
-    assert_eq!(load_text(&mut e, &text), Ok(()));
-    e.song_play();
-    let hits = hit_steps(&mut e, 32);
-    // l: step 0 of each bar (its 20th step is cut); s: 0, 3, 6, 9, 12, 15 of each bar.
-    let mut want = Vec::new();
-    for bar in [0, 16] {
-        want.extend([bar, bar, bar + 3, bar + 6, bar + 9, bar + 12, bar + 15]);
-    }
-    assert_eq!(hits, want);
 }
 
 /// #487: three scenes a hit pattern each (one every 4 steps, two every 2
@@ -2089,137 +2011,6 @@ fn launch_song() -> Engine {
     let mut e = kit(0);
     assert_eq!(load_text(&mut e, LAUNCH), Ok(()));
     e
-}
-
-/// #487: a scene launched mid-bar lands on the next bar line, from its
-/// first step, its snapshot set, and loops until the next launch.
-#[test]
-fn a_launched_scene_lands_on_the_next_bar_and_loops() {
-    let mut e = launch_song();
-    e.song_play();
-    assert_eq!(hits_at(&mut e, 0, 5), vec![0, 4]);
-    e.song_launch(1, Quantize::Bar);
-    assert_eq!(
-        e.song_queued(),
-        Some((LaunchTarget::Scene(1), Quantize::Bar))
-    );
-    assert_eq!(
-        e.song_launch_in(),
-        Some(11),
-        "steps 5 to 15 are left of bar 1"
-    );
-    let before = e.param_value(0, Param::Send2);
-    let hits = hits_at(&mut e, 5, 11 + 48);
-    let want: Vec<u64> = [8, 12].into_iter().chain((16..64).step_by(2)).collect();
-    assert_eq!(
-        hits, want,
-        "one to the bar line, then two, again after two bars"
-    );
-    assert_eq!(e.song_launched(), Some(1));
-    assert_eq!(e.song_queued(), None);
-    assert_ne!(e.param_value(0, Param::Send2), before);
-    assert_eq!(e.param_value(0, Param::Send2), 0.25, "its snapshot is set");
-    assert_eq!(
-        e.song_place(),
-        Some((usize::MAX, 15)),
-        "step 63: 47 into a 32-step loop, no entry"
-    );
-}
-
-/// #487: stopped, a launch starts the song with the scene; End waits for
-/// the scene to finish, not the bar.
-#[test]
-fn a_launch_at_the_end_waits_for_the_scene() {
-    let mut e = launch_song();
-    e.song_launch(1, Quantize::Bar);
-    assert!(e.clock().playing(), "a launch starts the song");
-    assert_eq!(hits_at(&mut e, 0, 5), vec![0, 2, 4]);
-    e.song_launch(2, Quantize::End);
-    assert_eq!(
-        e.song_launch_in(),
-        Some(27),
-        "two's two bars end on step 32"
-    );
-    let hits = hits_at(&mut e, 5, 27 + 24);
-    let want: Vec<u64> = (6..32).step_by(2).chain([32, 40, 48]).collect();
-    assert_eq!(hits, want);
-    assert_eq!(e.song_launched(), Some(2));
-}
-
-/// #487: Phrase waits for the next eight-bar line.
-#[test]
-fn a_launch_on_the_phrase_waits_eight_bars() {
-    let mut e = launch_song();
-    e.song_play();
-    hit_steps(&mut e, 5);
-    e.song_launch(2, Quantize::Phrase);
-    assert_eq!(e.song_launch_in(), Some(123));
-    let hits = hits_at(&mut e, 5, 123 + 16);
-    assert!(hits.iter().filter(|k| **k < 128).all(|k| k % 4 == 0));
-    assert_eq!(
-        hits.iter()
-            .filter(|k| **k >= 128)
-            .copied()
-            .collect::<Vec<_>>(),
-        vec![128, 136]
-    );
-}
-
-/// #487: Now starts the scene at once, as far into its first bar as the
-/// clock is into its own; its snapshot is set at once.
-#[test]
-fn a_launch_now_keeps_the_phase() {
-    let mut e = launch_song();
-    e.song_play();
-    hit_steps(&mut e, 21);
-    e.song_launch(1, Quantize::Now);
-    assert_eq!(e.song_launched(), Some(1));
-    assert_eq!(e.param_value(0, Param::Send2), 0.25);
-    // two from bar 1: step 21 is its step 5, so it hits on 22, 24, … (even).
-    assert_eq!(hits_at(&mut e, 21, 11), vec![22, 24, 26, 28, 30]);
-}
-
-/// #487: back to the arrangement on the next bar, where the clock is.
-#[test]
-fn back_to_the_arrangement_goes_on_where_the_clock_is() {
-    let mut e = launch_song();
-    e.song_launch(2, Quantize::Bar);
-    hit_steps(&mut e, 20);
-    e.song_resume_arrangement(Quantize::Bar);
-    assert_eq!(
-        e.song_queued(),
-        Some((LaunchTarget::Arrangement, Quantize::Bar))
-    );
-    assert_eq!(hits_at(&mut e, 20, 20), vec![24, 32, 36]);
-    assert_eq!(e.song_launched(), None);
-    assert_eq!(e.song_place(), Some((2, 7)), "bar 3 of the arrangement");
-    e.song_launch(1, Quantize::Bar);
-    e.song_launch_cancel();
-    assert_eq!(e.song_queued(), None);
-    e.song_stop();
-    assert_eq!(
-        (e.song_launched(), e.song_queued()),
-        (None, None),
-        "stop forgets the launch"
-    );
-}
-
-/// #487: a song that takes over finds the launched scene by its name.
-#[test]
-fn a_launched_scene_is_found_again_by_name() {
-    let mut e = launch_song();
-    e.song_launch(2, Quantize::Bar);
-    hit_steps(&mut e, 4);
-    let moved = LAUNCH
-        .replace("scene one 1: a\n", "")
-        .replace("arrange one", "scene one 1: a\narrange one");
-    assert_eq!(load_text(&mut e, &moved), Ok(()));
-    hit_steps(&mut e, 14);
-    assert_eq!(e.song_launched(), Some(1), "three moved up a place");
-    let gone = moved.replace("scene three 1: c\n", "");
-    assert_eq!(load_text(&mut e, &gone), Ok(()));
-    hit_steps(&mut e, 16);
-    assert_eq!(e.song_launched(), None, "gone, the arrangement plays");
 }
 
 /// #487: the same launches at the same steps render the same samples.
@@ -2288,33 +2079,6 @@ fn a_snapshot_switched_from_a_button_lands_on_the_bar() {
     assert_eq!(e.param_value(0, Param::Send2), 0.1, "now: at once");
 }
 
-/// #488: the next scene's own snapshot still lands; a button landing on
-/// the same bar line comes after it.
-#[test]
-fn a_scenes_own_snapshot_still_lands_and_the_button_wins() {
-    let mut e = kit(0);
-    assert_eq!(load_text(&mut e, SNAPS), Ok(()));
-    e.song_play();
-    e.song_snapshot(1, Quantize::Now);
-    assert_eq!(
-        frame_when(&mut e, 0.1, 200_000),
-        Some(192_000),
-        "scene two's [dry] on bar 3"
-    );
-    e.song_seek_bar(1);
-    hit_steps(&mut e, 1);
-    e.song_snapshot(1, Quantize::Bar);
-    hit_steps(&mut e, 16);
-    assert_eq!(
-        e.param_value(0, Param::Send2),
-        0.7,
-        "on bar 3's line too, after [dry]"
-    );
-    e.song_snapshot(0, Quantize::Bar);
-    e.song_stop();
-    assert_eq!(e.song_snapshot_queued(), None, "stop forgets it");
-}
-
 /// #488: a modulation on the parameter still writes over a switched snapshot.
 #[test]
 fn a_modulation_writes_over_a_switched_snapshot() {
@@ -2343,30 +2107,6 @@ fn bar_entries_follow_the_arrangement_through_the_loop() {
     assert_eq!(load_text(&mut e, text), Ok(()));
     let bars: Vec<_> = (0..3).map(|b| e.bar_entry(b)).collect();
     assert_eq!(bars, [Some(0), Some(1), None], "past the end");
-}
-
-/// The loop region repeats its bars; seek lands on a bar.
-#[test]
-fn the_loop_region_repeats_and_seek_lands_on_a_bar() {
-    let mut e = kit(0);
-    let text = "track kit drums\nclip a = kit\n  bd x...............\nclip b = kit\n  sn x...............\n\
-                scene one 1: a\nscene two 1: b\narrange one two one\nloop 2 2\n";
-    assert_eq!(load_text(&mut e, text), Ok(()));
-    e.song_play();
-    hit_steps(&mut e, 16);
-    assert_eq!(e.song_place(), Some((0, 15)));
-    hit_steps(&mut e, 48);
-    assert_eq!(e.song_place(), Some((1, 15)), "bar 2 three times over");
-    assert!(e.clock().playing());
-    e.song_seek_bar(2);
-    let before = e.note_count;
-    e.render(1);
-    assert_eq!(e.note_count, before + 1, "bar 3 starts at once");
-    assert_eq!(
-        e.song_place(),
-        Some((1, 0)),
-        "inside the loop: bar 3 wraps to bar 2"
-    );
 }
 
 /// ADR-0015: a snapshot sets its values on the first sample of its scene.
@@ -2922,53 +2662,6 @@ fn held_changes(text: &str, frames: u64) -> Vec<(u64, Vec<u8>)> {
     out
 }
 
-/// #163: `"c4 e4 g4 c5"` at 120 BPM and 48 kHz starts a note every beat
-/// (24000 samples), each ending as the next begins.
-#[test]
-fn note_clips_sound_at_their_samples_and_pitches() {
-    let got = held_changes(
-        "tempo 120\ntrack lead synth\nclip r = lead\n  \"c4 e4 g4 c5\"\n",
-        48_000 * 4,
-    );
-    assert_eq!(
-        got,
-        vec![
-            (0, vec![60]),
-            (24_000, vec![64]),
-            (48_000, vec![67]),
-            (72_000, vec![72]),
-            (96_000, vec![60]),
-            (120_000, vec![64]),
-            (144_000, vec![67]),
-            (168_000, vec![72]),
-        ]
-    );
-}
-
-/// ADR-0015 with ADR-0016: a note clip plays only in its scenes,
-/// from each scene's first bar. Two bars of `c4 e4` (one bar long) in
-/// `b`, after a silent bar `a`: notes from 96000, starting over at
-/// 192000 rather than running on from where the line would be.
-#[test]
-fn a_note_clip_plays_in_its_scene_from_its_start() {
-    let got = held_changes(
-        "tempo 120\ntrack lead synth\nclip r = lead\n  c4:2 e4:4 g4:4\nscene a 1:\nscene b 1: r\narrange a b b\n",
-        300_000,
-    );
-    let starts: Vec<(u64, Vec<u8>)> = got.into_iter().filter(|(_, n)| !n.is_empty()).collect();
-    assert_eq!(
-        starts,
-        vec![
-            (96_000, vec![60]),
-            (144_000, vec![64]),
-            (168_000, vec![67]),
-            (192_000, vec![60]),
-            (240_000, vec![64]),
-            (264_000, vec![67]),
-        ]
-    );
-}
-
 /// #241: a slid note overlaps the next, so a legato glide patch slides to it
 /// on one gate; without the `&` the pitch jumps.
 #[test]
@@ -2996,6 +2689,39 @@ fn a_slide_glides_into_the_next_note() {
         "slid: one gate, a glide"
     );
     assert!(!run("e1:8 g1:8 r:4 r:2").1, "plain: the pitch jumps");
+}
+
+/// #536: on the TB-303 a slid note glides into the next on one gate, and a
+/// plain one jumps; a slide into the same pitch holds
+/// the gate through both notes instead of closing a tick after the first.
+#[test]
+fn the_tb303_slides_where_the_song_says() {
+    // Gate rises, whether the pitch passed between E1 and G1, and the
+    // samples the gate was open.
+    let run = |line: &str| {
+        let mut e = Engine::new(48_000.0);
+        let text = format!("tempo 120\ntrack b synth Tb303 Tb303Acid\nclip r = b\n  {line}\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let (mut rises, mut gate, mut between, mut open) = (0, false, false, 0);
+        for _ in 0..40_000 {
+            e.render(1);
+            let v = e.voice(Owner::Track(0));
+            let g = v.is_some_and(|v| v.gated());
+            rises += usize::from(g && !gate);
+            open += usize::from(g);
+            gate = g;
+            between |= v.is_some_and(|v| (28.5..30.5).contains(&v.pitch()));
+        }
+        (rises, between, open)
+    };
+    let (rises, between, _) = run("e1:8& g1:8 r:4 r:2");
+    assert_eq!((rises, between), (1, true), "slid: one gate, a glide");
+    assert!(!run("e1:8 g1:8 r:4 r:2").1, "plain: the pitch jumps");
+    // Two eighths at 120 BPM are 24 000 samples.
+    let (rises, _, open) = run("c2:8& c2:8 r:4 r:2");
+    assert_eq!(rises, 1, "one gate");
+    assert!(open > 23_000, "held through both notes: {open} samples");
 }
 
 #[test]
@@ -3141,22 +2867,6 @@ fn a_euclid_lane_plays_like_a_written_one() {
     assert_eq!(hits, vec![0, 18_000, 36_000, 48_000]);
 }
 
-/// #165: a euclid note line plays the same events on every run.
-#[test]
-fn a_euclid_note_line_walks_the_scale_deterministically() {
-    let text =
-        "tempo 120\nscale c minor\ntrack lead synth\nclip r = lead\n  euclid(4,8) scale c4\n";
-    let a = held_changes(text, 96_000);
-    let b = held_changes(text, 96_000);
-    assert_eq!(a, b);
-    let notes: Vec<Vec<u8>> = a
-        .into_iter()
-        .map(|(_, n)| n)
-        .filter(|n| !n.is_empty())
-        .collect();
-    assert_eq!(notes, vec![vec![60], vec![62], vec![63], vec![65]]);
-}
-
 const LIVE: &str =
     "tempo 120\nscale c minor\ntrack lead synth\nclip w = lead live\n  walk(c4,8,1)\n";
 
@@ -3184,31 +2894,6 @@ fn poly() -> Engine {
     e
 }
 
-/// #167: a live clip plays a new walk each bar, the same ones every run.
-#[test]
-fn a_live_clip_changes_each_cycle_and_repeats_each_run() {
-    let mut e = poly();
-    assert_eq!(load_text(&mut e, LIVE), Ok(()));
-    e.song_play();
-    let played = started(&mut e, 96_000 * 3);
-    let Some(Seq::Generated(call)) = e.song().clips[0].notes.as_ref().map(|n| n.seq.clone()) else {
-        panic!("a generated clip");
-    };
-    let scale = e.song().scale;
-    let mut want = Vec::new();
-    for cycle in 0..3 {
-        let evs = call.events(cycle_seed(call.seed(), cycle), scale.as_ref());
-        want.extend(evs.iter().map(|ev| ev.note));
-    }
-    assert_eq!(played.len(), 24);
-    assert_eq!(played, want);
-    assert_ne!(played[..8], played[8..16], "the bars differ");
-    let mut again = poly();
-    assert_eq!(load_text(&mut again, LIVE), Ok(()));
-    again.song_play();
-    assert_eq!(started(&mut again, 96_000 * 3), played);
-}
-
 /// #167: nothing grows in `render`: the buffers keep the room reserved at load.
 #[test]
 fn a_live_clip_does_not_grow_its_buffers() {
@@ -3222,37 +2907,6 @@ fn a_live_clip_does_not_grow_its_buffers() {
     }
     assert_eq!((e.live[0].cur.capacity(), e.live[0].nxt.capacity()), room);
     assert_eq!(e.live[0].cycle, Some(5));
-}
-
-/// #167: freezing prints the bar it was playing; parsing that plays the same.
-#[test]
-fn freezing_keeps_the_bar_that_was_playing() {
-    let mut e = poly();
-    assert_eq!(load_text(&mut e, LIVE), Ok(()));
-    e.song_play();
-    let first = started(&mut e, 96_000);
-    let second = started(&mut e, 48_000); // half way into bar 2
-    assert_eq!(first.len() + second.len(), 12);
-    assert!(e.freeze(0));
-    assert!(!e.song().clips[0].live);
-    assert!(!e.song_text().contains("live") && !e.song_text().contains("walk("));
-    let frozen: Vec<u8> = e.song().clips[0]
-        .notes
-        .as_ref()
-        .unwrap()
-        .events
-        .iter()
-        .map(|ev| ev.note)
-        .collect();
-    assert_eq!(&frozen[..4], &second[..], "the notes it had played so far");
-    // Parsing the printed text plays the same bar, every bar.
-    let text = e.song_text().to_string();
-    let mut other = poly();
-    assert_eq!(load_text(&mut other, &text), Ok(()));
-    other.song_play();
-    let again = started(&mut other, 96_000 * 2);
-    assert_eq!([frozen.clone(), frozen].concat(), again);
-    assert!(!e.freeze(0), "a frozen clip has no call to freeze");
 }
 
 /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.
@@ -4054,50 +3708,6 @@ fn pitch_of(x: &[f32]) -> f64 {
     }
 }
 
-/// #339: with `Analog` up, a VCO monosynth plays the same key a little
-/// off each time as its oscillators drift; the Juno-106's DCOs play it in
-/// tune every time, on every voice. `Analog` 0 holds every model in tune.
-#[test]
-fn vcos_drift_between_notes_and_dcos_do_not() {
-    let spread = |model: Model, analog: f32| {
-        let mut e = Engine::new(48_000.0);
-        e.set_param(0, Param::MasterGain, 1.0);
-        e.set_param(0, Param::Model, model as u32 as f32);
-        e.set_param(0, Param::Analog, analog);
-        e.set_param(0, Param::Cutoff, 400.0);
-        let mut hz = Vec::new();
-        for _ in 0..8 {
-            e.note_on(0, 57, 0.8);
-            hz.push(pitch_of(&left_of(&mut e, 0.25)[2400..]));
-            e.note_off(0, 57);
-            left_of(&mut e, 0.6);
-        }
-        assert!(
-            hz.iter().all(|h| (h - 220.0).abs() < 5.0),
-            "{model:?}: {hz:?}"
-        );
-        let cents = |h: f64| 1200.0 * (h / 220.0).log2();
-        let (lo, hi) = hz.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &h| {
-            (lo.min(cents(h)), hi.max(cents(h)))
-        });
-        hi - lo
-    };
-    for vco in [Model::Minimoog, Model::Sh101] {
-        let s = spread(vco, 1.0);
-        assert!(s > 0.5, "{vco:?} drifts: {s} cents");
-        assert!(spread(vco, 0.0) < 0.05, "{vco:?} at Analog 0");
-    }
-    assert!(
-        spread(Model::Minimoog, 1.0) > spread(Model::Sh101, 1.0),
-        "discrete VCOs drift more than a CEM3340"
-    );
-    let juno = spread(Model::Juno106, 1.0);
-    assert!(
-        juno < 0.05,
-        "the Juno-106's DCOs stay in tune: {juno} cents"
-    );
-}
-
 fn ups(x: &[f32]) -> usize {
     x.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count()
 }
@@ -4511,46 +4121,6 @@ fn the_supercollider_hoover_plays_mono() {
     assert!((2..=6).contains(&cap), "a few voices: {cap}");
 }
 
-/// #216's target: the SuperCollider hoover exactly as pasted, Splay and
-/// FreeVerb2 included, plays a held chord on two different sides, bounded
-/// and the same twice, and ends after its release (ADR-0024).
-#[test]
-fn the_supercollider_hoover_plays_as_pasted() {
-    let play = || {
-        let mut e = Engine::new(48_000.0);
-        e.set_param(0, Param::MasterGain, 1.0);
-        e.preset(0, crate::mono::preset::Preset::ModularBasic);
-        assert_eq!(e.set_code(0, crate::modular::sc::hoover::HOOVER), Ok(()));
-        for n in [57, 64] {
-            e.note_on(0, n, 1.0);
-        }
-        let mut sides = (Vec::new(), Vec::new());
-        for _ in 0..(48_000 / BLOCK) {
-            e.render(BLOCK);
-            sides.0.extend_from_slice(&e.output()[..BLOCK]);
-            sides.1.extend_from_slice(&e.output()[BLOCK..]);
-        }
-        for n in [57, 64] {
-            e.note_off(0, n);
-        }
-        left_of(&mut e, 6.0);
-        (sides, e.active_voices())
-    };
-    let ((l, r), after) = play();
-    assert_eq!((l.clone(), r.clone()), play().0, "deterministic");
-    assert!(l.iter().chain(&r).all(|v| v.is_finite() && v.abs() <= 1.0));
-    let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
-    assert!(
-        rms(&l[24_000..]) > 0.003 && rms(&r[24_000..]) > 0.003,
-        "both sides: {} {}",
-        rms(&l[24_000..]),
-        rms(&r[24_000..])
-    );
-    let diff: f32 = l.iter().zip(&r).map(|(a, b)| (a - b).abs()).sum::<f32>() / l.len() as f32;
-    assert!(diff > 1e-4, "wide, not mono: {diff}");
-    assert_eq!(after, 0, "it ends after its release");
-}
-
 /// #308: A-440 sounds a 440 Hz tone with no key held, and stops when off.
 #[test]
 fn a440_sounds_with_no_key_held() {
@@ -4766,36 +4336,6 @@ fn only_a_model_with_revisions_links_them() {
     assert_eq!(e.param_value(0, Param::Analog), analog);
 }
 
-/// #343: the SSM2030 of Rev 1/2 lacks the CEM3340's temperature
-/// compensation: with the same Vintage it plays a key further off.
-#[test]
-fn the_prophets_ssm_vcos_drift_more_than_its_curtis_ones() {
-    let spread = |vco: f32| {
-        let mut e = prophet();
-        e.set_param(0, Param::MasterGain, 1.0);
-        e.set_param(0, Param::VcoRev, vco);
-        e.set_param(0, Param::Analog, 1.0);
-        e.set_param(0, Param::Vco2Level, 0.0);
-        e.set_param(0, Param::Cutoff, 400.0);
-        e.set_param(0, Param::EnvCutoff, 0.0);
-        let cents: Vec<f64> = (0..8)
-            .map(|_| {
-                e.note_on(0, 57, 0.8);
-                let hz = pitch_of(&left_of(&mut e, 0.25)[2400..]);
-                e.note_off(0, 57);
-                left_of(&mut e, 0.6);
-                1200.0 * (hz / 220.0).log2()
-            })
-            .collect();
-        let (lo, hi) = cents
-            .iter()
-            .fold((f64::MAX, f64::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
-        hi - lo
-    };
-    let (ssm, cem) = (spread(1.0), spread(3.0));
-    assert!(ssm > 1.3 * cem && cem > 0.1, "SSM {ssm} cents, CEM {cem}");
-}
-
 /// #343: the SSM2050's attack is almost straight, the CEM3310's an RC
 /// curve: a quarter into a long attack the Curtis envelope is further up.
 #[test]
@@ -4854,21 +4394,6 @@ fn starts_within(e: &mut Engine, frames: u64) -> Vec<u64> {
         count = e.note_count;
     }
     hits
-}
-
-/// #353: a lane of 12, 24, 32 or 48 steps a bar hits every bar / grid, on
-/// its exact sample: at 120 BPM and 48 kHz a bar is 96 000 samples.
-#[test]
-fn lanes_hit_on_their_grid() {
-    for grid in [12u64, 16, 24, 32, 48] {
-        let mut e = kit(0);
-        let lane = "x".repeat(grid as usize);
-        let text = format!("tempo 120\ntrack kit drums\nclip a = kit /{grid}\n  bd {lane}\n");
-        assert_eq!(load_text(&mut e, &text), Ok(()));
-        e.song_play();
-        let want: Vec<u64> = (0..grid).map(|n| n * 96_000 / grid).collect();
-        assert_eq!(starts_within(&mut e, 96_000), want, "/{grid}");
-    }
 }
 
 /// #353: lanes on different grids keep time together, and with a note clip:
@@ -4969,16 +4494,6 @@ fn set_ratchet_edits_the_song_and_its_text() {
     assert!(e.song().clips[0].lanes[0].ratchets.is_empty());
 }
 
-/// #353: a flam on the first step of play has nothing before it to sound
-/// its grace in; from the second time round it has.
-#[test]
-fn a_flam_on_the_first_step_graces_from_the_second_bar() {
-    assert_eq!(
-        lane_starts(120, 16, "f...............", 192_000),
-        vec![0, 96_000 - 960, 96_000, 192_000 - 960]
-    );
-}
-
 /// #353: at a fast tempo on a fine grid the graces shrink to fit: every
 /// grace still falls after the hit before it and before its own.
 #[test]
@@ -5044,16 +4559,6 @@ fn a_muted_track_is_silent_and_its_synth_plays_on() {
     let before = e.note_count;
     e.note_on(0, 36, 1.0);
     assert_eq!(e.note_count, before + 1, "the synth takes a live key");
-}
-
-/// #355: while a track is soloed only soloed tracks play; solo outranks mute.
-#[test]
-fn solo_plays_only_the_soloed_tracks() {
-    let mut e = two_tracks(" mute solo");
-    e.song_play();
-    assert_eq!(hit_steps(&mut e, 16), vec![0, 4, 8, 12]);
-    assert!(e.set_track_flags(0, false, false));
-    assert_eq!(hit_steps(&mut e, 16), vec![0, 2, 4, 6, 8, 10, 12, 14]);
 }
 
 /// #355: muting a track mid-note lets its notes go; the text says so.
@@ -5428,57 +4933,6 @@ fn a_deck_started_mid_bar_is_in_phase_at_once() {
 
 // ADR-0029: sync lock pulls a deck that is off the master's bar back onto it
 // at the master's next bar line, and leaves one that is on it alone.
-#[test]
-fn sync_pulls_a_deck_onto_the_masters_bar() {
-    let mut master = Engine::new(48_000.0);
-    let mut deck = Engine::new(48_000.0);
-    master.set_tempo(130.0);
-    deck.set_tempo(130.0);
-    master.song_play();
-    for _ in 0..300 {
-        master.render(BLOCK);
-    }
-    // Started 700 samples after the master's bar: behind.
-    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
-    deck.song_play_in(f + 700);
-    let both = |m: &mut Engine, d: &mut Engine, blocks: usize| {
-        for _ in 0..blocks {
-            m.render(BLOCK);
-            d.render(BLOCK);
-        }
-    };
-    both(&mut master, &mut deck, 2000);
-    let phase = |m: &Engine, d: &Engine| {
-        (m.clock().step_position() - d.clock().step_position()).rem_euclid(16.0)
-    };
-    let off = phase(&master, &deck);
-    assert!(
-        (off - 700.0 / (48_000.0 * 60.0 / 130.0 / 4.0)).abs() < 1e-3,
-        "behind by 700 samples: {off} steps"
-    );
-    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
-    deck.sync_bar_in(f);
-    both(&mut master, &mut deck, 2000);
-    assert!(
-        (deck.sync_error() + 700).abs() <= 2,
-        "it was 700 samples behind: {}",
-        deck.sync_error()
-    );
-    let off = phase(&master, &deck);
-    assert!(
-        off.min(16.0 - off) < 1e-3,
-        "on the master's bar now: {off} steps off"
-    );
-    // Synced again, it is on the bar and stays put.
-    let f = master.cue_frames(16, 0).expect("the master plays") as usize;
-    deck.sync_bar_in(f);
-    both(&mut master, &mut deck, 2000);
-    assert!(
-        deck.sync_error().abs() <= 2,
-        "already on the bar: {}",
-        deck.sync_error()
-    );
-}
 
 /// #10: a MIDI key plays the target synth; its release reaches that synth
 /// after the target has moved on.
@@ -5769,6 +5223,124 @@ fn a_pack_picked_on_a_synth_becomes_its_samples_line() {
     assert!(!e.set_samples_from_buffer(15), "no track plays synth 16");
 }
 
+/// #522: zones a hand sets on a sampler fold into its track's zone lines once
+/// their samples have a source, taking the place of its `samples` line; a
+/// pack's or the song's layout settles without folding, and a zone line the
+/// synth plays already is held.
+#[test]
+fn hand_set_zones_fold_into_zone_lines() {
+    let mut e = kit(0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track keys sampler Sampler SamplerKeys\nsamples keys upright-piano-kw\n"
+        ),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    let tone: Vec<f32> = (0..4_800).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(5).expect("loads");
+    // A pack's layout: no fold, and the samples line stays.
+    e.set_zone(s, 0, ZoneField::Sample, 5.0);
+    e.settle_zones(s);
+    assert!(!e.fold());
+    // A hand's zone on a sample with no source yet: live-only, unfolded.
+    e.set_zone(s, 2, ZoneField::Sample, 5.0);
+    e.set_zone(s, 2, ZoneField::KeyHi, 59.0);
+    e.fold();
+    assert!(e.song_text().contains("samples keys"), "{}", e.song_text());
+    assert_ne!(e.live_only(s) & LIVE_ZONES, 0);
+    // Its source said: the zones fold, the samples line goes.
+    let hash = b"@0123456789abcdef0123456789abcdef";
+    e.song_buffer(hash.len())
+        .expect("fits")
+        .copy_from_slice(hash);
+    assert!(e.set_sample_source_from_buffer(5));
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(!text.contains("samples keys"), "{text}");
+    assert!(
+        text.contains("zone keys 1 = @0123456789abcdef0123456789abcdef\nzone keys 3 = @0123456789abcdef0123456789abcdef : keyhi b3\n"),
+        "{text}"
+    );
+    assert_eq!(e.live_only(s) & LIVE_ZONES, 0);
+    assert_eq!(e.song().zones.len(), 2);
+    assert!(e.song_zone_held(0) && e.song_zone_held(1));
+    assert_eq!(e.song_zone_values(1)[ZoneField::KeyHi as usize], 59.0);
+    // A source that isn't one, or an empty slot, is refused.
+    let bad = b"synth:LaChoir:c4";
+    e.song_buffer(bad.len()).expect("fits").copy_from_slice(bad);
+    assert!(!e.set_sample_source_from_buffer(5));
+    e.song_buffer(hash.len())
+        .expect("fits")
+        .copy_from_slice(hash);
+    assert!(!e.set_sample_source_from_buffer(6));
+    // The slot's sample replaced: its zones are no longer held.
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(5).expect("loads");
+    assert!(!e.song_zone_held(0));
+    // Every zone emptied by hand: no zone lines, no samples line.
+    e.clear_zones(s);
+    assert!(e.fold());
+    assert!(!e.song_text().contains("zone keys"), "{}", e.song_text());
+}
+
+/// #527: pads a hand sets on a pad sampler fold into pad lines once their
+/// samples have a source, in place of the track's `samples` line; a kit's
+/// layout settles without folding.
+#[test]
+fn hand_set_pads_fold_into_pad_lines() {
+    let mut e = kit(0);
+    assert_eq!(
+        load_text(
+            &mut e,
+            "track kit drums PadSampler\nsamples kit audiophob\n"
+        ),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    let tone: Vec<f32> = (0..4_800).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(7).expect("loads");
+    // A kit's layout: no fold.
+    e.set_pad(s, 0, PadField::Sample, 7.0);
+    e.settle_pads(s);
+    assert!(!e.fold());
+    // A hand's pad on a sample without a source: live-only, unfolded.
+    e.set_pad(s, 4, PadField::Sample, 7.0);
+    e.set_pad(s, 4, PadField::Choke, 2.0);
+    e.fold();
+    assert!(e.song_text().contains("samples kit"), "{}", e.song_text());
+    assert_ne!(e.live_only(s) & LIVE_PADS, 0);
+    let source = b"audiophob/kick";
+    e.song_buffer(source.len())
+        .expect("fits")
+        .copy_from_slice(source);
+    assert!(e.set_sample_source_from_buffer(7));
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(!text.contains("samples kit"), "{text}");
+    assert!(
+        text.contains("pad kit 1 = audiophob/kick\npad kit 5 = audiophob/kick : choke 2\n"),
+        "{text}"
+    );
+    assert_eq!(e.live_only(s) & LIVE_PADS, 0);
+    assert!(e.song_pad_held(0) && e.song_pad_held(1));
+    assert_eq!(e.song_pad_values(1)[PadField::Choke as usize], 2.0);
+    e.clear_pads(s);
+    assert!(e.fold());
+    assert!(!e.song_text().contains("pad kit"), "{}", e.song_text());
+}
+
 /// #214: a group named in the view is named in the song, through the song
 /// buffer; an empty buffer takes the name away.
 #[test]
@@ -5818,34 +5390,706 @@ fn plays_start_to_finish(file: &str, bytes: &[u8]) {
     assert!(last >= (bars - 1) * 16, "{file}: the last bar of {bars}");
 }
 
+/// Amplitude of `hz` in `x` at 48 kHz (a Goertzel bin, scaled to a sine's peak).
+fn amplitude_at(x: &[f32], hz: f32) -> f32 {
+    let w = std::f32::consts::TAU * hz / 48_000.0;
+    let (mut re, mut im) = (0.0, 0.0);
+    for (i, y) in x.iter().enumerate() {
+        re += y * (w * i as f32).cos();
+        im += y * (w * i as f32).sin();
+    }
+    2.0 * re.hypot(im) / x.len() as f32
+}
+
+/// A user wavetable whose waves go from a saw (wave 0) to a square (the last).
+fn saw_to_square() -> Vec<f32> {
+    use crate::table::{WAVE_LEN, WAVES};
+    let mut t = vec![0.0; WAVES * WAVE_LEN];
+    for (k, wave) in t.chunks_exact_mut(WAVE_LEN).enumerate() {
+        let square = k as f32 / (WAVES - 1) as f32;
+        for (i, y) in wave.iter_mut().enumerate() {
+            let x = std::f32::consts::TAU * i as f32 / WAVE_LEN as f32;
+            *y = (1..=31)
+                .map(|n| {
+                    let even = n % 2 == 0;
+                    let a = if even { 1.0 - square } else { 1.0 };
+                    a * (n as f32 * x).sin() / n as f32
+                })
+                .sum::<f32>()
+                * 0.5;
+        }
+    }
+    t
+}
+
+/// The PPG playing user table 0 (its table 8) at position `pos`: one second of A3.
+fn ppg_user_table(pos: f32, loaded: bool) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::PpgSweepPad);
+    if loaded {
+        let t = saw_to_square();
+        e.user_buffer(t.len()).expect("fits").copy_from_slice(&t);
+        e.load_user_table(0).expect("loads");
+    }
+    for (p, v) in [
+        (Param::MasterGain, 1.0),
+        (Param::Wt1Table, 8.0),
+        (Param::Wt2Table, 8.0),
+        (Param::Wt1Pos, pos),
+        (Param::Wt2Pos, pos),
+        (Param::EnvWt, 0.0),
+        (Param::LfoWt, 0.0),
+        // The table alone: one oscillator, no chorus, drift or filter movement.
+        (Param::Vco2Level, 0.0),
+        (Param::ChorusMode, 0.0),
+        (Param::Analog, 0.0),
+        (Param::Resonance, 0.0),
+        (Param::EnvCutoff, 0.0),
+        (Param::Cutoff, 20_000.0),
+        (Param::AdsrAttack, 0.0),
+        (Param::AdsrSustain, 1.0),
+    ] {
+        e.set_param(0, p, v);
+    }
+    e.note_on(0, 57, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..(48_000 / BLOCK) {
+        e.render(BLOCK);
+        assert!(e.output().iter().all(|s| s.is_finite()));
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    out
+}
+
+/// Spec 010 Req 9: the PPG plays a user table, and its position morphs
+/// through the table's waves: a saw's even harmonics fade as it becomes a square.
 #[test]
-fn spring_rv269_plays_start_to_finish() {
-    plays_start_to_finish(
-        "rv269-spring",
-        include_bytes!("../../../../examples/scores/rv269-spring.mid"),
+fn the_ppg_plays_a_user_table_and_its_position_morphs() {
+    let tail = |x: Vec<f32>| x[24_000..].to_vec();
+    let saw = tail(ppg_user_table(0.0, true));
+    let square = tail(ppg_user_table(1.0, true));
+    let (h1, h2) = (amplitude_at(&saw, 220.0), amplitude_at(&saw, 440.0));
+    assert!(h1 > 0.01, "the table sounds: {h1}");
+    let db = 20.0 * (h2 / h1).log10();
+    assert!((db + 6.0).abs() < 3.0, "a saw's second harmonic: {db} dB");
+    let (s1, s2) = (amplitude_at(&square, 220.0), amplitude_at(&square, 440.0));
+    assert!(
+        20.0 * (s2 / s1).log10() < -30.0,
+        "a square has no second harmonic"
+    );
+    // An empty user slot is silence, not a generated table.
+    let empty = tail(ppg_user_table(0.0, false));
+    assert!(empty.iter().all(|s| s.abs() < 1e-6));
+}
+
+/// Spec 010 Req 10: the D-50 plays a user attack on partial 1 (its PCM 9).
+#[test]
+fn the_d50_plays_a_user_attack() {
+    let first_blocks = |loaded: bool| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (p, v) in [
+            (Param::Model, 12.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::P2Cutoff, 20_000.0),
+            (Param::Pcm1Sample, 9.0),
+        ] {
+            e.set_param(0, p, v);
+        }
+        if loaded {
+            let burst: Vec<f32> = (0..2_400)
+                .map(|i| 0.5 * (std::f32::consts::TAU * 1_000.0 * i as f32 / 48_000.0).sin())
+                .collect();
+            e.user_buffer(burst.len())
+                .expect("fits")
+                .copy_from_slice(&burst);
+            e.load_user_attack(0, 60).expect("loads");
+        }
+        e.note_on(0, 60, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..15 {
+            e.render(BLOCK);
+            out.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        amplitude_at(&out, 1_000.0)
+    };
+    let (with, without) = (first_blocks(true), first_blocks(false));
+    assert!(with > 10.0 * without.max(1e-4), "{with} vs {without}");
+}
+
+/// ADR-0033: a recipe from the lab becomes its slot's line in the song, and
+/// the view can read it back.
+#[test]
+fn a_recipe_line_from_the_view_joins_the_song() {
+    let mut e = Engine::new(48_000.0);
+    let line = b"table 3 = upright-piano-kw/C4vH : smear 0.4";
+    e.song_buffer(line.len())
+        .expect("fits")
+        .copy_from_slice(line);
+    assert!(e.set_recipe_from_buffer());
+    assert_eq!(e.song().recipes.len(), 1);
+    assert_eq!(e.recipe_text(0), &line[..]);
+    let values = e.recipe_values(0).to_vec();
+    assert_eq!(values[crate::analysis::lab::SMEAR], 0.4);
+    assert_eq!(
+        values.len(),
+        crate::analysis::lab::EDITS + crate::analysis::lab::MORPHS + 2
+    );
+    assert_eq!(&values[values.len() - 2..], &[4096.0, 256.0]);
+    // The same slot again replaces it; anything but one recipe line is refused.
+    let again = b"table 3 = upright-piano-kw/C4vH";
+    e.song_buffer(again.len())
+        .expect("fits")
+        .copy_from_slice(again);
+    assert!(e.set_recipe_from_buffer());
+    assert_eq!(e.song().recipes.len(), 1);
+    let bad = b"tempo 120";
+    e.song_buffer(bad.len()).expect("fits").copy_from_slice(bad);
+    assert!(!e.set_recipe_from_buffer());
+}
+
+/// Spec 010 Req 12: `.wt1pos(rand.onNote)` gives each of eight notes on a
+/// PPG its own wave position, held by its voice for its length; a parameter
+/// no voice holds (`lfowt`) is sampled for the synth and held to the next note.
+#[test]
+fn a_signal_held_per_note() {
+    let text = "tempo 120\ntrack lead synth PpgWave PpgSweepPad\n\
+        clip r = lead .wt1pos(rand.onNote) .lfowt(rand.onNote.range(0.2, 0.8))\n  \"c3 e3 g3 b3 c4 e4 g4 b4\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let own = e.param_value(s, Param::Wt1Pos);
+    e.song_play();
+    let mut at = 0.0;
+    let mut until = |e: &mut Engine, secs: f32| {
+        while at < secs {
+            e.render(BLOCK);
+            at += BLOCK as f32 / 48_000.0;
+        }
+    };
+    // Each note is a quarter of a second: early and late in each, the
+    // newest voice's position and the synth's lfowt.
+    let newest = |e: &Engine| {
+        (0..MAX_VOICES)
+            .filter_map(|i| Some((e.pools[s].voice_times(i, 48_000.0)?, i)))
+            .filter(|((_, off), _)| off.is_none())
+            .min_by(|a, b| a.0.0.total_cmp(&b.0.0))
+            .and_then(|(_, i)| e.pools[s].voice_value(i, Param::Wt1Pos))
+    };
+    let mut held = Vec::new();
+    for k in 0..8 {
+        let start = k as f32 * 0.25;
+        until(&mut e, start + 0.05);
+        let (early, lfo) = (newest(&e), e.param_value(s, Param::LfoWt));
+        until(&mut e, start + 0.2);
+        let (late, lfo_late) = (newest(&e), e.param_value(s, Param::LfoWt));
+        assert_eq!(early, late, "note {k} holds its position");
+        assert_eq!(lfo, lfo_late, "the synth holds its lfowt through note {k}");
+        assert!((0.2..=0.8).contains(&lfo), "{lfo}");
+        held.push((early.expect("a position of its own"), lfo));
+    }
+    let mut positions: Vec<f32> = held.iter().map(|h| h.0).collect();
+    positions.sort_by(f32::total_cmp);
+    positions.dedup();
+    assert_eq!(positions.len(), 8, "eight notes, eight positions: {held:?}");
+    assert!(held.windows(2).all(|w| w[0].1 != w[1].1), "{held:?}");
+    assert_eq!(
+        e.param_value(s, Param::Wt1Pos),
+        own,
+        "the synth's own is left"
+    );
+    e.song_stop();
+    assert!(
+        (0..MAX_VOICES).all(|i| e.pools[s].voice_value(i, Param::Wt1Pos).is_none()),
+        "stopped, the voices follow the synth"
     );
 }
 
+/// Spec 010 Req 12: a lock on a table position holds for its step, and a `~`
+/// gives the synth's own back.
 #[test]
-fn summer_rv315_plays_start_to_finish() {
-    plays_start_to_finish(
-        "rv315-summer",
-        include_bytes!("../../../../examples/scores/rv315-summer.mid"),
+fn a_locked_table_position() {
+    let text = "tempo 120\ntrack lead synth PpgWave PpgSweepPad\n\
+        clip r = lead .wt1pos(\"0.9 ~ 0.4 ~\")\n  \"c3 c3 c3 c3\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let own = e.param_value(s, Param::Wt1Pos);
+    e.song_play();
+    let mut at = 0.0;
+    let mut pos = |e: &mut Engine, secs: f32| {
+        while at < secs {
+            e.render(BLOCK);
+            at += BLOCK as f32 / 48_000.0;
+        }
+        e.param_value(s, Param::Wt1Pos)
+    };
+    assert_eq!(pos(&mut e, 0.1), 0.9);
+    assert_eq!(pos(&mut e, 0.6), own, "a ~ gives the synth's own back");
+    assert_eq!(pos(&mut e, 1.1), 0.4);
+}
+
+/// A SID voice (#112) with the given settings over one unfiltered
+/// oscillator, playing `note`; its left channel for `blocks` blocks.
+fn sid_note(settings: &[(Param, f32)], note: u8, blocks: usize) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    e.preset(0, Preset::SidArp);
+    for (p, v) in [
+        (Param::Polyphony, 1.0),
+        (Param::SidArp, 0.0),
+        (Param::Sid1PwSweep, 0.0),
+        (Param::Sid1Sustain, 15.0),
+    ]
+    .iter()
+    .chain(settings)
+    {
+        e.set_param(0, *p, *v);
+    }
+    e.note_on(0, note, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..blocks {
+        e.render(BLOCK);
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    out
+}
+
+fn rising(x: &[f32]) -> usize {
+    x.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+}
+
+/// Rising crossings with hysteresis: below −`h`, then above `h`. A 4-bit
+/// staircase rings a little at each band-limited step.
+fn rising_past(x: &[f32], h: f32) -> usize {
+    let mut low = false;
+    let mut n = 0;
+    for v in x {
+        if *v < -h {
+            low = true;
+        } else if *v > h && low {
+            low = false;
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The magnitude of `x` at `hz` (Goertzel over a Hann window), per sample.
+fn tone(x: &[f32], hz: f64) -> f64 {
+    let w = std::f64::consts::TAU * hz / 48_000.0;
+    let n = x.len() as f64;
+    let (mut s1, mut s2) = (0.0_f64, 0.0_f64);
+    for (i, v) in x.iter().enumerate() {
+        let hann = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / n).cos();
+        let s = f64::from(*v) * hann + 2.0 * w.cos() * s1 - s2;
+        s2 = s1;
+        s1 = s;
+    }
+    (s1 * s1 + s2 * s2 - 2.0 * w.cos() * s1 * s2).sqrt() / x.len() as f64
+}
+
+/// The SID plays the frequency its 16-bit register holds: A4 is 7493 on a
+/// PAL chip, 440.03 Hz. On the 8580, whose DAC rises with every code (the
+/// 6581's wiggles about zero).
+#[test]
+fn the_sid_plays_its_frequency_register() {
+    let x = sid_note(
+        &[(Param::Sid1Wave, 1.0), (Param::SidChip, 1.0)],
+        69,
+        48_000 / BLOCK + 1,
+    );
+    let second = &x[x.len() - 48_000..];
+    let hz = 7493.0 * crate::chip::sid::PAL / f64::from(1u32 << 24);
+    let got = rising(second) as f64;
+    assert!((got - hz).abs() <= 2.0, "{got} vs {hz}");
+    assert!(second.iter().all(|v| v.is_finite() && v.abs() < 1.0));
+}
+
+/// Band-limiting takes off the aliases a raw saw folds back between its
+/// harmonics; the harmonics themselves stay.
+#[test]
+fn the_sid_band_limits_its_edges() {
+    let at = |bl: f32| {
+        let x = sid_note(
+            &[(Param::Sid1Wave, 2.0), (Param::SidBandLimit, bl)],
+            96,
+            300,
+        );
+        let x = &x[x.len() - 32_768..];
+        let reg = crate::chip::sid::freq_register(2093.0, crate::chip::sid::PAL);
+        let f0 = f64::from(reg) * crate::chip::sid::PAL / f64::from(1u32 << 24);
+        let between: f64 = (1..8).map(|k| tone(x, (k as f64 + 0.5) * f0)).sum();
+        (tone(x, f0), between)
+    };
+    let (raw_f0, raw_alias) = at(0.0);
+    let (bl_f0, bl_alias) = at(1.0);
+    assert!((bl_f0 / raw_f0 - 1.0).abs() < 0.1, "{bl_f0} {raw_f0}");
+    assert!(bl_alias < 0.3 * raw_alias, "{bl_alias} vs {raw_alias}");
+}
+
+/// A closed low-pass takes the filtered oscillator down; an open one passes it.
+#[test]
+fn the_sid_filter_closes() {
+    let at = |fc: f32| {
+        let x = sid_note(
+            &[
+                (Param::Sid1Wave, 2.0),
+                (Param::Sid1Filter, 1.0),
+                (Param::SidChip, 1.0),
+                (Param::SidCutoff, fc),
+            ],
+            72,
+            40,
+        );
+        rms(&x[x.len() / 2..])
+    };
+    assert!(at(30.0) < 0.2 * at(2047.0), "{} {}", at(30.0), at(2047.0));
+}
+
+/// The player steps the arpeggio once a video frame: an octave arpeggio
+/// alternates the pitch every 19.95 ms on a PAL machine.
+#[test]
+fn the_sid_arpeggio_steps_by_frames() {
+    let x = sid_note(
+        &[
+            (Param::Sid1Wave, 1.0),
+            (Param::SidChip, 1.0),
+            (Param::SidArp, 3.0),
+            (Param::SidArpSpeed, 1.0),
+        ],
+        81,
+        90,
+    );
+    let frame = 48_000.0 * f64::from(crate::chip::sid::PAL_FRAME) / crate::chip::sid::PAL;
+    let counts: Vec<usize> = (2..10)
+        .map(|k| {
+            let a = (k as f64 * frame) as usize + 150;
+            rising(x.get(a..a + 650).unwrap_or_default())
+        })
+        .collect();
+    for w in counts.windows(2) {
+        let (lo, hi) = (w[0].min(w[1]) as f64, w[0].max(w[1]) as f64);
+        assert!(hi / lo > 1.6, "{counts:?}");
+    }
+}
+
+/// Modular reaches the chip (#112): a SynthDef of `SidOsc`, `SidFilter` and
+/// `SidEnv` builds, sounds and holds the register's pitch.
+#[test]
+fn a_modular_voice_plays_the_sid_parts() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    e.preset(0, Preset::ModularSid);
+    e.set_code(
+        0,
+        "SynthDef(\\t, { |freq = 440, gate = 1|\n    SidOsc.ar(freq, 1, 2048, 1) * SidEnv.kr(gate, 0, 0, 15, 0)\n}).add;\n",
+    )
+    .expect("builds");
+    e.note_on(0, 69, 1.0);
+    let mut x = Vec::new();
+    for _ in 0..(48_000 / BLOCK + 1) {
+        e.render(BLOCK);
+        x.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let second = &x[x.len() - 48_000..];
+    assert!(
+        (rising(second) as f64 - 440.03).abs() <= 2.0,
+        "{}",
+        rising(second)
+    );
+    // The preset itself sounds.
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::ModularSid);
+    e.note_on(0, 60, 1.0);
+    let mut y = Vec::new();
+    for _ in 0..40 {
+        e.render(BLOCK);
+        y.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    assert!(rms(&y) > 0.01 && y.iter().all(|v| v.is_finite()));
+}
+
+/// A NES voice (#112) of the given preset and settings, playing `note`; its
+/// left channel for `blocks` blocks.
+fn nes_note(preset: Preset, settings: &[(Param, f32)], note: u8, blocks: usize) -> Vec<f32> {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    e.preset(0, preset);
+    for (p, v) in settings {
+        e.set_param(0, *p, *v);
+    }
+    e.note_on(0, note, 1.0);
+    let mut out = Vec::new();
+    for _ in 0..blocks {
+        e.render(BLOCK);
+        out.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    out
+}
+
+/// The NES pulse plays its 11-bit timer: A4 is t = 253 on NTSC, 440.4 Hz;
+/// the triangle an octave lower holds t = 253 too.
+#[test]
+fn the_nes_plays_its_timers() {
+    let one = [(Param::NesP2On, 0.0), (Param::NesVibrato, 0.0)];
+    let x = nes_note(Preset::NesLead, &one, 69, 48_000 / BLOCK + 1);
+    let second = &x[x.len() - 48_000..];
+    let hz = crate::chip::nes::NTSC / (16.0 * 254.0);
+    assert!(
+        (rising(second) as f64 - hz).abs() <= 2.0,
+        "{} vs {hz}",
+        rising(second)
+    );
+    let x = nes_note(Preset::NesBass, &[], 57, 48_000 / BLOCK + 1);
+    let second = &x[x.len() - 48_000..];
+    let hz = crate::chip::nes::NTSC / (32.0 * 254.0);
+    let n = rising_past(second, 0.02) as f64;
+    assert!((n - hz).abs() <= 2.0, "{n} vs {hz}");
+    assert!(second.iter().all(|v| v.is_finite() && v.abs() < 1.0));
+}
+
+/// A let-go pulse falls silent; a triangle holds its step and the output
+/// filter takes the offset away.
+#[test]
+fn a_nes_note_ends() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::NesLead);
+    e.note_on(0, 69, 1.0);
+    run(&mut e, 20);
+    e.note_off(0, 69);
+    run(&mut e, 20);
+    let tail = run(&mut e, 10);
+    assert!(tail < 1e-3, "{tail}");
+}
+
+/// With `NesKit` the NES plays a drum track's lanes (#99): a kick of the
+/// triangle diving, a hat of noise.
+#[test]
+fn the_nes_kit_plays_from_lanes() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = FOUR.replace("track kit drums", "track kit drums Nes NesKit");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    e.song_play();
+    let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
+    assert!(heard > 0.05, "the kick at 0.5 s: {heard}");
+    let hit = |note: u8| {
+        let x = nes_note(Preset::NesKit, &[], note, 30);
+        (rising(&x) as f64 / x.len() as f64, rms(&x))
+    };
+    let (kick, kick_rms) = hit(36);
+    let (hat, hat_rms) = hit(42);
+    assert!(kick_rms > 0.01 && hat_rms > 0.005, "{kick_rms} {hat_rms}");
+    assert!(hat > 4.0 * kick, "the hat is brighter: {hat} {kick}");
+}
+
+/// The DMC plays a pad's sample as 1-bit deltas at its rate: a slow sine
+/// comes through, its steps 2 apart.
+#[test]
+fn the_nes_dmc_plays_a_sample() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 / 48_000.0 * 200.0 * std::f32::consts::TAU).sin() * 0.8)
+        .collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("loads");
+    e.preset(0, Preset::NesBass);
+    // Pad 1 of the synth's kit holds it, as a `pad` or `samples` line puts it.
+    e.set_pad(0, 0, crate::padsampler::PadField::Sample, 0.0);
+    for (p, v) in [
+        (Param::NesTriOn, 0.0),
+        (Param::NesDmcSample, 1.0),
+        (Param::NesDmcRate, 15.0),
+        (Param::NesOutput, 2.0),
+    ] {
+        e.set_param(0, p, v);
+    }
+    e.note_on(0, 60, 1.0);
+    let mut x = Vec::new();
+    for _ in 0..100 {
+        e.render(BLOCK);
+        x.extend_from_slice(&e.output()[..BLOCK]);
+    }
+    let part = &x[4_800..9_600];
+    assert!(rms(part) > 0.02, "{}", rms(part));
+    let r = rising(part) as f64 / (part.len() as f64 / 48_000.0);
+    assert!((r - 200.0).abs() < 30.0, "{r}");
+}
+
+/// Modular reaches the 2A03 (#112): `NesPulse` holds the timer's pitch and
+/// `NesDmc` follows a slow sine.
+#[test]
+fn a_modular_voice_plays_the_nes_channels() {
+    let play = |code: &str, note: u8| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        e.preset(0, Preset::ModularSid);
+        e.set_code(0, code).expect("builds");
+        e.note_on(0, note, 1.0);
+        let mut x = Vec::new();
+        for _ in 0..(48_000 / BLOCK + 1) {
+            e.render(BLOCK);
+            x.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        x
+    };
+    let x = play(
+        "SynthDef(\\p, { |freq = 440, gate = 1| NesPulse.ar(freq, 2, 15) }).add;\n",
+        69,
+    );
+    let second = &x[x.len() - 48_000..];
+    let hz = crate::chip::nes::NTSC / (16.0 * 254.0);
+    assert!(
+        (rising(second) as f64 - hz).abs() <= 2.0,
+        "{}",
+        rising(second)
+    );
+    let x = play(
+        "SynthDef(\\d, { |freq = 440, gate = 1| NesDmc.ar(SinOsc.ar(freq) * 0.8, 15) + NesNoise.ar(15, 1, 0) + NesTri.ar(freq, 0) }).add;\n",
+        48,
+    );
+    let second = &x[x.len() - 48_000..];
+    let n = rising_past(second, 0.05) as f64;
+    assert!((n - 130.8).abs() < 4.0, "{n}");
+}
+
+/// A song lets go of a key and presses the next in the same block: the SID
+/// and the NES retrigger every note, low ones included, not only the first
+/// (#112).
+#[test]
+fn chips_play_notes_back_to_back() {
+    for preset in [
+        Preset::SidBass,
+        Preset::SidLead,
+        Preset::NesLead,
+        Preset::NesBass,
+    ] {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, preset);
+        let mut last = None;
+        for n in [33_u8, 45, 33, 45, 33] {
+            if let Some(l) = last {
+                e.note_off(0, l);
+            }
+            e.note_on(0, n, 1.0);
+            last = Some(n);
+            let mut x = Vec::new();
+            for _ in 0..20 {
+                e.render(BLOCK);
+                x.extend_from_slice(&e.output()[..BLOCK]);
+            }
+            assert!(rms(&x) > 0.005, "{preset:?} note {n}: {}", rms(&x));
+        }
+    }
+}
+
+/// With `NesKit`, a drum key whose pad holds a sample plays it through the
+/// DMC (a sampled kick beside the chip's hats); a key without one plays
+/// the chip's drum.
+#[test]
+fn the_nes_kit_plays_pad_samples_through_the_dmc() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 / 48_000.0 * 200.0 * std::f32::consts::TAU).sin() * 0.8)
+        .collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("loads");
+    e.preset(0, Preset::NesKit);
+    e.set_param(0, Param::NesOutput, 2.0);
+    e.set_pad(0, 0, crate::padsampler::PadField::Sample, 0.0);
+    let hit = |e: &mut Engine, note: u8| {
+        e.note_on(0, note, 1.0);
+        let mut x = Vec::new();
+        for _ in 0..60 {
+            e.render(BLOCK);
+            x.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        e.note_off(0, note);
+        for _ in 0..200 {
+            e.render(BLOCK);
+        }
+        x
+    };
+    let kick = hit(&mut e, 36);
+    let part = &kick[2_400..7_200];
+    let r = rising_past(part, 0.02) as f64 / 0.1;
+    assert!((r - 200.0).abs() < 30.0, "the pad's sine: {r}");
+    let hat = hit(&mut e, 42);
+    assert!(
+        rising(&hat) > 4 * rising(&kick[..hat.len()]),
+        "the chip's hat"
     );
 }
 
+/// A new song's track keeps the strip values its mixer line sets, even on a
+/// strip another song's track left: the old values' reset comes first.
 #[test]
-fn autumn_rv293_plays_start_to_finish() {
-    plays_start_to_finish(
-        "rv293-autumn",
-        include_bytes!("../../../../examples/scores/rv293-autumn.mid"),
-    );
+fn a_new_track_keeps_its_own_strip_values() {
+    let mut e = Engine::new(48_000.0);
+    let first = "tempo 120\ntrack a synth Sh101\nstrip a: Level 0.9, Send1 0.6, Pan -0.5\n";
+    assert_eq!(load_text(&mut e, first), Ok(()));
+    let second = "tempo 120\ntrack b synth Sh101\nstrip b: Level 0.3, Send1 0.2, Pan 0.4\n";
+    assert_eq!(load_text(&mut e, second), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    assert_eq!(e.param_value(s, Param::Level), 0.3);
+    assert_eq!(e.param_value(s, Param::Send1), 0.2);
+    assert_eq!(e.param_value(s, Param::Pan), 0.4);
 }
 
+/// After several songs, a song's mixer is what it is on a fresh engine: a
+/// strip new to its track starts from the defaults, not from what an older
+/// song left on it.
 #[test]
-fn winter_rv297_plays_start_to_finish() {
-    plays_start_to_finish(
-        "rv297-winter",
-        include_bytes!("../../../../examples/scores/rv297-winter.mid"),
-    );
+fn songs_loaded_in_turn_leave_no_mix_behind() {
+    let read = |name: &str| {
+        let path = format!(
+            "{}/../../examples/songs/{name}.song",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(path).expect("example")
+    };
+    let song = read("seed-rave");
+    let mut fresh = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut fresh, &song), Ok(()));
+    let mut e = Engine::new(48_000.0);
+    for name in [
+        "clockwork-arps",
+        "on-the-run",
+        "nes-dynamo",
+        "silver-box-modular",
+        "patch-bay",
+    ] {
+        assert_eq!(load_text(&mut e, &read(name)), Ok(()));
+    }
+    assert_eq!(load_text(&mut e, &song), Ok(()));
+    for t in 0..song.lines().filter(|l| l.starts_with("track ")).count() {
+        let (a, b) = (fresh.song_routed(t), e.song_routed(t));
+        let (Some(a), Some(b)) = (a, b) else {
+            panic!("track {t} is routed in both");
+        };
+        for (p, name) in Param::ALL.iter().filter(|(p, _)| p.is_strip()) {
+            assert_eq!(
+                fresh.param_value(a, *p),
+                e.param_value(b, *p),
+                "track {t} {name}"
+            );
+        }
+    }
+    for (p, name) in Param::ALL.iter().filter(|(p, _)| p.is_global()) {
+        assert_eq!(
+            fresh.param_value(0, *p),
+            e.param_value(0, *p),
+            "master {name}"
+        );
+    }
 }

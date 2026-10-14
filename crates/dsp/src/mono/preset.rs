@@ -105,12 +105,24 @@ pub enum Preset {
     Heavy808 = 89,
     Heavy909 = 90,
     ModularKick = 91,
-    ModularDubSiren = 92,
+    Tb303Acid = 92,
+    Tb303Squelch = 93,
+    Tb303Square = 94,
+    SidLead = 95,
+    SidBass = 96,
+    SidArp = 97,
+    SidSync = 98,
+    ModularSid = 99,
+    NesLead = 100,
+    NesBass = 101,
+    NesArp = 102,
+    NesKit = 103,
+    ModularDubSiren = 104,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 93] = [
+    pub const ALL: [(Preset, &'static str); 105] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -203,6 +215,18 @@ impl Preset {
         (Preset::Heavy808, "Heavy808"),
         (Preset::Heavy909, "Heavy909"),
         (Preset::ModularKick, "ModularKick"),
+        (Preset::Tb303Acid, "Tb303Acid"),
+        (Preset::Tb303Squelch, "Tb303Squelch"),
+        (Preset::Tb303Square, "Tb303Square"),
+        (Preset::SidLead, "SidLead"),
+        (Preset::SidBass, "SidBass"),
+        (Preset::SidArp, "SidArp"),
+        (Preset::SidSync, "SidSync"),
+        (Preset::ModularSid, "ModularSid"),
+        (Preset::NesLead, "NesLead"),
+        (Preset::NesBass, "NesBass"),
+        (Preset::NesArp, "NesArp"),
+        (Preset::NesKit, "NesKit"),
         (Preset::ModularDubSiren, "ModularDubSiren"),
     ];
 
@@ -241,7 +265,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 448] = [
+pub const DEFAULTS: [(Param, f32); 545] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -586,6 +610,103 @@ pub const DEFAULTS: [(Param, f32); 448] = [
     (Param::EnvRev, 3.0),
     (Param::PitchBend, 0.0),
     (Param::BendRange, 2.0),
+    (Param::Accent, 0.5),
+    (Param::Sid1Wave, 4.0),
+    (Param::Sid1Pw, 2048.0),
+    (Param::Sid1Coarse, 0.0),
+    (Param::Sid1Fine, 0.0),
+    (Param::Sid1Ring, 0.0),
+    (Param::Sid1Sync, 0.0),
+    (Param::Sid1Attack, 0.0),
+    (Param::Sid1Decay, 9.0),
+    (Param::Sid1Sustain, 10.0),
+    (Param::Sid1Release, 9.0),
+    (Param::Sid1Filter, 0.0),
+    (Param::Sid1PwSweep, 0.0),
+    (Param::Sid2Wave, 0.0),
+    (Param::Sid2Pw, 2048.0),
+    (Param::Sid2Coarse, 0.0),
+    (Param::Sid2Fine, 0.0),
+    (Param::Sid2Ring, 0.0),
+    (Param::Sid2Sync, 0.0),
+    (Param::Sid2Attack, 0.0),
+    (Param::Sid2Decay, 9.0),
+    (Param::Sid2Sustain, 10.0),
+    (Param::Sid2Release, 9.0),
+    (Param::Sid2Filter, 0.0),
+    (Param::Sid2PwSweep, 0.0),
+    (Param::Sid3Wave, 0.0),
+    (Param::Sid3Pw, 2048.0),
+    (Param::Sid3Coarse, 0.0),
+    (Param::Sid3Fine, 0.0),
+    (Param::Sid3Ring, 0.0),
+    (Param::Sid3Sync, 0.0),
+    (Param::Sid3Attack, 0.0),
+    (Param::Sid3Decay, 9.0),
+    (Param::Sid3Sustain, 10.0),
+    (Param::Sid3Release, 9.0),
+    (Param::Sid3Filter, 0.0),
+    (Param::Sid3PwSweep, 0.0),
+    (Param::SidChip, 0.0),
+    (Param::SidClock, 0.0),
+    (Param::SidCutoff, 1024.0),
+    (Param::SidResonance, 0.0),
+    (Param::SidFilterMode, 1.0),
+    (Param::SidVolume, 15.0),
+    (Param::SidVoice3Off, 0.0),
+    (Param::SidBandLimit, 1.0),
+    (Param::SidCutoffSweep, 0.0),
+    (Param::SidArp, 0.0),
+    (Param::SidArpSpeed, 1.0),
+    (Param::SidHardRestart, 1.0),
+    (Param::SidFilterBias, 0.0),
+    (Param::SidVibrato, 0.0),
+    (Param::SidVibratoRate, 5.0),
+    (Param::SidVibratoDelay, 0.0),
+    (Param::NesP1On, 1.0),
+    (Param::NesP1Duty, 2.0),
+    (Param::NesP1Volume, 12.0),
+    (Param::NesP1Decay, 0.0),
+    (Param::NesP1Loop, 0.0),
+    (Param::NesP1Coarse, 0.0),
+    (Param::NesP1Fine, 0.0),
+    (Param::NesP1Sweep, 0.0),
+    (Param::NesP1SweepPeriod, 0.0),
+    (Param::NesP2On, 0.0),
+    (Param::NesP2Duty, 2.0),
+    (Param::NesP2Volume, 12.0),
+    (Param::NesP2Decay, 0.0),
+    (Param::NesP2Loop, 0.0),
+    (Param::NesP2Coarse, 0.0),
+    (Param::NesP2Fine, 0.0),
+    (Param::NesP2Sweep, 0.0),
+    (Param::NesP2SweepPeriod, 0.0),
+    (Param::NesTriOn, 0.0),
+    (Param::NesTriCoarse, 0.0),
+    (Param::NesTriFine, 0.0),
+    (Param::NesTriLength, 0.0),
+    (Param::NesNoiseOn, 0.0),
+    (Param::NesNoiseVolume, 12.0),
+    (Param::NesNoiseDecay, 0.0),
+    (Param::NesNoiseLoop, 0.0),
+    (Param::NesNoisePeriod, 8.0),
+    (Param::NesNoiseShort, 0.0),
+    (Param::NesNoiseTrack, 0.0),
+    (Param::NesDmcSample, 0.0),
+    (Param::NesDmcRate, 15.0),
+    (Param::NesDmcLoop, 0.0),
+    (Param::NesDmcLevel, 0.0),
+    (Param::NesDmcDirect, 0.0),
+    (Param::NesRegion, 0.0),
+    (Param::NesOutput, 0.0),
+    (Param::NesBandLimit, 1.0),
+    (Param::NesArp, 0.0),
+    (Param::NesArpSpeed, 1.0),
+    (Param::NesVibrato, 0.0),
+    (Param::NesVibratoRate, 5.0),
+    (Param::NesVibratoDelay, 0.0),
+    (Param::NesKit, 0.0),
+    (Param::Character, 0.0),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
     (Param::SnTone, 0.5),
@@ -697,6 +818,8 @@ pub const DEFAULTS: [(Param, f32); 448] = [
 mod tests {
     use super::*;
 
+    mod songs;
+
     /// ADR-0004: the view's preset list per model (`ModelDef.presets` in
     /// `web/src/audio/models.ts`, which the composer's picker offers, #213)
     /// holds exactly the presets of that model, in the engine's order.
@@ -760,23 +883,6 @@ mod tests {
         }
     }
 
-    /// Run `check` on every preset, spread over the machine's threads: each check
-    /// renders seconds of audio, and a failure in any thread fails the test.
-    fn for_every_preset(check: impl Fn(Preset, &str) + Sync) {
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-        let per = Preset::ALL.len().div_ceil(threads);
-        std::thread::scope(|scope| {
-            for chunk in Preset::ALL.chunks(per) {
-                let check = &check;
-                scope.spawn(move || {
-                    for (preset, name) in chunk {
-                        check(*preset, name);
-                    }
-                });
-            }
-        });
-    }
-
     /// #340: a preset sets times its model's envelopes can make, so what
     /// its knobs show is what plays.
     #[test]
@@ -814,35 +920,6 @@ mod tests {
         assert!(outside.is_empty(), "{outside:#?}");
     }
 
-    #[test]
-    fn every_preset_is_bounded() {
-        for_every_preset(|preset, name| {
-            // A sampler with nothing loaded is silent; `sampler::tests` and `padsampler::tests` play them.
-            if preset.model().uses_sampler() || preset.model().uses_pads() {
-                return;
-            }
-            for note in [24, 48, 72, 96, 108] {
-                let mut e = Engine::new(48_000.0);
-                e.set_param(0, Param::MasterGain, 1.0);
-                e.preset(0, preset);
-                e.note_on(0, note, 1.0);
-                let mut heard = 0.0_f32;
-                for i in 0..(48_000 * 5 / 2 / BLOCK) {
-                    if i == 48_000 / BLOCK {
-                        e.note_off(0, note);
-                    }
-                    e.render(BLOCK);
-                    for s in e.output() {
-                        assert!(s.is_finite() && s.abs() <= 1.0, "{name} {note}: {s}");
-                        heard = heard.max(s.abs());
-                    }
-                }
-                assert!(heard > 0.02, "{name} {note} is silent");
-                assert_eq!(e.active_voices(), 0, "{name} {note} still sounds");
-            }
-        });
-    }
-
     /// ADR-0014: the defaults a user preset starts from leave the strip alone.
     #[test]
     fn synth_defaults_reset_the_sound_not_the_strip() {
@@ -870,37 +947,6 @@ mod tests {
                 .find(|(c, _)| *c == p)
                 .map_or(v, |(_, c)| *c);
             assert_eq!(e.param_value(0, p), want, "{p:?}");
-        }
-    }
-
-    /// No leftovers: a preset after another sounds like it does from fresh.
-    #[test]
-    fn a_preset_after_another_renders_like_a_fresh_one() {
-        let render = |presets: &[Preset]| {
-            let mut e = Engine::new(48_000.0);
-            for p in presets {
-                e.preset(0, *p);
-            }
-            e.note_on(0, 60, 1.0);
-            let mut out = Vec::new();
-            for _ in 0..50 {
-                e.render(BLOCK);
-                out.extend_from_slice(e.output());
-            }
-            out
-        };
-        // After the first, the middle and the last preset of the list: one of
-        // each kind of leftover, without rendering every pair.
-        let n = Preset::ALL.len();
-        let befores = [Preset::ALL[0].0, Preset::ALL[n / 2].0, Preset::ALL[n - 1].0];
-        for (preset, name) in Preset::ALL {
-            let fresh = render(&[preset]);
-            for before in befores {
-                assert!(
-                    render(&[before, preset]) == fresh,
-                    "{name} after {before:?}"
-                );
-            }
         }
     }
 
@@ -951,43 +997,6 @@ mod tests {
                 assert!((g - w).abs() < 2.0e-5, "{preset:?}: {got:?} vs {want:?}");
             }
         }
-    }
-
-    /// Spec 006 Req 15: every polyphonic preset plays a full chord, bounded,
-    /// audible, and silent once released.
-    #[test]
-    fn every_poly_preset_plays_a_full_chord() {
-        for_every_preset(|preset, name| {
-            let mut probe = Engine::new(48_000.0);
-            probe.preset(0, preset);
-            let voices =
-                (probe.param_value(0, Param::Polyphony) as usize).min(preset.model().voices());
-            if voices < 2 || preset.model().uses_sampler() || preset.model().uses_pads() {
-                return;
-            }
-            let mut e = Engine::new(48_000.0);
-            e.set_param(0, Param::MasterGain, 1.0);
-            e.preset(0, preset);
-            let chord: Vec<u8> = (0..voices).map(|k| (40 + 5 * k).min(100) as u8).collect();
-            for n in &chord {
-                e.note_on(0, *n, 1.0);
-            }
-            let mut heard = 0.0_f32;
-            for i in 0..(48_000 * 3 / BLOCK) {
-                if i == 24_000 / BLOCK {
-                    for n in &chord {
-                        e.note_off(0, *n);
-                    }
-                }
-                e.render(BLOCK);
-                for s in e.output() {
-                    assert!(s.is_finite() && s.abs() <= 1.0, "{name}: {s}");
-                    heard = heard.max(s.abs());
-                }
-            }
-            assert!(heard > 0.05, "{name} is silent");
-            assert_eq!(e.active_voices(), 0, "{name} still sounds");
-        });
     }
 
     /// A preset's model is its definition's; its changes never set it.
@@ -1049,7 +1058,7 @@ mod tests {
 
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(99), None);
+        assert_eq!(Preset::from_id(105), None);
     }
 
     /// A four-note chord at the default master gain stays bounded: the voices

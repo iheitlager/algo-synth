@@ -20,6 +20,7 @@ mod matrix12;
 mod minimoog;
 mod modular;
 mod ms20;
+mod nes;
 mod odyssey;
 mod padsampler;
 mod polymoog;
@@ -28,6 +29,8 @@ mod proone;
 mod prophet5;
 mod sampler;
 mod sh101;
+mod sid;
+mod tb303;
 mod tr808;
 mod tr909;
 
@@ -48,6 +51,10 @@ pub enum Engine {
     Pads,
     /// A graph of unit generators (ADR-0020).
     Graph,
+    /// The SID chip, one per note (#112).
+    Sid,
+    /// The NES's 2A03, one per note (#112).
+    Nes,
 }
 
 /// What a model is: plain data, read by the voice; nothing is boxed or
@@ -97,6 +104,9 @@ pub struct ModelDef {
     pub hp_follows_ar: bool,
     /// The normalled cutoff follows the filter ADSR (spec 004 Req 12).
     pub cutoff_follows_filter_env: bool,
+    /// An accented note charges the TB-303's sweep circuit, which opens the
+    /// filter and lifts the VCA; its filter envelope is a decay (#536).
+    pub accent_sweep: bool,
     /// What each revision of the instrument sets, Rev 1 to Rev 4, if it
     /// has the Revision switch (#343).
     pub revisions: Option<&'static [RevisionDef; 4]>,
@@ -139,6 +149,7 @@ impl ModelDef {
         wheel_scales_filter_mod: false,
         hp_follows_ar: false,
         cutoff_follows_filter_env: true,
+        accent_sweep: false,
         revisions: None,
         presets: &[],
     };
@@ -212,6 +223,9 @@ impl Model {
             Model::PadSampler => &padsampler::DEF,
             Model::Tr909 => &tr909::DEF,
             Model::Modular => &modular::DEF,
+            Model::Tb303 => &tb303::DEF,
+            Model::Sid => &sid::DEF,
+            Model::Nes => &nes::DEF,
         }
     }
 }
@@ -245,6 +259,8 @@ mod tests {
                     | Model::Sampler
                     | Model::PadSampler
                     | Model::Modular
+                    | Model::Sid
+                    | Model::Nes
             );
             assert_eq!(m.def().engine == Engine::Mono, !mono, "{name}");
         }

@@ -7,9 +7,10 @@ import { computed } from 'vue'
 import { exp, lin, visibleOuts } from '../audio/console'
 import { keySwitches, keyTrackOf, stepped } from '../audio/faceplate'
 import { fmtUnit } from '../audio/faceplate'
-import { getEngine, layout, outText, params, status } from '../audio/engine'
+import { codeKnobs, getEngine, layout, outText, params, status, userSlots, type CodeKnob } from '../audio/engine'
 import { PAD_OUTS, scaleOf, type Control, type ModelDef } from '../audio/models'
-import type { ParamId } from '../audio/params'
+import { Model, Param, type ParamId } from '../audio/params'
+import { ampEnvelope, userSlotNotes } from '../audio/faceplate'
 import ParamKnob from './console/ParamKnob.vue'
 import AlgoDiagram from './synth/AlgoDiagram.vue'
 import Eg4Graph from './synth/Eg4Graph.vue'
@@ -21,12 +22,24 @@ import Selector from './synth/Selector.vue'
 import SysexLoader from './synth/SysexLoader.vue'
 import CodeEditor from './synth/CodeEditor.vue'
 import CodeKnobs from './synth/CodeKnobs.vue'
+import SynthSpectrum from './synth/SynthSpectrum.vue'
 import Rocker from './synth/Rocker.vue'
 import Switch from './synth/Switch.vue'
+import WaveStack from './synth/WaveStack.vue'
 
 const props = defineProps<{ s: number; def: ModelDef }>()
 
 const val = (id: ParamId) => params.values[props.s]?.[id] ?? 0
+// A Modular synth whose code writes its own amplitude envelope: the panel's
+// Amplifier envelope is that one, its knobs the code's numbers (#519).
+const codeEnv = computed(() => (props.def.id === Model.Modular ? ampEnvelope(codeKnobs[props.s] ?? []) : null))
+const sections = computed(() => props.def.sections)
+// A user table or attack this synth plays that nothing loaded (ADR-0033): said, not silent.
+const slotNotes = computed(() => {
+  if (props.def.id === Model.PpgWave) return userSlotNotes('table', [val(Param.Wt1Table), val(Param.Wt2Table)], userSlots.table)
+  if (props.def.id === Model.D50) return userSlotNotes('attack', [val(Param.Pcm1Sample), val(Param.Pcm2Sample)], userSlots.attack)
+  return []
+})
 const send = (id: ParamId, v: number) => getEngine()?.param(props.s, id, v)
 // A pad's Out lists the groups that exist, as a strip's does (#218).
 const optionsOf = (c: { options: readonly (readonly [string, number])[]; param: ParamId }) =>
@@ -54,6 +67,25 @@ const envKnobs = (c: Env) =>
     const id = c[k]
     return id === undefined ? [] : [{ k, id, ...ENV_KNOBS[k] }]
   })
+/** The code's envelope stages as knobs, on the ranges the engine gives them. */
+const codeEnvKnobs = () => {
+  const e = codeEnv.value
+  if (!e) return []
+  return (['a', 'd', 's', 'r'] as const).flatMap((k) => {
+    const knob: CodeKnob | undefined = e[k]
+    if (!knob) return []
+    const scale = knob.exp && knob.lo > 0 ? exp(knob.lo, knob.hi) : lin(knob.lo, knob.hi)
+    return [{ k, id: (Param.Ctl1 + knob.ctl) as ParamId, label: ENV_KNOBS[k].label, scale, unit: ENV_KNOBS[k].unit, def: knob.def }]
+  })
+}
+/** An envelope control's knobs: a Modular's amplifier envelope is its code's when the code has one. */
+const envKnobsOf = (sec: { panelEnv?: boolean }, c: Env) => (sec.panelEnv && codeEnv.value ? codeEnvKnobs() : envKnobs(c))
+const envTimesOf = (sec: { panelEnv?: boolean }, c: Env) => {
+  const e = codeEnv.value
+  if (!(sec.panelEnv && e)) return envTimes(c)
+  const at = (k?: CodeKnob) => (k ? val((Param.Ctl1 + k.ctl) as ParamId) : undefined)
+  return { a: at(e.a) ?? 0.01, d: at(e.d) ?? 0.001, s: at(e.s) ?? (e.d ? 1 : 0), r: at(e.r) ?? 0.05 }
+}
 /** What the curve is drawn from: a missing decay or sustain is a plain AR, and a contour's release is its decay. */
 const envTimes = (c: Env) => ({
   a: val(c.a),
@@ -75,9 +107,10 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 <template>
   <div class="plate" :class="{ wood: !!def.theme.wood }" :style="vars">
     <i v-if="def.theme.wood" class="cheek l" aria-hidden="true" /><i v-if="def.theme.wood" class="cheek r" aria-hidden="true" />
+    <p v-for="n in slotNotes" :key="n" class="slotnote" role="status">{{ n }}</p>
     <div class="mods" :class="{ row: def.row }">
       <section
-        v-for="sec in def.sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column, pairs: sec.pairs, grow: sec.grow }"
+        v-for="sec in sections" :key="sec.title" class="mod" :class="{ wide: sec.patch || sec.wide, column: sec.column, pairs: sec.pairs, grow: sec.grow, fill: sec.fill }"
         :style="sec.colour ? { '--c': sec.colour } : undefined"
         :aria-label="sec.title"
       >
@@ -123,14 +156,15 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
               :name="`${def.name} ${sec.title} ${c.label}`" :disabled="!status.running" @update:model-value="send(c.param, Number($event))"
             />
             <div v-else-if="c.kind === 'env'" class="env">
-              <EnvGraph v-bind="envTimes(c)" :label="`${def.name} ${sec.title}`" />
+              <EnvGraph v-bind="envTimesOf(sec, c)" :label="`${def.name} ${sec.title}`" />
               <div class="eknobs">
                 <ParamKnob
-                  v-for="k in envKnobs(c)" :key="k.k" :synth="s" :id="k.id" :label="k.label"
+                  v-for="k in envKnobsOf(sec, c)" :key="k.k" :synth="s" :id="k.id" :label="k.label"
                   :name="`${def.name} ${sec.title} ${k.label}`" :scale="k.scale" :def="k.def" :size="30" :color="def.theme.accent"
                   :text="(v: number) => fmtUnit(k.unit, v)"
                 />
               </div>
+              <p v-if="sec.panelEnv && codeEnv" class="envnote">the code's own envelope</p>
             </div>
             <div v-else-if="c.kind === 'eg4'" class="env">
               <Eg4Graph :rates="c.rates.map(val)" :levels="c.levels.map(val)" :label="c.label" />
@@ -154,11 +188,13 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
                 :color="def.theme.accent" :text="(v: number) => `${Math.round(v) + 1}`"
               />
             </div>
+            <WaveStack v-else-if="c.kind === 'wave'" :table="val(c.table)" :pos="val(c.pos)" :label="`${def.name} ${c.label}`" />
             <SysexLoader v-else-if="c.kind === 'sysex'" :s="s" />
             <SamplerPane v-else-if="c.kind === 'sampler'" :s="s" />
             <PadGrid v-else-if="c.kind === 'pads'" :s="s" />
             <CodeEditor v-else-if="c.kind === 'code'" :s="s" />
-            <CodeKnobs v-else-if="c.kind === 'knobs'" :s="s" :color="def.theme.accent" />
+            <CodeKnobs v-else-if="c.kind === 'knobs'" :s="s" :color="def.theme.accent" :skip="codeEnv?.module" />
+            <SynthSpectrum v-else-if="c.kind === 'spectrum'" :s="s" :color="def.theme.accent" />
             <div v-else-if="c.kind === 'gap'" class="gap" aria-hidden="true" />
             <p v-else class="note">{{ c.text }}</p>
           </template>
@@ -169,6 +205,8 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 </template>
 
 <style scoped>
+.envnote { margin: 4px 0 0; font-size: 10px; opacity: 0.7; text-align: center; }
+.slotnote { margin: 0 0 8px; padding: 4px 10px; border-radius: 4px; background: #00000055; color: #ffd27a; font-size: 12px; }
 .plate {
   position: relative; padding: 14px 22px 16px; border-radius: 6px; border: 1px solid var(--trim); color: var(--con-silk-dim);
   background: linear-gradient(180deg, color-mix(in srgb, var(--plate) 90%, white 10%), var(--plate) 18%, color-mix(in srgb, var(--plate) 88%, black 12%));
@@ -186,6 +224,8 @@ const key = (c: Control, i: number) => (c.kind === 'note' ? c.text : `${c.kind}$
 .mod.wide { flex: 1 1 100%; }
 .mod.grow { flex: 1 1 0; min-width: 320px; display: flex; flex-direction: column; }
 .mod.grow .ctls { flex: 1; align-items: stretch; }
+.mod.fill { align-self: stretch; display: flex; flex-direction: column; }
+.mod.fill .ctls { flex: 1; align-items: stretch; }
 /* A drum machine: its pads left to right in one row, each a column of knobs (#194). */
 .mods.row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
 .mod.column { flex: 0 0 auto; width: 100px; padding-inline: 6px; }

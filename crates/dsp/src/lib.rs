@@ -6,7 +6,9 @@
 //! messages and copies the output block.
 
 pub mod algo;
+pub mod analysis;
 pub mod arp;
+pub mod chip;
 pub mod clock;
 pub mod deck;
 pub mod drums;
@@ -28,8 +30,13 @@ pub mod sample;
 pub mod sampler;
 pub mod smf;
 pub mod song;
+pub mod spectrum;
 pub mod synth;
 pub mod table;
 pub mod voice;
 
+// The worklet's ABI, only for wasm (and its tests): a native build that
+// links the engine (algo-synth, song-lsp) would carry the same no_mangle
+// symbols, whose coverage records then clash with the tests' (#535).
+#[cfg(any(target_arch = "wasm32", test))]
 mod ffi;

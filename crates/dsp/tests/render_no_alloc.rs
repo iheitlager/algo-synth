@@ -32,12 +32,23 @@ setting metal = Modular ModularBasic
       var sig = Mix(PMOsc.ar(freq, freq * [1.5, 2], env * 4)) + SinOsc.ar(freq, 0, 0.2);
       CombN.ar(MoogFF.ar(sig, 2000, 2), 0.01, 0.002, 0.2).tanh * env
   }).add;
+setting chip = Modular ModularBasic
+  SynthDef(\\chip, { |freq = 440, gate = 1|
+      var o = SidOsc.ar(freq, 4, SinOsc.kr(2).range(500, 3500), 0, LFPulse.kr(freq * 0.5), SidOsc.ar(freq * 1.5, 1));
+      SidFilter.ar(o, 900, 10, 3) * SidEnv.kr(gate, 1, 8, 10, 6)
+          + NesPulse.ar(freq, 1, 8) + NesTri.ar(freq * 0.5) + NesNoise.ar(9, 1, 3)
+          + NesDmc.ar(SinOsc.ar(freq), 12)
+  }).add;
 track kit drums
 track lead synth
 track pad synth
 track bass synth
 track buzzer synth buzz
 track bell synth metal
+track sid synth Sid SidArp
+track chipper synth chip
+track famicom synth Nes NesArp
+track nkit drums Nes NesKit
 
 clip beat = kit /16
   bd x..x..x...x..x..
@@ -54,6 +65,17 @@ clip ring = bell
   \"[e4,b4] ~ g#4 ~\"
 clip zap = buzzer
   \"e3 [g3 b3] ~ <e4 d4>\"
+clip arps = sid .sidcutoff(sine.range(200, 1800))
+  \"[e3,g#3,b3] e4 ~ <b4 d5>\"
+clip chirp = chipper
+  \"e3 b3 ~ e4\"
+clip tune = famicom .nesvibrato(sine.range(0, 0.5))
+  \"e4 [b4 e5] ~ <g4 a4>\"
+clip nbeat = nkit /16
+  bd x...x...x...x...
+  sn ....x.......x...
+  ch xxxxxxxxxxxxxxxx
+  lt ..x...x.
 
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
@@ -66,8 +88,8 @@ mod buzzer.ctl1 = sine.slow(2).range(0.4, 0.6)
 mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
 
-scene a 2: beat hold sand roam zap ring fade pan sweep [open]
-scene b 1: beat sand roam zap [solo]
+scene a 2: beat hold sand roam zap ring arps chirp tune nbeat fade pan sweep [open]
+scene b 1: beat sand roam zap arps chirp tune nbeat [solo]
 arrange a b a b
 ";
 

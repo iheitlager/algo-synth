@@ -12,12 +12,14 @@ import ParamKnob from '../console/ParamKnob.vue'
 import Selector from './Selector.vue'
 import Switch from './Switch.vue'
 
-const props = defineProps<{ s: number; color: string }>()
+// `skip`: a module shown elsewhere, as the amplitude envelope on the Amplifier envelope panel (#519).
+const props = defineProps<{ s: number; color: string; skip?: number }>()
 
 /** The knobs by UGen, in the order the code has them. */
 const groups = computed(() => {
   const out: { key: number; ugen: string; knobs: CodeKnob[] }[] = []
   for (const k of codeKnobs[props.s] ?? []) {
+    if (k.module === props.skip) continue
     const last = out[out.length - 1]
     if (last?.key === k.module) last.knobs.push(k)
     else out.push({ key: k.module, ugen: k.ugen, knobs: [k] })

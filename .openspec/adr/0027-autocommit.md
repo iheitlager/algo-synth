@@ -1,6 +1,6 @@
 # 0027: Autocommit: the song follows the synths and the synths the song
 
-**Status:** Accepted · **Date:** 2026-10-07
+**Status:** Accepted, amended by #522 and #527 (zones and pads fold) · **Date:** 2026-10-07
 
 ## Context
 
@@ -34,7 +34,7 @@ This supersedes ADR-0018's "A moved fader is not written back into the text by i
 - One state: what plays is what the text says, and a saved `.song` is the whole piece. A reload loses nothing that has a song form.
 - The text gets busier while tweaking. The printer writes only values that differ from their preset or default, as today.
 - Folding runs outside `render` (ADR-0002) and throttled; the engine already has the pieces (`add_setting`, `write_mixer`).
-- What has no song form yet stays live-only, marked in the view, until it gets one: arpeggiator settings, sampler zones and pads, and loaded samples (ADR-0018's `samples`). The same goes for a sound needing more changes than a setting holds (32).
+- What has no song form yet stays live-only, marked in the view, until it gets one: arpeggiator settings, sampler zones and pads, and loaded samples (ADR-0018's `samples`). Sampler zones, pads and their samples got one in #522 and #527 (ADR-0033's `zone` and `pad` lines). The same goes for a sound needing more changes than a setting holds (32).
 - Specs change:
   - 002: the session folds back
   - 003: Req 5 drops Save as setting, Req 7 becomes the import only, Req 15 drops the Modular Apply

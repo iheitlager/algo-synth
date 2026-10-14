@@ -37,6 +37,8 @@ export type Control =
   | { kind: 'eg4'; label: string; rates: ParamId[]; levels: ParamId[] }
   /** The DX7 algorithm number, drawn as the manual does. */
   | { kind: 'algo'; label: string; param: ParamId }
+  /** A wavetable drawn as a stack of its waves, the one at the position lit; it shows, it sets nothing. */
+  | { kind: 'wave'; label: string; table: ParamId; pos: ParamId }
   /** Load DX7 voices from a SysEx file; the engine reads it, the view only forwards the bytes. */
   | { kind: 'sysex' }
   /** The sampler's pack browser, sample slots, zone map and zone editor (#125). */
@@ -47,6 +49,8 @@ export type Control =
   | { kind: 'code' }
   /** A knob for each number of the Modular synth's SynthDef, by UGen (#329). */
   | { kind: 'knobs' }
+  /** An optional live spectrum of the synth's own output (#519). */
+  | { kind: 'spectrum' }
   | { kind: 'note'; text: string }
   /** An empty slot the size of a knob, so a column lines up with its neighbours (#364). */
   | { kind: 'gap' }
@@ -64,6 +68,10 @@ export interface Section {
   pairs?: boolean
   /** Takes the rest of its row: the Modular code beside the envelope (#329). */
   grow?: boolean
+  /** As tall as the tallest section in its row, its controls filling it (#519). */
+  fill?: boolean
+  /** A Modular synth's amplifier envelope: its code's own `EnvGen` when it has one, else the synth's ADSR (#519). */
+  panelEnv?: boolean
   /** Its own accent where the instrument colours its sections, as the TR-808's step buttons. */
   colour?: string
 }
@@ -88,6 +96,7 @@ export const FAMILIES = [
   { id: 'samplers', label: 'Samplers' },
   { id: 'drums', label: 'Drums' },
   { id: 'modular', label: 'Modular' },
+  { id: 'chips', label: 'Chips' },
 ] as const
 export type FamilyId = (typeof FAMILIES)[number]['id']
 
@@ -148,6 +157,8 @@ const int = (label: string, param: ParamId, max: number, def = 0): Control =>
 const envelope = (label: string, a: ParamId, d?: ParamId, s?: ParamId, r?: ParamId, decayIsRelease = false): Control =>
   ({ kind: 'env', label, a, d, s, r, decayIsRelease })
 const select = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options })
+/** A select too long for a row of buttons: a dropdown. */
+const dropdown = (label: string, param: ParamId, options: Options): Control => ({ kind: 'select', label, param, options, dropdown: true })
 const sw = (label: string, param: ParamId): Control => ({ kind: 'switch', label, param })
 const rocker = (label: string, param: ParamId, colour: RockerColour): Control => ({ kind: 'switch', label, param, rocker: colour })
 
@@ -637,8 +648,11 @@ const matrix12: ModelDef = {
   ],
 }
 
-/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs). */
-const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7]]
+/** Eight user slots after `first`: tables and attacks the Spectral Lab sends (spec 010 Req 9-10). */
+const userSlots = (first: number): Options => Array.from({ length: 8 }, (_, i) => [`User ${i + 1}`, first + i] as [string, number])
+
+/** The generated wavetables, in the order the engine has them (`TABLE_NAMES` in table.rs), then the user's. */
+const WAVETABLES: Options = [['Sweep', 0], ['Pulse', 1], ['Formant', 2], ['Metal', 3], ['Organ', 4], ['Hollow', 5], ['Digital', 6], ['Bell', 7], ...userSlots(8)]
 
 // Eight voices of two wavetable oscillators whose wave position the filter
 // envelope and the LFO move, in stepped transitions or crossfaded, into a
@@ -655,14 +669,16 @@ const ppgWave: ModelDef = {
     {
       title: 'Wavetable 1',
       controls: [
-        select('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
+        { kind: 'wave', label: 'Wavetable 1', table: Param.Wt1Table, pos: Param.Wt1Pos },
+        dropdown('Table', Param.Wt1Table, WAVETABLES), range('Position', Param.Wt1Pos, 0, 1, 0.001),
         range('Range', Param.Vco1Coarse, -24, 24, 1), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
     },
     {
       title: 'Wavetable 2',
       controls: [
-        select('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
+        { kind: 'wave', label: 'Wavetable 2', table: Param.Wt2Table, pos: Param.Wt2Pos },
+        dropdown('Table', Param.Wt2Table, WAVETABLES), range('Position', Param.Wt2Pos, 0, 1, 0.001),
         range('Range', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],
     },
@@ -670,7 +686,7 @@ const ppgWave: ModelDef = {
       title: 'Wave motion',
       controls: [
         range('Env → wave', Param.EnvWt, -1, 1, 0.01), range('LFO → wave', Param.LfoWt, 0, 1, 0.01),
-        sw('Steps', Param.WtSteps),
+        sw('Steps', Param.WtSteps), sw('8-bit', Param.Character),
       ],
     },
     { title: 'Noise', controls: [range('Level', Param.NoiseLevel, 0, 1, 0.01)] },
@@ -697,8 +713,8 @@ const ppgWave: ModelDef = {
   ],
 }
 
-/** A partial's source: synthesised, or one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs). */
-const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8]]
+/** A partial's source: synthesised, one of the engine's generated attacks (`SAMPLE_NAMES` in table.rs), or a user attack. */
+const PCM: Options = [['Synth', 0], ['Chiff', 1], ['Pluck', 2], ['Bell', 3], ['Marimba', 4], ['Blow', 5], ['Voice', 6], ['Thump', 7], ['Glass', 8], ...userSlots(9)]
 const SYNTH_WAVES: Options = [['Saw', 0], ['Pulse', 1], ['Triangle', 2]]
 const STRUCTURE: Options = [['Add', 0], ['Sync', 1], ['Ring', 2]]
 
@@ -717,7 +733,7 @@ const d50: ModelDef = {
     {
       title: 'Partial 1',
       controls: [
-        select('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
+        dropdown('Source', Param.Pcm1Sample, PCM), select('Wave', Param.Vco1Wave, SYNTH_WAVES),
         range('Pitch', Param.Vco1Coarse, -24, 24, 1), fine(Param.Vco1Fine), range('Level', Param.Vco1Level, 0, 1, 0.01),
       ],
     },
@@ -733,7 +749,7 @@ const d50: ModelDef = {
     {
       title: 'Partial 2',
       controls: [
-        select('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
+        dropdown('Source', Param.Pcm2Sample, PCM), select('Wave', Param.Vco2Wave, SYNTH_WAVES),
         range('Pitch', Param.Vco2Coarse, -24, 24, 1), fine(Param.Vco2Fine), range('Level', Param.Vco2Level, 0, 1, 0.01),
       ],
     },
@@ -1005,6 +1021,31 @@ const ODYSSEY_REVS: Options = [['Rev 1', 1], ['Rev 2', 2], ['Rev 3', 3]]
 // noise, a 24 dB ladder and a 6 dB high-pass after it, one ADSR to filter and
 // VCA. Not modular, so no patch bay: the presets' patch slots still play.
 // Black and gold.
+/** The TB-303's two waves from its one oscillator (#536). */
+const TB_WAVES: Options = [['Saw', Waveform.Saw], ['Square', Waveform.Pulse]]
+const tb303: ModelDef = {
+  id: Model.Tb303,
+  family: 'mono',
+  name: 'TB-303',
+  maker: 'Roland · bass line, diode ladder',
+  tagline: 'One oscillator into a diode ladder, a decay for the filter, accent and slide from the song',
+  theme: { panel: '#c8cacc', ink: '#1d1e20', soft: '#55585c', trim: '#8f9296', accent: '#e8742c' },
+  presets: ['Tb303Acid', 'Tb303Squelch', 'Tb303Square'],
+  sections: [
+    { title: 'VCO', controls: [select('Waveform', Param.Vco1Wave, TB_WAVES), range('Tuning', Param.Vco1Fine, -50, 50, 1), vintage()] },
+    {
+      title: 'VCF',
+      controls: [
+        range('Cutoff', Param.Cutoff, 0, 1, 0.001, 'cutoff'),
+        range('Resonance', Param.Resonance, 0, 1, 0.01),
+        range('Env mod', Param.EnvCutoff, 0, 1, 0.01),
+        range('Decay', Param.FenvDecay, 0.001, 3, 0.001),
+        range('Accent', Param.Accent, 0, 1, 0.01),
+      ],
+    },
+  ],
+}
+
 const odyssey: ModelDef = {
   id: Model.Odyssey,
   family: 'mono',
@@ -1248,11 +1289,144 @@ const modular: ModelDef = {
   maker: 'algo-synth · a SuperCollider SynthDef',
   tagline: 'Oscillators, filters, envelopes, delays and reverb, written as a SynthDef and played per note',
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
-  presets: ['ModularBasic', 'ModularHoover', 'ModularKick', 'ModularDubSiren'],
+  presets: ['ModularBasic', 'ModularHoover', 'ModularKick', 'ModularSid', 'ModularDubSiren'],
   sections: [
-    { title: 'Amplifier envelope', controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
+    // The code's amplitude envelope when it writes one out, else the voice's own ADSR.
+    { title: 'Amplifier envelope', panelEnv: true, controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
     { title: 'Code', grow: true, controls: [{ kind: 'code' }] },
+    // Beside the code and as tall, so a change to the SynthDef shows in the sound as it is typed.
+    { title: 'Spectrum', fill: true, controls: [{ kind: 'spectrum' }] },
     { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
+  ],
+}
+
+// The MOS 6581/8580 SID (#112): every control is a register at its own width
+// (12-bit pulse width, 11-bit cutoff, 4-bit rates and levels), plus what a
+// player routine does with them each video frame.
+const steps = (label: string, param: ParamId, lo: number, hi: number, def = 0): Control =>
+  ({ kind: 'knob', label, param, lo, hi, scale: 'lin', unit: 'int', step: 1, bipolar: lo < 0, def, size: 32 })
+const SID_WAVES: Options = [
+  ['Off', 0], ['Tri', 1], ['Saw', 2], ['Tri+Saw', 3], ['Pulse', 4], ['Tri+Pulse', 5], ['Saw+Pulse', 6], ['Tri+Saw+Pulse', 7], ['Noise', 8],
+]
+const SID_MODES: Options = [['Off', 0], ['LP', 1], ['BP', 2], ['LP+BP', 3], ['HP', 4], ['Notch', 5], ['BP+HP', 6], ['All', 7]]
+const SID_ARPS: Options = [['Off', 0], ['Major', 1], ['Minor', 2], ['Octave', 3], ['Sus4', 4], ['Maj7', 5], ['Min7', 6], ['Dim', 7], ['Power', 8]]
+const SID_OSCS = [
+  [Param.Sid1Wave, Param.Sid1Pw, Param.Sid1Coarse, Param.Sid1Fine, Param.Sid1Ring, Param.Sid1Sync, Param.Sid1Attack, Param.Sid1Decay, Param.Sid1Sustain, Param.Sid1Release, Param.Sid1Filter, Param.Sid1PwSweep],
+  [Param.Sid2Wave, Param.Sid2Pw, Param.Sid2Coarse, Param.Sid2Fine, Param.Sid2Ring, Param.Sid2Sync, Param.Sid2Attack, Param.Sid2Decay, Param.Sid2Sustain, Param.Sid2Release, Param.Sid2Filter, Param.Sid2PwSweep],
+  [Param.Sid3Wave, Param.Sid3Pw, Param.Sid3Coarse, Param.Sid3Fine, Param.Sid3Ring, Param.Sid3Sync, Param.Sid3Attack, Param.Sid3Decay, Param.Sid3Sustain, Param.Sid3Release, Param.Sid3Filter, Param.Sid3PwSweep],
+] as const
+/** One oscillator: its waveform bits, pulse width, tune, ring/sync from its source, ADSR and filter routing. */
+const sidOsc = (n: number): Section => {
+  const [wave, pw, crs, fin, ring, sync, a, d, s, r, filt, sweep] = SID_OSCS[n - 1]!
+  return {
+    title: `Voice ${n}`,
+    controls: [
+      dropdown('Wave', wave, SID_WAVES),
+      steps('Pulse width', pw, 0, 4095, 2048), steps('PW sweep', sweep, -256, 256),
+      coarse(crs), fine(fin),
+      sw('Ring', ring), sw('Sync', sync), sw('Filter', filt),
+      steps('Attack', a, 0, 15), steps('Decay', d, 0, 15, 9), steps('Sustain', s, 0, 15, 10), steps('Release', r, 0, 15, 9),
+    ],
+  }
+}
+const sid: ModelDef = {
+  id: Model.Sid,
+  family: 'chips',
+  name: 'SID',
+  maker: 'MOS Technology 6581 / 8580',
+  tagline: 'The Commodore 64\'s sound chip: three oscillators, ring and sync, one multimode filter; a chip per note',
+  theme: { panel: '#3b3a6b', ink: '#e8e6ff', soft: '#a6a3d9', trim: '#1d1c3a', accent: '#7fd0ff' },
+  presets: ['SidLead', 'SidBass', 'SidArp', 'SidSync'],
+  sections: [
+    sidOsc(1), sidOsc(2), sidOsc(3),
+    {
+      title: 'Filter',
+      controls: [
+        { kind: 'knob', label: 'Cutoff', param: Param.SidCutoff, lo: 0, hi: 2047, scale: 'lin', unit: 'int', step: 1, def: 1024, size: BIG }, steps('Resonance', Param.SidResonance, 0, 15),
+        dropdown('Mode', Param.SidFilterMode, SID_MODES), steps('Sweep', Param.SidCutoffSweep, -128, 128),
+        range('Bias', Param.SidFilterBias, -1, 1, 0.01),
+      ],
+    },
+    {
+      title: 'Chip',
+      controls: [
+        select('Chip', Param.SidChip, [['6581', 0], ['8580', 1]]), select('Clock', Param.SidClock, [['PAL', 0], ['NTSC', 1]]),
+        steps('Volume', Param.SidVolume, 0, 15, 15), sw('3 off', Param.SidVoice3Off), sw('Band-limit', Param.SidBandLimit), sw('Hard restart', Param.SidHardRestart),
+      ],
+    },
+    {
+      title: 'Player',
+      controls: [
+        dropdown('Arpeggio', Param.SidArp, SID_ARPS), steps('Frames', Param.SidArpSpeed, 1, 16, 1),
+        { kind: 'knob', label: 'Vibrato', param: Param.SidVibrato, lo: 0, hi: 2, scale: 'lin', unit: 'st', def: 0 },
+        { kind: 'knob', label: 'Rate', param: Param.SidVibratoRate, lo: 0, hi: 12, scale: 'lin', unit: 'rate', def: 5 },
+        steps('Delay', Param.SidVibratoDelay, 0, 100),
+      ],
+    },
+  ],
+}
+
+// The NES's Ricoh 2A03 (#112): two pulses, a triangle, a noise and the DMC,
+// each control a register at its width, mixed by the console's non-linear mixer.
+const NES_PULSES = [
+  [Param.NesP1On, Param.NesP1Duty, Param.NesP1Volume, Param.NesP1Decay, Param.NesP1Loop, Param.NesP1Coarse, Param.NesP1Fine, Param.NesP1Sweep, Param.NesP1SweepPeriod],
+  [Param.NesP2On, Param.NesP2Duty, Param.NesP2Volume, Param.NesP2Decay, Param.NesP2Loop, Param.NesP2Coarse, Param.NesP2Fine, Param.NesP2Sweep, Param.NesP2SweepPeriod],
+] as const
+const NES_DUTIES: Options = [['12.5%', 0], ['25%', 1], ['50%', 2], ['75%', 3]]
+const nesPulse = (n: number): Section => {
+  const [on, duty, vol, decay, loop, crs, fin, sweep, period] = NES_PULSES[n - 1]!
+  return {
+    title: `Pulse ${n}`,
+    controls: [
+      sw('On', on), select('Duty', duty, NES_DUTIES), steps('Volume', vol, 0, 15, 12), sw('Decay', decay), sw('Loop', loop),
+      coarse(crs), fine(fin), steps('Sweep', sweep, -7, 7), steps('Period', period, 0, 7),
+    ],
+  }
+}
+const nes: ModelDef = {
+  id: Model.Nes,
+  family: 'chips',
+  name: 'NES',
+  maker: 'Ricoh 2A03',
+  tagline: 'The Famicom and NES sound: two pulses, a triangle, noise and 1-bit delta samples; a chip per note, or a drum kit',
+  theme: { panel: '#c9c4bb', ink: '#2a2a2a', soft: '#6d6a64', trim: '#3d3d3d', accent: '#c8102e' },
+  presets: ['NesLead', 'NesBass', 'NesArp', 'NesKit'],
+  sections: [
+    nesPulse(1), nesPulse(2),
+    {
+      title: 'Triangle',
+      controls: [sw('On', Param.NesTriOn), coarse(Param.NesTriCoarse), fine(Param.NesTriFine), steps('Length', Param.NesTriLength, 0, 127)],
+    },
+    {
+      title: 'Noise',
+      controls: [
+        sw('On', Param.NesNoiseOn), steps('Volume', Param.NesNoiseVolume, 0, 15, 12), sw('Decay', Param.NesNoiseDecay), sw('Loop', Param.NesNoiseLoop),
+        steps('Period', Param.NesNoisePeriod, 0, 15, 8), sw('Short', Param.NesNoiseShort), sw('Track', Param.NesNoiseTrack),
+      ],
+    },
+    {
+      title: 'DMC',
+      controls: [
+        steps('Pad', Param.NesDmcSample, 0, 16), steps('Rate', Param.NesDmcRate, 0, 15, 15), sw('Loop', Param.NesDmcLoop),
+        steps('Level', Param.NesDmcLevel, 0, 127), sw('Direct', Param.NesDmcDirect),
+      ],
+    },
+    {
+      title: 'Console',
+      controls: [
+        select('Region', Param.NesRegion, [['NTSC', 0], ['PAL', 1]]), select('Output', Param.NesOutput, [['Famicom', 0], ['NES', 1], ['Clean', 2]]),
+        sw('Band-limit', Param.NesBandLimit), sw('Kit', Param.NesKit),
+      ],
+    },
+    {
+      title: 'Driver',
+      controls: [
+        dropdown('Arpeggio', Param.NesArp, SID_ARPS), steps('Frames', Param.NesArpSpeed, 1, 16, 1),
+        { kind: 'knob', label: 'Vibrato', param: Param.NesVibrato, lo: 0, hi: 2, scale: 'lin', unit: 'st', def: 0 },
+        { kind: 'knob', label: 'Rate', param: Param.NesVibratoRate, lo: 0, hi: 12, scale: 'lin', unit: 'rate', def: 5 },
+        steps('Delay', Param.NesVibratoDelay, 0, 100),
+      ],
+    },
   ],
 }
 
@@ -1275,9 +1449,9 @@ const ARP_SECTION: Section = {
 }
 
 const withArp = (m: ModelDef): ModelDef =>
-  m.family === 'mono' || m.family === 'poly' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
+  m.family === 'mono' || m.family === 'poly' || m.family === 'chips' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular].map(withArp)
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular, tb303, sid, nes].map(withArp)
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

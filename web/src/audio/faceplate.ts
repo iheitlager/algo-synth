@@ -105,6 +105,45 @@ export function wavePath(name: string, w: number, h: number, pad = 2): string | 
 // --- stepped selectors --------------------------------------------------------------
 
 /** The index of the option whose value is nearest `v` (an f32 reported by the engine is not exact). */
+/** The waves in a wavetable, as the engine sketches them (`WAVES` in table.rs). */
+export const TABLE_WAVES = 64
+/** Every how many waves the stack draws one behind the lit wave. */
+const STACK_EVERY = 4
+
+/**
+ * A wavetable drawn the way the PPG's Waveterm did: its waves in a stack that
+ * runs back and up to the right, wave 0 in front, and the wave nearest `pos`
+ * (0..1) on its own so it can be lit. `sketch` holds every table's waves at
+ * `points` samples each, table by table; null until the engine has sent it.
+ */
+export function waveStack(
+  sketch: Float32Array | null, points: number, table: number, pos: number, w: number, h: number,
+): { ghosts: string[]; lit: string } {
+  const base = Math.round(table) * TABLE_WAVES * points
+  if (!sketch || points < 2 || base < 0 || base + TABLE_WAVES * points > sketch.length) return { ghosts: [], lit: '' }
+  const depthX = w * 0.3
+  const depthY = h * 0.45
+  const amp = (h - depthY) / 2 - 2
+  const span = w - depthX - 4
+  const f = (n: number) => n.toFixed(1)
+  const path = (k: number) => {
+    const d = k / (TABLE_WAVES - 1)
+    const x0 = 2 + d * depthX
+    const y0 = h - 2 - amp - d * depthY
+    let out = ''
+    for (let i = 0; i < points; i++) {
+      const y = sketch[base + k * points + i] ?? 0
+      out += `${i ? 'L' : 'M'}${f(x0 + (span * i) / (points - 1))} ${f(y0 - y * amp)}`
+    }
+    return out
+  }
+  const k = Math.round(clamp01(pos) * (TABLE_WAVES - 1))
+  // Back to front, so the nearer waves are drawn over the farther ones.
+  const ghosts: string[] = []
+  for (let g = TABLE_WAVES - 1; g >= 0; g -= STACK_EVERY) ghosts.push(path(g))
+  return { ghosts, lit: path(k) }
+}
+
 export function nearestStep(options: readonly (readonly [string, number])[], v: number): number {
   let best = 0
   let dist = Infinity
@@ -233,3 +272,43 @@ export function keySwitches(v: number): [boolean, boolean] {
 /** The key-track amount the two keyboard control switches give. */
 export const keyTrackOf = (one: boolean, two: boolean): number =>
   one && two ? 1 : two ? TWO_THIRDS : one ? THIRD : 0
+
+/**
+ * What to say about the user tables or attacks a synth plays (ADR-0033):
+ * `values` are its selector values (a table 8-15 or an attack 9-16 is user
+ * slot 1-8); a slot that is empty, loading, missing or failed gets a line.
+ */
+export function userSlotNotes(
+  kind: 'table' | 'attack', values: readonly number[],
+  slots: readonly ({ state: string; why?: string } | null)[],
+): string[] {
+  const first = kind === 'table' ? 8 : 9
+  const used = [...new Set(values.map((v) => Math.round(v) - first + 1).filter((n) => n >= 1 && n <= 8))]
+  return used.flatMap((n) => {
+    const slot = slots[n - 1]
+    const name = `User ${n}`
+    if (!slot) return [`${name} is empty: send a ${kind} from the Spectral Lab, or add a \`${kind} ${n} = …\` line to the song`]
+    if (slot.state === 'loading') return [`${name} is being rebuilt from its recipe…`]
+    if (slot.state === 'missing' || slot.state === 'failed') return [`${name} is silent: ${slot.why ?? 'its recipe could not be rebuilt'}`]
+    return []
+  })
+}
+
+/** A knob of a Modular synth's code, as far as an envelope needs it. */
+interface EnvKnob { module: number; ugen: string; name: string }
+
+/**
+ * The amplitude envelope of a Modular synth's code (#519): the last `EnvGen`
+ * with an attack and a release (the one a SynthDef usually multiplies its
+ * output by), its knobs by stage; null when the code has none, and the
+ * synth's own ADSR shapes the voice.
+ */
+export function ampEnvelope<K extends EnvKnob>(knobs: readonly K[]): { module: number; a?: K; d?: K; s?: K; r?: K } | null {
+  const modules = [...new Set(knobs.filter((k) => k.ugen === 'EnvGen').map((k) => k.module))]
+  for (const m of modules.reverse()) {
+    const of = (name: string) => knobs.find((k) => k.module === m && k.name === name)
+    const [a, d, s, r] = [of('attack'), of('decay'), of('sustain'), of('release')]
+    if (a && r) return { module: m, a, d, s, r }
+  }
+  return null
+}

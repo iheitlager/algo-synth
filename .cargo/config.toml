@@ -5,3 +5,10 @@
 # audio thread and in the deck workers is unaffected.
 [env]
 RUST_MIN_STACK = "8388608"
+
+# The engine's stack in wasm: 4 MiB instead of the linker's 1 MiB. `init`
+# builds the `Engine` (about 480 KB, mostly the 16 Modular programs) on the
+# stack and moves it more than once; at 1 MiB #547's bigger programs
+# overflowed into the heap, `init` trapped and no synth had a sound.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=4194304"]

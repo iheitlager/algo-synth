@@ -32,7 +32,7 @@ So far algo-synth has only been run on the machine it plays on. ADR-0006 named `
 
   Each speaks raw HTTPS; there is no official Anthropic SDK for Rust. A provider without its key (or, self-hosted, its URL) is not offered.
 - **The loop runs on the server.**
-  1. The model gets the language (`.openspec/language.md`, #383) and the engine's catalog as a system prompt, cached where the provider allows.
+  1. The model gets the language (`.openspec/language.md` and `.openspec/sound-design.md`, #383, #514) and the engine's catalog as a system prompt, cached where the provider allows.
   2. It gets the song and the request.
   3. It calls `check`, `render` and `catalog` as tools.
   4. It ends with a song that checks clean, or stops at a limit.

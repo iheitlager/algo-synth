@@ -4,6 +4,60 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-13
+
+### Added
+
+- **Chips:** the C64's SID (6581/8580) and the NES's 2A03 as two models of a new Chips family, a chip per note at register precision: the SID's 16-bit frequency register, 12-bit waveforms, 8-bit noise, ADSR rate table (bug included), R-2R DACs and per-chip filter; the NES's 11-bit timers, duty cycles, 32-step triangle, LFSR noise, DMC delta samples from the synth's pads and non-linear mixer. Band-limited at the registers' steps or raw; a frame-rate player sweeps, arpeggiates and vibratos (#112).
+- **Chip UGens:** `SidOsc`, `SidEnv`, `SidFilter`, `NesPulse`, `NesTri`, `NesNoise` and `NesDmc` in the Modular, and a `ModularSid` preset (#112).
+- **NES drums:** with `NesKit` the NES plays a drum track's lanes from its channels, and any pad given a sample (a `samples` kit or `pad` line, as on the pad sampler) as 1-bit DMC deltas, as NES scores mixed them (#112).
+- **Chip songs:** `sid-gauntlet` and `sid-shadows`, originals in the style of mid-80s C64 scores, `nes-fortress`, of late-80s NES action scores, `nes-dynamo`, a sampled DMC bass and 7-bit PCM drums, and `sid-three-voices`, the SID's three voices one by one, synced, ring-modulated and as three parts (#112).
+- **Dropped pad-sampler samples survive a reload:** pads set by hand on a PadSampler become `pad kit 3 = @3fa9… : tune -2, choke 1` lines, by a dropped file's hash or a pack's sample, as Sampler zones do; a kit's pads changed by hand become pad lines too, and a pad whose file this browser did not keep says so (#527).
+- **Coverage floor:** `make coverage` reports line coverage of the Rust workspace (cargo-llvm-cov), and `make check-coverage`, run by CI, fails under 85 % in total or in any one file (#535).
+- **`make test-songs`:** the 31 tests that render minutes of audio (whole songs, long launches, the preset sweeps) live in `songs.rs` modules and run only there, not in `cargo test` or CI: the engine's tests take 27 s instead of minutes (#535).
+- **Hostile-argument sweep:** every worklet export is called with zero, out-of-range ids, the extremes and non-finite floats, on an empty engine and over playing songs; none panics (#535).
+- **A Roland TB-303:** one oscillator into a diode ladder, accent and slide as the 303 does them. An accented note (`!`) charges the accent sweep, so a run of accents opens the filter further each time, and a `&` slide glides on one gate. Three presets (`Tb303Acid`, `Tb303Squelch`, `Tb303Square`), its own panel, and `voicing: \tb303` on a Modular `MoogFF`. *Acid Workout*, *Patch Bay* and *Bleep and Brass* now play their acid lines on it, and two new examples play one song twice: *Silver Box* on the TB-303 and *Silver Box Modular* on a SuperCollider SynthDef through `\tb303` (#536).
+- **Warehouse:** Chicago acid house in F minor on an 808 and three TB-303s, no Modular: a square bass, a saw acid line whose decay and accent grow through the track, and a squelch answering through the echo (#536).
+- **Night Temple:** mystic acid house in D phrygian. A TB-303 glides in and squelches in its middle range, an SH-101 sings the melody over Jupiter-8 strings, Juno-106 stabs and a sampled house piano, an 808 rolls its snare and sends its claps into the reverb, a 909 plays the hats and a Modular SynthDef throws bleeps into the echo (#536).
+- **Seed Rave:** an algorave example song where the engine writes nearly every note and hit: a seeded progression feeding arps, two TB-303s on live markov and random-walk lines, six Euclidean 808 lanes of six lengths, Euclidean 909 toms and breaks, Modular metal, crush and laser layers with per-note random timbre (#544).
+
+### Changed
+
+- **ADR-0021 and ADR-0024 give the Modular's caps as they are:** 512 nodes, 64 oscillators, 32 resonators and the rest, with `modular.rs` as their source (#532).
+- **Brighter, punchier hats and cymbals:** the 808 and 909 closed and open hats, the 808 cymbal and the 909 ride and crash bite harder, with an attack burst on the hats (#541).
+
+### Fixed
+
+- **A slide into the same note holds:** `c2& c2` closed the gate a tick into the second note; it now holds through both (#536).
+
+## [0.42.0] - 2026-10-11
+
+### Added
+
+- **Spectral Lab design:** ADR-0017 and spec 009 for analysis, additive resynthesis and the lab window (#500).
+- **Spectral analysis:** an FFT, STFT, peak picking, partial tracking and a harmonic mode in the engine, with a `spectral` example that takes a WAV apart (#501).
+- **Additive resynthesis:** the partial tracks played back by a phase-locked sine bank, with breakpoint reduction, a top-N cut, pitch shift and time stretch; `spectral --out` writes it (#502).
+- **Spectral Lab:** a window of its own (the Lab button) that takes a WAV apart into partials, plays it against its resynthesis, and sends the resynthesis to the app's samples (#503).
+- **Partials on the PPG and the D-50:** the Spectral Lab sends an analysed sound as a 64-wave table to the PPG's Table ("User 1"–"User 8") and its attack as a PCM sample to a D-50 partial's Source (#515).
+- **Partial transforms and noise:** noise per partial (breath, bow and hammer kept as bandwidth), a spectral envelope, and ten transforms in the Spectral Lab: harmonic and inharmonic stretch, frequency shift, formant scale with formants kept through a shift, smear, odd/even, spectral low- and high-pass, freeze, decay by number and noise amount; "Send to main window" is now "Send as sample", and the Modular's spectrum sits beside its code (#516).
+- **Morph between two sounds:** the Spectral Lab morphs A with a second sound B (a pack sample, a synth preset the engine renders, or Plaits-style macros) by pitch, amplitude, noise and formant, after Loris; a table can run from A to B across its waves; recipes keep morphs as `A ~ B`; a Piano to Choir example song (#517).
+- **Partials in the Modular:** the SuperCollider subset gains the `` `[…] `` literal, `Klang`/`DynKlang` (a bank of sines), `Klank`/`DynKlank` and `Ringz` (resonators, 32 a voice), `Impulse`, and `VOsc`/`Osc` playing the Spectral Lab's user wavetables; every number a knob (#518).
+- **A timbre per note:** `.onNote` samples a signal as each note starts and holds it for the note, `.wt1pos(rand.onNote)`; a PPG voice holds its own `wt1pos`/`wt2pos`. A Partial Garden example song with Klank bells, a Klang organ and a VOsc through a Moog ladder (#518).
+- **Spectra:** a colourful spectrogram behind the partials in the Spectral Lab, and an optional live spectrum of a Modular synth's own output on its faceplate (#519).
+- **Send as multisample:** the Spectral Lab renders its resynthesis at every root of a range (C2–C6 every fifth, say), each at its pitch and the original's length, and maps the keys between them on the selected Sampler or a new one (#520).
+- **User tables and attacks kept in the song:** `table` and `attack` lines hold their recipe (source sample, analysis, transforms) and are rebuilt when the song loads; dropped lab files are kept in the browser; a panel says when a user slot is missing; the lab opens pack samples by name; a Glass Piano example song (#521).
+- **Dropped Sampler samples survive a reload:** a WAV dropped on a Sampler (or a multisample from the lab) is kept in the browser by its hash, and zones set by hand become `zone keys 1 = @3fa9… : keylo c2, root c3` lines in the song, by a dropped file's hash or a pack's sample; a pack's zones changed by hand become zone lines too. A zone whose file this browser did not keep says so on the sampler's panel (#522).
+- **A wave display on the PPG Wave:** each wavetable section shows its table as a stack of its 64 waves, the wave at the Position knob lit; the engine sketches the generated tables for the view (#523).
+
+### Changed
+
+- **The song language in two parts:** `.openspec/language.md` keeps the conventions, limits and the composer's lines; `.openspec/sound-design.md` holds settings and Modular code, samples, user tables and attacks and the mix, with a section for ADR-0032. The assistant reads both as one prompt (#514).
+
+### Fixed
+
+- **The PPG's wave display draws the user tables:** User 1–8 are sketched with the generated tables and sketched again when one loads, so a table from the Spectral Lab or a song's recipe shows on the faceplate (#523, #192).
+- **`make image` builds again:** the Containerfile copies `.openspec/sound-design.md`, which the assistant's prompt includes since #514 (#530).
+
 ## [0.41.0] - 2026-10-10
 
 ### Added

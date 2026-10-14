@@ -125,7 +125,7 @@ fn every_error_says_where() {
             "play a",
             1,
             1,
-            "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+            "a line starts with tempo, swing, scale, setting, track, samples, zone, pad, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -778,7 +778,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs");
-    let (mut seen, mut sh101) = (0, 0);
+    let mut seen = 0;
     for entry in std::fs::read_dir(&dir).expect("examples dir") {
         let path = entry.expect("entry").path();
         if path.extension().is_none_or(|e| e != "song") {
@@ -790,19 +790,8 @@ fn the_example_songs_parse_and_print_back() {
         assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{name}");
         assert!(!s.arrange.is_empty(), "{name}: arranged");
         seen += 1;
-        // A drum study (all its tracks drums) has no synth to count.
-        if s.tracks.iter().all(|t| t.kind == Kind::Drums) {
-            continue;
-        }
-        if s.tracks
-            .iter()
-            .any(|t| t.preset.is_some_and(|p| p.model() == Model::Sh101))
-        {
-            sh101 += 1;
-        }
     }
-    assert_eq!(seen, 23, "twenty-three examples");
-    assert!(2 * sh101 > seen, "the SH-101 in most: {sh101} of {seen}");
+    assert_eq!(seen, 39, "thirty-nine examples");
 }
 
 const ARRANGED: &str = "\
@@ -1521,14 +1510,17 @@ fn song_blocks_parse(name: &str, doc: &str) -> usize {
     blocks.len()
 }
 
-/// The normative definition of the language (#383).
+/// The normative definition of the language (#383): the composer's part and
+/// the sound designer's (#514).
 const LANGUAGE: &str = include_str!("../../../../.openspec/language.md");
+const SOUND_DESIGN: &str = include_str!("../../../../.openspec/sound-design.md");
 
 /// #383: every ```song block of the language's definition parses and prints
 /// back equal.
 #[test]
 fn the_language_examples_parse() {
-    let n = song_blocks_parse(".openspec/language.md", LANGUAGE);
+    let n = song_blocks_parse(".openspec/language.md", LANGUAGE)
+        + song_blocks_parse(".openspec/sound-design.md", SOUND_DESIGN);
     assert!(n >= 20, "{n} song blocks");
 }
 
@@ -1543,7 +1535,7 @@ fn the_language_definition_covers_the_parser() {
     let (mut code, mut prose) = (String::new(), String::new());
     let mut fenced = false;
     let mut headings = Vec::new();
-    for line in LANGUAGE.lines() {
+    for line in LANGUAGE.lines().chain(SOUND_DESIGN.lines()) {
         if line.starts_with("```") {
             fenced = !fenced;
             continue;
@@ -1606,7 +1598,7 @@ fn the_language_definition_covers_the_parser() {
     }
     assert!(
         missing.is_empty(),
-        ".openspec/language.md does not define: {missing:?}"
+        ".openspec/language.md and sound-design.md do not define: {missing:?}"
     );
 }
 
@@ -1908,7 +1900,7 @@ fn mod_errors_say_where() {
         (
             "mod kit.cutoff =  sine.wobble(2)",
             24,
-            "no such method: range exprange slow fast segment lag",
+            "no such method: range exprange slow fast segment lag onNote",
         ),
         (
             "mod kit.cutoff = lfo(1, pink)",
@@ -1951,7 +1943,7 @@ fn per_voice_mod_errors_say_where() {
         (
             "mod lead.pan = env(perc)",
             16,
-            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel, sublevel, wt1pos or wt2pos",
         ),
         (
             "mod lead.cutoff = env(perc).range(200, 900).lag(0.1)",
@@ -2082,7 +2074,7 @@ fn clip_method_errors_say_where() {
         (
             "clip b = kit .cutoff(sine.wobble(1))",
             27,
-            "no such method: range exprange slow fast segment lag",
+            "no such method: range exprange slow fast segment lag onNote",
         ),
         (
             "clip b = kit .cutoff()",
@@ -2481,6 +2473,167 @@ fn samples_lines_parse_print_and_say_where_they_are_wrong() {
     }
 }
 
+/// #522: a sampler track's zones are lines of their own, by a dropped
+/// file's hash or a pack's sample; they print back with their comments, take
+/// the place of a `samples` line, follow a track taken out and say where they
+/// are wrong.
+#[test]
+fn zone_lines_parse_print_and_say_where_they_are_wrong() {
+    let hash = "@0123456789abcdef0123456789abcdef";
+    let text = format!(
+        "track keys sampler Sampler SamplerKeys\ntrack pno sampler Sampler SamplerKeys\n# low\nzone keys 1 = {hash} : keyhi b2, root c2, loop sustain\nzone keys 3 = upright-piano-kw/C4vH : keylo c3, vello 40, tune -5, level 0.8, seqlen 2, seqpos 2, release 1\nzone pno 1 = {hash}\n"
+    );
+    let song = Song::parse(&text).expect("parses");
+    assert_eq!(song.zones.len(), 3);
+    let z = &song.zones[0];
+    assert_eq!((z.track, z.zone, z.source.as_str()), (0, 0, hash));
+    assert_eq!((z.fields.key_hi, z.fields.root), (47, Some(36)));
+    let printed = song.print();
+    assert!(
+        printed.contains(&format!(
+            "# low\nzone keys 1 = {hash} : keyhi b2, root c2, loop sustain\n"
+        )),
+        "{printed}"
+    );
+    assert!(printed.contains("zone pno 1 = @"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    // A track taken out takes its zones; the next one moves down.
+    let mut gone = song.clone();
+    assert!(gone.remove_track(0));
+    assert_eq!(gone.zones.len(), 1);
+    assert_eq!(gone.zones[0].track, 0);
+    // A pack or its zones, not both: each setter takes the other away.
+    let mut set = song.clone();
+    assert!(set.set_samples(0, "sweep-pad"));
+    assert_eq!(set.zones.len(), 1);
+    let zones = song.zones[..2].to_vec();
+    assert!(set.set_zones(0, zones));
+    assert!(set.samples.is_empty() && set.zones.len() == 3);
+    assert_eq!(Song::parse(&set.print()), Ok(set.clone()));
+    assert!(set.set_zones(0, Vec::new()));
+    assert_eq!(set.zones.len(), 1);
+    let head = "track keys sampler\ntrack lead synth\ntrack kit drums\n";
+    for (line, col, msg) in [
+        ("zone", 5, "a track goes here, then a zone number, 1 to 64"),
+        ("zone nobody 1 = a/b", 6, "no track has this name"),
+        ("zone lead 1 = a/b", 6, "zones go on a sampler track"),
+        ("zone kit 1 = a/b", 6, "zones go on a sampler track"),
+        ("zone keys 65 = a/b", 11, "a zone number is 1 to 64"),
+        ("zone keys 1 a/b", 13, "= and a source go here"),
+        (
+            "zone keys 1 = synth:LaChoir:c4",
+            15,
+            "a zone's source is a pack's sample, as upright-piano-kw/C4vH, or @ and a file's hash",
+        ),
+        ("zone keys 1 = a/b x", 19, ": and the zone's fields go here"),
+        (
+            "zone keys 1 = a/b : wobble 1",
+            21,
+            "a zone field: keylo keyhi vello velhi root tune level loop loopstart loopend seqlen seqpos release",
+        ),
+        (
+            "zone keys 1 = a/b : keylo h9",
+            27,
+            "a key is a note, as c4, or 0 to 127",
+        ),
+        ("zone keys 1 = a/b : keylo", 26, "a value goes here"),
+        (
+            "zone keys 1 = a/b\nzone keys 1 = a/c",
+            11,
+            "this track already has this zone",
+        ),
+        (
+            "samples keys piano\nzone keys 1 = a/b",
+            6,
+            "this track has a samples line: a track has a pack or its zones, not both",
+        ),
+        (
+            "zone keys 1 = a/b\nsamples keys piano",
+            9,
+            "this track has zone lines: a track has a pack or its zones, not both",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
+        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+    }
+}
+
+/// #527: a pad sampler's pads are lines of their own, as zones are: on a
+/// drums or sampler track, by a hash or a pack's sample, in place of a
+/// `samples` line, following a track taken out.
+#[test]
+fn pad_lines_parse_print_and_say_where_they_are_wrong() {
+    let hash = "@0123456789abcdef0123456789abcdef";
+    let text = format!(
+        "track kit drums PadSampler\ntrack keys sampler PadSampler\n# kick\npad kit 1 = {hash} : tune -2, choke 1\npad kit 16 = audiophob/snare : level 1.2, pan -0.5, decay 0.3, vellevel 0.5, velstart 0.25, oneshot 0, out 3\npad keys 2 = {hash}\n"
+    );
+    let song = Song::parse(&text).expect("parses");
+    assert_eq!(song.pads.len(), 3);
+    let p = &song.pads[1];
+    assert_eq!(
+        (p.track, p.pad, p.source.as_str()),
+        (0, 15, "audiophob/snare")
+    );
+    assert_eq!((p.fields.out, p.fields.one_shot), (3, false));
+    let printed = song.print();
+    assert!(
+        printed.contains(&format!("# kick\npad kit 1 = {hash} : tune -2, choke 1\n")),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    let mut gone = song.clone();
+    assert!(gone.remove_track(0));
+    assert_eq!((gone.pads.len(), gone.pads[0].track), (1, 0));
+    // A kit or its pads, not both: each setter takes the other away.
+    let mut set = song.clone();
+    assert!(set.set_samples(0, "audiophob"));
+    assert_eq!(set.pads.len(), 1);
+    assert!(set.set_pads(0, song.pads[..2].to_vec()));
+    assert!(set.samples.is_empty() && set.pads.len() == 3);
+    assert_eq!(Song::parse(&set.print()), Ok(set.clone()));
+    assert!(set.set_pads(0, Vec::new()));
+    assert_eq!(set.pads.len(), 1);
+    let head = "track kit drums\ntrack lead synth\n";
+    for (line, col, msg) in [
+        ("pad", 4, "a track goes here, then a pad number, 1 to 16"),
+        (
+            "pad lead 1 = a/b",
+            5,
+            "pads go on a drums or sampler track, or a Nes synth",
+        ),
+        ("pad kit 17 = a/b", 9, "a pad number is 1 to 16"),
+        (
+            "pad kit 1 = plaits:0.1:0.2:0.3",
+            13,
+            "a pad's source is a pack's sample, as audiophob/kick, or @ and a file's hash",
+        ),
+        (
+            "pad kit 1 = a/b : wah 1",
+            19,
+            "a pad field: tune level pan decay choke vellevel velstart oneshot out",
+        ),
+        ("pad kit 1 = a/b : choke 9", 25, "a choke group is 0 to 8"),
+        (
+            "pad kit 1 = a/b\npad kit 1 = a/c",
+            9,
+            "this track already has this pad",
+        ),
+        (
+            "samples kit audiophob\npad kit 1 = a/b",
+            5,
+            "this track has a samples line: a track has a kit or its pads, not both",
+        ),
+        (
+            "pad kit 1 = a/b\nsamples kit audiophob",
+            9,
+            "this track has pad lines: a track has a kit or its pads, not both",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
+        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+    }
+}
+
 /// #214: a group bus is named in the song's `group` line, set or taken away
 /// from the view; a line with neither name nor values goes.
 #[test]
@@ -2506,4 +2659,40 @@ fn a_group_is_named_in_its_line() {
         "its values stay"
     );
     assert!(!song.set_group_name(8, Some("x")) && !song.set_group_name(0, Some("drum bus")));
+}
+
+/// ADR-0033: recipe lines parse, print back as they read, and keep one per slot.
+#[test]
+fn recipes_parse_and_print_back() {
+    let text = "table 1 = upright-piano-kw/C4vH : inharmonic 1.6, noise 1.5\nattack 1 = @0123456789abcdef0123456789abcdef\ntable 2 = strings/A3 : window 2048\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.recipes.len(), 3);
+    assert_eq!(s.recipes[0].edits[crate::analysis::lab::INHARMONIC], 1.6);
+    let printed = s.print();
+    assert!(
+        printed.contains("table 1 = upright-piano-kw/C4vH : inharmonic 1.6, noise 1.5"),
+        "{printed}"
+    );
+    assert!(printed.contains("attack 1 = @0123456789abcdef0123456789abcdef"));
+    assert!(printed.contains("table 2 = strings/A3 : window 2048"));
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn bad_recipes_say_where() {
+    for (text, col) in [
+        ("table 9 = a/b", 7),
+        ("table 1 = piano", 11),
+        ("table 1 = a/b : wobble 2", 17),
+        ("table 1 = a/b : window 3000", 17),
+        ("table 1 = a/b : inharmonic x", 28),
+        ("table 1 a/b", 9),
+    ] {
+        let e = Song::parse(text).expect_err(text);
+        assert_eq!((e.line, e.col), (1, col), "{text}: {}", e.msg);
+    }
+    let twice = Song::parse("table 1 = a/b\ntable 1 = a/c").expect_err("twice");
+    assert_eq!(twice.line, 2);
+    // A table and an attack may share a number.
+    assert!(Song::parse("table 1 = a/b\nattack 1 = a/b").is_ok());
 }

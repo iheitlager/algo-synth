@@ -16,11 +16,13 @@ import { capture, modified, plan, type PresetRegistry, type Target, type UserPre
 import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setNames, stripName, trackLabel } from './names'
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
-  parseManifest, slotsUsedElsewhere, zoneSets, type Kit, type Pack, type Pad, type Zone,
+  parseManifest, slotsUsedElsewhere, sourceFile, splitZones, zoneSets, type Kit, type Pack, type Pad, type Zone,
 } from './sampler'
 import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
 import { keepView, lastView } from './viewstate'
+import { keepFile, keptFile } from './audiostore'
+import { Analyser, isGenerated, recipeOf, type KeySample, type SongRecipe } from './spectral'
 import { startMidi } from './midiin'
 
 const base = import.meta.env.BASE_URL
@@ -431,12 +433,133 @@ export const sampleStore = reactive({
   error: '',
   busy: '',
 })
+/** The engine's wavetables, generated then user (`TableSet::sketch`): every wave of every table at `WAVE_POINTS` points, table by table; sent again when a user table loads. */
+export const WAVE_POINTS = 64
+export const wavetables = shallowReactive({ points: null as Float32Array | null })
 /** Each synth's zones by engine index, as the engine last reported them. */
 export const zoneState = reactive({ zones: [] as Zone[][] })
 export const zonesOf = (s: number): Zone[] => zoneState.zones[s] ?? Array.from({ length: ZONES }, () => EMPTY_ZONE)
 /** Each pad sampler's pads by engine index, as the engine last reported them. */
 export const padState = reactive({ pads: [] as Pad[][] })
 export const padsOf = (s: number): Pad[] => padState.pads[s] ?? Array.from({ length: 16 }, () => EMPTY_PAD)
+
+/**
+ * A live spectrum of one synth's own output for its faceplate (#519): the
+ * synth watched (−1 none) and its bands in dB, `SPECTRUM` log bands from 20 Hz
+ * to 20 kHz, as the engine computes them (crates/dsp/src/spectrum.rs).
+ */
+export const SPECTRUM = { bands: 128, lowHz: 20, highHz: 20_000, floorDb: -120 } as const
+export const spectrum = shallowReactive({ s: -1, bands: null as Float32Array | null })
+/** Watch synth `s`'s output, or stop with −1; one synth at a time. */
+export function watchSpectrum(s: number) {
+  spectrum.s = s
+  spectrum.bands = null
+  engine?.post({ t: 'spectrum', s })
+}
+
+/**
+ * What fills each user table and attack (ADR-0033): the recipe line that made
+ * it, and whether it is loading, loaded, or why not. Null: nothing was asked.
+ */
+export interface UserSlot { recipe: string; state: 'loading' | 'ok' | 'missing' | 'failed'; why?: string }
+export const userSlots = reactive({
+  table: Array.from({ length: 8 }, () => null) as (UserSlot | null)[],
+  attack: Array.from({ length: 8 }, () => null) as (UserSlot | null)[],
+})
+
+// The worker that rebuilds recipes: the lab's, with this window's dsp.wasm (ADR-0017).
+let rebuilder: Promise<Analyser> | null = null
+
+/** The bytes a recipe's source names: a manifest sample, or a file this browser kept. */
+async function sourceBytes(source: string): Promise<ArrayBuffer | string> {
+  if (source.startsWith('@')) return (await keptFile(source.slice(1))) ?? 'the file is not kept in this browser'
+  if (!packs.loaded) await fetchPacks()
+  const file = sourceFile(source, packs.list, packs.kits)
+  if (!file) return `no pack or kit has the sample ${source}`
+  const res = await fetch(`${base}samples/${file}`).catch(() => null)
+  return res?.ok ? res.arrayBuffer() : `could not fetch ${file}`
+}
+
+/** Rebuild each recipe the song names whose slot does not hold it yet, one after the other. */
+export async function loadSongRecipes(recipes: readonly SongRecipe[]): Promise<void> {
+  for (const r of recipes) {
+    const { kind, slot, source, other, edits, morph, window, hop } = recipeOf(r)
+    const slots = kind === 0 ? userSlots.table : userSlots.attack
+    const have = slots[slot - 1]
+    if (have && have.recipe === r.text && have.state !== 'failed') continue
+    slots[slot - 1] = { recipe: r.text, state: 'loading' }
+    const done = (state: UserSlot['state'], why?: string) => {
+      // A newer recipe for the slot may have arrived meanwhile: it decides.
+      if (slots[slot - 1]?.recipe === r.text) slots[slot - 1] = { recipe: r.text, state, why }
+    }
+    if (!engine) return
+    rebuilder ??= Analyser.start(engine.module)
+    const a = await rebuilder
+    const rate = engine.ctx.sampleRate
+    // A sound, as A or as B: one the engine makes, or bytes fetched or kept.
+    const load = async (src: string, which: 0 | 1): Promise<string | null> => {
+      if (isGenerated(src)) {
+        const g = await a.generate(which, src, rate, window, hop, true)
+        return g.code < 0 ? `the engine cannot make ${src}` : null
+      }
+      const bytes = await sourceBytes(src)
+      if (typeof bytes === 'string') return bytes
+      const analysed = await a.analyse(bytes, rate, window, hop, true, which)
+      return analysed.code < 0 ? `${src} could not be analysed (${analysed.code})` : null
+    }
+    const whyA = await load(source, 0)
+    if (whyA) {
+      done(whyA.startsWith('no pack') || whyA.startsWith('the file') || whyA.startsWith('could not fetch') ? 'missing' : 'failed', whyA)
+      continue
+    }
+    if (other) {
+      const whyB = await load(other, 1)
+      if (whyB) {
+        done('missing', whyB)
+        continue
+      }
+    } else {
+      await a.clearOther()
+    }
+    const { values, root } = await a.extract(kind === 0 ? 'table' : 'attack', edits, morph)
+    if (!values.length) {
+      done('failed', 'the source has no pitch to make a table from')
+      continue
+    }
+    const code = kind === 0
+      ? await loadUserTable(slot - 1, values.buffer as ArrayBuffer)
+      : await loadUserAttack(slot - 1, root, values.buffer as ArrayBuffer)
+    done(code < 0 ? 'failed' : 'ok', code < 0 ? `the engine refused it (${code})` : undefined)
+  }
+}
+
+/**
+ * A table or attack the Spectral Lab sent, into user slot `slot` (0-7), with
+ * its recipe line for the song (ADR-0033); the slot counts as rebuilt.
+ */
+export async function loadUserFromLab(kind: 'table' | 'attack', slot: number, values: ArrayBuffer, recipe: string, root = 60): Promise<number> {
+  const code = kind === 'table' ? await loadUserTable(slot, values) : await loadUserAttack(slot, root, values)
+  if (code >= 0 && recipe) {
+    ;(kind === 'table' ? userSlots.table : userSlots.attack)[slot] = { recipe, state: 'ok' }
+    engine?.post({ t: 'recipe', bytes: new TextEncoder().encode(recipe).buffer })
+  }
+  return code
+}
+
+// User wavetables and attacks waiting for the engine's answer, by kind and slot (spec 010 Req 9-10).
+const userLoads = new Map<string, (code: number) => void>()
+function loadUser(kind: 'userTable' | 'userAttack', slot: number, values: ArrayBuffer, root = 60): Promise<number> {
+  return power().then(() => new Promise<number>((done) => {
+    if (!engine) return done(-5)
+    userLoads.get(`${kind}:${slot}`)?.(-8)
+    userLoads.set(`${kind}:${slot}`, done)
+    engine.post({ t: kind, slot, values, root }, [values])
+  }))
+}
+/** Load a wavetable (whole waves of 256 values) into user slot `slot` (0-7, the PPG's "User slot+1"): 0 or a negative code. */
+export const loadUserTable = (slot: number, values: ArrayBuffer) => loadUser('userTable', slot, values)
+/** Load an attack into user slot `slot` (0-7, the D-50's PCM "User slot+1"), at its own pitch `root`: 0 or a negative code. */
+export const loadUserAttack = (slot: number, root: number, values: ArrayBuffer) => loadUser('userAttack', slot, values, root)
 
 // The loads waiting on each slot, oldest first: the worklet answers in the
 // order it was sent, so a second load for a busy slot waits its turn (#253).
@@ -445,12 +568,90 @@ const loading = new Map<number, { name: string; done: (code: number) => void }[]
 export async function loadSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
   await power()
   if (!engine) return -5
+  if (slot >= 0 && slot < SAMPLE_SLOTS) sourceOfSlot[slot] = null
   return new Promise((done) => {
     loading.set(slot, [...(loading.get(slot) ?? []), { name, done }])
     engine?.post({ t: 'sample', slot, bytes }, [bytes])
   })
 }
 export const clearSample = (slot: number) => engine?.post({ t: 'sampleClear', slot })
+
+/** Where each slot's sample came from, as a zone line names it (#522): `@<hash>` or `<pack>/<sample>`. */
+const sourceOfSlot: (string | null)[] = Array.from({ length: SAMPLE_SLOTS }, () => null)
+/** Tell the engine where the sample in `slot` came from, so the zones playing it go into the song (#522). */
+function sampleSource(slot: number, source: string) {
+  sourceOfSlot[slot] = source
+  const bytes = new TextEncoder().encode(source).buffer
+  engine?.post({ t: 'sampleSource', slot, bytes }, [bytes])
+}
+/** The slot holding the sample of `source`, or -1. */
+const slotOfSource = (source: string) => sourceOfSlot.findIndex((s, i) => s === source && sampleStore.slots[i])
+
+/** A dropped or made WAV into `slot`, kept in this browser by its hash so the song can name it (#522). */
+export async function loadDroppedSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
+  const hash = await keepFile(bytes)
+  const code = await loadSample(slot, bytes, name)
+  if (code >= 0) sampleSource(slot, `@${hash}`)
+  return code
+}
+
+/**
+ * Lay out the zones (#522) or pads (#527) the song's lines name on each synth that does not hold
+ * them yet: each source from a pack or this browser into a slot (one already loaded is reused),
+ * then the layout in one go. A source that cannot be found leaves its zone or pad out and says so.
+ */
+export async function loadSongLayout(kind: 'zone' | 'pad', lines: readonly SongLayoutLine[]): Promise<void> {
+  const bySynth = new Map<number, SongLayoutLine[]>()
+  for (const l of lines) if (l.synth >= 0) bySynth.set(l.synth, [...(bySynth.get(l.synth) ?? []), l])
+  const missing: string[] = []
+  const laidOut = kind === 'zone' ? zonesOn : padsOn
+  for (const [s, layout] of bySynth) {
+    // A track has a pack or kit, or its own zones or pads: a pack or kit this synth had is not its sound any more.
+    samplesOn.delete(s)
+    const key = JSON.stringify(layout.map((l) => [l.at, l.source, l.values]))
+    if (layout.every((l) => l.held) || laidOut.get(s) === key) continue
+    laidOut.set(s, key)
+    const slots = new Map<string, number>()
+    for (const source of new Set(layout.map((l) => l.source))) {
+      const have = slotOfSource(source)
+      if (have >= 0) {
+        slots.set(source, have)
+        continue
+      }
+      const bytes = await sourceBytes(source)
+      const slot = freeSlot(sampleStore.slots)
+      if (typeof bytes === 'string' || slot < 0) {
+        missing.push(`${source}: ${typeof bytes === 'string' ? bytes : 'all sample slots are used; free some'}`)
+        continue
+      }
+      const name = source.startsWith('@') ? `${source.slice(0, 9)}…` : source
+      const code = await loadSample(slot, bytes, name)
+      if (code < 0) {
+        missing.push(`${source}: ${SAMPLE_ERRORS[code] ?? code}`)
+        continue
+      }
+      sampleSource(slot, source)
+      slots.set(source, slot)
+    }
+    const sample = kind === 'zone' ? ZoneField.Sample : PadField.Sample
+    const sets: number[] = []
+    for (const l of layout) {
+      const slot = slots.get(l.source)
+      if (slot === undefined) continue
+      sets.push(l.at, sample, slot)
+      l.values.forEach((v, f) => { if (f !== sample) sets.push(l.at, f, v) })
+    }
+    engine?.post({ t: kind === 'zone' ? 'zoneSets' : 'padSets', s, sets })
+    if (kind === 'zone') requestZones(s)
+    else requestPads(s)
+  }
+  if (missing.length) sampleStore.error = `${kind}s are silent: ${missing.join('; ')}`
+}
+/** The zone and pad lines laid out on each synth, so a song sent again does not load them twice. */
+const zonesOn = new Map<number, string>()
+const padsOn = new Map<number, string>()
+/** A zone or pad line of the song (#522, #527), as the worklet sends it: `at` from 0, `values` by `ZoneField` or `PadField` id. */
+export interface SongLayoutLine { synth: number; at: number; source: string; values: number[]; held: boolean }
 export const requestZones = (s: number) => engine?.post({ t: 'zonesDump', s })
 export const requestPads = (s: number) => engine?.post({ t: 'padsDump', s })
 /** Set one field of a zone (`ZoneField`); the engine clamps it and the view re-reads the zones. */
@@ -491,8 +692,8 @@ export async function fetchPacks(): Promise<void> {
 /** Files already in the store, by their path under `samples/`, so a pack used twice is loaded once. */
 const slotOfFile = new Map<string, number>()
 
-/** Fetch `files` (paths under `samples/`) into free slots, the ones already in the store excepted; throws what went wrong. */
-async function loadFiles(label: string, files: string[]) {
+/** Fetch `files` (paths under `samples/`) of pack or kit `id` into free slots, the ones already in the store excepted; throws what went wrong. */
+async function loadFiles(label: string, files: string[], id: string) {
   for (const [i, file] of files.entries()) {
     sampleStore.busy = `${label}: ${i + 1} of ${files.length}`
     const known = slotOfFile.get(file)
@@ -504,6 +705,8 @@ async function loadFiles(label: string, files: string[]) {
     const code = await loadSample(slot, await r.arrayBuffer(), file.split('/').pop() ?? file)
     if (code < 0) throw new Error(`${file}: ${SAMPLE_ERRORS[code] ?? code}`)
     slotOfFile.set(file, slot)
+    // Named as a zone line names it (#522), should a hand change the zones.
+    sampleSource(slot, `${id}/${(file.split('/').pop() ?? file).replace(/\.wav$/, '')}`)
   }
 }
 
@@ -545,16 +748,17 @@ export async function loadPack(s: number, pack: Pack, fromSong = false): Promise
   const files = packFiles(pack)
   // The store is shared and capped: a pack replaces the one this synth had, keeping what other
   // synths play and what this pack shares with it.
-  engine?.post({ t: 'zonesClear', s })
+  // A pack's layout is not a hand's change: it goes in one go and does not fold (#522).
+  engine?.post({ t: 'zoneSets', s, sets: [] })
+  zonesOn.delete(s)
   for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
   }
   try {
-    await loadFiles(pack.name, files)
-    engine?.post({ t: 'zonesClear', s })
-    for (const [zone, field, v] of zoneSets(pack, (f) => slotOfFile.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
+    await loadFiles(pack.name, files, pack.id)
+    engine?.post({ t: 'zoneSets', s, sets: zoneSets(pack, (f) => slotOfFile.get(f)).flat() })
     requestZones(s)
     samplesOn.set(s, pack.id)
     if (!fromSong) samplesIntoSong(s, pack.id)
@@ -570,15 +774,17 @@ export async function loadPack(s: number, pack: Pack, fromSong = false): Promise
 export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<void> {
   sampleStore.error = ''
   const files = kitFiles(kit)
-  engine?.post({ t: 'padsClear', s })
+  // Nor is a kit's (#527).
+  engine?.post({ t: 'padSets', s, sets: [] })
+  padsOn.delete(s)
   for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
   }
   try {
-    await loadFiles(kit.name, files)
-    for (const [pad, field, v] of padSets(kit, (f) => slotOfFile.get(f))) engine?.post({ t: 'pad', s, pad, field, v })
+    await loadFiles(kit.name, files, kit.id)
+    engine?.post({ t: 'padSets', s, sets: padSets(kit, (f) => slotOfFile.get(f)).flat() })
     requestPads(s)
     samplesOn.set(s, kit.id)
     if (!fromSong) samplesIntoSong(s, kit.id)
@@ -588,6 +794,38 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
   } finally {
     sampleStore.busy = ''
   }
+}
+
+/**
+ * A multisample from the Spectral Lab (#520): each key's WAV into a free slot, mapped between its
+ * neighbouring roots on the selected synth if it is a Sampler, else on a new one. Each WAV is kept
+ * in this browser, so the zones go into the song as zone lines (#522).
+ * How many loaded, or a negative code: −7 too few free slots, −102 no synth to add.
+ */
+export async function loadMultisample(name: string, samples: KeySample[]): Promise<number> {
+  const keys = [...samples].sort((a, b) => a.root - b.root)
+  const free = Array.from({ length: SAMPLE_SLOTS }, (_, i) => i).filter((i) => !sampleStore.slots[i])
+  if (free.length < keys.length) return -7
+  const sampler = params.values[synths.selected]?.[Param.Model] === Model.Sampler
+  if (!sampler && !addSynth(modelDef(Model.Sampler))) return -102
+  const s = synths.selected
+  const pack = splitZones(name, keys.map((k) => k.root))
+  const slotOf = new Map<string, number>()
+  for (const [i, k] of keys.entries()) {
+    sampleStore.busy = `${name}: ${i + 1} of ${keys.length}`
+    const file = pack.zones[i]?.sample ?? name
+    const code = await loadDroppedSample(free[i] ?? -1, k.bytes, file)
+    if (code < 0) {
+      sampleStore.busy = ''
+      return code
+    }
+    slotOf.set(file, free[i] ?? -1)
+  }
+  sampleStore.busy = ''
+  engine?.post({ t: 'zonesClear', s })
+  for (const [zone, field, v] of zoneSets(pack, (f) => slotOf.get(f))) engine?.post({ t: 'zone', s, zone, field, v })
+  requestZones(s)
+  return keys.length
 }
 
 /** Put the sample in `slot` across the keys on the first empty zone of `s`, at its own root. */
@@ -917,6 +1155,18 @@ export function applySong(data: Record<string, unknown>) {
     synth: w.synth, id: decoder.decode(w.id),
   }))
   if (data.ok) void loadSongSamples(song.samples)
+  // The recipes of the user tables and attacks (ADR-0033): rebuilt once per line.
+  const recipes = ((data.recipes ?? []) as { slot: number; text: Uint8Array; values: Float32Array }[]).map((r) => ({
+    slot: r.slot, text: decoder.decode(r.text), values: Array.from(r.values),
+  }))
+  if (data.ok) void loadSongRecipes(recipes)
+  // The Sampler zones (#522): laid out on the synths that do not hold them.
+  // The pads likewise (#527).
+  type RawLine = { synth: number; at: number; source: Uint8Array; values: Float32Array; held: boolean }
+  const lines = (raw: unknown) => ((raw ?? []) as RawLine[]).map((l) => ({
+    synth: l.synth, at: l.at, source: decoder.decode(l.source), values: Array.from(l.values), held: l.held,
+  }))
+  if (data.ok) void loadSongLayout('zone', lines(data.zones)).then(() => loadSongLayout('pad', lines(data.pads)))
 }
 
 /**
@@ -973,6 +1223,12 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
     onDecks(data.peaks as number[], data.dropped as number[], data.bpm as number)
   } else if (data.t === 'meters') {
     levels.values = data.levels as Float32Array
+  } else if (data.t === 'userLoaded') {
+    const key = `${data.kind}:${data.slot}`
+    userLoads.get(key)?.(data.code as number)
+    userLoads.delete(key)
+  } else if (data.t === 'spectrum') {
+    if (spectrum.s >= 0) spectrum.bands = data.bands as Float32Array
   } else if (data.t === 'params') {
     params.values[data.s as number] = Array.from(data.values as Float32Array)
   } else if (data.t === 'code') {
@@ -1007,6 +1263,8 @@ function onMessage(data: { t: string } & Record<string, unknown>) {
       sampleStore.cap = data.cap as number
     }
     wait?.done(code)
+  } else if (data.t === 'wavetables') {
+    wavetables.points = data.points as Float32Array
   } else if (data.t === 'sampleCleared') {
     const slot = data.slot as number
     sampleStore.slots[slot] = null

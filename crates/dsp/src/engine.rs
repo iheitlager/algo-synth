@@ -27,6 +27,7 @@ use crate::mono::voice::{MonoVoice, PitchTable, Tools};
 use crate::padsampler::PadField;
 use crate::params::{GLOBAL_DEFAULTS, Param};
 use crate::poly::{MAX_VOICES, Pool, VOICE_BUDGET};
+use crate::spectrum::Spectrum;
 use crate::synth::RevisionDef;
 
 /// Song notes that may sound at once before one is dropped.
@@ -73,7 +74,7 @@ use crate::song::{
     At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
     STEPS_PER_BAR, Song, SongError, Step, Target, signal,
 };
-use crate::table::Tables;
+use crate::table::{TableSet, Tables, UserTables};
 use crate::voice::{Owner, sine_table};
 
 /// Frames per render call; the Web Audio render quantum.
@@ -155,6 +156,8 @@ pub struct Engine {
     pitch: PitchTable,
     /// The wavetables and attack samples, generated once at start.
     tables: &'static Tables,
+    /// Wavetables and attacks loaded by the view (spec 010 Req 9-10).
+    pub user_tables: UserTables,
     /// Each synth's voices (spec 006).
     pools: Vec<Pool>,
     /// Counts the notes started, so a pool can tell which voice is oldest.
@@ -184,6 +187,8 @@ pub struct Engine {
     out: Box<[f32; 2 * BLOCK]>,
     /// The highest level of each meter since `clear_meters`.
     meters: [f32; METERS],
+    /// A live spectrum of one synth's output, for its faceplate (#519).
+    pub spectrum: Spectrum,
     /// The MIDI file's bytes, written by JavaScript before `import_midi`.
     midi: Vec<u8>,
     /// A DX7 SysEx file's bytes, written by JavaScript before `load_sysex`, and the
@@ -192,6 +197,18 @@ pub struct Engine {
     sysex_voices: Vec<sysex::Voice>,
     /// A WAV file's bytes, written by JavaScript before `load_sample`.
     wav: Vec<u8>,
+    /// Values of a user wavetable or attack on their way in (spec 010 Req 9-10).
+    user_buf: Vec<f32>,
+    /// A recipe's line and values for the view to copy (ADR-0033).
+    recipe_out: Vec<u8>,
+    recipe_vals: Vec<f32>,
+    /// Where each sample slot's sound came from, as a zone line names it
+    /// (`@<hash>` or `<pack>/<sample>`, #522): the view says so after a load.
+    sample_sources: Vec<Option<String>>,
+    /// Song zone `i`'s fields, as `zone_value` gives them, for the view.
+    zone_vals: Vec<f32>,
+    /// Song pad `i`'s fields, as `pad_value` gives them, for the view.
+    pad_vals: Vec<f32>,
     samples: SampleStore,
     /// The waveform peaks `sample_peaks` last computed, for the view to read.
     peaks: Vec<f32>,
@@ -213,6 +230,10 @@ pub struct Engine {
     /// The knob list handed out last (`knob_list`).
     knob_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
+    /// Which of each strip's values (`STRIP_DEFAULTS`, by index) a song's
+    /// mixer lines set, so a strip new to its track drops what an older
+    /// song left and keeps what a hand set.
+    mix_from_text: [u64; crate::mixer::STRIPS],
     /// While a MIDI file is imported every part's patch is set on its synth,
     /// so the synths are what the imported text says (#327).
     import_patches: bool,
@@ -263,6 +284,11 @@ pub struct Engine {
     /// The strips a hand changed since the last fold (bit per strip), and
     /// the master in `FOLD_GLOBAL` (ADR-0027).
     fold: u32,
+    /// The synths whose zones a hand changed since the last fold (bit per
+    /// synth, #522): they fold into their track's zone lines.
+    zone_fold: u32,
+    /// The same for pads (#527).
+    pad_fold: u32,
     /// Drum hits between steps, waiting for their sample (#353), and how many.
     hits: [Hit; HITS],
     hit_count: usize,
@@ -296,6 +322,7 @@ impl Engine {
             ladder: LadderTables::new(sample_rate),
             pitch: PitchTable::new(sample_rate),
             tables: Tables::shared(sample_rate),
+            user_tables: UserTables::empty(),
             pools: (0..SYNTHS).map(Pool::new).collect(),
             note_count: 0,
             mixer: Mixer::new(sample_rate),
@@ -313,10 +340,17 @@ impl Engine {
             master_gain: 0.5,
             out: Box::new([0.0; 2 * BLOCK]),
             meters: [0.0; METERS],
+            spectrum: Spectrum::new(sample_rate),
             midi: Vec::new(),
             sysex: Vec::new(),
             sysex_voices: Vec::new(),
             wav: Vec::new(),
+            user_buf: Vec::new(),
+            recipe_out: Vec::new(),
+            recipe_vals: Vec::new(),
+            sample_sources: vec![None; sample::SLOTS],
+            zone_vals: Vec::with_capacity(ZoneField::ALL.len()),
+            pad_vals: Vec::with_capacity(PadField::ALL.len()),
             samples: SampleStore::new(),
             peaks: Vec::new(),
             zones: (0..SYNTHS).map(|_| ZoneMap::new()).collect(),
@@ -330,6 +364,7 @@ impl Engine {
             code_text: String::new(),
             knob_text: String::new(),
             song_route: [None; MAX_TRACKS],
+            mix_from_text: [0; crate::mixer::STRIPS],
             import_patches: false,
             note_offs: [None; NOTE_OFFS],
             live: Vec::new(),
@@ -351,6 +386,8 @@ impl Engine {
             mod_state: [f32::NAN; signal::MAX_NODES],
             touched: 0,
             fold: 0,
+            zone_fold: 0,
+            pad_fold: 0,
             hits: [NO_HIT; HITS],
             hit_count: 0,
             arps: [Arp::default(); SYNTHS],
@@ -628,6 +665,48 @@ impl Engine {
         if !self.song.set_samples(t, &id) {
             return false;
         }
+        self.reprint();
+        true
+    }
+
+    /// The recipe line in the song buffer (`table 1 = …`, ADR-0033) as its
+    /// slot's recipe in the song, replacing any: false when the text is not one
+    /// recipe line.
+    /// Recipe `i`'s line, kept so its bytes stay put for the view to copy.
+    pub fn recipe_text(&mut self, i: usize) -> &[u8] {
+        self.recipe_out = self
+            .song
+            .recipes
+            .get(i)
+            .map(|r| r.print().into_bytes())
+            .unwrap_or_default();
+        &self.recipe_out
+    }
+
+    /// Recipe `i`'s transforms by id, its morph and sweep, then its window and hop.
+    pub fn recipe_values(&mut self, i: usize) -> &[f32] {
+        self.recipe_vals.clear();
+        if let Some(r) = self.song.recipes.get(i) {
+            self.recipe_vals.extend_from_slice(&r.edits);
+            self.recipe_vals.extend_from_slice(&r.morph);
+            self.recipe_vals.extend([r.window as f32, r.hop as f32]);
+        }
+        &self.recipe_vals
+    }
+
+    pub fn set_recipe_from_buffer(&mut self) -> bool {
+        self.commit_song();
+        let text = String::from_utf8_lossy(&self.song_buf).into_owned();
+        let Ok(parsed) = Song::parse(&text) else {
+            return false;
+        };
+        let [r] = parsed.recipes.as_slice() else {
+            return false;
+        };
+        if self.song.recipes.contains(r) {
+            return true;
+        }
+        self.song.set_recipe(r.clone());
         self.reprint();
         true
     }
@@ -1084,6 +1163,32 @@ impl Engine {
 
     /// Size the WAV buffer for `len` bytes and return it for writing.
     /// `None` if the file is larger than `sample::MAX_WAV`.
+    /// Size the buffer for a user wavetable or attack of `len` values and
+    /// return it for writing; `None` past the largest either can be.
+    pub fn user_buffer(&mut self, len: usize) -> Option<&mut [f32]> {
+        if len > (crate::table::WAVES * crate::table::WAVE_LEN).max(crate::table::MAX_USER_SAMPLE) {
+            return None;
+        }
+        self.user_buf.clear();
+        self.user_buf.resize(len, 0.0);
+        Some(&mut self.user_buf)
+    }
+
+    /// The buffer as user wavetable `slot` (spec 010 Req 9).
+    pub fn load_user_table(&mut self, slot: usize) -> Result<(), crate::table::UserError> {
+        self.user_tables.load_table(slot, &self.user_buf)
+    }
+
+    /// The buffer as user attack `slot`, its own pitch MIDI note `root` (spec 010 Req 10).
+    pub fn load_user_attack(
+        &mut self,
+        slot: usize,
+        root: u8,
+    ) -> Result<(), crate::table::UserError> {
+        let root_inc = crate::voice::midi_to_hz(root.min(127)) / self.sample_rate;
+        self.user_tables.load_sample(slot, &self.user_buf, root_inc)
+    }
+
     pub fn sample_buffer(&mut self, len: usize) -> Option<&mut [u8]> {
         if len > sample::MAX_WAV {
             return None;
@@ -1097,7 +1202,46 @@ impl Engine {
     /// the frame count.
     pub fn load_sample(&mut self, slot: usize) -> Result<usize, sample::Error> {
         let rate = self.sample_rate;
+        // New bytes: where they came from is the view's to say next.
+        if let Some(s) = self.sample_sources.get_mut(slot) {
+            *s = None;
+        }
         self.samples.load(slot, &self.wav, rate).map(Sample::frames)
+    }
+
+    /// The sample in `slot` came from the source in the song buffer (#522),
+    /// `@<hash>` or `<pack>/<sample>`: zones playing it can be written in
+    /// the song. False for an empty slot or a source that isn't one.
+    pub fn set_sample_source_from_buffer(&mut self, slot: usize) -> bool {
+        let source = String::from_utf8_lossy(&self.song_buf).into_owned();
+        if !crate::song::zone::is_zone_source(&source) || self.samples.get(slot).is_none() {
+            return false;
+        }
+        let Some(have) = self.sample_sources.get_mut(slot) else {
+            return false;
+        };
+        *have = Some(source);
+        // Zones and pads already playing it may fold now.
+        for (s, zones) in self.zones.iter().enumerate() {
+            if (0..crate::sampler::ZONES)
+                .any(|z| zones.get(z).is_some_and(|z| z.sample == Some(slot)))
+            {
+                self.zone_fold |= 1u32.checked_shl(s as u32).unwrap_or(0);
+            }
+        }
+        for (s, synth) in self.synths.iter().enumerate() {
+            if (0..crate::padsampler::PADS)
+                .any(|p| synth.pad_kit.pad(p).is_some_and(|c| c.sample == Some(slot)))
+            {
+                self.pad_fold |= 1u32.checked_shl(s as u32).unwrap_or(0);
+            }
+        }
+        true
+    }
+
+    /// Where the sample in `slot` came from, if the view said.
+    pub fn sample_source(&self, slot: usize) -> Option<&str> {
+        self.sample_sources.get(slot)?.as_deref()
     }
 
     pub fn samples(&self) -> &SampleStore {
@@ -1106,12 +1250,17 @@ impl Engine {
 
     pub fn clear_sample(&mut self, slot: usize) {
         self.samples.clear(slot);
+        if let Some(s) = self.sample_sources.get_mut(slot) {
+            *s = None;
+        }
     }
 
-    /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`).
+    /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`): a
+    /// hand's change, folded into the song (#522).
     pub fn set_zone(&mut self, synth: usize, zone: usize, field: ZoneField, value: f32) {
         if let Some(z) = self.zones.get_mut(synth) {
             z.set(zone, field, value);
+            self.zone_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
         }
     }
 
@@ -1119,7 +1268,63 @@ impl Engine {
     pub fn clear_zones(&mut self, synth: usize) {
         if let Some(z) = self.zones.get_mut(synth) {
             z.clear();
+            self.zone_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
         }
+    }
+
+    /// The zones of `synth` are a pack's or the song's, laid out by the view
+    /// (#522): not a hand's change, so nothing folds.
+    pub fn settle_zones(&mut self, synth: usize) {
+        self.zone_fold &= !1u32.checked_shl(synth as u32).unwrap_or(0);
+    }
+
+    /// `synth`'s zones as zone lines of track `t`, or `None` when one plays
+    /// a sample the view gave no source for.
+    fn song_zones(&self, synth: usize, t: usize) -> Option<Vec<crate::song::zone::SongZone>> {
+        let zones = self.zones.get(synth)?;
+        (0..crate::sampler::ZONES)
+            .filter_map(|i| zones.get(i).filter(|z| z.sample.is_some()).map(|z| (i, z)))
+            .map(|(i, z)| {
+                let source = self.sample_source(z.sample?)?;
+                Some(crate::song::zone::SongZone {
+                    track: t,
+                    zone: i,
+                    source: source.to_string(),
+                    fields: crate::sampler::Zone { sample: None, ..*z },
+                })
+            })
+            .collect()
+    }
+
+    /// Whether song zone line `i` is what its synth plays already, so the
+    /// view need not load it again.
+    pub fn song_zone_held(&self, i: usize) -> bool {
+        let Some(line) = self.song.zones.get(i) else {
+            return false;
+        };
+        let Some(z) = self
+            .song_routed(line.track)
+            .and_then(|s| self.zones.get(s))
+            .and_then(|m| m.get(line.zone))
+        else {
+            return false;
+        };
+        z.sample
+            .and_then(|slot| self.sample_source(slot))
+            .is_some_and(|src| src == line.source)
+            && crate::sampler::Zone { sample: None, ..*z } == line.fields
+    }
+
+    /// Song zone line `i`'s fields by `ZoneField` id, as `zone_value` gives
+    /// them (its sample −1).
+    pub fn song_zone_values(&mut self, i: usize) -> &[f32] {
+        self.zone_vals.clear();
+        if let Some(z) = self.song.zones.get(i) {
+            let fields = z.fields;
+            self.zone_vals
+                .extend(ZoneField::ALL.iter().map(|(f, _)| fields.get(*f)));
+        }
+        &self.zone_vals
     }
 
     /// A field of one of `synth`'s zones, as `set_zone` would take it back.
@@ -1141,14 +1346,28 @@ impl Engine {
         self.peaks.len()
     }
 
+    /// Sketch every wavetable, the user's too (see `TableSet::sketch`), into the
+    /// peaks buffer and return how many values it holds. Allocates: a
+    /// control-thread call, never `render`.
+    pub fn wavetable_sketch(&mut self, points: usize) -> usize {
+        let set = TableSet {
+            builtin: self.tables,
+            user: &self.user_tables,
+        };
+        set.sketch(points, &mut self.peaks);
+        self.peaks.len()
+    }
+
     pub fn peaks(&self) -> &[f32] {
         &self.peaks
     }
 
-    /// Set a field of one of `synth`'s pads (see `padsampler::PadField`).
+    /// Set a field of one of `synth`'s pads (see `padsampler::PadField`): a
+    /// hand's change, folded into the song (#527).
     pub fn set_pad(&mut self, synth: usize, pad: usize, field: PadField, value: f32) {
         if let Some(p) = self.synths.get_mut(synth) {
             p.pad_kit.set(pad, field, value);
+            self.pad_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
             // The pads' outs feed groups directly; the solos follow them (#220).
             if field == PadField::Out {
                 self.mixer.set_feeds(synth, p.pad_groups());
@@ -1168,8 +1387,64 @@ impl Engine {
     pub fn clear_pads(&mut self, synth: usize) {
         if let Some(p) = self.synths.get_mut(synth) {
             p.pad_kit.clear();
+            self.pad_fold |= 1u32.checked_shl(synth as u32).unwrap_or(0);
             self.mixer.set_feeds(synth, p.pad_groups());
         }
+    }
+
+    /// The pads of `synth` are a kit's or the song's, laid out by the view
+    /// (#527): not a hand's change, so nothing folds.
+    pub fn settle_pads(&mut self, synth: usize) {
+        self.pad_fold &= !1u32.checked_shl(synth as u32).unwrap_or(0);
+    }
+
+    /// `synth`'s sampled pads as pad lines of track `t`, or `None` when one
+    /// plays a sample the view gave no source for.
+    fn song_pads(&self, synth: usize, t: usize) -> Option<Vec<crate::song::pad::SongPad>> {
+        let kit = &self.synths.get(synth)?.pad_kit;
+        (0..crate::padsampler::PADS)
+            .filter_map(|i| kit.pad(i).filter(|c| c.sample.is_some()).map(|c| (i, c)))
+            .map(|(i, c)| {
+                let source = self.sample_source(c.sample?)?;
+                Some(crate::song::pad::SongPad {
+                    track: t,
+                    pad: i,
+                    source: source.to_string(),
+                    fields: crate::padsampler::PadCfg { sample: None, ..*c },
+                })
+            })
+            .collect()
+    }
+
+    /// Whether song pad line `i` is what its synth plays already, so the
+    /// view need not load it again.
+    pub fn song_pad_held(&self, i: usize) -> bool {
+        let Some(line) = self.song.pads.get(i) else {
+            return false;
+        };
+        let Some(c) = self
+            .song_routed(line.track)
+            .and_then(|s| self.synths.get(s))
+            .and_then(|p| p.pad_kit.pad(line.pad))
+        else {
+            return false;
+        };
+        c.sample
+            .and_then(|slot| self.sample_source(slot))
+            .is_some_and(|src| src == line.source)
+            && crate::padsampler::PadCfg { sample: None, ..*c } == line.fields
+    }
+
+    /// Song pad line `i`'s fields by `PadField` id, as `pad_value` gives
+    /// them (its sample −1).
+    pub fn song_pad_values(&mut self, i: usize) -> &[f32] {
+        self.pad_vals.clear();
+        if let Some(p) = self.song.pads.get(i) {
+            let fields = p.fields;
+            self.pad_vals
+                .extend(PadField::ALL.iter().map(|(f, _)| fields.get(*f)));
+        }
+        &self.pad_vals
     }
 
     pub fn zones(&self, synth: usize) -> Option<&ZoneMap> {
@@ -1670,7 +1945,16 @@ impl Engine {
                 if let Some(slot) = self.note_offs.get_mut(i) {
                     *slot = None;
                 }
-                self.stop_note(Owner::Track(track), note);
+                // A note slid into the same pitch was pressed again before
+                // this release: it ends with the later note's (#536).
+                let again = self
+                    .note_offs
+                    .iter()
+                    .flatten()
+                    .any(|(at, t, n)| *at > j && *t == track && *n == note);
+                if !again {
+                    self.stop_note(Owner::Track(track), note);
+                }
             }
         }
         // Where the tick falls in the arrangement: the tick to count from and
@@ -1727,6 +2011,7 @@ impl Engine {
                 };
                 *slot = Some((j + u64::from(ev.len), track, ev.note));
                 self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                self.sample_on_note(usize::from(track), f, j);
                 let span = self
                     .spans
                     .get(f)
@@ -2192,7 +2477,7 @@ impl Engine {
             let Some(md) = self.song.mods.get(m) else {
                 continue;
             };
-            let (target, param) = (md.target, md.param);
+            let (target, param, on_note) = (md.target, md.param, md.signal.on_note());
             let playing = md.clip.is_none_or(|f| {
                 !self.cued_out(f)
                     && scene.is_none_or(|s| {
@@ -2258,12 +2543,25 @@ impl Engine {
                         *last = f32::NAN;
                     }
                     self.automate(target, param, base);
+                    // What `.onNote` held per voice goes too.
+                    if on_note {
+                        if let Target::Track(t) = target {
+                            let s = self.song_route.get(t).copied().flatten();
+                            if let Some(pool) = s.and_then(|s| self.pools.get_mut(s)) {
+                                pool.clear_voices(param);
+                            }
+                        }
+                    }
                 }
                 continue;
             }
             let found = self.target_value(target, param);
             if let Some(base @ None) = self.mod_base.get_mut(m) {
                 *base = Some(found);
+            }
+            // Sampled as each note starts (`sample_on_note`), not here.
+            if on_note {
+                continue;
             }
             let mut ctx = signal::Ctx {
                 cps,
@@ -2282,6 +2580,59 @@ impl Engine {
                 _ => continue,
             }
             self.automate(target, param, v);
+        }
+    }
+
+    /// The `.onNote` signals on `track` (spec 010 Req 12), sampled as a note
+    /// of clip `clip` starts at tick `tick` and held for it: by the voices it
+    /// pressed where a voice holds that parameter, else by the synth.
+    fn sample_on_note(&mut self, track: usize, clip: usize, tick: u64) {
+        let t = tick as f64 / TICKS_PER_STEP as f64 / STEPS_PER_BAR as f64;
+        let cps = f64::from(self.clock.tempo()) / 240.0;
+        let synth = self.song_route.get(track).copied().flatten();
+        let own = synth
+            .and_then(|s| self.synths.get(s))
+            .is_some_and(|p| p.model.uses_mono_voice());
+        for m in 0..self.song.mods.len().min(MAX_MODS) {
+            let Some(md) = self.song.mods.get(m) else {
+                continue;
+            };
+            if !md.signal.on_note()
+                || md.target != Target::Track(track)
+                || md.clip.is_some_and(|c| c != clip)
+            {
+                continue;
+            }
+            let mut ctx = signal::Ctx {
+                cps,
+                dt: 0.0,
+                state: &mut self.mod_state,
+                voice: None,
+            };
+            let (param, v) = (md.param, md.signal.eval(t, &mut ctx));
+            // A `~` leaves the parameter as it is.
+            if v.is_nan() {
+                continue;
+            }
+            let pool = synth.and_then(|s| self.pools.get_mut(s));
+            match pool {
+                Some(pool) if own && crate::mono::voice::VOICE_PARAMS.contains(&param) => {
+                    let count = self.note_count;
+                    let mut slots = [usize::MAX; MAX_VOICES];
+                    for (k, i) in slots.iter_mut().zip(pool.pressed(count)) {
+                        *k = i;
+                    }
+                    for i in slots.into_iter().filter(|i| *i != usize::MAX) {
+                        pool.set_voice(i, param, v);
+                    }
+                }
+                _ => {
+                    if let Some(last) = self.mod_last.get_mut(m) {
+                        *last = v;
+                    }
+                    self.automate(Target::Track(track), param, v);
+                }
+            }
         }
     }
 
@@ -2399,18 +2750,22 @@ impl Engine {
         {
             bits |= LIVE_ARP;
         }
+        // A zone is held once its sample has a source (#522).
         let zones = self.zones.get(synth);
         if (0..crate::sampler::ZONES).any(|z| {
             zones
                 .and_then(|m| m.get(z))
-                .is_some_and(|z| z.sample.is_some())
+                .and_then(|z| z.sample)
+                .is_some_and(|slot| self.sample_source(slot).is_none())
         }) {
             bits |= LIVE_ZONES;
         }
+        // A pad too (#527).
         let kit = self.synths.get(synth).map(|p| &p.pad_kit);
         if (0..crate::padsampler::PADS).any(|i| {
             kit.and_then(|k| k.pad(i))
-                .is_some_and(|c| c.sample.is_some())
+                .and_then(|c| c.sample)
+                .is_some_and(|slot| self.sample_source(slot).is_none())
         }) {
             bits |= LIVE_PADS;
         }
@@ -2467,7 +2822,9 @@ impl Engine {
     /// from `render`.
     pub fn fold(&mut self) -> bool {
         let marks = std::mem::take(&mut self.fold);
-        if marks == 0 {
+        let zone_marks = std::mem::take(&mut self.zone_fold);
+        let pad_marks = std::mem::take(&mut self.pad_fold);
+        if marks == 0 && zone_marks == 0 && pad_marks == 0 {
             return false;
         }
         self.commit_song();
@@ -2476,6 +2833,29 @@ impl Engine {
             let Some(s) = self.song_routed(t).filter(|s| *s < SYNTHS) else {
                 continue;
             };
+            // Zones a hand set become the track's zone lines (#522); while
+            // one plays a sample without a source they stay live-only.
+            let sampler = self
+                .song
+                .tracks
+                .get(t)
+                .is_some_and(|x| x.kind == crate::song::Kind::Sampler);
+            if zone_marks & (1 << s) != 0 && sampler {
+                if let Some(zones) = self.song_zones(s, t) {
+                    self.song.set_zones(t, zones);
+                }
+            }
+            // Pads likewise, on a drums or sampler track (#527).
+            let synth_track = self
+                .song
+                .tracks
+                .get(t)
+                .is_none_or(|x| x.kind == crate::song::Kind::Synth);
+            if pad_marks & (1 << s) != 0 && !synth_track {
+                if let Some(pads) = self.song_pads(s, t) {
+                    self.song.set_pads(t, pads);
+                }
+            }
             if marks & (1 << s) == 0 {
                 continue;
             }
@@ -2842,6 +3222,63 @@ impl Engine {
         before: &[Option<usize>; MAX_TRACKS],
         route: &[Option<usize>; MAX_TRACKS],
     ) {
+        // A value the old text set and the new one leaves out goes back to its
+        // default (ADR-0027): the text is the mix, so a line taken out is gone.
+        // First, so a new track on the strip an old one left keeps its own.
+        let mut resets = Vec::new();
+        for line in &self.song.mix {
+            let (strip, defaults): (Option<usize>, &[(Param, f32)]) = match line.at {
+                Mix::Track(t) => (before.get(t).copied().flatten(), &STRIP_DEFAULTS),
+                Mix::Strip(i) => (Some(i), &STRIP_DEFAULTS),
+                Mix::Group(g) => (Some(SYNTHS + g), &STRIP_DEFAULTS),
+                Mix::Master => (Some(0), &GLOBAL_DEFAULTS),
+            };
+            let Some(strip) = strip else {
+                continue;
+            };
+            for (p, _) in &line.sets {
+                let kept = match line.at {
+                    // Kept only by the same track on the same strip.
+                    Mix::Track(t) => self.song.tracks.get(t).is_some_and(|old| {
+                        song.tracks
+                            .iter()
+                            .position(|new| new.name == old.name)
+                            .filter(|u| route.get(*u).copied().flatten() == Some(strip))
+                            .is_some_and(|u| song.mix_value(Mix::Track(u), *p).is_some())
+                    }),
+                    at => song.mix_value(at, *p).is_some(),
+                };
+                if let Some((_, d)) = defaults.iter().find(|(q, _)| q == p).filter(|_| !kept) {
+                    resets.push((strip, *p, *d));
+                }
+            }
+        }
+        // A strip new to its track drops what an older song's text set on it,
+        // as on a fresh engine; what a hand set stays.
+        for (t, track) in song.tracks.iter().enumerate() {
+            let Some(strip) = route.get(t).copied().flatten() else {
+                continue;
+            };
+            let stays = self.song.tracks.iter().enumerate().any(|(u, old)| {
+                old.name == track.name && before.get(u).copied().flatten() == Some(strip)
+            });
+            if stays {
+                continue;
+            }
+            let Some(marks) = self.mix_from_text.get_mut(strip) else {
+                continue;
+            };
+            for (i, (p, d)) in STRIP_DEFAULTS.iter().enumerate() {
+                if *marks & (1 << i) != 0 {
+                    resets.push((strip, *p, *d));
+                }
+            }
+            *marks = 0;
+        }
+        for (strip, p, d) in resets {
+            self.set_param(strip, p, d);
+        }
+        // Then what the new text sets.
         for line in &song.mix {
             let (strip, moved) = match line.at {
                 Mix::Track(t) => {
@@ -2869,38 +3306,15 @@ impl Engine {
                 if moved || was != Some(*v) {
                     self.set_param(strip, *p, *v);
                 }
-            }
-        }
-        // A value the old text set and the new one leaves out goes back to its
-        // default (ADR-0027): the text is the mix, so a line taken out is gone.
-        let mut resets = Vec::new();
-        for line in &self.song.mix {
-            let (strip, defaults): (Option<usize>, &[(Param, f32)]) = match line.at {
-                Mix::Track(t) => (before.get(t).copied().flatten(), &STRIP_DEFAULTS),
-                Mix::Strip(i) => (Some(i), &STRIP_DEFAULTS),
-                Mix::Group(g) => (Some(SYNTHS + g), &STRIP_DEFAULTS),
-                Mix::Master => (Some(0), &GLOBAL_DEFAULTS),
-            };
-            let Some(strip) = strip else {
-                continue;
-            };
-            for (p, _) in &line.sets {
-                let kept = match line.at {
-                    Mix::Track(t) => self.song.tracks.get(t).is_some_and(|old| {
-                        song.tracks
-                            .iter()
-                            .position(|new| new.name == old.name)
-                            .is_some_and(|u| song.mix_value(Mix::Track(u), *p).is_some())
-                    }),
-                    at => song.mix_value(at, *p).is_some(),
-                };
-                if let Some((_, d)) = defaults.iter().find(|(q, _)| q == p).filter(|_| !kept) {
-                    resets.push((strip, *p, *d));
+                if let (Some(i), Some(marks)) = (
+                    STRIP_DEFAULTS.iter().position(|(q, _)| q == p),
+                    self.mix_from_text
+                        .get_mut(strip)
+                        .filter(|_| line.at != Mix::Master),
+                ) {
+                    *marks |= 1 << i;
                 }
             }
-        }
-        for (strip, p, d) in resets {
-            self.set_param(strip, p, d);
         }
     }
 
@@ -3206,7 +3620,10 @@ impl Engine {
                             blep: &self.blep,
                             ladder: &self.ladder,
                             pitch: &self.pitch,
-                            tables: self.tables,
+                            tables: TableSet {
+                                builtin: self.tables,
+                                user: &self.user_tables,
+                            },
                             samples: &self.samples,
                             zones,
                         };
@@ -3220,7 +3637,10 @@ impl Engine {
                         blep: &self.blep,
                         ladder: &self.ladder,
                         pitch: &self.pitch,
-                        tables: self.tables,
+                        tables: TableSet {
+                            builtin: self.tables,
+                            user: &self.user_tables,
+                        },
                         samples: &self.samples,
                         zones,
                     };
@@ -3245,6 +3665,9 @@ impl Engine {
                 self.mixer
                     .widen(synth, n, |dry, l, r| chorus.process(dry, l, r));
             }
+        }
+        if let Some((l, r)) = self.spectrum.watched().and_then(|s| self.mixer.tap(s, n)) {
+            self.spectrum.push(l, r);
         }
         let (left, right) = self.out.split_at_mut(BLOCK);
         self.mixer.mix(n, left, right);

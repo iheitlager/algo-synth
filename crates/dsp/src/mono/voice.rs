@@ -29,7 +29,7 @@ use crate::mono::{MonoParams, VCOS};
 use crate::params::Param;
 use crate::sample::SampleStore;
 use crate::sampler::ZoneMap;
-use crate::table::{TableOsc, Tables};
+use crate::table::{TableOsc, TableSet, dac8};
 use crate::voice::Gains;
 use crate::voice::midi_to_hz;
 
@@ -40,6 +40,18 @@ pub const KEYS: usize = 16;
 const MONO_GAIN: f32 = 0.7;
 /// The release in seconds of a contour whose Decay switch is off (#308).
 const QUICK_RELEASE: f32 = 0.01;
+/// The TB-303's accent (#536): a note at this velocity or above is accented
+/// (a song's `!` plays at 1, a plain note at 0.75).
+const ACCENTED: f32 = 0.9;
+/// An accent's filter decay, in seconds: the shortest, whatever the knob.
+const ACCENT_DECAY: f32 = 0.2;
+/// How far the sweep circuit opens the filter at full charge, in semitones,
+/// and how much an accent lifts the VCA at the envelope's peak.
+const ACCENT_CUTOFF: f32 = 30.0;
+const ACCENT_LEVEL: f32 = 1.0;
+/// The TB-303's level, for every note alike: its dark diode ladder brought
+/// up to an SH-101 bass's loudness.
+const SWEEP_LEVEL: f32 = 1.6;
 
 /// Which held key sounds; the ids are mirrored in `web/src/audio/params.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -148,7 +160,7 @@ pub struct Tools<'a> {
     pub blep: &'a Blep,
     pub ladder: &'a LadderTables,
     pub pitch: &'a PitchTable,
-    pub tables: &'a Tables,
+    pub tables: TableSet<'a>,
     /// The sample store and this synth's zones, for the sampler's voices.
     pub samples: &'a SampleStore,
     pub zones: &'a ZoneMap,
@@ -164,7 +176,7 @@ pub struct MonoCtx<'a> {
     /// A poly synth's shared LFO; `None` gives the voice its own.
     pub shared: Option<&'a SharedMod>,
     /// The generated wavetables and samples.
-    pub tables: &'a Tables,
+    pub tables: TableSet<'a>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -219,11 +231,15 @@ pub struct MonoVoice {
     levels: Gains<6>,
     /// Its own values, which the pool sets each block (ADR-0023).
     pub set: VoiceSet,
+    /// Whether the sounding note is accented, and the charge on the
+    /// TB-303's accent sweep capacitor (#536).
+    accented: bool,
+    sweep: f32,
 }
 
 /// The parameters a voice can hold a value of its own for (ADR-0023), in the
 /// order of `VoiceSet`'s slots.
-pub const VOICE_PARAMS: [Param; 8] = [
+pub const VOICE_PARAMS: [Param; 10] = [
     Param::Cutoff,
     Param::Resonance,
     Param::Vco1Level,
@@ -232,6 +248,8 @@ pub const VOICE_PARAMS: [Param; 8] = [
     Param::NoiseLevel,
     Param::RingLevel,
     Param::SubLevel,
+    Param::Wt1Pos,
+    Param::Wt2Pos,
 ];
 
 /// One voice's own values (ADR-0023): a per-voice signal writes them, and the
@@ -239,7 +257,7 @@ pub const VOICE_PARAMS: [Param; 8] = [
 /// voice reads them: the cutoff as a note, the resonance as a feedback.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct VoiceSet {
-    mask: u8,
+    mask: u16,
     v: [f32; VOICE_PARAMS.len()],
 }
 
@@ -401,6 +419,7 @@ impl MonoVoice {
         };
         self.note = note;
         self.velocity = velocity;
+        self.accented = velocity >= ACCENTED;
         self.target = f32::from(note);
         let samples = p.glide.max(0.0) as u32;
         if glide && samples > 0 {
@@ -438,10 +457,19 @@ impl MonoVoice {
         // Within the model's ranges and under its sustain ceiling (#340).
         let voiced = p.env();
         let sr = p.sample_rate();
-        let (adsr_times, fadsr_times) = (
+        let (adsr_times, mut fadsr_times) = (
             voiced.clamp(&times(&p.adsr), sr),
             voiced.clamp(&times(&p.fadsr), sr),
         );
+        // The TB-303's filter envelope decays from each note, gate or not,
+        // and an accent takes its shortest decay (#536).
+        let sweep = p.model.accent_sweep();
+        if sweep {
+            if self.accented {
+                fadsr_times.decay = fadsr_times.decay.min(ACCENT_DECAY * sr);
+            }
+            fadsr_times.release = fadsr_times.decay;
+        }
         for (env, times) in [
             (&mut self.adsr, &adsr_times),
             (&mut self.ar, &p.ar),
@@ -507,6 +535,16 @@ impl MonoVoice {
             if !self.active() {
                 return;
             }
+            // An accent follows the filter envelope into the VCA at once,
+            // and into the sweep capacitor, which a run of accents charges
+            // further each time (#536).
+            let (lift, open) = if sweep {
+                let charge = if self.accented { fenv * p.accent } else { 0.0 };
+                self.sweep += (charge - self.sweep) * p.accent_coef;
+                (charge, self.sweep * ACCENT_CUTOFF)
+            } else {
+                (0.0, 0.0)
+            };
             if self.glide_left > 0 {
                 self.glide_left -= 1;
                 self.pitch = if self.glide_left == 0 {
@@ -582,13 +620,16 @@ impl MonoVoice {
                 t1.set_increment(inc1);
                 t2.set_increment(ctx.pitch.at(base + p.tune[1] + m2));
                 let sweep = fenv * p.env_wt + lfo * p.lfo_wt;
-                let pos =
-                    |i: usize| (p.wt_pos.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
+                // A voice may hold its own positions (`.wt1pos(rand.onNote)`).
+                let wt = [own.or(8, p.wt_pos[0]), own.or(9, p.wt_pos[1])];
+                let pos = |i: usize| (wt.get(i).copied().unwrap_or(0.0) + sweep).clamp(0.0, 1.0);
                 let tab = |i: usize| p.wt_table.get(i).copied().unwrap_or(0);
+                // Authentic: each wave through the PPG's 8-bit DAC, after its crossfade.
+                let dac = |y: f32| if p.wt_8bit { dac8(y) } else { y };
                 (
-                    t1.step(ctx.tables, tab(0), pos(0), p.wt_steps),
+                    dac(t1.step(ctx.tables, tab(0), pos(0), p.wt_steps)),
                     None,
-                    t2.step(ctx.tables, tab(1), pos(1), p.wt_steps),
+                    dac(t2.step(ctx.tables, tab(1), pos(1), p.wt_steps)),
                 )
             } else {
                 let (y1, wrap) = o1.step(ctx.blep, ctx.sine, pw, None);
@@ -651,7 +692,7 @@ impl MonoVoice {
                     ctx.ladder,
                     &v,
                     x,
-                    cutoff + m.cutoff + self.cutoff_trim,
+                    cutoff + m.cutoff + self.cutoff_trim + open,
                     feedback + m.resonance * MAX_K,
                     p.drive,
                 ),
@@ -671,7 +712,13 @@ impl MonoVoice {
                 None => y,
             };
             let vca = if expo { amp.gain(m.vca) } else { m.vca };
-            *sample += y * MONO_GAIN * vca * self.velocity;
+            // The TB-303 has no velocity: its accent is its dynamics.
+            let level = if sweep {
+                SWEEP_LEVEL * (1.0 + ACCENT_LEVEL * lift)
+            } else {
+                self.velocity
+            };
+            *sample += y * MONO_GAIN * vca * level;
             self.last = [y1, y2, y3];
             self.mods = m;
         }
@@ -683,6 +730,7 @@ impl MonoVoice {
 mod tests {
     use super::*;
     use crate::params::Param;
+    use crate::table::Tables;
     use crate::voice::sine_table;
 
     const SR: f32 = 48_000.0;
@@ -734,7 +782,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
-                tables: self.tables,
+                tables: self.tables.into(),
             };
             let mut out = vec![0.0; frames];
             for chunk in out.chunks_mut(128) {
@@ -742,6 +790,51 @@ mod tests {
             }
             out
         }
+    }
+
+    /// #536: on the TB-303 a run of accents charges the sweep circuit
+    /// further each time, so each accent opens the filter more than the one
+    /// before; plain notes leave it alone, and an accent is louder.
+    #[test]
+    fn a_run_of_accents_stacks_on_the_tb303() {
+        use crate::mono::model::Model;
+        use crate::mono::preset::Preset;
+        // Four sixteenths at 120 BPM: the sweep's peak, and the loudest sample.
+        let run = |velocity: f32| {
+            let mut settings = vec![(Param::Model, Model::Tb303 as u32 as f32)];
+            settings.extend_from_slice(Preset::Tb303Acid.changes());
+            let mut rig = Rig::new(&settings);
+            let mut loudest = 0.0_f32;
+            let sweeps: Vec<f32> = (0..4)
+                .map(|_| {
+                    rig.voice.press(36, velocity, &rig.params);
+                    let mut top = 0.0_f32;
+                    for _ in 0..(SR * 0.125) as usize / 128 {
+                        let out = rig.render(128);
+                        loudest = out.iter().fold(loudest, |m, s| m.max(s.abs()));
+                        top = top.max(rig.voice.sweep);
+                    }
+                    rig.release(36);
+                    top
+                })
+                .collect();
+            (sweeps, loudest)
+        };
+        let (accented, loud) = run(1.0);
+        // It charges toward a level, so each accent adds less than the last.
+        assert!(
+            accented.windows(2).all(|w| w[1] > w[0]) && accented[1] > 1.2 * accented[0],
+            "each accent opens further: {accented:?}"
+        );
+        let (plain, soft) = run(0.75);
+        assert!(
+            plain.iter().all(|s| *s == 0.0),
+            "no accent, no sweep: {plain:?}"
+        );
+        assert!(
+            loud > 1.3 * soft,
+            "an accent is louder: {loud} against {soft}"
+        );
     }
 
     /// #271: an oscillator level written every block, as a `mod` line or a
@@ -1047,6 +1140,45 @@ mod tests {
         assert!(
             (a / b - 1.0).abs() < 0.05,
             "and stands still without it: {a} {b}"
+        );
+    }
+
+    /// #254: Character Authentic plays the PPG's waves through its 8-bit DAC: a
+    /// quantisation floor near 8 bits under the clean wave. Clean is the default
+    /// and renders as before, and another model ignores the switch.
+    #[test]
+    fn ppg_authentic_is_8_bit_and_clean_is_unchanged() {
+        let render = |model: f32, character: Option<f32>| {
+            let mut patch = vec![
+                (Param::Model, model),
+                (Param::Wt1Table, 2.0),
+                (Param::Wt1Pos, 0.4),
+                (Param::Vco1Level, 1.0),
+                (Param::Vco2Level, 0.0),
+                (Param::Cutoff, 20_000.0),
+                (Param::AdsrSustain, 1.0),
+                (Param::FenvSustain, 1.0),
+            ];
+            patch.extend(character.map(|c| (Param::Character, c)));
+            let mut r = Rig::new(&patch);
+            r.press(45);
+            r.render(9_600)
+        };
+        let clean = render(11.0, None);
+        assert_eq!(render(11.0, Some(0.0)), clean, "Clean is the default");
+        let authentic = render(11.0, Some(1.0));
+        let rms = |x: &mut dyn Iterator<Item = f32>| {
+            let (sum, n) = x.fold((0.0_f64, 0), |(s, n), v| (s + f64::from(v * v), n + 1));
+            (sum / f64::from(n)).sqrt()
+        };
+        let signal = rms(&mut clean.iter().copied());
+        let floor = rms(&mut clean.iter().zip(&authentic).map(|(a, b)| a - b));
+        let db = 20.0 * (floor / signal).log10();
+        assert!((-55.0..-35.0).contains(&db), "an 8-bit floor: {db:.1} dB");
+        assert_eq!(
+            render(1.0, Some(1.0)),
+            render(1.0, None),
+            "the Minimoog has no wavetables to quantise"
         );
     }
 

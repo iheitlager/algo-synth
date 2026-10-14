@@ -34,8 +34,8 @@ const bytes = readFileSync(new URL('../web/public/dsp.wasm', import.meta.url))
 const module = await WebAssembly.compile(bytes)
 
 // One preset of each model, so the ensemble is the family: ARP 2600, Minimoog,
-// Pro-One, MS-20, CS-15, SH-101, Odyssey.
-const family = ['Bass', 'MiniLead', 'ProLead', 'Ms20Lead', 'Cs15Brass', 'Sh101Lead', 'CurrieLead']
+// Pro-One, MS-20, CS-15, SH-101, Odyssey, TB-303.
+const family = ['Bass', 'MiniLead', 'ProLead', 'Ms20Lead', 'Cs15Brass', 'Sh101Lead', 'CurrieLead', 'Tb303Squelch']
 
 // Two mod lines per synth, by strip so no track claims a synth: each a sum of
 // two LFOs through a lag, the deepest a song is likely to write.
@@ -69,6 +69,14 @@ const LARGEST = [
 // there. Each song track plays its own synth, all set up the same.
 // The SuperCollider hoover of #216 (ADR-0024), as pasted: 40 saws, 20
 // delays, a Splay and a FreeVerb2 a voice, on a stereo bus.
+const RATIOS = Array.from({ length: 32 }, (_, k) => (k + 1) * 1.01).join(', ')
+// `[…] is SuperCollider's Ref, kept out of a template literal.
+const PARTIALS = [
+  'SynthDef(\\partials, { |freq = 440|',
+  `  DynKlang.ar(${'`'}[[${RATIOS}], nil, nil], freq * 0.25) * 0.02`,
+  `    + (DynKlank.ar(${'`'}[[${RATIOS}], nil, nil], WhiteNoise.ar * 0.01, freq * 0.25) * 0.05)`,
+  '}).add;',
+].join('\n')
 const HOOVER = String.raw`SynthDef(\hoover, {
     var snd, freq, bw, delay, decay;
     freq = \freq.kr(440);
@@ -95,6 +103,9 @@ const scenarios = {
   'bowed string': [(w, s) => w.mono_preset(s, Preset.BowedString), 36],
   // Sixteen synths cycling through every model (spec 005 Req 9).
   'all models': [(w, s) => w.mono_preset(s, Preset[family[s % family.length]]), 36],
+  // A TB-303 on every synth, its diode ladder at the edge of the whistle
+  // (#536).
+  'tb303': [(w, s) => w.mono_preset(s, Preset.Tb303Squelch), 36],
   // Chord pads on every polyphonic model: sixteen synths, four voices each,
   // which is the whole voice budget (spec 006 Req 15).
   'poly pads': [(w, s) => w.mono_preset(s, Preset[polys[s % polys.length]]), 48, CHORD],
@@ -140,6 +151,12 @@ const scenarios = {
   'sc hoover x4': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48, [0], '', (w, s) => {
     w.mono_preset(s, Preset.ModularBasic)
     if (s < 4) setCode(w, s, HOOVER)
+  }],
+  // A bank at its limits on every synth (spec 010 Req 11): a Klang of 32
+  // sines and a Klank of 32 resonators, a note on each of the 16.
+  'partials max': [(w, s) => w.mono_preset(s, Preset.ModularBasic), 48, [0], '', (w, s) => {
+    w.mono_preset(s, Preset.ModularBasic)
+    setCode(w, s, PARTIALS)
   }],
   // The Modular hoover (ADR-0020), a chord on every synth: 64 graph voices of
   // three oscillators, two LFOs and a filter.

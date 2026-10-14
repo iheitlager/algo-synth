@@ -117,11 +117,11 @@ pub const MAX_TEXT: usize = 1 << 20;
 /// Longest name of a track or clip.
 const MAX_NAME: usize = 32;
 /// The words a line of the song starts with, in the order the parser's error
-/// names them. The parser reads no other, and `.openspec/language.md` must
-/// define each (a test holds it to that).
-pub const KEYWORDS: [&str; 16] = [
-    "tempo", "swing", "scale", "setting", "track", "samples", "strip", "group", "master", "clip",
-    "auto", "snapshot", "mod", "scene", "arrange", "loop",
+/// names them. The parser reads no other, and `.openspec/language.md` (or
+/// `sound-design.md`) must define each (a test holds it to that).
+pub const KEYWORDS: [&str; 20] = [
+    "tempo", "swing", "scale", "setting", "track", "samples", "zone", "pad", "table", "attack",
+    "strip", "group", "master", "clip", "auto", "snapshot", "mod", "scene", "arrange", "loop",
 ];
 /// A line's keyword in today's words (#486, ADR-0031): a song written
 /// before reads on, `frag` as `clip`, `section` as `scene`, and the old
@@ -530,6 +530,15 @@ pub struct Song {
     /// the samples manifest (#214, ADR-0018): the view fetches and loads them,
     /// since the engine can't fetch (ADR-0013).
     pub samples: Vec<(usize, String)>,
+    /// The Sampler zones a sampler track without a `samples` line plays
+    /// (#522): the view loads each source and lays the zones out.
+    pub zones: Vec<zone::SongZone>,
+    /// The pads of a pad sampler a drums or sampler track without a
+    /// `samples` line plays (#527), laid out as its zones are.
+    pub pads: Vec<pad::SongPad>,
+    /// The recipes of the user wavetables and attacks (ADR-0033): the view
+    /// rebuilds them when the song loads, one per slot of each kind.
+    pub recipes: Vec<recipe::Recipe>,
     /// Starting values for strips, groups and the master (ADR-0018).
     pub mix: Vec<MixLine>,
     pub clips: Vec<Clip>,
@@ -554,6 +563,9 @@ impl Default for Song {
             settings: Vec::new(),
             tracks: Vec::new(),
             samples: Vec::new(),
+            zones: Vec::new(),
+            pads: Vec::new(),
+            recipes: Vec::new(),
             mix: Vec::new(),
             clips: Vec::new(),
             autos: Vec::new(),
@@ -819,7 +831,7 @@ impl Song {
             if !KEYWORDS.contains(&keyword) {
                 return Err(err(
                     first.col,
-                    "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                    "a line starts with tempo, swing, scale, setting, track, samples, zone, pad, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                 ));
             }
             match current_keyword(
@@ -1327,6 +1339,18 @@ impl Song {
                     if song.samples.iter().any(|(u, _)| *u == t) {
                         return Err(err(track.col, "this track already has its samples"));
                     }
+                    if song.zones.iter().any(|z| z.track == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has zone lines: a track has a pack or its zones, not both",
+                        ));
+                    }
+                    if song.pads.iter().any(|p| p.track == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has pad lines: a track has a kit or its pads, not both",
+                        ));
+                    }
                     let id = arg(2, "a pack or kit id goes here, as upright-piano-kw")?;
                     if !is_sample_id(id.text) {
                         return Err(err(
@@ -1338,6 +1362,243 @@ impl Song {
                         return Err(err(extra.col, "unexpected text"));
                     }
                     song.samples.push((t, id.text.to_string()));
+                }
+                "zone" => {
+                    let track = arg(1, "a track goes here, then a zone number, 1 to 64")?;
+                    let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
+                        return Err(err(track.col, "no track has this name"));
+                    };
+                    if song.tracks.get(t).is_some_and(|t| t.kind != Kind::Sampler) {
+                        return Err(err(track.col, "zones go on a sampler track"));
+                    }
+                    if song.samples.iter().any(|(u, _)| *u == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has a samples line: a track has a pack or its zones, not both",
+                        ));
+                    }
+                    let n = arg(2, "a zone number goes here, 1 to 64")?;
+                    let number = n
+                        .text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| zone::is_zone_number(*n))
+                        .ok_or(err(n.col, "a zone number is 1 to 64"))?;
+                    if song
+                        .zones
+                        .iter()
+                        .any(|z| z.track == t && z.zone + 1 == number)
+                    {
+                        return Err(err(n.col, "this track already has this zone"));
+                    }
+                    let eq = arg(3, "= and a source go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a source go here"));
+                    }
+                    let src = arg(4, "a source goes here, as upright-piano-kw/C4vH")?;
+                    let source = src.text.strip_suffix(':').unwrap_or(src.text);
+                    if !zone::is_zone_source(source) {
+                        return Err(err(
+                            src.col,
+                            "a zone's source is a pack's sample, as upright-piano-kw/C4vH, or @ and a file's hash",
+                        ));
+                    }
+                    let mut k = 5;
+                    if !src.text.ends_with(':') {
+                        if let Some(colon) = ws.get(k) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the zone's fields go here"));
+                            }
+                            k += 1;
+                        }
+                    }
+                    let mut fields = crate::sampler::Zone::default();
+                    while let Some(name) = ws.get(k) {
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let value = v.text.strip_suffix(',').unwrap_or(v.text);
+                        if !zone::FIELD_NAMES.contains(&name.text) {
+                            return Err(err(
+                                name.col,
+                                "a zone field: keylo keyhi vello velhi root tune level loop loopstart loopend seqlen seqpos release",
+                            ));
+                        }
+                        zone::set_field(&mut fields, name.text, value)
+                            .map_err(|msg| err(v.col, msg))?;
+                        k += 2;
+                    }
+                    song.zones.push(zone::SongZone {
+                        track: t,
+                        zone: number - 1,
+                        source: source.to_string(),
+                        fields,
+                    });
+                }
+                "pad" => {
+                    let track = arg(1, "a track goes here, then a pad number, 1 to 16")?;
+                    let Some(t) = song.tracks.iter().position(|t| t.name == track.text) else {
+                        return Err(err(track.col, "no track has this name"));
+                    };
+                    // A NES synth plays its pads through the DMC (#112).
+                    let nes = song.tracks.get(t).is_some_and(|tr| {
+                        tr.setting
+                            .and_then(|i| song.settings.get(i))
+                            .map(|st| st.preset)
+                            .or(tr.preset)
+                            .is_some_and(|p| p.model().uses_nes())
+                    });
+                    if song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth) && !nes {
+                        return Err(err(
+                            track.col,
+                            "pads go on a drums or sampler track, or a Nes synth",
+                        ));
+                    }
+                    if song.samples.iter().any(|(u, _)| *u == t) {
+                        return Err(err(
+                            track.col,
+                            "this track has a samples line: a track has a kit or its pads, not both",
+                        ));
+                    }
+                    let n = arg(2, "a pad number goes here, 1 to 16")?;
+                    let number = n
+                        .text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| pad::is_pad_number(*n))
+                        .ok_or(err(n.col, "a pad number is 1 to 16"))?;
+                    if song
+                        .pads
+                        .iter()
+                        .any(|p| p.track == t && p.pad + 1 == number)
+                    {
+                        return Err(err(n.col, "this track already has this pad"));
+                    }
+                    let eq = arg(3, "= and a source go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a source go here"));
+                    }
+                    let src = arg(4, "a source goes here, as audiophob/kick")?;
+                    let source = src.text.strip_suffix(':').unwrap_or(src.text);
+                    if !zone::is_zone_source(source) {
+                        return Err(err(
+                            src.col,
+                            "a pad's source is a pack's sample, as audiophob/kick, or @ and a file's hash",
+                        ));
+                    }
+                    let mut k = 5;
+                    if !src.text.ends_with(':') {
+                        if let Some(colon) = ws.get(k) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the pad's fields go here"));
+                            }
+                            k += 1;
+                        }
+                    }
+                    let mut fields = crate::padsampler::PadCfg::default();
+                    while let Some(name) = ws.get(k) {
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let value = v.text.strip_suffix(',').unwrap_or(v.text);
+                        if !pad::FIELD_NAMES.contains(&name.text) {
+                            return Err(err(
+                                name.col,
+                                "a pad field: tune level pan decay choke vellevel velstart oneshot out",
+                            ));
+                        }
+                        pad::set_field(&mut fields, name.text, value)
+                            .map_err(|msg| err(v.col, msg))?;
+                        k += 2;
+                    }
+                    song.pads.push(pad::SongPad {
+                        track: t,
+                        pad: number - 1,
+                        source: source.to_string(),
+                        fields,
+                    });
+                }
+                "table" | "attack" => {
+                    let kind = if keyword == "table" {
+                        recipe::Kind::Table
+                    } else {
+                        recipe::Kind::Attack
+                    };
+                    let n = arg(1, "a user slot goes here, 1 to 8")?;
+                    let slot = n
+                        .text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|s| (1..=kind.slots()).contains(s))
+                        .ok_or(err(n.col, "a user slot is 1 to 8"))?;
+                    if song
+                        .recipes
+                        .iter()
+                        .any(|r| r.kind == kind && r.slot == slot)
+                    {
+                        return Err(err(n.col, "this user slot already has its recipe"));
+                    }
+                    let eq = arg(2, "= and a source go here")?;
+                    if eq.text != "=" {
+                        return Err(err(eq.col, "= and a source go here"));
+                    }
+                    let src = arg(3, "a source goes here, as upright-piano-kw/C4vH")?;
+                    let source = src.text.strip_suffix(':').unwrap_or(src.text);
+                    if !recipe::is_source(source) {
+                        return Err(err(
+                            src.col,
+                            "a source is a pack's sample, as upright-piano-kw/C4vH, @ and a file's hash, synth:Preset:note or plaits:h:t:m",
+                        ));
+                    }
+                    let mut r = recipe::Recipe::new(kind, slot, source);
+                    let mut k = 4;
+                    let mut last = src.text;
+                    // `A ~ B`: a second sound to morph with.
+                    if !src.text.ends_with(':') && ws.get(4).is_some_and(|w| w.text == "~") {
+                        let b = arg(5, "a second source goes here, to morph with")?;
+                        let other = b.text.strip_suffix(':').unwrap_or(b.text);
+                        if !recipe::is_source(other) {
+                            return Err(err(
+                                b.col,
+                                "a source is a pack's sample, @ and a file's hash, synth:Preset:note or plaits:h:t:m",
+                            ));
+                        }
+                        r.other = Some(other.to_string());
+                        last = b.text;
+                        k = 6;
+                    }
+                    if !last.ends_with(':') {
+                        if let Some(colon) = ws.get(k) {
+                            if colon.text != ":" {
+                                return Err(err(colon.col, ": and the transforms go here"));
+                            }
+                            k += 1;
+                        }
+                    }
+                    while let Some(name) = ws.get(k) {
+                        let v = ws.get(k + 1).ok_or(err(
+                            body.trim_end().chars().count() + 1,
+                            "a value goes here",
+                        ))?;
+                        let value = v
+                            .text
+                            .strip_suffix(',')
+                            .unwrap_or(v.text)
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|x| x.is_finite())
+                            .ok_or(err(v.col, "a value is a number"))?;
+                        if !r.set(name.text, value) {
+                            return Err(err(
+                                name.col,
+                                "a transform of the lab (as inharmonic), a morph position (mamp …, sweep), or window or hop, with a value it takes",
+                            ));
+                        }
+                        k += 2;
+                    }
+                    song.recipes.push(r);
                 }
                 "strip" | "group" | "master" | "master:" => {
                     let line = parse_mix(&song, &ws, line, body)?;
@@ -1485,7 +1746,7 @@ impl Song {
                 _ => {
                     return Err(err(
                         first.col,
-                        "a line starts with tempo, swing, scale, setting, track, samples, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
+                        "a line starts with tempo, swing, scale, setting, track, samples, zone, pad, table, attack, strip, group, master, clip, auto, snapshot, mod, scene, arrange or loop",
                     ));
                 }
             }
@@ -1654,6 +1915,15 @@ impl Song {
             let name = self.tracks.get(*t).map_or("", |x| x.name.as_str());
             lines.push(format!("samples {name} {id}"));
         }
+        for z in &self.zones {
+            let name = self.tracks.get(z.track).map_or("", |x| x.name.as_str());
+            lines.push(z.print(name));
+        }
+        for p in &self.pads {
+            let name = self.tracks.get(p.track).map_or("", |x| x.name.as_str());
+            lines.push(p.print(name));
+        }
+        lines.extend(self.recipes.iter().map(recipe::Recipe::print));
         for m in &self.mix {
             let at = match m.at {
                 Mix::Track(t) => format!(
@@ -2185,7 +2455,70 @@ impl Song {
             Some((_, have)) => id.clone_into(have),
             None => self.samples.push((t, id.to_string())),
         }
+        // A pack or its zones, a kit or its pads, not both (#522, #527).
+        self.zones.retain(|z| z.track != t);
+        self.pads.retain(|p| p.track != t);
         true
+    }
+
+    /// Track `t`'s pad lines (#527), replacing any, in pad order; they take
+    /// the place of its `samples` line. None takes both away. False for no
+    /// such track or a synth track.
+    pub fn set_pads(&mut self, t: usize, mut pads: Vec<pad::SongPad>) -> bool {
+        if self.tracks.get(t).is_none_or(|x| x.kind == Kind::Synth) {
+            return false;
+        }
+        pads.sort_by_key(|p| p.pad);
+        pads.dedup_by_key(|p| p.pad);
+        self.samples.retain(|(u, _)| *u != t);
+        let at = self
+            .pads
+            .iter()
+            .position(|p| p.track == t)
+            .unwrap_or(self.pads.len());
+        self.pads.retain(|p| p.track != t);
+        let at = at.min(self.pads.len());
+        self.pads.splice(
+            at..at,
+            pads.into_iter().map(|p| pad::SongPad { track: t, ..p }),
+        );
+        true
+    }
+
+    /// Track `t`'s zone lines (#522), replacing any, in zone order; they
+    /// take the place of its `samples` line. None takes both away. False for
+    /// no such track or one that isn't a sampler.
+    pub fn set_zones(&mut self, t: usize, mut zones: Vec<zone::SongZone>) -> bool {
+        if self.tracks.get(t).is_none_or(|x| x.kind != Kind::Sampler) {
+            return false;
+        }
+        zones.sort_by_key(|z| z.zone);
+        zones.dedup_by_key(|z| z.zone);
+        self.samples.retain(|(u, _)| *u != t);
+        let at = self
+            .zones
+            .iter()
+            .position(|z| z.track == t)
+            .unwrap_or(self.zones.len());
+        self.zones.retain(|z| z.track != t);
+        let at = at.min(self.zones.len());
+        self.zones.splice(
+            at..at,
+            zones.into_iter().map(|z| zone::SongZone { track: t, ..z }),
+        );
+        true
+    }
+
+    /// The recipe of a user slot (ADR-0033): replaced or added.
+    pub fn set_recipe(&mut self, r: recipe::Recipe) {
+        match self
+            .recipes
+            .iter_mut()
+            .find(|have| have.kind == r.kind && have.slot == r.slot)
+        {
+            Some(have) => *have = r,
+            None => self.recipes.push(r),
+        }
     }
 
     /// Take track `t` out (ADR-0027), when nothing of the song plays or moves
@@ -2207,6 +2540,8 @@ impl Song {
         self.tracks.remove(t);
         self.mix.retain(|m| m.at != Mix::Track(t));
         self.samples.retain(|(u, _)| *u != t);
+        self.zones.retain(|z| z.track != t);
+        self.pads.retain(|p| p.track != t);
         let down = |u: &mut usize| {
             if *u > t {
                 *u -= 1;
@@ -2217,6 +2552,12 @@ impl Song {
         }
         for (u, _) in &mut self.samples {
             down(u);
+        }
+        for z in &mut self.zones {
+            down(&mut z.track);
+        }
+        for p in &mut self.pads {
+            down(&mut p.track);
         }
         for m in &mut self.mix {
             if let Mix::Track(u) = &mut m.at {
@@ -2346,7 +2687,8 @@ pub(crate) fn fits(kind: Kind, model: Option<Model>) -> bool {
         return true;
     };
     match kind {
-        Kind::Drums => m.uses_drums() || m.uses_pads(),
+        // The NES plays drums from its keys with `NesKit` (#112).
+        Kind::Drums => m.uses_drums() || m.uses_pads() || m.uses_nes(),
         Kind::Sampler => m.uses_sampler() || m.uses_pads(),
         Kind::Synth => !m.uses_drums() && !m.uses_pads() && !m.uses_sampler(),
     }
@@ -2991,8 +3333,11 @@ impl Song {
 }
 
 pub mod lex;
+pub mod pad;
+pub mod recipe;
 pub mod signal;
 pub mod spans;
+pub mod zone;
 
 /// A signal with `env` or a list has a value per voice (ADR-0023): it goes
 /// on a track's Mono or Poly synth, onto a parameter a voice holds, without
@@ -3003,6 +3348,9 @@ fn per_voice_fits(
     param: Param,
     signal: &Signal,
 ) -> Result<(), &'static str> {
+    if signal.on_note() && !matches!(target, Target::Track(_)) {
+        return Err("onNote samples a track's notes: it modulates a track");
+    }
     if !signal.per_voice() {
         return Ok(());
     }
@@ -3011,7 +3359,7 @@ fn per_voice_fits(
     };
     if !crate::mono::voice::VOICE_PARAMS.contains(&param) {
         return Err(
-            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel or sublevel",
+            "per voice: cutoff, resonance, vco1level, vco2level, vco3level, noiselevel, ringlevel, sublevel, wt1pos or wt2pos",
         );
     }
     if signal.lags() {

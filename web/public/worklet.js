@@ -32,6 +32,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     // The same for its version and the commit it was built from (#197); 0 when there is none to tell.
     const num = (name) => (typeof this.w[name] === 'function' ? this.w[name]() : 0)
     this.port.postMessage({ t: 'ready', models: num('model_count'), version: num('version_code'), build: num('build_id') })
+    this.sendWavetables()
     this.block = this.w.block_len()
     // The block number every deck's ring counts in, and the attached decks by number (1–3).
     this.blockNo = 0
@@ -46,6 +47,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     // While the view has an edit of the song text not yet applied, folding
     // waits, so a knob never overwrites what is being typed (ADR-0027).
     this.foldHeld = false
+    this.spectrumOn = false
     for (let s = 0; s < this.w.strip_count(); s++) this.sendParams(s)
     this.port.onmessage = ({ data }) => {
       const w = this.w
@@ -81,10 +83,26 @@ class EngineProcessor extends AudioWorkletProcessor {
           break
         case 'zone': w.zone_set(data.s, data.zone, data.field, data.v); break
         case 'zonesClear': w.zones_clear(data.s); break
+        // A pack's or the song's zones (#522), [zone, field, value]… flat: laid out in one go, not a hand's change.
+        case 'zoneSets':
+          w.zones_clear(data.s)
+          for (let i = 0; i + 2 < data.sets.length; i += 3) w.zone_set(data.s, data.sets[i], data.sets[i + 1], data.sets[i + 2])
+          w.zones_settle(data.s)
+          break
+        // A kit's or the song's pads (#527), [pad, field, value]… flat, likewise.
+        case 'padSets':
+          w.pads_clear(data.s)
+          for (let i = 0; i + 2 < data.sets.length; i += 3) w.pad_set(data.s, data.sets[i], data.sets[i + 1], data.sets[i + 2])
+          w.pads_settle(data.s)
+          break
+        // Where a slot's sample came from (#522), `@<hash>` or `<pack>/<sample>`, so its zones can be in the song.
+        case 'sampleSource': this.setSampleSource(data.slot, new Uint8Array(data.bytes)); break
         case 'zonesDump': this.sendZones(data.s); break
         case 'song': this.loadSong(new Uint8Array(data.bytes), data.id); break
         case 'code': this.setCode(data.s, new Uint8Array(data.bytes)); break
         case 'samples': this.setSamples(data.s, new Uint8Array(data.bytes)); break
+        // A recipe line from the Spectral Lab (ADR-0033): its slot's line in the song.
+        case 'recipe': this.setRecipe(new Uint8Array(data.bytes)); break
         case 'groupName': this.setGroupName(data.g, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
         case 'ratchet': w.set_ratchet(data.f, data.l, data.s, data.r); this.sendSong(true); break
@@ -129,11 +147,39 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'launchResume': w.song_resume_arrangement(data.when); break
         case 'launchCancel': w.song_launch_cancel(); break
         case 'snapshot': w.song_snapshot(data.s, data.when); break
+        // A live spectrum of one synth's output for its faceplate (#519); -1 stops it.
+        case 'spectrum':
+          if (typeof w.spectrum_watch === 'function') w.spectrum_watch(data.s)
+          this.spectrumOn = data.s >= 0
+          break
+        // A user wavetable or attack from the Spectral Lab (spec 010 Req 9-10).
+        case 'userTable':
+        case 'userAttack': {
+          const values = new Float32Array(data.values)
+          const ptr = w.user_buf(values.length)
+          let code = -6
+          if (ptr) {
+            new Float32Array(w.memory.buffer, ptr, values.length).set(values)
+            code = data.t === 'userTable' ? w.table_load(data.slot) : w.attack_load(data.slot, data.root)
+          }
+          this.port.postMessage({ t: 'userLoaded', kind: data.t, slot: data.slot, code })
+          if (data.t === 'userTable' && code >= 0) this.sendWavetables()
+          break
+        }
         case 'pad': w.pad_set(data.s, data.pad, data.field, data.v); break
         case 'padsClear': w.pads_clear(data.s); break
         case 'padsDump': this.sendPads(data.s); break
       }
     }
+  }
+
+  // The wavetables, generated and user, sketched for the PPG's wave display:
+  // at start, and again when a user table loads.
+  sendWavetables() {
+    if (!this.w.wavetable_sketch) return
+    const n = this.w.wavetable_sketch(64)
+    const points = new Float32Array(this.w.memory.buffer, this.w.peaks_ptr(), n).slice()
+    this.port.postMessage({ t: 'wavetables', points }, [points.buffer])
   }
 
   // Every parameter's current value on synth `s`, indexed by id, so the view
@@ -242,6 +288,24 @@ class EngineProcessor extends AudioWorkletProcessor {
     if (w.samples_set(s) === 0) this.sendSong(true)
   }
 
+  // The source of the sample in `slot` (#522): the next fold may write its zones.
+  setSampleSource(slot, bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (!ptr) return
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    w.sample_source_set(slot)
+  }
+
+  // A recipe line (ADR-0033), `table 1 = …`, as its slot's recipe in the song.
+  setRecipe(bytes) {
+    const w = this.w
+    const ptr = w.song_buf(bytes.length)
+    if (!ptr) return
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    if (w.recipe_set() === 0) this.sendSong(true)
+  }
+
   // A group bus named in the view (#214): the song's `group` line takes the name; none takes it away.
   setGroupName(g, bytes) {
     const w = this.w
@@ -336,10 +400,27 @@ class EngineProcessor extends AudioWorkletProcessor {
     const samples = Array.from({ length: w.samples_count ? w.samples_count() : 0 }, (_, i) => ({
       synth: w.samples_synth(i), id: bytes(w.samples_id_ptr(i), w.samples_id_len(i)),
     }))
+    // The recipes of the user tables and attacks (ADR-0033): the view rebuilds them.
+    const recipes = Array.from({ length: w.recipe_count ? w.recipe_count() : 0 }, (_, i) => ({
+      slot: w.recipe_slot(i), text: bytes(w.recipe_text_ptr(i), w.recipe_text_len(i)),
+      values: new Float32Array(w.memory.buffer, w.recipe_values_ptr(i), w.recipe_values_len()).slice(),
+    }))
+    // The Sampler zones the song names (#522): the view loads those its synth does not hold.
+    const zones = Array.from({ length: w.song_zone_count ? w.song_zone_count() : 0 }, (_, i) => ({
+      synth: w.song_zone_synth(i), at: w.song_zone_index(i), held: w.song_zone_held(i) === 1,
+      source: bytes(w.song_zone_source_ptr(i), w.song_zone_source_len(i)),
+      values: new Float32Array(w.memory.buffer, w.song_zone_values_ptr(i), w.zone_fields()).slice(),
+    }))
+    // The pads the song names (#527), as its zones.
+    const pads = Array.from({ length: w.song_pad_count ? w.song_pad_count() : 0 }, (_, i) => ({
+      synth: w.song_pad_synth(i), at: w.song_pad_index(i), held: w.song_pad_held(i) === 1,
+      source: bytes(w.song_pad_source_ptr(i), w.song_pad_source_len(i)),
+      values: new Float32Array(w.memory.buffer, w.song_pad_values_ptr(i), w.pad_fields()).slice(),
+    }))
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, id, recipes, zones, pads,
     })
   }
 
@@ -432,6 +513,11 @@ class EngineProcessor extends AudioWorkletProcessor {
       const levels = new Float32Array(w.memory.buffer, w.meters_ptr(), w.meters_len()).slice()
       w.meters_clear()
       this.port.postMessage({ t: 'meters', levels }, [levels.buffer])
+      if (this.spectrumOn) {
+        const n = w.spectrum_compute()
+        const bands = new Float32Array(w.memory.buffer, w.spectrum_ptr(), n).slice()
+        this.port.postMessage({ t: 'spectrum', bands }, [bands.buffer])
+      }
     }
     this.measure(now() - start, frames)
     return true

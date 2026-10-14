@@ -39,7 +39,7 @@ syn match songNoteRest /\<r\>/ contained
 
 " Lines. A top-level line starts with a keyword: today's words (ADR-0031) and
 " the old `frag` and `section` a song written before still uses.
-syn match songKeyword /^\%(tempo\|swing\|scale\|setting\|track\|samples\|strip\|group\|master\|clip\|auto\|snapshot\|mod\|scene\|arrange\|loop\|frag\|section\)\>/ contained
+syn match songKeyword /^\%(tempo\|swing\|scale\|setting\|track\|samples\|zone\|pad\|table\|attack\|strip\|group\|master\|clip\|auto\|snapshot\|mod\|scene\|arrange\|loop\|frag\|section\)\>/ contained
 syn match songLine    /^\S.*$/ contains=songKeyword,@songTokens,songComment
 
 syn match songNotes   /^\s\+\S.*$/ contains=@songTokens,songNote,songNoteRest,songComment

@@ -11,6 +11,7 @@
 //! the sine table, and ranges and cutoffs use a fast `exp2`/`log2`
 //! (ADR-0002).
 
+use crate::chip::{nes, sid};
 use crate::mono::env::{Env, EnvTimes, Stage};
 use crate::mono::ladder::{Ladder, MAX_K};
 use crate::mono::model::{Filter, MOOG, Model, Setting, SvfVoicing};
@@ -18,6 +19,7 @@ use crate::mono::noise::Noise;
 use crate::mono::osc::{Osc, Waveform, naive};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::voice::MonoCtx;
+use crate::table::{TABLES, USER_TABLES};
 use crate::voice::lookup;
 
 pub mod lex;
@@ -25,18 +27,23 @@ pub mod sc;
 pub mod verb;
 
 /// Most nodes in a voice, and most of each kind of state it may hold.
-pub const MAX_NODES: usize = 512;
+pub const MAX_NODES: usize = 1024;
 pub const MAX_OSCS: usize = 64;
-pub const MAX_PHASES: usize = 32;
+pub const MAX_PHASES: usize = 64;
 pub const MAX_FILTERS: usize = 8;
 pub const MAX_ENVS: usize = 8;
 /// Most random numbers a voice draws when its note starts (`Rand`, `ExpRand`).
 pub const MAX_RANDS: usize = 64;
 /// Most `Latch`es, `Decimator`s, `LFNoise`s and `lag`s in a voice: each
 /// holds a value.
-pub const MAX_HOLDS: usize = 32;
+pub const MAX_HOLDS: usize = 64;
 /// Most reverbs a voice runs (`FreeVerb2`): each holds about 100 KB.
 pub const MAX_VERBS: usize = 2;
+/// Most resonators in a voice (`Ringz`, one per partial of a `Klank`).
+pub const MAX_RESONATORS: usize = 32;
+/// Most chip parts in a voice (`SidOsc`, `SidEnv`, `SidFilter`, `NesPulse`,
+/// `NesTri`, `NesNoise`, `NesDmc`, #112).
+pub const MAX_CHIPS: usize = 16;
 /// Most `delay`s in a voice, and the longest one in samples (about 21 ms at
 /// 48 kHz: combs, flangers and chorus, not echoes).
 pub const MAX_DELAYS: usize = 32;
@@ -47,6 +54,10 @@ const MAX_MIX: usize = 8;
 const NONE: u16 = u16::MAX;
 /// No release node in a breakpoint envelope.
 const NO_RELEASE: u8 = u8::MAX;
+/// A resonator at rest: no output yet, its coefficients due.
+const RING_REST: [f32; 6] = [0.0, 0.0, 0.0, 0.0, f32::NAN, f32::NAN];
+/// `log2(0.001)`: a decay time is the time to fall 60 dB.
+const LOG2_MILLI: f32 = -9.965_784;
 /// Output level, as the other voices'.
 const OUT_GAIN: f32 = 0.5;
 /// The resonance of a filter that names none.
@@ -80,7 +91,7 @@ impl Class {
     pub(crate) fn words(self) -> &'static str {
         match self {
             Class::Ladder => {
-                "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 \\odyssey \\prophet5rev1 or \\odysseyrev2"
+                "a MoogFF voicing is \\arp2600 \\minimoog \\proone \\prophet5 \\sh101 \\juno106 \\jupiter8 \\matrix12 \\ppgwave \\d50 \\odyssey \\tb303 \\prophet5rev1 or \\odysseyrev2"
             }
             Class::Lp12 => {
                 "a filter voicing is \\ms20 \\cs15 \\polymoog \\jupiter8 \\matrix12 or \\odysseyrev1"
@@ -97,7 +108,7 @@ impl Class {
 /// at a setting of its switches: its ladder for `MoogFF`, its 12 dB filter
 /// (the two-pole setting where it has a slope switch) for `RLPF`, `RHPF`
 /// and `LPF`, its high-pass for `HPF`.
-pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 25] = [
+pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 26] = [
     ("arp2600", Class::Ladder, Model::Arp2600, Setting::OWN),
     ("minimoog", Class::Ladder, Model::Minimoog, Setting::OWN),
     ("proone", Class::Ladder, Model::ProOne, Setting::OWN),
@@ -109,6 +120,7 @@ pub(crate) const VOICINGS: [(&str, Class, Model, Setting); 25] = [
     ("ppgwave", Class::Ladder, Model::PpgWave, Setting::OWN),
     ("d50", Class::Ladder, Model::D50, Setting::OWN),
     ("odyssey", Class::Ladder, Model::Odyssey, Setting::OWN),
+    ("tb303", Class::Ladder, Model::Tb303, Setting::OWN),
     (
         "prophet5rev1",
         Class::Ladder,
@@ -180,6 +192,15 @@ pub struct Brk {
     pub release: u8,
 }
 
+/// Which output of a state-variable filter a node takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pass {
+    Low,
+    High,
+    /// `BPF` (#547).
+    Band,
+}
+
 /// One unit generator; `u16` fields index earlier nodes, `slot` its state.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Ugen {
@@ -208,7 +229,7 @@ pub enum Ugen {
     Noise,
     Svf {
         input: u16,
-        high: bool,
+        pass: Pass,
         cutoff: u16,
         res: u16,
         slot: u8,
@@ -325,6 +346,95 @@ pub enum Ugen {
         time: u16,
         slot: u8,
     },
+    /// A wavetable oscillator on the user tables (spec 010 Req 11): `pos`'s
+    /// whole part is the slot, its fraction the place across the waves
+    /// (`VOsc`), or the first wave alone when `first` (`Osc`).
+    Wave {
+        pos: u16,
+        freq: u16,
+        slot: u8,
+        first: bool,
+    },
+    /// A two-pole resonator ringing `decay` seconds down to −60 dB
+    /// (SuperCollider's `Ringz`; a `Klank` is a bank of them).
+    Ring {
+        input: u16,
+        freq: u16,
+        decay: u16,
+        slot: u8,
+    },
+    /// 1 once a cycle of `freq`, else 0, the first at the note's start
+    /// (`Impulse`; at 0 Hz a single click).
+    Impulse {
+        freq: u16,
+        slot: u8,
+    },
+    /// A SID oscillator (#112): `freq` onto the 16-bit register of a PAL
+    /// chip, the waveform bits, the 12-bit pulse width, the chip's DAC (0
+    /// the 6581, 1 the 8580), and a sync and a ring input that act while
+    /// above 0 (sync on its rising edge). Band-limited; −1..1.
+    SidOsc {
+        freq: u16,
+        wave: u16,
+        width: u16,
+        chip: u16,
+        sync: u16,
+        ring: u16,
+        slot: u8,
+    },
+    /// A SID envelope: the 4-bit rates and sustain through the chip's rate
+    /// counter and 8-bit level, read through its DAC; 0..1.
+    SidEnv {
+        gate: u16,
+        attack: u16,
+        decay: u16,
+        sustain: u16,
+        release: u16,
+        chip: u16,
+        slot: u8,
+    },
+    /// The SID's filter: the 11-bit cutoff, 4-bit resonance and mode bits
+    /// (1 LP, 2 BP, 4 HP), with each chip's curve, and the 6581's bias in
+    /// octaves.
+    SidFilter {
+        input: u16,
+        cutoff: u16,
+        res: u16,
+        mode: u16,
+        chip: u16,
+        bias: u16,
+        slot: u8,
+    },
+    /// A NES pulse (#112): `freq` onto the 11-bit timer of an NTSC 2A03,
+    /// the duty (0..3) and the 4-bit volume; −1..1.
+    NesPulse {
+        freq: u16,
+        duty: u16,
+        volume: u16,
+        slot: u8,
+    },
+    /// The NES triangle: its 32 4-bit steps at `freq`; −1..1.
+    NesTri {
+        freq: u16,
+        slot: u8,
+    },
+    /// The NES noise: the period index (0..15), the short mode while above
+    /// 0.5, the 4-bit volume; −1..1.
+    NesNoise {
+        period: u16,
+        short: u16,
+        volume: u16,
+        slot: u8,
+    },
+    /// The NES DMC on a signal: `input` delta-encoded a bit at a time at the
+    /// rate index (0..15), or written as 7-bit levels when `direct` is above
+    /// 0.5; −1..1.
+    NesDmc {
+        input: u16,
+        rate: u16,
+        direct: u16,
+        slot: u8,
+    },
     /// Semitones as a frequency ratio, `2^(x/12)`.
     MidiRatio(u16),
     /// One side of an equal-power pan (`Pan2`), `pos` −1 left to 1 right.
@@ -394,6 +504,8 @@ struct Counts {
     rands: u8,
     verbs: u8,
     holds: u8,
+    rings: u8,
+    chips: u8,
 }
 
 impl Default for Program {
@@ -444,6 +556,8 @@ impl Program {
             + 2.0 * f32::from(c.filters)
             + f32::from(c.phases)
             + 1.5 * f32::from(c.delays)
+            + 1.5 * f32::from(c.rings)
+            + 3.0 * f32::from(c.chips)
             + 0.25 * f32::from(self.len);
         ((BUDGET / cost.max(1.0)) as usize).clamp(1, crate::poly::MAX_VOICES)
     }
@@ -510,9 +624,14 @@ pub struct VoiceState {
     /// the next (a decimator, a noise, with its last and next value and its
     /// draws) or whether it started (a lag).
     holds: Vec<[f32; 4]>,
+    /// Each resonator's last two outputs, its two coefficients and the
+    /// frequency and decay they were worked out for.
+    rings: Vec<[f32; 6]>,
     /// The reverbs, and the right side's row each left node keeps for its partner.
     verbs: Vec<verb::FreeVerb>,
     verb_r: Vec<f32>,
+    /// Each chip part's state (#112).
+    chips: Vec<ChipPart>,
     /// The program's nodes in order, split when the note starts (#318):
     /// those steady over a block, evaluated once a block, and the rest,
     /// every sample. Room for `MAX_NODES` each, so sorting never allocates.
@@ -554,6 +673,12 @@ impl VoiceState {
             .resize(up(usize::from(c.rands), self.rands.len()), 0.0);
         self.holds
             .resize(up(usize::from(c.holds), self.holds.len()), [0.0; 4]);
+        self.rings
+            .resize(up(usize::from(c.rings), self.rings.len()), RING_REST);
+        self.chips.resize(
+            up(usize::from(c.chips), self.chips.len()),
+            ChipPart::default(),
+        );
         for order in [&mut self.steady, &mut self.moving] {
             order.reserve_exact(MAX_NODES.saturating_sub(order.len()));
         }
@@ -764,6 +889,8 @@ impl GraphVoice {
             st.oscs.iter_mut().for_each(|o| *o = Osc::default());
             st.phases.iter_mut().for_each(|p| *p = 0.0);
             st.holds.iter_mut().for_each(|h| *h = [0.0; 4]);
+            st.rings.iter_mut().for_each(|r| *r = RING_REST);
+            st.chips.iter_mut().for_each(|c| *c = ChipPart::default());
             st.filters.iter_mut().for_each(|f| *f = Svf::new());
             st.ladders.iter_mut().for_each(|l| *l = Ladder::new());
             st.poles.iter_mut().for_each(|p| *p = OnePole::default());
@@ -781,6 +908,12 @@ impl GraphVoice {
                 Some(Ugen::Osc { wave, slot, .. }) => {
                     if let Some(o) = st.oscs.get_mut(usize::from(slot)) {
                         o.wave = wave;
+                    }
+                }
+                // Every note's first sample is an impulse's first click.
+                Some(Ugen::Impulse { slot, .. }) => {
+                    if let Some(h) = st.holds.get_mut(usize::from(slot)) {
+                        h[0] = 1.0;
                     }
                 }
                 Some(Ugen::Rand { lo, hi, exp, slot }) => {
@@ -979,8 +1112,10 @@ impl GraphVoice {
             rands,
             notes,
             holds,
+            rings,
             verbs,
             verb_r,
+            chips,
             ..
         } = st;
         let at_i = (i * SUB).min(vals.len());
@@ -1028,6 +1163,278 @@ impl GraphVoice {
                     *y = lookup(ctx.sine, *ph);
                 }
             }
+            Ugen::Wave {
+                pos,
+                freq,
+                slot,
+                first,
+            } => {
+                let Some(ph) = phases.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                for ((y, f), p) in out.iter_mut().zip(row(freq)).zip(row(pos)) {
+                    let p = if p.is_finite() { p.max(0.0) } else { 0.0 };
+                    let table = p as usize;
+                    let at = if first { 0.0 } else { p - table as f32 };
+                    *y = if table < USER_TABLES {
+                        ctx.tables.at(TABLES + table, at, *ph)
+                    } else {
+                        0.0
+                    };
+                    *ph += f * inv;
+                    *ph -= ph.floor();
+                }
+            }
+            Ugen::Ring {
+                input,
+                freq,
+                decay,
+                slot,
+            } => {
+                let Some(r) = rings.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let [y1, y2, b1, b2, f0, d0] = r;
+                let rows = row(input).iter().zip(row(freq)).zip(row(decay));
+                for (y, ((x, f), d)) in out.iter_mut().zip(rows) {
+                    // As SuperCollider's Ringz, the coefficients worked out
+                    // again only when the frequency or decay moves.
+                    if f != f0 || d != d0 {
+                        (*f0, *d0) = (*f, *d);
+                        let w = if f.is_finite() {
+                            (f * inv).clamp(0.0, 0.49)
+                        } else {
+                            0.0
+                        };
+                        let r = if d.is_finite() && *d > 0.0 {
+                            fast_exp2(LOG2_MILLI * inv / d)
+                        } else {
+                            0.0
+                        };
+                        let cos = lookup(ctx.sine, w + 0.25);
+                        *b1 = 2.0 * r * (2.0 * r * cos / (1.0 + r * r));
+                        *b2 = -r * r;
+                    }
+                    let y0 = x + *b1 * *y1 + *b2 * *y2;
+                    *y = 0.5 * (y0 - *y2);
+                    *y2 = *y1;
+                    *y1 = if y0.is_finite() { y0 } else { 0.0 };
+                }
+            }
+            Ugen::SidOsc {
+                freq,
+                wave,
+                width,
+                chip,
+                sync,
+                ring,
+                slot,
+            } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let sr = ctx.params.sample_rate();
+                let (fs, ws, ps, cs, ss, rs) = (
+                    row(freq),
+                    row(wave),
+                    row(width),
+                    row(chip),
+                    row(sync),
+                    row(ring),
+                );
+                for (f, y) in out.iter_mut().enumerate() {
+                    let per = c.cycles(sr).per_sample();
+                    let model = sid::Chip::from_value(at(cs, f));
+                    c.osc.set_freq(sid::freq_register(at(fs, f), sid::PAL), per);
+                    c.osc.wave = reg(at(ws, f), 15.0) as u8;
+                    c.osc.pw = reg(at(ps, f), 4095.0) as u16;
+                    c.osc.ring = true;
+                    let src = if at(rs, f) > 0.0 { 0x80_0000 } else { 0 };
+                    let s = at(ss, f);
+                    // A rising edge resets the accumulator at the sample's end.
+                    let reset = (c.last <= 0.0 && s > 0.0).then_some(0.0);
+                    c.last = s;
+                    let zero = sid::wave_dac(model, 0x800);
+                    let v =
+                        sid::render_osc(&mut c.osc, &mut c.ring, ctx.blep, model, src, reset, true);
+                    *y = 2.0 * (v - zero);
+                }
+            }
+            Ugen::SidEnv {
+                gate,
+                attack,
+                decay,
+                sustain,
+                release,
+                chip,
+                slot,
+            } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let sr = ctx.params.sample_rate();
+                let (gs, a, d, su, r, cs) = (
+                    row(gate),
+                    row(attack),
+                    row(decay),
+                    row(sustain),
+                    row(release),
+                    row(chip),
+                );
+                for (f, y) in out.iter_mut().enumerate() {
+                    let n = c.cycles(sr).take();
+                    c.env.attack = reg(at(a, f), 15.0) as u8;
+                    c.env.decay = reg(at(d, f), 15.0) as u8;
+                    c.env.sustain = reg(at(su, f), 15.0) as u8;
+                    c.env.release = reg(at(r, f), 15.0) as u8;
+                    c.env.gate(at(gs, f) > 0.5);
+                    c.env.clock(n);
+                    *y = sid::env_dac(sid::Chip::from_value(at(cs, f)), c.env.level());
+                }
+            }
+            Ugen::SidFilter {
+                input,
+                cutoff,
+                res,
+                mode,
+                chip,
+                bias,
+                slot,
+            } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let sr = ctx.params.sample_rate();
+                let (xs, fc, q, m, cs, b) = (
+                    row(input),
+                    row(cutoff),
+                    row(res),
+                    row(mode),
+                    row(chip),
+                    row(bias),
+                );
+                for (f, y) in out.iter_mut().enumerate() {
+                    let model = sid::Chip::from_value(at(cs, f));
+                    let fc = (reg(at(fc, f), 2047.0) + trim * 8.0).clamp(0.0, 2047.0) as u16;
+                    let bias = at(b, f).clamp(-1.0, 1.0);
+                    c.filter.set(model, fc, reg(at(q, f), 15.0) as u8, bias, sr);
+                    *y = c.filter.process(model, at(xs, f), reg(at(m, f), 7.0) as u8);
+                }
+            }
+            Ugen::NesPulse {
+                freq,
+                duty,
+                volume,
+                slot,
+            } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let per = c.nes_per(ctx.params.sample_rate());
+                let (fs, ds, vs) = (row(freq), row(duty), row(volume));
+                let mut ev = nes::Events::default();
+                for (f, y) in out.iter_mut().enumerate() {
+                    c.pulse.on = true;
+                    c.pulse.period = nes::pulse_timer(at(fs, f), nes::Region::Ntsc);
+                    c.pulse.duty = reg(at(ds, f), 3.0) as u8;
+                    // As drivers set it, so low notes are not muted (`NesVoice::frame`).
+                    c.pulse.negate = true;
+                    c.pulse.env.constant = true;
+                    c.pulse.env.volume = reg(at(vs, f), 15.0) as u8;
+                    let from = c.pulse.level();
+                    ev.clear();
+                    c.pulse.run(per, 0, &mut ev);
+                    let mid = f32::from(c.pulse.env.volume) / 2.0;
+                    *y = c.nes_out(ctx.blep, from, &ev, mid, 15.0);
+                }
+            }
+            Ugen::NesTri { freq, slot } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let per = c.nes_per(ctx.params.sample_rate());
+                let fs = row(freq);
+                let mut ev = nes::Events::default();
+                for (f, y) in out.iter_mut().enumerate() {
+                    c.tri.running = true;
+                    c.tri.period = nes::triangle_timer(at(fs, f), nes::Region::Ntsc);
+                    let from = c.tri.level();
+                    ev.clear();
+                    c.tri.run(per, 0, &mut ev);
+                    *y = c.nes_out(ctx.blep, from, &ev, 7.5, 15.0);
+                }
+            }
+            Ugen::NesNoise {
+                period,
+                short,
+                volume,
+                slot,
+            } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let per = c.nes_per(ctx.params.sample_rate());
+                let (ps, ss, vs) = (row(period), row(short), row(volume));
+                let mut ev = nes::Events::default();
+                for (f, y) in out.iter_mut().enumerate() {
+                    c.noise.on = true;
+                    c.noise.period = reg(at(ps, f), 15.0) as u8;
+                    c.noise.short = at(ss, f) > 0.5;
+                    c.noise.env.constant = true;
+                    c.noise.env.volume = reg(at(vs, f), 15.0) as u8;
+                    let from = c.noise.level();
+                    ev.clear();
+                    c.noise.run(per, nes::Region::Ntsc, 0, &mut ev);
+                    let mid = f32::from(c.noise.env.volume) / 2.0;
+                    *y = c.nes_out(ctx.blep, from, &ev, mid, 15.0);
+                }
+            }
+            Ugen::NesDmc {
+                input,
+                rate,
+                direct,
+                slot,
+            } => {
+                let Some(c) = chips.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                let per = c.nes_per(ctx.params.sample_rate());
+                let (xs, rs, ds) = (row(input), row(rate), row(direct));
+                let mut ev = nes::Events::default();
+                for (f, y) in out.iter_mut().enumerate() {
+                    c.dmc.rate = reg(at(rs, f), 15.0) as u8;
+                    c.dmc.direct = at(ds, f) > 0.5;
+                    let x = at(xs, f);
+                    let from = c.dmc.level();
+                    ev.clear();
+                    c.dmc.run(per, nes::Region::Ntsc, 0, &mut ev, |_| Some(x));
+                    *y = c.nes_out(ctx.blep, from, &ev, 63.5, 127.0);
+                }
+            }
+            Ugen::Impulse { freq, slot } => {
+                let Some(h) = holds.get_mut(usize::from(slot)) else {
+                    out.fill(0.0);
+                    return;
+                };
+                for (y, f) in out.iter_mut().zip(row(freq)) {
+                    *y = if h[0] >= 1.0 {
+                        h[0] -= h[0].floor();
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    h[0] += (f * inv).clamp(0.0, 1.0);
+                }
+            }
             Ugen::Lfo { rate, wave, slot } => {
                 let Some(ph) = phases.get_mut(usize::from(slot)) else {
                     out.fill(0.0);
@@ -1041,7 +1448,7 @@ impl GraphVoice {
             }
             Ugen::Svf {
                 input,
-                high,
+                pass,
                 cutoff,
                 res,
                 slot,
@@ -1066,7 +1473,11 @@ impl GraphVoice {
                         (false, false) => *rr,
                     };
                     let o = f.process(ctx.ladder, &v, *x, note, r);
-                    *y = if high { o.hp } else { o.lp };
+                    *y = match pass {
+                        Pass::Low => o.lp,
+                        Pass::High => o.hp,
+                        Pass::Band => o.bp,
+                    };
                 }
             }
             Ugen::PoleHp {
@@ -1464,6 +1875,75 @@ const ZEROS: [f32; SUB] = [0.0; SUB];
 /// below it).
 const FILTER: u16 = 0x8000;
 
+/// A chip part's state: a SID oscillator with its band-limiting ring, an
+/// envelope, a filter, the cycle count they step by, and the last sync
+/// input (#112).
+#[derive(Clone, Copy, Debug, Default)]
+struct ChipPart {
+    osc: sid::Osc,
+    ring: crate::chip::Ring,
+    env: sid::Env,
+    filter: sid::Filter,
+    cycles: sid::Cycles,
+    last: f32,
+    pulse: nes::Pulse,
+    tri: nes::Triangle,
+    noise: nes::Noise,
+    dmc: nes::Dmc,
+    /// NES CPU cycles per sample in 16.16, set on first use.
+    nes_per: u64,
+}
+
+impl ChipPart {
+    /// Cycles at the PAL clock, set on first use.
+    fn cycles(&mut self, sample_rate: f32) -> &mut sid::Cycles {
+        if self.cycles.per_sample() == 0 {
+            self.cycles = sid::Cycles::new(sid::PAL, sample_rate);
+        }
+        &mut self.cycles
+    }
+}
+
+impl ChipPart {
+    fn nes_per(&mut self, sample_rate: f32) -> u64 {
+        if self.nes_per == 0 {
+            self.nes_per = nes::cycles_per_sample(nes::Region::Ntsc, sample_rate);
+        }
+        self.nes_per
+    }
+
+    /// One sample of a NES channel's level, swinging about `mid` (half its
+    /// volume, so a silent channel is 0) and scaled by `full`, its top: −1..1
+    /// at full volume, band-limited at the steps `ev` holds, which `run`
+    /// made from `from`.
+    fn nes_out(
+        &mut self,
+        blep: &crate::mono::osc::Blep,
+        from: u8,
+        ev: &nes::Events,
+        mid: f32,
+        full: f32,
+    ) -> f32 {
+        let norm = |l: u8| 2.0 * (f32::from(l) - mid) / full;
+        self.ring.add_now(norm(from));
+        let mut prev = from;
+        for &(after, _, level) in ev.iter() {
+            self.ring.correct(blep, norm(level) - norm(prev), after);
+            prev = level;
+        }
+        self.ring.take()
+    }
+}
+
+/// A register value from a signal: rounded and held in `0..=max`.
+fn reg(x: f32, max: f32) -> f32 {
+    if x.is_finite() {
+        x.round().clamp(0.0, max)
+    } else {
+        0.0
+    }
+}
+
 /// Node `a`'s row in `vals`, `n` frames from `from`, or zeros for none (`NONE`).
 fn row(vals: &[f32], a: u16, from: usize, n: usize) -> &[f32] {
     let s = usize::from(a) * SUB + from;
@@ -1749,6 +2229,9 @@ mod tests {
             Model::Sampler,
             Model::PadSampler,
             Model::Modular,
+            // The SID's filter is its own, reached by `SidFilter` (#112).
+            Model::Sid,
+            Model::Nes,
         ];
         let named = |class: Class, f: Filter| {
             VOICINGS
@@ -1821,7 +2304,7 @@ mod tests {
                 ladder: &self.ladder,
                 pitch: &self.pitch,
                 shared: None,
-                tables: self.tables,
+                tables: self.tables.into(),
             };
             let p = patch.program;
             let input = p
@@ -2141,7 +2624,7 @@ mod tests {
         );
     }
 
-    /// #471, #472: a voice holds at most 32 latches, decimators, noises and lags.
+    /// #471, #472: a voice holds at most 64 latches, decimators, noises and lags.
     #[test]
     fn holds_are_limited() {
         let text = |n: usize| {
@@ -2149,10 +2632,10 @@ mod tests {
                 "SynthDef(\\t, {{ |freq = 440| var s = 0; {n}.do({{ s = s + Latch.ar(WhiteNoise.ar, 1) }}); s }}).add;"
             )
         };
-        assert!(sc::compile(&text(32)).is_ok());
+        assert!(sc::compile(&text(64)).is_ok());
         assert_eq!(
-            sc::compile(&text(33)).expect_err("33").msg,
-            "a voice has at most 32 latches, decimators, noises and lags"
+            sc::compile(&text(65)).expect_err("65").msg,
+            "a voice has at most 64 latches, decimators, noises and lags"
         );
     }
 
@@ -2219,7 +2702,7 @@ mod tests {
                 ladder: &b.ladder,
                 pitch: &b.pitch,
                 shared: None,
-                tables: b.tables,
+                tables: b.tables.into(),
             };
             let render = |block: usize| {
                 let mut v = GraphVoice::new(7);
@@ -2234,6 +2717,100 @@ mod tests {
             let (one, block) = (render(1), render(128));
             assert!(one.0.iter().any(|x| x.abs() > 1e-3), "it sounds");
             assert_eq!(one, block);
+        }
+    }
+
+    /// #547's recursive modulator: `f` composed with itself `2^depth` times
+    /// drives a ring-modulated pair of saws through four band-passes.
+    fn composed(depth: usize) -> String {
+        format!(
+            r"(
+  var f, g;
+  f = {{ | saw |
+    var freq, u, amp, rate;
+    rate = ExpRand(0.1, 2);
+    freq = if (0.6.coin) {{
+      LFNoise1.kr(rate.dup).exprange(0.01, 10)
+    }} {{
+      LFNoise1.kr(rate.dup).exprange(10, 50)
+    }};
+    u = LFSaw.kr(LinExp.kr(saw, -1, 1, freq, freq * LFNoise1.kr(rate.dup).exprange(2, 10)));
+    u = if (0.5.coin) {{
+      u * [1 - saw, saw.reverse].choose
+    }} {{
+      u * LFSaw.kr(freq * 0.1, 0, 0.1, 1)
+    }};
+    u.clip2(1.0)
+  }};
+  g = {{ | func, n = 5 |
+    n.do {{ func = func <> func }};
+    func
+  }};
+  {{
+    var freq;
+    freq = g.(f, {depth}).value(LFSaw.kr(0.2 * [1, 1.1])).exprange(6, 11000);
+    BPF.ar(Saw.ar(freq).product, [70, 800, 9000, 5242], 0.2).sum.dup * 0.3
+  }}.play
+)"
+        )
+    }
+
+    /// #547: the recursive modulator plays as pasted (depth 4, sixteen
+    /// copies of `f`), finite and bounded; at depth 5 it is past the
+    /// voice's noises and says so.
+    #[test]
+    fn the_composed_modulator_plays() {
+        let b = Bench::new();
+        let patch = sc::compile(&composed(4)).unwrap_or_else(|e| panic!("{e:?}"));
+        let mut params = crate::mono::MonoParams::new(48_000.0);
+        for k in &patch.knobs {
+            if let Some(c) = params.ctl.get_mut(k.ctl) {
+                *c = k.default;
+            }
+        }
+        let p = patch.program;
+        params.graph = p;
+        let ctx = MonoCtx {
+            params: &params,
+            sine: &b.sine,
+            blep: &b.blep,
+            ladder: &b.ladder,
+            pitch: &b.pitch,
+            shared: None,
+            tables: b.tables.into(),
+        };
+        let mut v = GraphVoice::new(7);
+        let mut st = VoiceState::for_program(&p);
+        v.press(45, 0.8, &p, 48_000.0, 0);
+        let (mut l, mut r) = (vec![0.0_f32; 48_000], vec![0.0_f32; 48_000]);
+        for (l, r) in l.chunks_mut(128).zip(r.chunks_mut(128)) {
+            v.render(&ctx, &mut st, l, Some(r));
+        }
+        assert!(l.iter().chain(&r).all(|x| x.is_finite() && x.abs() < 4.0));
+        assert!(l.iter().any(|x| x.abs() > 1e-3), "it sounds");
+        let e = sc::compile(&composed(5)).expect_err("too big");
+        assert!(e.msg.starts_with("a voice has at most"), "{}", e.msg);
+    }
+
+    /// #547: `BPF` passes its centre and takes away what is far from it; at
+    /// a low level, under the state's saturation.
+    #[test]
+    fn a_band_pass_passes_its_centre() {
+        let mut b = Bench::new();
+        let rms = |hz: f32, b: &mut Bench| {
+            let out = b.nodes(
+                &format!("BPF.ar(SinOsc.ar({hz}, 0, 0.05), 1000, 0.2)"),
+                24_000,
+            );
+            let tail = &out[12_000..];
+            (tail.iter().map(|(_, y)| y * y).sum::<f32>() / tail.len() as f32).sqrt()
+        };
+        let centre = rms(1000.0, &mut b);
+        let level = 0.05 * 0.5_f32.sqrt();
+        assert!((0.6..1.1).contains(&(centre / level)), "centre {centre}");
+        for far in [100.0, 10_000.0] {
+            let off = rms(far, &mut b);
+            assert!(off < centre * 0.1, "{far} Hz: {off} against {centre}");
         }
     }
 
@@ -2269,7 +2846,7 @@ mod tests {
             ladder: &b.ladder,
             pitch: &b.pitch,
             shared: None,
-            tables: b.tables,
+            tables: b.tables.into(),
         };
         let mut v = GraphVoice::new(7);
         let mut st = VoiceState::for_program(&p);
@@ -2289,6 +2866,169 @@ mod tests {
         }
         assert!(loud > 1e-3, "it sounds");
         h
+    }
+
+    /// `text` played at `note` for `n` samples through `render`, its knobs at
+    /// their numbers, reading `user`'s tables.
+    fn hear(
+        b: &mut Bench,
+        text: &str,
+        user: &crate::table::UserTables,
+        note: u8,
+        n: usize,
+    ) -> Vec<f32> {
+        let patch = sc::compile(text).unwrap_or_else(|e| panic!("{e:?}"));
+        for k in &patch.knobs {
+            if let Some(c) = b.params.ctl.get_mut(k.ctl) {
+                *c = k.default;
+            }
+        }
+        let p = patch.program;
+        b.params.graph = p;
+        let ctx = MonoCtx {
+            params: &b.params,
+            sine: &b.sine,
+            blep: &b.blep,
+            ladder: &b.ladder,
+            pitch: &b.pitch,
+            shared: None,
+            tables: crate::table::TableSet {
+                builtin: b.tables,
+                user,
+            },
+        };
+        let mut v = GraphVoice::new(7);
+        let mut st = VoiceState::for_program(&p);
+        v.press(note, 1.0, &p, 48_000.0, 0);
+        let mut out = vec![0.0_f32; n];
+        for block in out.chunks_mut(128) {
+            v.render(&ctx, &mut st, block, None);
+        }
+        out
+    }
+
+    /// The level of `hz` in `x` at 48 kHz (a single DFT bin).
+    fn level(x: &[f32], hz: f64) -> f64 {
+        let w = std::f64::consts::TAU * hz / 48_000.0;
+        let (mut re, mut im) = (0.0, 0.0);
+        for (k, v) in x.iter().enumerate() {
+            re += f64::from(*v) * (w * k as f64).cos();
+            im -= f64::from(*v) * (w * k as f64).sin();
+        }
+        2.0 * re.hypot(im) / x.len() as f64
+    }
+
+    fn db(a: f64, b: f64) -> f64 {
+        20.0 * (a / b).log10()
+    }
+
+    /// Spec 010 Req 11: a `Klang` holds its sines at their levels.
+    #[test]
+    fn klang_is_a_bank_of_sines() {
+        let mut b = Bench::new();
+        let text = "{ |amp = 1, gate = 1| Klang.ar(`[[220, 440, 660], [0.3, 0.2, 0.1], nil]) \
+                    * amp * EnvGen.kr(Env.asr(0.001, 1, 0.1), gate) }";
+        let x = hear(&mut b, text, &crate::table::NO_USER_TABLES, 45, 9_600);
+        // A tenth of a second after the attack: whole cycles of each.
+        let tail = &x[4_800..];
+        for (hz, want) in [(220.0, 0.3), (440.0, 0.2), (660.0, 0.1)] {
+            let got = level(tail, hz);
+            assert!(db(got, want).abs() < 0.5, "{hz} Hz at {got}, not {want}");
+        }
+        assert!(level(tail, 330.0) < 0.003, "nothing between");
+    }
+
+    /// Spec 010 Req 11: a `DynKlank` struck by an `Impulse` at the note's
+    /// start rings at its frequencies, falling 60 dB in its ring time.
+    #[test]
+    fn dynklank_rings() {
+        let mut b = Bench::new();
+        let text = "{ |freq, amp = 1, gate = 1| DynKlank.ar(`[[500, 1200], [1, 0.5], [0.5, 0.2]], \
+                    Impulse.ar(0)) * amp * EnvGen.kr(Env.asr(0, 1, 0.1), gate) }";
+        let x = hear(&mut b, text, &crate::table::NO_USER_TABLES, 45, 24_000);
+        assert!(x.iter().all(|v| v.is_finite() && v.abs() < 2.0));
+        let early = &x[..2_400];
+        let late = &x[12_000..14_400];
+        // Struck at its amplitude, a resonator's mean level over the first
+        // 50 ms is that of a sine falling 60 dB in its ring time.
+        let mean = |amp: f64, ring: f64| {
+            let tau = ring / 1000.0_f64.ln();
+            amp * tau / 0.05 * (1.0 - (-0.05 / tau).exp())
+        };
+        assert!(db(level(early, 500.0), mean(1.0, 0.5)).abs() < 0.5);
+        assert!(db(level(early, 1_200.0), mean(0.5, 0.2)).abs() < 0.5);
+        // 0.25 s on, a 0.5 s ring time is 30 dB down.
+        let fell = db(level(late, 500.0), level(early, 500.0));
+        assert!((fell + 30.0).abs() < 3.0, "fell {fell} dB");
+        assert!(level(late, 1_200.0) < 0.001, "the short one has died");
+        // Ringz is one resonator; an Impulse clicks once per cycle.
+        let ring = hear(
+            &mut b,
+            "{ |amp = 1| Ringz.ar(Impulse.ar(100), 2000, 0.05) * amp }",
+            &crate::table::NO_USER_TABLES,
+            45,
+            48_000,
+        );
+        assert!(level(&ring[24_000..], 2_000.0) > 0.05);
+        let clicks = hear(
+            &mut b,
+            "{ |amp = 1, gate = 1| Impulse.ar(100) * amp * EnvGen.kr(Env.asr(0, 1, 0.1), gate) }",
+            &crate::table::NO_USER_TABLES,
+            45,
+            48_000,
+        );
+        let n = clicks.iter().filter(|v| **v > 0.5).count();
+        assert!((99..=101).contains(&n), "{n} clicks");
+    }
+
+    /// Spec 010 Req 11: `VOsc` crossfades across a user table's waves by its
+    /// position's fraction; `Osc` reads the first; an empty slot is silent.
+    #[test]
+    fn vosc_crossfades_tables() {
+        use crate::table::{UserTables, WAVE_LEN};
+        let mut user = UserTables::empty();
+        let sine = |h: f32| {
+            (0..WAVE_LEN)
+                .map(move |k| (std::f32::consts::TAU * h * k as f32 / WAVE_LEN as f32).sin())
+        };
+        let waves: Vec<f32> = sine(1.0).chain(sine(3.0)).collect();
+        user.load_table(1, &waves).expect("a table");
+        let mut b = Bench::new();
+        let play = |b: &mut Bench, osc: &str| {
+            let text = format!(
+                "{{ |amp = 1, gate = 1| {osc} * amp * EnvGen.kr(Env.asr(0, 1, 0.1), gate) }}"
+            );
+            let x = hear(b, &text, &user, 45, 9_600);
+            (level(&x[4_800..], 100.0), level(&x[4_800..], 300.0))
+        };
+        let (f, t) = play(&mut b, "VOsc.ar(1, 100)");
+        assert!(f > 0.95 && t < 0.02, "the first wave: {f} {t}");
+        let (f, t) = play(&mut b, "VOsc.ar(1.999, 100)");
+        assert!(f < 0.02 && t > 0.95, "the last wave: {f} {t}");
+        let (f, t) = play(&mut b, "VOsc.ar(1.5, 100)");
+        assert!(
+            (f - 0.5).abs() < 0.05 && (t - 0.5).abs() < 0.05,
+            "halfway: {f} {t}"
+        );
+        let (f, t) = play(&mut b, "Osc.ar(1, 100)");
+        assert!(f > 0.95 && t < 0.02, "Osc reads the first wave");
+        for empty in ["VOsc.ar(0.5, 100)", "VOsc.ar(9, 100)"] {
+            let (f, t) = play(&mut b, empty);
+            assert!(f < 1e-6 && t < 1e-6, "{empty} is silent");
+        }
+        // The spec's patch: an analysed table through a Moog ladder, its
+        // position and cutoff knobs, finite and bounded.
+        let text = "{ |freq, amp = 1, gate = 1| MoogFF.ar(VOsc.ar(\\pos.kr(1.3), freq), \\cutoff.kr(2000)) \
+                    * amp * EnvGen.kr(Env.asr(0.01, 1, 0.1), gate) }";
+        let patch = sc::compile(text).expect("builds");
+        let names: Vec<&str> = patch.knobs.iter().map(|k| k.name.as_str()).collect();
+        assert!(
+            names.contains(&"pos") && names.contains(&"cutoff"),
+            "{names:?}"
+        );
+        let x = hear(&mut b, text, &user, 45, 9_600);
+        assert!(x.iter().all(|v| v.is_finite() && v.abs() < 4.0));
+        assert!(x.iter().any(|v| v.abs() > 0.05), "it sounds");
     }
 
     /// #476: the voice renders bit for bit what the per-sample interpreter
@@ -2334,7 +3074,7 @@ mod tests {
                 ladder: &b.ladder,
                 pitch: &b.pitch,
                 shared: None,
-                tables: b.tables,
+                tables: b.tables.into(),
             };
             let mut v = GraphVoice::new(1);
             let mut st = VoiceState::for_program(p);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { LoopMode, PadField, ZoneField } from './params'
 import {
   EMPTY_PAD, EMPTY_ZONE, PADS, PAD_FIELDS, PAD_ROWS, ZONES, evictable, slotsUsedElsewhere, ZONE_FIELDS, decodePads, kitFiles, padSets, parseKits, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
-  zoneRect, zoneSets, type Kit, type Pack,
+  rootsBetween, sourceFile, sourcesOf, splitZones, zoneRect, zoneSets, type Kit, type Pack,
 } from './sampler'
 
 const zone = (o: Record<string, unknown> = {}) => ({
@@ -65,6 +65,27 @@ describe('the pack manifest', () => {
     expect(sets).toContainEqual([0, ZoneField.Loop, 1])
     // A file that did not load leaves its zones out.
     expect(zoneSets(pack, (f) => (f.endsWith('C2.wav') ? 4 : undefined)).every(([z]) => z !== 2)).toBe(true)
+  })
+})
+
+describe('a multisample from the lab (#520)', () => {
+  it('lists the roots of a range every step', () => {
+    expect(rootsBetween(36, 84, 7)).toEqual([36, 43, 50, 57, 64, 71, 78])
+    expect(rootsBetween(60, 60, 12)).toEqual([60])
+    expect(rootsBetween(60, 50, 1)).toEqual([])
+    expect(rootsBetween(60, 72, 0)).toEqual([])
+    expect(rootsBetween(0, 127, 1)).toHaveLength(ZONES)
+  })
+
+  it('splits the keys halfway between neighbouring roots, the outer ones to the ends', () => {
+    const pack = splitZones('bell', [36, 43, 50])
+    expect(pack.zones.map((z) => [z.sample, z.keyLo, z.keyHi, z.root])).toEqual([
+      ['bell C2', 0, 39, 36], ['bell G2', 40, 46, 43], ['bell D3', 47, 127, 50],
+    ])
+    expect(splitZones('one', [60]).zones[0]).toMatchObject({ keyLo: 0, keyHi: 127, root: 60, velLo: 1, velHi: 127 })
+    const sets = zoneSets(pack, (f) => ({ 'bell C2': 3, 'bell G2': 4, 'bell D3': 5 })[f])
+    expect(sets).toContainEqual([1, ZoneField.Sample, 4])
+    expect(sets).toContainEqual([2, ZoneField.Root, 50])
   })
 })
 
@@ -164,5 +185,20 @@ describe('drawing', () => {
     expect(loopOf({ ...EMPTY_ZONE, loopStart: 20, loopEnd: 40 }, sample)).toEqual([20, 40])
     expect(loopOf(EMPTY_ZONE, { loopStart: 0, loopEnd: 0 })).toBeNull()
     expect(loopOf(EMPTY_ZONE, null)).toBeNull()
+  })
+})
+
+describe('recipe sources', () => {
+  const packs = [{ id: 'upright-piano-kw', name: 'Piano', license: '', credit: '', zones: [{ sample: 'instruments/upright-piano-kw/C4vH.wav' }, { sample: 'instruments/upright-piano-kw/B1vH.wav' }] }] as never
+  const kits = [{ id: 'audiophob', name: 'Kit', license: '', credit: '', pads: [{ sample: 'kits/audiophob/kick.wav' }] }] as never
+  it('find a pack or kit sample by its stem', () => {
+    expect(sourceFile('upright-piano-kw/B1vH', packs, kits)).toBe('instruments/upright-piano-kw/B1vH.wav')
+    expect(sourceFile('audiophob/kick', packs, kits)).toBe('kits/audiophob/kick.wav')
+    expect(sourceFile('upright-piano-kw/nope', packs, kits)).toBeNull()
+    expect(sourceFile('@0123', packs, kits)).toBeNull()
+    expect(sourceFile('a/b/c', packs, kits)).toBeNull()
+  })
+  it('list every sample as a source', () => {
+    expect(sourcesOf(packs, kits)).toEqual(['upright-piano-kw/C4vH', 'upright-piano-kw/B1vH', 'audiophob/kick'])
   })
 })

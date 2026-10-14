@@ -331,6 +331,10 @@
     "named": false
   },
   {
+    "type": "attack",
+    "named": false
+  },
+  {
     "type": "auto",
     "named": false
   },
@@ -389,6 +393,10 @@
   {
     "type": "other",
     "named": true
+  },
+  {
+    "type": "pad",
+    "named": false
   },
   {
     "type": "pad",
@@ -455,6 +463,10 @@
     "named": false
   },
   {
+    "type": "table",
+    "named": false
+  },
+  {
     "type": "tempo",
     "named": false
   },
@@ -464,6 +476,10 @@
   },
   {
     "type": "voicing",
+    "named": false
+  },
+  {
+    "type": "zone",
     "named": false
   }
 ]

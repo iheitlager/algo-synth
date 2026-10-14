@@ -32,6 +32,8 @@
     {"id": "fix-pad", "start_text": "tempo 120\ntrack kit drums Tr909 Kit909\nclip beat = kit /16\n  bd x...x...x...x...\n  sd ....x.......x...\n", "request": "This song doesn't load. Fix it.", "expect": [{"check": "pad_lanes_more", "pad": "sn"}]},
     {"id": "fix-order", "start_text": "tempo 120\nclip beat = kit /16\n  bd x...x...x...x...\ntrack kit drums Tr909 Kit909\n", "request": "Fix the error in this song.", "expect": [{"check": "keeps_clips_named", "names": ["beat"]}]},
     {"id": "ask-what", "start": "examples/songs/deep-techno.song", "request": "What does the bass_roll clip play? Don't change anything.", "expect": [{"check": "no_song"}]},
-    {"id": "ask-how", "start": "examples/songs/four-on-the-floor.song", "request": "How would I make the hats swing more? Just explain.", "expect": [{"check": "no_song"}]}
+    {"id": "ask-how", "start": "examples/songs/four-on-the-floor.song", "request": "How would I make the hats swing more? Just explain.", "expect": [{"check": "no_song"}]},
+    {"id": "long-rave-tempo", "start": "examples/songs/seed-rave.song", "request": "Make it 140 BPM.", "expect": [{"check": "tempo", "value": 140}, {"check": "keeps_clips"}]},
+    {"id": "long-spring-tempo", "start": "examples/songs/vivaldi-spring.song", "request": "Make it 120 BPM.", "expect": [{"check": "tempo", "value": 120}, {"check": "keeps_clips"}]}
   ]
 }

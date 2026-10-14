@@ -67,6 +67,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),
         assistant: fileURLToPath(new URL('assistant.html', import.meta.url)),
+        'spectral-lab': fileURLToPath(new URL('spectral-lab.html', import.meta.url)),
       },
     },
   },

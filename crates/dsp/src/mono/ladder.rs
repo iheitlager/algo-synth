@@ -38,6 +38,19 @@ const FLOOR: f32 = 1.0e-3;
 const OTA_GAIN: f32 = 0.7;
 /// The SSM2040's cells run cleaner: a wider linear range than the IR3109's.
 const SSM_GAIN: f32 = 0.45;
+/// The diode ladder's feedback per unit of the others': it whistles at 17
+/// where a buffered ladder does at `ONSET_K` (#536), at √2 times its
+/// stages' rate.
+const DIODE_K: f32 = 17.0 / ONSET_K;
+/// The diode pairs take their difference at this fraction of the level.
+const DIODE_GAIN: f32 = 0.5;
+/// Where the diode ladder's loop clips: wider than the buffered ladders',
+/// since its whistle comes out at a seventeenth of the loop.
+const DIODE_CLIP: f32 = 1.6;
+/// The diode ladder's output gain per unit of feedback, at the threshold:
+/// what its whistle and its bass lose to the feedback, given back after
+/// the loop (gain compensation).
+const DIODE_MAKEUP: f32 = 1.5;
 
 /// What every ladder shares: the `g` table and the smoothing coefficient.
 pub struct LadderTables {
@@ -144,6 +157,8 @@ impl Stages {
             }
             Stages::Ota | Stages::Cem3320 => ota(OTA_GAIN),
             Stages::Ssm2040 => ota(SSM_GAIN),
+            // Coupled stages: `Ladder::diode` solves them on its own.
+            Stages::Diode => ([1.0; 4], [1.0; 4]),
         }
     }
 
@@ -217,7 +232,9 @@ impl Ladder {
         if let Some(note) = t.follow(&mut self.note, cutoff) {
             self.retune(t, note);
         }
-        let y = if stages != Stages::Linear {
+        let y = if stages == Stages::Diode {
+            self.diode(x, k, drive, hp)
+        } else if stages != Stages::Linear {
             self.saturating(stages, x, k, drive, hp)
         } else {
             let (g, inv) = (self.big_g, self.inv);
@@ -281,6 +298,44 @@ impl Ladder {
         y4
     }
 
+    /// One sample of the diode ladder (#536). Node `i` is charged through
+    /// the diode pair from node `i − 1` and discharged into node `i + 1`:
+    /// `vᵢ = sᵢ + g·(cᵢ₋₁·(vᵢ₋₁ − vᵢ) − cᵢ·(vᵢ − vᵢ₊₁))`, the last node at
+    /// twice the rate (half the capacitor). Each pair's conductance `c` is
+    /// its saturator's gain at last sample's difference, so the system is
+    /// linear this sample: a tridiagonal solve from the top gives each node
+    /// as `pᵢ·vᵢ₋₁ + qᵢ`, the last as `A·u + B`, and the loop is solved for
+    /// `u` exactly. The input clips, and the loop at `DIODE_CLIP`.
+    fn diode(&mut self, x: f32, k: f32, drive: f32, hp: f32) -> f32 {
+        // Its whistle is at √2 times its stages' rate: prewarped there, so
+        // the knob names the whistle exactly, as on every ladder.
+        let g = self.g * std::f32::consts::FRAC_1_SQRT_2;
+        let [u0, o1, o2, o3, o4] = self.last;
+        let [c0, c1, c2, c3] =
+            [u0 - o1, o1 - o2, o2 - o3, o3 - o4].map(|v| g * sat_gain(v * DIODE_GAIN));
+        let [s1, s2, s3, s4] = self.s;
+        let d4 = 1.0 / (1.0 + 2.0 * c3);
+        let (p4, q4) = (2.0 * c3 * d4, s4 * d4);
+        let d3 = 1.0 / (1.0 + c2 + c3 - c3 * p4);
+        let (p3, q3) = (c2 * d3, (s3 + c3 * q4) * d3);
+        let d2 = 1.0 / (1.0 + c1 + c2 - c2 * p3);
+        let (p2, q2) = (c1 * d2, (s2 + c2 * q3) * d2);
+        let d1 = 1.0 / (1.0 + c0 + c1 - c1 * p2);
+        let (p1, q1) = (c0 * d1, (s1 + c1 * q2) * d1);
+        let big_a = p1 * p2 * p3 * p4;
+        let big_b = ((q1 * p2 + q2) * p3 + q3) * p4 + q4;
+        let k = k.clamp(0.0, MAX_K) * DIODE_K * (1.0 - hp);
+        let u = (saturate(x * drive) - k * (big_b - self.hp)) / (1.0 + k * big_a);
+        let u = DIODE_CLIP * saturate(u / DIODE_CLIP);
+        let y1 = p1 * u + q1;
+        let y2 = p2 * y1 + q2;
+        let y3 = p3 * y2 + q3;
+        let y4 = p4 * y3 + q4;
+        self.s = [2.0 * y1 - s1, 2.0 * y2 - s2, 2.0 * y3 - s3, 2.0 * y4 - s4];
+        self.last = [u, y1, y2, y3, y4];
+        y4 * (1.0 + DIODE_MAKEUP * k / (DIODE_K * ONSET_K))
+    }
+
     /// Filter one sample as `v` voices the ladder: `k` the feedback
     /// (0..=`MAX_K`) before the voicing scales it, `drive` the input gain
     /// before the voicing's. The Mono voice and the modular `ladder` share
@@ -333,12 +388,13 @@ mod tests {
 
     const SR: f32 = 48_000.0;
     /// Every stage type, for the tests every ladder must pass.
-    const STAGES: [Stages; 5] = [
+    const STAGES: [Stages; 6] = [
         Stages::Linear,
         Stages::Transistor,
         Stages::Ota,
         Stages::Cem3320,
         Stages::Ssm2040,
+        Stages::Diode,
     ];
 
     /// The filter's output for a sine at `hz`, after a second to settle.
@@ -479,7 +535,8 @@ mod tests {
     /// type has the linear ladder's response, 24 dB per octave.
     #[test]
     fn soft_input_matches_the_linear_ladder() {
-        for stages in STAGES {
+        // The diode ladder is another filter: `the_diode_ladder_is_gentler`.
+        for stages in STAGES.into_iter().filter(|s| *s != Stages::Diode) {
             for hz in [100.0, 1_000.0, 4_000.0, 8_000.0] {
                 let (want, got) = (gain(1_000.0, hz), gain_as(stages, 1_000.0, hz));
                 assert!(
@@ -774,7 +831,7 @@ mod tests {
     }
 
     /// Every 4-pole voicing, as the models play it.
-    fn voicings() -> [(&'static str, LadderVoicing); 12] {
+    fn voicings() -> [(&'static str, LadderVoicing); 13] {
         use crate::mono::model::*;
         [
             ("Moog", MOOG),
@@ -789,6 +846,7 @@ mod tests {
             ("PPG", PPG),
             ("D-50", D50),
             ("Odyssey Rev 2", ODYSSEY_REV2),
+            ("TB-303", TB303),
         ]
     }
 
@@ -876,6 +934,48 @@ mod tests {
         assert!(
             peak > 0.1 && (ratio - 1.0).abs() < 0.02,
             "and at 220 Hz: {peak} {ratio}"
+        );
+    }
+
+    /// The output at 50 Hz of a voiced ladder at 1 kHz, the knob at `r`.
+    fn bass(v: &LadderVoicing, r: f32) -> f64 {
+        let t = LadderTables::new(SR);
+        let mut f = Ladder::new();
+        let w = std::f64::consts::TAU * 50.0 / f64::from(SR);
+        let y: Vec<f32> = (0..2 * SR as usize)
+            .map(|i| {
+                let x = 0.05 * (w * i as f64).sin() as f32;
+                f.voiced(&t, v, x, hz_to_note(1_000.0), r * MAX_K, 1.0)
+            })
+            .skip(SR as usize)
+            .collect();
+        db(partial(&y, 50.0) / 0.05)
+    }
+
+    /// #536: the diode ladder starts to roll off far below its whistle and
+    /// falls less steeply above it than a buffered ladder, and resonance
+    /// takes some of its bass, less than the Moog's.
+    #[test]
+    fn the_diode_ladder_is_gentler() {
+        use crate::mono::model::{MOOG, TB303};
+        let diode = |hz| db(gain_as(Stages::Diode, 1_000.0, hz));
+        let moog = |hz| db(gain(1_000.0, hz));
+        assert!(
+            moog(250.0) > -1.5 && diode(250.0) < -6.0,
+            "two octaves down"
+        );
+        let (d, m) = (
+            diode(4_000.0) - diode(2_000.0),
+            moog(4_000.0) - moog(2_000.0),
+        );
+        assert!(d > m + 1.5, "an octave above: {d:.1} against {m:.1} dB");
+        let (lost, moog_lost) = (
+            bass(&TB303, 0.0) - bass(&TB303, 0.9),
+            bass(&MOOG, 0.0) - bass(&MOOG, 0.9),
+        );
+        assert!(
+            lost > 6.0 && lost < moog_lost,
+            "bass {lost:.1} dB, the Moog's {moog_lost:.1}"
         );
     }
 }

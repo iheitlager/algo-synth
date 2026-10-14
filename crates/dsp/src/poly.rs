@@ -16,6 +16,8 @@
 //! Everything is allocated up front (ADR-0002): the voices are an enum with no
 //! heap data, so a model change rebuilds one without allocating.
 
+use crate::chip::nes_voice::NesVoice;
+use crate::chip::sid_voice::SidVoice;
 use crate::drums::{ACCENT_VELOCITY, Pad, PadVoice};
 use crate::engine::{BLOCK, SYNTHS};
 use crate::fm::FmVoice;
@@ -60,6 +62,10 @@ pub enum PolyVoice {
     Pad(SampledPad),
     /// A Modular synth's voice: a graph of unit generators (ADR-0020).
     Graph(GraphVoice),
+    /// A SID chip (#112).
+    Sid(SidVoice),
+    /// A NES 2A03 (#112).
+    Nes(NesVoice),
 }
 
 impl PolyVoice {
@@ -76,6 +82,8 @@ impl PolyVoice {
             Engine::Sampler => PolyVoice::Sampler(SamplerVoice::new()),
             Engine::Pads => PolyVoice::Pad(SampledPad::default()),
             Engine::Graph => PolyVoice::Graph(GraphVoice::new(seed)),
+            Engine::Sid => PolyVoice::Sid(SidVoice::new()),
+            Engine::Nes => PolyVoice::Nes(NesVoice::new()),
         }
     }
 
@@ -90,6 +98,8 @@ impl PolyVoice {
                 | (PolyVoice::Sampler(_), Engine::Sampler)
                 | (PolyVoice::Pad(_), Engine::Pads)
                 | (PolyVoice::Graph(_), Engine::Graph)
+                | (PolyVoice::Sid(_), Engine::Sid)
+                | (PolyVoice::Nes(_), Engine::Nes)
         )
     }
 
@@ -103,6 +113,8 @@ impl PolyVoice {
             PolyVoice::Sampler(v) => v.active(),
             PolyVoice::Pad(v) => v.active(),
             PolyVoice::Graph(v) => v.active(),
+            PolyVoice::Sid(v) => v.active(),
+            PolyVoice::Nes(v) => v.active(),
         }
     }
 
@@ -118,6 +130,8 @@ impl PolyVoice {
             // A pad has no key to hold.
             PolyVoice::Pad(_) => false,
             PolyVoice::Graph(v) => v.gated(),
+            PolyVoice::Sid(v) => v.gated(),
+            PolyVoice::Nes(v) => v.gated(),
         }
     }
 
@@ -131,6 +145,8 @@ impl PolyVoice {
             PolyVoice::Sampler(v) => v.release_all(),
             PolyVoice::Pad(v) => v.release_all(),
             PolyVoice::Graph(v) => v.release_all(),
+            PolyVoice::Sid(v) => v.release_all(),
+            PolyVoice::Nes(v) => v.release_all(),
         }
     }
 
@@ -148,6 +164,8 @@ impl PolyVoice {
             PolyVoice::Sampler(v) => v.press(note, velocity),
             PolyVoice::Pad(v) => v.press(note, velocity, &p.pad_kit, p.level[0], p.sample_rate()),
             PolyVoice::Graph(v) => v.press(note, velocity, &p.graph, p.sample_rate(), slot),
+            PolyVoice::Sid(v) => v.press(note, velocity),
+            PolyVoice::Nes(v) => v.press(note, velocity),
         }
     }
 
@@ -160,6 +178,8 @@ impl PolyVoice {
             PolyVoice::Sampler(v) => v.release_all(),
             PolyVoice::Pad(v) => v.release(note),
             PolyVoice::Graph(v) => v.release_all(),
+            PolyVoice::Sid(v) => v.release_all(),
+            PolyVoice::Nes(v) => v.release_all(),
         }
     }
 
@@ -186,6 +206,14 @@ impl PolyVoice {
             // A pad is tuned by its own knob.
             PolyVoice::Pad(_) => {}
             PolyVoice::Graph(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
+            PolyVoice::Sid(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
+            PolyVoice::Nes(v) => {
                 v.trim = trim;
                 v.cutoff_trim = cutoff;
             }
@@ -320,6 +348,15 @@ impl Pool {
         self.sets.get(i)?.get(param)
     }
 
+    /// The voice slots the note numbered `clock` pressed: one, or its unison.
+    pub fn pressed(&self, clock: u64) -> impl Iterator<Item = usize> + '_ {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(move |(_, s)| s.owner.is_some() && s.age == clock)
+            .map(|(i, _)| i)
+    }
+
     /// Every voice goes back to the synth's value of `param`.
     pub fn clear_voices(&mut self, param: Param) {
         for s in self.sets.iter_mut() {
@@ -374,7 +411,9 @@ impl Pool {
             | PolyVoice::Drum(_)
             | PolyVoice::Sampler(_)
             | PolyVoice::Pad(_)
-            | PolyVoice::Graph(_) => None,
+            | PolyVoice::Graph(_)
+            | PolyVoice::Sid(_)
+            | PolyVoice::Nes(_) => None,
         }
     }
 
@@ -942,6 +981,8 @@ impl Pool {
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
                 PolyVoice::Graph(g) => g.render(&ctx, st, out, right.as_deref_mut()),
+                PolyVoice::Sid(v) => v.render(&ctx, out),
+                PolyVoice::Nes(v) => v.render(&ctx, tools.samples, out),
             }
         }
         // The reference tone joins past the voices and their VCA, key or not.
@@ -1024,7 +1065,7 @@ mod tests {
                     blep: &self.blep,
                     ladder: &self.ladder,
                     pitch: &self.pitch,
-                    tables: self.tables,
+                    tables: self.tables.into(),
                     samples: &self.samples,
                     zones: &self.zones,
                 };
@@ -1188,7 +1229,9 @@ mod tests {
                 | PolyVoice::Drum(_)
                 | PolyVoice::Sampler(_)
                 | PolyVoice::Pad(_)
-                | PolyVoice::Graph(_) => 0.0,
+                | PolyVoice::Graph(_)
+                | PolyVoice::Sid(_)
+                | PolyVoice::Nes(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -1216,6 +1259,8 @@ mod tests {
                 PolyVoice::Sampler(v) => v.trim,
                 PolyVoice::Pad(_) => 1.0,
                 PolyVoice::Graph(g) => g.trim,
+                PolyVoice::Sid(s) => s.trim,
+                PolyVoice::Nes(n) => n.trim,
             })
             .collect()
     }

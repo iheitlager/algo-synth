@@ -2,10 +2,10 @@
 
 An algorithmic synthesizer that runs entirely in the browser, with the whole engine in Rust compiled to wasm on the audio thread. Up to sixteen synths (monosynths, polysynths, drum machines and samplers) play through a mixer with groups and effects. A song written as text, with generators and an arranger, plays them from one transport; a MIDI file opens as a song.
 
-## Version: 0.41.0
+## Version: 0.43.0
 
 - **Mono:** one shared voice: three band-limited VCOs, ring mod and sub, noise, a 4-pole ladder or a 12 dB high-pass/low-pass pair, ADSR, filter ADSR and AR, LFO, normalled routing with patch overrides, poly-mod.
-- **Up to 16 synths, nineteen models:** add synths as you need them. Seven are monosynths: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101 and Odyssey, each with its own faceplate (knobs, envelope curves, patch bay), colours and presets. A MIDI file plays each part on its own synth.
+- **Up to 16 synths, twenty-one models:** add synths as you need them. Eight are monosynths: ARP 2600, Minimoog, Pro-One, MS-20, CS-15, SH-101, Odyssey and TB-303, each with its own faceplate (knobs, envelope curves, patch bay), colours and presets. A MIDI file plays each part on its own synth.
 - **Polyphony:** each synth owns a pool of up to 16 voices (a global budget of 64) with unison, analog drift and a stereo chorus. Eight polyphonic models join the family: Prophet-5, Juno-106, Jupiter-8, Matrix-12 (with its modulation matrix), PPG Wave (wavetables), Roland D-50 (LA synthesis), Yamaha DX7 (six-operator FM, loads `.syx` voices and banks) and the Polymoog, each with presets and its own faceplate.
 - **Drums:** a synth slot can be a TR-808 or a TR-909, the same pads with each machine's sounds, so a beat plays on either. The TR-808: its sixteen voices (kick, snare, three toms and three congas, rimshot, claves, clap, maracas, cowbell, cymbal, closed and open hats), synthesized, with tune, decay, tone and level per pad and an accent. Keys play the pads by General MIDI's drum map, so a MIDI file's drum channel plays on it.
 - **Samplers:** a multisampler that maps WAV samples across keys and velocities, with loops and round robin, and a pad sampler of sixteen MPC-style pads. `make samples` fetches free packs, kits and a voice pack.
@@ -69,7 +69,7 @@ Its nearest relatives are TidalCycles with SuperDirt (patterns playing SuperColl
 - **Code synths beside modelled instruments.** A SynthDef can borrow a modelled instrument's filter (`voicing: \ms20`) and play in the same song as a Prophet-5 voiced down to its oscillators, envelopes and VCA.
 - **Generators read the song.** `root(chords)`, `arp(chords, …)` and `markov(2, riff, 7)` take other clips as their input, so one progression can drive the pad, the bass and the arps.
 
-Every keyword, with examples, is in [.openspec/language.md](.openspec/language.md).
+Every keyword, with examples, is in [.openspec/language.md](.openspec/language.md) (composing) and [.openspec/sound-design.md](.openspec/sound-design.md) (sound design).
 
 ## Quick start
 
@@ -120,6 +120,7 @@ Containerfile   wasm and server → web → one image
 ## Documentation
 
 - [The song language](.openspec/language.md): every keyword of the composer's song text, its meaning, limits and errors, with examples
+- [Sound design](.openspec/sound-design.md): the song language's settings, Modular code, samples, user tables and mix
 - [Vision](.openspec/vision.md) · [Plan](.openspec/plan.md) · [ADRs](.openspec/adr/index.md) · [Specs](.openspec/README.md#specifications)
 
 ## Licence

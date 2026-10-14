@@ -1,0 +1,105 @@
+# Velvet Loop: Chicago deep house in G minor, after the hypnotic records of
+# 1989, French Kiss above all. One riff never stops: G, D and B-flat going
+# round in threes over a bar of four, so its accent lands a step earlier each
+# bar and only comes home every third. The chords turn every four bars, so
+# riff and harmony meet the same way only every twelve: the three notes are
+# the minor's own over Gm9, third, fifth and seventh over Ebmaj7, fifth,
+# seventh and ninth over Cm9. A DX7 cell in fives joins later, the 808's
+# shaker loops in threes, its cowbell in sevens and its congas in twelves
+# and tens. Then the drag: the record seems to slow down, the beat halving
+# and halving again with the riff, and winds back up into the peak.
+tempo 120
+swing 54
+scale g minor
+
+track kit drums Tr909 Kit909
+track perc drums Tr808 Kit808
+track bass synth Sh101 Sh101Bass
+track pad synth Jupiter8 JupiterPad
+track riff synth Juno106 JunoPluck
+track five synth Dx7 FmMarimba
+track strings synth Jupiter8 JupiterStrings
+
+strip kit: Level 1
+strip perc: Level 0.5, Pan -0.1, Send2 0.15
+strip bass: Level 0.55
+strip pad: Level 0.2, Send2 0.4, Send3 0.5
+strip riff: Level 0.55, Pan 0.1, Send1 0.35, Send2 0.2, Send3 0.25
+strip five: Level 0.3, Pan -0.25, Send1 0.4, Send2 0.3
+strip strings: Level 0.25, Send2 0.5
+master: MasterGain 0.8, P1Return 0.35, P1A 0.55, P1B 0.45, P1D 1, P2Return 0.3, P2A 0.8, P3Type Chorus, P3Return 0.5, P3A 0.2, P3B 0.6, P3D 1, P3E 0.5
+
+# 909: four on the floor, the hats around the open one on the off-beat.
+clip beat = kit /16
+  bd x...x...x...x...
+clip hats = kit /16
+  ch xx.xxx.xxx.xxx.X
+  oh ..x...x...x...x.
+clip clap = kit /16
+  cp ....x.......x...
+clip ride = kit /16
+  rd x.x.x.x.x.x.x.x.
+
+# 808: polymeter, each lane its own length.
+clip shaker = perc /16
+  ma X.x
+clip bell = perc /16
+  cb x......
+clip congas = perc /16
+  hc euclid(5,12,0)
+  lc x.....x...
+
+# The drag: the beat at half time, then at a quarter, then winding back up
+# over four bars from halves through quarters and eighths to sixteenths.
+clip drag = kit /16
+  bd x.......x.......
+  cp ........x.......
+  oh ....x.......x...
+clip crawl = kit /16
+  bd x...............
+  oh ........x.......
+clip windup = kit /16
+  bd x.......x.......x...x...x...x...x...x...x...x...x...x...x...x...
+  sn ................x...x...x...x...x.x.x.x.x.x.x.x.xxxxxxxxxxxxXXXX
+
+# The progression, one chord a bar for two, four bars round.
+clip chords = pad voicing
+  "<g2:m9 g2:m9 eb2:maj7 c2:m9>"
+clip swell = strings voicing
+  "<g2:m9 g2:m9 eb2:maj7 c2:m9>"
+# The roots in 3-3-2, eighths against the kick.
+clip low = bass .struct("x ~ ~ x ~ ~ x ~")
+  root(chords,1)
+
+# The riff: a cell of three sixteenths, written out over the three bars it
+# takes to come round; at half and a quarter speed for the drag.
+clip riff = riff
+  "<[g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4] [d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5!] [bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4]>"
+clip riff_half = riff .slow(2)
+  "<[g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4] [d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5!] [bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4]>"
+clip riff_quarter = riff .slow(4)
+  "<[g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4] [d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5!] [bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4 g4 d5! bb4]>"
+# Five against four: a cell of five sixteenths, home every fifth bar.
+clip fives = five
+  "<[d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6] [~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~] [bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5] [a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5] [~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~ d6 ~ bb5 a5 ~]>"
+
+auto riff_dark = riff.Cutoff 900 /8
+auto riff_open = riff.Cutoff ramp 900 3200 /16
+auto riff_bright = riff.Cutoff 3200 /8
+auto riff_close = riff.Cutoff ramp 3200 900 /8
+auto pad_rise = pad.Cutoff ramp 500 2400 /16
+auto bass_low = bass.Cutoff 600 /8
+
+snapshot dry: master.P1Return 0.35, master.P2Return 0.3
+snapshot wet: master.P1Return 0.6, master.P2Return 0.6
+
+scene intro 8: beat shaker riff riff_dark [dry]
+scene groove 16: beat hats clap shaker chords low riff riff_open pad_rise bass_low
+scene deep 16: beat hats clap shaker bell congas chords low riff fives riff_bright bass_low
+scene drag 4: drag shaker chords riff_half riff_bright
+scene crawl 4: crawl swell riff_quarter riff_bright [wet]
+scene windup 4: windup chords riff riff_bright [dry]
+scene peak 16: beat hats clap ride shaker bell congas chords swell low riff fives riff_bright bass_low
+scene outro 8: beat hats shaker riff riff_close
+arrange intro groove deep drag crawl windup peak outro
+loop 53 68

@@ -921,8 +921,10 @@ describe('samples lines (#214)', () => {
     const load = msgs.find((m) => m.t === 'sample') as unknown as { slot: number }
     expect(load).toBeTruthy()
     send(loaded(load.slot))
-    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'zone'); i++) { await tick(); msgs = msgs.concat(take()) }
-    expect(msgs.some((m) => m.t === 'zone' && m.s === 3)).toBe(true)
+    const laid = (m: Msg) => m.t === 'zoneSets' && m.s === 3 && (m.sets as number[]).length > 0
+    for (let i = 0; i < 10 && !msgs.some(laid); i++) { await tick(); msgs = msgs.concat(take()) }
+    expect(msgs.some(laid), 'a pack`s zones in one go, not a hand`s change (#522)').toBe(true)
+    expect(msgs.some((m) => m.t === 'sampleSource' && new TextDecoder().decode(m.bytes as ArrayBuffer) === 'sweep-pad/c4')).toBe(true)
     expect(msgs.some((m) => m.t === 'samples'), 'from the song: not written back').toBe(false)
     expect(mod.song.samples).toEqual([{ synth: 3, id: 'sweep-pad' }])
     send(song)
@@ -949,6 +951,83 @@ describe('samples lines (#214)', () => {
     send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('nope') }] })
     for (let i = 0; i < 10 && !mod.sampleStore.error; i++) await tick()
     expect(mod.sampleStore.error).toBe('samples: no pack or kit is called nope')
+  })
+})
+
+describe('zone lines (#522)', () => {
+  const zone = { sample: 'instruments/pad/c4.wav', keyLo: 0, keyHi: 127, velLo: 1, velHi: 127, root: 60, tune: 0, loop: 0, seqLen: 1, seqPos: 1, release: false }
+  const manifest = { version: 1, instruments: [{ id: 'sweep-pad', name: 'Sweep pad', zones: [zone] }], kits: [] }
+  const fetchAll = async (url: string) => url.endsWith('manifest.json')
+    ? new Response(JSON.stringify(manifest))
+    : new Response(new ArrayBuffer(8))
+  const keys = { name: enc('keys'), synth: 3, kind: 2 }
+  const tick = () => new Promise((r) => setTimeout(r))
+  const loaded = (slot: number) => ({ t: 'sample', slot, code: 100, frames: 100, root: 60, loopStart: 0, loopEnd: 100, peaks: new Float32Array(4), used: 200, cap: 1000 })
+  // Fields by `ZoneField` id: sample -1, keys 0-59, velocity 1-127, root c3, the rest at their defaults.
+  const values = [-1, 0, 59, 1, 127, 48, 0, 1, 0, 0, 0, 1, 1, 0]
+  const line = (source: string, held = false) => ({ synth: 3, at: 2, source: enc(source), values: new Float32Array(values), held })
+  const song = (...zones: ReturnType<typeof line>[]) => ({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], zones })
+  const decode = (m: Msg) => new TextDecoder().decode(m.bytes as ArrayBuffer)
+
+  it('a song`s zone line loads its source, names it, and lays the zone out in one go, once', async () => {
+    const { send, take } = await boot({ fetch: fetchAll })
+    take()
+    send(song(line('sweep-pad/c4')))
+    let msgs: Msg[] = []
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const slot = (msgs.find((m) => m.t === 'sample') as unknown as { slot: number }).slot
+    send(loaded(slot))
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'zoneSets'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const source = msgs.find((m) => m.t === 'sampleSource')
+    expect([source?.slot, source && decode(source)]).toEqual([slot, 'sweep-pad/c4'])
+    const sets = (msgs.find((m) => m.t === 'zoneSets') as unknown as { s: number; sets: number[] })
+    expect(sets.s).toBe(3)
+    expect(sets.sets.slice(0, 9)).toEqual([2, 0, slot, 2, 1, 0, 2, 2, 59])
+    expect(sets.sets.length).toBe(3 * 14)
+    // The same song again, or one the synth holds: nothing to load.
+    send(song(line('sweep-pad/c4')))
+    send(song(line('sweep-pad/c4', true)))
+    await tick()
+    expect(take().some((m) => m.t === 'sample' || m.t === 'zoneSets')).toBe(false)
+  })
+
+  it('a dropped file the browser did not keep says so; its zone stays out', async () => {
+    const { mod, send, take } = await boot({ fetch: fetchAll })
+    take()
+    send(song(line('@0123456789abcdef0123456789abcdef')))
+    for (let i = 0; i < 10 && !mod.sampleStore.error; i++) await tick()
+    expect(mod.sampleStore.error).toBe('zones are silent: @0123456789abcdef0123456789abcdef: the file is not kept in this browser')
+    const sets = take().find((m) => m.t === 'zoneSets') as unknown as { sets: number[] }
+    expect(sets.sets).toEqual([])
+  })
+
+  it('a song`s pad line lays its pad out in one go (#527)', async () => {
+    const { send, take } = await boot({ fetch: fetchAll })
+    take()
+    // Fields by `PadField` id: sample -1, tune -2, level 0.8, pan 0, decay 0, choke 1, the rest at their defaults.
+    const pad = { synth: 3, at: 4, source: enc('sweep-pad/c4'), values: new Float32Array([-1, -2, 0.8, 0, 0, 1, 1, 0, 1, 0]), held: false }
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], pads: [pad] })
+    let msgs: Msg[] = []
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'sample'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const slot = (msgs.find((m) => m.t === 'sample') as unknown as { slot: number }).slot
+    send(loaded(slot))
+    for (let i = 0; i < 10 && !msgs.some((m) => m.t === 'padSets'); i++) { await tick(); msgs = msgs.concat(take()) }
+    const sets = msgs.find((m) => m.t === 'padSets') as unknown as { s: number; sets: number[] }
+    expect(sets.s).toBe(3)
+    expect(sets.sets.slice(0, 6)).toEqual([4, 0, slot, 4, 1, -2])
+    expect(sets.sets.length).toBe(3 * 10)
+  })
+
+  it('a dropped WAV is named by its hash once it loads', async () => {
+    const { mod, send, take } = await boot()
+    take()
+    const done = mod.loadDroppedSample(4, new Uint8Array([1, 2, 3]).buffer, 'mine.wav')
+    for (let i = 0; i < 10 && !take().some((m) => m.t === 'sample'); i++) await tick()
+    send(loaded(4))
+    await done
+    const named = take().find((m) => m.t === 'sampleSource')
+    expect(named?.slot).toBe(4)
+    expect(named && decode(named)).toMatch(/^@[0-9a-f]{32}$/)
   })
 })
 

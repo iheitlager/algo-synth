@@ -41,11 +41,17 @@ pub enum Model {
     Tr909 = 18,
     /// A voice written in the song as a graph of unit generators (ADR-0020).
     Modular = 19,
+    /// The TB-303 (#536): a diode ladder, accent and slide.
+    Tb303 = 20,
+    /// The MOS 6581/8580 SID chip (#112): one chip per note.
+    Sid = 21,
+    /// The NES's Ricoh 2A03 (#112): one chip per note, or a drum kit.
+    Nes = 22,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 20] = [
+    pub const ALL: [(Model, &'static str); 23] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -66,6 +72,9 @@ impl Model {
         (Model::PadSampler, "PadSampler"),
         (Model::Tr909, "Tr909"),
         (Model::Modular, "Modular"),
+        (Model::Tb303, "Tb303"),
+        (Model::Sid, "Sid"),
+        (Model::Nes, "Nes"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -146,6 +155,13 @@ pub enum Stages {
     /// range than the IR3109's, the feedback summed into the input as the
     /// external op-amp does.
     Ssm2040,
+    /// The TB-303's diode ladder (#536): four stages coupled through diode
+    /// pairs, each loaded by the next, the last capacitor half the others
+    /// (Zavalishin, *The Art of VA Filter Design*, the diode ladder;
+    /// Stinchcombe's TB-303 study). It rolls off gently near the cutoff,
+    /// takes far more feedback to whistle (about 17 against 4) and so loses
+    /// more of the bass to resonance. The diodes, not the input, clip.
+    Diode,
 }
 
 /// How a 12 dB state-variable filter is voiced.
@@ -210,6 +226,16 @@ pub const SH101: LadderVoicing = LadderVoicing {
     // Estimates (#342): where it starts to whistle on the knob, and a loop high-pass near 10 Hz.
     onset: 0.9,
     loop_hp: 3.5,
+};
+/// The TB-303's diode ladder (#536): soft and round with the knob down,
+/// whistling only at the very top, the bass thinning as it rises.
+pub const TB303: LadderVoicing = LadderVoicing {
+    drive: 0.8,
+    comp: 0.4,
+    k_scale: 0.98,
+    stages: Stages::Diode,
+    onset: 0.95,
+    loop_hp: 0.0,
 };
 /// The Juno-106's 80017A: the IR3109's die trimmed a little hotter, with
 /// more of the bass kept and a stronger whistle.
@@ -645,6 +671,16 @@ impl Model {
         self.def().engine == Engine::La
     }
 
+    /// Whether the voice is the SID chip's (#112).
+    pub fn uses_sid(self) -> bool {
+        self.def().engine == Engine::Sid
+    }
+
+    /// Whether the voice is the NES's 2A03 (#112).
+    pub fn uses_nes(self) -> bool {
+        self.def().engine == Engine::Nes
+    }
+
     /// Whether the voice is a graph of unit generators (ADR-0020).
     pub fn uses_graph(self) -> bool {
         self.def().engine == Engine::Graph
@@ -725,6 +761,11 @@ impl Model {
     pub fn cutoff_follows_filter_env(self) -> bool {
         self.def().cutoff_follows_filter_env
     }
+
+    /// Whether an accented note charges the TB-303's sweep circuit (#536).
+    pub fn accent_sweep(self) -> bool {
+        self.def().accent_sweep
+    }
 }
 
 #[cfg(test)]
@@ -754,7 +795,8 @@ mod tests {
                 | Model::Ms20
                 | Model::Cs15
                 | Model::Odyssey
-                | Model::Jupiter8 => DISCRETE_VCO,
+                | Model::Jupiter8
+                | Model::Tb303 => DISCRETE_VCO,
                 Model::Sh101 | Model::ProOne | Model::Prophet5 | Model::Matrix12 => CEM_VCO,
                 Model::Juno106 | Model::PpgWave | Model::PolyMoog => LOCKED,
                 _ => IDEAL_VCO,

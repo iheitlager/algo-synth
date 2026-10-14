@@ -149,6 +149,27 @@ export function zoneSets(pack: Pack, slotOf: (file: string) => number | undefine
   return sets
 }
 
+/** The roots from `lo` up to `hi` every `step` semitones, at most `ZONES` of them (#520). */
+export function rootsBetween(lo: number, hi: number, step: number): number[] {
+  const roots: number[] = []
+  for (let r = lo; r <= hi && step >= 1 && roots.length < ZONES; r += step) roots.push(r)
+  return roots
+}
+
+/**
+ * A multisample as a pack (#520): one sample a root, named `${name} ${key}`, its
+ * zone reaching halfway to each neighbouring root and the outer ones to the ends.
+ */
+export function splitZones(name: string, roots: readonly number[]): Pack {
+  const zones = roots.map((root, i): PackZone => ({
+    sample: `${name} ${keyName(root)}`,
+    keyLo: i === 0 ? 0 : Math.floor((roots[i - 1] + root) / 2) + 1,
+    keyHi: i === roots.length - 1 ? 127 : Math.floor((root + roots[i + 1]) / 2),
+    velLo: 1, velHi: 127, root, tune: 0, loop: 0, seqLen: 1, seqPos: 1, release: false,
+  }))
+  return { id: '', name, license: '', credit: '', zones }
+}
+
 // --- Drawing -----------------------------------------------------------------
 
 /** The rectangle of a zone in a `w` x `h` map with the key across and the velocity up. */
@@ -273,4 +294,25 @@ export function padSets(kit: Kit, slotOf: (file: string) => number | undefined):
       [p.pad, PadField.VelLevel, p.velLevel], [p.pad, PadField.VelStart, p.velStart], [p.pad, PadField.OneShot, Number(p.oneShot)],
     ] as [number, number, number][]
   })
+}
+
+/**
+ * The manifest file a recipe's source names (ADR-0033): `upright-piano-kw/C4vH`
+ * is the sample `C4vH.wav` of pack (or kit) `upright-piano-kw`. Null when no
+ * pack or kit has it; an `@hash` source is not a manifest file either.
+ */
+export function sourceFile(source: string, packs: readonly Pack[], kits: readonly Kit[]): string | null {
+  const [id, stem, extra] = source.split('/')
+  if (!id || !stem || extra !== undefined || source.startsWith('@')) return null
+  const files = [
+    ...(packs.find((p) => p.id === id)?.zones.map((z) => z.sample) ?? []),
+    ...(kits.find((k) => k.id === id)?.pads.map((p) => p.sample) ?? []),
+  ]
+  return files.find((f) => f.endsWith(`/${stem}.wav`)) ?? null
+}
+
+/** Every sample a pack or kit has, as `<id>/<stem>` recipe sources. */
+export function sourcesOf(packs: readonly Pack[], kits: readonly Kit[]): string[] {
+  const of = (id: string, files: string[]) => files.map((f) => `${id}/${f.split('/').pop()?.replace(/\.wav$/, '')}`)
+  return [...packs.flatMap((p) => of(p.id, p.zones.map((z) => z.sample))), ...kits.flatMap((k) => of(k.id, k.pads.map((p) => p.sample)))]
 }

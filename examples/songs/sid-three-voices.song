@@ -1,0 +1,90 @@
+# SID Three Voices (#112): one chip, three voices, shown two ways.
+#
+# A SID has three oscillators, each with its own waveform, pulse width,
+# envelope and filter routing, wired to each other: voice 1 syncs to and is
+# ring-modulated by voice 3, voice 2 by voice 1, voice 3 by voice 2.
+#
+# First inside one chip. The trio plays the tune on every note with all
+# three: the snapshots bring them in one at a time (voice 1 a swept pulse
+# through the filter, voice 2 a saw a fifth up, voice 3 a triangle an octave
+# down), then hard-sync voice 2 to voice 1 while its pitch climbs (the sync
+# sweep), then ring-modulate voice 1's triangle by voice 3, which plays
+# muted (3 off), only a modulator: a bell, its fader up as it plays alone.
+#
+# Then as a C64 tune is scored: the three voices are three parts, bass, lead
+# and a chord arpeggio stepped every frame, and nothing else.
+#
+# 125 BPM is six PAL frames a sixteenth. The drums under the first half are
+# the chip's parts in Modular, outside the three.
+tempo 125
+
+setting trio = Sid SidLead: Polyphony 1, Sid1Wave 4, Sid1Pw 1024, Sid1PwSweep 20, Sid1Attack 0, Sid1Decay 9, Sid1Sustain 10, Sid1Release 8, Sid1Filter 1, Sid2Wave 0, Sid2Coarse 7, Sid2Attack 1, Sid2Decay 9, Sid2Sustain 9, Sid2Release 8, Sid3Wave 0, Sid3Coarse -12, Sid3Attack 2, Sid3Decay 9, Sid3Sustain 11, Sid3Release 8, SidCutoff 1100, SidResonance 9, SidVibrato 0.2, SidVibratoDelay 20
+setting bass = Sid SidBass: Sid2Wave 0, Sid1Pw 1400, Sid1PwSweep 24, SidCutoff 1300, SidResonance 10, SidCutoffSweep -16
+setting lead = Sid SidLead: Sid1Wave 2, Sid1Filter 0, SidVibrato 0.25, SidVibratoDelay 15
+setting arp_min = Sid SidArp: Polyphony 1, SidArp 2, Sid1Pw 800, Sid1PwSweep 24, Sid1Sustain 9
+setting arp_maj = Sid SidArp: Polyphony 1, SidArp 1, Sid1Pw 800, Sid1PwSweep 24, Sid1Sustain 9
+
+setting kick = Modular ModularSid
+  SynthDef(\kick, { |freq = 50, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.2), gate);
+      SidOsc.ar(freq * EnvGen.kr(Env([8, 1], [0.06], [-4]), gate), 1) * env
+  }).add;
+
+setting hat = Modular ModularSid
+  SynthDef(\hat, { |freq = 3600, gate = 1|
+      SidFilter.ar(SidOsc.ar(freq, 8), 600, 0, 4, 1) * EnvGen.kr(Env.perc(0.001, 0.04), gate)
+  }).add;
+
+track trio synth trio
+track bass synth bass
+track lead synth lead
+track arp_min synth arp_min
+track arp_maj synth arp_maj
+track kick synth kick
+track hat synth hat
+
+strip trio: Level 0.7, Send1 0.15
+strip bass: Level 0.75
+strip lead: Level 0.65, Send1 0.15
+strip arp_min: Level 0.5, Pan 0.3
+strip arp_maj: Level 0.5, Pan 0.3
+strip kick: Level 0.8
+strip hat: Level 0.45, Pan -0.2
+master: MasterGain 0.8, P1Return 0.2, P1A 0.55, P1B 0.3
+
+# C minor: Cm Ab Bb G.
+clip tune = trio
+  c5:4 eb5:8 g5:8 c6:4 bb5:8 g5:8 ab5:4. g5:8 f5:8 eb5:8 c5:4 d5:8 f5:8 bb5:4 ab5:8 g5:8 f5:8 d5:8 g5:2 b4:4 d5:4
+clip tune_low = trio
+  c4:4 eb4:8 g4:8 c5:4 bb4:8 g4:8 ab4:4. g4:8 f4:8 eb4:8 c4:4 d4:8 f4:8 bb4:4 ab4:8 g4:8 f4:8 d4:8 g4:2 b3:4 d4:4
+
+clip bass_line = bass
+  "<[c2 c3 c2 c3 c2 c3 bb1 c3] [ab1 ab2 ab1 ab2 ab1 ab2 g1 ab2] [bb1 bb2 bb1 bb2 bb1 bb2 ab1 bb2] [g1 g2 g1 g2 g1 g2 b1 d2]>"
+clip lead_line = lead
+  c5:4 eb5:8 g5:8 c6:4 bb5:8 g5:8 ab5:4. g5:8 f5:8 eb5:8 c5:4 d5:8 f5:8 bb5:4 ab5:8 g5:8 f5:8 d5:8 g5:2 b4:4 d5:4
+clip chords_min = arp_min
+  "<c4 ~ ~ ~>"
+clip chords_maj = arp_maj
+  "<~ ab3 bb3 g3>"
+
+clip kicks = kick
+  "c2 ~ ~ ~ c2 ~ ~ ~ c2 ~ ~ ~ c2 ~ c2 ~"
+clip hats = hat
+  "~ c7 ~ c7"
+
+# The trio's voices, one at a time, then sync and ring.
+snapshot one: trio.Sid2Wave 0, trio.Sid3Wave 0, trio.Level 0.7
+snapshot two: trio.Sid2Wave 2, trio.Sid3Wave 0
+snapshot three: trio.Sid2Wave 2, trio.Sid3Wave 1
+snapshot sync: trio.Sid1Wave 4, trio.Sid2Wave 2, trio.Sid2Sync 1, trio.Sid3Wave 1
+snapshot ring: trio.Sid1Wave 1, trio.Sid1Ring 1, trio.Sid1Filter 0, trio.Sid2Wave 0, trio.Sid2Sync 0, trio.Sid2Coarse 7, trio.Sid3Wave 1, trio.Sid3Coarse 6, trio.SidVoice3Off 1, trio.Level 1
+# Voice 2 synced to voice 1 climbs from an octave to two and a fifth above it.
+auto sweep = trio.Sid2Coarse ramp 12 31 /4
+
+scene voice1 4: tune kicks hats [one]
+scene voice2 4: tune kicks hats [two]
+scene voice3 4: tune kicks hats [three]
+scene sync 4: tune kicks hats sweep [sync]
+scene ring 4: tune_low kicks hats [ring]
+scene chip 8: bass_line lead_line chords_min chords_maj
+arrange voice1 voice2 voice3 sync ring chip

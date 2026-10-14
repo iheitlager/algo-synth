@@ -1,4 +1,4 @@
-//! The Mono voice (spec 004): one shared voice, seven models (spec 005).
+//! The Mono voice (spec 004): one shared voice, eight models (spec 005).
 //!
 //! `osc` holds the VCOs, `noise` the noise source, `ladder` the filter,
 //! `env` the ADSR and AR, `lfo` the LFO and sample-and-hold, `voice` one
@@ -17,6 +17,8 @@ pub mod preset;
 pub mod svf;
 pub mod voice;
 
+use crate::chip::nes_voice::NesPatch;
+use crate::chip::sid_voice::SidPatch;
 use crate::drums::{PADS, Pad, PadOut, PadParams};
 use crate::fm::patch::FmPatch;
 use crate::padsampler::PadKit;
@@ -31,6 +33,9 @@ use voice::NotePriority;
 
 /// Number of VCOs per Mono voice.
 pub const VCOS: usize = 3;
+/// The time constant of the TB-303's accent sweep, in seconds (#536): the
+/// capacitor that its accents charge, so a run of them stacks up.
+const ACCENT_SWEEP: f32 = 0.1;
 
 /// The Mono parameters, with what `render` needs precomputed.
 #[derive(Clone, Copy)]
@@ -59,6 +64,8 @@ pub struct MonoParams {
     pub wt_table: [usize; 2],
     pub wt_pos: [f32; 2],
     pub wt_steps: bool,
+    /// Waves on the PPG's 8-bit grid (`Param::Character`, #254).
+    pub wt_8bit: bool,
     pub env_wt: f32,
     pub lfo_wt: f32,
     /// The D-50's partials (spec 006 Req 12): each one's PCM attack (0 is synthesised), how
@@ -73,6 +80,10 @@ pub struct MonoParams {
     pub p2_adsr: EnvTimes,
     /// The DX7 voice (spec 006 Req 13).
     pub fm: FmPatch,
+    /// The SID's registers and player settings (#112).
+    pub sid: SidPatch,
+    /// The NES's registers and driver settings (#112).
+    pub nes: NesPatch,
     /// The drum kit's pads and its accent (`Model::Tr808`).
     pub drums: [PadParams; PADS],
     pub drum_accent: f32,
@@ -131,6 +142,10 @@ pub struct MonoParams {
     pitch_bend: f32,
     bend_range: f32,
     pub bend: f32,
+    /// The TB-303's accent (0..1), and its sweep circuit's one-pole
+    /// coefficient per sample (#536).
+    pub accent: f32,
+    pub accent_coef: f32,
     /// A Modular synth's voice (ADR-0020): a preset's or the song's; each
     /// note takes a copy when it starts.
     pub graph: crate::modular::Program,
@@ -219,6 +234,7 @@ impl MonoParams {
             wt_table: [0; 2],
             wt_pos: [0.0; 2],
             wt_steps: false,
+            wt_8bit: false,
             env_wt: 0.0,
             lfo_wt: 0.0,
             pcm: [0; 2],
@@ -229,6 +245,8 @@ impl MonoParams {
             p2_fadsr: off,
             p2_adsr: off,
             fm: FmPatch::default(),
+            sid: SidPatch::default(),
+            nes: NesPatch::default(),
             drums: [PadParams::default(); PADS],
             drum_accent: 0.5,
             pad_outs: [PadOut::default(); PADS],
@@ -283,6 +301,8 @@ impl MonoParams {
             pitch_bend: 0.0,
             bend_range: 2.0,
             bend: 0.0,
+            accent: 0.5,
+            accent_coef: 1.0 - (-1.0 / (ACCENT_SWEEP * sample_rate)).exp(),
         };
         for (param, v) in preset::DEFAULTS {
             p.set(param, param.clamp(v));
@@ -468,6 +488,7 @@ impl MonoParams {
                 self.bend_range = v;
                 self.bend = self.pitch_bend * v;
             }
+            Param::Accent => self.accent = v,
             // The mixer's (`mixer::Mixer`), not the voice's.
             Param::Level
             | Param::Pan
@@ -571,6 +592,109 @@ impl MonoParams {
             Param::EnvRev => self.env_rev = v.round().clamp(1.0, 3.0) as u8,
             // The engine sets the switches it stands for (#343).
             Param::Revision => {}
+            Param::NesP1On
+            | Param::NesP1Duty
+            | Param::NesP1Volume
+            | Param::NesP1Decay
+            | Param::NesP1Loop
+            | Param::NesP1Coarse
+            | Param::NesP1Fine
+            | Param::NesP1Sweep
+            | Param::NesP1SweepPeriod
+            | Param::NesP2On
+            | Param::NesP2Duty
+            | Param::NesP2Volume
+            | Param::NesP2Decay
+            | Param::NesP2Loop
+            | Param::NesP2Coarse
+            | Param::NesP2Fine
+            | Param::NesP2Sweep
+            | Param::NesP2SweepPeriod
+            | Param::NesTriOn
+            | Param::NesTriCoarse
+            | Param::NesTriFine
+            | Param::NesTriLength
+            | Param::NesNoiseOn
+            | Param::NesNoiseVolume
+            | Param::NesNoiseDecay
+            | Param::NesNoiseLoop
+            | Param::NesNoisePeriod
+            | Param::NesNoiseShort
+            | Param::NesNoiseTrack
+            | Param::NesDmcSample
+            | Param::NesDmcRate
+            | Param::NesDmcLoop
+            | Param::NesDmcLevel
+            | Param::NesDmcDirect
+            | Param::NesRegion
+            | Param::NesOutput
+            | Param::NesBandLimit
+            | Param::NesArp
+            | Param::NesArpSpeed
+            | Param::NesVibrato
+            | Param::NesVibratoRate
+            | Param::NesVibratoDelay
+            | Param::NesKit => {
+                if let Some(i) = param.nes() {
+                    self.nes.set(i, v);
+                }
+            }
+            Param::Sid1Wave
+            | Param::Sid1Pw
+            | Param::Sid1Coarse
+            | Param::Sid1Fine
+            | Param::Sid1Ring
+            | Param::Sid1Sync
+            | Param::Sid1Attack
+            | Param::Sid1Decay
+            | Param::Sid1Sustain
+            | Param::Sid1Release
+            | Param::Sid1Filter
+            | Param::Sid1PwSweep
+            | Param::Sid2Wave
+            | Param::Sid2Pw
+            | Param::Sid2Coarse
+            | Param::Sid2Fine
+            | Param::Sid2Ring
+            | Param::Sid2Sync
+            | Param::Sid2Attack
+            | Param::Sid2Decay
+            | Param::Sid2Sustain
+            | Param::Sid2Release
+            | Param::Sid2Filter
+            | Param::Sid2PwSweep
+            | Param::Sid3Wave
+            | Param::Sid3Pw
+            | Param::Sid3Coarse
+            | Param::Sid3Fine
+            | Param::Sid3Ring
+            | Param::Sid3Sync
+            | Param::Sid3Attack
+            | Param::Sid3Decay
+            | Param::Sid3Sustain
+            | Param::Sid3Release
+            | Param::Sid3Filter
+            | Param::Sid3PwSweep
+            | Param::SidChip
+            | Param::SidClock
+            | Param::SidCutoff
+            | Param::SidResonance
+            | Param::SidFilterMode
+            | Param::SidVolume
+            | Param::SidVoice3Off
+            | Param::SidBandLimit
+            | Param::SidCutoffSweep
+            | Param::SidArp
+            | Param::SidArpSpeed
+            | Param::SidHardRestart
+            | Param::SidFilterBias
+            | Param::SidVibrato
+            | Param::SidVibratoRate
+            | Param::SidVibratoDelay => {
+                if let Some(i) = param.sid() {
+                    self.sid.set(i, v);
+                }
+            }
             Param::Patch9Source => self.patch.set_source(8, v),
             Param::Patch9Dest => self.patch.set_dest(8, v),
             Param::Patch9Amount => self.patch.set_amount(8, v),
@@ -612,6 +736,7 @@ impl MonoParams {
             Param::Wt1Pos => self.wt_pos[0] = v,
             Param::Wt2Pos => self.wt_pos[1] = v,
             Param::WtSteps => self.wt_steps = v >= 0.5,
+            Param::Character => self.wt_8bit = v >= 0.5,
             Param::EnvWt => self.env_wt = v,
             Param::LfoWt => self.lfo_wt = v,
             Param::Pcm1Sample => self.pcm[0] = v.round() as usize,

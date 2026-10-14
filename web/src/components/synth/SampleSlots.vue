@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // The sample store as the view shows it (#125): the slots with their lengths, a button per
-// slot to put the sample to use, adding WAV files by choosing or dropping them, and how full
-// the store is. The engine parses the bytes; this forwards them (ADR-0001). Shared by the
+// slot to put the sample to use, adding WAV files by choosing or dropping them (kept in this
+// browser by their hash, so the song can name them, #522), and how full the store is. The engine parses the bytes; this forwards them (ADR-0001). Shared by the
 // multisampler and the pad sampler, which differ in what "use" means.
 import { computed, ref } from 'vue'
-import { clearSample, loadSample, sampleStore, status } from '../../audio/engine'
+import { clearSample, loadDroppedSample, sampleStore, status } from '../../audio/engine'
 import { SAMPLE_SLOTS, freeSlot } from '../../audio/sampler'
 
 defineProps<{
@@ -26,7 +26,7 @@ async function addFiles(files: File[]) {
     const slot = freeSlot(sampleStore.slots)
     if (slot < 0) { sampleStore.error = 'all sample slots are used; free some'; return }
     sampleStore.error = ''
-    const code = await loadSample(slot, await f.arrayBuffer(), f.name)
+    const code = await loadDroppedSample(slot, await f.arrayBuffer(), f.name)
     if (code >= 0) emit('added', slot)
   }
 }

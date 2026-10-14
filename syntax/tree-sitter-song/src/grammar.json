@@ -335,6 +335,22 @@
         },
         {
           "type": "STRING",
+          "value": "zone"
+        },
+        {
+          "type": "STRING",
+          "value": "pad"
+        },
+        {
+          "type": "STRING",
+          "value": "table"
+        },
+        {
+          "type": "STRING",
+          "value": "attack"
+        },
+        {
+          "type": "STRING",
           "value": "strip"
         },
         {

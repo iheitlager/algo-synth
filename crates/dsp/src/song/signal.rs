@@ -35,7 +35,9 @@ pub const SOURCES: [&str; 18] = [
     "sine", "cosine", "saw", "tri", "square", "rand", "perlin", "lfo", "env", "sine2", "cosine2",
     "saw2", "tri2", "square2", "rand2", "irand", "brand", "brandBy",
 ];
-pub const METHODS: [&str; 6] = ["range", "exprange", "slow", "fast", "segment", "lag"];
+pub const METHODS: [&str; 7] = [
+    "range", "exprange", "slow", "fast", "segment", "lag", "onNote",
+];
 
 /// Most nodes in all of a song's signals, and so most `lag` slots.
 pub const MAX_NODES: usize = 256;
@@ -174,6 +176,9 @@ pub enum Node {
         secs: f32,
         slot: usize,
     },
+    /// `.onNote`: sampled as each note of its track starts and held for the
+    /// note (spec 010 Req 12), as Tidal samples a continuous pattern per event.
+    OnNote(usize),
     /// `len` numbers from `from` in the signal's values: one per cycle
     /// (`"<a b>"`), or sharing each cycle (`"a b"`).
     Seq {
@@ -300,6 +305,11 @@ impl Signal {
         self.values.iter().any(|v| v.is_nan())
     }
 
+    /// Whether it is sampled as each note starts (`.onNote`), not as it plays.
+    pub fn on_note(&self) -> bool {
+        self.nodes.iter().any(|n| matches!(n, Node::OnNote(_)))
+    }
+
     /// Whether it uses `.lag`, whose state is one for the song.
     pub fn lags(&self) -> bool {
         self.nodes.iter().any(|n| matches!(n, Node::Lag { .. }))
@@ -376,6 +386,7 @@ impl Signal {
                 let n = f64::from(n);
                 self.at(a, (t * n).floor() / n, ctx)
             }
+            Node::OnNote(a) => self.at(a, t, ctx),
             Node::Seq {
                 from,
                 len,
@@ -501,6 +512,11 @@ impl Signal {
             Node::Fast(a, n) => method(out, a, "fast", &[n]),
             Node::Segment(a, n) => method(out, a, "segment", &[n]),
             Node::Lag { of, secs, .. } => method(out, of, "lag", &[secs]),
+            Node::OnNote(a) => {
+                self.write(out, a, 4)?;
+                out.push_str(".onNote");
+                Ok(())
+            }
             Node::Seq {
                 from,
                 len,
@@ -766,7 +782,25 @@ impl<'a> Parser<'a, '_> {
             };
             self.at += 1;
             if !METHODS.contains(&name) {
-                return Err((col, "no such method: range exprange slow fast segment lag"));
+                return Err((
+                    col,
+                    "no such method: range exprange slow fast segment lag onNote",
+                ));
+            }
+            if name == "onNote" {
+                // Written bare, as a property; `()` is let pass.
+                if self.eat('(') {
+                    self.expect(')', ") goes here")?;
+                }
+                if self
+                    .nodes
+                    .iter()
+                    .any(|n| matches!(n, Node::Env(_) | Node::List { .. } | Node::LfoList { .. }))
+                {
+                    return Err((col, "onNote holds one value a note: not an env or a list"));
+                }
+                a = self.push(Node::OnNote(a))?;
+                continue;
             }
             let args = self.numbers()?;
             let one = || match args.as_slice() {
@@ -798,7 +832,12 @@ impl<'a> Parser<'a, '_> {
                     secs: one()?,
                     slot: self.base + self.nodes.len(),
                 },
-                _ => return Err((col, "no such method: range exprange slow fast segment lag")),
+                _ => {
+                    return Err((
+                        col,
+                        "no such method: range exprange slow fast segment lag onNote",
+                    ));
+                }
             };
             a = self.push(node)?;
         }
@@ -1385,6 +1424,12 @@ mod tests {
             ("2e3", "2000"),
             ("\" < 300  800 > \"", "\"<300 800>\""),
             ("\"1 2\".slow(2)", "\"1 2\".slow(2)"),
+            ("rand.onNote", "rand.onNote"),
+            (
+                "rand.onNote().range(0.2,0.8)",
+                "rand.onNote.range(0.2, 0.8)",
+            ),
+            ("(perlin+1).onNote", "(perlin + 1).onNote"),
         ] {
             let s = sig(text);
             assert_eq!(s.to_string(), canon, "{text}");
@@ -1409,9 +1454,14 @@ mod tests {
             (
                 "sine.wobble(1)",
                 6,
-                "no such method: range exprange slow fast segment lag",
+                "no such method: range exprange slow fast segment lag onNote",
             ),
             ("sine.range(1)", 6, "this takes two numbers: low, high"),
+            (
+                "env(perc).onNote",
+                11,
+                "onNote holds one value a note: not an env or a list",
+            ),
             (
                 "sine.exprange(0, 10)",
                 6,
