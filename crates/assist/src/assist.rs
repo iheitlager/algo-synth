@@ -245,17 +245,23 @@ fn edit(draft: &str, old: &str, new: &str) -> Result<(String, usize), String> {
                 .into(),
         );
     }
-    let mut at = draft.match_indices(old).map(|(i, _)| i);
-    let Some(i) = at.next() else {
-        return Err("`old` is not in the draft: copy it exactly, with its spaces".into());
+    // Every start of `old`, overlapping ones too: in `x...x...x`, `x...x`
+    // occurs twice.
+    let at: Vec<usize> = draft
+        .char_indices()
+        .map(|(i, _)| i)
+        .filter(|&i| draft[i..].starts_with(old))
+        .collect();
+    let i = match at[..] {
+        [] => return Err("`old` is not in the draft: copy it exactly, with its spaces".into()),
+        [i] => i,
+        _ => {
+            return Err(format!(
+                "`old` occurs {} times in the draft: give lines around it so it occurs once",
+                at.len()
+            ));
+        }
     };
-    let more = at.count();
-    if more > 0 {
-        return Err(format!(
-            "`old` occurs {} times in the draft: give lines around it so it occurs once",
-            more + 1
-        ));
-    }
     let song = format!("{}{new}{}", &draft[..i], &draft[i + old.len()..]);
     if song.len() > DRAFT_LIMIT {
         return Err("the song would be longer than 1 MB".into());
@@ -316,6 +322,19 @@ async fn run_tool(
             summary,
         )
     };
+    // The song is the draft's (#431): a song sent to a tool that acts on it
+    // would be dropped unseen, so say so.
+    let on_draft = matches!(
+        call.name.as_str(),
+        "check_song" | "render_song" | "propose_song"
+    );
+    if on_draft && call.input.get("song").is_some() {
+        let why = format!(
+            "{} takes no song: it acts on the draft; change the draft with edit_song or write_song",
+            call.name
+        );
+        return answer(json!({"error": why}), false, why);
+    }
     match call.name.as_str() {
         "edit_song" => {
             let edited = text_of(call, "old").and_then(|old| {
@@ -1119,6 +1138,12 @@ mod tests {
         let err = |old: &str| edit(GOOD, old, "x").unwrap_err();
         assert!(err("tempo 140").contains("not in the draft"));
         assert!(err("kit").contains("occurs 2 times"));
+        assert!(
+            edit("bd x...x...x", "x...x", "-")
+                .unwrap_err()
+                .contains("occurs 2 times"),
+            "overlapping occurrences count"
+        );
         assert!(err("").contains("write_song"));
     }
 
@@ -1136,6 +1161,7 @@ mod tests {
             ])),
             Ok(calls(vec![
                 ("edit_song", json!({"old": "nope", "new": "x"})),
+                ("check_song", json!({"song": GOOD})),
                 ("propose_song", json!({"summary": "a snare"})),
             ])),
         ]);
@@ -1143,6 +1169,7 @@ mod tests {
         let lines = tool_lines(&ev);
         assert!(lines[1].1, "the edited draft renders: {lines:?}");
         assert!(!lines[2].1 && lines[2].2.contains("not in the draft"));
+        assert!(!lines[3].1 && lines[3].2.contains("takes no song"));
         assert!(ev.contains(&Event::Song {
             song: GOOD.replace(kick, &more),
             summary: "a snare".into(),
