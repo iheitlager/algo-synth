@@ -3749,7 +3749,7 @@ fn the_modular_units_do_what_they_say() {
     assert!(comb.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
 }
 
-/// #471: the robot siren of `examples/songs/siren-system.song`, random semitone
+/// #471: the robot siren of `examples/sounds/siren-system.song`, random semitone
 /// steps through a 4-bit crush, sounds bounded and the same twice.
 #[test]
 fn the_robot_siren_steps_and_crushes() {
@@ -3765,7 +3765,7 @@ fn the_robot_siren_steps_and_crushes() {
     );
 }
 
-/// #472: the robot siren of `examples/songs/siren-system.song`, random steps
+/// #472: the robot siren of `examples/sounds/siren-system.song`, random steps
 /// from `LFNoise0` under a `lag`, renders the same twice from its seed,
 /// and a new note draws new steps.
 #[test]
@@ -5983,7 +5983,7 @@ fn songs_loaded_in_turn_leave_no_mix_behind() {
     assert_eq!(load_text(&mut fresh, &song), Ok(()));
     let mut e = Engine::new(48_000.0);
     for name in [
-        "clockwork-arps",
+        "chicago-loop",
         "on-the-run",
         "nes-dynamo",
         "silver-box-modular",

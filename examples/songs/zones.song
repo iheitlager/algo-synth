@@ -1,0 +1,21 @@
+# Zones: a Sampler's key map written by hand (sound-design.md, zone). Below
+# C3 the upright piano's F#2 plays the bass; from C3 up the choir pad, looped
+# on its sustain so a held chord never runs out; and on the loudest notes from
+# C3 up the piano's C4 too, layered over the choir: an accent (!) plays at
+# full velocity and reaches the zone that starts at 110.
+# Needs the sample packs (make samples).
+tempo 90
+scale c minor
+track keys sampler Sampler SamplerKeys
+zone keys 1 = upright-piano-kw/F_2vH : keyhi b2, root f#2
+zone keys 2 = synth-pad-choir/C4 : keylo c3, root c4, loop sustain
+zone keys 3 = upright-piano-kw/C4vH : keylo c3, vello 110, root c4, level 0.8
+strip keys: Send2 0.3
+
+clip hymn = keys
+  [c2,c4,eb4,g4]:2 [ab1,c4,eb4,ab4]:2 [f1,c4,f4,ab4]:2 [g1,b3,d4,g4]:2
+clip rise = keys
+  c2:4 [c4!,eb4!,g4!]:4 g1:4 [b3,d4,g4]:4 ab1:4 [c4!,eb4!,ab4!]:4 g1:2
+scene hymn 8: hymn
+scene rise 8: rise
+arrange hymn rise hymn

@@ -371,7 +371,7 @@ fn scenes_play_in_order_and_the_song_ends() {
 #[test]
 fn composed_drone_sounds_as_its_song() {
     let mut e = Engine::new(48_000.0);
-    let text = include_str!("../../../../../examples/songs/composed-drone.song");
+    let text = include_str!("../../../../../examples/sounds/composed-drone.song");
     assert_eq!(load_text(&mut e, text), Ok(()));
     e.song_play();
     let mut heard = 0.0_f32;

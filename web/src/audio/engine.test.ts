@@ -749,6 +749,21 @@ describe('MIDI files and setups', () => {
     expect(mod.songChanged.value).toBe(false)
   })
 
+  it("an opened song replaces the last one's synths; an edit only adds (#562)", async () => {
+    const { mod, send, posted } = await boot()
+    const three = [track('kit', 0), track('bass', 1, 1), track('lead', 2, 1)]
+    send({ t: 'song', ...ok, ok: true, text: enc('big\n'), error: null, tracks: three })
+    expect(mod.synths.list).toEqual([0, 1, 2])
+    mod.synths.selected = 2
+    await mod.openFiles([new File(['small'], 'small.song')])
+    const id = posted.filter((m) => m.t === 'song').at(-1)?.id
+    send({ t: 'song', ...ok, ok: true, text: enc('small\n'), error: null, tracks: [track('kit', 0), track('bass', 1, 1)], id })
+    expect([mod.synths.list, mod.synths.selected]).toEqual([[0, 1], 0])
+    // A reply that is not an opened file (an edit, a fold) takes nothing away.
+    send({ t: 'song', ...ok, ok: true, text: enc('edit\n'), error: null, tracks: [track('kit', 0)] })
+    expect(mod.synths.list).toEqual([0, 1])
+  })
+
   it('Save as… picks a new file and Save writes there after; a failed write says so (#465)', async () => {
     const { mod, send } = await boot()
     const written: [string, string][] = []
@@ -833,10 +848,26 @@ describe('MIDI files and setups', () => {
       },
     })
     take()
-    const acid = mod.SONGS.find((d) => d.file === 'songs/acid-workout.song')
-    expect(acid?.name).toBe('Acid workout')
-    await mod.loadDemo(acid)
-    expect(fetched.filter((u) => u.includes('examples/'))).toEqual([expect.stringMatching(/examples\/songs\/acid-workout\.song$/)])
+    const floor = mod.SONGS.find((d) => d.file === 'songs/four-on-the-floor.song')
+    expect(floor?.name).toBe('Four on the floor')
+    await mod.loadDemo(floor)
+    expect(fetched.filter((u) => u.includes('examples/'))).toEqual([expect.stringMatching(/examples\/songs\/four-on-the-floor\.song$/)])
+    expect(take().map((m) => m.t)).toContain('song')
+  })
+
+  it('an example sound is a demo too, under examples/sounds/ (#562)', async () => {
+    const fetched: string[] = []
+    const { mod, take } = await boot({
+      fetch: async (url) => {
+        fetched.push(url)
+        return new Response('tempo 120')
+      },
+    })
+    take()
+    const drone = mod.SOUNDS.find((d) => d.file === 'sounds/composed-drone.song')
+    expect(drone?.name).toBe('Composed drone')
+    await mod.loadDemo(drone)
+    expect(fetched.filter((u) => u.includes('examples/'))).toEqual([expect.stringMatching(/examples\/sounds\/composed-drone\.song$/)])
     expect(take().map((m) => m.t)).toContain('song')
   })
 })
