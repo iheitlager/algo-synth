@@ -12,6 +12,8 @@ WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup toolchain install
 COPY Cargo.toml Cargo.lock ./
+# The build settings: the engine's wasm stack among them (#555), without which it can't start.
+COPY .cargo ./.cargo
 COPY crates ./crates
 # A workspace member (#482): cargo loads the whole workspace, so it must be here.
 COPY syntax/song-lsp ./syntax/song-lsp
