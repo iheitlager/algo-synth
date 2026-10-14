@@ -117,11 +117,12 @@ pub enum Preset {
     NesBass = 101,
     NesArp = 102,
     NesKit = 103,
+    ModularDubSiren = 104,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 104] = [
+    pub const ALL: [(Preset, &'static str); 105] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -226,6 +227,7 @@ impl Preset {
         (Preset::NesBass, "NesBass"),
         (Preset::NesArp, "NesArp"),
         (Preset::NesKit, "NesKit"),
+        (Preset::ModularDubSiren, "ModularDubSiren"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -1056,7 +1058,7 @@ mod tests {
 
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(104), None);
+        assert_eq!(Preset::from_id(105), None);
     }
 
     /// A four-note chord at the default master gain stays bounded: the voices

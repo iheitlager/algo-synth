@@ -27,7 +27,7 @@ SuperCollider SynthDef), `Sid` (the C64's chip), `Nes` (the NES's 2A03; with
 `NesKit` also a drum machine, whose `samples` kit or `pad` lines play
 through its DMC). Presets are factory names, as `MiniBass`,
 `AcidBass`, `Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`,
-`ModularHoover`, `ModularKick`, `ModularSid`; `Sid` has `SidLead`, `SidBass`,
+`ModularHoover`, `ModularKick`, `ModularSid`, `ModularDubSiren`; `Sid` has `SidLead`, `SidBass`,
 `SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`.
 
 ```song

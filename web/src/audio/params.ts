@@ -901,6 +901,7 @@ export const Preset = {
   NesBass: 101,
   NesArp: 102,
   NesKit: 103,
+  ModularDubSiren: 104,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 
