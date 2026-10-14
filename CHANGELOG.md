@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-14
+
+### Added
+
+- **The PPG's 8-bit DAC:** `Character` Authentic puts the PPG Wave's waves on the 8-bit grid its converter played them on, crossfaded positions too; the faceplate's 8-bit switch. Presets stay Clean (#254).
+- **Arranger M/S show the mixer:** a clip row's M and S light, outlined, when the instrument's mixer strip mutes or solos it (from the console, the synth rail or an automation lane); a click still toggles the track flag (#499).
+- **A dub siren:** the `ModularDubSiren` preset, a two-555 siren box as a SynthDef. The key is the pitch; its panel is a six-way mode switch (square, triangle, saw up, saw down, random step, random smooth), amount (the base, in semitones from the key), rate and depth for the LFO, sweep (the glide time when let go) and an up/down switch for that glide (#512).
+- **Dub Chank example:** `examples/songs/dub-chank.song`, a one-drop at 76 with piano on the skank, a rolling snare, and the rim shots on their own out to a group drowned in reverb, the siren changing mode scene by scene (#512).
+- **Dub Siren example:** `examples/sounds/dub-siren.song`, the sounds of `siren-system.song` from one `ModularDubSiren`: whoop, laser, trill, wailer, up-down, wail, two-tone, zap, bubbles, robot and a smooth random drift, each a setting of its panel, over a steppers dub thrown into the echo (#512).
+- **More SuperCollider in the Modular synth:** `f <> g` composes functions, `coin` and `choose` draw as the code builds (the same each time), `( var …; )` regions run as sclang's, and `BPF`, `LinExp`, `clip2` and `product` join the UGens and methods (#547).
+- **Two Chicago-house songs:** Velvet Loop, a polyrhythmic riff over a turning progression, and Chicago Loop, a Juno stab in fives against the bar (#553).
+
+### Changed
+
+- **The assistant edits a draft instead of resending the song:** the server holds a draft of the song, and the model changes it with `edit_song` (one exact, unique replacement) or `write_song` (the whole song), while `check_song`, `render_song` and `propose_song` act on it. The song goes to the model once, so a long song no longer fills every round's history; two long-song cases join the eval (#431).
+- **The examples, sorted:** the demo picker has Scores, Songs and Sounds. Songs teach the song language, from four-on-the-floor up; four new short ones show what no song did: Generators (`prog`, `root`, `arp`, `markov`, `mutate`, a `live` walk), Moving parameters (parameter methods, `auto`, `snapshot`, `mod`), Group buses and Zones. Sounds (`examples/sounds/`) holds the sound-design pieces: Composed drone, the VCO/VCF shootout, Glass piano, Piano to choir, Partial garden, Siren system and Heavy kicks. Ten songs that doubled others are gone: Acid workout, Warehouse, Deep techno, Electro 808, Clockwork arps, Bleep and brass, Sid shadows and three of the four Vivaldi songs (their scores stay) (#562).
+
+### Fixed
+
+- **A song loaded after others keeps its own mix:** a song's tracks sound the same as on a fresh engine, whatever songs were loaded before. A track landing on a strip an old one used keeps its level, pan and sends, and a strip new to its track no longer keeps what older songs set on it (#548).
+- **Every synth came up a silent ARP 2600, and a loaded song never reached the synths:** the engine overflowed its wasm stack while starting after #547 and never ran; it has a 4 MiB stack now, in the image too, and CI starts it in V8 (#555).
+- **Opening a song no longer leaves the last one's synths behind:** a song or demo opened over another shows only the synths its tracks play. The NES songs no longer say "No synth is a drum kit": a NES playing its NesKit counts as one (#562).
+
 ## [0.43.0] - 2026-10-13
 
 ### Added
