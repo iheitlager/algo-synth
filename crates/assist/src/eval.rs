@@ -524,11 +524,18 @@ scene a 2: beat low\narrange a\n";
                 .ok_or(ProviderError::Fatal("done".into()))?;
             Ok(Turn {
                 text: "Here it is.".into(),
-                calls: vec![ToolCall {
-                    id: "p".into(),
-                    name: "propose_song".into(),
-                    input: json!({"song": song, "summary": "s"}),
-                }],
+                calls: vec![
+                    ToolCall {
+                        id: "w".into(),
+                        name: "write_song".into(),
+                        input: json!({"song": song}),
+                    },
+                    ToolCall {
+                        id: "p".into(),
+                        name: "propose_song".into(),
+                        input: json!({"summary": "s"}),
+                    },
+                ],
                 stop: Stop::Tools,
                 usage: Usage {
                     input: 100,

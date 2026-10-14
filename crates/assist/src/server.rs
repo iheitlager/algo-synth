@@ -374,9 +374,9 @@ mod tests {
     #[tokio::test]
     async fn a_request_streams_its_steps_through_the_real_adapter() {
         let turns = Arc::new(Mutex::new(vec![
-            json!({"content": [{"type": "tool_use", "id": "t2", "name": "propose_song", "input": {"song": SONG, "summary": "a kick"}}],
+            json!({"content": [{"type": "tool_use", "id": "t2", "name": "propose_song", "input": {"summary": "a kick"}}],
                    "stop_reason": "tool_use", "usage": {"input_tokens": 10, "cache_read_input_tokens": 9000, "output_tokens": 20}}),
-            json!({"content": [{"type": "text", "text": "Checking."}, {"type": "tool_use", "id": "t1", "name": "check_song", "input": {"song": SONG}}],
+            json!({"content": [{"type": "text", "text": "Checking."}, {"type": "tool_use", "id": "t1", "name": "check_song", "input": {}}],
                    "stop_reason": "tool_use", "usage": {"input_tokens": 9010, "cache_creation_input_tokens": 0, "output_tokens": 20}}),
         ]));
         let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
