@@ -240,6 +240,7 @@ fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>
     let mut buf = [Pitch {
         note: 0,
         accent: false,
+        degree: false,
     }; MAX_CHORD];
     let n = chord.len().min(MAX_CHORD);
     let notes = buf.get_mut(..n).unwrap_or(&mut []);
@@ -274,6 +275,7 @@ fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>
                 accent,
                 vel: 0,
                 word: 0,
+                degree: false,
             });
         }
     }
@@ -303,6 +305,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             accent: false,
             vel: 0,
             word: 0,
+            degree: false,
         });
     }
 }
@@ -422,6 +425,7 @@ fn arp_prog(src: &[Event], bars: u32, mode: ArpMode, rate: u8, seed: u32, out: &
                 accent: false,
                 vel: 0,
                 word: 0,
+                degree: false,
             });
         }
     }
@@ -448,6 +452,7 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             accent: false,
             vel: 0,
             word: 0,
+            degree: false,
         });
         i = j.max(i + 1);
     }
@@ -507,6 +512,7 @@ fn prog(bars: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
                 accent: false,
                 vel: 0,
                 word: 0,
+                degree: false,
             });
         }
     }
@@ -577,6 +583,9 @@ fn pitch_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Pitch, NoteError> {
     if sub.peek().is_some() {
         return err(sub.col(), "a note goes here, as c4");
     }
+    if p.degree {
+        return err(cur.base + r.0, "a generator takes notes, not degrees");
+    }
     Ok(p)
 }
 
@@ -600,6 +609,9 @@ fn chord_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Vec<Pitch>, NoteErro
     let chord = sub.chord()?;
     if sub.peek().is_some() {
         return err(sub.col(), "a chord goes here, as [c4,e4,g4]");
+    }
+    if chord.iter().any(|p| p.degree) {
+        return err(cur.base + r.0, "a generator takes notes, not degrees");
     }
     if chord.len() > MAX_CHORD {
         return err(cur.base + r.0, "a chord has at most 8 notes");

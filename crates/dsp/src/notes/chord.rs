@@ -86,6 +86,7 @@ fn chord(root: i32, intervals: &[u8], col: usize) -> Result<Vec<Pitch>, NoteErro
                 .map(|note| Pitch {
                     note,
                     accent: false,
+                    degree: false,
                 })
                 .ok_or(NoteError {
                     col,

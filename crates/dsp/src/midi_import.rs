@@ -244,6 +244,7 @@ fn layout(
                     note: n.note,
                     accent: false,
                     vel: n.vel,
+                    degree: false,
                     word: 0,
                 })
                 .collect();

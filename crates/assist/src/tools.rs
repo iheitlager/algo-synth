@@ -668,7 +668,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
             (scope("Cutoff"), scope("Level"), scope("MasterGain")),
             (Some("synth"), Some("strip"), Some("master"))
         );
-        assert_eq!(c.modes.len(), 11);
+        assert_eq!(c.modes.len(), Mode::ALL.len());
         assert!(
             c.modes
                 .iter()

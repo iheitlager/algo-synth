@@ -550,7 +550,7 @@ fn generator_errors_say_where() {
             "scale c funky",
             1,
             9,
-            "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, phrygian-dominant or harmonic-minor",
+            "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, minor-pentatonic, blues, phrygian-dominant or harmonic-minor",
         ),
         ("scale c", 1, 8, "a mode goes here: scale c minor"),
         ("scale c minor\nscale d major", 2, 1, "a song has one scale"),
@@ -2176,10 +2176,10 @@ fn pattern_method_errors_say_where() {
             "a pattern method goes here, e.g. rev or fast(2)",
         ),
         (
-            "track l synth\nclip r = l .slow(16) .slow(4)\n  \"c4\"",
+            "track l synth\nclip r = l .slow(16) .slow(8)\n  \"c4\"",
             3,
             3,
-            "the pattern runs past 32 bars",
+            "the pattern runs past 64 bars",
         ),
     ] {
         let err = Song::parse(text).expect_err(text);
@@ -2221,6 +2221,122 @@ fn struct_sometimes_and_scale_print_back() {
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// The notes of clip `k`, in order.
+fn clip_notes(s: &Song, k: usize) -> Vec<u8> {
+    let n = s
+        .clips
+        .get(k)
+        .and_then(|c| c.notes.as_ref())
+        .expect("notes");
+    n.events.iter().map(|e| e.note).collect()
+}
+
+/// #570: Strudel's `n("<0 2 1 3 2>*8").scale("A1:minor:pentatonic")`.
+#[test]
+fn degrees_play_the_clips_scale_from_its_root() {
+    let text = "track bass synth
+\
+        clip arp = bass .fast(8) .scale(a1 minor-pentatonic)\n  \"<0 2 1 3 2>\"\n";
+    let s = Song::parse(text).expect("parses");
+    let n = s.clips[0].notes.as_ref().expect("notes");
+    assert_eq!(n.bars, 5);
+    assert_eq!(n.text, "\"<0 2 1 3 2>\"", "the line stays as written");
+    let notes = clip_notes(&s, 0);
+    // a1 d2 c2 e2 d2, round and round, eight to a bar
+    assert_eq!(
+        notes.get(..10),
+        Some(&[33, 38, 36, 40, 38, 33, 38, 36, 40, 38][..])
+    );
+    assert!(n.events.iter().all(|e| !e.degree));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip arp = bass .fast(8) .scale(a1 minor-pentatonic)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #571: Strudel's `n("<0 2 1 3 2>*8").scale("<A1 D2>/4:minor:pentatonic")`,
+/// the degrees running on unbroken across the change of root.
+#[test]
+fn a_scale_progression_plays_the_degrees_on_each_root() {
+    let text = "track bass synth\n\
+        clip arp = bass .fast(8) .scale(<a1 d2>/4 minor-pentatonic)\n  \"<0 2 1 3 2>\"\n";
+    let s = Song::parse(text).expect("parses");
+    let n = s.clips[0].notes.as_ref().expect("notes");
+    assert_eq!((n.bars, n.events.len()), (40, 320));
+    let notes = clip_notes(&s, 0);
+    // bar 1 on a1: degrees 0 2 1 3 2 0 2 1
+    assert_eq!(notes.get(..8), Some(&[33, 38, 36, 40, 38, 33, 38, 36][..]));
+    // bar 5 on d2 (d f g a c), the cycle 32 steps in: degrees 1 3 2 0 2 1 3 2
+    assert_eq!(
+        notes.get(32..40),
+        Some(&[41, 45, 43, 38, 43, 41, 45, 43][..])
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("clip arp = bass .fast(8) .scale(<a1 d2>/4 minor-pentatonic)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn degrees_follow_the_song_scale_and_add_moves_them_before_scale() {
+    let at = |text: &str| clip_notes(&Song::parse(text).expect(text), 0);
+    // no .scale: the song's, from its root in octave 3 (a3 is 57)
+    assert_eq!(
+        at("scale a minor-pentatonic\ntrack l synth\nclip r = l\n  \"0 1 -1\"\n"),
+        [57, 60, 55]
+    );
+    // a root without an octave is in octave 3 too
+    assert_eq!(
+        at("track l synth\nclip r = l .scale(a minor)\n  \"0 2\"\n"),
+        [57, 60]
+    );
+    // before .scale, add moves degrees; after it, semitones
+    assert_eq!(
+        at("track l synth\nclip r = l .add(1) .scale(a1 minor-pentatonic)\n  \"0\"\n"),
+        [36]
+    );
+    assert_eq!(
+        at("track l synth\nclip r = l .scale(a1 minor-pentatonic) .add(1)\n  \"0\"\n"),
+        [34]
+    );
+    // .scale still snaps notes, and a line may mix them
+    assert_eq!(
+        at("track l synth\nclip r = l .scale(c2 major)\n  \"c#4 0\"\n"),
+        [60, 36]
+    );
+}
+
+#[test]
+fn a_degree_without_a_scale_is_an_error() {
+    for (text, line, col, msg) in [
+        (
+            "track l synth\nclip r = l\n  \"0 2\"\n",
+            3,
+            3,
+            "a degree needs a scale: a scale line, or .scale(a1 minor) on the clip",
+        ),
+        (
+            "track l synth\nclip r = l .every(2, scale(a minor))\n  \"0 2\"\n",
+            3,
+            3,
+            "a degree needs a scale: a scale line, or .scale(a1 minor) on the clip",
+        ),
+        (
+            "track l synth\nclip r = l voicing .scale(a minor)\n  \"[0,2,4]\"\n",
+            3,
+            3,
+            "voicing takes notes, not degrees",
+        ),
+    ] {
+        let err = Song::parse(text).expect_err(text);
+        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+    }
 }
 
 /// ADR-0024: a Modular setting holds its SynthDef on the indented lines

@@ -177,7 +177,7 @@ fn every_error_says_where() {
 fn too_much_is_an_error_not_a_hang() {
     let long = format!("\"{}\"", "c4 ".repeat(1200));
     assert!(parse(&long, 1).is_err());
-    assert!(parse("\"<a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4 a4>\"", 1).is_err());
+    assert!(parse(&format!("\"<{}>\"", "a4 ".repeat(65)), 1).is_err());
     assert!(parse("\"[[[[[c4]]]]]\"", 1).is_err());
 }
 
@@ -528,6 +528,7 @@ fn freezing_refuses_what_it_cannot_write() {
         accent: false,
         vel: 0,
         word: 0,
+        degree: false,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -552,6 +553,7 @@ fn timed_notes_parse_compile_and_print() {
                 accent: false,
                 vel: 0,
                 word: 0,
+                degree: false,
             },
             Event {
                 start: 0,
@@ -560,6 +562,7 @@ fn timed_notes_parse_compile_and_print() {
                 accent: false,
                 vel: 0,
                 word: 0,
+                degree: false,
             },
             Event {
                 start: 6,
@@ -568,6 +571,7 @@ fn timed_notes_parse_compile_and_print() {
                 accent: true,
                 vel: 90,
                 word: 0,
+                degree: false,
             },
             Event {
                 start: 12,
@@ -576,6 +580,7 @@ fn timed_notes_parse_compile_and_print() {
                 accent: false,
                 vel: 0,
                 word: 0,
+                degree: false,
             },
         ]
     );
@@ -598,10 +603,10 @@ fn timed_note_errors_say_where() {
     let cases: [(&str, usize, &str); 7] = [
         ("c4@", 4, "a number goes here"),
         ("c4@0", 5, "a length in ticks goes after :, as d5@0:6"),
-        ("c4@0:0", 6, "a length is 1 to 1536 ticks"),
+        ("c4@0:0", 6, "a length is 1 to 3072 ticks"),
         ("c4@0:6:0", 8, "a velocity is 1 to 127"),
         ("c4@0:6:200", 8, "a velocity is 1 to 127"),
-        ("c4@1536:6", 4, "a timed note starts within 32 bars"),
+        ("c4@3072:6", 4, "a timed note starts within 64 bars"),
         ("c4@0:6x", 7, "a word ends at a space"),
     ];
     for (text, col, msg) in cases {
@@ -617,6 +622,7 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         accent: false,
         vel: 0,
         word: 0,
+        degree: false,
     }
 }
 
@@ -1126,4 +1132,73 @@ fn progression_errors_say_where() {
             "a prog needs a scale line with seven notes, as scale c minor"
         )
     );
+}
+
+/// #570: a number is a degree, kept as one until a scale resolves it.
+#[test]
+fn degrees_parse_print_back_and_wait_for_a_scale() {
+    let n = parse("\"0 [2 -1] 3! [0,2,4]\"", 1).unwrap();
+    let got: Vec<(u32, u8, bool, bool)> = n
+        .events
+        .iter()
+        .map(|e| (e.start, e.note, e.accent, e.degree))
+        .collect();
+    let z = DEGREE_ZERO;
+    assert_eq!(
+        got,
+        [
+            (0, z, false, true),
+            (12, z + 2, false, true),
+            (18, z - 1, false, true),
+            (24, z + 3, true, true),
+            (36, z, false, true),
+            (36, z + 2, false, true),
+            (36, z + 4, false, true),
+        ]
+    );
+    assert_eq!(n.print(), "\"0 [2 -1] 3! [0,2,4]\"");
+    assert_eq!(parse(&n.print(), 1).unwrap(), n);
+    // classic and timed lines take them too
+    assert_eq!(parse("0:4 -2:8", 1).unwrap().print(), "0:4 -2:8");
+    assert_eq!(parse("2@0:6", 1).unwrap().print(), "2@0:6");
+    // a note is still a note
+    assert!(
+        parse("\"c4 0\"", 1)
+            .unwrap()
+            .events
+            .first()
+            .is_some_and(|e| !e.degree)
+    );
+
+    let mut events = n.events.clone();
+    let a_minor_pent = Scale {
+        root: 9,
+        mode: crate::algo::Mode::MinorPentatonic,
+    };
+    resolve(&mut events, &a_minor_pent, 33);
+    let notes: Vec<u8> = events.iter().map(|e| e.note).collect();
+    assert_eq!(notes, [33, 38, 31, 40, 33, 38, 43]);
+    assert!(events.iter().all(|e| !e.degree));
+}
+
+#[test]
+fn degree_errors_say_where() {
+    for (text, col, msg) in [
+        ("\"0 25\"", 4, "a degree is -24 to 24"),
+        (
+            "\"0 -\"",
+            4,
+            "a note is a letter a to g, maybe # or b, and an octave 0 to 9, as c4",
+        ),
+        ("arp([0,2],up,8)", 5, "a generator takes notes, not degrees"),
+        ("walk(0,8,1)", 6, "a generator takes notes, not degrees"),
+        (
+            "euclid(3,8) scale 2",
+            13,
+            "a walk starts from a note, as c4",
+        ),
+    ] {
+        let e = parse_in(text, 1, Some(&minor())).expect_err(text);
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
 }
