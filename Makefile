@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-songs test-tools test-web coverage-web coverage check-coverage typecheck bench filters syntax-test lint deny image serve stop clean env-check
+.PHONY: help check dev build fmt release version wasm web install demo-midi samples test test-rust test-songs test-tools test-web coverage-web coverage check-coverage typecheck wasm-check bench filters syntax-test lint deny image serve stop clean env-check
 
 WASM_OUT := target/wasm32-unknown-unknown/release/algo_dsp.wasm
 IMAGE    := algo-synth
@@ -22,7 +22,7 @@ KEYS     := ANTHROPIC_API_KEY MISTRAL_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY 
 
 ##@ Everyday
 
-check: lint deny test build ## Run all CI gates
+check: lint deny test build wasm-check ## Run all CI gates
 # One server (ADR-0030): algo-synth serve on 127.0.0.1:6341, the app and the
 # assistant, while vite build --watch keeps web/dist current; reload to see a
 # change. dsp.wasm is built first (make wasm again after a DSP change). Ctrl-C
@@ -121,6 +121,9 @@ typecheck: install ## vue-tsc over the UI
 	cd web && npm run typecheck
 # 16 Mono voices in Node's V8 against the 25% budget (plan.md); confirm with
 # render capacity in Chrome DevTools' WebAudio panel.
+# Native tests can't see wasm's own limits, such as its stack (#555).
+wasm-check: wasm ## Start the engine in V8
+	node tools/wasm-check.mjs
 bench: wasm ## Time 16 voices in V8
 	node tools/bench.mjs
 # A harmonic table per ladder voicing (#319); pass ARGS="--stages-only" or
