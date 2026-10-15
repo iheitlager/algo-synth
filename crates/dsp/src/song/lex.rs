@@ -374,7 +374,7 @@ impl Line<'_> {
                 let class = match c {
                     '~' => Some(Class::Rest),
                     '=' | ':' | '"' | '[' | ']' | '<' | '>' | '(' | ')' | ',' | '*' | '@' | '?'
-                    | '&' | '!' | '/' | '+' | '|' => Some(Class::Punct),
+                    | '&' | '!' | '/' | '+' | '|' | '%' => Some(Class::Punct),
                     _ => None,
                 };
                 if let Some(class) = class {
@@ -520,6 +520,14 @@ arrange main main
         let text = "track l synth\nclip a = l\n  \"c4 [e4 | g4 a4]\"\n";
         assert_eq!(of(text, Class::Note), ["c4", "e4", "g4", "a4"]);
         assert!(of(text, Class::Punct).contains(&"|".to_string()));
+    }
+
+    /// #616: an option's `%` weight is punctuation too.
+    #[test]
+    fn a_weight_is_punctuation() {
+        let text = "track l synth\nclip a = l\n  \"[e4%3 | g4]\"\n";
+        assert_eq!(of(text, Class::Note), ["e4", "g4"]);
+        assert!(of(text, Class::Punct).contains(&"%".to_string()));
     }
 
     #[test]

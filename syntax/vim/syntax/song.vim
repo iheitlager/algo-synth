@@ -25,7 +25,7 @@ syn match songParam   /\<[A-Za-z_]\w*\%(\.[A-Za-z]\w*\)\+/ contained
 syn match songCall    /\<[A-Za-z_]\%([A-Za-z0-9_.]*[A-Za-z0-9_]\)\?\ze(/ contained
 " A keyword after the first, unless it names a track (`drums.Send1`) or a call.
 syn match songWord    /\<\%(live\|bars\|ramp\|drums\|synth\|sampler\|voicing\)\>\%(\.\a\|(\)\@!/ contained
-syn match songPunct   /[=:"\[\]<>(),*@?&!/+]/ contained
+syn match songPunct   /[=:"\[\]<>(),*@?&!/+|%]/ contained
 syn match songRest    /\~/ contained
 
 syn cluster songTokens contains=songName,songNumber,songParam,songCall,songWord,songPunct,songRest
