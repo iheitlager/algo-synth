@@ -18,6 +18,7 @@ from __future__ import annotations
 import array
 import hashlib
 import json
+import math
 import re
 import shutil
 import struct
@@ -389,9 +390,12 @@ def build_kit(pack: dict, archive: Path) -> None:
 
 def pinned(pack: dict) -> str:
     """What a built pack is checked against: its archive's checksum, or for a
-    pack of single files one checksum over all of theirs."""
+    pack of single files one checksum over all of theirs and its balance."""
     if "files" in pack:
         joined = "\n".join(f["sha256"] for f in pack["files"])
+        # Balancing changes the kit, so a kit built before it is rebuilt (#585).
+        if pack.get("balance"):
+            joined += "\nbalance"
         return hashlib.sha256(joined.encode()).hexdigest()
     return pack["sha256"]
 
@@ -401,10 +405,36 @@ def fetch_file(pack: dict, i: int, entry: dict) -> Path:
     return download({"id": f"{pack['id']}-{i + 1:02d}", "ext": "wav", **entry})
 
 
+# A balanced pack (#585) brings each pad to its voice's loudness: the loudest 50 ms of
+# the hit, RMS in dBFS, aimed at the middle of the drum machines' own. By pad (General
+# MIDI note 36 + pad): kick, rim, snare, clap, hats, toms, crash and ride; -10 elsewhere.
+LOUDNESS_TARGETS = {0: -7.0, 1: -10.0, 2: -9.5, 3: -10.0, 6: -12.5, 10: -12.5,
+                    9: -8.0, 11: -8.0, 14: -8.0, 13: -11.0, 15: -11.0}
+PAD_LEVEL = 0.8  # a pad at its target keeps the kits' usual level
+
+
+def loudness(rate: int, channels: int, samples: array.array, window: float = 0.05) -> float:
+    """The loudest `window` seconds of a hit, RMS in dBFS, its channels averaged."""
+    mono = [sum(samples[i : i + channels]) / channels for i in range(0, len(samples) - channels + 1, channels)]
+    w = max(1, min(len(mono), int(rate * window)))
+    sq = [v * v for v in mono]
+    run = best = sum(sq[:w])
+    for i in range(w, len(sq)):
+        run += sq[i] - sq[i - w]
+        best = max(best, run)
+    return 10 * math.log10(best / w / 32768**2 + 1e-12)
+
+
+def balanced_level(pad: int, rate: int, channels: int, samples: array.array) -> float:
+    """The pad level that brings a hit to its voice's target, within the engine's 0.2-2."""
+    gain = 10 ** ((LOUDNESS_TARGETS.get(pad, -10.0) - loudness(rate, channels, samples)) / 20)
+    return round(min(2.0, max(0.2, PAD_LEVEL * gain)), 2)
+
+
 def build_voice(pack: dict, fetch=fetch_file) -> None:
     """Convert a pack of single WAV files into OUT/kits/<id>/: pad i plays file i
-    (or the file's `pad`) as a one-shot, named after what it says. The pack's
-    notice goes with it."""
+    (or the file's `pad`) as a one-shot, named after what it says, at its
+    balanced level if the pack asks (#585). The pack's notice goes with it."""
     dest = OUT / "kits" / pack["id"]
     if dest.exists():
         for old in dest.glob("*"):
@@ -417,8 +447,9 @@ def build_voice(pack: dict, fetch=fetch_file) -> None:
         stem = re.sub(r"[^A-Za-z0-9_-]+", "_", entry["name"]).strip("_")[:32]
         name = f"{pad + 1:02d}-{stem}.wav"
         (dest / name).write_bytes(write_mono_wav(rate, channels, samples, 60, None))
+        level = balanced_level(pad, rate, channels, samples) if pack.get("balance") else PAD_LEVEL
         pads.append({
-            "pad": pad, "name": entry["name"], "tune": 0, "level": 0.8, "pan": 0.0,
+            "pad": pad, "name": entry["name"], "tune": 0, "level": level, "pan": 0.0,
             "decay": 0, "choke": entry.get("choke", 0), "velLevel": 1.0, "velStart": 0.0, "oneShot": True,
             "sample": f"kits/{pack['id']}/{name}",
         })
