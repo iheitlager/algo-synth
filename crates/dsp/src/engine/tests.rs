@@ -5266,6 +5266,17 @@ fn a_voicing_and_slash_chords_stay_as_typed() {
     assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
 }
 
+/// #608, #609, #610, #588: a prog's arguments typed in any order stay as typed.
+#[test]
+fn prog_arguments_stay_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\nscale c minor\ntrack lead synth\n\nclip pad = lead voicing\n  prog(4,7, jazz, \"4 2  2\",7th)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+}
+
 /// #588: an edit that leaves the song as its text says keeps the text as
 /// typed; one that changes it rewrites only its line; Format prints it all.
 #[test]

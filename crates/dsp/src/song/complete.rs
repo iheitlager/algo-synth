@@ -391,6 +391,16 @@ impl List<'_> {
         }
     }
 
+    /// A prog's sizes and styles (#608, #610); its beats are numbers.
+    fn prog_words(&mut self) {
+        for (_, w) in notes::Size::ALL {
+            self.add(Class::Name, w, || "chord size".to_string());
+        }
+        for (_, w) in notes::ProgStyle::ALL {
+            self.add(Class::Name, w, || "progression style".to_string());
+        }
+    }
+
     fn arp_modes(&mut self) {
         for (_, m) in ArpMode::ALL {
             let d = if m == "random" {
@@ -937,6 +947,7 @@ impl<'a> Names<'a> {
             match (call.name, call.arg) {
                 ("arp", 0) | ("root", 0) | ("mutate", 0) | ("markov", 1) => self.note_clips(list),
                 ("arp", 1) => list.arp_modes(),
+                ("prog", k) if k >= 2 => list.prog_words(),
                 _ => {}
             }
             return;
@@ -1409,6 +1420,19 @@ scene main 8: beat riff
             .collect();
         assert_eq!(preview(&format!("{walk}|")), played.join(" "));
         assert_eq!(preview(&format!("{notes}prog(4,|")), "");
+        // Two chords a bar, and the words after the seed (#608-#610).
+        assert_eq!(
+            preview(&format!("{notes}prog(2,7,2|")).split(' ').count(),
+            4
+        );
+        assert_eq!(
+            preview(&format!("{notes}prog(2,7,\"2 2\"|)"))
+                .split(' ')
+                .count(),
+            4
+        );
+        assert_eq!(at(&format!("{notes}prog(4,7,j|")), ["jazz"]);
+        assert_eq!(at(&format!("{notes}prog(4,7,7th,s|")), ["sus"]);
         // Without a scale, no chords.
         assert_eq!(preview("track l synth\nclip c = l\n  prog(4,7|"), "");
     }

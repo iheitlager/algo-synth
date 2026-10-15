@@ -9,7 +9,7 @@ pub const WALK: &str = "walk takes a start note, a count and a seed: walk(c4,8,1
 pub const MARKOV: &str = "markov takes an order, a clip and a seed: markov(1,riff,3)";
 pub const MUTATE: &str = "mutate takes a clip, a percent and a seed: mutate(riff,30,5)";
 pub const ROOT: &str = "root takes a clip and maybe an octave: root(prog) or root(prog,3)";
-pub const PROG: &str = "prog takes a number of bars and a seed: prog(4,7)";
+pub const PROG: &str = "prog takes a number of bars, a seed and maybe a size, beats and a style: prog(4,7) or prog(4,7,7th,\"4 2 2\",jazz)";
 pub const EUCLID: &str =
     "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)";
 
