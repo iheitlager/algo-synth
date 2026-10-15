@@ -734,6 +734,25 @@ async function loadFiles(label: string, files: string[], id: string) {
 /** The pack or kit id loaded on each synth (#214), so a song's `samples` line loads it once. */
 const samplesOn = new Map<number, string>()
 
+/**
+ * The slots every synth but `s` plays: those its zones and pads were last seen with, and those of
+ * the pack or kit loaded on it, whose zones may not have been dumped back yet when a song loads
+ * several packs in a row (#652).
+ */
+function slotsHeldElsewhere(s: number): Set<number> {
+  const used = slotsUsedElsewhere(s, zoneState.zones, padState.pads)
+  for (const [synth, id] of samplesOn) {
+    if (synth === s) continue
+    const pack = packs.list.find((p) => p.id === id)
+    const kit = packs.kits.find((k) => k.id === id)
+    for (const file of pack ? packFiles(pack) : kit ? kitFiles(kit) : []) {
+      const slot = slotOfFile.get(file)
+      if (slot !== undefined) used.add(slot)
+    }
+  }
+  return used
+}
+
 /** Write the pack or kit on synth `s` into the song, as its track's `samples` line (#214). */
 function samplesIntoSong(s: number, id: string) {
   const bytes = new TextEncoder().encode(id).buffer
@@ -772,7 +791,7 @@ export async function loadPack(s: number, pack: Pack, fromSong = false): Promise
   // A pack's layout is not a hand's change: it goes in one go and does not fold (#522).
   engine?.post({ t: 'zoneSets', s, sets: [] })
   zonesOn.delete(s)
-  for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
+  for (const slot of evictable(slotOfFile, slotsHeldElsewhere(s), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)
@@ -798,7 +817,7 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
   // Nor is a kit's (#527).
   engine?.post({ t: 'padSets', s, sets: [] })
   padsOn.delete(s)
-  for (const slot of evictable(slotOfFile, slotsUsedElsewhere(s, zoneState.zones, padState.pads), new Set(files))) {
+  for (const slot of evictable(slotOfFile, slotsHeldElsewhere(s), new Set(files))) {
     engine?.post({ t: 'sampleClear', slot })
     sampleStore.slots[slot] = null
     for (const [file, at] of slotOfFile) if (at === slot) slotOfFile.delete(file)

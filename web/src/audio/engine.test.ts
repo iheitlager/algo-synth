@@ -1042,6 +1042,34 @@ describe('samples lines (#214)', () => {
     expect(new TextDecoder().decode(write.bytes)).toBe('sweep-pad')
   })
 
+  it('a song that names two packs loads both, neither taking the other`s slots (#652)', async () => {
+    const two = {
+      version: 1, kits: [],
+      instruments: [{ id: 'sweep-pad', name: 'Sweep pad', zones: [zone] }, { id: 'gm-flute', name: 'GM Flute', zones: [{ ...zone, sample: 'instruments/gm-flute/f.wav' }] }],
+    }
+    const fetchTwo = async (url: string) => url.endsWith('manifest.json') ? new Response(JSON.stringify(two)) : new Response(new ArrayBuffer(8))
+    const { send, take } = await boot({ fetch: fetchTwo })
+    take()
+    const flute = { name: enc('flute'), synth: 4, kind: 2 }
+    send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys, flute],
+      samples: [{ synth: 3, id: enc('sweep-pad') }, { synth: 4, id: enc('gm-flute') }] })
+    // The view's zone dump never comes back here: the second pack must not count on it.
+    let msgs: Msg[] = []
+    const answered = new Set<Msg>()
+    for (let i = 0; i < 40 && msgs.filter((m) => m.t === 'sample').length < 2; i++) {
+      await tick()
+      msgs = msgs.concat(take())
+      for (const m of msgs.filter((m) => m.t === 'sample' && !answered.has(m))) {
+        answered.add(m)
+        send(loaded((m as unknown as { slot: number }).slot))
+      }
+    }
+    const slots = msgs.filter((m) => m.t === 'sample').map((m) => (m as unknown as { slot: number }).slot)
+    expect(slots.length).toBe(2)
+    expect(slots[0], 'each pack its own slot').not.toBe(slots[1])
+    expect(msgs.some((m) => m.t === 'sampleClear' && m.slot === slots[0]), 'the first pack`s sample stays').toBe(false)
+  })
+
   it('an id no manifest names says so', async () => {
     const { mod, send } = await boot({ fetch: fetchAll })
     send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('nope') }] })
