@@ -31,3 +31,6 @@ clip fwd = jazz
   "bd cb [p4 ch] p4"
 
 clip back = jazzr fwd .rev()
+
+scene play 4: mel low fwd back
+arrange play
