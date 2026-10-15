@@ -2014,3 +2014,100 @@ fn prog_arguments_print_back_and_errors_say_where() {
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
     }
 }
+
+/// #611: `fifths` and `octave` play each chord's root on its first beat.
+#[test]
+fn a_bass_plays_each_root_on_its_first_beat() {
+    // c, ab, eb, bb in octave 2, a bar each.
+    let notes = |text: &str| -> Vec<(u32, u32, u8)> {
+        with_prog(text)
+            .unwrap()
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, e.note))
+            .collect()
+    };
+    let fifths = notes("bass(prog,fifths)");
+    assert_eq!(
+        fifths,
+        [
+            (0, 24, 36),
+            (24, 24, 43),
+            (48, 24, 44),
+            (72, 24, 51),
+            (96, 24, 39),
+            (120, 24, 46),
+            (144, 24, 46),
+            (168, 24, 53),
+        ]
+    );
+    let octave = notes("bass(prog,octave,3)");
+    assert_eq!(octave.len(), 32);
+    assert_eq!(&octave[..3], [(0, 6, 48), (6, 6, 60), (12, 6, 48)]);
+    assert_eq!(octave[8], (48, 6, 56), "ab3 on the second bar");
+}
+
+/// #611: a walk lands on the root at every change, a step from it the beat
+/// before, round the loop too; the seed picks the line.
+#[test]
+fn a_walking_bass_steps_into_each_root() {
+    use crate::algo::Mode;
+    let roots = [36u8, 44, 39, 46];
+    let mut lines = Vec::new();
+    for seed in 0..50 {
+        let n = with_prog(&format!("bass(prog,walk,{seed})")).unwrap();
+        let notes: Vec<(u32, u8)> = n.events.iter().map(|e| (e.start, e.note)).collect();
+        assert_eq!(notes.len(), 16, "a note a beat");
+        for (bar, root) in roots.iter().enumerate() {
+            let at = 48 * u32::try_from(bar).unwrap();
+            assert_eq!(notes[bar * 4], (at, *root), "seed {seed}");
+            // The beat before, round the loop for the first bar.
+            let before = notes[(bar * 4 + 15) % 16].1;
+            let step = (i32::from(before) - i32::from(*root)).abs();
+            assert!((1..=2).contains(&step), "seed {seed}: {before} into {root}");
+        }
+        // c minor: every note is in the scale.
+        let scale = key(0, Mode::from_name("minor").unwrap());
+        assert!(
+            n.events.iter().all(|e| scale.snap(e.note) == e.note),
+            "seed {seed}"
+        );
+        assert_eq!(with_prog(&format!("bass(prog,walk,{seed})")).unwrap(), n);
+        lines.push(notes);
+    }
+    lines.sort();
+    lines.dedup();
+    assert!(lines.len() > 10, "the seeds give different lines");
+}
+
+#[test]
+fn bass_prints_back_and_errors_say_where() {
+    for text in [
+        "bass(prog,fifths)",
+        "bass(prog,octave,3)",
+        "bass(prog,walk,5)",
+        "bass(prog,walk,3,5)",
+    ] {
+        assert_eq!(with_prog(text).unwrap().print(), text);
+    }
+    assert_eq!(
+        with_prog("bass(prog,fifths,2)").unwrap().print(),
+        "bass(prog,fifths)"
+    );
+    let seeds = "only walk takes a seed, and must: bass(prog,walk,5) or bass(prog,fifths)";
+    for (text, col, msg) in [
+        ("bass(prog,walk)", 1, seeds),
+        ("bass(prog,fifths,2,5)", 1, seeds),
+        ("bass(prog,funk)", 11, "a bass is fifths, octave or walk"),
+        ("bass(prog,octave,9)", 18, "an octave is 0 to 7"),
+        (
+            "bass(nope,fifths)",
+            6,
+            "no note clip with this name comes before this one",
+        ),
+        ("bass(prog)", 1, crate::usage::BASS),
+    ] {
+        let e = with_prog(text).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}

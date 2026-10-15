@@ -649,13 +649,13 @@ fn live_errors_say_where() {
             "track t synth\nclip a = t live\n  c4:4",
             3,
             3,
-            "a live clip is a call: arp, walk, markov, mutate, root or prog",
+            "a live clip is a call: arp, walk, markov, mutate, root, prog or bass",
         ),
         (
             "track t synth\nclip a = t live\n  euclid(3,8) c4",
             3,
             3,
-            "a live clip is a call: arp, walk, markov, mutate, root or prog",
+            "a live clip is a call: arp, walk, markov, mutate, root, prog or bass",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -1797,6 +1797,38 @@ fn a_prog_with_a_rhythm_feeds_root_and_arp() {
             "{e:?}"
         );
     }
+}
+
+/// #611: a bass line follows a progression with a rhythm, and a live
+/// clip's first bar, as root does.
+#[test]
+fn a_bass_follows_the_chords_and_a_live_source() {
+    let text = "scale c minor\ntrack pad synth\ntrack bass synth\n\n\
+                clip chords = pad voicing\n  prog(4,7,\"4 2 2\")\n\
+                clip low = bass\n  bass(chords,walk,2,5)\n\
+                clip moving = pad live\n  prog(2,3)\n\
+                clip under = bass\n  bass(moving,fifths)\n";
+    let s = Song::parse(text).expect("parses");
+    let printed = s.print();
+    assert!(printed.contains("  bass(chords,walk,5)"), "{printed}");
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let events = |k: usize| s.clips[k].notes.as_ref().unwrap().events.clone();
+    let chords = events(0);
+    for start in [0, 48, 72, 96, 144, 168] {
+        let low = chords
+            .iter()
+            .filter(|e| e.start == start)
+            .map(|e| e.note)
+            .min()
+            .unwrap();
+        let bass = events(1).into_iter().find(|e| e.start == start).unwrap();
+        assert_eq!(bass.note % 12, low % 12, "the root at {start}");
+    }
+    // The live clip's first cycle is its source, as root reads it: a root
+    // and its fifth on each chord, the tonic first and the dominant last.
+    let under = events(3);
+    assert_eq!(under.len(), 4);
+    assert_eq!((under[0].note % 12, under[2].note % 12), (0, 7));
 }
 
 // --- Mixer lines (ADR-0018) -----------------------------------------------------

@@ -908,7 +908,7 @@ impl Song {
                     if live && !matches!(n.seq, notes::Seq::Generated(_)) {
                         return Err(err(
                             first.col,
-                            "a live clip is a call: arp, walk, markov, mutate, root or prog",
+                            "a live clip is a call: arp, walk, markov, mutate, root, prog or bass",
                         ));
                     }
                     let clip = song

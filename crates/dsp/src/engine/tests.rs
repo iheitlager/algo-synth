@@ -5277,6 +5277,15 @@ fn prog_arguments_stay_as_typed() {
     assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
 }
 
+/// #611, #588: a bass line typed into a song stays as typed.
+#[test]
+fn a_bass_line_stays_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\nscale c minor\ntrack lead synth\n\nclip pad = lead\n  prog(4,7)\nclip low = lead\n  bass(pad, walk, 2, 5)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+}
+
 /// #588: an edit that leaves the song as its text says keeps the text as
 /// typed; one that changes it rewrites only its line; Format prints it all.
 #[test]
