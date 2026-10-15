@@ -23,6 +23,7 @@
 //! nothing happens in `render`. The result is held to `MAX_EVENTS` events and
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
+use super::generate::{MAX_CHORD, chord_at};
 use super::{DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
 use crate::algo::{Euclid, Mode, Scale, mix, pitch_class};
 
@@ -53,7 +54,49 @@ pub enum Pattern {
     Euclid(Euclid),
     Sometimes(Box<Pattern>),
     Scale(Keys),
+    /// `scale(<clip> <mode>)`: the roots are the notes an earlier clip plays
+    /// (ADR-0035, #591).
+    ScaleOf(Context, Mode),
+    /// Whole octaves, after the degrees are notes (#591).
+    Oct(i32),
 }
+
+/// An earlier clip a method reads for its harmony (ADR-0035): its name as
+/// written, its events and its bars, kept so the method applies again
+/// without looking it up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Context {
+    pub name: String,
+    pub events: Vec<Event>,
+    pub bars: u32,
+}
+
+impl Context {
+    /// The clip's notes sounding at tick `t` of the song, lowest first, into
+    /// `buf`, and how many: those starting latest at or before `t` modulo the
+    /// clip's length, or, before its first, its last chord, as it loops.
+    /// Nothing allocates, so a live clip may ask in `render` (#593).
+    pub fn chord(&self, t: u64, buf: &mut [u8; MAX_CHORD]) -> usize {
+        let len = u64::from(self.bars.max(1) * BAR);
+        let t = u32::try_from(t % len).unwrap_or(0);
+        chord_at(&self.events, t, buf)
+            .or_else(|| chord_at(&self.events, u32::MAX, buf))
+            .map_or(0, |(_, n)| n)
+    }
+
+    /// The root sounding at tick `t`: the lowest note there.
+    pub fn root(&self, t: u64) -> Option<u8> {
+        let mut buf = [0u8; MAX_CHORD];
+        if self.chord(t, &mut buf) > 0 {
+            buf.first().copied()
+        } else {
+            None
+        }
+    }
+}
+
+/// The earlier clips a method may read, by name: their events and bars.
+pub type Sources<'a> = dyn Fn(&str) -> Option<(Vec<Event>, u32)> + 'a;
 
 /// Most roots in a `scale` progression.
 const MAX_ROOTS: usize = 16;
@@ -175,6 +218,8 @@ impl Keys {
     }
 }
 
+const BAD_ROOT: &str = "a root is a letter a to g, maybe # or b, maybe an octave";
+
 /// A scale and the octave of its root, if written: a step of `.scale(…)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
@@ -185,7 +230,7 @@ pub struct Key {
 impl Key {
     /// `a1` or `a`: a root and maybe its octave, 0 to 9.
     fn parse(root: &str, mode: Mode) -> Result<Key, &'static str> {
-        let bad = "a root is a letter a to g, maybe # or b, maybe an octave";
+        let bad = BAD_ROOT;
         let (name, octave) = match root.char_indices().last() {
             Some((i, d)) if d.is_ascii_digit() => (&root[..i], d.to_digit(10)),
             _ => (root, None),
@@ -226,6 +271,21 @@ impl Key {
     }
 }
 
+/// A degree made a note of the scale of `mode` from `root` (degree 0), a
+/// note moved to the nearest of it: a key read from a clip (ADR-0035).
+pub fn place_on(e: &mut Event, root: u8, mode: Mode) {
+    let scale = Scale {
+        root: root % 12,
+        mode,
+    };
+    e.note = if e.degree {
+        scale.degree_note(root, i32::from(e.note) - i32::from(DEGREE_ZERO))
+    } else {
+        scale.snap(e.note)
+    };
+    e.degree = false;
+}
+
 /// A line of events looping over `bars` bars.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
@@ -259,7 +319,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 15] = [
+    pub const NAMES: [&'static str; 16] = [
         "fast",
         "slow",
         "rev",
@@ -275,10 +335,16 @@ impl Pattern {
         "euclid",
         "sometimes",
         "scale",
+        "oct",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
     pub fn parse(name: &str, args: &str) -> Result<Pattern, &'static str> {
+        Pattern::parse_in(name, args, &|_| None)
+    }
+
+    /// As `parse`, with the earlier clips a method may read (ADR-0035).
+    pub fn parse_in(name: &str, args: &str, srcs: &Sources) -> Result<Pattern, &'static str> {
         let raw = args;
         let args = split_args(args);
         let whole = |s: &str| {
@@ -333,7 +399,7 @@ impl Pattern {
                 let [a, m] = args.as_slice() else {
                     return Err("this takes a number and a method, e.g. every(4, rev)");
                 };
-                let inner = Box::new(nested(m)?);
+                let inner = Box::new(nested(m, srcs)?);
                 if name == "every" {
                     Ok(Pattern::Every(whole(a)?, inner))
                 } else {
@@ -367,8 +433,45 @@ impl Pattern {
                 }
                 Ok(Pattern::Euclid(e))
             }
-            "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?)?))),
-            "scale" => Ok(Pattern::Scale(Keys::parse(one()?)?)),
+            "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?, srcs)?))),
+            "scale" => {
+                let arg = one()?.trim();
+                let (first, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
+                // A clip's name wins over a root (ADR-0035).
+                match srcs(first) {
+                    Some((events, bars)) => {
+                        let mode = match rest.split_whitespace().collect::<Vec<_>>()[..] {
+                            [m] => Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?,
+                            _ => return Err("this takes a clip and a mode, e.g. scale(harm minor)"),
+                        };
+                        if events.is_empty() {
+                            return Err("this clip has no notes to take roots from");
+                        }
+                        Ok(Pattern::ScaleOf(
+                            Context {
+                                name: first.to_string(),
+                                events,
+                                bars,
+                            },
+                            mode,
+                        ))
+                    }
+                    None => Keys::parse(arg).map(Pattern::Scale).map_err(|m| {
+                        if m == BAD_ROOT && !first.starts_with('<') {
+                            "a root is a letter a to g, maybe # or b, maybe an octave, or an earlier clip"
+                        } else {
+                            m
+                        }
+                    }),
+                }
+            }
+            "oct" => one()?
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|n| n.abs() <= 4)
+                .map(Pattern::Oct)
+                .ok_or("this takes octaves from -4 to 4"),
             _ => Err("no such pattern method"),
         }
     }
@@ -402,6 +505,8 @@ impl Pattern {
             Pattern::Euclid(e) => e.print(),
             Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
             Pattern::Scale(keys) => format!("scale({})", keys.print()),
+            Pattern::ScaleOf(c, mode) => format!("scale({} {})", c.name, mode.name()),
+            Pattern::Oct(n) => format!("oct({n})"),
         }
     }
 
@@ -481,6 +586,25 @@ impl Pattern {
                     }
                 }
                 out
+            }
+            Pattern::ScaleOf(c, mode) => {
+                // Each note takes the root sounding in the clip where it
+                // starts, the two round together (ADR-0035).
+                let bars = lcm(line.bars, c.bars);
+                check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+                let mut out = line.repeat(bars);
+                for e in &mut out.events {
+                    if let Some(root) = c.root(u64::from(e.start)) {
+                        place_on(e, root, *mode);
+                    }
+                }
+                out
+            }
+            Pattern::Oct(n) => {
+                if line.events.iter().any(|e| e.degree) {
+                    return Err("oct moves notes: write it after scale");
+                }
+                transpose(line, 12 * n)
             }
         };
         check(out.bars, out.events.len())?;
@@ -675,7 +799,7 @@ fn ticks(s: &str) -> Result<u32, &'static str> {
 }
 
 /// The method inside `every` or `off`: `rev`, `fast(2)`, `add(12)`.
-fn nested(s: &str) -> Result<Pattern, &'static str> {
+fn nested(s: &str, srcs: &Sources) -> Result<Pattern, &'static str> {
     let s = s.trim();
     let (name, args) = match s.split_once('(') {
         Some((n, rest)) => (
@@ -687,7 +811,7 @@ fn nested(s: &str) -> Result<Pattern, &'static str> {
     if !Pattern::NAMES.contains(&name) {
         return Err("a pattern method goes here, e.g. rev or fast(2)");
     }
-    Pattern::parse(name, args)
+    Pattern::parse_in(name, args, srcs)
 }
 
 /// The arguments between a method's brackets, split at commas outside
@@ -979,6 +1103,7 @@ mod tests {
             ("euclid", " 3, 8 ,2", "euclid(3,8,2)"),
             ("euclid", "3,8,0", "euclid(3,8)"),
             ("every", "2, euclid(3,8)", "every(2, euclid(3,8))"),
+            ("oct", " -1", "oct(-1)"),
             ("scale", " eb  minor ", "scale(d# minor)"),
             ("scale", "a1 minor-pentatonic", "scale(a1 minor-pentatonic)"),
             ("scale", "<a1  d2>/4 minor", "scale(<a1 d2>/4 minor)"),
@@ -1066,8 +1191,10 @@ mod tests {
             (
                 "scale",
                 "h minor",
-                "a root is a letter a to g, maybe # or b, maybe an octave",
+                "a root is a letter a to g, maybe # or b, maybe an octave, or an earlier clip",
             ),
+            ("oct", "5", "this takes octaves from -4 to 4"),
+            ("oct", "", "this takes one value"),
             ("scale", "c weird", "no scale has this mode"),
             (
                 "scale",

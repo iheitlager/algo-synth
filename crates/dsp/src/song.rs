@@ -784,10 +784,12 @@ impl Song {
                     // Degrees (#570): the clip's `.scale` makes them notes after
                     // the methods before it; without one, the song's scale does,
                     // at once, so `add` and voicing see notes.
-                    let keyed = clip
-                        .pattern
-                        .iter()
-                        .any(|p| matches!(p, pattern::Pattern::Scale(_)));
+                    let keyed = clip.pattern.iter().any(|p| {
+                        matches!(
+                            p,
+                            pattern::Pattern::Scale(_) | pattern::Pattern::ScaleOf(..)
+                        )
+                    });
                     if !keyed {
                         song_degrees(&mut n.events, song.scale.as_ref(), song.scale_octave)
                             .map_err(|m| err(first.col, m))?;
@@ -1196,9 +1198,18 @@ impl Song {
                                 } else {
                                     None
                                 };
+                                // The earlier clips, for a method that reads one (ADR-0035).
+                                let srcs = |name: &str| {
+                                    song.clips
+                                        .iter()
+                                        .take(f)
+                                        .find(|c| c.name == name)
+                                        .and_then(|c| c.notes.as_ref())
+                                        .map(|n| (n.events.clone(), n.bars))
+                                };
                                 let p = match msg {
                                     Some(m) => Err(m),
-                                    None => Pattern::parse(name, sig),
+                                    None => Pattern::parse_in(name, sig, &srcs),
                                 }
                                 .map_err(|m| err(at + ncol - 1, m))?;
                                 if let Some(clip) = song.clips.get_mut(f) {

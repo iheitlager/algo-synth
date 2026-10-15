@@ -2237,6 +2237,98 @@ fn euclid_on_a_clip_is_its_struct_and_prints_back() {
     assert_eq!(Song::parse(&printed), Ok(euclid));
 }
 
+/// The notes of the clip named `name`, with their starts.
+fn notes_of(s: &Song, name: &str) -> Vec<(u32, u8)> {
+    s.clips
+        .iter()
+        .find(|c| c.name == name)
+        .and_then(|c| c.notes.as_ref())
+        .map(|n| n.events.iter().map(|e| (e.start, e.note)).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_clip_takes_its_roots_from_an_earlier_clip() {
+    // The pedal plays a1 four bars, then d1 four: as <a1 d1>/4 (ADR-0035).
+    let s = Song::parse(
+        "track bass synth\ntrack lead synth\n\
+         clip pedal = bass .slow(4)\n  \"<a1 d1>\"\n\
+         clip arp = lead .fast(8) .scale(pedal minor-pentatonic)\n  \"<0 2 1 3 2>\"\n\
+         clip same = lead .fast(8) .scale(<a1 d1>/4 minor-pentatonic)\n  \"<0 2 1 3 2>\"\n",
+    )
+    .expect("parses");
+    assert_eq!(notes_of(&s, "arp"), notes_of(&s, "same"));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip arp = lead .fast(8) .scale(pedal minor-pentatonic)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn a_follower_stays_in_phase_with_a_source_of_another_length() {
+    // Three bars of roots under two bars of degrees: six bars, each note on
+    // the root of the bar it falls in, counted from the song's first bar.
+    let s = Song::parse(
+        "track bass synth\ntrack lead synth\n\
+         clip roots = bass\n  \"<a1 c2 e2>\"\n\
+         clip f = lead .scale(roots major)\n  \"<0 0>\"\n",
+    )
+    .expect("parses");
+    let bars: Vec<u8> = notes_of(&s, "f").iter().map(|(_, n)| *n).collect();
+    assert_eq!(bars, vec![33, 36, 40, 33, 36, 40]);
+    // Before the source's first note in its loop, its last chord sounds.
+    let s = Song::parse(
+        "track bass synth\ntrack lead synth\n\
+         clip late = bass\n  \"~ e2\"\n\
+         clip f = lead .scale(late minor)\n  \"0 2\"\n",
+    )
+    .expect("parses");
+    assert_eq!(notes_of(&s, "f"), vec![(0, 40), (24, 43)]);
+}
+
+#[test]
+fn oct_moves_whole_octaves_after_the_degrees_are_notes() {
+    let s = Song::parse(
+        "track bass synth\ntrack lead synth\n\
+         clip pedal = bass\n  \"a1\"\n\
+         clip up = lead .scale(pedal minor) .oct(2)\n  \"0 2\"\n",
+    )
+    .expect("parses");
+    assert_eq!(notes_of(&s, "up"), vec![(0, 57), (24, 60)]);
+    assert_eq!(
+        Song::parse("track lead synth\nclip x = lead .oct(1) .scale(a1 minor)\n  \"0\"\n")
+            .map(|_| ())
+            .map_err(|e| e.msg),
+        Err("oct moves notes: write it after scale")
+    );
+}
+
+#[test]
+fn a_clip_read_for_roots_comes_before_and_has_notes() {
+    for (text, line, msg) in [
+        (
+            "track lead synth\nclip f = lead .scale(later minor)\n  \"0\"\nclip later = lead\n  \"a1\"\n",
+            2,
+            "a root is a letter a to g, maybe # or b, maybe an octave, or an earlier clip",
+        ),
+        (
+            "track lead synth\nclip p = lead\n  \"a1\"\nclip f = lead .scale(p)\n  \"0\"\n",
+            4,
+            "this takes a clip and a mode, e.g. scale(harm minor)",
+        ),
+        (
+            "track lead synth\nclip p = lead\n  \"~\"\nclip f = lead .scale(p minor)\n  \"0\"\n",
+            4,
+            "this clip has no notes to take roots from",
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(msg);
+        assert_eq!((e.msg, e.line), (msg, line), "{text}");
+    }
+}
+
 /// The notes of clip `k`, in order.
 fn clip_notes(s: &Song, k: usize) -> Vec<u8> {
     let n = s

@@ -494,6 +494,20 @@ cycle is a bar; times round to the tick grid; the result keeps the limits of
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
 | `.scale(<<root>…>[/n] [<mode>])` | a progression: the roots (up to 16) take turns, a bar each or n (1–16) bars each, by the bar a note starts in; `a1:dorian` gives a root its own mode, and the shared mode may go when each has one |
+| `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
+| `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
+
+Write the harmony once and let other clips follow it: one edit to it moves
+them all at the same bar.
+
+```song
+track bass synth
+track lead synth
+clip pedal = bass .slow(4)
+  "<a1 d1>"
+clip arp = lead .fast(8) .scale(pedal minor-pentatonic) .oct(1)
+  "<0 2 1 3 2>"
+```
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:
 `rev`, `fast(2)`, `add(12)`.
