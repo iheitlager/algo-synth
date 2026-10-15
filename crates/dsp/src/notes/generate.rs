@@ -277,6 +277,7 @@ fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             });
         }
     }
@@ -308,6 +309,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             word: 0,
             degree: false,
             when: Default::default(),
+            nudge: 0,
         });
     }
 }
@@ -429,6 +431,7 @@ fn arp_prog(src: &[Event], bars: u32, mode: ArpMode, rate: u8, seed: u32, out: &
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             });
         }
     }
@@ -457,6 +460,7 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             word: 0,
             degree: false,
             when: Default::default(),
+            nudge: 0,
         });
         i = j.max(i + 1);
     }
@@ -518,6 +522,7 @@ fn prog(bars: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             });
         }
     }

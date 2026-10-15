@@ -264,6 +264,9 @@ pub struct Event {
     pub degree: bool,
     /// The bars of its scene it plays in (#603): every one by default.
     pub when: When,
+    /// Milliseconds off its tick: later for a strummed note (#604), earlier
+    /// for a grace, which is soft and lets go on its tick (#605).
+    pub nudge: i16,
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -514,6 +517,7 @@ impl Cursor<'_> {
             word: 0,
             degree: p.degree,
             when: Default::default(),
+            nudge: 0,
         })
     }
 
@@ -1392,6 +1396,7 @@ impl Compiler<'_> {
             word: self.word,
             degree: p.degree,
             when: self.when,
+            nudge: 0,
         });
     }
 }
@@ -1406,8 +1411,10 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When) {
-    (e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when)
+pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16) {
+    (
+        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge,
+    )
 }
 
 /// A line of mini-notation that plays exactly `events` (sorted, within
@@ -1416,7 +1423,10 @@ pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When) {
 /// note over a bar line, overlapping notes, or a chord of different lengths.
 pub fn freeze(events: &[Event], bars: u32) -> Option<Notes> {
     let bar = TICKS_PER_BAR;
-    if events.iter().any(|e| e.when != When::default()) {
+    if events
+        .iter()
+        .any(|e| e.when != When::default() || e.nudge != 0)
+    {
         return None;
     }
     let mut texts = Vec::new();
@@ -1535,6 +1545,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     word: 0,
                     degree: false,
                     when: Default::default(),
+                    nudge: 0,
                 });
             }
         }
@@ -1575,6 +1586,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     word: 0,
                     degree: false,
                     when: Default::default(),
+                    nudge: 0,
                 });
             }
         }
@@ -1716,6 +1728,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     word: 0,
                     degree,
                     when: Default::default(),
+                    nudge: 0,
                 });
             }
             (events, 1)
@@ -1735,6 +1748,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         word: u16::try_from(w).unwrap_or(u16::MAX),
                         degree: p.degree,
                         when: Default::default(),
+                        nudge: 0,
                     });
                 }
                 at += len;

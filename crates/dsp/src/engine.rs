@@ -1921,6 +1921,11 @@ impl Engine {
         self.arps.iter().any(|a| a.on && a.free)
     }
 
+    /// `ms` milliseconds in samples (#604).
+    fn ms_samples(&self, ms: i16) -> u64 {
+        (f64::from(ms.unsigned_abs()) * f64::from(self.sample_rate) / 1000.0).round() as u64
+    }
+
     /// Samples in one tick at the clock's tempo.
     fn free_tick_len(&self) -> f64 {
         f64::from(self.sample_rate) * 60.0
@@ -2046,11 +2051,29 @@ impl Engine {
                 if !ev.when.holds(in_first, in_last) {
                     continue;
                 }
+                // A strummed note waits in the hit queue, its note-off at
+                // least a tick after it (#604).
+                let late = self.ms_samples(ev.nudge.max(0));
+                let len = if late > 0 {
+                    let ticks = (late as f64 / self.free_tick_len()).ceil() as u64;
+                    u64::from(ev.len).max(ticks + 1)
+                } else {
+                    u64::from(ev.len)
+                };
                 let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
                     continue;
                 };
-                *slot = Some((j + u64::from(ev.len), track, ev.note));
-                self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                *slot = Some((j + len, track, ev.note));
+                if late > 0 {
+                    self.queue_hit(Hit {
+                        at: self.clock.tick_sample(j) + late,
+                        owner: Owner::Track(track),
+                        note: ev.note,
+                        velocity: ev.velocity(),
+                    });
+                } else {
+                    self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                }
                 self.sample_on_note(usize::from(track), f, j);
                 let span = self
                     .spans

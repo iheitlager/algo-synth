@@ -18,7 +18,8 @@
 //! moves each note to the nearest note of the scale and makes each degree a
 //! note, counted from the root in octave 3 or the one written (`a1`, #570);
 //! `scale(<a1 d2>/4 minor)` takes the roots in turn, a bar each or `/n` bars
-//! each, by the bar a note starts in (#571).
+//! each, by the bar a note starts in (#571); `strum(ms)` starts a chord's
+//! notes ms apart, the engine playing them between ticks (#604).
 //!
 //! Every method maps a line (events and a length in bars) to a line, so
 //! nothing happens in `render`. The result is held to `MAX_EVENTS` events and
@@ -66,6 +67,9 @@ pub enum Pattern {
     /// `struct(<clip>)`: the rhythm of an earlier clip, its note starts or
     /// its drum hits (ADR-0035, #600).
     StructOf(Context),
+    /// Milliseconds between a chord's notes, upward; downward when below 0
+    /// (#604).
+    Strum(i16),
 }
 
 /// An earlier clip a method reads for its harmony (ADR-0035): its name as
@@ -367,7 +371,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 17] = [
+    pub const NAMES: [&'static str; 18] = [
         "fast",
         "slow",
         "rev",
@@ -385,6 +389,7 @@ impl Pattern {
         "scale",
         "oct",
         "chord",
+        "strum",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -544,6 +549,13 @@ impl Pattern {
                     bars,
                 }))
             }
+            "strum" => one()?
+                .trim()
+                .parse::<i16>()
+                .ok()
+                .filter(|n| *n != 0 && n.abs() <= 100)
+                .map(Pattern::Strum)
+                .ok_or("this takes milliseconds from 1 to 100, below 0 to strum down"),
             "oct" => one()?
                 .trim()
                 .parse::<i32>()
@@ -588,6 +600,7 @@ impl Pattern {
             Pattern::Oct(n) => format!("oct({n})"),
             Pattern::ChordOf(c) => format!("chord({})", c.name),
             Pattern::StructOf(c) => format!("struct({})", c.name),
+            Pattern::Strum(ms) => format!("strum({ms})"),
         }
     }
 
@@ -697,6 +710,7 @@ impl Pattern {
                 out.events.retain_mut(|e| c.place(e, u64::from(e.start)));
                 out
             }
+            Pattern::Strum(ms) => strum(line, *ms),
             Pattern::Oct(n) => {
                 if line.events.iter().any(|e| e.degree) {
                     return Err("oct moves notes: write it after scale");
@@ -961,6 +975,41 @@ fn restructure(line: &Line, src: &Context, bars: u32) -> Line {
     Line { events, bars }
 }
 
+/// Each chord of `line` (its notes sharing a start, graces aside) spread
+/// `ms` apart from its lowest note up, or from its highest down when `ms`
+/// is below 0; a single note stays on its tick.
+fn strum(line: &Line, ms: i16) -> Line {
+    let mut events = line.events.clone();
+    events.sort_by_key(|e| (e.start, e.note));
+    let mut i = 0;
+    while i < events.len() {
+        let start = events.get(i).map_or(0, |e| e.start);
+        let end = i + events
+            .iter()
+            .skip(i)
+            .take_while(|e| e.start == start)
+            .count();
+        let mut chord: Vec<&mut Event> = events
+            .get_mut(i..end)
+            .unwrap_or(&mut [])
+            .iter_mut()
+            .filter(|e| e.nudge >= 0)
+            .collect();
+        chord.sort_by_key(|e| e.note);
+        if ms < 0 {
+            chord.reverse();
+        }
+        for (k, e) in chord.into_iter().enumerate() {
+            e.nudge = i16::try_from(k).unwrap_or(0).saturating_mul(ms.abs());
+        }
+        i = end.max(i + 1);
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
 /// `1/8`, `3/16` or `0.25` of a bar, in ticks.
 fn ticks(s: &str) -> Result<u32, &'static str> {
     let s = s.trim();
@@ -1036,6 +1085,7 @@ mod tests {
             word: 0,
             degree: false,
             when: Default::default(),
+            nudge: 0,
         }
     }
 
@@ -1153,6 +1203,78 @@ mod tests {
         // The copy of the last note wraps round to the bar's start.
         let late = run("off(3/4, add(7))", &four());
         assert!(late.events.iter().any(|e| (e.start, e.note) == (0, 69)));
+    }
+
+    /// A chord a bar long, and a single note in the second bar.
+    fn chord_then_note() -> Line {
+        Line {
+            events: vec![
+                ev(0, 48, 64),
+                ev(0, 48, 71),
+                ev(0, 48, 60),
+                ev(0, 48, 67),
+                ev(48, 48, 62),
+            ],
+            bars: 2,
+        }
+    }
+
+    fn nudges(l: &Line) -> Vec<(u32, u8, i16)> {
+        l.events
+            .iter()
+            .map(|e| (e.start, e.note, e.nudge))
+            .collect()
+    }
+
+    #[test]
+    fn strum_spreads_a_chord_up_or_down() {
+        assert_eq!(
+            nudges(&run("strum(15)", &chord_then_note())),
+            [
+                (0, 60, 0),
+                (0, 64, 15),
+                (0, 67, 30),
+                (0, 71, 45),
+                (48, 62, 0)
+            ]
+        );
+        assert_eq!(
+            nudges(&run("strum(-15)", &chord_then_note())),
+            [
+                (0, 60, 45),
+                (0, 64, 30),
+                (0, 67, 15),
+                (0, 71, 0),
+                (48, 62, 0)
+            ]
+        );
+        let lens: Vec<u32> = run("strum(15)", &chord_then_note())
+            .events
+            .iter()
+            .map(|e| e.len)
+            .collect();
+        assert_eq!(lens, [48; 5], "the ends stay");
+        // Inside every, off and sometimes it strums the bars they change.
+        let mut chord = chord_then_note();
+        chord.events.pop();
+        chord.bars = 1;
+        let e = run("every(2, strum(10))", &chord);
+        assert_eq!(e.bars, 2);
+        let top: Vec<i16> = e
+            .events
+            .iter()
+            .filter(|e| e.note == 71)
+            .map(|e| e.nudge)
+            .collect();
+        assert_eq!(top, [30, 0]);
+        let o = run("off(1/2, strum(10))", &chord_then_note());
+        assert!(
+            o.events
+                .iter()
+                .any(|e| (e.start, e.note, e.nudge) == (24, 71, 30))
+        );
+        let s = run("sometimes(strum(10))", &chord_then_note());
+        assert!(s.events.iter().all(|e| e.nudge % 10 == 0));
     }
 
     #[test]
@@ -1283,6 +1405,8 @@ mod tests {
             ("off", "0.125, add(12)", "off(1/8, add(12))"),
             ("off", "3/16,palindrome", "off(3/16, palindrome)"),
             ("sub", "-3", "sub(-3)"),
+            ("strum", " 15 ", "strum(15)"),
+            ("every", "2, strum(-15)", "every(2, strum(-15))"),
             ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
             ("sometimes", "fast(2)", "sometimes(fast(2))"),
             ("euclid", "5,8", "euclid(5,8)"),
@@ -1322,6 +1446,26 @@ mod tests {
             ("fast", "1.5", "this takes a whole number from 1 to 16"),
             ("fast", "", "this takes one value"),
             ("rev", "2", "this takes no value: ()"),
+            (
+                "strum",
+                "0",
+                "this takes milliseconds from 1 to 100, below 0 to strum down",
+            ),
+            (
+                "strum",
+                "101",
+                "this takes milliseconds from 1 to 100, below 0 to strum down",
+            ),
+            (
+                "strum",
+                "-101",
+                "this takes milliseconds from 1 to 100, below 0 to strum down",
+            ),
+            (
+                "strum",
+                "1.5",
+                "this takes milliseconds from 1 to 100, below 0 to strum down",
+            ),
             ("add", "99", "this takes semitones from -48 to 48"),
             ("degrade", "2", "this takes a chance from 0 to 1"),
             (

@@ -246,6 +246,7 @@ fn layout(
                     vel: n.vel,
                     degree: false,
                     when: Default::default(),
+                    nudge: 0,
                     word: 0,
                 })
                 .collect();

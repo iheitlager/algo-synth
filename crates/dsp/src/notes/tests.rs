@@ -585,6 +585,7 @@ fn freezing_refuses_what_it_cannot_write() {
         word: 0,
         degree: false,
         when: Default::default(),
+        nudge: 0,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -611,6 +612,7 @@ fn timed_notes_parse_compile_and_print() {
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             },
             Event {
                 start: 0,
@@ -621,6 +623,7 @@ fn timed_notes_parse_compile_and_print() {
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             },
             Event {
                 start: 6,
@@ -631,6 +634,7 @@ fn timed_notes_parse_compile_and_print() {
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             },
             Event {
                 start: 12,
@@ -641,6 +645,7 @@ fn timed_notes_parse_compile_and_print() {
                 word: 0,
                 degree: false,
                 when: Default::default(),
+                nudge: 0,
             },
         ]
     );
@@ -684,6 +689,7 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         word: 0,
         degree: false,
         when: Default::default(),
+        nudge: 0,
     }
 }
 
