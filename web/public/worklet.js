@@ -105,6 +105,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         case 'recipe': this.setRecipe(new Uint8Array(data.bytes)); break
         case 'groupName': this.setGroupName(data.g, new Uint8Array(data.bytes)); break
         case 'step': w.set_step(data.f, data.l, data.s, data.level); this.sendSong(true); break
+        case 'format': w.song_format(); this.sendSong(true); break
         case 'ratchet': w.set_ratchet(data.f, data.l, data.s, data.r); this.sendSong(true); break
         // A track's mute and solo (#355): bit 0 mute, bit 1 solo.
         case 'trackFlags': w.set_track_flags(data.track, data.flags); this.sendSong(true); break

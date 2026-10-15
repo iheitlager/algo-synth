@@ -777,7 +777,8 @@ pub extern "C" fn zone_count() -> u32 {
 // --- The song (spec 002, Req 6, ADR-0012) ----------------------------------
 //
 // Loading as a MIDI file: `song_buf(len)`, write the text's UTF-8 bytes,
-// `song_load()`. The engine parses it and prints it back (`song_text_*`); the
+// `song_load()`. The engine parses it and keeps it as typed, or prints it when
+// loading changed the song (`song_text_*`, #588); the
 // view draws the grid from the queries below and never parses the text.
 // (`song_length` and `song_bar` above belong to the MIDI file.)
 
@@ -1243,6 +1244,12 @@ pub extern "C" fn midi_import() -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn song_playing() -> u32 {
     query(0, |e| u32::from(e.clock().playing()))
+}
+
+/// Format (#588): the song's text as the engine prints it, every line.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_format() {
+    with_engine(Engine::format_song);
 }
 
 /// Set the song's tempo in BPM; the text and the clock follow.
@@ -2840,6 +2847,7 @@ mod tests {
         sweep!(reset, midi_import());
         sweep!(reset, song_playing());
         sweep!(reset, song_tempo(_));
+        sweep!(reset, song_format());
         sweep!(reset, song_swing(_));
         sweep!(reset, clock_tempo());
         sweep!(reset, clock_swing());

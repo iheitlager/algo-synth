@@ -1,6 +1,6 @@
 # 0027: Autocommit: the song follows the synths and the synths the song
 
-**Status:** Accepted, amended by #522 and #527 (zones and pads fold) · **Date:** 2026-10-07
+**Status:** Accepted, amended by #522 and #527 (zones and pads fold) and #588 (the text stays as typed) · **Date:** 2026-10-07
 
 ## Context
 
@@ -18,7 +18,7 @@ In use, that leaves the text and the sound drifting apart until someone remember
 
   It then reprints the song and sends it once. A knob drag gives a few song updates, not one per message. A library preset or an opened setup is a set of parameter changes, so it lands in the song the same way.
 - **Driven values stay out.** A value a lane, a scene or a `mod` is writing is not folded into the text, so a moving lane never freezes into a number.
-- **The text applies as it is typed.** About half a second after typing stops, a text that parses is applied: at once when the song is stopped, from the next bar while it plays (ADR-0012, #208). One that does not parse shows its error and changes nothing. Ctrl+Enter applies at once.
+- **The text applies as it is typed.** *(Amended by #588, below: on a finished line, not on a pause.)* About half a second after typing stops, a text that parses is applied: at once when the song is stopped, from the next bar while it plays (ADR-0012, #208). One that does not parse shows its error and changes nothing. Ctrl+Enter applies at once.
 - **Typing wins.** While an edit is being typed and not yet applied, folded changes wait. When it applies, they are folded in on top, so a keystroke is never overwritten by a knob.
 - **The Modular code is the same.** A SynthDef builds as it is typed and goes into the track's setting (ADR-0024).
 - **Every shown synth is a track,** with or without fragments, so the song holds every sound on screen. Adding a synth adds a track; removing one removes it.
@@ -39,3 +39,13 @@ This supersedes ADR-0018's "A moved fader is not written back into the text by i
   - 002: the session folds back
   - 003: Req 5 drops Save as setting, Req 7 becomes the import only, Req 15 drops the Modular Apply
 - Tracked in epic #362: #356 to #361.
+
+## Amendment (#588): the text stays as typed
+
+Applying on a pause played half-typed words, and the answer to an apply put the printed song in the editor: lines moved, defaults appeared, blank lines and indents went, under the caret.
+
+- **The song text applies when a line is done:** on Enter, when the caret leaves a line it was typed on (arrow keys, a click, leaving the editor), or on Ctrl+Enter. A pause applies nothing. Folding stays held while an edit is not applied, so a knob waits for the line. The Modular code still builds on a pause.
+- **An apply never rewrites the text.** The engine keeps the text as typed when the song it loaded is what the text says. When loading changed the song (a kit picked from the rack), it keeps the printed text, which says so.
+- **An edit from outside the editor writes only what it changed.** A step click, a piano-roll edit, a fold or a track edit leaves the text alone when the song stays as the text says. Otherwise it rewrites only the lines of the items it changed, as the engine prints them (`song::splice`), keeping their indent and side comment. A new item goes after the item before it, and a gone one is taken out. Items are what the comments pass names: a top-level line with a Modular setting's code, and each lane or note line of a clip. When the result would not parse back to the song, the whole song is printed instead. A rewritten line is canonical within itself: `x... x...` comes back as `x...x...`.
+- **Format prints it all:** a Format command (Shift+Alt+F, or the composer's button) prints the whole text as the engine writes it, applying the draft first. It is the only way the engine reprints the whole text on purpose.
+- **The words that play light up in the text as typed.** A clip's lines are found by their words. A note line written otherwise than it prints is matched word for word, and lights nothing when its words don't line up.

@@ -7,7 +7,7 @@ import { LIMITS, setSplit, splits } from '../audio/split'
 import Splitter from './Splitter.vue'
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, cueClip, loadSong, nextRatchet, params, requestSong, routeTrack, sameSong, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  MUTE, applyDraft, cueClip, formatSong, loadSong, nextRatchet, params, requestSong, routeTrack, sameSong, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -73,6 +73,11 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
     apply()
+  }
+  // Shift+Alt+F prints the whole text as the engine writes it (#588).
+  if (e.code === 'KeyF' && e.shiftKey && e.altKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault()
+    formatSong()
   }
 }
 
@@ -158,11 +163,12 @@ watch(() => status.running, (on) => on && requestSong())
       <div class="text">
         <div class="text-head">
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
-          <span v-else-if="dirty" class="muted">applies when you pause · Ctrl+Enter now</span>
+          <span v-else-if="dirty" class="muted">applies when the line is done · Ctrl+Enter now</span>
+          <button class="format" :disabled="!status.running" title="Print the whole text as the engine writes it (Shift+Alt+F)" @click="formatSong">Format</button>
         </div>
         <SongEditor
           :model-value="song.draft" :disabled="!status.running" :error="song.error"
-          :lit="song.draft === song.text ? song.lit : []" @update:model-value="typeSong" @keydown="onKey"
+          :lit="song.draft === song.text ? song.lit : []" @update:model-value="typeSong" @keydown="onKey" @done="applyDraft"
         />
       </div>
     </div>
@@ -204,6 +210,7 @@ watch(() => status.running, (on) => on && requestSong())
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
 .text-head { display: flex; align-items: center; gap: 10px; }
+.format { margin-left: auto; }
 .error { color: var(--accent); }
 .muted { color: var(--muted); }
 </style>

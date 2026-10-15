@@ -43,7 +43,7 @@ impl PartialEq for Comments {
 }
 
 /// The item each line is, `None` for a blank line or one with only a comment.
-fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
+pub(super) fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
     // The clip the indented lines belong to.
     let mut clip: Option<&str> = None;
     // Whether the indented lines are a Modular setting's code.
@@ -99,10 +99,10 @@ fn keys(lines: &[&str], song: &Song) -> Vec<Option<String>> {
 
 /// The key of a line of a Modular setting's code: its own, with no comment
 /// in it, since a `#` there is SuperCollider's (ADR-0024).
-const CODE: &str = "code";
+pub(super) const CODE: &str = "code";
 
 /// The comment on `raw`, from its `#`.
-fn comment_of(raw: &str) -> Option<String> {
+pub(super) fn comment_of(raw: &str) -> Option<String> {
     let rest = raw.get(strip_comment(raw).len()..)?.trim();
     rest.starts_with('#').then(|| rest.to_string())
 }

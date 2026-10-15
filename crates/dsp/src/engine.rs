@@ -70,6 +70,7 @@ use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::song::spans::{self, ClipSpans};
+use crate::song::splice;
 use crate::song::{
     At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
     STEPS_PER_BAR, Song, SongError, Step, Target, signal,
@@ -1610,9 +1611,37 @@ impl Engine {
         self.song_play();
     }
 
-    /// Print the song into its text again after an edit, and find its words
-    /// there (#205). Not for `render`: it allocates.
+    /// Write an edit into the song's text, and find its words there (#205).
+    /// The text stays as typed (#588): an edit that leaves the song as the
+    /// text says (a fold of what it already sets) changes nothing, and one
+    /// that changes it rewrites only its items' lines (`splice`). When that
+    /// does not give the song back, the whole song is printed. Not for
+    /// `render`: it allocates.
     fn reprint(&mut self) {
+        if let Ok(was) = Song::parse(&self.song_text) {
+            if was == self.song {
+                return;
+            }
+            let spliced = splice::splice(&self.song_text, &was, &self.song)
+                .filter(|t| Song::parse(t).is_ok_and(|s| s == self.song));
+            if let Some(text) = spliced {
+                self.song_text = text;
+                self.spans = spans::spans(&self.song, &self.song_text);
+                return;
+            }
+        }
+        self.song_text = self.song.print();
+        self.spans = spans::spans(&self.song, &self.song_text);
+    }
+
+    /// Format (#588): the whole text as the engine prints it, of the song
+    /// waiting for its bar if one is.
+    pub fn format_song(&mut self) {
+        if let Some(p) = self.pending.as_mut() {
+            self.song_text = p.song.print();
+            p.spans = spans::spans(&p.song, &self.song_text);
+            return;
+        }
         self.song_text = self.song.print();
         self.spans = spans::spans(&self.song, &self.song_text);
     }
@@ -2828,7 +2857,7 @@ impl Engine {
             return false;
         }
         self.commit_song();
-        let before = std::mem::take(&mut self.song_text);
+        let before = self.song_text.clone();
         for t in 0..self.song.tracks.len() {
             let Some(s) = self.song_routed(t).filter(|s| *s < SYNTHS) else {
                 continue;
@@ -3001,6 +3030,8 @@ impl Engine {
         };
         match parsed {
             Ok(mut song) => {
+                // The song as its text says, to know whether loading it changed it.
+                let as_typed = song.clone();
                 // Where each track played before, to know which strips are new to a track.
                 let before = self.song_route;
                 // The routes the new song takes over with.
@@ -3094,7 +3125,12 @@ impl Engine {
                     }
                 }
                 self.apply_mix(&song, &before, &route);
-                self.song_text = song.print();
+                // The text stays as typed (#588), unless loading changed the
+                // song (a kit picked from the rack): then it says so, printed.
+                self.song_text = match std::str::from_utf8(&self.song_buf) {
+                    Ok(typed) if song == as_typed => typed.to_string(),
+                    _ => song.print(),
+                };
                 self.song_error = None;
                 self.spent = None;
                 self.pending = Some(Pending {
@@ -3148,7 +3184,8 @@ impl Engine {
         &self.song
     }
 
-    /// The song as the engine prints it, after the last load or edit.
+    /// The song's text: as typed after a load that took it as it was (#588),
+    /// as the engine prints it after an edit.
     pub fn song_text(&self) -> &str {
         &self.song_text
     }
