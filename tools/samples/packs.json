@@ -157,6 +157,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Boss DR-550's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/BossDR550/bossdr550-bd/Bassdrum-01.wav",
@@ -265,6 +266,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Yamaha RM50's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/YamahaRM50/yamaharm50-bd/BD-001.wav",
@@ -373,6 +375,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the LinnDrum's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/LinnDrum/linndrum-bd/Bassdrum.wav",
@@ -481,6 +484,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Oberheim DMX's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/OberheimDMX/oberheimdmx-bd/Bassdrum-01.wav",
@@ -589,6 +593,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the E-mu SP-1200's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/EmuSP12/emusp12-bd/Bassdrum-01.wav",
@@ -697,6 +702,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Roland TR-707's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR707/rolandtr707-bd/Bassdrum-01.wav",
@@ -793,6 +799,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Roland CR-78's voices, on its General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandCompurhythm78/rolandcompurhythm78-bd/Bassdrum.wav",
@@ -901,6 +908,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Roland TR-808's voices at mid knob settings, on its General MIDI pad; its congas and claves fill the rest. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-bd/BD2550.WAV",
@@ -1009,6 +1017,7 @@
       "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
       "redistribute": false,
       "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Roland TR-909's voices on its General MIDI pad; second takes fill the rest. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
       "files": [
         {
           "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-bd/Bassdrum-01.wav",

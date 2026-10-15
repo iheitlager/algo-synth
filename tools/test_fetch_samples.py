@@ -1,5 +1,6 @@
 import array
 import json
+import math
 import struct
 import sys
 import unittest
@@ -164,6 +165,29 @@ def wav_bytes(n: int = 1600, rate: int = 16000) -> bytes:
     return fs.write_mono_wav(rate, 1, array.array("h", [i % 200 - 100 for i in range(n)]), 60, None)
 
 
+class Loudness(unittest.TestCase):
+    """The balance of a drum-machine kit (#585)."""
+
+    def test_the_loudest_window_of_known_signals(self):
+        square = array.array("h", [32767, -32767] * 4000)
+        self.assertAlmostEqual(fs.loudness(8000, 1, square), 0.0, places=1)
+        sine = array.array("h", (round(32767 * math.sin(i * 2 * math.pi / 16)) for i in range(8000)))
+        self.assertAlmostEqual(fs.loudness(8000, 1, sine), -3.0, places=1)
+        # A short burst in silence: the window finds it, a mean over the file would not.
+        burst = array.array("h", [0] * 4000 + [32767, -32767] * 200 + [0] * 4000)
+        self.assertAlmostEqual(fs.loudness(8000, 1, burst), 0.0, places=1)
+        stereo = array.array("h", [32767, 32767, -32767, -32767] * 2000)
+        self.assertAlmostEqual(fs.loudness(8000, 2, stereo), 0.0, places=1)
+
+    def test_a_level_reaches_the_target_within_the_engines_range(self):
+        at = lambda db: array.array("h", [round(32767 * 10 ** (db / 20)), -round(32767 * 10 ** (db / 20))] * 4000)
+        self.assertEqual(fs.balanced_level(0, 8000, 1, at(-7.0)), fs.PAD_LEVEL, "a kick at its target")
+        self.assertAlmostEqual(fs.balanced_level(2, 8000, 1, at(-15.5)), round(fs.PAD_LEVEL * 2, 2), places=2)
+        self.assertEqual(fs.balanced_level(6, 8000, 1, at(-40.0)), 2.0)
+        self.assertEqual(fs.balanced_level(5, 8000, 1, at(0.0)), 0.25, "a spare pad aims at -10")
+        self.assertEqual(fs.balanced_level(0, 8000, 1, array.array("h", [1] * 400)), 2.0)
+
+
 class Voice(unittest.TestCase):
     """A voice pack (#184): single files, one phrase per pad, with their notice."""
 
@@ -206,6 +230,21 @@ class Voice(unittest.TestCase):
         self.assertEqual([(p["pad"], p["choke"]) for p in kit["pads"]], [(6, 1), (10, 1)])
         self.assertEqual(kit["pads"][1]["sample"], "kits/voices/11-Phrase_1_said.wav")
 
+    def test_a_balanced_pack_sets_each_pad_to_its_voices_loudness(self):
+        loud = fs.write_mono_wav(16000, 1, array.array("h", [16000, -16000] * 1600), 60, None)
+        def fetch(pack, i, entry):
+            path = self.root / f"in-{i}.wav"
+            path.write_bytes(loud if i == 0 else wav_bytes())
+            return path
+        self.pack["files"] = [{**self.pack["files"][0], "pad": 0}, {**self.pack["files"][1], "pad": 6}]
+        fs.build_voice({**self.pack, "balance": True}, fetch=fetch)
+        levels = [p["level"] for p in json.loads((fs.OUT / "kits" / "voices" / "kit.json").read_text())["pads"]]
+        self.assertLess(levels[0], fs.PAD_LEVEL, "a -6 dB kick comes down to -7")
+        self.assertEqual(levels[1], 2.0, "a hit near -50 dB comes up as far as the engine goes")
+        fs.build_voice(self.pack, fetch=fetch)
+        levels = [p["level"] for p in json.loads((fs.OUT / "kits" / "voices" / "kit.json").read_text())["pads"]]
+        self.assertEqual(levels, [fs.PAD_LEVEL] * 2, "an unbalanced pack keeps its level")
+
     def test_the_notice_and_the_change_reach_the_credits(self):
         fs.build_voice(self.pack, fetch=self.fake_fetch)
         fs.write_manifest()
@@ -218,6 +257,7 @@ class Voice(unittest.TestCase):
         other["files"][5]["sha256"] = "f" * 64
         self.assertNotEqual(fs.pinned(other), fs.pinned(self.pack))
         self.assertEqual(fs.pinned({"sha256": "abc"}), "abc", "an archive keeps its own")
+        self.assertNotEqual(fs.pinned({**self.pack, "balance": True}), fs.pinned(self.pack), "balancing rebuilds")
 
     def test_a_wrong_checksum_stops_the_build(self):
         src = self.root / "a.wav"
