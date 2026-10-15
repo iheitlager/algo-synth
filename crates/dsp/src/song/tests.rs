@@ -215,6 +215,7 @@ fn random_song(r: &mut Rng) -> Song {
                 voicing: false,
                 pattern: Vec::new(),
                 grid: 16,
+                from: None,
             });
             continue;
         }
@@ -241,6 +242,7 @@ fn random_song(r: &mut Rng) -> Song {
             voicing: false,
             pattern: Vec::new(),
             grid: GRIDS[r.below(GRIDS.len())],
+            from: None,
         });
     }
     song
@@ -772,7 +774,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 26), ("sounds", 8)] {
+    for (dir, want) in [("songs", 27), ("sounds", 8)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -2146,6 +2148,31 @@ fn pattern_methods_transform_a_clips_notes() {
 }
 
 #[test]
+fn add_of_a_list_makes_each_note_a_chord() {
+    // #650: one copy of each note per offset, and it prints back.
+    let text =
+        "track lead synth\nclip r = lead .add([0,4,7]) .every(2, add([0,12]))\n  \"c4 d4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let n = s.clips[0].notes.as_ref().expect("notes");
+    let at = |t: u32| {
+        n.events
+            .iter()
+            .filter(|e| e.start == t)
+            .map(|e| e.note)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(at(0), [60, 64, 67, 72, 76, 79]);
+    assert_eq!(at(24), [62, 66, 69, 74, 78, 81]);
+    assert_eq!(at(48), [60, 64, 67]);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip r = lead .add([0,4,7]) .every(2, add([0,12]))\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
 fn pattern_method_errors_say_where() {
     for (text, line, col, msg) in [
         (
@@ -2158,7 +2185,13 @@ fn pattern_method_errors_say_where() {
             "track l synth\nclip w = l live .rev()\n  walk(c4,8,1)",
             2,
             18,
-            "a live clip takes only pitch methods: scale, chord, oct, add and sub",
+            "a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)",
+        ),
+        (
+            "track l synth\nclip w = l live .add([0,7])\n  walk(c4,8,1)",
+            2,
+            18,
+            "a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)",
         ),
         (
             "track l synth\nclip r = l .fast(0)\n  \"c4\"",
@@ -3173,6 +3206,102 @@ fn a_clip_read_for_a_rhythm_comes_before_and_has_hits() {
             5,
             16,
             "a drum clip has no notes to take chords from",
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(msg);
+        assert_eq!((e.msg, e.line, e.col), (msg, line, col), "{text}");
+    }
+}
+
+/// #649: `.jux(rev)` as two tracks panned apart, the right one made from
+/// the left through `.rev()`.
+#[test]
+fn a_clip_is_made_from_an_earlier_clip_and_methods() {
+    let text = "track left synth\ntrack right synth\n\
+        clip fwd = left\n  \"c4 d4 e4 f4\"\nclip back = right fwd .rev() .add(12)\n";
+    let s = Song::parse(text).expect("parses");
+    let back = &s.clips[1];
+    assert_eq!((back.from.as_deref(), back.track), (Some("fwd"), 1));
+    let n = back.notes.as_ref().expect("notes");
+    let notes: Vec<(u32, u8)> = n.events.iter().map(|e| (e.start, e.note)).collect();
+    assert_eq!(notes, [(0, 77), (12, 76), (24, 74), (36, 72)]);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip back = right fwd .rev() .add(12)\n\n")
+            || printed.ends_with("clip back = right fwd .rev() .add(12)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #649: the source is the earlier clip after its own methods; a
+/// clip made from a clip refuses edits, and follows its source's.
+#[test]
+fn a_clip_made_from_a_clip_follows_its_source() {
+    let text = "track l synth\nclip a = l .fast(2)\n  \"c4 d4\"\nclip b = l a\n";
+    let mut s = Song::parse(text).expect("parses");
+    let events = |s: &Song, f: usize| s.clips[f].notes.as_ref().expect("notes").events.len();
+    assert_eq!(events(&s, 1), 4);
+    let before = s.clone();
+    assert!(!s.edit_note(1, notes::Edit::Add { tick: 6, note: 64 }));
+    assert_eq!(s, before);
+    let mut s =
+        Song::parse("track l synth\nclip a = l\n  \"c4 d4\"\nclip b = l a\n").expect("parses");
+    assert!(s.edit_note(0, notes::Edit::Add { tick: 6, note: 64 }));
+    assert_eq!(events(&s, 1), 3);
+    assert_eq!(Song::parse(&s.print()), Ok(s));
+}
+
+#[test]
+fn a_clip_made_from_a_clip_names_one_of_notes_before_it() {
+    for (text, line, col, msg) in [
+        (
+            "track l synth\nclip b = l nope\n",
+            2,
+            12,
+            "no clip with this name comes before this one",
+        ),
+        (
+            "track l synth\nclip b = l b\n",
+            2,
+            12,
+            "no clip with this name comes before this one",
+        ),
+        (
+            "track l synth\nclip b = l a\nclip a = l\n  \"c4\"\n",
+            2,
+            12,
+            "no clip with this name comes before this one",
+        ),
+        (
+            "track kit drums\ntrack s sampler\nclip a = kit\n  bd x...\nclip b = s a\n",
+            5,
+            12,
+            "only a clip of notes can be made from a clip",
+        ),
+        (
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a\n",
+            4,
+            14,
+            "only a clip of notes can be made from a clip",
+        ),
+        (
+            "track l synth\nclip a = l\n  \"c4\"\nclip b = l a\n  \"d4\"\n",
+            5,
+            3,
+            "a clip made from a clip has no line of its own",
+        ),
+        (
+            "track l synth\nclip a = l\n  \"c4\"\nclip b = l a voicing\n",
+            4,
+            14,
+            "a clip made from a clip is voiced as its source",
+        ),
+        (
+            "track l synth\nclip a = l\n  \"c4\"\nclip b = l a x\n",
+            4,
+            14,
+            "unexpected text",
         ),
     ] {
         let e = Song::parse(text).expect_err(msg);

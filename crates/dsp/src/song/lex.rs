@@ -128,6 +128,8 @@ pub fn lex(text: &str) -> Vec<Span> {
                             .and_then(|t| tracks.iter().rev().find(|(n, _)| *n == t))
                             .map(|(_, k)| *k);
                         under = match kind {
+                            // Made from a clip: no line of its own (#649).
+                            _ if super::complete::from_clip(word(4)) => Under::Nothing,
                             Some("drums") => Under::Lanes,
                             Some("synth") => Under::Notes,
                             Some("sampler") => Under::Either,
@@ -478,6 +480,15 @@ arrange main main
         assert_eq!(of(text, Class::Note), ["c4", "g4"]);
         assert_eq!(of(text, Class::Rest), [".", ".", "r"]);
         assert!(of(text, Class::Number).contains(&"8.".to_string()));
+    }
+
+    /// #649: the clip a clip is made from is a name, and a line under it
+    /// is not read as notes.
+    #[test]
+    fn a_clip_made_from_a_clip_has_no_line() {
+        let text = "track l synth\nclip a = l\n  c4\nclip b = l a .rev()\n  c4\n";
+        assert_eq!(of(text, Class::Name), ["l", "a", "l", "b", "l", "a"]);
+        assert_eq!(of(text, Class::Note), ["c4"]);
     }
 
     #[test]

@@ -260,7 +260,7 @@ clip deep = bass
 ## clip
 
 ```text
-clip <name> = <track> [/<grid> | live | bars <n>] [voicing] [.<method>(<args>)]…
+clip <name> = <track> [/<grid> | live | bars <n> | <clip>] [voicing] [.<method>(<args>)]…
   <lane>…            on a drums track, or a sampler track
   <line of notes>    exactly one, on a synth track, or a sampler track
 ```
@@ -504,7 +504,7 @@ clip dice = arp
 table) plays new notes every bar: the seed mixed with the bar, the same every
 run. Not on lanes, other forms of notes or `voicing`. Of the pattern methods it
 takes only those that change pitches, note by note, each bar as it is made:
-`.scale`, `.chord`, `.oct`, `.add` and `.sub` (#593); so a live melody follows
+`.scale`, `.chord`, `.oct`, `.add(n)` and `.sub(n)` (#593); so a live melody follows
 a harmony clip: `clip sand = lead live .chord(harm)`.
 
 ```song
@@ -519,7 +519,7 @@ clip sand = lead live
 Written last on a note clip's line; applied in order to its notes at load. A
 cycle is a bar; times round to the tick grid; the result keeps the limits of
 512 notes and 64 bars. Not on lanes; a `live` clip takes only the pitch
-methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
+methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 
 | method | does |
 |---|---|
@@ -527,6 +527,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
 | `.rev()` | each bar backwards |
 | `.palindrome()` | every other bar backwards |
 | `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48) |
+| `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after |
 | `.ply(n)` | each note n (1–16) times in its own length |
 | `.iter(n)` | each bar starts a further 1/n (1–16) of a bar in |
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
@@ -564,6 +565,23 @@ clip beat = kit
   bd x..x..x...x.x...
 clip bass = bass .struct(beat) .scale(a1 minor)
   "0 4 2 3"
+```
+
+A clip can be made from an earlier clip of notes and methods, with no line
+of its own: `clip back = right fwd .rev()` plays `fwd`'s notes, after its own
+methods, through `.rev()` (#649). Strudel's `.jux(rev)` is then two tracks
+panned apart. A clip written later, the clip itself or a drum clip is an
+error at the name; the clip follows an edit to its source, and takes none of
+its own. Not on a drums track, nor with `voicing` (the source's holds).
+
+```song
+track left synth
+track right synth
+strip left: Pan -1
+strip right: Pan 1
+clip fwd = left
+  "c4 eb4 [g4 bb4] c5"
+clip back = right fwd .rev()
 ```
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:

@@ -44,6 +44,9 @@ pub enum Pattern {
     /// Semitones, `sub(n)` kept apart so it prints as written.
     Add(i32),
     Sub(i32),
+    /// `add([0,2,4])`: a copy of each note per offset, sounding together
+    /// (#650).
+    Stack(Vec<i32>),
     Ply(u32),
     Iter(u32),
     Degrade(f32),
@@ -424,12 +427,21 @@ impl Pattern {
             "rev" => none().map(|()| Pattern::Rev),
             "palindrome" => none().map(|()| Pattern::Palindrome),
             "add" | "sub" => {
-                let n = one()?
-                    .trim()
-                    .parse::<i32>()
-                    .ok()
-                    .filter(|n| n.abs() <= 48)
-                    .ok_or("this takes semitones from -48 to 48")?;
+                let semis = |s: &str| {
+                    s.trim()
+                        .parse::<i32>()
+                        .ok()
+                        .filter(|n| n.abs() <= 48)
+                        .ok_or("this takes semitones from -48 to 48")
+                };
+                let a = one()?.trim();
+                if name == "add"
+                    && let Some(list) = a.strip_prefix('[').and_then(|s| s.strip_suffix(']'))
+                {
+                    let offsets = list.split(',').map(semis).collect::<Result<Vec<_>, _>>()?;
+                    return Ok(Pattern::Stack(offsets));
+                }
+                let n = semis(a)?;
                 Ok(if name == "add" {
                     Pattern::Add(n)
                 } else {
@@ -584,6 +596,10 @@ impl Pattern {
             Pattern::Palindrome => "palindrome()".to_string(),
             Pattern::Add(n) => format!("add({n})"),
             Pattern::Sub(n) => format!("sub({n})"),
+            Pattern::Stack(offsets) => {
+                let words: Vec<String> = offsets.iter().map(ToString::to_string).collect();
+                format!("add([{}])", words.join(","))
+            }
             Pattern::Ply(n) => format!("ply({n})"),
             Pattern::Iter(n) => format!("iter({n})"),
             Pattern::Degrade(p) => format!("degrade({p})"),
@@ -627,6 +643,17 @@ impl Pattern {
             Pattern::Palindrome => alternate(line, 2, 1, &Pattern::Rev)?,
             Pattern::Add(n) => transpose(line, *n),
             Pattern::Sub(n) => transpose(line, -n),
+            Pattern::Stack(offsets) => {
+                check(line.bars, line.events.len() * offsets.len())?;
+                let mut out = Line {
+                    events: Vec::new(),
+                    bars: line.bars,
+                };
+                for n in offsets {
+                    out.events.extend(transpose(line, *n).events);
+                }
+                out
+            }
             Pattern::Ply(n) => ply(line, *n),
             Pattern::Iter(n) => iter(line, *n),
             Pattern::Degrade(p) => Line {
@@ -1061,8 +1088,8 @@ fn split_args(s: &str) -> Vec<&str> {
     let (mut depth, mut start) = (0i32, 0);
     for (i, c) in s.char_indices() {
         match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
             ',' if depth == 0 => {
                 out.push(s.get(start..i).unwrap_or(""));
                 start = i + 1;
@@ -1384,6 +1411,44 @@ mod tests {
     }
 
     #[test]
+    fn add_of_a_list_stacks_each_note() {
+        // Degrees before scale: "0 3" is [0,2,4] [3,5,7] (#650).
+        let line = Line {
+            events: vec![deg(0, 0), deg(12, 3)],
+            bars: 1,
+        };
+        let degrees = |l: &Line| -> Vec<(u32, u8)> {
+            l.events
+                .iter()
+                .map(|e| (e.start, e.note - DEGREE_ZERO))
+                .collect()
+        };
+        assert_eq!(
+            degrees(&run("add([0,2,4])", &line)),
+            [(0, 0), (0, 2), (0, 4), (12, 3), (12, 5), (12, 7)]
+        );
+        // Semitones after scale; a note past 127 is dropped, not wrapped.
+        let high = Line {
+            events: vec![ev(0, 12, 60), ev(12, 12, 120)],
+            bars: 1,
+        };
+        assert_eq!(
+            starts(&run("add([0, 4, 7])", &high)),
+            [(0, 60), (0, 64), (0, 67), (12, 120), (12, 124), (12, 127)]
+        );
+        assert_eq!(starts(&run("add([-12])", &high)), [(0, 48), (12, 108)]);
+        // With every and off.
+        let e = run("every(2, add([0,7]))", &four());
+        assert_eq!((e.bars, e.events.len()), (2, 12));
+        let o = run("off(1/8, add([12,19]))", &four());
+        assert_eq!(starts(&o)[..3], [(0, 60), (6, 72), (6, 79)]);
+        // More than MAX_EVENTS notes is an error.
+        let many = run("ply(16)", &run("ply(4)", &four()));
+        let p = Pattern::parse("add", "[0,4,7]").expect("parses");
+        assert_eq!(p.apply(&many), Err("the pattern makes more than 512 notes"));
+    }
+
+    #[test]
     fn degrade_is_seeded() {
         let line = run("ply(16)", &four());
         let a = run("degrade(0.5)", &line);
@@ -1408,6 +1473,8 @@ mod tests {
             ("off", "0.125, add(12)", "off(1/8, add(12))"),
             ("off", "3/16,palindrome", "off(3/16, palindrome)"),
             ("sub", "-3", "sub(-3)"),
+            ("add", " [0, 2 ,4] ", "add([0,2,4])"),
+            ("every", "2, add([0,-12])", "every(2, add([0,-12]))"),
             ("strum", " 15 ", "strum(15)"),
             ("every", "2, strum(-15)", "every(2, strum(-15))"),
             ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
@@ -1470,6 +1537,9 @@ mod tests {
                 "this takes milliseconds from 1 to 100, below 0 to strum down",
             ),
             ("add", "99", "this takes semitones from -48 to 48"),
+            ("add", "[0,99]", "this takes semitones from -48 to 48"),
+            ("add", "[]", "this takes semitones from -48 to 48"),
+            ("sub", "[0,2]", "this takes semitones from -48 to 48"),
             ("degrade", "2", "this takes a chance from 0 to 1"),
             ("every", "4", crate::usage::EVERY),
             (
