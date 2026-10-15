@@ -22,7 +22,7 @@ pub const CALLS: [&str; 6] = ["arp", "walk", "markov", "mutate", "root", "prog"]
 
 /// Notes of a walk, and of a chord for an arpeggio.
 const MAX_WALK: u32 = 32;
-const MAX_CHORD: usize = 8;
+pub(super) const MAX_CHORD: usize = 8;
 /// Longest Markov context.
 const MAX_ORDER: u8 = 3;
 
@@ -379,7 +379,7 @@ fn mutate(amount: u8, src: &[Event], seed: u32, scale: Option<&Scale>, out: &mut
 /// The notes of the chord sounding at tick `t` in `src`: those starting at
 /// the latest start at or before `t`, lowest first, into `buf`. Its start and
 /// the number of notes, or `None` before the first chord.
-fn chord_at(src: &[Event], t: u32, buf: &mut [u8; MAX_CHORD]) -> Option<(u32, usize)> {
+pub(super) fn chord_at(src: &[Event], t: u32, buf: &mut [u8; MAX_CHORD]) -> Option<(u32, usize)> {
     let start = src.iter().map(|e| e.start).filter(|s| *s <= t).max()?;
     let mut n = 0;
     for e in src.iter().filter(|e| e.start == start) {

@@ -52,14 +52,15 @@ impl Euclid {
         Some(Euclid::args(rest))
     }
 
-    fn args(rest: &str) -> Result<Euclid, &'static str> {
+    /// The arguments after `euclid(`, up to and with the `)`.
+    pub(crate) fn args(rest: &str) -> Result<Euclid, &'static str> {
         let usage = "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)";
         let inner = rest.strip_suffix(')').ok_or(usage)?;
         let mut nums = [0u32; 3];
         let mut count = 0;
         for part in inner.split(',') {
             let slot = nums.get_mut(count).ok_or(usage)?;
-            *slot = part.parse().map_err(|_| usage)?;
+            *slot = part.trim().parse().map_err(|_| usage)?;
             count += 1;
         }
         if count < 2 {
