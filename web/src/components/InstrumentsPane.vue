@@ -4,7 +4,7 @@
 // in its model's palette with a keyboard under it. The selected synth gets the
 // keys, the computer keyboard's too.
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
-import { MAX_SYNTHS, addSynth, getEngine, params, removeSynth, renameSynth, song, status, stripName, synthColour, synths } from '../audio/engine'
+import { MAX_SYNTHS, addSynth, getEngine, kitOn, packs, params, pickKit, removeSynth, renameSynth, song, status, stripName, synthColour, synths } from '../audio/engine'
 import { MODELS, familyModels, modelDef, type ModelDef } from '../audio/models'
 import { Model, Param, Preset, type PresetId } from '../audio/params'
 import EditableName from './EditableName.vue'
@@ -35,6 +35,8 @@ const tapes = computed<Tape[]>(() =>
 const sel = computed(() => (synths.list.includes(synths.selected) ? synths.selected : (synths.list[0] ?? 0)))
 const def = computed(() => defOf(sel.value))
 const accent = computed(() => ({ '--c': def.value.theme.accent }))
+/** The Pad Sampler's presets are the kits (#596). */
+const pads = computed(() => def.value.id === Model.PadSampler)
 /** The model's name as presets store it (`Model`'s key). */
 const modelName = computed(() => Object.entries(Model).find(([, id]) => id === def.value.id)?.[0])
 /** A synth keeps its family, as the model picker does: only presets of models in it. */
@@ -97,8 +99,9 @@ function onRemove(s: number) {
             </select>
           </label>
           <PresetBar
-            :target="{ kind: 'synth', s: sel }" :of="{ model: modelName }" :allow="sameFamily" :factory="def.presets.map((n) => [n, Preset[n]])"
-            @factory="(v) => getEngine()?.preset(sel, v as PresetId)"
+            :target="{ kind: 'synth', s: sel }" :of="{ model: modelName }" :allow="sameFamily"
+            :factory="pads ? [] : def.presets.map((n) => [n, Preset[n]])" :kits="pads ? packs.kits : undefined" :kit="pads ? kitOn(sel) : undefined"
+            @factory="(v) => getEngine()?.preset(sel, v as PresetId)" @kit="(id) => pickKit(sel, id)"
           />
           <span class="hint">{{ status.running ? 'keys A–; play it' : 'power on to play' }}</span>
           <button class="remove" title="Remove this synth; parts on it are muted" :disabled="synths.list.length <= 1" @click="onRemove(sel)">× Remove</button>
