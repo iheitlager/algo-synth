@@ -1512,3 +1512,92 @@ fn an_inline_euclid_prints_back_and_says_where_it_is_wrong() {
         assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
     }
 }
+
+/// Events as (start, len, note, nudge, vel).
+fn graced(text: &str) -> Vec<(u32, u32, u8, i16, u8)> {
+    parse(text, 1)
+        .unwrap()
+        .events
+        .iter()
+        .map(|e| (e.start, e.len, e.note, e.nudge, e.vel))
+        .collect()
+}
+
+#[test]
+fn graces_play_soft_before_their_note() {
+    assert_eq!(
+        graced("\"c4^f ~\""),
+        [(0, 24, 60, 0, 0), (0, 24, 60, -20, 51)]
+    );
+    assert_eq!(
+        graced("\"c4^d ~\""),
+        [
+            (0, 24, 60, 0, 0),
+            (0, 24, 60, -30, 51),
+            (0, 24, 60, -15, 51)
+        ]
+    );
+    // A note takes a whole tone, a degree the next degree.
+    assert_eq!(
+        graced("\"~ c4^u\""),
+        [(24, 24, 60, 0, 0), (24, 24, 62, -30, 51)]
+    );
+    assert_eq!(
+        graced("\"~ c4^l\""),
+        [(24, 24, 58, -30, 51), (24, 24, 60, 0, 0)]
+    );
+    let d = parse("\"2^u 2^l\"", 1).unwrap();
+    let got: Vec<_> = d
+        .events
+        .iter()
+        .map(|e| (e.start, e.note - DEGREE_ZERO, e.degree, e.nudge))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (0, 2, true, 0),
+            (0, 3, true, -30),
+            (24, 1, true, -30),
+            (24, 2, true, 0)
+        ]
+    );
+    // An accent stays on the note, not its grace.
+    assert!(
+        parse("\"c4!^f\"", 1)
+            .unwrap()
+            .events
+            .iter()
+            .all(|e| e.accent == (e.nudge == 0))
+    );
+}
+
+#[test]
+fn a_mordent_fits_in_the_first_sixteenth() {
+    assert_eq!(
+        graced("\"c4^m ~\""),
+        [(0, 1, 60, 0, 0), (1, 1, 62, 0, 0), (2, 22, 60, 0, 0)]
+    );
+    // In a share under a sixteenth it is the note.
+    assert_eq!(graced("\"[c4^m c4]*16\"").len(), 32);
+}
+
+#[test]
+fn graces_print_back_and_go_on_notes_only() {
+    let text = "\"c4^u 2^l& e4^f*2 g4^d@2 a4^m?0.5 c4(3,8)^f\"";
+    let n = parse(text, 1).unwrap();
+    assert_eq!(n.text, text);
+    assert_eq!(parse(&n.text, 1).unwrap(), n);
+    assert_eq!(parse("\"c4*2^f\"", 1).unwrap().text, "\"c4^f*2\"");
+    let only = "a grace goes on a note or a degree";
+    for (t, col, msg) in [
+        ("\"c4 ~^f\"", 6, only),
+        ("\"[c4 e4]^u\"", 9, only),
+        ("\"[c4,e4]^f\"", 9, only),
+        ("\"c:m7^f\"", 6, only),
+        ("\"0 .. 3^u\"", 4, only),
+        ("\"c4^x\"", 4, "a grace is ^u, ^l, ^f, ^d or ^m"),
+        ("\"c4^\"", 4, "a grace is ^u, ^l, ^f, ^d or ^m"),
+    ] {
+        assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
+    }
+}

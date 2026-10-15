@@ -6306,3 +6306,54 @@ fn a_strum_starts_a_chords_notes_ms_apart() {
         "{late:?}"
     );
 }
+
+/// #605: a grace plays its ms before its note, which stays on its tick; one
+/// before a bar's first note plays in the bar before, as a lane's flam.
+#[test]
+fn a_grace_sounds_before_its_note_on_the_beat() {
+    // 30 ms at 48 kHz is 1440 samples; the note on beat 2 at 24 000.
+    let got = held_changes(
+        "tempo 120\ntrack lead synth\nclip m = lead\n  \"~ c4^u ~ ~\"\n",
+        49_000,
+    );
+    assert_eq!(
+        got,
+        [(22_560, vec![62]), (24_000, vec![60]), (48_000, vec![])]
+    );
+    // On the first note of each bar: none before the song's first, one
+    // in the bar before the second.
+    let got = held_changes(
+        "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4^l ~ ~ ~\"\n",
+        97_000,
+    );
+    assert_eq!(
+        got,
+        [
+            (0, vec![60]),
+            (24_000, vec![]),
+            (94_560, vec![58]),
+            (96_000, vec![60])
+        ]
+    );
+}
+
+/// #604 and #605 with #588: typed into a playing song, a strum and graces
+/// keep their spelling.
+#[test]
+fn strums_and_graces_keep_their_typed_text() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth\nclip m = lead  .strum( -15 )\n  \"[c4,e4,g4]  c4^f e4^m ~\"\n";
+    assert_eq!(load_text(&mut e, "tempo 120\ntrack lead synth\n"), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    run(&mut e, 2 * 96_000 / BLOCK);
+    assert_eq!(e.song_text(), text);
+    assert!(
+        e.song()
+            .print()
+            .contains("clip m = lead .strum(-15)\n  \"[c4,e4,g4] c4^f e4^m ~\"\n"),
+        "{}",
+        e.song().print()
+    );
+}

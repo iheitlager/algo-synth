@@ -12,7 +12,8 @@
 //! divides a word's share again, `~` rests, `*n` repeats within the share,
 //! `@n` gives a word n shares, `<a b>` plays one option per bar, `?` plays a
 //! word on half the bars, `?0.3` on about 3 in 10 (drawn from a fixed seed, so
-//! a run is repeatable), `[c4,e4,g4]` is a chord and `!` accents a note. A trailing `&` makes a note
+//! a run is repeatable), `[c4,e4,g4]` is a chord, `!` accents a note and `^f`
+//! puts a grace before it (#605). A trailing `&` makes a note
 //! (or chord) run one tick into the next, so a legato synth with glide slides
 //! to it (#241). Classic: `c4:4` is a quarter, `:1 :2 :4 :8 :16` with a dot
 //! for one and a half, `r:4` rests, and `c4:8&` slides.
@@ -108,10 +109,69 @@ pub struct Slot {
     /// `(k,n[,rot])`: plays on k hits spread over n steps of its share, as
     /// in Strudel and Tidal (#601).
     pub euclid: Option<Euclid>,
+    /// `^u`, `^l`, `^f`, `^d` or `^m`: an ornament on a note (#605).
+    pub orn: Option<Orn>,
     /// `?…`: plays on some bars only.
     pub cond: Option<Cond>,
     /// `&`: the note runs one tick into the next, so a legato synth slides.
     pub slide: bool,
+}
+
+/// An ornament on a note (#605): graces before it, soft, as a drum lane's
+/// flam and drag, or a mordent on the grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Orn {
+    /// `^u`: a grace from the scale note above.
+    Up,
+    /// `^l`: a grace from the scale note below.
+    Low,
+    /// `^f`: the same note, 20 ms before.
+    Flam,
+    /// `^d`: the same note twice, 30 and 15 ms before.
+    Drag,
+    /// `^m`: the note, the scale note above and the note, in its first
+    /// sixteenth.
+    Mordent,
+}
+
+/// A grace's velocity, a drum lane's (`song::GRACE_VELOCITY`, 0.4) of 127.
+const GRACE_VEL: u8 = 51;
+/// How far before its note the earliest grace falls, as a drag's.
+pub const GRACE_MS: i16 = 30;
+
+impl Orn {
+    fn letter(self) -> char {
+        match self {
+            Orn::Up => 'u',
+            Orn::Low => 'l',
+            Orn::Flam => 'f',
+            Orn::Drag => 'd',
+            Orn::Mordent => 'm',
+        }
+    }
+
+    /// The graces before `p`, as (pitch, ms before).
+    fn graces(self, p: Pitch) -> Vec<(Pitch, i16)> {
+        match self {
+            Orn::Up => vec![(neighbour(p, 1), GRACE_MS)],
+            Orn::Low => vec![(neighbour(p, -1), GRACE_MS)],
+            Orn::Flam => vec![(p, 20)],
+            Orn::Drag => vec![(p, GRACE_MS), (p, 15)],
+            Orn::Mordent => Vec::new(),
+        }
+    }
+}
+
+/// The scale note `dir` above or below `p`: the next degree, or for a note
+/// a whole tone, which a `.scale` moves onto its scale.
+fn neighbour(p: Pitch, dir: i32) -> Pitch {
+    let by = if p.degree { dir } else { 2 * dir };
+    let note = (i32::from(p.note) + by).clamp(0, 127);
+    Pitch {
+        note: u8::try_from(note).unwrap_or(p.note),
+        accent: false,
+        ..p
+    }
 }
 
 /// The bars a word plays in, after its `?`.
@@ -589,10 +649,14 @@ impl Cursor<'_> {
                     self.i += 2;
                     self.skip_ws();
                     let end = self.slot(depth)?;
+                    if end.orn.is_some() {
+                        return err(at, "a grace goes on a note or a degree");
+                    }
                     let Some(to) = bare_degree(&Slot {
                         times: 1,
                         weight: 1,
                         euclid: None,
+                        orn: None,
                         cond: None,
                         slide: false,
                         ..end.clone()
@@ -657,7 +721,7 @@ impl Cursor<'_> {
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['(', '*', '@', '?', '&', ']', '>']);
+                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
                 if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
                     // `0..12`, one word
@@ -685,6 +749,7 @@ impl Cursor<'_> {
         };
         let euclid = self.inline_euclid()?;
         let (mut times, mut weight, mut cond, mut slide) = (1, 1, None, false);
+        let mut orn = None;
         let (mut got_times, mut got_weight) = (false, false);
         loop {
             let here = self.col();
@@ -702,6 +767,21 @@ impl Cursor<'_> {
                 Some('?') if cond.is_none() => {
                     self.i += 1;
                     cond = Some(self.cond()?);
+                }
+                Some('^') if orn.is_none() => {
+                    if !matches!(item, Item::Note(_)) {
+                        return err(here, "a grace goes on a note or a degree");
+                    }
+                    self.i += 1;
+                    orn = Some(match self.peek() {
+                        Some('u') => Orn::Up,
+                        Some('l') => Orn::Low,
+                        Some('f') => Orn::Flam,
+                        Some('d') => Orn::Drag,
+                        Some('m') => Orn::Mordent,
+                        _ => return err(here, "a grace is ^u, ^l, ^f, ^d or ^m"),
+                    });
+                    self.i += 1;
                 }
                 Some('&') if !slide => {
                     if !matches!(item, Item::Note(_) | Item::Chord(_) | Item::Symbol(_)) {
@@ -723,6 +803,7 @@ impl Cursor<'_> {
             times,
             weight,
             euclid,
+            orn,
             cond,
             slide,
         })
@@ -1075,6 +1156,7 @@ fn bare_degree(s: &Slot) -> Option<i32> {
                 && s.times == 1
                 && s.weight == 1
                 && s.euclid.is_none()
+                && s.orn.is_none()
                 && s.cond.is_none()
                 && !s.slide =>
         {
@@ -1113,6 +1195,10 @@ fn slot_text(s: &Slot) -> String {
     };
     if let Some(e) = s.euclid {
         out.push_str(e.print().trim_start_matches("euclid"));
+    }
+    if let Some(o) = s.orn {
+        out.push('^');
+        out.push(o.letter());
     }
     if s.slide {
         out.push('&');
@@ -1329,13 +1415,13 @@ impl Compiler<'_> {
         for r in 0..times {
             let (start, share) = (at.add(span.scale(r, times)), span.scale(1, times));
             match s.euclid {
-                None => self.item(&s.item, start, share, bar, s.slide),
+                None => self.item(&s.item, start, share, bar, s.slide, s.orn),
                 Some(e) => {
                     let n = u128::from(e.n);
                     for (i, hit) in (0..n).zip(e.pattern()) {
                         if hit {
                             let step = start.add(share.scale(i, n));
-                            self.item(&s.item, step, share.scale(1, n), bar, s.slide);
+                            self.item(&s.item, step, share.scale(1, n), bar, s.slide, s.orn);
                         }
                     }
                 }
@@ -1344,13 +1430,39 @@ impl Compiler<'_> {
         self.when = outer;
     }
 
-    fn item(&mut self, item: &Item, at: Frac, span: Frac, bar: u32, slide: bool) {
+    fn item(&mut self, item: &Item, at: Frac, span: Frac, bar: u32, slide: bool, orn: Option<Orn>) {
         if let Some(w) = self.leaves.iter().position(|l| std::ptr::eq(*l, item)) {
             self.word = u16::try_from(w).unwrap_or(u16::MAX);
         }
         match item {
             Item::Rest => {}
-            Item::Note(p) => self.note(*p, at, span, bar, slide),
+            Item::Note(p) => match orn {
+                None => self.note(*p, at, span, bar, slide),
+                // Note, the note above, note: a tick, a tick and the rest,
+                // when the share holds a sixteenth.
+                Some(Orn::Mordent) if span.n * u128::from(TICKS_PER_BAR) >= 3 * span.d => {
+                    let tick = Frac::new(1, u128::from(TICKS_PER_BAR));
+                    let rest = Frac::new(
+                        span.n * u128::from(TICKS_PER_BAR) - 2 * span.d,
+                        span.d * u128::from(TICKS_PER_BAR),
+                    );
+                    self.note(*p, at, tick, bar, false);
+                    self.note(neighbour(*p, 1), at.add(tick), tick, bar, false);
+                    self.note(*p, at.add(tick.scale(2, 1)), rest, bar, slide);
+                }
+                Some(o) => {
+                    self.note(*p, at, span, bar, slide);
+                    for (g, ms) in o.graces(*p) {
+                        let had = self.events.len();
+                        self.note(g, at, span, bar, false);
+                        if let Some(e) = self.events.get_mut(had..).and_then(<[Event]>::first_mut) {
+                            e.nudge = -ms;
+                            e.vel = GRACE_VEL;
+                            e.accent = false;
+                        }
+                    }
+                }
+            },
             Item::Chord(ps) | Item::Symbol(Symbol { pitches: ps, .. }) => {
                 for p in ps {
                     self.note(*p, at, span, bar, slide);
