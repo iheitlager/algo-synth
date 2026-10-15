@@ -1236,6 +1236,18 @@ const sampler: ModelDef = {
   ],
 }
 
+// General MIDI (#652): the sampler on a program of the FluidR3 GM bank. The preset is the
+// program and names its pack (`gm-marimba`), which the song loads on the track.
+const generalMidi: ModelDef = {
+  ...sampler,
+  id: Model.GeneralMidi,
+  name: 'General MIDI',
+  maker: 'FluidR3 GM · sixteen voices, a program per preset',
+  tagline: 'The General MIDI instruments: pick a program, its samples load with it',
+  theme: { panel: '#262230', ink: '#ece8f2', soft: '#a69fb4', trim: '#423b50', accent: '#b48ce0' },
+  presets: ['GmPiano', 'GmElectricPiano', 'GmVibraphone', 'GmMarimba', 'GmXylophone', 'GmOrgan', 'GmNylonGuitar', 'GmAcousticBass', 'GmFingerBass', 'GmStrings', 'GmTrumpet', 'GmFlute'],
+}
+
 // Sixteen pads playing samples of the store, after an Akai MPC (#124): pad i answers note 36 + i,
 // so a MIDI file's drum channel plays it. Each pad has a sample, tune, level, pan, decay, a choke
 // group, velocity amounts and a one-shot switch, set on the pad grid (#125).
@@ -1451,7 +1463,7 @@ const ARP_SECTION: Section = {
 const withArp = (m: ModelDef): ModelDef =>
   m.family === 'mono' || m.family === 'poly' || m.family === 'chips' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular, tb303, sid, nes].map(withArp)
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular, tb303, sid, nes, generalMidi].map(withArp)
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

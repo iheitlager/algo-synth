@@ -22,13 +22,17 @@ own (not `Model`, mixer or master ones).
 
 Models: `Arp2600 Minimoog ProOne Ms20 Cs15 Sh101 Odyssey Tb303 Prophet5
 Juno106 Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
-machines), `Sampler` (multisampler), `PadSampler` (pads), `Modular` (a
+machines), `Sampler` (multisampler), `GeneralMidi` (the multisampler on a
+program of the General MIDI bank), `PadSampler` (pads), `Modular` (a
 SuperCollider SynthDef), `Sid` (the C64's chip), `Nes` (the NES's 2A03; with
 `NesKit` also a drum machine, whose `samples` kit or `pad` lines play
 through its DMC). Presets are factory names, as `MiniBass`,
 `AcidBass`, `Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`,
 `ModularHoover`, `ModularKick`, `ModularSid`, `ModularDubSiren`; `Sid` has `SidLead`, `SidBass`,
-`SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`.
+`SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`;
+`GeneralMidi` has `GmPiano`, `GmElectricPiano`, `GmVibraphone`, `GmMarimba`,
+`GmXylophone`, `GmOrgan`, `GmNylonGuitar`, `GmAcousticBass`, `GmFingerBass`,
+`GmStrings`, `GmTrumpet`, `GmFlute`.
 
 ```song
 setting nile = Minimoog MiniLead: Cutoff 1200, Resonance 0.5
@@ -179,6 +183,18 @@ sampler's panel writes the line. A drums track takes the kit of that id, any
 other the pack (or the kit when no pack has it). An id no manifest names
 loads nothing and the sampler's panel says so. One line per track, after the
 track; the samples a track already has stay loaded without one.
+
+A `GeneralMidi` track needs no line (#652): its preset is a program of the
+FluidR3 GM bank and names its pack, `GmMarimba` the `gm-marimba` pack, which
+loads as if written. A `samples` line or zone lines take its place. The
+packs are built by `make samples`; without them the panel says the pack is
+missing and the song plays on.
+
+```song
+track keys sampler GeneralMidi GmMarimba
+clip riff = keys
+  "c4 e4 g4 [b4 c5]"
+```
 
 ```song
 track keys sampler Sampler SamplerKeys

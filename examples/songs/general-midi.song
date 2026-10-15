@@ -1,0 +1,26 @@
+# General MIDI: three programs of the FluidR3 GM bank on the GeneralMidi
+# model (#652). Each preset names its pack (GmMarimba is gm-marimba), which
+# loads with the song; `make samples` builds the packs.
+tempo 104
+scale d dorian
+track kit drums Tr909 Kit909
+track mallet sampler GeneralMidi GmMarimba
+track bass sampler GeneralMidi GmAcousticBass
+track strings sampler GeneralMidi GmStrings
+strip mallet: Level 0.7, Pan -0.3, Send1 0.2
+strip bass: Level 0.8
+strip strings: Level 0.5, Pan 0.3, Send1 0.35
+
+clip beat = kit /16
+  bd x.....x...x.....
+  ch ..x...x...x...x.
+  sn ....x.......x...
+clip chords = strings .slow(2)
+  "<[0,2,4] [3,5,7] [4,6,8] [2,4,6]>"
+clip walk = bass
+  "0 ~ 0 4 3 ~ 3 1"
+clip mallets = mallet .every(4, rev) .off(3/16, add(7))
+  "0 2 4 [5 4] 2 ~ 4 ~"
+scene intro 4: chords
+scene groove 8: beat chords walk mallets
+arrange intro groove

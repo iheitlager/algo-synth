@@ -774,7 +774,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 27), ("sounds", 8)] {
+    for (dir, want) in [("songs", 28), ("sounds", 8)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -3507,4 +3507,37 @@ fn a_drum_clip_from_a_clip_follows_its_source() {
     assert!(s.set_ratchet(0, 0, 0, 2));
     assert_eq!(s.clips[1].lanes[0].ratchet(3), 2);
     assert_eq!(Song::parse(&s.print()), Ok(s));
+}
+
+/// #652: a General MIDI preset loads its pack with no `samples` line; a
+/// written line or zone lines take its place, and a new preset its pack.
+#[test]
+fn a_general_midi_preset_names_its_pack() {
+    let ids = |s: &Song| {
+        s.sample_ids()
+            .map(|(t, id)| (t, id.to_string()))
+            .collect::<Vec<_>>()
+    };
+    let text = "track keys sampler GeneralMidi GmMarimba\ntrack bass sampler GeneralMidi\n";
+    let mut s = Song::parse(text).expect("parses");
+    assert_eq!(
+        s.tracks[1].preset.and_then(Preset::pack),
+        Some("gm-piano"),
+        "the first program"
+    );
+    assert_eq!(ids(&s), [(0, "gm-marimba".into()), (1, "gm-piano".into())]);
+    assert!(s.samples.is_empty());
+    assert!(!s.print().contains("samples"), "{}", s.print());
+    assert!(s.set_track_preset(0, Preset::GmFlute));
+    assert_eq!(ids(&s)[0], (0, "gm-flute".into()));
+    let written = Song::parse(&format!("{text}samples keys upright-piano-kw\n")).expect("parses");
+    assert_eq!(
+        ids(&written),
+        [(0, "upright-piano-kw".into()), (1, "gm-piano".into())]
+    );
+    let zoned =
+        Song::parse(&format!("{text}zone keys 1 = gm-marimba/gm-marimba-01\n")).expect("parses");
+    assert_eq!(ids(&zoned), [(1, "gm-piano".into())]);
+    let e = Song::parse("track lead synth GeneralMidi GmPiano\n").expect_err("not a synth");
+    assert_eq!((e.line, e.col), (1, 18), "{e:?}");
 }

@@ -118,11 +118,23 @@ pub enum Preset {
     NesArp = 102,
     NesKit = 103,
     ModularDubSiren = 104,
+    GmPiano = 105,
+    GmElectricPiano = 106,
+    GmVibraphone = 107,
+    GmMarimba = 108,
+    GmXylophone = 109,
+    GmOrgan = 110,
+    GmNylonGuitar = 111,
+    GmAcousticBass = 112,
+    GmFingerBass = 113,
+    GmStrings = 114,
+    GmTrumpet = 115,
+    GmFlute = 116,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 105] = [
+    pub const ALL: [(Preset, &'static str); 117] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -228,6 +240,18 @@ impl Preset {
         (Preset::NesArp, "NesArp"),
         (Preset::NesKit, "NesKit"),
         (Preset::ModularDubSiren, "ModularDubSiren"),
+        (Preset::GmPiano, "GmPiano"),
+        (Preset::GmElectricPiano, "GmElectricPiano"),
+        (Preset::GmVibraphone, "GmVibraphone"),
+        (Preset::GmMarimba, "GmMarimba"),
+        (Preset::GmXylophone, "GmXylophone"),
+        (Preset::GmOrgan, "GmOrgan"),
+        (Preset::GmNylonGuitar, "GmNylonGuitar"),
+        (Preset::GmAcousticBass, "GmAcousticBass"),
+        (Preset::GmFingerBass, "GmFingerBass"),
+        (Preset::GmStrings, "GmStrings"),
+        (Preset::GmTrumpet, "GmTrumpet"),
+        (Preset::GmFlute, "GmFlute"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -1058,7 +1082,7 @@ mod tests {
 
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(105), None);
+        assert_eq!(Preset::from_id(117), None);
     }
 
     /// A four-note chord at the default master gain stays bounded: the voices

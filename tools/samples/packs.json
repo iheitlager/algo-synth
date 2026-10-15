@@ -1119,6 +1119,31 @@
           "pad": 15
         }
       ]
+    },
+    {
+      "id": "fluidr3-gm",
+      "name": "FluidR3 GM",
+      "kind": "sf2",
+      "ext": "sf2",
+      "url": "https://github.com/pianobooster/fluid-soundfont/releases/download/v3.1/FluidR3_GM.sf2",
+      "sha256": "74594e8f4250680adf590507a306655a299935343583256f3b722c48a1bc1cb0",
+      "license": "MIT",
+      "credit": "FluidR3 GM SoundFont by Frank Wen, https://github.com/pianobooster/fluid-soundfont",
+      "notice": "FluidR3 GM: Copyright (c) 2000-2002, 2008, 2012 Frank Wen <getfrank@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+      "programs": {
+        "gm-piano": 0,
+        "gm-electric-piano": 4,
+        "gm-vibraphone": 11,
+        "gm-marimba": 12,
+        "gm-xylophone": 13,
+        "gm-organ": 16,
+        "gm-nylon-guitar": 24,
+        "gm-acoustic-bass": 32,
+        "gm-finger-bass": 33,
+        "gm-strings": 48,
+        "gm-trumpet": 56,
+        "gm-flute": 73
+      }
     }
   ]
 }
