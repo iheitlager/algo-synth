@@ -544,6 +544,13 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
+`.fast`, `.slow`, `.add`, `.sub`, `.ply` and `.degrade` also take a value a
+bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
+turn, and the line plays until it and the values come round together (at most
+64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,
+−1. Several values in one bar (`"1 2"`) are an error. On a `live` clip,
+`.add` and `.sub` take theirs from the bar of the song.
+
 Write the harmony once and let other clips follow it: one edit to it moves
 them all at the same bar.
 
@@ -595,6 +602,8 @@ clip grid = lead .struct("x ~ x x ~ x x ~") .degrade(0.2) .scale(c minor)
   "c4 d4 e4 f4"
 clip arp = lead .fast(8) .scale(<a1 d2>/4 minor-pentatonic)
   "<0 2 1 3 2>"
+clip turns = lead .fast("<1 2>") .add("<0 <1 -1>>")
+  "c2 [eb3,g3]"
 ```
 
 A progression runs the line on until both come round together: the `arp`
