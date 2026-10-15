@@ -893,6 +893,223 @@
           "pad": 15
         }
       ]
+    },
+    {
+      "id": "roland-tr808",
+      "name": "Roland TR-808 (sampled)",
+      "kind": "drums",
+      "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
+      "redistribute": false,
+      "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Roland TR-808's voices at mid knob settings, on its General MIDI pad; its congas and claves fill the rest. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-bd/BD2550.WAV",
+          "sha256": "7cbfb54d75ced8060a28e5989e03cbc79d60d350d161da2228d4d53872f7d562",
+          "name": "Bass drum",
+          "pad": 0
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-rim/RS.WAV",
+          "sha256": "20d5cd385c0f8c3a24bbfe78c2e2747776841ede6185bc0fe93f97f0b455b89c",
+          "name": "Rim shot",
+          "pad": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-sd/SD5050.WAV",
+          "sha256": "6dcbf8acd5cee6d6b7955d26c6b57d8ca413f1ae1c7caafaaec780d83f08d712",
+          "name": "Snare",
+          "pad": 2
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-cp/cp0.wav",
+          "sha256": "d500f303a5c59a42d18bf4055e2a98b779e37a6b732fc4dd471075e4909743c2",
+          "name": "Clap",
+          "pad": 3
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-perc/CL.WAV",
+          "sha256": "4f5b72674791ce133a2ad3bd40c9a0e628bad9062eb8f04de27f59dcc8ce5d46",
+          "name": "Claves",
+          "pad": 4
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-sh/MA.WAV",
+          "sha256": "7b17cc2973fe55233c6ece7b341adb4d04a44b12527582102591c8981a586451",
+          "name": "Maracas",
+          "pad": 5
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-hh/CH.WAV",
+          "sha256": "c9f30ff2b4d73b03f41960e504e03c54e9a59697af666fe4d155bab9cd1ccae6",
+          "name": "Closed hat",
+          "pad": 6,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-perc/LC50.WAV",
+          "sha256": "6591f57bbbdb891819a0ce6ce5b3bfd12d24da9f7f413243ef37b2593d1a7393",
+          "name": "Low conga",
+          "pad": 7
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-cb/CB.WAV",
+          "sha256": "1468cbd6c75a1f23b50a15968796c256c74893a35aa3824c6663db82c271f28d",
+          "name": "Cowbell",
+          "pad": 8
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-lt/LT50.WAV",
+          "sha256": "d3720682985a9621c4a67749dfd5336fa4f25564ef7ea2e633ac8ff5fdd64eda",
+          "name": "Low tom",
+          "pad": 9
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-oh/OH25.WAV",
+          "sha256": "2674962ca376c0d08ce802423eb696be86b516450fe23707ac69f3878b35f12b",
+          "name": "Open hat",
+          "pad": 10,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-mt/MT50.WAV",
+          "sha256": "81bbc63110a21c5d1ff28572734f2969f96db9a2ca7e304e52b4f808de905927",
+          "name": "Mid tom",
+          "pad": 11
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-perc/MC50.WAV",
+          "sha256": "8175efe26c67f5af926bdf376b1bde75f495451140a2ebc132e74644b31cae1b",
+          "name": "Mid conga",
+          "pad": 12
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-cr/CY5075.WAV",
+          "sha256": "d1806c3878815fcc3816dcef4ab870c67eb67bf27f2dd140f5c25178749525be",
+          "name": "Cymbal",
+          "pad": 13
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-ht/HT50.WAV",
+          "sha256": "7e0b9eddd95379298aacbf1520929f586191788d9e0841ad752d84bdde910d88",
+          "name": "High tom",
+          "pad": 14
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR808/rolandtr808-perc/HC50.WAV",
+          "sha256": "ee4354b1fb79126e455a5343161f5c1e78165874df8a74dece78cbb5b6964af9",
+          "name": "High conga",
+          "pad": 15
+        }
+      ]
+    },
+    {
+      "id": "roland-tr909",
+      "name": "Roland TR-909 (sampled)",
+      "kind": "drums",
+      "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
+      "redistribute": false,
+      "credit": "From tidal-drum-machines (github.com/ritchse/tidal-drum-machines, the banks Strudel plays), commit 6577395: one sample of each of the Roland TR-909's voices on its General MIDI pad; second takes fill the rest. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-bd/Bassdrum-01.wav",
+          "sha256": "5ae8cbf94145b4d8a2c4ee6a6a922045564887c22812916149c1e5740820b8bb",
+          "name": "Bass drum",
+          "pad": 0
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-rim/Rimhot.wav",
+          "sha256": "4645199f33f47371be279b21624edccc15e77e4a7a7e28ed939668b7765c416a",
+          "name": "Rim shot",
+          "pad": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-sd/naredrum.wav",
+          "sha256": "f5fef391d10d453966d38a680e8f20445cf258cbb182781c90021161f8c5d7b4",
+          "name": "Snare",
+          "pad": 2
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-cp/Clap.wav",
+          "sha256": "efd0c167a66955308d72b563a629ac11cd1d8a8f20c6d12ad8c57435fcf6bbf2",
+          "name": "Clap",
+          "pad": 3
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-bd/Bassdrum-02.wav",
+          "sha256": "f10ab39cd563a79df0b46d4108af3e10de9696b1c5a16b0c4555f0f621031d61",
+          "name": "Bass drum 2",
+          "pad": 4
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-sd/sd01.wav",
+          "sha256": "4ca5d67161ecebb7525a8493226bcc5c3df9f9e16233d9edf6268f2f49656141",
+          "name": "Snare 2",
+          "pad": 5
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-hh/hh01.wav",
+          "sha256": "6b737acdd4e9db504dc8225c613ae72fb9b67c2e493b011c50750e16c708e9bd",
+          "name": "Closed hat",
+          "pad": 6,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-cp/cp01.wav",
+          "sha256": "6e015bb6f4ed9fac1d06c20828a7b64f8c7ff0ac08fc9bcb12448c606f10bcbe",
+          "name": "Clap 2",
+          "pad": 7
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-rim/rs01.wav",
+          "sha256": "1c73001191f37509b3622f85d1c4d8a49cd94ae754b798a00d56b228fef08cb2",
+          "name": "Rim shot 2",
+          "pad": 8
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-lt/Tom%20L.wav",
+          "sha256": "7ec76d3220cce63dec64b1b2a590feb2778e9d3be7c62c3bb7b1667f20a3ab58",
+          "name": "Low tom",
+          "pad": 9
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-oh/Hat%20Open.wav",
+          "sha256": "d68cfd300f400f7b616b9cd7b75971b29bfe90d2d6c79c1206719def21d539c7",
+          "name": "Open hat",
+          "pad": 10,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-mt/Tom%20M.wav",
+          "sha256": "129fd74e4ed5f3a0eddff56bea18034ece442e995e2527b82f6b42fb65621a4d",
+          "name": "Mid tom",
+          "pad": 11
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-hh/hh02.wav",
+          "sha256": "9b55b9705ff4617f0d492b0044a1def315694771c41ef7d0ead692024547f795",
+          "name": "Closed hat 2",
+          "pad": 12,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-cr/Crash.wav",
+          "sha256": "f20b64b2da27952e09b6e1abf03ab7408ca20327fcb08ad963236033e94c88a6",
+          "name": "Crash",
+          "pad": 13
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-ht/Tom%20H.wav",
+          "sha256": "2bddd3edc142c7bd801518b50037cc7bac8f7ba381b30a001b3103f6799976c6",
+          "name": "High tom",
+          "pad": 14
+        },
+        {
+          "url": "https://raw.githubusercontent.com/ritchse/tidal-drum-machines/6577395a4d05031728ced2ec3e5637fa89d8be48/machines/RolandTR909/rolandtr909-rd/Ride.wav",
+          "sha256": "17feb6e626510e0c803079a920fc4ef5c0582666ec6e5a8e211f8382d113fd3c",
+          "name": "Ride",
+          "pad": 15
+        }
+      ]
     }
   ]
 }
