@@ -41,7 +41,7 @@
   (name) @comment.rest
   (#eq? @comment.rest "r"))
 ; A beat line's pads (#659), `"bd sd [hh oh]"`: a pad word in a line of
-; notes, which no note is. Not `cb`, a C-flat root here; the engine knows the track.
+; notes, which no note is; `cb` too, the cowbell before a C-flat root, written B here.
 (notes
   (name) @type
-  (#match? @type "^(bd|sn|cp|ch|oh|lt|mt|ht|rs|cl|ma|cy|lc|mc|hc|cr|rd|sd|hh|rim|p(1[0-5]|[0-9]))$"))
+  (#match? @type "^(bd|sn|cb|cp|ch|oh|lt|mt|ht|rs|cl|ma|cy|lc|mc|hc|cr|rd|sd|hh|rim|p(1[0-5]|[0-9]))$"))

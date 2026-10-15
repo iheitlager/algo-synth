@@ -41,8 +41,8 @@ syn match songNote    /\<b\?\%([iv]\{1,4}\|[IV]\{1,4}\)\%(o7\|o\|7\|maj7\)\?\>/ 
 syn match songNote    /\%([A-Za-z0-9_#]\)\@1<![a-g][#b]\?\%([^A-Za-z0-9_#]\|$\)\@=/ contained
 syn match songNoteRest /\<r\>/ contained
 " A beat line's pads (#659), `"bd sd [hh oh]"`: a pad word in a line of notes,
-" which no note is. Not `cb`, a C-flat root to a regex; the engine knows the track.
-syn match songBeatPad /\<\%(bd\|sn\|cp\|ch\|oh\|lt\|mt\|ht\|rs\|cl\|ma\|cy\|lc\|mc\|hc\|cr\|rd\|sd\|hh\|rim\|p\%(1[0-5]\|[0-9]\)\)\>/ contained
+" which no note is; `cb` too, the cowbell before a C-flat root, written B here.
+syn match songBeatPad /\<\%(bd\|sn\|cb\|cp\|ch\|oh\|lt\|mt\|ht\|rs\|cl\|ma\|cy\|lc\|mc\|hc\|cr\|rd\|sd\|hh\|rim\|p\%(1[0-5]\|[0-9]\)\)\>/ contained
 
 " Lines. A top-level line starts with a keyword: today's words (ADR-0031) and
 " the old `frag` and `section` a song written before still uses.
