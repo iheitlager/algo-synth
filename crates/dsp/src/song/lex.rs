@@ -261,6 +261,10 @@ impl Line<'_> {
 
     /// Is char `s` just after the `:` of a chord's root (`c:m7`)?
     fn quality_at(&self, s: usize) -> bool {
+        // After a colon only: `arp(c,up,16)`'s `up` is a name (#612).
+        if s == 0 || self.at(s - 1) != ':' {
+            return false;
+        }
         let (Some(colon), Some(here)) = (
             s.checked_sub(1).and_then(|k| self.pos.get(k)),
             self.pos.get(s),
@@ -507,6 +511,10 @@ arrange main main
         assert_eq!(of(slash, Class::Note), ["c", "maj7", "e", "V7"]);
         assert_eq!(of(slash, Class::Call), ["voicing"]);
         assert_eq!(of(slash, Class::Number), ["1"]);
+        // #612: an arp's mode after a chord is a name, `&` and `:` aside.
+        let arp = "track k synth\nclip p = k\n  arp(c:m7,up&down:2,16)\n";
+        assert_eq!(of(arp, Class::Note), ["c", "m7"]);
+        assert!(of(arp, Class::Name).ends_with(&["up".to_string(), "down".to_string()]));
     }
 
     #[test]

@@ -424,7 +424,8 @@ overlap. A line containing `@` outside quotes is timed.
 ```
 
 The line ends at the bar of its last start, or `bars <n>` (1–64) on the clip
-line says how long it is.
+line says how long it is. `bars <n>` also sets how long an `arp` of a chord
+runs.
 
 ```song
 track v synth
@@ -488,9 +489,9 @@ notes every run.
 
 | call | plays |
 |---|---|
-| `arp(<chord>,<mode>,<rate>)` | a chord (`[c4,e4,g4]` up to 8 notes, or a name) over one bar; mode `up` `down` `updown`; rate 2, 4, 8 or 16 notes a bar |
+| `arp(<chord>,<mode>[:<octaves>],<rate>)` | a chord (`[c4,e4,g4]` up to 8 notes, or a name) over one bar, or the clip's `bars <n>` (1–64), running on across the bar lines; rate 2, 4, 8 or 16 notes a bar, or the triplets 3, 6, 12 or 24; `:2` to `:4` repeat the chord an octave up each time (`up:2`), as the live arp's octaves |
 | `arp(<chord>,random,<rate>,<seed>)` | random order; only `random` takes a seed, and must |
-| `arp(<clip>,<mode>,<rate>[,<seed>])` | the clip's chords, each arpeggiated from its own start (a clip name wins over a chord name) |
+| `arp(<clip>,<mode>[:<octaves>],<rate>[,<seed>])` | the clip's chords, each arpeggiated from its own start (a clip name wins over a chord name) |
 | `walk(<pitch>,<n>,<seed>)` | n notes (1–32) in one bar, a random walk on the scale; needs `scale` |
 | `markov(<order>,<clip>,<seed>)` | a chain of order 1–3 learned from the clip's pitches and rhythm |
 | `mutate(<clip>,<percent>,<seed>)` | the clip with 0–100 % of its notes moved or dropped |
@@ -500,6 +501,23 @@ notes every run.
 
 A clip a call reads is a note clip above it, as it was at load (a `live`
 clip's first bar).
+
+An arp's modes are the live arp's (#612), Tidal's orders; over `c e g b`:
+
+| mode | plays |
+|---|---|
+| `up` / `down` | c e g b / b g e c |
+| `updown` / `downup` | c e g b g e / b g e c e g: turning without repeating the ends |
+| `up&down` / `down&up` | c e g b b g e c / b g e c c e g b |
+| `converge` / `diverge` | c b e g / g e b c: outside in, inside out |
+| `disconverge` | c b e g e b c |
+| `pinkyup` / `pinkyupdown` | c b e b g b / c b e b g b g b e b |
+| `thumbup` / `thumbupdown` | c e c g c b / c e c g c b c g c e |
+| `asplayed` | the notes in the order written: `[g4,c4,e4]` plays g c e |
+| `random` | a note drawn each step, by the seed |
+
+With octaves the order runs over the whole span: `up:2` on `[c4,e4]` is
+c4 e4 c5 e5.
 
 ```song
 scale c minor
@@ -524,6 +542,8 @@ clip drift = arp
   mutate(riff,30,5)
 clip dice = arp
   arp(c:m9,random,8,7)
+clip rise = arp bars 3
+  arp(c:m7,up:2,12)
 ```
 
 **live:** `clip <name> = <track> live` with a generator call (any of the

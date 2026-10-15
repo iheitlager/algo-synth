@@ -971,7 +971,8 @@ pub enum Param {
     RdPan = 482,
     /// Live arpeggiator on (0/1): held keys play as a pattern with the clock.
     ArpOn = 483,
-    /// Arp order (`ArpMode`: up, down, up-down, as played, random), 0..=4.
+    /// Arp order (`ArpMode`: up, down, up-down, as played, random and
+    /// Tidal's orders, #612), 0..=14.
     ArpMode = 484,
     /// Arp octaves, 1..=4.
     ArpOctaves = 485,
@@ -2207,7 +2208,7 @@ impl Param {
             Param::CrOut | Param::RdOut => (0.0, 8.0),
             Param::CrPan | Param::RdPan => (-1.0, 1.0),
             Param::ArpOn | Param::ArpLatch | Param::ArpFree => (0.0, 1.0),
-            Param::ArpMode => (0.0, 4.0),
+            Param::ArpMode => (0.0, 14.0),
             Param::ArpOctaves => (1.0, 4.0),
             Param::ArpRate => (0.0, 3.0),
             Param::ArpGate => (0.05, 1.0),
@@ -2798,6 +2799,7 @@ mod tests {
             ("ProcType", rust(&ProcType::ALL, |t| t as u32)),
             ("Preset", rust(&Preset::ALL, |p| p as u32)),
             ("NotePriority", rust(&NotePriority::ALL, |p| p as u32)),
+            ("ArpMode", rust(&crate::arp::ArpMode::ALL, |m| m as u32)),
             ("ModSource", rust(&ModSource::ALL, |s| s as u32)),
             ("ModDest", rust(&ModDest::ALL, |d| d as u32)),
             ("Pad", rust(&crate::drums::Pad::ALL, |p| p as u32)),

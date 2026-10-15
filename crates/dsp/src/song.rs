@@ -1020,7 +1020,7 @@ impl Song {
                     return Err(SongError {
                         line: at,
                         col,
-                        msg: "bars N is for a line of timed notes",
+                        msg: notes::BARS_MSG,
                     });
                 }
                 let lane = parse_lane(&ws, line)?;
@@ -1393,7 +1393,7 @@ impl Song {
                     open_bars = None;
                     if let Some(w) = ws.get(4).filter(|w| w.text == "bars") {
                         if kind == Some(Kind::Drums) {
-                            return Err(err(w.col, "bars N is for a line of timed notes"));
+                            return Err(err(w.col, notes::BARS_MSG));
                         }
                         let n = arg(5, "a number of bars goes here")?;
                         let bars: u32 = n
@@ -2288,7 +2288,11 @@ impl Song {
             }
             if let Some(n) = &f.notes {
                 let live = if f.live { " live" } else { "" };
-                let bars = if matches!(n.seq, notes::Seq::Timed(_)) {
+                let bars = if matches!(n.seq, notes::Seq::Timed(_))
+                    || matches!(
+                        n.seq,
+                        notes::Seq::Generated(notes::Gen::Arp { bars: 2.., .. })
+                    ) {
                     format!(" bars {}", n.bars)
                 } else {
                     String::new()

@@ -8,8 +8,10 @@
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
 
+use algo_dsp::arp::ArpMode;
 use algo_dsp::deck::DeckField;
 use algo_dsp::engine::Engine;
+use algo_dsp::params::Param;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 use std::alloc::System;
 
@@ -58,7 +60,7 @@ clip beat = kit /16
 clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\")
   \"[e3,g#3,b3] [f3,a3,c4]\"
 clip sand = lead live .chord(hold) .oct(1)
-  arp([e4,g#4,b4,d5],random,16,3)
+  arp([e4,g#4,b4,d5],random:2,16,3)
 clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5)
 clip ring = bell
@@ -208,6 +210,32 @@ fn a_busy_song_renders_without_allocating() {
         "the cued start or the sync allocated: {change:?}"
     );
     assert!(e.clock().playing(), "started");
+
+    // The live arp in every mode over four octaves (#612): each order is an
+    // index sum over the held set, nothing kept.
+    e.set_param(15, Param::ArpOn, 1.0);
+    e.set_param(15, Param::ArpOctaves, 4.0);
+    e.set_param(15, Param::ArpRate, 3.0);
+    for n in [52, 56, 59, 62] {
+        e.note_on(15, n, 0.9);
+    }
+    let region = Region::new(GLOBAL);
+    for (mode, _) in ArpMode::ALL {
+        e.set_param(15, Param::ArpMode, mode as u32 as f32);
+        for _ in 0..blocks / 24 {
+            e.render(128);
+        }
+    }
+    let change = region.change();
+    assert_eq!(
+        (
+            change.allocations,
+            change.reallocations,
+            change.deallocations
+        ),
+        (0, 0, 0),
+        "the live arp allocated: {change:?}"
+    );
 }
 
 const HOOVER: &str = r"SynthDef(\hoover, {

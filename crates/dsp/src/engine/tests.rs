@@ -5318,6 +5318,18 @@ fn a_bass_line_stays_as_typed() {
     assert_eq!(e.song_text(), text);
 }
 
+/// #612, #613, #588: an arp's modes, octaves and bars typed into a song stay
+/// as typed.
+#[test]
+fn arp_modes_and_octaves_stay_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth\n\nclip rise = lead   bars 3\n  arp(c:m7, up&down:2 ,12)\nclip p = lead\n  arp(rise,converge,6)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+}
+
 /// #588: an edit that leaves the song as its text says keeps the text as
 /// typed; one that changes it rewrites only its line; Format prints it all.
 #[test]

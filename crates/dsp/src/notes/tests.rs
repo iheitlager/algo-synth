@@ -461,17 +461,27 @@ fn generator_calls_print_canonically_and_parse_back() {
 #[test]
 fn generator_errors_say_where() {
     for (text, col, msg) in [
-        (
-            "arp([c4,e4],up)",
-            1,
-            "arp takes a chord, a mode, a rate and for random a seed: arp([c4,e4,g4],up,16)",
-        ),
+        ("arp([c4,e4],up)", 1, crate::usage::ARP),
         (
             "arp([c4,e4],sideways,16)",
             13,
-            "a mode is up, down, updown or random",
+            "a mode is up, down, updown, downup, up&down, down&up, converge, diverge, disconverge, pinkyup, pinkyupdown, thumbup, thumbupdown, asplayed or random",
         ),
-        ("arp([c4,e4],up,5)", 16, "a rate is 2, 4, 8 or 16"),
+        (
+            "arp([c4,e4],up,5)",
+            16,
+            "a rate is 2, 3, 4, 6, 8, 12, 16 or 24",
+        ),
+        (
+            "arp([c4,e4],up,32)",
+            16,
+            "a rate is 2, 3, 4, 6, 8, 12, 16 or 24",
+        ),
+        // #613: octaves 1 to 4, the error at the number.
+        ("arp([c4,e4],up:0,16)", 16, "octaves are 1 to 4: up:2"),
+        ("arp([c4,e4],up:5,16)", 16, "octaves are 1 to 4: up:2"),
+        ("arp([c4,e4],up&down:x,16)", 21, "octaves are 1 to 4: up:2"),
+        ("arp(riff,up:9,16)", 13, "octaves are 1 to 4: up:2"),
         (
             "arp([c4,e4],up,16,1)",
             1,
@@ -2110,4 +2120,107 @@ fn bass_prints_back_and_errors_say_where() {
         let e = with_prog(text).unwrap_err();
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
     }
+}
+
+/// #613: today's arp is unchanged: a sixteenth each, c e g from the bar line.
+#[test]
+fn a_plain_arp_gives_todays_events() {
+    let n = parse("arp([c4,e4,g4],up,16)", 1).unwrap();
+    assert_eq!(n.bars, 1);
+    let got: Vec<(u32, u32, u8)> = n.events.iter().map(|e| (e.start, e.len, e.note)).collect();
+    let want: Vec<(u32, u32, u8)> = (0..16)
+        .map(|i| (i * 3, 3, [60, 64, 67][i as usize % 3]))
+        .collect();
+    assert_eq!(got, want);
+}
+
+/// #613: the triplet rates fall on the 48-tick grid.
+#[test]
+fn triplet_rates_place_notes_on_the_grid() {
+    for (rate, len) in [(3, 16), (6, 8), (12, 4), (24, 2)] {
+        let n = parse(&format!("arp([c4,e4,g4],up,{rate})"), 1).unwrap();
+        assert_eq!(n.events.len(), rate as usize);
+        assert!(
+            n.events
+                .iter()
+                .enumerate()
+                .all(|(i, e)| e.start == i as u32 * len && e.len == len),
+            "{rate}"
+        );
+        assert_eq!(n.print(), format!("arp([c4,e4,g4],up,{rate})"));
+    }
+}
+
+/// #612, #613: every mode at every octave count plays what the live arp
+/// plays, and prints back as written.
+#[test]
+fn the_text_arp_plays_the_live_arps_orders() {
+    let held = [60, 64, 67, 71];
+    for (mode, word) in crate::arp::ArpMode::WORDS {
+        if mode == crate::arp::ArpMode::Random {
+            continue;
+        }
+        for octaves in 1..=4u8 {
+            let oct = if octaves > 1 {
+                format!(":{octaves}")
+            } else {
+                String::new()
+            };
+            let text = format!("arp([c4,e4,g4,b4],{word}{oct},16)");
+            let n = parse(&text, 1).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+            let got: Vec<u8> = n.events.iter().map(|e| e.note).collect();
+            let want: Vec<u8> = (0..16)
+                .filter_map(|s| crate::arp::arp_note(&held, mode, octaves, s, 0))
+                .collect();
+            assert_eq!(got, want, "{text}");
+            assert_eq!(n.print(), text);
+        }
+    }
+}
+
+/// #612: asplayed keeps the order written; up sorts it.
+#[test]
+fn asplayed_plays_the_chord_as_written() {
+    let notes = |t: &str| -> Vec<u8> {
+        parse(t, 1)
+            .unwrap()
+            .events
+            .iter()
+            .map(|e| e.note)
+            .take(4)
+            .collect()
+    };
+    assert_eq!(notes("arp([g4,c4,e4],asplayed,4)"), [67, 60, 64, 67]);
+    assert_eq!(notes("arp([g4,c4,e4],up,4)"), [60, 64, 67, 60]);
+}
+
+/// #613: random over octaves draws from the whole span; at one octave the
+/// draw is the one it always was, from the chord.
+#[test]
+fn random_draws_over_the_octaves() {
+    let one = parse("arp([c4,e4,g4],random,16,7)", 1).unwrap();
+    assert!(one.events.iter().all(|e| [60, 64, 67].contains(&e.note)));
+    let two = parse("arp([c4,e4,g4],random:2,16,7)", 1).unwrap();
+    assert!(
+        two.events
+            .iter()
+            .all(|e| [60, 64, 67, 72, 76, 79].contains(&e.note))
+    );
+    assert!(two.events.iter().any(|e| e.note > 67));
+    assert_eq!(two.print(), "arp([c4,e4,g4],random:2,16,7)");
+}
+
+/// #613: `bars N` runs a literal arp on across the bar lines.
+#[test]
+fn an_arp_runs_on_over_its_bars() {
+    let n = parse("arp(c:m7,up:2,12)", 1).unwrap().with_bars(3).unwrap();
+    assert_eq!(n.bars, 3);
+    assert_eq!(n.events.len(), 36);
+    // c eb g bb, an octave up, then again: bar 2 starts on the fifth note.
+    let span = [60, 63, 67, 70, 72, 75, 79, 82];
+    for (i, e) in n.events.iter().enumerate() {
+        assert_eq!((e.start, e.note), (i as u32 * 4, span[i % 8]), "{i}");
+    }
+    assert_eq!(n.print(), "arp([c4,d#4,g4,a#4],up:2,12)");
+    assert!(with_riff("arp(riff,up,16)").unwrap().with_bars(2).is_err());
 }

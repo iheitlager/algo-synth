@@ -556,7 +556,48 @@ fn bars_is_not_for_lanes() {
         Err(SongError {
             line: 2,
             col: 12,
-            msg: "bars N is for a line of timed notes"
+            msg: crate::notes::BARS_MSG
+        })
+    );
+}
+
+/// #612, #613: an arp's modes, octaves, triplet rates and `bars N` parse
+/// and print back; `bars` stays off a call of a clip and stops at 64.
+#[test]
+fn an_arp_takes_bars_octaves_and_tidals_modes() {
+    let text = "track lead synth\nclip rise = lead bars 3\n  arp([c4,e4,g4],up&down:2,12)\nclip p = lead\n  arp(rise,pinkyupdown:3,24)\n";
+    let s = Song::parse(text).expect("parses");
+    let rise = s.clips[0].notes.as_ref().expect("notes");
+    assert_eq!((rise.bars, rise.events.len()), (3, 36));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip rise = lead bars 3\n  arp([c4,e4,g4],up&down:2,12)\n"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("  arp(rise,pinkyupdown:3,24)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+    // One bar is the default, and prints without `bars`.
+    let one = Song::parse("track lead synth\nclip a = lead bars 1\n  arp([c4,e4],up,16)").unwrap();
+    assert!(one.print().contains("clip a = lead\n"));
+    assert_eq!(
+        Song::parse(
+            "track lead synth\nclip a = lead\n  \"c4\"\nclip b = lead bars 2\n  arp(a,up,16)"
+        ),
+        Err(SongError {
+            line: 4,
+            col: 15,
+            msg: crate::notes::BARS_MSG
+        })
+    );
+    assert_eq!(
+        Song::parse("track lead synth\nclip a = lead bars 65\n  arp([c4,e4],up,16)").map(|_| ()),
+        Err(SongError {
+            line: 2,
+            col: 20,
+            msg: "a line is 1 to 64 bars"
         })
     );
 }
@@ -1633,7 +1674,8 @@ fn the_language_definition_covers_the_parser() {
         }
     }
     let words: std::collections::HashSet<&str> = code
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        // `&` too, for arp's `up&down` (#612).
+        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '&')))
         .collect();
     let in_a_heading = |k: &str| headings.iter().any(|h| h.split([' ', ',']).any(|w| w == k));
     let mut missing: Vec<String> = KEYWORDS
@@ -1659,7 +1701,7 @@ fn the_language_definition_covers_the_parser() {
             .map(|q| q.0)
             .filter(|q| !q.is_empty())
             .collect(),
-        notes::ArpMode::ALL.iter().map(|m| m.1).collect(),
+        notes::ArpMode::WORDS.iter().map(|m| m.1).collect(),
         InsertType::ALL.iter().map(|(_, n)| *n).collect(),
         ProcType::ALL.iter().map(|(_, n)| *n).collect(),
         crate::modular::VOICINGS.iter().map(|v| v.0).collect(),

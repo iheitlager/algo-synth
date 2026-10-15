@@ -3,8 +3,7 @@
 //! <example>`. The parser's errors that state a call's usage read it here,
 //! and so does the editor's argument help, so the two never differ.
 
-pub const ARP: &str =
-    "arp takes a chord, a mode, a rate and for random a seed: arp([c4,e4,g4],up,16)";
+pub const ARP: &str = "arp takes a chord, a mode (up:2 for two octaves), a rate and for random a seed: arp([c4,e4,g4],up,16)";
 pub const WALK: &str = "walk takes a start note, a count and a seed: walk(c4,8,1)";
 pub const MARKOV: &str = "markov takes an order, a clip and a seed: markov(1,riff,3)";
 pub const MUTATE: &str = "mutate takes a clip, a percent and a seed: mutate(riff,30,5)";

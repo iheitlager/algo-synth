@@ -3,7 +3,8 @@
 //! the same call gives the same events, bounded in length and range.
 //!
 //! ```text
-//! arp([c4,e4,g4],up,16)          a chord, up|down|updown, a rate (a sixteenth)
+//! arp([c4,e4,g4],up,16)          a chord, a mode (up, converge…), a rate (a sixteenth)
+//! arp([c4,e4,g4],up:2,12)        over two octaves, in eighth triplets
 //! arp([c4,e4,g4],random,16,7)    random takes a seed
 //! walk(c4,8,1)                   8 notes, a random walk on the song's scale
 //! markov(1,riff,3)               learn order 1 from the clip riff, seed 3
@@ -18,6 +19,7 @@
 use super::{Cursor, Event, NoteError, Pitch, TICKS_PER_BAR, err};
 use crate::algo::{Rng, Scale, mix};
 use crate::arp;
+pub use crate::arp::ArpMode;
 
 /// The calls a line of notes may be, `euclid` aside; no other is read.
 pub const CALLS: [&str; 7] = ["arp", "walk", "markov", "mutate", "root", "prog", "bass"];
@@ -28,31 +30,18 @@ pub(super) const MAX_CHORD: usize = 8;
 /// Longest Markov context.
 const MAX_ORDER: u8 = 3;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ArpMode {
-    Up,
-    Down,
-    UpDown,
-    Random,
-}
+/// Notes a bar an arp may play: halves to sixteenths, and the triplets
+/// between (#613); each is exact on the 48-tick bar.
+const ARP_RATES: [u8; 8] = [2, 3, 4, 6, 8, 12, 16, 24];
+const RATE_MSG: &str = "a rate is 2, 3, 4, 6, 8, 12, 16 or 24";
+const MODE_MSG: &str = "a mode is up, down, updown, downup, up&down, down&up, converge, diverge, disconverge, pinkyup, pinkyupdown, thumbup, thumbupdown, asplayed or random";
 
-impl ArpMode {
-    pub const ALL: [(ArpMode, &'static str); 4] = [
-        (ArpMode::Up, "up"),
-        (ArpMode::Down, "down"),
-        (ArpMode::UpDown, "updown"),
-        (ArpMode::Random, "random"),
-    ];
-
-    fn from_name(s: &str) -> Option<ArpMode> {
-        ArpMode::ALL.iter().find(|m| m.1 == s).map(|m| m.0)
-    }
-
-    fn name(self) -> &'static str {
-        ArpMode::ALL
-            .iter()
-            .find(|m| m.0 == self)
-            .map_or("", |m| m.1)
+/// `up:2`: an arp's mode and its octaves (#613), as written.
+fn mode_text(mode: ArpMode, octaves: u8) -> String {
+    if octaves > 1 {
+        format!("{}:{octaves}", mode.word())
+    } else {
+        mode.word().to_string()
     }
 }
 
@@ -154,8 +143,12 @@ pub enum Gen {
     Arp {
         chord: Vec<Pitch>,
         mode: ArpMode,
-        /// 2, 4, 8 or 16: a half, quarter, eighth or sixteenth note per step.
+        /// 1 to 4: the chord repeated an octave up each time (#613).
+        octaves: u8,
+        /// Notes a bar, one of `ARP_RATES`.
         rate: u8,
+        /// The clip's `bars N`: the pattern runs on across them (#613).
+        bars: u32,
         seed: u32,
     },
     Walk {
@@ -184,6 +177,7 @@ pub enum Gen {
         src: Vec<Event>,
         bars: u32,
         mode: ArpMode,
+        octaves: u8,
         rate: u8,
         seed: u32,
     },
@@ -243,8 +237,9 @@ impl Gen {
     /// Bars before the events repeat.
     pub fn bars(&self) -> u32 {
         match self {
-            Gen::Arp { .. } | Gen::Walk { .. } => 1,
-            Gen::Markov { bars, .. }
+            Gen::Walk { .. } => 1,
+            Gen::Arp { bars, .. }
+            | Gen::Markov { bars, .. }
             | Gen::Mutate { bars, .. }
             | Gen::ArpProg { bars, .. }
             | Gen::Root { bars, .. }
@@ -258,8 +253,10 @@ impl Gen {
             Gen::Arp {
                 chord,
                 mode,
+                octaves,
                 rate,
                 seed,
+                ..
             } => {
                 let ps: Vec<String> = chord.iter().map(super::pitch_text).collect();
                 let seed = if *mode == ArpMode::Random {
@@ -267,7 +264,8 @@ impl Gen {
                 } else {
                     String::new()
                 };
-                format!("arp([{}],{},{rate}{seed})", ps.join(","), mode.name())
+                let mode = mode_text(*mode, *octaves);
+                format!("arp([{}],{mode},{rate}{seed})", ps.join(","))
             }
             Gen::Walk { start, steps, seed } => {
                 format!("walk({},{steps},{seed})", super::note_name(*start))
@@ -281,6 +279,7 @@ impl Gen {
             Gen::ArpProg {
                 from,
                 mode,
+                octaves,
                 rate,
                 seed,
                 ..
@@ -290,7 +289,7 @@ impl Gen {
                 } else {
                     String::new()
                 };
-                format!("arp({from},{},{rate}{seed})", mode.name())
+                format!("arp({from},{},{rate}{seed})", mode_text(*mode, *octaves))
             }
             Gen::Root { from, octave, .. } if *octave == ROOT_OCTAVE => format!("root({from})"),
             Gen::Root { from, octave, .. } => format!("root({from},{octave})"),
@@ -357,7 +356,7 @@ impl Gen {
     /// The most events a call can make: room to reserve for `events_into`.
     pub fn max_events(&self) -> usize {
         match self {
-            Gen::Arp { rate, .. } => usize::from(*rate),
+            Gen::Arp { rate, bars, .. } => usize::from(*rate) * *bars as usize,
             Gen::Walk { .. } => MAX_WALK as usize,
             Gen::Markov { src, .. } | Gen::Mutate { src, .. } | Gen::Root { src, .. } => src.len(),
             // A note a beat, or an eighth for `octave`.
@@ -379,8 +378,13 @@ impl Gen {
         out.clear();
         match self {
             Gen::Arp {
-                chord, mode, rate, ..
-            } => arp(chord, *mode, *rate, seed, out),
+                chord,
+                mode,
+                octaves,
+                rate,
+                bars,
+                ..
+            } => arp(chord, (*mode, *octaves), *rate, *bars, seed, out),
             Gen::Walk { start, steps, .. } => walk(*start, *steps, seed, scale, out),
             Gen::Markov { order, src, .. } => markov(*order, src, seed, out),
             Gen::Mutate { amount, src, .. } => mutate(*amount, src, seed, scale, out),
@@ -388,9 +392,10 @@ impl Gen {
                 src,
                 bars,
                 mode,
+                octaves,
                 rate,
                 ..
-            } => arp_prog(src, *bars, *mode, *rate, seed, out),
+            } => arp_prog(src, *bars, (*mode, *octaves), *rate, seed, out),
             Gen::Root { src, octave, .. } => root(src, *octave, out),
             Gen::Bass {
                 src,
@@ -417,38 +422,55 @@ fn rng(seed: u32, tag: u32) -> Rng {
     Rng::new(mix(seed, tag))
 }
 
-fn arp(chord: &[Pitch], mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>) {
-    let mut buf = [Pitch {
-        note: 0,
-        accent: false,
-        degree: false,
-    }; MAX_CHORD];
+/// A note of `notes` (sorted) drawn by `r`, over `octaves` (#613): one
+/// octave draws as it always has.
+fn draw(r: &mut Rng, notes: &[u8], octaves: u8) -> Option<u8> {
+    let n = notes.len();
+    let k = usize::try_from(r.next_u32()).unwrap_or(0) % (n * usize::from(octaves)).max(1);
+    let note = u16::from(*notes.get(k % n.max(1))?) + 12 * (k / n.max(1)) as u16;
+    Some(note.min(127) as u8)
+}
+
+/// `up` is a whole number of octaves below `octaves`: 0 is the note itself.
+fn is_octave(up: u8, octaves: u8) -> bool {
+    up % 12 == 0 && up / 12 < octaves
+}
+
+/// A chord arpeggiated over `bars`: the steps run on across the bar lines,
+/// as the live arp's do (#613).
+fn arp(
+    chord: &[Pitch],
+    (mode, octaves): (ArpMode, u8),
+    rate: u8,
+    bars: u32,
+    seed: u32,
+    out: &mut Vec<Event>,
+) {
     let n = chord.len().min(MAX_CHORD);
-    let notes = buf.get_mut(..n).unwrap_or(&mut []);
-    notes.copy_from_slice(chord.get(..n).unwrap_or(&[]));
-    notes.sort_unstable_by_key(|p| p.note);
+    // As written, for asplayed: `arp_note` sorts for the others.
     let mut held = [0u8; MAX_CHORD];
-    for (h, p) in held.iter_mut().zip(notes.iter()) {
+    for (h, p) in held.iter_mut().zip(chord.iter()) {
         *h = p.note;
     }
     let held = held.get(..n).unwrap_or(&[]);
+    let mut sorted = [0u8; MAX_CHORD];
+    let sorted = sorted.get_mut(..n).unwrap_or(&mut []);
+    sorted.copy_from_slice(held);
+    sorted.sort_unstable();
     let len = TICKS_PER_BAR / u32::from(rate).max(1);
-    let count = TICKS_PER_BAR / len.max(1);
+    let count = bars * (TICKS_PER_BAR / len.max(1));
     let mut r = rng(seed, 0xA4);
     for i in 0..count {
         // The deterministic modes are the live arp's pattern (spec 002 Req 7).
-        let step = u64::from(i);
         let note = match mode {
-            ArpMode::Up => arp::arp_note(held, arp::ArpMode::Up, 1, step, seed),
-            ArpMode::Down => arp::arp_note(held, arp::ArpMode::Down, 1, step, seed),
-            ArpMode::UpDown => arp::arp_note(held, arp::ArpMode::UpDown, 1, step, seed),
-            ArpMode::Random => {
-                let k = usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1);
-                notes.get(k).map(|p| p.note)
-            }
+            ArpMode::Random => draw(&mut r, sorted, octaves),
+            _ => arp::arp_note(held, mode, octaves, u64::from(i), seed),
         };
         if let Some(note) = note {
-            let accent = notes.iter().any(|p| p.note == note && p.accent);
+            // An accent carries to the note's octaves above.
+            let accent = chord
+                .iter()
+                .any(|p| p.accent && note >= p.note && is_octave(note - p.note, octaves));
             out.push(Event {
                 start: i * len,
                 len,
@@ -581,7 +603,14 @@ pub(super) fn chord_at(src: &[Event], t: u32, buf: &mut [u8; MAX_CHORD]) -> Opti
 
 /// `arp(prog,…)`: at each step, the chord of `src` sounding then, played from
 /// its first step as the arp plays a held chord.
-fn arp_prog(src: &[Event], bars: u32, mode: ArpMode, rate: u8, seed: u32, out: &mut Vec<Event>) {
+fn arp_prog(
+    src: &[Event],
+    bars: u32,
+    (mode, octaves): (ArpMode, u8),
+    rate: u8,
+    seed: u32,
+    out: &mut Vec<Event>,
+) {
     let len = TICKS_PER_BAR / u32::from(rate).max(1);
     let count = bars * TICKS_PER_BAR / len.max(1);
     let mut r = rng(seed, 0xA5);
@@ -594,13 +623,8 @@ fn arp_prog(src: &[Event], bars: u32, mode: ArpMode, rate: u8, seed: u32, out: &
         let held = buf.get(..n).unwrap_or(&[]);
         let step = u64::from((t - start) / len.max(1));
         let note = match mode {
-            ArpMode::Up => arp::arp_note(held, arp::ArpMode::Up, 1, step, seed),
-            ArpMode::Down => arp::arp_note(held, arp::ArpMode::Down, 1, step, seed),
-            ArpMode::UpDown => arp::arp_note(held, arp::ArpMode::UpDown, 1, step, seed),
-            ArpMode::Random => {
-                let k = usize::try_from(r.next_u32()).unwrap_or(0) % n.max(1);
-                held.get(k).copied()
-            }
+            ArpMode::Random => draw(&mut r, held, octaves),
+            _ => arp::arp_note(held, mode, octaves, step, seed),
         };
         if let Some(note) = note {
             out.push(Event {
@@ -1232,17 +1256,30 @@ pub(super) fn parse_call(
                 chord_arg(cur, arg(0))?
             };
             let m = text(cur, arg(1));
-            let mode = ArpMode::from_name(&m).ok_or(NoteError {
-                col: cur.base + arg(1).0,
-                msg: "a mode is up, down, updown or random",
-            })?;
-            let rate = match text(cur, arg(2)).as_str() {
-                "2" => 2,
-                "4" => 4,
-                "8" => 8,
-                "16" => 16,
-                _ => return err(cur.base + arg(2).0, "a rate is 2, 4, 8 or 16"),
+            let (word, octaves) = match m.split_once(':') {
+                Some((w, _)) => {
+                    // The octaves' column: after the mode and its colon.
+                    let at = arg(1).0 + w.chars().count() + 1;
+                    let o = number(cur, (at, arg(1).1), 4, "octaves are 1 to 4: up:2")?;
+                    if o == 0 {
+                        return err(cur.base + at, "octaves are 1 to 4: up:2");
+                    }
+                    (w, o as u8)
+                }
+                None => (m.as_str(), 1),
             };
+            let mode = ArpMode::from_word(word).ok_or(NoteError {
+                col: cur.base + arg(1).0,
+                msg: MODE_MSG,
+            })?;
+            let rate = text(cur, arg(2))
+                .parse::<u8>()
+                .ok()
+                .filter(|r| ARP_RATES.contains(r))
+                .ok_or(NoteError {
+                    col: cur.base + arg(2).0,
+                    msg: RATE_MSG,
+                })?;
             if (mode == ArpMode::Random) != (list.len() == 4) {
                 return err(
                     cur.base + at,
@@ -1256,13 +1293,16 @@ pub(super) fn parse_call(
                     src,
                     bars,
                     mode,
+                    octaves,
                     rate,
                     seed,
                 },
                 None => Gen::Arp {
                     chord,
                     mode,
+                    octaves,
                     rate,
+                    bars: 1,
                     seed,
                 },
             }
