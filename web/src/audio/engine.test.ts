@@ -248,6 +248,37 @@ describe('the song as it is typed (ADR-0027)', () => {
     mod.typeSong('tempo 128\nstrip a: Level 0.5\n')
     expect(take()).toEqual([{ t: 'foldHold', on: false }])
   })
+
+  it('keeps a typed blank line: layout is not an edit (#584)', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mod, send, take } = await boot()
+      const text = 'tempo 120\n\nclip beat = kit\n  bd x...\n'
+      send({ t: 'song', ...ok, ok: true, text: enc(text), error: null, tracks: [] })
+      take()
+      // Enter at the end of the lane: nothing to apply, folding not held.
+      const typed = 'tempo 120\n\nclip beat = kit\n  bd x...\n  \n'
+      mod.typeSong(typed)
+      vi.advanceTimersByTime(mod.APPLY_AFTER_MS)
+      expect(take()).toEqual([])
+      // The song again, unchanged (as while it plays): the blank line stays.
+      send({ t: 'song', ...ok, ok: true, text: enc(text), error: null, tracks: [] })
+      expect(mod.song.draft).toBe(typed)
+      // A fold changes the song: its text comes in.
+      const folded = 'tempo 120\nstrip a: Level 0.5\n\nclip beat = kit\n  bd x...\n'
+      send({ t: 'song', ...ok, ok: true, text: enc(folded), error: null, tracks: [] })
+      expect(mod.song.draft).toBe(folded)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps blank lines through the answer to what was typed (#584)', async () => {
+    const { mod, send } = await boot()
+    mod.loadSong('tempo 128\n\n\nswing 60\n')
+    send({ t: 'song', ...ok, ok: true, text: enc('tempo 128\nswing 60\n'), error: null, tracks: [] })
+    expect(mod.song.draft).toBe('tempo 128\n\n\nswing 60\n')
+  })
 })
 
 describe('what the song cannot hold yet (#361)', () => {

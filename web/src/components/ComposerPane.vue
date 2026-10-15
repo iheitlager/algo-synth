@@ -7,7 +7,7 @@ import { LIMITS, setSplit, splits } from '../audio/split'
 import Splitter from './Splitter.vue'
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, cueClip, loadSong, nextRatchet, params, requestSong, routeTrack, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  MUTE, cueClip, loadSong, nextRatchet, params, requestSong, routeTrack, sameSong, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -40,7 +40,7 @@ const choices = computed<{ label: string; value: Route }[]>(() => [
   { label: 'Mute', value: MUTE },
 ])
 const noKit = computed(() => song.tracks.some((t) => t.kind === 'drums') && !synths.list.some(isKit))
-const dirty = computed(() => song.draft !== song.text)
+const dirty = computed(() => !sameSong(song.draft, song.text))
 // The words playing light up (#205) only while the editor shows the text the
 // engine plays: its spans point into that text, not into a draft.
 
