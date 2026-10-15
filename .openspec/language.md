@@ -339,14 +339,16 @@ range's (`0 .. 3@2`), and the start takes none.
 
 ```text
 "<word>…"
-word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `?` plays on a fixed, seeded half of the bars and `?0.3`
+one option per bar, `[a | b c]` one option at random each bar, filling the
+group's time (#614: seeded as `?` is, repeats after 8; an option may be a
+sequence; not with a chord's commas), `?` plays on a fixed, seeded half of the bars and `?0.3`
 on about 3 in 10 (0 to 1, at most three decimals; repeats after 8).
 After the `?` can come a trig condition instead, as on Elektron's
 sequencers:
@@ -576,6 +578,8 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after |
 | `.ply(n)` | each note n (1–16) times in its own length |
 | `.iter(n)` | each bar starts a further 1/n (1–16) of a bar in |
+| `.shuffle(n)` | each bar cut into n (1–16) parts played in a new order each bar, every part once (#615) |
+| `.scramble(n)` | n parts drawn from each bar's, some twice and some left out; both seeded, a note cut at its part's end, the line round in 8 bars (#615) |
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |

@@ -121,6 +121,68 @@ fn chance_errors_say_where() {
     }
 }
 
+/// #614: `[a | b | c]` plays one option a bar, from the bar's seed.
+#[test]
+fn a_choice_plays_one_option_a_bar() {
+    let n = parse("\"c4 [e4 | g4 | a#4]\"", 1).unwrap();
+    assert_eq!(n.bars, 8, "a choice repeats after 8 bars, as ? does");
+    assert_eq!(parse(&n.text, 1).unwrap(), n, "the same every run");
+    assert_eq!(n.text, "\"c4 [e4 | g4 | a#4]\"");
+    // One note in the second half of each bar, each option on some bar.
+    let second: Vec<u8> = n
+        .events
+        .iter()
+        .filter(|e| e.start % 48 == 24)
+        .map(|e| e.note)
+        .collect();
+    assert_eq!(second.len(), 8);
+    for note in [64, 67, 70] {
+        assert!(second.contains(&note), "{note} in {second:?}");
+    }
+    assert!(n.events.iter().all(|e| e.start % 48 != 24 || e.len == 24));
+}
+
+#[test]
+fn a_choice_option_is_a_sequence_and_keeps_its_suffixes() {
+    let n = parse("\"[c4 d4 | d#4]@3 ~\"", 1).unwrap();
+    assert_eq!(n.text, "\"[c4 d4 | d#4]@3 ~\"");
+    for bar in 0..n.bars {
+        let got: Vec<(u32, u32, u8)> = n
+            .events
+            .iter()
+            .filter(|e| e.start / 48 == bar)
+            .map(|e| (e.start % 48, e.len, e.note))
+            .collect();
+        assert!(
+            got == [(0, 18, 60), (18, 18, 62)] || got == [(0, 36, 63)],
+            "bar {bar}: {got:?}"
+        );
+    }
+    // Nested in an alternation, and with an alternation inside: the bars round together.
+    assert_eq!(parse("\"<c4 [d4 | <e4 f4 g4>]>\"", 1).unwrap().bars, 24);
+    let words = parse("\"[c4 d4 | d#4] g4\"", 1).unwrap().word_spans();
+    let text = "\"[c4 d4 | d#4] g4\"";
+    let named: Vec<&str> = words.iter().map(|&(at, len)| &text[at..at + len]).collect();
+    assert_eq!(named, ["c4", "d4", "d#4", "g4"]);
+}
+
+#[test]
+fn choice_errors_say_where() {
+    for (t, col, msg) in [
+        ("\"[c4 | ]\"", 8, "an option of a | b is empty"),
+        ("\"[| c4]\"", 3, "an option of a | b is empty"),
+        ("\"c4 | d4\"", 5, "a | b goes inside [ ]: [a | b]"),
+        ("\"<c4 | d4>\"", 6, "a | b goes inside [ ]: [a | b]"),
+        (
+            "\"[c4,e4 | g4]\"",
+            9,
+            "a [ ] holds a chord or a choice, not both",
+        ),
+    ] {
+        assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
+    }
+}
+
 #[test]
 fn classic_durations_lay_notes_one_after_another() {
     assert_eq!(
