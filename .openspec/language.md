@@ -495,6 +495,7 @@ cycle is a bar; times round to the tick grid; the result keeps the limits of
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
 | `.scale(<<root>…>[/n] [<mode>])` | a progression: the roots (up to 16) take turns, a bar each or n (1–16) bars each, by the bar a note starts in; `a1:dorian` gives a root its own mode, and the shared mode may go when each has one |
 | `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
+| `.chord(<clip>)` | each degree a note of the chord an earlier clip plays where it starts (ADR-0035): 0 its lowest note, on up an octave past the top and down below the root, `[0,2]` two at once; a note moves to the nearest chord note; `"0 1 2 3"` is an up arpeggio |
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
 
 Write the harmony once and let other clips follow it: one edit to it moves

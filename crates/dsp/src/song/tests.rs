@@ -2329,6 +2329,48 @@ fn a_clip_read_for_roots_comes_before_and_has_notes() {
     }
 }
 
+#[test]
+fn degrees_count_the_notes_of_an_earlier_clips_chord() {
+    let harm = "track pad synth\ntrack lead synth\n\
+                clip harm = pad\n  \"<[a2,c3,e3,g3] [d3,f3,a3,c4]>\"\n";
+    let s = Song::parse(&format!(
+        "{harm}clip f = lead .chord(harm)\n  \"0 1 2 3\"\n"
+    ))
+    .expect("parses");
+    let notes: Vec<u8> = notes_of(&s, "f").iter().map(|(_, n)| *n).collect();
+    assert_eq!(
+        notes,
+        vec![45, 48, 52, 55, 50, 53, 57, 60],
+        "Am7 then Dm7, a bar each"
+    );
+    // Past the top an octave up, below the root an octave down; [0,2] both.
+    let s = Song::parse(&format!(
+        "{harm}clip f = lead .chord(harm)\n  \"4 -1 [0,2]\"\n"
+    ))
+    .expect("parses");
+    assert_eq!(
+        notes_of(&s, "f")[..4],
+        [(0, 57), (16, 43), (32, 45), (32, 52)]
+    );
+    // A note moves to the nearest chord note: b2 to c3 over Am7.
+    let s = Song::parse(&format!("{harm}clip f = lead .chord(harm)\n  \"b2\"\n")).expect("parses");
+    assert_eq!(notes_of(&s, "f")[0], (0, 48));
+    // With a rhythm, and printed back.
+    let s = Song::parse(&format!(
+        "{harm}clip f = lead .euclid(5,8) .chord(harm)\n  \"0 2 1\"\n"
+    ))
+    .expect("parses");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip f = lead .euclid(5,8) .chord(harm)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+    let e =
+        Song::parse(&format!("{harm}clip f = lead .chord(nope)\n  \"0\"\n")).expect_err("no clip");
+    assert_eq!(e.msg, "this takes an earlier clip, e.g. chord(harm)");
+}
+
 /// The notes of clip `k`, in order.
 fn clip_notes(s: &Song, k: usize) -> Vec<u8> {
     let n = s

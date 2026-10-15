@@ -59,6 +59,9 @@ pub enum Pattern {
     ScaleOf(Context, Mode),
     /// Whole octaves, after the degrees are notes (#591).
     Oct(i32),
+    /// `chord(<clip>)`: degrees count the notes of the chord an earlier clip
+    /// plays (ADR-0035, #592).
+    ChordOf(Context),
 }
 
 /// An earlier clip a method reads for its harmony (ADR-0035): its name as
@@ -82,6 +85,46 @@ impl Context {
         chord_at(&self.events, t, buf)
             .or_else(|| chord_at(&self.events, u32::MAX, buf))
             .map_or(0, |(_, n)| n)
+    }
+
+    /// Event `e` at tick `t` made a note of the chord sounding there: a
+    /// degree counts its notes from the lowest (0), on up an octave past the
+    /// top and down below the root; a note moves to the nearest chord note.
+    /// False when the clip has no notes or the note leaves 0 to 127.
+    pub fn place(&self, e: &mut Event, t: u64) -> bool {
+        let mut buf = [0u8; MAX_CHORD];
+        let n = self.chord(t, &mut buf);
+        let Some(chord) = buf.get(..n).filter(|c| !c.is_empty()) else {
+            return false;
+        };
+        let note = if e.degree {
+            let d = i32::from(e.note) - i32::from(DEGREE_ZERO);
+            let len = i32::try_from(chord.len()).unwrap_or(1);
+            let k = usize::try_from(d.rem_euclid(len)).unwrap_or(0);
+            chord.get(k).map(|&b| i32::from(b) + 12 * d.div_euclid(len))
+        } else {
+            // The chord note nearest in pitch class, down on a tie.
+            let pc = |x: i32| x.rem_euclid(12);
+            chord
+                .iter()
+                .map(|&b| {
+                    let up = pc(i32::from(b) - i32::from(e.note));
+                    if up < 6 { up } else { up - 12 }
+                })
+                .min_by_key(|d| (d.abs(), *d))
+                .map(|d| i32::from(e.note) + d)
+        };
+        match note
+            .and_then(|n| u8::try_from(n).ok())
+            .filter(|n| *n <= 127)
+        {
+            Some(n) => {
+                e.note = n;
+                e.degree = false;
+                true
+            }
+            None => false,
+        }
     }
 
     /// The root sounding at tick `t`: the lowest note there.
@@ -319,7 +362,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 16] = [
+    pub const NAMES: [&'static str; 17] = [
         "fast",
         "slow",
         "rev",
@@ -336,6 +379,7 @@ impl Pattern {
         "sometimes",
         "scale",
         "oct",
+        "chord",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -465,6 +509,19 @@ impl Pattern {
                     }),
                 }
             }
+            "chord" => {
+                let name = one()?.trim();
+                let (events, bars) =
+                    srcs(name).ok_or("this takes an earlier clip, e.g. chord(harm)")?;
+                if events.is_empty() {
+                    return Err("this clip has no notes to take chords from");
+                }
+                Ok(Pattern::ChordOf(Context {
+                    name: name.to_string(),
+                    events,
+                    bars,
+                }))
+            }
             "oct" => one()?
                 .trim()
                 .parse::<i32>()
@@ -507,6 +564,7 @@ impl Pattern {
             Pattern::Scale(keys) => format!("scale({})", keys.print()),
             Pattern::ScaleOf(c, mode) => format!("scale({} {})", c.name, mode.name()),
             Pattern::Oct(n) => format!("oct({n})"),
+            Pattern::ChordOf(c) => format!("chord({})", c.name),
         }
     }
 
@@ -598,6 +656,15 @@ impl Pattern {
                         place_on(e, root, *mode);
                     }
                 }
+                out
+            }
+            Pattern::ChordOf(c) => {
+                // Each degree a note of the chord sounding in the clip where
+                // it starts, the two round together (ADR-0035).
+                let bars = lcm(line.bars, c.bars);
+                check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+                let mut out = line.repeat(bars);
+                out.events.retain_mut(|e| c.place(e, u64::from(e.start)));
                 out
             }
             Pattern::Oct(n) => {

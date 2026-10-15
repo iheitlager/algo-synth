@@ -787,7 +787,9 @@ impl Song {
                     let keyed = clip.pattern.iter().any(|p| {
                         matches!(
                             p,
-                            pattern::Pattern::Scale(_) | pattern::Pattern::ScaleOf(..)
+                            pattern::Pattern::Scale(_)
+                                | pattern::Pattern::ScaleOf(..)
+                                | pattern::Pattern::ChordOf(_)
                         )
                     });
                     if !keyed {
