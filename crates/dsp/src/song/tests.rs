@@ -544,7 +544,7 @@ fn generator_errors_say_where() {
             "scale h minor",
             1,
             7,
-            "a root is a letter a to g, maybe # or b",
+            "a root is a letter a to g, maybe # or b, maybe an octave",
         ),
         ("scale c funky", 1, 9, "no scale has this mode"),
         ("scale c", 1, 8, "a mode goes here: scale c minor"),
@@ -2860,4 +2860,43 @@ fn bad_recipes_say_where() {
     assert_eq!(twice.line, 2);
     // A table and an attack may share a number.
     assert!(Song::parse("table 1 = a/b\nattack 1 = a/b").is_ok());
+}
+
+/// #575: Strudel's `n("0 .. 12").scale("C:chromatic")`, the scale on top.
+#[test]
+fn a_chromatic_run_from_the_scale_line_and_its_octave() {
+    let s = Song::parse("scale c chromatic\ntrack lead synth\nclip run = lead\n  \"0 .. 12\"\n")
+        .expect("parses");
+    assert_eq!(
+        clip_notes(&s, 0),
+        (48..=60).collect::<Vec<u8>>(),
+        "c3 to c4"
+    );
+    let s = Song::parse("scale c1 chromatic\ntrack lead synth\nclip run = lead\n  \"12 .. 0\"\n")
+        .expect("parses");
+    assert_eq!(
+        clip_notes(&s, 0),
+        (24..=36).rev().collect::<Vec<u8>>(),
+        "c2 down to c1"
+    );
+    let printed = s.print();
+    assert!(printed.contains("scale c1 chromatic\n"), "{printed}");
+    assert!(printed.contains("  \"12 .. 0\"\n"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(s));
+    // the octave is for degrees only: a walk keeps its own start
+    let s =
+        Song::parse("scale a1 minor\ntrack l synth\nclip w = l\n  walk(a4,4,1)\n").expect("parses");
+    assert!(clip_notes(&s, 0).iter().all(|n| *n >= 69));
+    // .scale on the clip wins over the line's octave
+    let s = Song::parse("scale c1 major\ntrack l synth\nclip r = l .scale(c4 major)\n  \"0\"\n")
+        .expect("parses");
+    assert_eq!(clip_notes(&s, 0), [60]);
+    assert_eq!(
+        Song::parse("scale h1 major\n").map(|_| ()),
+        Err(SongError {
+            line: 1,
+            col: 7,
+            msg: "a root is a letter a to g, maybe # or b, maybe an octave",
+        })
+    );
 }

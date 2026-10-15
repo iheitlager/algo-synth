@@ -524,6 +524,9 @@ pub struct Song {
     pub swing: f32,
     /// The key generators walk (`scale c minor`); it goes before its first use.
     pub scale: Option<Scale>,
+    /// The octave of the scale's root when written (`scale c1 minor`, #575):
+    /// where degree 0 is for clips without `.scale`; octave 3 when `None`.
+    pub scale_octave: Option<u8>,
     pub settings: Vec<Setting>,
     pub tracks: Vec<Track>,
     /// The samples each sampler or drums track wants, by pack or kit id from
@@ -560,6 +563,7 @@ impl Default for Song {
             tempo: 120.0,
             swing: 50.0,
             scale: None,
+            scale_octave: None,
             settings: Vec::new(),
             tracks: Vec::new(),
             samples: Vec::new(),
@@ -785,7 +789,7 @@ impl Song {
                         .iter()
                         .any(|p| matches!(p, pattern::Pattern::Scale(_)));
                     if !keyed {
-                        song_degrees(&mut n.events, song.scale.as_ref())
+                        song_degrees(&mut n.events, song.scale.as_ref(), song.scale_octave)
                             .map_err(|m| err(first.col, m))?;
                     }
                     if voiced && n.events.iter().any(|e| e.degree) {
@@ -801,7 +805,7 @@ impl Song {
                             .map_err(|m| err(first.col, m))?;
                         (n.events, n.bars) = (line.events, line.bars);
                     }
-                    song_degrees(&mut n.events, song.scale.as_ref())
+                    song_degrees(&mut n.events, song.scale.as_ref(), song.scale_octave)
                         .map_err(|m| err(first.col, m))?;
                     clip.notes = Some(n);
                     continue;
@@ -902,8 +906,17 @@ impl Song {
                             )
                         }
                     };
-                    let pc = pitch_class(root_text)
-                        .ok_or(err(root.col, "a root is a letter a to g, maybe # or b"))?;
+                    // `c1`: a root and its octave (#575)
+                    let (root_text, octave) = match root_text.char_indices().last() {
+                        Some((i, d)) if d.is_ascii_digit() => {
+                            (root_text.get(..i).unwrap_or(""), d.to_digit(10))
+                        }
+                        _ => (root_text, None),
+                    };
+                    let pc = pitch_class(root_text).ok_or(err(
+                        root.col,
+                        "a root is a letter a to g, maybe # or b, maybe an octave",
+                    ))?;
                     let m = Mode::from_name(mode.text)
                         .ok_or(err(mode.col, Mode::unknown(mode.text)))?;
                     expect_end(end)?;
@@ -914,6 +927,7 @@ impl Song {
                         return Err(err(first.col, "the scale goes before the clips"));
                     }
                     song.scale = Some(Scale { root: pc, mode: m });
+                    song.scale_octave = octave.and_then(|o| u8::try_from(o).ok());
                 }
                 "track" => {
                     let name = arg(1, "a track name goes here")?;
@@ -1890,11 +1904,12 @@ impl Song {
         ];
         if let Some(s) = &self.scale {
             lines.push(format!(
-                "scale {} {}",
+                "scale {}{} {}",
                 crate::notes::NAMES
                     .get(usize::from(s.root))
                     .copied()
                     .unwrap_or("c"),
+                self.scale_octave.map_or(String::new(), |o| o.to_string()),
                 s.mode.name()
             ));
         }
@@ -2908,14 +2923,20 @@ fn pick(song: &Song, t: usize, model: Option<Model>) -> Option<Preset> {
 }
 
 /// The degrees left in `events` made notes of the song's scale, from its
-/// root in octave 3; an error when there are some and the song has no scale.
-fn song_degrees(events: &mut [notes::Event], scale: Option<&Scale>) -> Result<(), &'static str> {
+/// root in `octave` or octave 3; an error when there are some and the song
+/// has no scale.
+fn song_degrees(
+    events: &mut [notes::Event],
+    scale: Option<&Scale>,
+    octave: Option<u8>,
+) -> Result<(), &'static str> {
     if !events.iter().any(|e| e.degree) {
         return Ok(());
     }
     let sc =
         scale.ok_or("a degree needs a scale: a scale line, or .scale(a1 minor) on the clip")?;
-    notes::resolve(events, sc, (notes::ROOT_OCTAVE + 1) * 12 + sc.root);
+    let octave = octave.unwrap_or(notes::ROOT_OCTAVE);
+    notes::resolve(events, sc, (octave + 1) * 12 + sc.root);
     events.sort_unstable_by_key(notes::sort_key);
     Ok(())
 }

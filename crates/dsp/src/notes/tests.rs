@@ -1202,3 +1202,77 @@ fn degree_errors_say_where() {
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
     }
 }
+
+/// #575: `0 .. 12` is every degree between, sharing the word's time.
+#[test]
+fn a_range_of_degrees_shares_its_slot() {
+    let deg = |text: &str| -> Vec<(u32, u32, i32)> {
+        parse(text, 1)
+            .unwrap()
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, i32::from(e.note) - i32::from(DEGREE_ZERO)))
+            .collect()
+    };
+    assert_eq!(
+        deg("\"0 .. 3\""),
+        [(0, 12, 0), (12, 12, 1), (24, 12, 2), (36, 12, 3)]
+    );
+    assert_eq!(deg("\"0..3\""), deg("\"0 .. 3\""));
+    assert_eq!(
+        deg("\"0 .. 3 5\""),
+        [(0, 6, 0), (6, 6, 1), (12, 6, 2), (18, 6, 3), (24, 24, 5)]
+    );
+    assert_eq!(
+        deg("\"2 .. -1\""),
+        [(0, 12, 2), (12, 12, 1), (24, 12, 0), (36, 12, -1)]
+    );
+    assert_eq!(deg("\"0 .. 12\"").len(), 13);
+    // suffixes after the range are the range's
+    assert_eq!(deg("\"[0 .. 1]*2\"").len(), 4);
+    assert_eq!(
+        deg("\"0 .. 1@3 7\""),
+        [(0, 18, 0), (18, 18, 1), (36, 12, 7)]
+    );
+    let n = parse("\"0..12 <3 .. 0 ~>\"", 1).unwrap();
+    assert_eq!(n.print(), "\"0 .. 12 <3 .. 0 ~>\"");
+    assert_eq!(parse(&n.print(), 1).unwrap(), n);
+    // the range lights as one word
+    assert_eq!(n.word_spans().first(), Some(&(1, 7)));
+}
+
+#[test]
+fn range_errors_say_where() {
+    for (text, col, msg) in [
+        (
+            "\"c4 .. e4\"",
+            5,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        (
+            "\"0 .. e4\"",
+            4,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        (
+            "\"0! .. 3\"",
+            5,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        (
+            "\".. 3\"",
+            2,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        ("\"0 .. 30\"", 7, "a degree is -24 to 24"),
+        ("\"0..30\"", 2, "a degree is -24 to 24"),
+        (
+            "\"0..x\"",
+            2,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+    ] {
+        let e = parse(text, 1).expect_err(text);
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}

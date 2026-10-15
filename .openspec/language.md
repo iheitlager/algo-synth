@@ -92,12 +92,14 @@ swing 58
 
 ```text
 scale <root> <mode>  |  scale <root>:<mode>
-root  = a–g [# | b]
+root  = a–g [# | b] [octave 0–9]
 mode  = a name from the table below; Strudel's colons stand for its dashes: c:minor:pentatonic
 ```
 
 The song's key, read by `walk`, `prog`, roman numerals, `euclid … scale` and
-degrees in a clip without `.scale` (from the root in octave 3). The modes are
+degrees in a clip without `.scale`, counted from the root in its octave, or
+octave 3 when none is written (`scale c1 chromatic`, #575); the rest read
+only the root's note name. The modes are
 Strudel's, which are tonal's 92 scales (#576), named as words a song can hold:
 tonal's spaces are dashes, `#n` is `sharp-n` (a `#` starts a comment), and
 Messiaen's modes are `messiaen-1`…`messiaen-7`. A mode goes by any of its
@@ -207,6 +209,13 @@ clip wander = lead
   walk(e4,8,3)
 ```
 
+```song
+scale c chromatic
+track lead synth
+clip run = lead
+  "0 .. 12"
+```
+
 ## track
 
 ```text
@@ -314,14 +323,17 @@ is the root, `-1` the scale note below it, and past the last degree it goes
 on into the next octave. The clip's `.scale(a1 minor-pentatonic)` makes the
 degrees notes, after the methods before it (so `.add(1)` before it moves a
 degree up one); without `.scale`, the song's `scale` line does, from its root
-in octave 3; with neither, a degree is an error. Not in generators, a scale
-walk or a `voicing` clip.
+in octave 3 (or the octave on the line); with neither, a degree is an error.
+Not in generators, a scale walk or a `voicing` clip. `0 .. 12` (or `0..12`)
+is every degree from the first to the last, downward when the last is lower,
+sharing the word's time as a `[ ]` group would; suffixes after it are the
+range's (`0 .. 3@2`), and the start takes none.
 
 **Mini-notation:** one quoted cycle is one bar; its words share it.
 
 ```text
 "<word>…"
-word   = <pitch> | <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ? some bars only | & slide
 ```
 
