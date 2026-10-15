@@ -1034,7 +1034,7 @@ fn voicing_moves_each_chord_to_the_nearest_inversion() {
     use crate::algo::Mode;
     let text = "\"<I vi IV V7 iii vi ii7 V>\"";
     let n = parse_in(text, 1, Some(&key(0, Mode::from_name("major").unwrap()))).unwrap();
-    let voiced = n.clone().voiced();
+    let voiced = n.clone().voiced(Voicing::default(), None);
     assert_eq!(voiced.text, n.text, "the text stays as written");
     let chords = chords_of(&voiced);
     assert_eq!(chords.len(), 8);
@@ -1599,5 +1599,212 @@ fn graces_print_back_and_go_on_notes_only() {
         ("\"c4^\"", 4, "a grace is ^u, ^l, ^f, ^d or ^m"),
     ] {
         assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
+    }
+}
+
+/// #607: `/1` to `/3` move the lowest notes up an octave; `/g` puts a g at
+/// the bottom, the chord's own or one under its root.
+#[test]
+fn inversions_and_slash_chords_put_a_note_at_the_bottom() {
+    use crate::algo::Mode;
+    let n = parse("\"<c:maj7/1 c:maj7/e a:m7/g c/f# c:m7/3>\"", 1).unwrap();
+    let got: Vec<Vec<u8>> = chords_of(&n).into_iter().map(|(_, c)| c).collect();
+    assert_eq!(
+        got,
+        [
+            vec![64, 67, 71, 72],
+            vec![64, 67, 71, 72],
+            vec![79, 81, 84, 88],
+            vec![54, 60, 64, 67],
+            vec![70, 72, 75, 79],
+        ]
+    );
+    let c = key(0, Mode::from_name("major").unwrap());
+    let n = parse_in("\"<V7/1 IV/1 I/e bVII/c>\"", 1, Some(&c)).unwrap();
+    let got: Vec<Vec<u8>> = chords_of(&n).into_iter().map(|(_, c)| c).collect();
+    assert_eq!(
+        got,
+        [
+            vec![71, 74, 77, 79],
+            vec![69, 72, 77],
+            vec![64, 67, 72],
+            vec![60, 70, 74, 77],
+        ]
+    );
+    // In classic notes, the duration still last.
+    let n = parse("c:m7/g:2 c/e:4", 1).unwrap();
+    assert_eq!(
+        chords_of(&n),
+        [(0, vec![67, 70, 72, 75]), (24, vec![64, 67, 72])]
+    );
+    for text in ["\"<c:maj7/1 a:m7/g c/f# I/e>\"", "c:m7/g:2 V7/1:4"] {
+        let n = parse_in(text, 1, Some(&c)).unwrap();
+        assert_eq!(n.print(), text);
+    }
+}
+
+#[test]
+fn a_bad_chord_ending_says_where() {
+    use crate::algo::Mode;
+    let bad = "after / comes an inversion 1 to 3 or a bass note a to g, as c:m7/1 or c/g";
+    let c = key(0, Mode::from_name("major").unwrap());
+    for (text, col, msg) in [
+        ("\"c:m7/4\"", 7, bad),
+        ("\"c:m7/0\"", 7, bad),
+        ("\"c:m7/h\"", 7, bad),
+        ("\"c:m7/\"", 7, bad),
+        (
+            "\"c/3\"",
+            4,
+            "an inversion moves fewer notes than the chord has",
+        ),
+        ("\"V/V\"", 4, bad),
+        ("c:m7/x:4", 6, bad),
+    ] {
+        let e = parse_in(text, 1, Some(&c)).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}
+
+fn voiced_chords(text: &str, v: &str, scale: Option<&Scale>) -> Vec<Vec<u8>> {
+    let n = parse_in(text, 1, scale).unwrap();
+    let v = Voicing::parse(v).unwrap();
+    chords_of(&n.voiced(v, scale))
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect()
+}
+
+/// #606: `voicing` and `voicing(close)` are today's voicing.
+#[test]
+fn close_is_the_plain_voicing() {
+    use crate::algo::Mode;
+    let c = key(0, Mode::from_name("major").unwrap());
+    let text = "\"<I vi IV V7 iii vi ii7 V>\"";
+    assert_eq!(
+        voiced_chords(text, "voicing", Some(&c)),
+        voiced_chords(text, "voicing(close)", Some(&c))
+    );
+}
+
+/// #606: each style's notes on a four-note chord and on a triad.
+#[test]
+fn each_voicing_style_spreads_the_close_chord() {
+    use crate::algo::Mode;
+    let c = key(0, Mode::from_name("major").unwrap());
+    let one = |text: &str, v: &str| voiced_chords(text, v, Some(&c)).remove(0);
+    for chord in ["c:maj7", "d:m7", "c"] {
+        let text = format!("\"{chord}\"");
+        let close = one(&text, "voicing");
+        let n = close.len();
+        let moved = |k: usize, by: i32| {
+            let mut v: Vec<u8> = close.clone();
+            v[k] = u8::try_from(i32::from(v[k]) + by).unwrap();
+            v.sort_unstable();
+            v
+        };
+        assert_eq!(one(&text, "voicing(open)"), moved(1, 12), "{chord}");
+        assert_eq!(one(&text, "voicing(drop2)"), moved(n - 2, -12), "{chord}");
+        let drop3 = if n >= 4 {
+            moved(n - 3, -12)
+        } else {
+            close.clone()
+        };
+        assert_eq!(one(&text, "voicing(drop3)"), drop3, "{chord}");
+    }
+    // Shell: the root at the bottom, then the third and seventh only.
+    let pcs = |c: &[u8]| c.iter().map(|n| n % 12).collect::<Vec<_>>();
+    let shell = one("\"c:maj7\"", "voicing(shell)");
+    assert_eq!(pcs(&shell[..1]), [0]);
+    let mut upper = pcs(&shell[1..]);
+    upper.sort_unstable();
+    assert_eq!(upper, [4, 11]);
+    assert_eq!(pcs(&one("\"c\"", "voicing(shell)")).len(), 2);
+    // Quartal: fourths of the scale from the root, perfect or, from f, the
+    // tritone to b.
+    let steps = |c: Vec<u8>| c.windows(2).map(|w| w[1] - w[0]).collect::<Vec<_>>();
+    assert_eq!(steps(one("\"d:m7\"", "voicing(quartal)")), [5, 5, 5]);
+    assert_eq!(steps(one("\"f:maj7\"", "voicing(quartal)")), [6, 5, 5]);
+    assert_eq!(steps(one("\"a:m\"", "voicing(quartal)")), [5, 5]);
+    assert_eq!(one("\"d:m7\"", "voicing(quartal)")[0] % 12, 2);
+}
+
+/// #606: an anchor caps every chord; the chords still move little.
+#[test]
+fn an_anchor_caps_the_top_and_the_voices_stay_close() {
+    use crate::algo::Mode;
+    let c = key(0, Mode::from_name("major").unwrap());
+    let text = "\"<ii7 V7 Imaj7 vi7 IV7 iii7 ii7 V7>\"";
+    for v in [
+        "voicing(close,c5)",
+        "voicing(drop2,c5)",
+        "voicing(open,g5)",
+        "voicing(shell,c4)",
+        "voicing(quartal,e5)",
+    ] {
+        let anchor = Voicing::parse(v).unwrap().anchor.unwrap();
+        let chords = voiced_chords(text, v, Some(&c));
+        assert_eq!(chords.len(), 8);
+        for c in &chords {
+            assert!(c.iter().all(|n| *n <= anchor), "{v}: {c:?}");
+            assert!(c.iter().all(|n| *n + 36 > anchor), "{v}: {c:?}");
+        }
+        let centre = |c: &Vec<u8>| c.iter().map(|n| f32::from(*n)).sum::<f32>() / c.len() as f32;
+        for pair in chords.windows(2) {
+            let d = (centre(&pair[1]) - centre(&pair[0])).abs();
+            assert!(d <= 7.0, "{v}: {pair:?}");
+        }
+    }
+}
+
+/// #607: voicing keeps a slash chord's bass at the bottom.
+#[test]
+fn voicing_keeps_the_bass_at_the_bottom() {
+    use crate::algo::Mode;
+    let c = key(0, Mode::from_name("major").unwrap());
+    let text = "\"<c:maj7/e a:m7/g c/f# I/g V7/1>\"";
+    for v in [
+        "voicing",
+        "voicing(drop2)",
+        "voicing(shell)",
+        "voicing(quartal,c5)",
+    ] {
+        let chords = voiced_chords(text, v, Some(&c));
+        for (chord, bass) in chords.iter().zip([4, 7, 6, 7, 11]) {
+            assert_eq!(chord[0] % 12, bass, "{v}: {chord:?}");
+            assert!(chord[0] < chord[1], "{v}: {chord:?}");
+        }
+    }
+    // Classic notes too.
+    let chords = voiced_chords("c:maj7:2 a:m7/g:2", "voicing(drop2)", Some(&c));
+    assert_eq!(chords[1][0] % 12, 7);
+}
+
+#[test]
+fn voicing_words_parse_and_print_back() {
+    for (text, style, anchor) in [
+        ("voicing", None, None),
+        ("voicing(close)", Some(Style::Close), None),
+        ("voicing(drop2,c5)", Some(Style::Drop2), Some(72)),
+        ("voicing(quartal,f#4)", Some(Style::Quartal), Some(66)),
+    ] {
+        let v = Voicing::parse(text).unwrap();
+        assert_eq!((v.style, v.anchor), (style, anchor), "{text}");
+        assert_eq!(v.print(), text);
+    }
+    let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+    for (text, msg) in [
+        ("voicing(wide)", styles),
+        ("voicing()", styles),
+        (
+            "voicing(drop2,c)",
+            "an anchor is a note with its octave, as c5",
+        ),
+        (
+            "voicing(drop2,h5)",
+            "an anchor is a note with its octave, as c5",
+        ),
+    ] {
+        assert_eq!(Voicing::parse(text), Err(msg), "{text}");
     }
 }

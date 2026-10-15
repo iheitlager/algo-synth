@@ -456,6 +456,10 @@
               {
                 "type": "SYMBOL",
                 "name": "param"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "word"
               }
             ]
           }

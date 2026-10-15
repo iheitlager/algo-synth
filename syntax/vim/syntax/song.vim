@@ -35,6 +35,8 @@ syn match songNote    /\%([A-Za-z0-9_#]\)\@1<![a-g][#b]\?-\?\d\+\>/ contained
 syn match songNote    /\%([A-Za-z0-9_#]\)\@1<![a-g][#b]\?\d\?\ze:\a/ contained
 syn match songNote    /\%(\<[a-g][#b]\?\d\?:\)\@<=\a\w*/ contained
 syn match songNote    /\<b\?\%([iv]\{1,4}\|[IV]\{1,4}\)\%(o7\|o\|7\|maj7\)\?\>/ contained
+" A bare root, a major triad (`"c f#"`), and a slash chord's bass (`c:m7/g`, #607).
+syn match songNote    /\%([A-Za-z0-9_#]\)\@1<![a-g][#b]\?\%([^A-Za-z0-9_#]\|$\)\@=/ contained
 syn match songNoteRest /\<r\>/ contained
 
 " Lines. A top-level line starts with a keyword: today's words (ADR-0031) and

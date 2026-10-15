@@ -501,6 +501,12 @@ arrange main main
         assert!(of(text, Class::Keyword).contains(&"voicing".to_string()));
         let classic = "track k synth\nclip p = k\n  c:maj7:2 V7:4\n";
         assert_eq!(of(classic, Class::Note), ["c", "maj7", "V7"]);
+        // #606, #607: a voicing style and slash chords.
+        let slash =
+            "scale c major\ntrack k synth\nclip p = k voicing(drop2, c5)\n  \"<c:maj7/e V7/1>\" \n";
+        assert_eq!(of(slash, Class::Note), ["c", "maj7", "e", "V7"]);
+        assert_eq!(of(slash, Class::Call), ["voicing"]);
+        assert_eq!(of(slash, Class::Number), ["1"]);
     }
 
     #[test]

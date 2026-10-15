@@ -38,7 +38,7 @@ mod chord;
 mod generate;
 pub mod pattern;
 
-pub use chord::{NUMERALS, QUALITIES};
+pub use chord::{NUMERALS, QUALITIES, STYLES, Style, Voicing};
 use generate::Source;
 pub use generate::{ArpMode, CALLS, Gen};
 
@@ -1117,10 +1117,28 @@ impl Notes {
         Ok(self)
     }
 
-    /// Each chord moved to the inversion nearest the one before (#103): the
-    /// clip line's `voicing`. The text stays as written.
-    pub fn voiced(mut self) -> Notes {
-        chord::voice(&mut self.events);
+    /// Each chord voiced near the one before (#103), in the clip line's
+    /// style and under its anchor (#606). The text stays as written.
+    pub fn voiced(mut self, v: Voicing, scale: Option<&Scale>) -> Notes {
+        // The chord each word names, in `Event::word` order, for its root
+        // and its bass (#607).
+        let shape = |item: &Item| match item {
+            Item::Symbol(s) => chord::shape_of(&s.text, scale),
+            _ => None,
+        };
+        let shapes: Vec<_> = match &self.seq {
+            Seq::Mini(slots) => {
+                let mut leaves = Vec::new();
+                leaves_of(slots, &mut leaves);
+                leaves.into_iter().map(shape).collect()
+            }
+            Seq::Classic(beats) => beats
+                .iter()
+                .map(|b| b.symbol.as_ref().and_then(|t| chord::shape_of(t, scale)))
+                .collect(),
+            _ => Vec::new(),
+        };
+        chord::voice(&mut self.events, &shapes, v, scale);
         self
     }
 

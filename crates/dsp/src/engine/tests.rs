@@ -5254,6 +5254,18 @@ fn a_typed_song_keeps_its_text_and_lights_its_words() {
     e.song_stop();
 }
 
+/// #606, #607, #588: a voicing style and slash chords typed into a song stay
+/// as typed, through an edit to another line too.
+#[test]
+fn a_voicing_and_slash_chords_stay_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\nscale c major\ntrack lead synth\n\nclip pad = lead   voicing(drop2, c5)\n  \"<ii7 V7/1 c:maj7/e   a:m7/g>\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+}
+
 /// #588: an edit that leaves the song as its text says keeps the text as
 /// typed; one that changes it rewrites only its line; Format prints it all.
 #[test]
