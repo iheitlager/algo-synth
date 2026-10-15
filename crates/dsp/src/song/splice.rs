@@ -102,7 +102,12 @@ pub fn splice(typed: &str, old: &Song, new: &Song) -> Option<String> {
                 after = typed_it.end;
             }
             (None, Some(before)) if *before == lines => {}
-            (None, _) => edits.push((after, after, lines)),
+            // New items one after another stay in order (a beat line
+            // written as its lanes, #659).
+            (None, _) => match edits.last_mut() {
+                Some((start, end, l)) if *start == after && *end == after => l.extend(lines),
+                _ => edits.push((after, after, lines)),
+            },
         }
     }
     let kept: Vec<&str> = ni.iter().map(|it| it.key.as_str()).collect();
@@ -166,6 +171,22 @@ mod tests {
         assert!(out.ends_with("clip b = lead a .rev() # back\n"), "{out}");
         let s = Song::parse(&out).expect("parses");
         assert_eq!(s.clips[1].notes.as_ref().expect("notes").events.len(), 3);
+    }
+
+    /// #659: a step click on a beat line writes the clip as lanes, in
+    /// their order, where the line was.
+    #[test]
+    fn a_step_edit_writes_a_beat_line_as_lanes() {
+        let typed =
+            "track kit drums\n\nclip a = kit # beat\n  \"bd sn ch\"\n\nclip b = kit\n  bd x...\n";
+        let out = spliced(typed, |s| {
+            assert!(s.set_step(0, 2, 1, crate::song::Step::Hit))
+        });
+        assert_eq!(
+            out,
+            "track kit drums\n\nclip a = kit /12 # beat\n  bd x...........\n  \
+             sn ....x.......\n  ch .x......x...\n\nclip b = kit\n  bd x...\n"
+        );
     }
 
     /// #653: a step edit of a drum clip another is made from writes its

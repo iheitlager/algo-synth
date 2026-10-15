@@ -27,7 +27,7 @@ FLOOR = 0.95
 # Vim's syntax groups (syntax/vim/syntax/song.vim) by engine class.
 VIM = {
     "songKeyword": "kw", "songWord": "kw", "songName": "name", "songNumber": "num",
-    "songNote": "note", "songPad": "pad", "songStep": "step", "songRest": "rest",
+    "songNote": "note", "songPad": "pad", "songBeatPad": "pad", "songStep": "step", "songRest": "rest",
     "songNoteRest": "rest", "songLaneRest": "rest", "songCall": "call",
     "songParam": "param", "songPunct": "punct", "songComment": "comment",
 }

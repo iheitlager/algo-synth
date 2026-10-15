@@ -1,0 +1,36 @@
+# https://strudel.cc/workshop/pattern-effects/
+# $: n("0 [2 4] <3 5> [~ <4 1>]".add("<0 [0,2,4]>"))
+# .scale("C5:minor")
+# .sound("gm_xylophone")
+# .room(.4).delay(.125)
+# $: note("c2 [eb3,g3]".add("<0 <1 -1>>"))
+# .adsr("[.1 0]:.2:[1 0]")
+# .sound("gm_acoustic_bass")
+# .room(.5)
+# $: n("0 1 [2 3] 2").sound("jazz").jux(rev)
+tempo 120
+swing 50
+track xylo sampler GeneralMidi GmXylophone
+track bass sampler GeneralMidi GmAcousticBass
+track jazz drums PadSampler PadsLoud
+track jazzr drums PadSampler PadsLoud
+samples jazz jazz
+samples jazzr jazz
+strip jazz: Level 0.9979841, Pan -1
+strip jazzr: Pan 1
+strip strip5: I1Type Eq, I1B 0.823943
+master: P1Return 0.7545267, P2Return 1
+
+clip mel = xylo .add("<0 [0,2,4]>") .scale(c5 minor) .room(0.4) .delay(0.125)
+  "0 [2 4] <3 5> [~ <4 1>]"
+
+clip low = bass .add("<0 <1 -1>>") .attack("0.1 0") .decay(0.2) .sustain("1 0") .room(0.5)
+  "c2 [d#3,g3]"
+
+clip fwd = jazz
+  "bd cb [p4 ch] p4"
+
+clip back = jazzr fwd .rev()
+
+scene play 4: mel low fwd back
+arrange play

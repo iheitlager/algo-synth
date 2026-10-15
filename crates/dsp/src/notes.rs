@@ -404,7 +404,14 @@ struct Cursor<'a> {
     items: usize,
     /// The song's key, for roman numerals.
     scale: Option<&'a Scale>,
+    /// A beat line's (#659): its words are pads, each the note it plays.
+    pads: Option<&'a PadOf<'a>>,
+    /// In a beat line, the column of each word, in print order.
+    cols: Vec<usize>,
 }
+
+/// The note a beat line's word plays, or why it plays none.
+pub type PadOf<'a> = dyn Fn(&str) -> Result<u8, &'static str> + 'a;
 
 impl Cursor<'_> {
     /// The end of the word at the cursor: the next space, or a char in `stop`.
@@ -470,6 +477,18 @@ impl Cursor<'_> {
     /// accent.
     fn pitch(&mut self) -> Result<Pitch, NoteError> {
         let at = self.col();
+        if let Some(pad) = self.pads {
+            let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', ',', '!']);
+            let word: String = self.c.get(self.i..end).unwrap_or(&[]).iter().collect();
+            let note = pad(&word).map_err(|msg| NoteError { col: at, msg })?;
+            self.i = end;
+            let accent = self.accent();
+            return Ok(Pitch {
+                note,
+                accent,
+                degree: false,
+            });
+        }
         if self.peek().is_some_and(|c| c == '-' || c.is_ascii_digit()) {
             return self.degree();
         }
@@ -812,7 +831,9 @@ impl Cursor<'_> {
             _ => {
                 let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', '|', '%']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
-                if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
+                if self.pads.is_some() {
+                    Item::Note(self.pitch()?)
+                } else if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
                     // `0..12`, one word
                     let (a, b) = (
                         word.get(..k).unwrap_or(&[]),
@@ -836,12 +857,19 @@ impl Cursor<'_> {
                 }
             }
         };
+        if self.pads.is_some() && !matches!(item, Item::Group(_) | Item::Alt(_)) {
+            self.cols.push(at);
+        }
         let euclid = self.inline_euclid()?;
         let (mut times, mut weight, mut cond, mut slide) = (1, 1, None, false);
         let mut orn = None;
         let (mut got_times, mut got_weight) = (false, false);
         loop {
             let here = self.col();
+            // A beat line's hits are lane steps: no chance, slide or grace (#659).
+            if self.pads.is_some() && matches!(self.peek(), Some('?' | '&' | '^')) {
+                return err(here, "a beat line takes no ?, & or ^: write those as lanes");
+            }
             match self.peek() {
                 Some('*') if !got_times => {
                     self.i += 1;
@@ -1129,6 +1157,8 @@ pub fn parse_with(
         base,
         items: 0,
         scale,
+        pads: None,
+        cols: Vec::new(),
     };
     cur.skip_ws();
     let seq = if let Some(seq) = parse_euclid(&mut cur, scale)? {
@@ -1151,6 +1181,8 @@ pub fn parse_with(
             base: cur.col(),
             items: 0,
             scale,
+            pads: None,
+            cols: Vec::new(),
         };
         let slots = sub.slots(None, 0)?;
         cur.i = inner_end + 1;
@@ -1492,6 +1524,8 @@ struct Compiler<'a> {
     leaves: Vec<&'a Item>,
     /// The word being compiled.
     word: u16,
+    /// The first word with a hit between two ticks.
+    off: Option<u16>,
 }
 
 /// The words of `slots` (notes, chords, names, rests), in the order they print.
@@ -1653,6 +1687,9 @@ impl Compiler<'_> {
         }
         let start = at.tick();
         let end = at.add(span).tick().max(start + 1);
+        if self.off.is_none() && at.n * u128::from(TICKS_PER_BAR) % at.d.max(1) != 0 {
+            self.off = Some(self.word);
+        }
         self.events.push(Event {
             start: bar * TICKS_PER_BAR + start,
             len: end - start + u32::from(slide),
@@ -1927,6 +1964,87 @@ fn classic_ticks(b: &Beat) -> u32 {
     if b.dot { base * 3 / 2 } else { base }
 }
 
+/// A mini-notation line's events and bars, and the first word with a hit
+/// between two ticks, which a tick rounds.
+fn mini(slots: &[Slot]) -> Result<(Vec<Event>, u32, Option<u16>), &'static str> {
+    let bars = period(slots);
+    if bars > MAX_BARS {
+        return Err("this line takes more than 64 bars to repeat");
+    }
+    let mut leaves = Vec::new();
+    leaves_of(slots, &mut leaves);
+    let mut c = Compiler {
+        events: Vec::new(),
+        rng: Rng::new(0),
+        prev: Prev::Known(false),
+        when: When::default(),
+        full: false,
+        leaves,
+        word: 0,
+        off: None,
+    };
+    for bar in 0..bars {
+        c.rng = Rng::new(mix(bar, 0x5EED));
+        c.prev = Prev::Known(false);
+        c.slots(slots, Frac::new(0, 1), Frac::new(1, 1), bar);
+    }
+    if c.full {
+        return Err("this line has too many notes");
+    }
+    Ok((c.events, bars, c.off))
+}
+
+/// A drum clip's beat line (#659): `"bd sn [ch oh] ch"`, a quoted line of
+/// mini-notation whose words are pads, `pad` giving the note each plays.
+/// Its hits, the bars it takes, and the first of `grids` (steps to a bar)
+/// every hit starts on; an error at the word of a hit on none.
+pub fn parse_beat(
+    text: &str,
+    base: usize,
+    pad: &PadOf<'_>,
+    grids: &[u32],
+) -> Result<(Vec<Event>, u32, u32), NoteError> {
+    let chars: Vec<char> = text.chars().collect();
+    let Some(inner) = chars
+        .strip_prefix(&['"'])
+        .and_then(|c| c.strip_suffix(&['"']))
+        .filter(|c| !c.contains(&'"'))
+    else {
+        return err(base, "a beat line is one quoted line of pads, as \"bd sn\"");
+    };
+    let mut cur = Cursor {
+        c: inner,
+        i: 0,
+        base: base + 1,
+        items: 0,
+        scale: None,
+        pads: Some(pad),
+        cols: Vec::new(),
+    };
+    let slots = cur.slots(None, 0)?;
+    let (mut events, bars, off) = mini(&slots).map_err(|msg| NoteError { col: base, msg })?;
+    let col = |w: u16| cur.cols.get(usize::from(w)).copied().unwrap_or(base);
+    if let Some(w) = off {
+        return err(
+            col(w),
+            "this hit falls on no step: a grid is /12, /16, /24, /32 or /48",
+        );
+    }
+    if events.is_empty() {
+        return err(base, "a beat line needs a hit");
+    }
+    events.sort_unstable_by_key(sort_key);
+    let on = |g: u32, e: &Event| e.start * g % TICKS_PER_BAR == 0;
+    let Some(&grid) = grids.iter().find(|g| events.iter().all(|e| on(**g, e))) else {
+        let e = events.iter().find(|e| grids.iter().all(|g| !on(*g, e)));
+        return err(
+            e.map_or(base, |e| col(e.word)),
+            "this hit falls off the clip's step grid",
+        );
+    };
+    Ok((events, bars, grid))
+}
+
 fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
     // A timed line is kept in event order, so it prints canonically.
     let seq = match seq {
@@ -1946,30 +2064,8 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
             (words.collect(), last / TICKS_PER_BAR + 1)
         }
         Seq::Mini(slots) => {
-            let bars = period(slots);
-            if bars > MAX_BARS {
-                return Err("this line takes more than 64 bars to repeat");
-            }
-            let mut leaves = Vec::new();
-            leaves_of(slots, &mut leaves);
-            let mut c = Compiler {
-                events: Vec::new(),
-                rng: Rng::new(0),
-                prev: Prev::Known(false),
-                when: When::default(),
-                full: false,
-                leaves,
-                word: 0,
-            };
-            for bar in 0..bars {
-                c.rng = Rng::new(mix(bar, 0x5EED));
-                c.prev = Prev::Known(false);
-                c.slots(slots, Frac::new(0, 1), Frac::new(1, 1), bar);
-            }
-            if c.full {
-                return Err("this line has too many notes");
-            }
-            (c.events, bars)
+            let (events, bars, _) = mini(slots)?;
+            (events, bars)
         }
         Seq::Generated(g) => (g.events(g.seed(), scale), g.bars()),
         Seq::Euclid(e, fill) => {
