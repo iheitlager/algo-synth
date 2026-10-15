@@ -13,5 +13,5 @@ defineProps<{
 </script>
 
 <template>
-  <CodeArea v-model="text" :lexer="lexer" label="Song text" :disabled="disabled" :error="error" :lit="lit" />
+  <CodeArea v-model="text" :lexer="lexer" label="Song text" comment="#" :disabled="disabled" :error="error" :lit="lit" />
 </template>

@@ -5,6 +5,7 @@
 // which the caller picks. The parse error, if any, marks its line and column.
 import { computed, nextTick, ref, watch } from 'vue'
 import { keepCaret } from '../audio/caret'
+import { toggleComment } from '../audio/comment'
 import { litLines, paint, type Lexer } from '../audio/lex'
 
 const text = defineModel<string>({ required: true })
@@ -16,6 +17,8 @@ const props = withDefaults(
     error?: { line: number; col: number; msg: string } | null
     /** What Tab inserts. */
     indent?: string
+    /** What Ctrl+/ puts before a line to comment it out (#583); none, no toggle. */
+    comment?: string
     /** Words playing now (#205), `[start, len]` in UTF-16 units over the text. */
     lit?: readonly (readonly [number, number])[]
   }>(),
@@ -54,9 +57,20 @@ watch(text, (next) => {
   })
 }, { flush: 'pre' })
 
-// Tab indents instead of leaving the text.
+// Tab indents instead of leaving the text; Ctrl+/ (Cmd+/) comments lines out or in.
 function onKey(e: KeyboardEvent) {
   const a = area.value
+  if (a && props.comment && (e.ctrlKey || e.metaKey) && (e.key === '/' || e.code === 'Slash')) {
+    e.preventDefault()
+    const t = toggleComment(a.value, a.selectionStart, a.selectionEnd, props.comment)
+    if (t.text === a.value.slice(t.start, t.end)) return
+    // As typing, so Ctrl+Z takes it back.
+    a.setSelectionRange(t.start, t.end)
+    if (!document.execCommand('insertText', false, t.text)) a.setRangeText(t.text, t.start, t.end)
+    a.setSelectionRange(t.from, t.to)
+    text.value = a.value
+    return
+  }
   if (e.key !== 'Tab' || e.shiftKey || !a) return
   e.preventDefault()
   a.setRangeText(props.indent, a.selectionStart, a.selectionEnd, 'end')
