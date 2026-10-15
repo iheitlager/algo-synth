@@ -2146,6 +2146,30 @@ fn pattern_methods_transform_a_clips_notes() {
 }
 
 #[test]
+fn add_of_a_list_makes_each_note_a_chord() {
+    // #650: one copy of each note per offset, and it prints back.
+    let text = "track lead synth\nclip r = lead .add([0,4,7]) .every(2, add([0,12]))\n  \"c4 d4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let n = s.clips[0].notes.as_ref().expect("notes");
+    let at = |t: u32| {
+        n.events
+            .iter()
+            .filter(|e| e.start == t)
+            .map(|e| e.note)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(at(0), [60, 64, 67, 72, 76, 79]);
+    assert_eq!(at(24), [62, 66, 69, 74, 78, 81]);
+    assert_eq!(at(48), [60, 64, 67]);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip r = lead .add([0,4,7]) .every(2, add([0,12]))\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
 fn pattern_method_errors_say_where() {
     for (text, line, col, msg) in [
         (
@@ -2158,7 +2182,13 @@ fn pattern_method_errors_say_where() {
             "track l synth\nclip w = l live .rev()\n  walk(c4,8,1)",
             2,
             18,
-            "a live clip takes only pitch methods: scale, chord, oct, add and sub",
+            "a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)",
+        ),
+        (
+            "track l synth\nclip w = l live .add([0,7])\n  walk(c4,8,1)",
+            2,
+            18,
+            "a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)",
         ),
         (
             "track l synth\nclip r = l .fast(0)\n  \"c4\"",

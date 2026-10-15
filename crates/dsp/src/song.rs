@@ -1268,7 +1268,7 @@ impl Song {
                                 .and_then(|p| {
                                     // A live clip changes pitches only, per note (#593).
                                     if live && !p.pitch_only() {
-                                        Err("a live clip takes only pitch methods: scale, chord, oct, add and sub")
+                                        Err("a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)")
                                     } else {
                                         Ok(p)
                                     }

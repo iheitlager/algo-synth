@@ -527,6 +527,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
 | `.rev()` | each bar backwards |
 | `.palindrome()` | every other bar backwards |
 | `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48) |
+| `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after |
 | `.ply(n)` | each note n (1–16) times in its own length |
 | `.iter(n)` | each bar starts a further 1/n (1–16) of a bar in |
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
