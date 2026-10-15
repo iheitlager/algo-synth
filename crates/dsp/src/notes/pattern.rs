@@ -19,7 +19,10 @@
 //! note, counted from the root in octave 3 or the one written (`a1`, #570);
 //! `scale(<a1 d2>/4 minor)` takes the roots in turn, a bar each or `/n` bars
 //! each, by the bar a note starts in (#571); `strum(ms)` starts a chord's
-//! notes ms apart, the engine playing them between ticks (#604).
+//! notes ms apart, the engine playing them between ticks (#604). `fast`,
+//! `slow`, `add`, `sub`, `ply` and `degrade` take a value a bar as well:
+//! `add("<0 <1 -1>>")` adds 0, 1, 0 and -1 in turn, a nested `< >` taking
+//! its own turns, as in Strudel (#629).
 //!
 //! Every method maps a line (events and a length in bars) to a line, so
 //! nothing happens in `render`. The result is held to `MAX_EVENTS` events and
@@ -67,6 +70,9 @@ pub enum Pattern {
     /// `chord(<clip>)`: degrees count the notes of the chord an earlier clip
     /// plays (ADR-0035, #592).
     ChordOf(Context),
+    /// A value a bar (#629): the method as written, `add("<0 3 5>")`, and
+    /// the method with each bar's value, taken in turn.
+    PerBar(String, Vec<Pattern>),
     /// `struct(<clip>)`: the rhythm of an earlier clip, its note starts or
     /// its drum hits (ADR-0035, #600).
     StructOf(Context),
@@ -419,6 +425,18 @@ impl Pattern {
             [] => Ok(()),
             _ => Err("this takes no value: ()"),
         };
+        // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
+        if let ("fast" | "slow" | "add" | "sub" | "ply" | "degrade", [a]) = (name, args.as_slice())
+        {
+            let a = a.trim();
+            if let Some(text) = a.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
+                let steps = per_bar(text)?
+                    .into_iter()
+                    .map(|v| Pattern::parse_in(name, v, srcs))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(Pattern::PerBar(format!("{name}({a})"), steps));
+            }
+        }
         match name {
             "fast" => Ok(Pattern::Fast(whole(one()?)?)),
             "slow" => Ok(Pattern::Slow(whole(one()?)?)),
@@ -620,6 +638,7 @@ impl Pattern {
             Pattern::ChordOf(c) => format!("chord({})", c.name),
             Pattern::StructOf(c) => format!("struct({})", c.name),
             Pattern::Strum(ms) => format!("strum({ms})"),
+            Pattern::PerBar(text, _) => text.clone(),
         }
     }
 
@@ -741,6 +760,7 @@ impl Pattern {
                 out
             }
             Pattern::Strum(ms) => strum(line, *ms),
+            Pattern::PerBar(_, steps) => by_bar(line, steps)?,
             Pattern::Oct(n) => {
                 if line.events.iter().any(|e| e.degree) {
                     return Err("oct moves notes: write it after scale");
@@ -757,15 +777,18 @@ impl Pattern {
     /// Does this method change only pitches, one note at a time, so a live
     /// clip can take it in `render` (#593)?
     pub fn pitch_only(&self) -> bool {
-        matches!(
-            self,
-            Pattern::Add(_)
-                | Pattern::Sub(_)
-                | Pattern::Oct(_)
-                | Pattern::Scale(_)
-                | Pattern::ScaleOf(..)
-                | Pattern::ChordOf(_)
-        )
+        match self {
+            Pattern::PerBar(_, steps) => steps.iter().all(Pattern::pitch_only),
+            p => matches!(
+                p,
+                Pattern::Add(_)
+                    | Pattern::Sub(_)
+                    | Pattern::Oct(_)
+                    | Pattern::Scale(_)
+                    | Pattern::ScaleOf(..)
+                    | Pattern::ChordOf(_)
+            ),
+        }
     }
 
     /// A pitch method on event `e`, which starts at tick `t` of the song:
@@ -797,6 +820,11 @@ impl Pattern {
                 true
             }
             Pattern::ChordOf(c) => c.place(e, t),
+            Pattern::PerBar(_, steps) => {
+                let n = u64::try_from(steps.len()).unwrap_or(1).max(1);
+                let k = usize::try_from(t / u64::from(BAR) % n).unwrap_or(0);
+                steps.get(k).is_none_or(|p| p.pitch(e, t))
+            }
             _ => true,
         }
     }
@@ -947,6 +975,90 @@ fn alternate(line: &Line, n: u32, phase: u32, m: &Pattern) -> Result<Line, &'sta
     Ok(Line { events, bars })
 }
 
+/// Bar b from the line with method `steps[b mod n]` applied, each of them
+/// round with the line (#629).
+fn by_bar(line: &Line, steps: &[Pattern]) -> Result<Line, &'static str> {
+    let n = u32::try_from(steps.len()).unwrap_or(1).max(1);
+    let changed = steps
+        .iter()
+        .map(|m| m.apply(line))
+        .collect::<Result<Vec<_>, _>>()?;
+    let bars = changed
+        .iter()
+        .fold(lcm(line.bars, n), |b, c| lcm(b, c.bars));
+    check(bars, 0)?;
+    let mut events = Vec::new();
+    for (k, c) in (0..).zip(&changed) {
+        events.extend(
+            c.repeat(bars)
+                .events
+                .into_iter()
+                .filter(|e| (e.start / BAR) % n == k),
+        );
+    }
+    Ok(Line { events, bars })
+}
+
+/// The values of `"<a <b c>>"`, one a bar until they come round: a nested
+/// `< >` takes its own turns, so `<0 <1 -1>>` is 0 1 0 -1, as in Strudel.
+/// A plain value is one for every bar; several in a bar are an error.
+fn per_bar(text: &str) -> Result<Vec<&str>, &'static str> {
+    let bad = "a value a bar is a number or <a b …>, as \"<0 3 5>\"";
+    let t = text.trim();
+    let Some(inner) = t.strip_prefix('<') else {
+        return if t.is_empty() || t.contains(|c: char| c.is_whitespace() || c == '>') {
+            Err(bad)
+        } else {
+            Ok(vec![t])
+        };
+    };
+    let inner = inner.strip_suffix('>').ok_or(bad)?;
+    let (mut items, mut depth, mut start) = (Vec::new(), 0u32, None);
+    for (i, c) in inner.char_indices().chain([(inner.len(), ' ')]) {
+        match c {
+            '<' => {
+                start.get_or_insert(i);
+                depth += 1;
+            }
+            '>' => depth = depth.checked_sub(1).ok_or(bad)?,
+            c if c.is_whitespace() && depth == 0 => {
+                if let Some(s) = start.take() {
+                    items.push(inner.get(s..i).ok_or(bad)?);
+                }
+            }
+            _ => {
+                start.get_or_insert(i);
+            }
+        }
+    }
+    if depth != 0 || items.is_empty() {
+        return Err(bad);
+    }
+    let subs = items
+        .into_iter()
+        .map(per_bar)
+        .collect::<Result<Vec<_>, _>>()?;
+    let n = subs.len();
+    let round = subs.iter().try_fold(1u32, |p, s| {
+        let l = lcm(p, u32::try_from(s.len()).unwrap_or(MAX_BARS + 1));
+        (l <= MAX_BARS).then_some(l).ok_or(TOO_LONG)
+    })?;
+    let total = u32::try_from(n).unwrap_or(MAX_BARS + 1) * round;
+    if total > MAX_BARS {
+        return Err(TOO_LONG);
+    }
+    (0..total as usize)
+        .map(|b| {
+            subs.get(b % n)
+                .and_then(|s| s.get(b / n % s.len().max(1)))
+                .copied()
+                .ok_or(bad)
+        })
+        .collect()
+}
+
+const TOO_LONG: &str = "a value a bar comes round within 64 bars";
+
 /// Each bar on a rhythm: at every hit, the notes sounding there, held to the
 /// next step.
 fn structure(line: &Line, steps: &[bool]) -> Line {
@@ -1085,12 +1197,13 @@ fn split_args(s: &str) -> Vec<&str> {
         return Vec::new();
     }
     let mut out = Vec::new();
-    let (mut depth, mut start) = (0i32, 0);
+    let (mut depth, mut start, mut quoted) = (0i32, 0, false);
     for (i, c) in s.char_indices() {
         match c {
+            '"' => quoted = !quoted,
             '(' | '[' => depth += 1,
             ')' | ']' => depth -= 1,
-            ',' if depth == 0 => {
+            ',' if depth == 0 && !quoted => {
                 out.push(s.get(start..i).unwrap_or(""));
                 start = i + 1;
             }
@@ -1160,6 +1273,96 @@ mod tests {
         // A two-bar line made three times faster fills two bars again.
         let two = four().repeat(2);
         assert_eq!(run("fast(3)", &two).bars, 2);
+    }
+
+    /// #629: a value a bar is the method with each value, bar by bar.
+    #[test]
+    fn a_value_a_bar_takes_turns() {
+        let a = run("add(\"<0 3 5>\")", &four());
+        let mut hand = four().repeat(3);
+        for e in &mut hand.events {
+            e.note += [0, 3, 5][(e.start / BAR) as usize];
+        }
+        assert_eq!((a.bars, starts(&a)), (3, starts(&hand)));
+        // Nested turns, as in Strudel: 0 1 0 -1.
+        let n = run("sub(\"<0 <-1 1>>\")", &four());
+        let firsts: Vec<u8> = (0..4).map(|b| n.events[b * 4].note).collect();
+        assert_eq!((n.bars, firsts), (4, vec![60, 61, 60, 59]));
+        // fast alternates: four notes, then eight.
+        let f = run("fast(\"<1 2>\")", &four());
+        let count = |b: u32| f.events.iter().filter(|e| e.start / BAR == b).count();
+        assert_eq!((f.bars, count(0), count(1)), (2, 4, 8));
+        // slow 2 on bar one plays the second half of the stretched line.
+        let s = run("slow(\"<1 2>\")", &four());
+        assert_eq!(starts(&s)[4..], [(48, 64), (72, 66)]);
+        // A plain value in quotes is every bar's.
+        assert_eq!(
+            starts(&run("ply(\"2\")", &four())),
+            starts(&run("ply(2)", &four()))
+        );
+        assert_eq!(run("degrade(\"<0 1>\")", &four()).events.len(), 4);
+    }
+
+    #[test]
+    fn a_value_a_bar_prints_as_written_and_checks_its_values() {
+        for text in ["\"<0 3 5>\"", "\"<0 <1 -1>>\"", "\"7\""] {
+            let p = Pattern::parse("add", text).expect(text);
+            assert_eq!(p.print(), format!("add({text})"));
+            assert!(p.pitch_only());
+        }
+        assert!(
+            !Pattern::parse("fast", "\"<1 2>\"")
+                .expect("fast")
+                .pitch_only()
+        );
+        for (name, text, msg) in [
+            (
+                "add",
+                "\"1 2\"",
+                "a value a bar is a number or <a b …>, as \"<0 3 5>\"",
+            ),
+            (
+                "add",
+                "\"<1 2\"",
+                "a value a bar is a number or <a b …>, as \"<0 3 5>\"",
+            ),
+            (
+                "add",
+                "\"<>\"",
+                "a value a bar is a number or <a b …>, as \"<0 3 5>\"",
+            ),
+            ("add", "\"<0 99>\"", "this takes semitones from -48 to 48"),
+            (
+                "fast",
+                "\"<1 0>\"",
+                "this takes a whole number from 1 to 16",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, text), Err(msg), "{name}({text})");
+        }
+        let long = format!("\"<{}>\"", vec!["1"; 65].join(" "));
+        assert_eq!(Pattern::parse("add", &long), Err(TOO_LONG));
+        // 33 turns of two: 66 bars before it comes round.
+        let nest = format!("\"<{}>\"", vec!["<1 2>"; 33].join(" "));
+        assert_eq!(Pattern::parse("add", &nest), Err(TOO_LONG));
+        // Within 64 bars, but sixteen times 48 notes on bar two.
+        let wide = Line {
+            events: (0..48).map(|k| ev(k, 1, 60)).collect(),
+            bars: 1,
+        };
+        let p = Pattern::parse("ply", "\"<1 16>\"").expect("ply");
+        assert_eq!(p.apply(&wide), Err("the pattern makes more than 512 notes"));
+    }
+
+    /// On a live clip, the bar of the song picks the value (#593).
+    #[test]
+    fn a_value_a_bar_on_a_live_bar_follows_the_song() {
+        let p = [Pattern::parse("add", "\"<0 12>\"").expect("add")];
+        for (base, want) in [(0, 60), (u64::from(BAR), 72), (2 * u64::from(BAR), 60)] {
+            let mut events = vec![ev(0, 12, 60)];
+            pitch_all(&p, &mut events, base);
+            assert_eq!(events[0].note, want);
+        }
     }
 
     #[test]

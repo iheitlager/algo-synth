@@ -35,20 +35,32 @@ pub const CALLS: [(&str, &str); 7] = [
 
 /// The pattern methods, in `Pattern::NAMES` order.
 pub const METHODS: [(&str, &str); 18] = [
-    ("fast", "fast takes a whole number from 1 to 16: fast(2)"),
-    ("slow", "slow takes a whole number from 1 to 16: slow(2)"),
+    (
+        "fast",
+        "fast takes a whole number from 1 to 16, or one a bar: fast(2) or fast(\"<1 2>\")",
+    ),
+    (
+        "slow",
+        "slow takes a whole number from 1 to 16, or one a bar: slow(2) or slow(\"<1 2>\")",
+    ),
     ("rev", "rev takes no value: rev()"),
     ("palindrome", "palindrome takes no value: palindrome()"),
     (
         "add",
-        "add takes semitones from -48 to 48, or a list of them for a chord: add(7) or add([0,4,7])",
+        "add takes semitones from -48 to 48, a list for a chord, or one a bar: add(7), add([0,4,7]) or add(\"<0 3 5>\")",
     ),
-    ("sub", "sub takes semitones from -48 to 48: sub(12)"),
-    ("ply", "ply takes a whole number from 1 to 16: ply(2)"),
+    (
+        "sub",
+        "sub takes semitones from -48 to 48, or one a bar: sub(12) or sub(\"<0 12>\")",
+    ),
+    (
+        "ply",
+        "ply takes a whole number from 1 to 16, or one a bar: ply(2) or ply(\"<1 2>\")",
+    ),
     ("iter", "iter takes a whole number from 1 to 16: iter(4)"),
     (
         "degrade",
-        "degrade takes maybe a chance from 0 to 1: degrade() or degrade(0.2)",
+        "degrade takes maybe a chance from 0 to 1, or one a bar: degrade(0.2) or degrade(\"<0 0.5>\")",
     ),
     ("every", EVERY),
     ("off", OFF),
