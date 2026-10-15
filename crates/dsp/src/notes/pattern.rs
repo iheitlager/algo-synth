@@ -24,7 +24,7 @@
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
 use super::{DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
-use crate::algo::{Mode, Scale, mix, pitch_class};
+use crate::algo::{Euclid, Mode, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
 /// Largest factor of `fast`, `slow`, `ply`, `iter` and `every`.
@@ -49,6 +49,8 @@ pub enum Pattern {
     Off(u32, Box<Pattern>),
     /// Hits and rests sharing each bar.
     Struct(Vec<bool>),
+    /// A struct of `k` hits spread over `n` steps (#582).
+    Euclid(Euclid),
     Sometimes(Box<Pattern>),
     Scale(Keys),
 }
@@ -257,7 +259,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 14] = [
+    pub const NAMES: [&'static str; 15] = [
         "fast",
         "slow",
         "rev",
@@ -270,12 +272,14 @@ impl Pattern {
         "every",
         "off",
         "struct",
+        "euclid",
         "sometimes",
         "scale",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
     pub fn parse(name: &str, args: &str) -> Result<Pattern, &'static str> {
+        let raw = args;
         let args = split_args(args);
         let whole = |s: &str| {
             s.trim()
@@ -356,6 +360,13 @@ impl Pattern {
                 }
                 Ok(Pattern::Struct(steps))
             }
+            "euclid" => {
+                let e = Euclid::args(&format!("{raw})"))?;
+                if e.n as usize > MAX_STEPS {
+                    return Err("a rhythm has 1 to 48 steps");
+                }
+                Ok(Pattern::Euclid(e))
+            }
             "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?)?))),
             "scale" => Ok(Pattern::Scale(Keys::parse(one()?)?)),
             _ => Err("no such pattern method"),
@@ -388,6 +399,7 @@ impl Pattern {
                 let words: Vec<&str> = steps.iter().map(|h| if *h { "x" } else { "~" }).collect();
                 format!("struct(\"{}\")", words.join(" "))
             }
+            Pattern::Euclid(e) => e.print(),
             Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
             Pattern::Scale(keys) => format!("scale({})", keys.print()),
         }
@@ -441,6 +453,7 @@ impl Pattern {
                 out
             }
             Pattern::Struct(steps) => structure(line, steps),
+            Pattern::Euclid(e) => structure(line, &e.pattern()),
             Pattern::Sometimes(m) => {
                 let other = m.apply(line)?;
                 let bars = lcm(line.bars, other.bars);
@@ -847,6 +860,29 @@ mod tests {
     }
 
     #[test]
+    fn euclid_is_a_struct_of_spread_hits() {
+        // Strudel's note("c2 a2 eb2").euclid(5,8): c2 . c2 a2 . a2 eb2 .
+        let line = Line {
+            events: vec![ev(0, 16, 36), ev(16, 16, 45), ev(32, 16, 39)],
+            bars: 1,
+        };
+        let e = run("euclid(5,8)", &line);
+        assert_eq!(e, run("struct(\"x ~ x x ~ x x ~\")", &line));
+        assert_eq!(
+            starts(&e),
+            vec![(0, 36), (12, 36), (18, 45), (30, 45), (36, 39)]
+        );
+        // Rotated left by two: x ~ ~ x ~ ~ x ~ becomes ~ x ~ ~ x ~ x ~.
+        assert_eq!(
+            run("euclid(3,8,2)", &four()),
+            run("struct(\"~ x ~ ~ x ~ x ~\")", &four())
+        );
+        // As the method of every, off and sometimes.
+        let ev2 = run("every(2, euclid(3,8))", &four());
+        assert_eq!((ev2.bars, ev2.events.len()), (2, 3 + 4));
+    }
+
+    #[test]
     fn sometimes_takes_about_half_from_the_method() {
         let line = run("ply(8)", &four());
         let s = run("sometimes(add(12))", &line);
@@ -939,6 +975,10 @@ mod tests {
             ("sub", "-3", "sub(-3)"),
             ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
             ("sometimes", "fast(2)", "sometimes(fast(2))"),
+            ("euclid", "5,8", "euclid(5,8)"),
+            ("euclid", " 3, 8 ,2", "euclid(3,8,2)"),
+            ("euclid", "3,8,0", "euclid(3,8)"),
+            ("every", "2, euclid(3,8)", "every(2, euclid(3,8))"),
             ("scale", " eb  minor ", "scale(d# minor)"),
             ("scale", "a1 minor-pentatonic", "scale(a1 minor-pentatonic)"),
             ("scale", "<a1  d2>/4 minor", "scale(<a1 d2>/4 minor)"),
@@ -1000,6 +1040,19 @@ mod tests {
                 "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")",
             ),
             ("struct", "\"\"", "a rhythm has 1 to 48 steps"),
+            (
+                "euclid",
+                "3",
+                "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)",
+            ),
+            (
+                "euclid",
+                "3,8,1,1",
+                "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)",
+            ),
+            ("euclid", "3,0", "euclid has 1 to 64 steps"),
+            ("euclid", "9,8", "euclid cannot have more hits than steps"),
+            ("euclid", "3,64", "a rhythm has 1 to 48 steps"),
             (
                 "sometimes",
                 "cutoff",

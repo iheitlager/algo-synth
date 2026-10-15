@@ -2220,6 +2220,23 @@ fn struct_sometimes_and_scale_print_back() {
     assert_eq!(Song::parse(&printed), Ok(s));
 }
 
+#[test]
+fn euclid_on_a_clip_is_its_struct_and_prints_back() {
+    let euclid = Song::parse("track bass synth\nclip p = bass .euclid(5,8)\n  \"c2 a2 eb2\"\n")
+        .expect("parses");
+    let spelled = Song::parse(
+        "track bass synth\nclip p = bass .struct(\"x ~ x x ~ x x ~\")\n  \"c2 a2 eb2\"\n",
+    )
+    .expect("parses");
+    assert_eq!(euclid.clips[0].notes, spelled.clips[0].notes);
+    let printed = euclid.print();
+    assert!(
+        printed.contains("clip p = bass .euclid(5,8)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(euclid));
+}
+
 /// The notes of clip `k`, in order.
 fn clip_notes(s: &Song, k: usize) -> Vec<u8> {
     let n = s
