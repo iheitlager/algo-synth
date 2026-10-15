@@ -11,8 +11,8 @@
 //! Mini-notation: a quoted sequence divides the bar among its words; `[ ]`
 //! divides a word's share again, `~` rests, `*n` repeats within the share,
 //! `@n` gives a word n shares, `<a b>` plays one option per bar, `?` plays a
-//! word on half the bars (drawn from a fixed seed, so a run is repeatable),
-//! `[c4,e4,g4]` is a chord and `!` accents a note. A trailing `&` makes a note
+//! word on half the bars, `?0.3` on about 3 in 10 (drawn from a fixed seed, so
+//! a run is repeatable), `[c4,e4,g4]` is a chord and `!` accents a note. A trailing `&` makes a note
 //! (or chord) run one tick into the next, so a legato synth with glide slides
 //! to it (#241). Classic: `c4:4` is a quarter, `:1 :2 :4 :8 :16` with a dot
 //! for one and a half, `r:4` rests, and `c4:8&` slides.
@@ -105,10 +105,113 @@ pub struct Slot {
     pub times: u32,
     /// `@n`: shares of the bar (or group) it takes.
     pub weight: u32,
-    /// `?`: plays on some bars only.
-    pub chance: bool,
+    /// `(k,n[,rot])`: plays on k hits spread over n steps of its share, as
+    /// in Strudel and Tidal (#601).
+    pub euclid: Option<Euclid>,
+    /// `?…`: plays on some bars only.
+    pub cond: Option<Cond>,
     /// `&`: the note runs one tick into the next, so a legato synth slides.
     pub slide: bool,
+}
+
+/// The bars a word plays in, after its `?`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cond {
+    /// `?p`: a seeded chance in thousandths, `None` for `?` alone, a half
+    /// (#602).
+    Chance(Option<u16>),
+    /// An Elektron trig condition (#603), true when written `?not…`.
+    Trig(Trig, bool),
+}
+
+/// The trig conditions after a `?` (#603).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Trig {
+    /// `a:b`: bar a of every b of the line.
+    Ratio(u8, u8),
+    /// `pre`: as the last condition before it in the bar went.
+    Pre,
+    /// `first`: in the clip's first bar (`When::first`).
+    First,
+    /// `last`: in the last bar of its scene (`When::last`).
+    Last,
+}
+
+/// The bars an event plays in that only the engine knows (#603): with
+/// `Some(b)`, only where being the first (last) bar is `b`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct When {
+    /// The first bar of its scene (a launched one's first time round), or
+    /// the bar a new song takes over on.
+    pub first: Option<bool>,
+    /// The last bar of its scene; never outside a scene.
+    pub last: Option<bool>,
+}
+
+impl When {
+    /// Both at once, or `None` when they can never both hold.
+    fn and(self, o: When) -> Option<When> {
+        let one = |a: Option<bool>, b: Option<bool>| match (a, b) {
+            (Some(x), Some(y)) if x != y => Err(()),
+            _ => Ok(a.or(b)),
+        };
+        Some(When {
+            first: one(self.first, o.first).ok()?,
+            last: one(self.last, o.last).ok()?,
+        })
+    }
+
+    /// The opposite of a single condition.
+    fn not(self) -> When {
+        When {
+            first: self.first.map(|b| !b),
+            last: self.last.map(|b| !b),
+        }
+    }
+
+    /// Does it play in a bar that is (or is not) `first` and `last`?
+    pub fn holds(self, first: bool, last: bool) -> bool {
+        self.first.is_none_or(|b| b == first) && self.last.is_none_or(|b| b == last)
+    }
+}
+
+/// How the last condition in a bar went, for `?pre`: known when the line
+/// compiles, or as the engine finds the bar.
+#[derive(Clone, Copy)]
+enum Prev {
+    Known(bool),
+    Runtime(When),
+}
+
+impl Cond {
+    /// Does a chance play, `r` the bar's next draw? A half plays when `r` is
+    /// odd, as `?` always has, and every chance reads the same bit first, so
+    /// `?` alone plays exactly as before.
+    fn plays(p: Option<u16>, r: u32) -> bool {
+        let p = u64::from(p.unwrap_or(500));
+        u64::from((!r).reverse_bits()) * 1000 < p << 32
+    }
+
+    fn print(self) -> String {
+        match self {
+            Cond::Chance(None) => "?".to_string(),
+            Cond::Chance(Some(0)) => "?0".to_string(),
+            Cond::Chance(Some(1000)) => "?1".to_string(),
+            Cond::Chance(Some(m)) => format!(
+                "?{}",
+                format!("{:.3}", f64::from(m) / 1000.0).trim_end_matches('0')
+            ),
+            Cond::Trig(t, not) => {
+                let what = match t {
+                    Trig::Ratio(a, b) => format!("{a}:{b}"),
+                    Trig::Pre => "pre".to_string(),
+                    Trig::First => "first".to_string(),
+                    Trig::Last => "last".to_string(),
+                };
+                format!("?{}{what}", if not { "not" } else { "" })
+            }
+        }
+    }
 }
 
 /// A classic note: pitches (none for a rest) and a length.
@@ -159,6 +262,8 @@ pub struct Event {
     pub word: u16,
     /// `note` is a scale degree plus `DEGREE_ZERO`, until a scale resolves it.
     pub degree: bool,
+    /// The bars of its scene it plays in (#603): every one by default.
+    pub when: When,
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -408,6 +513,7 @@ impl Cursor<'_> {
             vel: u8::try_from(vel).unwrap_or(0),
             word: 0,
             degree: p.degree,
+            when: Default::default(),
         })
     }
 
@@ -424,6 +530,9 @@ impl Cursor<'_> {
                     self.i += 1;
                     return Ok(out);
                 }
+                Some('(') => {
+                    return err(self.col(), "euclid goes on the whole chord: [c4,e4](3,8)");
+                }
                 _ => return err(self.col(), "a chord is notes with commas, then ]"),
             }
         }
@@ -432,8 +541,12 @@ impl Cursor<'_> {
     /// Is the `[` at the cursor a chord (a comma before its `]`)?
     fn is_chord(&self) -> bool {
         let mut depth = 0usize;
+        let mut parens = 0usize;
         for ch in self.c.iter().skip(self.i) {
             match ch {
+                '(' => parens += 1,
+                ')' => parens = parens.saturating_sub(1),
+                _ if parens > 0 => {}
                 '[' | '<' => depth += 1,
                 ']' | '>' => {
                     depth = depth.saturating_sub(1);
@@ -475,7 +588,8 @@ impl Cursor<'_> {
                     let Some(to) = bare_degree(&Slot {
                         times: 1,
                         weight: 1,
-                        chance: false,
+                        euclid: None,
+                        cond: None,
                         slide: false,
                         ..end.clone()
                     }) else {
@@ -539,7 +653,7 @@ impl Cursor<'_> {
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['*', '@', '?', '&', ']', '>']);
+                let end = self.word_end(&['(', '*', '@', '?', '&', ']', '>']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
                 if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
                     // `0..12`, one word
@@ -565,7 +679,8 @@ impl Cursor<'_> {
                 }
             }
         };
-        let (mut times, mut weight, mut chance, mut slide) = (1, 1, false, false);
+        let euclid = self.inline_euclid()?;
+        let (mut times, mut weight, mut cond, mut slide) = (1, 1, None, false);
         let (mut got_times, mut got_weight) = (false, false);
         loop {
             let here = self.col();
@@ -580,9 +695,9 @@ impl Cursor<'_> {
                     weight = self.factor(here, TICKS_PER_BAR)?;
                     got_weight = true;
                 }
-                Some('?') if !chance => {
+                Some('?') if cond.is_none() => {
                     self.i += 1;
-                    chance = true;
+                    cond = Some(self.cond()?);
                 }
                 Some('&') if !slide => {
                     if !matches!(item, Item::Note(_) | Item::Chord(_) | Item::Symbol(_)) {
@@ -592,6 +707,7 @@ impl Cursor<'_> {
                     slide = true;
                 }
                 Some(':') => return err(here, "durations go outside the quotes, as c4:4"),
+                Some('(') => return err(here, "euclid comes right after the word: c2(3,8)*2"),
                 Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>') => {
                     return err(here, "a word ends at a space");
                 }
@@ -602,9 +718,78 @@ impl Cursor<'_> {
             item,
             times,
             weight,
-            chance,
+            euclid,
+            cond,
             slide,
         })
+    }
+
+    /// `(3,8)` or `(3,8,2)` right after a word, if there.
+    fn inline_euclid(&mut self) -> Result<Option<Euclid>, NoteError> {
+        if self.peek() != Some('(') {
+            return Ok(None);
+        }
+        let at = self.col();
+        let close = self.c.iter().skip(self.i).position(|c| *c == ')');
+        let Some(close) = close.map(|k| self.i + k) else {
+            return err(at, "a ( is not closed: c2(3,8)");
+        };
+        let args: String = self
+            .c
+            .get(self.i + 1..=close)
+            .unwrap_or(&[])
+            .iter()
+            .collect();
+        let e = Euclid::args(&args).map_err(|msg| NoteError { col: at, msg })?;
+        self.i = close + 1;
+        Ok(Some(e))
+    }
+
+    /// What follows a `?`: nothing (a half), a chance `0.3` from 0 to 1, or
+    /// a trig condition `1:4`, `pre`, `first`, `last`, maybe after `not`.
+    fn cond(&mut self) -> Result<Cond, NoteError> {
+        let at = self.col();
+        let start = self.i;
+        while self
+            .peek()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '.' || c == ':')
+        {
+            self.i += 1;
+        }
+        let w: String = self.c.get(start..self.i).unwrap_or(&[]).iter().collect();
+        if w.is_empty() {
+            return Ok(Cond::Chance(None));
+        }
+        if w.starts_with(|c: char| c.is_ascii_digit() || c == '.') && !w.contains(':') {
+            let decimals = w.split_once('.').map_or(0, |(_, d)| d.len());
+            return match w.parse::<f64>() {
+                Ok(p) if (0.0..=1.0).contains(&p) && decimals <= 3 => {
+                    Ok(Cond::Chance(Some((p * 1000.0).round() as u16)))
+                }
+                _ => err(at, "a chance is 0 to 1, as ?0.3"),
+            };
+        }
+        let (not, t) = w
+            .strip_prefix("not")
+            .map_or((false, w.as_str()), |t| (true, t));
+        let trig = match t {
+            "pre" => Trig::Pre,
+            "first" => Trig::First,
+            "last" => Trig::Last,
+            _ => {
+                let ratio = t.split_once(':').and_then(|(a, b)| {
+                    let (a, b) = (a.parse::<u8>().ok()?, b.parse::<u8>().ok()?);
+                    (1..=b).contains(&a).then_some(()).filter(|()| b <= 16)?;
+                    Some(Trig::Ratio(a, b))
+                });
+                ratio.ok_or(NoteError {
+                    col: at,
+                    msg: "a condition is ?0.3, ?1:4 (1 ≤ a ≤ b ≤ 16), ?pre, ?first or ?last, \
+                          or ?not before one of the last four",
+                })?
+            }
+        };
+        Ok(Cond::Trig(trig, not))
     }
 
     fn factor(&mut self, at: usize, max: u32) -> Result<u32, NoteError> {
@@ -881,7 +1066,13 @@ fn pitch_text(p: &Pitch) -> String {
 fn bare_degree(s: &Slot) -> Option<i32> {
     match s.item {
         Item::Note(p)
-            if p.degree && !p.accent && s.times == 1 && s.weight == 1 && !s.chance && !s.slide =>
+            if p.degree
+                && !p.accent
+                && s.times == 1
+                && s.weight == 1
+                && s.euclid.is_none()
+                && s.cond.is_none()
+                && !s.slide =>
         {
             Some(i32::from(p.note) - i32::from(DEGREE_ZERO))
         }
@@ -916,6 +1107,9 @@ fn slot_text(s: &Slot) -> String {
         Item::Alt(g) => format!("<{}>", slots_text(g)),
         Item::Range(a, b) => format!("{a} .. {b}"),
     };
+    if let Some(e) = s.euclid {
+        out.push_str(e.print().trim_start_matches("euclid"));
+    }
     if s.slide {
         out.push('&');
     }
@@ -925,8 +1119,8 @@ fn slot_text(s: &Slot) -> String {
     if s.weight != 1 {
         out.push_str(&format!("@{}", s.weight));
     }
-    if s.chance {
-        out.push('?');
+    if let Some(c) = s.cond {
+        out.push_str(&c.print());
     }
     out
 }
@@ -1058,6 +1252,10 @@ impl Frac {
 struct Compiler<'a> {
     events: Vec<Event>,
     rng: Rng,
+    /// The last condition of the bar, for `?pre`.
+    prev: Prev,
+    /// The engine's conditions on the words being compiled.
+    when: When,
     full: bool,
     /// The line's words in print order, to tag each event with its own.
     leaves: Vec<&'a Item>,
@@ -1088,14 +1286,58 @@ impl Compiler<'_> {
     }
 
     fn slot(&mut self, s: &Slot, at: Frac, span: Frac, bar: u32) {
-        if s.chance && self.rng.next_u32() % 2 == 0 {
-            return;
+        let outer = self.when;
+        let plays = match s.cond {
+            None => Prev::Known(true),
+            Some(Cond::Chance(p)) => Prev::Known(Cond::plays(p, self.rng.next_u32())),
+            Some(Cond::Trig(t, not)) => {
+                let went = match t {
+                    Trig::Ratio(a, b) => Prev::Known(bar % u32::from(b) + 1 == u32::from(a)),
+                    Trig::Pre => self.prev,
+                    Trig::First => Prev::Runtime(When {
+                        first: Some(true),
+                        last: None,
+                    }),
+                    Trig::Last => Prev::Runtime(When {
+                        first: None,
+                        last: Some(true),
+                    }),
+                };
+                match went {
+                    Prev::Known(b) => Prev::Known(b != not),
+                    Prev::Runtime(w) => Prev::Runtime(if not { w.not() } else { w }),
+                }
+            }
+        };
+        // `?pre` reads the conditions before it and leaves them be.
+        if s.cond.is_some() && !matches!(s.cond, Some(Cond::Trig(Trig::Pre, _))) {
+            self.prev = plays;
+        }
+        match plays {
+            Prev::Known(false) => return,
+            Prev::Known(true) => {}
+            Prev::Runtime(w) => match outer.and(w) {
+                Some(both) => self.when = both,
+                None => return,
+            },
         }
         let times = u128::from(s.times);
         for r in 0..times {
-            let start = at.add(span.scale(r, times));
-            self.item(&s.item, start, span.scale(1, times), bar, s.slide);
+            let (start, share) = (at.add(span.scale(r, times)), span.scale(1, times));
+            match s.euclid {
+                None => self.item(&s.item, start, share, bar, s.slide),
+                Some(e) => {
+                    let n = u128::from(e.n);
+                    for (i, hit) in (0..n).zip(e.pattern()) {
+                        if hit {
+                            let step = start.add(share.scale(i, n));
+                            self.item(&s.item, step, share.scale(1, n), bar, s.slide);
+                        }
+                    }
+                }
+            }
         }
+        self.when = outer;
     }
 
     fn item(&mut self, item: &Item, at: Frac, span: Frac, bar: u32, slide: bool) {
@@ -1149,6 +1391,7 @@ impl Compiler<'_> {
             vel: 0,
             word: self.word,
             degree: p.degree,
+            when: self.when,
         });
     }
 }
@@ -1163,8 +1406,8 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8) {
-    (e.start, e.degree, e.note, e.len, e.accent, e.vel)
+pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When) {
+    (e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when)
 }
 
 /// A line of mini-notation that plays exactly `events` (sorted, within
@@ -1173,6 +1416,9 @@ pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8) {
 /// note over a bar line, overlapping notes, or a chord of different lengths.
 pub fn freeze(events: &[Event], bars: u32) -> Option<Notes> {
     let bar = TICKS_PER_BAR;
+    if events.iter().any(|e| e.when != When::default()) {
+        return None;
+    }
     let mut texts = Vec::new();
     for b in 0..bars {
         let (lo, hi) = (b * bar, (b + 1) * bar);
@@ -1288,6 +1534,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     vel: 0,
                     word: 0,
                     degree: false,
+                    when: Default::default(),
                 });
             }
         }
@@ -1327,6 +1574,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     vel: 0,
                     word: 0,
                     degree: false,
+                    when: Default::default(),
                 });
             }
         }
@@ -1382,8 +1630,10 @@ fn period(slots: &[Slot]) -> u32 {
             _ => 1,
         };
         p = lcm(p, inner);
-        if s.chance {
-            p = lcm(p, CHANCE_BARS);
+        match s.cond {
+            Some(Cond::Chance(_)) => p = lcm(p, CHANCE_BARS),
+            Some(Cond::Trig(Trig::Ratio(_, b), _)) => p = lcm(p, u32::from(b)),
+            _ => {}
         }
         if p > MAX_BARS {
             return p;
@@ -1425,12 +1675,15 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
             let mut c = Compiler {
                 events: Vec::new(),
                 rng: Rng::new(0),
+                prev: Prev::Known(false),
+                when: When::default(),
                 full: false,
                 leaves,
                 word: 0,
             };
             for bar in 0..bars {
                 c.rng = Rng::new(mix(bar, 0x5EED));
+                c.prev = Prev::Known(false);
                 c.slots(slots, Frac::new(0, 1), Frac::new(1, 1), bar);
             }
             if c.full {
@@ -1462,6 +1715,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     vel: 0,
                     word: 0,
                     degree,
+                    when: Default::default(),
                 });
             }
             (events, 1)
@@ -1480,6 +1734,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         vel: 0,
                         word: u16::try_from(w).unwrap_or(u16::MAX),
                         degree: p.degree,
+                        when: Default::default(),
                     });
                 }
                 at += len;

@@ -3073,3 +3073,109 @@ fn a_chromatic_run_from_the_scale_line_and_its_octave() {
         })
     );
 }
+
+/// A clip's events as (start, len, note).
+fn timing_of(s: &Song, name: &str) -> Vec<(u32, u32, u8)> {
+    s.clips
+        .iter()
+        .find(|c| c.name == name)
+        .and_then(|c| c.notes.as_ref())
+        .map(|n| n.events.iter().map(|e| (e.start, e.len, e.note)).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn struct_takes_the_rhythm_of_a_drum_clip_or_a_note_clip() {
+    let s = Song::parse(
+        "track kit drums\ntrack bass synth\n\
+         clip beat = kit /16\n  bd x..x..x...x.x...\n  ch ..........x.....\n\
+         clip riff = bass\n  \"c4 ~ e4 g4\"\n\
+         clip a = bass .struct(beat)\n  \"c2 e2\"\n\
+         clip b = bass .struct(\"x ~ ~ x ~ ~ x ~ ~ ~ x ~ x ~ ~ ~\")\n  \"c2 e2\"\n\
+         clip c = bass .struct(riff)\n  \"<a1 d2>\"\n\
+         clip d = bass .struct(\"x ~ x x\")\n  \"<a1 d2>\"\n",
+    )
+    .expect("parses");
+    assert_eq!(timing_of(&s, "a"), timing_of(&s, "b"));
+    assert_eq!(timing_of(&s, "a").len(), 5, "two pads on one step hit once");
+    assert_eq!(timing_of(&s, "c"), timing_of(&s, "d"));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = bass .struct(beat)\n"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip c = bass .struct(riff)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn struct_stays_in_phase_with_a_source_of_another_length() {
+    // A lane of 12 sixteenths comes round every 3/4 bar: three bars to a
+    // loop; under two bars of notes, six bars, each hit at its song tick.
+    let s = Song::parse(
+        "track kit drums\ntrack bass synth\n\
+         clip beat = kit /16\n  bd x.......x...\n\
+         clip f = bass .struct(beat)\n  \"<c2 d2>\"\n",
+    )
+    .expect("parses");
+    let starts: Vec<(u32, u8)> = notes_of(&s, "f");
+    let ticks = [
+        0, 24, 36, 60, 72, 96, 108, 132, 144, 168, 180, 204, 216, 240, 252, 276,
+    ];
+    let want: Vec<(u32, u8)> = ticks
+        .iter()
+        .map(|t| (*t, if (t / 48) % 2 == 0 { 36 } else { 38 }))
+        .collect();
+    assert_eq!(starts, want);
+    assert_eq!(
+        s.clips
+            .iter()
+            .find(|c| c.name == "f")
+            .and_then(|c| c.notes.as_ref())
+            .map(|n| n.bars),
+        Some(6)
+    );
+}
+
+#[test]
+fn a_clip_read_for_a_rhythm_comes_before_and_has_hits() {
+    let bad = "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)";
+    for (text, line, col, msg) in [
+        (
+            "track lead synth\nclip f = lead .struct(nope)\n  \"c4\"\n",
+            2,
+            16,
+            bad,
+        ),
+        (
+            "track lead synth\nclip f = lead .struct(later)\n  \"c4\"\nclip later = lead\n  \"a1\"\n",
+            2,
+            16,
+            bad,
+        ),
+        (
+            "track lead synth\nclip p = lead\n  \"~\"\nclip f = lead .struct(p)\n  \"c4\"\n",
+            4,
+            16,
+            "this clip has no hits to take a rhythm from",
+        ),
+        (
+            "track kit drums\ntrack lead synth\nclip p = kit\n  bd x...\nclip f = lead .scale(p minor)\n  \"0\"\n",
+            5,
+            16,
+            "a drum clip has no notes to take roots from",
+        ),
+        (
+            "track kit drums\ntrack lead synth\nclip p = kit\n  bd x...\nclip f = lead .chord(p)\n  \"0\"\n",
+            5,
+            16,
+            "a drum clip has no notes to take chords from",
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(msg);
+        assert_eq!((e.msg, e.line, e.col), (msg, line, col), "{text}");
+    }
+}

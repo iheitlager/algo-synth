@@ -67,6 +67,61 @@ fn a_chance_is_drawn_from_a_fixed_seed() {
 }
 
 #[test]
+fn a_bare_chance_plays_the_bars_it_always_has() {
+    // Recorded before `?p` (#602): `?` alone must not move a note.
+    let starts = |t: &str| -> Vec<u32> {
+        parse(t, 1)
+            .unwrap()
+            .events
+            .iter()
+            .map(|e| e.start)
+            .collect()
+    };
+    assert_eq!(
+        starts("\"c4? e4? g4? c5?\""),
+        [
+            0, 12, 24, 72, 84, 96, 108, 120, 168, 180, 228, 240, 264, 276, 312, 324, 348, 372
+        ]
+    );
+    assert_eq!(
+        parse("\"c4?0.5\"", 1).unwrap().events,
+        parse("\"c4?\"", 1).unwrap().events
+    );
+}
+
+#[test]
+fn a_chance_on_a_word_plays_about_that_often() {
+    let count = |t: &str| parse(t, 1).unwrap().events.len();
+    // 16 draws a bar over the 8 bars a chance repeats after.
+    assert_eq!(count("\"[c4?0]*16\""), 0);
+    assert_eq!(count("\"[c4?1]*16\""), 128);
+    let some = count("\"[c4?0.3]*16\"");
+    assert!((26..=51).contains(&some), "{some} of 128");
+    assert_eq!(parse("\"[c4?0.3]*16\"", 1), parse("\"[c4?0.3]*16\"", 1));
+    let n = parse("\"c4?0.3 e4?.25 g4?1 a4?0\"", 1).unwrap();
+    assert_eq!(n.text, "\"c4?0.3 e4?0.25 g4?1 a4?0\"");
+    assert_eq!(parse(&n.text, 1).unwrap(), n);
+}
+
+#[test]
+fn chance_errors_say_where() {
+    for (t, col) in [
+        ("\"c4?1.5\"", 5),
+        ("\"c4 e4?0.1234\"", 8),
+        ("\"c4?0..3\"", 5),
+    ] {
+        assert_eq!(
+            parse(t, 1).unwrap_err(),
+            NoteError {
+                col,
+                msg: "a chance is 0 to 1, as ?0.3"
+            },
+            "{t}"
+        );
+    }
+}
+
+#[test]
 fn classic_durations_lay_notes_one_after_another() {
     assert_eq!(
         ev("c4:4 e4:8 g4:8 c5:2"),
@@ -529,6 +584,7 @@ fn freezing_refuses_what_it_cannot_write() {
         vel: 0,
         word: 0,
         degree: false,
+        when: Default::default(),
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -554,6 +610,7 @@ fn timed_notes_parse_compile_and_print() {
                 vel: 0,
                 word: 0,
                 degree: false,
+                when: Default::default(),
             },
             Event {
                 start: 0,
@@ -563,6 +620,7 @@ fn timed_notes_parse_compile_and_print() {
                 vel: 0,
                 word: 0,
                 degree: false,
+                when: Default::default(),
             },
             Event {
                 start: 6,
@@ -572,6 +630,7 @@ fn timed_notes_parse_compile_and_print() {
                 vel: 90,
                 word: 0,
                 degree: false,
+                when: Default::default(),
             },
             Event {
                 start: 12,
@@ -581,6 +640,7 @@ fn timed_notes_parse_compile_and_print() {
                 vel: 0,
                 word: 0,
                 degree: false,
+                when: Default::default(),
             },
         ]
     );
@@ -623,6 +683,7 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         vel: 0,
         word: 0,
         degree: false,
+        when: Default::default(),
     }
 }
 
@@ -1274,5 +1335,174 @@ fn range_errors_say_where() {
     ] {
         let e = parse(text, 1).expect_err(text);
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}
+
+/// The bars (of the line's loop) each note plays in, by note.
+fn bars_of(text: &str) -> Vec<(u8, Vec<u32>)> {
+    let n = parse(text, 1).unwrap();
+    let mut out: Vec<(u8, Vec<u32>)> = Vec::new();
+    for e in &n.events {
+        match out.iter_mut().find(|(note, _)| *note == e.note) {
+            Some((_, bars)) => bars.push(e.start / TICKS_PER_BAR),
+            None => out.push((e.note, vec![e.start / TICKS_PER_BAR])),
+        }
+    }
+    out
+}
+
+#[test]
+fn a_ratio_plays_bar_a_of_every_b() {
+    let n = parse("\"c4 e4?1:4 g4?3:4 b4?not1:4\"", 1).unwrap();
+    assert_eq!(n.bars, 4);
+    assert_eq!(
+        bars_of(&n.text),
+        [
+            (60, vec![0, 1, 2, 3]),
+            (64, vec![0]),
+            (71, vec![1, 2, 3]),
+            (67, vec![2])
+        ]
+    );
+    assert_eq!(parse("\"c4?2:3 e4?1:2\"", 1).unwrap().bars, 6);
+}
+
+#[test]
+fn pre_follows_the_last_condition_before_it() {
+    // `?pre` reads the ratio, and leaves it for the next `?pre`.
+    assert_eq!(
+        bars_of("\"c4?1:2 e4?pre g4?notpre a4?pre\""),
+        [(60, vec![0]), (64, vec![0]), (69, vec![0]), (67, vec![1])]
+    );
+    // Before any condition in the bar, `?pre` is false.
+    assert_eq!(bars_of("\"c4?pre e4?notpre\""), [(64, vec![0])]);
+}
+
+#[test]
+fn first_and_last_wait_for_the_engine() {
+    let n = parse("\"c4?first e4?notlast [g4 a4]?last b4?1:1 d5?notpre\"", 1).unwrap();
+    let when = |note: u8| n.events.iter().find(|e| e.note == note).unwrap().when;
+    let w = |first, last| When { first, last };
+    assert_eq!(when(60), w(Some(true), None));
+    assert_eq!(when(64), w(None, Some(false)));
+    assert_eq!(when(67), w(None, Some(true)));
+    assert_eq!(when(69), w(None, Some(true)));
+    assert_eq!(when(71), When::default());
+    assert!(
+        !n.events.iter().any(|e| e.note == 74),
+        "pre of a 1:1 is true"
+    );
+    // `?pre` after `?first` takes it over; inside one, a word adds its own.
+    let n = parse(
+        "\"c4?first e4?notpre [g4?last]?first [a4?notfirst]?first\"",
+        1,
+    )
+    .unwrap();
+    let got: Vec<_> = n.events.iter().map(|e| (e.note, e.when)).collect();
+    assert_eq!(
+        got,
+        [
+            (60, w(Some(true), None)),
+            (64, w(Some(false), None)),
+            (67, w(Some(true), Some(true)))
+        ]
+    );
+    assert!(
+        freeze(&n.events, 1).is_none(),
+        "a condition does not freeze"
+    );
+    assert!(w(Some(true), None).holds(true, false));
+    assert!(!w(Some(true), None).holds(false, false));
+    assert!(w(None, Some(false)).holds(true, false));
+}
+
+#[test]
+fn conditions_print_back_and_bad_ones_say_which_there_are() {
+    // Canonically, as every suffix, the condition prints last.
+    let text =
+        "\"c4?1:4 e4*2?not3:8 g4?pre a4?notpre b4@2?first c5?notfirst d5?last e5?notlast f5?0.3\"";
+    let n = parse(text, 1).unwrap();
+    assert_eq!(n.text, text);
+    assert_eq!(
+        parse("\"e4?not3:8*2 b4?first@2\"", 1).unwrap().text,
+        "\"e4*2?not3:8 b4@2?first\""
+    );
+    assert_eq!(parse(&n.text, 1).unwrap(), n);
+    let msg = "a condition is ?0.3, ?1:4 (1 ≤ a ≤ b ≤ 16), ?pre, ?first or ?last, \
+               or ?not before one of the last four";
+    for (t, col) in [
+        ("\"c4?foo\"", 5),
+        ("\"c4 e4?5:4\"", 8),
+        ("\"c4?0:4\"", 5),
+        ("\"c4?1:17\"", 5),
+        ("\"c4?not0.3\"", 5),
+        ("\"c4?notnot\"", 5),
+    ] {
+        assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
+    }
+}
+
+#[test]
+fn an_inline_euclid_plays_its_word_on_the_hits() {
+    let line = |t: &str| parse(t, 1).unwrap().events;
+    assert_eq!(line("\"c2(3,8)\""), line("euclid(3,8) c2"));
+    assert_eq!(line("\"c2(3,8,2)\""), line("euclid(3,8,2) c2"));
+    assert_eq!(ev("\"c2(3,8,2)\""), [(6, 6, 36), (24, 6, 36), (36, 6, 36)]);
+    // In its own share: the second half bar on (3,4), x x x ~.
+    assert_eq!(
+        ev("\"c4 e4(3,4)\""),
+        [(0, 24, 60), (24, 6, 64), (30, 6, 64), (36, 6, 64)]
+    );
+    // A degree, a chord name, a chord, a group and an alternation.
+    let n = parse("\"0(2,4) [c4,e4](2,4) c:maj(1,2)\"", 1).unwrap();
+    let got: Vec<_> = n.events.iter().map(|e| (e.start, e.degree)).collect();
+    assert_eq!(got.iter().filter(|(_, d)| *d).count(), 2);
+    assert_eq!(n.events.len(), 2 + 4 + 3);
+    assert_eq!(ev("\"[c4 e4](1,2)\""), [(0, 12, 60), (12, 12, 64)]);
+    let alt: Vec<_> = parse("\"<c4 e4>(2,4)\"", 1)
+        .unwrap()
+        .events
+        .iter()
+        .map(|e| (e.start, e.note))
+        .collect();
+    assert_eq!(alt, [(0, 60), (24, 60), (48, 64), (72, 64)]);
+    // The other suffixes after it: each repeat has the rhythm.
+    assert_eq!(ev("\"c4(1,2)*2\""), [(0, 12, 60), (24, 12, 60)]);
+}
+
+#[test]
+fn an_inline_euclid_prints_back_and_says_where_it_is_wrong() {
+    let text = "\"c2(3,8) <4 5>(5,8,2) [c4,e4](3,8)*2@3?0.5 c:m7(1,4)&\"";
+    let n = parse(text, 1).unwrap();
+    assert_eq!(n.text, text);
+    assert_eq!(parse(&n.text, 1).unwrap(), n);
+    assert_eq!(parse("\"c2(3,8,0)\"", 1).unwrap().text, "\"c2(3,8)\"");
+    let usage = "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)";
+    for (t, col, msg) in [
+        ("\"c2(3)\"", 4, usage),
+        (
+            "\"c2 e2(9,8)\"",
+            7,
+            "euclid cannot have more hits than steps",
+        ),
+        ("\"c2(3,0)\"", 4, "euclid has 1 to 64 steps"),
+        ("\"c2(3,8\"", 4, "a ( is not closed: c2(3,8)"),
+        (
+            "\"[c4(3,8),e4]\"",
+            5,
+            "euclid goes on the whole chord: [c4,e4](3,8)",
+        ),
+        (
+            "\"[c4,e4(3,8)]\"",
+            8,
+            "euclid goes on the whole chord: [c4,e4](3,8)",
+        ),
+        (
+            "\"c2*2(3,8)\"",
+            6,
+            "euclid comes right after the word: c2(3,8)*2",
+        ),
+    ] {
+        assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
     }
 }

@@ -6204,3 +6204,74 @@ fn songs_loaded_in_turn_leave_no_mix_behind() {
         );
     }
 }
+
+/// The notes synth 0 starts in each of `bars` bars at 120 BPM, by bar.
+fn notes_by_bar(e: &mut Engine, bars: u64) -> Vec<Vec<u8>> {
+    let bar = 96_000;
+    let mut out = vec![Vec::new(); bars as usize];
+    for (f, _, n) in note_starts(e, bars * bar, BLOCK) {
+        if let Some(b) = out.get_mut((f / bar) as usize) {
+            b.push(n);
+        }
+    }
+    out
+}
+
+/// #603: `?first` plays in a scene's first bar, `?last` in its last.
+#[test]
+fn first_and_last_follow_the_scenes() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4?first ~ e4?last ~ g4?notfirst ~ ~ ~\"\n\
+                scene a 2: m\nscene b 3: m\narrange a b\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    assert_eq!(
+        notes_by_bar(&mut e, 5),
+        [vec![60], vec![64, 67], vec![60], vec![67], vec![64, 67]]
+    );
+}
+
+/// #603: a launched scene's first bar is its first only the first time
+/// round; a song taking over on a bar makes that bar a first one.
+#[test]
+fn first_is_a_launch_once_and_a_new_song() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4?first ~ ~ ~\"\n\
+                scene a 2: m\narrange a\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_launch(0, Quantize::Now);
+    assert_eq!(notes_by_bar(&mut e, 4), [vec![60], vec![], vec![], vec![]]);
+    let free = "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4?first ~ ~ ~\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, free), Ok(()));
+    e.song_play();
+    assert_eq!(notes_by_bar(&mut e, 2), [vec![60], vec![]]);
+    // Loaded in bar 2, it takes over on bar 3.
+    assert_eq!(load_text(&mut e, free), Ok(()));
+    assert_eq!(notes_by_bar(&mut e, 2), [vec![60], vec![]]);
+}
+
+/// #600-#603 with #588: typed into a playing song, a struct from a clip, an
+/// inline euclid, a chance and trig conditions keep their spelling, and play.
+#[test]
+fn new_mini_notation_keeps_its_typed_text() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack kit drums\ntrack lead synth\n\
+                clip beat = kit /16\n  bd x..x..x...x.x...\n\
+                clip m = lead   .struct( beat )\n  \"c4?.50  e4?not1:4 [c3,e3](3, 8)?first g4?pre\"\n";
+    assert_eq!(load_text(&mut e, "tempo 120\ntrack kit drums\n"), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    // It takes over on the next bar and plays.
+    assert!(run(&mut e, 2 * 96_000 / BLOCK) > 0.0, "it plays");
+    assert_eq!(e.song_text(), text);
+    let printed = e.song().print();
+    assert!(
+        printed.contains(
+            "clip m = lead .struct(beat)\n  \"c4?0.5 e4?not1:4 [c3,e3](3,8)?first g4?pre\"\n"
+        ),
+        "{printed}"
+    );
+}

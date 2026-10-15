@@ -334,12 +334,36 @@ range's (`0 .. 3@2`), and the start takes none.
 ```text
 "<word>…"
 word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
-suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ? some bars only | & slide
+euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
+suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `?` plays on a fixed, seeded set of bars (repeats after 8).
-Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
+one option per bar, `?` plays on a fixed, seeded half of the bars and `?0.3`
+on about 3 in 10 (0 to 1, at most three decimals; repeats after 8).
+After the `?` can come a trig condition instead, as on Elektron's
+sequencers:
+
+| suffix | plays |
+|---|---|
+| `?1:4` | in bar 1 of every 4 of the line (`a:b`, 1 ≤ a ≤ b ≤ 16) |
+| `?pre` | when the last condition before it in the bar held (`?pre` itself does not count) |
+| `?first` | in the first bar of its scene (a launched scene's first time round only), the first bar outside a scene, or the bar a new song takes over on |
+| `?last` | in the last bar of its scene; never outside one |
+| `?not…` | the opposite: `?not1:4`, `?notpre`, `?notfirst`, `?notlast` |
+
+```song
+track lead synth
+clip lead = lead
+  "c4 e4?1:4 g4?3:4 ~ b4?0.3 d5?pre a4?last"
+```
+
+`c2(3,8)` splits the word's share into 8 steps and plays it on 3 of them,
+spread as `euclid(3,8) c2` spreads them over a bar, rotated left by a third
+number (`c2(3,8,2)`), as in Strudel and Tidal. It goes on a note, a degree,
+a chord name, `[…]` (a chord too: `[c4,e4](3,8)`, not on one of its notes)
+and `<…>`, right after the word, before the other suffixes; each `*n` repeat
+has the rhythm. Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
 (slide: the note runs one tick into the next; with Legato and Glide, as on
 `AcidBass` and the TB-303's presets, the pitch glides on one gate, also into
 the same note) goes on a note or chord, not a rest or group.
@@ -354,6 +378,8 @@ clip slide = lead
   "c2& c3 ~ c2*2 eb2&"
 clip arp = lead .fast(8) .scale(a1 minor-pentatonic)
   "<0 2 1 3 2>"
+clip offbeat = lead .scale(a1 minor)
+  "0(3,8) <4 5>(5,8,2)"
 ```
 
 **Classic:** notes one after another, each with a duration.
@@ -494,6 +520,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |
 | `.struct("x ~ x x")` | each bar on a rhythm of 1–48 steps: at each `x`, the notes sounding there |
+| `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
@@ -512,6 +539,17 @@ clip pedal = bass .slow(4)
   "<a1 d1>"
 clip arp = lead .fast(8) .scale(pedal minor-pentatonic) .oct(1)
   "<0 2 1 3 2>"
+```
+
+The rhythm too: the bass plays on every kick, and follows an edit to it.
+
+```song
+track kit drums
+track bass synth
+clip beat = kit
+  bd x..x..x...x.x...
+clip bass = bass .struct(beat) .scale(a1 minor)
+  "0 4 2 3"
 ```
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:
