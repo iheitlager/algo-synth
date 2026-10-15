@@ -791,6 +791,16 @@ impl Pattern {
         }
     }
 
+    /// Does this method change pitches or play times in milliseconds, so a
+    /// drum clip, whose lanes hold neither, can't take it (#653)?
+    pub fn moves_pitch(&self) -> bool {
+        match self {
+            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(m) => m.moves_pitch(),
+            Pattern::Stack(_) | Pattern::Strum(_) => true,
+            p => p.pitch_only(),
+        }
+    }
+
     /// A pitch method on event `e`, which starts at tick `t` of the song:
     /// false when the note goes (out of 0 to 127). Nothing allocates (#593).
     pub fn pitch(&self, e: &mut Event, t: u64) -> bool {

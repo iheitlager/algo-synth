@@ -168,6 +168,17 @@ mod tests {
         assert_eq!(s.clips[1].notes.as_ref().expect("notes").events.len(), 3);
     }
 
+    /// #653: a step edit of a drum clip another is made from writes its
+    /// lane only.
+    #[test]
+    fn a_step_edit_of_a_source_keeps_the_drum_clip_made_from_it() {
+        let typed = "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a .rev()\n";
+        let out = spliced(typed, |s| {
+            assert!(s.set_step(0, 0, 1, crate::song::Step::Hit));
+        });
+        assert_eq!(out, typed.replace("bd x...", "bd xx.."));
+    }
+
     #[test]
     fn an_edit_writes_only_its_lines() {
         let out = spliced(TYPED, |s| {
