@@ -339,14 +339,16 @@ range's (`0 .. 3@2`), and the start takes none.
 
 ```text
 "<word>…"
-word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `?` plays on a fixed, seeded half of the bars and `?0.3`
+one option per bar, `[a | b c]` one option at random each bar, filling the
+group's time (#614: seeded as `?` is, repeats after 8; an option may be a
+sequence; not with a chord's commas), `?` plays on a fixed, seeded half of the bars and `?0.3`
 on about 3 in 10 (0 to 1, at most three decimals; repeats after 8).
 After the `?` can come a trig condition instead, as on Elektron's
 sequencers:

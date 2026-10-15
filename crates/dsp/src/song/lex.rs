@@ -361,7 +361,7 @@ impl Line<'_> {
                 let class = match c {
                     '~' => Some(Class::Rest),
                     '=' | ':' | '"' | '[' | ']' | '<' | '>' | '(' | ')' | ',' | '*' | '@' | '?'
-                    | '&' | '!' | '/' | '+' => Some(Class::Punct),
+                    | '&' | '!' | '/' | '+' | '|' => Some(Class::Punct),
                     _ => None,
                 };
                 if let Some(class) = class {
@@ -489,6 +489,14 @@ arrange main main
         let text = "track l synth\nclip a = l\n  c4\nclip b = l a .rev()\n  c4\n";
         assert_eq!(of(text, Class::Name), ["l", "a", "l", "b", "l", "a"]);
         assert_eq!(of(text, Class::Note), ["c4"]);
+    }
+
+    /// #614: the bar of a choice is punctuation, its options notes.
+    #[test]
+    fn a_choice_is_notes_and_bars() {
+        let text = "track l synth\nclip a = l\n  \"c4 [e4 | g4 a4]\"\n";
+        assert_eq!(of(text, Class::Note), ["c4", "e4", "g4", "a4"]);
+        assert!(of(text, Class::Punct).contains(&"|".to_string()));
     }
 
     #[test]
