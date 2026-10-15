@@ -343,12 +343,15 @@ word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>�
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
+weight = %n after an option of [a | b], last (1–16): drawn n times as often as an option without
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
 one option per bar, `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a
-sequence; not with a chord's commas), `?` plays on a fixed, seeded half of the bars and `?0.3`
+sequence; not with a chord's commas; `[c2%3 | d#2 | g1]` weighs c2 three
+times out of five, #616, and a sequence takes its weight on its brackets,
+`[[c3 a#2]%2 | g2]`), `?` plays on a fixed, seeded half of the bars and `?0.3`
 on about 3 in 10 (0 to 1, at most three decimals; repeats after 8).
 After the `?` can come a trig condition instead, as on Elektron's
 sequencers:

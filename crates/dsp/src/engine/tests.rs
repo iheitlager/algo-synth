@@ -6416,6 +6416,27 @@ fn a_grace_sounds_before_its_note_on_the_beat() {
 /// #604 and #605 with #588: typed into a playing song, a strum and graces
 /// keep their spelling.
 #[test]
+fn weighted_choices_keep_their_typed_text() {
+    // #616 under #588: the song text stays as typed while it plays.
+    let mut e = kit(0);
+    let text =
+        "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4 [e4%3  |  g4] ~ [[c3 a#2]%2 | g2]\"\n";
+    assert_eq!(load_text(&mut e, "tempo 120\ntrack lead synth\n"), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    run(&mut e, 2 * 96_000 / BLOCK);
+    assert_eq!(e.song_text(), text);
+    assert!(
+        e.song()
+            .print()
+            .contains("\"c4 [e4%3 | g4] ~ [[c3 a#2]%2 | g2]\""),
+        "{}",
+        e.song().print()
+    );
+}
+
+#[test]
 fn strums_and_graces_keep_their_typed_text() {
     let mut e = kit(0);
     let text = "tempo 120\ntrack lead synth\nclip m = lead  .strum( -15 )\n  \"[c4,e4,g4]  c4^f e4^m ~\"\n";
