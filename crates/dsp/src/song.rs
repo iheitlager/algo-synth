@@ -336,6 +336,7 @@ impl Clip {
                         word: 0,
                         degree: false,
                         when: notes::When::default(),
+                        nudge: 0,
                     });
                 }
             }

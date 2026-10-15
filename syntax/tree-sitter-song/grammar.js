@@ -75,7 +75,7 @@ module.exports = grammar({
     call: $ => seq(field('name', choice($.name, $.param)), alias(token.immediate('('), $.punct)),
 
     number: _ => /[-.]?[0-9][0-9.]*/,
-    punct: _ => /[=:"\[\]<>(),*@?&!\/+]/,
+    punct: _ => /[=:"\[\]<>(),*@?&!\/+^]/,
     rest: _ => '~',
     // Anything else, uncoloured, so no text is an error.
     other: _ => token(prec(-1, /[^\s]/)),

@@ -1921,6 +1921,11 @@ impl Engine {
         self.arps.iter().any(|a| a.on && a.free)
     }
 
+    /// `ms` milliseconds in samples (#604).
+    fn ms_samples(&self, ms: i16) -> u64 {
+        (f64::from(ms.unsigned_abs()) * f64::from(self.sample_rate) / 1000.0).round() as u64
+    }
+
     /// Samples in one tick at the clock's tempo.
     fn free_tick_len(&self) -> f64 {
         f64::from(self.sample_rate) * 60.0
@@ -1997,38 +2002,12 @@ impl Engine {
         // the scene that plays, if any. Note-offs above use the clock's own
         // ticks, so a note started in one scene ends where it should.
         let step = j / TICKS_PER_STEP;
-        let (from, scene) = match self.place(step) {
-            At::Free(_) => (j, None),
-            At::In { scene, local, .. } => {
-                (local * TICKS_PER_STEP + j % TICKS_PER_STEP, Some(scene))
-            }
-            At::End => return,
+        let Some((from, scene)) = self.tick_place(j) else {
+            return;
         };
         let (in_first, in_last) = self.first_last(step, from, scene);
         for f in 0..self.song.clips.len() {
-            if self.cued_out(f) {
-                continue;
-            }
-            if let Some(s) = scene {
-                if !self
-                    .song
-                    .scenes
-                    .get(s)
-                    .is_some_and(|sec| sec.clips.contains(&f))
-                {
-                    continue;
-                }
-            }
-            let Some((track, span, live)) = self
-                .song
-                .clips
-                .get(f)
-                .and_then(|fr| Some((fr, fr.notes.as_ref()?)))
-                .map(|(fr, n)| {
-                    let track = u8::try_from(fr.track).unwrap_or(u8::MAX);
-                    (track, u64::from(n.bars * TICKS_PER_BAR).max(1), fr.live)
-                })
-            else {
+            let Some((track, span, live)) = self.note_clip(f, scene) else {
                 continue;
             };
             let local = u32::try_from(from % span).unwrap_or(0);
@@ -2043,14 +2022,33 @@ impl Engine {
                 let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {
                     break;
                 };
-                if !ev.when.holds(in_first, in_last) {
+                // A grace was queued from the step before (`note_graces`).
+                if ev.nudge < 0 || !ev.when.holds(in_first, in_last) {
                     continue;
                 }
+                // A strummed note waits in the hit queue, its note-off at
+                // least a tick after it (#604).
+                let late = self.ms_samples(ev.nudge.max(0));
+                let len = if late > 0 {
+                    let ticks = (late as f64 / self.free_tick_len()).ceil() as u64;
+                    u64::from(ev.len).max(ticks + 1)
+                } else {
+                    u64::from(ev.len)
+                };
                 let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
                     continue;
                 };
-                *slot = Some((j + u64::from(ev.len), track, ev.note));
-                self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                *slot = Some((j + len, track, ev.note));
+                if late > 0 {
+                    self.queue_hit(Hit {
+                        at: self.clock.tick_sample(j) + late,
+                        owner: Owner::Track(track),
+                        note: ev.note,
+                        velocity: ev.velocity(),
+                    });
+                } else {
+                    self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                }
                 self.sample_on_note(usize::from(track), f, j);
                 let span = self
                     .spans
@@ -2059,6 +2057,92 @@ impl Engine {
                     .copied();
                 let until = (j + u64::from(ev.len)) as f64 / TICKS_PER_STEP as f64;
                 self.light(span, until);
+            }
+        }
+    }
+
+    /// Where tick `j` falls: the tick to count clips from and the scene that
+    /// plays, if any; `None` past the song's end.
+    fn tick_place(&self, j: u64) -> Option<(u64, Option<usize>)> {
+        match self.place(j / TICKS_PER_STEP) {
+            At::Free(_) => Some((j, None)),
+            At::In { scene, local, .. } => {
+                Some((local * TICKS_PER_STEP + j % TICKS_PER_STEP, Some(scene)))
+            }
+            At::End => None,
+        }
+    }
+
+    /// Clip `f`'s track, its loop in ticks and whether it is live, when it
+    /// is a clip of notes that plays here: not cued out, and in `scene`
+    /// when one plays.
+    fn note_clip(&self, f: usize, scene: Option<usize>) -> Option<(u8, u64, bool)> {
+        if self.cued_out(f) {
+            return None;
+        }
+        if let Some(s) = scene
+            && !self
+                .song
+                .scenes
+                .get(s)
+                .is_some_and(|sec| sec.clips.contains(&f))
+        {
+            return None;
+        }
+        let fr = self.song.clips.get(f)?;
+        let n = fr.notes.as_ref()?;
+        let track = u8::try_from(fr.track).unwrap_or(u8::MAX);
+        Some((track, u64::from(n.bars * TICKS_PER_BAR).max(1), fr.live))
+    }
+
+    /// The graces of the notes in clock step `step`, queued from the step
+    /// before, as a lane's are (#605): each its ms before its note's tick,
+    /// shrunk together to fit after the step before, soft, and let go on
+    /// the tick. A live clip makes no graces.
+    fn note_graces(&mut self, step: u64) {
+        let Some(before) = step.checked_sub(1).map(|k| self.clock.step_sample(k)) else {
+            return;
+        };
+        let widest = self.ms_samples(crate::notes::GRACE_MS) as f64;
+        for j in step * TICKS_PER_STEP..(step + 1) * TICKS_PER_STEP {
+            let Some((from, scene)) = self.tick_place(j) else {
+                return;
+            };
+            let (in_first, in_last) = self.first_last(step, from, scene);
+            let on = self.clock.tick_sample(j);
+            let room = on.saturating_sub(before) as f64 * 0.9;
+            let scale = (room / widest.max(1.0)).min(1.0);
+            for f in 0..self.song.clips.len() {
+                let Some((track, span, false)) = self.note_clip(f, scene) else {
+                    continue;
+                };
+                if !self.song.heard(usize::from(track)) {
+                    continue;
+                }
+                let local = u32::try_from(from % span).unwrap_or(0);
+                for k in self.first_event(f, local).. {
+                    let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {
+                        break;
+                    };
+                    if ev.nudge >= 0 || !ev.when.holds(in_first, in_last) {
+                        continue;
+                    }
+                    let at = on
+                        .saturating_sub((self.ms_samples(ev.nudge) as f64 * scale).round() as u64);
+                    if at >= on {
+                        continue;
+                    }
+                    let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
+                        continue;
+                    };
+                    *slot = Some((j, track, ev.note));
+                    self.queue_hit(Hit {
+                        at,
+                        owner: Owner::Track(track),
+                        note: ev.note,
+                        velocity: ev.velocity(),
+                    });
+                }
             }
         }
     }
@@ -2224,8 +2308,10 @@ impl Engine {
         }
         self.lane_hits(step, false);
         // The grace strokes of the next step's flams and drags fall before
-        // it (#353): queued now, from what the song holds now.
+        // it (#353): queued now, from what the song holds now; the graces
+        // of its notes too (#605).
         self.lane_hits(step + 1, true);
+        self.note_graces(step + 1);
     }
 
     /// The lanes' hits from clock step `step` up to the next (#353): a lane

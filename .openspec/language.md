@@ -335,6 +335,7 @@ range's (`0 .. 3@2`), and the start takes none.
 "<word>…"
 word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
+grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 ```
 
@@ -358,6 +359,16 @@ clip lead = lead
   "c4 e4?1:4 g4?3:4 ~ b4?0.3 d5?pre a4?last"
 ```
 
+Graces decorate a note or a degree, as a drum lane's flams do: soft notes
+just before the beat, which stays where it is. `^u` is a grace from the
+scale note above, `^l` from the one below (a degree's next degree; a note's
+whole tone, which `.scale` moves onto its scale), each 30 ms before; `^f` a
+flam, the same note 20 ms before; `^d` a drag, the same note 30 and 15 ms
+before; `^m` a mordent, the note, the one above and the note in the first
+sixteenth of its share (a share shorter than that plays the note). Graces
+shrink to fit a fast tempo, a grace before a bar's first note plays at the
+end of the bar before, and on a rest, group, chord or range `^` is an error.
+
 `c2(3,8)` splits the word's share into 8 steps and plays it on 3 of them,
 spread as `euclid(3,8) c2` spreads them over a bar, rotated left by a third
 number (`c2(3,8,2)`), as in Strudel and Tidal. It goes on a note, a degree,
@@ -380,6 +391,8 @@ clip arp = lead .fast(8) .scale(a1 minor-pentatonic)
   "<0 2 1 3 2>"
 clip offbeat = lead .scale(a1 minor)
   "0(3,8) <4 5>(5,8,2)"
+clip lead = lead .scale(a3 minor)
+  "0^u 2 4^f 3^m"
 ```
 
 **Classic:** notes one after another, each with a duration.
@@ -528,6 +541,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
 | `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
 | `.chord(<clip>)` | each degree a note of the chord an earlier clip plays where it starts (ADR-0035): 0 its lowest note, on up an octave past the top and down below the root, `[0,2]` two at once; a note moves to the nearest chord note; `"0 1 2 3"` is an up arpeggio |
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
+| `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
 Write the harmony once and let other clips follow it: one edit to it moves
 them all at the same bar.

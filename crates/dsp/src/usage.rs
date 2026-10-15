@@ -32,7 +32,7 @@ pub const CALLS: [(&str, &str); 7] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 17] = [
+pub const METHODS: [(&str, &str); 18] = [
     ("fast", "fast takes a whole number from 1 to 16: fast(2)"),
     ("slow", "slow takes a whole number from 1 to 16: slow(2)"),
     ("rev", "rev takes no value: rev()"),
@@ -53,6 +53,10 @@ pub const METHODS: [(&str, &str); 17] = [
     ("scale", SCALE),
     ("oct", "oct takes octaves from -4 to 4: oct(1)"),
     ("chord", CHORD),
+    (
+        "strum",
+        "strum takes milliseconds from 1 to 100, below 0 to strum down: strum(15)",
+    ),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

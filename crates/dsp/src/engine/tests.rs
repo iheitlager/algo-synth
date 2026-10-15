@@ -6275,3 +6275,85 @@ fn new_mini_notation_keeps_its_typed_text() {
         "{printed}"
     );
 }
+
+/// #604: a strummed chord's notes start ms apart after its tick, on the
+/// exact sample; a note-off stays on its tick, or comes after a late note.
+#[test]
+fn a_strum_starts_a_chords_notes_ms_apart() {
+    let starts = |method: &str, line: &str, frames: u64| {
+        let text = format!("tempo 120\ntrack keys synth\nclip c = keys {method}\n  {line}\n");
+        held_changes(&text, frames)
+    };
+    // 15 ms at 48 kHz is 720 samples.
+    let up = starts(".strum(15)", "\"[c4,e4,g4,b4] ~\"", 49_000);
+    let on: Vec<(u64, usize)> = up.iter().map(|(s, h)| (*s, h.len())).collect();
+    assert_eq!(on, [(0, 1), (720, 2), (1440, 3), (2160, 4), (48_000, 0)]);
+    assert_eq!(up[0].1, [60]);
+    let down = starts(".strum(-15)", "\"[c4,e4,g4,b4] ~\"", 3_000);
+    assert_eq!(down[0], (0, vec![71]));
+    assert_eq!(down.len(), 4);
+    // A single note stays on its tick.
+    assert_eq!(
+        starts(".strum(15)", "\"c4 ~\"", 49_000),
+        [(0, vec![60]), (48_000, vec![])]
+    );
+    // Strummed past its own length, a note still ends: nothing hangs.
+    let late = starts(".strum(100)", "\"[c4,e4,g4,b4] ~ ~ ~ ~ ~ ~ ~\"", 96_000);
+    assert_eq!(late.last().map(|(_, h)| h.len()), Some(0), "{late:?}");
+    // The fourth note starts at 300 ms, past the eighth's 250: it still plays.
+    assert!(
+        late.iter().any(|(s, h)| *s == 14_400 && h.contains(&71)),
+        "{late:?}"
+    );
+}
+
+/// #605: a grace plays its ms before its note, which stays on its tick; one
+/// before a bar's first note plays in the bar before, as a lane's flam.
+#[test]
+fn a_grace_sounds_before_its_note_on_the_beat() {
+    // 30 ms at 48 kHz is 1440 samples; the note on beat 2 at 24 000.
+    let got = held_changes(
+        "tempo 120\ntrack lead synth\nclip m = lead\n  \"~ c4^u ~ ~\"\n",
+        49_000,
+    );
+    assert_eq!(
+        got,
+        [(22_560, vec![62]), (24_000, vec![60]), (48_000, vec![])]
+    );
+    // On the first note of each bar: none before the song's first, one
+    // in the bar before the second.
+    let got = held_changes(
+        "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4^l ~ ~ ~\"\n",
+        97_000,
+    );
+    assert_eq!(
+        got,
+        [
+            (0, vec![60]),
+            (24_000, vec![]),
+            (94_560, vec![58]),
+            (96_000, vec![60])
+        ]
+    );
+}
+
+/// #604 and #605 with #588: typed into a playing song, a strum and graces
+/// keep their spelling.
+#[test]
+fn strums_and_graces_keep_their_typed_text() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth\nclip m = lead  .strum( -15 )\n  \"[c4,e4,g4]  c4^f e4^m ~\"\n";
+    assert_eq!(load_text(&mut e, "tempo 120\ntrack lead synth\n"), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    run(&mut e, 2 * 96_000 / BLOCK);
+    assert_eq!(e.song_text(), text);
+    assert!(
+        e.song()
+            .print()
+            .contains("clip m = lead .strum(-15)\n  \"[c4,e4,g4] c4^f e4^m ~\"\n"),
+        "{}",
+        e.song().print()
+    );
+}

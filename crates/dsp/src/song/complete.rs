@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 17] = [
+const METHODS: [(&str, &str); 18] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -109,6 +109,7 @@ const METHODS: [(&str, &str); 17] = [
     ),
     ("oct", "n octaves up or down"),
     ("chord", "degrees onto an earlier clip's chords"),
+    ("strum", "ms between a chord's notes"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).

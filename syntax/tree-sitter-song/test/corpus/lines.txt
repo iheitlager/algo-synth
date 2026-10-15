@@ -90,3 +90,16 @@ loop 1 8
 
 (source_file
   (line (keyword) (number) (number)))
+
+==================
+Graces on notes
+==================
+
+clip m = lead .strum(15)
+  "c4^u e4^m ~"
+
+---
+
+(source_file
+  (line (keyword) (name) (punct) (name) (other) (call name: (name) (punct)) (number) (punct))
+  (notes (punct) (name) (punct) (name) (name) (punct) (name) (rest) (punct)))
