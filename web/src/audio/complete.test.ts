@@ -3,10 +3,11 @@ import { caretAt, opens, readCompletion, type Completion } from './complete'
 
 describe('reading the engine\'s completion (#595)', () => {
   it('reads the range and the items with their classes', () => {
-    const c = readCompletion('8\t11\n1\tscale\tscale <root> <mode>\n9\tCutoff\t20–20000\n')
+    const c = readCompletion('8\t11\t\n1\tscale\tscale <root> <mode>\n9\tCutoff\t20–20000\n')
     expect(c).toEqual({
       from: 8,
       to: 11,
+      help: '',
       items: [
         { cls: 'kw', word: 'scale', detail: 'scale <root> <mode>' },
         { cls: 'param', word: 'Cutoff', detail: '20–20000' },
@@ -14,10 +15,15 @@ describe('reading the engine\'s completion (#595)', () => {
     })
   })
 
+  it('reads a call\'s help (#644)', () => {
+    expect(readCompletion('4\t4\tprog takes a number of bars and a seed: prog(4,7)\n').help)
+      .toBe('prog takes a number of bars and a seed: prog(4,7)')
+  })
+
   it('reads nothing from an empty or broken answer', () => {
-    expect(readCompletion('')).toEqual({ from: 0, to: 0, items: [] })
-    expect(readCompletion('4\t4\n')).toEqual({ from: 4, to: 4, items: [] })
-    expect(readCompletion('9\t2\n1\tx\t')).toEqual({ from: 0, to: 0, items: [] })
+    expect(readCompletion('')).toEqual({ from: 0, to: 0, items: [], help: '' })
+    expect(readCompletion('4\t4\n')).toEqual({ from: 4, to: 4, items: [], help: '' })
+    expect(readCompletion('9\t2\n1\tx\t')).toEqual({ from: 0, to: 0, items: [], help: '' })
   })
 })
 
@@ -25,26 +31,40 @@ describe('when the list opens (#595)', () => {
   const item = (word: string) => ({ cls: 'kw', word, detail: '' })
   const at = (text: string, words: string[]): Completion => {
     const n = text.length - (text.match(/[\w-]*$/)?.[0].length ?? 0)
-    return { from: n, to: text.length, items: words.map(item) }
+    return { from: n, to: text.length, items: words.map(item), help: '' }
   }
+  const shows = (c: Completion | null) => (c ? c.items.map((i) => i.word) : null)
 
   it('opens on a word being typed, and after a trigger', () => {
-    expect(opens(at('sc', ['scale', 'scene']), 'sc', 'c')).toBe(true)
-    expect(opens(at('clip c = lead .', ['fast']), 'clip c = lead .', '.')).toBe(true)
-    expect(opens(at('arp(', ['riff']), 'arp(', '(')).toBe(true)
+    expect(shows(opens(at('sc', ['scale', 'scene']), 'sc', 'c'))).toEqual(['scale', 'scene'])
+    expect(shows(opens(at('clip c = lead .', ['fast']), 'clip c = lead .', '.'))).toEqual(['fast'])
+    expect(shows(opens(at('arp(', ['riff']), 'arp(', '('))).toEqual(['riff'])
   })
 
   it('not after a space, so Enter still applies the line (#588)', () => {
-    expect(opens(at('track a ', ['drums']), 'track a ', ' ')).toBe(false)
+    expect(opens(at('track a ', ['drums']), 'track a ', ' ')).toBeNull()
   })
 
   it('not once a word is typed in full', () => {
-    expect(opens(at('scale c minor', ['minor', 'minor-blues']), 'scale c minor', 'r')).toBe(false)
+    expect(opens(at('scale c minor', ['minor', 'minor-blues']), 'scale c minor', 'r')).toBeNull()
   })
 
   it('not when nothing fits, and always on Ctrl+Space when something does', () => {
-    expect(opens(at('x', []), 'x', 'x')).toBe(false)
-    expect(opens(at('track a ', ['drums']), 'track a ', null)).toBe(true)
+    expect(opens(at('x', []), 'x', 'x')).toBeNull()
+    expect(shows(opens(at('track a ', ['drums']), 'track a ', null))).toEqual(['drums'])
+  })
+})
+
+describe('a call\'s help (#644)', () => {
+  const c = (items: string[]): Completion => ({ from: 7, to: 7, items: items.map((word) => ({ cls: '', word, detail: '' })), help: 'prog takes…' })
+
+  it('shows alone, without the list, when no word is offered', () => {
+    expect(opens(c([]), 'prog(4,', ',')).toEqual({ ...c([]), items: [] })
+    expect(opens(c([]), 'prog(4, ', ' ')).toEqual({ ...c([]), items: [] })
+  })
+
+  it('shows over the list when one opens', () => {
+    expect(opens(c(['riff']), 'mutate(', '(')).toEqual(c(['riff']))
   })
 })
 

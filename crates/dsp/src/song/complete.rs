@@ -15,6 +15,7 @@ use crate::mono::preset::Preset;
 use crate::notes::pattern::Pattern;
 use crate::notes::{self, ArpMode};
 use crate::params::Param;
+use crate::usage;
 
 /// Most words a list holds.
 pub const MAX_ITEMS: usize = 50;
@@ -36,12 +37,15 @@ pub struct Completion {
     pub from: u32,
     pub to: u32,
     pub items: Vec<Item>,
+    /// How the call the cursor is in is written (#644), or empty.
+    pub help: String,
 }
 
-/// As the view reads it: `from\tto`, then `class\tword\tdetail`, a line each.
+/// As the view reads it: `from\tto\thelp`, then `class\tword\tdetail`, a
+/// line each.
 impl std::fmt::Display for Completion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}\t{}", self.from, self.to)?;
+        writeln!(f, "{}\t{}\t{}", self.from, self.to, self.help)?;
         for i in &self.items {
             writeln!(f, "{}\t{}\t{}", i.class as u8, i.word, i.detail)?;
         }
@@ -161,19 +165,23 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
         prefix: word,
         items: Vec::new(),
     };
+    let mut help = None;
     // Not in a comment.
     if uncommented(before).len() == before.len() {
-        if before.starts_with([' ', '\t']) {
+        let indented = before.starts_with([' ', '\t']);
+        if indented {
             names.indented(&mut list, pre);
         } else {
             names.top(&mut list, pre);
         }
+        help = names.help(before, indented);
     }
     let to = head.encode_utf16().count() as u32;
     Completion {
         from: to - word.encode_utf16().count() as u32,
         to,
         items: list.items,
+        help: help.unwrap_or_default(),
     }
 }
 
@@ -418,6 +426,20 @@ impl Set {
     }
 }
 
+/// A parameter method's help: its range, and a signal over it.
+fn param_help(name: &str) -> Option<String> {
+    let p = ALIASES
+        .iter()
+        .find(|(a, _)| *a == name)
+        .map(|(_, p)| *p)
+        .or_else(|| Param::by_name(name))
+        .filter(|p| Set::Track.has(*p))?;
+    let (lo, hi) = p.range();
+    Some(format!(
+        "{name} takes a number or a signal from {lo} to {hi}: {name}(sine.range({lo}, {hi}))"
+    ))
+}
+
 /// `0 3 7`: steps above the root.
 fn semitones(steps: &[u8]) -> String {
     let s: Vec<String> = steps.iter().map(u8::to_string).collect();
@@ -432,12 +454,29 @@ struct Call<'a> {
     text: &'a str,
 }
 
+/// What is open at the end of a line so far: a call (its name, argument and
+/// where that starts) or a bracket.
+enum Open<'a> {
+    Call(&'a str, usize, usize),
+    Bracket,
+}
+
 /// The innermost open call in `pre`; `None` inside brackets or quotes.
 fn open_call(pre: &str) -> Option<Call<'_>> {
-    enum Open<'a> {
-        Call(&'a str, usize, usize),
-        Bracket,
+    let (stack, quoted) = opened(pre);
+    match stack.last() {
+        Some(Open::Call(name, arg, start)) if !quoted => Some(Call {
+            name,
+            arg: *arg,
+            text: pre.get(*start..).unwrap_or(""),
+        }),
+        _ => None,
     }
+}
+
+/// The calls and brackets open at the end of `pre`, outermost first, and
+/// whether a quote is.
+fn opened(pre: &str) -> (Vec<Open<'_>>, bool) {
     let mut stack: Vec<Open> = Vec::new();
     let mut quoted = false;
     for (i, c) in pre.char_indices() {
@@ -468,14 +507,7 @@ fn open_call(pre: &str) -> Option<Call<'_>> {
             _ => {}
         }
     }
-    match stack.last() {
-        Some(Open::Call(name, arg, start)) if !quoted => Some(Call {
-            name,
-            arg: *arg,
-            text: pre.get(*start..).unwrap_or(""),
-        }),
-        _ => None,
-    }
+    (stack, quoted)
 }
 
 /// The word just before `pre`'s last char (a `.` or `:`).
@@ -622,6 +654,38 @@ impl<'a> Names<'a> {
             list.add(Class::Name, &format!("group{k}"), || {
                 format!("group bus {k}")
             });
+        }
+    }
+
+    /// How the call the cursor is in is written (#644): a generator, a
+    /// pattern method (or one nested in `every`, `off`, `sometimes`), a
+    /// signal's function, or a parameter method's range.
+    fn help(&self, before: &str, indented: bool) -> Option<String> {
+        let (stack, _) = opened(before);
+        let calls: Vec<&str> = stack
+            .iter()
+            .filter_map(|o| match o {
+                Open::Call(name, ..) => Some(*name),
+                Open::Bracket => None,
+            })
+            .collect();
+        let (outer, inner) = (*calls.first()?, *calls.last()?);
+        if indented {
+            return match self.under {
+                Under::Lanes | Under::Notes | Under::Either => usage::of(&usage::CALLS, inner),
+                Under::Nothing | Under::Code => None,
+            }
+            .map(str::to_string);
+        }
+        let w: Vec<&str> = before.split_whitespace().collect();
+        let first = w.first().copied().unwrap_or("");
+        match current_keyword(first, w.get(1).copied(), w.get(2).copied()) {
+            "clip" if Pattern::NAMES.contains(&outer) => {
+                usage::of(&usage::METHODS, inner).map(str::to_string)
+            }
+            "clip" if inner == outer => param_help(outer),
+            "clip" | "mod" => usage::of(&usage::SIGNAL, inner).map(str::to_string),
+            _ => None,
         }
     }
 
@@ -804,7 +868,7 @@ impl<'a> Names<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::KEYWORDS;
+    use super::super::{KEYWORDS, Song};
     use super::*;
     use crate::drums::Pad;
 
@@ -984,6 +1048,67 @@ scene main 8: beat riff
     fn modular_code_takes_nothing() {
         let code = "setting m = Modular\n  SynthDef(\\m, { |freq| Sin|";
         assert!(at(code).is_empty());
+    }
+
+    /// The help in the call at `|`.
+    fn help(text: &str) -> String {
+        let (a, b) = text.split_once('|').expect("a cursor");
+        complete(&format!("{a}{b}"), a.encode_utf16().count() as u32).help
+    }
+
+    #[test]
+    fn a_call_shows_how_it_is_written() {
+        let notes = format!("{SONG}clip c = lead\n  ");
+        assert_eq!(help(&format!("{notes}arp(|")), usage::ARP);
+        assert_eq!(help(&format!("{notes}arp([c4,e4|")), usage::ARP);
+        assert_eq!(help(&format!("{notes}euclid(5,8) a1|")), "");
+        assert_eq!(
+            help(&format!("{SONG}clip d = kit\n  cb euclid(3|")),
+            usage::EUCLID
+        );
+        assert_eq!(
+            help(&format!("{SONG}clip d = lead .every(4, fast(|")),
+            usage::METHODS[0].1
+        );
+        assert_eq!(
+            help(&format!("{SONG}clip d = lead .every(4, |")),
+            usage::EVERY
+        );
+        assert_eq!(
+            help(&format!("{SONG}clip d = lead .scale(riff |")),
+            usage::SCALE
+        );
+        assert_eq!(
+            help(&format!("{SONG}clip d = lead .cutoff(|")),
+            "cutoff takes a number or a signal from 20 to 20000: cutoff(sine.range(20, 20000))"
+        );
+        assert_eq!(
+            help(&format!("{SONG}clip d = lead .cutoff(sine.slow(|")),
+            usage::SIGNAL[6].1
+        );
+        assert_eq!(help("mod lead.cutoff = lfo(|"), usage::SIGNAL[0].1);
+        assert_eq!(help("clip d = lead .fast(2) |"), "");
+        assert_eq!(help("tempo(|"), "");
+    }
+
+    #[test]
+    fn the_errors_say_what_the_help_says() {
+        let err = |text: &str| Song::parse(text).expect_err("an error").msg;
+        let notes = "scale c minor\ntrack lead synth\nclip c = lead\n  ";
+        assert_eq!(
+            err(&format!("{notes}arp(c4)")),
+            help(&format!("{notes}arp(|"))
+        );
+        assert_eq!(
+            err(&format!("{notes}prog(4)")),
+            help(&format!("{notes}prog(|"))
+        );
+        assert_eq!(
+            err(&format!("{notes}euclid(9)")),
+            help(&format!("{notes}euclid(|"))
+        );
+        let clip = "track lead synth\nclip c = lead .every(4)\n  \"c4\"";
+        assert_eq!(err(clip), help("track lead synth\nclip c = lead .every(|"));
     }
 
     #[test]

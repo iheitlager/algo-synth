@@ -72,7 +72,8 @@ const listId = useId()
 function suggest(typed: string | null) {
   const a = area.value
   const c = a && props.completer && a.selectionStart === a.selectionEnd ? props.completer(a.value, a.selectionStart) : null
-  menu.value = a && c && opens(c, a.value, typed) ? { ...c, sel: 0 } : null
+  const shown = a && c ? opens(c, a.value, typed) : null
+  menu.value = shown ? { ...shown, sel: 0 } : null
   if (menu.value) place()
 }
 
@@ -99,7 +100,8 @@ function place() {
   const room = a.clientHeight - top - lh
   const x = 8 + col * charWidth(a) - a.scrollLeft
   const left = `${Math.max(0, x)}px`
-  where.value = room < Math.min(8, m.items.length) * lh + 8 && top > room
+  const rows = Math.min(8, m.items.length) + (m.help ? 2 : 0)
+  where.value = room < rows * lh + 8 && top > room
     ? { left, bottom: `${a.clientHeight - top}px` }
     : { left, top: `${top + lh}px` }
   void nextTick(() => {
@@ -133,12 +135,13 @@ function move(by: number) {
   const m = menu.value
   if (!m) return
   m.sel = (m.sel + by + m.items.length) % m.items.length
-  void nextTick(() => list.value?.children[m.sel]?.scrollIntoView({ block: 'nearest' }))
+  void nextTick(() => list.value?.querySelectorAll('li')[m.sel]?.scrollIntoView({ block: 'nearest' }))
 }
 
 /**
  * With the list open, Up/Down pick, Tab or Enter put the word in (and do not
  * apply the line: the key is taken here), Esc closes it; Ctrl+Space opens it.
+ * A call's help alone (#644) takes only Esc.
  */
 function onMenuKey(e: KeyboardEvent): boolean {
   if (props.completer && e.key === ' ' && e.ctrlKey) {
@@ -147,7 +150,7 @@ function onMenuKey(e: KeyboardEvent): boolean {
   }
   const m = menu.value
   if (!m) return false
-  const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+  const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && m.items.length > 0
   if (plain && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) move(e.key === 'ArrowDown' ? 1 : -1)
   else if (plain && (e.key === 'Enter' || e.key === 'Tab')) accept(m.sel)
   else if (e.key === 'Escape') menu.value = null
@@ -199,17 +202,21 @@ function onKey(e: KeyboardEvent) {
       <textarea
         ref="area" v-model="text" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off"
         :disabled="disabled" :aria-label="label"
-        :aria-autocomplete="completer ? 'list' : undefined" :aria-controls="menu ? listId : undefined"
-        :aria-expanded="completer ? !!menu : undefined"
-        :aria-activedescendant="menu ? `${listId}-${menu.sel}` : undefined"
+        :aria-autocomplete="completer ? 'list' : undefined" :aria-controls="menu?.items.length ? listId : undefined"
+        :aria-expanded="completer ? !!menu?.items.length : undefined"
+        :aria-activedescendant="menu?.items.length ? `${listId}-${menu.sel}` : undefined"
+        :aria-describedby="menu?.help ? `${listId}-help` : undefined"
         @scroll="onScroll" @keydown="onKey" @input="onInput" @mousedown="menu = null" @blur="menu = null"
       />
-      <ul v-if="menu" :id="listId" ref="list" class="complete" role="listbox" :style="where" @mousedown.prevent>
-        <li
-          v-for="(it, i) in menu.items" :id="`${listId}-${i}`" :key="it.word" role="option"
-          :aria-selected="i === menu.sel" :class="{ sel: i === menu.sel }" @click="accept(i)"
-        ><span class="word" :class="it.cls">{{ it.word }}</span><span class="detail">{{ it.detail }}</span></li>
-      </ul>
+      <div v-if="menu" ref="list" class="complete" :style="where" @mousedown.prevent>
+        <p v-if="menu.help" :id="`${listId}-help`" class="help">{{ menu.help }}</p>
+        <ul v-if="menu.items.length" :id="listId" role="listbox">
+          <li
+            v-for="(it, i) in menu.items" :id="`${listId}-${i}`" :key="it.word" role="option"
+            :aria-selected="i === menu.sel" :class="{ sel: i === menu.sel }" @click="accept(i)"
+          ><span class="word" :class="it.cls">{{ it.word }}</span><span class="detail">{{ it.detail }}</span></li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
@@ -254,10 +261,14 @@ textarea::selection { background: color-mix(in srgb, var(--accent) 30%, transpar
 
 /* The words that fit (#595), under or over the word typed. */
 .complete {
-  position: absolute; z-index: 20; margin: 0; padding: 4px; list-style: none;
-  max-height: calc(8 * var(--lh) + 8px); width: max-content; max-width: min(72ch, calc(100% - 8px)); overflow-y: auto;
+  position: absolute; z-index: 20; padding: 4px;
+  width: max-content; max-width: min(72ch, calc(100% - 8px));
   background: #0f1217; border: 1px solid #3a424e; border-radius: 4px; box-shadow: 0 10px 24px #000c;
 }
+.complete ul { margin: 0; padding: 0; list-style: none; max-height: calc(8 * var(--lh)); overflow-y: auto; }
+/* How the call is written (#644), over the list. */
+.complete .help { margin: 0; padding: 0 6px; white-space: normal; color: var(--text); }
+.complete .help + ul { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .complete li {
   display: flex; gap: 2ch; justify-content: space-between; height: var(--lh); padding: 0 6px;
   border-radius: 3px; cursor: pointer; white-space: nowrap;

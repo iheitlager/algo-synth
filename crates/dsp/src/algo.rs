@@ -54,7 +54,7 @@ impl Euclid {
 
     /// The arguments after `euclid(`, up to and with the `)`.
     pub(crate) fn args(rest: &str) -> Result<Euclid, &'static str> {
-        let usage = "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)";
+        let usage = crate::usage::EUCLID;
         let inner = rest.strip_suffix(')').ok_or(usage)?;
         let mut nums = [0u32; 3];
         let mut count = 0;
