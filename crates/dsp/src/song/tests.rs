@@ -3437,16 +3437,52 @@ fn a_clip_made_from_a_clip_names_one_of_notes_before_it() {
             "no clip with this name comes before this one",
         ),
         (
-            "track kit drums\ntrack s sampler\nclip a = kit\n  bd x...\nclip b = s a\n",
+            "track kit drums\ntrack l synth\nclip a = kit\n  bd x...\nclip b = l a\n",
             5,
             12,
-            "only a clip of notes can be made from a clip",
+            "a clip of notes is made from a clip of notes",
         ),
         (
-            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a\n",
+            "track kit drums\ntrack l synth\nclip a = l\n  \"c4\"\nclip b = kit a\n",
+            5,
+            14,
+            "a drum clip is made from a drum clip",
+        ),
+        (
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a .add(1)\n",
+            4,
+            17,
+            "a drum clip takes methods of time, not pitch",
+        ),
+        (
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a .every(2, strum(10))\n",
+            4,
+            17,
+            "a drum clip takes methods of time, not pitch",
+        ),
+        (
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a .fast(3)\n",
             4,
             14,
-            "only a clip of notes can be made from a clip",
+            "a method moved a hit off the clip's step grid",
+        ),
+        (
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a .slow(8)\n",
+            4,
+            14,
+            "a lane has at most 64 steps",
+        ),
+        (
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a\n  sn x...\n",
+            5,
+            3,
+            "a clip made from a clip has no line of its own",
+        ),
+        (
+            "track kit drums\nclip b = kit .rev()\n  bd x...\n",
+            2,
+            15,
+            "pattern methods are for a clip of notes",
         ),
         (
             "track l synth\nclip a = l\n  \"c4\"\nclip b = l a\n  \"d4\"\n",
@@ -3470,4 +3506,74 @@ fn a_clip_made_from_a_clip_names_one_of_notes_before_it() {
         let e = Song::parse(text).expect_err(msg);
         assert_eq!((e.msg, e.line, e.col), (msg, line, col), "{text}");
     }
+}
+
+/// #653: a drum clip made from an earlier one, its steps through methods
+/// of time, back on its grid with each step's kind and ratchet.
+#[test]
+fn a_drum_clip_is_made_from_an_earlier_drum_clip() {
+    let text = "track kit drums\ntrack kat drums\nclip beat = kit /16\n  \
+        bd x...o...X...x3...\n  sn ....f.......d...\nclip back = kat beat .rev()\n";
+    let s = Song::parse(text).expect("parses");
+    let back = &s.clips[1];
+    assert_eq!((back.track, back.grid, back.lanes.len()), (1, 16, 2));
+    let steps = |l: &Lane| {
+        (0..l.steps.len())
+            .map(|n| l.step_text(n))
+            .collect::<String>()
+    };
+    // Each step's span reversed: the step at 12 plays at 3, 15 - 12.
+    assert_eq!(steps(&back.lanes[0]), "...x3...X...o...x");
+    assert_eq!(steps(&back.lanes[1]), "...d.......f....");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip back = kat beat .rev()\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #653: on the grid, methods of time; two hits on one step: the
+/// stronger plays. A sampler clip of lanes too.
+#[test]
+fn a_drum_clip_from_a_clip_keeps_to_its_grid() {
+    let s = Song::parse(
+        "track kit drums\nclip a = kit /16\n  bd x.......X.......\n\
+         clip b = kit a .fast(2) .every(2, rev)\nclip c = kit a .off(1/2, ply(1))\n",
+    )
+    .expect("parses");
+    let steps = |f: usize| {
+        let l = &s.clips[f].lanes[0];
+        (0..l.steps.len())
+            .map(|n| l.step_text(n))
+            .collect::<String>()
+    };
+    // Twice as fast, then the first of each two bars backwards.
+    assert_eq!(steps(1), "...X...x...X...xx...X...x...X...");
+    // x at 0 and X at 8, each copied half a bar on: X over x at 0.
+    assert_eq!(steps(2), "X.......X.......");
+    let sampler = Song::parse("track s sampler\nclip a = s\n  bd x...\nclip b = s a .rev()\n")
+        .expect("parses");
+    assert_eq!(sampler.clips[1].lanes.len(), 1);
+}
+
+/// #653: a step edit of the source moves the clip made from it; the clip
+/// takes none of its own.
+#[test]
+fn a_drum_clip_from_a_clip_follows_its_source() {
+    let mut s = Song::parse("track kit drums\nclip a = kit\n  bd x...\nclip b = kit a .rev()\n")
+        .expect("parses");
+    let before = s.clone();
+    assert!(!s.set_step(1, 0, 1, Step::Hit));
+    assert!(!s.set_ratchet(1, 0, 3, 2));
+    assert_eq!(s, before);
+    assert!(s.set_step(0, 0, 1, Step::Accent));
+    let l = &s.clips[1].lanes[0];
+    assert_eq!(
+        &l.steps[..4],
+        [Step::Off, Step::Off, Step::Accent, Step::Hit]
+    );
+    assert!(s.set_ratchet(0, 0, 0, 2));
+    assert_eq!(s.clips[1].lanes[0].ratchet(3), 2);
+    assert_eq!(Song::parse(&s.print()), Ok(s));
 }

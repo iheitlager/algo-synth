@@ -2,17 +2,25 @@
 # Strudel does it in one call; here it is two tracks panned apart, the
 # right clip made from the left one through .rev() (#649). In the second
 # scene .add([0,2,4]) stacks a triad on each degree before .scale (#650).
+# The hats do it too: a drum clip made from a drum clip, steps and all (#653).
 tempo 110
 scale c minor
 track kit drums Tr909 Kit909
 track left synth Juno106 JunoPluck
 track right synth Juno106 JunoPluck
+track hatl drums Tr909 Kit909
+track hatr drums Tr909 Kit909
 strip left: Level 0.6, Pan -1
 strip right: Level 0.6, Pan 1
+strip hatl: Level 0.5, Pan -1
+strip hatr: Level 0.5, Pan 1
 
 clip beat = kit /16
   bd x...x...x...x...
-  ch ..x...x...x...x.
+  cp ....x.......x...
+clip hats = hatl /16
+  ch x.oxx.o.x3...xo.o
+clip stah = hatr hats .rev()
 clip fwd = left
   "0 [2 4] <3 5> [~ <4 1>]"
 clip back = right fwd .rev()
@@ -20,6 +28,6 @@ clip back = right fwd .rev()
 clip stack = left .add([0,2,4]) .scale(c4 minor)
   "0 [2 4] <3 5> [~ <4 1>]"
 clip stacked = right stack .rev()
-scene jux 8: beat fwd back
-scene chords 8: beat stack stacked
+scene jux 8: beat hats stah fwd back
+scene chords 8: beat hats stah stack stacked
 arrange jux chords

@@ -303,6 +303,8 @@ impl Clip {
     /// A drum clip's hits as events, a step long on the 48-tick grid, any
     /// pad, sorted, over the bars its lanes take to come round together
     /// (#600); none when that is past 64 bars. `None` for a clip of notes.
+    /// Each event's `word` holds its step and ratchet (`step_word`), so a
+    /// clip made from this one keeps them (#653).
     pub fn hits(&self) -> Option<(Vec<notes::Event>, u32)> {
         if self.notes.is_some() || self.lanes.is_empty() {
             return None;
@@ -329,15 +331,15 @@ impl Clip {
             for lane in &self.lanes {
                 let len = lane.steps.len().max(1);
                 let k = usize::try_from(n).unwrap_or(0) % len;
-                if lane.steps.get(k).is_some_and(|s| *s != Step::Off) {
+                if let Some(&st) = lane.steps.get(k).filter(|s| **s != Step::Off) {
                     let start = tick(n);
                     out.push(notes::Event {
                         start,
                         len: (tick(n + 1) - start).max(1),
                         note: lane.pad.note(),
-                        accent: lane.steps.get(k) == Some(&Step::Accent),
+                        accent: st == Step::Accent,
                         vel: 0,
-                        word: 0,
+                        word: step_word(st, lane.ratchet(k)),
                         degree: false,
                         when: notes::When::default(),
                         nudge: 0,
@@ -346,6 +348,68 @@ impl Clip {
             }
         }
         Some((out, bars))
+    }
+}
+
+/// A hit's step and ratchet in an event's `word` (#653).
+fn step_word(st: Step, ratchet: u8) -> u16 {
+    u16::from(st as u8) | u16::from(ratchet) << 8
+}
+
+/// The lanes of a drum clip made from a clip (#653): the hits of `line`
+/// back on `grid` steps a bar, each in the step it starts in, one lane for each of `pads`, each `bars`
+/// long. Where two hits share a step, the stronger plays.
+fn lanes_of(line: &Line, grid: u32, pads: &[Pad]) -> Result<Vec<Lane>, &'static str> {
+    let steps = usize::try_from(line.bars * grid).unwrap_or(usize::MAX);
+    if steps > MAX_STEPS {
+        return Err("a lane has at most 64 steps");
+    }
+    let mut lanes: Vec<Lane> = pads
+        .iter()
+        .map(|&pad| Lane {
+            pad,
+            steps: vec![Step::Off; steps],
+            call: None,
+            ratchets: vec![1; steps],
+        })
+        .collect();
+    let bar = notes::TICKS_PER_BAR;
+    for e in &line.events {
+        // A hit lands in the step it starts in. It starts on a step, or,
+        // made shorter (`fast`) and turned round (`rev`), ends on one.
+        let on = |t: u32| t * grid % bar == 0;
+        if !on(e.start) && !on(e.start + e.len) {
+            return Err("a method moved a hit off the clip's step grid");
+        }
+        let n = usize::try_from(e.start * grid / bar).unwrap_or(usize::MAX);
+        let st = Step::from_level(u32::from(e.word & 0xFF)).unwrap_or(Step::Hit);
+        let ratchet = u8::try_from(e.word >> 8).unwrap_or(1).clamp(1, MAX_RATCHET);
+        let Some(lane) = lanes.iter_mut().find(|l| l.pad.note() == e.note) else {
+            continue;
+        };
+        if let (Some(slot), Some(r)) = (lane.steps.get_mut(n), lane.ratchets.get_mut(n)) {
+            if strength(st) > strength(*slot) {
+                (*slot, *r) = (st, ratchet);
+            }
+        }
+    }
+    for lane in &mut lanes {
+        if lane.ratchets.iter().all(|r| *r == 1) {
+            lane.ratchets.clear();
+        }
+    }
+    Ok(lanes)
+}
+
+/// Which of two steps on one place plays: an accent over a hit over the
+/// graced strokes over a ghost.
+fn strength(st: Step) -> u8 {
+    match st {
+        Step::Off => 0,
+        Step::Ghost => 1,
+        Step::Flam | Step::Drag => 2,
+        Step::Hit => 3,
+        Step::Accent => 4,
     }
 }
 
@@ -1224,12 +1288,19 @@ impl Song {
                     let from = ws
                         .get(4)
                         .filter(|w| !matches!(w.text, "live" | "bars") && is_name(w.text));
+                    // Made from a drum clip: lanes, which take methods of time
+                    // only (#653).
+                    let mut from_lanes = false;
                     if let Some(w) = from {
                         let Some(src) = song.clips.iter().find(|c| c.name == w.text) else {
                             return Err(err(w.col, "no clip with this name comes before this one"));
                         };
-                        if kind == Some(Kind::Drums) || src.notes.is_none() {
-                            return Err(err(w.col, "only a clip of notes can be made from a clip"));
+                        from_lanes = src.notes.is_none();
+                        if from_lanes && kind == Some(Kind::Synth) {
+                            return Err(err(w.col, "a clip of notes is made from a clip of notes"));
+                        }
+                        if !from_lanes && kind == Some(Kind::Drums) {
+                            return Err(err(w.col, "a drum clip is made from a drum clip"));
                         }
                         if let Some((col, _)) = voicing {
                             return Err(err(
@@ -1293,7 +1364,7 @@ impl Song {
                             parse_methods(text).map_err(|(c, m)| err(at + c - 1, m))?
                         {
                             if Pattern::NAMES.contains(&name) {
-                                let msg = if kind == Some(Kind::Drums) {
+                                let msg = if kind == Some(Kind::Drums) && from.is_none() {
                                     Some("pattern methods are for a clip of notes")
                                 } else {
                                     None
@@ -1315,6 +1386,8 @@ impl Song {
                                     // A live clip changes pitches only, per note (#593).
                                     if live && !p.pitch_only() {
                                         Err("a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)")
+                                    } else if from_lanes && p.moves_pitch() {
+                                        Err("a drum clip takes methods of time, not pitch")
                                     } else {
                                         Ok(p)
                                     }
@@ -2271,14 +2344,10 @@ impl Song {
         let Some(frozen) = notes::freeze(events.unwrap_or(&n.events), n.bars) else {
             return false;
         };
-        let was = f.notes.replace(frozen);
-        if !self.rederive(clip, was) {
-            return false;
-        }
-        if let Some(f) = self.clips.get_mut(clip) {
-            f.live = false;
-        }
-        true
+        let was = f.clone();
+        f.notes = Some(frozen);
+        f.live = false;
+        self.rederive(clip, was)
     }
 
     // --- Arranger edits (#171): each keeps the song valid, false when refused.
@@ -2444,12 +2513,13 @@ impl Song {
         let Some(edited) = edited else {
             return false;
         };
-        let was = f.notes.replace(edited);
+        let was = f.clone();
+        f.notes = Some(edited);
         self.rederive(clip, was)
     }
 
-    /// Clip `f`'s notes from the clip it is made from, through its methods
-    /// (#649).
+    /// Clip `f`'s notes, or lanes, from the clip it is made from, through
+    /// its methods (#649, #653).
     fn derive(&mut self, f: usize) -> Result<(), &'static str> {
         let Some(clip) = self.clips.get(f) else {
             return Ok(());
@@ -2462,34 +2532,47 @@ impl Song {
             .iter()
             .take(f)
             .find(|c| &c.name == name)
-            .and_then(|c| c.notes.as_ref())
             .ok_or("no clip with this name comes before this one")?;
-        let line = Line {
-            events: src.events.clone(),
-            bars: src.bars,
-        };
-        let line = pattern::apply_all(&clip.pattern, line)?;
-        let notes = Notes {
-            events: line.events,
-            bars: line.bars,
-            ..src.clone()
-        };
+        if let Some(n) = &src.notes {
+            let line = Line {
+                events: n.events.clone(),
+                bars: n.bars,
+            };
+            let line = pattern::apply_all(&clip.pattern, line)?;
+            let notes = Notes {
+                events: line.events,
+                bars: line.bars,
+                ..n.clone()
+            };
+            if let Some(c) = self.clips.get_mut(f) {
+                c.notes = Some(notes);
+            }
+            return Ok(());
+        }
+        let (events, bars) = src.hits().ok_or("this clip has no hits")?;
+        if bars > notes::MAX_BARS {
+            return Err("a lane has at most 64 steps");
+        }
+        let line = pattern::apply_all(&clip.pattern, Line { events, bars })?;
+        let pads: Vec<Pad> = src.lanes.iter().map(|l| l.pad).collect();
+        let lanes = lanes_of(&line, src.grid, &pads)?;
+        let grid = src.grid;
         if let Some(c) = self.clips.get_mut(f) {
-            c.notes = Some(notes);
+            (c.lanes, c.grid) = (lanes, grid);
         }
         Ok(())
     }
 
-    /// After clip `clip`'s notes changed from `was`: the clips made from
-    /// clips again, in order. False, with `was` put back, when one no longer
+    /// After clip `clip` changed from `was`: the clips made from clips
+    /// again, in order. False, with `was` put back, when one no longer
     /// takes its methods.
-    fn rederive(&mut self, clip: usize, was: Option<Notes>) -> bool {
+    fn rederive(&mut self, clip: usize, was: Clip) -> bool {
         let all = |song: &mut Song| (0..song.clips.len()).try_for_each(|f| song.derive(f));
         if all(self).is_ok() {
             return true;
         }
         if let Some(f) = self.clips.get_mut(clip) {
-            f.notes = was;
+            *f = was;
         }
         // They took their methods before the edit, so they take them again.
         let restored = all(self);
@@ -2501,6 +2584,9 @@ impl Song {
     /// Set step `step` of a lane to play `r` times in its span (#242); see
     /// `Lane::set_ratchet`. Editing drops the lane's call, as a step does.
     pub fn set_ratchet(&mut self, clip: usize, lane: usize, step: usize, r: u8) -> bool {
+        let Some(was) = self.clips.get(clip).filter(|f| f.from.is_none()).cloned() else {
+            return false;
+        };
         let Some(l) = self.clips.get_mut(clip).and_then(|f| f.lanes.get_mut(lane)) else {
             return false;
         };
@@ -2508,10 +2594,14 @@ impl Song {
             return false;
         }
         l.call = None;
-        true
+        self.rederive(clip, was)
     }
 
     pub fn set_step(&mut self, clip: usize, lane: usize, step: usize, to: Step) -> bool {
+        // A clip made from a clip has no steps of its own (#653).
+        let Some(was) = self.clips.get(clip).filter(|f| f.from.is_none()).cloned() else {
+            return false;
+        };
         let slot = self
             .clips
             .get_mut(clip)
@@ -2527,7 +2617,7 @@ impl Song {
                         l.set_ratchet(step, 1);
                     }
                 }
-                true
+                self.rederive(clip, was)
             }
             None => false,
         }
