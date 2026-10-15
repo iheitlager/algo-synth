@@ -376,5 +376,28 @@ class VoiceLedger(unittest.TestCase):
                 self.assertTrue(f["url"].startswith("http") and f["name"])
 
 
+class KitLedger(unittest.TestCase):
+    def test_every_kit_of_files_is_pinned_on_its_own_pads(self):
+        ledger = json.loads(fs.LEDGER.read_text())
+        kits = [p for p in ledger["packs"] if p.get("kind") == "drums" and "files" in p]
+        self.assertTrue(kits)
+        for p in kits:
+            pads = [f.get("pad", i) for i, f in enumerate(p["files"])]
+            self.assertEqual(len(pads), len(set(pads)), p["id"])
+            self.assertTrue(all(0 <= pad < fs.PADS for pad in pads), p["id"])
+            for f in p["files"]:
+                self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$", p["id"])
+                self.assertTrue(f["url"].startswith("https://") and f["name"], p["id"])
+
+    def test_the_jazz_kit_is_for_this_machine_only(self):
+        # Dirt-Samples has no license (#661): fetched for personal use, like the tidal kits.
+        jazz = next(p for p in json.loads(fs.LEDGER.read_text())["packs"] if p["id"] == "jazz")
+        self.assertIs(jazz["redistribute"], False)
+        self.assertIn("do not commit, publish or redistribute", jazz["license"])
+        self.assertTrue(all("/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/" in f["url"] for f in jazz["files"]))
+        by_pad = {f["pad"]: f["url"].rsplit("/", 1)[1] for f in jazz["files"]}
+        self.assertEqual([by_pad[k] for k in (0, 2, 6, 10)], ["000_BD.wav", "007_SN.wav", "003_HH.wav", "004_OH.wav"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -184,6 +184,14 @@ other the pack (or the kit when no pack has it). An id no manifest names
 loads nothing and the sampler's panel says so. One line per track, after the
 track; the samples a track already has stay loaded without one.
 
+`make samples` builds the packs and kits: the FreePats instruments, the
+General MIDI programs (`gm-…`), and the kits `audiophob`, `cmu-arctic-voices`
+and, for this machine only (no license: never committed or published), the
+tidal-drum-machines ones (`roland-tr808`, `linndrum`, …) and Dirt-Samples'
+`jazz` (#661), Strudel's `sound("jazz")`: `bd`, `sn`, `ch` and `oh` lanes
+play its kick, snare and hats, its cowbell and effects sit on pads 8, 4, 5
+and 7.
+
 A `GeneralMidi` track needs no line (#652): its preset is a program of the
 FluidR3 GM bank and names its pack, `GmMarimba` the `gm-marimba` pack, which
 loads as if written. A `samples` line or zone lines take its place. The
