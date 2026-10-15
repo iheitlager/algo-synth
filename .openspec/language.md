@@ -490,6 +490,7 @@ notes every run.
 | `mutate(<clip>,<percent>,<seed>)` | the clip with 0–100 % of its notes moved or dropped |
 | `prog(<bars>,<seed>[,<size>][,<beats>][,<style>])` | 1–16 bars of chords on a seven-note `scale`, one a bar: tonic first, dominant last, functional moves. After the seed, in any order: a size `triad` (default), `7th`, `9th` or `sus` (1 4 5, 1 2 5 on the dominant); beats a chord lasts, 1–16 (`2`), or up to 16 in turn (`"4 2 2"`), the last chord cut at the end; a style `classic` (default), `pop` (I to IV or V), `jazz` (ii … V I), `modal` (I to I, no V) or `andalusian` (i VII VI V) |
 | `root(<clip>[,<octave>])` | the root of each of the clip's chords in octave 0–7 (default 2), a bass line |
+| `bass(<clip>,<style>[,<octave>][,<seed>])` | a bass line on the clip's chords, roots in octave 0–7 (default 2): `fifths` (the root on a chord's first beat, its fifth two beats on), `octave` (root and octave in eighths) or `walk` (the root on each chord's first beat, a step above or below the next root on the beat before a change, chord notes or scale steps between); only `walk` takes a seed, and must |
 
 A clip a call reads is a note clip above it, as it was at load (a `live`
 clip's first bar).
@@ -505,6 +506,8 @@ clip jazz = pad voicing
   prog(4,7,7th,"4 2 2",jazz)
 clip low = bass
   root(chords)
+clip walking = bass
+  bass(chords,walk,5)
 clip ripple = arp
   arp(chords,updown,16)
 clip riff = arp

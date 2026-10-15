@@ -9,6 +9,7 @@ pub const WALK: &str = "walk takes a start note, a count and a seed: walk(c4,8,1
 pub const MARKOV: &str = "markov takes an order, a clip and a seed: markov(1,riff,3)";
 pub const MUTATE: &str = "mutate takes a clip, a percent and a seed: mutate(riff,30,5)";
 pub const ROOT: &str = "root takes a clip and maybe an octave: root(prog) or root(prog,3)";
+pub const BASS: &str = "bass takes a clip, a style, maybe an octave and for walk a seed: bass(prog,fifths) or bass(prog,walk,2,5)";
 pub const PROG: &str = "prog takes a number of bars, a seed and maybe a size, beats and a style: prog(4,7) or prog(4,7,7th,\"4 2 2\",jazz)";
 pub const EUCLID: &str =
     "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)";
@@ -23,13 +24,14 @@ pub const VOICING: &str =
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
-pub const CALLS: [(&str, &str); 7] = [
+pub const CALLS: [(&str, &str); 8] = [
     ("arp", ARP),
     ("walk", WALK),
     ("markov", MARKOV),
     ("mutate", MUTATE),
     ("root", ROOT),
     ("prog", PROG),
+    ("bass", BASS),
     ("euclid", EUCLID),
 ];
 
@@ -135,7 +137,7 @@ mod tests {
         fn names(t: &[(&'static str, &str)]) -> Vec<&'static str> {
             t.iter().map(|e| e.0).collect()
         }
-        assert_eq!(names(&CALLS)[..6], crate::notes::CALLS);
+        assert_eq!(names(&CALLS)[..7], crate::notes::CALLS);
         assert_eq!(names(&METHODS), Pattern::NAMES);
         for (n, _) in SIGNAL {
             assert!(

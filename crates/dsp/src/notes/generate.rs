@@ -11,6 +11,7 @@
 //! prog(4,7)                      four bars of chords in the song's key, seed 7
 //! prog(4,7,7th,"4 2 2",jazz)      sevenths, a rhythm in beats and a style
 //! root(prog)                     the root of each chord of prog, as a bass line
+//! bass(prog,walk,2,5)            a walking bass on prog's chords, octave 2, seed 5
 //! arp(prog,up,16)                prog's chords arpeggiated, each from its start
 //! ```
 
@@ -19,7 +20,7 @@ use crate::algo::{Rng, Scale, mix};
 use crate::arp;
 
 /// The calls a line of notes may be, `euclid` aside; no other is read.
-pub const CALLS: [&str; 6] = ["arp", "walk", "markov", "mutate", "root", "prog"];
+pub const CALLS: [&str; 7] = ["arp", "walk", "markov", "mutate", "root", "prog", "bass"];
 
 /// Notes of a walk, and of a chord for an arpeggio.
 const MAX_WALK: u32 = 32;
@@ -119,6 +120,33 @@ impl Style {
     ];
 }
 
+/// How `bass` follows the chords (#611).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BassStyle {
+    /// The root on a chord's first beat, its fifth two beats on.
+    Fifths,
+    /// Root and the octave above, alternating in eighths.
+    Octave,
+    /// The root on a chord's first beat, an approach a step from the next
+    /// root on the beat before a change, chord notes or scale steps between.
+    Walk,
+}
+
+impl BassStyle {
+    pub const ALL: [(BassStyle, &'static str); 3] = [
+        (BassStyle::Fifths, "fifths"),
+        (BassStyle::Octave, "octave"),
+        (BassStyle::Walk, "walk"),
+    ];
+
+    fn name(self) -> &'static str {
+        BassStyle::ALL
+            .iter()
+            .find(|s| s.0 == self)
+            .map_or("", |s| s.1)
+    }
+}
+
 /// A generator call. `from` and `src` of Markov and Mutate keep the events of
 /// the clip they read, so a call can run again without looking it up.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,6 +194,15 @@ pub enum Gen {
         bars: u32,
         octave: u8,
     },
+    /// A bass line on the chords of an earlier clip, in `octave` (#611).
+    Bass {
+        from: String,
+        src: Vec<Event>,
+        bars: u32,
+        style: BassStyle,
+        octave: u8,
+        seed: u32,
+    },
     /// A progression in the song's key (#103): a chord a bar unless
     /// `beats` say otherwise (#609), stacked to `size` (#608), moving as
     /// `style` does (#610).
@@ -197,7 +234,8 @@ impl Gen {
             | Gen::Markov { seed, .. }
             | Gen::Mutate { seed, .. }
             | Gen::ArpProg { seed, .. }
-            | Gen::Prog { seed, .. } => *seed,
+            | Gen::Prog { seed, .. }
+            | Gen::Bass { seed, .. } => *seed,
             Gen::Root { .. } => 0,
         }
     }
@@ -210,7 +248,8 @@ impl Gen {
             | Gen::Mutate { bars, .. }
             | Gen::ArpProg { bars, .. }
             | Gen::Root { bars, .. }
-            | Gen::Prog { bars, .. } => *bars,
+            | Gen::Prog { bars, .. }
+            | Gen::Bass { bars, .. } => *bars,
         }
     }
 
@@ -255,6 +294,25 @@ impl Gen {
             }
             Gen::Root { from, octave, .. } if *octave == ROOT_OCTAVE => format!("root({from})"),
             Gen::Root { from, octave, .. } => format!("root({from},{octave})"),
+            Gen::Bass {
+                from,
+                style,
+                octave,
+                seed,
+                ..
+            } => {
+                let octave = if *octave == ROOT_OCTAVE {
+                    String::new()
+                } else {
+                    format!(",{octave}")
+                };
+                let seed = if *style == BassStyle::Walk {
+                    format!(",{seed}")
+                } else {
+                    String::new()
+                };
+                format!("bass({from},{}{octave}{seed})", style.name())
+            }
             Gen::Prog {
                 bars,
                 seed,
@@ -302,6 +360,11 @@ impl Gen {
             Gen::Arp { rate, .. } => usize::from(*rate),
             Gen::Walk { .. } => MAX_WALK as usize,
             Gen::Markov { src, .. } | Gen::Mutate { src, .. } | Gen::Root { src, .. } => src.len(),
+            // A note a beat, or an eighth for `octave`.
+            Gen::Bass { bars, style, .. } => {
+                let per = if *style == BassStyle::Octave { 8 } else { 4 };
+                per * *bars as usize
+            }
             Gen::ArpProg { rate, bars, .. } => usize::from(*rate) * *bars as usize,
             Gen::Prog {
                 bars, size, beats, ..
@@ -329,6 +392,13 @@ impl Gen {
                 ..
             } => arp_prog(src, *bars, *mode, *rate, seed, out),
             Gen::Root { src, octave, .. } => root(src, *octave, out),
+            Gen::Bass {
+                src,
+                bars,
+                style,
+                octave,
+                ..
+            } => bass(src, *bars, *style, *octave, seed, scale, out),
             Gen::Prog {
                 bars,
                 size,
@@ -574,6 +644,157 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             nudge: 0,
         });
         i = j.max(i + 1);
+    }
+}
+
+fn bass_note(start: u32, len: u32, note: i32) -> Event {
+    Event {
+        start,
+        len,
+        note: u8::try_from(note.clamp(0, 127)).unwrap_or(0),
+        accent: false,
+        vel: 0,
+        word: 0,
+        degree: false,
+        when: Default::default(),
+        nudge: 0,
+    }
+}
+
+/// The scale note a step from `note`, up or down; two semitones without a
+/// scale.
+fn scale_step(note: i32, up: bool, scale: Option<&Scale>) -> i32 {
+    let by = if up { 1 } else { -1 };
+    let Some(scale) = scale else {
+        return note + 2 * by;
+    };
+    let mut n = note + by;
+    for _ in 0..12 {
+        let pc = u8::try_from(n.rem_euclid(12)).unwrap_or(0);
+        if scale
+            .mode
+            .intervals()
+            .iter()
+            .any(|i| (scale.root + i) % 12 == pc)
+        {
+            return n;
+        }
+        n += by;
+    }
+    note + 2 * by
+}
+
+/// The fifth above `root` of a chord: its own (perfect, else flat, else
+/// sharp), else the scale's, else a perfect fifth.
+fn fifth(chord: &[u8], root: i32, scale: Option<&Scale>) -> i32 {
+    let has = |iv: i32| {
+        chord
+            .iter()
+            .any(|n| (i32::from(*n) - root).rem_euclid(12) == iv)
+    };
+    if let Some(iv) = [7, 6, 8].into_iter().find(|iv| has(*iv)) {
+        return root + iv;
+    }
+    let mut n = root;
+    for _ in 0..4 {
+        n = scale_step(n, true, scale);
+    }
+    if scale.is_some() { n } else { root + 7 }
+}
+
+/// `bass(prog,style[,octave][,seed])`: a line on the chords of `src`, beat
+/// by beat over `bars`, each chord's root (its lowest note's pitch class, as
+/// `root` takes it) in `octave`.
+fn bass(
+    src: &[Event],
+    bars: u32,
+    style: BassStyle,
+    octave: u8,
+    seed: u32,
+    scale: Option<&Scale>,
+    out: &mut Vec<Event>,
+) {
+    let end = bars * TICKS_PER_BAR;
+    let mut r = rng(seed, 0xBA5);
+    let mut buf = [0u8; MAX_CHORD];
+    let base = (i32::from(octave) + 1) * 12;
+    let root_of = |low: u8| base + i32::from(low % 12);
+    // Where the chord sounding at `t` ends: the next start, or the end.
+    let next_start = |t: u32| {
+        src.iter()
+            .map(|e| e.start)
+            .filter(|s| *s > t && *s < end)
+            .min()
+            .unwrap_or(end)
+    };
+    let mut prev = base;
+    let mut t = 0;
+    while t < end {
+        let Some((start, n)) = chord_at(src, t, &mut buf) else {
+            t += BEAT;
+            continue;
+        };
+        let chord = buf.get(..n).unwrap_or(&[]);
+        let low = chord.first().copied().unwrap_or(0);
+        let root = root_of(low);
+        let stop = next_start(t);
+        let beat = (t - start) / BEAT;
+        match style {
+            BassStyle::Fifths => {
+                let note = match beat % 4 {
+                    0 => Some(root),
+                    2 => Some(fifth(chord, root, scale)),
+                    _ => None,
+                };
+                if let Some(note) = note {
+                    out.push(bass_note(t, (2 * BEAT).min(stop - t), note));
+                }
+            }
+            BassStyle::Octave => {
+                let half = BEAT / 2;
+                for (k, note) in [root, root + 12].into_iter().enumerate() {
+                    let at = t + half * u32::try_from(k).unwrap_or(0);
+                    if at < stop {
+                        out.push(bass_note(at, half.min(stop - at), note));
+                    }
+                }
+            }
+            BassStyle::Walk => {
+                let last = t + BEAT >= stop;
+                let note = if beat == 0 {
+                    root
+                } else if last {
+                    // A step above or below the next chord's root, round the
+                    // loop at the end.
+                    let mut next = [0u8; MAX_CHORD];
+                    let to = chord_at(src, stop % end.max(1), &mut next)
+                        .map_or(root, |_| root_of(next.first().copied().unwrap_or(low)));
+                    scale_step(to, r.next_u32() % 2 == 0, scale)
+                } else if r.next_u32() % 2 == 0 {
+                    // A chord note in the octave above the root, not the last.
+                    let tones = chord
+                        .iter()
+                        .map(|n| root + (i32::from(*n) - root).rem_euclid(12));
+                    let count = tones.clone().filter(|n| *n != prev).count();
+                    let k = usize::try_from(r.next_u32()).unwrap_or(0) % count.max(1);
+                    tones.filter(|n| *n != prev).nth(k).unwrap_or(root)
+                } else {
+                    // A scale step, turning back at the edges of the octave.
+                    let up = r.next_u32() % 2 == 0;
+                    let up = if prev <= root {
+                        true
+                    } else if prev >= root + 12 {
+                        false
+                    } else {
+                        up
+                    };
+                    scale_step(prev, up, scale)
+                };
+                out.push(bass_note(t, BEAT.min(stop - t), note));
+                prev = note;
+            }
+        }
+        t += BEAT;
     }
 }
 
@@ -1059,6 +1280,47 @@ pub(super) fn parse_call(
                 src,
                 bars,
                 octave: u8::try_from(octave).unwrap_or(ROOT_OCTAVE),
+            }
+        }
+        "bass" => {
+            want(&[2, 3, 4], crate::usage::BASS)?;
+            let (from, (src, bars)) = source(cur, arg(0), srcs)?;
+            let style = BassStyle::ALL
+                .iter()
+                .find(|s| s.1 == text(cur, arg(1)))
+                .map(|s| s.0)
+                .ok_or(NoteError {
+                    col: cur.base + arg(1).0,
+                    msg: "a bass is fifths, octave or walk",
+                })?;
+            let walk = style == BassStyle::Walk;
+            // `walk` takes a seed, and must; the others none (as arp's random).
+            let (octave, seed) = match (walk, list.len()) {
+                (true, 3) => (None, Some(2)),
+                (true, 4) => (Some(2), Some(3)),
+                (false, 2) => (None, None),
+                (false, 3) => (Some(2), None),
+                _ => {
+                    return err(
+                        cur.base + at,
+                        "only walk takes a seed, and must: bass(prog,walk,5) or bass(prog,fifths)",
+                    );
+                }
+            };
+            let octave = match octave {
+                Some(k) => number(cur, arg(k), 7, "an octave is 0 to 7")?,
+                None => u32::from(ROOT_OCTAVE),
+            };
+            Gen::Bass {
+                from,
+                src,
+                bars,
+                style,
+                octave: u8::try_from(octave).unwrap_or(ROOT_OCTAVE),
+                seed: match seed {
+                    Some(k) => seed_at(k)?,
+                    None => 0,
+                },
             }
         }
         "prog" => {

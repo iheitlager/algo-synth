@@ -113,13 +113,14 @@ const METHODS: [(&str, &str); 18] = [
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
-const CALLS: [(&str, &str); 7] = [
+const CALLS: [(&str, &str); 8] = [
     ("arp", "a chord or a clip's chords, arpeggiated"),
     ("walk", "a random walk on the scale"),
     ("markov", "a chain learned from a clip"),
     ("mutate", "a clip with some notes moved"),
     ("root", "the roots of a clip's chords"),
     ("prog", "a chord progression on the scale"),
+    ("bass", "a bass line on a clip's chords"),
     ("euclid", "hits spread evenly over steps"),
 ];
 
@@ -916,7 +917,7 @@ impl<'a> Names<'a> {
     /// After a lane's pad, `euclid`.
     fn lane(&self, list: &mut List, pre: &str) {
         if pre.ends_with(char::is_whitespace) && pre.split_whitespace().count() == 1 {
-            list.add(Class::Call, "euclid", || CALLS[6].1.to_string());
+            list.add(Class::Call, "euclid", || CALLS[7].1.to_string());
         }
     }
 
@@ -926,7 +927,14 @@ impl<'a> Names<'a> {
         }
         if let Some(call) = open_call(pre) {
             match (call.name, call.arg) {
-                ("arp", 0) | ("root", 0) | ("mutate", 0) | ("markov", 1) => self.note_clips(list),
+                ("arp", 0) | ("root", 0) | ("bass", 0) | ("mutate", 0) | ("markov", 1) => {
+                    self.note_clips(list)
+                }
+                ("bass", 1) => {
+                    for (_, s) in notes::BassStyle::ALL {
+                        list.add(Class::Name, s, || "bass style".to_string());
+                    }
+                }
                 ("arp", 1) => list.arp_modes(),
                 ("prog", k) if k >= 2 => list.prog_words(),
                 _ => {}
@@ -1208,8 +1216,11 @@ scene main 8: beat riff
     fn notes_take_calls_qualities_numerals_and_clips() {
         let notes = format!("{SONG}clip c = lead\n  ");
         let at = |s: &str| at(&format!("{notes}{s}"));
-        assert_eq!(at("|").len(), 7);
+        assert_eq!(at("|").len(), 8);
         assert_eq!(at("ar|"), ["arp"]);
+        // #611: bass reads a clip, then takes a style.
+        assert_eq!(at("bass(|"), ["riff"]);
+        assert_eq!(at("bass(riff,w|"), ["walk"]);
         assert_eq!(at("arp(|"), ["riff"]);
         assert_eq!(at("arp([c4,e4],u|"), ["up", "updown"]);
         assert_eq!(at("markov(1,|"), ["riff"]);
@@ -1446,7 +1457,7 @@ scene main 8: beat riff
         }
         assert_eq!(names(&KEYWORD_USAGE), KEYWORDS);
         assert_eq!(names(&METHODS), Pattern::NAMES);
-        assert_eq!(names(&CALLS)[..6], notes::CALLS);
+        assert_eq!(names(&CALLS)[..7], notes::CALLS);
         assert_eq!(names(&PADS), Pad::ALL.map(|p| p.1));
         assert_eq!(names(&CLIP_WORDS), ["live", "bars", "voicing"]);
         let styles: Vec<&str> = crate::notes::STYLES.iter().map(|(n, _)| *n).collect();
