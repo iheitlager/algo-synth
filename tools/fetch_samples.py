@@ -468,15 +468,35 @@ def curate(regions: list[dict]) -> list[dict]:
     return out
 
 
+def twin_of(bank: dict, i: int) -> dict | None:
+    """The other side of stereo sample `i`, if it has one: its link when that
+    is the other side and links back, else the sample named for the other
+    side, `…(L)` and `…(R)`. FluidR3 links every pair to sample 0, `Gun` (#670)."""
+    samples = bank["samples"]
+    s = samples[i]
+    other = {4: 2, 2: 4}.get(s["type"])
+    if other is None:
+        return None
+    link = s["link"]
+    if link < len(samples) and samples[link]["type"] == other and samples[link]["link"] == i:
+        return samples[link]
+    side, twin = ("(L)", "(R)") if s["type"] == 4 else ("(R)", "(L)")
+    if not s["name"].endswith(side):
+        return None
+    name = s["name"][: -len(side)] + twin
+    return next((t for t in samples if t["name"] == name and t["type"] == other), None)
+
+
 def sf2_pcm(bank: dict, r: dict) -> array.array:
     """A region's samples, mono: a stereo pair's two sides averaged, scaled by
-    its attenuation (`gain`)."""
+    its attenuation (`gain`). A side with no twin found stays as it is."""
     pcm = bank["pcm"]
     side = pcm[r["start"] : r["end"]]
     # Left (4) or right (2) of a pair: the other side starts at its own offset.
-    if r["type"] in (2, 4) and r["link"] < len(bank["samples"]):
-        other = bank["samples"][r["link"]]
-        twin = pcm[other["start"] + (r["start"] - bank["samples"][r["sample"]]["start"]):][: len(side)]
+    other = twin_of(bank, r["sample"])
+    if other is not None:
+        at = other["start"] + (r["start"] - bank["samples"][r["sample"]]["start"])
+        twin = pcm[at : other["end"]][: len(side)]
         if len(twin) == len(side):
             side = array.array("h", ((a + b) // 2 for a, b in zip(side, twin)))
     gain = r.get("gain", 1.0)
@@ -599,8 +619,9 @@ def pinned(pack: dict) -> str:
     """What a built pack is checked against: its archive's checksum, or for a
     pack of single files one checksum over all of theirs and its balance."""
     if "programs" in pack:
-        # The programs kept are part of what is built (#652).
-        joined = pack["sha256"] + json.dumps(pack["programs"], sort_keys=True)
+        # The programs kept are part of what is built (#652); a bank built
+        # before stereo twins were found by name is built again (#670).
+        joined = pack["sha256"] + json.dumps(pack["programs"], sort_keys=True) + "\ntwins"
         return hashlib.sha256(joined.encode()).hexdigest()
     if "files" in pack:
         joined = "\n".join(f["sha256"] for f in pack["files"])

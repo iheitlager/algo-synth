@@ -142,9 +142,9 @@ class Wav(unittest.TestCase):
             fs.read_wav(wav(48_000, 1, 16, [(1,)]).replace(b"\x01\x00\x01\x00", b"\x03\x00\x01\x00", 1))
 
 
-def sf2_bytes() -> bytes:
+def sf2_bytes(names: tuple[str, str] = ("L", "R"), links: tuple[int, int] = (1, 0)) -> bytes:
     """A tiny SoundFont 2: samples 0/1 a stereo pair, 2 mono; one instrument and
-    preset 0:5 over it (#652)."""
+    preset 0:5 over it (#652). `names` and `links` are the pair's."""
     def chunk(cid: bytes, body: bytes) -> bytes:
         return cid + struct.pack("<I", len(body)) + body + (b"\0" if len(body) & 1 else b"")
 
@@ -155,8 +155,8 @@ def sf2_bytes() -> bytes:
     name = lambda n: n.encode().ljust(20, b"\0")
     #               name          start end  loop  rate  pitch corr link type
     shdr = b"".join([
-        struct.pack("<20sIIIIIBbHH", name("L"), 0, 40, 4, 36, 22050, 60, 0, 1, 4),
-        struct.pack("<20sIIIIIBbHH", name("R"), 40, 80, 44, 76, 22050, 60, 0, 0, 2),
+        struct.pack("<20sIIIIIBbHH", name(names[0]), 0, 40, 4, 36, 22050, 60, 0, links[0], 4),
+        struct.pack("<20sIIIIIBbHH", name(names[1]), 40, 80, 44, 76, 22050, 60, 0, links[1], 2),
         struct.pack("<20sIIIIIBbHH", name("M"), 80, 120, 90, 110, 44100, 72, -5, 0, 1),
         struct.pack("<20sIIIIIBbHH", name("EOS"), 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ])
@@ -226,6 +226,20 @@ class Sf2(unittest.TestCase):
         low, _, loud = fs.sf2_regions(self.bank, 5)
         self.assertEqual(set(fs.sf2_pcm(self.bank, low)), {200})
         self.assertEqual(set(fs.sf2_pcm(self.bank, {**loud, "gain": 0.5})), {500})
+
+    def test_a_pair_linked_to_sample_0_finds_its_twin_by_name(self):
+        # #670: FluidR3 links every pair to sample 0; the left side here is
+        # sample 0 itself, so a link alone would mix it with itself.
+        bank = fs.parse_sf2(sf2_bytes(("Pipe(L)", "Pipe(R)"), (0, 0)))
+        low = fs.sf2_regions(bank, 5)[0]
+        self.assertEqual(set(fs.sf2_pcm(bank, low)), {200})
+        self.assertEqual(fs.twin_of(bank, 1)["name"], "Pipe(L)")
+
+    def test_a_side_with_no_twin_stays_as_it_is(self):
+        bank = fs.parse_sf2(sf2_bytes(("A", "B"), (2, 2)))
+        low = fs.sf2_regions(bank, 5)[0]
+        self.assertIsNone(fs.twin_of(bank, 0))
+        self.assertEqual(set(fs.sf2_pcm(bank, low)), {100})
 
     def test_the_pinned_checksum_covers_the_programs(self):
         pack = {"sha256": "a" * 64, "programs": {"gm-a": 1}}
