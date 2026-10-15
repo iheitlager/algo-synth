@@ -3142,7 +3142,7 @@ fn struct_stays_in_phase_with_a_source_of_another_length() {
 
 #[test]
 fn a_clip_read_for_a_rhythm_comes_before_and_has_hits() {
-    let bad = "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)";
+    let bad = crate::usage::STRUCT;
     for (text, line, col, msg) in [
         (
             "track lead synth\nclip f = lead .struct(nope)\n  \"c4\"\n",

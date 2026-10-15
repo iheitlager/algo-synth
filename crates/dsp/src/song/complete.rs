@@ -893,6 +893,10 @@ impl<'a> Names<'a> {
         let Some(first) = w.first() else {
             return list.keywords();
         };
+        // Inside quotes: a rhythm or a sequence, no words to offer.
+        if opened(pre).1 {
+            return;
+        }
         let kw = current_keyword(first, w.get(1).copied(), w.get(2).copied());
         let kw = kw.trim_end_matches(':');
         let prev = pre.chars().last();
@@ -1004,6 +1008,12 @@ impl<'a> Names<'a> {
                     }
                 }
                 ("chord", 0) => self.note_clips(list),
+                // Any earlier clip's rhythm: its notes' starts or its hits (#600).
+                ("struct", 0) => {
+                    for (c, t) in &self.clips {
+                        list.add(Class::Name, c, || format!("a clip on {t}"));
+                    }
+                }
                 ("every" | "off", 1) | ("sometimes", 0) => list.table(Class::Call, &METHODS),
                 (name, _) if Pattern::NAMES.contains(&name) => {}
                 _ => signal(list),
@@ -1106,6 +1116,8 @@ scene main 8: beat riff
             ["dorian", "dorian-b2", "dorian-sharp-4"]
         );
         assert_eq!(song("clip c = lead .chord(|"), ["riff"]);
+        assert_eq!(song("clip c = lead .struct(|"), ["beat", "riff"]);
+        assert!(song("clip c = lead .struct(\"x |").is_empty());
         assert_eq!(song("clip c = lead .every(4, r|"), ["rev"]);
         assert!(song("clip c = lead .fast(|").is_empty());
         assert_eq!(song("clip c = lead .cutoff(sin|"), ["sine", "sine2"]);
@@ -1225,6 +1237,10 @@ scene main 8: beat riff
         assert_eq!(
             help(&format!("{SONG}clip d = lead .scale(riff |")),
             usage::SCALE
+        );
+        assert_eq!(
+            help(&format!("{SONG}clip d = lead .struct(\"x |")),
+            usage::STRUCT
         );
         assert_eq!(
             help(&format!("{SONG}clip d = lead .cutoff(|")),

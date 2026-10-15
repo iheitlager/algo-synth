@@ -460,7 +460,7 @@ impl Pattern {
                 }
             }
             "struct" => {
-                let bad = "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)";
+                let bad = crate::usage::STRUCT;
                 let arg = one()?.trim();
                 if let Some((events, bars, _)) = srcs(arg) {
                     if bars > MAX_BARS {
@@ -1339,16 +1339,8 @@ mod tests {
                 "a time is between 0 and 1 bar, at least a tick",
             ),
             ("off", "x, rev", "a time is a fraction of a bar, e.g. 1/8"),
-            (
-                "struct",
-                "x ~ x",
-                "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)",
-            ),
-            (
-                "struct",
-                "\"x o\"",
-                "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)",
-            ),
+            ("struct", "x ~ x", crate::usage::STRUCT),
+            ("struct", "\"x o\"", crate::usage::STRUCT),
             ("struct", "\"\"", "a rhythm has 1 to 48 steps"),
             (
                 "euclid",

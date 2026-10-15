@@ -18,6 +18,7 @@ pub const OFF: &str = "off takes a time and a method: off(1/8, add(12))";
 pub const SCALE: &str =
     "scale takes a root or an earlier clip, and a mode: scale(a1 minor) or scale(harm minor)";
 pub const CHORD: &str = "chord takes an earlier clip: chord(harm)";
+pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
 pub const CALLS: [(&str, &str); 7] = [
@@ -46,10 +47,7 @@ pub const METHODS: [(&str, &str); 17] = [
     ),
     ("every", EVERY),
     ("off", OFF),
-    (
-        "struct",
-        "struct takes a rhythm of x and ~ in quotes: struct(\"x ~ x x\")",
-    ),
+    ("struct", STRUCT),
     ("euclid", EUCLID),
     ("sometimes", "sometimes takes a method: sometimes(add(12))"),
     ("scale", SCALE),
