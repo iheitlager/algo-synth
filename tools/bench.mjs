@@ -1,4 +1,5 @@
-// Time 16 Mono voices in V8 (plan.md "Performance budget", #12).
+// Time 16 Mono voices in V8 (plan.md "Performance budget", #12), and the
+// time an apply of a large song text takes (#589).
 //
 // Loads web/public/dsp.wasm in Node, which runs the same V8 as Chrome,
 // with the drive, mixer and both send effects on, renders 128-frame blocks at 48 kHz and reports the share of one core.
@@ -277,4 +278,90 @@ for (const [name, [setup, lowest, chord, song, after]] of Object.entries(scenari
     `${name.padEnd(13)} ${r.voices} voices  ${r.perBlock.toFixed(1)} µs/block of ${r.realtime.toFixed(0)}  ${pct}% of a core, peak ${r.peak.toFixed(2)}  ${ok ? 'within' : 'OVER'} the ${100 * BUDGET}% budget`,
   )
 }
+
+// #589: applying the song text. For deck A the engine lives in the
+// AudioWorklet, so `song_load` (parse, compile, print) runs on the audio
+// thread between two blocks. A large song with clips reading clips
+// (ADR-0035) is applied over and over while it plays, alternating two
+// texts so every apply is a real change, and each apply is timed alone.
+const LOADS = 60
+
+function bigSong(seed) {
+  const lines = ['tempo 124', 'scale a minor']
+  // Fifteen synth tracks and a kit: the 16 a song may have.
+  for (let t = 0; t < VOICES - 1; t++) lines.push(`track t${t} synth`)
+  lines.push('track kit drums')
+  // 16 chords, four bars each: 64 bars of harmony, voiced.
+  lines.push(
+    'clip harm = t0 voicing .slow(4)',
+    '  "<a2:m7 f2:maj7 c3:maj7 g2:7 d2:m7 e2:7 a2:m7 e2:7 a2:m9 d2:m7 g2:7 c3:maj7 f2:maj7 b2:m7b5 e2:7 a2:m>"',
+    'clip prog = t1',
+    `  prog(16,${seed})`,
+    'clip low = t2',
+    '  root(prog)',
+    'clip arp = t3',
+    '  arp(prog,updown,16)',
+  )
+  for (let t = 4; t < VOICES - 1; t++) {
+    switch (t % 4) {
+      case 0:
+        lines.push(`clip f${t} = t${t} .fast(2) .every(2, rev) .scale(harm minor-pentatonic) .oct(${(t % 3) - 1})`, '  "<0 2 [1 3] 4 ~ 2 <5 6> 3>"')
+        break
+      case 1:
+        lines.push(`clip f${t} = t${t} .euclid(5,8) .chord(harm)`, '  "0 2 1 3 [0,2] 4"')
+        break
+      case 2:
+        lines.push(`clip f${t} = t${t} .scale(harm dorian)`, `  markov(2,f${t - 2},${seed + t})`)
+        break
+      default:
+        lines.push(`clip f${t} = t${t} live .chord(harm) .oct(1)`, `  walk(a3,16,${seed + t})`)
+    }
+  }
+  lines.push('clip beat = kit /16', '  bd euclid(5,16)', '  sn ....x.......x...', '  ch x.x.x.x.x.x.x.x.')
+  return `${lines.join('\n')}\n`
+}
+
+function loads() {
+  const w = new WebAssembly.Instance(module, {}).exports
+  w.init(SR)
+  const texts = [bigSong(1), bigSong(2)].map((t) => new TextEncoder().encode(t))
+  const load = (text) => {
+    const ptr = w.song_buf(text.length)
+    new Uint8Array(w.memory.buffer, ptr, text.length).set(text)
+    const t0 = process.hrtime.bigint()
+    const code = w.song_load()
+    const us = Number(process.hrtime.bigint() - t0) / 1_000
+    if (code < 0) {
+      const msg = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.song_error_ptr(), w.song_error_len()))
+      throw new Error(`the load bench song did not load: line ${w.song_error_line()}, col ${w.song_error_col()}: ${msg}`)
+    }
+    return us
+  }
+  load(texts[0])
+  w.song_play()
+  const block = w.block_len()
+  for (let i = 0; i < WARMUP; i++) w.process(block)
+  // Untimed applies first, so V8 has compiled the parser before timing.
+  for (let i = 0; i < 10; i++) load(texts[i % 2])
+  const times = []
+  for (let i = 0; i < LOADS; i++) {
+    times.push(load(texts[i % 2]))
+    // A bar's worth of blocks between applies, so each new song takes over.
+    for (let b = 0; b < 750; b++) w.process(block)
+  }
+  if (!w.song_playing()) throw new Error('the load bench song stopped')
+  times.sort((a, b) => a - b)
+  const realtime = (block / SR) * 1e6
+  const at = (q) => times[Math.min(LOADS - 1, Math.floor(q * LOADS))]
+  return { median: at(0.5), p90: at(0.9), max: times[LOADS - 1], realtime, bytes: texts[0].length }
+}
+
+const l = loads()
+const blocks = (us) => (us / l.realtime).toFixed(1)
+// The odd apply the OS interrupts is reported, not judged: 90 in 100 fit.
+const fits = l.p90 <= l.realtime / 2
+over ||= !fits
+console.log(
+  `${'song apply'.padEnd(13)} ${l.bytes} bytes  median ${l.median.toFixed(0)} µs, 90% ${l.p90.toFixed(0)} µs, max ${l.max.toFixed(0)} µs = ${blocks(l.median)}/${blocks(l.p90)}/${blocks(l.max)} blocks of ${l.realtime.toFixed(0)} µs  ${fits ? 'within' : 'OVER'} half a block`,
+)
 process.exitCode = over ? 1 : 0
