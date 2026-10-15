@@ -1,0 +1,25 @@
+# jux(rev): a line on the left and the same line backwards on the right.
+# Strudel does it in one call; here it is two tracks panned apart, the
+# right clip made from the left one through .rev() (#649). In the second
+# scene .add([0,2,4]) stacks a triad on each degree before .scale (#650).
+tempo 110
+scale c minor
+track kit drums Tr909 Kit909
+track left synth Juno106 JunoPluck
+track right synth Juno106 JunoPluck
+strip left: Level 0.6, Pan -1
+strip right: Level 0.6, Pan 1
+
+clip beat = kit /16
+  bd x...x...x...x...
+  ch ..x...x...x...x.
+clip fwd = left
+  "0 [2 4] <3 5> [~ <4 1>]"
+clip back = right fwd .rev()
+# Each note a triad of the scale, then the same, backwards, on the right.
+clip stack = left .add([0,2,4]) .scale(c4 minor)
+  "0 [2 4] <3 5> [~ <4 1>]"
+clip stacked = right stack .rev()
+scene jux 8: beat fwd back
+scene chords 8: beat stack stacked
+arrange jux chords

@@ -293,6 +293,9 @@ pub struct Clip {
     pub pattern: Vec<Pattern>,
     /// A drum clip's steps to a bar (`/16`, #353): one of `GRIDS`.
     pub grid: u32,
+    /// `clip b = t a .rev()` (#649): the earlier clip of notes this one is
+    /// made from, through its methods; it has no line of its own.
+    pub from: Option<String>,
 }
 
 impl Clip {
@@ -765,6 +768,12 @@ impl Song {
                 let Some((f, _)) = open else {
                     return Err(err(first.col, "a lane goes under a clip"));
                 };
+                if song.clips.get(f).is_some_and(|c| c.from.is_some()) {
+                    return Err(err(
+                        first.col,
+                        "a clip made from a clip has no line of its own",
+                    ));
+                }
                 let kind = song
                     .clips
                     .get(f)
@@ -1196,6 +1205,25 @@ impl Song {
                         let col = ws.get(4).map_or(first.col, |w| w.col);
                         return Err(err(col, "only a note clip can be live"));
                     }
+                    // `clip b = t a .rev()` (#649): an earlier clip of notes,
+                    // played through this clip's methods.
+                    let from = ws
+                        .get(4)
+                        .filter(|w| !matches!(w.text, "live" | "bars") && is_name(w.text));
+                    if let Some(w) = from {
+                        let Some(src) = song.clips.iter().find(|c| c.name == w.text) else {
+                            return Err(err(w.col, "no clip with this name comes before this one"));
+                        };
+                        if kind == Some(Kind::Drums) || src.notes.is_none() {
+                            return Err(err(w.col, "only a clip of notes can be made from a clip"));
+                        }
+                        if let Some(col) = voicing {
+                            return Err(err(
+                                col,
+                                "a clip made from a clip is voiced as its source",
+                            ));
+                        }
+                    }
                     // `bars N` for a line of timed notes (#173).
                     open_bars = None;
                     if let Some(w) = ws.get(4).filter(|w| w.text == "bars") {
@@ -1213,7 +1241,10 @@ impl Song {
                     }
                     let mut grid = 16;
                     open_grid = None;
-                    if let Some(w) = ws.get(4).filter(|_| !live && open_bars.is_none()) {
+                    if let Some(w) = ws
+                        .get(4)
+                        .filter(|_| !live && open_bars.is_none() && from.is_none())
+                    {
                         if synth {
                             return Err(err(w.col, "a note clip has no step grid"));
                         }
@@ -1240,6 +1271,7 @@ impl Song {
                         voicing: voicing.is_some(),
                         pattern: Vec::new(),
                         grid,
+                        from: from.map(|w| w.text.to_string()),
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1307,6 +1339,9 @@ impl Song {
                                 clip: Some(f),
                             });
                         }
+                    }
+                    if let Some(w) = from {
+                        song.derive(f).map_err(|m| err(w.col, m))?;
                     }
                     open = Some((f, line));
                 }
@@ -2075,6 +2110,15 @@ impl Song {
         for (fi, f) in self.clips.iter().enumerate() {
             let track = self.tracks.get(f.track).map_or("", |t| t.name.as_str());
             lines.push(String::new());
+            if let Some(src) = &f.from {
+                lines.push(format!(
+                    "clip {} = {} {src}{}",
+                    f.name,
+                    track,
+                    self.methods_of(fi)
+                ));
+                continue;
+            }
             if let Some(n) = &f.notes {
                 let live = if f.live { " live" } else { "" };
                 let bars = if matches!(n.seq, notes::Seq::Timed(_)) {
@@ -2205,17 +2249,20 @@ impl Song {
         let Some(n) = f.notes.as_ref() else {
             return false;
         };
-        if !matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) {
+        if !matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) || f.from.is_some() {
             return false;
         }
-        match notes::freeze(events.unwrap_or(&n.events), n.bars) {
-            Some(frozen) => {
-                f.notes = Some(frozen);
-                f.live = false;
-                true
-            }
-            None => false,
+        let Some(frozen) = notes::freeze(events.unwrap_or(&n.events), n.bars) else {
+            return false;
+        };
+        let was = f.notes.replace(frozen);
+        if !self.rederive(clip, was) {
+            return false;
         }
+        if let Some(f) = self.clips.get_mut(clip) {
+            f.live = false;
+        }
+        true
     }
 
     // --- Arranger edits (#171): each keeps the song valid, false when refused.
@@ -2366,6 +2413,7 @@ impl Song {
         // pattern in (ADR-0019).
         if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..))
             || !f.pattern.is_empty()
+            || f.from.is_some()
         {
             return false;
         }
@@ -2377,13 +2425,60 @@ impl Song {
         } else {
             notes::edit(&n.events, n.bars, op).and_then(|ev| notes::freeze(&ev, n.bars))
         };
-        match edited {
-            Some(edited) => {
-                f.notes = Some(edited);
-                true
-            }
-            None => false,
+        let Some(edited) = edited else {
+            return false;
+        };
+        let was = f.notes.replace(edited);
+        self.rederive(clip, was)
+    }
+
+    /// Clip `f`'s notes from the clip it is made from, through its methods
+    /// (#649).
+    fn derive(&mut self, f: usize) -> Result<(), &'static str> {
+        let Some(clip) = self.clips.get(f) else {
+            return Ok(());
+        };
+        let Some(name) = &clip.from else {
+            return Ok(());
+        };
+        let src = self
+            .clips
+            .iter()
+            .take(f)
+            .find(|c| &c.name == name)
+            .and_then(|c| c.notes.as_ref())
+            .ok_or("no clip with this name comes before this one")?;
+        let line = Line {
+            events: src.events.clone(),
+            bars: src.bars,
+        };
+        let line = pattern::apply_all(&clip.pattern, line)?;
+        let notes = Notes {
+            events: line.events,
+            bars: line.bars,
+            ..src.clone()
+        };
+        if let Some(c) = self.clips.get_mut(f) {
+            c.notes = Some(notes);
         }
+        Ok(())
+    }
+
+    /// After clip `clip`'s notes changed from `was`: the clips made from
+    /// clips again, in order. False, with `was` put back, when one no longer
+    /// takes its methods.
+    fn rederive(&mut self, clip: usize, was: Option<Notes>) -> bool {
+        let all = |song: &mut Song| (0..song.clips.len()).try_for_each(|f| song.derive(f));
+        if all(self).is_ok() {
+            return true;
+        }
+        if let Some(f) = self.clips.get_mut(clip) {
+            f.notes = was;
+        }
+        // They took their methods before the edit, so they take them again.
+        let restored = all(self);
+        debug_assert!(restored.is_ok(), "{restored:?}");
+        false
     }
 
     /// Set one step; false when there is no such step.
