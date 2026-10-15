@@ -2145,6 +2145,41 @@ fn pattern_methods_transform_a_clips_notes() {
     assert_eq!(Song::parse(&printed), Ok(s));
 }
 
+/// #629: a value a bar, parsed from a song, kept as typed and printed back.
+#[test]
+fn a_value_a_bar_parses_and_prints_back() {
+    let text = "scale c minor\ntrack lead synth\n\
+        clip r = lead .fast(\"<1 2>\") .add(\"<0 <1 -1>>\")\n  \"c4 [eb4,g4]\"\n\
+        clip w = lead live .add(\"<0 12>\")\n  walk(c4,8,1)\n";
+    let s = Song::parse(text).expect("parses");
+    let n = s.clips[0].notes.as_ref().expect("notes");
+    assert_eq!(n.bars, 4);
+    let lows: Vec<u8> = (0..4)
+        .map(|b| {
+            n.events
+                .iter()
+                .filter(|e| e.start / 48 == b)
+                .map(|e| e.note)
+                .min()
+                .unwrap_or(0)
+        })
+        .collect();
+    assert_eq!(lows, vec![60, 61, 60, 59]);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip r = lead .fast(\"<1 2>\") .add(\"<0 <1 -1>>\")\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+    let err = Song::parse(
+        "scale c minor\ntrack lead synth\nclip w = lead live .fast(\"<1 2>\")\n  walk(c4,8,1)\n",
+    );
+    assert_eq!(
+        err.map_err(|e| e.msg),
+        Err("a live clip takes only pitch methods: scale, chord, oct, add and sub")
+    );
+}
+
 #[test]
 fn pattern_method_errors_say_where() {
     for (text, line, col, msg) in [
