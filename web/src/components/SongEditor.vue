@@ -2,7 +2,7 @@
 // The song text with line numbers and highlighting (#203), from the song lexer.
 // It says when a line is done (#588): on Enter, or when the caret leaves a line
 // it was typed on (arrow keys, a click, leaving the editor).
-import { lexer } from '../audio/lex'
+import { completer, lexer } from '../audio/lex'
 import CodeArea from './CodeArea.vue'
 
 const text = defineModel<string>({ required: true })
@@ -25,12 +25,13 @@ function done() {
 }
 function onInput(e: Event) {
   const a = area(e)
-  if (a) edited = lineOf(a)
-}
-function onKey(e: KeyboardEvent) {
-  // Enter ends the line; the new line is typed into after the key, so the
-  // text is read once it is in. Ctrl+Enter is the composer's own.
-  if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && area(e)) setTimeout(done)
+  if (!a) return
+  // Enter ends the line: applied as the line break goes in, so what is typed
+  // after it is not (a timer read it late when typing ran on). Ctrl+Enter is
+  // the composer's own, and an Enter that took a completion (#595) puts no
+  // line break in.
+  if ((e as InputEvent).inputType === 'insertLineBreak') done()
+  else edited = lineOf(a)
 }
 function onCaret(e: Event) {
   const a = area(e)
@@ -40,7 +41,7 @@ function onCaret(e: Event) {
 
 <template>
   <CodeArea
-    v-model="text" :lexer="lexer" label="Song text" comment="#" :disabled="disabled" :error="error" :lit="lit"
-    @input="onInput" @keydown="onKey" @keyup="onCaret" @mouseup="onCaret" @focusout="onCaret"
+    v-model="text" :lexer="lexer" :completer="completer" label="Song text" comment="#" :disabled="disabled" :error="error" :lit="lit"
+    @input="onInput" @keyup="onCaret" @mouseup="onCaret" @focusout="onCaret"
   />
 </template>

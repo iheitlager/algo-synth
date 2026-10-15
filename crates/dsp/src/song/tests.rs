@@ -2316,7 +2316,7 @@ fn a_clip_read_for_roots_comes_before_and_has_notes() {
         (
             "track lead synth\nclip p = lead\n  \"a1\"\nclip f = lead .scale(p)\n  \"0\"\n",
             4,
-            "this takes a clip and a mode, e.g. scale(harm minor)",
+            crate::usage::SCALE,
         ),
         (
             "track lead synth\nclip p = lead\n  \"~\"\nclip f = lead .scale(p minor)\n  \"0\"\n",
@@ -2368,7 +2368,7 @@ fn degrees_count_the_notes_of_an_earlier_clips_chord() {
     assert_eq!(Song::parse(&printed), Ok(s));
     let e =
         Song::parse(&format!("{harm}clip f = lead .chord(nope)\n  \"0\"\n")).expect_err("no clip");
-    assert_eq!(e.msg, "this takes an earlier clip, e.g. chord(harm)");
+    assert_eq!(e.msg, crate::usage::CHORD);
 }
 
 #[test]
@@ -3142,7 +3142,7 @@ fn struct_stays_in_phase_with_a_source_of_another_length() {
 
 #[test]
 fn a_clip_read_for_a_rhythm_comes_before_and_has_hits() {
-    let bad = "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)";
+    let bad = crate::usage::STRUCT;
     for (text, line, col, msg) in [
         (
             "track lead synth\nclip f = lead .struct(nope)\n  \"c4\"\n",

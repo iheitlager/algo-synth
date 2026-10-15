@@ -22,6 +22,7 @@ use crate::mono::voice::MonoCtx;
 use crate::table::{TABLES, USER_TABLES};
 use crate::voice::lookup;
 
+pub mod complete;
 pub mod lex;
 pub mod sc;
 pub mod verb;

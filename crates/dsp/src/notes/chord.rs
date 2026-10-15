@@ -34,7 +34,7 @@ pub const QUALITIES: [(&str, &[u8]); 17] = [
     ("add9", &[0, 4, 7, 14]),
 ];
 
-const NUMERALS: [&str; 7] = ["i", "ii", "iii", "iv", "v", "vi", "vii"];
+pub const NUMERALS: [&str; 7] = ["i", "ii", "iii", "iv", "v", "vi", "vii"];
 
 /// The octave a chord's root sits in when none is written.
 const OCTAVE: i32 = 4;

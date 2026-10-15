@@ -3,6 +3,7 @@
 // only cuts it into coloured pieces. The lexer is a second instance of
 // dsp.wasm on the main thread, so typing never costs the audio thread anything.
 import { shallowRef } from 'vue'
+import { readCompletion, type Completer } from './complete'
 
 /** The engine's span classes by number (song::lex::Class), as CSS class names. */
 export const CLASSES = ['', 'kw', 'name', 'num', 'note', 'pad', 'step', 'rest', 'call', 'param', 'punct', 'comment'] as const
@@ -16,22 +17,36 @@ interface LexExports {
   lex(): number
   sc_lex(): number
   lex_ptr(): number
+  complete(caret: number): number
+  sc_complete(caret: number): number
+  complete_ptr(): number
 }
 
 /** The song lexer, once dsp.wasm is compiled; until then the text is plain. */
 export const lexer = shallowRef<Lexer | null>(null)
 /** The SuperCollider lexer for a Modular synth's code (#329). */
 export const scLexer = shallowRef<Lexer | null>(null)
+/** The song's completer (#595), on the lexers' instance. */
+export const completer = shallowRef<Completer | null>(null)
+/** The Modular code's completer (#647). */
+export const scCompleter = shallowRef<Completer | null>(null)
 
-/** Both lexers, on one instance of the engine. */
-export function wasmLexers(module: WebAssembly.Module): { song: Lexer; sc: Lexer } {
+/** Both lexers and the completer, on one instance of the engine. */
+export function wasmLexers(module: WebAssembly.Module): {
+  song: Lexer; sc: Lexer; complete: Completer; scComplete: Completer
+} {
   const w = new WebAssembly.Instance(module, {}).exports as unknown as LexExports
   const encoder = new TextEncoder()
-  const run = (lex: () => number): Lexer => (text) => {
+  const decoder = new TextDecoder()
+  const load = (text: string): boolean => {
     const bytes = encoder.encode(text)
     const ptr = w.lex_buf(bytes.length)
-    if (!ptr) return []
+    if (!ptr) return false
     new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes)
+    return true
+  }
+  const run = (lex: () => number): Lexer => (text) => {
+    if (!load(text)) return []
     const n = lex()
     // Read after lexing: memory may have grown, which detaches older views.
     const raw = new Uint32Array(w.memory.buffer, w.lex_ptr(), n * 3)
@@ -39,7 +54,17 @@ export function wasmLexers(module: WebAssembly.Module): { song: Lexer; sc: Lexer
     for (let i = 0; i < n; i++) out.push({ start: raw[i * 3], len: raw[i * 3 + 1], cls: CLASSES[raw[i * 3 + 2]] ?? '' })
     return out
   }
-  return { song: run(() => w.lex()), sc: run(() => (typeof w.sc_lex === 'function' ? w.sc_lex() : 0)) }
+  const completing = (how: ((caret: number) => number) | undefined): Completer => (text, caret) => {
+    if (typeof how !== 'function' || !load(text)) return { from: caret, to: caret, items: [], help: '', preview: '' }
+    const n = how.call(w, caret)
+    return readCompletion(decoder.decode(new Uint8Array(w.memory.buffer, w.complete_ptr(), n)))
+  }
+  return {
+    song: run(() => w.lex()),
+    sc: run(() => (typeof w.sc_lex === 'function' ? w.sc_lex() : 0)),
+    complete: completing(w.complete),
+    scComplete: completing(w.sc_complete),
+  }
 }
 
 /** A lit word on a line (#205): its column and length, in UTF-16 units. */
