@@ -303,6 +303,16 @@ impl List<'_> {
         self.params(Set::Track, true);
     }
 
+    /// A drum clip made from a clip (#653): the methods of time.
+    fn time_methods(&mut self) {
+        for (w, d) in METHODS {
+            if !matches!(w, "add" | "sub" | "scale" | "oct" | "chord" | "strum") {
+                self.add(Class::Call, w, || d.to_string());
+            }
+        }
+        self.params(Set::Track, true);
+    }
+
     fn kinds(&mut self) {
         for (k, d) in [
             ("drums", "lanes of pads"),
@@ -787,6 +797,15 @@ impl<'a> Names<'a> {
         }
     }
 
+    /// The clips on a track whose kind `fits`.
+    fn clips_on(&self, list: &mut List, fits: impl Fn(&str) -> bool) {
+        for (c, t) in &self.clips {
+            if self.kind(t).is_some_and(&fits) && self.open != Some(c) {
+                list.add(Class::Name, c, || format!("a clip on {t}"));
+            }
+        }
+    }
+
     fn targets(&self, list: &mut List) {
         self.tracks(list);
         list.add(Class::Name, "master", || "the master".to_string());
@@ -946,7 +965,11 @@ impl<'a> Names<'a> {
             return match kw {
                 "clip" if target.is_empty() && w.len() >= 4 => {
                     let lanes = w.get(3).and_then(|t| self.kind(t)) == Some("drums");
-                    list.methods(!lanes);
+                    if lanes && from_clip(w.get(4).filter(|_| w.len() >= 5).copied()) {
+                        list.time_methods();
+                    } else {
+                        list.methods(!lanes);
+                    }
                 }
                 "auto" | "snapshot" if !target.is_empty() => list.target_params(target, false),
                 "mod" if !target.is_empty() && !pre.contains('=') => {
@@ -986,9 +1009,14 @@ impl<'a> Names<'a> {
             ("setting", Some(4)) => list.presets(w.get(3).copied().unwrap_or("")),
             ("clip", Some(3)) => self.tracks(list),
             ("clip", Some(k)) if k >= 4 => {
-                // An earlier clip of notes to make this one from (#649).
-                if k == 4 && w.get(3).and_then(|t| self.kind(t)) != Some("drums") {
-                    self.note_clips(list);
+                // An earlier clip to make this one from (#649, #653): of notes
+                // for notes, of lanes for lanes, either on a sampler.
+                if k == 4 {
+                    match w.get(3).and_then(|t| self.kind(t)) {
+                        Some("drums") => self.clips_on(list, |k| k == "drums"),
+                        Some("sampler") => self.clips_on(list, |_| true),
+                        _ => self.note_clips(list),
+                    }
                 }
                 list.table(Class::Keyword, &CLIP_WORDS);
             }
@@ -1149,6 +1177,13 @@ scene main 8: beat riff
         assert_eq!(song("clip c = lead .reso|"), ["resonance"]);
         // Lanes take no pattern methods.
         assert!(!song("clip c = kit .|").contains(&"fast".to_string()));
+        // A drum clip made from one takes earlier drum clips and the
+        // methods of time (#653).
+        assert!(song("clip c = kit b|").contains(&"beat".to_string()));
+        assert!(!song("clip c = kit r|").contains(&"riff".to_string()));
+        let time = song("clip c = kit beat .|");
+        assert!(time.contains(&"fast".to_string()) && time.contains(&"room".to_string()));
+        assert!(!time.contains(&"add".to_string()) && !time.contains(&"strum".to_string()));
         assert!(song("clip c = kit .|").contains(&"room".to_string()));
     }
 

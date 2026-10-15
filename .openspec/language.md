@@ -518,7 +518,7 @@ clip sand = lead live
 
 Written last on a note clip's line; applied in order to its notes at load. A
 cycle is a bar; times round to the tick grid; the result keeps the limits of
-512 notes and 64 bars. Not on lanes; a `live` clip takes only the pitch
+512 notes and 64 bars. Not on lanes, but on a drum clip made from one; a `live` clip takes only the pitch
 methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 
 | method | does |
@@ -567,12 +567,20 @@ clip bass = bass .struct(beat) .scale(a1 minor)
   "0 4 2 3"
 ```
 
-A clip can be made from an earlier clip of notes and methods, with no line
-of its own: `clip back = right fwd .rev()` plays `fwd`'s notes, after its own
+A clip can be made from an earlier clip and methods, with no line of its
+own: `clip back = right fwd .rev()` plays `fwd`'s notes, after its own
 methods, through `.rev()` (#649). Strudel's `.jux(rev)` is then two tracks
-panned apart. A clip written later, the clip itself or a drum clip is an
-error at the name; the clip follows an edit to its source, and takes none of
-its own. Not on a drums track, nor with `voicing` (the source's holds).
+panned apart. A clip written later or the clip itself is an error at the
+name; the clip follows an edit to its source, and takes none of its own. Not
+with `voicing` (the source's holds).
+
+A drum clip is made from a drum clip the same way (#653), on a drums or a
+sampler track: its steps, ghosts, flams and ratchets kept, through the
+methods of time (not `add`, `sub`, `scale`, `oct`, `chord` or `strum`), back
+on the source's grid. A hit lands in the step it starts in; one that neither
+starts nor ends on a step (`fast(3)` on `/16`) is an error, as is a lane past
+64 steps. Where two hits share a step, the stronger plays: an accent, a hit,
+a flam or drag, a ghost. A clip of notes is made from one of notes.
 
 ```song
 track left synth
@@ -582,6 +590,16 @@ strip right: Pan 1
 clip fwd = left
   "c4 eb4 [g4 bb4] c5"
 clip back = right fwd .rev()
+```
+
+```song
+track hatl drums
+track hatr drums
+strip hatl: Pan -1
+strip hatr: Pan 1
+clip hats = hatl /16
+  ch x.oxx.o.x3...xo.o
+clip stah = hatr hats .every(2, rev)
 ```
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:
