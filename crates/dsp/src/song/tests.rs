@@ -2158,7 +2158,7 @@ fn pattern_method_errors_say_where() {
             "track l synth\nclip w = l live .rev()\n  walk(c4,8,1)",
             2,
             18,
-            "a live clip takes no pattern methods yet",
+            "a live clip takes only pitch methods: scale, chord, oct, add and sub",
         ),
         (
             "track l synth\nclip r = l .fast(0)\n  \"c4\"",
@@ -2369,6 +2369,28 @@ fn degrees_count_the_notes_of_an_earlier_clips_chord() {
     let e =
         Song::parse(&format!("{harm}clip f = lead .chord(nope)\n  \"0\"\n")).expect_err("no clip");
     assert_eq!(e.msg, "this takes an earlier clip, e.g. chord(harm)");
+}
+
+#[test]
+fn a_live_clip_takes_pitch_methods_and_prints_back() {
+    let text = "scale c minor\ntrack pad synth\ntrack lead synth\n\
+                clip harm = pad\n  \"<[a2,c3,e3] [d3,f3,a3]>\"\n\
+                clip sand = lead live .scale(harm minor) .oct(1)\n  walk(c4,8,1)\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[1].pattern.len(), 2);
+    // The bar kept for a source is on harm's first root, an octave up.
+    let a_minor = [9, 11, 0, 2, 4, 5, 7];
+    assert!(
+        notes_of(&s, "sand")
+            .iter()
+            .all(|(_, n)| a_minor.contains(&(n % 12)))
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("clip sand = lead live .scale(harm minor) .oct(1)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
 }
 
 /// The notes of clip `k`, in order.

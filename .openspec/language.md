@@ -463,7 +463,10 @@ clip dice = arp
 
 **live:** `clip <name> = <track> live` with a generator call (any of the
 table) plays new notes every bar: the seed mixed with the bar, the same every
-run. Not on lanes, other forms of notes, `voicing` or pattern methods.
+run. Not on lanes, other forms of notes or `voicing`. Of the pattern methods it
+takes only those that change pitches, note by note, each bar as it is made:
+`.scale`, `.chord`, `.oct`, `.add` and `.sub` (#593); so a live melody follows
+a harmony clip: `clip sand = lead live .chord(harm)`.
 
 ```song
 scale e phrygian-dominant
@@ -476,7 +479,8 @@ clip sand = lead live
 
 Written last on a note clip's line; applied in order to its notes at load. A
 cycle is a bar; times round to the tick grid; the result keeps the limits of
-512 notes and 64 bars. Not on lanes or `live` clips.
+512 notes and 64 bars. Not on lanes; a `live` clip takes only the pitch
+methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
 
 | method | does |
 |---|---|

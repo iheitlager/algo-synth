@@ -679,6 +679,64 @@ impl Pattern {
     }
 }
 
+impl Pattern {
+    /// Does this method change only pitches, one note at a time, so a live
+    /// clip can take it in `render` (#593)?
+    pub fn pitch_only(&self) -> bool {
+        matches!(
+            self,
+            Pattern::Add(_)
+                | Pattern::Sub(_)
+                | Pattern::Oct(_)
+                | Pattern::Scale(_)
+                | Pattern::ScaleOf(..)
+                | Pattern::ChordOf(_)
+        )
+    }
+
+    /// A pitch method on event `e`, which starts at tick `t` of the song:
+    /// false when the note goes (out of 0 to 127). Nothing allocates (#593).
+    pub fn pitch(&self, e: &mut Event, t: u64) -> bool {
+        let shift = |e: &mut Event, by: i32| match u8::try_from(i32::from(e.note) + by) {
+            Ok(n) if n <= 127 => {
+                e.note = n;
+                true
+            }
+            _ => false,
+        };
+        match self {
+            Pattern::Add(n) => shift(e, *n),
+            Pattern::Sub(n) => shift(e, -n),
+            Pattern::Oct(n) => !e.degree && shift(e, 12 * n),
+            Pattern::Scale(keys) => {
+                let bar =
+                    u32::try_from(t / u64::from(BAR) % u64::from(keys.bars().max(1))).unwrap_or(0);
+                if let Some(k) = keys.at(bar) {
+                    k.place(e);
+                }
+                true
+            }
+            Pattern::ScaleOf(c, mode) => {
+                if let Some(root) = c.root(t) {
+                    place_on(e, root, *mode);
+                }
+                true
+            }
+            Pattern::ChordOf(c) => c.place(e, t),
+            _ => true,
+        }
+    }
+}
+
+/// The pitch methods of a live clip on the bar it has just made, which
+/// starts at tick `base` of the song: in place, nothing allocated (#593).
+pub fn pitch_all(patterns: &[Pattern], events: &mut Vec<Event>, base: u64) {
+    events.retain_mut(|e| {
+        let t = base + u64::from(e.start);
+        patterns.iter().all(|p| p.pitch(e, t))
+    });
+}
+
 /// Every pattern of a clip applied in order.
 pub fn apply_all(patterns: &[Pattern], line: Line) -> Result<Line, &'static str> {
     patterns.iter().try_fold(line, |l, p| p.apply(&l))

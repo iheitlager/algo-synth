@@ -65,7 +65,7 @@ fn cycle_seed(base: u32, cycle: u64) -> u32 {
 use crate::algo::mix;
 use crate::modular::Program;
 use crate::modular::sc::{CodeError, Patch, compile};
-use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR};
+use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR, pattern};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
@@ -2054,13 +2054,10 @@ impl Engine {
     /// not a computation. A seek or a new song makes the cycle on the spot.
     /// The buffers were sized when the song loaded: nothing allocates.
     fn step_live(&mut self, f: usize, cycle: u64, local: u32) {
-        let Some(Seq::Generated(call)) = self
-            .song
-            .clips
-            .get(f)
-            .and_then(|fr| fr.notes.as_ref())
-            .map(|n| &n.seq)
-        else {
+        let Some((Seq::Generated(call), span, methods)) = self.song.clips.get(f).and_then(|fr| {
+            let n = fr.notes.as_ref()?;
+            Some((&n.seq, u64::from(n.bars * TICKS_PER_BAR), &fr.pattern))
+        }) else {
             return;
         };
         let Some(live) = self.live.get_mut(f) else {
@@ -2072,12 +2069,14 @@ impl Engine {
                 std::mem::swap(&mut live.cur, &mut live.nxt);
             } else {
                 call.events_into(cycle_seed(call.seed(), cycle), scale, &mut live.cur);
+                pattern::pitch_all(methods, &mut live.cur, cycle * span);
             }
             live.cycle = Some(cycle);
             live.next = None;
         }
         if local > 0 && live.next != Some(cycle + 1) {
             call.events_into(cycle_seed(call.seed(), cycle + 1), scale, &mut live.nxt);
+            pattern::pitch_all(methods, &mut live.nxt, (cycle + 1) * span);
             live.next = Some(cycle + 1);
         }
     }

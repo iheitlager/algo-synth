@@ -2909,6 +2909,39 @@ fn a_live_clip_does_not_grow_its_buffers() {
     assert_eq!(e.live[0].cycle, Some(5));
 }
 
+/// #593: a live clip's pitch methods follow its harmony clip every bar,
+/// in `render`, without growing its buffers.
+#[test]
+fn a_live_clip_follows_its_harmony_clip_each_bar() {
+    let mut e = poly();
+    let text = "tempo 120\nscale c minor\ntrack pad synth\ntrack lead synth\n\
+                clip harm = pad\n  \"<[a2,c3,e3] [d3,f3,a3]>\"\n\
+                clip w = lead live .chord(harm)\n  walk(c4,8,1)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let room = (e.live[1].cur.capacity(), e.live[1].nxt.capacity());
+    e.song_play();
+    let chords: [[u8; 3]; 2] = [[9, 0, 4], [2, 5, 9]];
+    let bar = 96_000 / BLOCK;
+    for k in 0..4u64 {
+        // Halfway into bar k: its live notes are on bar k's chord.
+        for _ in 0..bar / 2 {
+            e.render(BLOCK);
+        }
+        assert_eq!(e.live[1].cycle, Some(k));
+        let chord = chords[(k % 2) as usize];
+        assert!(!e.live[1].cur.is_empty());
+        assert!(
+            e.live[1].cur.iter().all(|n| chord.contains(&(n.note % 12))),
+            "bar {k}: {:?}",
+            e.live[1].cur.iter().map(|n| n.note).collect::<Vec<_>>()
+        );
+        for _ in 0..bar - bar / 2 {
+            e.render(BLOCK);
+        }
+    }
+    assert_eq!((e.live[1].cur.capacity(), e.live[1].nxt.capacity()), room);
+}
+
 /// #124: channel 10 plays on a drum/pad sampler slot too: pad 2 answers note 38.
 #[test]
 fn channel_ten_plays_on_a_pad_sampler_slot() {

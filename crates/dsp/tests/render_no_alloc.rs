@@ -57,9 +57,9 @@ clip beat = kit /16
   cl euclid(7,16,2)
 clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\")
   \"[e3,g#3,b3] [f3,a3,c4]\"
-clip sand = lead live
+clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random,16,3)
-clip roam = bass live
+clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5)
 clip ring = bell
   \"[e4,b4] ~ g#4 ~\"
