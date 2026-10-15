@@ -975,6 +975,7 @@ mod tests {
             vel: 0,
             word: 0,
             degree: false,
+            when: Default::default(),
         }
     }
 

@@ -245,6 +245,7 @@ fn layout(
                     accent: false,
                     vel: n.vel,
                     degree: false,
+                    when: Default::default(),
                     word: 0,
                 })
                 .collect();

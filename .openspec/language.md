@@ -334,12 +334,29 @@ range's (`0 .. 3@2`), and the start takes none.
 ```text
 "<word>…"
 word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
-suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | & slide
+suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
 one option per bar, `?` plays on a fixed, seeded half of the bars and `?0.3`
 on about 3 in 10 (0 to 1, at most three decimals; repeats after 8).
+After the `?` can come a trig condition instead, as on Elektron's
+sequencers:
+
+| suffix | plays |
+|---|---|
+| `?1:4` | in bar 1 of every 4 of the line (`a:b`, 1 ≤ a ≤ b ≤ 16) |
+| `?pre` | when the last condition before it in the bar held (`?pre` itself does not count) |
+| `?first` | in the first bar of its scene (a launched scene's first time round only), the first bar outside a scene, or the bar a new song takes over on |
+| `?last` | in the last bar of its scene; never outside one |
+| `?not…` | the opposite: `?not1:4`, `?notpre`, `?notfirst`, `?notlast` |
+
+```song
+track lead synth
+clip lead = lead
+  "c4 e4?1:4 g4?3:4 ~ b4?0.3 d5?pre a4?last"
+```
+
 Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
 (slide: the note runs one tick into the next; with Legato and Glide, as on
 `AcidBass` and the TB-303's presets, the pitch glides on one gate, also into

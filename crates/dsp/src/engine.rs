@@ -269,6 +269,9 @@ pub struct Engine {
     lit_out: [u32; 2 * MAX_LIT],
     /// A pending song took over on a bar line since the view last asked.
     taken: bool,
+    /// The clock bar the song last took over on, a first bar for `?first`
+    /// (#603).
+    fresh_bar: Option<u64>,
     /// The value each automation lane last wrote, so it writes only changes
     /// and a hand on a knob holds until the next one (ADR-0015).
     auto_last: [f32; MAX_AUTOS],
@@ -381,6 +384,7 @@ impl Engine {
             lit: [Lit::default(); MAX_LIT],
             lit_out: [0; 2 * MAX_LIT],
             taken: false,
+            fresh_bar: None,
             auto_last: [f32::NAN; MAX_AUTOS],
             mod_last: [f32::NAN; MAX_MODS],
             mod_base: [None; MAX_MODS],
@@ -1886,6 +1890,9 @@ impl Engine {
     fn fire_due_events(&mut self) {
         while let Some(k) = self.clock.due() {
             if k % STEPS_PER_BAR == 0 {
+                if self.pending.is_some() {
+                    self.fresh_bar = Some(k / STEPS_PER_BAR);
+                }
                 self.commit_song();
                 self.land_launch(k);
             }
@@ -1997,6 +2004,7 @@ impl Engine {
             }
             At::End => return,
         };
+        let (in_first, in_last) = self.first_last(step, from, scene);
         for f in 0..self.song.clips.len() {
             if self.cued_out(f) {
                 continue;
@@ -2035,6 +2043,9 @@ impl Engine {
                 let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {
                     break;
                 };
+                if !ev.when.holds(in_first, in_last) {
+                    continue;
+                }
                 let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
                     continue;
                 };
@@ -2050,6 +2061,25 @@ impl Engine {
                 self.light(span, until);
             }
         }
+    }
+
+    /// Is the bar of clock step `step`, at tick `from` of its scene (or of
+    /// the clock, outside one), a first or a last bar for `?first` and
+    /// `?last` (#603)? First: its scene's first bar (a launched scene's only
+    /// the first time round), the clock's first outside a scene, or the bar
+    /// a new song took over on. Last: its scene's last bar.
+    fn first_last(&self, step: u64, from: u64, scene: Option<usize>) -> (bool, bool) {
+        let bar = from / u64::from(TICKS_PER_BAR);
+        let launched = self
+            .launch
+            .playing
+            .filter(|(s, _)| scene == Some(*s))
+            .is_some_and(|(_, at)| step < at || step >= at + STEPS_PER_BAR);
+        let first = (bar == 0 && !launched) || self.fresh_bar == Some(step / STEPS_PER_BAR);
+        let last = scene
+            .and_then(|s| self.song.scenes.get(s))
+            .is_some_and(|s| bar + 1 == u64::from(s.bars));
+        (first, last)
     }
 
     /// Event `k` of clip `f` for the cycle now playing.

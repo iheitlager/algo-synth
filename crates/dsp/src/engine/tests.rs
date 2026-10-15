@@ -6204,3 +6204,49 @@ fn songs_loaded_in_turn_leave_no_mix_behind() {
         );
     }
 }
+
+/// The notes synth 0 starts in each of `bars` bars at 120 BPM, by bar.
+fn notes_by_bar(e: &mut Engine, bars: u64) -> Vec<Vec<u8>> {
+    let bar = 96_000;
+    let mut out = vec![Vec::new(); bars as usize];
+    for (f, _, n) in note_starts(e, bars * bar, BLOCK) {
+        if let Some(b) = out.get_mut((f / bar) as usize) {
+            b.push(n);
+        }
+    }
+    out
+}
+
+/// #603: `?first` plays in a scene's first bar, `?last` in its last.
+#[test]
+fn first_and_last_follow_the_scenes() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4?first ~ e4?last ~ g4?notfirst ~ ~ ~\"\n\
+                scene a 2: m\nscene b 3: m\narrange a b\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    assert_eq!(
+        notes_by_bar(&mut e, 5),
+        [vec![60], vec![64, 67], vec![60], vec![67], vec![64, 67]]
+    );
+}
+
+/// #603: a launched scene's first bar is its first only the first time
+/// round; a song taking over on a bar makes that bar a first one.
+#[test]
+fn first_is_a_launch_once_and_a_new_song() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4?first ~ ~ ~\"\n\
+                scene a 2: m\narrange a\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_launch(0, Quantize::Now);
+    assert_eq!(notes_by_bar(&mut e, 4), [vec![60], vec![], vec![], vec![]]);
+    let free = "tempo 120\ntrack lead synth\nclip m = lead\n  \"c4?first ~ ~ ~\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, free), Ok(()));
+    e.song_play();
+    assert_eq!(notes_by_bar(&mut e, 2), [vec![60], vec![]]);
+    // Loaded in bar 2, it takes over on bar 3.
+    assert_eq!(load_text(&mut e, free), Ok(()));
+    assert_eq!(notes_by_bar(&mut e, 2), [vec![60], vec![]]);
+}
