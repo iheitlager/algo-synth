@@ -2228,6 +2228,7 @@ mod tests {
             Model::Tr808,
             Model::Tr909,
             Model::Sampler,
+            Model::GeneralMidi,
             Model::PadSampler,
             Model::Modular,
             // The SID's filter is its own, reached by `SidFilter` (#112).

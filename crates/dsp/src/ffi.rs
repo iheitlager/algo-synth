@@ -1331,14 +1331,15 @@ pub extern "C" fn song_tracks() -> u32 {
     query(0, |e| e.song().tracks.len() as u32)
 }
 
-// The song's `samples` lines (#214): the view loads what they name, and a
-// pack or kit picked on a synth's panel is written as its id into `song_buf`
-// and set with `samples_set`.
+// The samples the song's tracks want (#214, `Song::sample_ids`): its
+// `samples` lines and the packs of its General MIDI presets (#652). The view
+// loads what they name, and a pack or kit picked on a synth's panel is
+// written as its id into `song_buf` and set with `samples_set`.
 
-/// Lines of `samples` in the song.
+/// How many samples the tracks want.
 #[unsafe(no_mangle)]
 pub extern "C" fn samples_count() -> u32 {
-    query(0, |e| e.song().samples.len() as u32)
+    query(0, |e| e.song().sample_ids().count() as u32)
 }
 
 // The recipes of the user wavetables and attacks (ADR-0033): the view reads
@@ -1395,25 +1396,25 @@ pub extern "C" fn recipe_set() -> i32 {
     query(-1, |e| if e.set_recipe_from_buffer() { 0 } else { -1 })
 }
 
-/// The synth the track of `samples` line `i` plays on, or −1.
+/// The synth the track of wanted samples `i` plays on, or −1.
 #[unsafe(no_mangle)]
 pub extern "C" fn samples_synth(i: u32) -> i32 {
     query(-1, |e| {
         e.song()
-            .samples
-            .get(i as usize)
-            .and_then(|(t, _)| e.song_routed(*t))
+            .sample_ids()
+            .nth(i as usize)
+            .and_then(|(t, _)| e.song_routed(t))
             .map_or(-1, |s| s as i32)
     })
 }
 
-/// The id of `samples` line `i`: its length in bytes and where it is.
+/// The id of wanted samples `i`: its length in bytes and where it is.
 #[unsafe(no_mangle)]
 pub extern "C" fn samples_id_len(i: u32) -> u32 {
     query(0, |e| {
         e.song()
-            .samples
-            .get(i as usize)
+            .sample_ids()
+            .nth(i as usize)
             .map_or(0, |(_, id)| id.len() as u32)
     })
 }
@@ -1422,8 +1423,8 @@ pub extern "C" fn samples_id_len(i: u32) -> u32 {
 pub extern "C" fn samples_id_ptr(i: u32) -> *const u8 {
     query(std::ptr::null(), |e| {
         e.song()
-            .samples
-            .get(i as usize)
+            .sample_ids()
+            .nth(i as usize)
             .map_or(std::ptr::null(), |(_, id)| id.as_ptr())
     })
 }

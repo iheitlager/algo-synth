@@ -659,12 +659,8 @@ impl Engine {
         else {
             return false;
         };
-        if self
-            .song
-            .samples
-            .iter()
-            .any(|(u, have)| *u == t && *have == id)
-        {
+        // A General MIDI preset's own pack needs no line (#652).
+        if self.song.sample_ids().any(|(u, have)| u == t && have == id) {
             return true;
         }
         if !self.song.set_samples(t, &id) {

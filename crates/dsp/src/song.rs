@@ -2768,6 +2768,20 @@ impl Song {
         true
     }
 
+    /// The samples each track wants (#214): its `samples` line, else, for a
+    /// General MIDI preset on a track without zone lines, the preset's pack
+    /// (#652). The written lines come first, in order.
+    pub fn sample_ids(&self) -> impl Iterator<Item = (usize, &str)> {
+        let written = self.samples.iter().map(|(t, id)| (*t, id.as_str()));
+        let implied = self.tracks.iter().enumerate().filter_map(|(t, track)| {
+            let pack = track.preset?.pack()?;
+            let free = !self.samples.iter().any(|(u, _)| *u == t)
+                && !self.zones.iter().any(|z| z.track == t);
+            free.then_some((t, pack))
+        });
+        written.chain(implied)
+    }
+
     /// Track `t` wants the samples of pack or kit `id` (#214): its `samples`
     /// line, replaced or added. False for no such track, a synth track, or an
     /// id that isn't one.

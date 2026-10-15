@@ -793,6 +793,7 @@ export const Model = {
   Tb303: 20,
   Sid: 21,
   Nes: 22,
+  GeneralMidi: 23,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -902,6 +903,18 @@ export const Preset = {
   NesArp: 102,
   NesKit: 103,
   ModularDubSiren: 104,
+  GmPiano: 105,
+  GmElectricPiano: 106,
+  GmVibraphone: 107,
+  GmMarimba: 108,
+  GmXylophone: 109,
+  GmOrgan: 110,
+  GmNylonGuitar: 111,
+  GmAcousticBass: 112,
+  GmFingerBass: 113,
+  GmStrings: 114,
+  GmTrumpet: 115,
+  GmFlute: 116,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

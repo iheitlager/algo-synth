@@ -47,11 +47,13 @@ pub enum Model {
     Sid = 21,
     /// The NES's Ricoh 2A03 (#112): one chip per note, or a drum kit.
     Nes = 22,
+    /// General MIDI (#652): the multisampler on a program of the GM bank.
+    GeneralMidi = 23,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 23] = [
+    pub const ALL: [(Model, &'static str); 24] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -75,6 +77,7 @@ impl Model {
         (Model::Tb303, "Tb303"),
         (Model::Sid, "Sid"),
         (Model::Nes, "Nes"),
+        (Model::GeneralMidi, "GeneralMidi"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.

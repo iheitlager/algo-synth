@@ -14,6 +14,7 @@ mod arp2600;
 mod cs15;
 mod d50;
 mod dx7;
+mod general_midi;
 mod juno106;
 mod jupiter8;
 mod matrix12;
@@ -226,6 +227,7 @@ impl Model {
             Model::Tb303 => &tb303::DEF,
             Model::Sid => &sid::DEF,
             Model::Nes => &nes::DEF,
+            Model::GeneralMidi => &general_midi::DEF,
         }
     }
 }
@@ -257,6 +259,7 @@ mod tests {
                     | Model::Tr808
                     | Model::Tr909
                     | Model::Sampler
+                    | Model::GeneralMidi
                     | Model::PadSampler
                     | Model::Modular
                     | Model::Sid

@@ -142,6 +142,96 @@ class Wav(unittest.TestCase):
             fs.read_wav(wav(48_000, 1, 16, [(1,)]).replace(b"\x01\x00\x01\x00", b"\x03\x00\x01\x00", 1))
 
 
+def sf2_bytes() -> bytes:
+    """A tiny SoundFont 2: samples 0/1 a stereo pair, 2 mono; one instrument and
+    preset 0:5 over it (#652)."""
+    def chunk(cid: bytes, body: bytes) -> bytes:
+        return cid + struct.pack("<I", len(body)) + body + (b"\0" if len(body) & 1 else b"")
+
+    def lst(kind: bytes, *chunks: bytes) -> bytes:
+        return chunk(b"LIST", kind + b"".join(chunks))
+
+    pcm = array.array("h", [100] * 40 + [300] * 40 + [1000] * 40 + [0] * 46)
+    name = lambda n: n.encode().ljust(20, b"\0")
+    #               name          start end  loop  rate  pitch corr link type
+    shdr = b"".join([
+        struct.pack("<20sIIIIIBbHH", name("L"), 0, 40, 4, 36, 22050, 60, 0, 1, 4),
+        struct.pack("<20sIIIIIBbHH", name("R"), 40, 80, 44, 76, 22050, 60, 0, 0, 2),
+        struct.pack("<20sIIIIIBbHH", name("M"), 80, 120, 90, 110, 44100, 72, -5, 0, 1),
+        struct.pack("<20sIIIIIBbHH", name("EOS"), 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ])
+    gen = lambda op, amount: struct.pack("<HH", op, amount & 0xFFFF)
+    rng = lambda op, lo, hi: struct.pack("<HBB", op, lo, hi)
+    # Instrument zones: a global one (a loop), then low keys on the pair, two
+    # velocity layers of the mono sample up top, the loud one 6 dB down.
+    igen = [
+        gen(54, 1),
+        rng(43, 0, 59), gen(58, 48), gen(51, -13), gen(53, 0),
+        rng(43, 60, 127), rng(44, 0, 63), gen(53, 2),
+        rng(43, 60, 127), rng(44, 64, 127), gen(48, 60), gen(53, 2),
+        gen(0, 0),
+    ]
+    ibag = [(0, 0), (1, 0), (5, 0), (8, 0), (12, 0)]
+    pgen = [gen(52, 10), rng(43, 0, 100), gen(41, 0), gen(0, 0)]
+    pbag = [(0, 0), (1, 0), (3, 0)]
+    pdta = lst(
+        b"pdta",
+        chunk(b"phdr", struct.pack("<20sHHHIII", name("Five"), 5, 0, 0, 0, 0, 0)
+              + struct.pack("<20sHHHIII", name("EOP"), 0, 0, 2, 0, 0, 0)),
+        chunk(b"pbag", b"".join(struct.pack("<HH", *b) for b in pbag)),
+        chunk(b"pmod", b"\0" * 10),
+        chunk(b"pgen", b"".join(pgen)),
+        chunk(b"inst", struct.pack("<20sH", name("Inst"), 0) + struct.pack("<20sH", name("EOI"), 4)),
+        chunk(b"ibag", b"".join(struct.pack("<HH", *b) for b in ibag)),
+        chunk(b"imod", b"\0" * 10),
+        chunk(b"igen", b"".join(igen)),
+        chunk(b"shdr", shdr),
+    )
+    body = b"sfbk" + lst(b"INFO", chunk(b"ifil", struct.pack("<HH", 2, 1))) + lst(b"sdta", chunk(b"smpl", pcm.tobytes())) + pdta
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+class Sf2(unittest.TestCase):
+    def setUp(self):
+        self.bank = fs.parse_sf2(sf2_bytes())
+
+    def test_a_bank_reads_its_presets_instruments_and_samples(self):
+        self.assertEqual([(p["name"], p["program"], p["bank"]) for p in self.bank["presets"]], [("Five", 5, 0)])
+        self.assertEqual([s["name"] for s in self.bank["samples"]], ["L", "R", "M"])
+        self.assertEqual(len(self.bank["pcm"]), 166)
+        with self.assertRaises(ValueError):
+            fs.parse_sf2(b"RIFF\0\0\0\0WAVE")
+        with self.assertRaises(ValueError):
+            fs.sf2_regions(self.bank, 6)
+
+    def test_regions_combine_the_preset_and_instrument_zones(self):
+        r = fs.sf2_regions(self.bank, 5)
+        self.assertEqual(len(r), 3)
+        low, soft, loud = r
+        # The preset's key range narrows the instrument's; its fine tune adds.
+        self.assertEqual((low["keyLo"], low["keyHi"], soft["keyHi"]), (0, 59, 100))
+        # -13 semitones and 10 cents: the root moves 12 up, -110 + 10 cents is left.
+        self.assertEqual((low["root"], low["tune"]), (60, -90))
+        # The mono sample's own root and pitch correction, its loop from its start.
+        self.assertEqual((soft["root"], soft["tune"], soft["loop"]), (72, 5, 1))
+        self.assertEqual((soft["loopStart"], soft["loopEnd"], soft["rate"]), (10, 30, 44100))
+        self.assertEqual((soft["attenuation"], loud["attenuation"]), (0, 60))
+
+    def test_curation_keeps_one_layer_over_every_velocity(self):
+        c = fs.curate(fs.sf2_regions(self.bank, 5))
+        self.assertEqual([(z["keyLo"], z["velLo"], z["velHi"], z["attenuation"]) for z in c],
+                         [(0, 1, 127, 0), (60, 1, 127, 60)])
+
+    def test_a_stereo_pair_is_mixed_and_attenuation_baked_in(self):
+        low, _, loud = fs.sf2_regions(self.bank, 5)
+        self.assertEqual(set(fs.sf2_pcm(self.bank, low)), {200})
+        self.assertEqual(set(fs.sf2_pcm(self.bank, {**loud, "gain": 0.5})), {500})
+
+    def test_the_pinned_checksum_covers_the_programs(self):
+        pack = {"sha256": "a" * 64, "programs": {"gm-a": 1}}
+        self.assertNotEqual(fs.pinned(pack), fs.pinned({**pack, "programs": {"gm-a": 2}}))
+
+
 class Ledger(unittest.TestCase):
     def test_every_pack_is_pinned_and_licensed(self):
         import json
@@ -158,6 +248,10 @@ class Ledger(unittest.TestCase):
             # Any other license keeps its notice (CMU), or the pack is for this machine only (#573).
             if p["license"] not in {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}:
                 self.assertTrue("notice" in p or p.get("redistribute") is False, p["id"])
+            # A SoundFont's programs are instruments of their own (#652).
+            for pid in p.get("programs", {}):
+                self.assertRegex(pid, r"^gm-[a-z0-9-]+$", p["id"])
+                self.assertNotIn(pid, ids, p["id"])
 
 
 def wav_bytes(n: int = 1600, rate: int = 16000) -> bytes:
@@ -280,6 +374,29 @@ class VoiceLedger(unittest.TestCase):
             for f in p["files"]:
                 self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$")
                 self.assertTrue(f["url"].startswith("http") and f["name"])
+
+
+class KitLedger(unittest.TestCase):
+    def test_every_kit_of_files_is_pinned_on_its_own_pads(self):
+        ledger = json.loads(fs.LEDGER.read_text())
+        kits = [p for p in ledger["packs"] if p.get("kind") == "drums" and "files" in p]
+        self.assertTrue(kits)
+        for p in kits:
+            pads = [f.get("pad", i) for i, f in enumerate(p["files"])]
+            self.assertEqual(len(pads), len(set(pads)), p["id"])
+            self.assertTrue(all(0 <= pad < fs.PADS for pad in pads), p["id"])
+            for f in p["files"]:
+                self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$", p["id"])
+                self.assertTrue(f["url"].startswith("https://") and f["name"], p["id"])
+
+    def test_the_jazz_kit_is_for_this_machine_only(self):
+        # Dirt-Samples has no license (#661): fetched for personal use, like the tidal kits.
+        jazz = next(p for p in json.loads(fs.LEDGER.read_text())["packs"] if p["id"] == "jazz")
+        self.assertIs(jazz["redistribute"], False)
+        self.assertIn("do not commit, publish or redistribute", jazz["license"])
+        self.assertTrue(all("/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/" in f["url"] for f in jazz["files"]))
+        by_pad = {f["pad"]: f["url"].rsplit("/", 1)[1] for f in jazz["files"]}
+        self.assertEqual([by_pad[k] for k in (0, 2, 6, 10)], ["000_BD.wav", "007_SN.wav", "003_HH.wav", "004_OH.wav"])
 
 
 if __name__ == "__main__":

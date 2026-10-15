@@ -1119,6 +1119,90 @@
           "pad": 15
         }
       ]
+    },
+    {
+      "id": "fluidr3-gm",
+      "name": "FluidR3 GM",
+      "kind": "sf2",
+      "ext": "sf2",
+      "url": "https://github.com/pianobooster/fluid-soundfont/releases/download/v3.1/FluidR3_GM.sf2",
+      "sha256": "74594e8f4250680adf590507a306655a299935343583256f3b722c48a1bc1cb0",
+      "license": "MIT",
+      "credit": "FluidR3 GM SoundFont by Frank Wen, https://github.com/pianobooster/fluid-soundfont",
+      "notice": "FluidR3 GM: Copyright (c) 2000-2002, 2008, 2012 Frank Wen <getfrank@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+      "programs": {
+        "gm-piano": 0,
+        "gm-electric-piano": 4,
+        "gm-vibraphone": 11,
+        "gm-marimba": 12,
+        "gm-xylophone": 13,
+        "gm-organ": 16,
+        "gm-nylon-guitar": 24,
+        "gm-acoustic-bass": 32,
+        "gm-finger-bass": 33,
+        "gm-strings": 48,
+        "gm-trumpet": 56,
+        "gm-flute": 73
+      }
+    },
+    {
+      "id": "jazz",
+      "name": "Jazz (Dirt-Samples)",
+      "kind": "drums",
+      "license": "None: the repository has no license and the sounds are sampled from commercial hardware. Fetched on your machine for personal use; do not commit, publish or redistribute them",
+      "redistribute": false,
+      "credit": "From Dirt-Samples (github.com/tidalcycles/Dirt-Samples, the `jazz` bank Strudel plays as `sound(\"jazz\")`), commit c74fc80: its eight one-shots, each on a General MIDI pad. Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "balance": true,
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/000_BD.wav",
+          "sha256": "109785b7ea6b6350bd261c62596d8e45fe827cdb0e620047de0215a0c20562dc",
+          "name": "Bass drum",
+          "pad": 0
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/001_CB.wav",
+          "sha256": "1a65a82a980e90aebcf5fe77c61063e38d26dc10c19bca50d60b25d5834bf202",
+          "name": "Cowbell",
+          "pad": 8
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/002_FX.wav",
+          "sha256": "d13537a08497370014665869425612789ca23ee6d657a71870de4622bece2ef6",
+          "name": "Effect",
+          "pad": 4
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/003_HH.wav",
+          "sha256": "020b400ab6d2799f48f79e98db188937fe2e65a30187ecfd5cf68cf2ee3babee",
+          "name": "Closed hat",
+          "pad": 6
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/004_OH.wav",
+          "sha256": "2de55dfd49f9421a9865f3b6609e72422c3162c59a8a8c33a5920c70412f0c75",
+          "name": "Open hat",
+          "pad": 10
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/005_P1.wav",
+          "sha256": "0848eef8dc424bf659023fd69c9cf62adc414729a762805bc32e23232c8b38cb",
+          "name": "Percussion 1",
+          "pad": 5
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/006_P2.wav",
+          "sha256": "e7597364ce249b01bd623bf234c1b440360262e332827093bb75d42e9d5d0ba3",
+          "name": "Percussion 2",
+          "pad": 7
+        },
+        {
+          "url": "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/007_SN.wav",
+          "sha256": "060457762e07355dbf8c530fa59fe0181487561fae89bd1403873df566362336",
+          "name": "Snare",
+          "pad": 2
+        }
+      ]
     }
   ]
 }
