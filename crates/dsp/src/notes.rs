@@ -55,7 +55,7 @@ pub const MAX_BARS: u32 = 64;
 /// Most words (slots and notes) in one line.
 const MAX_ITEMS: usize = 1100;
 /// A line with `?` repeats after this many bars.
-const CHANCE_BARS: u32 = 8;
+pub(crate) const CHANCE_BARS: u32 = 8;
 /// Nesting of `[ ]` and `< >`.
 const MAX_DEPTH: usize = 4;
 const MAX_FACTOR: u32 = 16;
@@ -89,6 +89,9 @@ pub enum Item {
     Group(Vec<Slot>),
     /// `< ... >`: one option per bar.
     Alt(Vec<Slot>),
+    /// `[a | b c]`: one option at random each bar, seeded as `?` is
+    /// (#614); an option may be a sequence.
+    Choice(Vec<Vec<Slot>>),
     /// `0 .. 12`: every degree from the first to the last, sharing the slot.
     Range(i32, i32),
 }
@@ -606,6 +609,17 @@ impl Cursor<'_> {
     fn chord(&mut self) -> Result<Vec<Pitch>, NoteError> {
         let mut out = vec![self.pitch()?];
         loop {
+            // `[c4,e4 | g4]`: the `|` past any spaces (#614).
+            let gap = self
+                .c
+                .iter()
+                .skip(self.i)
+                .take_while(|c| c.is_whitespace())
+                .count();
+            if self.c.get(self.i + gap) == Some(&'|') {
+                self.i += gap;
+                return err(self.col(), "a [ ] holds a chord or a choice, not both");
+            }
             match self.peek() {
                 Some(',') => {
                     self.i += 1;
@@ -648,18 +662,61 @@ impl Cursor<'_> {
 
     /// Words up to `close` (or the end when `None`).
     fn slots(&mut self, close: Option<char>, depth: usize) -> Result<Vec<Slot>, NoteError> {
+        let (out, _) = self.option(close, depth, false)?;
+        Ok(out)
+    }
+
+    /// The inside of `[ ]` after the `[`: a group, or with `|` a choice of
+    /// groups (#614).
+    fn group(&mut self, depth: usize) -> Result<Item, NoteError> {
+        let (first, mut more) = self.option(Some(']'), depth, false)?;
+        if !more {
+            return Ok(Item::Group(first));
+        }
+        let mut options = vec![first];
+        while more {
+            let next;
+            (next, more) = self.option(Some(']'), depth, true)?;
+            options.push(next);
+        }
+        Ok(Item::Choice(options))
+    }
+
+    /// Words up to `close`, or in a `[ ]` up to a `|`: the words and
+    /// whether a `|` (taken) ended them. `later` for an option after a `|`.
+    fn option(
+        &mut self,
+        close: Option<char>,
+        depth: usize,
+        later: bool,
+    ) -> Result<(Vec<Slot>, bool), NoteError> {
         let mut out = Vec::new();
         loop {
             self.skip_ws();
             match (self.peek(), close) {
-                (None, None) => return Ok(out),
+                (None, None) => return Ok((out, false)),
                 (None, Some(_)) => return err(self.col(), "a [ or < is not closed"),
+                (Some('|'), Some(']')) => {
+                    if out.is_empty() {
+                        return err(self.col(), "an option of a | b is empty");
+                    }
+                    self.i += 1;
+                    return Ok((out, true));
+                }
+                (Some('|'), _) => return err(self.col(), "a | b goes inside [ ]: [a | b]"),
                 (Some(c), Some(want)) if c == want => {
                     self.i += 1;
                     if out.is_empty() {
-                        return err(self.col() - 1, "nothing between the brackets");
+                        return err(
+                            self.col() - 1,
+                            if later {
+                                "an option of a | b is empty"
+                            } else {
+                                "nothing between the brackets"
+                            },
+                        );
                     }
-                    return Ok(out);
+                    return Ok((out, false));
                 }
                 _ if self.at_range() => {
                     let at = self.col();
@@ -729,7 +786,7 @@ impl Cursor<'_> {
                 if chord {
                     Item::Chord(self.chord()?)
                 } else {
-                    Item::Group(self.slots(Some(']'), depth + 1)?)
+                    self.group(depth + 1)?
                 }
             }
             Some('<') => {
@@ -742,7 +799,7 @@ impl Cursor<'_> {
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>']);
+                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', '|']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
                 if self.pads.is_some() {
                     Item::Note(self.pitch()?)
@@ -822,7 +879,7 @@ impl Cursor<'_> {
                 }
                 Some(':') => return err(here, "durations go outside the quotes, as c4:4"),
                 Some('(') => return err(here, "euclid comes right after the word: c2(3,8)*2"),
-                Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>') => {
+                Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>' | '|') => {
                     return err(here, "a word ends at a space");
                 }
                 _ => break,
@@ -1247,6 +1304,11 @@ fn slots_text(slots: &[Slot]) -> String {
     parts.join(" ")
 }
 
+fn choice_text(opts: &[Vec<Slot>]) -> String {
+    let parts: Vec<String> = opts.iter().map(|o| slots_text(o)).collect();
+    parts.join(" | ")
+}
+
 fn slot_text(s: &Slot) -> String {
     let mut out = match &s.item {
         Item::Rest => "~".to_string(),
@@ -1255,6 +1317,7 @@ fn slot_text(s: &Slot) -> String {
         Item::Symbol(sym) => sym.text.clone(),
         Item::Group(g) => format!("[{}]", slots_text(g)),
         Item::Alt(g) => format!("<{}>", slots_text(g)),
+        Item::Choice(opts) => format!("[{}]", choice_text(opts)),
         Item::Range(a, b) => format!("{a} .. {b}"),
     };
     if let Some(e) = s.euclid {
@@ -1288,6 +1351,13 @@ fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
         }
         match &s.item {
             Item::Group(g) | Item::Alt(g) => mini_spans(g, at + 1, out),
+            Item::Choice(opts) => {
+                let mut o = at + 1;
+                for g in opts {
+                    mini_spans(g, o, out);
+                    o += slots_text(g).len() + " | ".len();
+                }
+            }
             Item::Rest => out.push((at, 1)),
             Item::Note(p) => out.push((at, pitch_text(p).len())),
             Item::Chord(ps) => out.push((at, chord_text(ps).len())),
@@ -1424,6 +1494,7 @@ fn leaves_of<'a>(slots: &'a [Slot], out: &mut Vec<&'a Item>) {
     for s in slots {
         match &s.item {
             Item::Group(g) | Item::Alt(g) => leaves_of(g, out),
+            Item::Choice(opts) => opts.iter().for_each(|g| leaves_of(g, out)),
             leaf => out.push(leaf),
         }
     }
@@ -1553,6 +1624,14 @@ impl Compiler<'_> {
                 let pick = usize::try_from(bar % n).unwrap_or(0);
                 if let Some(s) = g.get(pick) {
                     self.slot(s, at, span, bar);
+                }
+            }
+            Item::Choice(opts) => {
+                // From the bar's seed, as a `?` draws (#614).
+                let n = u32::try_from(opts.len()).unwrap_or(1).max(1);
+                let pick = usize::try_from(self.rng.next_u32() % n).unwrap_or(0);
+                if let Some(g) = opts.get(pick) {
+                    self.slots(g, at, span, bar);
                 }
             }
         }
@@ -1820,6 +1899,8 @@ fn period(slots: &[Slot]) -> u32 {
         let inner = match &s.item {
             Item::Group(g) => period(g),
             Item::Alt(g) => lcm(u32::try_from(g.len()).unwrap_or(1), period(g)),
+            // A choice is a chance, its pattern round in `CHANCE_BARS`.
+            Item::Choice(opts) => opts.iter().fold(CHANCE_BARS, |p, g| lcm(p, period(g))),
             _ => 1,
         };
         p = lcm(p, inner);

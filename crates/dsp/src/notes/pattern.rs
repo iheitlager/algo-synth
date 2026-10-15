@@ -29,8 +29,8 @@
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
 use super::generate::{MAX_CHORD, chord_at};
-use super::{DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
-use crate::algo::{Euclid, Mode, Scale, mix, pitch_class};
+use super::{CHANCE_BARS, DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
+use crate::algo::{Euclid, Mode, Rng, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
 /// Largest factor of `fast`, `slow`, `ply`, `iter` and `every`.
@@ -52,6 +52,10 @@ pub enum Pattern {
     Stack(Vec<i32>),
     Ply(u32),
     Iter(u32),
+    /// Each bar cut into n parts, played in a new order each bar (#615).
+    Shuffle(u32),
+    /// n parts drawn from each bar's, some twice, some left out (#615).
+    Scramble(u32),
     Degrade(f32),
     Every(u32, Box<Pattern>),
     /// A shift in ticks and the method on the copy.
@@ -380,7 +384,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 18] = [
+    pub const NAMES: [&'static str; 20] = [
         "fast",
         "slow",
         "rev",
@@ -399,6 +403,8 @@ impl Pattern {
         "oct",
         "chord",
         "strum",
+        "shuffle",
+        "scramble",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -426,7 +432,8 @@ impl Pattern {
             _ => Err("this takes no value: ()"),
         };
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
-        if let ("fast" | "slow" | "add" | "sub" | "ply" | "degrade", [a]) = (name, args.as_slice())
+        if let ("fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble", [a]) =
+            (name, args.as_slice())
         {
             let a = a.trim();
             if let Some(text) = a.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
@@ -442,6 +449,8 @@ impl Pattern {
             "slow" => Ok(Pattern::Slow(whole(one()?)?)),
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
+            "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
+            "scramble" => Ok(Pattern::Scramble(whole(one()?)?)),
             "rev" => none().map(|()| Pattern::Rev),
             "palindrome" => none().map(|()| Pattern::Palindrome),
             "add" | "sub" => {
@@ -620,6 +629,8 @@ impl Pattern {
             }
             Pattern::Ply(n) => format!("ply({n})"),
             Pattern::Iter(n) => format!("iter({n})"),
+            Pattern::Shuffle(n) => format!("shuffle({n})"),
+            Pattern::Scramble(n) => format!("scramble({n})"),
             Pattern::Degrade(p) => format!("degrade({p})"),
             Pattern::Every(n, m) => format!("every({n}, {})", bare(m)),
             Pattern::Off(t, m) => {
@@ -675,6 +686,8 @@ impl Pattern {
             }
             Pattern::Ply(n) => ply(line, *n),
             Pattern::Iter(n) => iter(line, *n),
+            Pattern::Shuffle(n) => reorder(line, *n, true)?,
+            Pattern::Scramble(n) => reorder(line, *n, false)?,
             Pattern::Degrade(p) => Line {
                 events: line
                     .events
@@ -964,6 +977,46 @@ fn iter(line: &Line, n: u32) -> Line {
         }
     }
     Line { events, bars }
+}
+
+/// Each bar cut into `n` parts played in another order (#615): a
+/// permutation of them (`shuffle`), or `n` draws with repeats (`scramble`),
+/// seeded by the bar, as `degrade` is. A note keeps its place in its part
+/// and is cut at the part's end; the line repeats after `CHANCE_BARS`.
+fn reorder(line: &Line, n: u32, shuffle: bool) -> Result<Line, &'static str> {
+    if n <= 1 {
+        return Ok(line.clone());
+    }
+    let bars = lcm(line.bars, CHANCE_BARS);
+    check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+    let all = line.repeat(bars);
+    let edge = |k: u32| div_round(k * BAR, n);
+    let mut parts: Vec<u32> = (0..n).collect();
+    let mut events = Vec::new();
+    for b in 0..bars {
+        let mut rng = Rng::new(mix(0x5C4A_3B1E ^ u32::from(shuffle), b));
+        if shuffle {
+            for k in (1..parts.len()).rev() {
+                parts.swap(k, rng.next_u32() as usize % (k + 1));
+            }
+        } else {
+            for p in &mut parts {
+                *p = rng.next_u32() % n;
+            }
+        }
+        for (to, &from) in (0..n).zip(&parts) {
+            let (lo, hi) = (b * BAR + edge(from), b * BAR + edge(from + 1));
+            for e in all.events.iter().filter(|e| (lo..hi).contains(&e.start)) {
+                events.push(Event {
+                    start: b * BAR + edge(to) + (e.start - lo),
+                    len: e.len.min(hi - e.start),
+                    ..*e
+                });
+            }
+        }
+        parts = (0..n).collect();
+    }
+    Ok(Line { events, bars })
 }
 
 /// Method `m` on the bars whose number is `phase` mod `n`, the line as it
@@ -1661,6 +1714,86 @@ mod tests {
         assert_eq!(p.apply(&many), Err("the pattern makes more than 512 notes"));
     }
 
+    /// c d e f g a b c' as eighths in one bar.
+    fn eight() -> Line {
+        Line {
+            events: (0..8).map(|k| ev(k * 6, 6, 60 + k as u8)).collect(),
+            bars: 1,
+        }
+    }
+
+    fn bar_notes(l: &Line, b: u32) -> Vec<u8> {
+        l.events
+            .iter()
+            .filter(|e| e.start / BAR == b)
+            .map(|e| e.note)
+            .collect()
+    }
+
+    /// #615: each bar's parts once each, in an order that changes.
+    #[test]
+    fn shuffle_plays_every_part_once_a_bar() {
+        let s = run("shuffle(4)", &eight());
+        assert_eq!(s.bars, 8, "repeats after 8 bars, as ? does");
+        assert_eq!(s, run("shuffle(4)", &eight()), "the same every run");
+        let mut orders = Vec::new();
+        for b in 0..8 {
+            let notes = bar_notes(&s, b);
+            let mut sorted = notes.clone();
+            sorted.sort_unstable();
+            assert_eq!(sorted, (60..68).collect::<Vec<u8>>(), "bar {b}");
+            // A part's two eighths stay together, in order.
+            for pair in notes.chunks(2) {
+                assert_eq!((pair[0] - 60) % 2, 0, "bar {b}: {notes:?}");
+                assert_eq!(pair[1], pair[0] + 1, "bar {b}: {notes:?}");
+            }
+            orders.push(notes);
+        }
+        orders.dedup();
+        assert!(orders.len() > 3, "{orders:?}");
+        assert_eq!(run("shuffle(1)", &eight()), eight());
+    }
+
+    #[test]
+    fn scramble_draws_parts_with_repeats() {
+        let s = run("scramble(4)", &eight());
+        assert_eq!((s.bars, s.events.len()), (8, 64));
+        assert_eq!(s, run("scramble(4)", &eight()));
+        let repeats = (0..8).filter(|&b| {
+            let mut notes = bar_notes(&s, b);
+            notes.sort_unstable();
+            notes.dedup();
+            notes.len() < 8
+        });
+        assert!(repeats.count() > 0, "some part twice in some bar");
+        assert_ne!(run("scramble(4)", &eight()), run("shuffle(4)", &eight()));
+        assert_eq!(run("scramble(1)", &eight()), eight());
+    }
+
+    #[test]
+    fn a_reordered_note_is_cut_at_its_part_and_works_inside_others() {
+        let whole = Line {
+            events: vec![ev(0, 48, 60)],
+            bars: 1,
+        };
+        let s = run("shuffle(2)", &whole);
+        assert!(
+            s.events.iter().all(|e| e.len == 24 && e.start % 24 == 0),
+            "{s:?}"
+        );
+        let e = run("every(2, shuffle(4))", &eight());
+        assert_eq!(e.bars, 8);
+        assert_eq!(
+            bar_notes(&e, 1),
+            (60..68).collect::<Vec<u8>>(),
+            "odd bars as written"
+        );
+        assert_eq!(run("off(1/8, scramble(2))", &eight()).events.len(), 128);
+        assert_eq!(run("sometimes(shuffle(2))", &eight()).bars, 8);
+        // A value a bar (#629).
+        assert_eq!(run("shuffle(\"<1 4>\")", &eight()).bars, 8);
+    }
+
     #[test]
     fn degrade_is_seeded() {
         let line = run("ply(16)", &four());
@@ -1686,6 +1819,8 @@ mod tests {
             ("off", "0.125, add(12)", "off(1/8, add(12))"),
             ("off", "3/16,palindrome", "off(3/16, palindrome)"),
             ("sub", "-3", "sub(-3)"),
+            ("shuffle", " 4", "shuffle(4)"),
+            ("every", "2, scramble(3)", "every(2, scramble(3))"),
             ("add", " [0, 2 ,4] ", "add([0,2,4])"),
             ("every", "2, add([0,-12])", "every(2, add([0,-12]))"),
             ("strum", " 15 ", "strum(15)"),
@@ -1726,6 +1861,8 @@ mod tests {
     fn bad_methods_say_why() {
         for (name, args, msg) in [
             ("fast", "0", "this takes a whole number from 1 to 16"),
+            ("shuffle", "0", "this takes a whole number from 1 to 16"),
+            ("scramble", "17", "this takes a whole number from 1 to 16"),
             ("fast", "1.5", "this takes a whole number from 1 to 16"),
             ("fast", "", "this takes one value"),
             ("rev", "2", "this takes no value: ()"),

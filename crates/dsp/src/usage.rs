@@ -35,7 +35,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 18] = [
+pub const METHODS: [(&str, &str); 20] = [
     (
         "fast",
         "fast takes a whole number from 1 to 16, or one a bar: fast(2) or fast(\"<1 2>\")",
@@ -74,6 +74,14 @@ pub const METHODS: [(&str, &str); 18] = [
     (
         "strum",
         "strum takes milliseconds from 1 to 100, below 0 to strum down: strum(15)",
+    ),
+    (
+        "shuffle",
+        "shuffle takes a whole number from 1 to 16: shuffle(4)",
+    ),
+    (
+        "scramble",
+        "scramble takes a whole number from 1 to 16: scramble(4)",
     ),
 ];
 
