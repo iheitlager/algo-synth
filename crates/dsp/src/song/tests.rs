@@ -2178,7 +2178,7 @@ fn a_value_a_bar_parses_and_prints_back() {
     );
     assert_eq!(
         err.map_err(|e| e.msg),
-        Err("a live clip takes only pitch methods: scale, chord, oct, add and sub")
+        Err("a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)")
     );
 }
 
