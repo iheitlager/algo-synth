@@ -974,6 +974,16 @@ export const ArpMode = {
   UpDown: 2,
   AsPlayed: 3,
   Random: 4,
+  DownUp: 5,
+  UpAndDown: 6,
+  DownAndUp: 7,
+  Converge: 8,
+  Diverge: 9,
+  Disconverge: 10,
+  PinkyUp: 11,
+  PinkyUpDown: 12,
+  ThumbUp: 13,
+  ThumbUpDown: 14,
 } as const
 
 export const ArpRate = {

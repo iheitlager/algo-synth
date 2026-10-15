@@ -12,34 +12,86 @@ use crate::params::Param;
 /// Most notes the arp holds; further keys are ignored.
 pub const MAX_HELD: usize = 8;
 
-/// The order a held chord is played in.
+/// The order a held chord is played in: the live arp's and the notation's
+/// (#612). New modes go at the end, so a saved value keeps its order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArpMode {
     Up = 0,
     Down = 1,
     UpDown = 2,
-    /// Press order.
+    /// Press order, or the order written.
     AsPlayed = 3,
     Random = 4,
+    DownUp = 5,
+    /// Up, then down again, repeating both ends.
+    UpAndDown = 6,
+    DownAndUp = 7,
+    /// Outside in: lowest, highest, second, second highest…
+    Converge = 8,
+    /// Inside out: converge backwards.
+    Diverge = 9,
+    /// Converge, then back out.
+    Disconverge = 10,
+    /// Each note followed by the highest.
+    PinkyUp = 11,
+    PinkyUpDown = 12,
+    /// The lowest before each other note.
+    ThumbUp = 13,
+    ThumbUpDown = 14,
 }
 
 impl ArpMode {
-    pub const ALL: [(ArpMode, &'static str); 5] = [
+    pub const ALL: [(ArpMode, &'static str); 15] = [
         (ArpMode::Up, "Up"),
         (ArpMode::Down, "Down"),
         (ArpMode::UpDown, "UpDown"),
         (ArpMode::AsPlayed, "AsPlayed"),
         (ArpMode::Random, "Random"),
+        (ArpMode::DownUp, "DownUp"),
+        (ArpMode::UpAndDown, "UpAndDown"),
+        (ArpMode::DownAndUp, "DownAndUp"),
+        (ArpMode::Converge, "Converge"),
+        (ArpMode::Diverge, "Diverge"),
+        (ArpMode::Disconverge, "Disconverge"),
+        (ArpMode::PinkyUp, "PinkyUp"),
+        (ArpMode::PinkyUpDown, "PinkyUpDown"),
+        (ArpMode::ThumbUp, "ThumbUp"),
+        (ArpMode::ThumbUpDown, "ThumbUpDown"),
     ];
 
+    /// The names a song writes, Tidal's where it has one.
+    pub const WORDS: [(ArpMode, &'static str); 15] = [
+        (ArpMode::Up, "up"),
+        (ArpMode::Down, "down"),
+        (ArpMode::UpDown, "updown"),
+        (ArpMode::AsPlayed, "asplayed"),
+        (ArpMode::Random, "random"),
+        (ArpMode::DownUp, "downup"),
+        (ArpMode::UpAndDown, "up&down"),
+        (ArpMode::DownAndUp, "down&up"),
+        (ArpMode::Converge, "converge"),
+        (ArpMode::Diverge, "diverge"),
+        (ArpMode::Disconverge, "disconverge"),
+        (ArpMode::PinkyUp, "pinkyup"),
+        (ArpMode::PinkyUpDown, "pinkyupdown"),
+        (ArpMode::ThumbUp, "thumbup"),
+        (ArpMode::ThumbUpDown, "thumbupdown"),
+    ];
+
+    pub fn from_word(s: &str) -> Option<ArpMode> {
+        ArpMode::WORDS.iter().find(|m| m.1 == s).map(|m| m.0)
+    }
+
+    pub fn word(self) -> &'static str {
+        ArpMode::WORDS
+            .iter()
+            .find(|m| m.0 == self)
+            .map_or("", |m| m.1)
+    }
+
     fn from_value(v: f32) -> ArpMode {
-        match v.round() as i32 {
-            1 => ArpMode::Down,
-            2 => ArpMode::UpDown,
-            3 => ArpMode::AsPlayed,
-            4 => ArpMode::Random,
-            _ => ArpMode::Up,
-        }
+        let i = v.round().max(0.0) as usize;
+        ArpMode::ALL.get(i).map_or(ArpMode::Up, |m| m.0)
     }
 }
 
@@ -102,9 +154,10 @@ impl Held {
 }
 
 /// The note at `step` of the pattern over `held` (in press order), or `None`
-/// with nothing held. Octaves 1–4 repeat the chord a twelve higher each time;
-/// up-down turns at both ends without repeating them; random picks from the
-/// whole span by `seed` and `step`, the same every time.
+/// with nothing held. Octaves 1–4 repeat the chord a twelve higher each time,
+/// and the mode orders the whole span (#612); up-down turns at both ends
+/// without repeating them; random picks from the whole span by `seed` and
+/// `step`, the same every time.
 pub fn arp_note(held: &[u8], mode: ArpMode, octaves: u8, step: u64, seed: u32) -> Option<u8> {
     let mut buf = [0u8; MAX_HELD];
     let n = held.len().min(MAX_HELD);
@@ -117,20 +170,71 @@ pub fn arp_note(held: &[u8], mode: ArpMode, octaves: u8, step: u64, seed: u32) -
     if span == 0 {
         return None;
     }
-    let at = (step % (span as u64 * 2)) as usize; // wide enough for every period
     let idx = match mode {
-        ArpMode::Up | ArpMode::AsPlayed => at % span,
-        ArpMode::Down => span - 1 - at % span,
-        ArpMode::UpDown if span > 1 => {
-            let period = 2 * span - 2;
-            let i = (step % period as u64) as usize;
-            if i < span { i } else { period - i }
-        }
-        ArpMode::UpDown => 0,
         ArpMode::Random => mix(seed, step as u32) as usize % span,
+        _ => index(mode, span, step),
     };
     let note = u16::from(*chord.get(idx % n)?) + 12 * (idx / n) as u16;
     Some(note.min(127) as u8)
+}
+
+/// Where `step` falls in a sequence of `len` played up and back down,
+/// turning without repeating the ends (Tidal's `init x ++ init (reverse x)`).
+fn updown(step: u64, len: usize) -> usize {
+    if len < 2 {
+        return 0;
+    }
+    let period = 2 * len - 2;
+    let i = (step % period as u64) as usize;
+    if i < len { i } else { period - i }
+}
+
+/// The `j`th index of `converge` over `span`: 0, span-1, 1, span-2…
+fn converge(j: usize, span: usize) -> usize {
+    if j % 2 == 0 { j / 2 } else { span - 1 - j / 2 }
+}
+
+/// The `k`th of `pinkyup` (each note, then the top) or `thumbup` (the
+/// bottom, then each note) over `span`: `2 * (span - 1)` long.
+fn pinky(k: usize, span: usize) -> usize {
+    if k % 2 == 0 { k / 2 } else { span - 1 }
+}
+
+fn thumb(k: usize) -> usize {
+    if k % 2 == 0 { 0 } else { k / 2 + 1 }
+}
+
+/// The index into the span (`span` ≥ 1) a deterministic mode plays at `step`.
+fn index(mode: ArpMode, span: usize, step: u64) -> usize {
+    let at = |period: usize| (step % period.max(1) as u64) as usize;
+    // pinkyup and thumbup over one note: that note.
+    let pairs = (2 * (span - 1)).max(1);
+    match mode {
+        ArpMode::Up | ArpMode::AsPlayed | ArpMode::Random => at(span),
+        ArpMode::Down => span - 1 - at(span),
+        ArpMode::UpDown => updown(step, span),
+        ArpMode::DownUp => span - 1 - updown(step, span),
+        ArpMode::UpAndDown | ArpMode::DownAndUp => {
+            let i = at(2 * span);
+            let up = if i < span { i } else { 2 * span - 1 - i };
+            if mode == ArpMode::UpAndDown {
+                up
+            } else {
+                span - 1 - up
+            }
+        }
+        ArpMode::Converge => converge(at(span), span),
+        ArpMode::Diverge => converge(span - 1 - at(span), span),
+        ArpMode::Disconverge => {
+            let i = at(2 * span - 1);
+            converge(if i < span { i } else { 2 * span - 2 - i }, span)
+        }
+        ArpMode::PinkyUp if span > 1 => pinky(at(pairs), span),
+        ArpMode::PinkyUpDown if span > 1 => pinky(updown(step, pairs), span),
+        ArpMode::ThumbUp if span > 1 => thumb(at(pairs)),
+        ArpMode::ThumbUpDown if span > 1 => thumb(updown(step, pairs)),
+        ArpMode::PinkyUp | ArpMode::PinkyUpDown | ArpMode::ThumbUp | ArpMode::ThumbUpDown => 0,
+    }
 }
 
 /// One synth's live arp: its settings, the held set and the note it sounds.
@@ -311,6 +415,64 @@ mod tests {
         // As played: the order the keys were pressed in.
         assert_eq!(run(&[67, 60, 64], ArpMode::AsPlayed, 1, 3), [67, 60, 64]);
         assert_eq!(run(&[67, 60, 64], ArpMode::Up, 1, 3), [60, 64, 67]);
+    }
+
+    const CEGB: [u8; 4] = [60, 64, 67, 71];
+
+    /// #612: Tidal's orders over c e g b, one period each and the turn after.
+    #[test]
+    fn tidal_modes_order_four_notes() {
+        let (c, e, g, b) = (60, 64, 67, 71);
+        let cases: [(ArpMode, &[u8]); 10] = [
+            (ArpMode::DownUp, &[b, g, e, c, e, g, b]),
+            (ArpMode::UpAndDown, &[c, e, g, b, b, g, e, c, c]),
+            (ArpMode::DownAndUp, &[b, g, e, c, c, e, g, b, b]),
+            (ArpMode::Converge, &[c, b, e, g, c]),
+            (ArpMode::Diverge, &[g, e, b, c, g]),
+            (ArpMode::Disconverge, &[c, b, e, g, e, b, c, c]),
+            (ArpMode::PinkyUp, &[c, b, e, b, g, b, c]),
+            (ArpMode::PinkyUpDown, &[c, b, e, b, g, b, g, b, e, b, c]),
+            (ArpMode::ThumbUp, &[c, e, c, g, c, b, c]),
+            (ArpMode::ThumbUpDown, &[c, e, c, g, c, b, c, g, c, e, c]),
+        ];
+        for (mode, want) in cases {
+            assert_eq!(run(&CEGB, mode, 1, want.len() as u64), want, "{mode:?}");
+        }
+    }
+
+    /// The modes order the whole span, as up does over two octaves.
+    #[test]
+    fn tidal_modes_span_the_octaves() {
+        assert_eq!(run(&[60, 64], ArpMode::Converge, 2, 4), [60, 76, 64, 72]);
+        assert_eq!(
+            run(&[60, 64], ArpMode::ThumbUp, 2, 6),
+            [60, 64, 60, 72, 60, 76]
+        );
+    }
+
+    /// One or two notes never leave the span, and one note just repeats.
+    #[test]
+    fn every_mode_plays_small_chords() {
+        for (mode, _) in ArpMode::ALL {
+            assert_eq!(run(&[60], mode, 1, 4), [60, 60, 60, 60], "{mode:?}");
+            for octaves in 1..=4 {
+                let notes = run(&[60, 64], mode, octaves, 64);
+                assert_eq!(notes.len(), 64, "{mode:?}");
+                let top = 64 + 12 * (octaves - 1);
+                assert!(notes.iter().all(|n| (60..=top).contains(n)), "{mode:?}");
+            }
+        }
+    }
+
+    /// The existing modes keep their values: a saved patch plays as before.
+    #[test]
+    fn mode_values_are_kept() {
+        for (i, (mode, _)) in ArpMode::ALL.iter().enumerate() {
+            assert_eq!(*mode as usize, i);
+            assert_eq!(ArpMode::from_value(i as f32), *mode);
+            assert_eq!(ArpMode::WORDS[i].0, *mode);
+        }
+        assert_eq!(ArpMode::from_value(99.0), ArpMode::Up);
     }
 
     #[test]

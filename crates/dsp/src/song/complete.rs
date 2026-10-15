@@ -188,12 +188,21 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
     if !before.starts_with([' ', '\t']) {
         names.open = None;
     }
-    let typed: usize = before
+    let mut typed: usize = before
         .chars()
         .rev()
         .take_while(|c| is_word(*c))
         .map(char::len_utf8)
         .sum();
+    // An arp mode takes an `&` inside it: `up&down` (#612).
+    if let Some(amp) = before
+        .get(..before.len() - typed)
+        .and_then(|p| p.strip_suffix('&'))
+    {
+        if open_call(amp).is_some_and(|c| c.name == "arp" && c.arg == 1) {
+            typed += 1 + amp.chars().rev().take_while(|c| is_word(*c)).count();
+        }
+    }
     // A Modular setting's code is SuperCollider's (#647), from its first line.
     if before.starts_with([' ', '\t']) && names.under == Under::Code {
         let code = text.get(names.code..).unwrap_or("");
@@ -403,7 +412,7 @@ impl List<'_> {
     }
 
     fn arp_modes(&mut self) {
-        for (_, m) in ArpMode::ALL {
+        for (_, m) in ArpMode::WORDS {
             let d = if m == "random" {
                 "random order, with a seed"
             } else {
@@ -1257,7 +1266,10 @@ scene main 8: beat riff
         assert_eq!(at("bass(|"), ["riff"]);
         assert_eq!(at("bass(riff,w|"), ["walk"]);
         assert_eq!(at("arp(|"), ["riff"]);
-        assert_eq!(at("arp([c4,e4],u|"), ["up", "updown"]);
+        assert_eq!(at("arp([c4,e4],u|"), ["up", "updown", "up&down"]);
+        // #612: Tidal's modes too.
+        assert_eq!(at("arp([c4,e4],pin|"), ["pinkyup", "pinkyupdown"]);
+        assert_eq!(at("arp([c4,e4],up&|"), ["up&down"]);
         assert_eq!(at("markov(1,|"), ["riff"]);
         assert!(at("walk(|").is_empty());
         assert_eq!(at("\"c:m|"), ["maj", "m", "maj7", "m7", "m7b5", "m6", "m9"]);

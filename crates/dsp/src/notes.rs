@@ -46,6 +46,8 @@ use crate::algo::{Euclid, Rng, Scale, mix};
 
 /// Ticks in a bar of four quarters.
 pub const TICKS_PER_BAR: u32 = 48;
+/// Where `clip … bars N` may go.
+pub const BARS_MSG: &str = "bars N is for a line of timed notes or an arp of a chord";
 /// Most events a clip may compile to, and most bars it may run before it
 /// repeats.
 pub const MAX_EVENTS: usize = 512;
@@ -1105,10 +1107,22 @@ pub fn parse_with(
 
 impl Notes {
     /// A timed line made `bars` bars long (`clip … bars N`): at least as long
-    /// as its last start, at most 64 bars. Other lines keep their own length.
+    /// as its last start, at most 64 bars. An arp of a chord runs on over
+    /// them (#613). Other lines keep their own length.
     pub fn with_bars(mut self, bars: u32) -> Result<Notes, &'static str> {
+        if let Seq::Generated(Gen::Arp { bars: b, .. }) = &mut self.seq {
+            if !(1..=MAX_BARS).contains(&bars) {
+                return Err("an arp runs 1 to 64 bars");
+            }
+            *b = bars;
+            if let Seq::Generated(g) = &self.seq {
+                self.events = g.events(g.seed(), None);
+            }
+            self.bars = bars;
+            return Ok(self);
+        }
         if !matches!(self.seq, Seq::Timed(_)) {
-            return Err("bars N is for a line of timed notes");
+            return Err(BARS_MSG);
         }
         if bars < self.bars || bars > MAX_BARS {
             return Err("the bars hold the line's notes, and are at most 64");
