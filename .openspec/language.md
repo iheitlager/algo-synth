@@ -260,7 +260,7 @@ clip deep = bass
 ## clip
 
 ```text
-clip <name> = <track> [/<grid> | live | bars <n>] [voicing] [.<method>(<args>)]…
+clip <name> = <track> [/<grid> | live | bars <n>] [voicing[(<style>[,<anchor>])]] [.<method>(<args>)]…
   <lane>…            on a drums track, or a sampler track
   <line of notes>    exactly one, on a synth track, or a sampler track
 ```
@@ -435,8 +435,21 @@ clip line = v bars 2
 - Roman numeral: a degree of the song's seven-note `scale`, upper case major,
   lower case minor, maybe `b`/`#` first (borrowed), then `o` `o7` `+` `7` or
   `maj7`: `i VI bVII V7 viio7`. Change the `scale` and the progression moves.
+- An ending on a symbol or a numeral: `/1`, `/2`, `/3` is the inversion, the
+  lowest 1, 2 or 3 notes an octave up (`c:maj7/1` is e g b c); `/<root>` puts
+  that note at the bottom, the chord's own as an inversion (`c:maj7/e`, the
+  same notes) or else in the octave below the root (`c/f#`). `c:m7/g:2` in
+  classic notes. A numeral's ending is never another numeral: no `V/V`.
 - `voicing` on the clip line moves each chord to the notes nearest the chord
-  before it, within C3–C6.
+  before it, within C3–C6. `voicing(<style>[,<anchor>])` spreads that close
+  chord: `close` (the same as `voicing`), `open` (the second note from the
+  bottom an octave up), `drop2` and `drop3` (the second or third note from
+  the top an octave down), `shell` (the root at the bottom, then only the
+  third and seventh) or `quartal` (fourths of the song's scale stacked from
+  the root, as many as the chord has notes). An anchor note (`c5`) caps the
+  top of every chord, the chords sitting in the three octaves below it. The
+  voices still lead from chord to chord, and a slash chord's bass stays at
+  the bottom.
 
 ```song
 scale c minor
@@ -447,6 +460,8 @@ clip jazz = pad
   c:m7:2 f:7:2 bb:maj7:2 eb:maj7:2
 clip turn = pad voicing
   "<ii7 V7 i bVII>"
+clip keys = pad voicing(drop2,c5)
+  "<ii7 V7/1 i c:m7/g>"
 ```
 
 **Euclid:** `euclid(<hits>,<steps>[,<rotation>]) <pitch>` plays the pitch on

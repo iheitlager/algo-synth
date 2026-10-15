@@ -212,7 +212,7 @@ fn random_song(r: &mut Rng) -> Song {
                 lanes: Vec::new(),
                 notes: Some(notes::parse(seq, 1).expect("valid")),
                 live: false,
-                voicing: false,
+                voicing: None,
                 pattern: Vec::new(),
                 grid: 16,
             });
@@ -238,7 +238,7 @@ fn random_song(r: &mut Rng) -> Song {
             lanes,
             notes: None,
             live: false,
-            voicing: false,
+            voicing: None,
             pattern: Vec::new(),
             grid: GRIDS[r.below(GRIDS.len())],
         });
@@ -1622,7 +1622,7 @@ fn a_voiced_progression_in_the_key_prints_back() {
         "scale a minor\ntrack chords synth\n\nclip prog = chords voicing\n  \"<i VI III VII>\"\n";
     let s = Song::parse(text).expect("parses");
     let f = &s.clips[0];
-    assert!(f.voicing);
+    assert!(f.voicing.is_some());
     assert!(s.print().contains("clip prog = chords"));
     assert!(s.print().contains("voicing\n  \"<i VI III VII>\""));
     assert_eq!(Song::parse(&s.print()).expect("parses back"), s);
@@ -1659,6 +1659,65 @@ fn voicing_errors_say_where() {
         assert_eq!(
             Song::parse(text),
             Err(SongError { line, col, msg }),
+            "{text}"
+        );
+    }
+}
+
+/// #606, #607: a voicing style and anchor on the clip line, spaced or not,
+/// over slash chords; it prints back and parses to the same song.
+#[test]
+fn a_voicing_style_over_slash_chords_prints_back() {
+    let text = "scale c major\ntrack keys synth\n\nclip pad = keys voicing(drop2, c5) .slow(2)\n  \"<ii7 V7/1 Imaj7 a:m7/g>\"\n";
+    let s = Song::parse(text).expect("parses");
+    let v = s.clips[0].voicing.expect("voiced");
+    assert_eq!((v.style, v.anchor), (Some(notes::Style::Drop2), Some(72)));
+    let printed = s.print();
+    assert!(
+        printed
+            .contains("clip pad = keys voicing(drop2,c5) .slow(2)\n  \"<ii7 V7/1 Imaj7 a:m7/g>\""),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let events = &s.clips[0].notes.as_ref().unwrap().events;
+    assert!(events.iter().all(|e| e.note <= 72), "{events:?}");
+    // a:m7/g: the g under the chord.
+    let last = events.iter().map(|e| e.start).max().unwrap();
+    let low = events
+        .iter()
+        .filter(|e| e.start == last)
+        .map(|e| e.note)
+        .min();
+    assert_eq!(low.map(|n| n % 12), Some(7));
+}
+
+#[test]
+fn a_bad_voicing_says_where() {
+    let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+    for (text, col, msg) in [
+        (
+            "track k synth\nclip a = k voicing(wide)\n  \"c:m7\"\n",
+            12,
+            styles,
+        ),
+        (
+            "track k synth\nclip a = k voicing(drop2, h5)\n  \"c:m7\"\n",
+            12,
+            "an anchor is a note with its octave, as c5",
+        ),
+        (
+            "track k synth\nclip a = k\n  \"c:m7/5\"\n",
+            9,
+            "after / comes an inversion 1 to 3 or a bass note a to g, as c:m7/1 or c/g",
+        ),
+    ] {
+        assert_eq!(
+            Song::parse(text),
+            Err(SongError {
+                line: if col == 9 { 3 } else { 2 },
+                col,
+                msg
+            }),
             "{text}"
         );
     }
@@ -2012,7 +2071,7 @@ fn clip_methods_parse_and_print() {
             (Target::Track(1), Param::Cutoff, None),
         ]
     );
-    assert!(s.clips[1].live && s.clips[2].voicing);
+    assert!(s.clips[1].live && s.clips[2].voicing.is_some());
     let printed = s.print();
     for line in [
         "clip b = kit /16 .level(0.5)\n",

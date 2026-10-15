@@ -152,6 +152,16 @@ const CLIP_WORDS: [(&str, &str); 3] = [
     ("voicing", "each chord near the one before"),
 ];
 
+/// How `voicing(…)` spreads a chord (`notes::STYLES`, #606).
+const VOICINGS: [(&str, &str); 6] = [
+    ("close", "the inversion nearest the chord before"),
+    ("open", "the second note from the bottom an octave up"),
+    ("drop2", "the second note from the top an octave down"),
+    ("drop3", "the third note from the top an octave down"),
+    ("shell", "root, third and seventh only"),
+    ("quartal", "fourths of the scale from the root"),
+];
+
 /// An LFO's shapes.
 const SHAPES: [&str; 5] = ["sine", "cosine", "saw", "tri", "square"];
 
@@ -809,6 +819,7 @@ impl<'a> Names<'a> {
         let w: Vec<&str> = before.split_whitespace().collect();
         let first = w.first().copied().unwrap_or("");
         match current_keyword(first, w.get(1).copied(), w.get(2).copied()) {
+            "clip" if outer == "voicing" => Some(usage::VOICING.to_string()),
             "clip" if Pattern::NAMES.contains(&outer) => {
                 usage::of(&usage::METHODS, inner).map(str::to_string)
             }
@@ -1027,6 +1038,7 @@ impl<'a> Names<'a> {
                     }
                 }
                 ("chord", 0) => self.note_clips(list),
+                ("voicing", 0) => list.table(Class::Name, &VOICINGS),
                 // Any earlier clip's rhythm: its notes' starts or its hits (#600).
                 ("struct", 0) => {
                     for (c, t) in &self.clips {
@@ -1115,6 +1127,8 @@ scene main 8: beat riff
     fn a_clip_takes_a_track_its_words_and_methods() {
         assert_eq!(song("clip c = |"), ["kit", "lead"]);
         assert_eq!(song("clip c = lead v|"), ["voicing"]);
+        // #606: a voicing's styles.
+        assert_eq!(song("clip c = lead voicing(dr|"), ["drop2", "drop3"]);
         assert_eq!(song("clip c = lead .fa|"), ["fast"]);
         assert_eq!(song("clip c = lead .lp|"), ["lpf", "lpq"]);
         assert_eq!(song("clip c = lead .reso|"), ["resonance"]);
@@ -1282,6 +1296,7 @@ scene main 8: beat riff
             usage::SIGNAL[6].1
         );
         assert_eq!(help("mod lead.cutoff = lfo(|"), usage::SIGNAL[0].1);
+        assert_eq!(help("clip c = lead voicing(drop2,|"), usage::VOICING);
         assert_eq!(help("clip d = lead .fast(2) |"), "");
         assert_eq!(help("tempo(|"), "");
     }
@@ -1378,6 +1393,8 @@ scene main 8: beat riff
         assert_eq!(names(&CALLS)[..6], notes::CALLS);
         assert_eq!(names(&PADS), Pad::ALL.map(|p| p.1));
         assert_eq!(names(&CLIP_WORDS), ["live", "bars", "voicing"]);
+        let styles: Vec<&str> = crate::notes::STYLES.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names(&VOICINGS), styles);
         // Each list is as long as it may be, and no more.
         assert!(at("auto a = lead.|").len() <= MAX_ITEMS);
     }

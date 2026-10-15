@@ -18,6 +18,8 @@ pub const OFF: &str = "off takes a time and a method: off(1/8, add(12))";
 pub const SCALE: &str =
     "scale takes a root or an earlier clip, and a mode: scale(a1 minor) or scale(harm minor)";
 pub const CHORD: &str = "chord takes an earlier clip: chord(harm)";
+pub const VOICING: &str =
+    "voicing takes a style and maybe an anchor note: voicing(drop2) or voicing(drop2,c5)";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -105,7 +107,8 @@ mod tests {
     /// Each line starts with its name and gives an example of it.
     #[test]
     fn each_usage_names_its_call_and_shows_it() {
-        for (name, usage) in CALLS.iter().chain(&METHODS).chain(&SIGNAL) {
+        let voicing = [("voicing", VOICING)];
+        for (name, usage) in CALLS.iter().chain(&METHODS).chain(&SIGNAL).chain(&voicing) {
             assert!(usage.starts_with(&format!("{name} takes ")), "{usage}");
             let (_, example) = usage.split_once(": ").expect("an example");
             assert!(example.starts_with(&format!("{name}(")), "{usage}");

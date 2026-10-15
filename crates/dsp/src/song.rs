@@ -287,8 +287,9 @@ pub struct Clip {
     pub notes: Option<Notes>,
     /// A generator call that makes new events every cycle (`clip a = t live`).
     pub live: bool,
-    /// Chords moved to the inversion nearest the one before (`clip a = t voicing`, #103).
-    pub voicing: bool,
+    /// Chords voiced near the one before (`clip a = t voicing`, #103), in a
+    /// style and under an anchor (`voicing(drop2,c5)`, #606).
+    pub voicing: Option<notes::Voicing>,
     /// Pattern methods (`.fast(2) .rev()`, ADR-0019), applied to its notes in order.
     pub pattern: Vec<Pattern>,
     /// A drum clip's steps to a bar (`/16`, #353): one of `GRIDS`.
@@ -748,15 +749,25 @@ impl Song {
                 false => (body, None),
             };
             let mut ws = words(body);
-            // `clip a = t … voicing` (#103): the last word, taken off before the rest is read.
+            // `clip a = t … voicing` (#103) or `voicing(drop2, c5)` (#606):
+            // the last words, taken off before the rest is read.
             let mut voicing = None;
             if ws.len() > 4
                 && ws
                     .first()
                     .is_some_and(|w| matches!(w.text, "clip" | "frag"))
-                && ws.last().is_some_and(|w| w.text == "voicing")
+                && ws
+                    .last()
+                    .is_some_and(|w| w.text == "voicing" || w.text.ends_with(')'))
+                && let Some(k) = ws
+                    .iter()
+                    .skip(4)
+                    .rposition(|w| w.text.starts_with("voicing"))
             {
-                voicing = ws.pop().map(|w| w.col);
+                let col = ws.get(k + 4).map_or(0, |w| w.col);
+                let text: String = ws.drain(k + 4..).map(|w| w.text).collect();
+                let v = notes::Voicing::parse(&text).map_err(|m| err(col, m))?;
+                voicing = Some((col, v));
             }
             let Some(first) = ws.first() else {
                 continue;
@@ -812,7 +823,7 @@ impl Song {
                             .map(|n| (n.events.clone(), n.bars))
                     };
                     let live = song.clips.get(f).is_some_and(|fr| fr.live);
-                    let voiced = song.clips.get(f).is_some_and(|fr| fr.voicing);
+                    let voiced = song.clips.get(f).and_then(|fr| fr.voicing);
                     let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
@@ -846,10 +857,13 @@ impl Song {
                         song_degrees(&mut n.events, song.scale.as_ref(), song.scale_octave)
                             .map_err(|m| err(first.col, m))?;
                     }
-                    if voiced && n.events.iter().any(|e| e.degree) {
+                    if voiced.is_some() && n.events.iter().any(|e| e.degree) {
                         return Err(err(first.col, "voicing takes notes, not degrees"));
                     }
-                    let mut n = if voiced { n.voiced() } else { n };
+                    let mut n = match voiced {
+                        Some(v) => n.voiced(v, song.scale.as_ref()),
+                        None => n,
+                    };
                     if live {
                         // The first bar kept for a source, as `step_live`
                         // plays it (#593).
@@ -1184,7 +1198,7 @@ impl Song {
                     let kind = song.tracks.get(t).map(|t| t.kind);
                     let synth = kind == Some(Kind::Synth);
                     let live = ws.get(4).is_some_and(|w| w.text == "live");
-                    if let Some(col) = voicing {
+                    if let Some((col, _)) = voicing {
                         if kind == Some(Kind::Drums) {
                             return Err(err(col, "voicing is for a clip of notes"));
                         }
@@ -1237,7 +1251,7 @@ impl Song {
                         lanes: Vec::new(),
                         notes: None,
                         live,
-                        voicing: voicing.is_some(),
+                        voicing: voicing.map(|(_, v)| v),
                         pattern: Vec::new(),
                         grid,
                     });
@@ -2082,7 +2096,9 @@ impl Song {
                 } else {
                     String::new()
                 };
-                let voicing = if f.voicing { " voicing" } else { "" };
+                let voicing = f
+                    .voicing
+                    .map_or(String::new(), |v| format!(" {}", v.print()));
                 lines.push(format!(
                     "clip {} = {}{live}{bars}{voicing}{}",
                     f.name,

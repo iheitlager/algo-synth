@@ -71,8 +71,9 @@ module.exports = grammar({
     name: _ => new RegExp(IDENT),
     // `kit.Cutoff`, `master.P2Return`.
     param: _ => new RegExp(`${IDENT}(\\.[A-Za-z]([A-Za-z0-9_#]|-[0-9])*)+`),
-    // `euclid(`, `perlin.slow(`: the name is the call, the bracket notation.
-    call: $ => seq(field('name', choice($.name, $.param)), alias(token.immediate('('), $.punct)),
+    // `euclid(`, `perlin.slow(`, `voicing(`: the name is the call, the
+    // bracket notation.
+    call: $ => seq(field('name', choice($.name, $.param, $.word)), alias(token.immediate('('), $.punct)),
 
     number: _ => /[-.]?[0-9][0-9.]*/,
     punct: _ => /[=:"\[\]<>(),*@?&!\/+^]/,
