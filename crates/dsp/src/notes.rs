@@ -37,7 +37,7 @@ mod chord;
 mod generate;
 pub mod pattern;
 
-pub use chord::QUALITIES;
+pub use chord::{NUMERALS, QUALITIES};
 use generate::Source;
 pub use generate::{ArpMode, CALLS, Gen};
 

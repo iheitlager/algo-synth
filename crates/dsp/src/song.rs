@@ -3495,6 +3495,7 @@ impl Song {
     }
 }
 
+pub mod complete;
 pub mod lex;
 pub mod pad;
 pub mod recipe;

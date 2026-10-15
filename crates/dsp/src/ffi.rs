@@ -886,6 +886,43 @@ pub extern "C" fn lex_ptr() -> *const u32 {
     })
 }
 
+// The words that fit at the cursor (#595), on the lexer's instance and text
+// buffer: `lex_buf(len)`, write the text, `complete(cursor)` for the length
+// of the answer, then `complete_ptr()` holds it as UTF-8 lines: `from\tto`,
+// the range it replaces in UTF-16 units, then `class\tword\tdetail` each.
+
+thread_local! {
+    static COMPLETE: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Complete the buffer at UTF-16 unit `cursor`; the answer's length in bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn complete(cursor: u32) -> u32 {
+    let found = LEX.with(|cell| match cell.try_borrow() {
+        Ok(lex) => std::str::from_utf8(&lex.0).map_or_else(
+            |_| Default::default(),
+            |t| crate::song::complete::complete(t, cursor),
+        ),
+        Err(_) => Default::default(),
+    });
+    COMPLETE.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut out) => {
+            *out = found.to_string();
+            out.len() as u32
+        }
+        Err(_) => 0,
+    })
+}
+
+/// The answer of the last `complete`.
+#[unsafe(no_mangle)]
+pub extern "C" fn complete_ptr() -> *const u8 {
+    COMPLETE.with(|cell| match cell.try_borrow() {
+        Ok(out) => out.as_ptr(),
+        Err(_) => std::ptr::null(),
+    })
+}
+
 /// The song as the engine prints it, after the last load or edit.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_text_ptr() -> *const u8 {
@@ -2235,6 +2272,22 @@ mod tests {
     }
 
     #[test]
+    fn completion_through_the_abi() {
+        let text = "tempo 1\nsca";
+        assert!(!lex_buf(text.len() as u32).is_null());
+        LEX.with(|cell| cell.borrow_mut().0.copy_from_slice(text.as_bytes()));
+        let n = complete(11);
+        let out = COMPLETE.with(|cell| cell.borrow().clone());
+        assert_eq!(out.len(), n as usize);
+        assert_eq!(out, "8\t11\n1\tscale\tscale <root> <mode>\n");
+        assert!(!complete_ptr().is_null());
+        // Not UTF-8: nothing to replace, nothing offered.
+        assert!(!lex_buf(1).is_null());
+        LEX.with(|cell| cell.borrow_mut().0[0] = 0xff);
+        assert_eq!(complete(1), 4);
+    }
+
+    #[test]
     fn user_tables_and_attacks_through_the_abi() {
         init(48_000.0);
         let n = crate::table::WAVES * crate::table::WAVE_LEN;
@@ -2801,6 +2854,8 @@ mod tests {
         sweep!(reset, lex());
         sweep!(reset, sc_lex());
         sweep!(reset, lex_ptr());
+        sweep!(reset, complete(_));
+        sweep!(reset, complete_ptr());
         sweep!(reset, song_text_ptr());
         sweep!(reset, song_text_len());
         sweep!(reset, set_step(_, _, _, _));

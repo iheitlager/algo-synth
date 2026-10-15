@@ -367,3 +367,23 @@ The Modular's Amplifier envelope SHALL be its code's amplitude envelope when the
 - THEN bars rise at 440 Hz and its harmonics, an offset in the output does not light the bass, and switching it off stops the work
 
 **Tests:** `crates/dsp/src/spectrum.rs::tests::a_sine_shows_in_its_band_at_its_level`, `crates/dsp/src/spectrum.rs::tests::an_offset_does_not_light_the_bass`, `crates/dsp/src/spectrum.rs::tests::silence_and_a_new_synth_are_the_floor`, `crates/dsp/src/ffi.rs::tests::a_synths_spectrum_through_the_abi`, `web/src/audio/colormap.test.ts`
+
+### Requirement 20: Completion in the song editor [SHOULD]
+
+The song editor SHALL offer the words that fit at the caret (#595, #642): line keywords; a track's kinds, the models that play its kind, that model's presets and the song's settings; the tracks after `clip x =`; pattern and parameter methods after a clip line's `.` (no pattern methods on lanes), and their arguments: earlier note clips and modes in `.scale(`, earlier note clips in `.chord(`, methods in `.every`, `.off` and `.sometimes`, signal sources and methods in a parameter method or a `mod`; generator calls, their clips and arp modes, chord qualities after `<root>:` and roman numerals on a line of notes; pads on a lane; targets and their parameters after `target.`, as `param_for` allows (never `Model` or `Out`); and the song's clips, autos, snapshots and scenes in a `scene` and `arrange`. Each word SHALL come with its lexer class and a one-line detail. The engine SHALL compute them (ADR-0001), from the cursor's line and the names made on the lines above it, so a text with an error still completes; on the lexer's main-thread instance (`complete`, `complete_ptr`), never the audio thread; total, at most 50 words, the range replaced in UTF-16 units. The list SHALL open as a word is typed or after `.` `(` `:` `[` `,`, not after a space and not once a word is typed in full, and on Ctrl+Space; Up/Down SHALL pick, Tab or Enter SHALL put the word in as typing (undoable) without applying the line, Esc SHALL close it, and Tab SHALL indent when it is closed. Enter with the list closed SHALL apply the text as it is when the line break goes in (#588), not as it is later.
+
+**Implementation:** `crates/dsp/src/song/complete.rs::complete`, `crates/dsp/src/ffi.rs` (`complete`, `complete_ptr`), `web/src/audio/complete.ts` (`readCompletion`, `opens`, `caretAt`), `web/src/audio/lex.ts` (`wasmLexers`, `completer`), `web/src/components/CodeArea.vue`, `web/src/components/SongEditor.vue`
+
+#### Scenario: a method's argument
+
+- GIVEN a song with a note clip `riff` and the line `clip c = lead .scale(riff har`
+- WHEN the caret is at its end
+- THEN the list offers `harmonic-minor` and `harmonic-major`, replacing `har`
+
+#### Scenario: Enter takes the word, not the line
+
+- GIVEN `scale c dor` typed and the list open on `dorian`
+- WHEN Enter is pressed
+- THEN the text reads `scale c dorian`, no line break is added and nothing is applied
+
+**Tests:** `crates/dsp/src/song/complete.rs::tests::method_arguments_are_clips_modes_and_methods`, `crates/dsp/src/song/complete.rs::tests::targets_take_their_parameters`, `crates/dsp/src/song/complete.rs::tests::notes_take_calls_qualities_numerals_and_clips`, `crates/dsp/src/song/complete.rs::tests::any_text_completes_in_bounds`, `crates/dsp/src/ffi.rs::tests::completion_through_the_abi`, `web/src/audio/complete.test.ts`; driven in a headless browser: typing, Up/Down, Tab, Enter, Esc, Ctrl+Space, and Enter right after typing on
