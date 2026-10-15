@@ -1,0 +1,51 @@
+tempo 120
+swing 50
+# SID drums: a triangle kick with a pitch drop, noise snare and hats
+setting sidkick = Modular ModularBasic
+  SynthDef(\sidkick, { |freq = 65, gate = 1|
+      var sweep = EnvGen.kr(Env([3, 1], [0.05]), gate);
+      var sig = SidOsc.ar(freq * sweep, 1, 2048, 0);
+      sig * EnvGen.kr(Env.perc(0.001, 0.22), gate) * 1.5
+  }).add;
+setting sidsnare = Modular ModularBasic
+  SynthDef(\sidsnare, { |freq = 520, gate = 1|
+      var noise = SidOsc.ar(freq, 8, 2048, 0);
+      var body = SidOsc.ar(freq * 0.4 * EnvGen.kr(Env([1.5, 1], [0.03]), gate), 4, 1024, 0);
+      ((noise * 0.7) + (body * 0.3)) * EnvGen.kr(Env.perc(0.001, 0.16), gate)
+  }).add;
+setting sidhat = Modular ModularBasic
+  SynthDef(\sidhat, { |freq = 4000, gate = 1|
+      SidOsc.ar(freq, 8, 2048, 0) * EnvGen.kr(Env.perc(0.001, 0.04), gate) * 0.5
+  }).add;
+track lead synth Nes NesLead
+track bass synth Sid SidBass
+track arp synth Sid SidArp
+track kick synth sidkick
+track snare synth sidsnare
+track hats synth sidhat
+strip arp: Level 0.3
+strip kick: Level 1
+strip hats: Level 0.7
+
+clip melody = lead
+  "<[e5 [b4 c5] d5 [c5 b4]] [a4 [a4 c5] e5 [d5 c5]] [b4 [~ c5] d5 e5] [c5 a4 a4 ~] [[~ d5] [~ f5] a5 [g5 f5]] [e5 [~ c5] e5 [d5 c5]] [b4 [b4 c5] d5 e5] [c5 a4 a4 ~]>"
+
+clip bassline = bass
+  "<[[e2 e3]*4] [[a2 a3]*4] [[g#2 g#3]*2 [e2 e3]*2] [a2 a3 a2 a3 a2 a3 b1 c2] [[d2 d3]*4] [[c2 c3]*4] [[b1 b2]*2 [e2 e3]*2] [[a1 a2]*4]>"
+
+# third voice: the chords under the tune, arpeggiated in sixteenths
+clip ripple = arp
+  "<[e4 g4 b4 g4]*4 [a4 c5 e5 c5]*4 [[g#4 b4 e5 b4]*2 [e4 g#4 b4 g#4]*2] [a4 c5 e5 c5]*4 [d4 f4 a4 f4]*4 [c4 e4 g4 e4]*4 [[b3 d#4 f#4 a4]*2 [e4 g#4 b4 g#4]*2] [a4 c5 e5 c5]*4>"
+
+clip thump = kick
+  "[c2 ~ ~ ~ ~ ~ c2 ~ c2 ~ ~ ~ ~ ~ ~ ~]"
+
+clip crack = snare
+  "<[~ c5 ~ c5] [~ c5 ~ c5] [~ c5 ~ c5] [~ c5 ~ [c5 c5]]>"
+
+clip tick = hats
+  "[c7 c7 c7 c7 c7 c7 c7 [c7 c7]]"
+
+scene a 8: melody bassline thump crack tick
+scene b 8: melody bassline ripple thump crack tick
+arrange a b
