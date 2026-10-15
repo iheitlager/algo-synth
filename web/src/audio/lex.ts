@@ -50,7 +50,7 @@ export function wasmLexers(module: WebAssembly.Module): { song: Lexer; sc: Lexer
     return out
   }
   const complete: Completer = (text, caret) => {
-    if (typeof w.complete !== 'function' || !load(text)) return { from: caret, to: caret, items: [], help: '' }
+    if (typeof w.complete !== 'function' || !load(text)) return { from: caret, to: caret, items: [], help: '', preview: '' }
     const n = w.complete(caret)
     return readCompletion(decoder.decode(new Uint8Array(w.memory.buffer, w.complete_ptr(), n)))
   }

@@ -8,6 +8,7 @@ describe('reading the engine\'s completion (#595)', () => {
       from: 8,
       to: 11,
       help: '',
+      preview: '',
       items: [
         { cls: 'kw', word: 'scale', detail: 'scale <root> <mode>' },
         { cls: 'param', word: 'Cutoff', detail: '20–20000' },
@@ -15,15 +16,16 @@ describe('reading the engine\'s completion (#595)', () => {
     })
   })
 
-  it('reads a call\'s help (#644)', () => {
-    expect(readCompletion('4\t4\tprog takes a number of bars and a seed: prog(4,7)\n').help)
-      .toBe('prog takes a number of bars and a seed: prog(4,7)')
+  it('reads a call\'s help (#644) and preview (#645)', () => {
+    const c = readCompletion('4\t4\tprog takes a number of bars and a seed: prog(4,7)\ti iio iio v\n')
+    expect(c.help).toBe('prog takes a number of bars and a seed: prog(4,7)')
+    expect(c.preview).toBe('i iio iio v')
   })
 
   it('reads nothing from an empty or broken answer', () => {
-    expect(readCompletion('')).toEqual({ from: 0, to: 0, items: [], help: '' })
-    expect(readCompletion('4\t4\n')).toEqual({ from: 4, to: 4, items: [], help: '' })
-    expect(readCompletion('9\t2\n1\tx\t')).toEqual({ from: 0, to: 0, items: [], help: '' })
+    expect(readCompletion('')).toEqual({ from: 0, to: 0, items: [], help: '', preview: '' })
+    expect(readCompletion('4\t4\n')).toEqual({ from: 4, to: 4, items: [], help: '', preview: '' })
+    expect(readCompletion('9\t2\n1\tx\t')).toEqual({ from: 0, to: 0, items: [], help: '', preview: '' })
   })
 })
 
@@ -31,7 +33,7 @@ describe('when the list opens (#595)', () => {
   const item = (word: string) => ({ cls: 'kw', word, detail: '' })
   const at = (text: string, words: string[]): Completion => {
     const n = text.length - (text.match(/[\w-]*$/)?.[0].length ?? 0)
-    return { from: n, to: text.length, items: words.map(item), help: '' }
+    return { from: n, to: text.length, items: words.map(item), help: '', preview: '' }
   }
   const shows = (c: Completion | null) => (c ? c.items.map((i) => i.word) : null)
 
@@ -56,7 +58,7 @@ describe('when the list opens (#595)', () => {
 })
 
 describe('a call\'s help (#644)', () => {
-  const c = (items: string[]): Completion => ({ from: 7, to: 7, items: items.map((word) => ({ cls: '', word, detail: '' })), help: 'prog takes…' })
+  const c = (items: string[]): Completion => ({ from: 7, to: 7, items: items.map((word) => ({ cls: '', word, detail: '' })), help: 'prog takes…', preview: '' })
 
   it('shows alone, without the list, when no word is offered', () => {
     expect(opens(c([]), 'prog(4,', ',')).toEqual({ ...c([]), items: [] })
@@ -65,6 +67,13 @@ describe('a call\'s help (#644)', () => {
 
   it('shows over the list when one opens', () => {
     expect(opens(c(['riff']), 'mutate(', '(')).toEqual(c(['riff']))
+  })
+})
+
+describe('a call\'s preview (#645)', () => {
+  it('shows alone after the call closes', () => {
+    const c: Completion = { from: 11, to: 11, items: [], help: '', preview: 'x.xx.xx.' }
+    expect(opens(c, 'euclid(5,8)', ')')).toEqual(c)
   })
 })
 

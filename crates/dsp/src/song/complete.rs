@@ -9,11 +9,11 @@
 
 use super::lex::{Class, Under};
 use super::{ALIASES, GROUPS, Kind, STRIPS, current_keyword, fits, signal};
-use crate::algo::Mode;
+use crate::algo::{Euclid, Mode, Scale};
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
 use crate::notes::pattern::Pattern;
-use crate::notes::{self, ArpMode};
+use crate::notes::{self, ArpMode, Event};
 use crate::params::Param;
 use crate::usage;
 
@@ -39,13 +39,20 @@ pub struct Completion {
     pub items: Vec<Item>,
     /// How the call the cursor is in is written (#644), or empty.
     pub help: String,
+    /// What the call the cursor is in or just after gives (#645): a
+    /// rhythm, chords, notes or roots; or empty.
+    pub preview: String,
 }
 
-/// As the view reads it: `from\tto\thelp`, then `class\tword\tdetail`, a
-/// line each.
+/// As the view reads it: `from\tto\thelp\tpreview`, then
+/// `class\tword\tdetail`, a line each.
 impl std::fmt::Display for Completion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}\t{}\t{}", self.from, self.to, self.help)?;
+        writeln!(
+            f,
+            "{}\t{}\t{}\t{}",
+            self.from, self.to, self.help, self.preview
+        )?;
         for i in &self.items {
             writeln!(f, "{}\t{}\t{}", i.class as u8, i.word, i.detail)?;
         }
@@ -165,7 +172,7 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
         prefix: word,
         items: Vec::new(),
     };
-    let mut help = None;
+    let (mut help, mut preview) = (None, None);
     // Not in a comment.
     if uncommented(before).len() == before.len() {
         let indented = before.starts_with([' ', '\t']);
@@ -175,6 +182,12 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
             names.top(&mut list, pre);
         }
         help = names.help(before, indented);
+        let rest = text.get(cur..).unwrap_or("");
+        let line = text
+            .get(start..cur + rest.find('\n').unwrap_or(rest.len()))
+            .unwrap_or(before);
+        let above = head.get(..start).unwrap_or("");
+        preview = names.preview(above, line, before.len(), indented);
     }
     let to = head.encode_utf16().count() as u32;
     Completion {
@@ -182,6 +195,7 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
         to,
         items: list.items,
         help: help.unwrap_or_default(),
+        preview: preview.unwrap_or_default(),
     }
 }
 
@@ -426,6 +440,102 @@ impl Set {
     }
 }
 
+/// The call the cursor at byte `at` of `line` is in, or just after: its
+/// name and its arguments, to its `)` or the end of the line.
+fn call_at(line: &str, at: usize) -> Option<(&str, &str)> {
+    let before = line.get(..at)?;
+    fn inner(pre: &str) -> Option<(&str, usize)> {
+        match opened(pre).0.last() {
+            Some(Open::Call(name, _, _, paren)) => Some((*name, *paren)),
+            _ => None,
+        }
+    }
+    let (name, paren) =
+        inner(before).or_else(|| inner(before.strip_suffix(')')?.trim_end_matches(' ')))?;
+    let mut depth = 0usize;
+    let mut end = line.len();
+    for (i, c) in line.char_indices().skip_while(|(i, _)| *i <= paren) {
+        match c {
+            '(' => depth += 1,
+            ')' if depth == 0 => {
+                end = i;
+                break;
+            }
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    Some((name, line.get(paren + 1..end)?))
+}
+
+/// The song's scale, from the last `scale` line in `above`.
+fn scale_above(above: &str) -> Option<Scale> {
+    let line = above
+        .lines()
+        .rev()
+        .find(|l| l.split_whitespace().next() == Some("scale"))?;
+    super::Song::parse(line).ok()?.scale
+}
+
+/// The chords of a progression as roman numerals on `scale`, a bar each:
+/// upper case major, lower minor, `o` diminished, `+` augmented.
+fn numerals(events: &[Event], scale: &Scale) -> Option<String> {
+    let mut out = Vec::new();
+    for chord in events.chunk_by(|a, b| a.start == b.start) {
+        let root = chord.iter().map(|e| e.note).min()?;
+        let degree = (0..7).find(|d| scale.degree(*d) == Some(root % 12))?;
+        let above = |k: usize| chord.get(k).map(|e| (e.note + 12 - root % 12) % 12);
+        let n = notes::NUMERALS.get(degree)?;
+        let (third, fifth) = (above(1), above(2));
+        let mut word = if third == Some(4) {
+            n.to_uppercase()
+        } else {
+            (*n).to_string()
+        };
+        match fifth {
+            Some(6) => word.push('o'),
+            Some(8) => word.push('+'),
+            _ => {}
+        }
+        out.push(word);
+    }
+    Some(out.join(" ")).filter(|s| !s.is_empty())
+}
+
+/// Most bars of roots a preview shows.
+const MAX_ROOTS: u32 = 16;
+
+/// The root `.scale(<clip> …)` takes at each bar's start (ADR-0035): the
+/// lowest note the clip plays there, else the last it played, else its last.
+fn roots(events: &[Event], bars: u32) -> Option<String> {
+    let last = events.iter().max_by_key(|e| e.start)?;
+    let mut out: Vec<String> = (0..bars.min(MAX_ROOTS))
+        .map(|b| {
+            let t = b * notes::TICKS_PER_BAR;
+            let sounding = events
+                .iter()
+                .filter(|e| e.start <= t && t < e.start + e.len);
+            let start = events
+                .iter()
+                .filter(|e| e.start <= t)
+                .map(|e| e.start)
+                .max();
+            let at = |s: u32| events.iter().filter(move |e| e.start == s);
+            let low = sounding
+                .map(|e| e.note)
+                .min()
+                .or_else(|| start.and_then(|s| at(s).map(|e| e.note).min()))
+                .or_else(|| at(last.start).map(|e| e.note).min())
+                .unwrap_or(last.note);
+            notes::note_name(low)
+        })
+        .collect();
+    if bars > MAX_ROOTS {
+        out.push("…".to_string());
+    }
+    Some(out.join(" "))
+}
+
 /// A parameter method's help: its range, and a signal over it.
 fn param_help(name: &str) -> Option<String> {
     let p = ALIASES
@@ -454,10 +564,10 @@ struct Call<'a> {
     text: &'a str,
 }
 
-/// What is open at the end of a line so far: a call (its name, argument and
-/// where that starts) or a bracket.
+/// What is open at the end of a line so far: a call (its name, argument,
+/// where that starts and where its `(` is) or a bracket.
 enum Open<'a> {
-    Call(&'a str, usize, usize),
+    Call(&'a str, usize, usize, usize),
     Bracket,
 }
 
@@ -465,7 +575,7 @@ enum Open<'a> {
 fn open_call(pre: &str) -> Option<Call<'_>> {
     let (stack, quoted) = opened(pre);
     match stack.last() {
-        Some(Open::Call(name, arg, start)) if !quoted => Some(Call {
+        Some(Open::Call(name, arg, start, _)) if !quoted => Some(Call {
             name,
             arg: *arg,
             text: pre.get(*start..).unwrap_or(""),
@@ -492,14 +602,14 @@ fn opened(pre: &str) -> (Vec<Open<'_>>, bool) {
                     .map(char::len_utf8)
                     .sum();
                 let name = head.get(head.len() - n..).unwrap_or("");
-                stack.push(Open::Call(name, 0, i + 1));
+                stack.push(Open::Call(name, 0, i + 1, i));
             }
             '[' => stack.push(Open::Bracket),
             ')' | ']' => {
                 stack.pop();
             }
             ',' => {
-                if let Some(Open::Call(_, arg, start)) = stack.last_mut() {
+                if let Some(Open::Call(_, arg, start, _)) = stack.last_mut() {
                     *arg += 1;
                     *start = i + 1;
                 }
@@ -685,6 +795,44 @@ impl<'a> Names<'a> {
             }
             "clip" if inner == outer => param_help(outer),
             "clip" | "mod" => usage::of(&usage::SIGNAL, inner).map(str::to_string),
+            _ => None,
+        }
+    }
+
+    /// What the call at byte `at` of `line` gives (#645), without playing
+    /// it: `euclid`'s rhythm, `prog`'s chords as numerals, `walk`'s notes,
+    /// and the roots `.scale(<clip> …)` takes from the clip, a bar each.
+    /// `above` is the text before the line, for the scale and the clips.
+    fn preview(&self, above: &str, line: &str, at: usize, indented: bool) -> Option<String> {
+        let (name, args) = call_at(line, at)?;
+        let notes = indented && matches!(self.under, Under::Notes | Under::Either);
+        match name {
+            "euclid" => {
+                let e = Euclid::args(&format!("{args})")).ok()?;
+                Some(
+                    e.pattern()
+                        .iter()
+                        .map(|h| if *h { 'x' } else { '.' })
+                        .collect(),
+                )
+            }
+            "prog" | "walk" if notes => {
+                let scale = scale_above(above);
+                let n = notes::parse_in(&format!("{name}({args})"), 0, scale.as_ref()).ok()?;
+                if name == "prog" {
+                    numerals(&n.events, &scale?)
+                } else {
+                    let names: Vec<String> =
+                        n.events.iter().map(|e| notes::note_name(e.note)).collect();
+                    Some(names.join(" ")).filter(|s| !s.is_empty())
+                }
+            }
+            "scale" if !indented && line.starts_with("clip") => {
+                let clip = args.split_whitespace().next()?;
+                let song = super::Song::parse(above).ok()?;
+                let n = song.clips.iter().find(|c| c.name == clip)?.notes.as_ref()?;
+                roots(&n.events, n.bars)
+            }
             _ => None,
         }
     }
@@ -1089,6 +1237,68 @@ scene main 8: beat riff
         assert_eq!(help("mod lead.cutoff = lfo(|"), usage::SIGNAL[0].1);
         assert_eq!(help("clip d = lead .fast(2) |"), "");
         assert_eq!(help("tempo(|"), "");
+    }
+
+    /// The preview of the call at `|`.
+    fn preview(text: &str) -> String {
+        let (a, b) = text.split_once('|').expect("a cursor");
+        complete(&format!("{a}{b}"), a.encode_utf16().count() as u32).preview
+    }
+
+    #[test]
+    fn a_call_shows_what_it_gives() {
+        let notes = format!("{SONG}clip c = lead\n  ");
+        // In the call, just after it, and with its `)` still to come.
+        assert_eq!(preview(&format!("{notes}euclid(5,8|) c4")), "x.xx.xx.");
+        assert_eq!(preview(&format!("{notes}euclid(3,8)|")), "x..x..x.");
+        assert_eq!(preview(&format!("{notes}euclid(3,8,2|")), ".x..x.x.");
+        assert_eq!(
+            preview(&format!("{SONG}clip d = kit\n  cb euclid(2,4)|")),
+            "x.x."
+        );
+        assert_eq!(
+            preview(&format!("{SONG}clip d = lead .euclid(1,3|)")),
+            "x.."
+        );
+        assert_eq!(preview(&format!("{notes}euclid(9,8|")), "");
+        // On the song's scale: c minor.
+        // c natural minor: the dominant is minor, ii diminished.
+        assert_eq!(preview(&format!("{notes}prog(4,7|")), "i iio iio v");
+        let major = "scale c major\ntrack l synth\nclip c = l\n  prog(4,7|";
+        assert!(preview(major).starts_with("I "), "{}", preview(major));
+        assert!(preview(major).ends_with(" V"), "{}", preview(major));
+        // The notes the clip plays.
+        let walk = format!("{notes}walk(c4,4,1)");
+        let song = Song::parse(&walk).expect("a song");
+        let played: Vec<String> = song.clips[2]
+            .notes
+            .as_ref()
+            .expect("notes")
+            .events
+            .iter()
+            .map(|e| notes::note_name(e.note))
+            .collect();
+        assert_eq!(preview(&format!("{walk}|")), played.join(" "));
+        assert_eq!(preview(&format!("{notes}prog(4,|")), "");
+        // Without a scale, no chords.
+        assert_eq!(preview("track l synth\nclip c = l\n  prog(4,7|"), "");
+    }
+
+    #[test]
+    fn scale_of_a_clip_shows_its_roots_a_bar() {
+        let song =
+            "track bass synth\ntrack lead synth\nclip pedal = bass\n  \"<a1 d1> <~ [f1 g1]>\"\n";
+        let at = |line: &str| preview(&format!("{song}{line}"));
+        assert_eq!(at("clip arp = lead .scale(pedal |minor)"), "a1 d1");
+        assert_eq!(at("clip arp = lead .scale(ped|"), "");
+        // Not a clip: no roots.
+        assert_eq!(at("clip arp = lead .scale(a1 minor)|"), "");
+        let rest = "track b synth\nclip r = b\n  \"~ c2\"\nclip x = b .scale(r minor)|";
+        assert_eq!(
+            preview(rest),
+            "c2",
+            "before its first note, its last chord sounds"
+        );
     }
 
     #[test]

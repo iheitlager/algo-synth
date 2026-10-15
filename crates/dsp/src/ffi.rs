@@ -889,8 +889,9 @@ pub extern "C" fn lex_ptr() -> *const u32 {
 // The words that fit at the cursor (#595), on the lexer's instance and text
 // buffer: `lex_buf(len)`, write the text, `complete(cursor)` for the length
 // of the answer, then `complete_ptr()` holds it as UTF-8 lines:
-// `from\tto\thelp`, the range it replaces in UTF-16 units and the usage of
-// the call the cursor is in, then `class\tword\tdetail` each.
+// `from\tto\thelp\tpreview`, the range it replaces in UTF-16 units, the
+// usage of the call the cursor is in and what it gives, then
+// `class\tword\tdetail` each.
 
 thread_local! {
     static COMPLETE: RefCell<String> = const { RefCell::new(String::new()) };
@@ -2280,12 +2281,12 @@ mod tests {
         let n = complete(11);
         let out = COMPLETE.with(|cell| cell.borrow().clone());
         assert_eq!(out.len(), n as usize);
-        assert_eq!(out, "8\t11\t\n1\tscale\tscale <root> <mode>\n");
+        assert_eq!(out, "8\t11\t\t\n1\tscale\tscale <root> <mode>\n");
         assert!(!complete_ptr().is_null());
         // Not UTF-8: nothing to replace, nothing offered.
         assert!(!lex_buf(1).is_null());
         LEX.with(|cell| cell.borrow_mut().0[0] = 0xff);
-        assert_eq!(complete(1), 5);
+        assert_eq!(complete(1), 6);
     }
 
     #[test]

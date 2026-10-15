@@ -100,7 +100,7 @@ function place() {
   const room = a.clientHeight - top - lh
   const x = 8 + col * charWidth(a) - a.scrollLeft
   const left = `${Math.max(0, x)}px`
-  const rows = Math.min(8, m.items.length) + (m.help ? 2 : 0)
+  const rows = Math.min(8, m.items.length) + (m.help ? 2 : 0) + (m.preview ? 1 : 0)
   where.value = room < rows * lh + 8 && top > room
     ? { left, bottom: `${a.clientHeight - top}px` }
     : { left, top: `${top + lh}px` }
@@ -141,7 +141,7 @@ function move(by: number) {
 /**
  * With the list open, Up/Down pick, Tab or Enter put the word in (and do not
  * apply the line: the key is taken here), Esc closes it; Ctrl+Space opens it.
- * A call's help alone (#644) takes only Esc.
+ * A call's help (#644) or preview (#645) alone takes only Esc.
  */
 function onMenuKey(e: KeyboardEvent): boolean {
   if (props.completer && e.key === ' ' && e.ctrlKey) {
@@ -210,6 +210,7 @@ function onKey(e: KeyboardEvent) {
       />
       <div v-if="menu" ref="list" class="complete" :style="where" @mousedown.prevent>
         <p v-if="menu.help" :id="`${listId}-help`" class="help">{{ menu.help }}</p>
+        <p v-if="menu.preview" class="preview">→ {{ menu.preview }}</p>
         <ul v-if="menu.items.length" :id="listId" role="listbox">
           <li
             v-for="(it, i) in menu.items" :id="`${listId}-${i}`" :key="it.word" role="option"
@@ -268,7 +269,10 @@ textarea::selection { background: color-mix(in srgb, var(--accent) 30%, transpar
 .complete ul { margin: 0; padding: 0; list-style: none; max-height: calc(8 * var(--lh)); overflow-y: auto; }
 /* How the call is written (#644), over the list. */
 .complete .help { margin: 0; padding: 0 6px; white-space: normal; color: var(--text); }
-.complete .help + ul { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+/* What the call gives (#645): a rhythm, chords, notes or roots. */
+.complete .preview { margin: 0; padding: 0 6px; white-space: normal; color: #8fd694; }
+.complete .help + .preview { margin-top: 2px; }
+.complete .help + ul, .complete .preview + ul { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .complete li {
   display: flex; gap: 2ch; justify-content: space-between; height: var(--lh); padding: 0 6px;
   border-radius: 3px; cursor: pointer; white-space: nowrap;
