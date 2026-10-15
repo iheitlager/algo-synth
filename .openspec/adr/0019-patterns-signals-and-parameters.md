@@ -1,6 +1,6 @@
 # 0019: One language for patterns, signals and parameters
 
-**Status:** Accepted, extended by #255 and #298 · **Date:** 2026-10-05 · built in #270, #272, #276
+**Status:** Accepted, extended by #255, #298 and ADR-0035 · **Date:** 2026-10-05 · built in #270, #272, #276
 
 ## Context
 
@@ -39,3 +39,4 @@ Two open issues ask for parts of this: #204 (fluent methods on a fragment that s
 
 - **Extended (#298):** Strudel's `cosine`, `irand`, `brand`/`brandBy` and bipolar `*2` sources, and its parameter names as aliases printed as written, at our scale.
 - **Extended (#255), per-step parameter locks:** a `~` in a sequence is a step with no value; the parameter takes its own back there, so a parameter method like `.cutoff("~ ~ 800 ~")` locks one step and lets go after it. A per-voice signal takes no `~`. Locks needed no new lane syntax, so ADR-0012 and ADR-0015 stand.
+- **Extended (ADR-0035), clips as context:** a pattern method may read an earlier clip for its harmony or rhythm (`.scale(<clip> <mode>)`, `.chord(<clip>)`, `.struct(<clip>)`), looked up at each note's start modulo the source's length. The closed set stands: the only names are clips.
