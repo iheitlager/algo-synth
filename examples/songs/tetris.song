@@ -1,3 +1,9 @@
+# Tetris (Korobeiniki), from the game to the studio. Scenes a and b are the
+# game: an NES pulse lead, SID bass and arpeggio, SID drums patched on the
+# Modular. In c the upgrade starts: Jupiter-8 strings and a sampled Boss
+# DR-550 come in under the chip lead. In d it is all hi-fi: a Minimoog lead
+# and bass, a DX7 electric piano on the arpeggio, strings and the DR-550.
+# The DR-550 kit comes from `make samples`.
 tempo 120
 swing 50
 # SID drums: a triangle kick with a pitch drop, noise snare and hats
@@ -23,9 +29,21 @@ track arp synth Sid SidArp
 track kick synth sidkick
 track snare synth sidsnare
 track hats synth sidhat
+track strings synth Jupiter8 JupiterStrings
+track keys synth Dx7 FmElectricPiano
+track hilead synth Minimoog MiniLead
+track hibass synth Minimoog MiniBass
+track kit drums PadSampler
+samples kit boss-dr550
 strip arp: Level 0.3
 strip kick: Level 1
 strip hats: Level 0.7
+strip strings: Level 0.3, Pan -0.2, Send2 0.45
+strip keys: Level 0.35, Pan 0.25, Send1 0.25, Send2 0.3
+strip hilead: Level 0.95, Send1 0.3, Send2 0.25
+strip hibass: Level 0.7
+strip kit: Level 0.7, Send2 0.1
+master: P1Type Echo, P1A 0.375, P1B 0.3, P1Return 0.25, P2Type Reverb, P2A 0.7, P2Return 0.35
 
 clip melody = lead
   "<[e5 [b4 c5] d5 [c5 b4]] [a4 [a4 c5] e5 [d5 c5]] [b4 [~ c5] d5 e5] [c5 a4 a4 ~] [[~ d5] [~ f5] a5 [g5 f5]] [e5 [~ c5] e5 [d5 c5]] [b4 [b4 c5] d5 e5] [c5 a4 a4 ~]>"
@@ -46,6 +64,29 @@ clip crack = snare
 clip tick = hats
   "[c7 c7 c7 c7 c7 c7 c7 [c7 c7]]"
 
+# the hi-fi half: the same tune and chords, new instruments
+clip hitune = hilead
+  "<[e5 [b4 c5] d5 [c5 b4]] [a4 [a4 c5] e5 [d5 c5]] [b4 [~ c5] d5 e5] [c5 a4 a4 ~] [[~ d5] [~ f5] a5 [g5 f5]] [e5 [~ c5] e5 [d5 c5]] [b4 [b4 c5] d5 e5] [c5 a4 a4 ~]>"
+
+clip hiroot = hibass
+  "<[[e2 e3]*4] [[a2 a3]*4] [[g#2 g#3]*2 [e2 e3]*2] [a2 a3 a2 a3 a2 a3 b1 c2] [[d2 d3]*4] [[c2 c3]*4] [[b1 b2]*2 [e2 e3]*2] [[a1 a2]*4]>"
+
+clip chords = strings
+  "<[e3,g3,b3] [a3,c4,e4] [e3,g#3,b3] [a3,c4,e4] [d3,f3,a3] [c3,e3,g3] [[b2,d#3,f#3,a3] [e3,g#3,b3]] [a3,c4,e4]>"
+
+clip shimmer = keys
+  "<[e4 g4 b4 g4]*4 [a4 c5 e5 c5]*4 [[g#4 b4 e5 b4]*2 [e4 g#4 b4 g#4]*2] [a4 c5 e5 c5]*4 [d4 f4 a4 f4]*4 [c4 e4 g4 e4]*4 [[b3 d#4 f#4 a4]*2 [e4 g#4 b4 g#4]*2] [a4 c5 e5 c5]*4>"
+
+clip groove = kit /16
+  bd x.....x.x.......
+  sn ....x.......x...
+  ch x.x.x.x.x.x.x...
+  oh ..............x.
+clip crash = kit /16
+  cr X...............................................................
+
 scene a 8: melody bassline thump crack tick
 scene b 8: melody bassline ripple thump crack tick
-arrange a b
+scene c 8: melody bassline chords groove crash
+scene d 8: hitune hiroot chords shimmer groove crash
+arrange a b c d
