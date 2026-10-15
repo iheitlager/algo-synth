@@ -53,7 +53,7 @@ pub const MAX_BARS: u32 = 64;
 /// Most words (slots and notes) in one line.
 const MAX_ITEMS: usize = 1100;
 /// A line with `?` repeats after this many bars.
-const CHANCE_BARS: u32 = 8;
+pub(crate) const CHANCE_BARS: u32 = 8;
 /// Nesting of `[ ]` and `< >`.
 const MAX_DEPTH: usize = 4;
 const MAX_FACTOR: u32 = 16;
