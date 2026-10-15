@@ -970,6 +970,11 @@ export function setCode(s: number, text: string) {
 /** The text last sent to be parsed, so its answer may replace the draft. */
 let sent: string | null = null
 
+/** Two song texts alike but for blank lines and trailing spaces: layout the
+ * engine does not print, so a typed blank line is not an edit (#584). */
+export const sameSong = (a: string, b: string) => unlaid(a) === unlaid(b)
+const unlaid = (t: string) => t.split('\n').map((l) => l.trimEnd()).filter(Boolean).join('\n')
+
 /** Send `text` to the engine to parse and play. */
 export function loadSong(text: string, id?: number) {
   clearTimeout(typing)
@@ -1000,7 +1005,7 @@ function holdFold(on: boolean) {
 export function typeSong(text: string) {
   song.draft = text
   clearTimeout(typing)
-  const edited = text !== song.text
+  const edited = !sameSong(text, song.text)
   holdFold(edited)
   if (edited) typing = setTimeout(() => loadSong(song.draft), APPLY_AFTER_MS)
 }
@@ -1096,7 +1101,9 @@ export function applySong(data: Record<string, unknown>) {
   // draft was typed on since (ADR-0027); a failed one leaves the draft alone.
   // One without tracks is not kept, so a reload after New starts fresh (#325).
   if (data.ok) {
-    if (song.draft === song.text || song.draft === sent) song.draft = text
+    // Only layout apart, the draft keeps its blank lines (#584).
+    const untouched = sameSong(song.draft, song.text) || song.draft === sent
+    if (untouched && !sameSong(song.draft, text)) song.draft = text
     if ((data.tracks as unknown[]).length) keepSong(text)
     else forgetSong()
     // The answer to a song file's load is what the file holds, as the engine
@@ -1111,7 +1118,7 @@ export function applySong(data: Record<string, unknown>) {
   const replaces = Boolean(data.ok && opening && data.id === opening.id)
   if (opening && data.id === opening.id) opening = null
   song.text = text
-  holdFold(song.draft !== song.text)
+  holdFold(!sameSong(song.draft, song.text))
   song.tempo = data.tempo as number
   song.swing = data.swing as number
   song.tracks = (data.tracks as { name: Uint8Array; synth: number; kind: number; preset?: number; setting?: number; flags?: number }[]).map((t) => ({
