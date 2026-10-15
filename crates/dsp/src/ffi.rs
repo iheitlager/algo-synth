@@ -1892,10 +1892,10 @@ pub extern "C" fn clip_lanes(f: u32) -> u32 {
     })
 }
 
-/// The pad (`Pad` id) lane `l` of clip `f` plays.
+/// The pad lane `l` of clip `f` plays: a `Pad` id, or `PAD_NUMBER` + n for pad n.
 #[unsafe(no_mangle)]
 pub extern "C" fn lane_pad(f: u32, l: u32) -> u32 {
-    with_lane(0, f, l, |lane| lane.pad as u32)
+    with_lane(0, f, l, |lane| lane.pad.id())
 }
 
 /// Steps in lane `l` of clip `f`.

@@ -1051,3 +1051,5 @@ export const Pad = {
   cr: 16,
   rd: 17,
 } as const
+// A lane's pad by number, `p0` to `p15` (#662), has id PAD_NUMBER + n (`PAD_NUMBER` in song.rs).
+export const PAD_NUMBER = 32

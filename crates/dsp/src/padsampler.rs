@@ -20,11 +20,21 @@ use crate::sampler::read;
 pub const PADS: usize = 16;
 pub const FIRST_NOTE: u8 = 36;
 
-/// The pad a MIDI note plays, if any.
+/// The pad a MIDI note plays, if any. Four General MIDI percussion notes past
+/// the pads play the pad the kits put that sound on (#662): cowbell 8, maracas
+/// (a shaker) 5, low conga 4 and high conga 12, so the lanes `cb`, `ma`, `lc`
+/// and `hc` reach them.
 pub fn pad_of(note: u8) -> Option<usize> {
-    note.checked_sub(FIRST_NOTE)
-        .map(usize::from)
-        .filter(|p| *p < PADS)
+    match note {
+        56 => Some(8),
+        70 => Some(5),
+        64 => Some(4),
+        62 => Some(12),
+        _ => note
+            .checked_sub(FIRST_NOTE)
+            .map(usize::from)
+            .filter(|p| *p < PADS),
+    }
 }
 
 /// A pad parameter id for `PadKit::set`; mirrored in `web/src/audio/params.ts`.
@@ -338,6 +348,12 @@ mod tests {
         assert_eq!(pad_of(51), Some(15));
         assert_eq!(pad_of(35), None);
         assert_eq!(pad_of(52), None);
+        // The percussion lanes past the pads (#662).
+        assert_eq!(pad_of(56), Some(8));
+        assert_eq!(pad_of(70), Some(5));
+        assert_eq!(pad_of(64), Some(4));
+        assert_eq!(pad_of(62), Some(12));
+        assert_eq!(pad_of(75), None);
     }
 
     #[test]

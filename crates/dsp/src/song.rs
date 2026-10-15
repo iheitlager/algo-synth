@@ -84,6 +84,7 @@ use crate::mono::model::Model;
 use crate::mono::preset::Preset;
 use crate::notes::pattern::{self, Line, Pattern};
 use crate::notes::{self, Notes};
+use crate::padsampler;
 use crate::params::Param;
 
 pub use comments::Comments;
@@ -222,10 +223,70 @@ impl Step {
     }
 }
 
+/// What a lane plays (#662): a pad by its name, which plays its General MIDI
+/// note, or a Pad Sampler's pad by number, `p0` to `p15`, which plays note
+/// 36 + n whatever the kit puts there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LanePad {
+    Named(Pad),
+    Number(u8),
+}
+
+/// The names of a Pad Sampler's pads by number.
+const PAD_NUMBERS: [&str; padsampler::PADS] = [
+    "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13", "p14",
+    "p15",
+];
+
+/// Where the ids of pads by number start, after `Pad`'s; mirrored as
+/// `PAD_NUMBER` in `web/src/audio/params.ts`.
+pub const PAD_NUMBER: u32 = 32;
+
+impl LanePad {
+    pub fn from_name(s: &str) -> Option<LanePad> {
+        Pad::from_name(s).map(LanePad::Named).or_else(|| {
+            let n = PAD_NUMBERS.iter().position(|x| *x == s)?;
+            u8::try_from(n).ok().map(LanePad::Number)
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            LanePad::Named(p) => p.name(),
+            LanePad::Number(n) => PAD_NUMBERS.get(usize::from(n)).copied().unwrap_or("p0"),
+        }
+    }
+
+    /// The note the lane plays.
+    pub fn note(self) -> u8 {
+        match self {
+            LanePad::Named(p) => p.note(),
+            LanePad::Number(n) => padsampler::FIRST_NOTE + n,
+        }
+    }
+
+    /// Its id across the FFI: a `Pad`'s, or `PAD_NUMBER` + n.
+    pub fn id(self) -> u32 {
+        match self {
+            LanePad::Named(p) => p as u32,
+            LanePad::Number(n) => PAD_NUMBER + u32::from(n),
+        }
+    }
+
+    /// Whether `model` plays it: a pad by number only on a Pad Sampler, and
+    /// a named pad on one only where a pad answers its note.
+    pub fn plays_on(self, model: Model) -> bool {
+        match self {
+            LanePad::Number(_) => model.uses_pads(),
+            LanePad::Named(p) => !model.uses_pads() || padsampler::pad_of(p.note()).is_some(),
+        }
+    }
+}
+
 /// A pad's row of steps; it loops on its own length (polymeter).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lane {
-    pub pad: Pad,
+    pub pad: LanePad,
     pub steps: Vec<Step>,
     /// The call that made the steps (`euclid(3,8)`); editing a step drops it.
     pub call: Option<Euclid>,
@@ -359,7 +420,7 @@ fn step_word(st: Step, ratchet: u8) -> u16 {
 /// The lanes of a drum clip made from a clip (#653): the hits of `line`
 /// back on `grid` steps a bar, each in the step it starts in, one lane for each of `pads`, each `bars`
 /// long. Where two hits share a step, the stronger plays.
-fn lanes_of(line: &Line, grid: u32, pads: &[Pad]) -> Result<Vec<Lane>, &'static str> {
+fn lanes_of(line: &Line, grid: u32, pads: &[LanePad]) -> Result<Vec<Lane>, &'static str> {
     let steps = usize::try_from(line.bars * grid).unwrap_or(usize::MAX);
     if steps > MAX_STEPS {
         return Err("a lane has at most 64 steps");
@@ -970,8 +1031,27 @@ impl Song {
                 if !clip.pattern.is_empty() {
                     return Err(err(first.col, "pattern methods are for a clip of notes"));
                 }
-                if clip.lanes.iter().any(|l| l.pad == lane.pad) {
+                if clip.lanes.iter().any(|l| l.pad.note() == lane.pad.note()) {
                     return Err(err(first.col, "this pad already has a lane"));
+                }
+                // A lane its track's model has no pad for is an error, where
+                // the track names the model (#662).
+                let model = song.tracks.get(clip.track).and_then(|t| {
+                    t.preset.map(|p| p.model()).or_else(|| {
+                        models
+                            .iter()
+                            .find(|(i, _)| *i == clip.track)
+                            .map(|(_, m)| *m)
+                    })
+                });
+                if model.is_some_and(|m| !lane.pad.plays_on(m)) {
+                    return Err(err(
+                        first.col,
+                        match lane.pad {
+                            LanePad::Number(_) => "a pad by number is for a Pad Sampler",
+                            LanePad::Named(_) => "a Pad Sampler has no such pad: name it p0 to p15",
+                        },
+                    ));
                 }
                 clip.lanes.push(lane);
                 continue;
@@ -2554,7 +2634,7 @@ impl Song {
             return Err("a lane has at most 64 steps");
         }
         let line = pattern::apply_all(&clip.pattern, Line { events, bars })?;
-        let pads: Vec<Pad> = src.lanes.iter().map(|l| l.pad).collect();
+        let pads: Vec<LanePad> = src.lanes.iter().map(|l| l.pad).collect();
         let lanes = lanes_of(&line, src.grid, &pads)?;
         let grid = src.grid;
         if let Some(c) = self.clips.get_mut(f) {
@@ -3408,9 +3488,9 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
     let Some(first) = ws.first() else {
         return Err(err(1, "a lane is a pad and its steps"));
     };
-    let pad = Pad::from_name(first.text).ok_or(err(
+    let pad = LanePad::from_name(first.text).ok_or(err(
         first.col,
-        "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
+        "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd, or p0 to p15",
     ))?;
     if let Some(call) = ws
         .get(1)

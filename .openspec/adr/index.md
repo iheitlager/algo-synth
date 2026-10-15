@@ -37,6 +37,7 @@
 | [0033](0033-user-tables-as-recipes.md) | User tables and attacks are recipes in the song (`table 1 = upright-piano-kw/C4vH : inharmonic 1.6`), rebuilt in a worker when it loads; a dropped source kept in IndexedDB by its hash (`@…`); a missing slot said on the panel; Sampler zones and pads as `zone` and `pad` lines by the same sources (#522, #527) | Accepted, extended by #522, #527 |
 | [0034](0034-chip-sources.md) | Chip instruments at register precision: `Sid` and `Nes` models (Chips family), a chip per note, stepped per sample in chip cycles on the registers' grids, BLEP at register steps; a frame-rate player; NES drums from GM keys and DMC from the sample store; the same parts as Modular UGens (#112) | Accepted |
 | [0035](0035-clips-as-context.md) | Clips as context: a pattern method reads an earlier clip for its harmony (`.scale(<clip> <mode>)`, `.chord(<clip>)`) or rhythm (`.struct(<clip>)`), each note looked up at its start modulo the source's length; one edit to the source moves every follower at the same bar (#594) | Accepted |
+| [0036](0036-lanes-reach-every-pad.md) | Lanes reach every pad of a Pad Sampler: `cb` `ma` `lc` `hc` play the pads most kits put them on (8, 5, 4, 12), `p0`–`p15` any pad by number; a lane the track's model has no pad for is a parse error (#662) | Accepted |
 
 ## Status and later decisions
 
