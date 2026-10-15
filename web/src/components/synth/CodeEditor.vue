@@ -4,10 +4,10 @@
 // synth as it was and says where it went wrong. It builds as it is typed, half
 // a second after typing stops (Ctrl+Enter at once), and the engine folds it
 // into the track's setting (ADR-0027). Numbered and highlighted by the
-// engine's SuperCollider lexer (#329).
+// engine's SuperCollider lexer (#329), and completed by its completer (#647).
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { APPLY_AFTER_MS, codes, setCode, status } from '../../audio/engine'
-import { scLexer } from '../../audio/lex'
+import { scCompleter, scLexer } from '../../audio/lex'
 import CodeArea from '../CodeArea.vue'
 
 const props = defineProps<{ s: number }>()
@@ -57,7 +57,7 @@ function onKey(e: KeyboardEvent) {
       <span v-else class="hint">builds when you pause · Ctrl+Enter now</span>
     </div>
     <CodeArea
-      v-model="draft" :lexer="scLexer" label="SynthDef" indent="    " :disabled="!status.running"
+      v-model="draft" :lexer="scLexer" :completer="scCompleter" label="SynthDef" indent="    " :disabled="!status.running"
       :error="code?.error ?? null"
     />
   </div>

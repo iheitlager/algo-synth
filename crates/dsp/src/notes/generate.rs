@@ -679,10 +679,7 @@ pub(super) fn parse_call(
     let seed_at = |k: usize| number(cur, arg(k), u32::MAX, "a seed is a number");
     let call = match name.as_str() {
         "arp" => {
-            want(
-                &[3, 4],
-                "arp takes a chord, a mode, a rate and for random a seed: arp([c4,e4,g4],up,16)",
-            )?;
+            want(&[3, 4], crate::usage::ARP)?;
             // A clip's name: its progression, chord by chord (#103).
             let prog = Some(text(cur, arg(0)))
                 .filter(|t| !t.starts_with('['))
@@ -729,10 +726,7 @@ pub(super) fn parse_call(
             }
         }
         "root" => {
-            want(
-                &[1, 2],
-                "root takes a clip and maybe an octave: root(prog) or root(prog,3)",
-            )?;
+            want(&[1, 2], crate::usage::ROOT)?;
             let (from, (src, bars)) = source(cur, arg(0), srcs)?;
             let octave = if list.len() == 2 {
                 number(cur, arg(1), 7, "an octave is 0 to 7")?
@@ -747,7 +741,7 @@ pub(super) fn parse_call(
             }
         }
         "prog" => {
-            want(&[2], "prog takes a number of bars and a seed: prog(4,7)")?;
+            want(&[2], crate::usage::PROG)?;
             if scale.and_then(|s| s.degree(0)).is_none() {
                 return err(
                     cur.base + at,
@@ -764,10 +758,7 @@ pub(super) fn parse_call(
             }
         }
         "walk" => {
-            want(
-                &[3],
-                "walk takes a start note, a count and a seed: walk(c4,8,1)",
-            )?;
+            want(&[3], crate::usage::WALK)?;
             if scale.is_none() {
                 return err(cur.base + at, "a walk needs a scale line before it");
             }
@@ -783,10 +774,7 @@ pub(super) fn parse_call(
             }
         }
         "markov" => {
-            want(
-                &[3],
-                "markov takes an order, a clip and a seed: markov(1,riff,3)",
-            )?;
+            want(&[3], crate::usage::MARKOV)?;
             let order = number(cur, arg(0), u32::from(MAX_ORDER), "an order is 1 to 3")?;
             if order == 0 {
                 return err(cur.base + arg(0).0, "an order is 1 to 3");
@@ -801,10 +789,7 @@ pub(super) fn parse_call(
             }
         }
         _ => {
-            want(
-                &[3],
-                "mutate takes a clip, a percent and a seed: mutate(riff,30,5)",
-            )?;
+            want(&[3], crate::usage::MUTATE)?;
             let (from, (src, bars)) = source(cur, arg(0), srcs)?;
             let amount = number(cur, arg(1), 100, "a percent is 0 to 100")?;
             Gen::Mutate {

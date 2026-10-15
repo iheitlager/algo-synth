@@ -52,7 +52,7 @@ pub(crate) const WORDS: [&str; 7] = [
 
 /// What the indented lines under the open clip hold.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Under {
+pub(super) enum Under {
     Nothing,
     Lanes,
     Notes,

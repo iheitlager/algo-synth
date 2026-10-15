@@ -173,7 +173,7 @@ pub struct Step {
 impl Keys {
     /// `a1 minor`, `<a1 d2>/4 minor` or `<a1:minor d1:dorian>`.
     fn parse(arg: &str) -> Result<Keys, &'static str> {
-        let bad = "this takes a root and a mode, e.g. scale(c minor)";
+        let bad = crate::usage::SCALE;
         let arg = arg.trim();
         let (roots, hold, rest): (Vec<&str>, u32, &str) = if let Some(inner) = arg.strip_prefix('<')
         {
@@ -451,7 +451,11 @@ impl Pattern {
             }
             "every" | "off" => {
                 let [a, m] = args.as_slice() else {
-                    return Err("this takes a number and a method, e.g. every(4, rev)");
+                    return Err(if name == "every" {
+                        crate::usage::EVERY
+                    } else {
+                        crate::usage::OFF
+                    });
                 };
                 let inner = Box::new(nested(m, srcs)?);
                 if name == "every" {
@@ -461,7 +465,7 @@ impl Pattern {
                 }
             }
             "struct" => {
-                let bad = "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)";
+                let bad = crate::usage::STRUCT;
                 let arg = one()?.trim();
                 if let Some((events, bars, _)) = srcs(arg) {
                     if bars > MAX_BARS {
@@ -510,7 +514,7 @@ impl Pattern {
                     Some((events, bars, false)) => {
                         let mode = match rest.split_whitespace().collect::<Vec<_>>()[..] {
                             [m] => Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?,
-                            _ => return Err("this takes a clip and a mode, e.g. scale(harm minor)"),
+                            _ => return Err(crate::usage::SCALE),
                         };
                         if events.is_empty() {
                             return Err("this clip has no notes to take roots from");
@@ -535,8 +539,7 @@ impl Pattern {
             }
             "chord" => {
                 let name = one()?.trim();
-                let (events, bars, drums) =
-                    srcs(name).ok_or("this takes an earlier clip, e.g. chord(harm)")?;
+                let (events, bars, drums) = srcs(name).ok_or(crate::usage::CHORD)?;
                 if drums {
                     return Err("a drum clip has no notes to take chords from");
                 }
@@ -1468,11 +1471,7 @@ mod tests {
             ),
             ("add", "99", "this takes semitones from -48 to 48"),
             ("degrade", "2", "this takes a chance from 0 to 1"),
-            (
-                "every",
-                "4",
-                "this takes a number and a method, e.g. every(4, rev)",
-            ),
+            ("every", "4", crate::usage::EVERY),
             (
                 "every",
                 "4, cutoff(3)",
@@ -1484,16 +1483,8 @@ mod tests {
                 "a time is between 0 and 1 bar, at least a tick",
             ),
             ("off", "x, rev", "a time is a fraction of a bar, e.g. 1/8"),
-            (
-                "struct",
-                "x ~ x",
-                "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)",
-            ),
-            (
-                "struct",
-                "\"x o\"",
-                "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)",
-            ),
+            ("struct", "x ~ x", crate::usage::STRUCT),
+            ("struct", "\"x o\"", crate::usage::STRUCT),
             ("struct", "\"\"", "a rhythm has 1 to 48 steps"),
             (
                 "euclid",
@@ -1513,11 +1504,7 @@ mod tests {
                 "cutoff",
                 "a pattern method goes here, e.g. rev or fast(2)",
             ),
-            (
-                "scale",
-                "c",
-                "this takes a root and a mode, e.g. scale(c minor)",
-            ),
+            ("scale", "c", crate::usage::SCALE),
             (
                 "scale",
                 "h minor",
@@ -1526,21 +1513,9 @@ mod tests {
             ("oct", "5", "this takes octaves from -4 to 4"),
             ("oct", "", "this takes one value"),
             ("scale", "c weird", "no scale has this mode"),
-            (
-                "scale",
-                "<a1 d1>",
-                "this takes a root and a mode, e.g. scale(c minor)",
-            ),
-            (
-                "scale",
-                "<a1:minor d1>",
-                "this takes a root and a mode, e.g. scale(c minor)",
-            ),
-            (
-                "scale",
-                "<> minor",
-                "this takes a root and a mode, e.g. scale(c minor)",
-            ),
+            ("scale", "<a1 d1>", crate::usage::SCALE),
+            ("scale", "<a1:minor d1>", crate::usage::SCALE),
+            ("scale", "<> minor", crate::usage::SCALE),
             ("scale", "<a1 d1 minor", "a < of roots is not closed"),
             (
                 "scale",
@@ -1548,11 +1523,7 @@ mod tests {
                 "a root is held 1 to 16 bars, as <a1 d2>/4",
             ),
             ("scale", "<a1:weird> minor", "no scale has this mode"),
-            (
-                "scale",
-                "a1 minor major",
-                "this takes a root and a mode, e.g. scale(c minor)",
-            ),
+            ("scale", "a1 minor major", crate::usage::SCALE),
         ] {
             assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
         }

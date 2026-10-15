@@ -33,6 +33,7 @@ pub mod song;
 pub mod spectrum;
 pub mod synth;
 pub mod table;
+pub mod usage;
 pub mod voice;
 
 // The worklet's ABI, only for wasm (and its tests): a native build that
