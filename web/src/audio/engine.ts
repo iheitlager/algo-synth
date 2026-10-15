@@ -815,6 +815,17 @@ export async function loadKit(s: number, kit: Kit, fromSong = false): Promise<vo
   }
 }
 
+/** The kit synth `s` plays, by the song's `samples` lines; '' for none (#596). */
+export function kitOn(s: number): string {
+  const id = song.samples.find((w) => w.synth === s)?.id
+  return id !== undefined && packs.kits.some((k) => k.id === id) ? id : ''
+}
+/** Load the kit called `id` on synth `s`, as a preset is chosen (#596); not while another loads. */
+export function pickKit(s: number, id: string): void {
+  const kit = packs.kits.find((k) => k.id === id)
+  if (kit && !sampleStore.busy) void loadKit(s, kit)
+}
+
 /**
  * A multisample from the Spectral Lab (#520): each key's WAV into a free slot, mapped between its
  * neighbouring roots on the selected synth if it is a Sampler, else on a new one. Each WAV is kept

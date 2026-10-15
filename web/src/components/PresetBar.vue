@@ -17,11 +17,15 @@ const props = defineProps<{
   allow?: (p: UserPreset) => boolean
   /** Factory presets as [label, value]; choosing one emits `factory`. */
   factory?: [string, number][]
+  /** The Pad Sampler's kits, listed as its factory presets (#596); choosing one emits `kit`. */
+  kits?: readonly { id: string; name: string }[]
+  /** The kit the target plays now, shown while no user preset is chosen. */
+  kit?: string
   label?: string
   /** Picker and menu only: Save and Save as move into the menu, for a narrow rack module. */
   compact?: boolean
 }>()
-const emit = defineEmits<{ factory: [value: number] }>()
+const emit = defineEmits<{ factory: [value: number]; kit: [id: string] }>()
 
 const key = computed(() => JSON.stringify(props.target))
 const users = computed(() => presetsOf(props.target.kind, props.of ?? {}))
@@ -30,7 +34,11 @@ const others = computed(() => presetsOf(props.target.kind).filter((p) => !users.
 const all = computed(() => [...users.value, ...others.value])
 const current = computed(() => chosen[key.value])
 const user = computed(() => (current.value?.startsWith('u:') ? all.value.find((p) => `u:${p.id}` === current.value) : undefined))
-const value = computed(() => (current.value?.startsWith('f:') || user.value ? current.value : ''))
+const value = computed(() => {
+  if (user.value) return current.value
+  if (props.kits) return props.kit ? `k:${props.kit}` : ''
+  return current.value?.startsWith('f:') ? current.value : ''
+})
 const dirty = computed(() => !!user.value && presetModified(user.value, props.target))
 
 const naming = ref<'' | 'save' | 'rename'>('')
@@ -41,6 +49,7 @@ function choose(e: Event) {
   const v = select.value
   chosen[key.value] = v
   if (v.startsWith('f:')) emit('factory', Number(v.slice(2)))
+  else if (v.startsWith('k:')) emit('kit', v.slice(2))
   else if (v.startsWith('u:')) {
     const p = all.value.find((q) => q.id === v.slice(2))
     if (p) applyPreset(p, props.target)
@@ -101,6 +110,9 @@ const chosen = reactive<Record<string, string>>({})
     <label><span v-if="!compact">{{ label ?? 'Preset' }}</span>
       <select :disabled="!status.running" :value="value" :aria-label="compact ? (label ?? 'Preset') : undefined" @change="choose">
         <option value="">—</option>
+        <optgroup v-if="kits?.length" label="Factory">
+          <option v-for="k in kits" :key="k.id" :value="`k:${k.id}`">{{ k.name }}</option>
+        </optgroup>
         <optgroup v-if="factory?.length" label="Factory">
           <option v-for="[name, v] in factory" :key="v" :value="`f:${v}`">{{ name }}</option>
         </optgroup>

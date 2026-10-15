@@ -4,7 +4,7 @@
 // sent as `trackEdit`, and the engine prints the song back.
 import type { SongSetting, SongTrack } from './engine'
 import { MODELS, type ModelDef } from './models'
-import { Preset } from './params'
+import { Model, Preset } from './params'
 
 const KINDS = ['drums', 'synth', 'sampler'] as const
 
@@ -18,9 +18,14 @@ export const modelOfPreset = (preset: number): ModelDef | undefined =>
 
 export interface Choice { value: string; label: string }
 
-/** A track's preset choices on `model`: the model's factory presets, then the song's settings on it. */
-export function presetChoices(model: ModelDef, settings: SongSetting[]): Choice[] {
-  const factory = model.presets.map((name) => ({ value: `p${Preset[name]}`, label: name }))
+/**
+ * A track's preset choices on `model`: the model's factory presets, then the song's settings on it.
+ * The Pad Sampler's factory presets are the kits (#596).
+ */
+export function presetChoices(model: ModelDef, settings: SongSetting[], kits: readonly { id: string; name: string }[] = []): Choice[] {
+  const factory = model.id === Model.PadSampler && kits.length
+    ? kits.map((k) => ({ value: `k:${k.id}`, label: k.name }))
+    : model.presets.map((name) => ({ value: `p${Preset[name]}`, label: name }))
   const own = settings
     .map((st, i) => ({ st, i }))
     .filter(({ st }) => modelOfPreset(st.preset)?.id === model.id)
@@ -28,11 +33,13 @@ export function presetChoices(model: ModelDef, settings: SongSetting[]): Choice[
   return [...factory, ...own]
 }
 
-/** The choice a track plays now: its setting if it has one, else its preset; '' for neither. */
-export const choiceOf = (t: SongTrack): string => (t.setting >= 0 ? `s${t.setting}` : t.preset >= 0 ? `p${t.preset}` : '')
+/** The choice a track plays now: its setting if it has one, else its kit, else its preset; '' for none. */
+export const choiceOf = (t: SongTrack, kit = ''): string =>
+  t.setting >= 0 ? `s${t.setting}` : kit ? `k:${kit}` : t.preset >= 0 ? `p${t.preset}` : ''
 
-/** A chosen value as the edit to send: a factory preset or a song setting. */
-export function parseChoice(value: string): { kind: 'preset' | 'setting'; id: number } | null {
+/** A chosen value as the edit to send: a factory preset, a song setting or a kit to load. */
+export function parseChoice(value: string): { kind: 'preset' | 'setting'; id: number } | { kind: 'kit'; id: string } | null {
+  if (value.startsWith('k:') && value.length > 2) return { kind: 'kit', id: value.slice(2) }
   if (!/^[ps]\d+$/.test(value)) return null
   const id = Number(value.slice(1))
   if (value.startsWith('p')) return { kind: 'preset', id }

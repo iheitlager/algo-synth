@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The pad sampler's faceplate (#125): the kits `make samples` fetched, the sample store, a 4 x 4
+// The pad sampler's faceplate (#125): the kit it plays (chosen under Preset, #596), the sample store, a 4 x 4
 // grid of pads to play and select (pad 1 at the bottom left, as on an MPC), and the selected
 // pad's settings with its waveform. The engine holds the pads and plays them (padsampler.rs);
 // this forwards hits, files and field changes and draws what it reports (ADR-0001).
 import { computed, onMounted, ref } from 'vue'
-import { clearPads, fetchPacks, getEngine, layout, loadKit, outText, packs, padsOf, requestPads, sampleStore, setPad, status } from '../../audio/engine'
+import { clearPads, fetchPacks, getEngine, kitOn, layout, outText, packs, padsOf, requestPads, sampleStore, setPad, status } from '../../audio/engine'
 import { visibleOuts } from '../../audio/console'
 import { PAD_OUTS } from '../../audio/models'
 import { PadField } from '../../audio/params'
@@ -19,6 +19,7 @@ const pad = computed<Pad | undefined>(() => pads.value[selected.value])
 // Master, and the groups that exist (#220); a pad on a group that is gone still shows it.
 const outs = computed(() => visibleOuts(PAD_OUTS, layout.groups, pad.value?.out ?? 0))
 const sample = computed(() => (pad.value && pad.value.sample >= 0 ? (sampleStore.slots[pad.value.sample] ?? null) : null))
+const kit = computed(() => packs.kits.find((k) => k.id === kitOn(props.s)))
 const loaded = computed(() => sampleStore.slots.flatMap((info, slot) => (info ? [{ slot, info }] : [])))
 const WAVE_W = 640
 const WAVE_H = 60
@@ -60,13 +61,10 @@ const CHOKE_COLOURS = ['', '#e8554a', '#e8a33a', '#7cc46a', '#4fb3c9', '#6f86e0'
   <div class="pads">
     <div class="row">
       <div class="box kits">
-        <h4>Kits</h4>
+        <h4>Kit <small>choose one under Preset</small></h4>
         <p v-if="packs.loaded && !packs.kits.length" class="hint">None fetched: run <code>make samples</code>.</p>
-        <ul v-else>
-          <li v-for="k in packs.kits" :key="k.id">
-            <button :disabled="!status.running || !!sampleStore.busy" :title="`${k.license}. ${k.credit}`" @click="loadKit(s, k)">{{ k.name }}</button>
-          </li>
-        </ul>
+        <p v-else-if="kit" class="kit" :title="`${kit.license}. ${kit.credit}`">{{ kit.name }}</p>
+        <p v-else class="hint">None: the pads play what is put on them.</p>
         <p v-if="sampleStore.busy" class="hint" role="status">Loading {{ sampleStore.busy }}</p>
         <button class="clear" :disabled="!status.running" @click="clearPads(s)">Clear pads</button>
       </div>
@@ -126,7 +124,8 @@ const CHOKE_COLOURS = ['', '#e8554a', '#e8a33a', '#7cc46a', '#4fb3c9', '#6f86e0'
 .box { flex: 1 1 260px; padding: 8px 10px; border: 1px solid var(--trim); border-radius: 4px; background: color-mix(in srgb, var(--plate) 88%, black 12%); }
 h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c); display: flex; align-items: baseline; gap: 8px; }
 h4 small { font-weight: 400; letter-spacing: 0.06em; text-transform: none; color: var(--con-silk-dim); }
-ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.kit { margin: 0; color: var(--con-silk); }
+.kits { flex: 0 1 220px; }
 button { font: inherit; color: var(--con-silk); background: var(--plate); border: 1px solid var(--trim); border-radius: 3px; padding: 2px 8px; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 .clear { margin-top: 8px; }

@@ -32,6 +32,20 @@ describe('the track picker (#213)', () => {
     expect(modelOfPreset(Preset.AcidBass)?.id).toBe(Model.Sh101)
   })
 
+  it("lists the kits as a Pad Sampler's presets (#596)", () => {
+    const kits = [{ id: 'linndrum', name: 'LinnDrum' }, { id: 'roland-tr808', name: 'Roland TR-808 (sampled)' }]
+    const settings = [{ name: 'loud', preset: Preset.PadsLoud }]
+    const choices = presetChoices(modelDef(Model.PadSampler), settings, kits)
+    expect(choices.map((c) => c.value)).toEqual(['k:linndrum', 'k:roland-tr808', 's0'])
+    expect(presetChoices(modelDef(Model.PadSampler), [], []).map((c) => c.label)).toEqual(['PadsLoud', 'PadsSoft'])
+    expect(presetChoices(modelDef(Model.Tr808), [], kits).map((c) => c.label)).not.toContain('LinnDrum')
+    const pads = track({ kind: 'drums', preset: Preset.PadsLoud })
+    expect(choiceOf(pads, 'linndrum')).toBe('k:linndrum')
+    expect(choiceOf({ ...pads, setting: 0 }, 'linndrum')).toBe('s0')
+    expect(parseChoice('k:roland-tr808')).toEqual({ kind: 'kit', id: 'roland-tr808' })
+    expect(parseChoice('k:')).toBeNull()
+  })
+
   it('shows what a track plays and reads a choice back', () => {
     expect(choiceOf(track({ preset: Preset.MiniBass }))).toBe(`p${Preset.MiniBass}`)
     expect(choiceOf(track({ preset: Preset.MiniLead, setting: 2 }))).toBe('s2')
