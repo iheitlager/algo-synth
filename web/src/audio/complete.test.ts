@@ -43,6 +43,10 @@ describe('when the list opens (#595)', () => {
     expect(shows(opens(at('arp(', ['riff']), 'arp(', '('))).toEqual(['riff'])
   })
 
+  it('after a \\ for a voicing (#647)', () => {
+    expect(shows(opens(at('voicing: \\', ['ms20']), 'voicing: \\', '\\'))).toEqual(['ms20'])
+  })
+
   it('not after a space, so Enter still applies the line (#588)', () => {
     expect(opens(at('track a ', ['drums']), 'track a ', ' ')).toBeNull()
   })

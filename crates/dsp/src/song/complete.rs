@@ -167,6 +167,17 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
         .take_while(|c| is_word(*c))
         .map(char::len_utf8)
         .sum();
+    // A Modular setting's code is SuperCollider's (#647), from its first line.
+    if before.starts_with([' ', '\t']) && names.under == Under::Code {
+        let code = text.get(names.code..).unwrap_or("");
+        let skip = text
+            .get(..names.code)
+            .map_or(0, |t| t.encode_utf16().count()) as u32;
+        let mut c = crate::modular::complete::complete(code, cursor.saturating_sub(skip));
+        c.from += skip;
+        c.to += skip;
+        return c;
+    }
     let (pre, word) = before.split_at(before.len() - typed);
     let mut list = List {
         prefix: word,
@@ -200,7 +211,7 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
 }
 
 /// The byte offset of UTF-16 unit `at` in `text`, at a char boundary.
-fn byte_at(text: &str, at: u32) -> usize {
+pub(crate) fn byte_at(text: &str, at: u32) -> usize {
     let mut units = 0;
     for (b, c) in text.char_indices() {
         if units >= at {
@@ -212,7 +223,7 @@ fn byte_at(text: &str, at: u32) -> usize {
 }
 
 /// A char of a word that completes: names, modes with their dashes.
-fn is_word(c: char) -> bool {
+pub(crate) fn is_word(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-'
 }
 
@@ -229,13 +240,13 @@ fn uncommented(line: &str) -> &str {
 }
 
 /// The list being made: words that start with the prefix, in any case, once.
-struct List<'a> {
-    prefix: &'a str,
-    items: Vec<Item>,
+pub(crate) struct List<'a> {
+    pub(crate) prefix: &'a str,
+    pub(crate) items: Vec<Item>,
 }
 
 impl List<'_> {
-    fn wants(&self, word: &str) -> bool {
+    pub(crate) fn wants(&self, word: &str) -> bool {
         self.items.len() < MAX_ITEMS
             && word
                 .as_bytes()
@@ -244,7 +255,7 @@ impl List<'_> {
             && !self.items.iter().any(|i| i.word == word)
     }
 
-    fn add(&mut self, class: Class, word: &str, detail: impl FnOnce() -> String) {
+    pub(crate) fn add(&mut self, class: Class, word: &str, detail: impl FnOnce() -> String) {
         if self.wants(word) {
             self.items.push(Item {
                 class,
@@ -664,6 +675,8 @@ struct Names<'a> {
     scenes: Vec<(&'a str, &'a str)>,
     /// What the indented lines under the last top-level line hold.
     under: Under,
+    /// Where a Modular setting's code starts (bytes): the line after it.
+    code: usize,
     /// The clip they belong to, which can't read itself.
     open: Option<&'a str>,
 }
@@ -678,9 +691,13 @@ impl<'a> Names<'a> {
             snapshots: Vec::new(),
             scenes: Vec::new(),
             under: Under::Nothing,
+            code: 0,
             open: None,
         };
+        // The end of each line read, its `\n` with it.
+        let mut end = 0;
         for raw in text.split('\n') {
+            end += raw.len() + 1;
             if raw.starts_with([' ', '\t']) {
                 continue;
             }
@@ -702,6 +719,7 @@ impl<'a> Names<'a> {
                     n.settings.extend(name());
                     if at(3) == Some("Modular") {
                         n.under = Under::Code;
+                        n.code = end;
                     }
                 }
                 "clip" => {
@@ -1205,9 +1223,21 @@ scene main 8: beat riff
     }
 
     #[test]
-    fn modular_code_takes_nothing() {
-        let code = "setting m = Modular\n  SynthDef(\\m, { |freq| Sin|";
-        assert!(at(code).is_empty());
+    fn modular_code_takes_supercolliders_words() {
+        let code = "setting m = Modular\n  SynthDef(\\m, { |freq|\n    Sin";
+        let c = complete(code, code.encode_utf16().count() as u32);
+        assert_eq!(c.items[0].word, "SinOsc");
+        assert_eq!(
+            (c.from, c.to),
+            (c.to - 3, code.encode_utf16().count() as u32)
+        );
+        let c = complete(code, 25);
+        assert!(c.from <= c.to && c.to == 25);
+        // The song's words again after it.
+        assert_eq!(
+            at("setting m = Modular\n  SynthDef(\\m, { 0 }).add;\ntr|"),
+            ["track"]
+        );
     }
 
     /// The help in the call at `|`.

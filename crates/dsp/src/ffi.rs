@@ -900,11 +900,22 @@ thread_local! {
 /// Complete the buffer at UTF-16 unit `cursor`; the answer's length in bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn complete(cursor: u32) -> u32 {
+    answer(cursor, crate::song::complete::complete)
+}
+
+/// Complete the buffer as a Modular synth's SuperCollider code (#647), for
+/// its code editor; the answer comes back as `complete`'s does.
+#[unsafe(no_mangle)]
+pub extern "C" fn sc_complete(cursor: u32) -> u32 {
+    answer(cursor, crate::modular::complete::complete)
+}
+
+/// Complete the buffer with `how` and keep the answer for `complete_ptr`.
+fn answer(cursor: u32, how: fn(&str, u32) -> crate::song::complete::Completion) -> u32 {
     let found = LEX.with(|cell| match cell.try_borrow() {
-        Ok(lex) => std::str::from_utf8(&lex.0).map_or_else(
-            |_| Default::default(),
-            |t| crate::song::complete::complete(t, cursor),
-        ),
+        Ok(lex) => {
+            std::str::from_utf8(&lex.0).map_or_else(|_| Default::default(), |t| how(t, cursor))
+        }
         Err(_) => Default::default(),
     });
     COMPLETE.with(|cell| match cell.try_borrow_mut() {
@@ -2283,6 +2294,13 @@ mod tests {
         assert_eq!(out.len(), n as usize);
         assert_eq!(out, "8\t11\t\t\n1\tscale\tscale <root> <mode>\n");
         assert!(!complete_ptr().is_null());
+        let code = "Sin";
+        assert!(!lex_buf(code.len() as u32).is_null());
+        LEX.with(|cell| cell.borrow_mut().0.copy_from_slice(code.as_bytes()));
+        let n = sc_complete(3);
+        let out = COMPLETE.with(|cell| cell.borrow().clone());
+        assert_eq!(out.len(), n as usize);
+        assert_eq!(out, "0\t3\t\t\n8\tSinOsc\ta sine\n");
         // Not UTF-8: nothing to replace, nothing offered.
         assert!(!lex_buf(1).is_null());
         LEX.with(|cell| cell.borrow_mut().0[0] = 0xff);
@@ -2857,6 +2875,7 @@ mod tests {
         sweep!(reset, sc_lex());
         sweep!(reset, lex_ptr());
         sweep!(reset, complete(_));
+        sweep!(reset, sc_complete(_));
         sweep!(reset, complete_ptr());
         sweep!(reset, song_text_ptr());
         sweep!(reset, song_text_len());

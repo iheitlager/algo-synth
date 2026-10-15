@@ -25,8 +25,11 @@ export function readCompletion(raw: string): Completion {
   return Number.isFinite(from) && Number.isFinite(to) && from <= to ? { from, to, items, help, preview } : { from: 0, to: 0, items: [], help: '', preview: '' }
 }
 
-/** Typing these after nothing opens the list: what follows them is a word to pick. */
-const TRIGGERS = ['.', '(', ':', '[', ',']
+/**
+ * Typing these after nothing opens the list: what follows them is a word to
+ * pick; after `\` a Modular filter's voicing (#647).
+ */
+const TRIGGERS = ['.', '(', ':', '[', ',', '\\']
 
 /**
  * What shows after `typed` was typed (Ctrl+Space: `null`), or nothing. A word

@@ -18,6 +18,7 @@ interface LexExports {
   sc_lex(): number
   lex_ptr(): number
   complete(caret: number): number
+  sc_complete(caret: number): number
   complete_ptr(): number
 }
 
@@ -27,9 +28,13 @@ export const lexer = shallowRef<Lexer | null>(null)
 export const scLexer = shallowRef<Lexer | null>(null)
 /** The song's completer (#595), on the lexers' instance. */
 export const completer = shallowRef<Completer | null>(null)
+/** The Modular code's completer (#647). */
+export const scCompleter = shallowRef<Completer | null>(null)
 
 /** Both lexers and the completer, on one instance of the engine. */
-export function wasmLexers(module: WebAssembly.Module): { song: Lexer; sc: Lexer; complete: Completer } {
+export function wasmLexers(module: WebAssembly.Module): {
+  song: Lexer; sc: Lexer; complete: Completer; scComplete: Completer
+} {
   const w = new WebAssembly.Instance(module, {}).exports as unknown as LexExports
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
@@ -49,12 +54,17 @@ export function wasmLexers(module: WebAssembly.Module): { song: Lexer; sc: Lexer
     for (let i = 0; i < n; i++) out.push({ start: raw[i * 3], len: raw[i * 3 + 1], cls: CLASSES[raw[i * 3 + 2]] ?? '' })
     return out
   }
-  const complete: Completer = (text, caret) => {
-    if (typeof w.complete !== 'function' || !load(text)) return { from: caret, to: caret, items: [], help: '', preview: '' }
-    const n = w.complete(caret)
+  const completing = (how: ((caret: number) => number) | undefined): Completer => (text, caret) => {
+    if (typeof how !== 'function' || !load(text)) return { from: caret, to: caret, items: [], help: '', preview: '' }
+    const n = how.call(w, caret)
     return readCompletion(decoder.decode(new Uint8Array(w.memory.buffer, w.complete_ptr(), n)))
   }
-  return { song: run(() => w.lex()), sc: run(() => (typeof w.sc_lex === 'function' ? w.sc_lex() : 0)), complete }
+  return {
+    song: run(() => w.lex()),
+    sc: run(() => (typeof w.sc_lex === 'function' ? w.sc_lex() : 0)),
+    complete: completing(w.complete),
+    scComplete: completing(w.sc_complete),
+  }
 }
 
 /** A lit word on a line (#205): its column and length, in UTF-16 units. */

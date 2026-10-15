@@ -10,7 +10,7 @@ import type { Ahead } from './decktrail'
 import { GROUPS, feedsOf, groupStrip, padsOnGroup, moveBefore, orderStrips, routeOk } from './console'
 import { modelDef, type ModelDef } from './models'
 import { GlobalParam, InsertType, Model, PadField, Param, Preset, ProcType, StripParam, ZoneField, type ParamId, type PresetId, type QuantizeId } from './params'
-import { completer, lexer, scLexer, wasmLexers } from './lex'
+import { completer, lexer, scCompleter, scLexer, wasmLexers } from './lex'
 import { loadLibrary } from './library'
 import { capture, modified, plan, type PresetRegistry, type Target, type UserPreset } from './presets'
 import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setNames, stripName, trackLabel } from './names'
@@ -51,6 +51,7 @@ class AudioEngine {
     lexer.value = lexers.song
     scLexer.value = lexers.sc
     completer.value = lexers.complete
+    scCompleter.value = lexers.scComplete
     await ctx.audioWorklet.addModule(`${base}worklet.js`)
     const node = new AudioWorkletNode(ctx, 'algo-synth', {
       numberOfInputs: 0,
