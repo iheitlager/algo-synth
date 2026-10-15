@@ -105,6 +105,9 @@ pub struct Slot {
     pub times: u32,
     /// `@n`: shares of the bar (or group) it takes.
     pub weight: u32,
+    /// `(k,n[,rot])`: plays on k hits spread over n steps of its share, as
+    /// in Strudel and Tidal (#601).
+    pub euclid: Option<Euclid>,
     /// `?…`: plays on some bars only.
     pub cond: Option<Cond>,
     /// `&`: the note runs one tick into the next, so a legato synth slides.
@@ -527,6 +530,9 @@ impl Cursor<'_> {
                     self.i += 1;
                     return Ok(out);
                 }
+                Some('(') => {
+                    return err(self.col(), "euclid goes on the whole chord: [c4,e4](3,8)");
+                }
                 _ => return err(self.col(), "a chord is notes with commas, then ]"),
             }
         }
@@ -535,8 +541,12 @@ impl Cursor<'_> {
     /// Is the `[` at the cursor a chord (a comma before its `]`)?
     fn is_chord(&self) -> bool {
         let mut depth = 0usize;
+        let mut parens = 0usize;
         for ch in self.c.iter().skip(self.i) {
             match ch {
+                '(' => parens += 1,
+                ')' => parens = parens.saturating_sub(1),
+                _ if parens > 0 => {}
                 '[' | '<' => depth += 1,
                 ']' | '>' => {
                     depth = depth.saturating_sub(1);
@@ -578,6 +588,7 @@ impl Cursor<'_> {
                     let Some(to) = bare_degree(&Slot {
                         times: 1,
                         weight: 1,
+                        euclid: None,
                         cond: None,
                         slide: false,
                         ..end.clone()
@@ -642,7 +653,7 @@ impl Cursor<'_> {
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['*', '@', '?', '&', ']', '>']);
+                let end = self.word_end(&['(', '*', '@', '?', '&', ']', '>']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
                 if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
                     // `0..12`, one word
@@ -668,6 +679,7 @@ impl Cursor<'_> {
                 }
             }
         };
+        let euclid = self.inline_euclid()?;
         let (mut times, mut weight, mut cond, mut slide) = (1, 1, None, false);
         let (mut got_times, mut got_weight) = (false, false);
         loop {
@@ -695,6 +707,7 @@ impl Cursor<'_> {
                     slide = true;
                 }
                 Some(':') => return err(here, "durations go outside the quotes, as c4:4"),
+                Some('(') => return err(here, "euclid comes right after the word: c2(3,8)*2"),
                 Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>') => {
                     return err(here, "a word ends at a space");
                 }
@@ -705,9 +718,31 @@ impl Cursor<'_> {
             item,
             times,
             weight,
+            euclid,
             cond,
             slide,
         })
+    }
+
+    /// `(3,8)` or `(3,8,2)` right after a word, if there.
+    fn inline_euclid(&mut self) -> Result<Option<Euclid>, NoteError> {
+        if self.peek() != Some('(') {
+            return Ok(None);
+        }
+        let at = self.col();
+        let close = self.c.iter().skip(self.i).position(|c| *c == ')');
+        let Some(close) = close.map(|k| self.i + k) else {
+            return err(at, "a ( is not closed: c2(3,8)");
+        };
+        let args: String = self
+            .c
+            .get(self.i + 1..=close)
+            .unwrap_or(&[])
+            .iter()
+            .collect();
+        let e = Euclid::args(&args).map_err(|msg| NoteError { col: at, msg })?;
+        self.i = close + 1;
+        Ok(Some(e))
     }
 
     /// What follows a `?`: nothing (a half), a chance `0.3` from 0 to 1, or
@@ -1035,6 +1070,7 @@ fn bare_degree(s: &Slot) -> Option<i32> {
                 && !p.accent
                 && s.times == 1
                 && s.weight == 1
+                && s.euclid.is_none()
                 && s.cond.is_none()
                 && !s.slide =>
         {
@@ -1071,6 +1107,9 @@ fn slot_text(s: &Slot) -> String {
         Item::Alt(g) => format!("<{}>", slots_text(g)),
         Item::Range(a, b) => format!("{a} .. {b}"),
     };
+    if let Some(e) = s.euclid {
+        out.push_str(e.print().trim_start_matches("euclid"));
+    }
     if s.slide {
         out.push('&');
     }
@@ -1284,8 +1323,19 @@ impl Compiler<'_> {
         }
         let times = u128::from(s.times);
         for r in 0..times {
-            let start = at.add(span.scale(r, times));
-            self.item(&s.item, start, span.scale(1, times), bar, s.slide);
+            let (start, share) = (at.add(span.scale(r, times)), span.scale(1, times));
+            match s.euclid {
+                None => self.item(&s.item, start, share, bar, s.slide),
+                Some(e) => {
+                    let n = u128::from(e.n);
+                    for (i, hit) in (0..n).zip(e.pattern()) {
+                        if hit {
+                            let step = start.add(share.scale(i, n));
+                            self.item(&s.item, step, share.scale(1, n), bar, s.slide);
+                        }
+                    }
+                }
+            }
         }
         self.when = outer;
     }

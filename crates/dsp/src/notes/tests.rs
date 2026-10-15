@@ -1441,3 +1441,68 @@ fn conditions_print_back_and_bad_ones_say_which_there_are() {
         assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
     }
 }
+
+#[test]
+fn an_inline_euclid_plays_its_word_on_the_hits() {
+    let line = |t: &str| parse(t, 1).unwrap().events;
+    assert_eq!(line("\"c2(3,8)\""), line("euclid(3,8) c2"));
+    assert_eq!(line("\"c2(3,8,2)\""), line("euclid(3,8,2) c2"));
+    assert_eq!(ev("\"c2(3,8,2)\""), [(6, 6, 36), (24, 6, 36), (36, 6, 36)]);
+    // In its own share: the second half bar on (3,4), x x x ~.
+    assert_eq!(
+        ev("\"c4 e4(3,4)\""),
+        [(0, 24, 60), (24, 6, 64), (30, 6, 64), (36, 6, 64)]
+    );
+    // A degree, a chord name, a chord, a group and an alternation.
+    let n = parse("\"0(2,4) [c4,e4](2,4) c:maj(1,2)\"", 1).unwrap();
+    let got: Vec<_> = n.events.iter().map(|e| (e.start, e.degree)).collect();
+    assert_eq!(got.iter().filter(|(_, d)| *d).count(), 2);
+    assert_eq!(n.events.len(), 2 + 4 + 3);
+    assert_eq!(ev("\"[c4 e4](1,2)\""), [(0, 12, 60), (12, 12, 64)]);
+    let alt: Vec<_> = parse("\"<c4 e4>(2,4)\"", 1)
+        .unwrap()
+        .events
+        .iter()
+        .map(|e| (e.start, e.note))
+        .collect();
+    assert_eq!(alt, [(0, 60), (24, 60), (48, 64), (72, 64)]);
+    // The other suffixes after it: each repeat has the rhythm.
+    assert_eq!(ev("\"c4(1,2)*2\""), [(0, 12, 60), (24, 12, 60)]);
+}
+
+#[test]
+fn an_inline_euclid_prints_back_and_says_where_it_is_wrong() {
+    let text = "\"c2(3,8) <4 5>(5,8,2) [c4,e4](3,8)*2@3?0.5 c:m7(1,4)&\"";
+    let n = parse(text, 1).unwrap();
+    assert_eq!(n.text, text);
+    assert_eq!(parse(&n.text, 1).unwrap(), n);
+    assert_eq!(parse("\"c2(3,8,0)\"", 1).unwrap().text, "\"c2(3,8)\"");
+    let usage = "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)";
+    for (t, col, msg) in [
+        ("\"c2(3)\"", 4, usage),
+        (
+            "\"c2 e2(9,8)\"",
+            7,
+            "euclid cannot have more hits than steps",
+        ),
+        ("\"c2(3,0)\"", 4, "euclid has 1 to 64 steps"),
+        ("\"c2(3,8\"", 4, "a ( is not closed: c2(3,8)"),
+        (
+            "\"[c4(3,8),e4]\"",
+            5,
+            "euclid goes on the whole chord: [c4,e4](3,8)",
+        ),
+        (
+            "\"[c4,e4(3,8)]\"",
+            8,
+            "euclid goes on the whole chord: [c4,e4](3,8)",
+        ),
+        (
+            "\"c2*2(3,8)\"",
+            6,
+            "euclid comes right after the word: c2(3,8)*2",
+        ),
+    ] {
+        assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
+    }
+}

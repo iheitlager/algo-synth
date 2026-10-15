@@ -334,6 +334,7 @@ range's (`0 .. 3@2`), and the start takes none.
 ```text
 "<word>…"
 word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 ```
 
@@ -357,7 +358,12 @@ clip lead = lead
   "c4 e4?1:4 g4?3:4 ~ b4?0.3 d5?pre a4?last"
 ```
 
-Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
+`c2(3,8)` splits the word's share into 8 steps and plays it on 3 of them,
+spread as `euclid(3,8) c2` spreads them over a bar, rotated left by a third
+number (`c2(3,8,2)`), as in Strudel and Tidal. It goes on a note, a degree,
+a chord name, `[…]` (a chord too: `[c4,e4](3,8)`, not on one of its notes)
+and `<…>`, right after the word, before the other suffixes; each `*n` repeat
+has the rhythm. Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
 (slide: the note runs one tick into the next; with Legato and Glide, as on
 `AcidBass` and the TB-303's presets, the pitch glides on one gate, also into
 the same note) goes on a note or chord, not a rest or group.
@@ -372,6 +378,8 @@ clip slide = lead
   "c2& c3 ~ c2*2 eb2&"
 clip arp = lead .fast(8) .scale(a1 minor-pentatonic)
   "<0 2 1 3 2>"
+clip offbeat = lead .scale(a1 minor)
+  "0(3,8) <4 5>(5,8,2)"
 ```
 
 **Classic:** notes one after another, each with a duration.
