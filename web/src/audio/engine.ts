@@ -1017,6 +1017,12 @@ export function typeSong(text: string) {
   holdFold(!sameSong(text, song.text))
 }
 
+/** Format (#588): the text as the engine prints it, the draft applied first. */
+export function formatSong() {
+  if (!sameSong(song.draft, song.text) && song.draft !== sent) loadSong(song.draft)
+  engine?.post({ t: 'format' })
+}
+
 /** Apply the draft when it says another song than the one playing: Enter, or
  * the caret leaving a changed line (#588). A text that doesn't parse shows its
  * error and changes nothing. */

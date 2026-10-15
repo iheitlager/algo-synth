@@ -257,6 +257,19 @@ describe('the song as it is typed (ADR-0027)', () => {
     expect(take()).toEqual([{ t: 'foldHold', on: false }])
   })
 
+  it('formats after applying the draft (#588)', async () => {
+    const { mod, take } = await boot()
+    mod.song.text = 'tempo 120\n'
+    mod.typeSong('tempo  90\n')
+    take()
+    mod.formatSong()
+    expect(take().map((m) => m.t)).toEqual(['song', 'format'])
+    // An applied draft only formats.
+    mod.song.text = 'tempo  90\n'
+    mod.formatSong()
+    expect(take().map((m) => m.t)).toEqual(['format'])
+  })
+
   it('keeps a typed blank line: layout is not an edit (#584)', async () => {
     vi.useFakeTimers()
     try {

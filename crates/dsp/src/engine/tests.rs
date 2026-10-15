@@ -3389,10 +3389,12 @@ fn a_tracks_sound_saves_as_a_setting() {
             .contains("setting bass = Minimoog MiniBass: Cutoff 1234")
     );
     assert!(e.song_text().contains("track bass synth bass"));
+    // Written into the text as typed (#588): the rest of it stays.
     assert_eq!(
-        Song::parse(e.song_text()).map(|x| x.print()),
-        Ok(e.song_text().to_string())
+        e.song_text(),
+        "setting bass = Minimoog MiniBass: Cutoff 1234\ntrack bass synth bass\ntrack lead synth\n"
     );
+    assert_eq!(Song::parse(e.song_text()).as_ref(), Ok(e.song()));
     // Saved again: a second setting, named apart.
     assert!(e.track_edit(2, 0, 0));
     assert_eq!(e.song().settings[1].name, "bass2");
@@ -5220,7 +5222,7 @@ fn a_typed_song_keeps_its_text_and_lights_its_words() {
 }
 
 /// #588: an edit that leaves the song as its text says keeps the text as
-/// typed; one that changes it prints the song.
+/// typed; one that changes it rewrites only its line; Format prints it all.
 #[test]
 fn an_edit_that_changes_nothing_keeps_the_typed_text() {
     let mut e = kit(0);
@@ -5230,8 +5232,45 @@ fn an_edit_that_changes_nothing_keeps_the_typed_text() {
     e.fold();
     assert_eq!(e.song_text(), text);
     e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+    e.format_song();
     assert_eq!(e.song_text(), e.song().print());
-    assert!(e.song_text().starts_with("tempo 90\n"));
+}
+
+/// #588: a hand on a knob folds only its `setting` and `track` lines into a text
+/// typed with its own layout; a step click only its lane.
+#[test]
+fn a_fold_and_a_step_click_write_only_their_lines() {
+    let mut e = kit(0);
+    let text = "tempo 120\n\n# drums\ntrack kit drums\ntrack lead synth\n\nclip a = kit /16\n\n    bd x... x...   # kick\nclip m = lead\n   \"eb4@2  ~ e4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let lead = e.song_routed(1).expect("routed");
+    e.edit_param(lead, Param::Cutoff, 1234.0);
+    assert!(e.fold());
+    let folded = e.song_text().to_string();
+    assert_eq!(Song::parse(&folded).as_ref(), Ok(e.song()));
+    let setting = folded
+        .lines()
+        .find(|l| l.starts_with("setting lead = "))
+        .expect("a setting");
+    assert!(setting.contains("Cutoff 1234"), "{folded}");
+    // The fold writes the mixer too: its `master` line comes in after the tracks.
+    let kept: Vec<&str> = folded
+        .split('\n')
+        .filter(|l| !l.starts_with("setting lead = ") && !l.starts_with("master:"))
+        .collect();
+    assert_eq!(
+        kept.join("\n"),
+        text.replace("track lead synth\n", "track lead synth lead\n"),
+    );
+    // A step click rewrites its lane, keeping the indent and comment.
+    assert!(e.set_step(0, 0, 2, 2));
+    assert!(
+        e.song_text().contains("\n    bd x.X.x... # kick\n"),
+        "{}",
+        e.song_text()
+    );
+    assert!(e.song_text().contains("\n   \"eb4@2  ~ e4\"\n"));
 }
 
 /// #214: a pack picked on a synth's panel becomes its track's `samples`

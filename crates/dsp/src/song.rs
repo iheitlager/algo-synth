@@ -3428,6 +3428,7 @@ pub mod pad;
 pub mod recipe;
 pub mod signal;
 pub mod spans;
+pub mod splice;
 pub mod zone;
 
 /// A signal with `env` or a list has a value per voice (ADR-0023): it goes

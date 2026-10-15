@@ -1246,6 +1246,12 @@ pub extern "C" fn song_playing() -> u32 {
     query(0, |e| u32::from(e.clock().playing()))
 }
 
+/// Format (#588): the song's text as the engine prints it, every line.
+#[unsafe(no_mangle)]
+pub extern "C" fn song_format() {
+    with_engine(Engine::format_song);
+}
+
 /// Set the song's tempo in BPM; the text and the clock follow.
 #[unsafe(no_mangle)]
 pub extern "C" fn song_tempo(bpm: f32) {
@@ -2841,6 +2847,7 @@ mod tests {
         sweep!(reset, midi_import());
         sweep!(reset, song_playing());
         sweep!(reset, song_tempo(_));
+        sweep!(reset, song_format());
         sweep!(reset, song_swing(_));
         sweep!(reset, clock_tempo());
         sweep!(reset, clock_swing());
