@@ -988,16 +988,15 @@ const unlaid = (t: string) => t.split('\n').map((l) => l.trimEnd()).filter(Boole
 
 /** Send `text` to the engine to parse and play. */
 export function loadSong(text: string, id?: number) {
-  clearTimeout(typing)
   song.draft = text
   sent = text
   const bytes = new TextEncoder().encode(text)
   engine?.post({ t: 'song', bytes: bytes.buffer, id }, [bytes.buffer])
 }
 
-/** How long typing rests before the text applies (ADR-0027). */
+/** How long typing rests before Modular code builds (ADR-0027); the song
+ * text applies when a line is done instead (#588). */
 export const APPLY_AFTER_MS = 500
-let typing: ReturnType<typeof setTimeout> | undefined
 let held = false
 
 /** Hold the engine's folding while an edit of the text is not applied yet,
@@ -1009,16 +1008,21 @@ function holdFold(on: boolean) {
 }
 
 /**
- * The song text as it is typed (ADR-0027): applied once typing rests for
- * `APPLY_AFTER_MS`, folding held until then. A text that doesn't parse shows
- * its error and changes nothing.
+ * The song text as it is typed (ADR-0027, #588): kept as the draft, folding
+ * held, until a line is done (`applyDraft`) or Ctrl+Enter, never on a pause,
+ * so a half-typed word never plays.
  */
 export function typeSong(text: string) {
   song.draft = text
-  clearTimeout(typing)
-  const edited = !sameSong(text, song.text)
-  holdFold(edited)
-  if (edited) typing = setTimeout(() => loadSong(song.draft), APPLY_AFTER_MS)
+  holdFold(!sameSong(text, song.text))
+}
+
+/** Apply the draft when it says another song than the one playing: Enter, or
+ * the caret leaving a changed line (#588). A text that doesn't parse shows its
+ * error and changes nothing. */
+export function applyDraft() {
+  // Not again while its answer is on its way, or when it failed as it is.
+  if (!sameSong(song.draft, song.text) && song.draft !== sent) loadSong(song.draft)
 }
 
 /** Set one step (0 off, 1 hit, 2 accent); the engine sends the song back. */

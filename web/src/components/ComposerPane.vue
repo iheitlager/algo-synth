@@ -7,7 +7,7 @@ import { LIMITS, setSplit, splits } from '../audio/split'
 import Splitter from './Splitter.vue'
 import { computed, onMounted, watch } from 'vue'
 import {
-  MUTE, cueClip, loadSong, nextRatchet, params, requestSong, routeTrack, sameSong, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
+  MUTE, applyDraft, cueClip, loadSong, nextRatchet, params, requestSong, routeTrack, sameSong, typeSong, setRatchet, setSongSwing, setSongTempo, setStep, song, songPosition as position,
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
@@ -158,11 +158,11 @@ watch(() => status.running, (on) => on && requestSong())
       <div class="text">
         <div class="text-head">
           <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
-          <span v-else-if="dirty" class="muted">applies when you pause · Ctrl+Enter now</span>
+          <span v-else-if="dirty" class="muted">applies when the line is done · Ctrl+Enter now</span>
         </div>
         <SongEditor
           :model-value="song.draft" :disabled="!status.running" :error="song.error"
-          :lit="song.draft === song.text ? song.lit : []" @update:model-value="typeSong" @keydown="onKey"
+          :lit="song.draft === song.text ? song.lit : []" @update:model-value="typeSong" @keydown="onKey" @done="applyDraft"
         />
       </div>
     </div>

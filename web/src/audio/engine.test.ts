@@ -210,7 +210,7 @@ describe('applySong', () => {
 })
 
 describe('the song as it is typed (ADR-0027)', () => {
-  it('holds folding while typing and applies once typing rests', async () => {
+  it('holds folding while typing and applies when the line is done, never on a pause (#588)', async () => {
     vi.useFakeTimers()
     try {
       const { mod, take } = await boot()
@@ -219,12 +219,20 @@ describe('the song as it is typed (ADR-0027)', () => {
       mod.typeSong('tempo 12')
       mod.typeSong('tempo 128\n')
       expect(take()).toEqual([{ t: 'foldHold', on: true }])
-      vi.advanceTimersByTime(mod.APPLY_AFTER_MS - 1)
+      // A pause applies nothing: a half-typed word never plays.
+      vi.advanceTimersByTime(10 * mod.APPLY_AFTER_MS)
       expect(take()).toEqual([])
-      vi.advanceTimersByTime(1)
+      mod.applyDraft()
       const sent = take()
       expect(sent.map((m) => m.t)).toEqual(['song'])
       expect(new TextDecoder().decode(sent[0]?.bytes as ArrayBuffer)).toBe('tempo 128\n')
+      // Not again while its answer is on its way, nor for a layout-only edit.
+      mod.applyDraft()
+      expect(take()).toEqual([])
+      mod.song.text = 'tempo 128\n'
+      mod.typeSong('tempo 128\n\n')
+      mod.applyDraft()
+      expect(take().map((m) => m.t)).not.toContain('song')
     } finally {
       vi.useRealTimers()
     }

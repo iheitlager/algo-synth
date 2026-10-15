@@ -2515,11 +2515,14 @@ fn a_picked_drum_track_plays_the_kit_in_the_rack() {
             "{kit:?}: synth 0 is untouched"
         );
         assert_eq!(e.param_value(1, Param::Model), kit.model() as u32 as f32);
-        assert!(
-            e.song_text().contains(&format!("track kit drums {name} ")),
-            "{}",
-            e.song_text()
-        );
+        // A kit other than the one the text picks is written in; the 808 the
+        // text picks already plays as typed (#588).
+        let text = e.song_text();
+        if kit == Preset::Kit808 {
+            assert_eq!(text, FOUR);
+        } else {
+            assert!(text.contains(&format!("track kit drums {name} ")), "{text}");
+        }
     }
     // A kit written in the text is made, as before.
     let mut e = Engine::new(48_000.0);
@@ -2781,7 +2784,7 @@ fn a_song_load_with_a_bad_note_keeps_the_old_one_playing() {
     let bad = "track lead synth\nclip r = lead\n  c4:4 x4:4\n";
     let err = load_text(&mut e, bad).unwrap_err();
     assert_eq!((err.line, err.col), (3, 8));
-    assert_eq!(e.song_text(), Song::parse(good).unwrap().print());
+    assert_eq!(e.song_text(), good);
 }
 
 /// #124: a song's drum track finds a pad sampler as it finds the 808, and its lanes
@@ -5193,6 +5196,42 @@ fn the_words_that_play_are_lit() {
     assert!(lit_words(&mut e).is_empty());
     e.song_stop();
     assert!(lit_words(&mut e).is_empty());
+}
+
+/// #588: a song's text stays as typed, its own layout, spellings and blank
+/// lines kept, and the words that play light up in it.
+#[test]
+fn a_typed_song_keeps_its_text_and_lights_its_words() {
+    let mut e = kit(0);
+    let text = "tempo 120\n\ntrack kit drums\ntrack lead synth\n\nclip a = kit /16\n\n    bd x3.. X...   # kick\nclip m = lead\n# a riff\n   \"eb4@2  ~ e4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.song_play();
+    run(&mut e, 2);
+    let mut now = lit_words(&mut e);
+    now.sort();
+    assert_eq!(now, ["eb4", "x3"]);
+    // The second quarter: X on step 4 (18 000), written after a space.
+    run(&mut e, 19_000 / BLOCK - 2);
+    let mut now = lit_words(&mut e);
+    now.sort();
+    assert_eq!(now, ["X", "eb4"]);
+    e.song_stop();
+}
+
+/// #588: an edit that leaves the song as its text says keeps the text as
+/// typed; one that changes it prints the song.
+#[test]
+fn an_edit_that_changes_nothing_keeps_the_typed_text() {
+    let mut e = kit(0);
+    let text = "tempo 120\n\ntrack kit drums\nclip a = kit /16\n    bd x... x...\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.set_song_tempo(120.0);
+    e.fold();
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), e.song().print());
+    assert!(e.song_text().starts_with("tempo 90\n"));
 }
 
 /// #214: a pack picked on a synth's panel becomes its track's `samples`

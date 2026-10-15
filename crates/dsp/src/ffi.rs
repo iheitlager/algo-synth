@@ -777,7 +777,8 @@ pub extern "C" fn zone_count() -> u32 {
 // --- The song (spec 002, Req 6, ADR-0012) ----------------------------------
 //
 // Loading as a MIDI file: `song_buf(len)`, write the text's UTF-8 bytes,
-// `song_load()`. The engine parses it and prints it back (`song_text_*`); the
+// `song_load()`. The engine parses it and keeps it as typed, or prints it when
+// loading changed the song (`song_text_*`, #588); the
 // view draws the grid from the queries below and never parses the text.
 // (`song_length` and `song_bar` above belong to the MIDI file.)
 
