@@ -488,7 +488,7 @@ notes every run.
 | `walk(<pitch>,<n>,<seed>)` | n notes (1–32) in one bar, a random walk on the scale; needs `scale` |
 | `markov(<order>,<clip>,<seed>)` | a chain of order 1–3 learned from the clip's pitches and rhythm |
 | `mutate(<clip>,<percent>,<seed>)` | the clip with 0–100 % of its notes moved or dropped |
-| `prog(<bars>,<seed>)` | 1–16 bars of triads, one a bar: tonic first, dominant last, functional moves; needs a seven-note `scale` |
+| `prog(<bars>,<seed>[,<size>][,<beats>][,<style>])` | 1–16 bars of chords on a seven-note `scale`, one a bar: tonic first, dominant last, functional moves. After the seed, in any order: a size `triad` (default), `7th`, `9th` or `sus` (1 4 5, 1 2 5 on the dominant); beats a chord lasts, 1–16 (`2`), or up to 16 in turn (`"4 2 2"`), the last chord cut at the end; a style `classic` (default), `pop` (I to IV or V), `jazz` (ii … V I), `modal` (I to I, no V) or `andalusian` (i VII VI V) |
 | `root(<clip>[,<octave>])` | the root of each of the clip's chords in octave 0–7 (default 2), a bass line |
 
 A clip a call reads is a note clip above it, as it was at load (a `live`
@@ -501,6 +501,8 @@ track bass synth
 track arp synth
 clip chords = pad voicing
   prog(4,7)
+clip jazz = pad voicing
+  prog(4,7,7th,"4 2 2",jazz)
 clip low = bass
   root(chords)
 clip ripple = arp

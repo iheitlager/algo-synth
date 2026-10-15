@@ -1762,6 +1762,43 @@ fn a_progression_feeds_pad_bass_and_arp() {
     }
 }
 
+/// #608, #609, #610: a progression with sevenths, a rhythm and a style
+/// feeds the bass and the arp, which follow its chords where they start.
+#[test]
+fn a_prog_with_a_rhythm_feeds_root_and_arp() {
+    let text = "scale c minor\ntrack pad synth\ntrack bass synth\ntrack arp synth\n\n\
+                clip chords = pad voicing\n  prog(4,7,jazz,\"4 2 2\",7th)\n\
+                clip low = bass\n  root(chords)\n\
+                clip ripple = arp\n  arp(chords,up,8)\n";
+    let s = Song::parse(text).expect("parses");
+    let printed = s.print();
+    assert!(
+        printed.contains("  prog(4,7,7th,\"4 2 2\",jazz)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let events = |k: usize| s.clips[k].notes.as_ref().unwrap().events.clone();
+    let mut starts: Vec<u32> = events(0).iter().map(|e| e.start).collect();
+    starts.dedup();
+    assert_eq!(starts, [0, 48, 72, 96, 144, 168]);
+    assert!(events(0).iter().all(|e| starts.contains(&e.start)));
+    assert_eq!(events(0).len(), 6 * 4, "a seventh on each");
+    // A root where each chord starts, and an arp that plays each chord's
+    // notes from its start.
+    let roots: Vec<u32> = events(1).iter().map(|e| e.start).collect();
+    assert_eq!(roots, starts);
+    let chords = events(0);
+    for e in events(2) {
+        let at = starts.iter().rev().find(|s| **s <= e.start).unwrap();
+        assert!(
+            chords
+                .iter()
+                .any(|c| c.start == *at && c.note % 12 == e.note % 12),
+            "{e:?}"
+        );
+    }
+}
+
 // --- Mixer lines (ADR-0018) -----------------------------------------------------
 
 const MIXED: &str = "track kit drums\ntrack bass synth\n\

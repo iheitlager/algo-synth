@@ -40,7 +40,7 @@ pub mod pattern;
 
 pub use chord::{NUMERALS, QUALITIES, STYLES, Style, Voicing};
 use generate::Source;
-pub use generate::{ArpMode, CALLS, Gen};
+pub use generate::{ArpMode, CALLS, Gen, Size, Style as ProgStyle};
 
 use crate::algo::{Euclid, Rng, Scale, mix};
 

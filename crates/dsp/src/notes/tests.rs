@@ -1182,11 +1182,7 @@ fn progression_errors_say_where() {
         ),
         ("prog(0,1)", 6, "a prog is 1 to 16 bars"),
         ("prog(17,1)", 6, "a prog is 1 to 16 bars"),
-        (
-            "prog(4)",
-            1,
-            "prog takes a number of bars and a seed: prog(4,7)",
-        ),
+        ("prog(4)", 1, crate::usage::PROG),
     ] {
         let e = with_prog(text).unwrap_err();
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
@@ -1806,5 +1802,215 @@ fn voicing_words_parse_and_print_back() {
         ),
     ] {
         assert_eq!(Voicing::parse(text), Err(msg), "{text}");
+    }
+}
+
+fn major() -> Scale {
+    key(0, crate::algo::Mode::from_name("major").unwrap())
+}
+
+/// A progression's chords: start, length and notes, lowest first.
+fn prog_chords(text: &str, scale: &Scale) -> Vec<(u32, u32, Vec<u8>)> {
+    let n = parse_in(text, 1, Some(scale)).unwrap();
+    let mut out: Vec<(u32, u32, Vec<u8>)> = Vec::new();
+    for e in &n.events {
+        match out.last_mut() {
+            Some((s, _, c)) if *s == e.start => c.push(e.note),
+            _ => out.push((e.start, e.len, vec![e.note])),
+        }
+    }
+    for (_, _, c) in &mut out {
+        c.sort_unstable();
+    }
+    out
+}
+
+/// The degree (0 is the tonic) each chord is built on.
+fn prog_degrees(text: &str, scale: &Scale) -> Vec<usize> {
+    prog_chords(text, scale)
+        .iter()
+        .map(|(_, _, c)| {
+            (0..7)
+                .find(|d| scale.degree(*d) == Some(c[0] % 12))
+                .unwrap()
+        })
+        .collect()
+}
+
+/// #608: a size stacks more of the scale on the same degrees.
+#[test]
+fn a_prog_size_stacks_sevenths_ninths_and_sus() {
+    let scale = minor();
+    let in_scale = [0u8, 2, 3, 5, 7, 8, 10];
+    for seed in 0..30 {
+        let plain = format!("prog(8,{seed})");
+        let triads = prog_chords(&plain, &scale);
+        assert_eq!(
+            prog_chords(&format!("prog(8,{seed},triad)"), &scale),
+            triads
+        );
+        let degrees = prog_degrees(&plain, &scale);
+        for (size, notes) in [("7th", 4), ("9th", 5), ("sus", 3)] {
+            let text = format!("prog(8,{seed},{size})");
+            assert_eq!(
+                prog_degrees(&text, &scale),
+                degrees,
+                "{text}: the same degrees"
+            );
+            for ((_, _, chord), (_, _, triad)) in prog_chords(&text, &scale).iter().zip(&triads) {
+                assert_eq!(chord.len(), notes, "{text}");
+                assert!(chord.iter().all(|n| in_scale.contains(&(n % 12))), "{text}");
+                match size {
+                    // The triad, and the seventh (and ninth) above it.
+                    "7th" | "9th" => assert_eq!(chord[..3], triad[..], "{text}"),
+                    _ => assert_eq!((chord[0], chord[2]), (triad[0], triad[2]), "{text}"),
+                }
+            }
+        }
+    }
+    // i7 in c minor: c eb g bb; i9 adds d; isus is c f g; the last chord,
+    // v, is sus2 in the scale: g ab d.
+    let chords = prog_chords("prog(2,1,7th)", &scale);
+    assert_eq!(chords[0].2, [60, 63, 67, 70]);
+    assert_eq!(
+        prog_chords("prog(2,1,9th)", &scale)[0].2,
+        [60, 63, 67, 70, 74]
+    );
+    let sus = prog_chords("prog(2,1,sus)", &scale);
+    assert_eq!(
+        (sus[0].2.clone(), sus[1].2.clone()),
+        (vec![60, 65, 67], vec![67, 68, 74])
+    );
+}
+
+/// #609: the chords last the beats given, in turn, and are cut at the end.
+#[test]
+fn a_prog_rhythm_sets_the_chord_lengths() {
+    let scale = minor();
+    let today = parse_in("prog(4,7)", 1, Some(&scale)).unwrap().events;
+    for same in ["prog(4,7,4)", "prog(4,7,\"4\")"] {
+        assert_eq!(
+            parse_in(same, 1, Some(&scale)).unwrap().events,
+            today,
+            "{same}"
+        );
+    }
+    let two = prog_chords("prog(4,7,2)", &scale);
+    assert_eq!(two.len(), 8);
+    assert!(
+        two.iter()
+            .enumerate()
+            .all(|(k, c)| c.0 == 24 * k as u32 && c.1 == 24)
+    );
+    for seed in 0..50 {
+        let text = format!("prog(4,{seed},\"4 2 2\")");
+        let got = prog_chords(&text, &scale);
+        let at: Vec<(u32, u32)> = got.iter().map(|c| (c.0, c.1)).collect();
+        assert_eq!(
+            at,
+            [(0, 48), (48, 24), (72, 24), (96, 48), (144, 24), (168, 24)]
+        );
+        let d = prog_degrees(&text, &scale);
+        assert_eq!((d[0], d[5]), (0, 4), "{text}: i to v");
+    }
+    // Three beats in a bar: the second chord is cut to the bar's end.
+    let cut = prog_chords("prog(1,1,3)", &scale);
+    assert_eq!(
+        cut.iter().map(|c| (c.0, c.1)).collect::<Vec<_>>(),
+        [(0, 36), (36, 12)]
+    );
+    // A chord on every beat of 16 bars: 64 chords of a ninth, in bounds.
+    let n = parse_in("prog(16,1,9th,1)", 1, Some(&scale)).unwrap();
+    assert_eq!(n.events.len(), 320);
+}
+
+/// #610: each style starts and ends where it says, for 100 seeds.
+#[test]
+fn a_prog_style_has_its_own_start_end_and_moves() {
+    let scale = major();
+    for seed in 0..100 {
+        let d =
+            |style: &str, bars: u32| prog_degrees(&format!("prog({bars},{seed},{style})"), &scale);
+        assert_eq!(
+            d("classic", 8),
+            prog_degrees(&format!("prog(8,{seed})"), &scale)
+        );
+        let pop = d("pop", 8);
+        assert_eq!(pop[0], 0, "pop starts on I");
+        assert!(matches!(pop[7], 3 | 4), "pop ends on IV or V: {pop:?}");
+        let jazz = d("jazz", 8);
+        assert_eq!((jazz[0], jazz[6], jazz[7]), (1, 4, 0), "ii … V I: {jazz:?}");
+        let modal = d("modal", 8);
+        assert_eq!((modal[0], modal[7]), (0, 0), "{modal:?}");
+        assert!(!modal.contains(&4), "modal has no V: {modal:?}");
+        // vii is diminished in major: modal leaves it out.
+        assert!(!modal.contains(&6), "{modal:?}");
+        let anda = d("andalusian", 8);
+        assert_eq!((anda[0], anda[7]), (0, 4), "{anda:?}");
+        let steps: Vec<usize> = anda
+            .iter()
+            .map(|d| [0, 6, 5, 4].iter().position(|s| s == d).unwrap())
+            .collect();
+        assert!(
+            steps.windows(2).all(|w| w[1] >= w[0]),
+            "only down: {anda:?}"
+        );
+        assert!((0..4).all(|s| steps.contains(&s)), "every step: {anda:?}");
+        for bars in 2..4 {
+            let short = d("andalusian", bars);
+            assert_eq!((short[0], *short.last().unwrap()), (0, 4), "{short:?}");
+        }
+    }
+    // In a major key the descent is I vii vi V.
+    assert_eq!(prog_degrees("prog(4,1,andalusian)", &scale), [0, 6, 5, 4]);
+    // Spec 002's scenario: six sevenths in the rhythm, ii first, V I last.
+    let text = "prog(4,7,7th,\"4 2 2\",jazz)";
+    let chords = prog_chords(text, &scale);
+    let beats: Vec<u32> = chords.iter().map(|c| c.0 / 12 + 1).collect();
+    assert_eq!(beats, [1, 5, 7, 9, 13, 15]);
+    assert!(chords.iter().all(|c| c.2.len() == 4));
+    let d = prog_degrees(text, &scale);
+    assert_eq!((d[0], d[4], d[5]), (1, 4, 0));
+    // In either order with a rhythm.
+    let a = parse_in("prog(8,3,\"2\",pop)", 1, Some(&scale)).unwrap();
+    let b = parse_in("prog(8,3,pop,2)", 1, Some(&scale)).unwrap();
+    assert_eq!(a.events, b.events);
+    assert_eq!(prog_chords("prog(8,3,pop,2)", &scale).len(), 16);
+}
+
+#[test]
+fn prog_arguments_print_back_and_errors_say_where() {
+    let scale = minor();
+    for (text, printed) in [
+        ("prog(4,7)", "prog(4,7)"),
+        ("prog(4,7,triad,4,classic)", "prog(4,7)"),
+        ("prog(4,7,7th)", "prog(4,7,7th)"),
+        (
+            "prog(4,7,jazz,\"4 2 2\",9th)",
+            "prog(4,7,9th,\"4 2 2\",jazz)",
+        ),
+        ("prog(4,7,\"2\")", "prog(4,7,2)"),
+        ("prog(8,3,sus,3,andalusian)", "prog(8,3,sus,3,andalusian)"),
+    ] {
+        let n = parse_in(text, 1, Some(&scale)).unwrap();
+        assert_eq!(n.print(), printed, "{text}");
+        assert_eq!(parse_in(printed, 1, Some(&scale)).unwrap().events, n.events);
+    }
+    let args = "after the seed a prog takes a size (triad, 7th, 9th, sus), beats (2 or \"4 2 2\") or a style (classic, pop, jazz, modal, andalusian)";
+    let beats = "a chord lasts 1 to 16 beats: 2, or a list in quotes as \"4 2 2\"";
+    let twice = "a prog takes one size, one rhythm and one style";
+    for (text, col, msg) in [
+        ("prog(4,7,13th)", 10, args),
+        ("prog(4,7,0)", 10, beats),
+        ("prog(4,7,17)", 10, beats),
+        ("prog(4,7,\"4 x 2\")", 13, beats),
+        ("prog(4,7,\"\")", 10, beats),
+        ("prog(4,7,7th,9th)", 14, twice),
+        ("prog(4,7,pop,jazz)", 14, twice),
+        ("prog(4,7,2,\"4 4\")", 12, twice),
+        ("prog(4,7,7th,2,pop,1)", 1, crate::usage::PROG),
+    ] {
+        let e = parse_in(text, 1, Some(&scale)).unwrap_err();
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
     }
 }

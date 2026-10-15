@@ -9,6 +9,7 @@
 //! markov(1,riff,3)               learn order 1 from the clip riff, seed 3
 //! mutate(riff,30,5)              change 30 percent of riff's notes, seed 5
 //! prog(4,7)                      four bars of chords in the song's key, seed 7
+//! prog(4,7,7th,"4 2 2",jazz)      sevenths, a rhythm in beats and a style
 //! root(prog)                     the root of each chord of prog, as a bass line
 //! arp(prog,up,16)                prog's chords arpeggiated, each from its start
 //! ```
@@ -52,6 +53,70 @@ impl ArpMode {
             .find(|m| m.0 == self)
             .map_or("", |m| m.1)
     }
+}
+
+/// How far `prog` stacks each chord (#608).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Size {
+    /// 1 3 5.
+    #[default]
+    Triad,
+    /// 1 3 5 7.
+    Seventh,
+    /// 1 3 5 7 9.
+    Ninth,
+    /// 1 4 5, and 1 2 5 on the dominant.
+    Sus,
+}
+
+impl Size {
+    pub const ALL: [(Size, &'static str); 4] = [
+        (Size::Triad, "triad"),
+        (Size::Seventh, "7th"),
+        (Size::Ninth, "9th"),
+        (Size::Sus, "sus"),
+    ];
+
+    /// The scale steps stacked from a chord's degree.
+    fn steps(self, degree: usize) -> &'static [usize] {
+        match self {
+            Size::Triad => &[0, 2, 4],
+            Size::Seventh => &[0, 2, 4, 6],
+            Size::Ninth => &[0, 2, 4, 6, 8],
+            Size::Sus if degree == 4 => &[0, 1, 4],
+            Size::Sus => &[0, 3, 4],
+        }
+    }
+
+    fn notes(self) -> usize {
+        self.steps(0).len()
+    }
+}
+
+/// The moves `prog` makes between chords, and where it starts and ends (#610).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Style {
+    /// Common practice: tonic, subdominant, dominant; I to V.
+    #[default]
+    Classic,
+    /// Mostly I, IV, V and vi; I to IV or V.
+    Pop,
+    /// A strong ii, V, I pull; ii to I.
+    Jazz,
+    /// The tonic and its neighbours, no dominant; I to I.
+    Modal,
+    /// Down by step from the tonic to the dominant: i VII VI V.
+    Andalusian,
+}
+
+impl Style {
+    pub const ALL: [(Style, &'static str); 5] = [
+        (Style::Classic, "classic"),
+        (Style::Pop, "pop"),
+        (Style::Jazz, "jazz"),
+        (Style::Modal, "modal"),
+        (Style::Andalusian, "andalusian"),
+    ];
 }
 
 /// A generator call. `from` and `src` of Markov and Mutate keep the events of
@@ -101,15 +166,24 @@ pub enum Gen {
         bars: u32,
         octave: u8,
     },
-    /// A progression in the song's key, a triad a bar (#103).
+    /// A progression in the song's key (#103): a chord a bar unless
+    /// `beats` say otherwise (#609), stacked to `size` (#608), moving as
+    /// `style` does (#610).
     Prog {
         bars: u32,
         seed: u32,
+        size: Size,
+        /// Each chord's length in beats, 1 to 16, in turn: `[4]` by default.
+        beats: Vec<u8>,
+        style: Style,
     },
 }
 
 /// Bars a progression may have, and the octave `root` plays in by default.
 const MAX_PROG: u32 = 16;
+/// Lengths a progression's rhythm may list, and the longest, in beats.
+const MAX_BEATS: usize = 16;
+const BEAT: u32 = TICKS_PER_BAR / 4;
 const ROOT_OCTAVE: u8 = 2;
 
 /// A clip a call may read: its events and bars.
@@ -181,7 +255,36 @@ impl Gen {
             }
             Gen::Root { from, octave, .. } if *octave == ROOT_OCTAVE => format!("root({from})"),
             Gen::Root { from, octave, .. } => format!("root({from},{octave})"),
-            Gen::Prog { bars, seed } => format!("prog({bars},{seed})"),
+            Gen::Prog {
+                bars,
+                seed,
+                size,
+                beats,
+                style,
+            } => {
+                let mut out = format!("prog({bars},{seed}");
+                if *size != Size::Triad {
+                    let name = Size::ALL.iter().find(|s| s.0 == *size).map_or("", |s| s.1);
+                    out.push_str(&format!(",{name}"));
+                }
+                match beats.as_slice() {
+                    [4] => {}
+                    [b] => out.push_str(&format!(",{b}")),
+                    bs => {
+                        let bs: Vec<String> = bs.iter().map(u8::to_string).collect();
+                        out.push_str(&format!(",\"{}\"", bs.join(" ")));
+                    }
+                }
+                if *style != Style::Classic {
+                    let name = Style::ALL
+                        .iter()
+                        .find(|s| s.0 == *style)
+                        .map_or("", |s| s.1);
+                    out.push_str(&format!(",{name}"));
+                }
+                out.push(')');
+                out
+            }
         }
     }
 
@@ -200,7 +303,9 @@ impl Gen {
             Gen::Walk { .. } => MAX_WALK as usize,
             Gen::Markov { src, .. } | Gen::Mutate { src, .. } | Gen::Root { src, .. } => src.len(),
             Gen::ArpProg { rate, bars, .. } => usize::from(*rate) * *bars as usize,
-            Gen::Prog { bars, .. } => 3 * *bars as usize,
+            Gen::Prog {
+                bars, size, beats, ..
+            } => size.notes() * chords(*bars, beats).count(),
         }
     }
 
@@ -224,7 +329,13 @@ impl Gen {
                 ..
             } => arp_prog(src, *bars, *mode, *rate, seed, out),
             Gen::Root { src, octave, .. } => root(src, *octave, out),
-            Gen::Prog { bars, .. } => prog(*bars, seed, scale, out),
+            Gen::Prog {
+                bars,
+                size,
+                beats,
+                style,
+                ..
+            } => prog(*bars, beats, *size, *style, seed, scale, out),
         }
         out.sort_unstable_by_key(super::sort_key);
         // Past the room reserved, a push would allocate on the audio thread (#233).
@@ -471,51 +582,188 @@ const FUNCTIONS: [&[usize]; 3] = [&[0, 5, 2], &[3, 1], &[4, 6]];
 /// The chance (of 8) of each next function after tonic, subdominant, dominant.
 const MOVES: [[u32; 3]; 3] = [[1, 4, 3], [1, 2, 5], [6, 0, 2]];
 
-/// `prog(bars,seed)`: a triad a bar on the song's scale, starting on the
-/// tonic (I) and ending on the dominant (V), moving between functions as
-/// common practice does: tonic to anything, subdominant towards the
-/// dominant, the dominant home.
-fn prog(bars: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
+/// Each chord's start and length in ticks: the beats in turn until `bars`
+/// bars are full, the last cut at their end.
+fn chords(bars: u32, beats: &[u8]) -> impl Iterator<Item = (u32, u32)> + '_ {
+    let end = bars.min(MAX_PROG) * TICKS_PER_BAR;
+    let mut at = 0;
+    beats
+        .iter()
+        .cycle()
+        .take(if beats.is_empty() { 0 } else { usize::MAX })
+        .map_while(move |b| {
+            let start = at;
+            at += u32::from(*b).max(1) * BEAT;
+            (start < end).then(|| (start, at.min(end) - start))
+        })
+}
+
+/// Weights (of any total) of the next degree after each degree, I to vii.
+type Moves = [[u32; 7]; 7];
+
+const POP: Moves = [
+    [0, 1, 0, 3, 3, 3, 0],
+    [0, 0, 0, 1, 3, 0, 0],
+    [0, 0, 0, 1, 0, 2, 0],
+    [3, 1, 0, 0, 3, 2, 0],
+    [3, 0, 0, 2, 0, 3, 0],
+    [1, 1, 0, 4, 2, 0, 0],
+    [1, 0, 0, 0, 0, 0, 0],
+];
+const JAZZ: Moves = [
+    [0, 3, 1, 2, 0, 2, 0],
+    [0, 0, 0, 0, 6, 0, 1],
+    [0, 0, 0, 0, 0, 4, 0],
+    [0, 2, 0, 0, 2, 0, 1],
+    [5, 0, 0, 0, 0, 2, 0],
+    [0, 5, 0, 1, 0, 0, 0],
+    [2, 0, 2, 0, 0, 0, 0],
+];
+/// No V: the tonic, ii, IV and the seventh degree (bVII in a minor mode).
+const MODAL: Moves = [
+    [0, 2, 0, 3, 0, 0, 3],
+    [3, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0],
+    [3, 1, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0],
+    [1, 0, 0, 0, 0, 0, 0],
+    [4, 0, 0, 1, 0, 0, 0],
+];
+
+/// The next degree after `from`, by the weights of its row; a row of
+/// nothing goes home. A diminished chord is skipped when `plain`.
+fn next(moves: &Moves, from: usize, r: &mut Rng, scale: &Scale, plain: bool) -> usize {
+    let row = moves.get(from).copied().unwrap_or_default();
+    let weight = |d: usize| {
+        let w = row.get(d).copied().unwrap_or(0);
+        if plain && diminished(scale, d) { 0 } else { w }
+    };
+    let total: u32 = (0..7).map(weight).sum();
+    if total == 0 {
+        return 0;
+    }
+    let pick = r.next_u32() % total;
+    let mut acc = 0;
+    for d in 0..7 {
+        acc += weight(d);
+        if pick < acc {
+            return d;
+        }
+    }
+    0
+}
+
+/// Is the triad on `degree` diminished in `scale`?
+fn diminished(scale: &Scale, degree: usize) -> bool {
+    let pc = |k: usize| i32::from(scale.degree((degree + k) % 7).unwrap_or(0));
+    (pc(4) - pc(0)).rem_euclid(12) == 6
+}
+
+/// The degree of each chord of a progression of `n` in `style`.
+fn degree(
+    style: Style,
+    k: usize,
+    n: usize,
+    function: &mut usize,
+    steps: &[usize],
+    r: &mut Rng,
+    scale: &Scale,
+) -> usize {
+    let last = k + 1 == n;
+    match style {
+        Style::Classic => {
+            if k == 0 {
+                0
+            } else if last {
+                *function = 2;
+                4
+            } else {
+                let pick = r.next_u32() % 8;
+                let moves = MOVES.get(*function).copied().unwrap_or([8, 0, 0]);
+                let mut acc = 0;
+                for (f, w) in moves.iter().enumerate() {
+                    acc += w;
+                    if pick < acc {
+                        *function = f;
+                        break;
+                    }
+                }
+                let choices = FUNCTIONS.get(*function).copied().unwrap_or(&[0]);
+                choices
+                    .get(usize::try_from(r.next_u32()).unwrap_or(0) % choices.len().max(1))
+                    .copied()
+                    .unwrap_or(0)
+            }
+        }
+        // The step of the descent: i VII VI V.
+        Style::Andalusian => [0, 6, 5, 4]
+            .get(steps.get(k).copied().unwrap_or(0))
+            .copied()
+            .unwrap_or(0),
+        Style::Pop | Style::Jazz | Style::Modal => {
+            let (moves, start) = match style {
+                Style::Pop => (&POP, 0),
+                Style::Jazz => (&JAZZ, 1),
+                _ => (&MODAL, 0),
+            };
+            let d = if k == 0 {
+                start
+            } else if last {
+                match style {
+                    Style::Pop if r.next_u32() % 2 == 0 => 3,
+                    Style::Pop => 4,
+                    _ => 0,
+                }
+            } else if style == Style::Jazz && k + 2 == n {
+                // The V before the last I.
+                4
+            } else {
+                next(moves, *function, r, scale, style == Style::Modal)
+            };
+            *function = d;
+            d
+        }
+    }
+}
+
+/// `prog(bars,seed[,size][,beats][,style])`: chords on the song's scale,
+/// a bar each or as `beats` say. `classic` starts on the tonic (I), ends on
+/// the dominant (V) and moves between functions as common practice does:
+/// tonic to anything, subdominant towards the dominant, the dominant home.
+/// Each chord is stacked from its degree to `size`, in octave 4.
+fn prog(
+    bars: u32,
+    beats: &[u8],
+    size: Size,
+    style: Style,
+    seed: u32,
+    scale: Option<&Scale>,
+    out: &mut Vec<Event>,
+) {
     let Some(scale) = scale.filter(|s| s.degree(0).is_some()) else {
         return;
     };
     let mut r = rng(seed, 0x9C0);
+    let n = chords(bars, beats).count();
+    // The andalusian descent: which chords move a step down, from i to V.
+    let mut steps = [0usize; MAX_PROG as usize * 4];
+    if style == Style::Andalusian {
+        andalusian(n, &mut r, &mut steps);
+    }
     let mut function = 0usize;
-    for bar in 0..bars.min(MAX_PROG) {
-        let degree = if bar == 0 {
-            0
-        } else if bar + 1 == bars {
-            function = 2;
-            4
-        } else {
-            let pick = r.next_u32() % 8;
-            let moves = MOVES.get(function).copied().unwrap_or([8, 0, 0]);
-            let mut acc = 0;
-            for (f, w) in moves.iter().enumerate() {
-                acc += w;
-                if pick < acc {
-                    function = f;
-                    break;
-                }
-            }
-            let choices = FUNCTIONS.get(function).copied().unwrap_or(&[0]);
-            choices
-                .get(usize::try_from(r.next_u32()).unwrap_or(0) % choices.len().max(1))
-                .copied()
-                .unwrap_or(0)
-        };
-        // Root, third and fifth stacked from the degree, in octave 4.
+    for (k, (start, len)) in chords(bars, beats).enumerate() {
+        let degree = degree(style, k, n, &mut function, &steps, &mut r, scale);
         let mut below = 59u8;
-        for k in [0, 2, 4] {
-            let pc = scale.degree((degree + k) % 7).unwrap_or(0);
+        for step in size.steps(degree) {
+            let pc = scale.degree((degree + step) % 7).unwrap_or(0);
             let mut note = 60 + pc;
             while note <= below {
                 note += 12;
             }
             below = note;
             out.push(Event {
-                start: bar * TICKS_PER_BAR,
-                len: TICKS_PER_BAR,
+                start,
+                len,
                 note,
                 accent: false,
                 vel: 0,
@@ -524,6 +772,45 @@ fn prog(bars: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<Event>) {
                 when: Default::default(),
                 nudge: 0,
             });
+        }
+    }
+}
+
+/// The step (0 to 3) of each of `n` chords down i VII VI V: from 0 to 3
+/// without going back, the seed choosing which steps repeat or are left out.
+fn andalusian(n: usize, r: &mut Rng, steps: &mut [usize]) {
+    let Some(last) = n.checked_sub(1) else {
+        return;
+    };
+    // The chords where the line moves down, at most three.
+    let mut moves = [false; MAX_PROG as usize * 4];
+    let want = last.min(3);
+    let mut got = 0;
+    while got < want {
+        let k = 1 + usize::try_from(r.next_u32()).unwrap_or(0) % last;
+        if let Some(m) = moves.get_mut(k).filter(|m| !**m) {
+            *m = true;
+            got += 1;
+        }
+    }
+    // With fewer than four chords a move skips steps, so the last is V.
+    let skip = 3 - want;
+    let mut extra = if want > 0 {
+        usize::try_from(r.next_u32()).unwrap_or(0) % want
+    } else {
+        0
+    };
+    let mut step = 0;
+    for k in 0..n {
+        if moves.get(k).copied().unwrap_or(false) {
+            step += 1;
+            if extra == 0 {
+                step += skip;
+            }
+            extra = extra.wrapping_sub(1);
+        }
+        if let Some(s) = steps.get_mut(k) {
+            *s = step.min(3);
         }
     }
 }
@@ -561,6 +848,40 @@ fn args(cur: &mut Cursor<'_>) -> Result<Vec<(usize, usize)>, NoteError> {
         }
         cur.i += 1;
     }
+}
+
+const PROG_ARGS: &str = "after the seed a prog takes a size (triad, 7th, 9th, sus), beats (2 or \"4 2 2\") or a style (classic, pop, jazz, modal, andalusian)";
+
+/// A prog's rhythm (#609): a number of beats, or up to 16 in quotes, each
+/// 1 to 16; a bad one is an error at its own column.
+fn prog_beats(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Vec<u8>, NoteError> {
+    let bad = "a chord lasts 1 to 16 beats: 2, or a list in quotes as \"4 2 2\"";
+    let t = text(cur, r);
+    let (body, base) = match t.strip_prefix('"') {
+        Some(rest) => match rest.strip_suffix('"') {
+            Some(body) => (body, r.0 + 1),
+            None => return err(cur.base + r.0, bad),
+        },
+        None => (t.as_str(), r.0),
+    };
+    let mut out = Vec::new();
+    let mut at = 0;
+    for word in body.split(' ') {
+        if !word.is_empty() {
+            let col = cur.base + base + body.get(..at).map_or(0, |b| b.chars().count());
+            let n = word
+                .parse::<u8>()
+                .ok()
+                .filter(|n| (1..=16).contains(n))
+                .ok_or(NoteError { col, msg: bad })?;
+            out.push(n);
+        }
+        at += word.len() + 1;
+    }
+    if out.is_empty() || out.len() > MAX_BEATS {
+        return err(cur.base + r.0, bad);
+    }
+    Ok(out)
 }
 
 fn text(cur: &Cursor<'_>, r: (usize, usize)) -> String {
@@ -741,7 +1062,7 @@ pub(super) fn parse_call(
             }
         }
         "prog" => {
-            want(&[2], crate::usage::PROG)?;
+            want(&[2, 3, 4, 5], crate::usage::PROG)?;
             if scale.and_then(|s| s.degree(0)).is_none() {
                 return err(
                     cur.base + at,
@@ -752,9 +1073,34 @@ pub(super) fn parse_call(
             if bars == 0 {
                 return err(cur.base + arg(0).0, "a prog is 1 to 16 bars");
             }
+            let (mut size, mut beats, mut style) = (None, None, None);
+            for k in 2..list.len() {
+                let r = arg(k);
+                let t = text(cur, r);
+                let at = cur.base + r.0;
+                let twice = || err(at, "a prog takes one size, one rhythm and one style");
+                if let Some((s, _)) = Size::ALL.iter().find(|s| s.1 == t) {
+                    if size.replace(*s).is_some() {
+                        return twice();
+                    }
+                } else if let Some((s, _)) = Style::ALL.iter().find(|s| s.1 == t) {
+                    if style.replace(*s).is_some() {
+                        return twice();
+                    }
+                } else if t.starts_with('"') || t.chars().all(|c| c.is_ascii_digit()) {
+                    if beats.replace(prog_beats(cur, r)?).is_some() {
+                        return twice();
+                    }
+                } else {
+                    return err(at, PROG_ARGS);
+                }
+            }
             Gen::Prog {
                 bars,
                 seed: seed_at(1)?,
+                size: size.unwrap_or_default(),
+                beats: beats.unwrap_or_else(|| vec![4]),
+                style: style.unwrap_or_default(),
             }
         }
         "walk" => {
