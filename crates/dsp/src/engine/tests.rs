@@ -6250,3 +6250,28 @@ fn first_is_a_launch_once_and_a_new_song() {
     assert_eq!(load_text(&mut e, free), Ok(()));
     assert_eq!(notes_by_bar(&mut e, 2), [vec![60], vec![]]);
 }
+
+/// #600-#603 with #588: typed into a playing song, a struct from a clip, an
+/// inline euclid, a chance and trig conditions keep their spelling, and play.
+#[test]
+fn new_mini_notation_keeps_its_typed_text() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack kit drums\ntrack lead synth\n\
+                clip beat = kit /16\n  bd x..x..x...x.x...\n\
+                clip m = lead   .struct( beat )\n  \"c4?.50  e4?not1:4 [c3,e3](3, 8)?first g4?pre\"\n";
+    assert_eq!(load_text(&mut e, "tempo 120\ntrack kit drums\n"), Ok(()));
+    e.song_play();
+    run(&mut e, 4);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    // It takes over on the next bar and plays.
+    assert!(run(&mut e, 2 * 96_000 / BLOCK) > 0.0, "it plays");
+    assert_eq!(e.song_text(), text);
+    let printed = e.song().print();
+    assert!(
+        printed.contains(
+            "clip m = lead .struct(beat)\n  \"c4?0.5 e4?not1:4 [c3,e3](3,8)?first g4?pre\"\n"
+        ),
+        "{printed}"
+    );
+}

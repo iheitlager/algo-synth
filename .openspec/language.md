@@ -520,6 +520,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add`, `.sub`).
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |
 | `.struct("x ~ x x")` | each bar on a rhythm of 1–48 steps: at each `x`, the notes sounding there |
+| `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
@@ -538,6 +539,17 @@ clip pedal = bass .slow(4)
   "<a1 d1>"
 clip arp = lead .fast(8) .scale(pedal minor-pentatonic) .oct(1)
   "<0 2 1 3 2>"
+```
+
+The rhythm too: the bass plays on every kick, and follows an edit to it.
+
+```song
+track kit drums
+track bass synth
+clip beat = kit
+  bd x..x..x...x.x...
+clip bass = bass .struct(beat) .scale(a1 minor)
+  "0 4 2 3"
 ```
 
 The `m` of `every`, `off` and `sometimes` is a method without its dot:

@@ -295,6 +295,55 @@ pub struct Clip {
     pub grid: u32,
 }
 
+impl Clip {
+    /// A drum clip's hits as events, a step long on the 48-tick grid, any
+    /// pad, sorted, over the bars its lanes take to come round together
+    /// (#600); none when that is past 64 bars. `None` for a clip of notes.
+    pub fn hits(&self) -> Option<(Vec<notes::Event>, u32)> {
+        if self.notes.is_some() || self.lanes.is_empty() {
+            return None;
+        }
+        let grid = u64::from(self.grid.max(1));
+        let gcd = |mut a: u64, mut b: u64| {
+            while b != 0 {
+                (a, b) = (b, a % b);
+            }
+            a.max(1)
+        };
+        let mut steps = grid;
+        for lane in &self.lanes {
+            let n = u64::try_from(lane.steps.len()).unwrap_or(1).max(1);
+            steps = (steps / gcd(steps, n)).saturating_mul(n);
+        }
+        let bars = u32::try_from(steps / grid).unwrap_or(u32::MAX);
+        if bars > notes::MAX_BARS {
+            return Some((Vec::new(), bars));
+        }
+        let tick = |n: u64| u32::try_from(n * u64::from(notes::TICKS_PER_BAR) / grid).unwrap_or(0);
+        let mut out = Vec::new();
+        for n in 0..steps {
+            for lane in &self.lanes {
+                let len = lane.steps.len().max(1);
+                let k = usize::try_from(n).unwrap_or(0) % len;
+                if lane.steps.get(k).is_some_and(|s| *s != Step::Off) {
+                    let start = tick(n);
+                    out.push(notes::Event {
+                        start,
+                        len: (tick(n + 1) - start).max(1),
+                        note: lane.pad.note(),
+                        accent: lane.steps.get(k) == Some(&Step::Accent),
+                        vel: 0,
+                        word: 0,
+                        degree: false,
+                        when: notes::When::default(),
+                    });
+                }
+            }
+        }
+        Some((out, bars))
+    }
+}
+
 /// What a track's clips hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -1204,12 +1253,12 @@ impl Song {
                                 };
                                 // The earlier clips, for a method that reads one (ADR-0035).
                                 let srcs = |name: &str| {
-                                    song.clips
-                                        .iter()
-                                        .take(f)
-                                        .find(|c| c.name == name)
-                                        .and_then(|c| c.notes.as_ref())
-                                        .map(|n| (n.events.clone(), n.bars))
+                                    song.clips.iter().take(f).find(|c| c.name == name).and_then(
+                                        |c| match &c.notes {
+                                            Some(n) => Some((n.events.clone(), n.bars, false)),
+                                            None => c.hits().map(|(h, bars)| (h, bars, true)),
+                                        },
+                                    )
                                 };
                                 let p = match msg {
                                     Some(m) => Err(m),

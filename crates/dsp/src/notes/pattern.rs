@@ -12,7 +12,8 @@
 //! drops each note with chance p, from a fixed seed (ADR-0005); `every(n, m)`
 //! applies method m on every nth bar, from the first; `off(t, m)` layers a
 //! copy t of a bar later with m applied; `struct("x ~ x x")` plays the notes
-//! sounding at each hit of a rhythm, each bar; `sometimes(m)` takes about half
+//! sounding at each hit of a rhythm, each bar, and `struct(<clip>)` at each
+//! hit of an earlier clip (#600); `sometimes(m)` takes about half
 //! the moments from the line with m applied, from a fixed seed; `scale(c minor)`
 //! moves each note to the nearest note of the scale and makes each degree a
 //! note, counted from the root in octave 3 or the one written (`a1`, #570);
@@ -62,6 +63,9 @@ pub enum Pattern {
     /// `chord(<clip>)`: degrees count the notes of the chord an earlier clip
     /// plays (ADR-0035, #592).
     ChordOf(Context),
+    /// `struct(<clip>)`: the rhythm of an earlier clip, its note starts or
+    /// its drum hits (ADR-0035, #600).
+    StructOf(Context),
 }
 
 /// An earlier clip a method reads for its harmony (ADR-0035): its name as
@@ -138,8 +142,9 @@ impl Context {
     }
 }
 
-/// The earlier clips a method may read, by name: their events and bars.
-pub type Sources<'a> = dyn Fn(&str) -> Option<(Vec<Event>, u32)> + 'a;
+/// The earlier clips a method may read, by name: their events, their bars
+/// and whether they are a drum clip's hits (one event a hit, a step long).
+pub type Sources<'a> = dyn Fn(&str) -> Option<(Vec<Event>, u32, bool)> + 'a;
 
 /// Most roots in a `scale` progression.
 const MAX_ROOTS: usize = 16;
@@ -451,9 +456,22 @@ impl Pattern {
                 }
             }
             "struct" => {
-                let bad = "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")";
-                let text = one()?
-                    .trim()
+                let bad = "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)";
+                let arg = one()?.trim();
+                if let Some((events, bars, _)) = srcs(arg) {
+                    if bars > MAX_BARS {
+                        return Err("the pattern runs past 64 bars");
+                    }
+                    if events.is_empty() {
+                        return Err("this clip has no hits to take a rhythm from");
+                    }
+                    return Ok(Pattern::StructOf(Context {
+                        name: arg.to_string(),
+                        events,
+                        bars,
+                    }));
+                }
+                let text = arg
                     .strip_prefix('"')
                     .and_then(|t| t.strip_suffix('"'))
                     .ok_or(bad)?;
@@ -483,7 +501,8 @@ impl Pattern {
                 let (first, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
                 // A clip's name wins over a root (ADR-0035).
                 match srcs(first) {
-                    Some((events, bars)) => {
+                    Some((_, _, true)) => Err("a drum clip has no notes to take roots from"),
+                    Some((events, bars, false)) => {
                         let mode = match rest.split_whitespace().collect::<Vec<_>>()[..] {
                             [m] => Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?,
                             _ => return Err("this takes a clip and a mode, e.g. scale(harm minor)"),
@@ -511,8 +530,11 @@ impl Pattern {
             }
             "chord" => {
                 let name = one()?.trim();
-                let (events, bars) =
+                let (events, bars, drums) =
                     srcs(name).ok_or("this takes an earlier clip, e.g. chord(harm)")?;
+                if drums {
+                    return Err("a drum clip has no notes to take chords from");
+                }
                 if events.is_empty() {
                     return Err("this clip has no notes to take chords from");
                 }
@@ -565,6 +587,7 @@ impl Pattern {
             Pattern::ScaleOf(c, mode) => format!("scale({} {})", c.name, mode.name()),
             Pattern::Oct(n) => format!("oct({n})"),
             Pattern::ChordOf(c) => format!("chord({})", c.name),
+            Pattern::StructOf(c) => format!("struct({})", c.name),
         }
     }
 
@@ -617,6 +640,13 @@ impl Pattern {
             }
             Pattern::Struct(steps) => structure(line, steps),
             Pattern::Euclid(e) => structure(line, &e.pattern()),
+            Pattern::StructOf(c) => {
+                // The line and its source round together, each hit of the
+                // source played at the song tick it falls on (ADR-0035).
+                let bars = lcm(line.bars, c.bars);
+                check(bars, 0)?;
+                restructure(line, c, bars)
+            }
             Pattern::Sometimes(m) => {
                 let other = m.apply(line)?;
                 let bars = lcm(line.bars, other.bars);
@@ -899,6 +929,36 @@ fn structure(line: &Line, steps: &[bool]) -> Line {
         events,
         bars: line.bars,
     }
+}
+
+/// `bars` bars on the hits of `src`: at each start of its events (once
+/// however many start there), the notes of `line` sounding there, held as
+/// long as the first event there.
+fn restructure(line: &Line, src: &Context, bars: u32) -> Line {
+    let total = line.len().max(1);
+    let span = src.bars.max(1) * BAR;
+    let mut events = Vec::new();
+    for k in 0..bars / src.bars.max(1) {
+        let mut last = None;
+        for h in &src.events {
+            if last == Some(h.start) || h.start >= span {
+                continue;
+            }
+            last = Some(h.start);
+            let at = k * span + h.start;
+            events.extend(
+                line.events
+                    .iter()
+                    .filter(|e| (at % total + total - e.start % total) % total < e.len)
+                    .map(|e| Event {
+                        start: at,
+                        len: h.len.max(1),
+                        ..*e
+                    }),
+            );
+        }
+    }
+    Line { events, bars }
 }
 
 /// `1/8`, `3/16` or `0.25` of a bar, in ticks.
@@ -1283,12 +1343,12 @@ mod tests {
             (
                 "struct",
                 "x ~ x",
-                "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")",
+                "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)",
             ),
             (
                 "struct",
                 "\"x o\"",
-                "a rhythm is x and ~ in quotes, e.g. struct(\"x ~ x x\")",
+                "a rhythm is x and ~ in quotes or an earlier clip, e.g. struct(\"x ~ x x\") or struct(beat)",
             ),
             ("struct", "\"\"", "a rhythm has 1 to 48 steps"),
             (
