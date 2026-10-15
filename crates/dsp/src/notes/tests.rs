@@ -189,7 +189,7 @@ fn it_never_panics_on_garbage() {
         .collect();
     let minor = Scale {
         root: 9,
-        mode: crate::algo::Mode::Minor,
+        mode: crate::algo::Mode::from_name("minor").unwrap(),
     };
     for _ in 0..20_000 {
         let n = rng.next_u32() % 24;
@@ -221,7 +221,7 @@ fn a_scale_walk_follows_the_song_scale() {
     use crate::algo::{Mode, Scale};
     let minor = Scale {
         root: 0,
-        mode: Mode::Minor,
+        mode: Mode::from_name("minor").unwrap(),
     };
     let n = parse_in("euclid(4,8) scale c4", 1, Some(&minor)).unwrap();
     let notes: Vec<u8> = n.events.iter().map(|e| e.note).collect();
@@ -281,7 +281,7 @@ fn euclid_errors_say_where() {
 fn minor() -> crate::algo::Scale {
     crate::algo::Scale {
         root: 0,
-        mode: crate::algo::Mode::Minor,
+        mode: crate::algo::Mode::from_name("minor").unwrap(),
     }
 }
 
@@ -850,7 +850,7 @@ fn a_classic_chord_takes_its_duration_last() {
 
 #[test]
 fn chord_names_print_as_written() {
-    let minor = key(0, crate::algo::Mode::Minor);
+    let minor = key(0, crate::algo::Mode::from_name("minor").unwrap());
     for text in [
         "\"c:m7 bb [f:maj7 eb3:6]*2 ~\"",
         "c:m7:2 bb:4. V7:8 [c4,e4]:8",
@@ -866,7 +866,7 @@ fn chord_names_print_as_written() {
 fn numerals_follow_the_song_key() {
     use crate::algo::Mode;
     let prog = "\"<i VI III VII>\"";
-    let cm = parse_in(prog, 1, Some(&key(0, Mode::Minor))).unwrap();
+    let cm = parse_in(prog, 1, Some(&key(0, Mode::from_name("minor").unwrap()))).unwrap();
     assert_eq!(
         chords_of(&cm),
         [
@@ -877,7 +877,7 @@ fn numerals_follow_the_song_key() {
         ],
         "Cm Ab Eb Bb"
     );
-    let am = parse_in(prog, 1, Some(&key(9, Mode::Minor))).unwrap();
+    let am = parse_in(prog, 1, Some(&key(9, Mode::from_name("minor").unwrap()))).unwrap();
     assert_eq!(
         chords_of(&am),
         [
@@ -896,7 +896,7 @@ fn a_numeral_says_its_quality_in_its_case() {
     let n = parse_in(
         "\"iv bVII V7 viio\"",
         1,
-        Some(&key(0, crate::algo::Mode::Major)),
+        Some(&key(0, crate::algo::Mode::from_name("major").unwrap())),
     )
     .unwrap();
     let got: Vec<Vec<u8>> = chords_of(&n).into_iter().map(|(_, c)| c).collect();
@@ -927,25 +927,25 @@ fn chord_errors_say_where() {
         ),
         (
             "\"V\"",
-            Some(key(0, Mode::Pentatonic)),
+            Some(key(0, Mode::from_name("pentatonic").unwrap())),
             2,
             "a roman numeral needs a scale line with seven notes, as scale c minor",
         ),
         (
             "\"Iv\"",
-            Some(key(0, Mode::Major)),
+            Some(key(0, Mode::from_name("major").unwrap())),
             2,
             "a numeral is all upper case (major) or all lower case (minor)",
         ),
         (
             "\"VIII\"",
-            Some(key(0, Mode::Major)),
+            Some(key(0, Mode::from_name("major").unwrap())),
             2,
             "a numeral is I to VII, maybe b or #, then o, o7, +, 7 or maj7",
         ),
         (
             "\"V9\"",
-            Some(key(0, Mode::Major)),
+            Some(key(0, Mode::from_name("major").unwrap())),
             3,
             "a numeral is I to VII, maybe b or #, then o, o7, +, 7 or maj7",
         ),
@@ -966,7 +966,7 @@ fn chord_errors_say_where() {
 fn voicing_moves_each_chord_to_the_nearest_inversion() {
     use crate::algo::Mode;
     let text = "\"<I vi IV V7 iii vi ii7 V>\"";
-    let n = parse_in(text, 1, Some(&key(0, Mode::Major))).unwrap();
+    let n = parse_in(text, 1, Some(&key(0, Mode::from_name("major").unwrap()))).unwrap();
     let voiced = n.clone().voiced();
     assert_eq!(voiced.text, n.text, "the text stays as written");
     let chords = chords_of(&voiced);
@@ -999,7 +999,7 @@ fn an_arp_takes_a_chord_by_name() {
     let n = parse("arp(c:m7,up,16)", 1).unwrap();
     let first: Vec<u8> = n.events.iter().take(4).map(|e| e.note).collect();
     assert_eq!(first, [60, 63, 67, 70]);
-    let k = key(0, crate::algo::Mode::Minor);
+    let k = key(0, crate::algo::Mode::from_name("minor").unwrap());
     let n = parse_in("arp(VI,down,8)", 1, Some(&k)).unwrap();
     assert_eq!(n.events.first().map(|e| e.note), Some(75));
     assert_eq!(n.print(), "arp([g#4,c5,d#5],down,8)");
@@ -1173,7 +1173,7 @@ fn degrees_parse_print_back_and_wait_for_a_scale() {
     let mut events = n.events.clone();
     let a_minor_pent = Scale {
         root: 9,
-        mode: crate::algo::Mode::MinorPentatonic,
+        mode: crate::algo::Mode::from_name("minor-pentatonic").unwrap(),
     };
     resolve(&mut events, &a_minor_pent, 33);
     let notes: Vec<u8> = events.iter().map(|e| e.note).collect();
@@ -1199,6 +1199,80 @@ fn degree_errors_say_where() {
         ),
     ] {
         let e = parse_in(text, 1, Some(&minor())).expect_err(text);
+        assert_eq!((e.col, e.msg), (col, msg), "{text}");
+    }
+}
+
+/// #575: `0 .. 12` is every degree between, sharing the word's time.
+#[test]
+fn a_range_of_degrees_shares_its_slot() {
+    let deg = |text: &str| -> Vec<(u32, u32, i32)> {
+        parse(text, 1)
+            .unwrap()
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, i32::from(e.note) - i32::from(DEGREE_ZERO)))
+            .collect()
+    };
+    assert_eq!(
+        deg("\"0 .. 3\""),
+        [(0, 12, 0), (12, 12, 1), (24, 12, 2), (36, 12, 3)]
+    );
+    assert_eq!(deg("\"0..3\""), deg("\"0 .. 3\""));
+    assert_eq!(
+        deg("\"0 .. 3 5\""),
+        [(0, 6, 0), (6, 6, 1), (12, 6, 2), (18, 6, 3), (24, 24, 5)]
+    );
+    assert_eq!(
+        deg("\"2 .. -1\""),
+        [(0, 12, 2), (12, 12, 1), (24, 12, 0), (36, 12, -1)]
+    );
+    assert_eq!(deg("\"0 .. 12\"").len(), 13);
+    // suffixes after the range are the range's
+    assert_eq!(deg("\"[0 .. 1]*2\"").len(), 4);
+    assert_eq!(
+        deg("\"0 .. 1@3 7\""),
+        [(0, 18, 0), (18, 18, 1), (36, 12, 7)]
+    );
+    let n = parse("\"0..12 <3 .. 0 ~>\"", 1).unwrap();
+    assert_eq!(n.print(), "\"0 .. 12 <3 .. 0 ~>\"");
+    assert_eq!(parse(&n.print(), 1).unwrap(), n);
+    // the range lights as one word
+    assert_eq!(n.word_spans().first(), Some(&(1, 7)));
+}
+
+#[test]
+fn range_errors_say_where() {
+    for (text, col, msg) in [
+        (
+            "\"c4 .. e4\"",
+            5,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        (
+            "\"0 .. e4\"",
+            4,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        (
+            "\"0! .. 3\"",
+            5,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        (
+            "\".. 3\"",
+            2,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+        ("\"0 .. 30\"", 7, "a degree is -24 to 24"),
+        ("\"0..30\"", 2, "a degree is -24 to 24"),
+        (
+            "\"0..x\"",
+            2,
+            "a range runs from one degree to another: 0 .. 12",
+        ),
+    ] {
+        let e = parse(text, 1).expect_err(text);
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
     }
 }

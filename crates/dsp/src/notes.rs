@@ -21,6 +21,8 @@
 //! `-1` below the root. The clip's `.scale(a1 minor)` or the song's `scale`
 //! line makes it a note when the song loads; until then an event holds the
 //! degree, offset by `DEGREE_ZERO`, so `add(n)` moves it by n degrees.
+//! `0 .. 12` (or `0..12`) is every degree from one to the other, sharing the
+//! word's time as a `[ ]` group would, downward when the second is lower (#575).
 //!
 //! A third form, timed notes, says exactly where each note is (#173, the
 //! form MIDI import writes): `d5@0:6 f#5@6:6:90 a4@12:24` is a note at tick
@@ -84,6 +86,8 @@ pub enum Item {
     Group(Vec<Slot>),
     /// `< ... >`: one option per bar.
     Alt(Vec<Slot>),
+    /// `0 .. 12`: every degree from the first to the last, sharing the slot.
+    Range(i32, i32),
 }
 
 /// A chord written by name and the notes it names in the song's key.
@@ -459,9 +463,50 @@ impl Cursor<'_> {
                     }
                     return Ok(out);
                 }
+                _ if self.at_range() => {
+                    let at = self.col();
+                    let from = out.pop().and_then(|s| bare_degree(&s));
+                    let Some(from) = from else {
+                        return err(at, "a range runs from one degree to another: 0 .. 12");
+                    };
+                    self.i += 2;
+                    self.skip_ws();
+                    let end = self.slot(depth)?;
+                    let Some(to) = bare_degree(&Slot {
+                        times: 1,
+                        weight: 1,
+                        chance: false,
+                        slide: false,
+                        ..end.clone()
+                    }) else {
+                        return err(at, "a range runs from one degree to another: 0 .. 12");
+                    };
+                    self.count_range(from, to, at)?;
+                    out.push(Slot {
+                        item: Item::Range(from, to),
+                        ..end
+                    });
+                }
                 _ => out.push(self.slot(depth)?),
             }
         }
+    }
+
+    /// Is the cursor at a `..` of its own, as in `0 .. 12`?
+    fn at_range(&self) -> bool {
+        self.c.get(self.i..self.i + 2) == Some(&['.', '.'][..])
+            && self.c.get(self.i + 2).is_none_or(|c| c.is_whitespace())
+    }
+
+    /// A range of `from` to `to` counts a word for each of its degrees.
+    fn count_range(&mut self, from: i32, to: i32, at: usize) -> Result<(), NoteError> {
+        for _ in 0..from.abs_diff(to) {
+            self.count_item()?;
+        }
+        if from.abs() > MAX_DEGREE || to.abs() > MAX_DEGREE {
+            return err(at, "a degree is -24 to 24");
+        }
+        Ok(())
     }
 
     fn slot(&mut self, depth: usize) -> Result<Slot, NoteError> {
@@ -496,7 +541,24 @@ impl Cursor<'_> {
             _ => {
                 let end = self.word_end(&['*', '@', '?', '&', ']', '>']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
-                if chord::is_note(word) || is_degree(word) {
+                if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
+                    // `0..12`, one word
+                    let (a, b) = (
+                        word.get(..k).unwrap_or(&[]),
+                        word.get(k + 2..).unwrap_or(&[]),
+                    );
+                    let num = |w: &[char]| {
+                        (is_degree(w) && w.last() != Some(&'!'))
+                            .then(|| w.iter().collect::<String>().parse::<i32>().ok())
+                            .flatten()
+                    };
+                    let (Some(from), Some(to)) = (num(a), num(b)) else {
+                        return err(at, "a range runs from one degree to another: 0 .. 12");
+                    };
+                    self.count_range(from, to, at)?;
+                    self.i = end;
+                    Item::Range(from, to)
+                } else if chord::is_note(word) || is_degree(word) {
                     Item::Note(self.pitch()?)
                 } else {
                     Item::Symbol(self.symbol(end)?)
@@ -815,6 +877,18 @@ fn pitch_text(p: &Pitch) -> String {
     format!("{what}{}", if p.accent { "!" } else { "" })
 }
 
+/// The degree a slot is when it is only that: no accent, no suffix.
+fn bare_degree(s: &Slot) -> Option<i32> {
+    match s.item {
+        Item::Note(p)
+            if p.degree && !p.accent && s.times == 1 && s.weight == 1 && !s.chance && !s.slide =>
+        {
+            Some(i32::from(p.note) - i32::from(DEGREE_ZERO))
+        }
+        _ => None,
+    }
+}
+
 /// Is `w` a degree: maybe `-`, digits, maybe `!`?
 fn is_degree(w: &[char]) -> bool {
     let w = w.strip_prefix(&['-']).unwrap_or(w);
@@ -840,6 +914,7 @@ fn slot_text(s: &Slot) -> String {
         Item::Symbol(sym) => sym.text.clone(),
         Item::Group(g) => format!("[{}]", slots_text(g)),
         Item::Alt(g) => format!("<{}>", slots_text(g)),
+        Item::Range(a, b) => format!("{a} .. {b}"),
     };
     if s.slide {
         out.push('&');
@@ -869,6 +944,7 @@ fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
             Item::Note(p) => out.push((at, pitch_text(p).len())),
             Item::Chord(ps) => out.push((at, chord_text(ps).len())),
             Item::Symbol(sym) => out.push((at, sym.text.len())),
+            Item::Range(a, b) => out.push((at, format!("{a} .. {b}").len())),
         }
         at += slot_text(s).len();
     }
@@ -1035,6 +1111,19 @@ impl Compiler<'_> {
                 }
             }
             Item::Group(g) => self.slots(g, at, span, bar),
+            Item::Range(a, b) => {
+                let n = u128::from(a.abs_diff(*b)) + 1;
+                let step = if b < a { -1 } else { 1 };
+                for k in 0..n {
+                    let d = a + step * i32::try_from(k).unwrap_or(0);
+                    let p = Pitch {
+                        note: u8::try_from(i32::from(DEGREE_ZERO) + d).unwrap_or(DEGREE_ZERO),
+                        accent: false,
+                        degree: true,
+                    };
+                    self.note(p, at.add(span.scale(k, n)), span.scale(1, n), bar, slide);
+                }
+            }
             Item::Alt(g) => {
                 let n = u32::try_from(g.len()).unwrap_or(1).max(1);
                 let pick = usize::try_from(bar % n).unwrap_or(0);

@@ -116,61 +116,83 @@ impl Euclid {
     }
 }
 
-/// The modes a `scale` line knows, as semitones above the root.
+mod modes;
+
+use modes::MODES;
+
+/// A scale a `scale` line knows (#576): an index into the table of modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Major,
-    Minor,
-    Dorian,
-    Phrygian,
-    Lydian,
-    Mixolydian,
-    Locrian,
-    Pentatonic,
-    MinorPentatonic,
-    Blues,
-    PhrygianDominant,
-    HarmonicMinor,
-}
+pub struct Mode(u8);
 
 impl Mode {
-    pub const ALL: [(Mode, &'static str, &'static [u8]); 12] = [
-        (Mode::Major, "major", &[0, 2, 4, 5, 7, 9, 11]),
-        (Mode::Minor, "minor", &[0, 2, 3, 5, 7, 8, 10]),
-        (Mode::Dorian, "dorian", &[0, 2, 3, 5, 7, 9, 10]),
-        (Mode::Phrygian, "phrygian", &[0, 1, 3, 5, 7, 8, 10]),
-        (Mode::Lydian, "lydian", &[0, 2, 4, 6, 7, 9, 11]),
-        (Mode::Mixolydian, "mixolydian", &[0, 2, 4, 5, 7, 9, 10]),
-        (Mode::Locrian, "locrian", &[0, 1, 3, 5, 6, 8, 10]),
-        (Mode::Pentatonic, "pentatonic", &[0, 2, 4, 7, 9]),
-        (Mode::MinorPentatonic, "minor-pentatonic", &[0, 3, 5, 7, 10]),
-        (Mode::Blues, "blues", &[0, 3, 5, 6, 7, 10]),
-        (
-            Mode::PhrygianDominant,
-            "phrygian-dominant",
-            &[0, 1, 4, 5, 7, 8, 10],
-        ),
-        (
-            Mode::HarmonicMinor,
-            "harmonic-minor",
-            &[0, 2, 3, 5, 7, 8, 11],
-        ),
-    ];
+    /// Every mode, in the table's order.
+    pub fn all() -> impl Iterator<Item = Mode> {
+        (0..MODES.len()).filter_map(|i| u8::try_from(i).ok().map(Mode))
+    }
 
+    /// By any of its names, Strudel's `minor:pentatonic` too.
     pub fn from_name(name: &str) -> Option<Mode> {
-        Mode::ALL.iter().find(|m| m.1 == name).map(|m| m.0)
+        let found = |n: &str| MODES.iter().position(|m| m.names.contains(&n));
+        let i = if name.contains(':') {
+            found(&name.replace(':', "-"))
+        } else {
+            found(name)
+        }?;
+        u8::try_from(i).ok().map(Mode)
     }
 
+    /// The name a song prints.
     pub fn name(self) -> &'static str {
-        Mode::ALL.iter().find(|m| m.0 == self).map_or("", |m| m.1)
+        self.names().first().copied().unwrap_or("")
     }
 
-    fn intervals(self) -> &'static [u8] {
-        Mode::ALL
-            .iter()
-            .find(|m| m.0 == self)
-            .map_or(&[0][..], |m| m.2)
+    /// Every name, the printed one first.
+    pub fn names(self) -> &'static [&'static str] {
+        MODES.get(usize::from(self.0)).map_or(&[], |m| m.names)
     }
+
+    /// Semitones above the root.
+    pub fn intervals(self) -> &'static [u8] {
+        MODES.get(usize::from(self.0)).map_or(&[0], |m| m.steps)
+    }
+
+    /// Why `name` is no mode: naming the mode nearest it, if one is close.
+    pub fn unknown(name: &str) -> &'static str {
+        let name = name.replace(':', "-");
+        let name = name.as_str();
+        MODES
+            .iter()
+            .flat_map(|m| {
+                m.names
+                    .iter()
+                    .map(move |n| (edit_distance(name, n), n, m.hint))
+            })
+            .filter(|(d, n, _)| *d <= 2.max(n.len() / 4))
+            .min_by_key(|(d, _, _)| *d)
+            .map_or("no scale has this mode", |(_, _, hint)| hint)
+    }
+}
+
+/// Edits (insert, delete, change one char) from `a` to `b`.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diag = row.first().copied().unwrap_or(0);
+        if let Some(first) = row.first_mut() {
+            *first = i + 1;
+        }
+        for (j, cb) in b.iter().enumerate() {
+            let up = row.get(j + 1).copied().unwrap_or(0);
+            let left = row.get(j).copied().unwrap_or(0);
+            let best = (diag + usize::from(ca != *cb)).min(up + 1).min(left + 1);
+            diag = up;
+            if let Some(cell) = row.get_mut(j + 1) {
+                *cell = best;
+            }
+        }
+    }
+    row.last().copied().unwrap_or(0)
 }
 
 /// `c`, `c#` or `eb`: a pitch class, 0 for c.
@@ -359,11 +381,97 @@ mod tests {
         }
     }
 
+    /// Tonal's interval name as semitones: `3m` is 3, `4A` 6, `7d` 9.
+    fn semitones(iv: &str) -> u8 {
+        let (n, q) = iv.split_at(iv.len() - 1);
+        let n: u8 = n.parse().expect("a number");
+        let base = [0, 2, 4, 5, 7, 9, 11][usize::from(n - 1)];
+        let perfect = matches!(n, 1 | 4 | 5);
+        match (q, perfect) {
+            ("P", true) | ("M", false) => base,
+            ("A", _) => base + 1,
+            ("d", true) | ("m", false) => base - 1,
+            ("d", false) => base - 2,
+            _ => panic!("no such interval {iv}"),
+        }
+    }
+
+    /// #576: every mode is tonal's, note for note.
+    #[test]
+    fn the_modes_are_tonals_scales() {
+        assert_eq!(modes::MODES.len(), 92);
+        for m in &modes::MODES {
+            let want: Vec<u8> = m.tonal.split_whitespace().map(semitones).collect();
+            assert_eq!(m.steps, want.as_slice(), "{}", m.names[0]);
+            assert!(m.steps.windows(2).all(|w| w[0] < w[1]), "{}", m.names[0]);
+            assert!(m.hint.ends_with(&format!("did you mean {}?", m.names[0])));
+        }
+        let mut names: Vec<&str> = Mode::all()
+            .flat_map(|m| m.names().iter().copied())
+            .collect();
+        assert_eq!(names.len(), 131);
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), 131, "a name names one mode");
+        // a song can hold every name: one word, no comment
+        assert!(names.iter().all(|n| {
+            n.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        }));
+    }
+
+    /// The modes from before #576 keep their names and notes.
+    #[test]
+    fn the_old_modes_are_unchanged() {
+        for (name, steps) in [
+            ("major", &[0, 2, 4, 5, 7, 9, 11][..]),
+            ("minor", &[0, 2, 3, 5, 7, 8, 10]),
+            ("dorian", &[0, 2, 3, 5, 7, 9, 10]),
+            ("phrygian", &[0, 1, 3, 5, 7, 8, 10]),
+            ("lydian", &[0, 2, 4, 6, 7, 9, 11]),
+            ("mixolydian", &[0, 2, 4, 5, 7, 9, 10]),
+            ("locrian", &[0, 1, 3, 5, 6, 8, 10]),
+            ("pentatonic", &[0, 2, 4, 7, 9]),
+            ("minor-pentatonic", &[0, 3, 5, 7, 10]),
+            ("blues", &[0, 3, 5, 6, 7, 10]),
+            ("phrygian-dominant", &[0, 1, 4, 5, 7, 8, 10]),
+            ("harmonic-minor", &[0, 2, 3, 5, 7, 8, 11]),
+        ] {
+            let m = Mode::from_name(name).expect(name);
+            assert_eq!((m.name(), m.intervals()), (name, steps));
+        }
+    }
+
+    #[test]
+    fn a_mode_goes_by_any_name_and_strudels_colons() {
+        let m = |n: &str| Mode::from_name(n).map(Mode::name);
+        assert_eq!(m("major-pentatonic"), Some("pentatonic"));
+        assert_eq!(m("ionian"), Some("major"));
+        assert_eq!(m("minor:pentatonic"), Some("minor-pentatonic"));
+        assert_eq!(m("whole:tone"), Some("whole-tone"));
+        assert_eq!(m("messiaen-3"), Some("messiaen-3"));
+        assert_eq!(m("hirajoshi"), Some("hirajoshi"));
+        assert_eq!(
+            m("chromatic").map(|_| Mode::from_name("chromatic").unwrap().intervals().len()),
+            Some(12)
+        );
+        assert_eq!(m("weird"), None);
+        assert_eq!(
+            Mode::unknown("minor-pentatonik"),
+            "no scale has this mode; did you mean minor-pentatonic?"
+        );
+        assert_eq!(
+            Mode::unknown("hirajosi"),
+            "no scale has this mode; did you mean hirajoshi?"
+        );
+        assert_eq!(Mode::unknown("weird"), "no scale has this mode");
+    }
+
     #[test]
     fn a_degree_counts_up_the_scale_through_the_octaves() {
         let a_minor_pent = Scale {
             root: 9,
-            mode: Mode::MinorPentatonic,
+            mode: Mode::from_name("minor-pentatonic").unwrap(),
         };
         // A1 is 33: degrees 0..5 are a1 c2 d2 e2 g2 a2
         let up: Vec<u8> = (0..6).map(|d| a_minor_pent.degree_note(33, d)).collect();
@@ -379,7 +487,7 @@ mod tests {
     fn a_scale_walk_climbs_the_scale() {
         let c_minor = Scale {
             root: 0,
-            mode: Mode::Minor,
+            mode: Mode::from_name("minor").unwrap(),
         };
         let walk: Vec<u8> = (0..8).map(|i| c_minor.walk(60, i)).collect();
         assert_eq!(walk, [60, 62, 63, 65, 67, 68, 70, 72]);
@@ -387,7 +495,7 @@ mod tests {
         assert_eq!(c_minor.walk(61, 0), 62);
         let a_pent = Scale {
             root: 9,
-            mode: Mode::Pentatonic,
+            mode: Mode::from_name("pentatonic").unwrap(),
         };
         assert_eq!(a_pent.walk(60, 0), 61);
         let walk: Vec<u8> = (0..6).map(|i| a_pent.walk(69, i)).collect();
