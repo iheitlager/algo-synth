@@ -132,11 +132,7 @@ fn lanes_of(song: Option<&Song>, pad: &str) -> usize {
         s.clips
             .iter()
             .flat_map(|f| &f.lanes)
-            .filter(|l| {
-                algo_dsp::drums::Pad::ALL
-                    .iter()
-                    .any(|(p, n)| *p == l.pad && *n == pad)
-            })
+            .filter(|l| l.pad.name() == pad)
             .count()
     })
 }

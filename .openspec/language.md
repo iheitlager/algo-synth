@@ -276,13 +276,19 @@ notes, on a synth or a sampler track, takes no grid but the default `/16`:
 
 ```text
 <pad> <steps>…  |  <pad> euclid(<hits>,<steps>[,<rotation>])
-pad  = bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd
+pad  = bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd | p0 … p15
 step = x hit | X accent | o ghost | f flam | d drag | . rest, then maybe a ratchet 2–4 on x X o
 grid = /16 (default) | /12 | /24 | /32 | /48     steps to a bar
 ```
 
 Pads: kick, snare, clap, closed/open hat, low/mid/high tom, rimshot, claves,
-maracas, cowbell, cymbal, low/mid/high conga, crash, ride. Spaces between steps
+maracas, cowbell, cymbal, low/mid/high conga, crash, ride. On a Pad Sampler a
+lane plays pad *n* for note 36 + *n*: `bd` to `rd` reach the pads under their
+General MIDI notes, and `cb`, `ma`, `lc` and `hc` the pads most kits put a
+cowbell (8), a shaker (5) and congas (4, 12) on; `p0` to `p15` play a pad by
+number, whatever the kit holds there (`p7` the tambourine on most). Where the
+track names its model, a lane it has no pad for is an error: `cl`, `cy` or
+`mc` on a Pad Sampler, a pad by number on anything else. Spaces between steps
 are for reading. Each lane loops on its own length, 1 to 64 steps
 (polymeter). `euclid` spreads the hits evenly over its steps on the grid (no
 spaces inside, no more hits than steps). A ghost plays softly; a flam adds one

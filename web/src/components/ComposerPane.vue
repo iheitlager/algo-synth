@@ -11,7 +11,7 @@ import {
   status, stripName, synthColour, synths, type Route,
 } from '../audio/engine'
 import { modelDef } from '../audio/models'
-import { Model, Pad, Param } from '../audio/params'
+import { Model, Pad, PAD_NUMBER, Param } from '../audio/params'
 import NoteRoll from './NoteRoll.vue'
 import SongEditor from './SongEditor.vue'
 import TrackStrip from './TrackStrip.vue'
@@ -29,7 +29,8 @@ clip beat = kit /16
   ch x.x.x.x.x.x.x.x.
 `
 
-const padName = (id: number) => Object.entries(Pad).find(([, v]) => v === id)?.[0] ?? '?'
+const padName = (id: number) =>
+  id >= PAD_NUMBER ? `p${id - PAD_NUMBER}` : (Object.entries(Pad).find(([, v]) => v === id)?.[0] ?? '?')
 // A drum track plays on a drum machine, a pad sampler or a NES (its NesKit, #562).
 const KITS: number[] = [Model.Tr808, Model.Tr909, Model.PadSampler, Model.Nes]
 const isKit = (s: number) => KITS.includes(params.values[s]?.[Param.Model] ?? -1)

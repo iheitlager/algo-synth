@@ -31,7 +31,7 @@ fn a_beat_parses() {
     );
     let f = &s.clips[0];
     assert_eq!((f.name.as_str(), f.track, f.lanes.len()), ("beat", 0, 3));
-    assert_eq!(f.lanes[0].pad, Pad::Bd);
+    assert_eq!(f.lanes[0].pad, LanePad::Named(Pad::Bd));
     assert_eq!(f.lanes[0].steps.len(), 16);
     assert_eq!(f.lanes[1].steps[4], Step::Accent);
     assert_eq!(f.lanes[1].steps[15], Step::Hit);
@@ -94,7 +94,7 @@ fn every_error_says_where() {
             "track kit drums\nclip a = kit\n  zz x...",
             3,
             3,
-            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd, or p0 to p15",
         ),
         (
             "track kit drums\nclip a = kit\n  bd x..z",
@@ -227,7 +227,7 @@ fn random_song(r: &mut Rng) -> Song {
                 .map(|_| [Step::Off, Step::Hit, Step::Accent, Step::Ghost][r.below(4)])
                 .collect();
             lanes.push(Lane {
-                pad,
+                pad: LanePad::Named(pad),
                 steps,
                 call: None,
                 ratchets: Vec::new(),
@@ -362,7 +362,7 @@ fn note_errors_say_line_and_column() {
             "track b drums\nclip a = b\n  c4:4",
             3,
             3,
-            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd, or p0 to p15",
         ),
     ];
     for (text, line, col, msg) in cases {
@@ -414,7 +414,7 @@ fn sampler_errors_say_where() {
             "track p sampler\nclip a = p\n  zz x...",
             3,
             3,
-            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr or rd",
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd, or p0 to p15",
         ),
         (
             "track p sampler\nclip a = p\n  bd x...\n  c4:4",
@@ -447,6 +447,86 @@ fn sampler_errors_say_where() {
             Song::parse(text),
             Err(SongError { line, col, msg }),
             "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn a_pad_sampler_takes_pads_by_number() {
+    // #662: every pad is reachable, `p7` as `p0`; the percussion names reach theirs.
+    let text = "track d drums PadSampler\nclip a = d\n  p7 x...\n  cb ..x.\n  ma .x..\n";
+    let s = Song::parse(text).expect("parses");
+    let pads: Vec<_> = s.clips[0].lanes.iter().map(|l| l.pad).collect();
+    assert_eq!(
+        pads,
+        [
+            LanePad::Number(7),
+            LanePad::Named(Pad::Cb),
+            LanePad::Named(Pad::Ma)
+        ]
+    );
+    assert_eq!(s.clips[0].lanes[0].pad.note(), 43);
+    assert_eq!(Song::parse(&s.print()), Ok(s));
+    let mut reached: Vec<usize> = (0..16u8)
+        .filter_map(|n| crate::padsampler::pad_of(LanePad::Number(n).note()))
+        .collect();
+    reached.dedup();
+    assert_eq!(reached, (0..16).collect::<Vec<_>>());
+    for (pad, name) in Pad::ALL {
+        assert_eq!(LanePad::from_name(name), Some(LanePad::Named(pad)));
+    }
+    assert_eq!(LanePad::from_name("p15"), Some(LanePad::Number(15)));
+    assert_eq!(LanePad::from_name("p16"), None);
+    assert_eq!(LanePad::from_name("p05"), None);
+    assert_eq!(LanePad::Number(5).id(), PAD_NUMBER + 5);
+    let ts = include_str!("../../../../web/src/audio/params.ts");
+    assert!(
+        ts.contains(&format!("export const PAD_NUMBER = {PAD_NUMBER}\n")),
+        "params.ts mirrors PAD_NUMBER"
+    );
+    // A model that does not name its pads keeps the lanes as they are.
+    assert!(Song::parse("track p sampler\nclip a = p\n  p3 x...\n  cl x...").is_ok());
+}
+
+#[test]
+fn a_lane_without_a_pad_on_its_model_says_where() {
+    let cases: [(&str, usize, usize, &str); 5] = [
+        (
+            "track d drums PadSampler\nclip a = d\n  cl x...",
+            3,
+            3,
+            "a Pad Sampler has no such pad: name it p0 to p15",
+        ),
+        (
+            "track p sampler PadSampler\nclip a = p\n  bd x...\n  cy x...",
+            4,
+            3,
+            "a Pad Sampler has no such pad: name it p0 to p15",
+        ),
+        (
+            "track d drums Tr808\nclip a = d\n  p5 x...",
+            3,
+            3,
+            "a pad by number is for a Pad Sampler",
+        ),
+        (
+            "track d drums Tr909 Hard909\nclip a = d\n  bd x...\n  p0 x...",
+            4,
+            3,
+            "this pad already has a lane",
+        ),
+        (
+            "track d drums Tr909 Hard909\nclip a = d\n  p1 x...",
+            3,
+            3,
+            "a pad by number is for a Pad Sampler",
+        ),
+    ];
+    for (text, line, col, msg) in cases {
+        assert_eq!(
+            Song::parse(text).map(|_| ()),
+            Err(SongError { line, col, msg }),
+            "{text}"
         );
     }
 }

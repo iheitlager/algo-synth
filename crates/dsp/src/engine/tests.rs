@@ -2837,6 +2837,38 @@ fn a_sampler_track_with_lanes_plays_the_pad_sampler() {
     );
 }
 
+/// #662: a percussion lane and a lane by number hit the pad they name, and
+/// only that one.
+#[test]
+fn lanes_reach_the_pads_past_general_midis() {
+    for (lane, pad, other) in [("cb", 8, 0), ("ma", 5, 8), ("p7", 7, 8), ("p12", 12, 4)] {
+        for (sampled, sounds) in [(pad, true), (other, false)] {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            e.preset(2, Preset::PadsLoud);
+            let tone: Vec<f32> = (0..24_000)
+                .map(|i| (i as f32 / 100.0 * std::f32::consts::TAU).sin() * 0.9)
+                .collect();
+            let wav = crate::sample::test_wav(48_000, &tone, None);
+            e.sample_buffer(wav.len())
+                .expect("fits")
+                .copy_from_slice(&wav);
+            e.load_sample(0).expect("loads");
+            e.set_pad(2, sampled, crate::padsampler::PadField::Sample, 0.0);
+            let text =
+                format!("track kit drums PadSampler PadsLoud\nclip a = kit\n  {lane} x...\n");
+            assert_eq!(load_text(&mut e, &text), Ok(()));
+            e.song_play();
+            let heard = run(&mut e, 48_000 / 2 / BLOCK);
+            assert_eq!(
+                heard > 0.05,
+                sounds,
+                "{lane} with pad {sampled} sampled: {heard}"
+            );
+        }
+    }
+}
+
 /// #164: a `sampler` track with notes goes to the multisampler, at pitch.
 #[test]
 fn a_sampler_track_with_notes_plays_the_multisampler_at_pitch() {
