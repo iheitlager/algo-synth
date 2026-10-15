@@ -59,6 +59,12 @@ pub(crate) const CHANCE_BARS: u32 = 8;
 /// Nesting of `[ ]` and `< >`.
 const MAX_DEPTH: usize = 4;
 const MAX_FACTOR: u32 = 16;
+/// `%n` where no `|` choice is (#616).
+const NOT_A_CHOICE: &str = "a %n weight goes on an option of a | b: [a%3 | b]";
+/// `%n` on one word of an option of several (#616).
+const WHOLE_OPTION: &str = "a %n weighs a whole option: [[a b]%2 | c]";
+/// An option's `%n` weight and the column of its `%`, if written (#616).
+type Weight = Option<(u32, usize)>;
 /// A degree is held in a note number this far up, so a negative one fits.
 pub const DEGREE_ZERO: u8 = 64;
 /// Degrees reach this far above and below the root.
@@ -90,8 +96,9 @@ pub enum Item {
     /// `< ... >`: one option per bar.
     Alt(Vec<Slot>),
     /// `[a | b c]`: one option at random each bar, seeded as `?` is
-    /// (#614); an option may be a sequence.
-    Choice(Vec<Vec<Slot>>),
+    /// (#614); an option may be a sequence. Each with its weight, `%n`
+    /// on the option, 1 without (#616).
+    Choice(Vec<(Vec<Slot>, u32)>),
     /// `0 .. 12`: every degree from the first to the last, sharing the slot.
     Range(i32, i32),
 }
@@ -643,48 +650,71 @@ impl Cursor<'_> {
 
     /// Words up to `close` (or the end when `None`).
     fn slots(&mut self, close: Option<char>, depth: usize) -> Result<Vec<Slot>, NoteError> {
-        let (out, _) = self.option(close, depth, false)?;
+        let (out, _, _) = self.option(close, depth, false)?;
         Ok(out)
     }
 
     /// The inside of `[ ]` after the `[`: a group, or with `|` a choice of
     /// groups (#614).
     fn group(&mut self, depth: usize) -> Result<Item, NoteError> {
-        let (first, mut more) = self.option(Some(']'), depth, false)?;
+        let (first, weight, mut more) = self.option(Some(']'), depth, false)?;
         if !more {
+            if let Some((_, at)) = weight {
+                return err(at, NOT_A_CHOICE);
+            }
             return Ok(Item::Group(first));
         }
-        let mut options = vec![first];
+        let mut options = vec![(first, weight.map_or(1, |(n, _)| n))];
         while more {
-            let next;
-            (next, more) = self.option(Some(']'), depth, true)?;
-            options.push(next);
+            let (next, weight);
+            (next, weight, more) = self.option(Some(']'), depth, true)?;
+            options.push((next, weight.map_or(1, |(n, _)| n)));
         }
         Ok(Item::Choice(options))
     }
 
-    /// Words up to `close`, or in a `[ ]` up to a `|`: the words and
-    /// whether a `|` (taken) ended them. `later` for an option after a `|`.
+    /// Words up to `close`, or in a `[ ]` up to a `|`: the words, their
+    /// `%n` weight and its column (#616), and whether a `|` (taken) ended
+    /// them. `later` for an option after a `|`.
     fn option(
         &mut self,
         close: Option<char>,
         depth: usize,
         later: bool,
-    ) -> Result<(Vec<Slot>, bool), NoteError> {
+    ) -> Result<(Vec<Slot>, Weight, bool), NoteError> {
         let mut out = Vec::new();
+        let mut weight = None;
         loop {
             self.skip_ws();
+            if weight.is_some() && !matches!(self.peek(), None | Some('|' | ']')) {
+                return err(self.col(), WHOLE_OPTION);
+            }
             match (self.peek(), close) {
-                (None, None) => return Ok((out, false)),
+                (None, None) => return Ok((out, weight, false)),
                 (None, Some(_)) => return err(self.col(), "a [ or < is not closed"),
                 (Some('|'), Some(']')) => {
                     if out.is_empty() {
                         return err(self.col(), "an option of a | b is empty");
                     }
                     self.i += 1;
-                    return Ok((out, true));
+                    return Ok((out, weight, true));
                 }
                 (Some('|'), _) => return err(self.col(), "a | b goes inside [ ]: [a | b]"),
+                (Some('%'), _) => {
+                    let at = self.col();
+                    if close != Some(']') {
+                        return err(at, NOT_A_CHOICE);
+                    }
+                    if out.len() != 1 || self.c.get(self.i - 1).is_some_and(|c| c.is_whitespace()) {
+                        return err(at, WHOLE_OPTION);
+                    }
+                    self.i += 1;
+                    let n = self.number()?;
+                    if n == 0 || n > MAX_FACTOR {
+                        return err(at, "a weight on an option is 1 to 16");
+                    }
+                    weight = Some((n, at));
+                }
                 (Some(c), Some(want)) if c == want => {
                     self.i += 1;
                     if out.is_empty() {
@@ -697,7 +727,7 @@ impl Cursor<'_> {
                             },
                         );
                     }
-                    return Ok((out, false));
+                    return Ok((out, weight, false));
                 }
                 _ if self.at_range() => {
                     let at = self.col();
@@ -780,7 +810,7 @@ impl Cursor<'_> {
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', '|']);
+                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', '|', '%']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
                 if let Some(k) = word.windows(2).position(|w| w == ['.', '.']) {
                     // `0..12`, one word
@@ -851,7 +881,7 @@ impl Cursor<'_> {
                 }
                 Some(':') => return err(here, "durations go outside the quotes, as c4:4"),
                 Some('(') => return err(here, "euclid comes right after the word: c2(3,8)*2"),
-                Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>' | '|') => {
+                Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>' | '|' | '%') => {
                     return err(here, "a word ends at a space");
                 }
                 _ => break,
@@ -1272,9 +1302,18 @@ fn slots_text(slots: &[Slot]) -> String {
     parts.join(" ")
 }
 
-fn choice_text(opts: &[Vec<Slot>]) -> String {
-    let parts: Vec<String> = opts.iter().map(|o| slots_text(o)).collect();
+fn choice_text(opts: &[(Vec<Slot>, u32)]) -> String {
+    let parts: Vec<String> = opts.iter().map(|(o, w)| option_text(o, *w)).collect();
     parts.join(" | ")
+}
+
+/// An option of a choice, its weight after it unless 1 (#616).
+fn option_text(slots: &[Slot], weight: u32) -> String {
+    let mut out = slots_text(slots);
+    if weight != 1 {
+        out.push_str(&format!("%{weight}"));
+    }
+    out
 }
 
 fn slot_text(s: &Slot) -> String {
@@ -1321,9 +1360,9 @@ fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
             Item::Group(g) | Item::Alt(g) => mini_spans(g, at + 1, out),
             Item::Choice(opts) => {
                 let mut o = at + 1;
-                for g in opts {
+                for (g, w) in opts {
                     mini_spans(g, o, out);
-                    o += slots_text(g).len() + " | ".len();
+                    o += option_text(g, *w).len() + " | ".len();
                 }
             }
             Item::Rest => out.push((at, 1)),
@@ -1460,7 +1499,7 @@ fn leaves_of<'a>(slots: &'a [Slot], out: &mut Vec<&'a Item>) {
     for s in slots {
         match &s.item {
             Item::Group(g) | Item::Alt(g) => leaves_of(g, out),
-            Item::Choice(opts) => opts.iter().for_each(|g| leaves_of(g, out)),
+            Item::Choice(opts) => opts.iter().for_each(|(g, _)| leaves_of(g, out)),
             leaf => out.push(leaf),
         }
     }
@@ -1593,11 +1632,15 @@ impl Compiler<'_> {
                 }
             }
             Item::Choice(opts) => {
-                // From the bar's seed, as a `?` draws (#614).
-                let n = u32::try_from(opts.len()).unwrap_or(1).max(1);
-                let pick = usize::try_from(self.rng.next_u32() % n).unwrap_or(0);
-                if let Some(g) = opts.get(pick) {
-                    self.slots(g, at, span, bar);
+                // From the bar's seed, as a `?` draws (#614), by weight (#616).
+                let total: u32 = opts.iter().map(|(_, w)| w).sum();
+                let mut r = self.rng.next_u32() % total.max(1);
+                for (g, w) in opts {
+                    if r < *w {
+                        self.slots(g, at, span, bar);
+                        break;
+                    }
+                    r -= w;
                 }
             }
         }
@@ -1863,7 +1906,7 @@ fn period(slots: &[Slot]) -> u32 {
             Item::Group(g) => period(g),
             Item::Alt(g) => lcm(u32::try_from(g.len()).unwrap_or(1), period(g)),
             // A choice is a chance, its pattern round in `CHANCE_BARS`.
-            Item::Choice(opts) => opts.iter().fold(CHANCE_BARS, |p, g| lcm(p, period(g))),
+            Item::Choice(opts) => opts.iter().fold(CHANCE_BARS, |p, (g, _)| lcm(p, period(g))),
             _ => 1,
         };
         p = lcm(p, inner);

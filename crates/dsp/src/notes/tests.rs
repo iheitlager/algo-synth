@@ -183,6 +183,62 @@ fn choice_errors_say_where() {
     }
 }
 
+/// #616: `%n` on an option weighs it; without one it weighs 1.
+#[test]
+fn a_weighted_option_plays_that_much_more_often() {
+    // 16 draws a bar over the 8 bars a choice repeats after.
+    let count = |t: &str, note: u8| {
+        let n = parse(t, 1).unwrap();
+        assert_eq!(parse(&n.text, 1).unwrap(), n, "the same every run");
+        n.events.iter().filter(|e| e.note == note).count()
+    };
+    let c = count("\"[c4%3 | d4]*16\"", 60);
+    assert!((80..=112).contains(&c), "{c} of 128, about 96");
+    let c = count("\"[c4 | d4%3]*16\"", 60);
+    assert!((16..=48).contains(&c), "{c} of 128, about 32");
+    // A bracketed option weighs as a whole: both its notes or neither.
+    let n = parse("\"[[c4 d4]%3 | e4]*16\"", 1).unwrap();
+    let c = n.events.iter().filter(|e| e.note == 60).count();
+    assert_eq!(c, n.events.iter().filter(|e| e.note == 62).count());
+    assert!((80..=112).contains(&c), "{c} of 128, about 96");
+    // Weights of 1 draw as #614's choice does.
+    assert_eq!(
+        parse("\"[c4%1 | d4 | e4%1]*4\"", 1).unwrap().events,
+        parse("\"[c4 | d4 | e4]*4\"", 1).unwrap().events
+    );
+}
+
+#[test]
+fn a_weight_prints_back_and_says_where_it_is_wrong() {
+    let text = "\"c2 [c2%3 | d#2 | g1] ~ [[c3 a#2]%2 | g2*2%16]\"";
+    let n = parse(text, 1).unwrap();
+    assert_eq!(n.text, text);
+    let named: Vec<&str> = n
+        .word_spans()
+        .iter()
+        .map(|&(at, len)| &text[at..at + len])
+        .collect();
+    assert_eq!(named, ["c2", "c2", "d#2", "g1", "~", "c3", "a#2", "g2"]);
+    let not_a_choice = "a %n weight goes on an option of a | b: [a%3 | b]";
+    let whole = "a %n weighs a whole option: [[a b]%2 | c]";
+    let range = "a weight on an option is 1 to 16";
+    for (t, col, msg) in [
+        ("\"c4%3 d4\"", 4, not_a_choice),
+        ("\"<c4%3 d4>\"", 5, not_a_choice),
+        ("\"[c4%3 d4]\"", 8, whole),
+        ("\"[c4%3]\"", 5, not_a_choice),
+        ("\"[c4 d4%3 | e4]\"", 8, whole),
+        ("\"[c4%3 d4 | e4]\"", 8, whole),
+        ("\"[c4 %3 | e4]\"", 6, whole),
+        ("\"[c4%2%3 | e4]\"", 7, whole),
+        ("\"[c4%0 | e4]\"", 5, range),
+        ("\"[c4%17 | e4]\"", 5, range),
+        ("\"[c4% | e4]\"", 6, "a number goes here"),
+    ] {
+        assert_eq!(parse(t, 1).unwrap_err(), NoteError { col, msg }, "{t}");
+    }
+}
+
 #[test]
 fn classic_durations_lay_notes_one_after_another() {
     assert_eq!(
