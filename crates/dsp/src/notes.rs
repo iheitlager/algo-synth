@@ -11,8 +11,8 @@
 //! Mini-notation: a quoted sequence divides the bar among its words; `[ ]`
 //! divides a word's share again, `~` rests, `*n` repeats within the share,
 //! `@n` gives a word n shares, `<a b>` plays one option per bar, `?` plays a
-//! word on half the bars (drawn from a fixed seed, so a run is repeatable),
-//! `[c4,e4,g4]` is a chord and `!` accents a note. A trailing `&` makes a note
+//! word on half the bars, `?0.3` on about 3 in 10 (drawn from a fixed seed, so
+//! a run is repeatable), `[c4,e4,g4]` is a chord and `!` accents a note. A trailing `&` makes a note
 //! (or chord) run one tick into the next, so a legato synth with glide slides
 //! to it (#241). Classic: `c4:4` is a quarter, `:1 :2 :4 :8 :16` with a dot
 //! for one and a half, `r:4` rests, and `c4:8&` slides.
@@ -105,10 +105,42 @@ pub struct Slot {
     pub times: u32,
     /// `@n`: shares of the bar (or group) it takes.
     pub weight: u32,
-    /// `?`: plays on some bars only.
-    pub chance: bool,
+    /// `?…`: plays on some bars only.
+    pub cond: Option<Cond>,
     /// `&`: the note runs one tick into the next, so a legato synth slides.
     pub slide: bool,
+}
+
+/// The bars a word plays in, after its `?`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cond {
+    /// `?p`: a seeded chance in thousandths, `None` for `?` alone, a half
+    /// (#602).
+    Chance(Option<u16>),
+}
+
+impl Cond {
+    /// Does a word with this condition play, `r` the bar's next draw? A
+    /// half plays when `r` is odd, as `?` always has, and every chance
+    /// reads the same bit first, so `?` alone plays exactly as before.
+    fn plays(self, r: u32) -> bool {
+        let Cond::Chance(p) = self;
+        let p = u64::from(p.unwrap_or(500));
+        u64::from((!r).reverse_bits()) * 1000 < p << 32
+    }
+
+    fn print(self) -> String {
+        let Cond::Chance(p) = self;
+        match p {
+            None => "?".to_string(),
+            Some(0) => "?0".to_string(),
+            Some(1000) => "?1".to_string(),
+            Some(m) => format!(
+                "?{}",
+                format!("{:.3}", f64::from(m) / 1000.0).trim_end_matches('0')
+            ),
+        }
+    }
 }
 
 /// A classic note: pitches (none for a rest) and a length.
@@ -475,7 +507,7 @@ impl Cursor<'_> {
                     let Some(to) = bare_degree(&Slot {
                         times: 1,
                         weight: 1,
-                        chance: false,
+                        cond: None,
                         slide: false,
                         ..end.clone()
                     }) else {
@@ -565,7 +597,7 @@ impl Cursor<'_> {
                 }
             }
         };
-        let (mut times, mut weight, mut chance, mut slide) = (1, 1, false, false);
+        let (mut times, mut weight, mut cond, mut slide) = (1, 1, None, false);
         let (mut got_times, mut got_weight) = (false, false);
         loop {
             let here = self.col();
@@ -580,9 +612,9 @@ impl Cursor<'_> {
                     weight = self.factor(here, TICKS_PER_BAR)?;
                     got_weight = true;
                 }
-                Some('?') if !chance => {
+                Some('?') if cond.is_none() => {
                     self.i += 1;
-                    chance = true;
+                    cond = Some(self.cond()?);
                 }
                 Some('&') if !slide => {
                     if !matches!(item, Item::Note(_) | Item::Chord(_) | Item::Symbol(_)) {
@@ -602,9 +634,29 @@ impl Cursor<'_> {
             item,
             times,
             weight,
-            chance,
+            cond,
             slide,
         })
+    }
+
+    /// What follows a `?`: nothing (a half), or a chance `0.3` from 0 to 1.
+    fn cond(&mut self) -> Result<Cond, NoteError> {
+        let at = self.col();
+        let start = self.i;
+        while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '.') {
+            self.i += 1;
+        }
+        let w: String = self.c.get(start..self.i).unwrap_or(&[]).iter().collect();
+        if w.is_empty() {
+            return Ok(Cond::Chance(None));
+        }
+        let decimals = w.split_once('.').map_or(0, |(_, d)| d.len());
+        match w.parse::<f64>() {
+            Ok(p) if (0.0..=1.0).contains(&p) && decimals <= 3 => {
+                Ok(Cond::Chance(Some((p * 1000.0).round() as u16)))
+            }
+            _ => err(at, "a chance is 0 to 1, as ?0.3"),
+        }
     }
 
     fn factor(&mut self, at: usize, max: u32) -> Result<u32, NoteError> {
@@ -881,7 +933,12 @@ fn pitch_text(p: &Pitch) -> String {
 fn bare_degree(s: &Slot) -> Option<i32> {
     match s.item {
         Item::Note(p)
-            if p.degree && !p.accent && s.times == 1 && s.weight == 1 && !s.chance && !s.slide =>
+            if p.degree
+                && !p.accent
+                && s.times == 1
+                && s.weight == 1
+                && s.cond.is_none()
+                && !s.slide =>
         {
             Some(i32::from(p.note) - i32::from(DEGREE_ZERO))
         }
@@ -925,8 +982,8 @@ fn slot_text(s: &Slot) -> String {
     if s.weight != 1 {
         out.push_str(&format!("@{}", s.weight));
     }
-    if s.chance {
-        out.push('?');
+    if let Some(c) = s.cond {
+        out.push_str(&c.print());
     }
     out
 }
@@ -1088,7 +1145,9 @@ impl Compiler<'_> {
     }
 
     fn slot(&mut self, s: &Slot, at: Frac, span: Frac, bar: u32) {
-        if s.chance && self.rng.next_u32() % 2 == 0 {
+        if let Some(c) = s.cond
+            && !c.plays(self.rng.next_u32())
+        {
             return;
         }
         let times = u128::from(s.times);
@@ -1382,7 +1441,7 @@ fn period(slots: &[Slot]) -> u32 {
             _ => 1,
         };
         p = lcm(p, inner);
-        if s.chance {
+        if s.cond.is_some() {
             p = lcm(p, CHANCE_BARS);
         }
         if p > MAX_BARS {

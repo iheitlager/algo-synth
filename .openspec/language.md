@@ -334,11 +334,12 @@ range's (`0 .. 3@2`), and the start takes none.
 ```text
 "<word>…"
 word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
-suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ? some bars only | & slide
+suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | & slide
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `?` plays on a fixed, seeded set of bars (repeats after 8).
+one option per bar, `?` plays on a fixed, seeded half of the bars and `?0.3`
+on about 3 in 10 (0 to 1, at most three decimals; repeats after 8).
 Suffixes come in any order, each once. Brackets nest at most 4 deep. `&`
 (slide: the note runs one tick into the next; with Legato and Glide, as on
 `AcidBass` and the TB-303's presets, the pitch glides on one gate, also into

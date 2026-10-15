@@ -67,6 +67,61 @@ fn a_chance_is_drawn_from_a_fixed_seed() {
 }
 
 #[test]
+fn a_bare_chance_plays_the_bars_it_always_has() {
+    // Recorded before `?p` (#602): `?` alone must not move a note.
+    let starts = |t: &str| -> Vec<u32> {
+        parse(t, 1)
+            .unwrap()
+            .events
+            .iter()
+            .map(|e| e.start)
+            .collect()
+    };
+    assert_eq!(
+        starts("\"c4? e4? g4? c5?\""),
+        [
+            0, 12, 24, 72, 84, 96, 108, 120, 168, 180, 228, 240, 264, 276, 312, 324, 348, 372
+        ]
+    );
+    assert_eq!(
+        parse("\"c4?0.5\"", 1).unwrap().events,
+        parse("\"c4?\"", 1).unwrap().events
+    );
+}
+
+#[test]
+fn a_chance_on_a_word_plays_about_that_often() {
+    let count = |t: &str| parse(t, 1).unwrap().events.len();
+    // 16 draws a bar over the 8 bars a chance repeats after.
+    assert_eq!(count("\"[c4?0]*16\""), 0);
+    assert_eq!(count("\"[c4?1]*16\""), 128);
+    let some = count("\"[c4?0.3]*16\"");
+    assert!((26..=51).contains(&some), "{some} of 128");
+    assert_eq!(parse("\"[c4?0.3]*16\"", 1), parse("\"[c4?0.3]*16\"", 1));
+    let n = parse("\"c4?0.3 e4?.25 g4?1 a4?0\"", 1).unwrap();
+    assert_eq!(n.text, "\"c4?0.3 e4?0.25 g4?1 a4?0\"");
+    assert_eq!(parse(&n.text, 1).unwrap(), n);
+}
+
+#[test]
+fn chance_errors_say_where() {
+    for (t, col) in [
+        ("\"c4?1.5\"", 5),
+        ("\"c4 e4?0.1234\"", 8),
+        ("\"c4?0..3\"", 5),
+    ] {
+        assert_eq!(
+            parse(t, 1).unwrap_err(),
+            NoteError {
+                col,
+                msg: "a chance is 0 to 1, as ?0.3"
+            },
+            "{t}"
+        );
+    }
+}
+
+#[test]
 fn classic_durations_lay_notes_one_after_another() {
     assert_eq!(
         ev("c4:4 e4:8 g4:8 c5:2"),
