@@ -83,6 +83,7 @@ pub fn lex(text: &str) -> Vec<Span> {
             chars: &line,
             pos: &pos,
             out: &mut out,
+            beat: false,
         };
         let indented = line.first().is_some_and(|c| *c == ' ' || *c == '\t');
         // Code has no song comments: a `#` there is SuperCollider's.
@@ -101,6 +102,10 @@ pub fn lex(text: &str) -> Vec<Span> {
                     _ => false,
                 };
                 if under == Under::Code {
+                    l.tokens(s, body, false);
+                } else if under == Under::Lanes && first.starts_with('"') {
+                    // A beat line (#659): mini-notation whose words are pads.
+                    l.beat = true;
                     l.tokens(s, body, false);
                 } else if notes {
                     l.tokens(s, body, true);
@@ -243,6 +248,8 @@ struct Line<'a> {
     chars: &'a [char],
     pos: &'a [u32],
     out: &'a mut Vec<Span>,
+    /// A beat line's (#659): its pad words are pads.
+    beat: bool,
 }
 
 impl Line<'_> {
@@ -346,6 +353,8 @@ impl Line<'_> {
                     Class::Note
                 } else if notes && word == "r" {
                     Class::Rest
+                } else if self.beat && super::is_pad_word(&word) {
+                    Class::Pad
                 } else if WORDS.contains(&word.as_str()) {
                     Class::Keyword
                 } else {
@@ -475,6 +484,16 @@ arrange main main
         assert!(of(text, Class::Pad).is_empty());
         assert!(of(text, Class::Comment).is_empty());
         assert!(of(text, Class::Number).contains(&"440".to_string()));
+    }
+
+    #[test]
+    fn a_beat_line_is_pads_in_mini_notation() {
+        let text = "track kit drums\nclip a = kit\n  \"bd sd*2 [ch, 5] ~ p7 zz\"\n";
+        assert_eq!(of(text, Class::Pad), ["bd", "sd", "ch", "p7"]);
+        assert_eq!(of(text, Class::Name), ["kit", "a", "kit", "zz"]);
+        assert_eq!(of(text, Class::Number), ["2", "5"]);
+        assert_eq!(of(text, Class::Rest), ["~"]);
+        assert!(of(text, Class::Step).is_empty());
     }
 
     #[test]

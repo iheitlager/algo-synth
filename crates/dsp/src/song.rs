@@ -358,7 +358,25 @@ pub struct Clip {
     /// `clip b = t a .rev()` (#649): the earlier clip of notes this one is
     /// made from, through its methods; it has no line of its own.
     pub from: Option<String>,
+    /// `"bd sn [ch oh] ch"` (#659): the beat line the lanes were made from,
+    /// printed in their place until a step is edited.
+    pub beat: Option<Beat>,
 }
+
+/// A drum clip's beat line as written, and whether the clip line wrote its
+/// grid (else the line picked it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Beat {
+    pub text: String,
+    pub grid: bool,
+}
+
+/// The grids a beat line tries, straight before triplets, when the clip
+/// line writes none (#659); /32 takes the hits /16 does.
+const BEAT_GRIDS: [u32; 4] = [16, 12, 24, 48];
+
+/// Strudel's names for pads, read as ours (#659).
+const PAD_ALIASES: [(&str, &str); 3] = [("sd", "sn"), ("hh", "ch"), ("rim", "rs")];
 
 impl Clip {
     /// A drum clip's hits as events, a step long on the 48-tick grid, any
@@ -841,6 +859,8 @@ impl Song {
         // `clip … /N` other than /16 on a sampler: its column and line, refused
         // if the clip turns out to hold notes (#395).
         let mut open_grid: Option<(usize, usize)> = None;
+        // Whether the open clip's line writes its grid, which a beat line keeps (#659).
+        let mut open_fixed = false;
         // The line of the `loop`, checked against the arrangement at the end.
         let mut loop_at: Option<usize> = None;
         // Tracks given a model and no preset.
@@ -918,6 +938,43 @@ impl Song {
                 // A sampler line is a lane unless it is written as notes: quoted,
                 // a chord, with a duration or a call such as `arp(` or `euclid(`
                 // (#251); no pad has a `(`. A bad pad name is then a lane error.
+                if kind == Some(Kind::Drums) && first.text.starts_with('"') {
+                    let model = song
+                        .clips
+                        .get(f)
+                        .and_then(|c| song.tracks.get(c.track))
+                        .and_then(|t| {
+                            t.preset.map(|p| p.model()).or_else(|| {
+                                models
+                                    .iter()
+                                    .find(|(i, _)| song.clips.get(f).is_some_and(|c| c.track == *i))
+                                    .map(|(_, m)| *m)
+                            })
+                        });
+                    let clip = song
+                        .clips
+                        .get_mut(f)
+                        .ok_or(err(first.col, "a lane goes under a clip"))?;
+                    if !clip.lanes.is_empty() {
+                        return Err(err(first.col, "a drum clip is lanes or one beat line"));
+                    }
+                    if !clip.pattern.is_empty() {
+                        return Err(err(first.col, "pattern methods are for a clip of notes"));
+                    }
+                    let fixed = [clip.grid];
+                    let grids: &[u32] = if open_fixed { &fixed } else { &BEAT_GRIDS };
+                    let text = body.trim();
+                    let (events, bars, grid) =
+                        notes::parse_beat(text, first.col, &|w| beat_pad(w, model), grids)
+                            .map_err(|e| err(e.col, e.msg))?;
+                    clip.lanes = beat_lanes(events, bars, grid).map_err(|m| err(first.col, m))?;
+                    clip.grid = grid;
+                    clip.beat = Some(Beat {
+                        text: text.to_string(),
+                        grid: open_fixed,
+                    });
+                    continue;
+                }
                 let as_notes = match kind {
                     Some(Kind::Synth) => true,
                     Some(Kind::Sampler) => {
@@ -1030,6 +1087,9 @@ impl Song {
                     .ok_or(err(first.col, "a lane goes under a clip"))?;
                 if !clip.pattern.is_empty() {
                     return Err(err(first.col, "pattern methods are for a clip of notes"));
+                }
+                if clip.beat.is_some() {
+                    return Err(err(first.col, "a drum clip is lanes or one beat line"));
                 }
                 if clip.lanes.iter().any(|l| l.pad.note() == lane.pad.note()) {
                     return Err(err(first.col, "this pad already has a lane"));
@@ -1406,6 +1466,7 @@ impl Song {
                     }
                     let mut grid = 16;
                     open_grid = None;
+                    open_fixed = false;
                     if let Some(w) = ws
                         .get(4)
                         .filter(|_| !live && open_bars.is_none() && from.is_none())
@@ -1422,6 +1483,7 @@ impl Song {
                         if grid != 16 {
                             open_grid = Some((w.col, line));
                         }
+                        open_fixed = true;
                     }
                     expect_end(if open_bars.is_some() { 6 } else { 5 })?;
                     if song.clips.len() >= MAX_CLIPS {
@@ -1437,6 +1499,7 @@ impl Song {
                         pattern: Vec::new(),
                         grid,
                         from: from.map(|w| w.text.to_string()),
+                        beat: None,
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -2309,6 +2372,21 @@ impl Song {
                 lines.push(format!("  {}", n.print()));
                 continue;
             }
+            if let Some(b) = &f.beat {
+                let grid = if b.grid {
+                    format!(" /{}", f.grid)
+                } else {
+                    String::new()
+                };
+                lines.push(format!(
+                    "clip {} = {}{grid}{}",
+                    f.name,
+                    track,
+                    self.methods_of(fi)
+                ));
+                lines.push(format!("  {}", b.text));
+                continue;
+            }
             lines.push(format!(
                 "clip {} = {} /{}{}",
                 f.name,
@@ -2678,6 +2756,10 @@ impl Song {
             return false;
         }
         l.call = None;
+        // The clip is lanes from now on (#659).
+        if let Some(f) = self.clips.get_mut(clip) {
+            f.beat = None;
+        }
         self.rederive(clip, was)
     }
 
@@ -2694,6 +2776,9 @@ impl Song {
         match slot {
             Some(s) => {
                 *s = to;
+                if let Some(f) = self.clips.get_mut(clip) {
+                    f.beat = None;
+                }
                 if let Some(l) = self.clips.get_mut(clip).and_then(|f| f.lanes.get_mut(lane)) {
                     l.call = None;
                     // A step that can't repeat loses its ratchet (#242).
@@ -3557,6 +3642,61 @@ fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
         call: None,
         ratchets,
     })
+}
+
+/// Whether `w` names a pad in a beat line (#659), for the highlighter.
+pub(crate) fn is_pad_word(w: &str) -> bool {
+    PAD_ALIASES.iter().any(|(a, _)| *a == w) || LanePad::from_name(w).is_some()
+}
+
+/// The note a beat line's word plays on `model` (#659): a pad's name (or
+/// Strudel's), `p0` to `p15`, or a pad's number, 0 to 15.
+fn beat_pad(w: &str, model: Option<Model>) -> Result<u8, &'static str> {
+    let w = PAD_ALIASES
+        .iter()
+        .find(|(a, _)| *a == w)
+        .map_or(w, |(_, ours)| ours);
+    let pad = match LanePad::from_name(w) {
+        Some(p) => p,
+        None => match w.parse::<u8>() {
+            Ok(n) if n.to_string() == w && usize::from(n) < padsampler::PADS => LanePad::Number(n),
+            Ok(_) => return Err("a pad's number is 0 to 15"),
+            Err(_) => {
+                return Err(
+                    "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd, or p0 to p15",
+                );
+            }
+        },
+    };
+    match model {
+        Some(m) if !pad.plays_on(m) => Err(match pad {
+            LanePad::Number(_) => "a pad by number is for a Pad Sampler",
+            LanePad::Named(_) => "a Pad Sampler has no such pad: name it p0 to p15",
+        }),
+        _ => Ok(pad.note()),
+    }
+}
+
+/// A beat line's hits as lanes on `grid` (#659): a lane for each pad, in
+/// the order they first play, a named pad's name where it has one.
+fn beat_lanes(
+    mut events: Vec<notes::Event>,
+    bars: u32,
+    grid: u32,
+) -> Result<Vec<Lane>, &'static str> {
+    let mut pads: Vec<LanePad> = Vec::new();
+    for e in &mut events {
+        let st = if e.accent { Step::Accent } else { Step::Hit };
+        e.word = step_word(st, 1);
+        let pad = Pad::from_note(e.note).map_or_else(
+            || LanePad::Number(e.note.saturating_sub(padsampler::FIRST_NOTE)),
+            LanePad::Named,
+        );
+        if !pads.contains(&pad) {
+            pads.push(pad);
+        }
+    }
+    lanes_of(&Line { events, bars }, grid, &pads)
 }
 
 mod comments;

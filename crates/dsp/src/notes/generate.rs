@@ -1154,6 +1154,8 @@ fn pitch_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Pitch, NoteError> {
         base: cur.base + r.0,
         items: 0,
         scale: cur.scale,
+        pads: None,
+        cols: Vec::new(),
     };
     let p = sub.pitch()?;
     if sub.peek().is_some() {
@@ -1173,6 +1175,8 @@ fn chord_arg(cur: &Cursor<'_>, r: (usize, usize)) -> Result<Vec<Pitch>, NoteErro
         base: cur.base + r.0,
         items: 0,
         scale: cur.scale,
+        pads: None,
+        cols: Vec::new(),
     };
     if sub.peek() != Some('[') {
         // A chord by name (#103): `arp(c:m7,up,16)`, `arp(V7,up,16)`.

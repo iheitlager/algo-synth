@@ -136,6 +136,12 @@ clip ghosts = kit /16
   bd x.....x...x.....
   ch x.x.x.x.x.x.x.x.
 
+# --- The same groove as one beat line (#659), as Strudel writes it ---
+# Words are pads (Strudel's sd and hh too); [ ] shares a slot, ~ rests,
+# ! accents, <a b> takes turns by bar. The line picks its grid: /16 here.
+clip beatline = kit
+  "[bd hh] [~ hh] [sd! hh] [~ hh] [~ hh] [bd hh] [sd! <hh oh>] [~ hh]"
+
 scene single16 2: click single16
 scene single32 2: click single32
 scene double 2: click double
@@ -165,4 +171,5 @@ scene lesson25 2: click lesson25
 scene ratamacue 2: click ratamacue
 scene dragpara 2: click dragpara
 scene ghosts 2: ghosts
-arrange single16 single32 double triple five six seven nine stroke4 stroke7 crescendo paradiddle dblpara paradiddle_diddle triplepara flam flamtap flamaccent flamacue flampara pataflafla swiss flamdrag drag dragtap lesson25 ratamacue dragpara ghosts
+scene beatline 2: beatline
+arrange single16 single32 double triple five six seven nine stroke4 stroke7 crescendo paradiddle dblpara paradiddle_diddle triplepara flam flamtap flamaccent flamacue flampara pataflafla swiss flamdrag drag dragtap lesson25 ratamacue dragpara ghosts beatline

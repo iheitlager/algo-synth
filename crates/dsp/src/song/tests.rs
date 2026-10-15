@@ -216,6 +216,7 @@ fn random_song(r: &mut Rng) -> Song {
                 pattern: Vec::new(),
                 grid: 16,
                 from: None,
+                beat: None,
             });
             continue;
         }
@@ -243,6 +244,7 @@ fn random_song(r: &mut Rng) -> Song {
             pattern: Vec::new(),
             grid: GRIDS[r.below(GRIDS.len())],
             from: None,
+            beat: None,
         });
     }
     song
@@ -3731,4 +3733,170 @@ fn a_general_midi_preset_names_its_pack() {
     assert_eq!(ids(&zoned), [(1, "gm-piano".into())]);
     let e = Song::parse("track lead synth GeneralMidi GmPiano\n").expect_err("not a synth");
     assert_eq!((e.line, e.col), (1, 18), "{e:?}");
+}
+
+/// The steps of each lane of clip `f`, as the grid writes them.
+fn lane_text(s: &Song, f: usize) -> Vec<String> {
+    s.clips[f]
+        .lanes
+        .iter()
+        .map(|l| {
+            let steps: String = (0..l.steps.len()).map(|n| l.step_text(n)).collect();
+            format!("{} {steps}", l.pad.name())
+        })
+        .collect()
+}
+
+#[test]
+fn a_beat_line_makes_the_lanes_a_grid_would() {
+    // #659: the issue's example, against its grid.
+    let beat =
+        Song::parse("track left drums\nclip fwd = left\n  \"bd sn [ch oh] ch\"\n").expect("parses");
+    let grid = Song::parse(
+        "track left drums\nclip fwd = left /16\n  bd x...............\n  sn ....x...........\n  \
+         ch ........x...x...\n  oh ..........x.....\n",
+    )
+    .expect("parses");
+    assert_eq!(beat.clips[0].grid, 16);
+    assert_eq!(beat.clips[0].lanes, grid.clips[0].lanes);
+    // Prints as written, without the grid it picked.
+    let text = beat.print();
+    assert!(
+        text.contains("clip fwd = left\n  \"bd sn [ch oh] ch\"\n"),
+        "{text}"
+    );
+    assert_eq!(Song::parse(&text), Ok(beat));
+}
+
+#[test]
+fn a_beat_line_picks_its_grid() {
+    let s = Song::parse("track d drums\nclip a = d\n  \"bd*3 sn\"\n").expect("parses");
+    assert_eq!(s.clips[0].grid, 12);
+    assert_eq!(lane_text(&s, 0), ["bd x.x.x.......", "sn ......x....."]);
+    // A straight beat stays on /16, a written grid is kept.
+    let s = Song::parse("track d drums\nclip a = d\n  \"bd sn\"\n").expect("parses");
+    assert_eq!(s.clips[0].grid, 16);
+    let s = Song::parse("track d drums\nclip a = d /32\n  \"bd sn\"\n").expect("parses");
+    assert_eq!(s.clips[0].grid, 32);
+    assert_eq!(s.clips[0].lanes[0].steps.len(), 32);
+    assert!(s.print().contains("clip a = d /32\n  \"bd sn\"\n"));
+    // Alternation runs over bars; an accent is an accent step.
+    let s = Song::parse("track d drums\nclip a = d\n  \"<bd sn> ch!\"\n").expect("parses");
+    assert_eq!(
+        lane_text(&s, 0),
+        [
+            "bd x...............................",
+            "ch ........X...............X.......",
+            "sn ................x...............",
+        ]
+    );
+}
+
+#[test]
+fn a_beat_line_reads_strudels_names_and_pad_numbers() {
+    let s = Song::parse("track d drums\nclip a = d\n  \"sd hh rim [bd,cb]\"\n").expect("parses");
+    let pads: Vec<&str> = s.clips[0].lanes.iter().map(|l| l.pad.name()).collect();
+    assert_eq!(pads, ["sn", "ch", "rs", "bd", "cb"]);
+    // Numbers in the pad range, on a Pad Sampler, as `n("0 1 [2 3] 2")`.
+    let s =
+        Song::parse("track d drums PadSampler\nclip a = d\n  \"0 1 [2 5] p7\"\n").expect("parses");
+    let pads: Vec<LanePad> = s.clips[0].lanes.iter().map(|l| l.pad).collect();
+    assert_eq!(
+        pads,
+        [
+            LanePad::Named(Pad::Bd),
+            LanePad::Named(Pad::Rs),
+            LanePad::Named(Pad::Sn),
+            LanePad::Number(5),
+            LanePad::Number(7),
+        ]
+    );
+}
+
+#[test]
+fn a_beat_line_says_where_it_is_wrong() {
+    let cases: [(&str, usize, usize, &str); 9] = [
+        (
+            "track d drums\nclip a = d\n  \"bd zz\"",
+            3,
+            7,
+            "a pad is bd sn cp ch oh lt mt ht rs cl ma cb cy lc mc hc cr rd, or p0 to p15",
+        ),
+        (
+            "track d drums PadSampler\nclip a = d\n  \"bd 16\"",
+            3,
+            7,
+            "a pad's number is 0 to 15",
+        ),
+        (
+            "track d drums Tr808\nclip a = d\n  \"bd 5\"",
+            3,
+            7,
+            "a pad by number is for a Pad Sampler",
+        ),
+        (
+            "track d drums\nclip a = d\n  \"bd sn*5\"",
+            3,
+            7,
+            "this hit falls on no step: a grid is /12, /16, /24, /32 or /48",
+        ),
+        (
+            "track d drums\nclip a = d /16\n  \"bd*3 sn\"",
+            3,
+            4,
+            "this hit falls off the clip's step grid",
+        ),
+        (
+            "track d drums\nclip a = d\n  \"bd? sn\"",
+            3,
+            6,
+            "a beat line takes no ?, & or ^: write those as lanes",
+        ),
+        (
+            "track d drums\nclip a = d\n  bd x...\n  \"sn\"",
+            4,
+            3,
+            "a drum clip is lanes or one beat line",
+        ),
+        (
+            "track d drums\nclip a = d\n  \"sn\"\n  bd x...",
+            4,
+            3,
+            "a drum clip is lanes or one beat line",
+        ),
+        (
+            "track d drums\nclip a = d\n  \"~ ~\"",
+            3,
+            3,
+            "a beat line needs a hit",
+        ),
+    ];
+    for (text, line, col, msg) in cases {
+        assert_eq!(
+            Song::parse(text).map(|_| ()),
+            Err(SongError { line, col, msg }),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_step_edit_turns_a_beat_line_into_lanes() {
+    let mut s = Song::parse("track d drums\nclip a = d\n  \"bd sn\"\nclip b = d a .rev()\n")
+        .expect("parses");
+    // A clip made from it follows it (#653).
+    assert_eq!(s.clips[1].lanes.len(), 2);
+    assert_eq!(
+        s.clips[1].lanes[0].steps[15],
+        Step::Hit,
+        "the kick, turned round"
+    );
+    assert!(s.set_step(0, 1, 2, Step::Hit));
+    assert!(s.clips[0].beat.is_none());
+    let text = s.print();
+    assert!(
+        text.contains("clip a = d /16\n  bd x...............\n  sn ..x.....x......."),
+        "{text}"
+    );
+    assert_eq!(Song::parse(&text), Ok(s));
 }

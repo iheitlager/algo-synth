@@ -317,6 +317,37 @@ clip rolls = kit
   ch x2.x.x2.x.x3.x.o2.x.
 ```
 
+### Beat lines
+
+```text
+"<word> …"     one quoted line of mini-notation (as under Notes) in place of the lanes
+word = a pad | sd hh rim (Strudel's sn ch rs) | 0 … 15 (a pad by number, as p0 … p15)
+```
+
+A drum clip may hold one beat line instead of lanes (#659), as Strudel
+writes `s("bd sd [hh oh] hh")` or `n("0 1 [2 3] 2")`. It is the same
+mini-notation as a line of notes: `[ ]` shares a slot, `~` rests, `[bd,ch]`
+hits two pads at once, `*n` repeats, `@n` weights, `<a b>` takes turns by bar,
+`(k,n[,rot])` is euclid, and `!` accents. It has no `?`, `&` or `^`: a chance,
+ghost, flam or drag is a lane's step. A number is a pad by number, so it, like
+`p0`–`p15`, needs a Pad Sampler where the track names its model.
+
+The line is compiled to the lanes a grid would have, one for each pad in the
+order they first play, and the drum sequencer shows them. With no grid on the
+clip line, it takes the first of `/16 /12 /24 /48` every hit starts on, so a
+straight beat stays on `/16`; a written grid is kept, and a hit off it is an
+error at its word. A line that takes turns runs as many bars as it takes to come
+round, at most 64 steps a lane. The clip prints the line as written; editing a
+step in the sequencer turns it into those lanes, in the text too.
+
+```song
+track kit drums
+clip fwd = kit
+  "bd sn [ch oh] ch"
+clip turns = kit
+  "[bd hh] [~ hh] [sd! hh] [~ <hh oh>]"
+```
+
 ### Notes
 
 A pitch is `a`–`g`, maybe `#` or `b`, an octave `0`–`9`: `c4` is middle C

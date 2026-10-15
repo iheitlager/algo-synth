@@ -14,6 +14,9 @@ them. It knows which track a clip plays, which a regex or a grammar does not,
 so those two read an indented line by its shape: a pad and steps
 (`bd x...X...`) or a pad and a call (`ch euclid(3,8)`) is a drum lane,
 anything else is notes, and the body under `setting … = Modular` is code.
+A pad word in a line of notes (`"bd sd [hh oh]"`, a beat line, #659) is a pad,
+as no note is one; `cb` there stays a C♭ root, since only the engine knows
+the track plays drums.
 `make syntax-test` checks every character of `examples/songs/` and `examples/sounds/` against the
 engine. Both are at 100% today.
 
