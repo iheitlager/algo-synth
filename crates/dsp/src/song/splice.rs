@@ -155,6 +155,19 @@ mod tests {
         clip beat = kit /16\n    bd x...x...x...x...   # kick\n\n    sn ....x.......x...\n\
         clip riff = lead\n    \"c4 eb4 g4\"\n";
 
+    /// #649: a note edit of a clip another is made from writes its line
+    /// only, and the other follows it.
+    #[test]
+    fn an_edit_of_a_source_keeps_the_clip_made_from_it() {
+        let typed = "track lead synth\nclip a = lead\n  \"c4 d4\"\nclip b = lead a .rev() # back\n";
+        let out = spliced(typed, |s| {
+            assert!(s.edit_note(0, crate::notes::Edit::Add { tick: 6, note: 64 }));
+        });
+        assert!(out.ends_with("clip b = lead a .rev() # back\n"), "{out}");
+        let s = Song::parse(&out).expect("parses");
+        assert_eq!(s.clips[1].notes.as_ref().expect("notes").events.len(), 3);
+    }
+
     #[test]
     fn an_edit_writes_only_its_lines() {
         let out = spliced(TYPED, |s| {

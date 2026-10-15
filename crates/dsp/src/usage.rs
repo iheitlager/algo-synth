@@ -39,7 +39,10 @@ pub const METHODS: [(&str, &str); 18] = [
     ("slow", "slow takes a whole number from 1 to 16: slow(2)"),
     ("rev", "rev takes no value: rev()"),
     ("palindrome", "palindrome takes no value: palindrome()"),
-    ("add", "add takes semitones from -48 to 48: add(7)"),
+    (
+        "add",
+        "add takes semitones from -48 to 48, or a list of them for a chord: add(7) or add([0,4,7])",
+    ),
     ("sub", "sub takes semitones from -48 to 48: sub(12)"),
     ("ply", "ply takes a whole number from 1 to 16: ply(2)"),
     ("iter", "iter takes a whole number from 1 to 16: iter(4)"),

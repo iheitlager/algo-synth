@@ -145,6 +145,16 @@ const PADS: [(&str, &str); 18] = [
     ("rd", "ride"),
 ];
 
+/// Is `word`, after a clip's track, the clip it is made from (#649)?
+pub(super) fn from_clip(word: Option<&str>) -> bool {
+    // A name, not `voicing(drop2,` (#606): no bracket or comma in a clip's name.
+    word.is_some_and(|w| {
+        w.starts_with(|c: char| c.is_ascii_alphabetic())
+            && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !CLIP_WORDS.iter().any(|(k, _)| *k == w)
+    })
+}
+
 /// The words of a clip line after its track.
 const CLIP_WORDS: [(&str, &str); 3] = [
     ("live", "new notes every bar"),
@@ -171,7 +181,12 @@ pub fn complete(text: &str, cursor: u32) -> Completion {
     let head = text.get(..cur).unwrap_or("");
     let start = head.rfind('\n').map_or(0, |i| i + 1);
     let before = head.get(start..).unwrap_or("");
-    let names = Names::above(head.get(..start).unwrap_or(""));
+    let mut names = Names::above(head.get(..start).unwrap_or(""));
+    // On a top-level line the clip is the one being written, not the one
+    // above, so every clip above may be read.
+    if !before.starts_with([' ', '\t']) {
+        names.open = None;
+    }
     let typed: usize = before
         .chars()
         .rev()
@@ -738,6 +753,8 @@ impl<'a> Names<'a> {
                         n.clips.push((c, t));
                         n.open = Some(c);
                         n.under = match n.kind(t) {
+                            // Made from a clip: no line of its own (#649).
+                            _ if from_clip(at(4)) => Under::Nothing,
                             Some("drums") => Under::Lanes,
                             Some("synth") => Under::Notes,
                             Some("sampler") => Under::Either,
@@ -982,7 +999,13 @@ impl<'a> Names<'a> {
             ("setting", Some(3)) => list.models(None),
             ("setting", Some(4)) => list.presets(w.get(3).copied().unwrap_or("")),
             ("clip", Some(3)) => self.tracks(list),
-            ("clip", Some(k)) if k >= 4 => list.table(Class::Keyword, &CLIP_WORDS),
+            ("clip", Some(k)) if k >= 4 => {
+                // An earlier clip of notes to make this one from (#649).
+                if k == 4 && w.get(3).and_then(|t| self.kind(t)) != Some("drums") {
+                    self.note_clips(list);
+                }
+                list.table(Class::Keyword, &CLIP_WORDS);
+            }
             ("auto", Some(3)) | ("mod", Some(1)) => self.targets(list),
             ("auto", Some(4)) => list.add(Class::Keyword, "ramp", || {
                 "ramp <from> <to>: a linear ramp".to_string()
@@ -1129,6 +1152,15 @@ scene main 8: beat riff
         assert_eq!(song("clip c = lead v|"), ["voicing"]);
         // #606: a voicing's styles.
         assert_eq!(song("clip c = lead voicing(dr|"), ["drop2", "drop3"]);
+        // An earlier clip of notes to make it from (#649), not on drums.
+        assert_eq!(song("clip c = lead r|"), ["riff"]);
+        assert!(song("clip c = lead |").contains(&"live".to_string()));
+        assert!(!song("clip c = kit r|").contains(&"riff".to_string()));
+        // The clip just above may be read from the next clip's line.
+        assert_eq!(
+            song("clip d = lead\n  \"c4\"\nclip c = lead .chord(|"),
+            ["riff", "d"]
+        );
         assert_eq!(song("clip c = lead .fa|"), ["fast"]);
         assert_eq!(song("clip c = lead .lp|"), ["lpf", "lpq"]);
         assert_eq!(song("clip c = lead .reso|"), ["resonance"]);
