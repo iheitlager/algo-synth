@@ -546,12 +546,7 @@ fn generator_errors_say_where() {
             7,
             "a root is a letter a to g, maybe # or b",
         ),
-        (
-            "scale c funky",
-            1,
-            9,
-            "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, minor-pentatonic, blues, phrygian-dominant or harmonic-minor",
-        ),
+        ("scale c funky", 1, 9, "no scale has this mode"),
         ("scale c", 1, 8, "a mode goes here: scale c minor"),
         ("scale c minor\nscale d major", 2, 1, "a song has one scale"),
         (
@@ -1574,7 +1569,9 @@ fn the_language_definition_covers_the_parser() {
         ALIASES.iter().map(|(a, _)| *a).collect(),
         Pad::ALL.iter().map(|(_, n)| *n).collect(),
         Model::ALL.iter().map(|(_, n)| *n).collect(),
-        crate::algo::Mode::ALL.iter().map(|m| m.1).collect(),
+        crate::algo::Mode::all()
+            .flat_map(|m| m.names().iter().copied())
+            .collect(),
         notes::QUALITIES
             .iter()
             .map(|q| q.0)
@@ -2256,6 +2253,39 @@ fn degrees_play_the_clips_scale_from_its_root() {
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #576: Strudel's scale names, its colon form, and a near miss named.
+#[test]
+fn strudels_scales_by_any_name_and_with_colons() {
+    let s = Song::parse("scale c:minor:pentatonic\ntrack l synth\nclip r = l\n  \"0 1 2\"\n")
+        .expect("parses");
+    assert_eq!(clip_notes(&s, 0), [48, 51, 53]);
+    assert!(s.print().contains("scale c minor-pentatonic\n"));
+    // an alias prints by the mode's first name
+    let s = Song::parse("scale d aeolian\n").expect("parses");
+    assert!(s.print().contains("scale d minor\n"));
+    let s =
+        Song::parse("track l synth\nclip r = l .scale(<a1:whole-tone d2:hirajoshi>)\n  \"0 1\"\n")
+            .expect("parses");
+    // a1 b1 on a whole-tone scale, then d2 e2 on hirajoshi (0 2 3 7 8)
+    assert_eq!(clip_notes(&s, 0), [33, 35, 38, 40]);
+    for (text, col, msg) in [
+        (
+            "scale c minor-pentatonik\n",
+            9,
+            "no scale has this mode; did you mean minor-pentatonic?",
+        ),
+        (
+            "scale c:hirajosi\n",
+            9,
+            "no scale has this mode; did you mean hirajoshi?",
+        ),
+        ("scale c funky\n", 9, "no scale has this mode"),
+    ] {
+        let err = Song::parse(text).expect_err(text);
+        assert_eq!((err.line, err.col, err.msg), (1, col, msg), "{text}");
+    }
 }
 
 /// #571: Strudel's `n("<0 2 1 3 2>*8").scale("<A1 D2>/4:minor:pentatonic")`,

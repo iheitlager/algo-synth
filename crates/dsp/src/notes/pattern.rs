@@ -107,7 +107,7 @@ impl Keys {
         let mut words = rest.split_whitespace();
         let mode = match (words.next(), words.next()) {
             (None, _) => None,
-            (Some(m), None) => Some(Mode::from_name(m).ok_or("no scale has this mode")?),
+            (Some(m), None) => Some(Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?),
             _ => return Err(bad),
         };
         let steps = roots
@@ -116,7 +116,7 @@ impl Keys {
                 let (root, own) = match r.split_once(':') {
                     Some((root, m)) => (
                         root,
-                        Some(Mode::from_name(m).ok_or("no scale has this mode")?),
+                        Some(Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?),
                     ),
                     None => (*r, None),
                 };

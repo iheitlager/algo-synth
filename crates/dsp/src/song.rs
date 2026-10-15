@@ -880,14 +880,33 @@ impl Song {
                 }
                 "scale" => {
                     let root = arg(1, "a root and a mode go here: scale c minor")?;
-                    let pc = pitch_class(root.text)
+                    // Strudel's `c:minor:pentatonic` is one word (#576).
+                    let (root_text, mode, end) = match root.text.split_once(':') {
+                        Some((r, m)) => (
+                            r,
+                            Word {
+                                col: root.col + r.chars().count() + 1,
+                                text: m,
+                            },
+                            2,
+                        ),
+                        None => {
+                            let m = arg(2, "a mode goes here: scale c minor")?;
+                            (
+                                root.text,
+                                Word {
+                                    col: m.col,
+                                    text: m.text,
+                                },
+                                3,
+                            )
+                        }
+                    };
+                    let pc = pitch_class(root_text)
                         .ok_or(err(root.col, "a root is a letter a to g, maybe # or b"))?;
-                    let mode = arg(2, "a mode goes here: scale c minor")?;
-                    let m = Mode::from_name(mode.text).ok_or(err(
-                        mode.col,
-                        "a mode is major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, minor-pentatonic, blues, phrygian-dominant or harmonic-minor",
-                    ))?;
-                    expect_end(3)?;
+                    let m = Mode::from_name(mode.text)
+                        .ok_or(err(mode.col, Mode::unknown(mode.text)))?;
+                    expect_end(end)?;
                     if song.scale.is_some() {
                         return Err(err(first.col, "a song has one scale"));
                     }

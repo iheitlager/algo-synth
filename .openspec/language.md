@@ -91,17 +91,114 @@ swing 58
 ## scale
 
 ```text
-scale <root> <mode>
+scale <root> <mode>  |  scale <root>:<mode>
 root  = a–g [# | b]
-mode  = major minor dorian phrygian lydian mixolydian locrian pentatonic minor-pentatonic blues phrygian-dominant harmonic-minor
+mode  = a name from the table below; Strudel's colons stand for its dashes: c:minor:pentatonic
 ```
 
 The song's key, read by `walk`, `prog`, roman numerals, `euclid … scale` and
-degrees in a clip without `.scale` (from the root in octave 3).
-`major`…`locrian`, `phrygian-dominant` (0 1 4 5 7 8 10) and `harmonic-minor`
-(0 2 3 5 7 8 11) have seven notes; `pentatonic` (0 2 4 7 9),
-`minor-pentatonic` (0 3 5 7 10) and `blues` (0 3 5 6 7 10) do not, so `prog`
-and roman numerals refuse them.
+degrees in a clip without `.scale` (from the root in octave 3). The modes are
+Strudel's, which are tonal's 92 scales (#576), named as words a song can hold:
+tonal's spaces are dashes, `#n` is `sharp-n` (a `#` starts a comment), and
+Messiaen's modes are `messiaen-1`…`messiaen-7`. A mode goes by any of its
+names and prints by the first. Only the seven-note modes have degrees for
+`prog` and roman numerals. A name that is not a mode is an error that offers
+the nearest one.
+
+| notes | mode (also) | semitones |
+|---|---|---|
+| 5 | `pentatonic` (`major-pentatonic`) | 0 2 4 7 9 |
+| 5 | `ionian-pentatonic` | 0 4 5 7 11 |
+| 5 | `mixolydian-pentatonic` (`indian`) | 0 4 5 7 10 |
+| 5 | `ritusen` | 0 2 5 7 9 |
+| 5 | `egyptian` | 0 2 5 7 10 |
+| 5 | `neapolitan-major-pentatonic` | 0 4 5 6 10 |
+| 5 | `vietnamese-1` | 0 3 5 7 8 |
+| 5 | `pelog` | 0 1 3 7 8 |
+| 5 | `kumoijoshi` | 0 1 5 7 8 |
+| 5 | `hirajoshi` | 0 2 3 7 8 |
+| 5 | `iwato` | 0 1 5 6 10 |
+| 5 | `in-sen` | 0 1 5 7 10 |
+| 5 | `lydian-pentatonic` (`chinese`) | 0 4 6 7 11 |
+| 5 | `malkos-raga` | 0 3 5 8 10 |
+| 5 | `locrian-pentatonic` (`minor-seven-flat-five-pentatonic`) | 0 3 5 6 10 |
+| 5 | `minor-pentatonic` (`vietnamese-2`) | 0 3 5 7 10 |
+| 5 | `minor-six-pentatonic` | 0 3 5 7 9 |
+| 5 | `flat-three-pentatonic` (`kumoi`) | 0 2 3 7 9 |
+| 5 | `flat-six-pentatonic` | 0 2 4 7 8 |
+| 5 | `scriabin` | 0 1 4 7 9 |
+| 5 | `whole-tone-pentatonic` | 0 4 6 8 10 |
+| 5 | `lydian-sharp-5p-pentatonic` | 0 4 6 8 11 |
+| 5 | `lydian-dominant-pentatonic` | 0 4 6 7 10 |
+| 5 | `minor-sharp-7m-pentatonic` | 0 3 5 7 11 |
+| 5 | `super-locrian-pentatonic` | 0 3 4 6 10 |
+| 6 | `major-blues` | 0 2 3 4 7 9 |
+| 6 | `blues` (`minor-blues`) | 0 3 5 6 7 10 |
+| 6 | `minor-hexatonic` | 0 2 3 5 7 11 |
+| 6 | `augmented` | 0 3 4 7 8 11 |
+| 6 | `piongio` | 0 2 5 7 9 10 |
+| 6 | `prometheus-neapolitan` | 0 1 4 6 9 10 |
+| 6 | `prometheus` | 0 2 4 6 9 10 |
+| 6 | `mystery-1` | 0 1 4 6 8 10 |
+| 6 | `six-tone-symmetric` | 0 1 4 5 8 9 |
+| 6 | `whole-tone` (`messiaen-1`) | 0 2 4 6 8 10 |
+| 6 | `messiaen-5` | 0 1 5 6 7 11 |
+| 7 | `major` (`ionian`) | 0 2 4 5 7 9 11 |
+| 7 | `minor` (`aeolian`) | 0 2 3 5 7 8 10 |
+| 7 | `melodic-minor` | 0 2 3 5 7 9 11 |
+| 7 | `harmonic-minor` | 0 2 3 5 7 8 11 |
+| 7 | `dorian` | 0 2 3 5 7 9 10 |
+| 7 | `lydian` | 0 2 4 6 7 9 11 |
+| 7 | `mixolydian` (`dominant`) | 0 2 4 5 7 9 10 |
+| 7 | `phrygian` | 0 1 3 5 7 8 10 |
+| 7 | `locrian` | 0 1 3 5 6 8 10 |
+| 7 | `locrian-major` (`arabian`) | 0 2 4 5 6 8 10 |
+| 7 | `double-harmonic-lydian` | 0 1 4 6 7 8 11 |
+| 7 | `altered` (`super-locrian`, `diminished-whole-tone`, `pomeroy`) | 0 1 3 4 6 8 10 |
+| 7 | `locrian-sharp-2` (`half-diminished`, `aeolian-b5`) | 0 2 3 5 6 8 10 |
+| 7 | `mixolydian-b6` (`melodic-minor-fifth-mode`, `hindu`) | 0 2 4 5 7 8 10 |
+| 7 | `lydian-dominant` (`lydian-b7`, `overtone`) | 0 2 4 6 7 9 10 |
+| 7 | `lydian-augmented` | 0 2 4 6 8 9 11 |
+| 7 | `dorian-b2` (`phrygian-sharp-6`, `melodic-minor-second-mode`) | 0 1 3 5 7 9 10 |
+| 7 | `ultralocrian` (`superlocrian-bb7`, `superlocrian-diminished`) | 0 1 3 4 6 8 9 |
+| 7 | `locrian-6` (`locrian-natural-6`, `locrian-sharp-6`) | 0 1 3 5 6 9 10 |
+| 7 | `augmented-heptatonic` | 0 3 4 5 7 8 11 |
+| 7 | `dorian-sharp-4` (`ukrainian-dorian`, `romanian-minor`, `altered-dorian`) | 0 2 3 6 7 9 10 |
+| 7 | `lydian-diminished` | 0 2 3 6 7 9 11 |
+| 7 | `leading-whole-tone` | 0 2 4 6 8 10 11 |
+| 7 | `lydian-minor` | 0 2 4 6 7 8 10 |
+| 7 | `phrygian-dominant` (`spanish`, `phrygian-major`) | 0 1 4 5 7 8 10 |
+| 7 | `balinese` | 0 1 3 5 7 8 11 |
+| 7 | `neapolitan-major` | 0 1 3 5 7 9 11 |
+| 7 | `harmonic-major` | 0 2 4 5 7 8 11 |
+| 7 | `double-harmonic-major` (`gypsy`) | 0 1 4 5 7 8 11 |
+| 7 | `hungarian-minor` | 0 2 3 6 7 8 11 |
+| 7 | `hungarian-major` | 0 3 4 6 7 9 10 |
+| 7 | `oriental` | 0 1 4 5 6 9 10 |
+| 7 | `flamenco` | 0 1 3 4 6 7 10 |
+| 7 | `todi-raga` | 0 1 3 6 7 8 11 |
+| 7 | `persian` | 0 1 4 5 6 8 11 |
+| 7 | `enigmatic` | 0 1 4 6 8 10 11 |
+| 7 | `major-augmented` (`major-sharp-5`, `ionian-augmented`, `ionian-sharp-5`) | 0 2 4 5 8 9 11 |
+| 7 | `lydian-sharp-9` | 0 3 4 6 7 9 11 |
+| 8 | `bebop` | 0 2 4 5 7 9 10 11 |
+| 8 | `diminished` (`whole-half-diminished`) | 0 2 3 5 6 8 9 11 |
+| 8 | `messiaen-4` | 0 1 2 5 6 7 8 11 |
+| 8 | `purvi-raga` | 0 1 4 5 6 7 8 11 |
+| 8 | `spanish-heptatonic` | 0 1 3 4 5 7 8 10 |
+| 8 | `bebop-minor` | 0 2 3 4 5 7 9 10 |
+| 8 | `bebop-major` | 0 2 4 5 7 8 9 11 |
+| 8 | `bebop-locrian` | 0 1 3 5 6 7 8 10 |
+| 8 | `minor-bebop` | 0 2 3 5 7 8 10 11 |
+| 8 | `ichikosucho` | 0 2 4 5 6 7 9 11 |
+| 8 | `minor-six-diminished` | 0 2 3 5 7 8 9 11 |
+| 8 | `half-whole-diminished` (`dominant-diminished`, `messiaen-2`) | 0 1 3 4 6 7 9 10 |
+| 8 | `kafi-raga` | 0 3 4 5 7 9 10 11 |
+| 8 | `messiaen-6` | 0 2 4 5 6 8 10 11 |
+| 9 | `composite-blues` | 0 2 3 4 5 6 7 9 10 |
+| 9 | `messiaen-3` | 0 2 3 4 6 7 8 10 11 |
+| 10 | `messiaen-7` | 0 1 2 3 5 6 7 8 9 11 |
+| 12 | `chromatic` | 0 1 2 3 4 5 6 7 8 9 10 11 |
 
 ```song
 scale e phrygian-dominant

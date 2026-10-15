@@ -475,11 +475,10 @@ pub fn catalog() -> Catalog {
                 }
             })
             .collect(),
-        modes: Mode::ALL
-            .iter()
-            .map(|(_, name, steps)| ModeInfo {
-                name: (*name).to_string(),
-                steps: steps.to_vec(),
+        modes: Mode::all()
+            .map(|m| ModeInfo {
+                name: m.name().to_string(),
+                steps: m.intervals().to_vec(),
             })
             .collect(),
         inserts: InsertType::ALL
@@ -668,7 +667,7 @@ scene loud 1: beat\nscene gap 1:\nscene again 1: beat\narrange loud gap again\n"
             (scope("Cutoff"), scope("Level"), scope("MasterGain")),
             (Some("synth"), Some("strip"), Some("master"))
         );
-        assert_eq!(c.modes.len(), Mode::ALL.len());
+        assert_eq!(c.modes.len(), Mode::all().count());
         assert!(
             c.modes
                 .iter()
