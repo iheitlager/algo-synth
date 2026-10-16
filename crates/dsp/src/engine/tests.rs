@@ -5589,6 +5589,18 @@ fn prog_arguments_stay_as_typed() {
     assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
 }
 
+/// #620, #588: a signal of notes and its rib typed into a song stay as
+/// typed, through an edit to another line too.
+#[test]
+fn a_signal_line_stays_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack bass synth\n\nclip b = bass .scale(c:minor)  .rib(46,1)\n  irand(10).sub(7) .seg(16)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+}
+
 /// #611, #588: a bass line typed into a song stays as typed.
 #[test]
 fn a_bass_line_stays_as_typed() {
@@ -7318,6 +7330,114 @@ fn a_song_slices_its_pads_sample() {
         .iter()
         .fold(0.0f32, |m, x| m.max(x.abs()));
     assert!(quiet < 0.01, "a part stops at its end: {quiet}");
+}
+
+/// The pitch over 0.2 s from `at` seconds of `left`, by its zero crossings.
+fn hz_at(left: &[f32], at: f32) -> f32 {
+    let from = (at * 48_000.0) as usize + 480;
+    let x = left.get(from..from + 9_600).unwrap_or_default();
+    let crossings = x
+        .windows(2)
+        .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+        .count();
+    crossings as f32 * 48_000.0 / (2.0 * x.len() as f32)
+}
+
+/// A sine of `hz` for `secs` seconds, loaded into sample slot `slot`.
+fn load_tone(e: &mut Engine, slot: usize, tone: &[f32]) {
+    let wav = crate::sample::test_wav(48_000, tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(slot).expect("loads");
+}
+
+/// #730: `.slice(4, irand(4))` plays, at each hit, the part Strudel's
+/// `irand(4)` gives at its moment: a new part each hit, each time round.
+#[test]
+fn a_slice_by_a_signal_picks_a_part_per_hit() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    // Four quarters of 0.25 s: 200, 400, 800 and 1600 Hz.
+    let tone: Vec<f32> = (0..48_000)
+        .map(|i| {
+            let hz = 200.0 * f32::from(1u16 << (i / 12_000));
+            (i as f32 * hz / 48_000.0 * std::f32::consts::TAU).sin() * 0.9
+        })
+        .collect();
+    load_tone(&mut e, 0, &tone);
+    let text = "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip cut = brk .slice(4, irand(4))\n  \"c2 c2\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let synth = e.song_routed(0).expect("routed");
+    e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..4 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    // A hit each second, half a bar apart over two bars.
+    let mut nodes = 0;
+    let irand = crate::song::signal::Signal::parse("irand(4)", &mut nodes).expect("parses");
+    let mut parts = Vec::new();
+    for hit in 0..4u8 {
+        let k = irand.sample(f64::from(hit) * 0.5);
+        parts.push(k);
+        let want = 200.0 * 2f32.powi(k as i32);
+        let got = hz_at(&left, f32::from(hit));
+        assert!(
+            (got - want).abs() < want * 0.03,
+            "hit {hit}: part {k}, {got} Hz, not {want}"
+        );
+    }
+    assert!(
+        parts.windows(2).any(|w| w[0] != w[1]),
+        "the parts change: {parts:?}"
+    );
+}
+
+/// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the
+/// pad Strudel's `irand(2)` gives at its moment, as Tidal's `n (irand 2)`.
+#[test]
+fn n_by_a_signal_picks_a_pad_per_hit() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let sine = |hz: f32| -> Vec<f32> {
+        (0..14_400)
+            .map(|i| (i as f32 * hz / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect()
+    };
+    load_tone(&mut e, 0, &sine(300.0));
+    load_tone(&mut e, 1, &sine(1200.0));
+    let text = "tempo 120\ntrack kit drums PadSampler PadsLoud\nclip k = kit .n(irand(2))\n  p0 x...x...x...x...\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let synth = e.song_routed(0).expect("routed");
+    e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+    e.set_pad(synth, 1, crate::padsampler::PadField::Sample, 1.0);
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..4 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    let mut nodes = 0;
+    let irand = crate::song::signal::Signal::parse("irand(2)", &mut nodes).expect("parses");
+    let mut pads = Vec::new();
+    // A hit each quarter, 0.5 s apart, over four bars' worth of quarters.
+    for hit in 0..8u8 {
+        let pad = irand.sample(f64::from(hit) / 4.0);
+        pads.push(pad);
+        let want = if pad == 0.0 { 300.0 } else { 1200.0 };
+        let got = hz_at(&left, f32::from(hit) * 0.5);
+        assert!(
+            (got - want).abs() < want * 0.03,
+            "hit {hit}: pad {pad}, {got} Hz, not {want}"
+        );
+    }
+    assert!(
+        pads.contains(&0.0) && pads.contains(&1.0),
+        "both pads: {pads:?}"
+    );
 }
 
 /// #717: `.fit()` plays a note's sample over the note's length at the tempo

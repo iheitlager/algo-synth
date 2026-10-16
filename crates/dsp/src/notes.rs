@@ -31,6 +31,13 @@
 //! Notes may overlap and run past the line's end; the clip line may say how
 //! many bars the line is (`bars 8`), else it ends at the bar of its last start.
 //!
+//! A fourth form is a signal (#620, ADR-0019): `irand(10).sub(7).seg(16)`, read
+//! when the song loads at each of its segments, 16 a bar without one, each
+//! value rounded up to a whole degree as Strudel's `n(…).scale(…)` does. The
+//! random sources are Strudel's (ADR-0041), so a line pasted from Strudel
+//! plays the same notes; the clip's `rib(offset, cycles)` says which bars of
+//! the endless line to read.
+//!
 //! Parsing and compiling allocate and happen when a song is loaded, never in
 //! `render`. Both are total: bad text is an error with a column.
 
@@ -44,6 +51,7 @@ use generate::Source;
 pub use generate::{ArpMode, BassStyle, CALLS, Colours, Gen, Size, Style as ProgStyle};
 
 use crate::algo::{Euclid, Rng, Scale, mix};
+use crate::song::signal::{self, Signal};
 
 /// Ticks in a bar of four quarters.
 pub const TICKS_PER_BAR: u32 = 48;
@@ -319,6 +327,115 @@ pub enum Seq {
     Generated(Gen),
     /// `d5@0:6:90 …`: notes at their ticks (#173).
     Timed(Vec<Event>),
+    /// `irand(10).sub(7).seg(16)`: a signal read into degrees (#620).
+    Signal(Box<SigLine>),
+}
+
+/// A signal written as a line of notes (#620), and the bars it is read over:
+/// from bar `from` (the clip's `rib`), `bars` of them.
+#[derive(Clone, Debug)]
+pub struct SigLine {
+    pub signal: Signal,
+    pub from: u32,
+    pub bars: u32,
+}
+
+impl PartialEq for SigLine {
+    fn eq(&self, o: &SigLine) -> bool {
+        self.signal == o.signal && self.from == o.from && self.bars == o.bars
+    }
+}
+
+impl Eq for SigLine {}
+
+/// A signal's steps make whole ticks.
+pub const STEPS_MSG: &str =
+    "a signal of notes takes 1, 2, 3, 4, 6, 8, 12, 16, 24 or 48 segments a bar, or a slower one";
+
+/// The degrees signal `l` makes, a note on each of its steps; a `~` rests.
+fn sample(l: &SigLine) -> Result<Vec<Event>, &'static str> {
+    let steps = l.signal.steps_per_cycle().unwrap_or(16.0);
+    let len = f64::from(TICKS_PER_BAR) / steps;
+    if !(1.0..=f64::from(TICKS_PER_BAR * MAX_BARS)).contains(&len) || len.fract() != 0.0 {
+        return Err(STEPS_MSG);
+    }
+    let len = len as u32;
+    let total = l.bars * TICKS_PER_BAR;
+    if total % len != 0 {
+        return Err("the clip's bars hold whole steps of the signal");
+    }
+    if (total / len) as usize > MAX_EVENTS {
+        return Err("a line has at most 512 notes");
+    }
+    let mut events = Vec::new();
+    for start in (0..total).step_by(len as usize) {
+        // As Strudel's exact fractions: whole ticks over the bar.
+        let t = f64::from(l.from * TICKS_PER_BAR + start) / f64::from(TICKS_PER_BAR);
+        let v = l.signal.sample(t);
+        if v.is_nan() {
+            continue;
+        }
+        let d = v.ceil();
+        if !(-f64::from(MAX_DEGREE)..=f64::from(MAX_DEGREE)).contains(&d) {
+            return Err("the signal gives a degree past -24 to 24: narrow its range");
+        }
+        events.push(Event {
+            start,
+            len,
+            note: (i32::from(DEGREE_ZERO) + d as i32) as u8,
+            accent: false,
+            vel: 0,
+            word: 0,
+            degree: true,
+            when: Default::default(),
+            nudge: 0,
+            cents: 0,
+            pan: 0,
+            region: Region::WHOLE,
+            fit: 0,
+            play: Play::SAME,
+        });
+    }
+    Ok(events)
+}
+
+/// Whether `text` starts with a signal's source: a line of notes that is a
+/// signal (#620). Notes never start with one of those words.
+fn starts_signal(text: &[char]) -> bool {
+    let word: String = text
+        .iter()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect();
+    signal::SOURCES.contains(&word.as_str())
+        && text
+            .get(word.chars().count())
+            .is_none_or(|c| matches!(c, '(' | '.' | ' ' | '+' | '-' | '*' | '/'))
+}
+
+/// A line of notes that is a signal: parsed, and refused with the column of
+/// what only a parameter can read.
+fn parse_signal(text: &str, base: usize) -> Result<Seq, NoteError> {
+    let mut nodes = 0;
+    let signal = Signal::parse(text, &mut nodes).map_err(|(c, msg)| NoteError {
+        col: base + c - 1,
+        msg,
+    })?;
+    if !signal.of_the_bar() {
+        let at = ["env", "lfo", "[", ".lag", ".onNote"]
+            .iter()
+            .filter_map(|w| text.find(w))
+            .min()
+            .map_or(0, |b| text.get(..b).map_or(0, |s| s.chars().count()));
+        return err(
+            base + at,
+            "a line of notes reads a signal of the bar: not env, lfo, a list, lag or onNote",
+        );
+    }
+    Ok(Seq::Signal(Box::new(SigLine {
+        signal,
+        from: 0,
+        bars: 1,
+    })))
 }
 
 /// One note to play: where it starts in the loop, how long it lasts, in ticks.
@@ -1260,7 +1377,10 @@ pub fn parse_with(
         cols: Vec::new(),
     };
     cur.skip_ws();
-    let seq = if let Some(seq) = parse_euclid(&mut cur, scale)? {
+    let seq = if starts_signal(chars.get(cur.i..).unwrap_or(&[])) {
+        let rest: String = chars.get(cur.i..).unwrap_or(&[]).iter().collect();
+        parse_signal(rest.trim_end(), cur.col())?
+    } else if let Some(seq) = parse_euclid(&mut cur, scale)? {
         seq
     } else if let Some(g) = generate::parse_call(&mut cur, scale, srcs)? {
         Seq::Generated(g)
@@ -1339,6 +1459,15 @@ impl Notes {
             self.bars = bars;
             return Ok(self);
         }
+        if let Seq::Signal(l) = &mut self.seq {
+            if !(1..=MAX_BARS).contains(&bars) {
+                return Err("a signal is read over 1 to 64 bars");
+            }
+            l.bars = bars;
+            self.events = sample(l)?;
+            self.bars = bars;
+            return Ok(self);
+        }
         if !matches!(self.seq, Seq::Timed(_)) {
             return Err(BARS_MSG);
         }
@@ -1346,6 +1475,17 @@ impl Notes {
             return Err("the bars hold the line's notes, and are at most 64");
         }
         self.bars = bars;
+        Ok(self)
+    }
+
+    /// A signal line read from bar `from` for `bars` bars, the clip's
+    /// `rib(from, bars)` (#620); other lines are as they were.
+    pub fn ribbed(mut self, from: u32, bars: u32) -> Result<Notes, &'static str> {
+        if let Seq::Signal(l) = &mut self.seq {
+            (l.from, l.bars) = (from, bars);
+            self.events = sample(l)?;
+            self.bars = bars;
+        }
         Ok(self)
     }
 
@@ -1525,7 +1665,9 @@ impl Notes {
                     at += word.len() + 1;
                 }
             }
-            Seq::Generated(_) | Seq::Euclid(..) => out.push((0, self.text.len())),
+            Seq::Generated(_) | Seq::Euclid(..) | Seq::Signal(_) => {
+                out.push((0, self.text.len()));
+            }
         }
         out
     }
@@ -1535,6 +1677,7 @@ impl Notes {
         match &self.seq {
             Seq::Mini(slots) => format!("\"{}\"", slots_text(slots)),
             Seq::Generated(g) => g.print(),
+            Seq::Signal(l) => l.signal.to_string(),
             Seq::Euclid(e, Fill::Pitch(p)) => format!("{} {}", e.print(), pitch_text(p)),
             Seq::Euclid(e, Fill::Walk(n)) => format!("{} scale {}", e.print(), note_name(*n)),
             Seq::Timed(events) => {
@@ -2221,6 +2364,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
             (events, bars)
         }
         Seq::Generated(g) => (g.events(g.seed(), scale), g.bars()),
+        Seq::Signal(l) => (sample(l)?, l.bars),
         Seq::Euclid(e, fill) => {
             let mut events = Vec::new();
             let n = u128::from(e.n);

@@ -222,6 +222,8 @@ fn random_song(r: &mut Rng) -> Song {
                 from: None,
                 beat: None,
                 bend: None,
+                slice_by: None,
+                pad_by: None,
             });
             continue;
         }
@@ -251,6 +253,8 @@ fn random_song(r: &mut Rng) -> Song {
             from: None,
             beat: None,
             bend: None,
+            slice_by: None,
+            pad_by: None,
         });
     }
     song
@@ -2430,7 +2434,7 @@ fn mod_errors_say_where() {
         (
             "mod kit.bdtune =  sine.wobble(2)",
             24,
-            "no such method: range exprange slow fast segment lag onNote",
+            "no such method: range exprange slow fast segment seg lag onNote add sub mul div",
         ),
         (
             "mod kit.bdtune = lfo(1, pink)",
@@ -2704,7 +2708,7 @@ fn clip_method_errors_say_where() {
         (
             "clip b = kit .cutoff(sine.wobble(1))",
             27,
-            "no such method: range exprange slow fast segment lag onNote",
+            "no such method: range exprange slow fast segment seg lag onNote add sub mul div",
         ),
         (
             "clip b = kit .cutoff()",
@@ -4707,4 +4711,229 @@ fn a_knob_on_a_strip_points_to_its_track() {
     }
     let err = Song::parse(&format!("{VIBRA}mod strip1.wobble = 1\n")).expect_err("not a knob");
     assert_eq!(&*err.msg, "no parameter has this name");
+}
+
+/// #620: Strudel's `n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1)`
+/// plays here the very notes it plays in Strudel (ADR-0041), and prints back
+/// as written.
+#[test]
+fn a_signal_from_strudel_plays_its_notes() {
+    let text = "track bass synth\n\
+                clip b = bass .scale(c3 minor) .rib(46, 1)\n  irand(10).sub(7).seg(16)\n";
+    let s = Song::parse(text).expect("parses");
+    // Strudel's degrees -5 2 -7 -4 -7 -7 -4 -3 -5 0 -3 -7 -2 2 1 -7.
+    let want = [
+        39, 51, 36, 41, 36, 36, 41, 43, 39, 48, 43, 36, 44, 51, 50, 36,
+    ];
+    let got = notes_of(&s, "b");
+    assert_eq!(got.iter().map(|(_, n)| *n).collect::<Vec<_>>(), want);
+    assert_eq!(
+        got.iter().map(|(t, _)| *t).collect::<Vec<_>>(),
+        (0..48).step_by(3).collect::<Vec<_>>()
+    );
+    let printed = s.print();
+    assert!(
+        printed
+            .contains("clip b = bass .scale(c3 minor) .rib(46, 1)\n  irand(10).sub(7).seg(16)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #620's acceptance: a saw through a range gives the degrees up a bar; a
+/// random line is the same on every load; `bars 4` reads four bars.
+#[test]
+fn a_signal_line_reads_degrees_over_its_bars() {
+    let s = Song::parse(
+        "scale a minor\ntrack lead synth\nclip up = lead\n  saw.range(0,7).segment(8)\n",
+    )
+    .expect("parses");
+    let a3 = [57, 59, 60, 62, 64, 65, 67, 69];
+    assert_eq!(
+        notes_of(&s, "up")
+            .iter()
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>(),
+        a3
+    );
+    let mist = "scale a minor\ntrack lead synth\nclip mist = lead bars 4\n  perlin.range(0,7).segment(8)\n";
+    let (a, b) = (
+        Song::parse(mist).expect("parses"),
+        Song::parse(mist).expect("parses"),
+    );
+    assert_eq!(notes_of(&a, "mist"), notes_of(&b, "mist"));
+    assert_eq!(notes_of(&a, "mist").len(), 32, "eight a bar, four bars");
+    let printed = a.print();
+    assert!(
+        printed.contains("clip mist = lead bars 4\n  perlin.range(0, 7).segment(8)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(a));
+    // Without a segment, sixteen a bar; pattern methods apply after.
+    let s = Song::parse("scale c major\ntrack l synth\nclip r = l .fast(2)\n  irand(4)\n")
+        .expect("parses");
+    assert_eq!(notes_of(&s, "r").len(), 32);
+}
+
+/// #620 with #592: the degrees of a signal count a chord's notes as any
+/// degrees do.
+#[test]
+fn a_signal_line_follows_a_chord() {
+    let s = Song::parse(
+        "track pad synth\ntrack lead synth\n\
+         clip harm = pad\n  \"<[a2,c3,e3,g3] [d3,f3,a3,c4]>\"\n\
+         clip f = lead .chord(harm)\n  saw.range(0,4).segment(4)\n",
+    )
+    .expect("parses");
+    let notes: Vec<u8> = notes_of(&s, "f").iter().map(|(_, n)| *n).collect();
+    // Degrees 0 1 2 3 each bar: Am7 then Dm7.
+    assert_eq!(notes, [45, 48, 52, 55, 50, 53, 57, 60]);
+}
+
+/// #620: `rib` cuts a piece of any line and loops it: here bars 1 and 2 of
+/// a line of three.
+#[test]
+fn rib_loops_a_piece_of_the_line() {
+    let s =
+        Song::parse("track l synth\nclip r = l .ribbon(4, 2)\n  \"<c4 d4 e4>\"\n").expect("parses");
+    assert_eq!(notes_of(&s, "r"), [(0, 62), (48, 64)]);
+    let printed = s.print();
+    assert!(printed.contains("clip r = l .ribbon(4, 2)\n"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+#[test]
+fn signal_lines_say_what_is_wrong_and_where() {
+    for (text, col, msg) in [
+        (
+            "scale c major\ntrack l synth\nclip r = l\n  saw * env(perc)\n",
+            9,
+            "a line of notes reads a signal of the bar: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "scale c major\ntrack l synth\nclip r = l\n  saw.range(0, 7).lag(0.1)\n",
+            18,
+            "a line of notes reads a signal of the bar: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "scale c major\ntrack l synth\nclip r = l\n  lfo(2).range(0, 7)\n",
+            3,
+            "a line of notes reads a signal of the bar: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "scale c major\ntrack l synth\nclip r = l\n  saw.seg(5)\n",
+            3,
+            notes::STEPS_MSG,
+        ),
+        (
+            "scale c major\ntrack l synth\nclip r = l\n  saw.range(0, 40).seg(4)\n",
+            3,
+            "the signal gives a degree past -24 to 24: narrow its range",
+        ),
+        (
+            "scale c major\ntrack l synth\nclip r = l .fast(2) .rib(3, 1)\n  irand(8)\n",
+            3,
+            "on a signal, rib goes before the methods of time",
+        ),
+        (
+            "scale c major\ntrack l synth\nclip r = l bars 2 .rib(3, 1)\n  irand(8)\n",
+            3,
+            "a signal is read over bars N or a rib, not both",
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(text);
+        assert_eq!(
+            (e.line, e.col, e.msg.to_string()),
+            (4, col, msg.to_string()),
+            "{text}"
+        );
+    }
+    // A rib inside another method, at the method on the clip line.
+    let e =
+        Song::parse("scale c major\ntrack l synth\nclip r = l .every(2, rib(3, 1))\n  irand(8)\n")
+            .expect_err("nested rib");
+    assert_eq!(
+        (e.line, e.col, e.msg.as_ref()),
+        (
+            3,
+            13,
+            "rib cuts the whole line: it goes on the clip, not inside a method"
+        )
+    );
+    // Without a scale, a degree asks for one.
+    let e = Song::parse("track l synth\nclip r = l\n  irand(8).seg(4)\n").expect_err("no scale");
+    assert_eq!(
+        (e.line, e.msg.as_ref()),
+        (
+            3,
+            "a degree needs a scale: a scale line, or .scale(a1 minor) on the clip"
+        )
+    );
+}
+
+/// #730: `.slice(n, <signal>)` and `.n(<signal>)` are read per hit in the
+/// engine; they print back, and a quoted slice stays a pattern method.
+#[test]
+fn slice_and_n_take_a_signal_per_hit() {
+    let text = "track brk sampler PadSampler PadsLoud\ntrack kit drums PadSampler PadsLoud\n\
+                clip cut = brk .fit() .slice(32, irand(32))\n  \"c2*8\"\n\
+                clip k = kit .n(irand(4))\n  p0 x.x.x.x.x.x.x.x.\n\
+                clip q = kit .n(\"0 3 <1 2>\")\n  p0 x...x...x...x...\n";
+    let s = Song::parse(text).expect("parses");
+    let (n, sig) = s.clips[0].slice_by.as_ref().expect("a slice of a signal");
+    assert_eq!((*n, sig.to_string().as_str()), (32, "irand(32)"));
+    assert!(
+        s.clips[0]
+            .pattern
+            .iter()
+            .all(|p| !matches!(p, Pattern::Slice(..)))
+    );
+    assert_eq!(
+        s.clips[1].pad_by.as_ref().map(ToString::to_string),
+        Some("irand(4)".into())
+    );
+    assert!(s.clips[2].pad_by.is_some());
+    let printed = s.print();
+    for line in [
+        "clip cut = brk .fit() .slice(32, irand(32))\n",
+        "clip k = kit /16 .n(irand(4))\n",
+        "clip q = kit /16 .n(\"0 3 <1 2>\")\n",
+    ] {
+        assert!(printed.contains(line), "{line} in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+    let quoted =
+        Song::parse("track brk sampler PadSampler\nclip c = brk .slice(4, \"3 0\")\n  \"c2\"\n")
+            .expect("parses");
+    assert!(quoted.clips[0].slice_by.is_none());
+    for (text, col, msg) in [
+        (
+            "track kit drums PadSampler\nclip k = kit .slice(4, irand(4))\n  p0 x...\n",
+            15,
+            "a signal on slice is for a clip of notes",
+        ),
+        (
+            "track kit drums Tr808\nclip k = kit .n(irand(4))\n  bd x...\n",
+            15,
+            "n picks a pad of a Pad Sampler",
+        ),
+        (
+            "track b sampler PadSampler\nclip c = b .slice(4, env(perc))\n  \"c2\"\n",
+            22,
+            "slice and n read a signal of the bar per hit: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "track kit drums PadSampler\nclip k = kit .n(irand(2)) .n(rand)\n  p0 x...\n",
+            28,
+            "a clip takes one n",
+        ),
+        (
+            "track b sampler PadSampler\nclip c = b .slice(0, irand(4))\n  \"c2\"\n",
+            13,
+            crate::usage::SLICE,
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(text);
+        assert_eq!((e.line, e.col, e.msg.as_ref()), (2, col, msg), "{text}");
+    }
 }

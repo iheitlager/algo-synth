@@ -1,6 +1,6 @@
 # 0039: Pitch and pan per note
 
-**Status:** Accepted, amended by #716 (the part of a sample), #717 (fit) and #718 (speed) · **Date:** 2026-10-16
+**Status:** Accepted, amended by #716 (the part of a sample), #717 (fit), #718 (speed) and #730 (a part and a pad per hit) · **Date:** 2026-10-16
 
 ## Context
 
@@ -45,3 +45,12 @@ Rejected: a part per pad (a `PadField`), which can't give each hit of one pad it
 - **Cents as a per-voice signal (ADR-0023).** Pitch is not in the table, and the table is per block, so a note would start at its key and move a block later. Rejected: the trim is set before the note's first sample.
 - **`jux` as a hidden second track.** No engine change, but it needs a second synth, its own strip and its own settings, against one clip on one track. Rejected.
 - **Per-note pan by automating the strip.** Pans every voice of the track at once, so the line and its copy could not sit apart. Rejected.
+
+## Amendment (#730): a part and a pad read per hit
+
+Tidal's `sound "amencutup*8" # n (irand 32)` picks a new cut each hit, each time round. A slice's indexes were fixed at load, so a loop played the same cuts every bar.
+
+- **Read as the hit is pressed.** `.slice(n, <signal>)` and `.n(<signal>)` keep their signal on the clip, as `.add(<signal>)` does. The engine reads it at the hit's song tick, at that moment (`Signal::sample`, Strudel's own values, ADR-0041): the slice sets the event's part (`Region::part`), `n` its note to a Pad Sampler's pad. The note-off takes the picked note.
+- **Drum hits too.** `n` on a drum clip reads at each lane hit's own time, a ratchet's further hits at theirs, its graces taking the hit's pad.
+- **Nothing allocates:** the signal is parsed at load; reading it is arithmetic on its nodes.
+- A quoted slice (`slice(8, "0 1 <2 3>")`) stays a pattern method, compiled at load.

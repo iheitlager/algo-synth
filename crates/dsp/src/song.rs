@@ -375,6 +375,24 @@ pub struct Clip {
     /// `.add(perlin.range(0, 0.5))` (#699): semitones read at each note's
     /// start, and whether it was `.sub`.
     pub bend: Option<(bool, Signal)>,
+    /// `.slice(32, irand(32))` (#730): the part of n each hit plays, read as
+    /// it is pressed.
+    pub slice_by: Option<(u32, Signal)>,
+    /// `.n(irand(8))` (#730): the pad of a Pad Sampler each hit plays, read
+    /// as it is pressed, as Tidal's `n`.
+    pub pad_by: Option<Signal>,
+}
+
+/// The error of a signal `slice` or `n` can't read per hit (#730).
+const PICK_SIGNAL: &str =
+    "slice and n read a signal of the bar per hit: not env, lfo, a list, lag or onNote";
+
+/// `.slice(n, <signal>)`: the count and the signal's text with its byte
+/// offset in `args`, when the indexes are a signal, not quoted (#730).
+fn slice_signal(args: &str) -> Option<(&str, usize, &str)> {
+    let (count, rest) = args.split_once(',')?;
+    let sig = rest.trim_start();
+    is_signal(sig).then(|| (count.trim(), args.len() - sig.len(), sig.trim_end()))
 }
 
 /// A drum clip's beat line as written, and whether the clip line wrote its
@@ -1253,6 +1271,7 @@ impl Song {
                     let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
+                    let barred = open_bars.is_some();
                     if let Some((bars, col, at)) = open_bars.take() {
                         n = n.with_bars(bars).map_err(|msg| SongError {
                             line: at,
@@ -1270,6 +1289,30 @@ impl Song {
                         .clips
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a clip"))?;
+                    // A signal line is read over its clip's `rib` (#620): the
+                    // bars of the endless signal, before any method of time.
+                    let signal = matches!(n.seq, notes::Seq::Signal(_));
+                    let rib = clip
+                        .pattern
+                        .iter()
+                        .position(|p| matches!(p, Pattern::Rib(_)));
+                    if let (true, Some(k)) = (signal, rib) {
+                        if barred {
+                            return Err(err(
+                                first.col,
+                                "a signal is read over bars N or a rib, not both",
+                            ));
+                        }
+                        if !clip.pattern.iter().take(k).all(Pattern::pitch_only) {
+                            return Err(err(
+                                first.col,
+                                "on a signal, rib goes before the methods of time",
+                            ));
+                        }
+                        if let Some(Pattern::Rib(r)) = clip.pattern.get(k) {
+                            n = n.ribbed(r.from, r.bars).map_err(|m| err(first.col, m))?;
+                        }
+                    }
                     // Degrees (#570): the clip's `.scale` makes them notes after
                     // the methods before it; without one, the song's scale does,
                     // at once, so `add` and voicing see notes.
@@ -1301,8 +1344,19 @@ impl Song {
                             events: std::mem::take(&mut n.events),
                             bars: n.bars,
                         };
-                        let line = pattern::apply_all(&clip.pattern, line)
-                            .map_err(|m| err(first.col, m))?;
+                        // A signal line has been read over its rib already.
+                        let line = if signal {
+                            let rest: Vec<Pattern> = clip
+                                .pattern
+                                .iter()
+                                .filter(|p| !matches!(p, Pattern::Rib(_)))
+                                .cloned()
+                                .collect();
+                            pattern::apply_all(&rest, line)
+                        } else {
+                            pattern::apply_all(&clip.pattern, line)
+                        }
+                        .map_err(|m| err(first.col, m))?;
                         (n.events, n.bars) = (line.events, line.bars);
                     }
                     song_degrees(&mut n.events, song.scale.as_ref(), song.scale_octave)
@@ -1735,6 +1789,8 @@ impl Song {
                         from: from.map(|w| w.text.to_string()),
                         beat: None,
                         bend: None,
+                        slice_by: None,
+                        pad_by: None,
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1768,6 +1824,65 @@ impl Song {
                                         ));
                                     }
                                     clip.bend = Some((name == "sub", signal));
+                                }
+                                continue;
+                            }
+                            // `.slice(n, <signal>)` and `.n(<signal>)`: the part of
+                            // the sample and the pad each hit plays, read as it
+                            // is pressed, in the engine (#730). A knob named `n`
+                            // keeps its name.
+                            let knob_n = name == "n"
+                                && knobbed(&song, Target::Track(t)).is_some_and(|st| {
+                                    st.knobs.iter().any(|k| k.eq_ignore_ascii_case(name))
+                                });
+                            let sliced = if name == "slice" {
+                                slice_signal(sig)
+                            } else {
+                                None
+                            };
+                            if (name == "n" && !knob_n) || sliced.is_some() {
+                                let (text, off) = sliced.map_or((sig, 0), |(_, off, s)| (s, off));
+                                let pcol =
+                                    at + scol - 1 + sig.get(..off).map_or(0, |s| s.chars().count());
+                                let signal = Signal::parse(text, &mut nodes)
+                                    .map_err(|(c, m)| err(pcol + c - 1, m))?;
+                                if !signal.of_the_bar() {
+                                    return Err(err(pcol, PICK_SIGNAL));
+                                }
+                                let mcol = at + ncol - 1;
+                                let clip = song.clips.get_mut(f);
+                                if let Some((count, _, _)) = sliced {
+                                    let n = count
+                                        .parse::<u32>()
+                                        .ok()
+                                        .filter(|n| (1..=64).contains(n))
+                                        .ok_or(err(mcol, crate::usage::SLICE))?;
+                                    if kind == Some(Kind::Drums) || from_lanes {
+                                        return Err(err(
+                                            mcol,
+                                            "a signal on slice is for a clip of notes",
+                                        ));
+                                    }
+                                    if let Some(clip) = clip {
+                                        if clip.slice_by.is_some() {
+                                            return Err(err(
+                                                mcol,
+                                                "a clip takes one slice of a signal",
+                                            ));
+                                        }
+                                        clip.slice_by = Some((n, signal));
+                                    }
+                                } else {
+                                    let model = track_model(&song.tracks, &models, t);
+                                    if model.is_some_and(|m| m != Model::PadSampler) {
+                                        return Err(err(mcol, "n picks a pad of a Pad Sampler"));
+                                    }
+                                    if let Some(clip) = clip {
+                                        if clip.pad_by.is_some() {
+                                            return Err(err(mcol, "a clip takes one n"));
+                                        }
+                                        clip.pad_by = Some(signal);
+                                    }
                                 }
                                 continue;
                             }
@@ -2793,7 +2908,15 @@ impl Song {
             }
             if let Some(n) = &f.notes {
                 let live = if f.live { " live" } else { "" };
+                let signal_bars = match &n.seq {
+                    // Read over a rib, the rib says how long it is.
+                    notes::Seq::Signal(l) => {
+                        l.bars > 1 && !f.pattern.iter().any(|p| matches!(p, Pattern::Rib(_)))
+                    }
+                    _ => false,
+                };
                 let bars = if matches!(n.seq, notes::Seq::Timed(_))
+                    || signal_bars
                     || matches!(
                         n.seq,
                         notes::Seq::Generated(notes::Gen::Arp { bars: 2.., .. })
@@ -2943,7 +3066,11 @@ impl Song {
         let Some(n) = f.notes.as_ref() else {
             return false;
         };
-        if !matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) || f.from.is_some() {
+        if !matches!(
+            n.seq,
+            notes::Seq::Generated(_) | notes::Seq::Euclid(..) | notes::Seq::Signal(_)
+        ) || f.from.is_some()
+        {
             return false;
         }
         let Some(frozen) = notes::freeze(events.unwrap_or(&n.events), n.bars) else {
@@ -3117,8 +3244,10 @@ impl Song {
         };
         // A patterned line's events are not its text: an edit would bake the
         // pattern in (ADR-0019).
-        if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..))
-            || !f.pattern.is_empty()
+        if matches!(
+            n.seq,
+            notes::Seq::Generated(_) | notes::Seq::Euclid(..) | notes::Seq::Signal(_)
+        ) || !f.pattern.is_empty()
             || f.from.is_some()
         {
             return false;
@@ -3628,6 +3757,18 @@ impl Song {
                     .get(f)
                     .and_then(|c| c.bend.as_ref())
                     .map(|(sub, s)| format!(" .{}({s})", if *sub { "sub" } else { "add" })),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.slice_by.as_ref())
+                    .map(|(n, s)| format!(" .slice({n}, {s})")),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.pad_by.as_ref())
+                    .map(|s| format!(" .n({s})")),
             );
         let mine: Vec<&Mod> = self.mods.iter().filter(|m| m.clip == Some(f)).collect();
         let adsr = |m: &&Mod| m.alias == Some("adsr");

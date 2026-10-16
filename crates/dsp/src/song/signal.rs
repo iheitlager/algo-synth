@@ -10,7 +10,9 @@
 //! bar), so it is deterministic and lands in the same place after a seek. The
 //! sources run from 0 to 1: `sine saw tri square` once per cycle, `rand` a new
 //! value every sixteenth, `perlin` a smooth random curve through one value per
-//! cycle, `lfo(rate, shape)` at a rate in hertz. A sequence of numbers in
+//! cycle, `lfo(rate, shape)` at a rate in hertz. The random ones are Strudel's
+//! own (ADR-0041): the same time gives the same value as in Strudel, so a riff
+//! found there by ear plays here note for note. A sequence of numbers in
 //! mini-notation is a signal too: `"<300 800 1200>"` one value per cycle,
 //! `"0 0.5 1 0.5"` the cycle shared between them. `+ - * /` combine them;
 //! `.range(a, b)` and `.exprange(a, b)` map 0..1 onto a..b, linearly or
@@ -35,9 +37,13 @@ pub const SOURCES: [&str; 18] = [
     "sine", "cosine", "saw", "tri", "square", "rand", "perlin", "lfo", "env", "sine2", "cosine2",
     "saw2", "tri2", "square2", "rand2", "irand", "brand", "brandBy",
 ];
-pub const METHODS: [&str; 7] = [
-    "range", "exprange", "slow", "fast", "segment", "lag", "onNote",
+pub const METHODS: [&str; 12] = [
+    "range", "exprange", "slow", "fast", "segment", "seg", "lag", "onNote", "add", "sub", "mul",
+    "div",
 ];
+/// The error for a method not in `METHODS`.
+const NO_METHOD: &str =
+    "no such method: range exprange slow fast segment seg lag onNote add sub mul div";
 
 /// Most nodes in all of a song's signals, and so most `lag` slots.
 pub const MAX_NODES: usize = 256;
@@ -111,6 +117,26 @@ pub enum Op {
 }
 
 impl Op {
+    fn apply(self, x: f64, y: f64) -> f64 {
+        match self {
+            Op::Add => x + y,
+            Op::Sub => x - y,
+            Op::Mul => x * y,
+            Op::Div if y == 0.0 => 0.0,
+            Op::Div => x / y,
+        }
+    }
+
+    /// Its name as a method, Strudel's: `.sub(7)`.
+    fn name(self) -> &'static str {
+        match self {
+            Op::Add => "add",
+            Op::Sub => "sub",
+            Op::Mul => "mul",
+            Op::Div => "div",
+        }
+    }
+
     fn char(self) -> char {
         match self {
             Op::Add => '+',
@@ -170,7 +196,11 @@ pub enum Node {
     },
     Slow(usize, f32),
     Fast(usize, f32),
-    Segment(usize, f32),
+    /// n values a cycle; `true` when written `seg`, Strudel's short name.
+    Segment(usize, f32, bool),
+    /// `.add(n)` `.sub(n)` `.mul(n)` `.div(n)`: Strudel's arithmetic as a
+    /// method (`irand(10).sub(7)`), printed as written.
+    Arith(Op, usize, f32),
     Lag {
         of: usize,
         secs: f32,
@@ -384,7 +414,7 @@ impl Signal {
                 let n = f64::from(n);
                 self.lit_at(a, t * n, &mut |v, e| f(v, e / n));
             }
-            Some(Node::Segment(a, n)) => {
+            Some(Node::Segment(a, n, _)) => {
                 // Held from the segment's start to the first boundary at or
                 // past where the value ends.
                 let n = f64::from(n);
@@ -393,7 +423,12 @@ impl Signal {
                     f(v, ((e * n).ceil() / n).max(ts + 1.0 / n))
                 });
             }
-            Some(Node::Neg(a) | Node::Range { of: a, .. } | Node::Lag { of: a, .. }) => {
+            Some(
+                Node::Neg(a)
+                | Node::Range { of: a, .. }
+                | Node::Lag { of: a, .. }
+                | Node::Arith(_, a, _),
+            ) => {
                 self.lit_at(a, t, f);
             }
             Some(Node::Bin(_, a, b)) => {
@@ -437,12 +472,71 @@ impl Signal {
     /// (#255). Never allocates.
     pub fn eval(&self, t: f64, ctx: &mut Ctx<'_>) -> f32 {
         match self.nodes.len().checked_sub(1) {
-            Some(root) => self.at(root, t, ctx) as f32,
+            Some(root) => self.at(root, t, ctx, true) as f32,
             None => 0.0,
         }
     }
 
-    fn at(&self, i: usize, t: f64, ctx: &mut Ctx<'_>) -> f64 {
+    /// The value at `t` cycles as Strudel reads it to make a note (#620):
+    /// the random sources at that very moment, not held a sixteenth. For a
+    /// signal of the bar (`of_the_bar`), at load.
+    pub fn sample(&self, t: f64) -> f64 {
+        let mut ctx = Ctx {
+            cps: 1.0,
+            dt: 0.0,
+            state: &mut [],
+            voice: None,
+        };
+        match self.nodes.len().checked_sub(1) {
+            Some(root) => self.at(root, t, &mut ctx, false),
+            None => 0.0,
+        }
+    }
+
+    /// Whether its value is a function of the bar alone, so it can write
+    /// notes at load (#620): no `env`, `lfo` (in hertz), list, `lag` or
+    /// `onNote`.
+    pub fn of_the_bar(&self) -> bool {
+        !self.nodes.iter().any(|n| {
+            matches!(
+                n,
+                Node::Env(_)
+                    | Node::Lfo(..)
+                    | Node::LfoList { .. }
+                    | Node::List { .. }
+                    | Node::Lag { .. }
+                    | Node::OnNote(_)
+            )
+        })
+    }
+
+    /// The values it takes a cycle, as its outermost `.segment` makes them
+    /// through `slow` and `fast`, following the left of arithmetic as
+    /// Strudel's structure does; `None` without a segment (#620).
+    pub fn steps_per_cycle(&self) -> Option<f64> {
+        let mut i = self.nodes.len().checked_sub(1)?;
+        let mut scale = 1.0;
+        loop {
+            match *self.nodes.get(i)? {
+                Node::Segment(_, n, _) => return Some(f64::from(n) * scale),
+                Node::Slow(a, n) => (i, scale) = (a, scale / f64::from(n)),
+                Node::Fast(a, n) => (i, scale) = (a, scale * f64::from(n)),
+                Node::Neg(a) | Node::Range { of: a, .. } | Node::Arith(_, a, _) => i = a,
+                Node::Bin(_, a, b) => {
+                    i = if matches!(self.nodes.get(a), Some(Node::Num(_))) {
+                        b
+                    } else {
+                        a
+                    };
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// `held`: the random sources hold each value a sixteenth, as a
+    /// parameter reads them; else read at `t` itself, as a note is made.
+    fn at(&self, i: usize, t: f64, ctx: &mut Ctx<'_>, held: bool) -> f64 {
         let Some(node) = self.nodes.get(i) else {
             return 0.0;
         };
@@ -456,41 +550,36 @@ impl Signal {
             }
             Node::List { from, len } => self.listed(from, len, ctx),
             Node::Env(times) => ctx.voice.map_or(0.0, |v| v.env(times.unwrap_or(v.adsr))),
-            Node::Rand => unit(hash((t * RAND_PER_CYCLE).floor())),
+            Node::Rand => strudel_rand(moment(t, held)),
             Node::Bi(w) => 2.0 * w.at(t) - 1.0,
-            Node::Rand2 => 2.0 * unit(hash((t * RAND_PER_CYCLE).floor())) - 1.0,
+            Node::Rand2 => 2.0 * strudel_rand(moment(t, held)) - 1.0,
             Node::IRand(n) => {
                 let n = f64::from(n);
-                (unit(hash((t * RAND_PER_CYCLE).floor())) * n)
-                    .floor()
-                    .min(n - 1.0)
+                (strudel_rand(moment(t, held)) * n).trunc().min(n - 1.0)
             }
             Node::BRand(p) => {
-                if unit(hash((t * RAND_PER_CYCLE).floor())) < f64::from(p) {
+                if strudel_rand(moment(t, held)) < f64::from(p) {
                     1.0
                 } else {
                     0.0
                 }
             }
             Node::Perlin => {
+                // Strudel's perlin: its random values at the whole cycles,
+                // joined by a smootherstep.
                 let (k, f) = (t.floor(), t - t.floor());
-                let s = f * f * (3.0 - 2.0 * f);
-                let (a, b) = (unit(hash(k)), unit(hash(k + 1.0)));
+                let s = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+                let (a, b) = (strudel_rand(k), strudel_rand(k + 1.0));
                 a + (b - a) * s
             }
-            Node::Neg(a) => -self.at(a, t, ctx),
+            Node::Neg(a) => -self.at(a, t, ctx, held),
             Node::Bin(op, a, b) => {
-                let (x, y) = (self.at(a, t, ctx), self.at(b, t, ctx));
-                match op {
-                    Op::Add => x + y,
-                    Op::Sub => x - y,
-                    Op::Mul => x * y,
-                    Op::Div if y == 0.0 => 0.0,
-                    Op::Div => x / y,
-                }
+                let (x, y) = (self.at(a, t, ctx, held), self.at(b, t, ctx, held));
+                op.apply(x, y)
             }
+            Node::Arith(op, a, n) => op.apply(self.at(a, t, ctx, held), f64::from(n)),
             Node::Range { of, lo, hi, exp } => {
-                let u = self.at(of, t, ctx);
+                let u = self.at(of, t, ctx, held);
                 let (lo, hi) = (f64::from(lo), f64::from(hi));
                 if exp {
                     lo * (hi / lo).powf(u)
@@ -498,13 +587,13 @@ impl Signal {
                     lo + (hi - lo) * u
                 }
             }
-            Node::Slow(a, n) => self.at(a, t / f64::from(n), ctx),
-            Node::Fast(a, n) => self.at(a, t * f64::from(n), ctx),
-            Node::Segment(a, n) => {
+            Node::Slow(a, n) => self.at(a, t / f64::from(n), ctx, held),
+            Node::Fast(a, n) => self.at(a, t * f64::from(n), ctx, held),
+            Node::Segment(a, n, _) => {
                 let n = f64::from(n);
-                self.at(a, (t * n).floor() / n, ctx)
+                self.at(a, (t * n).floor() / n, ctx, held)
             }
-            Node::OnNote(a) => self.at(a, t, ctx),
+            Node::OnNote(a) => self.at(a, t, ctx, held),
             Node::Seq {
                 from,
                 len,
@@ -513,12 +602,12 @@ impl Signal {
                 let (k, t, _) = step(from, len, per_cycle, t);
                 match self.kids.get(k) {
                     Some(Kid::Val(v)) => self.values.get(*v).copied().map_or(0.0, f64::from),
-                    Some(Kid::Seq(j)) => self.at(*j, t, ctx),
+                    Some(Kid::Seq(j)) => self.at(*j, t, ctx, held),
                     None => 0.0,
                 }
             }
             Node::Lag { of, secs, slot } => {
-                let x = self.at(of, t, ctx);
+                let x = self.at(of, t, ctx, held);
                 // No value (a `~`) leaves the lag where it was.
                 if x.is_nan() {
                     return x;
@@ -663,7 +752,10 @@ impl Signal {
             }
             Node::Slow(a, n) => method(out, a, "slow", &[n]),
             Node::Fast(a, n) => method(out, a, "fast", &[n]),
-            Node::Segment(a, n) => method(out, a, "segment", &[n]),
+            Node::Segment(a, n, short) => {
+                method(out, a, if short { "seg" } else { "segment" }, &[n])
+            }
+            Node::Arith(op, a, n) => method(out, a, op.name(), &[n]),
             Node::Lag { of, secs, .. } => method(out, of, "lag", &[secs]),
             Node::OnNote(a) => {
                 self.write(out, a, 4)?;
@@ -712,15 +804,26 @@ fn step(from: usize, len: usize, per_cycle: bool, t: f64) -> (usize, f64, f64) {
     }
 }
 
-/// A seeded hash of a whole number, as the generators use (ADR-0005).
-fn hash(k: f64) -> u32 {
-    let k = k as i64;
-    crate::algo::mix(0x5167_A15E ^ (k >> 32) as u32, k as u32)
+/// Where a random source reads the time: the sixteenth it is in when held.
+fn moment(t: f64, held: bool) -> f64 {
+    if held {
+        (t * RAND_PER_CYCLE).floor() / RAND_PER_CYCLE
+    } else {
+        t
+    }
 }
 
-/// 0..1 from a hash.
-fn unit(h: u32) -> f64 {
-    f64::from(h) / (f64::from(u32::MAX) + 1.0)
+/// Strudel's `rand` at `t` cycles, 0 to 1 (ADR-0041): 300 cycles stretched
+/// over 2^29, then an xorshift, in JavaScript's 32-bit integers, so it
+/// gives Strudel's values to the bit.
+fn strudel_rand(t: f64) -> f64 {
+    const SPAN: f64 = 536_870_912.0;
+    let x = t / 300.0;
+    let seed = ((x - x.trunc()) * SPAN).trunc() as i32;
+    let a = seed.wrapping_shl(13) ^ seed;
+    let b = (a >> 17) ^ a;
+    let c = b.wrapping_shl(5) ^ b;
+    (f64::from(c % SPAN as i32) / SPAN).abs()
 }
 
 /// A word of an expression; shared with the modular voice's parser.
@@ -940,10 +1043,7 @@ impl<'a> Parser<'a, '_> {
             };
             self.at += 1;
             if !METHODS.contains(&name) {
-                return Err((
-                    col,
-                    "no such method: range exprange slow fast segment lag onNote",
-                ));
+                return Err((col, NO_METHOD));
             }
             if name == "onNote" {
                 // Written bare, as a property; `()` is let pass.
@@ -984,18 +1084,25 @@ impl<'a> Parser<'a, '_> {
                 }
                 "slow" => Node::Slow(a, one()?),
                 "fast" => Node::Fast(a, one()?),
-                "segment" => Node::Segment(a, one()?),
+                "segment" | "seg" => Node::Segment(a, one()?, name == "seg"),
+                "add" | "sub" | "mul" | "div" => {
+                    let [n] = args.as_slice() else {
+                        return Err((col, "this takes one number"));
+                    };
+                    let op = match name {
+                        "add" => Op::Add,
+                        "sub" => Op::Sub,
+                        "mul" => Op::Mul,
+                        _ => Op::Div,
+                    };
+                    Node::Arith(op, a, *n)
+                }
                 "lag" => Node::Lag {
                     of: a,
                     secs: one()?,
                     slot: self.base + self.nodes.len(),
                 },
-                _ => {
-                    return Err((
-                        col,
-                        "no such method: range exprange slow fast segment lag onNote",
-                    ));
-                }
+                _ => return Err((col, NO_METHOD)),
             };
             a = self.push(node)?;
         }
@@ -1651,6 +1758,63 @@ mod tests {
         assert!((val(&p, 2.0) - val(&p, 1.999)).abs() < 1e-3);
     }
 
+    /// ADR-0041: the random sources give Strudel 1.2's own values, read
+    /// from `@strudel/core` at these times.
+    #[test]
+    fn randomness_is_strudels() {
+        let (r, p) = (sig("rand"), sig("perlin"));
+        for (t, want) in [
+            (0.0, 0.0),
+            (0.0625, 0.842_607_785_016_298_3),
+            (1.5, 0.608_408_074_826_002_1),
+            (46.3125, 0.055_081_281_810_998_92),
+            (299.9, 0.844_127_181_917_429),
+            (1337.25, 0.122_188_428_416_848_18),
+        ] {
+            assert!((r.sample(t) - want).abs() < 1e-12, "rand at {t}");
+        }
+        for (t, want) in [
+            (0.5, 0.259_771_082_550_287_25),
+            (2.25, 0.882_693_888_557_696_5),
+            (46.75, 0.449_047_959_518_793_5),
+        ] {
+            assert!((p.sample(t) - want).abs() < 1e-12, "perlin at {t}");
+        }
+        // Read at the moment, not held a sixteenth: thirds of cycle 5.
+        let s = sig("irand(10).segment(3)");
+        let thirds: Vec<f64> = (0..3).map(|k| s.sample(5.0 + f64::from(k) / 3.0)).collect();
+        assert_eq!(thirds, [0.0, 6.0, 2.0]);
+    }
+
+    /// #620: Strudel's spellings, `.seg` and arithmetic as methods, print as
+    /// written; the steps a cycle come from the outermost segment.
+    #[test]
+    fn strudel_spellings_print_as_written() {
+        for text in [
+            "irand(10).sub(7).seg(16)",
+            "saw.mul(8).add(1).segment(4)",
+            "rand.div(2)",
+        ] {
+            assert_eq!(sig(text).to_string(), text);
+        }
+        assert_eq!(val(&sig("saw.mul(8).sub(1)"), 0.5), 3.0);
+        let steps = |t: &str| sig(t).steps_per_cycle();
+        assert_eq!(steps("irand(10).sub(7).seg(16)"), Some(16.0));
+        assert_eq!(steps("irand(10).seg(8).slow(2)"), Some(4.0));
+        assert_eq!(steps("7 - perlin.seg(4).fast(2)"), Some(8.0));
+        assert_eq!(steps("perlin.range(0, 7)"), None);
+        assert!(sig("saw.seg(4)").of_the_bar());
+        for text in [
+            "env(perc)",
+            "lfo(2)",
+            "saw.lag(0.1)",
+            "[1, 2]",
+            "rand.onNote",
+        ] {
+            assert!(!sig(text).of_the_bar(), "{text}");
+        }
+    }
+
     #[test]
     fn lag_follows_its_input_and_keeps_its_state() {
         let mut nodes = 0;
@@ -1729,7 +1893,7 @@ mod tests {
             (
                 "sine.wobble(1)",
                 6,
-                "no such method: range exprange slow fast segment lag onNote",
+                "no such method: range exprange slow fast segment seg lag onNote add sub mul div",
             ),
             ("sine.range(1)", 6, "this takes two numbers: low, high"),
             (

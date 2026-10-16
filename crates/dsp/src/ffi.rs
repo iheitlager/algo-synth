@@ -1857,7 +1857,8 @@ pub extern "C" fn event_accent(f: u32, k: u32) -> u32 {
     with_event(f, k, |ev| u32::from(ev.accent))
 }
 
-/// 1 when clip `f` is a generator call (euclid, arp, walk, markov, mutate):
+/// 1 when clip `f` is a generator call (euclid, arp, walk, markov, mutate)
+/// or a signal (#620):
 /// its notes cannot be edited until it is frozen.
 #[unsafe(no_mangle)]
 pub extern "C" fn clip_generated(f: u32) -> u32 {
@@ -1869,7 +1870,9 @@ pub extern "C" fn clip_generated(f: u32) -> u32 {
             .map_or(0, |n| {
                 u32::from(matches!(
                     n.seq,
-                    crate::notes::Seq::Generated(_) | crate::notes::Seq::Euclid(..)
+                    crate::notes::Seq::Generated(_)
+                        | crate::notes::Seq::Euclid(..)
+                        | crate::notes::Seq::Signal(_)
                 ))
             })
     })

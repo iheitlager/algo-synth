@@ -540,3 +540,50 @@ The song SHALL launch a scene live (#487, epic #491), as Ableton's Session view 
 - THEN from step 32 the arrangement's third bar plays, as if it had played all along
 
 **Tests:** `crates/dsp/src/launch.rs::tests::a_launched_scene_loops_from_its_bar`, `crates/dsp/src/launch.rs::tests::quantize_lands_on_its_line`, `crates/dsp/src/engine/tests.rs::a_launched_scene_lands_on_the_next_bar_and_loops`, `crates/dsp/src/engine/tests.rs::a_launch_at_the_end_waits_for_the_scene`, `crates/dsp/src/engine/tests.rs::a_launch_on_the_phrase_waits_eight_bars`, `crates/dsp/src/engine/tests.rs::a_launch_now_keeps_the_phase`, `crates/dsp/src/engine/tests.rs::back_to_the_arrangement_goes_on_where_the_clock_is`, `crates/dsp/src/engine/tests.rs::a_launched_scene_is_found_again_by_name`, `crates/dsp/src/engine/tests.rs::launches_render_the_same_every_time`, `crates/dsp/src/engine/tests.rs::a_snapshot_switched_from_a_button_lands_on_the_bar`, `crates/dsp/src/engine/tests.rs::a_scenes_own_snapshot_still_lands_and_the_button_wins`, `crates/dsp/src/engine/tests.rs::a_modulation_writes_over_a_switched_snapshot`
+
+### Requirement 20: A signal writes notes [SHOULD]
+
+A note line SHALL be a signal when it starts with a signal's source (#620): read when the song loads at each step of its outermost `.segment(n)` (or `.seg(n)`), 16 a bar without one, each value rounded up to a whole degree from −24 to 24, as Strudel's `n(…).scale(…)`. It SHALL be read over one bar, `bars <n>`, or the clip's `rib(offset, cycles)`, and its degrees SHALL become notes through the clip's `.scale` or `.chord(<clip>)` (#592) or the song's scale, the other methods applying after. `env`, `lfo`, lists, `.lag` and `.onNote` SHALL be refused with a line and column. The random sources SHALL be Strudel's to the bit (ADR-0041), so a line from Strudel plays the same notes. `rib(offset, cycles)` SHALL loop bars `offset` to `offset + cycles` of any line. The text SHALL print back as written (`.seg`, `.sub(7)`, `ribbon`).
+
+**Implementation:** `crates/dsp/src/notes.rs::SigLine`, `crates/dsp/src/song/signal.rs::Signal::sample`, `crates/dsp/src/song/signal.rs::Signal::steps_per_cycle`, `crates/dsp/src/notes/pattern.rs::Rib`
+
+#### Scenario: a riff from Strudel
+
+- GIVEN `clip b = bass .scale(c3 minor) .rib(46, 1)` over `irand(10).sub(7).seg(16)`
+- WHEN the song loads
+- THEN it plays Strudel's sixteen notes, E♭2 E♭3 C2 F2 C2 C2 F2 G2 E♭2 C3 G2 C2 A♭2 E♭3 D3 C2
+
+#### Scenario: a saw up the scale
+
+- GIVEN `scale a minor` and a clip of `saw.range(0,7).segment(8)`
+- WHEN the song loads
+- THEN it plays degrees 0 to 7 across the bar
+
+#### Scenario: a ribbon of a line
+
+- GIVEN a clip `.ribbon(4, 2)` of `"<c4 d4 e4>"`
+- WHEN the song loads
+- THEN it plays d4 then e4, two bars looped
+
+**Tests:** `crates/dsp/src/song/tests.rs::a_signal_from_strudel_plays_its_notes`, `crates/dsp/src/song/tests.rs::a_signal_line_reads_degrees_over_its_bars`, `crates/dsp/src/song/tests.rs::a_signal_line_follows_a_chord`, `crates/dsp/src/song/tests.rs::rib_loops_a_piece_of_the_line`, `crates/dsp/src/song/tests.rs::signal_lines_say_what_is_wrong_and_where`, `crates/dsp/src/engine/tests.rs::a_signal_line_stays_as_typed`, `crates/dsp/src/song/signal.rs::tests::randomness_is_strudels`, `crates/dsp/src/song/signal.rs::tests::strudel_spellings_print_as_written`
+
+### Requirement 21: A part and a pad per hit [SHOULD]
+
+`.slice(n, <signal>)` SHALL play, for each hit of a sampler clip of notes, part k of n with k the signal's value as the hit is pressed, rounded down and wrapped round n (#730). `.n(<signal>)` SHALL play, on a Pad Sampler track, the pad given by the signal's value for each hit of a clip of notes or a drum clip, read at each hit's own time. Both SHALL read Strudel's values at the hit's moment in the song (ADR-0041), so they change each time round and are the same on every render; `render` SHALL NOT allocate. A signal of a voice or the clock (`env`, `lfo`, a list, `lag`, `onNote`) SHALL be refused with a line and column, and so SHALL `n` on another model and a signal slice on a drum clip.
+
+**Implementation:** `crates/dsp/src/engine.rs::Engine::pick`, `crates/dsp/src/engine.rs::Engine::lane_note`, `crates/dsp/src/song.rs::Clip`
+
+#### Scenario: a random cut per hit
+
+- GIVEN a sample of four tones on pad 0 and `clip cut = brk .slice(4, irand(4))` over `"c2 c2"`
+- WHEN the song plays two bars
+- THEN each hit plays the part `irand(4)` gives at its moment
+
+#### Scenario: a random pad per hit
+
+- GIVEN two tones on pads 0 and 1 and a drum clip `.n(irand(2))` hitting `p0` each quarter
+- WHEN the song plays
+- THEN each hit plays the pad `irand(2)` gives at its moment, both pads sounding
+
+**Tests:** `crates/dsp/src/engine/tests.rs::a_slice_by_a_signal_picks_a_part_per_hit`, `crates/dsp/src/engine/tests.rs::n_by_a_signal_picks_a_pad_per_hit`, `crates/dsp/src/song/tests.rs::slice_and_n_take_a_signal_per_hit`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
+
