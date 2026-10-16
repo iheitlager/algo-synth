@@ -40,11 +40,11 @@ pub const CALLS: [(&str, &str); 8] = [
 pub const METHODS: [(&str, &str); 25] = [
     (
         "fast",
-        "fast takes a whole number from 1 to 16, or one a bar: fast(2) or fast(\"<1 2>\")",
+        "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
     ),
     (
         "slow",
-        "slow takes a whole number from 1 to 16, or one a bar: slow(2) or slow(\"<1 2>\")",
+        "slow takes a ratio, each side 1 to 16, or one a bar: slow(2), slow(1.5) or slow(\"<1 2>\")",
     ),
     ("rev", "rev takes no value: rev()"),
     ("palindrome", "palindrome takes no value: palindrome()"),

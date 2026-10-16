@@ -605,7 +605,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 
 | method | does |
 |---|---|
-| `.fast(n)` `.slow(n)` | n (1–16) times faster or slower |
+| `.fast(n)` `.slow(n)` | n times faster or slower: a whole number or a ratio, each side 1–16 (`3/4`, `1.5`, #702); the line repeats until it fills whole bars, so `.fast(3/4)` of a bar plays three times in four |
 | `.rev()` | each bar backwards |
 | `.palindrome()` | every other bar backwards |
 | `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48) |

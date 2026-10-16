@@ -2801,7 +2801,7 @@ fn pattern_method_errors_say_where() {
             "track l synth\nclip r = l .fast(0)\n  \"c4\"",
             2,
             13,
-            "this takes a whole number from 1 to 16",
+            "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
         ),
         (
             "track l synth\nclip r = l .every(4, cutoff)\n  \"c4\"",

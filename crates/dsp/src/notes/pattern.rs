@@ -51,8 +51,8 @@ pub struct Part {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
-    Fast(u32),
-    Slow(u32),
+    Fast(Ratio),
+    Slow(Ratio),
     Rev,
     Palindrome,
     /// Semitones, `sub(n)` kept apart so it prints as written.
@@ -96,6 +96,62 @@ pub enum Pattern {
     /// Milliseconds between a chord's notes, upward; downward when below 0
     /// (#604).
     Strum(i16),
+}
+
+/// A factor of `fast` or `slow`, `num/den` in lowest terms, each 1 to 16
+/// (#702): `2`, `3/4`, `1.5`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ratio {
+    pub num: u32,
+    pub den: u32,
+}
+
+impl Ratio {
+    pub const fn whole(n: u32) -> Ratio {
+        Ratio { num: n, den: 1 }
+    }
+
+    /// `3/4`, `1.5` or `2`; a decimal is the fraction with the smallest
+    /// denominator that it is to within a millionth.
+    fn parse(s: &str) -> Result<Ratio, &'static str> {
+        let bad = "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5";
+        let s = s.trim();
+        let (num, den) = match s.split_once('/') {
+            Some((a, b)) => (
+                a.trim().parse::<u32>().map_err(|_| bad)?,
+                b.trim().parse::<u32>().map_err(|_| bad)?,
+            ),
+            None => {
+                let x = s.parse::<f64>().map_err(|_| bad)?;
+                (1..=MAX_FACTOR)
+                    .find_map(|d| {
+                        let n = x * f64::from(d);
+                        ((n - n.round()).abs() < 1e-6 && n.round() >= 1.0 && n.round() <= 256.0)
+                            .then(|| (n.round() as u32, d))
+                    })
+                    .ok_or(bad)?
+            }
+        };
+        let g = gcd(num, den);
+        let r = Ratio {
+            num: num / g.max(1),
+            den: den / g.max(1),
+        };
+        let fits = |n: u32| (1..=MAX_FACTOR).contains(&n);
+        if fits(r.num) && fits(r.den) {
+            Ok(r)
+        } else {
+            Err(bad)
+        }
+    }
+
+    fn print(self) -> String {
+        if self.den == 1 {
+            self.num.to_string()
+        } else {
+            format!("{}/{}", self.num, self.den)
+        }
+    }
 }
 
 /// How often `sometimes` and its kin apply their method (#700), with
@@ -523,8 +579,8 @@ impl Pattern {
             }
         }
         match name {
-            "fast" => Ok(Pattern::Fast(whole(one()?)?)),
-            "slow" => Ok(Pattern::Slow(whole(one()?)?)),
+            "fast" => Ok(Pattern::Fast(Ratio::parse(one()?)?)),
+            "slow" => Ok(Pattern::Slow(Ratio::parse(one()?)?)),
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
@@ -714,8 +770,8 @@ impl Pattern {
             other => other.print(),
         };
         match self {
-            Pattern::Fast(n) => format!("fast({n})"),
-            Pattern::Slow(n) => format!("slow({n})"),
+            Pattern::Fast(r) => format!("fast({})", r.print()),
+            Pattern::Slow(r) => format!("slow({})", r.print()),
             Pattern::Rev => "rev()".to_string(),
             Pattern::Palindrome => "palindrome()".to_string(),
             Pattern::Add(n) => format!("add({n})"),
@@ -757,19 +813,8 @@ impl Pattern {
     /// The line this method makes of `line`.
     pub fn apply(&self, line: &Line) -> Result<Line, &'static str> {
         let out = match self {
-            Pattern::Fast(n) => fast(line, *n),
-            Pattern::Slow(n) => Line {
-                events: line
-                    .events
-                    .iter()
-                    .map(|e| Event {
-                        start: e.start * n,
-                        len: e.len * n,
-                        ..*e
-                    })
-                    .collect(),
-                bars: line.bars * n,
-            },
+            Pattern::Fast(r) => speed(line, r.num, r.den)?,
+            Pattern::Slow(r) => speed(line, r.den, r.num)?,
             Pattern::Rev => rev(line),
             Pattern::Palindrome => alternate(line, 2, 1, &Pattern::Rev)?,
             Pattern::Add(n) => transpose(line, *n),
@@ -990,20 +1035,25 @@ fn div_round(x: u32, n: u32) -> u32 {
     (x + n / 2) / n.max(1)
 }
 
-/// The line squeezed n times, repeated until it fills whole bars.
-fn fast(line: &Line, n: u32) -> Line {
-    let bars = line.bars / gcd(line.bars, n);
-    let copies = bars * n / line.bars.max(1);
+/// The line `num/den` times as fast, repeated until it fills whole bars
+/// (#702): `fast(3/4)` of a bar is 4/3 of a bar, three times round in four.
+fn speed(line: &Line, num: u32, den: u32) -> Result<Line, &'static str> {
+    let span = line.bars.max(1) * den;
+    let copies = num / gcd(span, num);
+    let bars = u64::from(copies) * u64::from(span) / u64::from(num.max(1));
+    let bars = u32::try_from(bars).unwrap_or(u32::MAX);
+    check(bars, line.events.len() * copies as usize)?;
     let len = line.len();
+    let at = |x: u32| div_round(x * den, num);
     let mut events = Vec::new();
     for k in 0..copies {
         events.extend(line.events.iter().map(|e| Event {
-            start: div_round(e.start + k * len, n),
-            len: div_round(e.len, n).max(1),
+            start: at(e.start + k * len),
+            len: at(e.len).max(1),
             ..*e
         }));
     }
-    Line { events, bars }
+    Ok(Line { events, bars })
 }
 
 /// Each bar backwards: a note that ended `x` ticks before the bar's end
@@ -1676,7 +1726,7 @@ mod tests {
             (
                 "fast",
                 "\"<1 0>\"",
-                "this takes a whole number from 1 to 16",
+                "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
             ),
         ] {
             assert_eq!(Pattern::parse(name, text), Err(msg), "{name}({text})");
@@ -1916,6 +1966,50 @@ mod tests {
         let up = s.events.iter().filter(|e| e.note >= 72).count();
         assert!(up > 8 && up < 24, "{up} of 32");
         assert_eq!(s, run("sometimes(add(12))", &line), "seeded");
+    }
+
+    /// #702: a ratio squeezes or stretches, the line round in whole bars.
+    #[test]
+    fn fast_and_slow_take_a_ratio() {
+        let f = run("fast(3/4)", &four());
+        assert_eq!(f.bars, 4);
+        let notes: Vec<(u32, u8)> = starts(&f);
+        assert_eq!(notes.len(), 12);
+        assert_eq!(
+            &notes[..5],
+            &[(0, 60), (16, 62), (32, 64), (48, 66), (64, 60)]
+        );
+        assert!(f.events.iter().all(|e| e.len == 16));
+        assert_eq!(run("fast(1.5)", &four()), run("fast(3/2)", &four()));
+        assert_eq!(run("fast(0.5)", &four()), run("slow(2)", &four()));
+        assert_eq!(run("slow(1/2)", &four()), run("fast(2)", &four()));
+        assert_eq!(run("slow(4/3)", &four()), run("fast(3/4)", &four()));
+        // Whole factors as before.
+        assert_eq!(run("fast(6/3)", &four()), run("fast(2)", &four()));
+        for (args, printed) in [
+            ("3/4", "fast(3/4)"),
+            ("0.75", "fast(3/4)"),
+            ("4/2", "fast(2)"),
+        ] {
+            assert_eq!(Pattern::parse("fast", args).unwrap().print(), printed);
+        }
+        for bad in ["0", "17", "1/17", "17/16", "0.123", "x", "3/", "-1"] {
+            assert!(Pattern::parse("fast", bad).is_err(), "fast({bad})");
+        }
+        // Too long to come round.
+        let long = Line {
+            events: vec![ev(0, 1, 60)],
+            bars: 16,
+        };
+        assert!(
+            Pattern::parse("fast", "15/16")
+                .unwrap()
+                .apply(&long)
+                .is_err()
+        );
+        // A ratio a bar.
+        let p = run("fast(\"<1 3/2>\")", &four());
+        assert!(p.bars >= 2);
     }
 
     /// #700: Strudel's chances, seeded, a chord going one way.
@@ -2227,10 +2321,14 @@ mod tests {
     #[test]
     fn bad_methods_say_why() {
         for (name, args, msg) in [
-            ("fast", "0", "this takes a whole number from 1 to 16"),
+            (
+                "fast",
+                "0",
+                "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
+            ),
             ("shuffle", "0", "this takes a whole number from 1 to 16"),
             ("scramble", "17", "this takes a whole number from 1 to 16"),
-            ("fast", "1.5", "this takes a whole number from 1 to 16"),
+            ("ply", "1.5", "this takes a whole number from 1 to 16"),
             ("fast", "", "this takes one value"),
             ("rev", "2", "this takes no value: ()"),
             (
@@ -2319,7 +2417,7 @@ mod tests {
             bars: 16,
         };
         assert_eq!(
-            Pattern::Slow(8).apply(&long),
+            Pattern::Slow(Ratio::whole(8)).apply(&long),
             Err("the pattern runs past 64 bars")
         );
         let many = run("ply(8)", &run("ply(16)", &four()));
