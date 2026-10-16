@@ -3659,8 +3659,9 @@ pub(crate) fn fits(kind: Kind, model: Option<Model>) -> bool {
         return true;
     };
     match kind {
-        // The NES plays drums from its keys with `NesKit` (#112).
-        Kind::Drums => m.uses_drums() || m.uses_pads() || m.uses_nes(),
+        // The NES and the VL-1 play drums from their keys with `NesKit`
+        // and `VlKit` (#112, #723).
+        Kind::Drums => m.uses_drums() || m.uses_pads() || m.uses_nes() || m.uses_vl(),
         Kind::Sampler => m.uses_sampler() || m.uses_pads(),
         Kind::Synth => !m.uses_drums() && !m.uses_pads() && !m.uses_sampler(),
     }

@@ -35,6 +35,7 @@ mod sid;
 mod tb303;
 mod tr808;
 mod tr909;
+mod vltone;
 
 /// The voice a model plays with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +58,8 @@ pub enum Engine {
     Sid,
     /// The NES's 2A03, one per note (#112).
     Nes,
+    /// The Casio VL-1's tone generator (#723).
+    Vl,
 }
 
 /// What a model is: plain data, read by the voice; nothing is boxed or
@@ -229,6 +232,7 @@ impl Model {
             Model::Sid => &sid::DEF,
             Model::Nes => &nes::DEF,
             Model::GeneralMidi => &general_midi::DEF,
+            Model::VlTone => &vltone::DEF,
         }
     }
 }
@@ -265,6 +269,7 @@ mod tests {
                     | Model::Modular
                     | Model::Sid
                     | Model::Nes
+                    | Model::VlTone
             );
             assert_eq!(m.def().engine == Engine::Mono, !mono, "{name}");
         }

@@ -225,7 +225,7 @@ kind = drums | synth | sampler
 
 | kind | its clips hold | models |
 |---|---|---|
-| `drums` | lanes | `Tr808 Tr909 PadSampler Nes` (`Nes NesKit`; its `samples` kit or `pad` lines play through the DMC) |
+| `drums` | lanes | `Tr808 Tr909 PadSampler Nes VlTone` (`Nes NesKit`; its `samples` kit or `pad` lines play through the DMC; `VlTone VlKit`, the VL-1's Po, Pi and Sha) |
 | `synth` | one line of notes | any but drum machines and samplers |
 | `sampler` | lanes (`PadSampler`) or notes (`Sampler`) | `Sampler PadSampler` |
 

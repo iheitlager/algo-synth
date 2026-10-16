@@ -130,11 +130,17 @@ pub enum Preset {
     GmStrings = 114,
     GmTrumpet = 115,
     GmFlute = 116,
+    VlPiano = 117,
+    VlFantasy = 118,
+    VlViolin = 119,
+    VlFlute = 120,
+    VlGuitar = 121,
+    VlKit = 122,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 117] = [
+    pub const ALL: [(Preset, &'static str); 123] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -252,6 +258,12 @@ impl Preset {
         (Preset::GmStrings, "GmStrings"),
         (Preset::GmTrumpet, "GmTrumpet"),
         (Preset::GmFlute, "GmFlute"),
+        (Preset::VlPiano, "VlPiano"),
+        (Preset::VlFantasy, "VlFantasy"),
+        (Preset::VlViolin, "VlViolin"),
+        (Preset::VlFlute, "VlFlute"),
+        (Preset::VlGuitar, "VlGuitar"),
+        (Preset::VlKit, "VlKit"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -289,7 +301,7 @@ impl Preset {
 
 /// Every Mono parameter's starting value: VCO 1 alone, a saw, through a
 /// 4 kHz ladder, with a short attack.
-pub const DEFAULTS: [(Param, f32); 545] = [
+pub const DEFAULTS: [(Param, f32); 555] = [
     (Param::Vco1Wave, 0.0),
     (Param::Vco1Coarse, 0.0),
     (Param::Vco1Fine, 0.0),
@@ -730,6 +742,16 @@ pub const DEFAULTS: [(Param, f32); 545] = [
     (Param::NesVibratoRate, 5.0),
     (Param::NesVibratoDelay, 0.0),
     (Param::NesKit, 0.0),
+    (Param::VlWave, 0.0),
+    (Param::VlAttack, 0.0),
+    (Param::VlDecay, 7.0),
+    (Param::VlSustain, 0.0),
+    (Param::VlSustainTime, 0.0),
+    (Param::VlRelease, 3.0),
+    (Param::VlVibrato, 0.0),
+    (Param::VlTremolo, 0.0),
+    (Param::VlOctave, 0.0),
+    (Param::VlKit, 0.0),
     (Param::Character, 0.0),
     (Param::SnTune, 0.0),
     (Param::SnDecay, 1.0),
@@ -1082,7 +1104,7 @@ mod tests {
 
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(117), None);
+        assert_eq!(Preset::from_id(123), None);
     }
 
     /// A four-note chord at the default master gain stays bounded: the voices

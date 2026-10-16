@@ -1,7 +1,7 @@
 //! `render` never allocates (ADR-0002, #233), checked by counting every
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
 //! walk, strip and synth automation, snapshots that solo, mute and send,
-//! modulations, Modular settings with their code, a new song taking over on a bar line,
+//! modulations, the chips (a VL-1 and its kit among them), Modular settings with their code, a new song taking over on a bar line,
 //! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, and a
 //! cued start and a sync to a bar (ADR-0029).
 //!
@@ -52,6 +52,8 @@ track sid synth Sid SidArp
 track chipper synth chip
 track famicom synth Nes NesArp
 track nkit drums Nes NesKit
+track vl synth VlTone VlFantasy
+track vkit drums VlTone VlKit
 
 clip beat = kit /16
   bd x..x..x...x..x..
@@ -79,6 +81,12 @@ clip nbeat = nkit /16
   sn ....x.......x...
   ch xxxxxxxxxxxxxxxx
   lt ..x...x.
+clip calc = vl .vlvibrato(sine.range(0, 9))
+  \"e4 [g#4 b4] ~ <e5 d5>\"
+clip vbeat = vkit /16
+  bd x.x...x.x.x...x.
+  rs ..x...x...x...x.
+  sn ....x.......x...
 
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
@@ -92,8 +100,8 @@ mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam zap ring arps chirp tune nbeat fade pan sweep [open]
-scene b 1: beat sand roam zap arps chirp tune nbeat [solo]
+scene a 2: beat hold sand roam zap ring arps chirp tune nbeat calc vbeat fade pan sweep [open]
+scene b 1: beat sand roam zap arps chirp tune nbeat calc vbeat [solo]
 arrange a b a b
 ";
 

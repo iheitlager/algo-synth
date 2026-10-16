@@ -90,6 +90,11 @@ pub fn knob_params(model: Model) -> Option<[Param; KNOBS]> {
             NesDmcRate,
             NesVibrato,
         ])
+    } else if model.uses_vl() {
+        // The code's digits, and the octave switch.
+        Some([
+            VlWave, VlAttack, VlDecay, VlSustain, VlRelease, VlVibrato, VlTremolo, VlOctave,
+        ])
     } else if model.uses_fm() {
         Some([
             Feedback,
