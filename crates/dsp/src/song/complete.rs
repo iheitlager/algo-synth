@@ -8,7 +8,7 @@
 //! Offsets count UTF-16 units, as the view indexes its strings.
 
 use super::lex::{Class, Under};
-use super::{ALIASES, GROUPS, Kind, STRIPS, current_keyword, fits, signal};
+use super::{ALIASES, GROUPS, Kind, STRIPS, current_keyword, fits, model_named, signal};
 use crate::algo::{Euclid, Mode, Scale};
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
@@ -321,21 +321,22 @@ impl List<'_> {
         self.table(Class::Pad, &PADS);
     }
 
-    fn methods(&mut self, pattern: bool) {
+    /// `model` the track's, where the song names it (#679).
+    fn methods(&mut self, pattern: bool, model: Option<Model>) {
         if pattern {
             self.table(Class::Call, &METHODS);
         }
-        self.params(Set::Track, true);
+        self.params(Set::Track(model), true);
     }
 
     /// A drum clip made from a clip (#653): the methods of time.
-    fn time_methods(&mut self) {
+    fn time_methods(&mut self, model: Option<Model>) {
         for (w, d) in METHODS {
             if !matches!(w, "add" | "sub" | "scale" | "oct" | "chord" | "strum") {
                 self.add(Class::Call, w, || d.to_string());
             }
         }
-        self.params(Set::Track, true);
+        self.params(Set::Track(model), true);
     }
 
     fn kinds(&mut self) {
@@ -464,8 +465,9 @@ impl List<'_> {
         }
     }
 
-    /// The parameters of `target`: a track, `stripN`, `groupN` or `master`.
-    fn target_params(&mut self, target: &str, lower: bool) {
+    /// The parameters of `target`: a track, `stripN`, `groupN` or `master`;
+    /// `model` a track's, where the song names it (#679).
+    fn target_params(&mut self, target: &str, model: Option<Model>, lower: bool) {
         let numbered = |prefix: &str| {
             target
                 .strip_prefix(prefix)
@@ -476,23 +478,24 @@ impl List<'_> {
         } else if numbered("group") {
             Set::Strip
         } else {
-            Set::Track
+            Set::Track(model)
         };
         self.params(set, lower);
     }
 }
 
-/// Which parameters a place takes, as `param_for` and the setting line check.
+/// Which parameters a place takes, as `param_for` and the setting line check;
+/// with a model, only what it reads (#673, #679).
 #[derive(Clone, Copy)]
 enum Set {
     /// A track or `stripN`: its synth's and its strip's.
-    Track,
+    Track(Option<Model>),
     /// A group's strip, or a mixer line's.
     Strip,
     /// `master`'s.
     Global,
     /// A setting's: the synth's own.
-    Synth,
+    Synth(Option<Model>),
 }
 
 impl Set {
@@ -500,11 +503,12 @@ impl Set {
         if matches!(p, Param::Model | Param::Out) {
             return false;
         }
+        let read = |m: Option<Model>| m.is_none_or(|m| m.reads(p));
         match self {
-            Set::Track => !p.is_global(),
+            Set::Track(m) => !p.is_global() && read(m),
             Set::Strip => p.is_strip(),
             Set::Global => p.is_global(),
-            Set::Synth => !p.is_global() && !p.is_strip(),
+            Set::Synth(m) => !p.is_global() && !p.is_strip() && read(m),
         }
     }
 }
@@ -612,7 +616,7 @@ fn param_help(name: &str) -> Option<String> {
         .find(|(a, _)| *a == name)
         .map(|(_, p)| *p)
         .or_else(|| Param::by_name(name))
-        .filter(|p| Set::Track.has(*p))?;
+        .filter(|p| Set::Track(None).has(*p))?;
     let (lo, hi) = p.range();
     Some(format!(
         "{name} takes a number or a signal from {lo} to {hi}: {name}(sine.range({lo}, {hi}))"
@@ -722,9 +726,10 @@ fn is_root(w: &str) -> bool {
 
 /// The names made above the cursor's line.
 struct Names<'a> {
-    /// Name and kind.
-    tracks: Vec<(&'a str, &'a str)>,
-    settings: Vec<&'a str>,
+    /// Name, kind and the model it names, itself or by its setting.
+    tracks: Vec<(&'a str, &'a str, Option<Model>)>,
+    /// Name and model.
+    settings: Vec<(&'a str, Option<Model>)>,
     /// Name and track.
     clips: Vec<(&'a str, &'a str)>,
     autos: Vec<&'a str>,
@@ -770,11 +775,20 @@ impl<'a> Names<'a> {
             match current_keyword(first, at(1), at(2)) {
                 "track" => {
                     if let (Some(t), Some(k)) = (at(1), at(2)) {
-                        n.tracks.push((t, k));
+                        let model = at(3).and_then(|m| {
+                            model_named(m).or_else(|| {
+                                n.settings
+                                    .iter()
+                                    .find(|(s, _)| *s == m)
+                                    .and_then(|(_, m)| *m)
+                            })
+                        });
+                        n.tracks.push((t, k, model));
                     }
                 }
                 "setting" => {
-                    n.settings.extend(name());
+                    n.settings
+                        .extend(name().map(|s| (s, at(3).and_then(model_named))));
                     if at(3) == Some("Modular") {
                         n.under = Under::Code;
                         n.code = end;
@@ -813,12 +827,21 @@ impl<'a> Names<'a> {
         self.tracks
             .iter()
             .rev()
-            .find(|(n, _)| *n == track)
-            .map(|(_, k)| *k)
+            .find(|(n, _, _)| *n == track)
+            .map(|(_, k, _)| *k)
+    }
+
+    /// The model of the track named `track`, where the song names it.
+    fn model(&self, track: &str) -> Option<Model> {
+        self.tracks
+            .iter()
+            .rev()
+            .find(|(n, _, _)| *n == track)
+            .and_then(|(_, _, m)| *m)
     }
 
     fn tracks(&self, list: &mut List) {
-        for (t, k) in &self.tracks {
+        for (t, k, _) in &self.tracks {
             list.add(Class::Name, t, || format!("a {k} track"));
         }
     }
@@ -1009,15 +1032,18 @@ impl<'a> Names<'a> {
             return match kw {
                 "clip" if target.is_empty() && w.len() >= 4 => {
                     let lanes = w.get(3).and_then(|t| self.kind(t)) == Some("drums");
+                    let model = w.get(3).and_then(|t| self.model(t));
                     if lanes && from_clip(w.get(4).filter(|_| w.len() >= 5).copied()) {
-                        list.time_methods();
+                        list.time_methods(model);
                     } else {
-                        list.methods(!lanes);
+                        list.methods(!lanes, model);
                     }
                 }
-                "auto" | "snapshot" if !target.is_empty() => list.target_params(target, false),
+                "auto" | "snapshot" if !target.is_empty() => {
+                    list.target_params(target, self.model(target), false);
+                }
                 "mod" if !target.is_empty() && !pre.contains('=') => {
-                    list.target_params(target, true);
+                    list.target_params(target, self.model(target), true);
                 }
                 "mod" => list.signal(true),
                 _ => {}
@@ -1035,7 +1061,7 @@ impl<'a> Names<'a> {
                     _ => None,
                 };
                 list.models(kind);
-                for s in &self.settings {
+                for (s, _) in &self.settings {
                     list.add(Class::Name, s, || "a setting".to_string());
                 }
             }
@@ -1048,7 +1074,9 @@ impl<'a> Names<'a> {
                     "only soloed tracks play".to_string()
                 });
             }
-            ("setting", _) if listed && pre.contains(':') => list.params(Set::Synth, false),
+            ("setting", _) if listed && pre.contains(':') => {
+                list.params(Set::Synth(w.get(3).and_then(|m| model_named(m))), false);
+            }
             ("setting", Some(3)) => list.models(None),
             ("setting", Some(4)) => list.presets(w.get(3).copied().unwrap_or("")),
             ("clip", Some(3)) => self.tracks(list),
@@ -1310,6 +1338,27 @@ scene main 8: beat riff
         // Never the model or the routing.
         assert!(song("auto a = lead.Mode|").is_empty());
         assert!(song("auto a = lead.Ou|").is_empty());
+    }
+
+    /// #679: where the song names a track's model, only what it reads (#673).
+    #[test]
+    fn a_tracks_parameters_are_what_its_model_reads() {
+        let moog = "track solo synth Minimoog\nclip a = solo .";
+        assert!(at(&format!("{moog}lfos|")).is_empty());
+        assert!(at(&format!("{moog}lfor|")).is_empty());
+        assert_eq!(at(&format!("{moog}vco3coa|")), ["vco3coarse"]);
+        assert!(at(&format!("{moog}sen|")).contains(&"send1".to_string()));
+        assert_eq!(at("track b synth Juno106\nclip a = b .lfor|"), ["lforate"]);
+        assert!(at("track solo synth Minimoog\nmod solo.lfor|").is_empty());
+        assert!(at("track solo synth Minimoog\nauto a = solo.LfoR|").is_empty());
+        assert!(at("track d drums Tr808\nsnapshot s: d.Cutof|").is_empty());
+        assert_eq!(at("track d drums Tr808\nsnapshot s: d.BdTun|"), ["BdTune"]);
+        // By its setting, and on the setting's own line.
+        assert!(song("mod lead.op1lev|").is_empty());
+        assert!(at("setting s = Minimoog MiniLead: LfoR|").is_empty());
+        assert_eq!(at("setting s = Juno106 JunoBrass: LfoR|"), ["LfoRate"]);
+        // A track that names no model gets every one.
+        assert_eq!(at("track t synth\nmod t.op1lev|"), ["op1level"]);
     }
 
     #[test]
