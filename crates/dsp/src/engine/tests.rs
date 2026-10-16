@@ -5984,6 +5984,47 @@ fn the_d50_plays_a_user_attack() {
     assert!(with > 10.0 * without.max(1e-4), "{with} vs {without}");
 }
 
+/// #705: an attack made at 48 kHz, loaded into a 96 kHz engine at its own
+/// rate, keeps its pitch; taken as the engine's rate it would be an octave up.
+#[test]
+fn a_user_attack_made_at_another_rate_keeps_its_pitch() {
+    let heard = |at: Option<f32>| {
+        let mut e = Engine::new(96_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        for (p, v) in [
+            (Param::Model, 12.0),
+            (Param::Cutoff, 20_000.0),
+            (Param::P2Cutoff, 20_000.0),
+            (Param::Pcm1Sample, 9.0),
+        ] {
+            e.set_param(0, p, v);
+        }
+        let burst: Vec<f32> = (0..4_800)
+            .map(|i| 0.5 * (std::f32::consts::TAU * 1_000.0 * i as f32 / 48_000.0).sin())
+            .collect();
+        e.user_buffer(burst.len())
+            .expect("fits")
+            .copy_from_slice(&burst);
+        match at {
+            Some(rate) => e.load_user_attack_at(0, 60, rate),
+            None => e.load_user_attack(0, 60),
+        }
+        .expect("loads");
+        e.note_on(0, 60, 1.0);
+        let mut out = Vec::new();
+        for _ in 0..30 {
+            e.render(BLOCK);
+            out.extend_from_slice(&e.output()[..BLOCK]);
+        }
+        // `amplitude_at` counts at 48 kHz: its 500 Hz is 1 kHz here.
+        (amplitude_at(&out, 500.0), amplitude_at(&out, 1_000.0))
+    };
+    let (one_k, two_k) = heard(Some(48_000.0));
+    assert!(one_k > 4.0 * two_k, "at its rate: {one_k} vs {two_k}");
+    let (one_k, two_k) = heard(None);
+    assert!(two_k > 4.0 * one_k, "at the engine's: {one_k} vs {two_k}");
+}
+
 /// ADR-0033: a recipe from the lab becomes its slot's line in the song, and
 /// the view can read it back.
 #[test]

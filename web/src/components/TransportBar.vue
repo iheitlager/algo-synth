@@ -5,6 +5,7 @@ import {
   SCORES, SONGS, SOUNDS, status, stopSong, view,
 } from '../audio/engine'
 import { canPick, isSongFile, pickOpen } from '../audio/songfile'
+import { bounce, cancelExport, exportWav, FORMATS } from '../audio/bounce'
 import { assistant } from '../audio/assistlink'
 import { details, page } from '../audio/buildinfo'
 import { Param } from '../audio/params'
@@ -59,6 +60,14 @@ async function onNew() {
   if (!window.confirm('Start over? The song, every synth and the mix are discarded.')) return
   await onPower()
   clearAll()
+}
+
+// Export WAV (#705): the picked format starts the bounce; the picker shows its label again.
+function onExport(e: Event) {
+  const select = e.target as HTMLSelectElement
+  const format = FORMATS[Number(select.value)]
+  select.value = ''
+  if (format) void exportWav(format)
 }
 
 // Loading a demo powers audio on, so start the scope.
@@ -161,6 +170,17 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
     <!-- Save writes the song back into its file, lit when it changed; Save as… picks a new one (#465). -->
     <button :disabled="!status.running || !songChanged" :title="saveTitle()" @click="saveSong()">Save<template v-if="songChanged"> ●</template></button>
     <button :disabled="!status.running || !song.text" title="Save the song into a new .song file" @click="saveSong(true)">Save as…</button>
+    <!-- Export WAV (#705): the song bounced offline into a file, faster than it plays; how far, and Cancel, while it runs. -->
+    <span v-if="bounce.busy" class="field" title="The song is bouncing to a WAV file">
+      Export <progress :value="bounce.progress" max="1" /> <button @click="cancelExport">Cancel</button>
+    </span>
+    <select
+      v-else class="picker export" aria-label="Export the song as a WAV file" :disabled="!status.running || !song.text"
+      title="Bounce the song to a WAV file, faster than it plays: its arrangement, then the tail" @change="onExport"
+    >
+      <option value="">Export WAV…</option>
+      <option v-for="(f, i) in FORMATS" :key="f.label" :value="i">{{ f.label }}</option>
+    </select>
     <!-- The transport, the only one (ADR-0022): the song plays, pauses where it is, stops back to the top. -->
     <button :disabled="!status.running" :class="{ on: song.playing }" @click="toggle">{{ song.playing ? '❚❚ Pause' : '▶ Play' }}</button>
     <button :disabled="!status.running" title="Stop and go back to the top" @click="stopSong">■ Stop</button>
@@ -195,6 +215,7 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
 .bar button, .bar .file, .bar .picker { height: 28px; white-space: nowrap; }
 .bar .file { display: inline-flex; align-items: center; }
 .bar .picker { width: 9em; min-width: 0; font: inherit; letter-spacing: normal; border-radius: 4px; padding-top: 0; padding-bottom: 0; border-color: var(--line); box-shadow: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23d9dde3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center, var(--panel-2); }
+.bar .picker.export { width: 11em; }
 .bar > .status { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block; }
 .logo { color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
 .build { position: relative; color: var(--muted); font-size: 12px; white-space: nowrap; }

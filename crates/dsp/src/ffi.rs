@@ -2310,6 +2310,17 @@ pub extern "C" fn attack_load(slot: u32, root: u32) -> i32 {
     })
 }
 
+/// As `attack_load`, for values made at `rate` (#705): the export's engine
+/// may run at another rate than the app's that made them.
+#[unsafe(no_mangle)]
+pub extern "C" fn attack_load_at(slot: u32, root: u32, rate: f32) -> i32 {
+    let root = u8::try_from(root.min(127)).unwrap_or(60);
+    query(-5, |e| {
+        e.load_user_attack_at(slot as usize, root, rate)
+            .map_or_else(|err| err.code(), |()| 0)
+    })
+}
+
 // A live spectrum of one synth's output for its faceplate (#519): the view
 // names the synth, and the worklet reads the bands where it reads the meters.
 
@@ -3142,6 +3153,7 @@ mod tests {
         sweep!(reset, user_buf(_));
         sweep!(reset, table_load(_));
         sweep!(reset, attack_load(_, _));
+        sweep!(reset, attack_load_at(_, _, _));
         sweep!(reset, spectrum_watch(_));
         sweep!(reset, spectrum_compute());
         sweep!(reset, spectrum_ptr());
