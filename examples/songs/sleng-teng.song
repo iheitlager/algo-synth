@@ -1,4 +1,4 @@
-# Sleng Teng / Casio MT-40 "Rock" riddim
+# Sleng Teng / Casio MT-40 "Rock" riddim, then the same riddim on a Boss DR-550
 tempo 84
 swing 50
 scale c minor
@@ -13,10 +13,17 @@ setting mt40 = Modular ModularBasic
       sig = (sig * 1.1).tanh * EnvGen.kr(Env.adsr(0.0011, 0.2, 0.75, 0.06), gate) * 0.8;
       Pan2.ar(sig, 0.0659)
   }).add;
-setting drums = Tr808 Kit808: BdTune 3.307087
-track drums drums drums
+# Casio MT-40 rhythm: a short, high, boxy kick, a thin snare that is nearly
+# all noise, dull fizzy hats; dry, no accent to speak of
+setting mt40_kit = Tr808 Kit808: BdTune 4, BdDecay 0.35, BdTone 0.15, SnTune 3, SnDecay 0.5, SnTone 0.95, SnLevel 0.8, ChTune 2, ChDecay 0.45, ChTone 0.25, ChLevel 0.85, DrumAccent 0.4
+# Boss DR-550 (1989): the PCM machine of digital dancehall; a punchier, deeper
+# kick, a crisp snare with a clap on it, bright tight hats and a hard rim
+setting dr550_kit = Tr909 Kit909: BdTune -1, BdDecay 0.8, BdTone 0.8, BdDrive 0.3, SnTone 0.8, SnDecay 0.8, CpLevel 0.6, ChTone 0.75, ChDecay 0.6, OhDecay 0.5, RsLevel 0.7, DrumAccent 0.7
+track drums drums mt40_kit
+track dr550 drums dr550_kit
 track bass synth mt40
 strip drums: Level 0.95, Send1 0.12
+strip dr550: Level 0.9, Send1 0.12
 strip bass: Level 0.95, Send1 0.08, Send2 0.82734376
 master: MasterGain 0.9, P1Return 0.35, P1A 0.45386028, P1B 0.4195772, P1D 1, P2Return 0.7056296
 
@@ -32,6 +39,20 @@ clip dub_drums = drums /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~")
   bd x.......x.x.....
   sn ........X...x...
 
+# Phase two, the DR-550: the rock kick with a push before the bar, snare and
+# clap on 2 and 4, sixteenth hats and rim shots on the off-beats
+clip digital = dr550 /16
+  bd x.......x.x...x.
+  sn ....x.......x...
+  cp ....x.......x...
+  ch xoxoxoxoxoxoxoXX
+  rs ...x.....x....x.
+
+clip digital_dub = dr550 /16 .send1("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 1 ~ ~ ~")
+  bd x.......x.x...x.
+  sn ........X...x...
+  rs ...x.....x......
+
 # The Sleng Teng bassline: c# into d, d three times, a gap, then g falling to f#
 clip teng = bass
   "c#2 d2 d2 d2 c#2 d2 d2 d2 c#2 d2 d2 d2 g2 ~ f#2 ~"
@@ -44,9 +65,14 @@ clip teng_drop = bass
 auto plop = bass.Ctl1 ramp 350 2400 /4
 snapshot dry: bass.Send1 0.08, drums.Send1 0.12, master.P1Return 0.35
 snapshot dub: bass.Send1 0.45, drums.Send1 0.35, master.P1Return 0.55
+snapshot dry550: bass.Send1 0.08, dr550.Send1 0.12, master.P1Return 0.35
+snapshot dub550: bass.Send1 0.45, dr550.Send1 0.35, master.P1Return 0.55
 
 scene intro 2: teng [dry]
 scene riddim 8: rock teng [dry]
 scene dub 4: dub_drums teng_drop plop [dub]
-scene outro 2: rock teng [dry]
-arrange intro riddim dub riddim dub outro
+# phase two: the same riddim on the DR-550
+scene riddim550 8: digital teng [dry550]
+scene dub550 4: digital_dub teng_drop plop [dub550]
+scene outro 2: digital teng [dry550]
+arrange intro riddim dub riddim riddim550 dub550 riddim550 outro
