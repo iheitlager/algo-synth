@@ -8,7 +8,7 @@
 //! Offsets count UTF-16 units, as the view indexes its strings.
 
 use super::lex::{Class, Under};
-use super::{ALIASES, GROUPS, Kind, STRIPS, current_keyword, fits, model_named, signal};
+use super::{ALIASES, GROUPS, Kind, STRIPS, UNITS, current_keyword, fits, model_named, signal};
 use crate::algo::{Euclid, Mode, Scale};
 use crate::mono::model::Model;
 use crate::mono::preset::Preset;
@@ -453,6 +453,19 @@ impl List<'_> {
                 }
             }
         }
+        // The effects in real units (#660): a method and `mod master.` take
+        // Strudel's names, the master line ours.
+        for u in UNITS {
+            let strudel = u.name.starts_with(|c: char| c.is_ascii_lowercase());
+            let fits = match set {
+                Set::Track(_) => lower && strudel,
+                Set::Global => lower == strudel,
+                _ => false,
+            };
+            if fits {
+                self.add(Class::Param, u.name, || unit_detail(u.param).to_string());
+            }
+        }
         for (p, name) in Param::ALL {
             if set.has(p) && self.wants(name) {
                 let word = if lower {
@@ -609,8 +622,21 @@ fn roots(events: &[Event], bars: u32) -> Option<String> {
     Some(out.join(" "))
 }
 
+/// What a unit's value is in.
+fn unit_detail(p: Param) -> &'static str {
+    match p {
+        Param::P1A => "the echo's time in seconds",
+        Param::P1B => "the echo's feedback, 0–0.95",
+        Param::P2A => "the reverb's tail in seconds",
+        _ => "the low-pass in the reverb's tail in Hz",
+    }
+}
+
 /// A parameter method's help: its range, and a signal over it.
 fn param_help(name: &str) -> Option<String> {
+    if let Some(u) = super::unit(name) {
+        return Some(format!("{name} is {}: {name}(0.25)", unit_detail(u.param)));
+    }
     let p = ALIASES
         .iter()
         .find(|(a, _)| *a == name)
@@ -1290,6 +1316,11 @@ scene main 8: beat riff
         assert_eq!(song("clip c = lead .fa|"), ["fast"]);
         assert_eq!(song("clip c = lead .lp|"), ["lpf", "lpq"]);
         assert_eq!(song("clip c = lead .reso|"), ["resonance"]);
+        // The effects in real units (#660): Strudel's names on a clip, ours
+        // on the master line.
+        assert_eq!(song("clip c = lead .delayt|"), ["delaytime"]);
+        assert_eq!(song("clip c = lead .roomd|"), ["roomdim"]);
+        assert_eq!(song("master: Echo|"), ["EchoTime", "EchoFeedback"]);
         // Lanes take no pattern methods.
         assert!(!song("clip c = kit .|").contains(&"fast".to_string()));
         // A drum clip made from one takes earlier drum clips and the

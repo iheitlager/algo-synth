@@ -30,6 +30,11 @@ pub struct Reverb {
     dc_r: f32,
 }
 
+/// The low-pass in the tail for a damping of 0..=1: 20 kHz down to 1 kHz.
+pub fn damping_hz(damping: f32) -> f32 {
+    20_000.0 * 0.05_f32.powf(damping)
+}
+
 impl Reverb {
     pub fn new(sample_rate: f32) -> Reverb {
         let scale = sample_rate / 48_000.0;
@@ -64,7 +69,7 @@ impl Reverb {
 
     /// 0..=1 darkens the tail: 0 is open, 1 a low-pass at about 1 kHz.
     pub fn set_damping(&mut self, damping: f32) {
-        let hz = 20_000.0 * 0.05_f32.powf(damping);
+        let hz = damping_hz(damping);
         self.damp = 1.0 - (-TAU * hz / self.sample_rate).exp();
     }
 

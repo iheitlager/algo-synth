@@ -11,7 +11,7 @@
 | [0007](0007-blep-table-oscillators.md) | Oscillators band-limit every step (wrap, pulse edge, sync reset) with a windowed-sinc BLEP table, not a 2-point polyBLEP | Accepted |
 | [0008](0008-mono-only-to-the-ensemble.md) | Mono only, straight to the ensemble: Wave, Drums, the arrangement and algo loops removed for now | Accepted, deferrals lifted by 0012 |
 | [0009](0009-synth-models.md) | Synth models: one shared voice with a `Model` per slot (enum dispatch) and one data-driven panel per model; six monosynths, now twenty models | Accepted, superseded in part by 0025 |
-| [0010](0010-mixer-topology.md) | Mixer topology: strips and eight group buses in one index space, `Out` routing that cannot cycle, three insert slots per strip and group with the type as a parameter | Accepted |
+| [0010](0010-mixer-topology.md) | Mixer topology: strips and eight group buses in one index space, `Out` routing that cannot cycle, three insert slots per strip and group with the type as a parameter | Accepted, amended by #660 |
 | [0011](0011-polyphony.md) | Polyphony: a voice pool per synth (the Mono voice per note), allocation and stealing, unison, analog variance, a shared LFO and a global voice budget | Accepted, extended (PolyMoog) |
 | [0012](0012-the-song-is-text.md) | The song is text: a Tidal/Strudel-style notation with classic note names and durations and drum lanes, parsed and printed by the engine; the drum grid and generators edit it; a language model writes it | Accepted, amended by 0015, 0022, 0028 |
 | [0013](0013-sample-store.md) | The sample store: Rust parses and resamples WAV at load, in bounded memory; fixed slots, a hard cap, errors as codes | Accepted |

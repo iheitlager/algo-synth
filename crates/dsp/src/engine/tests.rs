@@ -1204,28 +1204,29 @@ fn first_block(setup: impl FnOnce(&mut Engine)) -> Vec<f32> {
 }
 
 #[test]
-fn the_effects_only_sound_through_a_send_and_a_return() {
+fn the_effects_sound_through_a_send_and_a_return() {
     let dry = first_block(|_| {});
-    // Sends up, returns at 0: nothing changes.
-    let muted = first_block(|e| {
+    // Returns at unity by default (#660): a send alone is heard.
+    let sent = first_block(|e| {
         e.set_param(0, Param::Send1, 1.0);
+        e.set_param(0, Param::P1A, 0.39);
         e.set_param(0, Param::Send2, 1.0);
     });
-    assert!(dry == muted, "a send alone is silent");
-    // A return up, sends at 0: nothing changes either.
+    assert!(dry != sent, "a send alone is heard");
+    // Sends at 0: nothing changes, whatever the returns.
     let no_send = first_block(|e| {
         e.set_param(0, Param::P1Return, 1.0);
         e.set_param(0, Param::P2Return, 1.0);
     });
     assert!(dry == no_send, "a return alone is silent");
-    let wet = first_block(|e| {
+    // Returns down: the sends are silent.
+    let muted = first_block(|e| {
         e.set_param(0, Param::Send1, 1.0);
-        e.set_param(0, Param::P1Return, 1.0);
-        e.set_param(0, Param::P1A, 0.39);
         e.set_param(0, Param::Send2, 1.0);
-        e.set_param(0, Param::P2Return, 1.0);
+        e.set_param(0, Param::P1Return, 0.0);
+        e.set_param(0, Param::P2Return, 0.0);
     });
-    assert!(dry != wet, "both together sound");
+    assert!(dry == muted, "a return at 0 mutes its effect");
 }
 
 #[test]
@@ -3609,6 +3610,24 @@ fn the_mixer_writes_itself_into_the_song() {
     assert_eq!(f.param_value(9, Param::Mute), 1.0);
     assert_eq!(f.param_value(SYNTHS + 1, Param::Out), 3.0);
     assert_eq!(f.param_value(0, Param::P2Return), 0.4);
+}
+
+/// #660: a knob written in real units on the master line is written back
+/// so; one moved by hand prints its new value in those units.
+#[test]
+fn the_mixer_keeps_the_effects_units() {
+    let mut e = Engine::new(48_000.0);
+    let text = "master: EchoTime 0.25, ReverbSize 2\ntrack kit drums\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let size = crate::fx::processor::reverb_size_knob(4.0);
+    e.set_param(0, Param::P2A, size);
+    e.write_mixer();
+    assert!(
+        e.song_text()
+            .contains("master: EchoTime 0.25, ReverbSize 4\n"),
+        "{}",
+        e.song_text()
+    );
 }
 
 /// ADR-0020: every Modular preset sounds, stays bounded, renders the same
@@ -6715,5 +6734,59 @@ fn strums_and_graces_keep_their_typed_text() {
             .contains("clip m = lead .strum(-15)\n  \"[c4,e4,g4] c4^f e4^m ~\"\n"),
         "{}",
         e.song().print()
+    );
+}
+
+/// The left channel of `text` played for `frames` on a kit.
+fn left(text: &str, frames: usize) -> Vec<f32> {
+    let mut e = kit(0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut out = Vec::new();
+    for _ in 0..frames / BLOCK {
+        e.render(BLOCK);
+        out.extend(e.output().iter().step_by(2));
+    }
+    out
+}
+
+/// #660: `.room` alone is heard, as in Strudel: with no `master:` line, a
+/// tail rings on after the dry kick has died.
+#[test]
+fn a_room_alone_rings_on() {
+    let tail = |method: &str| {
+        let text =
+            format!("tempo 120\ntrack kit drums\nclip b = kit{method}\n  bd x...............\n");
+        let out = left(&text, 76_800);
+        // 1 to 1.5 s: the kick at 0 has died, the next is at 2 s.
+        out[48_000..72_000].iter().map(|s| s * s).sum::<f32>()
+    };
+    let (dry, wet) = (tail(""), tail(" .room(0.4)"));
+    assert!(dry < 1e-6, "the kick has died: {dry}");
+    assert!(wet > 1e-3, "the reverb rings on: {wet}");
+}
+
+/// #660: `.delaytime(0.25)` echoes 250 ms after the hit, give or take 1 ms.
+#[test]
+fn delaytime_sets_the_echo_in_seconds() {
+    let song = |method: &str| {
+        format!(
+            "tempo 120\ntrack kit drums\nclip b = kit .delay(1) .delayfeedback(0){method}\n  bd x...............\n"
+        )
+    };
+    let (echoed, dry) = (
+        left(&song(" .delaytime(0.25)"), 120_000),
+        left(&song(""), 120_000),
+    );
+    // The second bar's kick at 2 s, once the echo's time has settled: what
+    // differs from the default echo of 300 ms is the new echo.
+    let first = (96_000..120_000)
+        .find(|&i| (echoed[i] - dry[i]).abs() > 0.01)
+        .expect("an echo");
+    let at = first as f32 - 96_000.0;
+    assert!(
+        (at - 12_000.0).abs() <= 48.0,
+        "the echo at {} ms",
+        at / 48.0
     );
 }

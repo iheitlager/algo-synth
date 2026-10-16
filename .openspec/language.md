@@ -903,6 +903,21 @@ method, printed as written: `lpf` `ctf` (Cutoff), `lpq` (Resonance), `hpf`
 `sus`, `release` `rel` (the ADSR), `gain` (Level), `room` (Send2, the reverb),
 `delay` (Send1, the echo). Values are at our scale: a resonance is 0..1, not a
 Q; a `pan` is −1..1, not 0..1. Strudel's `distort` has no one parameter here.
+The effects return at 1, so `.room(0.4)` alone is heard, as in Strudel (#660).
+
+Strudel's effect names are in its units (#660): `delaytime` (the echo's time
+in seconds, P1A), `delayfeedback` (P1B, 0–0.95), `roomsize` (the reverb's
+tail in seconds, P2A), `roomlp` `roomdim` (the low-pass in the tail in Hz,
+P2B). On a clip they write the master's echo and reverb, shared by the clips
+as Strudel's: the last to write wins. `room`, `roomsize` and the rest need P2
+to be a Reverb, `delay` and its names P1 an Echo; on another effect they are an
+error. A lane or a snapshot takes the knobs (`master.P1A`), not the units.
+
+```song
+track kit drums
+clip a = kit .delay(0.5) .delaytime(0.375) .delayfeedback(0.4) .room(0.3) .roomsize(4)
+  bd x...x...x...x...
+```
 
 A per-voice signal goes on a track whose synth is Mono or Poly (not FM, LA,
 drums, samplers, Modular) and a voice parameter: `cutoff resonance vco1level

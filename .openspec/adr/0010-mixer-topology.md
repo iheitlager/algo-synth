@@ -1,6 +1,6 @@
 # 0010: Mixer topology: strips, group buses and insert slots
 
-**Status:** Accepted · **Date:** 2026-10-03
+**Status:** Accepted, amended by #660 (returns at unity) · **Date:** 2026-10-03
 
 ## Context
 
@@ -26,6 +26,14 @@ Both must stay inside ADR-0002: nothing allocates after `Engine::new`, nothing i
 - **The drive insert moves into the slots.** `DriveMode`, `DriveAmount`, `DriveTone` and `DriveLevel` go; an older setup's drive becomes insert slot 1 of that strip. Setups store names, so only the old names need a migration.
 - **Meters** grow to 16 strips, 8 groups, the master pair and the four returns.
 - **The view** (epic #56's console) shows groups as strips with a bracket over their members, an Out selector and the slot types on each strip. Order, collapsed and hidden strips are layout; they live in the setup file and the engine never sees them.
+
+## Amendment (#660): the returns start at unity
+
+A send alone was silent: `P1Return` and `P2Return` started at 0, so Strudel's `.room(0.4)` did nothing until a `master:` line raised a return, a line a Strudel user never writes.
+
+- **`P1Return` and `P2Return` start at 1.** The level of a send is the level of the wet signal, as Strudel's `room` amount is. The sends still start at 0, so a song that sends nothing sounds as before; one that sets a send and leaves its return at the default is now wet.
+- **The echo's and the reverb's knobs have names in real units,** converted through the inverse of the knob's curve: `EchoTime` (seconds), `EchoFeedback`, `ReverbSize` (seconds), `ReverbCutoff` (Hz) on the `master` line, and Strudel's `delaytime`, `delayfeedback`, `roomsize`, `roomlp`/`roomdim` as clip methods and `mod` targets. No parameter is added: a name stands for P1A, P1B, P2A or P2B and is printed back as written. A clip method writes the master's knob while the clip plays, shared by the clips like Strudel's orbit: the last to write wins.
+- **The names belong to the default slots:** the echo's to P1, the reverb's and `room` to P2, `delay` to P1. On a slot set to another effect type they are a parse error, not a knob of another effect.
 
 ## Consequences
 
