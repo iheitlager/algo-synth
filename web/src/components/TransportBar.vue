@@ -181,14 +181,21 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
       <template v-if="meter.peak !== null">· peak {{ pct(meter.peak) }}</template>
       · {{ meter.voices }} {{ meter.voices === 1 ? 'voice' : 'voices' }}
     </span>
-    <span class="field muted">
+    <span class="field muted status">
       {{ status.error || (status.running ? `${status.sampleRate} Hz · wasm worklet` : 'click Power on to start audio') }}
     </span>
   </header>
 </template>
 
 <style scoped>
-.bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; overflow: hidden; }
+/* The controls keep their size and one height; a bar too narrow for them
+   wraps onto a second row rather than squeezing their labels or hiding them. */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; overflow: hidden; }
+.bar > * { flex-shrink: 0; }
+.bar button, .bar .file, .bar .picker { height: 28px; white-space: nowrap; }
+.bar .file { display: inline-flex; align-items: center; }
+.bar .picker { width: 9em; min-width: 0; font: inherit; letter-spacing: normal; border-radius: 4px; padding-top: 0; padding-bottom: 0; border-color: var(--line); box-shadow: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23d9dde3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center, var(--panel-2); }
+.bar > .status { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block; }
 .logo { color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
 .build { position: relative; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .build summary { cursor: pointer; }
@@ -197,9 +204,12 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
 .build-pop pre { margin: 0; font-family: var(--font-mono); color: inherit; }
 .on { border-color: var(--accent); color: var(--accent); }
 .seg { display: inline-flex; }
-.seg button { border-radius: 0; }
+.seg button { border-radius: 0; position: relative; }
+/* Neighbours overlap by their border, so each line between them is one line. */
+.seg button + button { margin-left: -1px; }
 .seg button:first-child { border-radius: 4px 0 0 4px; }
-.seg button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
+.seg button:last-child { border-radius: 0 4px 4px 0; }
+.seg button:hover, .seg button[aria-pressed='true'] { z-index: 1; }
 .seg button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: var(--panel); }
 .field { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .gain { width: 180px; }
@@ -211,5 +221,5 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
 .meter.over b { color: var(--accent); }
 .midi { padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 12px; }
 .midi.on { border-color: var(--accent); color: var(--accent); }
-.scope { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.scope { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; height: 28px; }
 </style>
