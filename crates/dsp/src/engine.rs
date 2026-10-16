@@ -3143,7 +3143,7 @@ impl Engine {
                 Err(SongError {
                     line: ok.matches('\n').count() + 1,
                     col: ok.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1,
-                    msg: "the text is not UTF-8",
+                    msg: "the text is not UTF-8".into(),
                 })
             }
         };
@@ -3267,7 +3267,7 @@ impl Engine {
                 Ok(())
             }
             Err(e) => {
-                self.song_error = Some(e);
+                self.song_error = Some(e.clone());
                 Err(e)
             }
         }
@@ -3311,8 +3311,8 @@ impl Engine {
     }
 
     /// Why the last load failed, if it did.
-    pub fn song_error(&self) -> Option<SongError> {
-        self.song_error
+    pub fn song_error(&self) -> Option<&SongError> {
+        self.song_error.as_ref()
     }
 
     /// Set one step of the song (level 0 off, 1 hit, 2 accent) and print it

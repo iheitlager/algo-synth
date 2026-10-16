@@ -75,6 +75,8 @@
 //! line and a column, and never panics. Comments are kept (#199); layout is
 //! not: a printed song is the canonical form of what was parsed.
 
+use std::borrow::Cow;
+
 use crate::algo::{Euclid, Mode, Scale, pitch_class};
 use crate::drums::Pad;
 use crate::fx::insert::InsertType;
@@ -705,6 +707,8 @@ pub struct Setting {
     pub preset: Preset,
     pub sets: Vec<(Param, f32)>,
     pub code: Option<String>,
+    /// Its code's knobs by `ctl` (#674): an argument's name, else ''.
+    pub knobs: Vec<String>,
 }
 
 /// A Modular setting whose code lines are still being read: its index, the
@@ -781,11 +785,11 @@ impl Default for Song {
 }
 
 /// Why a text is not a song, and where: line and column count from 1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SongError {
     pub line: usize,
     pub col: usize,
-    pub msg: &'static str,
+    pub msg: Cow<'static, str>,
 }
 
 /// A word of a line and its column.
@@ -875,7 +879,11 @@ impl Song {
         let (mut has_tempo, mut has_swing) = (false, false);
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
-            let err = |col: usize, msg: &'static str| SongError { line, col, msg };
+            let err = |col: usize, msg: &'static str| SongError {
+                line,
+                col,
+                msg: msg.into(),
+            };
             // A Modular setting's code is its indented lines as written,
             // blank lines and all, `#` included (ADR-0024).
             if let Some(c) = open_code.as_mut() {
@@ -997,7 +1005,7 @@ impl Song {
                         return Err(SongError {
                             line: at,
                             col,
-                            msg: "a note clip has no step grid",
+                            msg: "a note clip has no step grid".into(),
                         });
                     }
                     let srcs = |name: &str| {
@@ -1013,9 +1021,11 @@ impl Song {
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
                     if let Some((bars, col, at)) = open_bars.take() {
-                        n = n
-                            .with_bars(bars)
-                            .map_err(|msg| SongError { line: at, col, msg })?;
+                        n = n.with_bars(bars).map_err(|msg| SongError {
+                            line: at,
+                            col,
+                            msg: msg.into(),
+                        })?;
                     }
                     if live && !matches!(n.seq, notes::Seq::Generated(_)) {
                         return Err(err(
@@ -1071,7 +1081,7 @@ impl Song {
                     return Err(SongError {
                         line: at,
                         col,
-                        msg: notes::BARS_MSG,
+                        msg: notes::BARS_MSG.into(),
                     });
                 }
                 let lane = parse_lane(&ws, line)?;
@@ -1365,6 +1375,7 @@ impl Song {
                         preset,
                         sets,
                         code: None,
+                        knobs: Vec::new(),
                     });
                     if model.uses_graph() {
                         open_code = Some(OpenCode {
@@ -1533,7 +1544,11 @@ impl Song {
                             }
                             let target = Target::Track(t);
                             let param =
-                                param_for(target, name).map_err(|m| err(at + ncol - 1, m))?;
+                                param_for(&song, target, name).map_err(|msg| SongError {
+                                    line,
+                                    col: at + ncol - 1,
+                                    msg,
+                                })?;
                             check_reads(
                                 &song.tracks,
                                 &models,
@@ -1560,7 +1575,8 @@ impl Song {
                                 return Err(err(at + ncol - 1, "a song has at most 32 mods"));
                             }
                             song.mods.push(Mod {
-                                alias: alias(name).map(|(a, _)| a),
+                                // Not when a knob has the alias's name (#674).
+                                alias: alias(name).filter(|(_, p)| *p == param).map(|(a, _)| a),
                                 target,
                                 param,
                                 signal,
@@ -1666,7 +1682,11 @@ impl Song {
                     }
                     let tp = arg(3, "a target.Param goes here")?;
                     let (target, param) =
-                        target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                        target_param(&song, tp.text).map_err(|msg| SongError {
+                            line,
+                            col: tp.col,
+                            msg,
+                        })?;
                     if let Target::Track(t) = target {
                         let at = err(param_col(tp.col, tp.text), "");
                         check_reads(&song.tracks, &models, t, param, at, &mut later)?;
@@ -2016,7 +2036,11 @@ impl Song {
                     let mut sets = Vec::new();
                     while let Some(tp) = ws.get(k) {
                         let (target, param) =
-                            target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                            target_param(&song, tp.text).map_err(|msg| SongError {
+                                line,
+                                col: tp.col,
+                                msg,
+                            })?;
                         if let Target::Track(t) = target {
                             let at = err(param_col(tp.col, tp.text), "");
                             check_reads(&song.tracks, &models, t, param, at, &mut later)?;
@@ -2059,7 +2083,11 @@ impl Song {
                 "mod" => {
                     let tp = arg(1, "a target.param goes here")?;
                     let (target, param) =
-                        target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                        target_param(&song, tp.text).map_err(|msg| SongError {
+                            line,
+                            col: tp.col,
+                            msg,
+                        })?;
                     if let Target::Track(t) = target {
                         let at = err(param_col(tp.col, tp.text), "");
                         check_reads(&song.tracks, &models, t, param, at, &mut later)?;
@@ -2098,6 +2126,7 @@ impl Song {
                             .text
                             .split_once('.')
                             .and_then(|(_, p)| alias(p))
+                            .filter(|(_, p)| *p == param)
                             .map(|(a, _)| a),
                     });
                 }
@@ -2163,7 +2192,11 @@ impl Song {
                 None
             };
             if let Some(msg) = msg {
-                return Err(SongError { line, col: 1, msg });
+                return Err(SongError {
+                    line,
+                    col: 1,
+                    msg: msg.into(),
+                });
             }
         }
         for t in 0..song.tracks.len() {
@@ -2184,7 +2217,7 @@ impl Song {
                 .map(|p| p.model());
             if let Some(m) = model.filter(|m| !m.reads(param)) {
                 return Err(SongError {
-                    msg: m.unread(param),
+                    msg: m.unread(param).into(),
                     ..at
                 });
             }
@@ -2928,6 +2961,7 @@ impl Song {
             name,
             preset,
             sets,
+            knobs: knob_names(code.as_deref()),
             code,
         });
         let i = self.settings.len() - 1;
@@ -3161,6 +3195,7 @@ impl Song {
                 Some(st) => {
                     st.preset = preset;
                     st.sets = sets;
+                    st.knobs = knob_names(code.as_deref());
                     st.code = code;
                     true
                 }
@@ -3192,10 +3227,16 @@ impl Song {
         patterns.chain(params).collect()
     }
 
-    /// A parameter as the text names it: its registry name (lower case
-    /// where `lower`).
-    fn param_label(&self, _target: Target, p: Param, lower: bool) -> String {
-        if lower {
+    /// A parameter as the text names it: a knob by its name in the code of
+    /// the track's setting (#674), else its registry name (lower case where
+    /// `lower`).
+    fn param_label(&self, target: Target, p: Param, lower: bool) -> String {
+        let knob = knobbed(self, target)
+            .zip(p.ctl())
+            .and_then(|(st, i)| st.knobs.get(i));
+        if let Some(k) = knob.filter(|k| !k.is_empty()) {
+            k.clone()
+        } else if lower {
             param_name(p).to_ascii_lowercase()
         } else {
             param_name(p).to_string()
@@ -3461,7 +3502,7 @@ pub fn param_name(p: Param) -> &'static str {
 /// `target.Param`, checked: a track or strip takes its synth's and its strip's
 /// parameters, a group its strip's, `master` the global ones. The model and
 /// the routing can't be automated: they rebuild voices and the mix graph.
-fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str> {
+fn target_param(song: &Song, text: &str) -> Result<(Target, Param), Cow<'static, str>> {
     let (t, p) = text
         .split_once('.')
         .ok_or("target.Param goes here, e.g. strip1.Level")?;
@@ -3479,9 +3520,9 @@ fn target_param(song: &Song, text: &str) -> Result<(Target, Param), &'static str
     } else if let Some(i) = song.tracks.iter().position(|tr| tr.name == t) {
         Target::Track(i)
     } else {
-        return Err("a target is a track, strip1–16, group1–8 or master");
+        return Err("a target is a track, strip1–16, group1–8 or master".into());
     };
-    Ok((target, param_for(target, p)?))
+    Ok((target, param_for(song, target, p)?))
 }
 
 /// A code line under a Modular setting without its indent of two spaces
@@ -3503,13 +3544,14 @@ fn close_code(song: &mut Song, mut c: OpenCode) -> Result<(), SongError> {
         return Ok(());
     }
     let code = c.lines.join("\n");
-    crate::modular::sc::compile(&code).map_err(|e| SongError {
+    let patch = crate::modular::sc::compile(&code).map_err(|e| SongError {
         line: c.line + e.line.saturating_sub(1),
         col: e.col + 2,
-        msg: e.msg,
+        msg: e.msg.into(),
     })?;
     if let Some(st) = song.settings.get_mut(c.setting) {
         st.code = Some(code);
+        st.knobs = patch.arg_names();
     }
     Ok(())
 }
@@ -3537,7 +3579,7 @@ fn check_reads(
 ) -> Result<(), SongError> {
     match track_model(tracks, models, t) {
         Some(m) if !m.reads(param) => Err(SongError {
-            msg: m.unread(param),
+            msg: m.unread(param).into(),
             ..at
         }),
         Some(_) => Ok(()),
@@ -3554,15 +3596,47 @@ fn param_col(col: usize, text: &str) -> usize {
         .map_or(col, |(t, _)| col + t.chars().count() + 1)
 }
 
+/// The knobs of a setting's `code` by `ctl`, named as `Setting::knobs`.
+fn knob_names(code: Option<&str>) -> Vec<String> {
+    code.and_then(|c| crate::modular::sc::compile(c).ok())
+        .map(|p| p.arg_names())
+        .unwrap_or_default()
+}
+
+/// The Modular setting a track plays, when its code names knobs (#674).
+fn knobbed(song: &Song, target: Target) -> Option<&Setting> {
+    let Target::Track(t) = target else {
+        return None;
+    };
+    let st = song.settings.get(song.tracks.get(t)?.setting?)?;
+    st.knobs.iter().any(|k| !k.is_empty()).then_some(st)
+}
+
 /// The parameter named `name` (in any case) of `target`, checked as
-/// `target_param` says.
-fn param_for(target: Target, name: &str) -> Result<Param, &'static str> {
-    let param = alias(name)
-        .map(|(_, p)| p)
+/// `target_param` says. On a track whose setting names its knobs, a knob's
+/// name comes first (#674).
+fn param_for(song: &Song, target: Target, name: &str) -> Result<Param, Cow<'static, str>> {
+    let setting = knobbed(song, target);
+    let knob = setting
+        .and_then(|st| st.knobs.iter().position(|k| k.eq_ignore_ascii_case(name)))
+        .and_then(Param::ctl_param);
+    let param = knob
+        .or_else(|| alias(name).map(|(_, p)| p))
         .or_else(|| Param::by_name(name))
-        .ok_or("no parameter has this name")?;
+        .ok_or_else(|| match setting {
+            Some(st) => {
+                let names: Vec<&str> = st
+                    .knobs
+                    .iter()
+                    .filter(|k| !k.is_empty())
+                    .map(String::as_str)
+                    .collect();
+                Cow::Owned(format!("{}'s knobs are {}", st.name, names.join(", ")))
+            }
+            None => Cow::Borrowed("no parameter has this name"),
+        })?;
     if matches!(param, Param::Model | Param::Out) {
-        return Err("the model and the routing can't be automated");
+        return Err("the model and the routing can't be automated".into());
     }
     let ok = match target {
         Target::Master => param.is_global(),
@@ -3572,7 +3646,7 @@ fn param_for(target: Target, name: &str) -> Result<Param, &'static str> {
     if ok {
         Ok(param)
     } else {
-        Err("this parameter does not belong to this target")
+        Err("this parameter does not belong to this target".into())
     }
 }
 
@@ -3657,7 +3731,8 @@ fn check_lanes(song: &Song, f: usize, line: usize) -> Result<(), SongError> {
                 Some(Kind::Synth) => "a clip needs a line of notes",
                 Some(Kind::Sampler) => "a clip needs lanes or a line of notes",
                 _ => "a clip needs at least one lane",
-            },
+            }
+            .into(),
         }),
         _ => Ok(()),
     }
@@ -3665,7 +3740,11 @@ fn check_lanes(song: &Song, f: usize, line: usize) -> Result<(), SongError> {
 
 /// `pad steps...`: the steps may be split by spaces for reading.
 fn parse_lane(ws: &[Word<'_>], line: usize) -> Result<Lane, SongError> {
-    let err = |col: usize, msg: &'static str| SongError { line, col, msg };
+    let err = |col: usize, msg: &'static str| SongError {
+        line,
+        col,
+        msg: msg.into(),
+    };
     let Some(first) = ws.first() else {
         return Err(err(1, "a lane is a pad and its steps"));
     };
@@ -3869,7 +3948,11 @@ fn mix_value(param: Param, text: &str) -> Result<f32, &'static str> {
 
 /// `strip <track|stripN>: …`, `group <n> [name]: …` or `master: …`.
 fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<MixLine, SongError> {
-    let err = |col: usize, msg: &'static str| SongError { line, col, msg };
+    let err = |col: usize, msg: &'static str| SongError {
+        line,
+        col,
+        msg: msg.into(),
+    };
     let end = body.trim_end().chars().count() + 1;
     let first = ws.first().ok_or(err(1, "a mixer line goes here"))?;
     // A group with only a name needs no values (#214): `group 2 keys`.

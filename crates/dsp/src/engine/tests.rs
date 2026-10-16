@@ -2480,7 +2480,7 @@ fn a_bad_text_is_reported_and_the_song_plays_on() {
     let bad = "tempo 120\ntrack kit drums\nclip b = kit\n  bd x..z\n";
     let err = load_text(&mut e, bad).expect_err("z is not a step");
     assert_eq!((err.line, err.col), (4, 9));
-    assert_eq!(e.song_error(), Some(err));
+    assert_eq!(e.song_error(), Some(&err));
     assert_eq!(e.song(), &good);
     e.song_play();
     assert!(run(&mut e, 40) > 0.05, "the old beat still plays");
@@ -3735,6 +3735,26 @@ fn a_setting_knob_starts_and_holds() {
     assert_eq!(e.param_value(s, mul), 0.2, "a hand holds");
     assert_eq!(load_text(&mut e, &song("0.9")), Ok(()));
     assert_eq!(e.param_value(s, mul), 0.9, "changed code starts again");
+}
+
+/// #674: a knob by its argument's name plays as by its number.
+#[test]
+fn a_modular_knob_by_name_renders_as_by_number() {
+    let render = |methods: &str| {
+        let text = format!(
+            "tempo 120\nsetting vibra = Modular ModularBasic\n  SynthDef(\\vibra, {{ |freq = 220, gate = 1, vib = 4, vibmod = 6|\n    var f = freq * (SinOsc.kr(vib) * vibmod).midiratio;\n    LFTri.ar(f) * EnvGen.kr(Env.adsr(0.01, 0.1, 0.8, 0.1), gate) * 0.4\n  }}).add;\n\
+             track lead synth vibra\nclip a = lead{methods}\n  \"a3 e3\"\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        render_out(&mut e, 96_000 / BLOCK)
+    };
+    let named = render(" .vib(7) .vibmod(\"<.25 12>\")");
+    assert!(named.iter().all(|s| s.is_finite()) && named.iter().any(|s| *s != 0.0));
+    assert_eq!(named, render(" .ctl1(7) .ctl2(\"<.25 12>\")"));
+    assert_ne!(named, render(""), "the methods reach the knobs");
 }
 
 /// A SynthDef of `body`, with `freq` and `gate` arguments.
