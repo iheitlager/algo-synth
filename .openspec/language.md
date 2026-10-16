@@ -719,6 +719,13 @@ of the clip's track (its synth or strip) while the clip plays, and puts it
 back when it leaves. One per parameter per clip; a pattern method's name wins.
 They count with `mod` lines toward 32.
 
+A parameter the track's model never reads is an error at its name, not a
+method that does nothing (#673): `.lfospeed` is the DX7's LFO, and on a
+Minimoog the error says its vibrato is VCO 3, `vco3coarse`. The model is the
+one the track names, or the one picked for its role, which the text then
+names. Every model takes its strip's, the arpeggiator's and the voice pool's
+parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`).
+
 A `~` in a sequence is a step with no value: the parameter has its own value
 there, so `.cutoff("~ ~ 800 ~")` locks the cutoff on one step of four and lets
 go after it (a per-step lock). Anything combined with a `~` has no value on that
@@ -751,7 +758,9 @@ arrange a b
 | `group1`–`group8` | the group's strip parameters |
 | `master` | the master parameters |
 
-`Model` and `Out` can't be written.
+`Model` and `Out` can't be written. On a track, a parameter its model never
+reads is an error at its name, as for a parameter method. A `strip1`–`strip16`
+target is not checked: the text doesn't say which synth plays on it.
 
 ## auto
 
@@ -768,7 +777,7 @@ starts at the scene's first bar and loops inside it.
 track kit drums
 clip beat = kit
   bd x...x...x...x...
-auto sweep = kit.Cutoff ramp 300 4000 /8
+auto sweep = kit.BdDecay ramp 0.25 2 /8
 auto duck = strip1.Level 1 0.5 0.25 1 /1
 scene main 8: beat sweep duck
 arrange main
