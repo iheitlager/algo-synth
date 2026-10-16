@@ -136,9 +136,10 @@ A subset of sclang, run once to build the voice:
   nearest multiple, halves up, as SuperCollider's: `sweep.round(1/12)`;
   `lag(time)` (0.1 s when left out) smooths a signal, falling 60 dB in
   `time` from its first value, `lag(0)` passing it:
-  `LFNoise0.kr(8).exprange(0.5, 3).lag(0.01)`.
-  Numbers take also `reciprocal floor ceil asInteger cpsmidi ratiomidi
-  dbamp ampdb`.
+  `LFNoise0.kr(8).exprange(0.5, 3).lag(0.01)`; a lag of `Impulse.ar(0)` is
+  SuperCollider's `Decay`. Also `reciprocal floor ceil cpsmidi ratiomidi
+  dbamp ampdb`, as on a number; a logarithm of 0 or below stays finite
+  (#731). Numbers take also `asInteger`.
 - **Stereo:** multichannel expansion; a final array of two channels is
   stereo (`Pan2`, `Splay`, `FreeVerb2`). `Mix` adds arrays channel by channel, as SuperCollider's
   `sum`: `Mix.fill(4, { |k| Pan2.ar(…, k / 1.5 - 1) })` keeps its spread (#709).
