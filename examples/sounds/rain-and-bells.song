@@ -58,8 +58,8 @@ setting vbell = Modular ModularBasic: Polyphony 6
       [l, r] * 0.17 * EnvGen.kr(Env.asr(0.0001, 1, 6), gate)
   }).add;
 setting chimes = Modular ModularBasic
-  SynthDef(\chimes, { |freq = 440, gate = 1, wind = 1, ring = 1|
-      var gust = LFNoise1.kr(0.15).range(0.15, 1) * wind;
+  SynthDef(\chimes, { |freq = 440, gate = 1, wind = 1.2, ring = 1|
+      var gust = LFNoise1.kr(1.7525).range(0.15, 1) * wind;
       var tubes = Array.fill(5, { |k|
           var th = 1 - (gust * 0.0018);
           var hit = ((LFNoise0.ar(2500 + (k * 311)) - th).max(0) / (1 - th)).squared;
@@ -120,13 +120,13 @@ track vbell synth vbell
 track fm synth Dx7 FmBell
 track pad synth vpad
 strip rain: Level 0.9, Send2 0.25
-strip chimes: Level 0.4, Send1 0.2, Send2 0.45
+strip chimes: Level 0.27695054, Send1 0.2, Send2 0.45
 strip bell: Level 0.8, Send1 0.15, Send2 0.5
 strip vbell: Level 0.65, Send1 0.35, Send2 0.5
 strip fm: Level 0.12, Send1 0.5, Send2 0.7
 strip pad: Level 0.6, Send1 0.25, Send2 0.55
 # A large, dark stone space, and an echo of a second bouncing left and right.
-master: ReverbSize 7, ReverbCutoff 5000, EchoTime 1, EchoFeedback 0.55, P1D 1
+master: EchoTime 1, EchoFeedback 0.55, P1D 1, ReverbSize 7, ReverbCutoff 5000
 
 clip storm = rain
   "c4@4"
@@ -135,8 +135,8 @@ clip storm = rain
 clip toll = bell .pan("<-0.5 0.4 -0.2 0.6>")
   "<c4 g3 eb4 bb3>"
 
-clip gust = chimes
-  "c5@4"
+clip gust = chimes .wind("<1.2 [0.6 2.2] 1.8 [2.5 0.9]>") .ring("<1 1.5 0.8 1.8>") .pan("<0 -0.3 0.3 0>")
+  "<c5 eb5 [ab4 ~ ~ bb4] [g4 c5]>"
 
 # The joystick starts near the modal bell; each note's own path carries it
 # through the FM strike and the bowl's bloom, from a place of its own. Few
