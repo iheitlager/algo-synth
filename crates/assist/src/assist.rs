@@ -219,9 +219,32 @@ fn first_message(req: &Request) -> String {
         })
         .unwrap_or_default();
     format!(
-        "<song>\n{}\n</song>\n\n{focus}Request: {}",
+        "<song>\n{}\n</song>\n\n{}{focus}Request: {}",
         req.song.trim_end(),
+        chords(&req.song),
         req.request.trim()
+    )
+}
+
+/// The chords each note clip of `song` plays, named (#634), in a block for
+/// the first message; empty when it doesn't parse or has none.
+fn chords(song: &str) -> String {
+    let Ok(s) = Song::parse(song) else {
+        return String::new();
+    };
+    let lines: Vec<String> = (0..s.clips.len())
+        .filter_map(|f| {
+            let names = s.clip_chords(f);
+            let clip = s.clips.get(f)?;
+            (!names.is_empty()).then(|| format!("{}: {names}", clip.name))
+        })
+        .collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!(
+        "The chords each clip plays, by bar.beat, as the engine names them:\n<chords>\n{}\n</chords>\n\n",
+        lines.join("\n")
     )
 }
 
@@ -725,6 +748,21 @@ mod tests {
                 .pop()
                 .unwrap_or_else(|| Err(ProviderError::Fatal("script ended".into())))
         }
+    }
+
+    /// #634: the first message names the chords of each note clip.
+    #[test]
+    fn the_first_message_names_each_clips_chords() {
+        let song = "scale a minor\ntrack pad synth\nclip pads = pad\n  \"<a:m7 d:m7 g c:maj7>\"\nclip riff = pad\n  \"a4 c5\"\n";
+        let block = chords(song);
+        assert!(
+            block.contains("<chords>\npads: 1.1 a:m7 i7 | 2.1 d:m7 iv7 | 3.1 g VII | 4.1 c:maj7 IIImaj7\n</chords>"),
+            "{block}"
+        );
+        // A clip of single notes has none, nor has a song that doesn't parse.
+        assert!(!block.contains("riff"));
+        assert_eq!(chords("track nope"), "");
+        assert_eq!(chords("track pad synth\nclip a = pad\n  \"a4 c5\"\n"), "");
     }
 
     fn calls(calls: Vec<(&str, Value)>) -> Turn {

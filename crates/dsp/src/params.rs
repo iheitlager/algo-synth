@@ -1256,6 +1256,26 @@ pub enum Param {
     /// A digital model's converter (#209): ≥ 0.5 Authentic, as the instrument's
     /// DAC shaped it, else Clean. The PPG Wave's waves sit on an 8-bit grid (#254).
     Character = 635,
+    /// Casio VL-1 (#723). The code's first digit, the waveform: Piano, Fantasy, Violin, Flute, Guitar I, Guitar II, English Horn, Electro I–III, 0..=9.
+    VlWave = 636,
+    /// Casio VL-1. Attack, 0..=9.
+    VlAttack = 637,
+    /// Casio VL-1. Decay, 0..=9.
+    VlDecay = 638,
+    /// Casio VL-1. Sustain level, 0..=9.
+    VlSustain = 639,
+    /// Casio VL-1. Sustain time before the release starts, 0..=9 (9 holds while the key is down).
+    VlSustainTime = 640,
+    /// Casio VL-1. Release, 0..=9.
+    VlRelease = 641,
+    /// Casio VL-1. Vibrato depth, 0..=9.
+    VlVibrato = 642,
+    /// Casio VL-1. Tremolo depth, 0..=9.
+    VlTremolo = 643,
+    /// Casio VL-1. The octave switch, −1..=1.
+    VlOctave = 644,
+    /// Casio VL-1. A General MIDI drum key plays Po, Pi or Sha when ≥ 0.5 (for drum tracks).
+    VlKit = 645,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1343,7 +1363,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 636] = [
+    pub const ALL: [(Param, &'static str); 646] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -1980,6 +2000,16 @@ impl Param {
         (Param::NesVibratoDelay, "NesVibratoDelay"),
         (Param::NesKit, "NesKit"),
         (Param::Character, "Character"),
+        (Param::VlWave, "VlWave"),
+        (Param::VlAttack, "VlAttack"),
+        (Param::VlDecay, "VlDecay"),
+        (Param::VlSustain, "VlSustain"),
+        (Param::VlSustainTime, "VlSustainTime"),
+        (Param::VlRelease, "VlRelease"),
+        (Param::VlVibrato, "VlVibrato"),
+        (Param::VlTremolo, "VlTremolo"),
+        (Param::VlOctave, "VlOctave"),
+        (Param::VlKit, "VlKit"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -1998,6 +2028,12 @@ impl Param {
     pub fn nes(self) -> Option<usize> {
         let i = (self as u32).checked_sub(Param::NesP1On as u32)? as usize;
         (i < crate::chip::nes_voice::FIELDS).then_some(i)
+    }
+
+    /// The field of the VL-1 patch a parameter sets (`chip::vl_voice::VlPatch::set`).
+    pub fn vl(self) -> Option<usize> {
+        let i = (self as u32).checked_sub(Param::VlWave as u32)? as usize;
+        (i < crate::chip::vl_voice::FIELDS).then_some(i)
     }
 
     /// The parameter of control `i`.
@@ -2373,6 +2409,16 @@ impl Param {
             Param::NesArpSpeed => (1.0, 16.0),
             Param::NesVibratoRate => (0.0, 12.0),
             Param::NesVibratoDelay => (0.0, 100.0),
+            Param::VlWave
+            | Param::VlAttack
+            | Param::VlDecay
+            | Param::VlSustain
+            | Param::VlSustainTime
+            | Param::VlRelease
+            | Param::VlVibrato
+            | Param::VlTremolo => (0.0, 9.0),
+            Param::VlOctave => (-1.0, 1.0),
+            Param::VlKit => (0.0, 1.0),
             Param::Revision => (0.0, 4.0),
             // 0..=7 the generated tables, 8..=15 the user's (spec 010 Req 9).
             Param::Wt1Table | Param::Wt2Table => (0.0, 15.0),

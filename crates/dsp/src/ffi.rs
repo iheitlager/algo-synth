@@ -1773,6 +1773,18 @@ pub extern "C" fn clip_bars(f: u32) -> u32 {
     })
 }
 
+/// The chords clip `f` plays, named at each change (#634): `1.1 a:m7 i7 |
+/// 2.1 d:9`, empty for none; its length, then `clip_chords_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn clip_chords(f: u32) -> u32 {
+    query(0, |e| e.clip_chords(f as usize).len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn clip_chords_ptr() -> *const u8 {
+    query(std::ptr::null(), |e| e.clip_chords_buf().as_ptr())
+}
+
 /// Notes clip `f` plays, and the start (in ticks, 48 to a bar), length,
 /// MIDI note and accent (0 or 1) of note `k`.
 #[unsafe(no_mangle)]
@@ -3101,6 +3113,8 @@ mod tests {
         sweep!(reset, clip_notes_len(_));
         sweep!(reset, clip_bars(_));
         sweep!(reset, clip_events(_));
+        sweep!(reset, clip_chords(_));
+        sweep!(reset, clip_chords_ptr());
         sweep!(reset, event_start(_, _));
         sweep!(reset, event_len(_, _));
         sweep!(reset, event_note(_, _));

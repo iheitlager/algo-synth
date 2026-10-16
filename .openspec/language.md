@@ -225,7 +225,7 @@ kind = drums | synth | sampler
 
 | kind | its clips hold | models |
 |---|---|---|
-| `drums` | lanes | `Tr808 Tr909 PadSampler Nes` (`Nes NesKit`; its `samples` kit or `pad` lines play through the DMC) |
+| `drums` | lanes | `Tr808 Tr909 PadSampler Nes VlTone` (`Nes NesKit`; its `samples` kit or `pad` lines play through the DMC; `VlTone VlKit`, the VL-1's Po, Pi and Sha) |
 | `synth` | one line of notes | any but drum machines and samplers |
 | `sampler` | lanes (`PadSampler`) or notes (`Sampler`) | `Sampler PadSampler` |
 
@@ -497,6 +497,11 @@ clip line = v bars 2
   below it (a left hand in the 16 semitones below it). The
   voices still lead from chord to chord, and a slash chord's bass stays at
   the bottom.
+- The engine names the chords a clip plays (#634) for the Assistant: at each
+  change, a symbol and, with a seven-note `scale`, the numeral
+  (`1.1 a:m7 i7 | 2.1 d:9 | 3.1 g VII`). A short note off the strong beats is
+  melody, not harmony; c-e-g-a is `c:6` over a c and `a:m7` over an a. It
+  only reads: the song's text stays as typed.
 
 ```song
 scale c minor
@@ -533,9 +538,9 @@ notes every run.
 | `arp(<chord>,random,<rate>,<seed>)` | random order; only `random` takes a seed, and must |
 | `arp(<clip>,<mode>[:<octaves>],<rate>[,<seed>])` | the clip's chords, each arpeggiated from its own start (a clip name wins over a chord name) |
 | `walk(<pitch>,<n>,<seed>)` | n notes (1–32) in one bar, a random walk on the scale; needs `scale` |
-| `markov(<order>,<clip>,<seed>)` | a chain of order 1–3 learned from the clip's pitches and rhythm |
+| `markov(<order>,<clip>,<seed>)` | a chain of order 1–3 learned from the clip's pitches and rhythm; over a clip of chords, the chain's states are whole chords, so it writes a new progression of the clip's own chords (#624) |
 | `mutate(<clip>,<percent>,<seed>)` | the clip with 0–100 % of its notes moved or dropped |
-| `prog(<bars>,<seed>[,<size>][,<beats>][,<style>])` | 1–16 bars of chords on a seven-note `scale`, one a bar: tonic first, dominant last, functional moves. After the seed, in any order: a size `triad` (default), `7th`, `9th` or `sus` (1 4 5, 1 2 5 on the dominant); beats a chord lasts, 1–16 (`2`), or up to 16 in turn (`"4 2 2"`), the last chord cut at the end; a style `classic` (default), `pop` (I to IV or V), `jazz` (ii … V I), `modal` (I to I, no V) or `andalusian` (i VII VI V) |
+| `prog(<bars>,<seed>[,<size>][,<beats>][,<style>])` | 1–16 bars of chords on a seven-note `scale`, one a bar: tonic first, dominant last, functional moves. After the seed, in any order: a size `triad` (default), `7th`, `9th` or `sus` (1 4 5, 1 2 5 on the dominant); beats a chord lasts, 1–16 (`2`), or up to 16 in turn (`"4 2 2"`), the last chord cut at the end; a style `classic` (default), `pop` (I to IV or V), `jazz` (ii … V I), `modal` (I to I, no V) or `andalusian` (i VII VI V); colours `borrow` (bVI, iv, bVII, bIII from the parallel minor; IV and V from the parallel major in minor) and `secondary` (a V7 of the next chord before it), together as `borrow secondary`, each on about one chord in three but the first and the last (#623) |
 | `root(<clip>[,<octave>])` | the root of each of the clip's chords in octave 0–7 (default 2), a bass line |
 | `bass(<clip>,<style>[,<octave>][,<seed>])` | a bass line on the clip's chords, roots in octave 0–7 (default 2): `fifths` (the root on a chord's first beat, its fifth two beats on), `octave` (root and octave in eighths) or `walk` (the root on each chord's first beat, a step above or below the next root on the beat before a change, chord notes or scale steps between); only `walk` takes a seed, and must |
 
@@ -578,6 +583,10 @@ clip riff = arp
   "c4 eb4 g4 [bb4 g4]"
 clip chain = arp
   markov(2,riff,3)
+clip colour = pad voicing
+  prog(8,7,borrow secondary)
+clip next = pad voicing
+  markov(1,colour,3)
 clip drift = arp
   mutate(riff,30,5)
 clip dice = arp
@@ -643,6 +652,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
 | `.scale(<<root>…>[/n] [<mode>])` | a progression: the roots (up to 16) take turns, a bar each or n (1–16) bars each, by the bar a note starts in; `a1:dorian` gives a root its own mode, and the shared mode may go when each has one |
 | `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
+| `.scale(<clip> auto)` | each chord's own scale (#622): its root, and the mode of its quality, major for `maj7` `6` `add9` and the triad, dorian for `m` `m7` `m6` `m9`, mixolydian for `7` `9` `sus2` `sus4`, locrian for `m7b5`, diminished for `dim` `dim7`, whole-tone for `aug`; a chord it can't name takes the song's mode |
 | `.chord(<clip>)` | each degree a note of the chord an earlier clip plays where it starts (ADR-0035): 0 its lowest note, on up an octave past the top and down below the root, `[0,2]` two at once; a note moves to the nearest chord note; `"0 1 2 3"` is an up arpeggio |
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
 | `.jux(m)` | the line on the left and a copy with method m on the right, on its one track, as Strudel's (#701, ADR-0039): `.jux(rev)`; while a note is panned the synth is stereo, its strip balancing, its chorus kept; a mono synth plays one side at a time; not on a drum clip |
@@ -677,6 +687,18 @@ clip pedal = bass .slow(4)
   "<a1 d1>"
 clip arp = lead .fast(8) .scale(pedal minor-pentatonic) .oct(1)
   "<0 2 1 3 2>"
+```
+
+Or each chord's own scale, from its quality: dorian over `a2:m7`, mixolydian
+over `d2:7`.
+
+```song
+track pad synth
+track lead synth
+clip harm = pad .slow(2)
+  "<a2:m7 d2:7>"
+clip solo = lead .scale(harm auto)
+  "0 2 4 6 5 3 1 0"
 ```
 
 The rhythm too: the bass plays on every kick, and follows an edit to it.

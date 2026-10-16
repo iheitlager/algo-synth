@@ -2196,7 +2196,7 @@ fn prog_arguments_print_back_and_errors_say_where() {
         assert_eq!(n.print(), printed, "{text}");
         assert_eq!(parse_in(printed, 1, Some(&scale)).unwrap().events, n.events);
     }
-    let args = "after the seed a prog takes a size (triad, 7th, 9th, sus), beats (2 or \"4 2 2\") or a style (classic, pop, jazz, modal, andalusian)";
+    let args = "after the seed a prog takes a size (triad, 7th, 9th, sus), beats (2 or \"4 2 2\"), a style (classic, pop, jazz, modal, andalusian) or colours (borrow, secondary)";
     let beats = "a chord lasts 1 to 16 beats: 2, or a list in quotes as \"4 2 2\"";
     let twice = "a prog takes one size, one rhythm and one style";
     for (text, col, msg) in [
@@ -2208,7 +2208,13 @@ fn prog_arguments_print_back_and_errors_say_where() {
         ("prog(4,7,7th,9th)", 14, twice),
         ("prog(4,7,pop,jazz)", 14, twice),
         ("prog(4,7,2,\"4 4\")", 12, twice),
-        ("prog(4,7,7th,2,pop,1)", 1, crate::usage::PROG),
+        ("prog(4,7,7th,2,pop,1)", 20, twice),
+        ("prog(4,7,7th,2,pop,borrow,1)", 1, crate::usage::PROG),
+        (
+            "prog(4,7,borrow,borrow)",
+            17,
+            "a prog takes each colour once",
+        ),
     ] {
         let e = parse_in(text, 1, Some(&scale)).unwrap_err();
         assert_eq!((e.col, e.msg), (col, msg), "{text}");
@@ -2413,4 +2419,343 @@ fn an_arp_runs_on_over_its_bars() {
     }
     assert_eq!(n.print(), "arp([c4,d#4,g4,a#4],up:2,12)");
     assert!(with_riff("arp(riff,up,16)").unwrap().with_bars(2).is_err());
+}
+
+// --- Chord recognition (#634) --------------------------------------------------
+
+/// The pitch classes of `notes`, as a set.
+fn pcs(notes: &[u8]) -> u16 {
+    notes.iter().fold(0, |m, n| m | 1 << (n % 12))
+}
+
+/// A chord on `root` (a MIDI note) of `intervals`, its lowest `inv` notes
+/// moved an octave up.
+fn stacked(root: u8, intervals: &[u8], inv: usize) -> Vec<u8> {
+    let mut notes: Vec<u8> = intervals.iter().map(|i| root + i).collect();
+    for _ in 0..inv {
+        notes.sort_unstable();
+        notes[0] += 12;
+    }
+    notes
+}
+
+#[test]
+fn every_quality_is_named_back_in_every_root_and_inversion() {
+    use recognize::recognize;
+    let set = |root: u8, iv: &[u8]| pcs(&stacked(root, iv, 0));
+    for (quality, iv) in QUALITIES {
+        let written = if quality == "maj" { "" } else { quality };
+        // A set another root or quality also spells (c:6 is a:m7, dim7 and
+        // aug are symmetric) can't say which was written in an inversion.
+        let ambiguous = (0..12u8).any(|r| {
+            QUALITIES.iter().any(|(q, other)| {
+                *q != "maj" && (r, *q) != (0, written) && set(r, other) == set(0, iv)
+            })
+        });
+        for root in 0..12u8 {
+            for inv in 0..iv.len() {
+                let notes = stacked(48 + root, iv, inv);
+                let c = recognize(&notes).unwrap_or_else(|| panic!("{quality} {root} {inv}"));
+                let bass = notes.iter().min().unwrap() % 12;
+                assert_eq!(c.bass, bass, "{quality} on {root}, inversion {inv}");
+                assert_eq!(pcs(&stacked(c.root, c.intervals(), 0)), pcs(&notes));
+                if inv == 0 || !ambiguous {
+                    assert_eq!(
+                        (c.root, c.quality),
+                        (root, written),
+                        "{quality} on {root}, inversion {inv}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn an_ambiguous_set_takes_the_bass_as_root() {
+    use recognize::recognize;
+    // c-e-g-a: c:6 over a c, a:m7 over an a, and a:m7 (first in the table)
+    // over an e.
+    assert_eq!(recognize(&[48, 52, 55, 57]).unwrap().name(), "c:6");
+    assert_eq!(recognize(&[45, 48, 52, 55]).unwrap().name(), "a:m7");
+    assert_eq!(recognize(&[52, 55, 57, 60]).unwrap().name(), "a:m7/e");
+    // Fewer than three pitch classes, or a cluster, is no chord.
+    assert_eq!(recognize(&[48, 55]), None);
+    assert_eq!(recognize(&[]), None);
+    assert_eq!(recognize(&[60, 61, 62, 63, 64, 65]), None);
+}
+
+#[test]
+fn a_passing_melody_note_keeps_the_chord_name() {
+    let names = |text: &str| {
+        let n = parse(text, 1).unwrap();
+        recognize::describe(&n.events, n.bars, None)
+    };
+    // d5 and f5 pass on the off-beats; the chord stays c.
+    assert_eq!(
+        names("c4@0:48 e4@0:48 g4@0:48 d5@6:6 f5@36:6 a5@42:3"),
+        "1.1 c"
+    );
+    // A note on a strong beat, or a long one, joins the chord.
+    assert_eq!(
+        names("c4@0:48 e4@0:48 g4@0:48 d5@24:6"),
+        "1.1 c | 1.3 c:add9 | 1.3+6 c"
+    );
+    assert_eq!(
+        names("\"<[a2,c3,e3,g3] [d3,f#3,a3,c4,e4]>\""),
+        "1.1 a:m7 | 2.1 d:9"
+    );
+}
+
+#[test]
+fn numerals_match_the_parsers() {
+    let major = key(0, crate::algo::Mode::from_name("major").unwrap());
+    let minor = key(0, crate::algo::Mode::from_name("minor").unwrap());
+    for (scale, line, want) in [
+        (
+            &minor,
+            "\"<i VI III VII bII>\"",
+            ["i", "VI", "III", "VII", "bII"].as_slice(),
+        ),
+        (
+            &major,
+            "\"<I ii7 V7 viio7 viio Imaj7 bVII bIII III+>\"",
+            &[
+                "I", "ii7", "V7", "viio7", "viio", "Imaj7", "bVII", "bIII", "III+",
+            ],
+        ),
+        (&major, "\"<V7/b I/e>\"", &["V7/b", "I/e"]),
+    ] {
+        let n = parse_in(line, 1, Some(scale)).unwrap();
+        let got: Vec<String> = recognize::chords(&n.events, n.bars)
+            .into_iter()
+            .map(|(_, c)| c.and_then(|c| c.numeral(scale)).unwrap_or_default())
+            .collect();
+        assert_eq!(got, want, "{line}");
+        // Each numeral reads back as the same notes' pitch classes.
+        for (w, (_, c)) in got.iter().zip(recognize::chords(&n.events, n.bars)) {
+            let back = parse_in(&format!("\"{w}\""), 1, Some(scale)).unwrap();
+            let notes: Vec<u8> = back.events.iter().map(|e| e.note).collect();
+            let c = c.unwrap();
+            assert_eq!(
+                pcs(&notes),
+                pcs(&stacked(c.root, c.intervals(), 0)) | 1 << c.bass,
+                "{w}"
+            );
+        }
+    }
+    // A quality no numeral spells has none; nor has a pentatonic key.
+    let c = recognize::recognize(&[48, 51, 54, 58]).unwrap();
+    assert_eq!((c.name(), c.numeral(&major)), ("c:m7b5".into(), None));
+    let penta = key(0, crate::algo::Mode::from_name("pentatonic").unwrap());
+    assert_eq!(
+        recognize::recognize(&[48, 52, 55]).unwrap().numeral(&penta),
+        None
+    );
+}
+
+#[test]
+fn recognition_is_total() {
+    assert_eq!(recognize::describe(&[], 1, None), "");
+    let n = parse("\"c4 e4 g4 ~\"", 1).unwrap();
+    assert_eq!(recognize::describe(&n.events, n.bars, None), "1.1 -");
+    // Any line names or says no chord, never fails.
+    let mut r = crate::algo::Rng::new(7);
+    for _ in 0..500 {
+        let events: Vec<Event> = (0..r.next_u32() % 12)
+            .map(|_| Event {
+                start: r.next_u32() % 96,
+                len: 1 + r.next_u32() % 60,
+                note: (r.next_u32() % 128) as u8,
+                ..parse("\"c4\"", 1).unwrap().events[0]
+            })
+            .collect();
+        let _ = recognize::describe(
+            &events,
+            2,
+            Some(&key(0, crate::algo::Mode::from_name("major").unwrap())),
+        );
+    }
+}
+
+// --- Markov over chords (#624) -------------------------------------------------
+
+/// The notes starting at each tick of `events`, as `chords_of` does.
+fn groups_of(events: &[Event]) -> Vec<(u32, Vec<u8>)> {
+    let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+    for e in events {
+        match out.last_mut() {
+            Some((s, notes)) if *s == e.start => notes.push(e.note),
+            _ => out.push((e.start, vec![e.note])),
+        }
+    }
+    for (_, notes) in &mut out {
+        notes.sort_unstable();
+    }
+    out
+}
+
+#[test]
+fn markov_over_a_chord_clip_plays_its_chords() {
+    let verse = parse_in("\"<i VI III VII i iv VII III>\"", 1, Some(&minor())).unwrap();
+    let chain = |text: &str| {
+        parse_with(text, 1, Some(&minor()), &|name| {
+            (name == "verse").then(|| (verse.events.clone(), verse.bars))
+        })
+        .unwrap()
+    };
+    let src = groups_of(&verse.events);
+    let chords: Vec<&Vec<u8>> = src.iter().map(|(_, c)| c).collect();
+    let pairs: Vec<(&Vec<u8>, &Vec<u8>)> = chords.windows(2).map(|w| (w[0], w[1])).collect();
+    let mut varied = false;
+    for seed in 0..20 {
+        let n = chain(&format!("markov(1,verse,{seed})"));
+        let got = groups_of(&n.events);
+        // The source's rhythm, a chord a bar, each one of its chords.
+        let starts: Vec<u32> = got.iter().map(|(s, _)| *s).collect();
+        assert_eq!(starts, src.iter().map(|(s, _)| *s).collect::<Vec<_>>());
+        assert!(got.iter().all(|(_, c)| chords.contains(&c)), "seed {seed}");
+        // Order 1 moves only between chords that follow each other there.
+        for w in got.windows(2) {
+            assert!(pairs.contains(&(&w[0].1, &w[1].1)), "seed {seed}: {w:?}");
+        }
+        varied |= got != src;
+        assert_eq!(n, chain(&format!("markov(1,verse,{seed})")));
+        // Never past the room reserved for it (#233).
+        let Seq::Generated(call) = &n.seq else {
+            panic!("a call");
+        };
+        let mut out = Vec::with_capacity(call.max_events());
+        let room = out.capacity();
+        for s in 0..64 {
+            call.events_into(s, Some(&minor()), &mut out);
+            assert_eq!(out.capacity(), room, "seed {s} grew its buffer");
+        }
+    }
+    assert!(varied, "some seed gives a new progression");
+    assert_eq!(chain("markov(2,verse,3)").print(), "markov(2,verse,3)");
+}
+
+// --- Prog colours (#623) -------------------------------------------------------
+
+/// A progression's chords as numerals in `scale`, `?` for none.
+fn prog_numerals(text: &str, scale: &Scale) -> Vec<String> {
+    prog_chords(text, scale)
+        .iter()
+        .map(|(_, _, c)| {
+            recognize::recognize(c)
+                .and_then(|c| c.numeral(scale))
+                .unwrap_or_else(|| "?".into())
+        })
+        .collect()
+}
+
+#[test]
+fn prog_borrows_from_the_parallel_mode() {
+    let major = key(0, crate::algo::Mode::from_name("major").unwrap());
+    let mut seen = std::collections::BTreeSet::new();
+    for seed in 0..60 {
+        let plain = prog_numerals(&format!("prog(8,{seed})"), &major);
+        let lent = prog_numerals(&format!("prog(8,{seed},borrow)"), &major);
+        // The first and last keep tonic and dominant; the rest is plain or
+        // borrowed for the same function.
+        assert_eq!(
+            (lent[0].as_str(), lent[7].as_str()),
+            ("I", "V"),
+            "seed {seed}"
+        );
+        for (p, l) in plain.iter().zip(&lent) {
+            let ok = p == l
+                || matches!(
+                    (p.as_str(), l.as_str()),
+                    ("IV", "bVI" | "iv") | ("V", "bVII") | ("iii", "bIII")
+                );
+            assert!(ok, "seed {seed}: {p} became {l}");
+            if p != l {
+                seen.insert(l.clone());
+            }
+        }
+    }
+    assert_eq!(
+        seen.into_iter().collect::<Vec<_>>(),
+        ["bIII", "bVI", "bVII", "iv"]
+    );
+    // A minor key borrows the major's IV and V.
+    let lent: Vec<String> = (0..60)
+        .flat_map(|s| prog_numerals(&format!("prog(8,{s},borrow)"), &minor()))
+        .collect();
+    assert!(lent.iter().any(|n| n == "IV") && lent.iter().any(|n| n == "V"));
+    // A mode with no parallel borrows nothing.
+    let dorian = key(2, crate::algo::Mode::from_name("dorian").unwrap());
+    for s in 0..20 {
+        assert_eq!(
+            prog_chords(&format!("prog(8,{s},borrow)"), &dorian),
+            prog_chords(&format!("prog(8,{s})"), &dorian)
+        );
+    }
+}
+
+#[test]
+fn prog_puts_a_secondary_dominant_before_its_chord() {
+    let major = key(0, crate::algo::Mode::from_name("major").unwrap());
+    let mut found = 0;
+    for seed in 0..60 {
+        let text = format!("prog(8,{seed},secondary)");
+        let chords = prog_chords(&text, &major);
+        let plain = prog_chords(&format!("prog(8,{seed})"), &major);
+        assert_eq!(chords[0], plain[0]);
+        assert_eq!(chords[7], plain[7]);
+        for k in 1..7 {
+            if chords[k] == plain[k] {
+                continue;
+            }
+            // A V7 a fifth above the next chord's root, which isn't the tonic.
+            let c = recognize::recognize(&chords[k].2).unwrap();
+            let next = chords[k + 1].2[0] % 12;
+            assert_eq!(
+                (c.quality, c.root),
+                ("7", (next + 7) % 12),
+                "seed {seed} chord {k}"
+            );
+            assert_ne!(next, 0, "seed {seed}: no V7 of the tonic");
+            found += 1;
+        }
+        assert_eq!(chords.len(), plain.len());
+    }
+    assert!(
+        found > 20,
+        "only {found} secondary dominants in 60 progressions"
+    );
+}
+
+#[test]
+fn prog_colours_print_back_and_fit_their_room() {
+    let n = parse_in("prog(8,7, secondary borrow)", 1, Some(&minor())).unwrap();
+    assert_eq!(n.print(), "prog(8,7,borrow secondary)");
+    let n = parse_in("prog(4,7,jazz,borrow,secondary)", 1, Some(&minor())).unwrap();
+    assert_eq!(n.print(), "prog(4,7,jazz,borrow secondary)");
+    for bad in [
+        "prog(4,7,borrow borrow)",
+        "prog(4,7,borrow,borrow)",
+        "prog(4,7,borrowed)",
+    ] {
+        assert!(parse_in(bad, 1, Some(&minor())).is_err(), "{bad}");
+    }
+    // A triad progression with secondary 7ths never outgrows its buffer.
+    for text in [
+        "prog(16,3,secondary)",
+        "prog(16,3,1,borrow secondary)",
+        "prog(16,3,sus,secondary)",
+    ] {
+        let n = parse_in(text, 1, Some(&minor())).unwrap();
+        let Seq::Generated(call) = &n.seq else {
+            panic!("{text} is a call");
+        };
+        let mut out = Vec::with_capacity(call.max_events());
+        let room = out.capacity();
+        for seed in 0..64 {
+            call.events_into(seed, Some(&minor()), &mut out);
+            assert_eq!(out.capacity(), room, "{text} seed {seed} grew its buffer");
+        }
+    }
 }

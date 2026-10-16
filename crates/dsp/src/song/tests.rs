@@ -1059,7 +1059,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 31), ("sounds", 9)] {
+    for (dir, want) in [("songs", 32), ("sounds", 9)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -3164,6 +3164,44 @@ fn a_live_clip_takes_pitch_methods_and_prints_back() {
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #622: `.scale(<clip> auto)` gives each chord the mode of its quality.
+#[test]
+fn a_scale_from_each_chords_quality() {
+    let text = "track pad synth\ntrack lead synth\n\
+                clip harm = pad .slow(2)\n  \"<a2:m7 d2:7>\"\n\
+                clip solo = lead .scale(harm auto)\n  \"0 2 4 6 5 3 1 0\"\n";
+    let s = Song::parse(text).expect("parses");
+    let solo = notes_of(&s, "solo");
+    let at = |tick: u32| solo.iter().find(|(t, _)| *t == tick).map(|(_, n)| n % 12);
+    // Over a2:m7 (bars 1 and 2), a dorian: degree 5 (the fifth note) is f#.
+    assert_eq!(at(24), Some(6));
+    // Over d2:7 (bars 3 and 4), d mixolydian: degree 2 (the second) is f#.
+    assert_eq!(at(2 * 48 + 6), Some(6));
+    // ...and degree 6 (the fourth note) is c, the 7th.
+    assert_eq!(at(2 * 48 + 18), Some(0));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip solo = lead .scale(harm auto)\n"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed), Ok(s));
+}
+
+/// #622: a chord with no quality takes the song's mode, or major without one.
+#[test]
+fn an_unrecognized_chord_takes_the_songs_mode() {
+    let clip = "track pad synth\ntrack lead synth\n\
+                clip harm = pad\n  \"[a2,e3]\"\n\
+                clip solo = lead .scale(harm auto)\n  \"0 5\"\n";
+    let fifth = |text: &str| {
+        let s = Song::parse(text).expect("parses");
+        notes_of(&s, "solo").get(1).map(|(_, n)| n % 12)
+    };
+    // a minor's degree 5 is f, a major's f#.
+    assert_eq!(fifth(&format!("scale c minor\n{clip}")), Some(5));
+    assert_eq!(fifth(clip), Some(6));
 }
 
 /// The notes of clip `k`, in order.

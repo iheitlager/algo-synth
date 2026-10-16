@@ -32,7 +32,7 @@ clip beat = kit /16
 const padName = (id: number) =>
   id >= PAD_NUMBER ? `p${id - PAD_NUMBER}` : (Object.entries(Pad).find(([, v]) => v === id)?.[0] ?? '?')
 // A drum track plays on a drum machine, a pad sampler or a NES (its NesKit, #562).
-const KITS: number[] = [Model.Tr808, Model.Tr909, Model.PadSampler, Model.Nes]
+const KITS: number[] = [Model.Tr808, Model.Tr909, Model.PadSampler, Model.Nes, Model.VlTone]
 const isKit = (s: number) => KITS.includes(params.values[s]?.[Param.Model] ?? -1)
 
 // A track plays on one of the shown synths, or is muted.

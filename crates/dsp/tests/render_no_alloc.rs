@@ -1,7 +1,7 @@
 //! `render` never allocates (ADR-0002, #233), checked by counting every
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
 //! walk, strip and synth automation, snapshots that solo, mute and send,
-//! modulations, Modular settings with their code, a new song taking over on a bar line,
+//! modulations, the chips (a VL-1 and its kit among them), Modular settings with their code, a new song taking over on a bar line,
 //! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, a
 //! cued start and a sync to a bar (ADR-0029), and a pad sampler's sample
 //! chopped, fitted, spliced, reversed, swept and coarse, echoed and spread
@@ -55,6 +55,8 @@ track sid synth Sid SidArp
 track chipper synth chip
 track famicom synth Nes NesArp
 track nkit drums Nes NesKit
+track vl synth VlTone VlFantasy
+track vkit drums VlTone VlKit
 track brk sampler PadSampler PadsLoud
 
 clip beat = kit /16
@@ -68,6 +70,8 @@ clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random:2,16,3)
 clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5)
+clip drift = pad live .scale(hold auto)
+  markov(1,hold,2)
 clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5))
   \"[e4,b4] ~ g#4 ~\"
 clip zap = buzzer
@@ -83,6 +87,12 @@ clip nbeat = nkit /16
   sn ....x.......x...
   ch xxxxxxxxxxxxxxxx
   lt ..x...x.
+clip calc = vl .vlvibrato(sine.range(0, 9))
+  \"e4 [g#4 b4] ~ <e5 d5>\"
+clip vbeat = vkit /16
+  bd x.x...x.x.x...x.
+  rs ..x...x...x...x.
+  sn ....x.......x...
 clip chops = brk .fit() .chop(8) .sometimesBy(0.5, mul(speed(-1))) .accelerate(0.5) .coarse(\"<1 4>\")
   \"c2 ~ c2 c2\"
 clip slices = brk .splice(4, \"<0 2 1 3>*2 [3 1]\") .spread(id, rev, chop(4), stut(3, 0.5, 1/16))
@@ -100,8 +110,8 @@ mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam zap ring arps chirp tune nbeat chops fade pan sweep [open]
-scene b 1: beat sand roam zap arps chirp tune nbeat slices [solo]
+scene a 2: beat hold sand roam drift zap ring arps chirp tune nbeat calc vbeat chops fade pan sweep [open]
+scene b 1: beat sand roam drift zap arps chirp tune nbeat calc vbeat slices [solo]
 arrange a b a b
 ";
 
@@ -123,7 +133,13 @@ fn a_busy_song_renders_without_allocating() {
         .expect("the sample fits")
         .copy_from_slice(&wav);
     e.load_sample(0).expect("the sample loads");
-    let brk = e.song_routed(10).expect("the pad sampler is routed");
+    let track = e
+        .song()
+        .tracks
+        .iter()
+        .position(|t| t.name == "brk")
+        .expect("the pad sampler's track");
+    let brk = e.song_routed(track).expect("the pad sampler is routed");
     e.set_pad(brk, 0, PadField::Sample, 0.0);
     e.song_play();
     // Decks B–D on the right of the crossfader, half way across.

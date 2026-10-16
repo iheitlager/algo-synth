@@ -49,11 +49,13 @@ pub enum Model {
     Nes = 22,
     /// General MIDI (#652): the multisampler on a program of the GM bank.
     GeneralMidi = 23,
+    /// The Casio VL-1, the VL-Tone (#723): one tone generator, or its rhythm kit.
+    VlTone = 24,
 }
 
 impl Model {
     /// Every model with the name the TypeScript mirror uses.
-    pub const ALL: [(Model, &'static str); 24] = [
+    pub const ALL: [(Model, &'static str); 25] = [
         (Model::Arp2600, "Arp2600"),
         (Model::Minimoog, "Minimoog"),
         (Model::ProOne, "ProOne"),
@@ -78,6 +80,7 @@ impl Model {
         (Model::Sid, "Sid"),
         (Model::Nes, "Nes"),
         (Model::GeneralMidi, "GeneralMidi"),
+        (Model::VlTone, "VlTone"),
     ];
 
     /// The model for a raw id, or `None` for an unknown one.
@@ -682,6 +685,11 @@ impl Model {
     /// Whether the voice is the NES's 2A03 (#112).
     pub fn uses_nes(self) -> bool {
         self.def().engine == Engine::Nes
+    }
+
+    /// Whether the voice is the Casio VL-1's (#723).
+    pub fn uses_vl(self) -> bool {
+        self.def().engine == Engine::Vl
     }
 
     /// Whether the voice is a graph of unit generators (ADR-0020).

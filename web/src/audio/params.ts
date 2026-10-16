@@ -640,6 +640,16 @@ export const Param = {
   NesVibratoDelay: 633,
   NesKit: 634,
   Character: 635,
+  VlWave: 636,
+  VlAttack: 637,
+  VlDecay: 638,
+  VlSustain: 639,
+  VlSustainTime: 640,
+  VlRelease: 641,
+  VlVibrato: 642,
+  VlTremolo: 643,
+  VlOctave: 644,
+  VlKit: 645,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -794,6 +804,7 @@ export const Model = {
   Sid: 21,
   Nes: 22,
   GeneralMidi: 23,
+  VlTone: 24,
 } as const
 export type ModelId = (typeof Model)[keyof typeof Model]
 
@@ -915,6 +926,12 @@ export const Preset = {
   GmStrings: 114,
   GmTrumpet: 115,
   GmFlute: 116,
+  VlPiano: 117,
+  VlFantasy: 118,
+  VlViolin: 119,
+  VlFlute: 120,
+  VlGuitar: 121,
+  VlKit: 122,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

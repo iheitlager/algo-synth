@@ -1442,6 +1442,36 @@ const nes: ModelDef = {
   ],
 }
 
+// The Casio VL-1, the VL-Tone (#723): the 8-digit ADSR code, digit by digit,
+// the octave switch and the rhythm unit's three drums on the keys.
+const VL_WAVES: Options = [
+  ['Piano', 0], ['Fantasy', 1], ['Violin', 2], ['Flute', 3], ['Guitar I', 4],
+  ['Guitar II', 5], ['English Horn', 6], ['Electro I', 7], ['Electro II', 8], ['Electro III', 9],
+]
+const vlTone: ModelDef = {
+  id: Model.VlTone,
+  family: 'chips',
+  name: 'VL-Tone',
+  maker: 'Casio VL-1',
+  tagline: 'The 1981 calculator keyboard: square waves of ten widths, an 8-digit ADSR code, and Po, Pi and Sha for drums',
+  theme: { panel: '#d8d4cc', ink: '#1f1f1f', soft: '#6b6760', trim: '#2b2b2b', accent: '#e05a1c' },
+  presets: ['VlPiano', 'VlFantasy', 'VlViolin', 'VlFlute', 'VlGuitar', 'VlKit'],
+  sections: [
+    {
+      title: 'Tone',
+      controls: [dropdown('Wave', Param.VlWave, VL_WAVES), select('Octave', Param.VlOctave, [['Low', -1], ['Mid', 0], ['High', 1]]), sw('Kit', Param.VlKit)],
+    },
+    {
+      title: 'ADSR',
+      controls: [
+        steps('Attack', Param.VlAttack, 0, 9, 0), steps('Decay', Param.VlDecay, 0, 9, 7), steps('Sustain', Param.VlSustain, 0, 9, 0),
+        steps('Sus time', Param.VlSustainTime, 0, 9, 0), steps('Release', Param.VlRelease, 0, 9, 3),
+        steps('Vibrato', Param.VlVibrato, 0, 9, 0), steps('Tremolo', Param.VlTremolo, 0, 9, 0),
+      ],
+    },
+  ],
+}
+
 export const ARP_MODES = entries(ArpMode)
 export const ARP_RATES: Options = [['1/8', ArpRate.Eighth], ['1/16', ArpRate.Sixteenth], ['1/8T', ArpRate.EighthTriplet], ['1/16T', ArpRate.SixteenthTriplet]]
 
@@ -1463,7 +1493,7 @@ const ARP_SECTION: Section = {
 const withArp = (m: ModelDef): ModelDef =>
   m.family === 'mono' || m.family === 'poly' || m.family === 'chips' ? { ...m, sections: [...m.sections, ARP_SECTION] } : m
 
-export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular, tb303, sid, nes, generalMidi].map(withArp)
+export const MODELS: ModelDef[] = [arp2600, minimoog, proOne, ms20, cs15, sh101, odyssey, prophet5, juno106, jupiter8, matrix12, ppgWave, d50, dx7, polyMoog, tr808, sampler, padSampler, tr909, modular, tb303, sid, nes, generalMidi, vlTone].map(withArp)
 
 /** The definition of a model id; an unknown one draws as the ARP 2600. */
 export const modelDef = (id: number): ModelDef => MODELS.find((m) => m.id === id) ?? (MODELS[0] as ModelDef)

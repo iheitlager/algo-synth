@@ -1,0 +1,102 @@
+# VL-Tone: the Casio VL-1's ten rhythms, one after the other, each with a
+# tone of its own over it. The rhythm unit has three sounds: Po (bd, the
+# low blip), Pi (rs, the high one) and Sha (sn and ch, the noise). Which hits
+# each preset rhythm played is not documented: these are reconstructions.
+tempo 126
+scale c major
+track kit drums VlTone VlKit
+track piano synth VlTone VlPiano
+track fantasy synth VlTone VlFantasy
+track violin synth VlTone VlViolin
+track flute synth VlTone VlFlute
+track guitar synth VlTone VlGuitar
+strip kit: Level 0.85
+strip piano: Level 0.8
+strip fantasy: Level 0.7
+strip violin: Level 0.75
+strip flute: Level 0.8
+strip guitar: Level 0.8
+
+# 0 March: Po on 1 and 3, Sha on 2 and 4 with a drag into the bar
+clip march = kit /16
+  bd x.......x.......
+  sn ....x.......x.xx
+# 1 Waltz: twelve sixteenths, three beats; Po on 1, Sha on 2 and 3
+clip waltz = kit /16
+  bd x...........
+  sn ....o...o...
+# 2 4-Beat: Pi on every beat, Po on 1 and 3, Sha on 2 and 4
+clip four_beat = kit /16
+  bd x.......x.......
+  rs x...x...x...x...
+  sn ....x.......x...
+# 3 Swing: triplets; Pi rides "ding, ding-a", Sha on 2 and 4
+clip swing = kit /12
+  bd x.....x.....
+  rs x..x.xx..x.x
+  sn ...x.....x..
+# 4 Rock-1: Pi on the eighths, Po on 1 and 3, Sha on 2 and 4
+clip rock1 = kit /16
+  bd x.......x.......
+  rs x.x.x.x.x.x.x.x.
+  sn ....x.......x...
+# 5 Rock-2: a pushed kick, the last eighth doubled
+clip rock2 = kit /16
+  bd x.....x.x.......
+  rs x.x.x.x.x.x.x.xx
+  sn ....x.......x...
+# 6 Bossa Nova: Po's dotted figure, Pi the clave, soft Sha on the eighths
+clip bossa = kit /16
+  bd x..xx..xx..xx..x
+  rs x..x..x...x..x..
+  ch o.o.o.o.o.o.o.o.
+# 7 Samba: the surdo on 2 and 4, Sha's busy sixteenths
+clip samba = kit /16
+  bd o...x...o...x...
+  rs x..x..x...x.x...
+  ch xoxxxoxxxoxxxoxx
+# 8 Rhumba: the 3-2 clave on Pi, Po on the bass's tresillo
+clip rhumba = kit /16
+  bd x..x....x..x....
+  rs x..x...x..x.x...
+  ch ..o...o...o...o.
+# 9 Beguine: "boom, chk-a boom, chk"
+clip beguine = kit /16
+  bd x.......x.......
+  rs x..x..x.x..x..x.
+  sn ......x.....x.x.
+
+clip fanfare = flute
+  "<[c5 ~ c5 g4] [c5 e5 g5 ~] [g5 f5 e5 d5] [c5 ~ ~ ~]>"
+clip waltz_tune = violin .slow(3)
+  "e5 ~ ~ d5 ~ c5 b4 ~ ~ c5 d5 e5"
+clip walking = guitar
+  "<[c4 e4 g4 a4] [bb4 a4 g4 e4] [f4 a4 c5 d5] [eb5 d5 c5 a4]>"
+clip shuffle = fantasy
+  "<[e5 [~ ~ g5] ~ e5] [d5 ~ c5 ~] [e5 [~ ~ g5] a5 g5] [e5 ~ ~ ~]>"
+clip calculator = piano
+  "<[c5 c5 ~ c5] [~ e5 d5 ~] [c5 c5 ~ c5] [~ g4 ~ ~]>"
+clip power = guitar
+  "<[c4 c4 eb4 c4] [f4 ~ eb4 c4] [c4 c4 eb4 c4] [g4 f4 eb4 ~]>"
+clip girl = flute
+  "<[e5 ~ ~ d5] [~ c5 ~ a4] [d5 ~ ~ c5] [~ a4 ~ ~]>"
+clip carnival = piano
+  "<[g5 g5 e5 g5] [a5 g5 e5 c5] [d5 d5 b4 d5] [e5 d5 b4 g4]>"
+clip clave_tune = violin
+  "<[a4 ~ c5 e5] [~ d5 c5 ~] [g4 ~ b4 d5] [~ c5 b4 ~]>"
+clip palm = fantasy
+  "<[c5 ~ ~ e5] [g5 ~ f5 e5] [d5 ~ ~ f5] [a5 ~ g5 f5]>"
+
+scene intro 2: rock1
+scene marching 4: march fanfare
+scene waltzing 6: waltz waltz_tune
+scene four 4: four_beat walking
+scene swinging 4: swing shuffle
+scene rocking 4: rock1 calculator
+scene rocking2 4: rock2 power
+scene bossanova 4: bossa girl
+scene sambaing 4: samba carnival
+scene rhumbaing 4: rhumba clave_tune
+scene beguining 4: beguine palm
+scene outro 4: rock1 calculator
+arrange intro marching waltzing four swinging rocking rocking2 bossanova sambaing rhumbaing beguining outro

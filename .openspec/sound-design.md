@@ -26,10 +26,12 @@ machines), `Sampler` (multisampler), `GeneralMidi` (the multisampler on a
 program of the General MIDI bank), `PadSampler` (pads), `Modular` (a
 SuperCollider SynthDef), `Sid` (the C64's chip), `Nes` (the NES's 2A03; with
 `NesKit` also a drum machine, whose `samples` kit or `pad` lines play
-through its DMC). Presets are factory names, as `MiniBass`,
+through its DMC), `VlTone` (the Casio VL-1; with `VlKit` its
+drums Po, Pi and Sha). Presets are factory names, as `MiniBass`,
 `AcidBass`, `Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`,
 `ModularHoover`, `ModularKick`, `ModularSid`, `ModularDubSiren`; `Sid` has `SidLead`, `SidBass`,
 `SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`;
+`VlTone` has `VlPiano`, `VlFantasy`, `VlViolin`, `VlFlute`, `VlGuitar`, `VlKit`;
 `GeneralMidi` has `GmPiano`, `GmElectricPiano`, `GmVibraphone`, `GmMarimba`,
 `GmXylophone`, `GmOrgan`, `GmNylonGuitar`, `GmAcousticBass`, `GmFingerBass`,
 `GmStrings`, `GmTrumpet`, `GmFlute`.
