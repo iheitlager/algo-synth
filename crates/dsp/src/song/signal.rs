@@ -352,8 +352,9 @@ impl Signal {
     }
 
     /// The numbers of its sequences in force at `t` cycles, each with when
-    /// in `t` it stops being: `f(value, until)`, `value` an index into the
-    /// columns (`col`). Through `slow`, `fast`, `segment`, ranges and
+    /// in `t` it stops being: `f(value, until)`, `value` the index of the
+    /// number (as `col` and `numbers` count them) and `until` in cycles, as
+    /// `t`. Through `slow`, `fast`, `segment`, ranges, `lag` and
     /// arithmetic; nothing for a `~`, a wave or a list (#675). Never
     /// allocates.
     pub fn lit(&self, t: f64, f: &mut dyn FnMut(usize, f64)) {
@@ -1583,6 +1584,12 @@ mod tests {
             at("\"1 [2 <3 4>]\"", &[0.25, 0.6, 0.9, 1.9]),
             [1.0, 2.0, 3.0, 4.0]
         );
+        // At most 64 numbers, counted inside brackets too.
+        let spread = format!("\"{}\"", vec!["[1 1 1 1 1]"; 13].join(" "));
+        assert_eq!(
+            Signal::parse(&spread, &mut 0).map_err(|e| e.1),
+            Err("a sequence has at most 64 numbers")
+        );
         for text in [
             "\"<0.1 [0 0.05]>\"",
             "\"1 [2 <3 ~>] 4\"",
@@ -1613,7 +1620,16 @@ mod tests {
         assert_eq!(lit("\"<0.1 [0 0.05]>\"", 1.75), [(Some((10, 4)), 2.0)]);
         assert_eq!(lit("\"<1 2>\".slow(2)", 1.5), [(Some((3, 1)), 2.0)]);
         assert_eq!(lit("\"0 1 2 3\".segment(2)", 0.3), [(Some((2, 1)), 0.5)]);
-        assert_eq!(lit("\"<1 2>\" * \"3 4\"", 0.6).len(), 2);
+        assert_eq!(
+            lit("\"<1 2>\" * \"3 4\"", 0.6),
+            [(Some((3, 1)), 1.0), (Some((14, 1)), 1.0)]
+        );
+        // Through fast, minus, range and lag, each number's own end.
+        assert_eq!(lit("\"<1 2>\".fast(2)", 0.75), [(Some((5, 1)), 1.0)]);
+        assert_eq!(lit("-\"<1 2>\"", 1.5), [(Some((6, 1)), 2.0)]);
+        assert_eq!(lit("\"<1 2>\".range(0, 9)", 0.5), [(Some((3, 1)), 1.0)]);
+        assert_eq!(lit("\"1 2\".lag(0.1)", 0.75), [(Some((4, 1)), 1.0)]);
+        assert!(lit("[1, 2, 3]", 0.5).is_empty());
         assert!(lit("sine.range(1, 2)", 0.5).is_empty());
     }
 
@@ -1769,6 +1785,8 @@ mod tests {
             ),
             ("\"<1 [2\"", 5, "this bracket is not closed"),
             ("\"1 ]\"", 4, "this bracket closes nothing"),
+            ("\"[1 2>\"", 6, "this bracket closes nothing"),
+            ("\"<1 2]\"", 6, "this bracket closes nothing"),
         ] {
             let mut n = 0;
             assert_eq!(Signal::parse(text, &mut n), Err((col, msg)), "{text}");

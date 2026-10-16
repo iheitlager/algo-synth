@@ -9,7 +9,9 @@
 //!
 //! The numbers of a mod's sequences (a parameter method's or a `mod` line's)
 //! are found the same way: the signal as typed is parsed again, and gets
-//! spans only when it prints as the song's does (#675).
+//! spans only when it prints as the song's does (#675); so are an `auto`'s
+//! values (#683). A clip's pattern-method values a bar (#676) are found
+//! after their `.name(`.
 //!
 //! Positions count UTF-16 units from the start of the text, as the editor's
 //! highlighting does (#203).
@@ -46,7 +48,7 @@ fn u16_len(s: &str) -> u32 {
     s.encode_utf16().count() as u32
 }
 
-/// Each clip's and mod's spans in `text`, a text that parses to `song`. One
+/// Each clip's, mod's and auto's spans in `text`, a text that parses to `song`. One
 /// whose line is not found gets none.
 pub fn spans(song: &Song, text: &str) -> SongSpans {
     // Each line with where it starts, in UTF-16 units.
@@ -134,10 +136,7 @@ fn auto_spans(a: &Auto, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
     let Some((base, line, w)) = found else {
         return Vec::new();
     };
-    let span = |word: &str| {
-        let at = offset(line, word);
-        Some((base + line.get(..at).map_or(0, u16_len), u16_len(word)))
-    };
+    let span = |word: &str| span16(base, line, offset(line, word)?, word.len());
     // The values: the words between `target.Param` and `/bars`.
     let values = w.get(4..w.len().saturating_sub(1)).unwrap_or(&[]);
     match &a.shape {
@@ -157,9 +156,10 @@ fn auto_spans(a: &Auto, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
             let (Some(first), Some(end)) = (values.first(), values.last()) else {
                 return Vec::new();
             };
-            let from = offset(line, first);
-            let to = offset(line, end) + end.len();
-            line.get(from..to)
+            let (Some(from), Some(to)) = (offset(line, first), offset(line, end)) else {
+                return Vec::new();
+            };
+            line.get(from..to + end.len())
                 .map_or_else(Vec::new, |text| numbers(sig, base, line, text, false))
         }
         Shape::Ramp(..) => Vec::new(),
@@ -168,8 +168,10 @@ fn auto_spans(a: &Auto, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
 
 /// The values of a clip's pattern methods a bar (#676) on its line as typed
 /// (starting at `base`), for each bar of the clip's `bars`: (tick, ticks,
-/// span), by tick. Only a method no later one moves in time, and not one
-/// inside `every`, `off` or `sometimes`: their bars are not the clip's.
+/// span), by tick. Only a method every later one leaves in place
+/// (`Pattern::pitch_only`: add, sub, oct, scale, chord), not one inside
+/// `every`, `off` or `sometimes`, and not on a live clip (its methods read
+/// the song's bar): their bars are not the clip's.
 fn method_spans(
     pattern: &[Pattern],
     bars: u32,
@@ -181,6 +183,8 @@ fn method_spans(
         return Vec::new();
     };
     let mut out = Vec::new();
+    // Calls already taken, so two methods written alike find one each.
+    let mut taken = Vec::new();
     for (i, p) in pattern.iter().enumerate() {
         let Pattern::PerBar(text, steps) = p else {
             continue;
@@ -194,26 +198,30 @@ fn method_spans(
         };
         let arg = arg.strip_suffix(')').unwrap_or(arg);
         let call = format!(".{name}(");
-        let Some(at) = methods.match_indices(&call).find_map(|(k, _)| {
+        let Some((k, at)) = methods.match_indices(&call).find_map(|(k, _)| {
             let inner = methods.get(k + call.len()..)?;
             let close = inner.find(')')?;
             let inside = inner.get(..close)?;
-            (inside.trim() == arg)
-                .then(|| offset(line, inside) + (inside.len() - inside.trim_start().len()))
+            (inside.trim() == arg && !taken.contains(&k))
+                .then(|| {
+                    Some((
+                        k,
+                        offset(line, inside)? + (inside.len() - inside.trim_start().len()),
+                    ))
+                })
+                .flatten()
         }) else {
             continue;
         };
+        taken.push(k);
         for b in 0..bars {
             let Some(parts) = steps.get(b as usize % steps.len()) else {
                 continue;
             };
             for part in parts.iter().filter(|p| p.to > p.from) {
-                let (from, len) = (at + part.at.0, part.at.1);
-                let span = (
-                    base + line.get(..from).map_or(0, u16_len),
-                    line.get(from..from + len).map_or(0, u16_len),
-                );
-                out.push((b * TICKS_PER_BAR + part.from, part.to - part.from, span));
+                if let Some(span) = span16(base, line, at + part.at.0, part.at.1) {
+                    out.push((b * TICKS_PER_BAR + part.from, part.to - part.from, span));
+                }
             }
         }
     }
@@ -221,9 +229,19 @@ fn method_spans(
     out
 }
 
-/// Where `inner`, a slice of `outer`, starts in it (bytes).
-fn offset(outer: &str, inner: &str) -> usize {
-    (inner.as_ptr() as usize).saturating_sub(outer.as_ptr() as usize)
+/// Where `inner` starts in `outer` (bytes), when it is a slice of it.
+fn offset(outer: &str, inner: &str) -> Option<usize> {
+    let at = (inner.as_ptr() as usize).checked_sub(outer.as_ptr() as usize)?;
+    (at + inner.len() <= outer.len()).then_some(at)
+}
+
+/// The span of bytes `from..from + len` of `line`, which starts at `base`,
+/// in UTF-16 units; none when they aren't in it, rather than a wrong one.
+fn span16(base: u32, line: &str, from: usize, len: usize) -> Option<(u32, u32)> {
+    Some((
+        base + u16_len(line.get(..from)?),
+        u16_len(line.get(from..from.checked_add(len)?)?),
+    ))
 }
 
 /// The numbers of mod `md`'s signal in its line as typed, by their index in
@@ -270,7 +288,7 @@ fn mod_spans(song: &Song, md: &Mod, lines: &[(u32, &str)]) -> Vec<Option<(u32, u
                 if target != song.target_name(md.target) || !named(param) {
                     return None;
                 }
-                body.get(offset(body, first)..)?
+                body.get(offset(body, first)?..)?
             }
         };
         Some((base, l, text, false))
@@ -303,7 +321,9 @@ fn numbers(
     if sig.to_string() != want.to_string() {
         return Vec::new();
     }
-    let at = offset(line, text);
+    let Some(at) = offset(line, text) else {
+        return Vec::new();
+    };
     let byte = |c: usize| text.char_indices().nth(c).map_or(text.len(), |(b, _)| b);
     (0..sig.numbers())
         .map(|v| {
@@ -312,10 +332,7 @@ fn numbers(
                 byte(c as usize - 1 - shift),
                 byte((c + l) as usize - 1 - shift),
             );
-            Some((
-                base + line.get(..at + from).map_or(0, u16_len),
-                text.get(from..to).map_or(0, u16_len),
-            ))
+            span16(base, line, at + from, to.checked_sub(from)?)
         })
         .collect()
 }
@@ -476,6 +493,36 @@ mod tests {
         let other = text.replace("1200", "1300").replace("\"0.1 .5\"", "sine");
         let s = spans(&song, &other);
         assert!(s.mods.iter().all(Vec::is_empty), "{:?}", s.mods);
+    }
+
+    /// #684 review: two methods written alike find one call each, and a
+    /// wide character on an earlier line moves every span by its UTF-16
+    /// length, not its bytes.
+    #[test]
+    fn method_values_find_their_own_call_in_utf16() {
+        let text = "# 🎵 groove\ntrack lead synth Juno106\nclip m = lead .add(\"<0 3>\") .add(\"<0 3>\")\n  \"c4\"\n";
+        let song = crate::song::Song::parse(text).expect("parses");
+        let m = &spans(&song, text).clips[0].methods;
+        let units: Vec<u16> = text.encode_utf16().collect();
+        let word =
+            |&(a, l): &(u32, u32)| String::from_utf16_lossy(&units[a as usize..(a + l) as usize]);
+        // Bar 1: both `0`s, at two places; bar 2: both `3`s.
+        let bar = |b: u32| -> Vec<(u32, String)> {
+            m.iter()
+                .filter(|x| x.0 / TICKS_PER_BAR == b)
+                .map(|x| (x.2.0, word(&x.2)))
+                .collect()
+        };
+        let (one, two) = (bar(0), bar(1));
+        assert_eq!(
+            one.iter().map(|x| x.1.as_str()).collect::<Vec<_>>(),
+            ["0", "0"]
+        );
+        assert_eq!(
+            two.iter().map(|x| x.1.as_str()).collect::<Vec<_>>(),
+            ["3", "3"]
+        );
+        assert_ne!(one[0].0, one[1].0, "two calls, two spans");
     }
 
     #[test]

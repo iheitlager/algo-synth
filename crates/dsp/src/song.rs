@@ -558,6 +558,8 @@ pub struct Auto {
 
 impl Auto {
     /// The value `steps` (fractional) into the lane; it loops on its length.
+    /// NaN where a `Seq` has a `~`: the engine then holds the lane's last
+    /// value.
     pub fn value_at(&self, steps: f64) -> f32 {
         let len = f64::from(self.bars) * STEPS_PER_BAR as f64;
         let phase = (steps.rem_euclid(len) / len).clamp(0.0, 1.0);

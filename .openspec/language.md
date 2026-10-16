@@ -641,8 +641,10 @@ and each part keeps the notes that land in it. On a `live` clip, `.add` and
 
 While the song plays, the value in force lights in the clip's line, for each
 bar and each part of a split one, while the clip plays. A method inside
-`every`, `off` or `sometimes`, or one before a method that moves notes in time
-(`.add(…) .fast(…)`), lights nothing: its bars are not the clip's.
+`every`, `off` or `sometimes`, one followed by any method but `.add`, `.sub`,
+`.oct`, `.scale` and `.chord` (`.add(…) .fast(…)`), and one on a `live` clip
+light nothing: their bars are not the clip's. A value a bar holds at most 64
+values, nested at most 32 deep.
 
 Write the harmony once and let other clips follow it: one edit to it moves
 them all at the same bar.
@@ -776,8 +778,9 @@ A sequence nests as Strudel's (#675): `[a b]` divides its share of time, `<a b>`
 takes one a cycle, and a `<…>` inside moves on only when it is picked.
 `.attack("<0.1 [0 0.05]>")` is 0.1 in bar 1, then 0 and 0.05 for the halves of
 bar 2; `"[0.1 0]"` is `"0.1 0"`. While the song plays, the number in force
-lights in the text, as a note does, while its clip plays: through `slow`,
-`fast`, `segment` and arithmetic, not inside a wave or a list.
+lights in the text, as a note does, while its clip plays and its track is
+heard: through `slow`, `fast`, `segment`, `range`, `lag` and arithmetic, not
+inside a wave or a list.
 
 ```song
 track kit drums
@@ -822,8 +825,9 @@ An automation lane of 1–256 bars: values (at most 64) spread evenly, each
 held for its share, or a linear ramp. Placed in scenes like a clip, it
 starts at the scene's first bar and loops inside it.
 
-A quoted sequence (#683) is a `mod`'s: one cycle a bar from the lane's start,
-`[ ]` dividing its share and `< >` one a bar, nesting; a `~` holds the lane's
+A quoted sequence (#683) is a `mod`'s: one cycle a bar from the lane's start
+(a `<…>` longer than the lane is cut at its end), `[ ]` dividing its share and
+`< >` one a bar, nesting; a `~` holds the lane's
 last value. `auto wob = lead.Cutoff "<300 [800 1200]>" /2` is 300 in bar 1 and
 800, 1200 in the halves of bar 2. While the lane plays, its value in force
 lights in the text, plain values each for its share.

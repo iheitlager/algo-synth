@@ -455,6 +455,10 @@ impl Pattern {
                             .into_iter()
                             .map(|(from, to, v)| {
                                 let at = (v.as_ptr() as usize).saturating_sub(a.as_ptr() as usize);
+                                debug_assert!(
+                                    at + v.len() <= a.len(),
+                                    "a value is a slice of its text"
+                                );
                                 Ok(Part {
                                     from,
                                     to,
@@ -1072,24 +1076,30 @@ fn alternate(line: &Line, n: u32, phase: u32, m: &Pattern) -> Result<Line, &'sta
 /// its part keeps those that land in it.
 fn by_bar(line: &Line, steps: &[Vec<Part>]) -> Result<Line, &'static str> {
     let n = u32::try_from(steps.len()).unwrap_or(1).max(1);
-    let mut changed = Vec::new();
-    for (k, parts) in (0..).zip(steps) {
-        for p in parts {
-            changed.push((k, p.from, p.to, p.method.apply(line)?));
+    // Each distinct method once, however many bars and parts it holds.
+    let mut methods: Vec<&Pattern> = Vec::new();
+    for p in steps.iter().flatten() {
+        if !methods.contains(&&p.method) {
+            methods.push(&p.method);
         }
     }
+    let changed = methods
+        .iter()
+        .map(|m| m.apply(line))
+        .collect::<Result<Vec<_>, _>>()?;
     let bars = changed
         .iter()
-        .fold(lcm(line.bars, n), |b, c| lcm(b, c.3.bars));
+        .fold(lcm(line.bars, n), |b, c| lcm(b, c.bars));
     check(bars, 0)?;
     let mut events = Vec::new();
-    for (k, from, to, c) in &changed {
-        events.extend(
-            c.repeat(bars)
-                .events
-                .into_iter()
-                .filter(|e| (e.start / BAR) % n == *k && (*from..*to).contains(&(e.start % BAR))),
-        );
+    for (m, c) in methods.iter().zip(&changed) {
+        events.extend(c.repeat(bars).events.into_iter().filter(|e| {
+            let x = e.start % BAR;
+            steps
+                .get(((e.start / BAR) % n) as usize)
+                .and_then(|parts| parts.iter().find(|p| p.from <= x && x < p.to))
+                .is_some_and(|p| p.method == **m)
+        }));
     }
     Ok(Line { events, bars })
 }
@@ -1108,12 +1118,23 @@ enum Tree<'a> {
     Turns(Vec<Tree<'a>>),
 }
 
-/// The items of `t` from byte `i` up to `close` (or the end).
+/// Deepest nesting of `[ ]` and `< >` in a value a bar, as in a signal.
+const MAX_TREE_DEPTH: u32 = 32;
+/// Most values in one value a bar, as in a signal's sequence.
+const MAX_TREE_VALUES: u32 = 64;
+
+/// The items of `t` from byte `i` up to `close` (or the end), `depth` deep;
+/// `values` counts the values read so far.
 fn tree_items<'a>(
     t: &'a str,
     i: &mut usize,
     close: Option<u8>,
+    depth: u32,
+    values: &mut u32,
 ) -> Result<Vec<Tree<'a>>, &'static str> {
+    if depth > MAX_TREE_DEPTH {
+        return Err("a value a bar nests at most 32 deep");
+    }
     let b = t.as_bytes();
     let mut out = Vec::new();
     loop {
@@ -1128,19 +1149,16 @@ fn tree_items<'a>(
                 return Ok(out);
             }
             // `[0,2,4]`: a stack, one value, as a chord is in a note line.
-            Some(b'[')
-                if t.get(*i..).and_then(|r| r.find(']')).is_some_and(|k| {
-                    t.get(*i + 1..*i + k)
-                        .is_some_and(|inner| inner.contains(',') && !inner.contains(['[', '<']))
-                }) =>
-            {
-                let k = t.get(*i..).and_then(|r| r.find(']')).unwrap_or(0);
-                out.push(Tree::Val(t.get(*i..=*i + k).ok_or(BAD_PER_BAR)?));
-                *i += k + 1;
+            // Looked for only up to the next bracket, so the scan stays linear.
+            Some(b'[') if stack_end(t, *i).is_some() => {
+                let k = stack_end(t, *i).unwrap_or(*i);
+                leaf(&mut out, t.get(*i..=k).ok_or(BAD_PER_BAR)?, values)?;
+                *i = k + 1;
             }
             Some(c @ (b'[' | b'<')) => {
                 *i += 1;
-                let inner = tree_items(t, i, Some(if c == b'[' { b']' } else { b'>' }))?;
+                let shut = Some(if c == b'[' { b']' } else { b'>' });
+                let inner = tree_items(t, i, shut, depth + 1, values)?;
                 if inner.is_empty() {
                     return Err(BAD_PER_BAR);
                 }
@@ -1159,10 +1177,28 @@ fn tree_items<'a>(
                 {
                     *i += 1;
                 }
-                out.push(Tree::Val(t.get(start..*i).ok_or(BAD_PER_BAR)?));
+                leaf(&mut out, t.get(start..*i).ok_or(BAD_PER_BAR)?, values)?;
             }
         }
     }
+}
+
+/// One more value, `v`, counted in `values`.
+fn leaf<'a>(out: &mut Vec<Tree<'a>>, v: &'a str, values: &mut u32) -> Result<(), &'static str> {
+    *values += 1;
+    if *values > MAX_TREE_VALUES {
+        return Err("a value a bar has at most 64 values");
+    }
+    out.push(Tree::Val(v));
+    Ok(())
+}
+
+/// Where the stack (`[0,2,4]`) opening at byte `i` closes: its `]`, when a
+/// comma comes before it and no other bracket does.
+fn stack_end(t: &str, i: usize) -> Option<usize> {
+    let rest = t.get(i + 1..)?;
+    let k = rest.find(['[', ']', '<', '>'])?;
+    (rest.as_bytes().get(k) == Some(&b']') && rest.get(..k)?.contains(',')).then_some(i + 1 + k)
 }
 
 impl<'a> Tree<'a> {
@@ -1190,8 +1226,12 @@ impl<'a> Tree<'a> {
             Tree::Val(v) => out.push((lo, hi, v)),
             Tree::Share(items) => {
                 let n = u32::try_from(items.len()).unwrap_or(1).max(1);
+                // Each part from the first tick at or past its share, so a
+                // note on a boundary that falls between ticks takes the part
+                // it is in.
+                let edge = |k: u32| lo + ((hi - lo) * k).div_ceil(n);
                 for (k, it) in (0..).zip(items) {
-                    it.parts(b, lo + (hi - lo) * k / n, lo + (hi - lo) * (k + 1) / n, out);
+                    it.parts(b, edge(k), edge(k + 1), out);
                 }
             }
             Tree::Turns(items) => {
@@ -1210,7 +1250,7 @@ impl<'a> Tree<'a> {
 /// so `<0 <1 -1>>` is 0 1 0 -1, as in Strudel.
 fn per_bar(text: &str) -> Result<Vec<Vec<Value<'_>>>, &'static str> {
     let mut i = 0;
-    let mut items = tree_items(text, &mut i, None)?;
+    let mut items = tree_items(text, &mut i, None, 0, &mut 0)?;
     let tree = match items.len() {
         0 => return Err(BAD_PER_BAR),
         1 => items.remove(0),
@@ -1465,6 +1505,27 @@ mod tests {
         let f = run("fast(\"1 2\")", &four());
         let at: Vec<u32> = f.events.iter().map(|e| e.start).collect();
         assert_eq!(at, [0, 12, 24, 30, 36, 42]);
+        // `ply` doubles only the second half's notes.
+        assert_eq!(run("ply(\"1 2\")", &four()).events.len(), 6);
+        // Five parts: each from the first tick at or past its share, as
+        // Strudel's boundaries at 9.6, 19.2, … fall between ticks.
+        let sixteenths = Line {
+            events: (0..16).map(|k| ev(k * 3, 3, 60)).collect(),
+            bars: 1,
+        };
+        let by: Vec<u8> = run("add(\"0 1 2 3 4\")", &sixteenths)
+            .events
+            .iter()
+            .map(|e| e.note - 60)
+            .collect();
+        assert_eq!(by, [0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4]);
+        // A live clip takes its part by the song's tick.
+        let p = Pattern::parse("add", "\"0 3\"").expect("parses");
+        let mut e = ev(0, 1, 60);
+        assert!(p.pitch(&mut e, 23));
+        assert_eq!(e.note, 60);
+        assert!(p.pitch(&mut e, 24));
+        assert_eq!(e.note, 63);
     }
 
     /// #629: a value a bar is the method with each value, bar by bar.
@@ -1527,11 +1588,31 @@ mod tests {
         ] {
             assert_eq!(Pattern::parse(name, text), Err(msg), "{name}({text})");
         }
+        // At most 64 values, nested or not, and 32 deep (#684 review).
+        let many = "at most 64 values";
         let long = format!("\"<{}>\"", vec!["1"; 65].join(" "));
-        assert_eq!(Pattern::parse("add", &long), Err(TOO_LONG));
-        // 33 turns of two: 66 bars before it comes round.
-        let nest = format!("\"<{}>\"", vec!["<1 2>"; 33].join(" "));
-        assert_eq!(Pattern::parse("add", &nest), Err(TOO_LONG));
+        assert_eq!(
+            Pattern::parse("add", &long).map_err(|e| e.contains(many)),
+            Err(true)
+        );
+        let spread = format!("\"{}\"", vec!["[1 1 1 1 1]"; 13].join(" "));
+        assert_eq!(
+            Pattern::parse("add", &spread).map_err(|e| e.contains(many)),
+            Err(true)
+        );
+        let deep = format!("\"{}1{}\"", "<".repeat(5000), ">".repeat(5000));
+        assert_eq!(
+            Pattern::parse("add", &deep),
+            Err("a value a bar nests at most 32 deep")
+        );
+        let open = format!("\"{}\"", "[".repeat(100_000));
+        assert!(
+            Pattern::parse("add", &open).is_err(),
+            "unclosed, and quickly"
+        );
+        // Turns of 7 and 13: 182 bars before it comes round.
+        let nest = "\"<<1 2 3 4 5 6 7> <1 2 3 4 5 6 7 8 9 10 11 12 13>>\"";
+        assert_eq!(Pattern::parse("add", nest), Err(TOO_LONG));
         // Within 64 bars, but sixteen times 48 notes on bar two.
         let wide = Line {
             events: (0..48).map(|k| ev(k, 1, 60)).collect(),

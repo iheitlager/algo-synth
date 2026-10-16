@@ -109,10 +109,11 @@ struct Pending {
     spans: SongSpans,
 }
 
-/// The most words lit at once (#205): notes and steps, and the numbers of
-/// the mods' sequences (#675).
+/// The most words lit at once (#205): notes and steps, the numbers of the
+/// mods' sequences (#675), pattern-method values (#676) and autos' (#683).
 pub const MAX_LIT: usize = 128;
-/// The most numbers of one mod lit at once: one per sequence in force (#675).
+/// The most numbers of one mod or auto lit at once: one per sequence in
+/// force (#675); more are not lit.
 const MAX_MOD_LIT: usize = 8;
 
 /// A word of the song's text that plays (#205): its span in UTF-16 units and
@@ -269,7 +270,8 @@ pub struct Engine {
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
     spent: Option<(Song, Vec<Live>, SongSpans)>,
-    /// Where the words of the song's text are, per clip (#205), the
+    /// Where the words of the song's text are: each clip's, each mod's and
+    /// auto's numbers (#205, #675, #683), the
     /// words playing now, and the spans handed out last (`lit_count`).
     spans: SongSpans,
     lit: [Lit; MAX_LIT],
@@ -2020,21 +2022,21 @@ impl Engine {
             if !self.song.heard(usize::from(track)) {
                 continue;
             }
-            // A pattern method's value for this part of the bar lights (#676).
+            // A pattern method's value for this part of the bar lights
+            // (#676): every part holding this tick, so one entered mid-way
+            // (a seek, a cue) lights too. Parts start at most a bar back.
             let methods = self.spans.clips.get(f).map_or(&[][..], |s| &s.methods[..]);
-            let mut k = methods.partition_point(|m| m.0 < local);
-            while let Some(&(_, len, span)) = self
-                .spans
-                .clips
-                .get(f)
-                .and_then(|s| s.methods.get(k))
-                .filter(|m| m.0 == local)
+            let mut k = methods.partition_point(|m| m.0 <= local);
+            while let Some(&(at, len, span)) = k
+                .checked_sub(1)
+                .and_then(|i| self.spans.clips.get(f)?.methods.get(i))
+                .filter(|m| m.0 + TICKS_PER_BAR > local)
             {
-                self.light(
-                    Some(span),
-                    (j + u64::from(len)) as f64 / TICKS_PER_STEP as f64,
-                );
-                k += 1;
+                if local < at + len {
+                    let until = j + u64::from(at + len - local);
+                    self.light(Some(span), until as f64 / TICKS_PER_STEP as f64);
+                }
+                k -= 1;
             }
             let first = self.first_event(f, local);
             for k in first.. {

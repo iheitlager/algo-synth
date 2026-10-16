@@ -1291,8 +1291,6 @@ fn automation_and_snapshots_parse_and_print() {
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
-/// ADR-0019: a parameter is named in any case, as `kit.bdtune` or
-/// `kit.BdTune`, and prints by its registry name.
 /// #683: an auto's values may be one quoted sequence, nesting as a mod's,
 /// one cycle a bar from the lane's start; a `~` holds the last value.
 #[test]
@@ -1340,6 +1338,8 @@ fn an_auto_takes_a_nested_sequence() {
     }
 }
 
+/// ADR-0019: a parameter is named in any case, as `kit.bdtune` or
+/// `kit.BdTune`, and prints by its registry name.
 #[test]
 fn a_parameter_name_is_read_in_any_case() {
     let lower = AUTOMATED
