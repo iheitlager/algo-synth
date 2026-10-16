@@ -1,0 +1,167 @@
+# Rain and Bells: physical models in the Modular, no samples (#704).
+#
+# Rain is van den Doel's liquid sound: each drop a bubble, a resonator struck
+# once, pitched by its size (Minnaert) and its pitch rising as it rings, at
+# random gaps; a patter of surface ticks and a distant wash beneath. The
+# cathedral bell is a tuned bell's partials, hum, prime, minor-third tierce,
+# quint, nominal and up, each a beating pair as an out-of-round bell's are,
+# struck by a clapper whose hardness brightens it. The chimes are five tubes
+# of free-free bars hung in a row, struck by the wind's gusts. The vector bell
+# puts four bells at a joystick's corners, a modal bell, Chowning's FM bell,
+# a singing bowl and a gamelan bonang, and moves the joystick over each note's
+# life, as a Prophet VS or a Wavestation would; the DX7's FmBell doubles it.
+# Needs no sample packs.
+tempo 60
+setting cathedral = Modular ModularBasic: Polyphony 3
+  SynthDef(\cathedral, { |freq = 440, gate = 1, amp = 0.8, ring = 1, warble = 1, hard = 0.6|
+      // A tuned bell's partials against its strike note (the nominal), hum to the
+      // upper quint; each a doublet, the two halves of an out-of-round mode.
+      var ratios = [0.25, 0.5, 0.5915, 0.753, 1, 1.257, 1.331, 1.5055, 2.083, 2.7165, 3.398, 4.1075];
+      var amps = [0.5, 0.45, 0.7, 0.25, 1, 0.35, 0.3, 0.4, 0.3, 0.2, 0.12, 0.08];
+      var times = [9, 6, 5, 3.5, 4, 2.6, 2.4, 2, 1.4, 1, 0.75, 0.55];
+      var split = [0.0016, 0.0011, 0.0022, 0.0007, 0.0013, 0.0018, 0.0009, 0.0012, 0.0008, 0.001, 0.0006, 0.0007] * warble;
+      // The clapper: a smooth pulse, its width the clapper's hardness; harder
+      // and louder is brighter. A breath of noise for the metal's clank.
+      var bright = freq * (2 ** (1 + (hard * 5))) * (0.4 + amp);
+      var strike = (LPF.ar(Impulse.ar(0), bright.min(16000)) * 4) + (WhiteNoise.ar * EnvGen.kr(Env.perc(0.0003, 0.004), gate) * 0.02);
+      var lo = DynKlank.ar(`[ratios * (1 - split), amps / times, times * ring], strike, freq);
+      var hi = DynKlank.ar(`[ratios * (1 + split), amps / times, times * ring], strike, freq);
+      [(lo * 0.6) + (hi * 0.4), (lo * 0.4) + (hi * 0.6)] * 0.1 * EnvGen.kr(Env.asr(0.0001, 1, 12), gate)
+  }).add;
+setting vbell = Modular ModularBasic: Polyphony 6
+  SynthDef(\vbell, { |freq = 440, gate = 1, amp = 0.8, vx = 0.5, vy = 0.5, travel = 0.5, hard = 0.5|
+      var strike = LPF.ar(Impulse.ar(0), (freq * (2 ** (1 + (hard * 5))) * (0.4 + amp)).min(16000)) * 4;
+      // A: a tuned bell's modes, hum to upper octave.
+      var ar = [0.25, 0.5, 0.5915, 0.753, 1, 1.257, 1.5055, 2.083, 2.7165, 3.398];
+      var at = [8, 5, 4.5, 3, 4, 2.5, 2, 1.4, 1, 0.75];
+      var a = DynKlank.ar(`[ar, [0.5, 0.45, 0.7, 0.25, 1, 0.35, 0.4, 0.3, 0.2, 0.12] / at, at], strike, freq);
+      // B: Chowning's FM bell, carrier to modulator 1 : 1.4, the index falling with the ring.
+      var ix = EnvGen.kr(Env.perc(0.001, 5, 1, -4), gate) * 9;
+      var b = PMOsc.ar(freq, freq * 1.4, ix) * EnvGen.kr(Env.perc(0.001, 8, 1, -5), gate);
+      // C: a singing bowl, beating pairs that swell after the strike.
+      var c = DynKlang.ar(`[[1, 1.004, 2.71, 2.716, 5.12, 5.13], [1, 0.8, 0.5, 0.45, 0.2, 0.15], nil], freq * 0.5) * EnvGen.kr(Env([0, 1, 0], [0.6, 7], [2, -3]), gate) * 0.3;
+      // D: a gamelan bonang, its inharmonic gong modes, short and bright.
+      var dr = [1, 1.52, 2.83, 3.46, 4.5, 6.1];
+      var dt = [2.5, 1.8, 1.2, 1, 0.6, 0.4];
+      var d = DynKlank.ar(`[dr, [1, 0.6, 0.5, 0.45, 0.3, 0.2] / dt, dt], strike, freq);
+      // The vector: vx, vy place the joystick; travel sends it on a path over the note.
+      var x = (vx + (travel * EnvGen.kr(Env([0, 0.9, -0.2], [0.35, 4], [-2, 1]), gate))).clip(0, 1);
+      var y = (vy + (travel * EnvGen.kr(Env([0, 0, 0.9], [0.3, 3.5], [0, -1]), gate))).clip(0, 1);
+      // Each corner its place: the bell in the middle, FM left, bowl right, gong
+      // right of centre, so the vector moves across the field too.
+      var wa = (1 - x) * (1 - y);
+      var wb = x * (1 - y);
+      var wc = (1 - x) * y;
+      var wd = x * y;
+      var l = (a * wa * 0.71) + (b * wb * 0.89) + (c * 3 * wc * 0.45) + (d * 1.2 * wd * 0.6);
+      var r = (a * wa * 0.71) + (b * wb * 0.45) + (c * 3 * wc * 0.89) + (d * 1.2 * wd * 0.8);
+      [l, r] * 0.17 * EnvGen.kr(Env.asr(0.0001, 1, 6), gate)
+  }).add;
+setting chimes = Modular ModularBasic
+  SynthDef(\chimes, { |freq = 440, gate = 1, wind = 1, ring = 1|
+      var gust = LFNoise1.kr(0.15).range(0.15, 1) * wind;
+      var tubes = Array.fill(5, { |k|
+          var th = 1 - (gust * 0.0018);
+          var hit = ((LFNoise0.ar(2500 + (k * 311)) - th).max(0) / (1 - th)).squared;
+          DynKlank.ar(`[[1, 2.756, 5.404], [1 / 3, 0.5 / 1.2, 0.25 / 0.5], [3, 1.2, 0.5] * ring], hit, freq * [1, 1.125, 1.25, 1.5, 1.667].at(k))
+      });
+      // Hung in a row, left to right: equal-power gains for each tube.
+      var l = Mix(tubes * [0.988, 0.891, 0.707, 0.454, 0.156]);
+      var r = Mix(tubes * [0.156, 0.454, 0.707, 0.891, 0.988]);
+      [l, r] * 0.5 * EnvGen.kr(Env.asr(0.5, 1, 4), gate)
+  }).add;
+setting rain = Modular ModularBasic
+  SynthDef(\rain, { |freq = 440, gate = 1, density = 3, size = 1, chirp = 0.012, patter = 0.5, wash = 0.1|
+      var drops = Array.fill(12, { |k|
+          var rate = LFNoise0.kr(density * 1.7).exprange(0.25, 3) * density;
+          var saw = LFSaw.ar(rate);
+          var click = saw - saw.lag(0.0003);
+          var f0 = Latch.ar(WhiteNoise.ar, saw.neg).exprange(800, 4500) / size;
+          var hit = Latch.ar(WhiteNoise.ar, saw.neg).abs.cubed;
+          var t = (saw * 0.5 + 0.5) / rate;
+          var d = (f0 * 0.043) + ((f0 ** 1.5) * 0.0014);
+          Ringz.ar(click * hit, f0 * (1 + (chirp * f0 * t)), 6.9 / d) + (click * hit * patter * 0.02)
+      });
+      var pl = [0.99, 0.95, 0.89, 0.81, 0.71, 0.6, 0.48, 0.36, 0.24, 0.13, 0.05, 0.6];
+      var pr = [0.13, 0.31, 0.46, 0.59, 0.71, 0.8, 0.88, 0.93, 0.97, 0.99, 1, 0.8];
+      var dust = { |seed| (LFNoise0.ar(9000 + seed).max(0.994) - 0.994) * 160 * WhiteNoise.ar };
+      var tick = [BPF.ar(dust.(0), 3500, 1.2), BPF.ar(dust.(317), 3900, 1.2)] * patter;
+      var bed = [LPF.ar(HPF.ar(WhiteNoise.ar, 300), 2200), LPF.ar(HPF.ar(WhiteNoise.ar, 280), 2000)] * LFNoise1.kr(0.25).range(0.6, 1) * wash;
+      (([Mix(drops * pl), Mix(drops * pr)] * 0.5) + tick + bed) * EnvGen.kr(Env.asr(1.5, 1, 3), gate)
+  }).add;
+setting vpad = Modular ModularBasic: Polyphony 10
+  SynthDef(\vpad, { |freq = 220, gate = 1, amp = 0.6, vx = 0.5, vy = 0.5, orbit = 0.5, cutoff = 1800|
+      // A: drawbars, sub to the third harmonic.
+      var a = Klang.ar(`[[0.5, 1, 2, 3, 4, 6], [0.4, 0.6, 0.35, 0.2, 0.12, 0.06], nil], freq);
+      // B: two saws a few cents apart through a Prophet-5 ladder.
+      var b = MoogFF.ar(Saw.ar(freq * 0.997) + Saw.ar(freq * 1.004), cutoff, 1.2, voicing: \prophet5) * 0.5;
+      // C: a choir of singing bowls, beating pairs.
+      var c = DynKlang.ar(`[[1, 1.003, 2, 2.006, 2.71, 2.72], [0.6, 0.5, 0.35, 0.3, 0.2, 0.16], nil], freq);
+      // D: soft glass, FM at 1 : 3 with a slowly breathing index.
+      var d = PMOsc.ar(freq, freq * 3, SinOsc.kr(0.23).range(0.4, 1.6)) * 0.5;
+      // The vector envelope: once round the square over the chord's life,
+      // A to B to D to C, and the knobs' centre wherever the song puts it.
+      var ex = EnvGen.kr(Env([0, 1, 1, 0, 0], [2, 2, 2, 2], [1, 0, -1, 0]), gate) - 0.5;
+      var ey = EnvGen.kr(Env([0, 0, 1, 1, 0], [2, 2, 2, 2], [0, 1, 0, -1]), gate) - 0.5;
+      var x = (vx + (orbit * ex)).clip(0, 1);
+      var y = (vy + (orbit * ey)).clip(0, 1);
+      var wa = (1 - x) * (1 - y);
+      var wb = x * (1 - y);
+      var wc = (1 - x) * y;
+      var wd = x * y;
+      var l = (a * 1 * wa * 0.8) + (b * 3.5 * wb * 0.6) + (c * 1 * wc * 0.45) + (d * 1.6 * wd * 0.9);
+      var r = (a * 1 * wa * 0.6) + (b * 3.5 * wb * 0.8) + (c * 1 * wc * 0.9) + (d * 1.6 * wd * 0.45);
+      [l, r] * amp * 0.3 * EnvGen.kr(Env.asr(1.5, 1, 4), gate)
+  }).add;
+track rain synth rain
+track chimes synth chimes
+track bell synth cathedral
+track vbell synth vbell
+track fm synth Dx7 FmBell
+track pad synth vpad
+strip rain: Level 0.9, Send2 0.25
+strip chimes: Level 0.4, Send1 0.2, Send2 0.45
+strip bell: Level 0.8, Send1 0.15, Send2 0.5
+strip vbell: Level 0.65, Send1 0.35, Send2 0.5
+strip fm: Level 0.12, Send1 0.5, Send2 0.7
+strip pad: Level 0.6, Send1 0.25, Send2 0.55
+# A large, dark stone space, and an echo of a second bouncing left and right.
+master: ReverbSize 7, ReverbCutoff 5000, EchoTime 1, EchoFeedback 0.55, P1D 1
+
+clip storm = rain
+  "c4@4"
+
+# Each toll from another place in the tower.
+clip toll = bell .pan("<-0.5 0.4 -0.2 0.6>")
+  "<c4 g3 eb4 bb3>"
+
+clip gust = chimes
+  "c5@4"
+
+# The joystick starts near the modal bell; each note's own path carries it
+# through the FM strike and the bowl's bloom, from a place of its own. Few
+# notes, unevenly placed, drifting across the field.
+clip tune = vbell .vx(rand.onNote.range(0, 0.4)) .vy(rand.onNote.range(0, 0.3)) .travel("<0.5 0.8 1 0.65>") .pan(sine.slow(6).range(-0.8, 0.8))
+  "eb5 ~ ~ ~ ~ g5 ~ ~ ~ ~ ~ <c5 bb4> ~ ~ ~ ~"
+
+# The DX7 far off: a high bell every other bar, wandering, mostly echo.
+clip fmtune = fm .pan(perlin.slow(3).range(-0.9, 0.9))
+  "<~ [~ ~ g6 ~] ~ [~ bb5 ~ ~]>"
+
+# A slow progression, each chord two bars: the joystick circles the four
+# pads (drawbars, Prophet saws, singing bowls, FM glass) once per chord,
+# while the lanes carry its centre from the drawbars toward the glass.
+clip chords = pad .orbit(0.9) .pan(sine.slow(12).range(-0.5, 0.5)) .slow(2)
+  "<[c3,g3,eb4] [ab2,eb3,c4] [f2,c3,ab3] [g2,d3,bb3]>"
+
+auto rising = rain.density ramp 1 4 /2
+auto drift = pad.vx ramp 0.2 0.8 /8
+auto lift = pad.vy ramp 0.15 0.85 /8
+
+scene rain 2: storm rising
+scene toll 4: storm toll
+scene chimes 4: storm toll gust
+scene morph 8: storm chords drift lift gust
+scene vector 4: storm tune fmtune chords
+scene all 4: storm toll gust tune fmtune chords
+arrange rain toll chimes morph vector all

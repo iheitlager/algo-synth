@@ -35,3 +35,4 @@ clip back = jazzr fwd .rev()
 
 scene play 2: mel low fwd back
 arrange play
+loop 1 2
