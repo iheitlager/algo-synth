@@ -977,7 +977,10 @@ impl Pool {
                 PolyVoice::La(l) => l.render(&ctx, out),
                 PolyVoice::Fm(f) => f.render(&ctx, out),
                 PolyVoice::Drum(d) => d.render(ctx.sine, ctx.blep, out),
-                PolyVoice::Sampler(v) => v.render(&ctx, tools.samples, tools.zones, out),
+                PolyVoice::Sampler(v) => {
+                    v.set = *set;
+                    v.render(&ctx, tools.samples, tools.zones, out);
+                }
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
                 PolyVoice::Graph(g) => g.render(&ctx, st, out, right.as_deref_mut()),

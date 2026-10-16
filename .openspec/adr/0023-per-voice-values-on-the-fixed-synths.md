@@ -1,6 +1,6 @@
 # 0023: Per-voice values on the fixed synths
 
-**Status:** Accepted · **Date:** 2026-10-06
+**Status:** Accepted, amended by ADR-0038 · **Date:** 2026-10-06
 
 ## Context
 
@@ -13,10 +13,14 @@ ADR-0019's signals run at control rate and write one value per synth: every voic
 - **Per-voice signals.** ADR-0019's signals gain `env(adsr)`, `env(perc)` and `env(a, d, s, r)` (seconds), and `[a, b, …]`, as ADR-0021 writes them: a list is a number per voice, `lfo([1, 3])` a rate per voice. A signal using either is per voice; every other signal stays per synth and is unchanged.
 - **Envelopes from the times of the note.** The pool counts, per voice slot, the frames since its note began and since its key was let go; a new note on the slot starts both again. The envelope is a function of those two times, so it keeps no state and lands in the same place every render: a straight attack, then a decay and a release that fall 60 dB over their times, the release from where the held envelope was. A note that takes a slot still ringing starts from 0. `env(adsr)` follows the synth's amplifier ADSR; `perc` is ADR-0021's (2 ms, 0.3 s, 0, 0.3 s). It is unipolar, so `.exprange(200, 4000)` maps 0..1 (ADR-0021's polarity).
 - **Lists by voice slot.** Voice slot *i* of the pool takes number *i* round the list, as in the Modular voice (ADR-0021), so a chord spreads across the list and a stolen voice keeps its slot's number.
-- **An override table, absolute values.** Each voice slot holds a mask and a value for each of eight parameters: `Cutoff`, `Resonance`, `Vco1Level`, `Vco2Level`, `Vco3Level`, `NoiseLevel`, `RingLevel` and `SubLevel`, in the parameter's units, clamped and converted as `set_param` does (cutoff to a note). An overridden parameter is that voice's value under ADR-0019's write-over rule; the synth's value is never written, so when the modulation stops the mask clears and the voices read the synth's value again: nothing to put back.
+- **An override table, absolute values.** Each voice slot holds a mask and a value for each of ten continuous parameters: `Cutoff`, `Resonance`, `Vco1Level`, `Vco2Level`, `Vco3Level`, `NoiseLevel`, `RingLevel`, `SubLevel`, and the wavetable positions `Wt1Pos` and `Wt2Pos`, which came later. They are held in the parameter's units, clamped and converted as `set_param` does (cutoff to a note). An overridden parameter is that voice's value under ADR-0019's write-over rule; the synth's value is never written, so when the modulation stops the mask clears and the voices read the synth's value again: nothing to put back.
 - **Only those parameters, only Mono and Poly.** A per-voice signal on another parameter, on a strip, group or master, or on a track whose model is known and is not a Mono or Poly synth, is a parse error with its column. If the synth's model changes under the song, the voices of the new model don't read the table and the modulation has no effect. The Modular voice writes `env` and lists in its graph (ADR-0021).
 - **No `.lag` in a per-voice signal.** A lag keeps one state for the song (ADR-0019); per voice it would need a state per voice. It is a parse error there.
 - **Timing.** The values are evaluated once per block after the per-synth modulations, so a note that starts inside a block takes its own value from the next block, within 2.7 ms; the filter's cutoff follower (2 ms) and the level ramp of #271 smooth the step. The voice reads the table once per render call.
+
+### Amendment (ADR-0038)
+
+The table gains the amplifier's four envelope times, `AdsrAttack`, `AdsrDecay`, `AdsrSustain` and `AdsrRelease`, held in seconds, for fourteen in all. A clip's `.attack`, `.decay`, `.sustain` and `.release` are sampled at each note's tick and written for the voices that note pressed, not once per block. The voice reads attack and decay when its envelope starts, the sustain while the key is held, and the release when the key goes up. The multisampler's voices read these four from the table too.
 
 ## Consequences
 

@@ -4207,3 +4207,40 @@ fn a_step_edit_turns_a_beat_line_into_lanes() {
     );
     assert_eq!(Song::parse(&text), Ok(s));
 }
+
+/// ADR-0038: on a clip, the four envelope times are held per note; a `mod`
+/// line's are not. Written as numbers, a time is 0 to 10 seconds and a
+/// sustain 0 to 1, checked where the signal is written.
+#[test]
+fn envelope_times_on_a_clip_are_held_per_note() {
+    let text = "track pad synth Juno106\n\
+        clip r = pad .attack(\"0.1 0\") .dec(0.2) .sustain(\"<1 0.5>\") .rel(rand.range(0.1, 2)) .cutoff(\"400 900\")\n  \"c2 [d#3,g3]\"\n\
+        mod pad.attack = 0.3\n";
+    let s = Song::parse(text).expect("parses");
+    let held: Vec<(Param, bool)> = s.mods.iter().map(|m| (m.param, m.on_note())).collect();
+    assert_eq!(
+        held,
+        [
+            (Param::AdsrAttack, true),
+            (Param::AdsrDecay, true),
+            (Param::AdsrSustain, true),
+            (Param::AdsrRelease, true),
+            (Param::Cutoff, false),
+            (Param::AdsrAttack, false),
+        ]
+    );
+    assert_eq!(Song::parse(&s.print()), Ok(s));
+    for (methods, col, msg) in [
+        (".attack(12)", 22, "an envelope time is 0 to 10 seconds"),
+        (
+            ".release(\"0.1 -1\")",
+            23,
+            "an envelope time is 0 to 10 seconds",
+        ),
+        (".sus(\"1 1.5\")", 19, "a sustain is 0 to 1"),
+    ] {
+        let text = format!("track pad synth Juno106\nclip r = pad {methods}\n  \"c2\"\n");
+        let err = Song::parse(&text).expect_err(methods);
+        assert_eq!((err.line, err.col, &*err.msg), (2, col, msg), "{methods}");
+    }
+}

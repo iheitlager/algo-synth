@@ -5924,6 +5924,137 @@ fn a_signal_held_per_note() {
     );
 }
 
+/// ADR-0038 (#651): `"c2 ~ [d#3,g3] ~"` with `.attack("0.1 0")`: the root
+/// swells and the chord starts at once, on a Mono-voice synth and on the
+/// sampler. At 97 BPM the chord's tick falls inside a block, where a value
+/// taken at the block's start was the step before's.
+#[test]
+fn each_note_takes_the_attack_of_its_tick() {
+    let methods = ".attack(\"0.1 0\") .sustain(1) .release(0.01)";
+    // From a note's start, the first 10 ms against 150–250 ms in.
+    let ratio = |left: &[f32], at: usize| {
+        let early = level(&left[at..at + 480]);
+        let late = level(&left[at + 7_200..at + 12_000]);
+        early / late.max(1e-9)
+    };
+    let chord = (2.0 * 60.0 / 97.0 * 48_000.0_f64).round() as usize;
+    assert_ne!(chord % BLOCK, 0, "the chord starts inside a block");
+    let juno = {
+        let text = format!(
+            "tempo 97\ntrack pad synth Juno106\nclip r = pad {methods}\n  \"c2 ~ [d#3,g3] ~\"\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        left_of(&mut e, 1.6)
+    };
+    let sampler = {
+        let text = format!(
+            "tempo 97\ntrack keys sampler Sampler SamplerKeys\nclip r = keys {methods}\n  \"c2 ~ [d#3,g3] ~\"\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        let s = e.song_routed(0).expect("routed");
+        let tone: Vec<f32> = (0..96_000).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+        let wav = crate::sample::test_wav(48_000, &tone, None);
+        e.sample_buffer(wav.len())
+            .expect("fits")
+            .copy_from_slice(&wav);
+        e.load_sample(0).expect("loads");
+        e.set_zone(s, 0, ZoneField::Sample, 0.0);
+        e.song_play();
+        left_of(&mut e, 1.6)
+    };
+    for (name, left) in [("Juno-106", juno), ("sampler", sampler)] {
+        assert!(left.iter().all(|v| v.is_finite()), "{name}");
+        let (root, stab) = (ratio(&left, 0), ratio(&left, chord));
+        assert!(root < 0.3, "{name}: the root swells, {root}");
+        assert!(stab > 0.6, "{name}: the chord starts at once, {stab}");
+    }
+}
+
+/// ADR-0038: a note keeps its own sustain and release while the next note
+/// takes its own, and the synth's are left as they were.
+#[test]
+fn overlapping_notes_keep_their_own_envelope_times() {
+    let text = "tempo 120\ntrack pad synth Juno106\n\
+        clip r = pad .sus(\"1 0.2\") .rel(\"3 0.05\")\n  \"c3 e3\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let synth = (
+        e.param_value(s, Param::AdsrSustain),
+        e.param_value(s, Param::AdsrRelease),
+    );
+    e.song_play();
+    // Into e3, while c3 still releases.
+    left_of(&mut e, 1.2);
+    let held: Vec<(Option<f32>, Option<f32>)> = (0..MAX_VOICES)
+        .filter(|i| e.pools[s].voice_times(*i, 48_000.0).is_some())
+        .map(|i| {
+            (
+                e.pools[s].voice_value(i, Param::AdsrSustain),
+                e.pools[s].voice_value(i, Param::AdsrRelease),
+            )
+        })
+        .collect();
+    assert!(
+        held.contains(&(Some(1.0), Some(3.0))),
+        "c3 rings on: {held:?}"
+    );
+    assert!(held.contains(&(Some(0.2), Some(0.05))), "e3: {held:?}");
+    assert_eq!(
+        (
+            e.param_value(s, Param::AdsrSustain),
+            e.param_value(s, Param::AdsrRelease)
+        ),
+        synth,
+        "the synth's own are left"
+    );
+}
+
+/// ADR-0038: a strummed note and a grace are pressed off their tick, from
+/// the hit queue, and take their tick's value on their own voices.
+#[test]
+fn strummed_and_grace_notes_hold_their_own_attack() {
+    for (notes, strum) in [("\"[c3,e3,g3]\"", ".strum(40)"), ("\"c3 e3^u\"", "")] {
+        let line = format!("{notes} {strum}");
+        let text = format!(
+            "tempo 120\ntrack pad synth Juno106\nclip r = pad {strum} .attack(\"0.3 0.02\")\n  {notes}\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()), "{text}");
+        let s = e.song_routed(0).expect("routed");
+        e.song_play();
+        let sounding = |e: &Engine| {
+            let mut v: Vec<Option<f32>> = (0..MAX_VOICES)
+                .filter(|i| {
+                    e.pools[s]
+                        .voice_times(*i, 48_000.0)
+                        .is_some_and(|(_, off)| off.is_none())
+                })
+                .map(|i| e.pools[s].voice_value(i, Param::AdsrAttack))
+                .collect();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            v
+        };
+        if strum.is_empty() {
+            // The grace before e3 and e3 itself, early in the second half.
+            left_of(&mut e, 1.1);
+            let held = sounding(&e);
+            assert!(
+                !held.is_empty() && held.iter().all(|v| *v == Some(0.02)),
+                "{line}: {held:?}"
+            );
+        } else {
+            left_of(&mut e, 0.2);
+            assert_eq!(sounding(&e), [Some(0.3); 3], "{line}");
+        }
+    }
+}
+
 /// Spec 010 Req 12: a lock on a table position holds for its step, and a `~`
 /// gives the synth's own back.
 #[test]
