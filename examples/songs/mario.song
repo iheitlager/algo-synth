@@ -1,0 +1,167 @@
+# Super Mario Bros. overworld theme (Koji Kondo), after Flowhacker's Strudel
+# transcription. One 2A03 channel a track, as the cartridge plays it: two
+# 50 % pulses on decay envelopes, the triangle gated by its linear counter,
+# and NesKit's noise for the hats. Then, as in tetris.song, the same piece
+# again in hi-fi: a Minimoog lead and bass, a Juno pluck on the second voice
+# and a sampled Yamaha RM50. The RM50 kit comes from `make samples`.
+tempo 200
+
+setting sq1 = Nes NesLead: Polyphony 1, NesP1Duty 2, NesP1Volume 4, NesP1Decay 1, NesP2On 0, NesVibrato 0
+setting sq2 = Nes NesLead: Polyphony 1, NesP1Duty 2, NesP1Volume 4, NesP1Decay 1, NesP2On 0, NesVibrato 0
+setting tri = Nes NesBass: NesTriLength 14
+
+track sq1 synth sq1
+track sq2 synth sq2
+track tri synth tri
+track noise drums Nes NesKit
+track hilead synth Minimoog MiniLead
+track hiharm synth Juno106 JunoPluck
+track hibass synth Minimoog MiniBass
+track kit drums PadSampler
+samples kit yamaha-rm50
+
+strip sq1: Level 1, Pan -0.15
+strip sq2: Level 0.85, Pan 0.15
+strip tri: Level 1
+strip noise: Level 0.7
+strip hilead: Level 0.9, Pan -0.1, Send1 0.25, Send2 0.2
+strip hiharm: Level 0.9, Pan 0.2, Send2 0.3
+strip hibass: Level 0.75
+strip kit: Level 0.75, Send2 0.1
+master: P1Type Echo, P1A 0.375, P1B 0.3, P1Return 0.2, P2Type Reverb, P2A 0.6, P2Return 0.3
+
+clip sq1_intro = sq1
+  "< [[e5 e5] [~ e5] [~ c5] [e5 ~]] [[g5 ~] [~ ~] [g4 ~] [~ ~]] >"
+clip sq2_intro = sq2
+  "< [[f#4 f#4] [~ f#4] [~ f#4] [f#4 ~]] [[b4 ~] [~ ~] [~ ~] [~ ~]] >"
+clip tri_intro = tri
+  "< [[d3 d3] [~ d3] [~ d3] [d3 ~]] [[g4 ~] [~ ~] [g3 ~] [~ ~]] >"
+clip sq1_A = sq1
+  "< [[c5 ~] [~ g4] ~ [e4 ~]] [[~ a4] [~ b4] [~ a#4] [a4 ~]] [[g4 e5 g5] [[a5@3 ~] [f5 g5]]] [[~ e5] [~ c5] [d5 b4] ~] >"
+clip sq2_A = sq2
+  "< [[e4 ~] [~ c4] ~ [g3 ~]] [[~ c4] [~ d4] [~ c#4] [c4 ~]] [[c4 g4 b4] [[c5@3 ~] [a4 b4]]] [[~ a4] [~ e4] [f4 d4] ~] >"
+clip tri_A = tri
+  "< [[g3 ~] [~ e3] ~ [c3 ~]] [[~ f3] [~ g3] [~ f#3] [f3 ~]] [[e3 c4 e4] [[f4@3 ~] [d4 e4]]] [[~ c4] [~ a3] [b3 g3] ~] >"
+clip sq1_B = sq1
+  "< [~ [g5 f#5] [f5 d#5] [~ e5]] [[~ g#4] [a4 c5] [~ a4] [c5 d5]] [~ [g5 f#5] [f5 d#5] [~ e5]] [[~ c6] [~ c6] [c6 ~] ~] >"
+clip sq2_B = sq2
+  "< [~ [e5 d#5] [d5 b4] [~ c5]] [[~ e4] [f4 g4] [~ c4] [e4 f4]] [~ [e5 d#5] [d5 b4] [~ c5]] [[~ f5] [~ f5] [f5 ~] ~] >"
+clip tri_B = tri
+  "< [[c3 ~] [~ g3] [~ ~] [c4 ~]] [[f3 ~] [~ c4] [c4 ~] [f3 ~]] [[c3 ~] [~ g3] [~ b3] [c4 ~]] [[~ g5] [~ g5] [g5 ~] [g3 ~]] >"
+clip sq1_B2 = sq1
+  "< [~ [g5 f#5] [f5 d#5] [~ e5]] [[~ g#4] [a4 c5] [~ a4] [c5 d5]] [[~ ~] [d#5 ~] [~ d5] ~] [c5 ~ ~ ~] >"
+clip sq2_B2 = sq2
+  "< [~ [e5 d#5] [d5 b4] [~ c5]] [[~ e4] [f4 g4] [~ c4] [e4 f4]] [[~ ~] [g#4 ~] [~ f4] ~] [e4 ~ ~ ~ ] >"
+clip tri_B2 = tri
+  "< [[c3 ~] [~ g3] [~ ~] [c4 ~]] [[f3 ~] [~ c4] [c4 ~] [f3 ~]] [[c3 ~] [g#3 ~] [~ a#3] ~] [[c4 ~] [~ g3] [g3 ~] [c3 ~]] >"
+clip sq1_C = sq1
+  "< [[c5 c5] [~ c5] [~ c5] [d5 ~]] [[e5 c5] [~ a4] [g4 ~] [~ ~]] [[c5 c5] [~ c5] [~ c5] [d5 e5]] [~] >"
+clip sq2_C = sq2
+  "< [[g#4 g#4] [~ g#4] [~ g#4] [a#4 ~]] [[g4 e4] [~ e4] [c4 ~] [~ ~]] [[g#4 g#4] [~ g#4] [~ g#4] [a#4 g4]] [~] >"
+clip tri_C = tri
+  "< [[g#2 ~] [~ d#3] [~ ~] [g#3 ~]] [[g3 ~] [~ c3] [~ ~] [g2 ~]] [[g#2 ~] [~ d#3] [~ ~] [g#3 ~]] [[g3 ~] [~ c3] [~ ~] [g2 ~]] >"
+clip sq1_C2 = sq1
+  "< [[c5 c5] [~ c5] [~ c5] [d5 ~]] [[e5 c5] [~ a4] [g4 ~] [~ ~]] [[e5 e5] [~ e5] [~ c5] [e5 ~]] [[g5 ~] [~ ~] [g4 ~] [~ ~]] >"
+clip sq2_C2 = sq2
+  "< [[g#4 g#4] [~ g#4] [~ g#4] [a#4 ~]] [[g4 e4] [~ e4] [c4 ~] [~ ~]] [[f#4 f#4] [~ f#4] [~ f#4] [f#4 ~]] [[b4 ~] [~ ~] [~ ~] [~ ~]] >"
+clip tri_C2 = tri
+  "< [[g#2 ~] [~ d#3] [~ ~] [g#3 ~]] [[g3 ~] [~ c3] [~ ~] [g2 ~]] [[d3 d3] [~ d3] [~ d3] [d3 ~]] [[g4 ~] [~ ~] [g3 ~] [~ ~]] >"
+clip sq1_E = sq1
+  "< [[e5 c5] [~ g4] [~ ~] [g#4 ~]] [[a4 f5] [~ f5] [a4 ~] [~ ~]] [[b4 a5] [~ a5@2 ~] [a5@4 g5@2] [~ f5]] [[e5 c5] [~ a4] [g4 ~] [~ ~]] >"
+clip sq2_E = sq2
+  "< [[c5 g4] [~ e4] [~ ~] [e4 ~]] [[f4 c5] [~ c5] [f4 ~] [~ ~]] [[g4 f5] [~ f5@2 ~] [f5@4 e5@2] [~ d5]] [[c5 a4] [~ f4] [e4 ~] [~ ~]] >"
+clip tri_E = tri
+  "< [[c3 ~] [~ f#3] [g3 ~] [c4 ~]] [[f3 ~] [f3 ~] [c4 c4] [f3 ~]] [[d3 ~] [~ f3] [g3 ~] [b3 ~]] [[g3 ~] [g3 ~] [c4 c4] [g3 ~]] >"
+clip sq1_E2 = sq1
+  "< [[e5 c5] [~ g4] [~ ~] [g#4 ~]] [[a4 f5] [~ f5] [a4 ~] [~ ~]] [[b4 f5] [~ f5] [f5@4 e5@2] [~ d5]] [[c5 ~] [~ ~] [~ ~] [~ ~]] >"
+clip sq2_E2 = sq2
+  "< [[c5 g4] [~ e4] [~ ~] [e4 ~]] [[f4 c5] [~ c5] [f4 ~] [~ ~]] [[g4 d5] [~ d5] [d5@4 c5@2] [~ b4]] [[g4 e4] [~ e4] [c4 ~] [~ ~]] >"
+clip tri_E2 = tri
+  "< [[c3 ~] [~ f#3] [g3 ~] [c4 ~]] [[f3 ~] [f3 ~] [c4 c4] [f3 ~]] [[g3 ~] [~ g3] [g3 ~ a3] [~ b3@2]] [[c4 ~] [g3 ~] [c3 ~] [~ ~]] >"
+
+clip beat = noise /16
+  ch X...x.x.....x.x.
+  oh ........x.......
+clip bridge_beat = noise /16
+  ch ....x.....x...............x.x.x.
+  oh x.....x.....x...x.....x.........
+
+clip hi_sq1_intro = hilead
+  "< [[e5 e5] [~ e5] [~ c5] [e5 ~]] [[g5 ~] [~ ~] [g4 ~] [~ ~]] >"
+clip hi_sq2_intro = hiharm
+  "< [[f#4 f#4] [~ f#4] [~ f#4] [f#4 ~]] [[b4 ~] [~ ~] [~ ~] [~ ~]] >"
+clip hi_tri_intro = hibass
+  "< [[d3 d3] [~ d3] [~ d3] [d3 ~]] [[g4 ~] [~ ~] [g3 ~] [~ ~]] >"
+clip hi_sq1_A = hilead
+  "< [[c5 ~] [~ g4] ~ [e4 ~]] [[~ a4] [~ b4] [~ a#4] [a4 ~]] [[g4 e5 g5] [[a5@3 ~] [f5 g5]]] [[~ e5] [~ c5] [d5 b4] ~] >"
+clip hi_sq2_A = hiharm
+  "< [[e4 ~] [~ c4] ~ [g3 ~]] [[~ c4] [~ d4] [~ c#4] [c4 ~]] [[c4 g4 b4] [[c5@3 ~] [a4 b4]]] [[~ a4] [~ e4] [f4 d4] ~] >"
+clip hi_tri_A = hibass
+  "< [[g3 ~] [~ e3] ~ [c3 ~]] [[~ f3] [~ g3] [~ f#3] [f3 ~]] [[e3 c4 e4] [[f4@3 ~] [d4 e4]]] [[~ c4] [~ a3] [b3 g3] ~] >"
+clip hi_sq1_B = hilead
+  "< [~ [g5 f#5] [f5 d#5] [~ e5]] [[~ g#4] [a4 c5] [~ a4] [c5 d5]] [~ [g5 f#5] [f5 d#5] [~ e5]] [[~ c6] [~ c6] [c6 ~] ~] >"
+clip hi_sq2_B = hiharm
+  "< [~ [e5 d#5] [d5 b4] [~ c5]] [[~ e4] [f4 g4] [~ c4] [e4 f4]] [~ [e5 d#5] [d5 b4] [~ c5]] [[~ f5] [~ f5] [f5 ~] ~] >"
+clip hi_tri_B = hibass
+  "< [[c3 ~] [~ g3] [~ ~] [c4 ~]] [[f3 ~] [~ c4] [c4 ~] [f3 ~]] [[c3 ~] [~ g3] [~ b3] [c4 ~]] [[~ g5] [~ g5] [g5 ~] [g3 ~]] >"
+clip hi_sq1_B2 = hilead
+  "< [~ [g5 f#5] [f5 d#5] [~ e5]] [[~ g#4] [a4 c5] [~ a4] [c5 d5]] [[~ ~] [d#5 ~] [~ d5] ~] [c5 ~ ~ ~] >"
+clip hi_sq2_B2 = hiharm
+  "< [~ [e5 d#5] [d5 b4] [~ c5]] [[~ e4] [f4 g4] [~ c4] [e4 f4]] [[~ ~] [g#4 ~] [~ f4] ~] [e4 ~ ~ ~ ] >"
+clip hi_tri_B2 = hibass
+  "< [[c3 ~] [~ g3] [~ ~] [c4 ~]] [[f3 ~] [~ c4] [c4 ~] [f3 ~]] [[c3 ~] [g#3 ~] [~ a#3] ~] [[c4 ~] [~ g3] [g3 ~] [c3 ~]] >"
+clip hi_sq1_C = hilead
+  "< [[c5 c5] [~ c5] [~ c5] [d5 ~]] [[e5 c5] [~ a4] [g4 ~] [~ ~]] [[c5 c5] [~ c5] [~ c5] [d5 e5]] [~] >"
+clip hi_sq2_C = hiharm
+  "< [[g#4 g#4] [~ g#4] [~ g#4] [a#4 ~]] [[g4 e4] [~ e4] [c4 ~] [~ ~]] [[g#4 g#4] [~ g#4] [~ g#4] [a#4 g4]] [~] >"
+clip hi_tri_C = hibass
+  "< [[g#2 ~] [~ d#3] [~ ~] [g#3 ~]] [[g3 ~] [~ c3] [~ ~] [g2 ~]] [[g#2 ~] [~ d#3] [~ ~] [g#3 ~]] [[g3 ~] [~ c3] [~ ~] [g2 ~]] >"
+clip hi_sq1_C2 = hilead
+  "< [[c5 c5] [~ c5] [~ c5] [d5 ~]] [[e5 c5] [~ a4] [g4 ~] [~ ~]] [[e5 e5] [~ e5] [~ c5] [e5 ~]] [[g5 ~] [~ ~] [g4 ~] [~ ~]] >"
+clip hi_sq2_C2 = hiharm
+  "< [[g#4 g#4] [~ g#4] [~ g#4] [a#4 ~]] [[g4 e4] [~ e4] [c4 ~] [~ ~]] [[f#4 f#4] [~ f#4] [~ f#4] [f#4 ~]] [[b4 ~] [~ ~] [~ ~] [~ ~]] >"
+clip hi_tri_C2 = hibass
+  "< [[g#2 ~] [~ d#3] [~ ~] [g#3 ~]] [[g3 ~] [~ c3] [~ ~] [g2 ~]] [[d3 d3] [~ d3] [~ d3] [d3 ~]] [[g4 ~] [~ ~] [g3 ~] [~ ~]] >"
+clip hi_sq1_E = hilead
+  "< [[e5 c5] [~ g4] [~ ~] [g#4 ~]] [[a4 f5] [~ f5] [a4 ~] [~ ~]] [[b4 a5] [~ a5@2 ~] [a5@4 g5@2] [~ f5]] [[e5 c5] [~ a4] [g4 ~] [~ ~]] >"
+clip hi_sq2_E = hiharm
+  "< [[c5 g4] [~ e4] [~ ~] [e4 ~]] [[f4 c5] [~ c5] [f4 ~] [~ ~]] [[g4 f5] [~ f5@2 ~] [f5@4 e5@2] [~ d5]] [[c5 a4] [~ f4] [e4 ~] [~ ~]] >"
+clip hi_tri_E = hibass
+  "< [[c3 ~] [~ f#3] [g3 ~] [c4 ~]] [[f3 ~] [f3 ~] [c4 c4] [f3 ~]] [[d3 ~] [~ f3] [g3 ~] [b3 ~]] [[g3 ~] [g3 ~] [c4 c4] [g3 ~]] >"
+clip hi_sq1_E2 = hilead
+  "< [[e5 c5] [~ g4] [~ ~] [g#4 ~]] [[a4 f5] [~ f5] [a4 ~] [~ ~]] [[b4 f5] [~ f5] [f5@4 e5@2] [~ d5]] [[c5 ~] [~ ~] [~ ~] [~ ~]] >"
+clip hi_sq2_E2 = hiharm
+  "< [[c5 g4] [~ e4] [~ ~] [e4 ~]] [[f4 c5] [~ c5] [f4 ~] [~ ~]] [[g4 d5] [~ d5] [d5@4 c5@2] [~ b4]] [[g4 e4] [~ e4] [c4 ~] [~ ~]] >"
+clip hi_tri_E2 = hibass
+  "< [[c3 ~] [~ f#3] [g3 ~] [c4 ~]] [[f3 ~] [f3 ~] [c4 c4] [f3 ~]] [[g3 ~] [~ g3] [g3 ~ a3] [~ b3@2]] [[c4 ~] [g3 ~] [c3 ~] [~ ~]] >"
+
+# the hi-fi drums follow the noise channel's hits
+clip groove = kit /16
+  bd x.....x...x.....
+  sn ....x.......x...
+  ch x.x.x.x.x.x.x.x.
+  oh ..............x.
+clip bridge_groove = kit /16
+  bd x.....x.....x...x.....x.........
+  sn ....x.....x...............x.x.x.
+  ch x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.
+clip crash = kit /16
+  cr X...............................................................
+
+scene intro 2: sq1_intro sq2_intro tri_intro bridge_beat
+scene a 8: sq1_A sq2_A tri_A beat
+scene b 4: sq1_B sq2_B tri_B beat
+scene b2 4: sq1_B2 sq2_B2 tri_B2 beat
+scene c 4: sq1_C sq2_C tri_C bridge_beat
+scene c2 4: sq1_C2 sq2_C2 tri_C2 bridge_beat
+scene e 4: sq1_E sq2_E tri_E beat
+scene e2 4: sq1_E2 sq2_E2 tri_E2 beat
+scene hi_intro 2: hi_sq1_intro hi_sq2_intro hi_tri_intro bridge_groove crash
+scene hi_a 8: hi_sq1_A hi_sq2_A hi_tri_A groove
+scene hi_b 4: hi_sq1_B hi_sq2_B hi_tri_B groove
+scene hi_b2 4: hi_sq1_B2 hi_sq2_B2 hi_tri_B2 groove
+scene hi_c 4: hi_sq1_C hi_sq2_C hi_tri_C bridge_groove
+scene hi_c2 4: hi_sq1_C2 hi_sq2_C2 hi_tri_C2 bridge_groove
+scene hi_e 4: hi_sq1_E hi_sq2_E hi_tri_E groove
+scene hi_e2 4: hi_sq1_E2 hi_sq2_E2 hi_tri_E2 groove
+arrange intro a b b2 b b2 c c2 a e e2 e e2 c c2 e e2 hi_intro hi_a hi_b hi_b2 hi_b hi_b2 hi_c hi_c2 hi_a hi_e hi_e2 hi_e hi_e2 hi_c hi_c2 hi_e hi_e2
