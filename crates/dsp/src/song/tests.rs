@@ -579,6 +579,45 @@ fn every_model_takes_strip_and_arp_parameters() {
     }
 }
 
+/// #680: a track switches only to a model that takes what the song names on
+/// it, so the printed text still parses.
+#[test]
+fn a_track_switches_only_to_a_model_that_takes_its_parameters() {
+    let dx7 = Model::Dx7.def().presets[0].preset;
+    let mut s =
+        Song::parse("track e synth Dx7\nclip a = e .op1level(0.5)\n  \"c4\"").expect("parses");
+    assert!(
+        !s.set_track_preset(0, Preset::JunoBrass),
+        "a Juno has no op1level"
+    );
+    assert_eq!(s.tracks[0].preset, Some(dx7), "unchanged");
+    assert!(s.set_track_preset(0, Model::Dx7.def().presets[1].preset));
+    assert_eq!(Song::parse(&s.print()).map(|_| ()), Ok(()));
+    // A mod line, an auto and a snapshot on the track count; on a strip not.
+    for line in [
+        "mod b.lforate = sine",
+        "auto x = b.LfoRate 1 /1",
+        "snapshot y: b.LfoRate 2",
+    ] {
+        let mut s = Song::parse(&format!("track b synth Juno106\n{line}\n")).expect(line);
+        assert!(!s.set_track_preset(0, Preset::MiniLead), "{line}");
+        assert!(s.set_track_preset(0, Preset::JunoPad), "{line}");
+    }
+    let mut s = Song::parse("track b synth Juno106\nmod strip1.lforate = sine\n").expect("parses");
+    assert!(s.set_track_preset(0, Preset::MiniLead));
+    // A setting, and a lane the model has no pad for (#662).
+    let mut s = Song::parse(
+        "setting m = Minimoog MiniLead\nsetting j = Juno106 JunoPad\n\
+        track b synth j\nclip a = b .lforate(4)\n  \"c3\"",
+    )
+    .expect("parses");
+    assert!(!s.set_track_setting(0, 0));
+    assert!(s.set_track_setting(0, 1));
+    let mut s = Song::parse("track d drums Tr808\nclip a = d\n  cy x...").expect("parses");
+    assert!(!s.set_track_preset(0, Preset::PadsLoud));
+    assert!(s.set_track_preset(0, Preset::Kit909));
+}
+
 #[test]
 fn a_lane_without_a_pad_on_its_model_says_where() {
     let cases: [(&str, usize, usize, &str); 5] = [

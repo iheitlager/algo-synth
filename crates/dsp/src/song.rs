@@ -2844,11 +2844,39 @@ impl Song {
 
     // --- Track edits from the composer (#213) ---------------------------------
 
+    /// Does `model` take everything the song names on track `t`: its
+    /// parameter methods' and `mod`, `auto` and snapshot parameters (#673)
+    /// and its lanes' pads (#662)? A switch to a model that doesn't would
+    /// print text that no longer parses (#680).
+    pub fn takes_model(&self, t: usize, model: Model) -> bool {
+        let on = |target: &Target| *target == Target::Track(t);
+        self.mods
+            .iter()
+            .all(|m| !on(&m.target) || model.reads(m.param))
+            && self
+                .autos
+                .iter()
+                .all(|a| !on(&a.target) || model.reads(a.param))
+            && self
+                .snapshots
+                .iter()
+                .flat_map(|s| &s.sets)
+                .all(|(target, p, _)| !on(target) || model.reads(*p))
+            && self
+                .clips
+                .iter()
+                .filter(|c| c.track == t)
+                .flat_map(|c| &c.lanes)
+                .all(|l| l.pad.plays_on(model))
+    }
+
     /// Track `t` plays factory preset `preset`, without a setting; refused when
-    /// the preset's model does not play the track's kind.
+    /// the preset's model does not play the track's kind or take what the
+    /// song names on it (#680).
     pub fn set_track_preset(&mut self, t: usize, preset: Preset) -> bool {
+        let takes = self.takes_model(t, preset.model());
         match self.tracks.get_mut(t) {
-            Some(tr) if fits(tr.kind, Some(preset.model())) => {
+            Some(tr) if takes && fits(tr.kind, Some(preset.model())) => {
                 tr.preset = Some(preset);
                 tr.setting = None;
                 tr.picked = false;
@@ -2858,13 +2886,14 @@ impl Song {
         }
     }
 
-    /// Track `t` plays the song's setting `i`.
+    /// Track `t` plays the song's setting `i`; refused as `set_track_preset` is.
     pub fn set_track_setting(&mut self, t: usize, i: usize) -> bool {
         let Some(preset) = self.settings.get(i).map(|st| st.preset) else {
             return false;
         };
+        let takes = self.takes_model(t, preset.model());
         match self.tracks.get_mut(t) {
-            Some(tr) if fits(tr.kind, Some(preset.model())) => {
+            Some(tr) if takes && fits(tr.kind, Some(preset.model())) => {
                 tr.preset = Some(preset);
                 tr.setting = Some(i);
                 tr.picked = false;

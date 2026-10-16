@@ -2533,6 +2533,33 @@ fn a_picked_drum_track_plays_the_kit_in_the_rack() {
     assert_eq!(e.param_value(0, Param::Model), Model::Tr808 as u32 as f32);
 }
 
+/// #680: a picked kit plays a rack kit only if that takes what the song
+/// names on the track; a preset picked in the view only if the tracks the
+/// synth plays take its model.
+#[test]
+fn a_kit_or_preset_that_would_not_parse_back_is_refused() {
+    let mut e = Engine::new(48_000.0);
+    e.preset(1, Preset::PadsLoud);
+    let text = format!("{FOUR}mod kit.bdtune = sine\n");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    assert_ne!(e.song_routed(0), Some(1), "the Pad Sampler has no bdtune");
+    assert_eq!(Song::parse(e.song_text()).map(|_| ()), Ok(()));
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack b synth Juno106 JunoPad\nclip a = b .lforate(4)\n  \"c3\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    e.edit_preset(s, Preset::MiniLead);
+    assert_eq!(
+        e.param_value(s, Param::Model),
+        Model::Juno106 as u32 as f32,
+        "refused"
+    );
+    assert!(!e.track_edit(0, 0, Preset::MiniLead as u32));
+    assert!(e.track_edit(0, 0, Preset::JunoPad as u32));
+    e.edit_preset(s, Preset::JunoBrass);
+    assert_eq!(e.song().tracks[0].preset, Some(Preset::JunoBrass));
+}
+
 #[test]
 fn each_track_gets_its_own_synth_and_patch() {
     let mut e = Engine::new(48_000.0);

@@ -21,7 +21,7 @@ What a model reads can't be derived from the engine code: whether a stored field
 
 - Within the Mono family the sets are generous: a switch or knob a particular Mono model lacks still parses. Only a model's flags narrow it. Narrowing knob by knob is possible later, model by model, with the panel test as a floor.
 - ADR-0036 left a track whose model is picked later unchecked; this check runs on it once picked. The two now differ: a lane is checked only where the model is named.
-- The composer can still switch a track to a model that doesn't read what its clips name (`set_track_preset` checks only the kind); the printed text then fails to parse.
+- A track switches only to a model that takes what the song names on it (`Song::takes_model`): the composer's pick, a preset picked in a synth's view and the rack kit a picked drum track reuses are refused otherwise, so the printed text always parses back (#680).
 - Completion (#595) offers, on a track or setting whose model the song names, only what that model reads (#679).
 
 ## Alternatives considered
