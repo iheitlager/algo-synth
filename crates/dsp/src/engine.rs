@@ -1196,7 +1196,23 @@ impl Engine {
         slot: usize,
         root: u8,
     ) -> Result<(), crate::table::UserError> {
-        let root_inc = crate::voice::midi_to_hz(root.min(127)) / self.sample_rate;
+        self.load_user_attack_at(slot, root, self.sample_rate)
+    }
+
+    /// As `load_user_attack`, for values made at `rate`: a bounce at another
+    /// rate than the app's plays them at their pitch (#705).
+    pub fn load_user_attack_at(
+        &mut self,
+        slot: usize,
+        root: u8,
+        rate: f32,
+    ) -> Result<(), crate::table::UserError> {
+        let rate = if rate.is_finite() && rate > 0.0 {
+            rate
+        } else {
+            self.sample_rate
+        };
+        let root_inc = crate::voice::midi_to_hz(root.min(127)) / rate;
         self.user_tables.load_sample(slot, &self.user_buf, root_inc)
     }
 

@@ -24,6 +24,7 @@ import { keepView, lastView } from './viewstate'
 import { keepFile, keptFile } from './audiostore'
 import { Analyser, isGenerated, recipeOf, type KeySample, type SongRecipe } from './spectral'
 import { startMidi } from './midiin'
+import { remember } from './resources'
 
 const base = import.meta.env.BASE_URL
 
@@ -63,7 +64,11 @@ class AudioEngine {
     return new AudioEngine(ctx, node, analyser, module)
   }
 
-  post(msg: object, transfer: Transferable[] = []) { this.node.port.postMessage(msg, transfer) }
+  post(msg: object, transfer: Transferable[] = []) {
+    // What the song text doesn't hold, for an export's engine (#705).
+    remember(msg, this.ctx.sampleRate)
+    this.node.port.postMessage(msg, transfer)
+  }
   param(s: number, id: ParamId, v: number) {
     const values = params.values[s]
     if (values) values[id] = v
@@ -1407,9 +1412,10 @@ export const presetModified = (preset: UserPreset, target: Target) => modified(p
 
 /** A setup waiting for its MIDI file to load. */
 let pending: { setup: Setup; warnings: string[] } | null = null
-function download(text: string, type: string, name: string) {
+/** Save `data` as a file called `name`, as the browser downloads. */
+export function download(data: BlobPart, type: string, name: string) {
   const link = document.createElement('a')
-  link.href = URL.createObjectURL(new Blob([text], { type }))
+  link.href = URL.createObjectURL(new Blob([data], { type }))
   link.download = name
   link.click()
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
