@@ -132,6 +132,9 @@ struct Hit {
     owner: Owner,
     note: u8,
     velocity: f32,
+    /// A clip's note: its clip and tick, sampled for `.onNote` and the
+    /// envelope times when it is pressed (ADR-0038).
+    from: Option<(usize, u64)>,
 }
 
 /// How many hits may wait between two steps: a lane of 48 a bar puts two
@@ -143,6 +146,7 @@ const NO_HIT: Hit = Hit {
     owner: Owner::Live(0),
     note: 0,
     velocity: 0.0,
+    from: None,
 };
 
 /// The switches a revision sets, in the order of `RevisionDef`'s parts (#343).
@@ -2060,11 +2064,12 @@ impl Engine {
                         owner: Owner::Track(track),
                         note: ev.note,
                         velocity: ev.velocity(),
+                        from: Some((f, j)),
                     });
                 } else {
                     self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                    self.sample_on_note(usize::from(track), f, j);
                 }
-                self.sample_on_note(usize::from(track), f, j);
                 let span = self
                     .spans
                     .clips
@@ -2157,6 +2162,7 @@ impl Engine {
                         owner: Owner::Track(track),
                         note: ev.note,
                         velocity: ev.velocity(),
+                        from: Some((f, j)),
                     });
                 }
             }
@@ -2408,6 +2414,7 @@ impl Engine {
                                 owner,
                                 note,
                                 velocity,
+                                from: None,
                             });
                         }
                         // A ratchet's further hits share the step's span
@@ -2420,6 +2427,7 @@ impl Engine {
                                 owner,
                                 note,
                                 velocity,
+                                from: None,
                             });
                         }
                     }
@@ -2450,6 +2458,7 @@ impl Engine {
                                 owner,
                                 note,
                                 velocity: GRACE_VELOCITY,
+                                from: None,
                             });
                         }
                     }
@@ -2466,7 +2475,15 @@ impl Engine {
                 *slot = hit;
                 self.hit_count += 1;
             }
-            None => self.start_voice(hit.owner, hit.note, hit.velocity),
+            None => self.press_hit(hit),
+        }
+    }
+
+    /// Press a hit's note, and sample what its clip holds per note.
+    fn press_hit(&mut self, hit: Hit) {
+        self.start_voice(hit.owner, hit.note, hit.velocity);
+        if let (Owner::Track(t), Some((f, j))) = (hit.owner, hit.from) {
+            self.sample_on_note(usize::from(t), f, j);
         }
     }
 
@@ -2486,7 +2503,7 @@ impl Engine {
                     _ => true,
                 };
                 if heard {
-                    self.start_voice(hit.owner, hit.note, hit.velocity);
+                    self.press_hit(hit);
                 }
             } else {
                 i += 1;
@@ -2654,7 +2671,7 @@ impl Engine {
             let Some(md) = self.song.mods.get(m) else {
                 continue;
             };
-            let (target, param, on_note) = (md.target, md.param, md.signal.on_note());
+            let (target, param, on_note) = (md.target, md.param, md.on_note());
             let playing = md.clip.is_none_or(|f| {
                 !self.cued_out(f)
                     && scene.is_none_or(|s| {
@@ -2786,14 +2803,21 @@ impl Engine {
         let t = tick as f64 / TICKS_PER_STEP as f64 / STEPS_PER_BAR as f64;
         let cps = f64::from(self.clock.tempo()) / 240.0;
         let synth = self.song_route.get(track).copied().flatten();
-        let own = synth
-            .and_then(|s| self.synths.get(s))
-            .is_some_and(|p| p.model.uses_mono_voice());
+        let model = synth.and_then(|s| self.synths.get(s)).map(|p| p.model);
+        // Whether the voices hold `param` themselves: a Mono voice any of
+        // its table, a sampler's the envelope times (ADR-0038).
+        let own = |param: Param| {
+            crate::mono::voice::VOICE_PARAMS.contains(&param)
+                && model.is_some_and(|m| {
+                    m.uses_mono_voice()
+                        || (m.uses_sampler_voice() && crate::song::NOTE_TIMES.contains(&param))
+                })
+        };
         for m in 0..self.song.mods.len().min(MAX_MODS) {
             let Some(md) = self.song.mods.get(m) else {
                 continue;
             };
-            if !md.signal.on_note()
+            if !md.on_note()
                 || md.target != Target::Track(track)
                 || md.clip.is_some_and(|c| c != clip)
             {
@@ -2812,7 +2836,7 @@ impl Engine {
             }
             let pool = synth.and_then(|s| self.pools.get_mut(s));
             match pool {
-                Some(pool) if own && crate::mono::voice::VOICE_PARAMS.contains(&param) => {
+                Some(pool) if own(param) => {
                     let count = self.note_count;
                     let mut slots = [usize::MAX; MAX_VOICES];
                     for (k, i) in slots.iter_mut().zip(pool.pressed(count)) {

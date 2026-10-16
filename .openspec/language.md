@@ -750,6 +750,23 @@ clip a = lead .vib(4) .vibmod("<.25 .5 1 2 12>")
   "a3 e3"
 ```
 
+`.attack`, `.decay`, `.sustain` and `.release` (or `att`, `dec`, `sus`,
+`rel`) on a clip are held per note (ADR-0038, #651), without `.onNote`. Each
+note takes the value at its own tick and keeps it for its whole life, so a
+sequence gives notes their own envelopes:
+- On a Mono-voice synth or a sampler, a note's voices hold its times, so
+  overlapping notes keep their own.
+- On any other synth, the synth holds the value until the next note.
+
+Written as numbers, a time is 0 to 10 seconds (0 is the shortest) and a
+sustain is 0 to 1.
+
+```song
+track pad synth Juno106
+clip swell = pad .attack("0.1 0") .release("1 0.05")
+  "c2 [d#3,g3]"
+```
+
 A `~` in a sequence is a step with no value: the parameter has its own value
 there, so `.cutoff("~ ~ 800 ~")` locks the cutoff on one step of four and lets
 go after it (a per-step lock). Anything combined with a `~` has no value on that
@@ -889,7 +906,9 @@ Q; a `pan` is −1..1, not 0..1. Strudel's `distort` has no one parameter here.
 
 A per-voice signal goes on a track whose synth is Mono or Poly (not FM, LA,
 drums, samplers, Modular) and a voice parameter: `cutoff resonance vco1level
-vco2level vco3level noiselevel ringlevel sublevel wt1pos wt2pos`; it can't `.lag`.
+vco2level vco3level noiselevel ringlevel sublevel wt1pos wt2pos`, and the
+envelope times `attack decay sustain release`, which a voice takes as its note
+starts; it can't `.lag`.
 `.onNote` modulates a track; on a voice parameter of a Mono or Poly synth
 each voice holds its note's value, on any other the synth holds it until the
 next note. It can't take `env` or a list. Brackets

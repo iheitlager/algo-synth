@@ -329,6 +329,23 @@ impl Signal {
         self.nodes.iter().any(|n| matches!(n, Node::OnNote(_)))
     }
 
+    /// The numbers it is, when it is only numbers: a number or a sequence,
+    /// without its `~`; `None` for anything computed.
+    pub fn plain_numbers(&self) -> Option<Vec<f32>> {
+        match self.nodes.last()? {
+            Node::Num(x) => Some(vec![*x]),
+            Node::Seq { from, len, .. } => Some(
+                self.values
+                    .get(*from..from + len)?
+                    .iter()
+                    .copied()
+                    .filter(|v| !v.is_nan())
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
     /// Whether it uses `.lag`, whose state is one for the song.
     pub fn lags(&self) -> bool {
         self.nodes.iter().any(|n| matches!(n, Node::Lag { .. }))

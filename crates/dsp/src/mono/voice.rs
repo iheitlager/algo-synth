@@ -238,8 +238,9 @@ pub struct MonoVoice {
 }
 
 /// The parameters a voice can hold a value of its own for (ADR-0023), in the
-/// order of `VoiceSet`'s slots.
-pub const VOICE_PARAMS: [Param; 10] = [
+/// order of `VoiceSet`'s slots; the envelope times last, held per note
+/// (ADR-0038).
+pub const VOICE_PARAMS: [Param; 14] = [
     Param::Cutoff,
     Param::Resonance,
     Param::Vco1Level,
@@ -250,11 +251,19 @@ pub const VOICE_PARAMS: [Param; 10] = [
     Param::SubLevel,
     Param::Wt1Pos,
     Param::Wt2Pos,
+    Param::AdsrAttack,
+    Param::AdsrDecay,
+    Param::AdsrSustain,
+    Param::AdsrRelease,
 ];
+
+/// The slot of `AdsrAttack` in `VoiceSet`: decay, sustain and release follow.
+const ENV_SLOT: usize = 10;
 
 /// One voice's own values (ADR-0023): a per-voice signal writes them, and the
 /// voice reads one instead of the synth's while it is set. Stored as the
-/// voice reads them: the cutoff as a note, the resonance as a feedback.
+/// voice reads them: the cutoff as a note, the resonance as a feedback, the
+/// envelope times in seconds.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct VoiceSet {
     mask: u16,
@@ -302,6 +311,18 @@ impl VoiceSet {
         match self.v.get(k) {
             Some(v) if self.mask & (1 << k) != 0 => *v,
             _ => synth,
+        }
+    }
+
+    /// The amplifier's times: the note's own where held (ADR-0038), else
+    /// the synth's `t`; times in samples at `sr`.
+    pub fn env(&self, t: &EnvTimes, sr: f32) -> EnvTimes {
+        let time = |k: usize, synth: f32| self.or(ENV_SLOT + k, synth / sr) * sr;
+        EnvTimes {
+            attack: time(0, t.attack),
+            decay: time(1, t.decay),
+            sustain: self.or(ENV_SLOT + 2, t.sustain),
+            release: time(3, t.release),
         }
     }
 }
@@ -458,7 +479,7 @@ impl MonoVoice {
         let voiced = p.env();
         let sr = p.sample_rate();
         let (adsr_times, mut fadsr_times) = (
-            voiced.clamp(&times(&p.adsr), sr),
+            voiced.clamp(&times(&self.set.env(&p.adsr, sr)), sr),
             voiced.clamp(&times(&p.fadsr), sr),
         );
         // The TB-303's filter envelope decays from each note, gate or not,

@@ -617,6 +617,42 @@ pub struct Mod {
     pub alias: Option<&'static str>,
 }
 
+/// An envelope time written as numbers is 0 to 10 seconds, a sustain 0 to 1
+/// (ADR-0038); 0 is the shortest time.
+fn note_times_fit(param: Param, signal: &Signal) -> Result<(), &'static str> {
+    let Some(numbers) = signal
+        .plain_numbers()
+        .filter(|_| NOTE_TIMES.contains(&param))
+    else {
+        return Ok(());
+    };
+    let (sustain, hi) = (param == Param::AdsrSustain, param.range().1);
+    if numbers.iter().all(|v| (0.0..=hi).contains(v)) {
+        Ok(())
+    } else if sustain {
+        Err("a sustain is 0 to 1")
+    } else {
+        Err("an envelope time is 0 to 10 seconds")
+    }
+}
+
+/// The amplifier's envelope times, which a clip's methods hold per note
+/// (ADR-0038).
+pub const NOTE_TIMES: [Param; 4] = [
+    Param::AdsrAttack,
+    Param::AdsrDecay,
+    Param::AdsrSustain,
+    Param::AdsrRelease,
+];
+
+impl Mod {
+    /// Whether it is sampled as each note starts and held for the note:
+    /// `.onNote` (spec 010 Req 12), or an envelope time on a clip (ADR-0038).
+    pub fn on_note(&self) -> bool {
+        self.signal.on_note() || (self.clip.is_some() && NOTE_TIMES.contains(&self.param))
+    }
+}
+
 /// Strudel's names for parameters (#298), for parameter methods and `mod`
 /// lines: each stands for one registry parameter, at our scale (a resonance
 /// 0..1, not a Q; a pan −1..1, not 0..1).
@@ -1606,6 +1642,7 @@ impl Song {
                                 .map_err(|(c, m)| err(at + scol + c - 2, m))?;
                             per_voice_fits(&song, target, param, &signal)
                                 .map_err(|m| err(at + scol - 1, m))?;
+                            note_times_fit(param, &signal).map_err(|m| err(at + scol - 1, m))?;
                             if song.mods.len() >= MAX_MODS {
                                 return Err(err(at + ncol - 1, "a song has at most 32 mods"));
                             }
