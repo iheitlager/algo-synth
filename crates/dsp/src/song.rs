@@ -47,7 +47,7 @@
 //! `master` (the global parameters):
 //!
 //! ```text
-//! auto sweep = kit.Cutoff ramp 300 4000 /8
+//! auto sweep = kit.BdDecay ramp 0.25 2 /8
 //! auto duck = strip3.Level 1 0.5 0.25 1 /1
 //! snapshot drop: strip1.Mute 1, master.P2Return 0.4
 //! scene main 8: beat sweep duck [drop]
@@ -865,6 +865,8 @@ impl Song {
         let mut loop_at: Option<usize> = None;
         // Tracks given a model and no preset.
         let mut models: Vec<(usize, Model)> = Vec::new();
+        // Parameters on a track whose model is picked after the clips (#673).
+        let mut later: Vec<(SongError, usize, Param)> = Vec::new();
         // Nodes in the song's signals so far.
         let mut nodes = 0;
         // The Modular setting whose code lines come next.
@@ -942,15 +944,7 @@ impl Song {
                     let model = song
                         .clips
                         .get(f)
-                        .and_then(|c| song.tracks.get(c.track))
-                        .and_then(|t| {
-                            t.preset.map(|p| p.model()).or_else(|| {
-                                models
-                                    .iter()
-                                    .find(|(i, _)| song.clips.get(f).is_some_and(|c| c.track == *i))
-                                    .map(|(_, m)| *m)
-                            })
-                        });
+                        .and_then(|c| track_model(&song.tracks, &models, c.track));
                     let clip = song
                         .clips
                         .get_mut(f)
@@ -1096,14 +1090,7 @@ impl Song {
                 }
                 // A lane its track's model has no pad for is an error, where
                 // the track names the model (#662).
-                let model = song.tracks.get(clip.track).and_then(|t| {
-                    t.preset.map(|p| p.model()).or_else(|| {
-                        models
-                            .iter()
-                            .find(|(i, _)| *i == clip.track)
-                            .map(|(_, m)| *m)
-                    })
-                });
+                let model = track_model(&song.tracks, &models, clip.track);
                 if model.is_some_and(|m| !lane.pad.plays_on(m)) {
                     return Err(err(
                         first.col,
@@ -1340,6 +1327,9 @@ impl Song {
                                 "a setting changes the synth's own parameters",
                             ));
                         }
+                        if !model.reads(param) {
+                            return Err(err(pw.col, model.unread(param)));
+                        }
                         let v = ws.get(k + 1).ok_or(err(
                             body.trim_end().chars().count() + 1,
                             "a value goes here",
@@ -1544,6 +1534,14 @@ impl Song {
                             let target = Target::Track(t);
                             let param =
                                 param_for(target, name).map_err(|m| err(at + ncol - 1, m))?;
+                            check_reads(
+                                &song.tracks,
+                                &models,
+                                t,
+                                param,
+                                err(at + ncol - 1, ""),
+                                &mut later,
+                            )?;
                             if song
                                 .mods
                                 .iter()
@@ -1669,6 +1667,10 @@ impl Song {
                     let tp = arg(3, "a target.Param goes here")?;
                     let (target, param) =
                         target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                    if let Target::Track(t) = target {
+                        let at = err(param_col(tp.col, tp.text), "");
+                        check_reads(&song.tracks, &models, t, param, at, &mut later)?;
+                    }
                     let Some(last) = ws.last() else {
                         return Err(err(first.col, "a length in bars goes here: /4"));
                     };
@@ -2015,6 +2017,10 @@ impl Song {
                     while let Some(tp) = ws.get(k) {
                         let (target, param) =
                             target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                        if let Target::Track(t) = target {
+                            let at = err(param_col(tp.col, tp.text), "");
+                            check_reads(&song.tracks, &models, t, param, at, &mut later)?;
+                        }
                         let v = ws.get(k + 1).ok_or(err(
                             body.trim_end().chars().count() + 1,
                             "a value goes here",
@@ -2054,6 +2060,10 @@ impl Song {
                     let tp = arg(1, "a target.param goes here")?;
                     let (target, param) =
                         target_param(&song, tp.text).map_err(|m| err(tp.col, m))?;
+                    if let Target::Track(t) = target {
+                        let at = err(param_col(tp.col, tp.text), "");
+                        check_reads(&song.tracks, &models, t, param, at, &mut later)?;
+                    }
                     if song
                         .mods
                         .iter()
@@ -2164,6 +2174,19 @@ impl Song {
                     tr.preset = picked;
                     tr.picked = model.is_none() && tr.setting.is_none();
                 }
+            }
+        }
+        for (at, t, param) in later {
+            let model = song
+                .tracks
+                .get(t)
+                .and_then(|tr| tr.preset)
+                .map(|p| p.model());
+            if let Some(m) = model.filter(|m| !m.reads(param)) {
+                return Err(SongError {
+                    msg: m.unread(param),
+                    ..at
+                });
             }
         }
         song.comments = Comments::collect(text, &song);
@@ -2821,11 +2844,39 @@ impl Song {
 
     // --- Track edits from the composer (#213) ---------------------------------
 
+    /// Does `model` take everything the song names on track `t`: its
+    /// parameter methods' and `mod`, `auto` and snapshot parameters (#673)
+    /// and its lanes' pads (#662)? A switch to a model that doesn't would
+    /// print text that no longer parses (#680).
+    pub fn takes_model(&self, t: usize, model: Model) -> bool {
+        let on = |target: &Target| *target == Target::Track(t);
+        self.mods
+            .iter()
+            .all(|m| !on(&m.target) || model.reads(m.param))
+            && self
+                .autos
+                .iter()
+                .all(|a| !on(&a.target) || model.reads(a.param))
+            && self
+                .snapshots
+                .iter()
+                .flat_map(|s| &s.sets)
+                .all(|(target, p, _)| !on(target) || model.reads(*p))
+            && self
+                .clips
+                .iter()
+                .filter(|c| c.track == t)
+                .flat_map(|c| &c.lanes)
+                .all(|l| l.pad.plays_on(model))
+    }
+
     /// Track `t` plays factory preset `preset`, without a setting; refused when
-    /// the preset's model does not play the track's kind.
+    /// the preset's model does not play the track's kind or take what the
+    /// song names on it (#680).
     pub fn set_track_preset(&mut self, t: usize, preset: Preset) -> bool {
+        let takes = self.takes_model(t, preset.model());
         match self.tracks.get_mut(t) {
-            Some(tr) if fits(tr.kind, Some(preset.model())) => {
+            Some(tr) if takes && fits(tr.kind, Some(preset.model())) => {
                 tr.preset = Some(preset);
                 tr.setting = None;
                 tr.picked = false;
@@ -2835,13 +2886,14 @@ impl Song {
         }
     }
 
-    /// Track `t` plays the song's setting `i`.
+    /// Track `t` plays the song's setting `i`; refused as `set_track_preset` is.
     pub fn set_track_setting(&mut self, t: usize, i: usize) -> bool {
         let Some(preset) = self.settings.get(i).map(|st| st.preset) else {
             return false;
         };
+        let takes = self.takes_model(t, preset.model());
         match self.tracks.get_mut(t) {
-            Some(tr) if fits(tr.kind, Some(preset.model())) => {
+            Some(tr) if takes && fits(tr.kind, Some(preset.model())) => {
                 tr.preset = Some(preset);
                 tr.setting = Some(i);
                 tr.picked = false;
@@ -3460,6 +3512,46 @@ fn close_code(song: &mut Song, mut c: OpenCode) -> Result<(), SongError> {
         st.code = Some(code);
     }
     Ok(())
+}
+
+/// The model of track `t`, where the song names it: its preset's, a
+/// setting's, or a model written without a preset (#662).
+fn track_model(tracks: &[Track], models: &[(usize, Model)], t: usize) -> Option<Model> {
+    tracks.get(t).and_then(|tr| {
+        tr.preset
+            .map(|p| p.model())
+            .or_else(|| models.iter().find(|(i, _)| *i == t).map(|(_, m)| *m))
+    })
+}
+
+/// `param` on track `t`, checked against its model where the song names
+/// it, or kept in `later` until the model is picked (#673). `at` is where
+/// the parameter is written.
+fn check_reads(
+    tracks: &[Track],
+    models: &[(usize, Model)],
+    t: usize,
+    param: Param,
+    at: SongError,
+    later: &mut Vec<(SongError, usize, Param)>,
+) -> Result<(), SongError> {
+    match track_model(tracks, models, t) {
+        Some(m) if !m.reads(param) => Err(SongError {
+            msg: m.unread(param),
+            ..at
+        }),
+        Some(_) => Ok(()),
+        None => {
+            later.push((at, t, param));
+            Ok(())
+        }
+    }
+}
+
+/// The column of the parameter in `target.Param` written at `col`.
+fn param_col(col: usize, text: &str) -> usize {
+    text.split_once('.')
+        .map_or(col, |(t, _)| col + t.chars().count() + 1)
 }
 
 /// The parameter named `name` (in any case) of `target`, checked as

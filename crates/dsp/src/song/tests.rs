@@ -490,6 +490,134 @@ fn a_pad_sampler_takes_pads_by_number() {
     assert!(Song::parse("track p sampler\nclip a = p\n  p3 x...\n  cl x...").is_ok());
 }
 
+/// #673: a parameter its track's model never reads is an error at its
+/// name, where the model is named or picked, not a method that does nothing.
+#[test]
+fn a_parameter_the_model_does_not_read_says_where() {
+    let moog = "the Minimoog's vibrato is VCO 3: vco3coarse";
+    let cases: [(&str, usize, usize, &str); 8] = [
+        (
+            "track solo synth Minimoog\nclip a = solo .lfospeed(4) .vibrato(1)\n  \"a3 e3\"",
+            2,
+            16,
+            moog,
+        ),
+        (
+            "track solo synth Minimoog MiniLead\nclip a = solo .lforate(4)\n  \"a3\"",
+            2,
+            16,
+            moog,
+        ),
+        (
+            "track solo synth Minimoog\nauto a = solo.LfoWave 1 /1",
+            2,
+            15,
+            moog,
+        ),
+        (
+            "track solo synth Minimoog\nsnapshot s: solo.Level 1, solo.LfoRate 2",
+            2,
+            32,
+            moog,
+        ),
+        (
+            "track b synth Juno106\nmod b.op1level = sine",
+            2,
+            7,
+            "a DX7 parameter: this track's synth is not a DX7",
+        ),
+        (
+            "track e synth Dx7\nclip a = e .attack(0.1)\n  \"c4\"",
+            2,
+            13,
+            "the DX7's envelopes are its operators' rates and levels: op1r1",
+        ),
+        (
+            "setting lead = Juno106 JunoBrass: LfoSpeed 4\ntrack l synth lead",
+            1,
+            35,
+            "a DX7 parameter: this synth's LFO is lforate",
+        ),
+        // A kit picked by its role is a Tr808, and the text then names it.
+        (
+            "track kit drums\nclip b = kit\n  bd x\nmod kit.cutoff = sine",
+            4,
+            9,
+            "a drum machine reads its pads' parameters: bdtune",
+        ),
+    ];
+    for (text, line, col, msg) in cases {
+        assert_eq!(
+            Song::parse(text).map(|_| ()),
+            Err(SongError { line, col, msg }),
+            "{text}"
+        );
+    }
+    // The LFO is the Juno's vibrato; a model left to the role is checked
+    // only once it is picked.
+    assert!(Song::parse("track b synth Juno106\nclip a = b .lforate(4)\n  \"c3\"").is_ok());
+    assert!(Song::parse("track solo synth\nclip a = solo .cutoff(900)\n  \"a3\"").is_ok());
+}
+
+/// #673: the strip, the arpeggiator and the voice pool are every model's.
+#[test]
+fn every_model_takes_strip_and_arp_parameters() {
+    for (m, name) in Model::ALL {
+        let kind = ["synth", "drums", "sampler"]
+            .into_iter()
+            .find(|k| Song::parse(&format!("track t {k} {name}")).is_ok())
+            .unwrap_or_else(|| panic!("no kind plays {name}"));
+        let text = format!(
+            "track t {kind} {name}\nmod t.level = 0.5\nmod t.pan = 0\nmod t.send1 = 0.2\nmod t.room = 0.3\n\
+            snapshot s: t.ArpOn 1, t.Polyphony 1"
+        );
+        assert!(
+            Song::parse(&text).is_ok(),
+            "{m:?}: {:?}",
+            Song::parse(&text)
+        );
+    }
+}
+
+/// #680: a track switches only to a model that takes what the song names on
+/// it, so the printed text still parses.
+#[test]
+fn a_track_switches_only_to_a_model_that_takes_its_parameters() {
+    let dx7 = Model::Dx7.def().presets[0].preset;
+    let mut s =
+        Song::parse("track e synth Dx7\nclip a = e .op1level(0.5)\n  \"c4\"").expect("parses");
+    assert!(
+        !s.set_track_preset(0, Preset::JunoBrass),
+        "a Juno has no op1level"
+    );
+    assert_eq!(s.tracks[0].preset, Some(dx7), "unchanged");
+    assert!(s.set_track_preset(0, Model::Dx7.def().presets[1].preset));
+    assert_eq!(Song::parse(&s.print()).map(|_| ()), Ok(()));
+    // A mod line, an auto and a snapshot on the track count; on a strip not.
+    for line in [
+        "mod b.lforate = sine",
+        "auto x = b.LfoRate 1 /1",
+        "snapshot y: b.LfoRate 2",
+    ] {
+        let mut s = Song::parse(&format!("track b synth Juno106\n{line}\n")).expect(line);
+        assert!(!s.set_track_preset(0, Preset::MiniLead), "{line}");
+        assert!(s.set_track_preset(0, Preset::JunoPad), "{line}");
+    }
+    let mut s = Song::parse("track b synth Juno106\nmod strip1.lforate = sine\n").expect("parses");
+    assert!(s.set_track_preset(0, Preset::MiniLead));
+    // A setting, and a lane the model has no pad for (#662).
+    let mut s = Song::parse(
+        "setting m = Minimoog MiniLead\nsetting j = Juno106 JunoPad\n\
+        track b synth j\nclip a = b .lforate(4)\n  \"c3\"",
+    )
+    .expect("parses");
+    assert!(!s.set_track_setting(0, 0));
+    assert!(s.set_track_setting(0, 1));
+    let mut s = Song::parse("track d drums Tr808\nclip a = d\n  cy x...").expect("parses");
+    assert!(!s.set_track_preset(0, Preset::PadsLoud));
+    assert!(s.set_track_preset(0, Preset::Kit909));
+}
+
 #[test]
 fn a_lane_without_a_pad_on_its_model_says_where() {
     let cases: [(&str, usize, usize, &str); 5] = [
@@ -1084,7 +1212,7 @@ const AUTOMATED: &str = "\
 track kit drums
 clip beat = kit /16
   bd x...
-auto sweep = kit.Cutoff ramp 300 4000 /2
+auto sweep = kit.BdTune ramp -12 12 /2
 auto duck = strip3.Level 1 0.5 0.25 1 /1
 auto wet = master.P2Return 0 0.4 /4
 snapshot drop: strip1.Mute 1, group2.Send1 0.5, master.P2Return 0.4
@@ -1100,8 +1228,8 @@ fn automation_and_snapshots_parse_and_print() {
     let s = Song::parse(AUTOMATED).expect("parses");
     assert_eq!(s.autos.len(), 3);
     assert_eq!(s.autos[0].target, Target::Track(0));
-    assert_eq!(s.autos[0].param, Param::Cutoff);
-    assert_eq!(s.autos[0].shape, Shape::Ramp(300.0, 4000.0));
+    assert_eq!(s.autos[0].param, Param::BdTune);
+    assert_eq!(s.autos[0].shape, Shape::Ramp(-12.0, 12.0));
     assert_eq!(s.autos[1].target, Target::Strip(2));
     assert_eq!(s.autos[1].shape, Shape::Steps(vec![1.0, 0.5, 0.25, 1.0]));
     assert_eq!(s.autos[2].target, Target::Master);
@@ -1120,7 +1248,7 @@ fn automation_and_snapshots_parse_and_print() {
     assert_eq!(s.scenes[1].autos, vec![1, 2]);
     let text = s.print();
     assert!(
-        text.contains("auto sweep = kit.Cutoff ramp 300 4000 /2\n"),
+        text.contains("auto sweep = kit.BdTune ramp -12 12 /2\n"),
         "{text}"
     );
     assert!(
@@ -1131,12 +1259,12 @@ fn automation_and_snapshots_parse_and_print() {
     assert_eq!(Song::parse(&text), Ok(s));
 }
 
-/// ADR-0019: a parameter is named in any case, as `kit.cutoff` or
-/// `kit.Cutoff`, and prints by its registry name.
+/// ADR-0019: a parameter is named in any case, as `kit.bdtune` or
+/// `kit.BdTune`, and prints by its registry name.
 #[test]
 fn a_parameter_name_is_read_in_any_case() {
     let lower = AUTOMATED
-        .replace("kit.Cutoff", "kit.cutoff")
+        .replace("kit.BdTune", "kit.bdtune")
         .replace("master.P2Return 0.4", "master.p2return 0.4");
     assert_eq!(Song::parse(&lower), Song::parse(AUTOMATED));
 }
@@ -1145,10 +1273,10 @@ fn a_parameter_name_is_read_in_any_case() {
 fn a_lane_steps_or_ramps_over_its_length_and_loops() {
     let s = Song::parse(AUTOMATED).expect("parses");
     let (ramp, steps) = (&s.autos[0], &s.autos[1]);
-    assert_eq!(ramp.value_at(0.0), 300.0);
-    assert_eq!(ramp.value_at(16.0), 2150.0, "half way over two bars");
-    assert!((ramp.value_at(31.999) - 4000.0).abs() < 1.0);
-    assert_eq!(ramp.value_at(32.0), 300.0, "and round again");
+    assert_eq!(ramp.value_at(0.0), -12.0);
+    assert_eq!(ramp.value_at(16.0), 0.0, "half way over two bars");
+    assert!((ramp.value_at(31.999) - 12.0).abs() < 0.01);
+    assert_eq!(ramp.value_at(32.0), -12.0, "and round again");
     assert_eq!(
         [0.0, 3.9, 4.0, 8.0, 12.0, 15.9].map(|t| steps.value_at(t)),
         [1.0, 1.0, 0.5, 0.25, 1.0, 1.0]
@@ -1202,13 +1330,13 @@ fn automation_errors_say_where() {
             "the model and the routing can't be automated",
         ),
         (
-            "auto a = kit.Cutoff ramp 1 /1",
+            "auto a = kit.BdTune ramp 1 /1",
             4,
             21,
             "a ramp goes from one value to another",
         ),
         (
-            "auto b = kit.Cutoff 1 /1",
+            "auto b = kit.BdTune 1 /1",
             4,
             6,
             "there is already a clip or auto with this name",
@@ -2121,13 +2249,13 @@ fn a_comment_on_the_master_line_stays_with_it() {
 #[test]
 fn a_mod_line_parses_and_prints() {
     let text = "track kit drums\nclip b = kit\n  bd x\n\
-        mod kit.Cutoff = sine.range(300,3000).slow(4)   # sweep\n\
+        mod kit.BdTune = sine.range(-12,12).slow(4)   # sweep\n\
         mod master.p2return = lfo(0.2, saw).range(0, 0.5) + perlin * 0.1\n";
     let s = Song::parse(text).expect("parses");
     assert_eq!(s.mods.len(), 2);
     assert_eq!(
         (s.mods[0].target, s.mods[0].param),
-        (Target::Track(0), Param::Cutoff)
+        (Target::Track(0), Param::BdTune)
     );
     assert_eq!(
         (s.mods[1].target, s.mods[1].param),
@@ -2135,7 +2263,7 @@ fn a_mod_line_parses_and_prints() {
     );
     let printed = s.print();
     assert!(
-        printed.contains("\nmod kit.cutoff = sine.range(300, 3000).slow(4) # sweep\n"),
+        printed.contains("\nmod kit.bdtune = sine.range(-12, 12).slow(4) # sweep\n"),
         "{printed}"
     );
     assert!(
@@ -2161,19 +2289,19 @@ fn mod_errors_say_where() {
             5,
             "the model and the routing can't be automated",
         ),
-        ("mod kit.cutoff 1", 16, "= and a signal go here"),
+        ("mod kit.bdtune 1", 16, "= and a signal go here"),
         (
-            "mod kit.cutoff =",
+            "mod kit.bdtune =",
             17,
             "a signal goes here, e.g. sine.range(300, 3000)",
         ),
         (
-            "mod kit.cutoff =  sine.wobble(2)",
+            "mod kit.bdtune =  sine.wobble(2)",
             24,
             "no such method: range exprange slow fast segment lag onNote",
         ),
         (
-            "mod kit.cutoff = lfo(1, pink)",
+            "mod kit.bdtune = lfo(1, pink)",
             25,
             "a shape is sine, cosine, saw, tri or square",
         ),
@@ -2181,7 +2309,7 @@ fn mod_errors_say_where() {
         let err = Song::parse(&format!("{head}{line}")).expect_err(line);
         assert_eq!((err.line, err.col, err.msg), (4, col, msg), "{line}");
     }
-    let twice = format!("{head}mod kit.cutoff = 1\nmod kit.Cutoff = 2");
+    let twice = format!("{head}mod kit.bdtune = 1\nmod kit.BdTune = 2");
     let err = Song::parse(&twice).expect_err("twice");
     assert_eq!(
         (err.line, err.col, err.msg),
@@ -2193,7 +2321,7 @@ fn mod_errors_say_where() {
         .collect();
     let err = Song::parse(&format!("{head}{many}")).expect_err("many");
     assert_eq!((err.line, err.msg), (36, "a song has at most 32 mods"));
-    let big = format!("{head}mod kit.cutoff = {}1", "1 + ".repeat(130));
+    let big = format!("{head}mod kit.bdtune = {}1", "1 + ".repeat(130));
     let err = Song::parse(&big).expect_err("big");
     assert_eq!(err.msg, "a song's signals have at most 256 nodes");
 }
@@ -2226,9 +2354,10 @@ fn per_voice_mod_errors_say_where() {
             "env and lists need a Mono or Poly synth; a Modular voice writes them in its graph",
         ),
         (
+            // The Modular doesn't read cutoff at all (#673).
             "mod buzzer.cutoff = [300, 600]",
-            21,
-            "env and lists need a Mono or Poly synth; a Modular voice writes them in its graph",
+            12,
+            "the Modular reads its knobs, ctl1 to ctl32, and its envelope",
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}")).expect_err(line);

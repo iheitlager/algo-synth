@@ -2817,9 +2817,17 @@ impl Engine {
     }
 
     /// A factory preset picked for `synth`: the tracks it plays take it as
-    /// their preset, and its sound is folded in from there.
+    /// their preset, and its sound is folded in from there. Refused, the
+    /// synth unchanged, when a track it plays names what the preset's model
+    /// doesn't take (#680).
     pub fn edit_preset(&mut self, synth: usize, preset: Preset) {
         self.commit_song();
+        let refused = (0..self.song.tracks.len()).any(|t| {
+            self.song_routed(t) == Some(synth) && !self.song.takes_model(t, preset.model())
+        });
+        if refused {
+            return;
+        }
         self.preset(synth, preset);
         for t in 0..self.song.tracks.len() {
             if self.song_routed(t) == Some(synth) {
@@ -3182,9 +3190,10 @@ impl Engine {
                     });
                     if routed.is_none() && same.is_none() && picked_kit {
                         let rack = (0..SYNTHS).filter(free).find(|s| {
-                            self.synths
-                                .get(*s)
-                                .is_some_and(|p| p.model.uses_drums() || p.model.uses_pads())
+                            self.synths.get(*s).is_some_and(|p| {
+                                (p.model.uses_drums() || p.model.uses_pads())
+                                    && song.takes_model(t, p.model)
+                            })
                         });
                         if let Some(m) = rack.and_then(model_of) {
                             song.pick_on(t, m);

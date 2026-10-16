@@ -1,6 +1,6 @@
 # 0036: Lanes reach every pad of a Pad Sampler
 
-**Status:** Accepted · **Date:** 2026-10-15 · **Extends:** 0012
+**Status:** Accepted, extended by ADR-0037 · **Date:** 2026-10-15 · **Extends:** 0012
 
 ## Context
 
@@ -25,3 +25,7 @@ A lane plays its pad's General MIDI note (`Pad::note`), and a Pad Sampler plays 
 - **Names only, with a new `tb` for the tambourine.** A new `Pad` needs a voice on the 808 and 909, knobs and an out, and still misnames the 808 and 909 kits' pads.
 - **Numbers only.** Every pad reachable, but `cb` on a Pad Sampler stays silent, and a beat written for the 808 loses its cowbell on a sampled kit.
 - **A per-kit map from names to pads.** The kit is loaded at run time, not known to the text; the same song would parse differently by kit.
+
+## Later decisions
+
+- **Extended (ADR-0037):** a parameter its track's model never reads is a parse error too, and that check also runs on a track whose model is picked for its role, once picked (#673). Lanes stay checked only where the model is named.

@@ -28,6 +28,7 @@ mod polymoog;
 mod ppgwave;
 mod proone;
 mod prophet5;
+mod reads;
 mod sampler;
 mod sh101;
 mod sid;
