@@ -2016,6 +2016,22 @@ impl Engine {
             if !self.song.heard(usize::from(track)) {
                 continue;
             }
+            // A pattern method's value for this part of the bar lights (#676).
+            let methods = self.spans.clips.get(f).map_or(&[][..], |s| &s.methods[..]);
+            let mut k = methods.partition_point(|m| m.0 < local);
+            while let Some(&(_, len, span)) = self
+                .spans
+                .clips
+                .get(f)
+                .and_then(|s| s.methods.get(k))
+                .filter(|m| m.0 == local)
+            {
+                self.light(
+                    Some(span),
+                    (j + u64::from(len)) as f64 / TICKS_PER_STEP as f64,
+                );
+                k += 1;
+            }
             let first = self.first_event(f, local);
             for k in first.. {
                 let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {

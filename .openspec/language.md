@@ -632,8 +632,17 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,
-−1. Several values in one bar (`"1 2"`) are an error. On a `live` clip,
-`.add` and `.sub` take theirs from the bar of the song.
+−1. Several values side by side, or in `[ ]`, split the bar (#676):
+`.add("0 3")` adds 0 to the notes starting in its first half and 3 to the
+rest, and `.add("<0 [3 5]>")` nests; `[0,2,4]` with commas stays one value, a
+stack. A method that moves notes in time (`.fast("1 2")`) moves the whole line,
+and each part keeps the notes that land in it. On a `live` clip, `.add` and
+`.sub` take theirs from the bar of the song.
+
+While the song plays, the value in force lights in the clip's line, for each
+bar and each part of a split one, while the clip plays. A method inside
+`every`, `off` or `sometimes`, or one before a method that moves notes in time
+(`.add(…) .fast(…)`), lights nothing: its bars are not the clip's.
 
 Write the harmony once and let other clips follow it: one edit to it moves
 them all at the same bar.

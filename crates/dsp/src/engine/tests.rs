@@ -5346,6 +5346,35 @@ fn the_numbers_in_force_are_lit() {
     assert_eq!(lit_words(&mut e), ["e4"]);
 }
 
+/// #676: a pattern method's value for each bar, and each part of a split
+/// bar, lights while its clip plays; one inside `every` lights nothing.
+#[test]
+fn a_pattern_methods_value_in_force_is_lit() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip m = lead .fast(\"<1 2>\") .add( \"<0 <1 -1> [3 5]>\" )\n  \"c4\"\nclip n = lead .every(2, add(\"<0 12>\"))\n  \"e4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let mut lit: Vec<String> = lit_words(e)
+            .into_iter()
+            .filter(|w| !matches!(w.as_str(), "c4" | "e4"))
+            .collect();
+        lit.sort();
+        lit
+    };
+    // `fast` takes turns 1, 2; `add` 0, 1, 3|5, 0, -1, 3|5, a bar each. An
+    // `add` before the `fast` would not light: `fast` moves its bars.
+    assert_eq!(at(&mut e, 0.25), ["0", "1"]);
+    assert_eq!(at(&mut e, 1.25), ["1", "2"]);
+    assert_eq!(at(&mut e, 2.25), ["1", "3"]);
+    assert_eq!(at(&mut e, 2.75), ["1", "5"]);
+    assert_eq!(at(&mut e, 4.25), ["-1", "1"]);
+}
+
 /// #683: an auto's value in force lights, plain values each for its share
 /// and a sequence's numbers through the bar, as typed.
 #[test]

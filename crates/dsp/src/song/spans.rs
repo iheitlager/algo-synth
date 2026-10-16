@@ -16,6 +16,8 @@
 
 use super::signal::Signal;
 use super::{Auto, Mod, Shape, Song, alias, parse_methods, split_methods, strip_comment};
+use crate::notes::TICKS_PER_BAR;
+use crate::notes::pattern::Pattern;
 use crate::params::Param;
 
 /// A song's spans: each clip's words, each mod's numbers by their index in
@@ -28,11 +30,14 @@ pub struct SongSpans {
 }
 
 /// A clip's words: one span per word of its note line, in
-/// `Notes::word_spans` order, or one per step of each lane.
+/// `Notes::word_spans` order, or one per step of each lane; and the values
+/// of its pattern methods a bar (#676), as (tick in the clip, ticks it holds,
+/// span), by tick.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClipSpans {
     pub notes: Vec<(u32, u32)>,
     pub lanes: Vec<Vec<(u32, u32)>>,
+    pub methods: Vec<(u32, u32, (u32, u32))>,
 }
 
 fn u16_len(s: &str) -> u32 {
@@ -80,6 +85,11 @@ pub fn spans(song: &Song, text: &str) -> SongSpans {
                     (!word.is_empty())
                         .then(|| (off + u16_len(&body[..body.len() - word.len()]), word))
                 });
+            if let (Some(n), Some(&(base, line))) = (&clip.notes, lines.get(h)) {
+                if !clip.live {
+                    out.methods = method_spans(&clip.pattern, n.bars, base, line);
+                }
+            }
             if let Some(n) = &clip.notes {
                 if let Some((base, typed)) = body.next() {
                     out.notes = typed_spans(&n.text, &n.word_spans(), typed)
@@ -152,6 +162,61 @@ fn auto_spans(a: &Auto, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
         }
         Shape::Ramp(..) => Vec::new(),
     }
+}
+
+/// The values of a clip's pattern methods a bar (#676) on its line as typed
+/// (starting at `base`), for each bar of the clip's `bars`: (tick, ticks,
+/// span), by tick. Only a method no later one moves in time, and not one
+/// inside `every`, `off` or `sometimes`: their bars are not the clip's.
+fn method_spans(
+    pattern: &[Pattern],
+    bars: u32,
+    base: u32,
+    line: &str,
+) -> Vec<(u32, u32, (u32, u32))> {
+    let body = strip_comment(line);
+    let Some((_, methods)) = split_methods(body).1 else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, p) in pattern.iter().enumerate() {
+        let Pattern::PerBar(text, steps) = p else {
+            continue;
+        };
+        if !pattern.iter().skip(i + 1).all(Pattern::pitch_only) || steps.is_empty() {
+            continue;
+        }
+        // The quoted argument as written, found after its `.name(`.
+        let Some((name, arg)) = text.split_once('(') else {
+            continue;
+        };
+        let arg = arg.strip_suffix(')').unwrap_or(arg);
+        let call = format!(".{name}(");
+        let Some(at) = methods.match_indices(&call).find_map(|(k, _)| {
+            let inner = methods.get(k + call.len()..)?;
+            let close = inner.find(')')?;
+            let inside = inner.get(..close)?;
+            (inside.trim() == arg)
+                .then(|| offset(line, inside) + (inside.len() - inside.trim_start().len()))
+        }) else {
+            continue;
+        };
+        for b in 0..bars {
+            let Some(parts) = steps.get(b as usize % steps.len()) else {
+                continue;
+            };
+            for part in parts.iter().filter(|p| p.to > p.from) {
+                let (from, len) = (at + part.at.0, part.at.1);
+                let span = (
+                    base + line.get(..from).map_or(0, u16_len),
+                    line.get(from..from + len).map_or(0, u16_len),
+                );
+                out.push((b * TICKS_PER_BAR + part.from, part.to - part.from, span));
+            }
+        }
+    }
+    out.sort_by_key(|m| m.0);
+    out
 }
 
 /// Where `inner`, a slice of `outer`, starts in it (bytes).
