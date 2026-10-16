@@ -746,6 +746,13 @@ there, so `.cutoff("~ ~ 800 ~")` locks the cutoff on one step of four and lets
 go after it (a per-step lock). Anything combined with a `~` has no value on that
 step either. A per-voice signal takes no `~`.
 
+A sequence nests as Strudel's (#675): `[a b]` divides its share of time, `<a b>`
+takes one a cycle, and a `<…>` inside moves on only when it is picked.
+`.attack("<0.1 [0 0.05]>")` is 0.1 in bar 1, then 0 and 0.05 for the halves of
+bar 2; `"[0.1 0]"` is `"0.1 0"`. While the song plays, the number in force
+lights in the text, as a note does, while its clip plays: through `slow`,
+`fast`, `segment` and arithmetic, not inside a wave or a list.
+
 ```song
 track kit drums
 track bass synth Sh101
@@ -832,7 +839,7 @@ returns to its value before.
 
 ```text
 signal = <term> [(+ | - | * | /) <term>]…      * and / bind tighter; ( ) group
-term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<method>(…)…
+term   = <number> | <source> | "<sequence>" | [<n>, …] | ( <signal> ), then .<method>(…)…
 ```
 
 | source (0 to 1) | |
@@ -844,7 +851,7 @@ term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<m
 | `sine2` `cosine2` `saw2` `tri2` `square2` `rand2` | as Strudel's: the same from −1 to 1 |
 | `irand(<n>)` | a whole number from 0 to n − 1 (n 1–64), new each sixteenth |
 | `brand` `brandBy(<p>)` | 1 with chance p (0–1; 0.5 for `brand`), else 0, new each sixteenth |
-| `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64); `~` a step with no value |
+| `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64); `~` a step with no value; `[ ]` and `< >` nest, `"<300 [800 1200]>"` (#675); the number in force lights while the song plays |
 | `env(adsr)` `env(perc)` `env(<a>, <d>, <s>, <r>)` | per voice: an envelope per note, the synth's ADSR, a short one, or seconds |
 | `[a, b, …]` `lfo([a, b, …])` | per voice: number or LFO rate i for voice slot i, round the list (at most 16) |
 

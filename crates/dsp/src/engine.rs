@@ -69,7 +69,7 @@ use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR, pattern};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
-use crate::song::spans::{self, ClipSpans};
+use crate::song::spans::{self, SongSpans};
 use crate::song::splice;
 use crate::song::{
     At, GRACE_VELOCITY, Kind, MAX_AUTOS, MAX_MODS, MAX_TEXT, MAX_TRACKS, Mix, MixLine,
@@ -106,11 +106,14 @@ struct Pending {
     live: Vec<Live>,
     route: [Option<usize>; MAX_TRACKS],
     /// Where its words are in its text (#205), built with it.
-    spans: Vec<ClipSpans>,
+    spans: SongSpans,
 }
 
-/// The most words lit at once (#205).
-pub const MAX_LIT: usize = 64;
+/// The most words lit at once (#205): notes and steps, and the numbers of
+/// the mods' sequences (#675).
+pub const MAX_LIT: usize = 128;
+/// The most numbers of one mod lit at once: one per sequence in force (#675).
+const MAX_MOD_LIT: usize = 8;
 
 /// A word of the song's text that plays (#205): its span in UTF-16 units and
 /// the clock step it stops sounding at.
@@ -261,10 +264,10 @@ pub struct Engine {
     snapshot_name: String,
     /// The song and live buffers it replaced, kept so `render` never frees
     /// them; the next load drops them.
-    spent: Option<(Song, Vec<Live>, Vec<ClipSpans>)>,
+    spent: Option<(Song, Vec<Live>, SongSpans)>,
     /// Where the words of the song's text are, per clip (#205), the
     /// words playing now, and the spans handed out last (`lit_count`).
-    spans: Vec<ClipSpans>,
+    spans: SongSpans,
     lit: [Lit; MAX_LIT],
     lit_out: [u32; 2 * MAX_LIT],
     /// A pending song took over on a bar line since the view last asked.
@@ -380,7 +383,7 @@ impl Engine {
             snapshot_queued: None,
             snapshot_name: String::new(),
             spent: None,
-            spans: Vec::new(),
+            spans: SongSpans::default(),
             lit: [Lit::default(); MAX_LIT],
             lit_out: [0; 2 * MAX_LIT],
             taken: false,
@@ -2048,6 +2051,7 @@ impl Engine {
                 self.sample_on_note(usize::from(track), f, j);
                 let span = self
                     .spans
+                    .clips
                     .get(f)
                     .and_then(|s| s.notes.get(usize::from(ev.word)))
                     .copied();
@@ -2373,6 +2377,7 @@ impl Engine {
                         // The step lights until its span ends (#205).
                         let span = self
                             .spans
+                            .clips
                             .get(f)
                             .and_then(|s| s.lanes.get(l)?.get(i))
                             .copied();
@@ -2715,6 +2720,25 @@ impl Engine {
                 v if v.is_nan() => self.mod_base.get(m).copied().flatten().unwrap_or(found),
                 v => v,
             };
+            // The numbers in force light until their steps end (#675).
+            let mut hits = [(0usize, 0.0f64); MAX_MOD_LIT];
+            let mut n = 0;
+            md.signal.lit(t, &mut |v, until| {
+                if let Some(h) = hits.get_mut(n) {
+                    *h = (v, until);
+                    n += 1;
+                }
+            });
+            for &(v, until) in hits.iter().take(n) {
+                let span = self
+                    .spans
+                    .mods
+                    .get(m)
+                    .and_then(|s| s.get(v))
+                    .copied()
+                    .flatten();
+                self.light(span, until * STEPS_PER_BAR as f64);
+            }
             match self.mod_last.get_mut(m) {
                 Some(last) if *last != v => *last = v,
                 _ => continue,

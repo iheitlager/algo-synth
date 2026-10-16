@@ -3300,7 +3300,7 @@ fn spans_point_at_the_words_of_the_printed_text() {
         clip g = lead\n  arp([c4,e4,g4],up,16)\n";
     let song = Song::parse(text).expect("parses");
     let printed = song.print();
-    let s = spans::spans(&song, &printed);
+    let s = spans::spans(&song, &printed).clips;
     let words =
         |f: usize| -> Vec<String> { s[f].notes.iter().map(|sp| at16(&printed, *sp)).collect() };
     let bd: Vec<String> = s[0].lanes[0].iter().map(|sp| at16(&printed, *sp)).collect();
@@ -3319,7 +3319,7 @@ fn spans_point_at_the_words_of_the_printed_text() {
         Song::parse("track lead synth\nclip m = lead .rev() .fast(2)\n  \"c4 [e4 g4] <c5 d5>\"\n")
             .expect("parses");
     let p = rev.print();
-    let sp = spans::spans(&rev, &p);
+    let sp = spans::spans(&rev, &p).clips;
     let n = rev.clips[0].notes.as_ref().expect("notes");
     for e in &n.events {
         let word = at16(&p, sp[0].notes[usize::from(e.word)]);

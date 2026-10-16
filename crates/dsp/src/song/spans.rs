@@ -7,10 +7,24 @@
 //! `0..3` for `0 .. 3`) is matched word for word against its print; a line
 //! whose words do not line up gets no spans, so nothing lights up wrongly.
 //!
+//! The numbers of a mod's sequences (a parameter method's or a `mod` line's)
+//! are found the same way: the signal as typed is parsed again, and gets
+//! spans only when it prints as the song's does (#675).
+//!
 //! Positions count UTF-16 units from the start of the text, as the editor's
 //! highlighting does (#203).
 
-use super::{Song, strip_comment};
+use super::signal::Signal;
+use super::{Mod, Song, alias, parse_methods, split_methods, strip_comment};
+use crate::params::Param;
+
+/// A song's spans: each clip's words, and each mod's numbers by their index
+/// in its signal (#675).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SongSpans {
+    pub clips: Vec<ClipSpans>,
+    pub mods: Vec<Vec<Option<(u32, u32)>>>,
+}
 
 /// A clip's words: one span per word of its note line, in
 /// `Notes::word_spans` order, or one per step of each lane.
@@ -24,9 +38,9 @@ fn u16_len(s: &str) -> u32 {
     s.encode_utf16().count() as u32
 }
 
-/// Each clip's spans in `text`, a text that parses to `song`. A clip whose
-/// lines are not found gets none.
-pub fn spans(song: &Song, text: &str) -> Vec<ClipSpans> {
+/// Each clip's and mod's spans in `text`, a text that parses to `song`. One
+/// whose line is not found gets none.
+pub fn spans(song: &Song, text: &str) -> SongSpans {
     // Each line with where it starts, in UTF-16 units.
     let mut lines = Vec::new();
     let mut at = 0u32;
@@ -34,7 +48,13 @@ pub fn spans(song: &Song, text: &str) -> Vec<ClipSpans> {
         lines.push((at, line));
         at += u16_len(line) + 1;
     }
-    song.clips
+    let mods = song
+        .mods
+        .iter()
+        .map(|md| mod_spans(song, md, &lines))
+        .collect();
+    let clips = song
+        .clips
         .iter()
         .map(|clip| {
             let mut out = ClipSpans::default();
@@ -83,6 +103,74 @@ pub fn spans(song: &Song, text: &str) -> Vec<ClipSpans> {
                     }));
             }
             out
+        })
+        .collect();
+    SongSpans { clips, mods }
+}
+
+/// Where `inner`, a slice of `outer`, starts in it (bytes).
+fn offset(outer: &str, inner: &str) -> usize {
+    (inner.as_ptr() as usize).saturating_sub(outer.as_ptr() as usize)
+}
+
+/// The numbers of mod `md`'s signal in its line as typed, by their index in
+/// the signal: a parameter method on its clip's line or a `mod` line. None
+/// when the line isn't found or its signal doesn't print as `md`'s.
+fn mod_spans(song: &Song, md: &Mod, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
+    let named =
+        |name: &str| alias(name).map(|(_, p)| p).or_else(|| Param::by_name(name)) == Some(md.param);
+    // The line's start, the line and its signal's text.
+    let found = lines.iter().find_map(|&(base, l)| {
+        let body = strip_comment(l).trim_end();
+        let mut w = body.split_whitespace();
+        let text = match md.clip {
+            Some(f) => {
+                let clip = song.clips.get(f)?;
+                if (w.next(), w.next()) != (Some("clip"), Some(clip.name.as_str())) {
+                    return None;
+                }
+                let methods = split_methods(body).1?.1;
+                parse_methods(methods)
+                    .ok()?
+                    .into_iter()
+                    .find(|(name, _, _, _)| named(name))?
+                    .2
+            }
+            None => {
+                let (target, param) = w.nth(1)?.split_once('.')?;
+                let rest: Vec<&str> = body.split_whitespace().collect();
+                let (Some(&"mod"), Some(&"="), Some(first)) =
+                    (rest.first(), rest.get(2), rest.get(3))
+                else {
+                    return None;
+                };
+                if target != song.target_name(md.target) || !named(param) {
+                    return None;
+                }
+                body.get(offset(body, first)..)?
+            }
+        };
+        Some((base, l, text))
+    });
+    let Some((base, line, text)) = found else {
+        return Vec::new();
+    };
+    let Ok(sig) = Signal::parse(text, &mut 0) else {
+        return Vec::new();
+    };
+    if sig.to_string() != md.signal.to_string() {
+        return Vec::new();
+    }
+    let at = offset(line, text);
+    let byte = |c: usize| text.char_indices().nth(c).map_or(text.len(), |(b, _)| b);
+    (0..sig.numbers())
+        .map(|v| {
+            let (c, l) = sig.col(v)?;
+            let (from, to) = (byte(c as usize - 1), byte((c + l) as usize - 1));
+            Some((
+                base + line.get(..at + from).map_or(0, u16_len),
+                text.get(from..to).map_or(0, u16_len),
+            ))
         })
         .collect()
 }
