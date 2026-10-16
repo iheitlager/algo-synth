@@ -367,7 +367,9 @@ impl Arp {
             }
         }
         let mut on = None;
-        if self.held.is_empty() {
+        // No keys, or a grid that went back (the transport stopped and
+        // started again): the pattern starts over.
+        if self.held.is_empty() || self.origin.is_some_and(|o| o > j) {
             self.origin = None;
         }
         if j % self.period == 0 && !self.held.is_empty() {
@@ -555,5 +557,19 @@ mod tests {
         a.set(Param::ArpGate, 1.0);
         assert_eq!(a.tick(6), (None, Some(60)));
         assert_eq!(a.tick(12), (Some(60), Some(60)));
+    }
+
+    #[test]
+    fn a_grid_that_goes_back_starts_the_pattern_over() {
+        // Keys held while the transport stops and plays from the top: the
+        // song grid's ticks go back to 0 under a pattern that began later.
+        let mut a = Arp::default();
+        for n in CEG {
+            a.press(n);
+        }
+        assert_eq!(a.tick(300).1, Some(60));
+        assert_eq!(a.tick(303).1, Some(64));
+        assert_eq!(a.tick(0).1, Some(60));
+        assert_eq!(a.tick(3).1, Some(64));
     }
 }
