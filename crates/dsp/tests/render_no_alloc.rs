@@ -4,7 +4,8 @@
 //! modulations, Modular settings with their code, a new song taking over on a bar line,
 //! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, a
 //! cued start and a sync to a bar (ADR-0029), and a pad sampler's sample
-//! chopped, fitted, spliced, reversed, swept and coarse (#716–#718).
+//! chopped, fitted, spliced, reversed, swept and coarse, echoed and spread
+//! (#716–#719).
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
@@ -84,7 +85,7 @@ clip nbeat = nkit /16
   lt ..x...x.
 clip chops = brk .fit() .chop(8) .sometimesBy(0.5, mul(speed(-1))) .accelerate(0.5) .coarse(\"<1 4>\")
   \"c2 ~ c2 c2\"
-clip slices = brk .splice(4, \"<0 2 1 3>*2 [3 1]\")
+clip slices = brk .splice(4, \"<0 2 1 3>*2 [3 1]\") .spread(id, rev, chop(4), stut(3, 0.5, 1/16))
   \"c2\"
 
 auto fade = strip2.Level ramp 1 0.2 /2

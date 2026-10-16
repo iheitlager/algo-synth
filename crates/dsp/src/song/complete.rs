@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 35] = [
+const METHODS: [(&str, &str); 38] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -127,6 +127,9 @@ const METHODS: [(&str, &str); 35] = [
     ("accelerate", "a speed added by the note's end"),
     ("coarse", "each value held n samples, lo-fi"),
     ("mul", "a speed that multiplies: mul(speed(-1))"),
+    ("stut", "n softer copies, a time apart (Tidal)"),
+    ("echo", "n softer copies, a time apart (Strudel)"),
+    ("spread", "a method a bar, in turn"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -376,6 +379,8 @@ impl List<'_> {
                     | "accelerate"
                     | "coarse"
                     | "mul"
+                    | "stut"
+                    | "echo"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }

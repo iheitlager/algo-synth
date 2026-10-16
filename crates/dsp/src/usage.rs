@@ -26,6 +26,9 @@ pub const ARP_METHOD: &str =
     "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
 pub const SLICE: &str = "slice takes a number of parts from 1 to 64 and indexes in quotes: slice(8, \"0 1 <2 3> [6 7]\")";
 pub const SPLICE: &str = "splice takes a number of parts from 1 to 64 and indexes in quotes: splice(8, \"0 1 <2 3> [6 7]\")";
+pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
+pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
+pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -41,7 +44,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 35] = [
+pub const METHODS: [(&str, &str); 38] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -122,6 +125,9 @@ pub const METHODS: [(&str, &str); 35] = [
         "coarse takes a whole number from 1 to 64, or one a step: coarse(8) or coarse(\"16 32 24\")",
     ),
     ("mul", "mul takes a speed: mul(speed(-1))"),
+    ("stut", STUT),
+    ("echo", ECHO),
+    ("spread", SPREAD),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

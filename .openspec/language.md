@@ -627,6 +627,9 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.mul(speed(x))` | Strudel's spelling of `.speed(x)`, which multiplies: `.sometimesBy(.25, mul(speed("-1")))` (#718) |
 | `.accelerate(a)` | the speed added by the note's end, as Tidal's: from its speed to its speed + a (−32 to 32) in a line over the note (#718); added to an earlier one; one a step: `accelerate("1 2")` |
 | `.coarse(n)` | each output value held for n (1–64) samples, as Tidal's coarse: lo-fi (#718); one a step: `coarse("16 32 24")` |
+| `.stut(n, gain, time)` | n (1–16) copies of each note `time` of a bar apart (`0.05`, `1/16`, at least a tick, 48 to a bar), the k-th at gain^k (0–1) of its velocity, as Tidal's stut (#719): `stut(4, 0.25, 0.05)`; a copy past the line's end comes round to its start; not on a drum clip |
+| `.echo(n, time, gain)` | the same in Strudel's order: `echo(4, 0.05, 0.25)` (#719) |
+| `.spread(m1, m2, …)` | bar k through method k of 2 to 8, round and round, as Tidal's `spread ($)` (#719): `spread(id, rev, fast(2), chop(16))`, `id` the bar as it is; the line repeats until the methods and its bars come round together |
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |
