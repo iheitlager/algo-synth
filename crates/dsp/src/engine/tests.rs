@@ -5469,6 +5469,60 @@ fn lit_values_follow_their_clip_and_lane() {
     assert!(numbers(&mut e).is_empty(), "{:?}", lit_words(&mut e));
 }
 
+/// #683: a `~` in an auto's sequence holds the lane's last value, never
+/// writing a NaN; and the lane's values light again as it comes round.
+#[test]
+fn an_autos_rest_holds_and_its_lights_come_round() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106 JunoPad\nclip m = lead\n  \"c4\"\nauto a = lead.Cutoff \"~ <500 900>\" /2\nauto b = lead.Resonance 0.2 0.4 /2\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let before = e.param_value(s, Param::Cutoff);
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let cutoff = e.param_value(s, Param::Cutoff);
+        let mut lit: Vec<String> = lit_words(e).into_iter().filter(|w| w != "c4").collect();
+        lit.sort();
+        (cutoff, lit)
+    };
+    assert_eq!(at(&mut e, 0.25), (before, vec!["0.2".to_string()]));
+    assert_eq!(at(&mut e, 0.75), (500.0, vec!["0.2".into(), "500".into()]));
+    assert_eq!(
+        at(&mut e, 1.25),
+        (500.0, vec!["0.4".to_string()]),
+        "the ~ holds 500"
+    );
+    assert_eq!(at(&mut e, 1.75), (900.0, vec!["0.4".into(), "900".into()]));
+    assert_eq!(
+        at(&mut e, 2.25),
+        (900.0, vec!["0.2".to_string()]),
+        "round again"
+    );
+}
+
+/// #676: a pattern method's values light only where its bars are the
+/// clip's: not inside `off` or `sometimes`, not before a method other than
+/// `add`, `sub`, `oct`, `scale` or `chord`, and not on a `live` clip.
+#[test]
+fn a_pattern_method_lights_only_where_its_bars_are_the_clips() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip a = lead .off(0.25, add(\"<7 9>\"))\n  \"c4\"\nclip b = lead .sometimes(add(\"<5 6>\"))\n  \"d4\"\nclip c = lead .add(\"<3 4>\") .ply(2)\n  \"e4\"\nclip d = lead live .add(\"<8 11>\")\n  arp([c4,e4,g4],up,8)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    for k in 1..4 {
+        run(&mut e, 24_000 / BLOCK);
+        let numbers: Vec<String> = lit_words(&mut e)
+            .into_iter()
+            .filter(|w| w.parse::<i32>().is_ok())
+            .collect();
+        assert!(numbers.is_empty(), "quarter {k}: {numbers:?}");
+    }
+}
+
 /// #683: an auto's value in force lights, plain values each for its share
 /// and a sequence's numbers through the bar, as typed.
 #[test]
