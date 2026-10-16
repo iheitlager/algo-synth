@@ -1,0 +1,102 @@
+# Tidal cut-up: a TidalCycles patch whole, at its own tempo (#732).
+# breaks.song plays its Amen alone; this is all of it:
+#
+#   setcps (90/60/4)
+#   d1 $ fast 2 $ stack [
+#     spread ($) [id, rev, (|+| accelerate "1 2"), (|+| coarse "16 32 24"),
+#                 chop 16, stut 4 0.25 0.05] $
+#     cat [ sound "amencutup*8" # n (irand 32) |+ accelerate 2,
+#           sound "v*4" # n (irand 6) |+| pan "[0 1]*4",
+#           sound "casio*8" # n (irand 6),
+#           sound "ulgab*8" # n (irand 6) |+| pan "[0 1]*4" ]
+#       |+| unit "c" |+| speed 8 # room 0.4,
+#     whenmod 8 3 (const silence) $ stack [
+#       midinote (slow 2 $ (run 16) * 10 + 60) # s "supergong"
+#         # pan (slow 7 $ range 0.8 0.2 $ sine),
+#       midinote ((run 16) * 10 + 60) # s "supermandolin"
+#         # pan (slow 7 $ range 0.2 0.8 $ sine) ] ]
+#     # decay "[1 0.2]/4" # voice "[0.5 0]/8" # sustain (slow 7 $ range 5 0.5 $ sine)
+#     # room (range 0.4 0.9 $ slow 17 sine) # size (range 0.3 0.6 $ slow 17 sine)
+#
+# With fast 2 a Tidal cycle is half a bar. cat's four sounds take a half bar
+# each, one track apiece, in clips of two bars. amencutup is the Amen in 32
+# from the breaks kit (make samples), each cut fitted to its sixteenth as
+# unit "c" with speed 8 does; out-of-order slices stand for irand (#730).
+# v, casio and ulgab are Dirt-Samples banks, not ours yet (#728): the NES
+# kit, the VL-1's (a Casio) and the 808 stand in. spread's methods take a bar
+# each, not a cycle, and only the Amen can take them all.
+#
+# whenmod 8 3 keeps the gong and mandolin for three cycles of eight: the
+# first bar and a half of every four. Their notes, run 16 * 10 + 60, climb
+# to 210; ours stop at 127, so from 130 up each is folded down whole
+# octaves, keeping its pitch class. The SynthDefs are SuperDirt's, with
+# decay and sustain named damp and ring, as ours are the ADSR's; three
+# methods they use aren't in the dialect yet, so clip is dropped, cpsmidi a
+# constant and reciprocal 1 / freq (#731).
+tempo 90
+setting gong = Modular ModularBasic: Polyphony 16
+  SynthDef(\supergong, { |freq = 440, gate = 1, amp = 0.8, damp = 1, voice = 0, ring = 1|
+      // The lowest modes of a clamped circular plate.
+      var modes = [1, 2.081, 3.414, 3.893, 4.995, 5.954, 6.819, 8.28, 8.722, 8.882, 10.868, 11.18, 11.754, 13.71, 15.057];
+      var times = (100 / freq) * 0.5 * ring * 5 / (modes ** (2 - damp));
+      var amps = (modes ** voice) * 0.2;
+      var strike = LPF.ar(Impulse.ar(0), 8000) * 4;
+      DynKlank.ar(`[modes, amps, times], strike, freq) * 0.05 * EnvGen.kr(Env.asr(0.001, 1, 4), gate)
+  }).add;
+setting mandolin = Modular ModularBasic: Polyphony 16
+  SynthDef(\supermandolin, { |freq = 440, gate = 1, amp = 0.8, ring = 1, detune = 0.2|
+      // A burst of noise into two combs a fifth of a percent apart.
+      var burst = WhiteNoise.ar * EnvGen.kr(Env.perc(0.0001, 0.15), gate) * 0.1;
+      var p = 1 / freq;
+      var sound = CombL.ar(burst, 0.05, p * (1 - (detune / 100)), ring) + CombL.ar(burst, 0.05, p * (1 + (detune / 100)), ring);
+      sound * 0.5 * EnvGen.kr(Env.asr(0.002, 1, 2), gate)
+  }).add;
+track amen sampler PadSampler
+track v drums Nes NesKit
+track casio drums VlTone VlKit
+track ulgab drums Tr808 Kit808
+track gong synth gong
+track mandolin synth mandolin
+samples amen breaks
+strip amen: Send2 0.4
+strip v: Send2 0.4
+strip casio: Send2 0.4
+strip ulgab: Send2 0.4
+# stut 4 0.25 0.05 is in the Amen's spread; the echo is for ulgab.
+master: EchoTime 0.067, EchoFeedback 0.25
+
+# amencutup*8 |+ accelerate 2: the Amen fitted to two bars, a thirty-second
+# of it a sixteenth, eight cuts in the first half of bar one.
+clip amen_cut = amen .slow(2) .fit() .slice(32, "<[[0 9 4 13 7 3 15 6] ~] ~ [[21 2 18 11 23 19 5 24] ~] ~>") .accelerate(2) .spread(id, rev, accelerate("1 2"), coarse("16 32 24"), chop(16), stut(4, 0.25, 0.05))
+  "c2"
+
+# v*4 with its pan "[0 1]*4", hard left and right.
+clip v_cut = v /16 .pan("-1 1 -1 1 -1 1 -1 1")
+  bd ........x...x...................
+  sn ..........x...x.................
+
+# casio*8: Po, Pi and Sha.
+clip casio_cut = casio /16
+  bd ................x...x...........
+  rs ................xx.x.x.x........
+  sn ..................x...x.x.......
+
+# ulgab*8, panned as v.
+clip ulgab_cut = ulgab /16 .pan("-1 1 -1 1 -1 1 -1 1") .delay(0.4)
+  bd ........................x...x...
+  sn ............................x...
+  ch ........................xxxxxxxx
+
+# midinote (slow 2 $ run 16 * 10 + 60): sixteen notes a bar after fast 2.
+clip gongs = gong .damp("<1 0.2>") .voice("<0.5 0.5 0 0>") .ring(sine.slow(3.5).range(5, 0.5)) .pan(sine.slow(3.5).range(0.8, -0.8)) .room(sine.slow(8.5).range(0.4, 0.9))
+  "<[c4 bb4 ab5 gb6 e7 d8 c9 bb8 ab8 gb8 e8 d8 c8 bb7 ab7 gb7] [c4 bb4 ab5 gb6 e7 d8 c9 bb8 ~@8] ~ ~>"
+
+# midinote (run 16 * 10 + 60): sixteen notes a half bar.
+clip mandolins = mandolin .ring(sine.slow(3.5).range(5, 0.5)) .pan(sine.slow(3.5).range(-0.8, 0.8)) .room(sine.slow(8.5).range(0.4, 0.9))
+  "<[c4 bb4 ab5 gb6 e7 d8 c9 bb8 ab8 gb8 e8 d8 c8 bb7 ab7 gb7]*2 [c4 bb4 ab5 gb6 e7 d8 c9 bb8 ab8 gb8 e8 d8 c8 bb7 ab7 gb7 ~@16] ~ ~>"
+
+# room (range 0.4 0.9 $ slow 17 sine) # size (range 0.3 0.6 $ slow 17 sine)
+mod master.roomsize = sine.slow(8.5).range(1.5, 3)
+
+scene d1 16: amen_cut v_cut casio_cut ulgab_cut gongs mandolins
+arrange d1
