@@ -695,10 +695,14 @@ impl Model {
         self.def().engine == Engine::Mono
     }
 
-    /// Whether its voices are the multisampler's, which read the envelope
-    /// times of the per-voice table (ADR-0038).
-    pub fn uses_sampler_voice(self) -> bool {
-        self.def().engine == Engine::Sampler
+    /// Whether its voices hold a note's own envelope times from the
+    /// per-voice table (ADR-0038): the multisampler's, LA's (partial 1) and
+    /// a Modular voice's amplifier; a Mono voice holds the whole table.
+    pub fn holds_note_times(self) -> bool {
+        matches!(
+            self.def().engine,
+            Engine::Sampler | Engine::La | Engine::Graph
+        )
     }
 
     /// Whether the synth is the drum/pad sampler (#124).

@@ -17,7 +17,7 @@ tempo 136
 swing 54
 scale d minor
 
-# Two tuned resonators struck by a click, each note its own ring (Ctl1).
+# Two tuned resonators struck by a click, each note its own ring (decay).
 setting metal = Modular ModularBasic
   SynthDef(\metal, { |freq = 2000, decay = 0.2, gate = 1|
       var hit = Impulse.ar(0) + (WhiteNoise.ar * Env.perc(0.001, 0.004).kr * 0.5);
@@ -41,7 +41,7 @@ setting sub = Modular ModularBasic
   }).add;
 
 # Two detuned saws, one each side, through the Juno-106's ladder; the
-# cutoff (Ctl1) is a sample-and-hold below.
+# cutoff is a sample-and-hold below.
 setting glint = Modular ModularBasic
   SynthDef(\glint, { |freq = 440, cutoff = 1400, gate = 1|
       var env = EnvGen.kr(Env.perc(0.002, 0.2), gate);
@@ -50,7 +50,7 @@ setting glint = Modular ModularBasic
   }).add;
 
 # A laser: a sine falling from up to four octaves above its note, an FM
-# growl on top; how far it falls (Ctl1) is drawn for each note.
+# growl on top; how far it falls (drop) is drawn for each note.
 setting zap = Modular ModularBasic
   SynthDef(\zap, { |freq = 400, drop = 24, gate = 1|
       var f = freq * Env([drop, 0], [0.06], [\lin]).kr.midiratio;
@@ -143,7 +143,7 @@ clip poly = perc /16
 
 # The metal: nine hits a bar walking up the scale, a third dropped, some
 # doubled, every fourth bar backwards; each strike rings its own length.
-clip metals = metal .degrade(0.3) .sometimes(ply(2)) .every(4, rev) .ctl1(rand.onNote.exprange(0.04, 0.5))
+clip metals = metal .degrade(0.3) .sometimes(ply(2)) .every(4, rev) .decay(rand.onNote.exprange(0.04, 0.5))
   euclid(9,16,3) scale d6
 # The crush in threes against the four, twice as fast every third bar.
 clip crushes = crush .every(3, fast(2)) .degrade(0.2)
@@ -174,7 +174,7 @@ clip squelches = squelch live
 
 # Lasers: eleven a bar, half dropped, some twice as fast, every other bar
 # turned a quarter on; each falls its own distance.
-clip zaps = zap .degrade(0.5) .sometimes(fast(2)) .every(2, iter(4)) .ctl1(rand.onNote.range(7, 48))
+clip zaps = zap .degrade(0.5) .sometimes(fast(2)) .every(2, iter(4)) .drop(rand.onNote.range(7, 48))
   euclid(11,16,5) scale d4
 
 # Bleeps: seven a bar up the scale, and five in twelve against them.
@@ -197,7 +197,7 @@ auto pad_rise = pad.Cutoff ramp 400 2400 /8
 auto rise = master.P1Return ramp 0.35 0.7 /4
 
 mod acid.cutoff = perlin.slow(2).exprange(350, 2800)
-mod glint.ctl1 = rand.exprange(500, 4500)
+mod glint.cutoff = rand.exprange(500, 4500)
 mod squelch.cutoff = rand.segment(8).exprange(300, 3500)
 mod squelch.resonance = perlin.slow(4).range(0.6, 0.95)
 mod pad.cutoff = lfo([0.11, 0.17, 0.23, 0.29]).exprange(600, 3000)

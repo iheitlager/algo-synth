@@ -306,6 +306,12 @@ impl VoiceSet {
             .flatten()
     }
 
+    /// Go back to the synth's envelope times: a new note's own come next
+    /// (ADR-0038).
+    pub fn clear_note_times(&mut self) {
+        self.mask &= !(0b1111 << ENV_SLOT);
+    }
+
     /// The value held for slot `k`, else `synth`'s.
     fn or(&self, k: usize, synth: f32) -> f32 {
         match self.v.get(k) {

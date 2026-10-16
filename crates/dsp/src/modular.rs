@@ -19,6 +19,7 @@ use crate::mono::noise::Noise;
 use crate::mono::osc::{Osc, Waveform, naive};
 use crate::mono::svf::{OnePole, Svf};
 use crate::mono::voice::MonoCtx;
+use crate::mono::voice::VoiceSet;
 use crate::table::{TABLES, USER_TABLES};
 use crate::voice::lookup;
 
@@ -790,6 +791,8 @@ pub struct GraphVoice {
     /// Pitch trim in semitones from the pool (unison, analog variance).
     pub trim: f32,
     pub cutoff_trim: f32,
+    /// Its note's own envelope times (ADR-0038), for the amplifier's ADSR.
+    pub set: VoiceSet,
     /// The voice's slot in its pool: its state, and the number of a list it takes.
     slot: usize,
     /// What `active` needs of the program: its envelopes and their kinds.
@@ -822,6 +825,7 @@ impl GraphVoice {
             fresh: true,
             trim: 0.0,
             cutoff_trim: 0.0,
+            set: VoiceSet::default(),
             slot: 0,
             envs_used: 0,
             shapes: [Shape::Adsr; MAX_ENVS],
@@ -949,6 +953,8 @@ impl GraphVoice {
         let p = ctx.params;
         let sr = p.sample_rate();
         let inv = 1.0 / sr.max(1.0);
+        // The amplifier's ADSR: the note's own times where held (ADR-0038).
+        let adsr = self.set.env(&p.adsr, sr);
         let (retrigger, gate) = (self.retrigger, self.gate);
         self.retrigger = false;
         if retrigger {
@@ -970,7 +976,7 @@ impl GraphVoice {
                     sustain: st.fixed(s, ctx).clamp(0.0, 1.0),
                     release: st.fixed(r, ctx).max(0.0) * sr,
                 },
-                _ => p.adsr,
+                _ => adsr,
             };
             if let Some(env) = self.envs.get_mut(k) {
                 gate_env(env, &t, retrigger, gate);
@@ -980,8 +986,8 @@ impl GraphVoice {
             }
         }
         if used == 0 {
-            gate_env(&mut self.amp, &p.adsr, retrigger, gate);
-            self.amp.set_sustain(p.adsr.sustain);
+            gate_env(&mut self.amp, &adsr, retrigger, gate);
+            self.amp.set_sustain(adsr.sustain);
         }
         let hz = ctx.pitch.at(self.note + self.trim + p.bend) * sr;
         let len = usize::from(st.prog.len);

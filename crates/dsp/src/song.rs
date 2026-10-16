@@ -3839,7 +3839,29 @@ fn target_param(song: &Song, text: &str) -> Result<(Target, Param), Cow<'static,
     } else {
         return Err("a target is a track, strip1–16, group1–8 or master".into());
     };
-    Ok((target, param_for(song, target, p)?))
+    let param = param_for(song, target, p).map_err(|e| match target {
+        // A strip names no synth, so its knobs go by their track (#688).
+        Target::Strip(s) if s < STRIPS => {
+            knob_of_a_track(song, p).map_or(e, |(knob, st, track)| {
+                Cow::Owned(format!("{knob} is a knob of {st}: write {track}.{knob}"))
+            })
+        }
+        _ => e,
+    })?;
+    Ok((target, param))
+}
+
+/// A knob named `name` on a track's Modular setting: the knob as its code
+/// writes it, the setting and the track.
+fn knob_of_a_track<'a>(song: &'a Song, name: &str) -> Option<(&'a str, &'a str, &'a str)> {
+    song.tracks.iter().find_map(|tr| {
+        let st = song.settings.get(tr.setting?)?;
+        let knob = st
+            .knobs
+            .iter()
+            .find(|k| !k.is_empty() && k.eq_ignore_ascii_case(name))?;
+        Some((knob.as_str(), st.name.as_str(), tr.name.as_str()))
+    })
 }
 
 /// A code line under a Modular setting without its indent of two spaces

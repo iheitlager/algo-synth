@@ -1,6 +1,6 @@
 # 0038: Envelope times held per note
 
-**Status:** Accepted · **Date:** 2026-10-16 · **Amends:** ADR-0023
+**Status:** Accepted, amended (#688) · **Date:** 2026-10-16 · **Amends:** ADR-0023
 
 ## Context
 
@@ -18,15 +18,15 @@ Strudel's `note("c2 [eb3,g3]").adsr("[.1 0]:.2:[1 0]")` gives the root a slow sw
 
 - **Which methods.** These are the parameter methods on `AdsrAttack`, `AdsrDecay`, `AdsrSustain` and `AdsrRelease`, by any of their names: `attack`/`att`, `decay`/`dec`, `sustain`/`sus`, `release`/`rel`, or the registry's. They take any signal, as before: a number, `"0.1 0"`, `"<0.5 0.01>"`, or `rand.range(0.01, 0.3)`. Written on a clip, they are sampled per note without `.onNote`. A `mod` line, an `auto` and a snapshot stay as ADR-0019 has them: one value for the synth, in time.
 - **When a value is taken.** A value is taken at the note's tick, the clock's position when the note starts, so a sequence steps with the bar as in Strudel. Notes on one tick, such as a chord, share a value. A `~` leaves the note the value it would have had. A strummed note (#604) or a grace note (#605) is pressed after or before its tick, from the hit queue. It takes its tick's value when it is pressed, so the value lands on its own voices. Before this ADR, `.onNote` sampled such a note when it was queued, and wrote to the voices of the note pressed before it.
-- **Held by the voice.** On a synth whose voices are Mono voices or the multisampler's (the samplers and General MIDI), the four times join ADR-0023's override table after the ten continuous parameters; the mask has room for them. Sampling writes them for the slots the note pressed, before the voice next renders. The voice reads them in place of the synth's:
+- **Held by the voice.** On a synth whose voices are Mono voices, the multisampler's (the samplers and General MIDI), LA's (the D-50's partial 1) or a Modular voice's amplifier ADSR (#688), the four times join ADR-0023's override table after the ten continuous parameters; the mask has room for them. Sampling writes them for the slots the note pressed, before the voice next renders. The voice reads them in place of the synth's:
   - attack and decay when its envelope starts;
   - the sustain while the key is held;
   - the release when the key goes up.
 
   A note keeps its own times while later notes take theirs. Times are held in seconds, and the voice turns them into samples. The model's rules still apply: its ranges and sustain ceiling (#340), and the Minimoog's decay standing in for its release (#308).
-- **Other synths.** LA and the Modular voice read one ADSR per synth. There the value is written to the synth at the note's tick, as `.onNote` does, and held until the next note. That mends the first fault, not the other two, until those voices read the table.
+- **Other synths.** A synth whose voices read no ADSR of this kind, such as the D-50's partial 2 or a Modular code's own `Env`, keeps one envelope per synth. Where the model reads the parameter at all, the value is written to the synth at the note's tick, as `.onNote` does, and held until the next note.
 - **Values checked at parse.** When the signal is plain numbers (a number or a sequence), each time must be 0 to 10 seconds and the sustain 0 to 1. Otherwise it is an error at the signal's column. A time of 0 is Strudel's "at once": it is clamped to the shortest, 1 ms, as a computed signal always is.
-- **When the clip stops.** The table entries clear, as ADR-0023's do, and the synth's value is put back. A note still releasing then follows the synth's release.
+- **When the clip stops.** A note's times stay with it: a slot drops them when it takes its next note, which then samples its own or follows the synth's (#688). So a note let go as its clip leaves keeps its release, and the next clip's notes don't inherit the stopped clip's values.
 
 ## Consequences
 

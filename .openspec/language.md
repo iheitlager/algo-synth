@@ -754,8 +754,9 @@ clip a = lead .vib(4) .vibmod("<.25 .5 1 2 12>")
 `rel`) on a clip are held per note (ADR-0038, #651), without `.onNote`. Each
 note takes the value at its own tick and keeps it for its whole life, so a
 sequence gives notes their own envelopes:
-- On a Mono-voice synth or a sampler, a note's voices hold its times, so
-  overlapping notes keep their own.
+- On a Mono-voice synth, a sampler, the D-50 (partial 1) or a Modular voice's
+  amplifier, a note's voices hold its times, so overlapping notes keep their
+  own, and a note let go as its clip stops keeps its release (#688).
 - On any other synth, the synth holds the value until the next note.
 
 Written as numbers, a time is 0 to 10 seconds (0 is the shortest) and a
@@ -808,7 +809,9 @@ arrange a b
 
 `Model` and `Out` can't be written. On a track, a parameter its model never
 reads is an error at its name, as for a parameter method. A `strip1`–`strip16`
-target is not checked: the text doesn't say which synth plays on it.
+target is not checked: the text doesn't say which synth plays on it, so a
+Modular knob's name goes on its track (`lead.vib`), and on a strip is an error
+that says so (#688).
 
 ## auto
 

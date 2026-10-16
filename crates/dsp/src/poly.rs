@@ -357,6 +357,16 @@ impl Pool {
             .map(|(i, _)| i)
     }
 
+    /// The slots the note numbered `clock` pressed drop the envelope times
+    /// of the note they played before (ADR-0038).
+    pub fn fresh_note_times(&mut self, clock: u64) {
+        for (slot, set) in self.slots.iter().zip(self.sets.iter_mut()) {
+            if slot.owner.is_some() && slot.age == clock {
+                set.clear_note_times();
+            }
+        }
+    }
+
     /// Every voice goes back to the synth's value of `param`.
     pub fn clear_voices(&mut self, param: Param) {
         for s in self.sets.iter_mut() {
@@ -974,7 +984,10 @@ impl Pool {
                     m.set = *set;
                     m.render(&ctx, out);
                 }
-                PolyVoice::La(l) => l.render(&ctx, out),
+                PolyVoice::La(l) => {
+                    l.set = *set;
+                    l.render(&ctx, out);
+                }
                 PolyVoice::Fm(f) => f.render(&ctx, out),
                 PolyVoice::Drum(d) => d.render(ctx.sine, ctx.blep, out),
                 PolyVoice::Sampler(v) => {
@@ -983,7 +996,10 @@ impl Pool {
                 }
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
-                PolyVoice::Graph(g) => g.render(&ctx, st, out, right.as_deref_mut()),
+                PolyVoice::Graph(g) => {
+                    g.set = *set;
+                    g.render(&ctx, st, out, right.as_deref_mut());
+                }
                 PolyVoice::Sid(v) => v.render(&ctx, out),
                 PolyVoice::Nes(v) => v.render(&ctx, tools.samples, out),
             }
