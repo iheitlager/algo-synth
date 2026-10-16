@@ -695,6 +695,12 @@ impl Model {
         self.def().engine == Engine::Mono
     }
 
+    /// Whether its voices are the multisampler's, which read the envelope
+    /// times of the per-voice table (ADR-0038).
+    pub fn uses_sampler_voice(self) -> bool {
+        self.def().engine == Engine::Sampler
+    }
+
     /// Whether the synth is the drum/pad sampler (#124).
     pub fn uses_pads(self) -> bool {
         self.def().engine == Engine::Pads

@@ -541,6 +541,9 @@ pub enum Shape {
     Steps(Vec<f32>),
     /// From the first value to the second, linearly.
     Ramp(f32, f32),
+    /// A quoted sequence, `"<300 [800 1200]>"`, one cycle a bar from the
+    /// lane's start, nesting as a mod's does (#683).
+    Seq(Signal),
 }
 
 /// An automation lane: one parameter of one target over `bars` bars.
@@ -564,6 +567,38 @@ impl Auto {
                 v.get(i).copied().unwrap_or(0.0)
             }
             Shape::Ramp(a, b) => a + (b - a) * phase as f32,
+            // NaN for a `~`: the lane holds its last value.
+            Shape::Seq(s) => {
+                let mut ctx = signal::Ctx {
+                    cps: 1.0,
+                    dt: 0.0,
+                    state: &mut [],
+                    voice: None,
+                };
+                s.eval(steps.rem_euclid(len) / STEPS_PER_BAR as f64, &mut ctx)
+            }
+        }
+    }
+
+    /// The values in force `steps` into the lane (#683): `f(value, ahead)`,
+    /// the value's index (in `Steps`, or in the sequence's numbers) and how
+    /// many steps on it ends. Nothing for a ramp. Never allocates.
+    pub fn lit(&self, steps: f64, f: &mut dyn FnMut(usize, f64)) {
+        let len = f64::from(self.bars) * STEPS_PER_BAR as f64;
+        let local = steps.rem_euclid(len);
+        match &self.shape {
+            Shape::Steps(v) if !v.is_empty() => {
+                let n = v.len() as f64;
+                let k = (local / len * n).floor().min(n - 1.0);
+                f(k as usize, (k + 1.0) / n * len - local);
+            }
+            Shape::Seq(s) => {
+                let t = local / STEPS_PER_BAR as f64;
+                s.lit(t, &mut |v, until| {
+                    f(v, (until - t) * STEPS_PER_BAR as f64);
+                });
+            }
+            _ => {}
         }
     }
 }
@@ -580,6 +615,42 @@ pub struct Mod {
     pub clip: Option<usize>,
     /// The Strudel name it was written with (#298), printed back as written.
     pub alias: Option<&'static str>,
+}
+
+/// An envelope time written as numbers is 0 to 10 seconds, a sustain 0 to 1
+/// (ADR-0038); 0 is the shortest time.
+fn note_times_fit(param: Param, signal: &Signal) -> Result<(), &'static str> {
+    let Some(numbers) = signal
+        .plain_numbers()
+        .filter(|_| NOTE_TIMES.contains(&param))
+    else {
+        return Ok(());
+    };
+    let (sustain, hi) = (param == Param::AdsrSustain, param.range().1);
+    if numbers.iter().all(|v| (0.0..=hi).contains(v)) {
+        Ok(())
+    } else if sustain {
+        Err("a sustain is 0 to 1")
+    } else {
+        Err("an envelope time is 0 to 10 seconds")
+    }
+}
+
+/// The amplifier's envelope times, which a clip's methods hold per note
+/// (ADR-0038).
+pub const NOTE_TIMES: [Param; 4] = [
+    Param::AdsrAttack,
+    Param::AdsrDecay,
+    Param::AdsrSustain,
+    Param::AdsrRelease,
+];
+
+impl Mod {
+    /// Whether it is sampled as each note starts and held for the note:
+    /// `.onNote` (spec 010 Req 12), or an envelope time on a clip (ADR-0038).
+    pub fn on_note(&self) -> bool {
+        self.signal.on_note() || (self.clip.is_some() && NOTE_TIMES.contains(&self.param))
+    }
 }
 
 /// Strudel's names for parameters (#298), for parameter methods and `mod`
@@ -1669,6 +1740,7 @@ impl Song {
                                 .map_err(|(c, m)| err(at + scol + c - 2, m))?;
                             per_voice_fits(&song, target, param, &signal)
                                 .map_err(|m| err(at + scol - 1, m))?;
+                            note_times_fit(param, &signal).map_err(|m| err(at + scol - 1, m))?;
                             if song.mods.len() >= MAX_MODS {
                                 return Err(err(at + ncol - 1, "a song has at most 32 mods"));
                             }
@@ -1808,6 +1880,24 @@ impl Song {
                             .ok_or(err(w.col, "a value is a number"))
                     };
                     let shape = match values.first() {
+                        // A quoted sequence, spaces and all (#683).
+                        Some(w) if w.text.starts_with('"') => {
+                            let text: String = body
+                                .chars()
+                                .skip(w.col - 1)
+                                .take(last.col - w.col)
+                                .collect();
+                            let text = text.trim_end();
+                            if !text.ends_with('"') || text.matches('"').count() != 2 {
+                                return Err(err(
+                                    w.col,
+                                    "a sequence is one quoted text: \"<300 [800 1200]>\"",
+                                ));
+                            }
+                            let signal = Signal::parse(text, &mut nodes)
+                                .map_err(|(c, m)| err(w.col + c - 1, m))?;
+                            Shape::Seq(signal)
+                        }
                         Some(w) if w.text == "ramp" => {
                             let (Some(a), Some(b)) = (values.get(1), values.get(2)) else {
                                 return Err(err(w.col, "a ramp goes from one value to another"));
@@ -2599,6 +2689,7 @@ impl Song {
                     .collect::<Vec<_>>()
                     .join(" "),
                 Shape::Ramp(x, y) => format!("ramp {x} {y}"),
+                Shape::Seq(s) => s.to_string(),
             };
             lines.push(format!(
                 "auto {} = {}.{} {} /{}",

@@ -20,7 +20,7 @@ use std::cell::Cell;
 
 use crate::mono::env::{Env, Stage};
 use crate::mono::ladder::{Ladder, MAX_K};
-use crate::mono::voice::MonoCtx;
+use crate::mono::voice::{MonoCtx, VoiceSet};
 use crate::sample::{SLOTS, Sample, SampleStore};
 
 /// Zones a synth holds.
@@ -354,6 +354,8 @@ pub struct SamplerVoice {
     /// Pitch trim in semitones from the pool (unison, analog variance).
     pub trim: f32,
     pub cutoff_trim: f32,
+    /// Its note's own envelope times (ADR-0038), from the pool.
+    pub set: VoiceSet,
     main: Player,
     tail: Player,
     tva: Env,
@@ -403,15 +405,16 @@ impl SamplerVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, store: &SampleStore, zones: &ZoneMap, out: &mut [f32]) {
         let p = ctx.params;
+        let adsr = self.set.env(&p.adsr, p.sample_rate());
         if self.retrigger {
             self.main = zones
                 .pick(self.note, self.vel7(), false)
                 .map_or_else(Player::default, Player::start);
-            self.tva.gate_on(&p.adsr);
+            self.tva.gate_on(&adsr);
             self.tvf.gate_on(&p.fadsr);
             self.retrigger = false;
         } else if !self.gate && self.tva.gated() {
-            self.tva.gate_off(&p.adsr);
+            self.tva.gate_off(&adsr);
             self.tvf.gate_off(&p.fadsr);
         }
         if self.release {
@@ -420,7 +423,7 @@ impl SamplerVoice {
                 self.tail = Player::start(z);
             }
         }
-        self.tva.set_sustain(p.adsr.sustain);
+        self.tva.set_sustain(adsr.sustain);
         self.tvf.set_sustain(p.fadsr.sustain);
 
         // Frames of sample per output frame, from the key against the root.

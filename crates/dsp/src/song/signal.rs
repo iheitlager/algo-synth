@@ -179,8 +179,9 @@ pub enum Node {
     /// `.onNote`: sampled as each note of its track starts and held for the
     /// note (spec 010 Req 12), as Tidal samples a continuous pattern per event.
     OnNote(usize),
-    /// `len` numbers from `from` in the signal's values: one per cycle
-    /// (`"<a b>"`), or sharing each cycle (`"a b"`).
+    /// `len` items from `from` in the signal's `kids`: one per cycle
+    /// (`"<a b>"`), or sharing each cycle (`"a b"`); an item is a number or
+    /// a sequence inside it, `[a b]` or `<a b>`, as Strudel's (#675).
     Seq {
         from: usize,
         len: usize,
@@ -188,13 +189,26 @@ pub enum Node {
     },
 }
 
+/// An item of a sequence: a number of the signal's `values`, or a
+/// sequence inside it, a node (#675).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kid {
+    Val(usize),
+    Seq(usize),
+}
+
 /// A compiled expression: its nodes, the last one the result.
 #[derive(Clone, Debug)]
 pub struct Signal {
     nodes: Vec<Node>,
-    /// The numbers of its sequences; NaN for a `~`, a step with no value
-    /// (#255).
+    /// The numbers of its sequences and lists; NaN for a `~`, a step with
+    /// no value (#255).
     values: Vec<f32>,
+    /// The items of its sequences (#675).
+    kids: Vec<Kid>,
+    /// Where each of `values` is written: its column (in chars, from 1) and
+    /// length, so the one playing can light (#675). Not part of equality.
+    cols: Vec<(u32, u32)>,
 }
 
 /// Equal when the nodes are and the numbers have the same bits, so two
@@ -202,6 +216,7 @@ pub struct Signal {
 impl PartialEq for Signal {
     fn eq(&self, other: &Signal) -> bool {
         self.nodes == other.nodes
+            && self.kids == other.kids
             && self.values.len() == other.values.len()
             && self
                 .values
@@ -279,6 +294,8 @@ impl Signal {
             end: text.chars().count() + 1,
             nodes: Vec::new(),
             values: Vec::new(),
+            kids: Vec::new(),
+            cols: Vec::new(),
             base: *nodes,
             depth: 0,
         };
@@ -290,6 +307,8 @@ impl Signal {
         Ok(Signal {
             nodes: p.nodes,
             values: p.values,
+            kids: p.kids,
+            cols: p.cols,
         })
     }
 
@@ -310,9 +329,107 @@ impl Signal {
         self.nodes.iter().any(|n| matches!(n, Node::OnNote(_)))
     }
 
+    /// The numbers it is, when it is only numbers: a number or a sequence,
+    /// without its `~`; `None` for anything computed.
+    pub fn plain_numbers(&self) -> Option<Vec<f32>> {
+        match self.nodes.last()? {
+            Node::Num(x) => Some(vec![*x]),
+            Node::Seq { from, len, .. } => Some(
+                self.values
+                    .get(*from..from + len)?
+                    .iter()
+                    .copied()
+                    .filter(|v| !v.is_nan())
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
     /// Whether it uses `.lag`, whose state is one for the song.
     pub fn lags(&self) -> bool {
         self.nodes.iter().any(|n| matches!(n, Node::Lag { .. }))
+    }
+
+    /// The numbers of its sequences in force at `t` cycles, each with when
+    /// in `t` it stops being: `f(value, until)`, `value` an index into the
+    /// columns (`col`). Through `slow`, `fast`, `segment`, ranges and
+    /// arithmetic; nothing for a `~`, a wave or a list (#675). Never
+    /// allocates.
+    pub fn lit(&self, t: f64, f: &mut dyn FnMut(usize, f64)) {
+        if let Some(root) = self.nodes.len().checked_sub(1) {
+            self.lit_at(root, t, f);
+        }
+    }
+
+    /// How many numbers it holds, in its sequences and lists.
+    pub fn numbers(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Where number `v` is written in the signal's text: column (chars, from
+    /// 1) and length.
+    pub fn col(&self, v: usize) -> Option<(u32, u32)> {
+        self.cols.get(v).copied().filter(|c| c.1 > 0)
+    }
+
+    fn lit_at(&self, i: usize, t: f64, f: &mut dyn FnMut(usize, f64)) {
+        match self.nodes.get(i).copied() {
+            Some(Node::Slow(a, n)) => {
+                let n = f64::from(n);
+                self.lit_at(a, t / n, &mut |v, e| f(v, e * n));
+            }
+            Some(Node::Fast(a, n)) => {
+                let n = f64::from(n);
+                self.lit_at(a, t * n, &mut |v, e| f(v, e / n));
+            }
+            Some(Node::Segment(a, n)) => {
+                // Held from the segment's start to the first boundary at or
+                // past where the value ends.
+                let n = f64::from(n);
+                let ts = (t * n).floor() / n;
+                self.lit_at(a, ts, &mut |v, e| {
+                    f(v, ((e * n).ceil() / n).max(ts + 1.0 / n))
+                });
+            }
+            Some(Node::Neg(a) | Node::Range { of: a, .. } | Node::Lag { of: a, .. }) => {
+                self.lit_at(a, t, f);
+            }
+            Some(Node::Bin(_, a, b)) => {
+                self.lit_at(a, t, f);
+                self.lit_at(b, t, f);
+            }
+            Some(Node::Seq {
+                from,
+                len,
+                per_cycle,
+            }) => {
+                let (k, inner, end) = step(from, len, per_cycle, t);
+                match self.kids.get(k) {
+                    Some(Kid::Val(v)) => {
+                        if self.values.get(*v).is_some_and(|x| !x.is_nan()) {
+                            f(*v, end);
+                        }
+                    }
+                    Some(Kid::Seq(j)) => {
+                        // Back from the inner sequence's time to this one's.
+                        let base = inner.floor();
+                        self.lit_at(*j, inner, &mut |v, e| {
+                            let u = (e - base).min(1.0);
+                            let at = if per_cycle {
+                                t.floor() + u
+                            } else {
+                                let n = len.max(1) as f64;
+                                t.floor() + ((k - from) as f64 + u) / n
+                            };
+                            f(v, at.min(end));
+                        });
+                    }
+                    None => {}
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The value at `t` cycles, NaN where a `~` leaves it without one
@@ -392,13 +509,12 @@ impl Signal {
                 len,
                 per_cycle,
             } => {
-                let k = if per_cycle {
-                    t.floor().rem_euclid(len as f64)
-                } else {
-                    ((t - t.floor()) * len as f64).floor()
-                };
-                let k = (k as usize).min(len.saturating_sub(1));
-                self.values.get(from + k).copied().map_or(0.0, f64::from)
+                let (k, t, _) = step(from, len, per_cycle, t);
+                match self.kids.get(k) {
+                    Some(Kid::Val(v)) => self.values.get(*v).copied().map_or(0.0, f64::from),
+                    Some(Kid::Seq(j)) => self.at(*j, t, ctx),
+                    None => 0.0,
+                }
             }
             Node::Lag { of, secs, slot } => {
                 let x = self.at(of, t, ctx);
@@ -434,6 +550,42 @@ impl Signal {
             write!(out, "{v}")?;
         }
         out.push(']');
+        Ok(())
+    }
+
+    /// Sequence node `i` inside quotes: `<a b>` or `[a b]` (#675).
+    fn seq_text(&self, out: &mut String, i: usize) -> fmt::Result {
+        let per_cycle = matches!(
+            self.nodes.get(i),
+            Some(Node::Seq {
+                per_cycle: true,
+                ..
+            })
+        );
+        out.push(if per_cycle { '<' } else { '[' });
+        self.items_text(out, i)?;
+        out.push(if per_cycle { '>' } else { ']' });
+        Ok(())
+    }
+
+    /// The items of sequence node `i`, spaced.
+    fn items_text(&self, out: &mut String, i: usize) -> fmt::Result {
+        let Some(Node::Seq { from, len, .. }) = self.nodes.get(i).copied() else {
+            return Ok(());
+        };
+        for (k, kid) in self.kids.iter().skip(from).take(len).enumerate() {
+            if k > 0 {
+                out.push(' ');
+            }
+            match *kid {
+                Kid::Val(v) => match self.values.get(v) {
+                    Some(v) if v.is_nan() => out.push('~'),
+                    Some(v) => write!(out, "{v}")?,
+                    None => {}
+                },
+                Kid::Seq(j) => self.seq_text(out, j)?,
+            }
+        }
         Ok(())
     }
 
@@ -517,28 +669,14 @@ impl Signal {
                 out.push_str(".onNote");
                 Ok(())
             }
-            Node::Seq {
-                from,
-                len,
-                per_cycle,
-            } => {
-                let (open, close) = if per_cycle {
-                    ("\"<", ">\"")
+            Node::Seq { per_cycle, .. } => {
+                out.push('"');
+                if per_cycle {
+                    self.seq_text(out, i)?;
                 } else {
-                    ("\"", "\"")
-                };
-                out.push_str(open);
-                for (k, v) in self.values.iter().skip(from).take(len).enumerate() {
-                    if k > 0 {
-                        out.push(' ');
-                    }
-                    if v.is_nan() {
-                        out.push('~');
-                    } else {
-                        write!(out, "{v}")?;
-                    }
+                    self.items_text(out, i)?;
                 }
-                out.push_str(close);
+                out.push('"');
                 Ok(())
             }
         }
@@ -553,6 +691,23 @@ impl fmt::Display for Signal {
             self.write(&mut out, root, 0)?;
         }
         f.write_str(&out)
+    }
+}
+
+/// The item of a sequence at `t` cycles: its index in `kids`, the time its
+/// own items run at, and when in `t` it ends. `< >` takes one a cycle, its
+/// inner sequences moving on only when picked, as Strudel's slowcat; `[ ]`
+/// and the top level share each cycle (#675).
+fn step(from: usize, len: usize, per_cycle: bool, t: f64) -> (usize, f64, f64) {
+    let n = len.max(1) as f64;
+    let (c, f) = (t.floor(), t - t.floor());
+    if per_cycle {
+        let k = c.rem_euclid(n);
+        (from + k as usize, c.div_euclid(n) + f, c + 1.0)
+    } else {
+        let x = f * n;
+        let k = x.floor().min(n - 1.0);
+        (from + k as usize, c + (x - k), c + (k + 1.0) / n)
     }
 }
 
@@ -682,6 +837,8 @@ struct Parser<'a, 'b> {
     end: usize,
     nodes: Vec<Node>,
     values: Vec<f32>,
+    kids: Vec<Kid>,
+    cols: Vec<(u32, u32)>,
     /// Nodes the song had before this signal.
     base: usize,
     depth: usize,
@@ -935,53 +1092,99 @@ impl<'a> Parser<'a, '_> {
         }
     }
 
-    /// `"<a b c>"` or `"a b c"`: numbers in mini-notation; `at` is the
-    /// column of the text's first char.
+    /// `"<a b c>"` or `"a b c"`: numbers in mini-notation, nesting `[ ]`
+    /// and `< >` as Strudel's (#675); `at` is the column of the text's
+    /// first char.
     fn seq(&mut self, text: &str, at: usize) -> Res<usize> {
-        let inner = text.trim();
-        let (per_cycle, inner) = match inner.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
-            Some(t) => (true, t),
-            None => (false, inner),
-        };
-        if inner.contains(['<', '>']) {
-            return Err((at - 1, "a sequence holds numbers or ~, e.g. \"<300 800>\""));
-        }
-        let from = self.values.len();
-        let mut start: Option<(usize, usize)> = None;
-        // Each number and its column; a space after the last ends it.
-        for (col, (b, c)) in text.char_indices().chain([(text.len(), ' ')]).enumerate() {
-            match (c.is_whitespace() || c == '<' || c == '>', start) {
-                (false, None) => start = Some((b, col)),
-                (true, Some((s, k))) => {
-                    // `~`: no value on this step, so a lock lets go (#255).
-                    let v = text
-                        .get(s..b)
-                        .and_then(|w| {
-                            if w == "~" {
-                                Some(f32::NAN)
-                            } else {
-                                w.parse::<f32>().ok().filter(|v| v.is_finite())
-                            }
-                        })
-                        .ok_or((at + k, "a sequence holds numbers or ~, e.g. \"<300 800>\""))?;
-                    if self.values.len() - from >= MAX_SEQ {
-                        return Err((at + k, "a sequence has at most 64 numbers"));
-                    }
-                    self.values.push(v);
-                    start = None;
-                }
-                _ => {}
-            }
-        }
-        let len = self.values.len() - from;
-        if len == 0 {
-            return Err((at - 1, "a sequence holds numbers or ~, e.g. \"<300 800>\""));
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+        let mut leaves = 0;
+        let (from, len, per_cycle) = self.items(&chars, &mut i, at, None, &mut leaves)?;
+        // One `<…>` or `[…]` alone is the sequence itself.
+        if let (1, Some(Kid::Seq(j))) = (len, self.kids.get(from).copied()) {
+            self.kids.truncate(from);
+            return Ok(j);
         }
         self.push(Node::Seq {
             from,
             len,
             per_cycle,
         })
+    }
+
+    /// The items up to `close` (`]`, `>`, or the end when `None`), the
+    /// cursor `i` on the text's chars: where they are in `kids`, and
+    /// whether one plays per cycle.
+    fn items(
+        &mut self,
+        chars: &[char],
+        i: &mut usize,
+        at: usize,
+        close: Option<char>,
+        leaves: &mut usize,
+    ) -> Res<(usize, usize, bool)> {
+        const WHAT: &str = "a sequence holds numbers, ~, [ ] and < >, e.g. \"<300 [800 1200]>\"";
+        let open_col = at + i.saturating_sub(1);
+        let mut items = Vec::new();
+        loop {
+            while chars.get(*i).is_some_and(|c| c.is_whitespace()) {
+                *i += 1;
+            }
+            let col = at + *i;
+            match (chars.get(*i).copied(), close) {
+                (None, None) => break,
+                (None, Some(_)) => return Err((open_col, "this bracket is not closed")),
+                (Some(c), Some(want)) if c == want => {
+                    *i += 1;
+                    break;
+                }
+                (Some(c @ ('[' | '<')), _) => {
+                    *i += 1;
+                    self.deeper()?;
+                    let shut = if c == '[' { ']' } else { '>' };
+                    let (from, len, per_cycle) = self.items(chars, i, at, Some(shut), leaves)?;
+                    self.depth -= 1;
+                    let j = self.push(Node::Seq {
+                        from,
+                        len,
+                        per_cycle,
+                    })?;
+                    items.push(Kid::Seq(j));
+                }
+                (Some(']' | '>'), _) => return Err((col, "this bracket closes nothing")),
+                (Some(_), _) => {
+                    let start = *i;
+                    while chars
+                        .get(*i)
+                        .is_some_and(|c| !c.is_whitespace() && !"[]<>".contains(*c))
+                    {
+                        *i += 1;
+                    }
+                    let word: String = chars.get(start..*i).unwrap_or(&[]).iter().collect();
+                    // `~`: no value on this step, so a lock lets go (#255).
+                    let v = if word == "~" {
+                        Some(f32::NAN)
+                    } else {
+                        word.parse::<f32>().ok().filter(|v| v.is_finite())
+                    }
+                    .ok_or((col, WHAT))?;
+                    *leaves += 1;
+                    if *leaves > MAX_SEQ {
+                        return Err((col, "a sequence has at most 64 numbers"));
+                    }
+                    items.push(Kid::Val(self.values.len()));
+                    self.values.push(v);
+                    let len = u32::try_from(*i - start).unwrap_or(0);
+                    self.cols.push((u32::try_from(col).unwrap_or(0), len));
+                }
+            }
+        }
+        if items.is_empty() {
+            return Err((if close.is_some() { open_col } else { at - 1 }, WHAT));
+        }
+        let from = self.kids.len();
+        self.kids.extend_from_slice(&items);
+        Ok((from, items.len(), close == Some('>')))
     }
 
     /// `[a, b, …]`: numbers, maybe negative, into the values; the `[` is next.
@@ -999,6 +1202,7 @@ impl<'a> Parser<'a, '_> {
                 return Err((col, "a list has at most 16 numbers"));
             }
             self.values.push(if neg { -v } else { v });
+            self.cols.push((0, 0));
             if self.eat(']') {
                 return Ok((from, self.values.len() - from));
             }
@@ -1358,6 +1562,61 @@ mod tests {
         assert!(close(val(&sig("\"<1 2>\" * 100"), 1.0), 200.0));
     }
 
+    /// #675: `[ ]` divides its share, `< >` takes one a cycle, nesting as
+    /// Strudel's; an inner `< >` moves on only when picked.
+    #[test]
+    fn a_sequence_nests_as_strudels() {
+        let at = |text: &str, ts: &[f64]| -> Vec<f32> {
+            ts.iter().map(|t| val(&sig(text), *t)).collect()
+        };
+        assert_eq!(
+            at("\"<0.1 [0 0.05]>\"", &[0.25, 1.25, 1.75, 2.5, 3.5]),
+            [0.1, 0.0, 0.05, 0.1, 0.05]
+        );
+        assert_eq!(sig("\"[0.1 0]\""), sig("\"0.1 0\""));
+        assert_eq!(sig("\"[0.1 0]\"").to_string(), "\"0.1 0\"");
+        assert_eq!(
+            at("\"<1 <2 3>>\"", &[0.5, 1.5, 2.5, 3.5]),
+            [1.0, 2.0, 1.0, 3.0]
+        );
+        assert_eq!(
+            at("\"1 [2 <3 4>]\"", &[0.25, 0.6, 0.9, 1.9]),
+            [1.0, 2.0, 3.0, 4.0]
+        );
+        for text in [
+            "\"<0.1 [0 0.05]>\"",
+            "\"1 [2 <3 ~>] 4\"",
+            "\"<[1 2] 3>\" * 2",
+        ] {
+            assert_eq!(sig(text).to_string(), text);
+        }
+    }
+
+    /// #675: the number in force at a time, and when it stops being.
+    #[test]
+    fn the_number_in_force_lights_until_its_step_ends() {
+        let lit = |text: &str, t: f64| {
+            let s = sig(text);
+            let mut out = Vec::new();
+            s.lit(t, &mut |v, e| out.push((s.col(v), e)));
+            out
+        };
+        // `"<.25 .5 1 2 12>"`: a value a bar.
+        let bars = "\"<.25 .5 1 2 12>\"";
+        assert_eq!(lit(bars, 0.5), [(Some((3, 3)), 1.0)]);
+        assert_eq!(lit(bars, 4.5), [(Some((14, 2)), 5.0)]);
+        // Sharing the bar; a `~` lights nothing.
+        assert_eq!(lit("\"1 ~ 3 4\"", 0.3), []);
+        assert_eq!(lit("\"1 ~ 3 4\"", 0.6), [(Some((6, 1)), 0.75)]);
+        // Nested, through slow and segment, and both sides of arithmetic.
+        assert_eq!(lit("\"<0.1 [0 0.05]>\"", 1.25), [(Some((8, 1)), 1.5)]);
+        assert_eq!(lit("\"<0.1 [0 0.05]>\"", 1.75), [(Some((10, 4)), 2.0)]);
+        assert_eq!(lit("\"<1 2>\".slow(2)", 1.5), [(Some((3, 1)), 2.0)]);
+        assert_eq!(lit("\"0 1 2 3\".segment(2)", 0.3), [(Some((2, 1)), 0.5)]);
+        assert_eq!(lit("\"<1 2>\" * \"3 4\"", 0.6).len(), 2);
+        assert!(lit("sine.range(1, 2)", 0.5).is_empty());
+    }
+
     #[test]
     fn randomness_is_seeded_and_bounded() {
         let (r, p) = (sig("rand"), sig("perlin"));
@@ -1496,18 +1755,20 @@ mod tests {
             (
                 "\"1 x\"",
                 4,
-                "a sequence holds numbers or ~, e.g. \"<300 800>\"",
+                "a sequence holds numbers, ~, [ ] and < >, e.g. \"<300 [800 1200]>\"",
             ),
             (
                 "\"\"",
                 1,
-                "a sequence holds numbers or ~, e.g. \"<300 800>\"",
+                "a sequence holds numbers, ~, [ ] and < >, e.g. \"<300 [800 1200]>\"",
             ),
             (
-                "\"<1 <2>>\"",
-                1,
-                "a sequence holds numbers or ~, e.g. \"<300 800>\"",
+                "\"<1 []>\"",
+                5,
+                "a sequence holds numbers, ~, [ ] and < >, e.g. \"<300 [800 1200]>\"",
             ),
+            ("\"<1 [2\"", 5, "this bracket is not closed"),
+            ("\"1 ]\"", 4, "this bracket closes nothing"),
         ] {
             let mut n = 0;
             assert_eq!(Signal::parse(text, &mut n), Err((col, msg)), "{text}");

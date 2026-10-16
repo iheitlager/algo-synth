@@ -38,6 +38,17 @@ const MAX_FACTOR: u32 = 16;
 /// Most steps in a `struct` rhythm: one a tick.
 const MAX_STEPS: usize = BAR as usize;
 
+/// A part of a bar one value of a pattern method holds (#676): its ticks
+/// in the bar, the method with that value, and where the value is written in
+/// the method's quoted argument (byte offset, length).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Part {
+    pub from: u32,
+    pub to: u32,
+    pub method: Pattern,
+    pub at: (usize, usize),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
     Fast(u32),
@@ -75,8 +86,8 @@ pub enum Pattern {
     /// plays (ADR-0035, #592).
     ChordOf(Context),
     /// A value a bar (#629): the method as written, `add("<0 3 5>")`, and
-    /// the method with each bar's value, taken in turn.
-    PerBar(String, Vec<Pattern>),
+    /// for each bar in turn the parts its values split it into (#676).
+    PerBar(String, Vec<Vec<Part>>),
     /// `struct(<clip>)`: the rhythm of an earlier clip, its note starts or
     /// its drum hits (ADR-0035, #600).
     StructOf(Context),
@@ -439,7 +450,20 @@ impl Pattern {
             if let Some(text) = a.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
                 let steps = per_bar(text)?
                     .into_iter()
-                    .map(|v| Pattern::parse_in(name, v, srcs))
+                    .map(|parts| {
+                        parts
+                            .into_iter()
+                            .map(|(from, to, v)| {
+                                let at = (v.as_ptr() as usize).saturating_sub(a.as_ptr() as usize);
+                                Ok(Part {
+                                    from,
+                                    to,
+                                    method: Pattern::parse_in(name, v, srcs)?,
+                                    at: (at, v.len()),
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(Pattern::PerBar(format!("{name}({a})"), steps));
             }
@@ -791,7 +815,7 @@ impl Pattern {
     /// clip can take it in `render` (#593)?
     pub fn pitch_only(&self) -> bool {
         match self {
-            Pattern::PerBar(_, steps) => steps.iter().all(Pattern::pitch_only),
+            Pattern::PerBar(_, steps) => steps.iter().flatten().all(|p| p.method.pitch_only()),
             p => matches!(
                 p,
                 Pattern::Add(_)
@@ -846,7 +870,11 @@ impl Pattern {
             Pattern::PerBar(_, steps) => {
                 let n = u64::try_from(steps.len()).unwrap_or(1).max(1);
                 let k = usize::try_from(t / u64::from(BAR) % n).unwrap_or(0);
-                steps.get(k).is_none_or(|p| p.pitch(e, t))
+                let x = u32::try_from(t % u64::from(BAR)).unwrap_or(0);
+                steps
+                    .get(k)
+                    .and_then(|parts| parts.iter().find(|p| p.from <= x && x < p.to))
+                    .is_none_or(|p| p.method.pitch(e, t))
             }
             _ => true,
         }
@@ -1038,86 +1066,164 @@ fn alternate(line: &Line, n: u32, phase: u32, m: &Pattern) -> Result<Line, &'sta
     Ok(Line { events, bars })
 }
 
-/// Bar b from the line with method `steps[b mod n]` applied, each of them
-/// round with the line (#629).
-fn by_bar(line: &Line, steps: &[Pattern]) -> Result<Line, &'static str> {
+/// Bar b from the line with the methods of `steps[b mod n]` applied, each
+/// to the notes that start in its part of the bar, round with the line
+/// (#629, #676). A method that moves notes in time moves the whole line;
+/// its part keeps those that land in it.
+fn by_bar(line: &Line, steps: &[Vec<Part>]) -> Result<Line, &'static str> {
     let n = u32::try_from(steps.len()).unwrap_or(1).max(1);
-    let changed = steps
-        .iter()
-        .map(|m| m.apply(line))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut changed = Vec::new();
+    for (k, parts) in (0..).zip(steps) {
+        for p in parts {
+            changed.push((k, p.from, p.to, p.method.apply(line)?));
+        }
+    }
     let bars = changed
         .iter()
-        .fold(lcm(line.bars, n), |b, c| lcm(b, c.bars));
+        .fold(lcm(line.bars, n), |b, c| lcm(b, c.3.bars));
     check(bars, 0)?;
     let mut events = Vec::new();
-    for (k, c) in (0..).zip(&changed) {
+    for (k, from, to, c) in &changed {
         events.extend(
             c.repeat(bars)
                 .events
                 .into_iter()
-                .filter(|e| (e.start / BAR) % n == k),
+                .filter(|e| (e.start / BAR) % n == *k && (*from..*to).contains(&(e.start % BAR))),
         );
     }
     Ok(Line { events, bars })
 }
 
-/// The values of `"<a <b c>>"`, one a bar until they come round: a nested
-/// `< >` takes its own turns, so `<0 <1 -1>>` is 0 1 0 -1, as in Strudel.
-/// A plain value is one for every bar; several in a bar are an error.
-fn per_bar(text: &str) -> Result<Vec<&str>, &'static str> {
-    let bad = "a value a bar is a number or <a b …>, as \"<0 3 5>\"";
-    let t = text.trim();
-    let Some(inner) = t.strip_prefix('<') else {
-        return if t.is_empty() || t.contains(|c: char| c.is_whitespace() || c == '>') {
-            Err(bad)
-        } else {
-            Ok(vec![t])
-        };
-    };
-    let inner = inner.strip_suffix('>').ok_or(bad)?;
-    let (mut items, mut depth, mut start) = (Vec::new(), 0u32, None);
-    for (i, c) in inner.char_indices().chain([(inner.len(), ' ')]) {
-        match c {
-            '<' => {
-                start.get_or_insert(i);
-                depth += 1;
+const BAD_PER_BAR: &str = "a value a bar is a number, [a b] or <a b …>, as \"<0 [3 5]>\"";
+
+/// A value in a part of a bar: its first and past-last tick, and its text.
+type Value<'a> = (u32, u32, &'a str);
+
+/// The values of a pattern method's quoted argument, in mini-notation.
+enum Tree<'a> {
+    Val(&'a str),
+    /// `[a b]`, or `a b` at the top: sharing the bar.
+    Share(Vec<Tree<'a>>),
+    /// `<a b>`: one a bar, an inner one taking its own turns.
+    Turns(Vec<Tree<'a>>),
+}
+
+/// The items of `t` from byte `i` up to `close` (or the end).
+fn tree_items<'a>(
+    t: &'a str,
+    i: &mut usize,
+    close: Option<u8>,
+) -> Result<Vec<Tree<'a>>, &'static str> {
+    let b = t.as_bytes();
+    let mut out = Vec::new();
+    loop {
+        while b.get(*i).is_some_and(u8::is_ascii_whitespace) {
+            *i += 1;
+        }
+        match b.get(*i).copied() {
+            None if close.is_none() => return Ok(out),
+            None => return Err(BAD_PER_BAR),
+            Some(c) if Some(c) == close => {
+                *i += 1;
+                return Ok(out);
             }
-            '>' => depth = depth.checked_sub(1).ok_or(bad)?,
-            c if c.is_whitespace() && depth == 0 => {
-                if let Some(s) = start.take() {
-                    items.push(inner.get(s..i).ok_or(bad)?);
+            // `[0,2,4]`: a stack, one value, as a chord is in a note line.
+            Some(b'[')
+                if t.get(*i..).and_then(|r| r.find(']')).is_some_and(|k| {
+                    t.get(*i + 1..*i + k)
+                        .is_some_and(|inner| inner.contains(',') && !inner.contains(['[', '<']))
+                }) =>
+            {
+                let k = t.get(*i..).and_then(|r| r.find(']')).unwrap_or(0);
+                out.push(Tree::Val(t.get(*i..=*i + k).ok_or(BAD_PER_BAR)?));
+                *i += k + 1;
+            }
+            Some(c @ (b'[' | b'<')) => {
+                *i += 1;
+                let inner = tree_items(t, i, Some(if c == b'[' { b']' } else { b'>' }))?;
+                if inner.is_empty() {
+                    return Err(BAD_PER_BAR);
                 }
+                out.push(if c == b'[' {
+                    Tree::Share(inner)
+                } else {
+                    Tree::Turns(inner)
+                });
             }
-            _ => {
-                start.get_or_insert(i);
+            Some(b']' | b'>') => return Err(BAD_PER_BAR),
+            Some(_) => {
+                let start = *i;
+                while b
+                    .get(*i)
+                    .is_some_and(|c| !c.is_ascii_whitespace() && !b"[]<>".contains(c))
+                {
+                    *i += 1;
+                }
+                out.push(Tree::Val(t.get(start..*i).ok_or(BAD_PER_BAR)?));
             }
         }
     }
-    if depth != 0 || items.is_empty() {
-        return Err(bad);
+}
+
+impl<'a> Tree<'a> {
+    /// Bars until it comes round.
+    fn period(&self) -> Result<u32, &'static str> {
+        let round = |items: &[Tree<'a>]| {
+            items.iter().try_fold(1u32, |p, it| {
+                let l = lcm(p, it.period()?);
+                (l <= MAX_BARS).then_some(l).ok_or(TOO_LONG)
+            })
+        };
+        let p = match self {
+            Tree::Val(_) => 1,
+            Tree::Share(items) => round(items)?,
+            Tree::Turns(items) => u32::try_from(items.len())
+                .unwrap_or(MAX_BARS + 1)
+                .saturating_mul(round(items)?),
+        };
+        (p <= MAX_BARS).then_some(p).ok_or(TOO_LONG)
     }
-    let subs = items
-        .into_iter()
-        .map(per_bar)
-        .collect::<Result<Vec<_>, _>>()?;
-    let n = subs.len();
-    let round = subs.iter().try_fold(1u32, |p, s| {
-        let l = lcm(p, u32::try_from(s.len()).unwrap_or(MAX_BARS + 1));
-        (l <= MAX_BARS).then_some(l).ok_or(TOO_LONG)
-    })?;
-    let total = u32::try_from(n).unwrap_or(MAX_BARS + 1) * round;
-    if total > MAX_BARS {
-        return Err(TOO_LONG);
+
+    /// The parts of ticks `lo..hi` in bar `b` and their values.
+    fn parts(&self, b: u32, lo: u32, hi: u32, out: &mut Vec<Value<'a>>) {
+        match self {
+            Tree::Val(v) => out.push((lo, hi, v)),
+            Tree::Share(items) => {
+                let n = u32::try_from(items.len()).unwrap_or(1).max(1);
+                for (k, it) in (0..).zip(items) {
+                    it.parts(b, lo + (hi - lo) * k / n, lo + (hi - lo) * (k + 1) / n, out);
+                }
+            }
+            Tree::Turns(items) => {
+                let n = u32::try_from(items.len()).unwrap_or(1).max(1);
+                if let Some(it) = items.get((b % n) as usize) {
+                    it.parts(b / n, lo, hi, out);
+                }
+            }
+        }
     }
-    (0..total as usize)
+}
+
+/// The values of `"<a [b c]>"` for each bar until they come round, as the
+/// parts of the bar each holds (#676): `[ ]`, or values side by side,
+/// share the bar; `< >` takes one a bar, a nested one taking its own turns,
+/// so `<0 <1 -1>>` is 0 1 0 -1, as in Strudel.
+fn per_bar(text: &str) -> Result<Vec<Vec<Value<'_>>>, &'static str> {
+    let mut i = 0;
+    let mut items = tree_items(text, &mut i, None)?;
+    let tree = match items.len() {
+        0 => return Err(BAD_PER_BAR),
+        1 => items.remove(0),
+        _ => Tree::Share(items),
+    };
+    let bars = tree.period()?;
+    Ok((0..bars)
         .map(|b| {
-            subs.get(b % n)
-                .and_then(|s| s.get(b / n % s.len().max(1)))
-                .copied()
-                .ok_or(bad)
+            let mut out = Vec::new();
+            tree.parts(b, 0, BAR, &mut out);
+            out
         })
-        .collect()
+        .collect())
 }
 
 const TOO_LONG: &str = "a value a bar comes round within 64 bars";
@@ -1338,6 +1444,29 @@ mod tests {
         assert_eq!(run("fast(3)", &two).bars, 2);
     }
 
+    /// #676: values side by side, or in `[ ]`, split the bar; each part's
+    /// method moves the notes that start in it, nesting with `< >`.
+    #[test]
+    fn values_in_a_bar_split_it() {
+        let plain: Vec<u8> = four().events.iter().map(|e| e.note).collect();
+        let add = |text: &str| -> Vec<(u32, u8)> { starts(&run(text, &four())) };
+        let shift = |by: [u8; 4], bar: u32| -> Vec<(u32, u8)> {
+            (0..4)
+                .map(|k| (bar * BAR + k as u32 * 12, plain[k] + by[k]))
+                .collect()
+        };
+        assert_eq!(add("add(\"0 3\")"), shift([0, 0, 3, 3], 0));
+        assert_eq!(add("add(\"[0 3]\")"), add("add(\"0 3\")"));
+        let nested = run("add(\"<0 [3 5]>\")", &four());
+        assert_eq!(nested.bars, 2);
+        assert_eq!(starts(&nested)[4..], shift([3, 3, 5, 5], 1)[..]);
+        // A method that moves time moves the whole line; each half keeps
+        // the notes that land in it: four quarters, then eighths.
+        let f = run("fast(\"1 2\")", &four());
+        let at: Vec<u32> = f.events.iter().map(|e| e.start).collect();
+        assert_eq!(at, [0, 12, 24, 30, 36, 42]);
+    }
+
     /// #629: a value a bar is the method with each value, bar by bar.
     #[test]
     fn a_value_a_bar_takes_turns() {
@@ -1368,7 +1497,13 @@ mod tests {
 
     #[test]
     fn a_value_a_bar_prints_as_written_and_checks_its_values() {
-        for text in ["\"<0 3 5>\"", "\"<0 <1 -1>>\"", "\"7\""] {
+        for text in [
+            "\"<0 3 5>\"",
+            "\"<0 <1 -1>>\"",
+            "\"7\"",
+            "\"1 2\"",
+            "\"<0 [3 5]>\"",
+        ] {
             let p = Pattern::parse("add", text).expect(text);
             assert_eq!(p.print(), format!("add({text})"));
             assert!(p.pitch_only());
@@ -1379,21 +1514,10 @@ mod tests {
                 .pitch_only()
         );
         for (name, text, msg) in [
-            (
-                "add",
-                "\"1 2\"",
-                "a value a bar is a number or <a b …>, as \"<0 3 5>\"",
-            ),
-            (
-                "add",
-                "\"<1 2\"",
-                "a value a bar is a number or <a b …>, as \"<0 3 5>\"",
-            ),
-            (
-                "add",
-                "\"<>\"",
-                "a value a bar is a number or <a b …>, as \"<0 3 5>\"",
-            ),
+            ("add", "\"<1 2\"", BAD_PER_BAR),
+            ("add", "\"<>\"", BAD_PER_BAR),
+            ("add", "\"[1 2\"", BAD_PER_BAR),
+            ("add", "\"1 ]\"", BAD_PER_BAR),
             ("add", "\"<0 99>\"", "this takes semitones from -48 to 48"),
             (
                 "fast",
