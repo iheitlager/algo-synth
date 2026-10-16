@@ -284,7 +284,8 @@ pub enum Ugen {
     },
     /// SuperCollider's shapers on a signal: 0 `tanh`, 1 `softclip`, 2 `distort`,
     /// 3 `atan`, 4 `abs`, 5 `sqrt` (with the sign, as the server's), 6
-    /// `squared`, 7 `cubed`.
+    /// `squared`, 7 `cubed`, 8 `log2` (of 0 and below, the least positive's),
+    /// 9 `floor`, 10 `ceil`.
     Clip {
         input: u16,
         kind: u8,
@@ -1979,7 +1980,8 @@ fn cutoff_note(cutoffs: &mut [(f32, f32)], slot: u8, hz: f32, trim: f32) -> f32 
 }
 
 /// SuperCollider's shapers: 0 `tanh`, 1 `softclip`, 2 `distort`, 3 `atan`,
-/// 4 `abs`, 5 `sqrt` (with the sign, as the server's), 6 `squared`, 7 `cubed`.
+/// 4 `abs`, 5 `sqrt` (with the sign, as the server's), 6 `squared`, 7 `cubed`,
+/// 8 `log2`, 9 `floor`, 10 `ceil`.
 fn clip(kind: u8, x: f32) -> f32 {
     match kind {
         // A Padé tanh, exact enough below 3 and 1 above.
@@ -1994,6 +1996,9 @@ fn clip(kind: u8, x: f32) -> f32 {
         5 => x.abs().sqrt().copysign(x),
         6 => x * x,
         7 => x * x * x,
+        8 => fast_log2(x),
+        9 => x.floor(),
+        10 => x.ceil(),
         // atan, within a few thousandths: x / (1 + 0.28 x²) below 1,
         // π/2 − 1/x … above.
         _ => fast_atan(x),
@@ -2577,6 +2582,64 @@ mod tests {
         assert!(p.program.nodes.contains(&Ugen::Num(3.0)));
         for (_, y) in b.nodes("SinOsc.ar(freq) ** 0.5", 960) {
             assert!(y.is_finite());
+        }
+    }
+
+    /// #731: the conversions that worked on numbers work on a signal, as
+    /// SuperDirt's SynthDefs use them (`freq.cpsmidi`).
+    #[test]
+    fn number_conversions_work_on_a_signal() {
+        let mut b = Bench::new();
+        let check = |b: &mut Bench, body: &str, f: &dyn Fn(f32) -> f32| {
+            for (x, y) in b.nodes(body, 960) {
+                let want = f(x);
+                assert!(
+                    (y - want).abs() <= 1e-4 * want.abs().max(1.0),
+                    "{body}: {x} gives {y}, not {want}"
+                );
+            }
+        };
+        // x from 100 to 900: Hz, ratios and amplitudes all positive.
+        let hz = |x: f32| x * 400.0 + 500.0;
+        check(&mut b, "(SinOsc.ar(freq) * 400 + 500).cpsmidi", &|x| {
+            69.0 + 12.0 * (hz(x) / 440.0).log2()
+        });
+        check(&mut b, "(SinOsc.ar(freq) * 400 + 500).ratiomidi", &|x| {
+            12.0 * hz(x).log2()
+        });
+        check(&mut b, "(SinOsc.ar(freq) * 400 + 500).ampdb", &|x| {
+            20.0 * hz(x).log10()
+        });
+        check(&mut b, "(SinOsc.ar(freq) * 20).dbamp", &|x| 10f32.powf(x));
+        check(&mut b, "(SinOsc.ar(freq) * 400 + 500).reciprocal", &|x| {
+            1.0 / hz(x)
+        });
+        check(&mut b, "(SinOsc.ar(freq) * 3).floor", &|x| {
+            (x * 3.0).floor()
+        });
+        check(&mut b, "(SinOsc.ar(freq) * 3).ceil", &|x| (x * 3.0).ceil());
+        // Each comes back through its inverse.
+        let same = |x: f32| hz(x);
+        check(
+            &mut b,
+            "(SinOsc.ar(freq) * 400 + 500).cpsmidi.midicps",
+            &same,
+        );
+        check(
+            &mut b,
+            "(SinOsc.ar(freq) * 400 + 500).ratiomidi.midiratio",
+            &same,
+        );
+        check(&mut b, "(SinOsc.ar(freq) * 400 + 500).ampdb.dbamp", &same);
+        // A logarithm of 0 or below stays finite.
+        for body in [
+            "SinOsc.ar(freq).cpsmidi",
+            "(SinOsc.ar(freq) - 1).ampdb",
+            "SinOsc.ar(freq).ratiomidi",
+        ] {
+            for (_, y) in b.nodes(body, 960) {
+                assert!(y.is_finite(), "{body}: {y}");
+            }
         }
     }
 

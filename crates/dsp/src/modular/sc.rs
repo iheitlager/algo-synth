@@ -1623,6 +1623,38 @@ impl Builder {
                             false,
                         ));
                     }
+                    // c · log2(x · s) + o: the logarithms through one shaper.
+                    "cpsmidi" | "ratiomidi" | "ampdb" => {
+                        let (s, c, o) = match name {
+                            "cpsmidi" => (1.0 / 440.0_f32, 12.0, 69.0),
+                            "ratiomidi" => (1.0, 12.0, 0.0),
+                            _ => (1.0, 20.0 * std::f32::consts::LOG10_2, 0.0),
+                        };
+                        let mut x = n;
+                        if s != 1.0 {
+                            let s = self.push(Ugen::Num(s), at)?;
+                            x = self.push(Ugen::Bin(Op::Mul, x, s), at)?;
+                        }
+                        let log = self.push(Ugen::Clip { input: x, kind: 8 }, at)?;
+                        let c = self.push(Ugen::Num(c), at)?;
+                        let mut y = self.push(Ugen::Bin(Op::Mul, log, c), at)?;
+                        if o != 0.0 {
+                            let o = self.push(Ugen::Num(o), at)?;
+                            y = self.push(Ugen::Bin(Op::Add, y, o), at)?;
+                        }
+                        return Ok(V::Sig(y, false));
+                    }
+                    "dbamp" => {
+                        // 10^(x/20) = 2^(x · log2(10)/20), as semitones to midiratio.
+                        let k =
+                            self.push(Ugen::Num(12.0 * std::f32::consts::LOG2_10 / 20.0), at)?;
+                        let semis = self.push(Ugen::Bin(Op::Mul, n, k), at)?;
+                        return Ok(V::Sig(self.push(Ugen::MidiRatio(semis), at)?, false));
+                    }
+                    "reciprocal" => {
+                        let one = self.push(Ugen::Num(1.0), at)?;
+                        return Ok(V::Sig(self.push(Ugen::Bin(Op::Div, one, n), at)?, false));
+                    }
                     "tanh" => 0,
                     "softclip" => 1,
                     "distort" => 2,
@@ -1631,6 +1663,8 @@ impl Builder {
                     "sqrt" => 5,
                     "squared" => 6,
                     "cubed" => 7,
+                    "floor" => 9,
+                    "ceil" => 10,
                     _ => return Err(err("this method is not supported on a signal yet")),
                 };
                 let _ = uni;

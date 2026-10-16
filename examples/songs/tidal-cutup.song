@@ -30,23 +30,23 @@
 # first bar and a half of every four. Their notes, run 16 * 10 + 60, climb
 # to 210; ours stop at 127, so from 130 up each is folded down whole
 # octaves, keeping its pitch class. The SynthDefs are SuperDirt's, with
-# decay and sustain named damp and ring, as ours are the ADSR's; three
-# methods they use aren't in the dialect yet, so clip is dropped, cpsmidi a
-# constant and reciprocal 1 / freq (#731).
+# decay and sustain named damp and ring, as ours are the ADSR's.
 tempo 90
 setting gong = Modular ModularBasic: Polyphony 16
   SynthDef(\supergong, { |freq = 440, gate = 1, amp = 0.8, damp = 1, voice = 0, ring = 1|
       // The lowest modes of a clamped circular plate.
       var modes = [1, 2.081, 3.414, 3.893, 4.995, 5.954, 6.819, 8.28, 8.722, 8.882, 10.868, 11.18, 11.754, 13.71, 15.057];
-      var times = (100 / freq) * 0.5 * ring * 5 / (modes ** (2 - damp));
-      var amps = (modes ** voice) * 0.2;
+      var times = (100 / freq) * 0.5 * ring * 5 / (modes ** (2 - damp.clip(0, 2)));
+      var amps = (modes ** voice.clip(0, 4)) * 0.2;
       var strike = LPF.ar(Impulse.ar(0), 8000) * 4;
       DynKlank.ar(`[modes, amps, times], strike, freq) * 0.05 * EnvGen.kr(Env.asr(0.001, 1, 4), gate)
   }).add;
 setting mandolin = Modular ModularBasic: Polyphony 16
   SynthDef(\supermandolin, { |freq = 440, gate = 1, amp = 0.8, ring = 1, detune = 0.2|
-      // A burst of noise into two combs a fifth of a percent apart.
-      var burst = WhiteNoise.ar * EnvGen.kr(Env.perc(0.0001, 0.15), gate) * 0.1;
+      // A burst of noise, longer as the note rises, into two combs a fifth
+      // of a percent apart. SuperDirt's Decay.ar(Impulse.ar(0), t) is a lag
+      // of the impulse: it jumps to it, then falls 60 dB in t.
+      var burst = WhiteNoise.ar * Impulse.ar(0).lag(0.1 * (freq.cpsmidi / 69)) * 0.1;
       var p = 1 / freq;
       var sound = CombL.ar(burst, 0.05, p * (1 - (detune / 100)), ring) + CombL.ar(burst, 0.05, p * (1 + (detune / 100)), ring);
       sound * 0.5 * EnvGen.kr(Env.asr(0.002, 1, 2), gate)
