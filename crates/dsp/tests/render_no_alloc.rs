@@ -63,7 +63,7 @@ clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random:2,16,3)
 clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5)
-clip ring = bell
+clip ring = bell .add(\"<0 [3 5]>\")
   \"[e4,b4] ~ g#4 ~\"
 clip zap = buzzer
   \"e3 [g3 b3] ~ <e4 d4>\"
@@ -89,6 +89,7 @@ mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
 mod buzzer.ctl1 = sine.slow(2).range(0.4, 0.6)
 mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
+mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
 scene a 2: beat hold sand roam zap ring arps chirp tune nbeat fade pan sweep [open]
 scene b 1: beat sand roam zap arps chirp tune nbeat [solo]

@@ -632,8 +632,17 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,
-−1. Several values in one bar (`"1 2"`) are an error. On a `live` clip,
-`.add` and `.sub` take theirs from the bar of the song.
+−1. Several values side by side, or in `[ ]`, split the bar (#676):
+`.add("0 3")` adds 0 to the notes starting in its first half and 3 to the
+rest, and `.add("<0 [3 5]>")` nests; `[0,2,4]` with commas stays one value, a
+stack. A method that moves notes in time (`.fast("1 2")`) moves the whole line,
+and each part keeps the notes that land in it. On a `live` clip, `.add` and
+`.sub` take theirs from the bar of the song.
+
+While the song plays, the value in force lights in the clip's line, for each
+bar and each part of a split one, while the clip plays. A method inside
+`every`, `off` or `sometimes`, or one before a method that moves notes in time
+(`.add(…) .fast(…)`), lights nothing: its bars are not the clip's.
 
 Write the harmony once and let other clips follow it: one edit to it moves
 them all at the same bar.
@@ -746,6 +755,13 @@ there, so `.cutoff("~ ~ 800 ~")` locks the cutoff on one step of four and lets
 go after it (a per-step lock). Anything combined with a `~` has no value on that
 step either. A per-voice signal takes no `~`.
 
+A sequence nests as Strudel's (#675): `[a b]` divides its share of time, `<a b>`
+takes one a cycle, and a `<…>` inside moves on only when it is picked.
+`.attack("<0.1 [0 0.05]>")` is 0.1 in bar 1, then 0 and 0.05 for the halves of
+bar 2; `"[0.1 0]"` is `"0.1 0"`. While the song plays, the number in force
+lights in the text, as a note does, while its clip plays: through `slow`,
+`fast`, `segment` and arithmetic, not inside a wave or a list.
+
 ```song
 track kit drums
 track bass synth Sh101
@@ -782,11 +798,18 @@ target is not checked: the text doesn't say which synth plays on it.
 ```text
 auto <name> = <target>.<Param> <value>… /<bars>
 auto <name> = <target>.<Param> ramp <from> <to> /<bars>
+auto <name> = <target>.<Param> "<sequence>" /<bars>
 ```
 
 An automation lane of 1–256 bars: values (at most 64) spread evenly, each
 held for its share, or a linear ramp. Placed in scenes like a clip, it
 starts at the scene's first bar and loops inside it.
+
+A quoted sequence (#683) is a `mod`'s: one cycle a bar from the lane's start,
+`[ ]` dividing its share and `< >` one a bar, nesting; a `~` holds the lane's
+last value. `auto wob = lead.Cutoff "<300 [800 1200]>" /2` is 300 in bar 1 and
+800, 1200 in the halves of bar 2. While the lane plays, its value in force
+lights in the text, plain values each for its share.
 
 ```song
 track kit drums
@@ -832,7 +855,7 @@ returns to its value before.
 
 ```text
 signal = <term> [(+ | - | * | /) <term>]…      * and / bind tighter; ( ) group
-term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<method>(…)…
+term   = <number> | <source> | "<sequence>" | [<n>, …] | ( <signal> ), then .<method>(…)…
 ```
 
 | source (0 to 1) | |
@@ -844,7 +867,7 @@ term   = <number> | <source> | "<numbers>" | [<n>, …] | ( <signal> ), then .<m
 | `sine2` `cosine2` `saw2` `tri2` `square2` `rand2` | as Strudel's: the same from −1 to 1 |
 | `irand(<n>)` | a whole number from 0 to n − 1 (n 1–64), new each sixteenth |
 | `brand` `brandBy(<p>)` | 1 with chance p (0–1; 0.5 for `brand`), else 0, new each sixteenth |
-| `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64); `~` a step with no value |
+| `"<300 800 1200>"` / `"0 0.5 1"` | numbers, one a bar / sharing the bar (at most 64); `~` a step with no value; `[ ]` and `< >` nest, `"<300 [800 1200]>"` (#675); the number in force lights while the song plays |
 | `env(adsr)` `env(perc)` `env(<a>, <d>, <s>, <r>)` | per voice: an envelope per note, the synth's ADSR, a short one, or seconds |
 | `[a, b, …]` `lfo([a, b, …])` | per voice: number or LFO rate i for voice slot i, round the list (at most 16) |
 

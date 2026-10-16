@@ -1293,6 +1293,53 @@ fn automation_and_snapshots_parse_and_print() {
 
 /// ADR-0019: a parameter is named in any case, as `kit.bdtune` or
 /// `kit.BdTune`, and prints by its registry name.
+/// #683: an auto's values may be one quoted sequence, nesting as a mod's,
+/// one cycle a bar from the lane's start; a `~` holds the last value.
+#[test]
+fn an_auto_takes_a_nested_sequence() {
+    let head = "track kit drums\nclip b = kit\n  bd x\n";
+    let s =
+        Song::parse(&format!("{head}auto a = kit.BdTune \"<-3 [5  ~]>\" /2\n")).expect("parses");
+    let at = |steps: f64| s.autos[0].value_at(steps);
+    assert_eq!([at(4.0), at(20.0)], [-3.0, 5.0]);
+    assert!(at(28.0).is_nan(), "a ~ has no value");
+    assert_eq!(at(36.0), -3.0, "round again after two bars");
+    assert!(
+        s.print()
+            .contains("auto a = kit.BdTune \"<-3 [5 ~]>\" /2\n"),
+        "{}",
+        s.print()
+    );
+    assert_eq!(Song::parse(&s.print()), Ok(s.clone()));
+    // Plain values as before.
+    let plain = Song::parse(&format!("{head}auto a = kit.BdTune 1 2 /1\n")).expect("parses");
+    assert_eq!(plain.autos[0].shape, Shape::Steps(vec![1.0, 2.0]));
+    for (line, col, msg) in [
+        (
+            "auto a = kit.BdTune \"1 x\" /1",
+            24,
+            "a sequence holds numbers, ~, [ ] and < >, e.g. \"<300 [800 1200]>\"",
+        ),
+        (
+            "auto a = kit.BdTune \"<1 [2\" /1",
+            25,
+            "this bracket is not closed",
+        ),
+        (
+            "auto a = kit.BdTune \"1\" 2 /1",
+            21,
+            "a sequence is one quoted text: \"<300 [800 1200]>\"",
+        ),
+    ] {
+        let err = Song::parse(&format!("{head}{line}")).expect_err(line);
+        assert_eq!(
+            (err.line, err.col, err.msg.as_ref()),
+            (4, col, msg),
+            "{line}"
+        );
+    }
+}
+
 #[test]
 fn a_parameter_name_is_read_in_any_case() {
     let lower = AUTOMATED
@@ -3300,7 +3347,7 @@ fn spans_point_at_the_words_of_the_printed_text() {
         clip g = lead\n  arp([c4,e4,g4],up,16)\n";
     let song = Song::parse(text).expect("parses");
     let printed = song.print();
-    let s = spans::spans(&song, &printed);
+    let s = spans::spans(&song, &printed).clips;
     let words =
         |f: usize| -> Vec<String> { s[f].notes.iter().map(|sp| at16(&printed, *sp)).collect() };
     let bd: Vec<String> = s[0].lanes[0].iter().map(|sp| at16(&printed, *sp)).collect();
@@ -3319,7 +3366,7 @@ fn spans_point_at_the_words_of_the_printed_text() {
         Song::parse("track lead synth\nclip m = lead .rev() .fast(2)\n  \"c4 [e4 g4] <c5 d5>\"\n")
             .expect("parses");
     let p = rev.print();
-    let sp = spans::spans(&rev, &p);
+    let sp = spans::spans(&rev, &p).clips;
     let n = rev.clips[0].notes.as_ref().expect("notes");
     for e in &n.events {
         let word = at16(&p, sp[0].notes[usize::from(e.word)]);

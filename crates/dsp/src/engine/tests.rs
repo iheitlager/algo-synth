@@ -5312,6 +5312,91 @@ fn the_words_that_play_are_lit() {
     assert!(lit_words(&mut e).is_empty());
 }
 
+/// #675: a parameter method's and a `mod` line's number in force lights in
+/// the text as typed, bar by bar and through the bar, only while its clip
+/// plays.
+#[test]
+fn the_numbers_in_force_are_lit() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip m = lead .cutoff( \"<300 800 [1200  2000]>\" )\n  \"c4\"\nmod lead.resonance =  \"0.1 .5\".slow(2)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let mut lit: Vec<String> = lit_words(e).into_iter().filter(|w| w != "c4").collect();
+        lit.sort();
+        lit
+    };
+    assert_eq!(at(&mut e, 0.25), ["0.1", "300"]);
+    assert_eq!(at(&mut e, 1.25), [".5", "800"]);
+    assert_eq!(at(&mut e, 1.75), [".5", "800"]);
+    assert_eq!(at(&mut e, 2.25), ["0.1", "1200"]);
+    assert_eq!(at(&mut e, 2.75), ["0.1", "2000"]);
+    // A clip outside the scene that plays lights none of its numbers.
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip m = lead .cutoff(\"<300 800>\")\n  \"c4\"\nclip n = lead\n  \"e4\"\nscene a 1: m\nscene b 1: n\narrange a b\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    run(&mut e, 24_000 / BLOCK);
+    assert!(lit_words(&mut e).contains(&"300".to_string()));
+    run(&mut e, 120_000 / BLOCK - 24_000 / BLOCK);
+    assert_eq!(lit_words(&mut e), ["e4"]);
+}
+
+/// #676: a pattern method's value for each bar, and each part of a split
+/// bar, lights while its clip plays; one inside `every` lights nothing.
+#[test]
+fn a_pattern_methods_value_in_force_is_lit() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip m = lead .fast(\"<1 2>\") .add( \"<0 <1 -1> [3 5]>\" )\n  \"c4\"\nclip n = lead .every(2, add(\"<0 12>\"))\n  \"e4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let mut lit: Vec<String> = lit_words(e)
+            .into_iter()
+            .filter(|w| !matches!(w.as_str(), "c4" | "e4"))
+            .collect();
+        lit.sort();
+        lit
+    };
+    // `fast` takes turns 1, 2; `add` 0, 1, 3|5, 0, -1, 3|5, a bar each. An
+    // `add` before the `fast` would not light: `fast` moves its bars.
+    assert_eq!(at(&mut e, 0.25), ["0", "1"]);
+    assert_eq!(at(&mut e, 1.25), ["1", "2"]);
+    assert_eq!(at(&mut e, 2.25), ["1", "3"]);
+    assert_eq!(at(&mut e, 2.75), ["1", "5"]);
+    assert_eq!(at(&mut e, 4.25), ["-1", "1"]);
+}
+
+/// #683: an auto's value in force lights, plain values each for its share
+/// and a sequence's numbers through the bar, as typed.
+#[test]
+fn an_autos_value_in_force_is_lit() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip m = lead\n  \"c4\"\nauto a = lead.Cutoff 300 0800 /2\nauto b = lead.Resonance  \"<0.1 [0.2 .3]>\" /2\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let mut lit: Vec<String> = lit_words(e).into_iter().filter(|w| w != "c4").collect();
+        lit.sort();
+        lit
+    };
+    assert_eq!(at(&mut e, 0.5), ["0.1", "300"]);
+    assert_eq!(at(&mut e, 1.25), ["0.2", "0800"]);
+    assert_eq!(at(&mut e, 1.75), [".3", "0800"]);
+}
+
 /// #588: a song's text stays as typed, its own layout, spellings and blank
 /// lines kept, and the words that play light up in it.
 #[test]
