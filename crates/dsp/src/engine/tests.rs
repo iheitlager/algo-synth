@@ -5433,6 +5433,42 @@ fn a_pattern_methods_value_in_force_is_lit() {
     assert_eq!(at(&mut e, 4.25), ["-1", "1"]);
 }
 
+/// #675: a parameter method's numbers light only as its clip's notes do:
+/// not on a muted track, nor while another clip is cued; an auto's value
+/// only while its scene plays (#683).
+#[test]
+fn lit_values_follow_their_clip_and_lane() {
+    let numbers = |e: &mut Engine| -> Vec<String> {
+        lit_words(e)
+            .into_iter()
+            .filter(|w| w.parse::<f32>().is_ok())
+            .collect()
+    };
+    // Muted.
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106 mute\nclip m = lead .cutoff(\"<300 800>\")\n  \"c4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    run(&mut e, 24_000 / BLOCK);
+    assert!(numbers(&mut e).is_empty(), "{:?}", lit_words(&mut e));
+    // Another clip cued.
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\ntrack pad synth Juno106\nclip m = lead .cutoff(\"<300 800>\")\n  \"c4\"\nclip n = pad\n  \"e4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_cue(Some(1));
+    run(&mut e, 24_000 / BLOCK);
+    assert_eq!(lit_words(&mut e), ["e4"]);
+    // An auto lights in its scene and not in the next.
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip n = lead\n  \"e4\"\nauto x = lead.Resonance 0.1 0.5 /1\nscene a 1: n x\nscene b 1: n\narrange a b\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    run(&mut e, 24_000 / BLOCK);
+    assert_eq!(numbers(&mut e), ["0.1"]);
+    run(&mut e, 120_000 / BLOCK - 24_000 / BLOCK);
+    assert!(numbers(&mut e).is_empty(), "{:?}", lit_words(&mut e));
+}
+
 /// #683: an auto's value in force lights, plain values each for its share
 /// and a sequence's numbers through the bar, as typed.
 #[test]

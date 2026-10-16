@@ -2785,11 +2785,19 @@ impl Engine {
     }
 
     /// The numbers in force of mod `m` at `t` bars light until their steps
-    /// end (#675).
+    /// end (#675): a parameter method's as its clip's notes do, not on a
+    /// muted track.
     fn light_mod(&mut self, m: usize, t: f64) {
         let mut hits = [(0usize, 0.0f64); MAX_MOD_LIT];
         let mut n = 0;
-        if let Some(md) = self.song.mods.get(m) {
+        if let Some(md) = self.song.mods.get(m).filter(|md| {
+            md.clip.is_none_or(|f| {
+                self.song
+                    .clips
+                    .get(f)
+                    .is_some_and(|c| self.song.heard(c.track))
+            })
+        }) {
             md.signal.lit(t, &mut |v, until| {
                 if let Some(h) = hits.get_mut(n) {
                     *h = (v, until);
