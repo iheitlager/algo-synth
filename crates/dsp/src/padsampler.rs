@@ -209,6 +209,11 @@ pub struct PadVoice {
     /// A hit that has not yet found its start point (it needs the sample's length).
     fresh: bool,
     start: f32,
+    /// Where in the sample it ends, as a fraction (#716), the frame it stops
+    /// at once found, and how far into its part a soft hit starts.
+    hi: f32,
+    stop: f64,
+    late: f32,
     on: bool,
     /// The decay envelope and its per-sample factor.
     env: f32,
@@ -258,6 +263,9 @@ impl PadVoice {
             fresh: cfg.sample.is_some(),
             // A soft hit starts up to half way into the sample.
             start: (1.0 - v) * cfg.vel_start * 0.5,
+            hi: 1.0,
+            stop: 0.0,
+            late: (1.0 - v) * cfg.vel_start * 0.5,
             on: false,
             env: 1.0,
             env_k: if cfg.decay > 0.0 {
@@ -268,6 +276,16 @@ impl PadVoice {
             fade: 1.0,
             fade_step: 0.0,
         };
+    }
+
+    /// Play only the part of the sample from `lo` to `hi` (fractions, #716),
+    /// a soft hit starting as far into the part as it would into the whole.
+    pub fn set_region(&mut self, lo: f32, hi: f32) {
+        let (lo, hi) = (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0));
+        if self.fresh && hi > lo {
+            self.hi = hi;
+            self.start = lo + self.late * (hi - lo);
+        }
     }
 
     fn fade_over(&mut self, secs: f32) {
@@ -301,7 +319,9 @@ impl PadVoice {
             return;
         };
         if self.fresh {
-            self.pos = f64::from(self.start) * sample.frames() as f64;
+            // On whole frames: a part starts on a frame, as a cut would.
+            self.pos = (f64::from(self.start) * sample.frames() as f64).round();
+            self.stop = (f64::from(self.hi) * sample.frames() as f64).round();
             self.on = true;
             self.fresh = false;
         }
@@ -309,7 +329,7 @@ impl PadVoice {
             if !self.on {
                 return;
             }
-            if self.pos >= sample.frames() as f64 {
+            if self.pos >= self.stop {
                 self.on = false;
                 return;
             }
@@ -380,6 +400,39 @@ mod tests {
         c.set(PadField::Tune, f32::NAN);
         c.set(PadField::Sample, 9999.0);
         assert_eq!((c.pan, c.tune, c.sample), (1.0, 0.0, None));
+    }
+
+    /// #716: a hit given a region plays exactly that part of its sample,
+    /// frame for frame, and stops at its end; a region of `slice(4, "2")`
+    /// is the third quarter.
+    #[test]
+    fn a_region_plays_exactly_its_part_of_the_sample() {
+        let ramp: Vec<f32> = (0..4800).map(|i| i as f32 / 4800.0 - 0.5).collect();
+        let mut store = SampleStore::new();
+        store
+            .load(0, &test_wav(48_000, &ramp, None), SR)
+            .expect("loads");
+        let mut kit = PadKit::default();
+        kit.set(0, PadField::Sample, 0.0);
+        kit.set(0, PadField::VelLevel, 0.0);
+        kit.set(0, PadField::Level, 1.0);
+        let (lo, hi) = crate::notes::Region::WHOLE.part(2, 4).bounds();
+        let mut v = PadVoice::default();
+        v.press(36, 1.0, &kit, 1.0, SR);
+        v.set_region(lo, hi);
+        let (mut l, mut r) = (vec![0.0; 2400], vec![0.0; 2400]);
+        v.render(&store, &mut l, &mut r);
+        let sample = store.get(0).expect("loaded");
+        let side = std::f32::consts::FRAC_PI_4.cos();
+        for (k, y) in l.iter().enumerate() {
+            let want = if k < 1200 {
+                sample.frame(2400 + k).0 * side
+            } else {
+                0.0
+            };
+            assert!((y - want).abs() < 1e-6, "frame {k}: {y} for {want}");
+        }
+        assert!(!v.active(), "it stops at the end of its part");
     }
 
     // --- through the engine ------------------------------------------------

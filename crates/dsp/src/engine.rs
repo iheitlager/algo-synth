@@ -65,7 +65,7 @@ fn cycle_seed(base: u32, cycle: u64) -> u32 {
 use crate::algo::mix;
 use crate::modular::Program;
 use crate::modular::sc::{CodeError, Patch, compile};
-use crate::notes::{Edit, Event, Seq, TICKS_PER_BAR, pattern};
+use crate::notes::{Edit, Event, Region, Seq, TICKS_PER_BAR, pattern};
 use crate::sample::{self, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
@@ -136,6 +136,8 @@ struct Hit {
     /// Cents off the key (#699), and where it sounds, −1 to 1 (#701).
     cents: f32,
     pan: f32,
+    /// The part of its sample a sampler plays (#716).
+    region: Region,
     /// A clip's note: its clip and tick, sampled for `.onNote` and the
     /// envelope times when it is pressed (ADR-0038).
     from: Option<(usize, u64)>,
@@ -152,6 +154,7 @@ const NO_HIT: Hit = Hit {
     velocity: 0.0,
     cents: 0.0,
     pan: 0.0,
+    region: Region::WHOLE,
     from: None,
 };
 
@@ -1056,7 +1059,15 @@ impl Engine {
 
     /// Start a clip's note: `cents` off its key (#699), at `pan` (#701),
     /// a voice re-used only on its own side.
-    fn start_note(&mut self, owner: Owner, note: u8, velocity: f32, cents: f32, pan: f32) {
+    fn start_note(
+        &mut self,
+        owner: Owner,
+        note: u8,
+        velocity: f32,
+        cents: f32,
+        pan: f32,
+        region: Region,
+    ) {
         let synth = self.target(owner);
         if let Some(pool) = synth.and_then(|s| self.pools.get_mut(s)) {
             pool.aim(pan);
@@ -1064,6 +1075,10 @@ impl Engine {
         self.start_voice(owner, note, velocity);
         if let Some(pool) = synth.and_then(|s| self.pools.get_mut(s)) {
             pool.place(self.note_count, cents, pan);
+            if region != Region::WHOLE {
+                let (lo, hi) = region.bounds();
+                pool.region(self.note_count, lo, hi);
+            }
         }
     }
 
@@ -2126,12 +2141,20 @@ impl Engine {
                         velocity: ev.velocity(),
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
+                        region: ev.region,
                         from: Some((f, j)),
                     });
                 } else {
                     let cents = self.note_cents(f, &ev, j);
                     let pan = f32::from(ev.pan) / 100.0;
-                    self.start_note(Owner::Track(track), ev.note, ev.velocity(), cents, pan);
+                    self.start_note(
+                        Owner::Track(track),
+                        ev.note,
+                        ev.velocity(),
+                        cents,
+                        pan,
+                        ev.region,
+                    );
                     self.sample_on_note(usize::from(track), f, j);
                 }
                 let span = self
@@ -2229,6 +2252,7 @@ impl Engine {
                         velocity: ev.velocity(),
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
+                        region: ev.region,
                         from: Some((f, j)),
                     });
                 }
@@ -2483,6 +2507,7 @@ impl Engine {
                                 velocity,
                                 cents: 0.0,
                                 pan: 0.0,
+                                region: Region::WHOLE,
                                 from: None,
                             });
                         }
@@ -2498,6 +2523,7 @@ impl Engine {
                                 velocity,
                                 cents: 0.0,
                                 pan: 0.0,
+                                region: Region::WHOLE,
                                 from: None,
                             });
                         }
@@ -2531,6 +2557,7 @@ impl Engine {
                                 velocity: GRACE_VELOCITY,
                                 cents: 0.0,
                                 pan: 0.0,
+                                region: Region::WHOLE,
                                 from: None,
                             });
                         }
@@ -2554,7 +2581,14 @@ impl Engine {
 
     /// Press a hit's note, and sample what its clip holds per note.
     fn press_hit(&mut self, hit: Hit) {
-        self.start_note(hit.owner, hit.note, hit.velocity, hit.cents, hit.pan);
+        self.start_note(
+            hit.owner,
+            hit.note,
+            hit.velocity,
+            hit.cents,
+            hit.pan,
+            hit.region,
+        );
         if let (Owner::Track(t), Some((f, j))) = (hit.owner, hit.from) {
             self.sample_on_note(usize::from(t), f, j);
         }

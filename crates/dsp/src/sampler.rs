@@ -262,6 +262,12 @@ struct Player {
     zone: Zone,
     pos: f64,
     on: bool,
+    /// The part of the sample it plays, as fractions (#716); `hi` 0 is the
+    /// whole sample, looping as its zone says. Found at its first step.
+    lo: f32,
+    hi: f32,
+    fresh: bool,
+    stop: f64,
 }
 
 /// The loop in frames if the zone loops and the points make sense.
@@ -303,9 +309,21 @@ impl Player {
     fn start(zone: Zone) -> Player {
         Player {
             zone,
-            pos: 0.0,
             on: true,
+            ..Player::default()
         }
+    }
+
+    /// The part of its sample from `lo` to `hi` (fractions): played once
+    /// through, without the zone's loop (#716).
+    fn region(mut self, lo: f32, hi: f32) -> Player {
+        let (lo, hi) = (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0));
+        if hi > lo {
+            self.lo = lo;
+            self.hi = hi;
+            self.fresh = true;
+        }
+        self
     }
 
     /// The next sample at `inc` frames per output frame; ends the player at
@@ -316,12 +334,18 @@ impl Player {
             return 0.0;
         };
         let len = s.frames();
-        if self.pos >= len as f64 {
+        if self.fresh {
+            self.pos = (f64::from(self.lo) * len as f64).round();
+            self.stop = (f64::from(self.hi) * len as f64).round();
+            self.fresh = false;
+        }
+        let whole = self.hi == 0.0;
+        if self.pos >= len as f64 || (!whole && self.pos >= self.stop) {
             self.on = false;
             return 0.0;
         }
         let mut y = read(s, self.pos);
-        if let Some((start, end)) = loop_points(&self.zone, s, gated) {
+        if let Some((start, end)) = loop_points(&self.zone, s, gated).filter(|_| whole) {
             // Blend the last frames before the loop end with the audio that
             // precedes the loop start, so the wrap is seamless.
             let xf = CROSSFADE.min(start).min((end - start) / 2);
@@ -351,6 +375,9 @@ pub struct SamplerVoice {
     retrigger: bool,
     /// A note-off waiting for the next block to start its release zone.
     release: bool,
+    /// The part of the sample the waiting note-on plays (#716), as
+    /// fractions; 0 to 0 the whole sample.
+    region: (f32, f32),
     /// Pitch trim in semitones from the pool (unison, analog variance).
     pub trim: f32,
     pub cutoff_trim: f32,
@@ -389,6 +416,15 @@ impl SamplerVoice {
         self.retrigger = true;
         self.release = false;
         self.tail.on = false;
+        self.region = (0.0, 0.0);
+    }
+
+    /// The note just pressed plays only the part of its sample from `lo`
+    /// to `hi`, fractions (#716).
+    pub fn set_region(&mut self, lo: f32, hi: f32) {
+        if self.retrigger {
+            self.region = (lo, hi);
+        }
     }
 
     pub fn release_all(&mut self) {
@@ -409,7 +445,9 @@ impl SamplerVoice {
         if self.retrigger {
             self.main = zones
                 .pick(self.note, self.vel7(), false)
-                .map_or_else(Player::default, Player::start);
+                .map_or_else(Player::default, |z| {
+                    Player::start(z).region(self.region.0, self.region.1)
+                });
             self.tva.gate_on(&adsr);
             self.tvf.gate_on(&p.fadsr);
             self.retrigger = false;

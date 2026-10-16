@@ -1,6 +1,6 @@
 # 0039: Pitch and pan per note
 
-**Status:** Accepted · **Date:** 2026-10-16
+**Status:** Accepted, amended by #716 (the part of a sample) · **Date:** 2026-10-16
 
 ## Context
 
@@ -15,6 +15,17 @@ Strudel's "lefthand" example warbles its pitch (`.add(perlin.range(0, .5))`), la
 - **Pan.** `Event.pan`, −100 to 100, 0 where the strip puts it. `.jux(m)` sets the line to −100 and its copy with m to +100, as Strudel's does. The engine tells the pool the pan of the note it is about to press, so a note re-uses only a voice on its own side: a line and its copy may share a note and a tick. The pool works out a slot's equal-power gains when the note is pressed, never per sample.
 - **A pool goes stereo while a note has a pan.** While any of its sounding voices has one, the engine gives the synth a stereo bus. Each voice renders into the pool's scratch block and is added to both sides at its gains, and a voice without a pan at the middle's (−3 dB each), as a mono strip at its centre puts it. The strip then balances instead of panning (ADR-0010). A stereo Modular program keeps writing both sides itself.
 - **Chorus on the mid.** A synth that is stereo only for its pans keeps its chorus: the chorus runs on the mid and the side is added back, so a voice panned left stays left. A synth that was already stereo (a stereo Modular program) skips its chorus as before.
+
+## Amendment (#716): the part of its sample a note plays
+
+Strudel's breakbeat recipes chop a break into parts (`.chop(16)`) and play them by index (`.slice(8, "0 1 <2 3>")`). A sampler always played a whole sample from its start, which only VelStart moved.
+
+- **The event carries the part.** `Event.region`, from and to as fractions of the sample in steps of 1/65535, `to` 0 meaning the end, so every existing event plays the whole sample. Methods write it: `chop` splits a note's part into n, `slice` names one of n. A part of a part is a sub-range, so `slice` then `chop` cuts a slice finer.
+- **It reaches the voice, not the slot.** As cents and pan do, the engine hands it to the pool right after pressing the note. But the pad sampler doesn't render through slots, so the pool sets it on the voices the note pressed: `PadVoice` and `SamplerVoice`. Both find their frames as they start, rounded to whole frames, so a region costs nothing per sample. Other voices ignore it.
+- **A part plays once.** A part stops at its end and ignores a zone's loop. A pad's choke group, and a note on the same pad, cut the part before, which is Strudel's `.cut(1)`.
+- **Not on lanes.** A drum clip's lanes hold no part, so `chop` and `slice` are for a clip of notes: `"c2" .chop(16)` on a sampler track plays pad 0's break.
+
+Rejected: a part per pad (a `PadField`), which can't give each hit of one pad its own part.
 
 ## Consequences
 

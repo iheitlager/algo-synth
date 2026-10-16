@@ -396,6 +396,21 @@ impl Pool {
         }
     }
 
+    /// The note numbered `clock` plays only the part of its sample from `lo`
+    /// to `hi`, fractions (#716): on the pad sampler and the sampler, which
+    /// find their frames as they start; other voices play on.
+    pub fn region(&mut self, clock: u64, lo: f32, hi: f32) {
+        for (s, v) in self.slots.iter().zip(self.voices.iter_mut()) {
+            if s.owner.is_some() && s.age == clock {
+                match v {
+                    PolyVoice::Pad(p) => p.set_region(lo, hi),
+                    PolyVoice::Sampler(p) => p.set_region(lo, hi),
+                    _ => {}
+                }
+            }
+        }
+    }
+
     /// Whether a sounding note has a pan of its own, so the pool renders
     /// to a stereo bus (#701).
     pub fn panned(&self) -> bool {

@@ -758,6 +758,7 @@ fn freezing_refuses_what_it_cannot_write() {
         nudge: 0,
         cents: 0,
         pan: 0,
+        region: Region::WHOLE,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -787,6 +788,7 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
             },
             Event {
                 start: 0,
@@ -800,6 +802,7 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
             },
             Event {
                 start: 6,
@@ -813,6 +816,7 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
             },
             Event {
                 start: 12,
@@ -826,6 +830,7 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
             },
         ]
     );
@@ -872,6 +877,7 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         nudge: 0,
         cents: 0,
         pan: 0,
+        region: Region::WHOLE,
     }
 }
 

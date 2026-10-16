@@ -438,6 +438,7 @@ impl Clip {
                         nudge: 0,
                         cents: 0,
                         pan: 0,
+                        region: crate::notes::Region::WHOLE,
                     });
                 }
             }

@@ -345,6 +345,48 @@ pub struct Event {
     /// Where it sounds, −100 (left) to 100 (right), 0 where its strip puts
     /// it: `.jux(m)` (#701).
     pub pan: i8,
+    /// The part of its sample a sampler plays (#716): `.chop` and `.slice`.
+    pub region: Region,
+}
+
+/// The part of its sample a hit plays (#716, ADR-0039): from and to as
+/// fractions of the sample in steps of 1/65535, `to` 0 meaning its end, so
+/// the default is the whole sample.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Region {
+    pub from: u16,
+    pub to: u16,
+}
+
+impl Region {
+    pub const WHOLE: Region = Region { from: 0, to: 0 };
+    const ONE: u32 = u16::MAX as u32;
+
+    fn end(self) -> u32 {
+        if self.to == 0 {
+            Self::ONE
+        } else {
+            u32::from(self.to)
+        }
+    }
+
+    /// Part `k` of `n` equal parts of this region.
+    pub fn part(self, k: u32, n: u32) -> Region {
+        let (a, b) = (u64::from(self.from), u64::from(self.end()));
+        let n = u64::from(n.max(1));
+        let at = |i: u64| u16::try_from(a + (b - a) * i.min(n) / n).unwrap_or(u16::MAX);
+        let from = at(u64::from(k));
+        Region {
+            from,
+            to: at(u64::from(k) + 1).max(from.saturating_add(1)),
+        }
+    }
+
+    /// From and to as fractions of the sample, 0 to 1.
+    pub fn bounds(self) -> (f32, f32) {
+        let one = Self::ONE as f32;
+        (f32::from(self.from) / one, self.end() as f32 / one)
+    }
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -617,6 +659,7 @@ impl Cursor<'_> {
             nudge: 0,
             cents: 0,
             pan: 0,
+            region: Region::WHOLE,
         })
     }
 
@@ -1732,6 +1775,7 @@ impl Compiler<'_> {
             nudge: 0,
             cents: 0,
             pan: 0,
+            region: Region::WHOLE,
         });
     }
 }
@@ -1747,9 +1791,10 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
 #[allow(clippy::type_complexity)]
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16, i8) {
+pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16, i8, Region) {
     (
         e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents, e.pan,
+        e.region,
     )
 }
 
@@ -1884,6 +1929,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: Region::WHOLE,
                 });
             }
         }
@@ -1927,6 +1973,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: Region::WHOLE,
                 });
             }
         }
@@ -2134,6 +2181,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: Region::WHOLE,
                 });
             }
             (events, 1)
@@ -2156,6 +2204,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         nudge: 0,
                         cents: 0,
                         pan: 0,
+                        region: Region::WHOLE,
                     });
                 }
                 at += len;

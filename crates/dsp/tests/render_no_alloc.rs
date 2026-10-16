@@ -2,8 +2,9 @@
 //! allocation while a busy song plays: drum lanes, chords, a live arp and a
 //! walk, strip and synth automation, snapshots that solo, mute and send,
 //! modulations, Modular settings with their code, a new song taking over on a bar line,
-//! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, and a
-//! cued start and a sync to a bar (ADR-0029).
+//! a SuperCollider hoover, decks B–D fed into the deck mixer with a crossfade, a
+//! cued start and a sync to a bar (ADR-0029), and a pad sampler's sample
+//! chopped and sliced (#716).
 //!
 //! The counter is the whole process's, so this file is its own test binary
 //! with one test: nothing else runs while it counts.
@@ -12,6 +13,7 @@ use algo_dsp::arp::ArpMode;
 use algo_dsp::bounce::{Bounce, Format};
 use algo_dsp::deck::DeckField;
 use algo_dsp::engine::Engine;
+use algo_dsp::padsampler::PadField;
 use algo_dsp::params::Param;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 use std::alloc::System;
@@ -52,6 +54,7 @@ track sid synth Sid SidArp
 track chipper synth chip
 track famicom synth Nes NesArp
 track nkit drums Nes NesKit
+track brk sampler PadSampler PadsLoud
 
 clip beat = kit /16
   bd x..x..x...x..x..
@@ -79,6 +82,10 @@ clip nbeat = nkit /16
   sn ....x.......x...
   ch xxxxxxxxxxxxxxxx
   lt ..x...x.
+clip chops = brk .chop(8)
+  \"c2 ~ c2 c2\"
+clip slices = brk .slice(4, \"<0 2 1 3>*2 [3 1]\")
+  \"c2\"
 
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
@@ -92,8 +99,8 @@ mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam zap ring arps chirp tune nbeat fade pan sweep [open]
-scene b 1: beat sand roam zap arps chirp tune nbeat [solo]
+scene a 2: beat hold sand roam zap ring arps chirp tune nbeat chops fade pan sweep [open]
+scene b 1: beat sand roam zap arps chirp tune nbeat slices [solo]
 arrange a b a b
 ";
 
@@ -105,6 +112,18 @@ fn a_busy_song_renders_without_allocating() {
         .expect("the song fits")
         .copy_from_slice(text);
     e.load_song().expect("the song parses");
+    // A sample on the pad sampler's first pad, so its parts really play.
+    let wav = mono_wav(
+        &(0..24_000)
+            .map(|i| ((i % 100) as i16 - 50) * 400)
+            .collect::<Vec<_>>(),
+    );
+    e.sample_buffer(wav.len())
+        .expect("the sample fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("the sample loads");
+    let brk = e.song_routed(10).expect("the pad sampler is routed");
+    e.set_pad(brk, 0, PadField::Sample, 0.0);
     e.song_play();
     // Decks B–D on the right of the crossfader, half way across.
     e.deck().set(0, DeckField::Side, 1.0);
@@ -269,3 +288,23 @@ const HOOVER: &str = r"SynthDef(\hoover, {
     snd = snd * Env.asr(0, 1.0, 4, 6).kr(2, \gate.kr(1));
     Out.ar(\out.kr(0), snd * \amp.kr(0.1));
 }).add;";
+
+/// A mono 16-bit WAV at 48 kHz of `frames`.
+fn mono_wav(frames: &[i16]) -> Vec<u8> {
+    let data: Vec<u8> = frames.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let mut w = Vec::with_capacity(44 + data.len());
+    w.extend_from_slice(b"RIFF");
+    w.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    w.extend_from_slice(b"WAVEfmt ");
+    w.extend_from_slice(&16u32.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes());
+    w.extend_from_slice(&48_000u32.to_le_bytes());
+    w.extend_from_slice(&96_000u32.to_le_bytes());
+    w.extend_from_slice(&2u16.to_le_bytes());
+    w.extend_from_slice(&16u16.to_le_bytes());
+    w.extend_from_slice(b"data");
+    w.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    w.extend_from_slice(&data);
+    w
+}
