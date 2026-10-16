@@ -33,6 +33,8 @@ use super::{CHANCE_BARS, DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR
 use crate::algo::{Euclid, Mode, Rng, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
+/// How far `jux` puts each side: all the way, as Strudel's.
+const JUX_PAN: i8 = 100;
 /// Largest factor of `fast`, `slow`, `ply`, `iter` and `every`.
 const MAX_FACTOR: u32 = 16;
 /// Most steps in a `struct` rhythm: one a tick.
@@ -51,11 +53,12 @@ pub struct Part {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
-    Fast(u32),
-    Slow(u32),
+    Fast(Ratio),
+    Slow(Ratio),
     Rev,
     Palindrome,
-    /// Semitones, `sub(n)` kept apart so it prints as written.
+    /// Cents, written in semitones (`add(0.5)`, #699); `sub(n)` kept apart
+    /// so it prints as written.
     Add(i32),
     Sub(i32),
     /// `add([0,2,4])`: a copy of each note per offset, sounding together
@@ -75,7 +78,9 @@ pub enum Pattern {
     Struct(Vec<bool>),
     /// A struct of `k` hits spread over `n` steps (#582).
     Euclid(Euclid),
-    Sometimes(Box<Pattern>),
+    /// A method on some moments, by chance: `sometimes(m)` and its kin
+    /// (#700), as written, and `sometimesBy(p, m)`.
+    Sometimes(Chance, Box<Pattern>),
     Scale(Keys),
     /// `scale(<clip> <mode>)`: the roots are the notes an earlier clip plays
     /// (ADR-0035, #591).
@@ -94,6 +99,111 @@ pub enum Pattern {
     /// Milliseconds between a chord's notes, upward; downward when below 0
     /// (#604).
     Strum(i16),
+    /// `jux(m)`: the line on the left, and a copy with method m on the
+    /// right, as Strudel's (#701).
+    Jux(Box<Pattern>),
+    /// `arp("0 3 <2 0>")`: the line's own chords played by index, as
+    /// Strudel's arp (#696): the indexes as written, and as a line of degrees.
+    Arp(String, Line),
+}
+
+/// A factor of `fast` or `slow`, `num/den` in lowest terms, each 1 to 16
+/// (#702): `2`, `3/4`, `1.5`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ratio {
+    pub num: u32,
+    pub den: u32,
+}
+
+impl Ratio {
+    pub const fn whole(n: u32) -> Ratio {
+        Ratio { num: n, den: 1 }
+    }
+
+    /// `3/4`, `1.5` or `2`; a decimal is the fraction with the smallest
+    /// denominator that it is to within a millionth.
+    fn parse(s: &str) -> Result<Ratio, &'static str> {
+        let bad = "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5";
+        let s = s.trim();
+        let (num, den) = match s.split_once('/') {
+            Some((a, b)) => (
+                a.trim().parse::<u32>().map_err(|_| bad)?,
+                b.trim().parse::<u32>().map_err(|_| bad)?,
+            ),
+            None => {
+                let x = s.parse::<f64>().map_err(|_| bad)?;
+                (1..=MAX_FACTOR)
+                    .find_map(|d| {
+                        let n = x * f64::from(d);
+                        ((n - n.round()).abs() < 1e-6 && n.round() >= 1.0 && n.round() <= 256.0)
+                            .then(|| (n.round() as u32, d))
+                    })
+                    .ok_or(bad)?
+            }
+        };
+        let g = gcd(num, den);
+        let r = Ratio {
+            num: num / g.max(1),
+            den: den / g.max(1),
+        };
+        let fits = |n: u32| (1..=MAX_FACTOR).contains(&n);
+        if fits(r.num) && fits(r.den) {
+            Ok(r)
+        } else {
+            Err(bad)
+        }
+    }
+
+    fn print(self) -> String {
+        if self.den == 1 {
+            self.num.to_string()
+        } else {
+            format!("{}/{}", self.num, self.den)
+        }
+    }
+}
+
+/// How often `sometimes` and its kin apply their method (#700), with
+/// Strudel's chances.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Chance {
+    Sometimes,
+    Often,
+    Rarely,
+    AlmostNever,
+    AlmostAlways,
+    /// `sometimesBy(p, m)`.
+    By(f32),
+}
+
+/// The named chances and their methods' names.
+pub const CHANCES: [(&str, Chance); 5] = [
+    ("sometimes", Chance::Sometimes),
+    ("often", Chance::Often),
+    ("rarely", Chance::Rarely),
+    ("almostNever", Chance::AlmostNever),
+    ("almostAlways", Chance::AlmostAlways),
+];
+
+impl Chance {
+    pub fn p(self) -> f32 {
+        match self {
+            Chance::Sometimes => 0.5,
+            Chance::Often => 0.75,
+            Chance::Rarely => 0.25,
+            Chance::AlmostNever => 0.1,
+            Chance::AlmostAlways => 0.9,
+            Chance::By(p) => p,
+        }
+    }
+
+    /// Does the method take the moment starting at `start`? One coin per
+    /// moment, so a chord goes one way. The draw's top bit is the hash's low
+    /// bit inverted, so at a half it is the coin `sometimes` always used.
+    fn heads(self, start: u32) -> bool {
+        let h = (!mix(0x50E7_1AE5 ^ start, 0x2B)).rotate_right(1);
+        f64::from(h) / (f64::from(u32::MAX) + 1.0) < f64::from(self.p())
+    }
 }
 
 /// An earlier clip a method reads for its harmony (ADR-0035): its name as
@@ -157,6 +267,36 @@ impl Context {
             }
             None => false,
         }
+    }
+
+    /// Event `e` at tick `t` made the note of the chord sounding there at
+    /// its index, counted from the lowest (0) and wrapping round the chord
+    /// with no octave added, as Strudel's arp (#696). False when the clip
+    /// has no notes there.
+    /// The note takes the word of its chord, so the chord lights as it plays.
+    pub fn pick(&self, e: &mut Event, t: u64) -> bool {
+        let len = u64::from(self.bars.max(1) * BAR);
+        let t = u32::try_from(t % len).unwrap_or(0);
+        let mut buf = [0u8; MAX_CHORD];
+        let Some((start, n)) = chord_at(&self.events, t, &mut buf)
+            .or_else(|| chord_at(&self.events, u32::MAX, &mut buf))
+        else {
+            return false;
+        };
+        let k = (i32::from(e.note) - i32::from(DEGREE_ZERO)).rem_euclid(n.max(1) as i32);
+        let Some(&note) = buf.get(..n).and_then(|c| c.get(k as usize)) else {
+            return false;
+        };
+        e.note = note;
+        e.degree = false;
+        if let Some(src) = self
+            .events
+            .iter()
+            .find(|s| s.start == start && s.note == note)
+        {
+            e.word = src.word;
+        }
+        true
     }
 
     /// The root sounding at tick `t`: the lowest note there.
@@ -395,7 +535,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 20] = [
+    pub const NAMES: [&'static str; 27] = [
         "fast",
         "slow",
         "rev",
@@ -410,10 +550,17 @@ impl Pattern {
         "struct",
         "euclid",
         "sometimes",
+        "often",
+        "rarely",
+        "almostNever",
+        "almostAlways",
+        "sometimesBy",
         "scale",
         "oct",
         "chord",
         "strum",
+        "arp",
+        "jux",
         "shuffle",
         "scramble",
     ];
@@ -473,8 +620,8 @@ impl Pattern {
             }
         }
         match name {
-            "fast" => Ok(Pattern::Fast(whole(one()?)?)),
-            "slow" => Ok(Pattern::Slow(whole(one()?)?)),
+            "fast" => Ok(Pattern::Fast(Ratio::parse(one()?)?)),
+            "slow" => Ok(Pattern::Slow(Ratio::parse(one()?)?)),
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
@@ -482,13 +629,7 @@ impl Pattern {
             "rev" => none().map(|()| Pattern::Rev),
             "palindrome" => none().map(|()| Pattern::Palindrome),
             "add" | "sub" => {
-                let semis = |s: &str| {
-                    s.trim()
-                        .parse::<i32>()
-                        .ok()
-                        .filter(|n| n.abs() <= 48)
-                        .ok_or("this takes semitones from -48 to 48")
-                };
+                let semis = |s: &str| cents_of(s).ok_or("this takes semitones from -48 to 48");
                 let a = one()?.trim();
                 if name == "add"
                     && let Some(list) = a.strip_prefix('[').and_then(|s| s.strip_suffix(']'))
@@ -571,7 +712,26 @@ impl Pattern {
                 }
                 Ok(Pattern::Euclid(e))
             }
-            "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?, srcs)?))),
+            "sometimesBy" => {
+                let [p, m] = args.as_slice() else {
+                    return Err(crate::usage::SOMETIMES_BY);
+                };
+                let p = p
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|p| (0.0..=1.0).contains(p))
+                    .ok_or("this takes a chance from 0 to 1")?;
+                Ok(Pattern::Sometimes(
+                    Chance::By(p),
+                    Box::new(nested(m, srcs)?),
+                ))
+            }
+            "sometimes" | "often" | "rarely" | "almostNever" | "almostAlways" => {
+                let c = CHANCES.iter().find(|(w, _)| *w == name).map(|(_, c)| *c);
+                let c = c.unwrap_or(Chance::Sometimes);
+                Ok(Pattern::Sometimes(c, Box::new(nested(one()?, srcs)?)))
+            }
             "scale" => {
                 let arg = one()?.trim();
                 let (first, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
@@ -619,6 +779,30 @@ impl Pattern {
                     bars,
                 }))
             }
+            "jux" => Ok(Pattern::Jux(Box::new(nested(one()?, srcs)?))),
+            "arp" => {
+                let bad = crate::usage::ARP_METHOD;
+                let arg = one()?.trim();
+                if !arg.starts_with('"') {
+                    return Err(bad);
+                }
+                let idx = super::parse(arg, 0).map_err(|e| e.msg)?;
+                if idx.events.iter().any(|e| !e.degree) {
+                    return Err(
+                        "arp takes indexes into the chord, 0 its lowest note: arp(\"0 2 1\")",
+                    );
+                }
+                if idx.events.is_empty() {
+                    return Err(bad);
+                }
+                Ok(Pattern::Arp(
+                    idx.print(),
+                    Line {
+                        events: idx.events,
+                        bars: idx.bars,
+                    },
+                ))
+            }
             "strum" => one()?
                 .trim()
                 .parse::<i16>()
@@ -645,14 +829,14 @@ impl Pattern {
             other => other.print(),
         };
         match self {
-            Pattern::Fast(n) => format!("fast({n})"),
-            Pattern::Slow(n) => format!("slow({n})"),
+            Pattern::Fast(r) => format!("fast({})", r.print()),
+            Pattern::Slow(r) => format!("slow({})", r.print()),
             Pattern::Rev => "rev()".to_string(),
             Pattern::Palindrome => "palindrome()".to_string(),
-            Pattern::Add(n) => format!("add({n})"),
-            Pattern::Sub(n) => format!("sub({n})"),
+            Pattern::Add(n) => format!("add({})", semitones(*n)),
+            Pattern::Sub(n) => format!("sub({})", semitones(*n)),
             Pattern::Stack(offsets) => {
-                let words: Vec<String> = offsets.iter().map(ToString::to_string).collect();
+                let words: Vec<String> = offsets.iter().map(|c| semitones(*c)).collect();
                 format!("add([{}])", words.join(","))
             }
             Pattern::Ply(n) => format!("ply({n})"),
@@ -670,13 +854,19 @@ impl Pattern {
                 format!("struct(\"{}\")", words.join(" "))
             }
             Pattern::Euclid(e) => e.print(),
-            Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
+            Pattern::Sometimes(Chance::By(p), m) => format!("sometimesBy({p}, {})", bare(m)),
+            Pattern::Sometimes(c, m) => {
+                let name = CHANCES.iter().find(|(_, k)| k == c).map_or("", |(w, _)| *w);
+                format!("{name}({})", bare(m))
+            }
             Pattern::Scale(keys) => format!("scale({})", keys.print()),
             Pattern::ScaleOf(c, mode) => format!("scale({} {})", c.name, mode.name()),
             Pattern::Oct(n) => format!("oct({n})"),
             Pattern::ChordOf(c) => format!("chord({})", c.name),
             Pattern::StructOf(c) => format!("struct({})", c.name),
             Pattern::Strum(ms) => format!("strum({ms})"),
+            Pattern::Arp(text, _) => format!("arp({text})"),
+            Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -684,19 +874,8 @@ impl Pattern {
     /// The line this method makes of `line`.
     pub fn apply(&self, line: &Line) -> Result<Line, &'static str> {
         let out = match self {
-            Pattern::Fast(n) => fast(line, *n),
-            Pattern::Slow(n) => Line {
-                events: line
-                    .events
-                    .iter()
-                    .map(|e| Event {
-                        start: e.start * n,
-                        len: e.len * n,
-                        ..*e
-                    })
-                    .collect(),
-                bars: line.bars * n,
-            },
+            Pattern::Fast(r) => speed(line, r.num, r.den)?,
+            Pattern::Slow(r) => speed(line, r.den, r.num)?,
             Pattern::Rev => rev(line),
             Pattern::Palindrome => alternate(line, 2, 1, &Pattern::Rev)?,
             Pattern::Add(n) => transpose(line, *n),
@@ -750,12 +929,11 @@ impl Pattern {
                 check(bars, 0)?;
                 restructure(line, c, bars)
             }
-            Pattern::Sometimes(m) => {
+            Pattern::Sometimes(c, m) => {
                 let other = m.apply(line)?;
                 let bars = lcm(line.bars, other.bars);
                 check(bars, line.events.len() * (bars / line.bars) as usize)?;
-                // One coin per moment, so a chord goes one way.
-                let heads = |e: &Event| mix(0x50E7_1AE5 ^ e.start, 0x2B) & 1 == 1;
+                let heads = |e: &Event| c.heads(e.start);
                 let mut events: Vec<Event> = line
                     .repeat(bars)
                     .events
@@ -801,12 +979,45 @@ impl Pattern {
                 out
             }
             Pattern::Strum(ms) => strum(line, *ms),
+            Pattern::Jux(m) => {
+                let copy = m.apply(line)?;
+                let bars = lcm(line.bars, copy.bars);
+                check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+                let side = |l: &Line, pan: i8| {
+                    let mut l = l.repeat(bars);
+                    for e in &mut l.events {
+                        e.pan = pan;
+                    }
+                    l.events
+                };
+                let mut events = side(line, -JUX_PAN);
+                events.extend(side(&copy, JUX_PAN));
+                Line { events, bars }
+            }
+            Pattern::Arp(_, idx) => {
+                if line.events.iter().any(|e| e.degree) {
+                    return Err("arp plays notes: write it after scale");
+                }
+                // The line's chords as a clip read for harmony, the indexes
+                // looked up in it as the two round together (ADR-0035).
+                let chords = Context {
+                    name: String::new(),
+                    events: line.events.clone(),
+                    bars: line.bars,
+                };
+                let bars = lcm(idx.bars, line.bars);
+                check(bars, idx.events.len() * (bars / idx.bars.max(1)) as usize)?;
+                let mut out = idx.repeat(bars);
+                out.events
+                    .retain_mut(|e| chords.pick(e, u64::from(e.start)));
+                out
+            }
             Pattern::PerBar(_, steps) => by_bar(line, steps)?,
             Pattern::Oct(n) => {
                 if line.events.iter().any(|e| e.degree) {
                     return Err("oct moves notes: write it after scale");
                 }
-                transpose(line, 12 * n)
+                transpose(line, 1200 * n)
             }
         };
         check(out.bars, out.events.len())?;
@@ -836,8 +1047,9 @@ impl Pattern {
     /// drum clip, whose lanes hold neither, can't take it (#653)?
     pub fn moves_pitch(&self) -> bool {
         match self {
-            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(m) => m.moves_pitch(),
-            Pattern::Stack(_) | Pattern::Strum(_) => true,
+            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
+            // A drum clip's lanes hold no pan, so jux is for notes too.
+            Pattern::Stack(_) | Pattern::Strum(_) | Pattern::Arp(..) | Pattern::Jux(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -845,17 +1057,17 @@ impl Pattern {
     /// A pitch method on event `e`, which starts at tick `t` of the song:
     /// false when the note goes (out of 0 to 127). Nothing allocates (#593).
     pub fn pitch(&self, e: &mut Event, t: u64) -> bool {
-        let shift = |e: &mut Event, by: i32| match u8::try_from(i32::from(e.note) + by) {
-            Ok(n) if n <= 127 => {
-                e.note = n;
+        let shift = |e: &mut Event, by: i32| match moved(e, by) {
+            Some(m) => {
+                *e = m;
                 true
             }
-            _ => false,
+            None => false,
         };
         match self {
             Pattern::Add(n) => shift(e, *n),
             Pattern::Sub(n) => shift(e, -n),
-            Pattern::Oct(n) => !e.degree && shift(e, 12 * n),
+            Pattern::Oct(n) => !e.degree && shift(e, 1200 * n),
             Pattern::Scale(keys) => {
                 let bar =
                     u32::try_from(t / u64::from(BAR) % u64::from(keys.bars().max(1))).unwrap_or(0);
@@ -918,20 +1130,25 @@ fn div_round(x: u32, n: u32) -> u32 {
     (x + n / 2) / n.max(1)
 }
 
-/// The line squeezed n times, repeated until it fills whole bars.
-fn fast(line: &Line, n: u32) -> Line {
-    let bars = line.bars / gcd(line.bars, n);
-    let copies = bars * n / line.bars.max(1);
+/// The line `num/den` times as fast, repeated until it fills whole bars
+/// (#702): `fast(3/4)` of a bar is 4/3 of a bar, three times round in four.
+fn speed(line: &Line, num: u32, den: u32) -> Result<Line, &'static str> {
+    let span = line.bars.max(1) * den;
+    let copies = num / gcd(span, num);
+    let bars = u64::from(copies) * u64::from(span) / u64::from(num.max(1));
+    let bars = u32::try_from(bars).unwrap_or(u32::MAX);
+    check(bars, line.events.len() * copies as usize)?;
     let len = line.len();
+    let at = |x: u32| div_round(x * den, num);
     let mut events = Vec::new();
     for k in 0..copies {
         events.extend(line.events.iter().map(|e| Event {
-            start: div_round(e.start + k * len, n),
-            len: div_round(e.len, n).max(1),
+            start: at(e.start + k * len),
+            len: at(e.len).max(1),
             ..*e
         }));
     }
-    Line { events, bars }
+    Ok(Line { events, bars })
 }
 
 /// Each bar backwards: a note that ended `x` ticks before the bar's end
@@ -955,18 +1172,33 @@ fn rev(line: &Line) -> Line {
     }
 }
 
+/// `x` semitones (`12`, `-0.5`, at most two decimals) in cents, within
+/// four octaves (#699).
+fn cents_of(x: &str) -> Option<i32> {
+    let x = x.trim();
+    let decimals = x.split_once('.').map_or(0, |(_, d)| d.len());
+    let c = (x.parse::<f64>().ok()? * 100.0).round();
+    (decimals <= 2 && c.abs() <= 4800.0).then_some(c as i32)
+}
+
+/// Cents as semitones, as written: `12`, `0.1`.
+fn semitones(cents: i32) -> String {
+    (f64::from(cents) / 100.0).to_string()
+}
+
+/// `e` moved by `by` cents, its note the nearest key and its cents what is
+/// left, −50 to 49; `None` past 0 to 127.
+fn moved(e: &Event, by: i32) -> Option<Event> {
+    let all = i32::from(e.note) * 100 + i32::from(e.cents) + by;
+    let note = (all + 50).div_euclid(100);
+    let note = u8::try_from(note).ok().filter(|n| *n <= 127)?;
+    let cents = i16::try_from(all - i32::from(note) * 100).unwrap_or(0);
+    Some(Event { note, cents, ..*e })
+}
+
+/// The line moved by `by` cents, a note leaving 0 to 127 dropped.
 fn transpose(line: &Line, by: i32) -> Line {
-    let events = line
-        .events
-        .iter()
-        .filter_map(|e| {
-            let n = i32::from(e.note) + by;
-            u8::try_from(n)
-                .ok()
-                .filter(|n| *n <= 127)
-                .map(|note| Event { note, ..*e })
-        })
-        .collect();
+    let events = line.events.iter().filter_map(|e| moved(e, by)).collect();
     Line {
         events,
         bars: line.bars,
@@ -1114,8 +1346,9 @@ enum Tree<'a> {
     Val(&'a str),
     /// `[a b]`, or `a b` at the top: sharing the bar.
     Share(Vec<Tree<'a>>),
-    /// `<a b>`: one a bar, an inner one taking its own turns.
-    Turns(Vec<Tree<'a>>),
+    /// `<a b>`: one a bar, an inner one taking its own turns; `<a b>/n`
+    /// holds each for n bars (#700).
+    Turns(Vec<Tree<'a>>, u32),
 }
 
 /// Deepest nesting of `[ ]` and `< >` in a value a bar, as in a signal.
@@ -1165,7 +1398,7 @@ fn tree_items<'a>(
                 out.push(if c == b'[' {
                     Tree::Share(inner)
                 } else {
-                    Tree::Turns(inner)
+                    Tree::Turns(inner, hold_of(t, i)?)
                 });
             }
             Some(b']' | b'>') => return Err(BAD_PER_BAR),
@@ -1181,6 +1414,24 @@ fn tree_items<'a>(
             }
         }
     }
+}
+
+/// The `/n` after a `< >` at byte `i`, and past it: 1 without.
+fn hold_of(t: &str, i: &mut usize) -> Result<u32, &'static str> {
+    let b = t.as_bytes();
+    if b.get(*i) != Some(&b'/') {
+        return Ok(1);
+    }
+    let from = *i + 1;
+    let mut end = from;
+    while b.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    *i = end;
+    t.get(from..end)
+        .and_then(|n| n.parse::<u32>().ok())
+        .filter(|n| (1..=MAX_FACTOR).contains(n))
+        .ok_or("a < > holds each value 1 to 16 bars: \"<0 12>/4\"")
 }
 
 /// One more value, `v`, counted in `values`.
@@ -1213,8 +1464,9 @@ impl<'a> Tree<'a> {
         let p = match self {
             Tree::Val(_) => 1,
             Tree::Share(items) => round(items)?,
-            Tree::Turns(items) => u32::try_from(items.len())
+            Tree::Turns(items, hold) => u32::try_from(items.len())
                 .unwrap_or(MAX_BARS + 1)
+                .saturating_mul(*hold)
                 .saturating_mul(round(items)?),
         };
         (p <= MAX_BARS).then_some(p).ok_or(TOO_LONG)
@@ -1234,8 +1486,9 @@ impl<'a> Tree<'a> {
                     it.parts(b, edge(k), edge(k + 1), out);
                 }
             }
-            Tree::Turns(items) => {
+            Tree::Turns(items, hold) => {
                 let n = u32::try_from(items.len()).unwrap_or(1).max(1);
+                let b = b / (*hold).max(1);
                 if let Some(it) = items.get((b % n) as usize) {
                     it.parts(b / n, lo, hi, out);
                 }
@@ -1438,6 +1691,8 @@ mod tests {
             degree: false,
             when: Default::default(),
             nudge: 0,
+            cents: 0,
+            pan: 0,
         }
     }
 
@@ -1583,7 +1838,7 @@ mod tests {
             (
                 "fast",
                 "\"<1 0>\"",
-                "this takes a whole number from 1 to 16",
+                "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
             ),
         ] {
             assert_eq!(Pattern::parse(name, text), Err(msg), "{name}({text})");
@@ -1825,6 +2080,183 @@ mod tests {
         assert_eq!(s, run("sometimes(add(12))", &line), "seeded");
     }
 
+    /// #701: jux puts the line on the left and the changed copy on the right.
+    #[test]
+    fn jux_pans_the_line_left_and_its_copy_right() {
+        let j = run("jux(rev)", &four());
+        assert_eq!(j.bars, 1);
+        let side = |pan: i8| -> Vec<(u32, u8)> {
+            let mut v: Vec<_> = j
+                .events
+                .iter()
+                .filter(|e| e.pan == pan)
+                .map(|e| (e.start, e.note))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        assert_eq!(side(-100), starts(&four()));
+        assert_eq!(side(100), starts(&run("rev()", &four())));
+        assert_eq!(j.events.len(), 8);
+        // The two come round together.
+        assert_eq!(run("jux(slow(2))", &four()).bars, 2);
+        assert_eq!(Pattern::parse("jux", " rev ").unwrap().print(), "jux(rev)");
+        assert_eq!(
+            Pattern::parse("jux", "add(7)").unwrap().print(),
+            "jux(add(7))"
+        );
+        assert!(Pattern::parse("jux", "").is_err());
+        assert!(Pattern::parse("jux", "room(1)").is_err());
+    }
+
+    /// #699: a fraction of a semitone moves a note's cents, its note the
+    /// nearest key; whole semitones leave the cents alone.
+    #[test]
+    fn add_takes_a_fraction_of_a_semitone() {
+        let pitch = |e: &Event| (e.note, e.cents);
+        let a = run("add(0.5)", &four());
+        assert_eq!(pitch(&a.events[0]), (61, -50));
+        let b = run("add(0.25)", &a);
+        assert_eq!(pitch(&b.events[0]), (61, -25));
+        assert_eq!(pitch(&run("sub(0.1)", &four()).events[0]), (60, -10));
+        assert_eq!(pitch(&run("add(12)", &b).events[0]), (73, -25));
+        assert_eq!(pitch(&run("oct(-1)", &b).events[0]), (49, -25));
+        let s = run("add([0,0.1])", &four());
+        let firsts: Vec<_> = s
+            .events
+            .iter()
+            .filter(|e| e.start == 0)
+            .map(pitch)
+            .collect();
+        assert_eq!(firsts, [(60, 0), (60, 10)]);
+        // A live clip's bar moves the same way.
+        let mut e = four().events[0];
+        assert!(Pattern::parse("add", "1.5").unwrap().pitch(&mut e, 0));
+        assert_eq!(pitch(&e), (62, -50));
+        for (name, args, printed) in [
+            ("add", "0.5", "add(0.5)"),
+            ("sub", " 0.25 ", "sub(0.25)"),
+            ("add", "-1.5", "add(-1.5)"),
+            ("add", "[0, 0.1]", "add([0,0.1])"),
+            ("add", "\"<0 0.5>\"", "add(\"<0 0.5>\")"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).unwrap().print(), printed);
+        }
+        for bad in ["0.123", "48.5", "x1"] {
+            assert!(Pattern::parse("add", bad).is_err(), "add({bad})");
+        }
+    }
+
+    /// #702: a ratio squeezes or stretches, the line round in whole bars.
+    #[test]
+    fn fast_and_slow_take_a_ratio() {
+        let f = run("fast(3/4)", &four());
+        assert_eq!(f.bars, 4);
+        let notes: Vec<(u32, u8)> = starts(&f);
+        assert_eq!(notes.len(), 12);
+        assert_eq!(
+            &notes[..5],
+            &[(0, 60), (16, 62), (32, 64), (48, 66), (64, 60)]
+        );
+        assert!(f.events.iter().all(|e| e.len == 16));
+        assert_eq!(run("fast(1.5)", &four()), run("fast(3/2)", &four()));
+        assert_eq!(run("fast(0.5)", &four()), run("slow(2)", &four()));
+        assert_eq!(run("slow(1/2)", &four()), run("fast(2)", &four()));
+        assert_eq!(run("slow(4/3)", &four()), run("fast(3/4)", &four()));
+        // Whole factors as before.
+        assert_eq!(run("fast(6/3)", &four()), run("fast(2)", &four()));
+        for (args, printed) in [
+            ("3/4", "fast(3/4)"),
+            ("0.75", "fast(3/4)"),
+            ("4/2", "fast(2)"),
+        ] {
+            assert_eq!(Pattern::parse("fast", args).unwrap().print(), printed);
+        }
+        for bad in ["0", "17", "1/17", "17/16", "0.123", "x", "3/", "-1"] {
+            assert!(Pattern::parse("fast", bad).is_err(), "fast({bad})");
+        }
+        // Too long to come round.
+        let long = Line {
+            events: vec![ev(0, 1, 60)],
+            bars: 16,
+        };
+        assert!(
+            Pattern::parse("fast", "15/16")
+                .unwrap()
+                .apply(&long)
+                .is_err()
+        );
+        // A ratio a bar.
+        let p = run("fast(\"<1 3/2>\")", &four());
+        assert!(p.bars >= 2);
+    }
+
+    /// #700: Strudel's chances, seeded, a chord going one way.
+    #[test]
+    fn the_chances_apply_their_method_about_that_often() {
+        let line = run("ply(16)", &four()).repeat(4);
+        let up = |p: &str| {
+            let s = run(p, &line);
+            assert_eq!(s.events.len(), line.events.len(), "{p}");
+            assert_eq!(s, run(p, &line), "{p} is seeded");
+            s.events.iter().filter(|e| e.note >= 72).count()
+        };
+        let n = line.events.len() as f32;
+        for (p, want) in [
+            ("often(add(12))", 0.75),
+            ("rarely(add(12))", 0.25),
+            ("almostNever(add(12))", 0.1),
+            ("almostAlways(add(12))", 0.9),
+            ("sometimesBy(0.3, add(12))", 0.3),
+        ] {
+            let got = up(p) as f32 / n;
+            assert!((got - want).abs() < 0.06, "{p}: {got}");
+        }
+        assert_eq!(up("sometimesBy(0, add(12))"), 0);
+        assert_eq!(up("sometimesBy(1, add(12))"), line.events.len());
+        // A half is the coin sometimes has always thrown.
+        assert_eq!(
+            run("sometimesBy(0.5, add(12))", &line),
+            run("sometimes(add(12))", &line)
+        );
+        // The moments a chance takes are among those a likelier one takes.
+        let taken = |p: &str| -> Vec<u32> {
+            let s = run(p, &line);
+            s.events
+                .iter()
+                .filter(|e| e.note >= 72)
+                .map(|e| e.start)
+                .collect()
+        };
+        let often = taken("often(add(12))");
+        assert!(taken("rarely(add(12))").iter().all(|t| often.contains(t)));
+        for bad in [
+            "sometimesBy(2, rev)",
+            "sometimesBy(0.5)",
+            "often(2)",
+            "rarely()",
+        ] {
+            let (name, args) = bad.split_once('(').unwrap();
+            assert!(
+                Pattern::parse(name, args.strip_suffix(')').unwrap()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    /// #700: `<a b>/n` in a value a bar holds each n bars.
+    #[test]
+    fn a_value_a_bar_over_n_holds_each_n_bars() {
+        let a = run("add(\"<0 12>/2\")", &four());
+        let firsts: Vec<u8> = (0..4).map(|b| a.events[b * 4].note).collect();
+        assert_eq!((a.bars, firsts), (4, vec![60, 60, 72, 72]));
+        let p = Pattern::parse("add", "\"<0 12>/2\"").unwrap();
+        assert_eq!(p.print(), "add(\"<0 12>/2\")");
+        for bad in ["\"<0 12>/0\"", "\"<0 12>/17\"", "\"<0 12>/x\""] {
+            assert!(Pattern::parse("add", bad).is_err(), "{bad}");
+        }
+    }
+
     #[test]
     fn scale_moves_notes_to_the_nearest_scale_note() {
         let chromatic = Line {
@@ -2032,6 +2464,9 @@ mod tests {
             ("every", "2, strum(-15)", "every(2, strum(-15))"),
             ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
             ("sometimes", "fast(2)", "sometimes(fast(2))"),
+            ("often", "rev", "often(rev)"),
+            ("almostNever", " ply(2) ", "almostNever(ply(2))"),
+            ("sometimesBy", "0.25, add(12)", "sometimesBy(0.25, add(12))"),
             ("euclid", "5,8", "euclid(5,8)"),
             ("euclid", " 3, 8 ,2", "euclid(3,8,2)"),
             ("euclid", "3,8,0", "euclid(3,8)"),
@@ -2065,10 +2500,14 @@ mod tests {
     #[test]
     fn bad_methods_say_why() {
         for (name, args, msg) in [
-            ("fast", "0", "this takes a whole number from 1 to 16"),
+            (
+                "fast",
+                "0",
+                "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
+            ),
             ("shuffle", "0", "this takes a whole number from 1 to 16"),
             ("scramble", "17", "this takes a whole number from 1 to 16"),
-            ("fast", "1.5", "this takes a whole number from 1 to 16"),
+            ("ply", "1.5", "this takes a whole number from 1 to 16"),
             ("fast", "", "this takes one value"),
             ("rev", "2", "this takes no value: ()"),
             (
@@ -2157,7 +2596,7 @@ mod tests {
             bars: 16,
         };
         assert_eq!(
-            Pattern::Slow(8).apply(&long),
+            Pattern::Slow(Ratio::whole(8)).apply(&long),
             Err("the pattern runs past 64 bars")
         );
         let many = run("ply(8)", &run("ply(16)", &four()));

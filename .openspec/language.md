@@ -378,7 +378,7 @@ weight = %n after an option of [a | b], last (1–16): drawn n times as often as
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `[a | b c]` one option at random each bar, filling the
+one option per bar, `<a b>/n` each for n (1–16) bars (#700), `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a
 sequence; not with a chord's commas; `[c2%3 | d#2 | g1]` weighs c2 three
 times out of five, #616, and a sequence takes its weight on its brackets,
@@ -488,9 +488,13 @@ clip line = v bars 2
   chord: `close` (the same as `voicing`), `open` (the second note from the
   bottom an octave up), `drop2` and `drop3` (the second or third note from
   the top an octave down), `shell` (the root at the bottom, then only the
-  third and seventh) or `quartal` (fourths of the song's scale stacked from
-  the root, as many as the chord has notes). An anchor note (`c5`) caps the
-  top of every chord, the chords sitting in the three octaves below it. The
+  third and seventh), `quartal` (fourths of the song's scale stacked from
+  the root, as many as the chord has notes) or `lefthand` (#698: a jazz
+  pianist's rootless left hand from Strudel's dictionary, for m7, 7, maj7,
+  m7b5, dim7, m6 and their kin, within F3–A4, each chord the voicing whose
+  top note moves least; another quality is voiced close). An anchor note
+  (`c5`) caps the top of every chord, the chords sitting in the three octaves
+  below it (a left hand in the 16 semitones below it). The
   voices still lead from chord to chord, and a slash chord's bass stays at
   the bottom.
 
@@ -605,11 +609,12 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 
 | method | does |
 |---|---|
-| `.fast(n)` `.slow(n)` | n (1–16) times faster or slower |
+| `.fast(n)` `.slow(n)` | n times faster or slower: a whole number or a ratio, each side 1–16 (`3/4`, `1.5`, #702); the line repeats until it fills whole bars, so `.fast(3/4)` of a bar plays three times in four |
 | `.rev()` | each bar backwards |
 | `.palindrome()` | every other bar backwards |
-| `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48) |
-| `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after |
+| `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48), a fraction too, to the cent (`.add(0.5)`, at most two decimals, #699): the note plays between the keys on every pitched model |
+| `.add(<signal>)` `.sub(<signal>)` | semitones read from a signal of the song's time as each note starts, `.add(perlin.range(0, 0.5))`, Strudel's pitch warble (#699); one a clip, not `env`, a list, `.onNote` or `~`; not on a `live` clip or a drum clip |
+| `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after; `.add([0,0.1])` layers a copy ten cents up |
 | `.ply(n)` | each note n (1–16) times in its own length |
 | `.iter(n)` | each bar starts a further 1/n (1–16) of a bar in |
 | `.shuffle(n)` | each bar cut into n (1–16) parts played in a new order each bar, every part once (#615) |
@@ -621,18 +626,23 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |
 | `.sometimes(m)` | m on about half the moments, seeded |
+| `.often(m)` `.rarely(m)` | m on about 3 in 4, or 1 in 4, of the moments (#700) |
+| `.almostNever(m)` `.almostAlways(m)` | m on about 1 in 10, or 9 in 10, of the moments |
+| `.sometimesBy(p, m)` | m on a chance p (0–1) of the moments; a moment a rarer chance takes, a likelier one takes too |
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
 | `.scale(<<root>…>[/n] [<mode>])` | a progression: the roots (up to 16) take turns, a bar each or n (1–16) bars each, by the bar a note starts in; `a1:dorian` gives a root its own mode, and the shared mode may go when each has one |
 | `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
 | `.chord(<clip>)` | each degree a note of the chord an earlier clip plays where it starts (ADR-0035): 0 its lowest note, on up an octave past the top and down below the root, `[0,2]` two at once; a note moves to the nearest chord note; `"0 1 2 3"` is an up arpeggio |
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
+| `.jux(m)` | the line on the left and a copy with method m on the right, on its one track, as Strudel's (#701, ADR-0039): `.jux(rev)`; while a note is panned the synth is stereo, its strip balancing, its chorus kept; a mono synth plays one side at a time; not on a drum clip |
+| `.arp("0 3 <2 0> [1 3]")` | the line's own chords played by index, as Strudel's arp (#696): each index, in mini-notation, the note of the chord sounding where it starts, 0 the lowest, wrapping round the chord with no octave added (`.chord` adds one); methods before it change the chords, after it the notes; the line and the indexes round together; after `.scale` |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
 `.fast`, `.slow`, `.add`, `.sub`, `.ply` and `.degrade` also take a value a
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,
-−1. Several values side by side, or in `[ ]`, split the bar (#676):
+−1, and `/n` holds each of its values n (1–16) bars: `"<0 12>/16"` (#700). Several values side by side, or in `[ ]`, split the bar (#676):
 `.add("0 3")` adds 0 to the notes starting in its first half and 3 to the
 rest, and `.add("<0 [3 5]>")` nests; `[0,2,4]` with commas stays one value, a
 stack. A method that moves notes in time (`.fast("1 2")`) moves the whole line,
@@ -641,7 +651,7 @@ and each part keeps the notes that land in it. On a `live` clip, `.add` and
 
 While the song plays, the value in force lights in the clip's line, for each
 bar and each part of a split one, while the clip plays. A method inside
-`every`, `off` or `sometimes`, one followed by any method but `.add`, `.sub`,
+`every`, `off` or a chance (`sometimes` and its kin), one followed by any method but `.add`, `.sub`,
 `.oct`, `.scale` and `.chord` (`.add(…) .fast(…)`), and one on a `live` clip
 light nothing: their bars are not the clip's. A value a bar holds at most 64
 values, nested at most 32 deep.
@@ -671,8 +681,8 @@ clip bass = bass .struct(beat) .scale(a1 minor)
 
 A clip can be made from an earlier clip and methods, with no line of its
 own: `clip back = right fwd .rev()` plays `fwd`'s notes, after its own
-methods, through `.rev()` (#649). Strudel's `.jux(rev)` is then two tracks
-panned apart. A clip written later or the clip itself is an error at the
+methods, through `.rev()` (#649); two tracks panned apart, as below, give
+each side its own synth, and `.jux(rev)` puts both on one. A clip written later or the clip itself is an error at the
 name; the clip follows an edit to its source, and takes none of its own. Not
 with `voicing` (the source's holds).
 
@@ -704,7 +714,7 @@ clip hats = hatl /16
 clip stah = hatr hats .every(2, rev)
 ```
 
-The `m` of `every`, `off` and `sometimes` is a method without its dot:
+The `m` of `every`, `off` and the chances is a method without its dot:
 `rev`, `fast(2)`, `add(12)`.
 
 ```song

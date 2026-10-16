@@ -221,6 +221,7 @@ fn random_song(r: &mut Rng) -> Song {
                 grid: 16,
                 from: None,
                 beat: None,
+                bend: None,
             });
             continue;
         }
@@ -249,6 +250,7 @@ fn random_song(r: &mut Rng) -> Song {
             grid: GRIDS[r.below(GRIDS.len())],
             from: None,
             beat: None,
+            bend: None,
         });
     }
     song
@@ -2003,6 +2005,47 @@ fn voicing_errors_say_where() {
     }
 }
 
+/// #698: Strudel's left hand, rootless in F3 to A4, the top note moving
+/// least from the chord before.
+#[test]
+fn a_left_hand_voices_as_strudels_dictionary() {
+    let chords = |text: &str| -> Vec<Vec<u8>> {
+        let s = Song::parse(text).expect("parses");
+        let mut by: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (t, n) in notes_of(&s, "pad") {
+            match by.last_mut() {
+                Some((s, ns)) if *s == t => ns.push(n),
+                _ => by.push((t, vec![n])),
+            }
+        }
+        by.into_iter().map(|(_, ns)| ns).collect()
+    };
+    let text = "track keys synth\nclip pad = keys voicing(lefthand)\n  \"<c4:maj7 c#4:dim7 d4:m7 c4:7>\"\n";
+    assert_eq!(
+        chords(text),
+        [
+            vec![59, 62, 64, 67],
+            vec![55, 58, 61, 64],
+            vec![53, 57, 60, 64],
+            vec![58, 62, 64, 69],
+        ]
+    );
+    let s = Song::parse(text).expect("parses");
+    assert!(s.print().contains("voicing(lefthand)"));
+    // An anchor moves the range: under c5, the top at most c5.
+    let anchored =
+        chords("track keys synth\nclip pad = keys voicing(lefthand,c5)\n  \"<d4:m7 g4:7>\"\n");
+    assert!(
+        anchored.iter().flatten().all(|n| (56..=72).contains(n)),
+        "{anchored:?}"
+    );
+    assert_eq!(anchored[0], [60, 64, 65, 69], "the lowest fitting first");
+    // A quality the dictionary lacks is voiced close.
+    let ninth = chords("track keys synth\nclip pad = keys voicing(lefthand)\n  \"c4:9\"\n");
+    let close = chords("track keys synth\nclip pad = keys voicing(close)\n  \"c4:9\"\n");
+    assert_eq!(ninth, close);
+}
+
 /// #606, #607: a voicing style and anchor on the clip line, spaced or not,
 /// over slash chords; it prints back and parses to the same song.
 #[test]
@@ -2032,7 +2075,7 @@ fn a_voicing_style_over_slash_chords_prints_back() {
 
 #[test]
 fn a_bad_voicing_says_where() {
-    let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+    let styles = "a voicing is close, open, drop2, drop3, shell, quartal or lefthand, then maybe an anchor note, as voicing(drop2,c5)";
     for (text, col, msg) in [
         (
             "track k synth\nclip a = k voicing(wide)\n  \"c:m7\"\n",
@@ -2801,7 +2844,7 @@ fn pattern_method_errors_say_where() {
             "track l synth\nclip r = l .fast(0)\n  \"c4\"",
             2,
             13,
-            "this takes a whole number from 1 to 16",
+            "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
         ),
         (
             "track l synth\nclip r = l .every(4, cutoff)\n  \"c4\"",
@@ -2963,6 +3006,99 @@ fn a_clip_read_for_roots_comes_before_and_has_notes() {
     ] {
         let e = Song::parse(text).expect_err(msg);
         assert_eq!((&*e.msg, e.line), (msg, line), "{text}");
+    }
+}
+
+/// #699: `.add(<signal>)` is read as each note starts; it prints back and
+/// takes only a signal of the song's time, on a clip of notes.
+#[test]
+fn add_takes_a_signal_of_the_songs_time() {
+    let text = "track keys synth\nclip a = keys .fast(2) .add(perlin.range(0, 0.5)) .room(0.8)\n  \"c4 e4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let (sub, sig) = s.clips[0].bend.as_ref().expect("a signal on add");
+    assert!(!sub);
+    assert_eq!(sig.to_string(), "perlin.range(0, 0.5)");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = keys .fast(2) .add(perlin.range(0, 0.5)) .room(0.8)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let s = Song::parse("track keys synth\nclip a = keys .sub(sine)\n  \"c4\"\n").expect("parses");
+    assert!(s.clips[0].bend.as_ref().is_some_and(|(sub, _)| *sub));
+    for (bad, msg) in [
+        (
+            "keys .add(env(perc))",
+            "add takes a signal of the song's time: add(perlin.range(0, 0.5))",
+        ),
+        (
+            "keys .add(rand.onNote)",
+            "add takes a signal of the song's time: add(perlin.range(0, 0.5))",
+        ),
+        (
+            "keys .add(sine) .add(saw)",
+            "a clip takes one add of a signal",
+        ),
+        (
+            "keys live .add(sine)",
+            "a signal on add is for a clip of notes",
+        ),
+    ] {
+        let err =
+            Song::parse(&format!("track keys synth\nclip a = {bad}\n  \"c4\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+}
+
+/// #696: Strudel's arp, the line's own chords by index.
+#[test]
+fn arp_plays_the_lines_chords_by_index() {
+    let s = Song::parse(
+        "track keys synth\nclip a = keys .arp(\"0 3 <2 0> [1 3]\")\n  \"<c4:maj7 d4:m7>\"\n",
+    )
+    .expect("parses");
+    let got = notes_of(&s, "a");
+    // Cmaj7 then Dm7, the <2 0> taking its turn: 2 on the first bar, 0 on
+    // the second.
+    assert_eq!(
+        got,
+        [
+            (0, 60),
+            (12, 71),
+            (24, 67),
+            (36, 64),
+            (42, 71),
+            (48, 62),
+            (60, 72),
+            (72, 62),
+            (84, 65),
+            (90, 72),
+        ]
+    );
+    // An index past the top wraps round the chord, no octave added.
+    let s = Song::parse("track keys synth\nclip a = keys .arp(\"4 -1\")\n  \"[c4,e4,g4]\"\n")
+        .expect("parses");
+    assert_eq!(notes_of(&s, "a"), [(0, 64), (24, 67)]);
+    // Methods before it change the chords, after it the notes; it prints back.
+    let text = "track keys synth\nclip a = keys voicing(drop2) .arp(\"0 1 2 3\") .iter(4)\n  \"<c4:maj7 d4:m7>\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert!(
+        s.print().contains(".arp(\"0 1 2 3\") .iter(4)"),
+        "{}",
+        s.print()
+    );
+    for (bad, msg) in [
+        ("keys .arp(0 1)", crate::usage::ARP_METHOD),
+        (
+            "keys .arp(\"c4 e4\")",
+            "arp takes indexes into the chord, 0 its lowest note: arp(\"0 2 1\")",
+        ),
+    ] {
+        let err = Song::parse(&format!(
+            "track keys synth\nclip a = {bad}\n  \"[c4,e4,g4]\"\n"
+        ))
+        .expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
     }
 }
 

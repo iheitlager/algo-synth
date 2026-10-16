@@ -56,6 +56,21 @@ fn an_alternation_plays_one_option_a_bar_and_repeats() {
     assert_eq!(got, [(0, 60), (48, 62), (96, 64)]);
 }
 
+/// #700: `<a b>/n` holds each option n bars, as Strudel's slow.
+#[test]
+fn an_alternation_over_n_holds_each_option_n_bars() {
+    let n = parse("\"<c4 d4>/2\"", 1).unwrap();
+    assert_eq!(n.bars, 4);
+    let got: Vec<_> = n.events.iter().map(|e| (e.start, e.note)).collect();
+    assert_eq!(got, [(0, 60), (48, 60), (96, 62), (144, 62)]);
+    assert_eq!(n.print(), "\"<c4 d4>/2\"");
+    // Too long to come round, or a hold out of range.
+    assert!(parse("\"<c4 d4 e4 f4 g4>/16\"", 1).is_err());
+    for bad in ["\"<c4 d4>/0\"", "\"<c4 d4>/17\"", "\"<c4 d4>/\""] {
+        assert!(parse(bad, 1).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn a_chance_is_drawn_from_a_fixed_seed() {
     let a = parse("\"c4? e4? g4? c5?\"", 1).unwrap();
@@ -714,6 +729,8 @@ fn freezing_refuses_what_it_cannot_write() {
         degree: false,
         when: Default::default(),
         nudge: 0,
+        cents: 0,
+        pan: 0,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -741,6 +758,8 @@ fn timed_notes_parse_compile_and_print() {
                 degree: false,
                 when: Default::default(),
                 nudge: 0,
+                cents: 0,
+                pan: 0,
             },
             Event {
                 start: 0,
@@ -752,6 +771,8 @@ fn timed_notes_parse_compile_and_print() {
                 degree: false,
                 when: Default::default(),
                 nudge: 0,
+                cents: 0,
+                pan: 0,
             },
             Event {
                 start: 6,
@@ -763,6 +784,8 @@ fn timed_notes_parse_compile_and_print() {
                 degree: false,
                 when: Default::default(),
                 nudge: 0,
+                cents: 0,
+                pan: 0,
             },
             Event {
                 start: 12,
@@ -774,6 +797,8 @@ fn timed_notes_parse_compile_and_print() {
                 degree: false,
                 when: Default::default(),
                 nudge: 0,
+                cents: 0,
+                pan: 0,
             },
         ]
     );
@@ -818,6 +843,8 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         degree: false,
         when: Default::default(),
         nudge: 0,
+        cents: 0,
+        pan: 0,
     }
 }
 
@@ -1916,7 +1943,7 @@ fn voicing_words_parse_and_print_back() {
         assert_eq!((v.style, v.anchor), (style, anchor), "{text}");
         assert_eq!(v.print(), text);
     }
-    let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+    let styles = "a voicing is close, open, drop2, drop3, shell, quartal or lefthand, then maybe an anchor note, as voicing(drop2,c5)";
     for (text, msg) in [
         ("voicing(wide)", styles),
         ("voicing()", styles),

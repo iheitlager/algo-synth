@@ -64,7 +64,7 @@ clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random:2,16,3)
 clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5)
-clip ring = bell .add(\"<0 [3 5]>\")
+clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5))
   \"[e4,b4] ~ g#4 ~\"
 clip zap = buzzer
   \"e3 [g3 b3] ~ <e4 d4>\"

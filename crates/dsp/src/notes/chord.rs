@@ -306,16 +306,41 @@ pub enum Style {
     Shell,
     /// Fourths of the song's scale stacked from the root.
     Quartal,
+    /// A jazz pianist's left hand, rootless, from Strudel's `lefthand`
+    /// dictionary (#698).
+    Lefthand,
 }
 
-pub const STYLES: [(&str, Style); 6] = [
+pub const STYLES: [(&str, Style); 7] = [
     ("close", Style::Close),
     ("open", Style::Open),
     ("drop2", Style::Drop2),
     ("drop3", Style::Drop3),
     ("shell", Style::Shell),
     ("quartal", Style::Quartal),
+    ("lefthand", Style::Lefthand),
 ];
+
+/// Strudel's `lefthand` voicings (packages/tonal/voicings.mjs), as
+/// semitones above the root, for the chord whose pitch classes above the
+/// root are the first list: `m7: ['3m 5P 7m 9M', '7m 9M 10m 12P']`.
+const LEFTHAND: [(&[i32], &[&[i32]]); 12] = [
+    (&[0, 3, 7, 10], &[&[3, 7, 10, 14], &[10, 14, 15, 19]]),
+    (&[0, 4, 7, 10], &[&[4, 9, 10, 14], &[10, 14, 16, 21]]),
+    (&[0, 4, 7, 11], &[&[4, 7, 11, 14], &[11, 14, 16, 19]]),
+    (&[0, 2, 4, 7, 9], &[&[4, 7, 10, 14]]),
+    (&[0, 3, 6, 10], &[&[3, 6, 10, 12], &[10, 12, 15, 18]]),
+    (&[0, 1, 4, 7, 10], &[&[4, 8, 10, 13], &[10, 13, 16, 20]]),
+    (&[0, 4, 7, 8, 10], &[&[4, 8, 10, 13], &[10, 13, 16, 20]]),
+    (&[0, 3, 6, 9], &[&[0, 3, 6, 9], &[6, 9, 12, 15]]),
+    (&[0, 4, 6, 7, 10], &[&[10, 14, 18, 22]]),
+    (&[0, 3, 4, 7, 10], &[&[4, 10, 15]]),
+    (&[0, 3, 7, 11], &[&[3, 7, 11, 14], &[11, 14, 15, 19]]),
+    (&[0, 3, 7, 9], &[&[3, 7, 9, 14], &[9, 14, 15, 19]]),
+];
+
+/// Where Strudel keeps its left hand: F3 to A4.
+const LEFTHAND_RANGE: (i32, i32) = (53, 69);
 
 /// A clip's `voicing` (#103) or `voicing(style[,anchor])` (#606).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -329,7 +354,7 @@ pub struct Voicing {
 impl Voicing {
     /// `voicing`, `voicing(drop2)` or `voicing(drop2,c5)`: the word's text.
     pub fn parse(text: &str) -> Result<Voicing, &'static str> {
-        let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+        let styles = "a voicing is close, open, drop2, drop3, shell, quartal or lefthand, then maybe an anchor note, as voicing(drop2,c5)";
         if text == "voicing" {
             return Ok(Voicing::default());
         }
@@ -405,6 +430,8 @@ pub(super) fn voice(
         (i32::from(a) - (RANGE.1 - RANGE.0), i32::from(a))
     });
     let mut centre: f32 = v.anchor.map_or(60.0, |a| f32::from(a) - 6.0);
+    // The top note of the chord before, which a left hand moves least from.
+    let mut top: Option<u8> = None;
     let mut out: Vec<Event> = Vec::with_capacity(events.len());
     let mut i = 0;
     while i < events.len() {
@@ -445,11 +472,23 @@ pub(super) fn voice(
             };
             upper.retain(|e| matches!(iv(e), 0 | 9..=11) || third.contains(&iv(e)));
         }
-        if style == Style::Quartal {
+        let hand = if style == Style::Lefthand {
+            let range = v.anchor.map_or(LEFTHAND_RANGE, |a| {
+                let a = i32::from(a);
+                (a - (LEFTHAND_RANGE.1 - LEFTHAND_RANGE.0), a)
+            });
+            lefthand(&upper, root, top, range)
+        } else {
+            None
+        };
+        if let Some(hand) = hand {
+            upper = hand;
+        } else if style == Style::Quartal {
             quartal(&mut upper, root, centre, range, scale);
         } else {
             close(&mut upper, centre, range);
         }
+        top = upper.iter().map(|e| e.note).max().or(top);
         // The voices lead from the close chord, so a drop does not drift
         // the next chord down.
         if !upper.is_empty() {
@@ -489,6 +528,45 @@ pub(super) fn voice(
     }
     out.sort_unstable_by_key(super::sort_key);
     *events = out;
+}
+
+/// The chord `notes` (root `root`) as a left hand: of the dictionary's
+/// voicings for its quality, each at every octave that keeps it in `range`,
+/// the one whose top note moves least from `top`, the chord before's, as
+/// Strudel's `minTopNoteDiff`; the first, lowest, without one. `None` for a
+/// quality the dictionary lacks, or none fitting.
+fn lefthand(notes: &[Event], root: u8, top: Option<u8>, range: (i32, i32)) -> Option<Vec<Event>> {
+    let like = *notes.first()?;
+    let mut pcs: Vec<i32> = notes
+        .iter()
+        .map(|e| (i32::from(e.note) - i32::from(root)).rem_euclid(12))
+        .chain([0])
+        .collect();
+    pcs.sort_unstable();
+    pcs.dedup();
+    let (_, shapes) = LEFTHAND.iter().find(|(q, _)| *q == pcs.as_slice())?;
+    let mut best: Option<(i32, Vec<i32>)> = None;
+    for shape in *shapes {
+        for oct in 0..11 {
+            let base = oct * 12 + i32::from(root);
+            let v: Vec<i32> = shape.iter().map(|s| base + s).collect();
+            let (lo, hi) = (v.first().copied()?, v.last().copied()?);
+            if lo < range.0 || hi > range.1 {
+                continue;
+            }
+            let cost = top.map_or(0, |t| (hi - i32::from(t)).abs());
+            if best.as_ref().is_none_or(|(c, _)| cost < *c) {
+                best = Some((cost, v));
+            }
+        }
+    }
+    let (_, v) = best?;
+    Some(
+        v.into_iter()
+            .filter_map(|n| u8::try_from(n).ok())
+            .map(|note| Event { note, ..like })
+            .collect(),
+    )
 }
 
 fn shift(note: u8, by: i32) -> u8 {

@@ -20,6 +20,10 @@ pub const SCALE: &str =
 pub const CHORD: &str = "chord takes an earlier clip: chord(harm)";
 pub const VOICING: &str =
     "voicing takes a style and maybe an anchor note: voicing(drop2) or voicing(drop2,c5)";
+pub const SOMETIMES_BY: &str =
+    "sometimesBy takes a chance from 0 to 1 and a method: sometimesBy(0.3, add(12))";
+pub const ARP_METHOD: &str =
+    "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -35,24 +39,24 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 20] = [
+pub const METHODS: [(&str, &str); 27] = [
     (
         "fast",
-        "fast takes a whole number from 1 to 16, or one a bar: fast(2) or fast(\"<1 2>\")",
+        "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
     ),
     (
         "slow",
-        "slow takes a whole number from 1 to 16, or one a bar: slow(2) or slow(\"<1 2>\")",
+        "slow takes a ratio, each side 1 to 16, or one a bar: slow(2), slow(1.5) or slow(\"<1 2>\")",
     ),
     ("rev", "rev takes no value: rev()"),
     ("palindrome", "palindrome takes no value: palindrome()"),
     (
         "add",
-        "add takes semitones from -48 to 48, a list for a chord, or one a bar: add(7), add([0,4,7]) or add(\"<0 3 5>\")",
+        "add takes semitones from -48 to 48, a list for a chord, one a bar or a signal: add(7), add(0.5), add([0,4,7]), add(\"<0 3 5>\") or add(perlin.range(0, 0.5))",
     ),
     (
         "sub",
-        "sub takes semitones from -48 to 48, or one a bar: sub(12) or sub(\"<0 12>\")",
+        "sub takes semitones from -48 to 48, one a bar or a signal: sub(12), sub(0.5) or sub(\"<0 12>\")",
     ),
     (
         "ply",
@@ -68,6 +72,17 @@ pub const METHODS: [(&str, &str); 20] = [
     ("struct", STRUCT),
     ("euclid", EUCLID),
     ("sometimes", "sometimes takes a method: sometimes(add(12))"),
+    ("often", "often takes a method: often(add(12))"),
+    ("rarely", "rarely takes a method: rarely(add(12))"),
+    (
+        "almostNever",
+        "almostNever takes a method: almostNever(ply(2))",
+    ),
+    (
+        "almostAlways",
+        "almostAlways takes a method: almostAlways(add(12))",
+    ),
+    ("sometimesBy", SOMETIMES_BY),
     ("scale", SCALE),
     ("oct", "oct takes octaves from -4 to 4: oct(1)"),
     ("chord", CHORD),
@@ -75,6 +90,8 @@ pub const METHODS: [(&str, &str); 20] = [
         "strum",
         "strum takes milliseconds from 1 to 100, below 0 to strum down: strum(15)",
     ),
+    ("arp", ARP_METHOD),
+    ("jux", "jux takes a method: jux(rev)"),
     (
         "shuffle",
         "shuffle takes a whole number from 1 to 16: shuffle(4)",

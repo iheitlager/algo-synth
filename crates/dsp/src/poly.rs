@@ -246,6 +246,12 @@ struct Slot {
     age: u64,
     /// This voice's unison detune in cents (0 outside unison).
     cents: f32,
+    /// Cents its note plays off the key (#699): `.add(0.1)`, `.add(perlin)`.
+    fine: f32,
+    /// Where its note sounds, −1 to 1, and its left and right gains, set
+    /// when it is pressed; 0 and `None` where the strip puts it (#701).
+    pan: f32,
+    gains: Option<(f32, f32)>,
     /// Frames since its note began, and since its key was let go (ADR-0023).
     since: u32,
     released: Option<u32>,
@@ -261,6 +267,13 @@ fn unit(i: usize, salt: u32) -> f32 {
     x ^= x >> 15;
     (x as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
+
+/// The gains of the middle, equal-power: where a mono strip puts a voice
+/// at its centre, so a synth gone stereo for `jux` keeps its level (#701).
+const MIDDLE: (f32, f32) = (
+    std::f32::consts::FRAC_1_SQRT_2,
+    std::f32::consts::FRAC_1_SQRT_2,
+);
 
 /// The largest static detune of an analog voice, in cents, and of its drift; and its cutoff offset in semitones.
 const ANALOG_CENTS: f32 = 6.0;
@@ -301,6 +314,9 @@ pub struct Pool {
     sets: [VoiceSet; MAX_VOICES],
     /// Phase of the A-440 reference tone (#308).
     a440: f32,
+    /// The pan of the note about to be pressed, so a note re-uses only a
+    /// voice on its own side (#701).
+    aim: f32,
 }
 
 impl Pool {
@@ -322,6 +338,7 @@ impl Pool {
             nkeys: 0,
             sets: [VoiceSet::default(); MAX_VOICES],
             a440: 0.0,
+            aim: 0.0,
         }
     }
 
@@ -355,6 +372,37 @@ impl Pool {
             .enumerate()
             .filter(move |(_, s)| s.owner.is_some() && s.age == clock)
             .map(|(i, _)| i)
+    }
+
+    /// The next note pressed sounds at `pan` (#701): `place` it after.
+    pub fn aim(&mut self, pan: f32) {
+        self.aim = pan;
+    }
+
+    /// The note numbered `clock` plays `cents` off its key (#699) and at
+    /// `pan`, −1 to 1, its gains equal-power, worked out here once (#701).
+    pub fn place(&mut self, clock: u64, cents: f32, pan: f32) {
+        self.aim = 0.0;
+        let gains = (pan != 0.0).then(|| {
+            let a = (pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
+            (a.cos(), a.sin())
+        });
+        for s in &mut self.slots {
+            if s.owner.is_some() && s.age == clock {
+                s.fine = cents;
+                s.pan = pan;
+                s.gains = gains;
+            }
+        }
+    }
+
+    /// Whether a sounding note has a pan of its own, so the pool renders
+    /// to a stereo bus (#701).
+    pub fn panned(&self) -> bool {
+        self.slots
+            .iter()
+            .zip(&self.voices)
+            .any(|(s, v)| s.gains.is_some() && v.active())
     }
 
     /// The slots the note numbered `clock` pressed drop the envelope times
@@ -617,7 +665,9 @@ impl Pool {
             .iter()
             .zip(&self.voices)
             .take(limit)
-            .position(|(s, v)| s.owner == Some(owner) && s.note == note && v.gated());
+            .position(|(s, v)| {
+                s.owner == Some(owner) && s.note == note && s.pan == self.aim && v.gated()
+            });
         let i = match again {
             Some(i) => {
                 if let Some(v) = self.voices.get_mut(i) {
@@ -921,7 +971,7 @@ impl Pool {
                 continue;
             }
             let unison = if poly { s.cents } else { 0.0 };
-            let mut trim = 0.0;
+            let mut trim = s.fine / 100.0;
             // xorshift: a step of drift in −1..=1.
             self.rng ^= self.rng << 13;
             self.rng ^= self.rng >> 17;
@@ -930,7 +980,7 @@ impl Pool {
             if let Some(d) = self.drift.get_mut(i) {
                 *d = (*d * 0.998 + step * 0.12).clamp(-DRIFT_CENTS, DRIFT_CENTS);
                 let own = unit(i, 1) * ANALOG_CENTS * osc.detune + *d * osc.drift;
-                trim = (unison + own * p.analog) / 100.0;
+                trim += (unison + own * p.analog) / 100.0;
             }
             v.set_trim(trim, unit(i, 2) * ANALOG_CUTOFF * p.analog);
         }
@@ -966,6 +1016,11 @@ impl Pool {
             tables: tools.tables,
         };
         let n = out.len() as u32;
+        // With a pan of its own on any note, each voice goes through the
+        // scratch block to both sides at its gains, the rest at the middle's
+        // (#701); a stereo Modular program writes both sides itself.
+        let spread = right.is_some() && !(p.model.uses_graph() && p.graph.is_stereo());
+        let len = out.len().min(BLOCK);
         for (((v, s), set), st) in self
             .voices
             .iter_mut()
@@ -979,36 +1034,56 @@ impl Pool {
             if !v.gated() {
                 s.released = Some(s.released.map_or(0, |r| r.saturating_add(n)));
             }
+            let into: &mut [f32] = match self.scratch.get_mut(..len) {
+                Some(x) if spread => {
+                    x.fill(0.0);
+                    x
+                }
+                _ => &mut *out,
+            };
             match v {
                 PolyVoice::Mono(m) => {
                     m.set = *set;
-                    m.render(&ctx, out);
+                    m.render(&ctx, into);
                 }
                 PolyVoice::La(l) => {
                     l.set = *set;
-                    l.render(&ctx, out);
+                    l.render(&ctx, into);
                 }
-                PolyVoice::Fm(f) => f.render(&ctx, out),
-                PolyVoice::Drum(d) => d.render(ctx.sine, ctx.blep, out),
+                PolyVoice::Fm(f) => f.render(&ctx, into),
+                PolyVoice::Drum(d) => d.render(ctx.sine, ctx.blep, into),
                 PolyVoice::Sampler(v) => {
                     v.set = *set;
-                    v.render(&ctx, tools.samples, tools.zones, out);
+                    v.render(&ctx, tools.samples, tools.zones, into);
                 }
                 // Pads write both sides: see `render_pads`.
                 PolyVoice::Pad(_) => {}
                 PolyVoice::Graph(g) => {
                     g.set = *set;
-                    g.render(&ctx, st, out, right.as_deref_mut());
+                    let right = if spread { None } else { right.as_deref_mut() };
+                    g.render(&ctx, st, into, right);
                 }
-                PolyVoice::Sid(v) => v.render(&ctx, out),
-                PolyVoice::Nes(v) => v.render(&ctx, tools.samples, out),
+                PolyVoice::Sid(v) => v.render(&ctx, into),
+                PolyVoice::Nes(v) => v.render(&ctx, tools.samples, into),
+            }
+            if spread && let (Some(x), Some(r)) = (self.scratch.get(..len), right.as_deref_mut()) {
+                let (gl, gr) = s.gains.unwrap_or(MIDDLE);
+                for ((l, r), x) in out.iter_mut().zip(r.iter_mut()).zip(x) {
+                    *l += x * gl;
+                    *r += x * gr;
+                }
             }
         }
         // The reference tone joins past the voices and their VCA, key or not.
         if p.a440 {
             let inc = 440.0 / p.sample_rate();
-            for x in out.iter_mut() {
-                *x += A440_LEVEL * lookup(tools.sine, self.a440);
+            let (gl, gr) = if spread { MIDDLE } else { (1.0, 0.0) };
+            for (i, x) in out.iter_mut().enumerate() {
+                let y = A440_LEVEL * lookup(tools.sine, self.a440);
+                *x += y * gl;
+                if let Some(r) = right.as_deref_mut().and_then(|r| r.get_mut(i)) {
+                    *r += y * gr;
+                }
                 self.a440 = wrap(self.a440 + inc);
             }
         }
