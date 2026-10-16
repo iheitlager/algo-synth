@@ -214,6 +214,8 @@ pub struct PadVoice {
     hi: f32,
     stop: f64,
     late: f32,
+    /// Output frames its part fills when fitted, 0 when not (#717).
+    fit: f32,
     on: bool,
     /// The decay envelope and its per-sample factor.
     env: f32,
@@ -266,6 +268,7 @@ impl PadVoice {
             hi: 1.0,
             stop: 0.0,
             late: (1.0 - v) * cfg.vel_start * 0.5,
+            fit: 0.0,
             on: false,
             env: 1.0,
             env_k: if cfg.decay > 0.0 {
@@ -279,12 +282,14 @@ impl PadVoice {
     }
 
     /// Play only the part of the sample from `lo` to `hi` (fractions, #716),
-    /// a soft hit starting as far into the part as it would into the whole.
-    pub fn set_region(&mut self, lo: f32, hi: f32) {
+    /// a soft hit starting as far into the part as it would into the whole;
+    /// over `fit` output frames when above 0, whatever its tune (#717).
+    pub fn set_region(&mut self, lo: f32, hi: f32, fit: f32) {
         let (lo, hi) = (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0));
         if self.fresh && hi > lo {
             self.hi = hi;
             self.start = lo + self.late * (hi - lo);
+            self.fit = fit.max(0.0);
         }
     }
 
@@ -322,6 +327,9 @@ impl PadVoice {
             // On whole frames: a part starts on a frame, as a cut would.
             self.pos = (f64::from(self.start) * sample.frames() as f64).round();
             self.stop = (f64::from(self.hi) * sample.frames() as f64).round();
+            if self.fit > 0.0 {
+                self.inc = ((self.stop - self.pos) / f64::from(self.fit)).max(1.0e-6);
+            }
             self.on = true;
             self.fresh = false;
         }
@@ -419,7 +427,7 @@ mod tests {
         let (lo, hi) = crate::notes::Region::WHOLE.part(2, 4).bounds();
         let mut v = PadVoice::default();
         v.press(36, 1.0, &kit, 1.0, SR);
-        v.set_region(lo, hi);
+        v.set_region(lo, hi, 0.0);
         let (mut l, mut r) = (vec![0.0; 2400], vec![0.0; 2400]);
         v.render(&store, &mut l, &mut r);
         let sample = store.get(0).expect("loaded");

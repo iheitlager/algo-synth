@@ -347,6 +347,9 @@ pub struct Event {
     pub pan: i8,
     /// The part of its sample a sampler plays (#716): `.chop` and `.slice`.
     pub region: Region,
+    /// Its part of the sample plays over its length, at any tempo, as
+    /// Strudel's `fit` (#717): `.fit()` and `.splice`.
+    pub fit: bool,
 }
 
 /// The part of its sample a hit plays (#716, ADR-0039): from and to as
@@ -660,6 +663,7 @@ impl Cursor<'_> {
             cents: 0,
             pan: 0,
             region: Region::WHOLE,
+            fit: false,
         })
     }
 
@@ -1776,6 +1780,7 @@ impl Compiler<'_> {
             cents: 0,
             pan: 0,
             region: Region::WHOLE,
+            fit: false,
         });
     }
 }
@@ -1791,10 +1796,25 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
 #[allow(clippy::type_complexity)]
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16, i8, Region) {
+pub(crate) fn sort_key(
+    e: &Event,
+) -> (
+    u32,
+    bool,
+    u8,
+    u32,
+    bool,
+    u8,
+    When,
+    i16,
+    i16,
+    i8,
+    Region,
+    bool,
+) {
     (
         e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents, e.pan,
-        e.region,
+        e.region, e.fit,
     )
 }
 
@@ -1930,6 +1950,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     cents: 0,
                     pan: 0,
                     region: Region::WHOLE,
+                    fit: false,
                 });
             }
         }
@@ -1974,6 +1995,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     cents: 0,
                     pan: 0,
                     region: Region::WHOLE,
+                    fit: false,
                 });
             }
         }
@@ -2182,6 +2204,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     cents: 0,
                     pan: 0,
                     region: Region::WHOLE,
+                    fit: false,
                 });
             }
             (events, 1)
@@ -2205,6 +2228,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         cents: 0,
                         pan: 0,
                         region: Region::WHOLE,
+                        fit: false,
                     });
                 }
                 at += len;

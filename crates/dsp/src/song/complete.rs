@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 29] = [
+const METHODS: [(&str, &str); 31] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -121,6 +121,8 @@ const METHODS: [(&str, &str); 29] = [
     ("scramble", "n parts drawn from the bar's"),
     ("chop", "each hit's sample in n parts, one by one"),
     ("slice", "part k of n of the sample, by index"),
+    ("fit", "the sample over the note, at any tempo"),
+    ("splice", "slice, each part fitted to its step"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -356,7 +358,16 @@ impl List<'_> {
             // Lanes hold no part of a sample, so no chop or slice (#716).
             if !matches!(
                 w,
-                "add" | "sub" | "scale" | "oct" | "chord" | "strum" | "chop" | "slice"
+                "add"
+                    | "sub"
+                    | "scale"
+                    | "oct"
+                    | "chord"
+                    | "strum"
+                    | "chop"
+                    | "slice"
+                    | "fit"
+                    | "splice"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }

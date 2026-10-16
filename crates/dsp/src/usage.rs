@@ -25,6 +25,7 @@ pub const SOMETIMES_BY: &str =
 pub const ARP_METHOD: &str =
     "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
 pub const SLICE: &str = "slice takes a number of parts from 1 to 64 and indexes in quotes: slice(8, \"0 1 <2 3> [6 7]\")";
+pub const SPLICE: &str = "splice takes a number of parts from 1 to 64 and indexes in quotes: splice(8, \"0 1 <2 3> [6 7]\")";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -40,7 +41,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 29] = [
+pub const METHODS: [(&str, &str); 31] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -106,6 +107,8 @@ pub const METHODS: [(&str, &str); 29] = [
         "chop takes a number of parts from 1 to 64, or one a bar: chop(16) or chop(\"<8 16>\")",
     ),
     ("slice", SLICE),
+    ("fit", "fit takes no value: fit()"),
+    ("splice", SPLICE),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

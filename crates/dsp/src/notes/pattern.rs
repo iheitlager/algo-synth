@@ -112,6 +112,12 @@ pub enum Pattern {
     /// played for each index k, on the indexes' rhythm (#716): the count,
     /// the indexes as written, and as a line of degrees.
     Slice(u32, String, Line),
+    /// `fit()`: each note's part of its sample plays over the note's length,
+    /// at any tempo, as Strudel's fit (#717).
+    Fit,
+    /// `splice(n, "0 2 <1 3>")`: `slice`, each part fitted to its step
+    /// (#717): the count, the indexes as written, and as a line of degrees.
+    Splice(u32, String, Line),
 }
 
 /// A factor of `fast` or `slow`, `num/den` in lowest terms, each 1 to 16
@@ -542,7 +548,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 29] = [
+    pub const NAMES: [&'static str; 31] = [
         "fast",
         "slow",
         "rev",
@@ -572,6 +578,8 @@ impl Pattern {
         "scramble",
         "chop",
         "slice",
+        "fit",
+        "splice",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -643,8 +651,13 @@ impl Pattern {
             "slow" => Ok(Pattern::Slow(Ratio::parse(one()?)?)),
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
             "chop" => Ok(Pattern::Chop(parts(one()?)?)),
-            "slice" => {
-                let bad = crate::usage::SLICE;
+            "fit" => none().map(|()| Pattern::Fit),
+            "slice" | "splice" => {
+                let bad = if name == "slice" {
+                    crate::usage::SLICE
+                } else {
+                    crate::usage::SPLICE
+                };
                 let [count, arg] = args.as_slice() else {
                     return Err(bad);
                 };
@@ -657,14 +670,16 @@ impl Pattern {
                 if idx.events.is_empty() || idx.events.iter().any(|e| !e.degree) {
                     return Err(bad);
                 }
-                Ok(Pattern::Slice(
-                    n,
-                    idx.print(),
-                    Line {
-                        events: idx.events,
-                        bars: idx.bars,
-                    },
-                ))
+                let text = idx.print();
+                let line = Line {
+                    events: idx.events,
+                    bars: idx.bars,
+                };
+                Ok(if name == "slice" {
+                    Pattern::Slice(n, text, line)
+                } else {
+                    Pattern::Splice(n, text, line)
+                })
             }
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
@@ -911,6 +926,8 @@ impl Pattern {
             Pattern::Arp(text, _) => format!("arp({text})"),
             Pattern::Chop(n) => format!("chop({n})"),
             Pattern::Slice(n, text, _) => format!("slice({n}, {text})"),
+            Pattern::Fit => "fit()".to_string(),
+            Pattern::Splice(n, text, _) => format!("splice({n}, {text})"),
             Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::PerBar(text, _) => text.clone(),
         }
@@ -939,6 +956,8 @@ impl Pattern {
             Pattern::Ply(n) => ply(line, *n),
             Pattern::Chop(n) => chop(line, *n)?,
             Pattern::Slice(n, _, idx) => slice(line, *n, idx)?,
+            Pattern::Fit => fit(line.clone()),
+            Pattern::Splice(n, _, idx) => fit(slice(line, *n, idx)?),
             Pattern::Iter(n) => iter(line, *n),
             Pattern::Shuffle(n) => reorder(line, *n, true)?,
             Pattern::Scramble(n) => reorder(line, *n, false)?,
@@ -1102,7 +1121,9 @@ impl Pattern {
             | Pattern::Arp(..)
             | Pattern::Jux(_)
             | Pattern::Chop(_)
-            | Pattern::Slice(..) => true,
+            | Pattern::Slice(..)
+            | Pattern::Fit
+            | Pattern::Splice(..) => true,
             p => p.pitch_only(),
         }
     }
@@ -1327,6 +1348,14 @@ fn slice(line: &Line, n: u32, idx: &Line) -> Result<Line, &'static str> {
         );
     }
     Ok(Line { events, bars })
+}
+
+/// Every note fitted: its part of the sample plays over its length (#717).
+fn fit(mut line: Line) -> Line {
+    for e in &mut line.events {
+        e.fit = true;
+    }
+    line
 }
 
 /// Bar m starts (m mod n) / n of a bar further into the line.
@@ -1841,6 +1870,33 @@ mod tests {
         }
     }
 
+    /// #717: fit marks notes to fill their length; splice is a slice whose
+    /// parts are fitted; a chop after fit keeps each part fitted, so the
+    /// parts play on at one rate, as Strudel's `s("amen/4").fit().chop(16)`.
+    #[test]
+    fn fit_and_splice_fill_their_notes() {
+        let fitted = Pattern::Fit.apply(&one_hit(48)).expect("fits");
+        assert!(fitted.events.iter().all(|e| e.fit));
+        assert_eq!(
+            Pattern::parse("fit", "").map(|p| p.print()),
+            Ok("fit()".to_string())
+        );
+        assert!(Pattern::parse("fit", "2").is_err());
+        let chopped = Pattern::Chop(16).apply(&fitted).expect("chops");
+        assert!(chopped.events.iter().all(|e| e.fit && e.len == 3));
+        let p = Pattern::parse("splice", "8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\"").expect("parses");
+        assert_eq!(p.print(), "splice(8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\")");
+        let spliced = p.apply(&one_hit(48)).expect("splices");
+        let sliced = Pattern::parse("slice", "8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\"")
+            .expect("parses")
+            .apply(&one_hit(48))
+            .expect("slices");
+        assert_eq!(spliced.events.len(), sliced.events.len());
+        assert!(spliced.events.iter().zip(&sliced.events).all(|(a, b)| a.fit
+            && !b.fit
+            && (a.start, a.len, a.region) == (b.start, b.len, b.region)));
+    }
+
     /// #716: slice plays part k of n for each index, on the indexes' rhythm,
     /// as Strudel's: `slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")` prints back.
     #[test]
@@ -1894,6 +1950,7 @@ mod tests {
             cents: 0,
             pan: 0,
             region: crate::notes::Region::WHOLE,
+            fit: false,
         }
     }
 

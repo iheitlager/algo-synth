@@ -621,6 +621,8 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.scramble(n)` | n parts drawn from each bar's, some twice and some left out; both seeded, a note cut at its part's end, the line round in 8 bars (#615) |
 | `.chop(n)` | each note cut into n (1–64) parts across its length, part k playing the k-th n-th of its sample, as Strudel's chop (#716): on a sampler or pad sampler, `"c2" .chop(16)` cuts pad 0's break in sixteen; a part is at least a tick (48 to a bar); one a bar: `chop("<8 16>")`; not on a drum clip |
 | `.slice(n, "…")` | the sample cut into n (1–64) parts, and part k played for each index k, on the indexes' rhythm, as Strudel's slice (#716): `slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")`; an index past n wraps; a part stops at its end, and a pad's choke group cuts the one before, as Strudel's `.cut(1)`; not on a drum clip |
+| `.fit()` | each note's part of its sample plays over the note's length, at the tempo it starts at, as Strudel's fit (#717): its pitch follows, a pad's tune is ignored; Strudel's `s("amen/4").fit()` is `"c2" .slow(4) .fit()`, and a `.chop` after it keeps the parts at one rate; not on a drum clip |
+| `.splice(n, "…")` | `.slice`, each part fitted to its step, as Strudel's splice (#717): `splice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")`; not on a drum clip |
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |

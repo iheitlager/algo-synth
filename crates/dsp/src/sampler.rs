@@ -268,6 +268,10 @@ struct Player {
     hi: f32,
     fresh: bool,
     stop: f64,
+    /// Output frames its part fills when fitted (#717), and the rate that
+    /// gives, found at its first step; 0 plays at the note's pitch.
+    fit: f32,
+    rate: f64,
 }
 
 /// The loop in frames if the zone loops and the points make sense.
@@ -316,12 +320,13 @@ impl Player {
 
     /// The part of its sample from `lo` to `hi` (fractions): played once
     /// through, without the zone's loop (#716).
-    fn region(mut self, lo: f32, hi: f32) -> Player {
+    fn region(mut self, lo: f32, hi: f32, fit: f32) -> Player {
         let (lo, hi) = (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0));
         if hi > lo {
             self.lo = lo;
             self.hi = hi;
             self.fresh = true;
+            self.fit = fit.max(0.0);
         }
         self
     }
@@ -337,8 +342,13 @@ impl Player {
         if self.fresh {
             self.pos = (f64::from(self.lo) * len as f64).round();
             self.stop = (f64::from(self.hi) * len as f64).round();
+            if self.fit > 0.0 {
+                self.rate = ((self.stop - self.pos) / f64::from(self.fit)).max(1.0e-6);
+            }
             self.fresh = false;
         }
+        // Fitted, the part plays at its own rate, not the note's pitch.
+        let inc = if self.rate > 0.0 { self.rate } else { inc };
         let whole = self.hi == 0.0;
         if self.pos >= len as f64 || (!whole && self.pos >= self.stop) {
             self.on = false;
@@ -376,8 +386,9 @@ pub struct SamplerVoice {
     /// A note-off waiting for the next block to start its release zone.
     release: bool,
     /// The part of the sample the waiting note-on plays (#716), as
-    /// fractions; 0 to 0 the whole sample.
-    region: (f32, f32),
+    /// fractions, 0 to 0 the whole sample, and the output frames it fills
+    /// when fitted (#717).
+    region: (f32, f32, f32),
     /// Pitch trim in semitones from the pool (unison, analog variance).
     pub trim: f32,
     pub cutoff_trim: f32,
@@ -416,14 +427,14 @@ impl SamplerVoice {
         self.retrigger = true;
         self.release = false;
         self.tail.on = false;
-        self.region = (0.0, 0.0);
+        self.region = (0.0, 0.0, 0.0);
     }
 
     /// The note just pressed plays only the part of its sample from `lo`
     /// to `hi`, fractions (#716).
-    pub fn set_region(&mut self, lo: f32, hi: f32) {
+    pub fn set_region(&mut self, lo: f32, hi: f32, fit: f32) {
         if self.retrigger {
-            self.region = (lo, hi);
+            self.region = (lo, hi, fit);
         }
     }
 
@@ -443,11 +454,13 @@ impl SamplerVoice {
         let p = ctx.params;
         let adsr = self.set.env(&p.adsr, p.sample_rate());
         if self.retrigger {
-            self.main = zones
-                .pick(self.note, self.vel7(), false)
-                .map_or_else(Player::default, |z| {
-                    Player::start(z).region(self.region.0, self.region.1)
-                });
+            self.main =
+                zones
+                    .pick(self.note, self.vel7(), false)
+                    .map_or_else(Player::default, |z| {
+                        let (lo, hi, fit) = self.region;
+                        Player::start(z).region(lo, hi, fit)
+                    });
             self.tva.gate_on(&adsr);
             self.tvf.gate_on(&p.fadsr);
             self.retrigger = false;

@@ -136,8 +136,10 @@ struct Hit {
     /// Cents off the key (#699), and where it sounds, −1 to 1 (#701).
     cents: f32,
     pan: f32,
-    /// The part of its sample a sampler plays (#716).
+    /// The part of its sample a sampler plays (#716), and the output frames
+    /// it fills when fitted (#717), 0 when not.
     region: Region,
+    fit: f32,
     /// A clip's note: its clip and tick, sampled for `.onNote` and the
     /// envelope times when it is pressed (ADR-0038).
     from: Option<(usize, u64)>,
@@ -155,6 +157,7 @@ const NO_HIT: Hit = Hit {
     cents: 0.0,
     pan: 0.0,
     region: Region::WHOLE,
+    fit: 0.0,
     from: None,
 };
 
@@ -1059,25 +1062,17 @@ impl Engine {
 
     /// Start a clip's note: `cents` off its key (#699), at `pan` (#701),
     /// a voice re-used only on its own side.
-    fn start_note(
-        &mut self,
-        owner: Owner,
-        note: u8,
-        velocity: f32,
-        cents: f32,
-        pan: f32,
-        region: Region,
-    ) {
-        let synth = self.target(owner);
+    fn start_note(&mut self, hit: &Hit) {
+        let synth = self.target(hit.owner);
         if let Some(pool) = synth.and_then(|s| self.pools.get_mut(s)) {
-            pool.aim(pan);
+            pool.aim(hit.pan);
         }
-        self.start_voice(owner, note, velocity);
+        self.start_voice(hit.owner, hit.note, hit.velocity);
         if let Some(pool) = synth.and_then(|s| self.pools.get_mut(s)) {
-            pool.place(self.note_count, cents, pan);
-            if region != Region::WHOLE {
-                let (lo, hi) = region.bounds();
-                pool.region(self.note_count, lo, hi);
+            pool.place(self.note_count, hit.cents, hit.pan);
+            if hit.region != Region::WHOLE || hit.fit > 0.0 {
+                let (lo, hi) = hit.region.bounds();
+                pool.region(self.note_count, lo, hi, hit.fit);
             }
         }
     }
@@ -2004,6 +1999,16 @@ impl Engine {
     }
 
     /// Samples in one tick at the clock's tempo.
+    /// The output frames a fitted event fills: its length at the tempo now
+    /// (#717); 0 for an event that is not fitted.
+    fn fit_frames(&self, ev: &Event) -> f32 {
+        if ev.fit {
+            (f64::from(ev.len) * self.free_tick_len()) as f32
+        } else {
+            0.0
+        }
+    }
+
     fn free_tick_len(&self) -> f64 {
         f64::from(self.sample_rate) * 60.0
             / f64::from(self.clock.tempo())
@@ -2142,20 +2147,22 @@ impl Engine {
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
                         region: ev.region,
+                        fit: self.fit_frames(&ev),
                         from: Some((f, j)),
                     });
                 } else {
                     let cents = self.note_cents(f, &ev, j);
-                    let pan = f32::from(ev.pan) / 100.0;
-                    self.start_note(
-                        Owner::Track(track),
-                        ev.note,
-                        ev.velocity(),
+                    self.press_hit(Hit {
+                        at: self.clock.tick_sample(j),
+                        owner: Owner::Track(track),
+                        note: ev.note,
+                        velocity: ev.velocity(),
                         cents,
-                        pan,
-                        ev.region,
-                    );
-                    self.sample_on_note(usize::from(track), f, j);
+                        pan: f32::from(ev.pan) / 100.0,
+                        region: ev.region,
+                        fit: self.fit_frames(&ev),
+                        from: Some((f, j)),
+                    });
                 }
                 let span = self
                     .spans
@@ -2253,6 +2260,7 @@ impl Engine {
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
                         region: ev.region,
+                        fit: self.fit_frames(&ev),
                         from: Some((f, j)),
                     });
                 }
@@ -2508,6 +2516,7 @@ impl Engine {
                                 cents: 0.0,
                                 pan: 0.0,
                                 region: Region::WHOLE,
+                                fit: 0.0,
                                 from: None,
                             });
                         }
@@ -2524,6 +2533,7 @@ impl Engine {
                                 cents: 0.0,
                                 pan: 0.0,
                                 region: Region::WHOLE,
+                                fit: 0.0,
                                 from: None,
                             });
                         }
@@ -2558,6 +2568,7 @@ impl Engine {
                                 cents: 0.0,
                                 pan: 0.0,
                                 region: Region::WHOLE,
+                                fit: 0.0,
                                 from: None,
                             });
                         }
@@ -2581,14 +2592,7 @@ impl Engine {
 
     /// Press a hit's note, and sample what its clip holds per note.
     fn press_hit(&mut self, hit: Hit) {
-        self.start_note(
-            hit.owner,
-            hit.note,
-            hit.velocity,
-            hit.cents,
-            hit.pan,
-            hit.region,
-        );
+        self.start_note(&hit);
         if let (Owner::Track(t), Some((f, j))) = (hit.owner, hit.from) {
             self.sample_on_note(usize::from(t), f, j);
         }

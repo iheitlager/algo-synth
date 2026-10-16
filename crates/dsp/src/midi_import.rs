@@ -250,6 +250,7 @@ fn layout(
                     cents: 0,
                     pan: 0,
                     region: crate::notes::Region::WHOLE,
+                    fit: false,
                     word: 0,
                 })
                 .collect();

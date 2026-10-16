@@ -1,6 +1,6 @@
 # 0039: Pitch and pan per note
 
-**Status:** Accepted, amended by #716 (the part of a sample) · **Date:** 2026-10-16
+**Status:** Accepted, amended by #716 (the part of a sample) and #717 (fit) · **Date:** 2026-10-16
 
 ## Context
 
@@ -24,6 +24,8 @@ Strudel's breakbeat recipes chop a break into parts (`.chop(16)`) and play them 
 - **It reaches the voice, not the slot.** As cents and pan do, the engine hands it to the pool right after pressing the note. But the pad sampler doesn't render through slots, so the pool sets it on the voices the note pressed: `PadVoice` and `SamplerVoice`. Both find their frames as they start, rounded to whole frames, so a region costs nothing per sample. Other voices ignore it.
 - **A part plays once.** A part stops at its end and ignores a zone's loop. A pad's choke group, and a note on the same pad, cut the part before, which is Strudel's `.cut(1)`.
 - **Not on lanes.** A drum clip's lanes hold no part, so `chop` and `slice` are for a clip of notes: `"c2" .chop(16)` on a sampler track plays pad 0's break.
+
+- **Fit (#717).** `Event.fit` marks a note whose part of the sample plays over its length, as Strudel's `fit`. The engine turns the note's length into output frames at the tempo when it is pressed and hands them over with the region; the voice sets its rate once, as it finds its frames, whatever its tune or pitch. A tempo change refits the next note, not one playing. Strudel's `s("amen/4")` is a note four bars long: `.slow(4)`, not a new spelling. A `chop` after `fit` cuts a note's length and its part alike, so the parts keep one rate.
 
 Rejected: a part per pad (a `PadField`), which can't give each hit of one pad its own part.
 
