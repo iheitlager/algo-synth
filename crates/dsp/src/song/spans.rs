@@ -457,6 +457,27 @@ mod tests {
         spans.iter().map(|&(a, l)| &s[a..a + l]).collect()
     }
 
+    /// #675: a mod's numbers get spans in its line as typed, and none when
+    /// the text's signal is not the song's, rather than wrong ones.
+    #[test]
+    fn a_mods_numbers_light_as_typed_or_not_at_all() {
+        let text = "track lead synth Juno106\nclip m = lead .cutoff( \"<300 [800 1200]>\" )\n  \"c4\"\nmod lead.resonance = \"0.1 .5\"\n";
+        let song = crate::song::Song::parse(text).expect("parses");
+        let s = spans(&song, text);
+        let named = |m: usize| -> Vec<&str> {
+            s.mods[m]
+                .iter()
+                .flatten()
+                .map(|&(a, l)| &text[a as usize..(a + l) as usize])
+                .collect()
+        };
+        assert_eq!(named(0), ["300", "800", "1200"]);
+        assert_eq!(named(1), ["0.1", ".5"]);
+        let other = text.replace("1200", "1300").replace("\"0.1 .5\"", "sine");
+        let s = spans(&song, &other);
+        assert!(s.mods.iter().all(Vec::is_empty), "{:?}", s.mods);
+    }
+
     #[test]
     fn words_split_as_the_notation_does() {
         let s = "\"c4 [e4 g4] ~ <c5 [d5,f5]>/2 0..3 1 .. 2\"";
