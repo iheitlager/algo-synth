@@ -1931,7 +1931,7 @@ fn voicing_words_parse_and_print_back() {
         assert_eq!((v.style, v.anchor), (style, anchor), "{text}");
         assert_eq!(v.print(), text);
     }
-    let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+    let styles = "a voicing is close, open, drop2, drop3, shell, quartal or lefthand, then maybe an anchor note, as voicing(drop2,c5)";
     for (text, msg) in [
         ("voicing(wide)", styles),
         ("voicing()", styles),

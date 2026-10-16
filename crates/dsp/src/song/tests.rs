@@ -2003,6 +2003,47 @@ fn voicing_errors_say_where() {
     }
 }
 
+/// #698: Strudel's left hand, rootless in F3 to A4, the top note moving
+/// least from the chord before.
+#[test]
+fn a_left_hand_voices_as_strudels_dictionary() {
+    let chords = |text: &str| -> Vec<Vec<u8>> {
+        let s = Song::parse(text).expect("parses");
+        let mut by: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (t, n) in notes_of(&s, "pad") {
+            match by.last_mut() {
+                Some((s, ns)) if *s == t => ns.push(n),
+                _ => by.push((t, vec![n])),
+            }
+        }
+        by.into_iter().map(|(_, ns)| ns).collect()
+    };
+    let text = "track keys synth\nclip pad = keys voicing(lefthand)\n  \"<c4:maj7 c#4:dim7 d4:m7 c4:7>\"\n";
+    assert_eq!(
+        chords(text),
+        [
+            vec![59, 62, 64, 67],
+            vec![55, 58, 61, 64],
+            vec![53, 57, 60, 64],
+            vec![58, 62, 64, 69],
+        ]
+    );
+    let s = Song::parse(text).expect("parses");
+    assert!(s.print().contains("voicing(lefthand)"));
+    // An anchor moves the range: under c5, the top at most c5.
+    let anchored =
+        chords("track keys synth\nclip pad = keys voicing(lefthand,c5)\n  \"<d4:m7 g4:7>\"\n");
+    assert!(
+        anchored.iter().flatten().all(|n| (56..=72).contains(n)),
+        "{anchored:?}"
+    );
+    assert_eq!(anchored[0], [60, 64, 65, 69], "the lowest fitting first");
+    // A quality the dictionary lacks is voiced close.
+    let ninth = chords("track keys synth\nclip pad = keys voicing(lefthand)\n  \"c4:9\"\n");
+    let close = chords("track keys synth\nclip pad = keys voicing(close)\n  \"c4:9\"\n");
+    assert_eq!(ninth, close);
+}
+
 /// #606, #607: a voicing style and anchor on the clip line, spaced or not,
 /// over slash chords; it prints back and parses to the same song.
 #[test]
@@ -2032,7 +2073,7 @@ fn a_voicing_style_over_slash_chords_prints_back() {
 
 #[test]
 fn a_bad_voicing_says_where() {
-    let styles = "a voicing is close, open, drop2, drop3, shell or quartal, then maybe an anchor note, as voicing(drop2,c5)";
+    let styles = "a voicing is close, open, drop2, drop3, shell, quartal or lefthand, then maybe an anchor note, as voicing(drop2,c5)";
     for (text, col, msg) in [
         (
             "track k synth\nclip a = k voicing(wide)\n  \"c:m7\"\n",

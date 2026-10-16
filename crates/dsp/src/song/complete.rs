@@ -172,13 +172,14 @@ const CLIP_WORDS: [(&str, &str); 3] = [
 ];
 
 /// How `voicing(…)` spreads a chord (`notes::STYLES`, #606).
-const VOICINGS: [(&str, &str); 6] = [
+const VOICINGS: [(&str, &str); 7] = [
     ("close", "the inversion nearest the chord before"),
     ("open", "the second note from the bottom an octave up"),
     ("drop2", "the second note from the top an octave down"),
     ("drop3", "the third note from the top an octave down"),
     ("shell", "root, third and seventh only"),
     ("quartal", "fourths of the scale from the root"),
+    ("lefthand", "a rootless left hand, as Strudel's"),
 ];
 
 /// An LFO's shapes.

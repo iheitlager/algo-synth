@@ -488,9 +488,13 @@ clip line = v bars 2
   chord: `close` (the same as `voicing`), `open` (the second note from the
   bottom an octave up), `drop2` and `drop3` (the second or third note from
   the top an octave down), `shell` (the root at the bottom, then only the
-  third and seventh) or `quartal` (fourths of the song's scale stacked from
-  the root, as many as the chord has notes). An anchor note (`c5`) caps the
-  top of every chord, the chords sitting in the three octaves below it. The
+  third and seventh), `quartal` (fourths of the song's scale stacked from
+  the root, as many as the chord has notes) or `lefthand` (#698: a jazz
+  pianist's rootless left hand from Strudel's dictionary, for m7, 7, maj7,
+  m7b5, dim7, m6 and their kin, within F3–A4, each chord the voicing whose
+  top note moves least; another quality is voiced close). An anchor note
+  (`c5`) caps the top of every chord, the chords sitting in the three octaves
+  below it (a left hand in the 16 semitones below it). The
   voices still lead from chord to chord, and a slash chord's bass stays at
   the bottom.
 
