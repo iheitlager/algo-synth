@@ -17,6 +17,7 @@ import { cleanName, familyName, fromSong, isFamilyName, names, renameStrip, setN
 import {
   EMPTY_PAD, EMPTY_ZONE, SAMPLE_SLOTS, ZONES, decodePads, decodeZones, evictable, freeSlot, kitFiles, packFiles, padSets, parseKits,
   parseManifest, slotsUsedElsewhere, sourceFile, splitZones, zoneSets, type Kit, type Pack, type Pad, type Zone,
+  mapSound, mapSoundUrl, mapUrl, parseSampleMap, type SampleMap,
 } from './sampler'
 import { MUTE, applyPlan, parseSetup, type Registry, type Setup } from './setup'
 import { forgetSong, isSongFile, keepSong, lastSong, pickSave, songFileName, writeSong, type SongHandle } from './songfile'
@@ -613,6 +614,56 @@ function sampleSource(slot: number, source: string) {
 /** The slot holding the sample of `source`, or -1. */
 const slotOfSource = (source: string) => sourceOfSlot.findIndex((s, i) => s === source && sampleStore.slots[i])
 
+/** The map sound each slot holds, by its map's URL and its name (#728), so two maps' `amen` never share a slot. */
+const mapSoundOfSlot: (string | null)[] = Array.from({ length: SAMPLE_SLOTS }, () => null)
+const slotOfMapSound = (key: string, source: string) =>
+  mapSoundOfSlot.findIndex((k, i) => k === key && sourceOfSlot[i] === source && sampleStore.slots[i])
+
+/** The sample maps fetched this session (#728), by URL: one request each, however often a song names them. */
+const sampleMaps = new Map<string, Promise<SampleMap | string>>()
+function fetchSampleMap(url: string): Promise<SampleMap | string> {
+  let map = sampleMaps.get(url)
+  if (!map) {
+    map = fetch(url)
+      .then(async (res) => (res.ok ? parseSampleMap(await res.json(), url) : `could not fetch the sample map (${res.status})`))
+      .catch(() => 'could not fetch the sample map')
+    sampleMaps.set(url, map)
+    // A map that could not be had is asked for again next time.
+    void map.then((m) => { if (typeof m === 'string') sampleMaps.delete(url) })
+  }
+  return map
+}
+
+/** The bytes of a pad's map sound (#728): from the map the song names for its track, fetched once. */
+async function mapSoundBytes(spec: string, source: string): Promise<ArrayBuffer | string> {
+  const url = mapUrl(spec)
+  if (!url) return `${spec} is not a sample map`
+  const map = await fetchSampleMap(url)
+  if (typeof map === 'string') return map
+  const file = mapSoundUrl(map, source)
+  if ('why' in file) return file.why
+  const res = await fetch(file.url).catch(() => null)
+  return res?.ok ? res.arrayBuffer() : `could not fetch ${file.url}`
+}
+
+/**
+ * Errors of the sample maps (#728) at the line that names what failed, kept so the song shows them
+ * again when it is sent again; a parse error comes first.
+ */
+const mapErrors = new Map<string, { pattern: RegExp; msg: string }>()
+function showMapErrors() {
+  if (song.error) return
+  const lines = song.draft.split('\n')
+  for (const { pattern, msg } of mapErrors.values()) {
+    const at = lines.findIndex((l) => pattern.test(l))
+    if (at >= 0) {
+      song.error = { line: at + 1, col: 1, msg }
+      return
+    }
+  }
+}
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 /** A dropped or made WAV into `slot`, kept in this browser by its hash so the song can name it (#522). */
 export async function loadDroppedSample(slot: number, bytes: ArrayBuffer, name: string): Promise<number> {
   const hash = await keepFile(bytes)
@@ -626,7 +677,11 @@ export async function loadDroppedSample(slot: number, bytes: ArrayBuffer, name: 
  * them yet: each source from a pack or this browser into a slot (one already loaded is reused),
  * then the layout in one go. A source that cannot be found leaves its zone or pad out and says so.
  */
-export async function loadSongLayout(kind: 'zone' | 'pad', lines: readonly SongLayoutLine[]): Promise<void> {
+export async function loadSongLayout(
+  kind: 'zone' | 'pad',
+  lines: readonly SongLayoutLine[],
+  maps: readonly { synth: number; url: string }[] = [],
+): Promise<void> {
   const bySynth = new Map<number, SongLayoutLine[]>()
   for (const l of lines) if (l.synth >= 0) bySynth.set(l.synth, [...(bySynth.get(l.synth) ?? []), l])
   const missing: string[] = []
@@ -638,18 +693,34 @@ export async function loadSongLayout(kind: 'zone' | 'pad', lines: readonly SongL
     if (layout.every((l) => l.held) || laidOut.get(s) === key) continue
     laidOut.set(s, key)
     const slots = new Map<string, number>()
+    // A pad of a track with a sample map takes a sound of it by name (#728).
+    const map = kind === 'pad' ? maps.find((m) => m.synth === s)?.url : undefined
     for (const source of new Set(layout.map((l) => l.source))) {
-      const have = slotOfSource(source)
+      const fromMap = map !== undefined && mapSound(source) !== null
+      const key = fromMap ? `${mapUrl(map) ?? map}#${source}` : ''
+      const have = fromMap ? slotOfMapSound(key, source) : slotOfSource(source)
       if (have >= 0) {
         slots.set(source, have)
         continue
       }
-      const bytes = await sourceBytes(source)
+      const bytes = fromMap ? await mapSoundBytes(map, source) : await sourceBytes(source)
       const slot = freeSlot(sampleStore.slots)
       if (typeof bytes === 'string' || slot < 0) {
-        missing.push(`${source}: ${typeof bytes === 'string' ? bytes : 'all sample slots are used; free some'}`)
+        const why = typeof bytes === 'string' ? bytes : 'all sample slots are used; free some'
+        missing.push(`${source}: ${why}`)
+        if (fromMap) {
+          // A map that can't be had is the samples line's error, a sound the pad line's.
+          const atMap = why.includes('sample map')
+          mapErrors.set(atMap ? map : key, {
+            pattern: atMap
+              ? new RegExp(`^\\s*samples\\s+\\S+\\s+${escape(map)}\\s*$`)
+              : new RegExp(`^\\s*pad\\s+\\S+\\s+\\d+\\s*=\\s*${escape(source)}(\\s|:|$)`),
+            msg: `${atMap ? map : source}: ${why}`,
+          })
+        }
         continue
       }
+      if (fromMap) mapErrors.delete(key)
       const name = source.startsWith('@') ? `${source.slice(0, 9)}…` : source
       const code = await loadSample(slot, bytes, name)
       if (code < 0) {
@@ -657,6 +728,7 @@ export async function loadSongLayout(kind: 'zone' | 'pad', lines: readonly SongL
         continue
       }
       sampleSource(slot, source)
+      mapSoundOfSlot[slot] = fromMap ? key : null
       slots.set(source, slot)
     }
     const sample = kind === 'zone' ? ZoneField.Sample : PadField.Sample
@@ -672,6 +744,7 @@ export async function loadSongLayout(kind: 'zone' | 'pad', lines: readonly SongL
     else requestPads(s)
   }
   if (missing.length) sampleStore.error = `${kind}s are silent: ${missing.join('; ')}`
+  showMapErrors()
 }
 /** The zone and pad lines laid out on each synth, so a song sent again does not load them twice. */
 const zonesOn = new Map<number, string>()
@@ -1248,7 +1321,16 @@ export function applySong(data: Record<string, unknown>) {
   const lines = (raw: unknown) => ((raw ?? []) as RawLine[]).map((l) => ({
     synth: l.synth, at: l.at, source: decoder.decode(l.source), values: Array.from(l.values), held: l.held,
   }))
-  if (data.ok) void loadSongLayout('zone', lines(data.zones)).then(() => loadSongLayout('pad', lines(data.pads)))
+  // The sample maps their pads draw on (#728).
+  const maps = ((data.maps ?? []) as { synth: number; url: Uint8Array }[]).map((m) => ({
+    synth: m.synth, url: decoder.decode(m.url),
+  }))
+  if (data.ok) {
+    // Maps no longer named take their errors along; the rest show again.
+    for (const k of [...mapErrors.keys()]) if (!maps.some((m) => k === m.url || k.startsWith(`${mapUrl(m.url) ?? m.url}#`))) mapErrors.delete(k)
+    showMapErrors()
+    void loadSongLayout('zone', lines(data.zones)).then(() => loadSongLayout('pad', lines(data.pads), maps))
+  }
 }
 
 /**

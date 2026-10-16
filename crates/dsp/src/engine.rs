@@ -1286,11 +1286,14 @@ impl Engine {
     }
 
     /// The sample in `slot` came from the source in the song buffer (#522),
-    /// `@<hash>` or `<pack>/<sample>`: zones playing it can be written in
-    /// the song. False for an empty slot or a source that isn't one.
+    /// `@<hash>`, `<pack>/<sample>` or a sample map's sound, `amen:1`
+    /// (#728): zones and pads playing it can be written in the song. False
+    /// for an empty slot or a source that isn't one.
     pub fn set_sample_source_from_buffer(&mut self, slot: usize) -> bool {
         let source = String::from_utf8_lossy(&self.song_buf).into_owned();
-        if !crate::song::zone::is_zone_source(&source) || self.samples.get(slot).is_none() {
+        let known =
+            crate::song::zone::is_zone_source(&source) || crate::song::pad::is_map_sound(&source);
+        if !known || self.samples.get(slot).is_none() {
             return false;
         }
         let Some(have) = self.sample_sources.get_mut(slot) else {

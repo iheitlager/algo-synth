@@ -7380,3 +7380,39 @@ fn a_fitted_sample_fills_its_note_at_any_tempo() {
         "the refitted note ends at {second}"
     );
 }
+
+/// #728: a pad playing a sample map's sound folds back by its name, the
+/// track keeping its map line.
+#[test]
+fn a_maps_sound_on_a_pad_folds_back_by_name() {
+    let mut e = kit(0);
+    let text =
+        "track brk sampler PadSampler\nsamples brk github:yaxu/clean-breaks\npad brk 1 = amen\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let s = e.song_routed(0).expect("routed");
+    let tone: Vec<f32> = (0..4_800).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(3).expect("loads");
+    let source = b"amen";
+    e.song_buffer(source.len())
+        .expect("fits")
+        .copy_from_slice(source);
+    assert!(
+        e.set_sample_source_from_buffer(3),
+        "a map's sound is a source"
+    );
+    e.set_pad(s, 0, PadField::Sample, 3.0);
+    e.settle_pads(s);
+    assert!(e.song_pad_held(0), "the pad plays its line's sound");
+    // Turned by hand: it folds back as amen, the map line kept.
+    e.set_pad(s, 0, PadField::Tune, 2.0);
+    assert!(e.fold());
+    let text = e.song_text().to_string();
+    assert!(
+        text.contains("samples brk github:yaxu/clean-breaks\npad brk 1 = amen : tune 2\n"),
+        "{text}"
+    );
+}

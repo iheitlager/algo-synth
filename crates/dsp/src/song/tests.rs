@@ -1059,7 +1059,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 33), ("sounds", 9)] {
+    for (dir, want) in [("songs", 34), ("sounds", 9)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -3799,6 +3799,94 @@ fn zone_lines_parse_print_and_say_where_they_are_wrong() {
     }
 }
 
+/// #728: a track reads a Strudel sample map and its pads take the map's
+/// sounds by name, as Strudel's `samples('github:yaxu/clean-breaks')` and
+/// `s("amen")`: the recipe written line for line.
+#[test]
+fn sample_map_lines_put_a_maps_sounds_on_pads() {
+    let text = "track brk sampler PadSampler\ntrack kit drums PadSampler\nsamples brk github:yaxu/clean-breaks\nsamples kit https://example.org/drums/strudel.json\npad brk 1 = amen : choke 1\npad brk 3 = hungup:1\npad kit 2 = audiophob/snare\nclip sliced = brk .slow(4) .fit() .slice(8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\") .rarely(ply(2))\n  \"c2\"\n";
+    let song = Song::parse(text).expect("parses");
+    assert_eq!(
+        song.maps,
+        [
+            (0, "github:yaxu/clean-breaks".to_string()),
+            (1, "https://example.org/drums/strudel.json".to_string())
+        ]
+    );
+    assert!(song.samples.is_empty());
+    let sources: Vec<&str> = song.pads.iter().map(|p| p.source.as_str()).collect();
+    assert_eq!(sources, ["amen", "hungup:1", "audiophob/snare"]);
+    assert_eq!(song.pads[0].fields.choke, 1);
+    let printed = song.print();
+    for line in [
+        "samples brk github:yaxu/clean-breaks\n",
+        "pad brk 1 = amen : choke 1\n",
+        "pad brk 3 = hungup:1\n",
+    ] {
+        assert!(printed.contains(line), "{line}\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(song.clone()));
+    // Pads set by hand keep the map; a kit takes its place.
+    let mut set = song.clone();
+    assert!(set.set_pads(0, song.pads[..1].to_vec()));
+    assert_eq!(set.maps.len(), 2);
+    assert!(set.set_samples(0, "breaks"));
+    assert_eq!(
+        set.maps,
+        [(1, "https://example.org/drums/strudel.json".to_string())]
+    );
+    // A track taken out takes its map along, and the rest move up.
+    let mut gone = Song::parse("track a sampler\ntrack b sampler\nsamples b github:u/r/master\n")
+        .expect("parses");
+    assert!(gone.remove_track(0));
+    assert_eq!(gone.maps, [(0, "github:u/r/master".to_string())]);
+    let head = "track brk sampler PadSampler\ntrack lead synth\n";
+    for (line, col, msg) in [
+        (
+            "samples brk github:yaxu",
+            13,
+            "a sample map is github:user/repo or an https URL to its .json",
+        ),
+        (
+            "samples brk http://example.org/map.json",
+            13,
+            "a sample map is github:user/repo or an https URL to its .json",
+        ),
+        (
+            "samples brk https://example.org/map.txt",
+            13,
+            "a sample map is github:user/repo or an https URL to its .json",
+        ),
+        (
+            "samples lead github:u/r",
+            9,
+            "samples go on a sampler or drums track",
+        ),
+        ("samples brk github:u/r x", 24, "unexpected text"),
+        (
+            "pad brk 1 = amen",
+            13,
+            "a map's sound goes on a track with a sample map: samples <track> github:user/repo",
+        ),
+        (
+            "pad brk 1 = 1amen",
+            13,
+            "a pad's source is a pack's sample, as audiophob/kick, @ and a file's hash, or a map's sound, as amen:1",
+        ),
+    ] {
+        let e = Song::parse(&format!("{head}{line}\n")).expect_err(line);
+        assert_eq!((e.line, e.col, e.msg.as_ref()), (3, col, msg), "{line}");
+    }
+    let twice = Song::parse(&format!(
+        "{head}samples brk github:u/r\nsamples brk breaks\n"
+    ))
+    .expect_err("twice");
+    assert_eq!(
+        (twice.line, twice.msg.as_ref()),
+        (4, "this track already has its samples")
+    );
+}
+
 /// #527: a pad sampler's pads are lines of their own, as zones are: on a
 /// drums or sampler track, by a hash or a pack's sample, in place of a
 /// `samples` line, following a track taken out.
@@ -3846,7 +3934,7 @@ fn pad_lines_parse_print_and_say_where_they_are_wrong() {
         (
             "pad kit 1 = plaits:0.1:0.2:0.3",
             13,
-            "a pad's source is a pack's sample, as audiophob/kick, or @ and a file's hash",
+            "a pad's source is a pack's sample, as audiophob/kick, @ and a file's hash, or a map's sound, as amen:1",
         ),
         (
             "pad kit 1 = a/b : wah 1",

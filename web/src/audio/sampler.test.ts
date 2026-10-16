@@ -3,6 +3,7 @@ import { LoopMode, PadField, ZoneField } from './params'
 import {
   EMPTY_PAD, EMPTY_ZONE, PADS, PAD_FIELDS, PAD_ROWS, ZONES, evictable, slotsUsedElsewhere, ZONE_FIELDS, decodePads, kitFiles, padSets, parseKits, decodeZones, freeSlot, freeZone, keyName, loopOf, packFiles, parseManifest, peakPath,
   rootsBetween, sourceFile, sourcesOf, splitZones, zoneRect, zoneSets, type Kit, type Pack,
+  mapSound, mapSoundUrl, mapUrl, parseSampleMap,
 } from './sampler'
 
 const zone = (o: Record<string, unknown> = {}) => ({
@@ -200,5 +201,32 @@ describe('recipe sources', () => {
   })
   it('list every sample as a source', () => {
     expect(sourcesOf(packs, kits)).toEqual(['upright-piano-kw/C4vH', 'upright-piano-kw/B1vH', 'audiophob/kick'])
+  })
+})
+
+describe('sample maps (#728)', () => {
+  const url = 'https://raw.githubusercontent.com/yaxu/clean-breaks/main/strudel.json'
+  it('github: names a repo`s strudel.json, on main or a branch; an https .json is itself', () => {
+    expect(mapUrl('github:yaxu/clean-breaks')).toBe(url)
+    expect(mapUrl('github:u/r/master')).toBe('https://raw.githubusercontent.com/u/r/master/strudel.json')
+    expect(mapUrl('https://example.org/x/strudel.json')).toBe('https://example.org/x/strudel.json')
+    expect(mapUrl('http://example.org/x.json')).toBeNull()
+    expect(mapUrl('github:yaxu')).toBeNull()
+  })
+  it('a map gives each sound its files under its base; :n picks one, wrapping round; only WAV', () => {
+    const map = parseSampleMap({ _base: 'https://h.org/b/', amen: ['s/amen.wav'], hungup: ['a.wav', 'b.wav'], hat: 'h.mp3', bad: 3 }, url)
+    if (typeof map === 'string') throw new Error(map)
+    expect([...map.sounds.keys()]).toEqual(['amen', 'hungup', 'hat'])
+    expect(mapSoundUrl(map, 'amen')).toEqual({ url: 'https://h.org/b/s/amen.wav' })
+    expect(mapSoundUrl(map, 'hungup:1')).toEqual({ url: 'https://h.org/b/b.wav' })
+    expect(mapSoundUrl(map, 'hungup:3')).toEqual({ url: 'https://h.org/b/b.wav' })
+    expect(mapSoundUrl(map, 'hat')).toEqual({ why: 'only WAV files load: h.mp3' })
+    expect(mapSoundUrl(map, 'snare')).toEqual({ why: 'the map has no sound snare' })
+    expect(mapSound('hungup:1')).toEqual(['hungup', 1])
+    expect(mapSound('audiophob/kick')).toBeNull()
+    expect(parseSampleMap([], url)).toBe('the sample map is not a JSON object')
+    // Without a base, files are next to the map.
+    const near = parseSampleMap({ amen: 'amen.wav' }, url)
+    expect(typeof near !== 'string' && mapSoundUrl(near, 'amen')).toEqual({ url: 'https://raw.githubusercontent.com/yaxu/clean-breaks/main/amen.wav' })
   })
 })

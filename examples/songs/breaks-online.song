@@ -1,0 +1,27 @@
+# Breaks Online: Strudel's breakbeat recipe, the breaks read from the web.
+# The track reads clean-breaks' sample map (github.com/yaxu/clean-breaks,
+# its strudel.json), and the pad lines give its pads the breaks they name,
+# which are all the view fetches. Needs a network, no make samples.
+#
+#   samples('github:yaxu/clean-breaks')
+#   s("amen/4").fit()
+#   .slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")
+#   .cut(1).rarely(ply("2"))
+#
+# amen/4 is a note four bars long, .slow(4); .cut(1) is the pads' choke group.
+tempo 120
+track brk sampler PadSampler
+samples brk github:yaxu/clean-breaks
+pad brk 1 = amen : choke 1
+pad brk 2 = funkydrummer : choke 1
+
+clip amen = brk .slow(4) .fit() .slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2") .rarely(ply(2))
+  "c2"
+
+# The Funky Drummer the same way, chopped in sixteen; d2 plays pad 2.
+clip funky = brk .slow(2) .fit() .chop(16) .sometimesBy(0.25, mul(speed(-1)))
+  "d2"
+
+scene sliced 8: amen
+scene chopped 4: funky
+arrange sliced chopped

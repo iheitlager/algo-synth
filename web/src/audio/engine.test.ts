@@ -1155,6 +1155,76 @@ describe('zone lines (#522)', () => {
   })
 })
 
+describe('sample maps (#728)', () => {
+  const keys = { name: enc('brk'), synth: 3, kind: 2 }
+  const tick = () => new Promise((r) => setTimeout(r))
+  const loaded = (slot: number) => ({ t: 'sample', slot, code: 100, frames: 100, root: 60, loopStart: 0, loopEnd: 100, peaks: new Float32Array(4), used: 200, cap: 1000 })
+  const MAP = 'https://raw.githubusercontent.com/yaxu/clean-breaks/main/strudel.json'
+  const map = {
+    _base: 'https://raw.githubusercontent.com/yaxu/clean-breaks/main/',
+    amen: ['sounds/Amen Brother.wav'],
+    think: ['sounds/think.wav'],
+    hungup: ['sounds/a.wav', 'sounds/b.wav'],
+  }
+  const text = 'track brk sampler PadSampler\nsamples brk github:yaxu/clean-breaks\npad brk 1 = amen : choke 1\npad brk 3 = hungup:1\n'
+  const values = [-1, 0, 0.8, 0, 0, 1, 1, 0, 1, 0]
+  const pad = (at: number, source: string) => ({ synth: 3, at, source: enc(source), values: new Float32Array(values), held: false })
+  const song = () => ({
+    t: 'song', ...ok, ok: true, text: enc(text), error: null, tracks: [keys],
+    maps: [{ synth: 3, url: enc('github:yaxu/clean-breaks') }], pads: [pad(0, 'amen'), pad(2, 'hungup:1')],
+  })
+
+  it('fetches the map once and only the sounds its pads name, then lays them out', async () => {
+    const fetched: string[] = []
+    const { send, take } = await boot({
+      fetch: async (url: string) => {
+        fetched.push(url)
+        return url === MAP ? new Response(JSON.stringify(map)) : new Response(new ArrayBuffer(8))
+      },
+    })
+    take()
+    send(song())
+    let msgs: Msg[] = []
+    const answered = new Set<number>()
+    for (let i = 0; i < 40 && !msgs.some((m) => m.t === 'padSets'); i++) {
+      await tick()
+      msgs = msgs.concat(take())
+      for (const m of msgs) {
+        const slot = (m as unknown as { slot: number }).slot
+        if (m.t === 'sample' && !answered.has(slot)) {
+          answered.add(slot)
+          send(loaded(slot))
+        }
+      }
+    }
+    expect(fetched.filter((u) => u.startsWith('https://'))).toEqual([
+      MAP,
+      'https://raw.githubusercontent.com/yaxu/clean-breaks/main/sounds/Amen%20Brother.wav',
+      'https://raw.githubusercontent.com/yaxu/clean-breaks/main/sounds/b.wav',
+    ])
+    const named = msgs.filter((m) => m.t === 'sampleSource').map((m) => new TextDecoder().decode(m.bytes as ArrayBuffer))
+    expect(named.sort()).toEqual(['amen', 'hungup:1'])
+    const sets = msgs.find((m) => m.t === 'padSets') as unknown as { s: number; sets: number[] }
+    expect(sets.s).toBe(3)
+    expect([sets.sets[0], sets.sets[1]]).toEqual([0, 0])
+    // Sent again, nothing is fetched again.
+    const before = fetched.length
+    send(song())
+    for (let i = 0; i < 10; i++) await tick()
+    expect(fetched.length).toBe(before)
+  })
+
+  it('a map that cannot be had is an error at its samples line, and the song plays on', async () => {
+    const { mod, send, take } = await boot({ fetch: async () => new Response('nope', { status: 404 }) })
+    take()
+    send(song())
+    for (let i = 0; i < 20 && !mod.song.error; i++) await tick()
+    expect(mod.song.error?.line).toBe(2)
+    expect(mod.song.error?.msg).toMatch(/github:yaxu\/clean-breaks: could not fetch the sample map \(404\)/)
+    expect(take().some((m) => m.t === 'sample')).toBe(false)
+  })
+})
+
 describe('group names (#214)', () => {
   const groups = (...names: string[]) => Array.from({ length: 8 }, (_, g) => enc(names[g] ?? ''))
 
