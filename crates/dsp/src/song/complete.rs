@@ -646,6 +646,12 @@ fn unit_detail(p: Param) -> &'static str {
 
 /// A parameter method's help: its range, and a signal over it.
 fn param_help(name: &str) -> Option<String> {
+    if name.eq_ignore_ascii_case("adsr") {
+        return Some(
+            "adsr takes \"attack:decay:sustain:release\", each a number, [a b] or <a b>: adsr(\"[.1 0]:.2:[1 0]\")"
+                .to_string(),
+        );
+    }
     if let Some(u) = super::unit(name) {
         return Some(format!("{name} is {}: {name}(0.25)", unit_detail(u.param)));
     }
@@ -890,29 +896,57 @@ impl<'a> Names<'a> {
             .and_then(|(_, _, m)| *m)
     }
 
-    /// The knobs a track's Modular setting names (#674), as the setting
-    /// lines above read.
-    fn knobs(&self, list: &mut List, track: &str) {
-        let Some(sound) = self
+    /// The Modular setting a track plays, as the setting lines above read.
+    fn setting(&self, track: &str) -> Option<super::Setting> {
+        let sound = self
             .sounds
             .iter()
             .rev()
             .find(|(t, _)| *t == track)
-            .map(|(_, s)| *s)
-        else {
-            return;
-        };
+            .map(|(_, s)| *s)?;
         if !self.settings.iter().any(|(s, _)| *s == sound) {
-            return;
+            return None;
         }
-        let Ok(song) = super::Song::parse(self.head) else {
+        let song = super::Song::parse(self.head).ok()?;
+        song.settings.into_iter().find(|st| st.name == sound)
+    }
+
+    /// The knobs a track's Modular setting names (#674). On a clip, a
+    /// pattern method wins over a knob of its name: it says how to reach
+    /// the knob there (#688).
+    fn knobs(&self, list: &mut List, track: &str) {
+        let Some(st) = self.setting(track) else {
             return;
         };
-        if let Some(st) = song.settings.iter().find(|st| st.name == sound) {
-            for k in st.knobs.iter().filter(|k| !k.is_empty()) {
-                list.add(Class::Param, k, || format!("a knob of {sound}"));
-            }
+        for (i, k) in st.knobs.iter().enumerate().filter(|(_, k)| !k.is_empty()) {
+            list.add(Class::Param, k, || {
+                if Pattern::NAMES.contains(&k.as_str()) {
+                    format!(
+                        "a knob of {}: on a clip .ctl{} ({k} is a pattern method)",
+                        st.name,
+                        i + 1
+                    )
+                } else {
+                    format!("a knob of {}", st.name)
+                }
+            });
         }
+    }
+
+    /// How a knob's method is written (#688): its setting and its range.
+    fn knob_help(&self, track: &str, name: &str) -> Option<String> {
+        let st = self.setting(track)?;
+        let i = st
+            .knobs
+            .iter()
+            .position(|k| !k.is_empty() && k.eq_ignore_ascii_case(name))?;
+        let patch = crate::modular::sc::compile(st.code.as_deref()?).ok()?;
+        let k = patch.knobs.iter().find(|k| k.ctl == i)?;
+        let (lo, hi) = (k.lo, k.hi);
+        Some(format!(
+            "{name} is a knob of {}, from {lo} to {hi}: {name}(sine.range({lo}, {hi}))",
+            st.name
+        ))
     }
 
     fn tracks(&self, list: &mut List) {
@@ -979,7 +1013,10 @@ impl<'a> Names<'a> {
             "clip" if Pattern::NAMES.contains(&outer) => {
                 usage::of(&usage::METHODS, inner).map(str::to_string)
             }
-            "clip" if inner == outer => param_help(outer),
+            "clip" if inner == outer => w
+                .get(3)
+                .and_then(|t| self.knob_help(t, outer))
+                .or_else(|| param_help(outer)),
             "clip" | "mod" => usage::of(&usage::SIGNAL, inner).map(str::to_string),
             _ => None,
         }
@@ -1701,5 +1738,30 @@ scene main 8: beat riff
     fn a_clip_offers_adsr() {
         assert!(at("track p synth Juno106\nclip a = p .ad|").contains(&"adsr".to_string()));
         assert!(!at("track e synth Dx7\nclip a = e .ad|").contains(&"adsr".to_string()));
+    }
+
+    /// #688: inside a knob's method, its help and range; a knob named like a
+    /// pattern method says how a clip reaches it; `.adsr(` has its help.
+    #[test]
+    fn a_knob_has_help_and_a_pattern_name_says_how() {
+        let head = "setting vibra = Modular ModularBasic\n  SynthDef(\\vibra, { |freq = 220, gate = 1, vib = 4, fast = 2|\n    LFTri.ar(freq * (SinOsc.kr(vib) * fast).midiratio)\n  }).add;\ntrack lead synth vibra\n";
+        let end = |line: &str| {
+            let text = format!("{head}{line}");
+            complete(&text, text.encode_utf16().count() as u32)
+        };
+        let help = end("clip a = lead .vib(").help;
+        assert!(
+            help.starts_with("vib is a knob of vibra, from 0 to 8"),
+            "{help}"
+        );
+        let fast = end("clip a = lead .fa").items;
+        let knob = fast
+            .iter()
+            .find(|i| i.word == "fast" && i.class == Class::Param);
+        assert_eq!(
+            knob.map(|i| i.detail.as_str()),
+            Some("a knob of vibra: on a clip .ctl2 (fast is a pattern method)")
+        );
+        assert!(end("clip a = lead .adsr(").help.starts_with("adsr takes"));
     }
 }

@@ -155,7 +155,11 @@ A subset of sclang, run once to build the voice:
   name the setting has no knob for is an error listing those it has. `amp`
   and a UGen's numbers have no name. A knob without a unit in its name turns
   from 0 to twice its default, so `|vibmod = 0.5|` reaches 1 at most: give it
-  the default you want room around.
+  the default you want room around. On a clip, a pattern method wins over a
+  knob of its name: a knob `|fast = 2|` is `.ctl2` there, though `mod`, `auto`
+  and snapshots reach it as `lead.fast`; completion says so. A strip target
+  names no synth, so a knob goes by its track: `strip1.vib` is an error that
+  says to write `lead.vib` (#688).
 - **Limits:** 1024 nodes, 64 oscillators, 64 phases (a sine, an LFO, a
   `VOsc`; a `Klang` takes one per frequency), 8 filters, 8 envelopes, 32
   resonators (a `Klank` takes one per frequency), 32 delay lines, 64 random

@@ -12,7 +12,7 @@
 use crate::mono::env::{Env, Stage};
 use crate::mono::ladder::{Ladder, MAX_K};
 use crate::mono::osc::Osc;
-use crate::mono::voice::MonoCtx;
+use crate::mono::voice::{MonoCtx, VoiceSet};
 use crate::table::SampleOsc;
 
 /// The partials' gain into the mix: two at full level sum below the limiter's knee.
@@ -29,6 +29,8 @@ pub struct LaVoice {
     /// Pitch trim in semitones from the pool (unison, analog variance).
     pub trim: f32,
     pub cutoff_trim: f32,
+    /// Its note's own envelope times (ADR-0038), for partial 1's TVA.
+    pub set: VoiceSet,
     osc: [Osc; 2],
     pcm: [SampleOsc; 2],
     lp: [Ladder; 2],
@@ -73,7 +75,8 @@ impl LaVoice {
     /// Add this voice into `out`, advancing its state.
     pub fn render(&mut self, ctx: &MonoCtx, out: &mut [f32]) {
         let p = ctx.params;
-        let adsr = [&p.adsr, &p.p2_adsr];
+        let own = self.set.env(&p.adsr, p.sample_rate());
+        let adsr = [&own, &p.p2_adsr];
         let fenv = [&p.fadsr, &p.p2_fadsr];
         let (retrigger, gate) = (self.retrigger, self.gate);
         for (env, t) in self

@@ -1071,6 +1071,7 @@ impl Engine {
         }
         if let (Some(pool), Some(params)) = (self.pools.get_mut(synth), self.synths.get(synth)) {
             pool.note_on(owner, note.min(127), velocity, params, self.note_count);
+            pool.fresh_note_times(self.note_count);
         }
     }
 
@@ -2739,8 +2740,10 @@ impl Engine {
                         *last = f32::NAN;
                     }
                     self.automate(target, param, base);
-                    // What `.onNote` held per voice goes too.
-                    if on_note {
+                    // What `.onNote` held per voice goes too; a note's
+                    // envelope times stay with it until its slot's next
+                    // note (ADR-0038).
+                    if on_note && !crate::song::NOTE_TIMES.contains(&param) {
                         if let Target::Track(t) = target {
                             let s = self.song_route.get(t).copied().flatten();
                             if let Some(pool) = s.and_then(|s| self.pools.get_mut(s)) {
@@ -2833,7 +2836,7 @@ impl Engine {
             crate::mono::voice::VOICE_PARAMS.contains(&param)
                 && model.is_some_and(|m| {
                     m.uses_mono_voice()
-                        || (m.uses_sampler_voice() && crate::song::NOTE_TIMES.contains(&param))
+                        || (m.holds_note_times() && crate::song::NOTE_TIMES.contains(&param))
                 })
         };
         for m in 0..self.song.mods.len().min(MAX_MODS) {

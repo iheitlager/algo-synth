@@ -6203,6 +6203,70 @@ fn strummed_and_grace_notes_hold_their_own_attack() {
     }
 }
 
+/// #688: a D-50 and a Modular voice hold a note's own sustain, as a Mono
+/// voice does: c3, held through the bar, keeps its 1 while e3 plays with
+/// 0.2 beside it. Taken by the synth at e3's tick, c3 would fall to 0.2.
+#[test]
+fn la_and_modular_voices_keep_their_own_sustain() {
+    let modular = "setting buzz = Modular ModularBasic\n  SynthDef(\\buzz, { |freq = 220| SinOsc.ar(freq) * 0.3 }).add;\ntrack p synth buzz\n";
+    for (name, tracks) in [
+        // Partial 2 has an envelope of its own, which no note holds: silent here.
+        (
+            "D-50",
+            "setting d = D50 LaFantasia: P2AdsrSustain 0\ntrack p synth d\n",
+        ),
+        ("Modular", modular),
+    ] {
+        let text = format!(
+            "tempo 120\n{tracks}clip r = p .attack(0.01) .decay(0.05) .sus(\"1 0.2\")\n  c3@0:48 e3@24:12\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()), "{name}");
+        e.song_play();
+        let left = left_of(&mut e, 1.95);
+        assert!(left.iter().all(|v| v.is_finite()), "{name}");
+        // c3 alone before e3 (0.6–0.9 s) and after it (1.6–1.9 s). The
+        // D-50's partial darkens over the bar by itself (to about 0.65); at
+        // e3's 0.2 it would fall to a fifth of that.
+        let (before, after) = (level(&left[28_800..43_200]), level(&left[76_800..91_200]));
+        assert!(
+            after > 0.4 * before,
+            "{name}: c3 holds its sustain, {after} against {before}"
+        );
+    }
+}
+
+/// #688: a note let go as its clip leaves keeps its own release, and the
+/// next clip's note on that synth takes the synth's, not the stopped clip's.
+#[test]
+fn a_note_keeps_its_release_when_its_clip_stops() {
+    let render = |methods: &str| {
+        let text = format!(
+            "tempo 120\nsetting p = Juno106 JunoPad: AdsrRelease 0.05, AdsrSustain 1\ntrack pad synth p\n\
+             clip m = pad{methods}\n  \"c3\"\nclip n = pad\n  \"~ ~ ~ e3\"\nscene a 1: m\nscene b 1: n\narrange a b\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let left = left_of(&mut e, 4.6);
+        // c3, let go at 2 s as its clip leaves, at 2.4 s; e3 (3.5–4 s) at 4.3 s.
+        (
+            level(&left[115_200..124_800]),
+            level(&left[206_400..216_000]),
+        )
+    };
+    let ((ringing, after), (plain, plain_after)) = (render(" .rel(2)"), render(""));
+    assert!(
+        ringing > 10.0 * plain.max(1e-6),
+        "c3 keeps its 2 s: {ringing} against {plain}"
+    );
+    assert!(
+        after <= 2.0 * plain_after.max(1e-6),
+        "e3 takes the synth's release: {after} against {plain_after}"
+    );
+}
 /// Spec 010 Req 12: a lock on a table position holds for its step, and a `~`
 /// gives the synth's own back.
 #[test]

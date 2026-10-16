@@ -4421,3 +4421,22 @@ fn adsr_is_the_envelope_in_one_method() {
         Song::parse("track e synth Dx7\nclip r = e .adsr(\".1:.2\")\n  \"c2\"\n").expect_err("dx7");
     assert_eq!((err.line, err.col), (2, 13));
 }
+
+/// #688: a strip names no synth, so a knob's name there says to write it on
+/// the track that plays the setting.
+#[test]
+fn a_knob_on_a_strip_points_to_its_track() {
+    for (line, col) in [
+        ("mod strip1.vib = 1", 5),
+        ("auto w = strip1.vib ramp 1 4 /1", 10),
+    ] {
+        let err = Song::parse(&format!("{VIBRA}{line}\n")).expect_err(line);
+        assert_eq!(
+            (err.line, err.col, &*err.msg),
+            (8, col, "vib is a knob of vibra: write lead.vib"),
+            "{line}"
+        );
+    }
+    let err = Song::parse(&format!("{VIBRA}mod strip1.wobble = 1\n")).expect_err("not a knob");
+    assert_eq!(&*err.msg, "no parameter has this name");
+}
