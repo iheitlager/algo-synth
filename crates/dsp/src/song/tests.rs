@@ -3193,6 +3193,12 @@ fn degrees_play_the_clips_scale_from_its_root() {
         Some(&[33, 38, 36, 40, 38, 33, 38, 36, 40, 38][..])
     );
     assert!(n.events.iter().all(|e| !e.degree));
+    // As Strudel writes it, `*8` in the line: the same notes (#721).
+    let star = Song::parse(
+        "track bass synth\nclip arp = bass .scale(a1 minor-pentatonic)\n  \"<0 2 1 3 2>*8\"\n",
+    )
+    .expect("parses");
+    assert_eq!(clip_notes(&star, 0).get(..10), notes.get(..10));
     let printed = s.print();
     assert!(
         printed.contains("clip arp = bass .fast(8) .scale(a1 minor-pentatonic)\n"),

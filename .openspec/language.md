@@ -378,7 +378,7 @@ weight = %n after an option of [a | b], last (1–16): drawn n times as often as
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `<a b>/n` each for n (1–16) bars (#700), `[a | b c]` one option at random each bar, filling the
+one option per bar, `<a b>/n` each for n (1–16) bars (#700), `<a b>*n` the turns sped up as Strudel's: each repeat takes the next one, so `<a b>*2` plays `a b` every bar and `<a b c>*2` plays `a b`, `c a`, `b c` (#721), `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a
 sequence; not with a chord's commas; `[c2%3 | d#2 | g1]` weighs c2 three
 times out of five, #616, and a sequence takes its weight on its brackets,

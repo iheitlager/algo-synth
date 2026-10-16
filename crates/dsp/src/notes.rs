@@ -1546,6 +1546,10 @@ struct Compiler<'a> {
     word: u16,
     /// The first word with a hit between two ticks.
     off: Option<u16>,
+    /// The cycle an alternation takes its turn from: the bar, and inside a
+    /// `*n` repeat `r` of `n`, `turn · n + r`, so `<a b>*2` plays `a b` as
+    /// Strudel's `fast` does (#721).
+    turn: u64,
 }
 
 /// The words of `slots` (notes, chords, names, rests), in the order they print.
@@ -1608,8 +1612,12 @@ impl Compiler<'_> {
             },
         }
         let times = u128::from(s.times);
+        let turn = self.turn;
         for r in 0..times {
             let (start, share) = (at.add(span.scale(r, times)), span.scale(1, times));
+            if times > 1 {
+                self.turn = turn.wrapping_mul(u64::from(s.times)).wrapping_add(r as u64);
+            }
             match s.euclid {
                 None => self.item(&s.item, start, share, bar, s.slide, s.orn),
                 Some(e) => {
@@ -1623,6 +1631,7 @@ impl Compiler<'_> {
                 }
             }
         }
+        self.turn = turn;
         self.when = outer;
     }
 
@@ -1680,7 +1689,8 @@ impl Compiler<'_> {
             }
             Item::Alt(g, hold) => {
                 let n = u32::try_from(g.len()).unwrap_or(1).max(1);
-                let pick = usize::try_from(bar / (*hold).max(1) % n).unwrap_or(0);
+                let pick = usize::try_from(self.turn / u64::from((*hold).max(1)) % u64::from(n))
+                    .unwrap_or(0);
                 if let Some(s) = g.get(pick) {
                     self.slot(s, at, span, bar);
                 }
@@ -2009,10 +2019,12 @@ fn mini(slots: &[Slot]) -> Result<(Vec<Event>, u32, Option<u16>), &'static str> 
         leaves,
         word: 0,
         off: None,
+        turn: 0,
     };
     for bar in 0..bars {
         c.rng = Rng::new(mix(bar, 0x5EED));
         c.prev = Prev::Known(false);
+        c.turn = u64::from(bar);
         c.slots(slots, Frac::new(0, 1), Frac::new(1, 1), bar);
     }
     if c.full {
