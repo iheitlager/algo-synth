@@ -99,6 +99,25 @@ impl Patch {
         }
         out
     }
+
+    /// The SynthDef's arguments that are knobs (#674), by `ctl`: `vib` for
+    /// `|vib = 4|` or `\vib.kr(4)`, '' for a UGen's number and for `amp`.
+    pub fn arg_names(&self) -> Vec<String> {
+        self.knobs
+            .iter()
+            .map(|k| {
+                let arg = self
+                    .modules
+                    .get(k.module)
+                    .is_some_and(|m| m.name == "Controls");
+                if arg && k.name != "amp" {
+                    k.name.clone()
+                } else {
+                    String::new()
+                }
+            })
+            .collect()
+    }
 }
 
 /// A number as the code writes it: no trailing zeros, four places at most.

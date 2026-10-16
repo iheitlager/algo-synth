@@ -148,6 +148,14 @@ A subset of sclang, run once to build the voice:
   control's default, is a knob, `Ctl1`…`Ctl32` in build order (the SynthDef's
   arguments but `freq` and `gate` first). Knobs are parameters of the track: `auto`, `snapshot`,
   `mod` reach them (`sub.Ctl1`).
+  On a track that plays a setting, an argument's knob also goes by the
+  argument's name, in any case: `|vib = 4|` (or `\vib.kr(4)`) is `.vib(4)`,
+  `mod lead.vib = …`, `lead.vib` (#674). The name wins over the synth's own
+  parameter of that name, prints as the code writes it (`.ctl1` too), and a
+  name the setting has no knob for is an error listing those it has. `amp`
+  and a UGen's numbers have no name. A knob without a unit in its name turns
+  from 0 to twice its default, so `|vibmod = 0.5|` reaches 1 at most: give it
+  the default you want room around.
 - **Limits:** 1024 nodes, 64 oscillators, 64 phases (a sine, an LFO, a
   `VOsc`; a `Klang` takes one per frequency), 8 filters, 8 envelopes, 32
   resonators (a `Klank` takes one per frequency), 32 delay lines, 64 random

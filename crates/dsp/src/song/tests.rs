@@ -131,7 +131,11 @@ fn every_error_says_where() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text:?}"
         );
     }
@@ -142,12 +146,12 @@ fn limits_hold() {
     let long = format!("track kit drums\nclip a = kit\n  bd {}", "x".repeat(65));
     assert_eq!(
         Song::parse(&long).map_err(|e| e.msg),
-        Err("a lane has at most 64 steps")
+        Err("a lane has at most 64 steps".into())
     );
     let tracks: String = (0..17).map(|i| format!("track t{i} drums\n")).collect();
     assert_eq!(
         Song::parse(&tracks).map_err(|e| (e.line, e.msg)),
-        Err((17, "a song has at most 16 tracks"))
+        Err((17, "a song has at most 16 tracks".into()))
     );
 }
 
@@ -370,7 +374,11 @@ fn note_errors_say_line_and_column() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text:?}"
         );
     }
@@ -447,7 +455,11 @@ fn sampler_errors_say_where() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text:?}"
         );
     }
@@ -549,7 +561,11 @@ fn a_parameter_the_model_does_not_read_says_where() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text).map(|_| ()),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text}"
         );
     }
@@ -655,7 +671,11 @@ fn a_lane_without_a_pad_on_its_model_says_where() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text).map(|_| ()),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text}"
         );
     }
@@ -686,7 +706,7 @@ fn bars_is_not_for_lanes() {
         Err(SongError {
             line: 2,
             col: 12,
-            msg: crate::notes::BARS_MSG
+            msg: crate::notes::BARS_MSG.into()
         })
     );
 }
@@ -719,7 +739,7 @@ fn an_arp_takes_bars_octaves_and_tidals_modes() {
         Err(SongError {
             line: 4,
             col: 15,
-            msg: crate::notes::BARS_MSG
+            msg: crate::notes::BARS_MSG.into()
         })
     );
     assert_eq!(
@@ -727,7 +747,7 @@ fn an_arp_takes_bars_octaves_and_tidals_modes() {
         Err(SongError {
             line: 2,
             col: 20,
-            msg: "a line is 1 to 64 bars"
+            msg: "a line is 1 to 64 bars".into()
         })
     );
 }
@@ -743,7 +763,11 @@ fn a_song_has_one_tempo_and_one_swing() {
         let line = text.lines().count();
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col: 1, msg }),
+            Err(SongError {
+                line,
+                col: 1,
+                msg: msg.into()
+            }),
             "{text:?}"
         );
     }
@@ -824,7 +848,11 @@ fn generator_errors_say_where() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text:?}"
         );
     }
@@ -869,7 +897,7 @@ fn a_call_cannot_read_a_later_or_missing_clip() {
         Err(SongError {
             line: 3,
             col: 10,
-            msg: "no note clip with this name comes before this one"
+            msg: "no note clip with this name comes before this one".into()
         })
     );
     let own = "track t synth\nclip a = t\n  markov(1,a,1)\n";
@@ -912,7 +940,11 @@ fn live_errors_say_where() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text:?}"
         );
     }
@@ -1199,7 +1231,7 @@ fn arrangement_errors_say_where() {
     ];
     for (tail, line, col, msg) in cases {
         let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
-        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
+        assert_eq!((err.line, err.col, &*err.msg), (line, col, msg), "{tail}");
     }
     let err =
         Song::parse(&format!("{head}scene a 1:\narrange a\nloop 3 2")).expect_err("backwards");
@@ -1351,7 +1383,7 @@ fn automation_errors_say_where() {
     ];
     for (tail, line, col, msg) in cases {
         let err = Song::parse(&format!("{head}{tail}")).expect_err(tail);
-        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{tail}");
+        assert_eq!((err.line, err.col, &*err.msg), (line, col, msg), "{tail}");
     }
 }
 
@@ -1604,43 +1636,43 @@ fn model_and_setting_errors_say_where() {
         Err((
             1,
             15,
-            "a model (as Minimoog or Tr808) or a setting goes here"
+            "a model (as Minimoog or Tr808) or a setting goes here".into()
         ))
     );
     assert_eq!(
         at("track a synth Minimoog ProLead\n"),
-        Err((1, 24, "this preset is for another model"))
+        Err((1, 24, "this preset is for another model".into()))
     );
     assert_eq!(
         at("track a synth Tr808\n"),
-        Err((1, 15, "this model does not play this kind of track"))
+        Err((1, 15, "this model does not play this kind of track".into()))
     );
     assert_eq!(
         at("track a synth Minimoog MiniLead x\n"),
-        Err((1, 33, "unexpected text"))
+        Err((1, 33, "unexpected text".into()))
     );
     assert_eq!(
         at("setting s = Minimoog MiniLead: Level 1\n"),
-        Err((1, 32, "a setting changes the synth's own parameters"))
+        Err((1, 32, "a setting changes the synth's own parameters".into()))
     );
     assert_eq!(
         at("setting s = Minimoog MiniLead: Cutoff 1 Resonance 1\n"),
-        Err((1, 41, "a comma goes between changes"))
+        Err((1, 41, "a comma goes between changes".into()))
     );
     assert_eq!(
         at("track a synth\nsetting s = Minimoog MiniLead\n"),
-        Err((2, 1, "a setting goes before the tracks"))
+        Err((2, 1, "a setting goes before the tracks".into()))
     );
     assert_eq!(
         at("setting s = Tr808 Kit808\ntrack a synth s\n"),
-        Err((2, 15, "this model does not play this kind of track"))
+        Err((2, 15, "this model does not play this kind of track".into()))
     );
     assert_eq!(
         at("setting Minimoog = Minimoog MiniLead\n"),
         Err((
             1,
             9,
-            "a name is a letter, then letters, digits or _, and not a model's"
+            "a name is a letter, then letters, digits or _, and not a model's".into()
         ))
     );
 }
@@ -1863,7 +1895,8 @@ fn the_keywords_are_the_parsers() {
         assert!(err.msg.contains(k), "{k} in {}", err.msg);
         let e = Song::parse(k).err();
         assert!(
-            e.is_none_or(|e| !e.msg.starts_with("a line starts with")),
+            e.as_ref()
+                .is_none_or(|e| !e.msg.starts_with("a line starts with")),
             "{k}: {e:?}"
         );
     }
@@ -1912,7 +1945,11 @@ fn voicing_errors_say_where() {
     ] {
         assert_eq!(
             Song::parse(text),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text}"
         );
     }
@@ -1970,7 +2007,7 @@ fn a_bad_voicing_says_where() {
             Err(SongError {
                 line: if col == 9 { 3 } else { 2 },
                 col,
-                msg
+                msg: msg.into()
             }),
             "{text}"
         );
@@ -2216,7 +2253,11 @@ fn mixer_errors_say_where() {
         let text = format!("{head}{line}\n");
         assert_eq!(
             Song::parse(&text),
-            Err(SongError { line: 2, col, msg }),
+            Err(SongError {
+                line: 2,
+                col,
+                msg: msg.into()
+            }),
             "{line}"
         );
     }
@@ -2226,7 +2267,7 @@ fn mixer_errors_say_where() {
         Err(SongError {
             line: 3,
             col: 1,
-            msg: "this strip already has a line"
+            msg: "this strip already has a line".into()
         })
     );
 }
@@ -2307,12 +2348,12 @@ fn mod_errors_say_where() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}")).expect_err(line);
-        assert_eq!((err.line, err.col, err.msg), (4, col, msg), "{line}");
+        assert_eq!((err.line, err.col, &*err.msg), (4, col, msg), "{line}");
     }
     let twice = format!("{head}mod kit.bdtune = 1\nmod kit.BdTune = 2");
     let err = Song::parse(&twice).expect_err("twice");
     assert_eq!(
-        (err.line, err.col, err.msg),
+        (err.line, err.col, &*err.msg),
         (5, 5, "this parameter already has a mod")
     );
     let params = ["level", "pan", "send1"];
@@ -2320,7 +2361,7 @@ fn mod_errors_say_where() {
         .map(|n| format!("mod strip{}.{} = 1\n", n % 16 + 1, params[n / 16]))
         .collect();
     let err = Song::parse(&format!("{head}{many}")).expect_err("many");
-    assert_eq!((err.line, err.msg), (36, "a song has at most 32 mods"));
+    assert_eq!((err.line, &*err.msg), (36, "a song has at most 32 mods"));
     let big = format!("{head}mod kit.bdtune = {}1", "1 + ".repeat(130));
     let err = Song::parse(&big).expect_err("big");
     assert_eq!(err.msg, "a song's signals have at most 256 nodes");
@@ -2361,7 +2402,7 @@ fn per_voice_mod_errors_say_where() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}")).expect_err(line);
-        assert_eq!((err.line, err.col, err.msg), (6, col, msg), "{line}");
+        assert_eq!((err.line, err.col, &*err.msg), (6, col, msg), "{line}");
     }
     // On the track's voice parameters it parses, and so does a method.
     let ok = format!(
@@ -2492,7 +2533,7 @@ fn clip_method_errors_say_where() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}\n  bd x")).expect_err(line);
-        assert_eq!((err.line, err.col, err.msg), (2, col, msg), "{line}");
+        assert_eq!((err.line, err.col, &*err.msg), (2, col, msg), "{line}");
     }
 }
 
@@ -2559,7 +2600,7 @@ fn a_value_a_bar_parses_and_prints_back() {
     );
     assert_eq!(
         err.map_err(|e| e.msg),
-        Err("a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)")
+        Err("a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)".into())
     );
 }
 
@@ -2629,7 +2670,7 @@ fn pattern_method_errors_say_where() {
         ),
     ] {
         let err = Song::parse(text).expect_err(text);
-        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+        assert_eq!((err.line, err.col, &*err.msg), (line, col, msg), "{text}");
     }
     // No pattern method is also a parameter's name.
     for name in Pattern::NAMES {
@@ -2750,7 +2791,7 @@ fn oct_moves_whole_octaves_after_the_degrees_are_notes() {
         Song::parse("track lead synth\nclip x = lead .oct(1) .scale(a1 minor)\n  \"0\"\n")
             .map(|_| ())
             .map_err(|e| e.msg),
-        Err("oct moves notes: write it after scale")
+        Err("oct moves notes: write it after scale".into())
     );
 }
 
@@ -2774,7 +2815,7 @@ fn a_clip_read_for_roots_comes_before_and_has_notes() {
         ),
     ] {
         let e = Song::parse(text).expect_err(msg);
-        assert_eq!((e.msg, e.line), (msg, line), "{text}");
+        assert_eq!((&*e.msg, e.line), (msg, line), "{text}");
     }
 }
 
@@ -2906,7 +2947,7 @@ fn strudels_scales_by_any_name_and_with_colons() {
         ("scale c funky\n", 9, "no scale has this mode"),
     ] {
         let err = Song::parse(text).expect_err(text);
-        assert_eq!((err.line, err.col, err.msg), (1, col, msg), "{text}");
+        assert_eq!((err.line, err.col, &*err.msg), (1, col, msg), "{text}");
     }
 }
 
@@ -2987,7 +3028,7 @@ fn a_degree_without_a_scale_is_an_error() {
         ),
     ] {
         let err = Song::parse(text).expect_err(text);
-        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+        assert_eq!((err.line, err.col, &*err.msg), (line, col, msg), "{text}");
     }
 }
 
@@ -3057,7 +3098,93 @@ fn setting_code_errors_say_where() {
         ),
     ] {
         let err = Song::parse(text).expect_err(text);
-        assert_eq!((err.line, err.col, err.msg), (line, col, msg), "{text}");
+        assert_eq!((err.line, err.col, &*err.msg), (line, col, msg), "{text}");
+    }
+}
+
+/// #674: the setting a Modular track plays names its knobs, as its SynthDef's
+/// arguments; on the track a name reaches its knob wherever a parameter goes.
+const VIBRA: &str = r#"setting vibra = Modular ModularBasic
+  SynthDef(\vibra, { |freq = 220, gate = 1, vib = 4, vibmod = 6, cutoff = 800|
+      var f = freq * (SinOsc.kr(vib) * vibmod).midiratio;
+      RLPF.ar(LFTri.ar(f), cutoff, 0.5) * EnvGen.kr(Env.adsr(0.01, 0.1, 0.8, 0.1), gate) * 0.4
+  }).add;
+track lead synth vibra
+track bass synth Minimoog
+"#;
+
+#[test]
+fn a_modular_knob_goes_by_its_name() {
+    let s = Song::parse(VIBRA).expect("parses");
+    assert_eq!(s.settings[0].knobs[..3], ["vib", "vibmod", "cutoff"]);
+    let text = format!(
+        "{VIBRA}clip a = lead .vib(4) .VibMod(\"<.25 .5 1 2 12>\") .cutoff(1200)\n  \"a3 e3\"\n\
+         clip b = bass .cutoff(900)\n  \"a1\"\n\
+         auto wob = lead.vib ramp 2 8 /4\n\
+         snapshot calm: lead.vibmod 0.5\n\
+         mod lead.cutoff = lfo(1).range(400, 2000)\n"
+    );
+    let s = Song::parse(&text).expect("parses");
+    let methods: Vec<_> = s.mods.iter().map(|m| (m.target, m.param)).collect();
+    assert_eq!(
+        methods,
+        [
+            (Target::Track(0), Param::Ctl1),
+            (Target::Track(0), Param::Ctl2),
+            // A knob's name wins over the synth's own parameter.
+            (Target::Track(0), Param::Ctl3),
+            // Not on a track playing another synth.
+            (Target::Track(1), Param::Cutoff),
+            (Target::Track(0), Param::Ctl3),
+        ]
+    );
+    assert_eq!(
+        (s.autos[0].target, s.autos[0].param),
+        (Target::Track(0), Param::Ctl1)
+    );
+    assert_eq!(s.snapshots[0].sets, [(Target::Track(0), Param::Ctl2, 0.5)]);
+    let printed = s.print();
+    for want in [
+        "clip a = lead .vib(4) .vibmod(\"<0.25 0.5 1 2 12>\") .cutoff(1200)",
+        "clip b = bass .cutoff(900)",
+        "auto wob = lead.vib ramp 2 8 /4",
+        "snapshot calm: lead.vibmod 0.5",
+        "mod lead.cutoff = ",
+    ] {
+        assert!(printed.contains(want), "{want} in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+    // CtlN still reaches a knob, and prints by the knob's name.
+    let by_number = Song::parse(&format!(
+        "{VIBRA}clip a = lead .ctl1(4) .ctl2(6)\n  \"a3\"\n"
+    ))
+    .expect("parses");
+    assert_eq!(
+        by_number.mods.iter().map(|m| m.param).collect::<Vec<_>>(),
+        [Param::Ctl1, Param::Ctl2]
+    );
+    assert!(by_number.print().contains(".vib(4) .vibmod(6)"));
+}
+
+/// #674: a name the setting has no knob for says which it has; a UGen's
+/// number has no name.
+#[test]
+fn a_modular_knob_name_it_lacks_says_its_knobs() {
+    let knobs = "vibra's knobs are vib, vibmod, cutoff";
+    for (tail, col, msg) in [
+        ("clip a = lead .vibe(4)\n  \"a3\"", 16, knobs),
+        ("mod lead.depth = lfo(1)", 5, knobs),
+        ("auto w = lead.rq ramp 0 1 /4", 10, knobs),
+        ("snapshot s: lead.wobble 1", 13, knobs),
+        // Another synth's track keeps the old message.
+        (
+            "clip b = bass .vibe(4)\n  \"a1\"",
+            16,
+            "no parameter has this name",
+        ),
+    ] {
+        let err = Song::parse(&format!("{VIBRA}{tail}\n")).expect_err(tail);
+        assert_eq!((err.line, err.col, &*err.msg), (8, col, msg), "{tail}");
     }
 }
 
@@ -3118,7 +3245,7 @@ fn ratchets_parse_print_back_and_say_where_they_are_wrong() {
         ("  sn x33", 8, "a ratchet is 2, 3 or 4"),
     ] {
         let err = Song::parse(&format!("{head}{lane}\n")).expect_err(lane);
-        assert_eq!((err.line, err.col, err.msg), (3, col, msg), "{lane}");
+        assert_eq!((err.line, err.col, &*err.msg), (3, col, msg), "{lane}");
     }
 }
 
@@ -3256,7 +3383,7 @@ fn samples_lines_parse_print_and_say_where_they_are_wrong() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
-        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+        assert_eq!((err.col, &*err.msg), (col, msg), "{line}");
     }
 }
 
@@ -3341,7 +3468,7 @@ fn zone_lines_parse_print_and_say_where_they_are_wrong() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
-        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+        assert_eq!((err.col, &*err.msg), (col, msg), "{line}");
     }
 }
 
@@ -3417,7 +3544,7 @@ fn pad_lines_parse_print_and_say_where_they_are_wrong() {
         ),
     ] {
         let err = Song::parse(&format!("{head}{line}\n")).expect_err(line);
-        assert_eq!((err.col, err.msg), (col, msg), "{line}");
+        assert_eq!((err.col, &*err.msg), (col, msg), "{line}");
     }
 }
 
@@ -3518,7 +3645,7 @@ fn a_chromatic_run_from_the_scale_line_and_its_octave() {
         Err(SongError {
             line: 1,
             col: 7,
-            msg: "a root is a letter a to g, maybe # or b, maybe an octave",
+            msg: "a root is a letter a to g, maybe # or b, maybe an octave".into(),
         })
     );
 }
@@ -3625,7 +3752,7 @@ fn a_clip_read_for_a_rhythm_comes_before_and_has_hits() {
         ),
     ] {
         let e = Song::parse(text).expect_err(msg);
-        assert_eq!((e.msg, e.line, e.col), (msg, line, col), "{text}");
+        assert_eq!((&*e.msg, e.line, e.col), (msg, line, col), "{text}");
     }
 }
 
@@ -3757,7 +3884,7 @@ fn a_clip_made_from_a_clip_names_one_of_notes_before_it() {
         ),
     ] {
         let e = Song::parse(text).expect_err(msg);
-        assert_eq!((e.msg, e.line, e.col), (msg, line, col), "{text}");
+        assert_eq!((&*e.msg, e.line, e.col), (msg, line, col), "{text}");
     }
 }
 
@@ -4003,7 +4130,11 @@ fn a_beat_line_says_where_it_is_wrong() {
     for (text, line, col, msg) in cases {
         assert_eq!(
             Song::parse(text).map(|_| ()),
-            Err(SongError { line, col, msg }),
+            Err(SongError {
+                line,
+                col,
+                msg: msg.into()
+            }),
             "{text}"
         );
     }

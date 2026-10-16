@@ -742,6 +742,10 @@ struct Names<'a> {
     code: usize,
     /// The clip they belong to, which can't read itself.
     open: Option<&'a str>,
+    /// Each track's model or setting, as its line names it.
+    sounds: Vec<(&'a str, &'a str)>,
+    /// The text before the first track: the settings (#674).
+    head: &'a str,
 }
 
 impl<'a> Names<'a> {
@@ -756,6 +760,8 @@ impl<'a> Names<'a> {
             under: Under::Nothing,
             code: 0,
             open: None,
+            sounds: Vec::new(),
+            head: text,
         };
         // The end of each line read, its `\n` with it.
         let mut end = 0;
@@ -774,6 +780,9 @@ impl<'a> Names<'a> {
             n.open = None;
             match current_keyword(first, at(1), at(2)) {
                 "track" => {
+                    if n.head.len() == text.len() {
+                        n.head = text.get(..end - raw.len() - 1).unwrap_or("");
+                    }
                     if let (Some(t), Some(k)) = (at(1), at(2)) {
                         let model = at(3).and_then(|m| {
                             model_named(m).or_else(|| {
@@ -784,6 +793,9 @@ impl<'a> Names<'a> {
                             })
                         });
                         n.tracks.push((t, k, model));
+                    }
+                    if let (Some(t), Some(s)) = (at(1), at(3)) {
+                        n.sounds.push((t, s));
                     }
                 }
                 "setting" => {
@@ -838,6 +850,31 @@ impl<'a> Names<'a> {
             .rev()
             .find(|(n, _, _)| *n == track)
             .and_then(|(_, _, m)| *m)
+    }
+
+    /// The knobs a track's Modular setting names (#674), as the setting
+    /// lines above read.
+    fn knobs(&self, list: &mut List, track: &str) {
+        let Some(sound) = self
+            .sounds
+            .iter()
+            .rev()
+            .find(|(t, _)| *t == track)
+            .map(|(_, s)| *s)
+        else {
+            return;
+        };
+        if !self.settings.iter().any(|(s, _)| *s == sound) {
+            return;
+        }
+        let Ok(song) = super::Song::parse(self.head) else {
+            return;
+        };
+        if let Some(st) = song.settings.iter().find(|st| st.name == sound) {
+            for k in st.knobs.iter().filter(|k| !k.is_empty()) {
+                list.add(Class::Param, k, || format!("a knob of {sound}"));
+            }
+        }
     }
 
     fn tracks(&self, list: &mut List) {
@@ -1031,6 +1068,7 @@ impl<'a> Names<'a> {
             let target = word_before(pre);
             return match kw {
                 "clip" if target.is_empty() && w.len() >= 4 => {
+                    self.knobs(list, w.get(3).copied().unwrap_or(""));
                     let lanes = w.get(3).and_then(|t| self.kind(t)) == Some("drums");
                     let model = w.get(3).and_then(|t| self.model(t));
                     if lanes && from_clip(w.get(4).filter(|_| w.len() >= 5).copied()) {
@@ -1040,9 +1078,11 @@ impl<'a> Names<'a> {
                     }
                 }
                 "auto" | "snapshot" if !target.is_empty() => {
+                    self.knobs(list, target);
                     list.target_params(target, self.model(target), false);
                 }
                 "mod" if !target.is_empty() && !pre.contains('=') => {
+                    self.knobs(list, target);
                     list.target_params(target, self.model(target), true);
                 }
                 "mod" => list.signal(true),
@@ -1592,5 +1632,24 @@ scene main 8: beat riff
                 assert!(c.items.len() <= MAX_ITEMS);
             }
         }
+    }
+
+    /// #674: a Modular track's methods and targets offer its setting's
+    /// knobs first, by the names its SynthDef gives them.
+    #[test]
+    fn a_modular_track_offers_its_knobs() {
+        let head = "setting vibra = Modular ModularBasic\n  SynthDef(\\vibra, { |freq = 220, gate = 1, vib = 4, vibmod = 6|\n    LFTri.ar(freq * (SinOsc.kr(vib) * vibmod).midiratio)\n  }).add;\ntrack lead synth vibra\ntrack bass synth Minimoog\n";
+        // The cursor at the end: the code's `|` is not one.
+        let end = |line: &str| {
+            let text = format!("{head}{line}");
+            complete(&text, text.encode_utf16().count() as u32).items
+        };
+        let words = |line: &str| end(line).into_iter().map(|i| i.word).collect::<Vec<_>>();
+        assert_eq!(words("clip a = lead .vi")[..2], ["vib", "vibmod"]);
+        assert_eq!(words("mod lead.vi")[..2], ["vib", "vibmod"]);
+        assert_eq!(words("auto w = lead.vibm"), ["vibmod"]);
+        assert_eq!(words("snapshot s: lead.vibm"), ["vibmod"]);
+        assert!(!words("clip b = bass .vi").contains(&"vib".to_string()));
+        assert_eq!(end("mod lead.vib")[0].detail, "a knob of vibra");
     }
 }

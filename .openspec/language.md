@@ -726,6 +726,21 @@ one the track names, or the one picked for its role, which the text then
 names. Every model takes its strip's, the arpeggiator's and the voice pool's
 parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`).
 
+On a track that plays a Modular setting, the SynthDef's arguments name its
+knobs (#674): `.vib(4)` for `|vib = 4|`, in place of `.ctl1(4)`. A knob's name
+wins over a parameter of the same name, and so do targets: `lead.vib`.
+
+```song
+setting vibra = Modular ModularBasic
+  SynthDef(\vibra, { |freq = 220, gate = 1, vib = 4, vibmod = 6|
+      var f = freq * (SinOsc.kr(vib) * vibmod).midiratio;
+      LFTri.ar(f) * EnvGen.kr(Env.adsr(0.01, 0.1, 0.8, 0.1), gate) * 0.4
+  }).add;
+track lead synth vibra
+clip a = lead .vib(4) .vibmod("<.25 .5 1 2 12>")
+  "a3 e3"
+```
+
 A `~` in a sequence is a step with no value: the parameter has its own value
 there, so `.cutoff("~ ~ 800 ~")` locks the cutoff on one step of four and lets
 go after it (a per-step lock). Anything combined with a `~` has no value on that
@@ -753,7 +768,7 @@ arrange a b
 
 | target | parameters |
 |---|---|
-| `<track>` | its synth's and its strip's |
+| `<track>` | its synth's and its strip's; a Modular setting's knobs by name |
 | `strip1`–`strip16` | that synth's and strip's |
 | `group1`–`group8` | the group's strip parameters |
 | `master` | the master parameters |
