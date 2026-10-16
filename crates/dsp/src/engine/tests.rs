@@ -6938,7 +6938,8 @@ fn left(text: &str, frames: usize) -> Vec<f32> {
     let mut out = Vec::new();
     for _ in 0..frames / BLOCK {
         e.render(BLOCK);
-        out.extend(e.output().iter().step_by(2));
+        // The block is planar: left, then right.
+        out.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
     }
     out
 }
