@@ -75,7 +75,9 @@ pub enum Pattern {
     Struct(Vec<bool>),
     /// A struct of `k` hits spread over `n` steps (#582).
     Euclid(Euclid),
-    Sometimes(Box<Pattern>),
+    /// A method on some moments, by chance: `sometimes(m)` and its kin
+    /// (#700), as written, and `sometimesBy(p, m)`.
+    Sometimes(Chance, Box<Pattern>),
     Scale(Keys),
     /// `scale(<clip> <mode>)`: the roots are the notes an earlier clip plays
     /// (ADR-0035, #591).
@@ -94,6 +96,49 @@ pub enum Pattern {
     /// Milliseconds between a chord's notes, upward; downward when below 0
     /// (#604).
     Strum(i16),
+}
+
+/// How often `sometimes` and its kin apply their method (#700), with
+/// Strudel's chances.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Chance {
+    Sometimes,
+    Often,
+    Rarely,
+    AlmostNever,
+    AlmostAlways,
+    /// `sometimesBy(p, m)`.
+    By(f32),
+}
+
+/// The named chances and their methods' names.
+pub const CHANCES: [(&str, Chance); 5] = [
+    ("sometimes", Chance::Sometimes),
+    ("often", Chance::Often),
+    ("rarely", Chance::Rarely),
+    ("almostNever", Chance::AlmostNever),
+    ("almostAlways", Chance::AlmostAlways),
+];
+
+impl Chance {
+    pub fn p(self) -> f32 {
+        match self {
+            Chance::Sometimes => 0.5,
+            Chance::Often => 0.75,
+            Chance::Rarely => 0.25,
+            Chance::AlmostNever => 0.1,
+            Chance::AlmostAlways => 0.9,
+            Chance::By(p) => p,
+        }
+    }
+
+    /// Does the method take the moment starting at `start`? One coin per
+    /// moment, so a chord goes one way. The draw's top bit is the hash's low
+    /// bit inverted, so at a half it is the coin `sometimes` always used.
+    fn heads(self, start: u32) -> bool {
+        let h = (!mix(0x50E7_1AE5 ^ start, 0x2B)).rotate_right(1);
+        f64::from(h) / (f64::from(u32::MAX) + 1.0) < f64::from(self.p())
+    }
 }
 
 /// An earlier clip a method reads for its harmony (ADR-0035): its name as
@@ -395,7 +440,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 20] = [
+    pub const NAMES: [&'static str; 25] = [
         "fast",
         "slow",
         "rev",
@@ -410,6 +455,11 @@ impl Pattern {
         "struct",
         "euclid",
         "sometimes",
+        "often",
+        "rarely",
+        "almostNever",
+        "almostAlways",
+        "sometimesBy",
         "scale",
         "oct",
         "chord",
@@ -571,7 +621,26 @@ impl Pattern {
                 }
                 Ok(Pattern::Euclid(e))
             }
-            "sometimes" => Ok(Pattern::Sometimes(Box::new(nested(one()?, srcs)?))),
+            "sometimesBy" => {
+                let [p, m] = args.as_slice() else {
+                    return Err(crate::usage::SOMETIMES_BY);
+                };
+                let p = p
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|p| (0.0..=1.0).contains(p))
+                    .ok_or("this takes a chance from 0 to 1")?;
+                Ok(Pattern::Sometimes(
+                    Chance::By(p),
+                    Box::new(nested(m, srcs)?),
+                ))
+            }
+            "sometimes" | "often" | "rarely" | "almostNever" | "almostAlways" => {
+                let c = CHANCES.iter().find(|(w, _)| *w == name).map(|(_, c)| *c);
+                let c = c.unwrap_or(Chance::Sometimes);
+                Ok(Pattern::Sometimes(c, Box::new(nested(one()?, srcs)?)))
+            }
             "scale" => {
                 let arg = one()?.trim();
                 let (first, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
@@ -670,7 +739,11 @@ impl Pattern {
                 format!("struct(\"{}\")", words.join(" "))
             }
             Pattern::Euclid(e) => e.print(),
-            Pattern::Sometimes(m) => format!("sometimes({})", bare(m)),
+            Pattern::Sometimes(Chance::By(p), m) => format!("sometimesBy({p}, {})", bare(m)),
+            Pattern::Sometimes(c, m) => {
+                let name = CHANCES.iter().find(|(_, k)| k == c).map_or("", |(w, _)| *w);
+                format!("{name}({})", bare(m))
+            }
             Pattern::Scale(keys) => format!("scale({})", keys.print()),
             Pattern::ScaleOf(c, mode) => format!("scale({} {})", c.name, mode.name()),
             Pattern::Oct(n) => format!("oct({n})"),
@@ -750,12 +823,11 @@ impl Pattern {
                 check(bars, 0)?;
                 restructure(line, c, bars)
             }
-            Pattern::Sometimes(m) => {
+            Pattern::Sometimes(c, m) => {
                 let other = m.apply(line)?;
                 let bars = lcm(line.bars, other.bars);
                 check(bars, line.events.len() * (bars / line.bars) as usize)?;
-                // One coin per moment, so a chord goes one way.
-                let heads = |e: &Event| mix(0x50E7_1AE5 ^ e.start, 0x2B) & 1 == 1;
+                let heads = |e: &Event| c.heads(e.start);
                 let mut events: Vec<Event> = line
                     .repeat(bars)
                     .events
@@ -836,7 +908,7 @@ impl Pattern {
     /// drum clip, whose lanes hold neither, can't take it (#653)?
     pub fn moves_pitch(&self) -> bool {
         match self {
-            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(m) => m.moves_pitch(),
+            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
             Pattern::Stack(_) | Pattern::Strum(_) => true,
             p => p.pitch_only(),
         }
@@ -1114,8 +1186,9 @@ enum Tree<'a> {
     Val(&'a str),
     /// `[a b]`, or `a b` at the top: sharing the bar.
     Share(Vec<Tree<'a>>),
-    /// `<a b>`: one a bar, an inner one taking its own turns.
-    Turns(Vec<Tree<'a>>),
+    /// `<a b>`: one a bar, an inner one taking its own turns; `<a b>/n`
+    /// holds each for n bars (#700).
+    Turns(Vec<Tree<'a>>, u32),
 }
 
 /// Deepest nesting of `[ ]` and `< >` in a value a bar, as in a signal.
@@ -1165,7 +1238,7 @@ fn tree_items<'a>(
                 out.push(if c == b'[' {
                     Tree::Share(inner)
                 } else {
-                    Tree::Turns(inner)
+                    Tree::Turns(inner, hold_of(t, i)?)
                 });
             }
             Some(b']' | b'>') => return Err(BAD_PER_BAR),
@@ -1181,6 +1254,24 @@ fn tree_items<'a>(
             }
         }
     }
+}
+
+/// The `/n` after a `< >` at byte `i`, and past it: 1 without.
+fn hold_of(t: &str, i: &mut usize) -> Result<u32, &'static str> {
+    let b = t.as_bytes();
+    if b.get(*i) != Some(&b'/') {
+        return Ok(1);
+    }
+    let from = *i + 1;
+    let mut end = from;
+    while b.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    *i = end;
+    t.get(from..end)
+        .and_then(|n| n.parse::<u32>().ok())
+        .filter(|n| (1..=MAX_FACTOR).contains(n))
+        .ok_or("a < > holds each value 1 to 16 bars: \"<0 12>/4\"")
 }
 
 /// One more value, `v`, counted in `values`.
@@ -1213,8 +1304,9 @@ impl<'a> Tree<'a> {
         let p = match self {
             Tree::Val(_) => 1,
             Tree::Share(items) => round(items)?,
-            Tree::Turns(items) => u32::try_from(items.len())
+            Tree::Turns(items, hold) => u32::try_from(items.len())
                 .unwrap_or(MAX_BARS + 1)
+                .saturating_mul(*hold)
                 .saturating_mul(round(items)?),
         };
         (p <= MAX_BARS).then_some(p).ok_or(TOO_LONG)
@@ -1234,8 +1326,9 @@ impl<'a> Tree<'a> {
                     it.parts(b, edge(k), edge(k + 1), out);
                 }
             }
-            Tree::Turns(items) => {
+            Tree::Turns(items, hold) => {
                 let n = u32::try_from(items.len()).unwrap_or(1).max(1);
+                let b = b / (*hold).max(1);
                 if let Some(it) = items.get((b % n) as usize) {
                     it.parts(b / n, lo, hi, out);
                 }
@@ -1825,6 +1918,72 @@ mod tests {
         assert_eq!(s, run("sometimes(add(12))", &line), "seeded");
     }
 
+    /// #700: Strudel's chances, seeded, a chord going one way.
+    #[test]
+    fn the_chances_apply_their_method_about_that_often() {
+        let line = run("ply(16)", &four()).repeat(4);
+        let up = |p: &str| {
+            let s = run(p, &line);
+            assert_eq!(s.events.len(), line.events.len(), "{p}");
+            assert_eq!(s, run(p, &line), "{p} is seeded");
+            s.events.iter().filter(|e| e.note >= 72).count()
+        };
+        let n = line.events.len() as f32;
+        for (p, want) in [
+            ("often(add(12))", 0.75),
+            ("rarely(add(12))", 0.25),
+            ("almostNever(add(12))", 0.1),
+            ("almostAlways(add(12))", 0.9),
+            ("sometimesBy(0.3, add(12))", 0.3),
+        ] {
+            let got = up(p) as f32 / n;
+            assert!((got - want).abs() < 0.06, "{p}: {got}");
+        }
+        assert_eq!(up("sometimesBy(0, add(12))"), 0);
+        assert_eq!(up("sometimesBy(1, add(12))"), line.events.len());
+        // A half is the coin sometimes has always thrown.
+        assert_eq!(
+            run("sometimesBy(0.5, add(12))", &line),
+            run("sometimes(add(12))", &line)
+        );
+        // The moments a chance takes are among those a likelier one takes.
+        let taken = |p: &str| -> Vec<u32> {
+            let s = run(p, &line);
+            s.events
+                .iter()
+                .filter(|e| e.note >= 72)
+                .map(|e| e.start)
+                .collect()
+        };
+        let often = taken("often(add(12))");
+        assert!(taken("rarely(add(12))").iter().all(|t| often.contains(t)));
+        for bad in [
+            "sometimesBy(2, rev)",
+            "sometimesBy(0.5)",
+            "often(2)",
+            "rarely()",
+        ] {
+            let (name, args) = bad.split_once('(').unwrap();
+            assert!(
+                Pattern::parse(name, args.strip_suffix(')').unwrap()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    /// #700: `<a b>/n` in a value a bar holds each n bars.
+    #[test]
+    fn a_value_a_bar_over_n_holds_each_n_bars() {
+        let a = run("add(\"<0 12>/2\")", &four());
+        let firsts: Vec<u8> = (0..4).map(|b| a.events[b * 4].note).collect();
+        assert_eq!((a.bars, firsts), (4, vec![60, 60, 72, 72]));
+        let p = Pattern::parse("add", "\"<0 12>/2\"").unwrap();
+        assert_eq!(p.print(), "add(\"<0 12>/2\")");
+        for bad in ["\"<0 12>/0\"", "\"<0 12>/17\"", "\"<0 12>/x\""] {
+            assert!(Pattern::parse("add", bad).is_err(), "{bad}");
+        }
+    }
+
     #[test]
     fn scale_moves_notes_to_the_nearest_scale_note() {
         let chromatic = Line {
@@ -2032,6 +2191,9 @@ mod tests {
             ("every", "2, strum(-15)", "every(2, strum(-15))"),
             ("struct", "\"x ~  x\"", "struct(\"x ~ x\")"),
             ("sometimes", "fast(2)", "sometimes(fast(2))"),
+            ("often", "rev", "often(rev)"),
+            ("almostNever", " ply(2) ", "almostNever(ply(2))"),
+            ("sometimesBy", "0.25, add(12)", "sometimesBy(0.25, add(12))"),
             ("euclid", "5,8", "euclid(5,8)"),
             ("euclid", " 3, 8 ,2", "euclid(3,8,2)"),
             ("euclid", "3,8,0", "euclid(3,8)"),

@@ -56,6 +56,21 @@ fn an_alternation_plays_one_option_a_bar_and_repeats() {
     assert_eq!(got, [(0, 60), (48, 62), (96, 64)]);
 }
 
+/// #700: `<a b>/n` holds each option n bars, as Strudel's slow.
+#[test]
+fn an_alternation_over_n_holds_each_option_n_bars() {
+    let n = parse("\"<c4 d4>/2\"", 1).unwrap();
+    assert_eq!(n.bars, 4);
+    let got: Vec<_> = n.events.iter().map(|e| (e.start, e.note)).collect();
+    assert_eq!(got, [(0, 60), (48, 60), (96, 62), (144, 62)]);
+    assert_eq!(n.print(), "\"<c4 d4>/2\"");
+    // Too long to come round, or a hold out of range.
+    assert!(parse("\"<c4 d4 e4 f4 g4>/16\"", 1).is_err());
+    for bad in ["\"<c4 d4>/0\"", "\"<c4 d4>/17\"", "\"<c4 d4>/\""] {
+        assert!(parse(bad, 1).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn a_chance_is_drawn_from_a_fixed_seed() {
     let a = parse("\"c4? e4? g4? c5?\"", 1).unwrap();

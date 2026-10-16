@@ -378,7 +378,7 @@ weight = %n after an option of [a | b], last (1–16): drawn n times as often as
 ```
 
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
-one option per bar, `[a | b c]` one option at random each bar, filling the
+one option per bar, `<a b>/n` each for n (1–16) bars (#700), `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a
 sequence; not with a chord's commas; `[c2%3 | d#2 | g1]` weighs c2 three
 times out of five, #616, and a sequence takes its weight on its brackets,
@@ -621,6 +621,9 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |
 | `.sometimes(m)` | m on about half the moments, seeded |
+| `.often(m)` `.rarely(m)` | m on about 3 in 4, or 1 in 4, of the moments (#700) |
+| `.almostNever(m)` `.almostAlways(m)` | m on about 1 in 10, or 9 in 10, of the moments |
+| `.sometimesBy(p, m)` | m on a chance p (0–1) of the moments; a moment a rarer chance takes, a likelier one takes too |
 | `.scale(<root> <mode>)` | each note to the nearest note of the scale (down on a tie); each degree a note, from the root in its octave (`a1`) or octave 3 (`a`) |
 | `.scale(<<root>…>[/n] [<mode>])` | a progression: the roots (up to 16) take turns, a bar each or n (1–16) bars each, by the bar a note starts in; `a1:dorian` gives a root its own mode, and the shared mode may go when each has one |
 | `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
@@ -632,7 +635,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,
-−1. Several values side by side, or in `[ ]`, split the bar (#676):
+−1, and `/n` holds each of its values n (1–16) bars: `"<0 12>/16"` (#700). Several values side by side, or in `[ ]`, split the bar (#676):
 `.add("0 3")` adds 0 to the notes starting in its first half and 3 to the
 rest, and `.add("<0 [3 5]>")` nests; `[0,2,4]` with commas stays one value, a
 stack. A method that moves notes in time (`.fast("1 2")`) moves the whole line,
@@ -641,7 +644,7 @@ and each part keeps the notes that land in it. On a `live` clip, `.add` and
 
 While the song plays, the value in force lights in the clip's line, for each
 bar and each part of a split one, while the clip plays. A method inside
-`every`, `off` or `sometimes`, one followed by any method but `.add`, `.sub`,
+`every`, `off` or a chance (`sometimes` and its kin), one followed by any method but `.add`, `.sub`,
 `.oct`, `.scale` and `.chord` (`.add(…) .fast(…)`), and one on a `live` clip
 light nothing: their bars are not the clip's. A value a bar holds at most 64
 values, nested at most 32 deep.
@@ -704,7 +707,7 @@ clip hats = hatl /16
 clip stah = hatr hats .every(2, rev)
 ```
 
-The `m` of `every`, `off` and `sometimes` is a method without its dot:
+The `m` of `every`, `off` and the chances is a method without its dot:
 `rev`, `fast(2)`, `add(12)`.
 
 ```song

@@ -93,8 +93,8 @@ pub enum Item {
     Symbol(Symbol),
     /// `[ ... ]`: its words share the slot.
     Group(Vec<Slot>),
-    /// `< ... >`: one option per bar.
-    Alt(Vec<Slot>),
+    /// `< ... >`: one option per bar, or per `n` bars for `<…>/n` (#700).
+    Alt(Vec<Slot>, u32),
     /// `[a | b c]`: one option at random each bar, seeded as `?` is
     /// (#614); an option may be a sequence. Each with its weight, `%n`
     /// on the option, 1 without (#616).
@@ -824,7 +824,18 @@ impl Cursor<'_> {
                     return err(at, "brackets nest at most 4 deep");
                 }
                 self.i += 1;
-                Item::Alt(self.slots(Some('>'), depth + 1)?)
+                let opts = self.slots(Some('>'), depth + 1)?;
+                let hold = if self.peek() == Some('/') {
+                    let here = self.col();
+                    self.i += 1;
+                    match self.number()? {
+                        n @ 1..=MAX_FACTOR => n,
+                        _ => return err(here, "a < > holds each option 1 to 16 bars: <a b>/4"),
+                    }
+                } else {
+                    1
+                };
+                Item::Alt(opts, hold)
             }
             Some(']' | '>') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
@@ -857,7 +868,7 @@ impl Cursor<'_> {
                 }
             }
         };
-        if self.pads.is_some() && !matches!(item, Item::Group(_) | Item::Alt(_)) {
+        if self.pads.is_some() && !matches!(item, Item::Group(_) | Item::Alt(..)) {
             self.cols.push(at);
         }
         let euclid = self.inline_euclid()?;
@@ -1355,7 +1366,8 @@ fn slot_text(s: &Slot) -> String {
         Item::Chord(ps) => chord_text(ps),
         Item::Symbol(sym) => sym.text.clone(),
         Item::Group(g) => format!("[{}]", slots_text(g)),
-        Item::Alt(g) => format!("<{}>", slots_text(g)),
+        Item::Alt(g, 1) => format!("<{}>", slots_text(g)),
+        Item::Alt(g, hold) => format!("<{}>/{hold}", slots_text(g)),
         Item::Choice(opts) => format!("[{}]", choice_text(opts)),
         Item::Range(a, b) => format!("{a} .. {b}"),
     };
@@ -1389,7 +1401,7 @@ fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
             at += 1;
         }
         match &s.item {
-            Item::Group(g) | Item::Alt(g) => mini_spans(g, at + 1, out),
+            Item::Group(g) | Item::Alt(g, _) => mini_spans(g, at + 1, out),
             Item::Choice(opts) => {
                 let mut o = at + 1;
                 for (g, w) in opts {
@@ -1532,7 +1544,7 @@ struct Compiler<'a> {
 fn leaves_of<'a>(slots: &'a [Slot], out: &mut Vec<&'a Item>) {
     for s in slots {
         match &s.item {
-            Item::Group(g) | Item::Alt(g) => leaves_of(g, out),
+            Item::Group(g) | Item::Alt(g, _) => leaves_of(g, out),
             Item::Choice(opts) => opts.iter().for_each(|(g, _)| leaves_of(g, out)),
             leaf => out.push(leaf),
         }
@@ -1658,9 +1670,9 @@ impl Compiler<'_> {
                     self.note(p, at.add(span.scale(k, n)), span.scale(1, n), bar, slide);
                 }
             }
-            Item::Alt(g) => {
+            Item::Alt(g, hold) => {
                 let n = u32::try_from(g.len()).unwrap_or(1).max(1);
-                let pick = usize::try_from(bar % n).unwrap_or(0);
+                let pick = usize::try_from(bar / (*hold).max(1) % n).unwrap_or(0);
                 if let Some(s) = g.get(pick) {
                     self.slot(s, at, span, bar);
                 }
@@ -1941,7 +1953,7 @@ fn period(slots: &[Slot]) -> u32 {
     for s in slots {
         let inner = match &s.item {
             Item::Group(g) => period(g),
-            Item::Alt(g) => lcm(u32::try_from(g.len()).unwrap_or(1), period(g)),
+            Item::Alt(g, hold) => lcm(u32::try_from(g.len()).unwrap_or(1) * hold, period(g)),
             // A choice is a chance, its pattern round in `CHANCE_BARS`.
             Item::Choice(opts) => opts.iter().fold(CHANCE_BARS, |p, (g, _)| lcm(p, period(g))),
             _ => 1,

@@ -20,6 +20,8 @@ pub const SCALE: &str =
 pub const CHORD: &str = "chord takes an earlier clip: chord(harm)";
 pub const VOICING: &str =
     "voicing takes a style and maybe an anchor note: voicing(drop2) or voicing(drop2,c5)";
+pub const SOMETIMES_BY: &str =
+    "sometimesBy takes a chance from 0 to 1 and a method: sometimesBy(0.3, add(12))";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -35,7 +37,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 20] = [
+pub const METHODS: [(&str, &str); 25] = [
     (
         "fast",
         "fast takes a whole number from 1 to 16, or one a bar: fast(2) or fast(\"<1 2>\")",
@@ -68,6 +70,17 @@ pub const METHODS: [(&str, &str); 20] = [
     ("struct", STRUCT),
     ("euclid", EUCLID),
     ("sometimes", "sometimes takes a method: sometimes(add(12))"),
+    ("often", "often takes a method: often(add(12))"),
+    ("rarely", "rarely takes a method: rarely(add(12))"),
+    (
+        "almostNever",
+        "almostNever takes a method: almostNever(ply(2))",
+    ),
+    (
+        "almostAlways",
+        "almostAlways takes a method: almostAlways(add(12))",
+    ),
+    ("sometimesBy", SOMETIMES_BY),
     ("scale", SCALE),
     ("oct", "oct takes octaves from -4 to 4: oct(1)"),
     ("chord", CHORD),

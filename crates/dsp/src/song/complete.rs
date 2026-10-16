@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 20] = [
+const METHODS: [(&str, &str); 25] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -103,6 +103,11 @@ const METHODS: [(&str, &str); 20] = [
     ("struct", "the notes on a rhythm"),
     ("euclid", "the notes on k hits of n steps"),
     ("sometimes", "a method on about half"),
+    ("often", "a method on about 3 in 4"),
+    ("rarely", "a method on about 1 in 4"),
+    ("almostNever", "a method on about 1 in 10"),
+    ("almostAlways", "a method on about 9 in 10"),
+    ("sometimesBy", "a method on a chance of p"),
     (
         "scale",
         "the notes onto a scale, or an earlier clip's roots",
@@ -1269,7 +1274,10 @@ impl<'a> Names<'a> {
                         list.add(Class::Name, c, || format!("a clip on {t}"));
                     }
                 }
-                ("every" | "off", 1) | ("sometimes", 0) => list.table(Class::Call, &METHODS),
+                ("every" | "off" | "sometimesBy", 1)
+                | ("sometimes" | "often" | "rarely" | "almostNever" | "almostAlways", 0) => {
+                    list.table(Class::Call, &METHODS)
+                }
                 (name, _) if Pattern::NAMES.contains(&name) => {}
                 _ => signal(list),
             },
@@ -1396,7 +1404,7 @@ scene main 8: beat riff
         assert_eq!(song("clip c = lead .chord(|"), ["riff"]);
         assert_eq!(song("clip c = lead .struct(|"), ["beat", "riff"]);
         assert!(song("clip c = lead .struct(\"x |").is_empty());
-        assert_eq!(song("clip c = lead .every(4, r|"), ["rev"]);
+        assert_eq!(song("clip c = lead .every(4, r|"), ["rev", "rarely"]);
         assert!(song("clip c = lead .fast(|").is_empty());
         assert_eq!(song("clip c = lead .cutoff(sin|"), ["sine", "sine2"]);
         assert_eq!(song("clip c = lead .cutoff(sine.ex|"), ["exprange"]);
