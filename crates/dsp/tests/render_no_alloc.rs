@@ -9,6 +9,7 @@
 //! with one test: nothing else runs while it counts.
 
 use algo_dsp::arp::ArpMode;
+use algo_dsp::bounce::{Bounce, Format};
 use algo_dsp::deck::DeckField;
 use algo_dsp::engine::Engine;
 use algo_dsp::params::Param;
@@ -237,6 +238,23 @@ fn a_busy_song_renders_without_allocating() {
         (0, 0, 0),
         "the live arp allocated: {change:?}"
     );
+
+    // A bounce (#705) sizes its file when it starts; rendering into it and
+    // dithering doesn't allocate.
+    let mut b = Bounce::start(&mut e, 2, Format::Pcm24).expect("starts");
+    let region = Region::new(GLOBAL);
+    b.step(&mut e, blocks / 6);
+    let change = region.change();
+    assert_eq!(
+        (
+            change.allocations,
+            change.reallocations,
+            change.deallocations
+        ),
+        (0, 0, 0),
+        "the bounce allocated: {change:?}"
+    );
+    assert!(b.peak() > 0.0, "the bounce was heard");
 }
 
 const HOOVER: &str = r"SynthDef(\hoover, {
