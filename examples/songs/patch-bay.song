@@ -6,7 +6,6 @@
 tempo 132
 swing 53
 scale g minor
-
 # A sine and a saw through the Minimoog's ladder, short and driven.
 setting rumble = Modular ModularBasic
   SynthDef(\rumble, { |freq = 55, cutoff = 260, gate = 1|
@@ -14,7 +13,6 @@ setting rumble = Modular ModularBasic
       sig = MoogFF.ar(sig, cutoff, 2.2, voicing: \minimoog, drive: 0.5);
       (sig * 2).tanh * EnvGen.kr(Env.perc(0.004, 0.26), gate) * 0.7
   }).add;
-
 # Two detuned saws and a sub pulse through the MS-20's filter, the envelope
 # opening it; slowly panned.
 setting stab = Modular ModularBasic
@@ -24,7 +22,6 @@ setting stab = Modular ModularBasic
       sig = RLPF.ar(sig, cutoff * (env + 0.3), 0.35, voicing: \ms20);
       Pan2.ar(sig * env * 1.2, SinOsc.kr(0.2) * 0.5)
   }).add;
-
 # A phase-modulated bell whose index falls with its envelope, panned at random.
 setting ping = Modular ModularBasic
   SynthDef(\ping, { |freq = 440, index = 3, gate = 1|
@@ -32,7 +29,6 @@ setting ping = Modular ModularBasic
       var sig = PMOsc.ar(freq, freq * 1.41, index * env);
       Pan2.ar(sig * env * 0.7, Rand(-0.6, 0.6))
   }).add;
-
 # Four drifting saws spread wide, a slow sweep through the CS-15's filter.
 setting haze = Modular ModularBasic
   SynthDef(\haze, { |freq = 220, gate = 1|
@@ -40,7 +36,6 @@ setting haze = Modular ModularBasic
       sig = RLPF.ar(Splay.ar(sig), SinOsc.kr(0.07).exprange(300, 2400), 0.5, voicing: \cs15);
       sig * EnvGen.kr(Env.asr(1.2, 1, 2.5), gate) * 0.35
   }).add;
-
 # Filtered noise and a falling blip.
 setting zap = Modular ModularBasic
   SynthDef(\zap, { |freq = 440, gate = 1|
@@ -49,7 +44,6 @@ setting zap = Modular ModularBasic
       var sig = RHPF.ar(WhiteNoise.ar, freq * 4, 0.2) + blip;
       Pan2.ar(sig * env * 0.6, Rand(-0.8, 0.8))
   }).add;
-
 # The hoover of #216, lighter: six detuned saw-and-pulse pairs that dive in.
 setting hoov = Modular ModularBasic
   SynthDef(\hoov, { |freq = 440, gate = 1|
@@ -59,8 +53,7 @@ setting hoov = Modular ModularBasic
       snd = (Splay.ar(snd) * 1.5).atan;
       RLPF.ar(snd, 3200, 0.6) * EnvGen.kr(Env.adsr(0.02, 0.3, 0.7, 0.5), gate) * 0.5
   }).add;
-
-track kit drums Tr909 Kit909
+track kit drums PadSampler PadsLoud
 track sub synth rumble
 track acid synth Tb303 Tb303Acid
 track stab synth stab
@@ -68,12 +61,11 @@ track ping synth ping
 track pad synth haze
 track zap synth zap
 track hoover synth hoov
-
-strip kit: Level 1
-strip sub: Level 0.65
-strip acid: Level 0.22, Pan -0.15, I1Type Overdrive, I1A 0.3, Send1 0.15
+samples kit roland-tr909
+strip kit: Level 0.40305623
+strip acid: Level 0.22, Pan -0.15, Send1 0.15, I1Type Overdrive, I1A 0.3
 strip stab: Level 0.7, Send1 0.45, Send2 0.2
-strip ping: Level 0.4, Pan 0.2, Send1 0.35
+strip ping: Level 0.9652912, Pan 0.2, Send1 0.32578126
 strip pad: Level 0.45, Send2 0.5
 strip zap: Level 0.3, Send1 0.3
 strip hoover: Level 0.45, Send2 0.3
@@ -81,52 +73,63 @@ master: MasterGain 0.8, P1Return 0.3, P1B 0.5, P2Return 0.3
 
 clip kick = kit /16
   bd x...x...x...x...
+
 clip tick = kit /16
   ch x.x.x.x.x.x.x.x.
+
 clip hats = kit /16
-  ch xxXx xxXx xxXx xxXX
+  ch xxXxxxXxxxXxxxXX
   oh ..x...x...x...x.
+
 clip clap = kit /16
   cp ....x.......x...
   rs euclid(5,16,3)
+
 clip ride = kit /16
   rd x.x.x.x.x.x.x.x.
+
 clip toms = kit /16
   lt euclid(3,16,2)
   ht euclid(5,16,7)
+
 clip roll = kit /16
   sn x.x.x.x.xxxxXXXX
+
 clip crash = kit /16
   cr x...............................................................
 
 clip rolling = sub
-  "[~ g1! g1 g1] [~ g1! g1 g1] [~ g1! g1 g1] [~ <g1 f1 bb1 c2> g1 g1]"
+  "[~ g1! g1 g1] [~ g1! g1 g1] [~ g1! g1 g1] [~ <g1 f1 a#1 c2> g1 g1]"
+
 clip pulse = sub
   "~ g1 ~ g1 ~ g1 ~ g1"
 
 clip line = acid
-  "g2! g2& bb2 g3! ~ g2 f2!& g2 ~ g2! c3& d3 g2 ~ bb2! g2"
+  "g2! g2& a#2 g3! ~ g2 f2!& g2 ~ g2! c3& d3 g2 ~ a#2! g2"
+
 clip line_b = acid .every(4, rev)
   mutate(line,30,4)
 
 clip chord = stab
-  "~ ~ [g3!,bb3!,d4!] ~ ~ ~ ~ [g3,bb3,d4] ~ ~ [g3,bb3,d4] ~ ~ ~ ~ ~"
+  "~ ~ [g3!,a#3!,d4!] ~ ~ ~ ~ [g3,a#3,d4] ~ ~ [g3,a#3,d4] ~ ~ ~ ~ ~"
+
 clip chord_dub = stab .send1(0.7)
-  "~ ~ <[g3,bb3,d4] [eb3,g3,bb3]> ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~"
+  "~ ~ <[g3,a#3,d4] [d#3,g3,a#3]> ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~"
 
 clip bells = ping
   euclid(5,16,2) scale g4
+
 clip sparks = ping live
-  arp([g4,bb4,d5,f5,g5],random,16,9)
+  arp([g4,a#4,d5,f5,g5],random,16,9)
 
 clip wash = pad .slow(2)
-  "<[g2,d3,bb3] [eb2,bb2,g3] [c3,g3,eb4] [d3,a3,f4]>"
+  "<[g2,d3,a#3] [d#2,a#2,g3] [c3,g3,d#4] [d3,a3,f4]>"
 
 clip zaps = zap
   euclid(3,8,1) c5
 
 clip theme = hoover
-  g3:2. bb3:8 a3:8 g3:2 f3:4 d3:4
+  g3:2. a#3:8 a3:8 g3:2 f3:4 d3:4
 
 auto acid_shut = acid.Cutoff 350 /8
 auto acid_open = acid.Cutoff ramp 400 2600 /16
@@ -136,7 +139,6 @@ auto acid_build = acid.Resonance ramp 0.4 0.85 /4
 auto acid_peak = acid.Resonance 0.75 /4
 auto riser = zap.Level ramp 0 0.5 /4
 auto echo_up = master.P1Return ramp 0.3 0.6 /4
-
 snapshot dry: master.P1Return 0.3, master.P2Return 0.3
 snapshot wet: master.P1Return 0.55, master.P2Return 0.5
 
