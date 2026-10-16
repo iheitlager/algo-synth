@@ -96,6 +96,9 @@ pub enum Pattern {
     /// Milliseconds between a chord's notes, upward; downward when below 0
     /// (#604).
     Strum(i16),
+    /// `arp("0 3 <2 0>")`: the line's own chords played by index, as
+    /// Strudel's arp (#696): the indexes as written, and as a line of degrees.
+    Arp(String, Line),
 }
 
 /// A factor of `fast` or `slow`, `num/den` in lowest terms, each 1 to 16
@@ -258,6 +261,36 @@ impl Context {
             }
             None => false,
         }
+    }
+
+    /// Event `e` at tick `t` made the note of the chord sounding there at
+    /// its index, counted from the lowest (0) and wrapping round the chord
+    /// with no octave added, as Strudel's arp (#696). False when the clip
+    /// has no notes there.
+    /// The note takes the word of its chord, so the chord lights as it plays.
+    pub fn pick(&self, e: &mut Event, t: u64) -> bool {
+        let len = u64::from(self.bars.max(1) * BAR);
+        let t = u32::try_from(t % len).unwrap_or(0);
+        let mut buf = [0u8; MAX_CHORD];
+        let Some((start, n)) = chord_at(&self.events, t, &mut buf)
+            .or_else(|| chord_at(&self.events, u32::MAX, &mut buf))
+        else {
+            return false;
+        };
+        let k = (i32::from(e.note) - i32::from(DEGREE_ZERO)).rem_euclid(n.max(1) as i32);
+        let Some(&note) = buf.get(..n).and_then(|c| c.get(k as usize)) else {
+            return false;
+        };
+        e.note = note;
+        e.degree = false;
+        if let Some(src) = self
+            .events
+            .iter()
+            .find(|s| s.start == start && s.note == note)
+        {
+            e.word = src.word;
+        }
+        true
     }
 
     /// The root sounding at tick `t`: the lowest note there.
@@ -496,7 +529,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 25] = [
+    pub const NAMES: [&'static str; 26] = [
         "fast",
         "slow",
         "rev",
@@ -520,6 +553,7 @@ impl Pattern {
         "oct",
         "chord",
         "strum",
+        "arp",
         "shuffle",
         "scramble",
     ];
@@ -744,6 +778,29 @@ impl Pattern {
                     bars,
                 }))
             }
+            "arp" => {
+                let bad = crate::usage::ARP_METHOD;
+                let arg = one()?.trim();
+                if !arg.starts_with('"') {
+                    return Err(bad);
+                }
+                let idx = super::parse(arg, 0).map_err(|e| e.msg)?;
+                if idx.events.iter().any(|e| !e.degree) {
+                    return Err(
+                        "arp takes indexes into the chord, 0 its lowest note: arp(\"0 2 1\")",
+                    );
+                }
+                if idx.events.is_empty() {
+                    return Err(bad);
+                }
+                Ok(Pattern::Arp(
+                    idx.print(),
+                    Line {
+                        events: idx.events,
+                        bars: idx.bars,
+                    },
+                ))
+            }
             "strum" => one()?
                 .trim()
                 .parse::<i16>()
@@ -806,6 +863,7 @@ impl Pattern {
             Pattern::ChordOf(c) => format!("chord({})", c.name),
             Pattern::StructOf(c) => format!("struct({})", c.name),
             Pattern::Strum(ms) => format!("strum({ms})"),
+            Pattern::Arp(text, _) => format!("arp({text})"),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -918,6 +976,24 @@ impl Pattern {
                 out
             }
             Pattern::Strum(ms) => strum(line, *ms),
+            Pattern::Arp(_, idx) => {
+                if line.events.iter().any(|e| e.degree) {
+                    return Err("arp plays notes: write it after scale");
+                }
+                // The line's chords as a clip read for harmony, the indexes
+                // looked up in it as the two round together (ADR-0035).
+                let chords = Context {
+                    name: String::new(),
+                    events: line.events.clone(),
+                    bars: line.bars,
+                };
+                let bars = lcm(idx.bars, line.bars);
+                check(bars, idx.events.len() * (bars / idx.bars.max(1)) as usize)?;
+                let mut out = idx.repeat(bars);
+                out.events
+                    .retain_mut(|e| chords.pick(e, u64::from(e.start)));
+                out
+            }
             Pattern::PerBar(_, steps) => by_bar(line, steps)?,
             Pattern::Oct(n) => {
                 if line.events.iter().any(|e| e.degree) {
@@ -954,7 +1030,7 @@ impl Pattern {
     pub fn moves_pitch(&self) -> bool {
         match self {
             Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
-            Pattern::Stack(_) | Pattern::Strum(_) => true,
+            Pattern::Stack(_) | Pattern::Strum(_) | Pattern::Arp(..) => true,
             p => p.pitch_only(),
         }
     }

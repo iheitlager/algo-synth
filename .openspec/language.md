@@ -629,6 +629,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.scale(<clip> <mode>)` | the roots from an earlier clip (ADR-0035): each note takes, as degree 0, the lowest note the clip plays where the note starts, in its octave; the two loop round together (at most 64 bars), and before the clip's first note its last chord sounds; a clip's name wins over a root |
 | `.chord(<clip>)` | each degree a note of the chord an earlier clip plays where it starts (ADR-0035): 0 its lowest note, on up an octave past the top and down below the root, `[0,2]` two at once; a note moves to the nearest chord note; `"0 1 2 3"` is an up arpeggio |
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
+| `.arp("0 3 <2 0> [1 3]")` | the line's own chords played by index, as Strudel's arp (#696): each index, in mini-notation, the note of the chord sounding where it starts, 0 the lowest, wrapping round the chord with no octave added (`.chord` adds one); methods before it change the chords, after it the notes; the line and the indexes round together; after `.scale` |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
 `.fast`, `.slow`, `.add`, `.sub`, `.ply` and `.degrade` also take a value a

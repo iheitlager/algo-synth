@@ -2966,6 +2966,58 @@ fn a_clip_read_for_roots_comes_before_and_has_notes() {
     }
 }
 
+/// #696: Strudel's arp, the line's own chords by index.
+#[test]
+fn arp_plays_the_lines_chords_by_index() {
+    let s = Song::parse(
+        "track keys synth\nclip a = keys .arp(\"0 3 <2 0> [1 3]\")\n  \"<c4:maj7 d4:m7>\"\n",
+    )
+    .expect("parses");
+    let got = notes_of(&s, "a");
+    // Cmaj7 then Dm7, the <2 0> taking its turn: 2 on the first bar, 0 on
+    // the second.
+    assert_eq!(
+        got,
+        [
+            (0, 60),
+            (12, 71),
+            (24, 67),
+            (36, 64),
+            (42, 71),
+            (48, 62),
+            (60, 72),
+            (72, 62),
+            (84, 65),
+            (90, 72),
+        ]
+    );
+    // An index past the top wraps round the chord, no octave added.
+    let s = Song::parse("track keys synth\nclip a = keys .arp(\"4 -1\")\n  \"[c4,e4,g4]\"\n")
+        .expect("parses");
+    assert_eq!(notes_of(&s, "a"), [(0, 64), (24, 67)]);
+    // Methods before it change the chords, after it the notes; it prints back.
+    let text = "track keys synth\nclip a = keys voicing(drop2) .arp(\"0 1 2 3\") .iter(4)\n  \"<c4:maj7 d4:m7>\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert!(
+        s.print().contains(".arp(\"0 1 2 3\") .iter(4)"),
+        "{}",
+        s.print()
+    );
+    for (bad, msg) in [
+        ("keys .arp(0 1)", crate::usage::ARP_METHOD),
+        (
+            "keys .arp(\"c4 e4\")",
+            "arp takes indexes into the chord, 0 its lowest note: arp(\"0 2 1\")",
+        ),
+    ] {
+        let err = Song::parse(&format!(
+            "track keys synth\nclip a = {bad}\n  \"[c4,e4,g4]\"\n"
+        ))
+        .expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+}
+
 #[test]
 fn degrees_count_the_notes_of_an_earlier_clips_chord() {
     let harm = "track pad synth\ntrack lead synth\n\

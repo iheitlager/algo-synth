@@ -22,6 +22,8 @@ pub const VOICING: &str =
     "voicing takes a style and maybe an anchor note: voicing(drop2) or voicing(drop2,c5)";
 pub const SOMETIMES_BY: &str =
     "sometimesBy takes a chance from 0 to 1 and a method: sometimesBy(0.3, add(12))";
+pub const ARP_METHOD: &str =
+    "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -37,7 +39,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 25] = [
+pub const METHODS: [(&str, &str); 26] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -88,6 +90,7 @@ pub const METHODS: [(&str, &str); 25] = [
         "strum",
         "strum takes milliseconds from 1 to 100, below 0 to strum down: strum(15)",
     ),
+    ("arp", ARP_METHOD),
     (
         "shuffle",
         "shuffle takes a whole number from 1 to 16: shuffle(4)",
