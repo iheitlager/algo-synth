@@ -316,3 +316,57 @@ export function sourcesOf(packs: readonly Pack[], kits: readonly Kit[]): string[
   const of = (id: string, files: string[]) => files.map((f) => `${id}/${f.split('/').pop()?.replace(/\.wav$/, '')}`)
   return [...packs.flatMap((p) => of(p.id, p.zones.map((z) => z.sample))), ...kits.flatMap((k) => of(k.id, k.pads.map((p) => p.sample)))]
 }
+
+/**
+ * A Strudel sample map (#728), as `strudel.json` gives it: the base its files are under, and each
+ * sound's files in order.
+ */
+export interface SampleMap { url: string; base: string; sounds: Map<string, string[]> }
+
+/** The URL of a sample map the song names: `github:user/repo[/branch]` is its `strudel.json` on GitHub. */
+export function mapUrl(spec: string): string | null {
+  const gh = spec.match(/^github:([\w.-]+)\/([\w.-]+)(?:\/([\w.-]+))?$/)
+  if (gh) return `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3] ?? 'main'}/strudel.json`
+  return /^https:\/\/\S+\.json$/.test(spec) ? spec : null
+}
+
+/** A sample map from its JSON, or why it is not one: a sound is a file, a list of them or an object of them. */
+export function parseSampleMap(json: unknown, url: string): SampleMap | string {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return 'the sample map is not a JSON object'
+  const raw = json as Record<string, unknown>
+  const base = typeof raw._base === 'string' ? raw._base : new URL('.', url).href
+  const sounds = new Map<string, string[]>()
+  for (const [name, v] of Object.entries(raw)) {
+    if (name.startsWith('_')) continue
+    const files = (typeof v === 'string' ? [v] : Array.isArray(v) ? v : v && typeof v === 'object' ? Object.values(v) : [])
+      .filter((f): f is string => typeof f === 'string')
+    if (files.length) sounds.set(name, files)
+  }
+  return sounds.size ? { url, base, sounds } : 'the sample map names no sounds'
+}
+
+/** A pad's map sound, `amen` or `amen:1`, as its name and file index; null when it is not one (as the engine's). */
+export function mapSound(source: string): [string, number] | null {
+  const m = source.match(/^([A-Za-z][\w.-]{0,63})(?::(\d{1,3}))?$/)
+  return m ? [m[1]!, Number(m[2] ?? 0)] : null
+}
+
+/**
+ * The https URL of a map sound's file, its index wrapping round the sound's files as Strudel's do,
+ * or why there is none. Only WAV loads (ADR-0013).
+ */
+export function mapSoundUrl(map: SampleMap, source: string): { url: string } | { why: string } {
+  const sound = mapSound(source)
+  const files = sound && map.sounds.get(sound[0])
+  if (!sound || !files) return { why: `the map has no sound ${sound?.[0] ?? source}` }
+  const file = files[sound[1] % files.length]!
+  let url: URL
+  try {
+    url = new URL(file, map.base)
+  } catch {
+    return { why: `${file} is not a URL` }
+  }
+  if (url.protocol !== 'https:') return { why: `${url.href} is not https` }
+  if (!/\.wav$/i.test(url.pathname)) return { why: `only WAV files load: ${file}` }
+  return { url: url.href }
+}

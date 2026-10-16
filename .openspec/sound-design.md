@@ -199,6 +199,27 @@ other the pack (or the kit when no pack has it). An id no manifest names
 loads nothing and the sampler's panel says so. One line per track, after the
 track; the samples a track already has stay loaded without one.
 
+```text
+samples <track> github:<user>/<repo>[/<branch>] | https://…/<map>.json
+```
+
+Or a Strudel sample map (#728), as `samples('github:yaxu/clean-breaks')`:
+the `strudel.json` of a GitHub repository (on `main` unless a branch is
+named) or an https URL to one. The map loads nothing by itself: the track's
+`pad` lines give its pads the map's sounds by name, `pad brk 1 = amen` or
+`hungup:1` for a sound's second file (wrapping round, as Strudel's), and the
+app fetches the map once and only those files. Only WAV loads; a map or a
+sound that can't be had is an error at its line, and the rest of the song
+plays. The pads may sit beside the map's line, as a kit's can't.
+
+```song
+track brk sampler PadSampler
+samples brk github:yaxu/clean-breaks
+pad brk 1 = amen : choke 1
+clip cut = brk .slow(4) .fit() .slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2") .rarely(ply(2))
+  "c2"
+```
+
 `make samples` builds the packs and kits: the FreePats instruments, the
 General MIDI programs (`gm-…`), and the kits `audiophob`, `cmu-arctic-voices`
 and, for this machine only (no license: never committed or published), the

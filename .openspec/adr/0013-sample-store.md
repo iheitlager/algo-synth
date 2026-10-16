@@ -1,6 +1,6 @@
 # 0013: The sample store: Rust parses and resamples WAV at load, in bounded memory
 
-**Status:** Accepted · **Date:** 2026-10-04
+**Status:** Accepted, amended by #728 (samples from the web) · **Date:** 2026-10-04
 
 ## Context
 
@@ -18,3 +18,14 @@ The samplers (epic #126) play recorded audio beside the synths. Samples are larg
 ## Consequences
 
 Samples are held at the engine's rate, so a changed context rate needs a reload. A sample recorded above the engine's rate is not low-passed before decimation. Compressed formats (FLAC, Ogg) and 8-bit WAV are not read.
+
+## Amendment (#728): samples from the web
+
+A song may name a Strudel sample map (`samples brk github:yaxu/clean-breaks`) and give its pads the map's sounds by name (`pad brk 1 = amen`), as Strudel's `samples('github:…')` and `s("amen")` do.
+
+- **The view fetches; the engine still can't.** The view fetches the map's JSON and the WAV files the pad lines name, and hands their bytes to the engine as it does a pack's. The engine only parses the lines and reports each track's map.
+- **Only what is named.** A map is fetched once a session per URL; of its sounds, only those a pad line names. Slots are keyed by the map's URL and the sound, so two maps' `amen` never share one. Nothing is cached across sessions.
+- **https and WAV only.** A map is `github:user/repo[/branch]` (its `strudel.json` on raw.githubusercontent.com) or an https URL to a `.json`; its files must be https too. Only WAV loads, as before: a map pointing at MP3 or OGG says so instead of decoding in the browser. A cross-origin fetch works under the app's cross-origin isolation because it is a CORS request (GitHub answers `Access-Control-Allow-Origin: *`); a host that doesn't is an error, never a `no-cors` fetch.
+- **Nothing is redistributed.** The song names a URL; the sounds come from where the user points and are never fetched by `make samples` or committed.
+- **Errors at the line.** A map or a sound that can't be had shows at its `samples` or `pad` line; the rest of the song plays.
+

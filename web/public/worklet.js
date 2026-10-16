@@ -403,6 +403,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     const samples = Array.from({ length: w.samples_count ? w.samples_count() : 0 }, (_, i) => ({
       synth: w.samples_synth(i), id: bytes(w.samples_id_ptr(i), w.samples_id_len(i)),
     }))
+    // The Strudel sample maps the tracks' pads draw on (#728): the view fetches them.
+    const maps = Array.from({ length: w.map_count ? w.map_count() : 0 }, (_, i) => ({
+      synth: w.map_synth(i), url: bytes(w.map_text_ptr(i), w.map_text_len(i)),
+    }))
     // The recipes of the user tables and attacks (ADR-0033): the view rebuilds them.
     const recipes = Array.from({ length: w.recipe_count ? w.recipe_count() : 0 }, (_, i) => ({
       slot: w.recipe_slot(i), text: bytes(w.recipe_text_ptr(i), w.recipe_text_len(i)),
@@ -423,7 +427,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({
       t: 'song', ok, text: bytes(w.song_text_ptr(), w.song_text_len()), error, tracks, clips,
       tempo: w.clock_tempo(), swing: w.clock_swing(),
-      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, groups, groupsUsed, id, recipes, zones, pads,
+      scenes, arrange, autos, snapshots, settings, fits, loop: [w.loop_from(), w.loop_to()], samples, maps, groups, groupsUsed, id, recipes, zones, pads,
     })
   }
 

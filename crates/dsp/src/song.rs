@@ -937,6 +937,10 @@ pub struct Song {
     /// the samples manifest (#214, ADR-0018): the view fetches and loads them,
     /// since the engine can't fetch (ADR-0013).
     pub samples: Vec<(usize, String)>,
+    /// The Strudel sample map each drums or sampler track's pads draw on by
+    /// name (#728): `github:user/repo[/branch]` or an https URL to its JSON.
+    /// The view fetches it, and only the sounds the pad lines name.
+    pub maps: Vec<(usize, String)>,
     /// The Sampler zones a sampler track without a `samples` line plays
     /// (#522): the view loads each source and lays the zones out.
     pub zones: Vec<zone::SongZone>,
@@ -971,6 +975,7 @@ impl Default for Song {
             settings: Vec::new(),
             tracks: Vec::new(),
             samples: Vec::new(),
+            maps: Vec::new(),
             zones: Vec::new(),
             pads: Vec::new(),
             recipes: Vec::new(),
@@ -1041,6 +1046,28 @@ fn strip_comment(raw: &str) -> &str {
 }
 
 /// A pack or kit id of the samples manifest: `upright-piano-kw`.
+/// A Strudel sample map (#728): `github:user/repo`, maybe with `/branch`,
+/// or an https URL to its JSON.
+pub fn is_sample_map(s: &str) -> bool {
+    let part = |p: &str| {
+        !p.is_empty()
+            && p.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if s.len() > 256 {
+        return false;
+    }
+    if let Some(rest) = s.strip_prefix("github:") {
+        let parts: Vec<&str> = rest.split('/').collect();
+        return (2..=3).contains(&parts.len()) && parts.iter().all(|p| part(p));
+    }
+    s.strip_prefix("https://").is_some_and(|rest| {
+        rest.contains('/')
+            && s.ends_with(".json")
+            && !rest.chars().any(|c| c.is_whitespace() || c == '"')
+    })
+}
+
 fn is_sample_id(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
@@ -2053,8 +2080,22 @@ impl Song {
                     if song.tracks.get(t).is_some_and(|t| t.kind == Kind::Synth) {
                         return Err(err(track.col, "samples go on a sampler or drums track"));
                     }
-                    if song.samples.iter().any(|(u, _)| *u == t) {
+                    if song.samples.iter().chain(&song.maps).any(|(u, _)| *u == t) {
                         return Err(err(track.col, "this track already has its samples"));
+                    }
+                    // A sample map: its sounds go on the pads by name (#728).
+                    if let Some(map) = ws.get(2).filter(|w| w.text.contains(':')) {
+                        if !is_sample_map(map.text) {
+                            return Err(err(
+                                map.col,
+                                "a sample map is github:user/repo or an https URL to its .json",
+                            ));
+                        }
+                        if let Some(extra) = ws.get(3) {
+                            return Err(err(extra.col, "unexpected text"));
+                        }
+                        song.maps.push((t, map.text.to_string()));
+                        continue;
                     }
                     if song.zones.iter().any(|z| z.track == t) {
                         return Err(err(
@@ -2198,10 +2239,17 @@ impl Song {
                     }
                     let src = arg(4, "a source goes here, as audiophob/kick")?;
                     let source = src.text.strip_suffix(':').unwrap_or(src.text);
-                    if !zone::is_zone_source(source) {
+                    if pad::is_map_sound(source) {
+                        if !song.maps.iter().any(|(u, _)| *u == t) {
+                            return Err(err(
+                                src.col,
+                                "a map's sound goes on a track with a sample map: samples <track> github:user/repo",
+                            ));
+                        }
+                    } else if !zone::is_zone_source(source) {
                         return Err(err(
                             src.col,
-                            "a pad's source is a pack's sample, as audiophob/kick, or @ and a file's hash",
+                            "a pad's source is a pack's sample, as audiophob/kick, @ and a file's hash, or a map's sound, as amen:1",
                         ));
                     }
                     let mut k = 5;
@@ -2690,7 +2738,7 @@ impl Song {
             };
             line + flags
         }));
-        for (t, id) in &self.samples {
+        for (t, id) in self.samples.iter().chain(&self.maps) {
             let name = self.tracks.get(*t).map_or("", |x| x.name.as_str());
             lines.push(format!("samples {name} {id}"));
         }
@@ -3404,9 +3452,11 @@ impl Song {
             Some((_, have)) => id.clone_into(have),
             None => self.samples.push((t, id.to_string())),
         }
-        // A pack or its zones, a kit or its pads, not both (#522, #527).
+        // A pack or its zones, a kit or its pads, not both (#522, #527); a
+        // kit takes the place of a sample map too (#728).
         self.zones.retain(|z| z.track != t);
         self.pads.retain(|p| p.track != t);
+        self.maps.retain(|(u, _)| *u != t);
         true
     }
 
@@ -3489,6 +3539,7 @@ impl Song {
         self.tracks.remove(t);
         self.mix.retain(|m| m.at != Mix::Track(t));
         self.samples.retain(|(u, _)| *u != t);
+        self.maps.retain(|(u, _)| *u != t);
         self.zones.retain(|z| z.track != t);
         self.pads.retain(|p| p.track != t);
         let down = |u: &mut usize| {
@@ -3499,7 +3550,7 @@ impl Song {
         for f in &mut self.clips {
             down(&mut f.track);
         }
-        for (u, _) in &mut self.samples {
+        for (u, _) in self.samples.iter_mut().chain(self.maps.iter_mut()) {
             down(u);
         }
         for z in &mut self.zones {

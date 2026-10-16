@@ -1429,6 +1429,45 @@ pub extern "C" fn samples_id_ptr(i: u32) -> *const u8 {
     })
 }
 
+/// The Strudel sample maps the song's tracks draw their pads from (#728,
+/// `Song::maps`): how many, the synth of map `i`'s track (or −1), and its
+/// text, `github:user/repo` or an URL, which the view fetches.
+#[unsafe(no_mangle)]
+pub extern "C" fn map_count() -> u32 {
+    query(0, |e| e.song().maps.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn map_synth(i: u32) -> i32 {
+    query(-1, |e| {
+        e.song()
+            .maps
+            .get(i as usize)
+            .and_then(|(t, _)| e.song_routed(*t))
+            .map_or(-1, |s| s as i32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn map_text_len(i: u32) -> u32 {
+    query(0, |e| {
+        e.song()
+            .maps
+            .get(i as usize)
+            .map_or(0, |(_, m)| m.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn map_text_ptr(i: u32) -> *const u8 {
+    query(std::ptr::null(), |e| {
+        e.song()
+            .maps
+            .get(i as usize)
+            .map_or(std::ptr::null(), |(_, m)| m.as_ptr())
+    })
+}
+
 /// The track on synth `s` wants the pack or kit whose id is in `song_buf`:
 /// 0 when its `samples` line says so, −1 when no sampler or drums track plays
 /// on `s` or the id isn't one.
@@ -3075,6 +3114,10 @@ mod tests {
         sweep!(reset, samples_synth(_));
         sweep!(reset, samples_id_len(_));
         sweep!(reset, samples_id_ptr(_));
+        sweep!(reset, map_count());
+        sweep!(reset, map_synth(_));
+        sweep!(reset, map_text_len(_));
+        sweep!(reset, map_text_ptr(_));
         sweep!(reset, samples_set(_));
         sweep!(reset, group_name_len(_));
         sweep!(reset, group_name_ptr(_));
