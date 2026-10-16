@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-16
+
+### Added
+
+- **Envelope times per note:** on a clip, `.attack`, `.decay`, `.sustain` and `.release` are held by each note: it takes the value at its own tick and keeps it while it rings, so `"c2 [d#3,g3]" .attack("0.1 0")` swells the root and stabs the chord, as Strudel's `.adsr` does. On a Mono-voice synth or a sampler, overlapping notes keep their own sustain and release. A time written as numbers is 0 to 10 seconds and a sustain 0 to 1 (ADR-0038, #651).
+- **Room and delay heard as written, in real units:** `.room(0.4)` and `.delay(0.3)` alone are wet, as in Strudel: `P1Return` and `P2Return` now start at 1 (ADR-0010 amended). Strudel's `delaytime`/`roomsize` (seconds), `delayfeedback` and `roomlp`/`roomdim` (Hz) set the master's echo and reverb from a clip or a `mod` line; on the `master:` line they are `EchoTime`, `EchoFeedback`, `ReverbSize` and `ReverbCutoff`. Each prints back as written, and on a slot holding another effect it is an error (#660).
+- **A Modular knob by its SynthDef name:** on a track that plays a Modular setting, the SynthDef's arguments name its knobs, so `|vib = 4, vibmod = 6|` gives `.vib(4) .vibmod("<.25 12>")` in place of `.ctl1(4) .ctl2(…)`, and `mod lead.vib`, `auto … = lead.vib` and `snapshot … lead.vib 6` reach them too. A knob's name wins over the synth's parameter of that name, prints as the code writes it (`.ctl1` prints by name too, so a new argument no longer moves a song's knobs), and a name the setting lacks is an error listing its knobs. Completion offers them after the dot (#674).
+- **Nested values that light:** a parameter method's or `mod` line's sequence nests as Strudel's, `[a b]` dividing its share and `<a b>` one a bar: `.attack("<0.1 [0 0.05]>")` is 0.1 in bar 1, then 0 and 0.05 for the halves of bar 2. While the song plays, the number in force lights in the text, as a note does, while its clip plays (#675).
+- **Pattern-method values split a bar and light:** `.add("0 3")` adds 0 to the notes in the first half of the bar and 3 to the rest, nesting with `< >` as `.add("<0 [3 5]>")`, for every method that takes a value a bar. While the song plays, the value in force for each bar, or part of one, lights in the clip's line (#676).
+- **`.adsr("a:d:s:r")`, Strudel's envelope shorthand:** one method for the attack, decay, sustain and release of a clip, each part a number, `[a b]` sharing the bar or `<a b>` one a bar: `.adsr("[.1 0]:.2:[1 0]")` plays as `.attack("0.1 0") .decay(0.2) .sustain("1 0")`. Fewer parts or an empty one leave the rest alone, it prints back as one method, its numbers in force light, and completion offers it (#677).
+- **Auto lanes take a nested sequence:** `auto wob = lead.Cutoff "<300 [800 1200]>" /2` plays a quoted sequence as a `mod`'s, one cycle a bar from the lane's start; a `~` holds the lane's last value. While a lane plays, its value in force lights in the text, plain values each for its share (#683).
+- **Super Mario Bros. example song:** the overworld theme on the NES's two pulses, triangle and noise, then hi-fi on a Minimoog lead and bass, a Juno pluck and a sampled Yamaha RM50 (#695).
+
+### Changed
+
+- **Completion offers what the model reads:** after a track's `.`, in `mod`, `auto` and snapshot targets and in a setting's changes, the song editor offers only the parameters the track's or setting's model reads; a track that names no model gets them all (#679).
+- **Faster engine tests:** `make test-rust`, and so `make test`, `make check` and CI, runs the engine tests optimised: 6 s instead of 63 s, and 43 s instead of 80 s from a clean build, with the same assertions and overflow checks (#681).
+
+### Fixed
+
+- **`.onNote` on strummed and grace notes:** a strummed or grace note took the value sampled for the note pressed before it; it now takes its own when it is pressed (#651).
+- **A parameter the track's model never reads is an error, not silence:** a parameter method, `mod`, `auto`, snapshot or setting change that names a parameter its model ignores (`.lfospeed`, the DX7's LFO, on a Minimoog) is a parse error at its name, naming the model's own parameter where it has one: "the Minimoog's vibrato is VCO 3: vco3coarse". Every model takes its strip, arpeggiator and voice-pool parameters; a test keeps each synth's panel to what its model reads (#673).
+- **A muted clip's values stay dark:** a parameter method's number in force no longer lights while its track is muted, as its notes don't (#675).
+- **Values a bar are bounded and split as Strudel's:** a pattern method's value a bar holds at most 64 values nested at most 32 deep (deep nesting crashed the editor's engine), a bar split in parts that don't fall on ticks starts each part at the first tick in it, two methods written alike each light their own values, and a span that isn't found lights nothing rather than the start of its line (#676).
+- **Switching a track's synth keeps the song valid:** picking a model or preset for a track, in the composer or in a synth's view, is refused when the new model doesn't take what the song names on the track (a parameter method, `mod`, `auto` or snapshot parameter, or a lane's pad), so the printed song always parses back; a drum track whose kit was picked plays a rack kit only if it takes its lanes and parameters (#680).
+- **Follow-ups to the knob names and the per-note envelopes:** the D-50 (partial 1) and a Modular voice's amplifier now hold a note's own attack, decay, sustain and release, so overlapping notes keep their own; a note let go as its clip stops keeps its release, and the next clip's notes take the synth's. A knob's name on a strip target says to write it on its track (`lead.vib`), `.vib(` shows the knob's range, `.adsr(` its help, and a knob named like a pattern method says how a clip reaches it. `seed-rave` uses its knobs' names (#688).
+- **The toolbar's buttons one height:** a window too narrow for the toolbar wraps it onto a second row instead of squeezing the buttons' labels onto two or three lines, the Demo picker matches the buttons, and the view switch draws one line between its buttons (#690).
+
 ## [0.45.0] - 2026-10-16
 
 ### Added
