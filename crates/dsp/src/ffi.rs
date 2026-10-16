@@ -1956,6 +1956,91 @@ pub extern "C" fn clock_step() -> i32 {
     })
 }
 
+// A bounce (#705): the song rendered offline into a stereo WAV, by a worker
+// with its own instance. `bounce_start`, then `bounce_step` until
+// `bounce_done`, then read `bounce_wav_len` bytes at `bounce_wav_ptr`.
+
+thread_local! {
+    static BOUNCE: RefCell<Option<crate::bounce::Bounce>> = const { RefCell::new(None) };
+}
+
+/// Stop the song and bounce `bars` of it (0: its own length) at `bits` 16,
+/// 24 or 32 (float): the frame its bars end on, a negative `bounce::Error`
+/// code, or −5 before `init`. Sizes the whole file now.
+#[unsafe(no_mangle)]
+pub extern "C" fn bounce_start(bars: u32, bits: u32) -> i32 {
+    BOUNCE.with(|cell| {
+        let Ok(mut slot) = cell.try_borrow_mut() else {
+            return -9;
+        };
+        // The last file goes before the next is sized.
+        *slot = None;
+        let Some(format) = crate::bounce::Format::from_bits(bits) else {
+            return crate::bounce::Error::Unsupported.code();
+        };
+        query(-5, |e| {
+            match crate::bounce::Bounce::start(e, u64::from(bars), format) {
+                Ok(b) => {
+                    let end = i32::try_from(b.end()).unwrap_or(i32::MAX);
+                    *slot = Some(b);
+                    end
+                }
+                Err(err) => err.code(),
+            }
+        })
+    })
+}
+
+/// Render up to `blocks` blocks (at most `bounce::MAX_STEP`): the frames
+/// rendered so far, 0 without a bounce.
+#[unsafe(no_mangle)]
+pub extern "C" fn bounce_step(blocks: u32) -> u32 {
+    BOUNCE.with(|cell| {
+        let Ok(mut slot) = cell.try_borrow_mut() else {
+            return 0;
+        };
+        let Some(b) = slot.as_mut() else {
+            return 0;
+        };
+        with_engine(|e| b.step(e, blocks as usize));
+        u32::try_from(b.frames()).unwrap_or(u32::MAX)
+    })
+}
+
+/// Run `f` on the bounce, or `default` without one.
+fn bounced<R>(default: R, f: impl FnOnce(&crate::bounce::Bounce) -> R) -> R {
+    BOUNCE.with(|cell| {
+        cell.try_borrow()
+            .ok()
+            .and_then(|b| b.as_ref().map(f))
+            .unwrap_or(default)
+    })
+}
+
+/// 1 once the tail has rung out.
+#[unsafe(no_mangle)]
+pub extern "C" fn bounce_done() -> u32 {
+    bounced(0, |b| u32::from(b.done()))
+}
+
+/// The loudest sample so far, linear.
+#[unsafe(no_mangle)]
+pub extern "C" fn bounce_peak() -> f32 {
+    bounced(0.0, crate::bounce::Bounce::peak)
+}
+
+/// The WAV's length in bytes so far; a whole file at any point.
+#[unsafe(no_mangle)]
+pub extern "C" fn bounce_wav_len() -> u32 {
+    bounced(0, |b| b.wav().len() as u32)
+}
+
+/// The WAV's bytes; null without a bounce.
+#[unsafe(no_mangle)]
+pub extern "C" fn bounce_wav_ptr() -> *const u8 {
+    bounced(std::ptr::null(), |b| b.wav().as_ptr())
+}
+
 // The Spectral Lab (ADR-0017, spec 009 Req 7). It needs no engine either:
 // the lab's worker holds its own instance and calls these, `spectral_buf(len)`,
 // write the WAV, `spectral_analyse`, then reads the tracks and renders.
@@ -2578,6 +2663,33 @@ mod tests {
     }
 
     #[test]
+    fn a_song_bounces_through_the_abi() {
+        init(48_000.0);
+        let text =
+            b"tempo 240\ntrack kit drums\nclip b = kit\n  bd x...\nscene a 1: b\narrange a\n";
+        query((), |e| {
+            e.song_buffer(text.len())
+                .expect("fits")
+                .copy_from_slice(text)
+        });
+        assert_eq!(song_load(), 0);
+        assert_eq!(bounce_start(0, 8), crate::bounce::Error::Unsupported.code());
+        assert_eq!(bounce_wav_len(), 0, "a failed start leaves no file");
+        assert_eq!(bounce_start(0, 24), 16 * 3_000);
+        while bounce_done() == 0 {
+            assert!(bounce_step(64) > 0);
+        }
+        assert!(bounce_peak() > 0.0);
+        let wav = BOUNCE.with(|b| b.borrow().as_ref().map(|b| b.wav().to_vec()));
+        let wav = wav.expect("a bounce");
+        assert_eq!(wav.len(), bounce_wav_len() as usize);
+        assert!(!bounce_wav_ptr().is_null());
+        let s = sample::parse(&wav, 48_000.0).expect("a WAV");
+        assert_eq!(s.frames() as u32, bounce_step(1));
+        assert_eq!(song_playing(), 0, "paused at the end");
+    }
+
+    #[test]
     fn song_round_trip_through_the_abi() {
         init(48_000.0);
         let text = b"track kit drums\nclip b = kit\n  bd x.X.\n";
@@ -2999,6 +3111,12 @@ mod tests {
         sweep!(reset, tempo(_));
         sweep!(reset, swing(_));
         sweep!(reset, clock_step());
+        sweep!(reset, bounce_start(_, _));
+        sweep!(reset, bounce_step(_));
+        sweep!(reset, bounce_done());
+        sweep!(reset, bounce_peak());
+        sweep!(reset, bounce_wav_len());
+        sweep!(reset, bounce_wav_ptr());
         sweep!(reset, spectral_buf(_));
         sweep!(reset, spectral_analyse(_, _, _, _));
         sweep!(reset, spectral_tracks_len());

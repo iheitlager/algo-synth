@@ -8,6 +8,7 @@
 pub mod algo;
 pub mod analysis;
 pub mod arp;
+pub mod bounce;
 pub mod chip;
 pub mod clock;
 pub mod deck;
