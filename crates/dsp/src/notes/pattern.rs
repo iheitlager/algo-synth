@@ -138,6 +138,10 @@ pub enum Pattern {
     /// `spread(m1, m2, …)`, Tidal's `spread ($)`: bar k through method k
     /// mod n, `None` for `id`, the bar as it is (#719).
     Spread(Vec<Option<Pattern>>),
+    /// `rib(offset, cycles)`, Strudel's `ribbon`: bars `offset` to `offset +
+    /// cycles` of the line, looped (#620); `true` when written `ribbon`.
+    /// On a signal line it says where the signal is read.
+    Rib(Rib),
 }
 
 /// The copies of `stut` and `echo` (#719).
@@ -597,9 +601,22 @@ impl Line {
     }
 }
 
+/// `rib(offset, cycles)` (#620).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rib {
+    pub from: u32,
+    pub bars: u32,
+    pub long: bool,
+}
+
+impl Rib {
+    /// The furthest bar a ribbon may start at.
+    pub const MAX_FROM: u32 = 99_999;
+}
+
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 38] = [
+    pub const NAMES: [&'static str; 40] = [
         "fast",
         "slow",
         "rev",
@@ -638,6 +655,8 @@ impl Pattern {
         "stut",
         "echo",
         "spread",
+        "rib",
+        "ribbon",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -711,6 +730,28 @@ impl Pattern {
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
             "chop" => Ok(Pattern::Chop(parts(one()?)?)),
             "fit" => none().map(|()| Pattern::Fit),
+            "rib" | "ribbon" => {
+                let [from, bars] = args.as_slice() else {
+                    return Err(crate::usage::RIB);
+                };
+                let from = from
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| *n <= Rib::MAX_FROM)
+                    .ok_or("the ribbon starts at a whole bar from 0 to 99999")?;
+                let bars = bars
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| (1..=MAX_BARS).contains(n))
+                    .ok_or("the ribbon is a whole number of bars from 1 to 64")?;
+                Ok(Pattern::Rib(Rib {
+                    from,
+                    bars,
+                    long: name == "ribbon",
+                }))
+            }
             "stut" | "echo" => {
                 let echo = name == "echo";
                 let [n, a, b] = args.as_slice() else {
@@ -1074,6 +1115,10 @@ impl Pattern {
                 format!("spread({})", words.join(", "))
             }
             Pattern::Splice(n, text, _) => format!("splice({n}, {text})"),
+            Pattern::Rib(r) => {
+                let name = if r.long { "ribbon" } else { "rib" };
+                format!("{name}({}, {})", r.from, r.bars)
+            }
             Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::PerBar(text, _) => text.clone(),
         }
@@ -1112,6 +1157,7 @@ impl Pattern {
                 p.accel = p.accel.saturating_add(*x).clamp(-Play::MAX, Play::MAX);
             }),
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
+            Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Mul(m) => m.apply(line)?,
             Pattern::Stut(s) => stut(line, s)?,
             Pattern::Spread(ms) => {
@@ -1358,6 +1404,27 @@ pub fn pitch_all(patterns: &[Pattern], events: &mut Vec<Event>, base: u64) {
         let t = base + u64::from(e.start);
         patterns.iter().all(|p| p.pitch(e, t))
     });
+}
+
+/// Bars `from` to `from + bars` of the line, round its length, as one line
+/// (#620): Strudel's ribbon, a piece of the endless line cut and looped.
+fn rib(line: &Line, from: u32, bars: u32) -> Result<Line, &'static str> {
+    let period = line.bars.max(1);
+    let mut events = Vec::new();
+    for j in 0..bars {
+        let src = (from % period + j) % period;
+        events.extend(
+            line.events
+                .iter()
+                .filter(|e| e.start / BAR == src)
+                .map(|e| Event {
+                    start: e.start - src * BAR + j * BAR,
+                    ..*e
+                }),
+        );
+    }
+    check(bars, events.len())?;
+    Ok(Line { events, bars })
 }
 
 /// Every pattern of a clip applied in order.
@@ -2016,6 +2083,9 @@ fn nested(s: &str, srcs: &Sources) -> Result<Pattern, &'static str> {
     };
     if !Pattern::NAMES.contains(&name) {
         return Err("a pattern method goes here, e.g. rev or fast(2)");
+    }
+    if matches!(name, "rib" | "ribbon") {
+        return Err("rib cuts the whole line: it goes on the clip, not inside a method");
     }
     Pattern::parse_in(name, args, srcs)
 }

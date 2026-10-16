@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 38] = [
+const METHODS: [(&str, &str); 40] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -130,6 +130,8 @@ const METHODS: [(&str, &str); 38] = [
     ("stut", "n softer copies, a time apart (Tidal)"),
     ("echo", "n softer copies, a time apart (Strudel)"),
     ("spread", "a method a bar, in turn"),
+    ("rib", "bars of the line, cut and looped"),
+    ("ribbon", "bars of the line, cut and looped"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -1320,7 +1322,13 @@ impl<'a> Names<'a> {
                 }
                 ("every" | "off" | "sometimesBy", 1)
                 | ("sometimes" | "often" | "rarely" | "almostNever" | "almostAlways" | "jux", 0) => {
-                    list.table(Class::Call, &METHODS)
+                    // A rib cuts the whole line, never inside another method.
+                    let inner: Vec<_> = METHODS
+                        .iter()
+                        .filter(|(w, _)| !matches!(*w, "rib" | "ribbon"))
+                        .copied()
+                        .collect();
+                    list.table(Class::Call, &inner);
                 }
                 (name, _) if Pattern::NAMES.contains(&name) => {}
                 _ => signal(list),

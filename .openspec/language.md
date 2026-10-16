@@ -352,7 +352,7 @@ clip turns = kit
 
 A pitch is `a`–`g`, maybe `#` or `b`, an octave `0`–`9`: `c4` is middle C
 (MIDI 60). `!` right after it accents it (`c4!`: louder; on a TB-303 it
-opens the filter through the accent sweep). A line is one of five forms,
+opens the filter through the accent sweep). A line is one of six forms,
 never mixed; 48 ticks make a bar.
 
 A number where a pitch goes is a **degree** of the scale, `-24` to `24`: `0`
@@ -529,6 +529,28 @@ clip climb = bass
   euclid(7,16,2) scale a2
 ```
 
+**Signal:** a line that starts with a signal's source (`saw`, `rand`,
+`irand(n)`, `perlin`, … as in [mod](#mod)) is read into degrees when the song
+loads (#620), as Strudel's `n(…)`: at each of its outermost `.segment(n)`
+(or `.seg(n)`) steps, 16 a bar without one, each value rounded up to a whole
+degree as Strudel's `scale` does, −24 to 24. A `~` of a sequence rests. The
+steps split the bar into whole ticks: 1, 2, 3, 4, 6, 8, 12, 16, 24 or 48, or
+fewer than one a bar through `.slow`. It is one bar, or `bars <n>` on the
+clip line, or the clip's `rib(offset, cycles)`: the signal read from bar
+`offset` for `cycles` bars, before any method of time. The random sources
+are Strudel's, so a line from Strudel plays the same notes here (ADR-0041):
+`n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1)` is the clip below.
+Degrees need a scale or a chord, as they do written out; `env`, `lfo` (in
+hertz), lists, `.lag` and `.onNote` are a parameter's, not a note line's.
+
+```song
+track bass synth
+clip strudel = bass .scale(c3 minor) .rib(46, 1)
+  irand(10).sub(7).seg(16)
+clip mist = bass bars 4 .scale(a2 minor)
+  perlin.range(0, 7).segment(8)
+```
+
 **Generators:** a call that writes the notes; the same call gives the same
 notes every run.
 
@@ -657,6 +679,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.oct(n)` | n (−4 to 4) octaves up or down; after `.scale`, since it moves notes, not degrees |
 | `.jux(m)` | the line on the left and a copy with method m on the right, on its one track, as Strudel's (#701, ADR-0039): `.jux(rev)`; while a note is panned the synth is stereo, its strip balancing, its chorus kept; a mono synth plays one side at a time; not on a drum clip |
 | `.arp("0 3 <2 0> [1 3]")` | the line's own chords played by index, as Strudel's arp (#696): each index, in mini-notation, the note of the chord sounding where it starts, 0 the lowest, wrapping round the chord with no octave added (`.chord` adds one); methods before it change the chords, after it the notes; the line and the indexes round together; after `.scale` |
+| `.rib(offset, cycles)` `.ribbon(…)` | Strudel's ribbon (#620): bars `offset` (0–99999) to `offset + cycles` (1–64) of the line, round its length, looped; on a signal line, the bars the signal is read from, so `rib(46, 1)` freezes one bar of `irand` |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
 `.fast`, `.slow`, `.add`, `.sub`, `.ply` and `.degrade` also take a value a
@@ -928,8 +951,8 @@ term   = <number> | <source> | "<sequence>" | [<n>, …] | ( <signal> ), then .<
 | source (0 to 1) | |
 |---|---|
 | `sine` `cosine` `saw` `tri` `square` | once a bar |
-| `rand` | a new seeded value each sixteenth |
-| `perlin` | a smooth seeded curve, a new value each bar |
+| `rand` | a new random value each sixteenth, Strudel's (ADR-0041) |
+| `perlin` | a smooth random curve through Strudel's `rand` at each bar |
 | `lfo(<hz>[, <shape>])` | shape `sine` (default), `cosine`, `saw`, `tri`, `square` |
 | `sine2` `cosine2` `saw2` `tri2` `square2` `rand2` | as Strudel's: the same from −1 to 1 |
 | `irand(<n>)` | a whole number from 0 to n − 1 (n 1–64), new each sixteenth |
@@ -943,7 +966,8 @@ term   = <number> | <source> | "<sequence>" | [<n>, …] | ( <signal> ), then .<
 | `.range(a, b)` | 0..1 onto a..b |
 | `.exprange(a, b)` | the same, exponentially; a, b of one sign, not 0 |
 | `.slow(n)` `.fast(n)` | n (> 0) times slower or faster |
-| `.segment(n)` | n steady values a bar |
+| `.segment(n)` `.seg(n)` | n steady values a bar |
+| `.add(n)` `.sub(n)` `.mul(n)` `.div(n)` | Strudel's arithmetic as a method, `irand(10).sub(7)`: `+ - * /` a number, printed as written |
 | `.lag(s)` | follow the input smoothly, s seconds |
 | `.onNote` | sampled as each note of the track starts, held for the note: `.wt1pos(rand.onNote)` gives each note its own timbre |
 

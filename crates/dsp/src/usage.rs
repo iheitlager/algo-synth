@@ -29,6 +29,9 @@ pub const SPLICE: &str = "splice takes a number of parts from 1 to 64 and indexe
 pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
 pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
 pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
+pub const RIB: &str = "rib takes a bar to start at and a number of bars, looped: rib(46, 1)";
+pub const RIBBON: &str =
+    "ribbon takes a bar to start at and a number of bars, looped: ribbon(46, 1)";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -44,7 +47,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 38] = [
+pub const METHODS: [(&str, &str); 40] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -128,10 +131,12 @@ pub const METHODS: [(&str, &str); 38] = [
     ("stut", STUT),
     ("echo", ECHO),
     ("spread", SPREAD),
+    ("rib", RIB),
+    ("ribbon", RIBBON),
 ];
 
 /// The signal sources that take arguments, and the signal methods.
-pub const SIGNAL: [(&str, &str); 10] = [
+pub const SIGNAL: [(&str, &str); 15] = [
     (
         "lfo",
         "lfo takes a rate in Hz and maybe a shape: lfo(3) or lfo(3, saw)",
@@ -159,7 +164,12 @@ pub const SIGNAL: [(&str, &str); 10] = [
         "segment",
         "segment takes a number above 0, values a bar: segment(4)",
     ),
+    ("seg", "seg takes a number above 0, values a bar: seg(16)"),
     ("lag", "lag takes a number above 0, seconds: lag(0.1)"),
+    ("add", "add takes a number: add(1)"),
+    ("sub", "sub takes a number: sub(7)"),
+    ("mul", "mul takes a number: mul(8)"),
+    ("div", "div takes a number: div(2)"),
 ];
 
 /// How `name` is written, in `table`.

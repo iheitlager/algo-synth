@@ -5589,6 +5589,18 @@ fn prog_arguments_stay_as_typed() {
     assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
 }
 
+/// #620, #588: a signal of notes and its rib typed into a song stay as
+/// typed, through an edit to another line too.
+#[test]
+fn a_signal_line_stays_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack bass synth\n\nclip b = bass .scale(c:minor)  .rib(46,1)\n  irand(10).sub(7) .seg(16)\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+}
+
 /// #611, #588: a bass line typed into a song stays as typed.
 #[test]
 fn a_bass_line_stays_as_typed() {

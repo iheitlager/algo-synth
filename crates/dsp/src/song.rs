@@ -1226,6 +1226,7 @@ impl Song {
                     let mut n =
                         notes::parse_with(body.trim_start(), first.col, song.scale.as_ref(), &srcs)
                             .map_err(|e| err(e.col, e.msg))?;
+                    let barred = open_bars.is_some();
                     if let Some((bars, col, at)) = open_bars.take() {
                         n = n.with_bars(bars).map_err(|msg| SongError {
                             line: at,
@@ -1243,6 +1244,30 @@ impl Song {
                         .clips
                         .get_mut(f)
                         .ok_or(err(first.col, "a lane goes under a clip"))?;
+                    // A signal line is read over its clip's `rib` (#620): the
+                    // bars of the endless signal, before any method of time.
+                    let signal = matches!(n.seq, notes::Seq::Signal(_));
+                    let rib = clip
+                        .pattern
+                        .iter()
+                        .position(|p| matches!(p, Pattern::Rib(_)));
+                    if let (true, Some(k)) = (signal, rib) {
+                        if barred {
+                            return Err(err(
+                                first.col,
+                                "a signal is read over bars N or a rib, not both",
+                            ));
+                        }
+                        if !clip.pattern.iter().take(k).all(Pattern::pitch_only) {
+                            return Err(err(
+                                first.col,
+                                "on a signal, rib goes before the methods of time",
+                            ));
+                        }
+                        if let Some(Pattern::Rib(r)) = clip.pattern.get(k) {
+                            n = n.ribbed(r.from, r.bars).map_err(|m| err(first.col, m))?;
+                        }
+                    }
                     // Degrees (#570): the clip's `.scale` makes them notes after
                     // the methods before it; without one, the song's scale does,
                     // at once, so `add` and voicing see notes.
@@ -1274,8 +1299,19 @@ impl Song {
                             events: std::mem::take(&mut n.events),
                             bars: n.bars,
                         };
-                        let line = pattern::apply_all(&clip.pattern, line)
-                            .map_err(|m| err(first.col, m))?;
+                        // A signal line has been read over its rib already.
+                        let line = if signal {
+                            let rest: Vec<Pattern> = clip
+                                .pattern
+                                .iter()
+                                .filter(|p| !matches!(p, Pattern::Rib(_)))
+                                .cloned()
+                                .collect();
+                            pattern::apply_all(&rest, line)
+                        } else {
+                            pattern::apply_all(&clip.pattern, line)
+                        }
+                        .map_err(|m| err(first.col, m))?;
                         (n.events, n.bars) = (line.events, line.bars);
                     }
                     song_degrees(&mut n.events, song.scale.as_ref(), song.scale_octave)
@@ -2745,7 +2781,15 @@ impl Song {
             }
             if let Some(n) = &f.notes {
                 let live = if f.live { " live" } else { "" };
+                let signal_bars = match &n.seq {
+                    // Read over a rib, the rib says how long it is.
+                    notes::Seq::Signal(l) => {
+                        l.bars > 1 && !f.pattern.iter().any(|p| matches!(p, Pattern::Rib(_)))
+                    }
+                    _ => false,
+                };
                 let bars = if matches!(n.seq, notes::Seq::Timed(_))
+                    || signal_bars
                     || matches!(
                         n.seq,
                         notes::Seq::Generated(notes::Gen::Arp { bars: 2.., .. })
@@ -2895,7 +2939,11 @@ impl Song {
         let Some(n) = f.notes.as_ref() else {
             return false;
         };
-        if !matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..)) || f.from.is_some() {
+        if !matches!(
+            n.seq,
+            notes::Seq::Generated(_) | notes::Seq::Euclid(..) | notes::Seq::Signal(_)
+        ) || f.from.is_some()
+        {
             return false;
         }
         let Some(frozen) = notes::freeze(events.unwrap_or(&n.events), n.bars) else {
@@ -3069,8 +3117,10 @@ impl Song {
         };
         // A patterned line's events are not its text: an edit would bake the
         // pattern in (ADR-0019).
-        if matches!(n.seq, notes::Seq::Generated(_) | notes::Seq::Euclid(..))
-            || !f.pattern.is_empty()
+        if matches!(
+            n.seq,
+            notes::Seq::Generated(_) | notes::Seq::Euclid(..) | notes::Seq::Signal(_)
+        ) || !f.pattern.is_empty()
             || f.from.is_some()
         {
             return false;
