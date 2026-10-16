@@ -71,8 +71,11 @@ web/node_modules: web/package-lock.json
 test: test-rust test-web test-tools typecheck ## Engine, UI and tool tests, typecheck
 test-tools: ## Python tool tests
 	python3 -m unittest discover -s tools -p 'test_*.py'
+# Optimised (fast-test: dev at opt-level 2, assertions and overflow checks
+# kept): the tests render audio, 63 s unoptimised, 6 s so; a clean build
+# and run 80 s against 43 s (#681).
 test-rust: ## Engine unit tests (native)
-	cargo test --locked --workspace
+	cargo test --locked --workspace --profile fast-test
 # The tests that render minutes of audio, in the songs.rs modules: whole
 # songs, launches over many bars, every preset. Ignored by cargo test, so
 # neither test-rust, CI nor coverage runs them (#535); run them before a
