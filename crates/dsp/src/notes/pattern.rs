@@ -55,7 +55,8 @@ pub enum Pattern {
     Slow(Ratio),
     Rev,
     Palindrome,
-    /// Semitones, `sub(n)` kept apart so it prints as written.
+    /// Cents, written in semitones (`add(0.5)`, #699); `sub(n)` kept apart
+    /// so it prints as written.
     Add(i32),
     Sub(i32),
     /// `add([0,2,4])`: a copy of each note per offset, sounding together
@@ -622,13 +623,7 @@ impl Pattern {
             "rev" => none().map(|()| Pattern::Rev),
             "palindrome" => none().map(|()| Pattern::Palindrome),
             "add" | "sub" => {
-                let semis = |s: &str| {
-                    s.trim()
-                        .parse::<i32>()
-                        .ok()
-                        .filter(|n| n.abs() <= 48)
-                        .ok_or("this takes semitones from -48 to 48")
-                };
+                let semis = |s: &str| cents_of(s).ok_or("this takes semitones from -48 to 48");
                 let a = one()?.trim();
                 if name == "add"
                     && let Some(list) = a.strip_prefix('[').and_then(|s| s.strip_suffix(']'))
@@ -831,10 +826,10 @@ impl Pattern {
             Pattern::Slow(r) => format!("slow({})", r.print()),
             Pattern::Rev => "rev()".to_string(),
             Pattern::Palindrome => "palindrome()".to_string(),
-            Pattern::Add(n) => format!("add({n})"),
-            Pattern::Sub(n) => format!("sub({n})"),
+            Pattern::Add(n) => format!("add({})", semitones(*n)),
+            Pattern::Sub(n) => format!("sub({})", semitones(*n)),
             Pattern::Stack(offsets) => {
-                let words: Vec<String> = offsets.iter().map(ToString::to_string).collect();
+                let words: Vec<String> = offsets.iter().map(|c| semitones(*c)).collect();
                 format!("add([{}])", words.join(","))
             }
             Pattern::Ply(n) => format!("ply({n})"),
@@ -999,7 +994,7 @@ impl Pattern {
                 if line.events.iter().any(|e| e.degree) {
                     return Err("oct moves notes: write it after scale");
                 }
-                transpose(line, 12 * n)
+                transpose(line, 1200 * n)
             }
         };
         check(out.bars, out.events.len())?;
@@ -1038,17 +1033,17 @@ impl Pattern {
     /// A pitch method on event `e`, which starts at tick `t` of the song:
     /// false when the note goes (out of 0 to 127). Nothing allocates (#593).
     pub fn pitch(&self, e: &mut Event, t: u64) -> bool {
-        let shift = |e: &mut Event, by: i32| match u8::try_from(i32::from(e.note) + by) {
-            Ok(n) if n <= 127 => {
-                e.note = n;
+        let shift = |e: &mut Event, by: i32| match moved(e, by) {
+            Some(m) => {
+                *e = m;
                 true
             }
-            _ => false,
+            None => false,
         };
         match self {
             Pattern::Add(n) => shift(e, *n),
             Pattern::Sub(n) => shift(e, -n),
-            Pattern::Oct(n) => !e.degree && shift(e, 12 * n),
+            Pattern::Oct(n) => !e.degree && shift(e, 1200 * n),
             Pattern::Scale(keys) => {
                 let bar =
                     u32::try_from(t / u64::from(BAR) % u64::from(keys.bars().max(1))).unwrap_or(0);
@@ -1153,18 +1148,33 @@ fn rev(line: &Line) -> Line {
     }
 }
 
+/// `x` semitones (`12`, `-0.5`, at most two decimals) in cents, within
+/// four octaves (#699).
+fn cents_of(x: &str) -> Option<i32> {
+    let x = x.trim();
+    let decimals = x.split_once('.').map_or(0, |(_, d)| d.len());
+    let c = (x.parse::<f64>().ok()? * 100.0).round();
+    (decimals <= 2 && c.abs() <= 4800.0).then_some(c as i32)
+}
+
+/// Cents as semitones, as written: `12`, `0.1`.
+fn semitones(cents: i32) -> String {
+    (f64::from(cents) / 100.0).to_string()
+}
+
+/// `e` moved by `by` cents, its note the nearest key and its cents what is
+/// left, −50 to 49; `None` past 0 to 127.
+fn moved(e: &Event, by: i32) -> Option<Event> {
+    let all = i32::from(e.note) * 100 + i32::from(e.cents) + by;
+    let note = (all + 50).div_euclid(100);
+    let note = u8::try_from(note).ok().filter(|n| *n <= 127)?;
+    let cents = i16::try_from(all - i32::from(note) * 100).unwrap_or(0);
+    Some(Event { note, cents, ..*e })
+}
+
+/// The line moved by `by` cents, a note leaving 0 to 127 dropped.
 fn transpose(line: &Line, by: i32) -> Line {
-    let events = line
-        .events
-        .iter()
-        .filter_map(|e| {
-            let n = i32::from(e.note) + by;
-            u8::try_from(n)
-                .ok()
-                .filter(|n| *n <= 127)
-                .map(|note| Event { note, ..*e })
-        })
-        .collect();
+    let events = line.events.iter().filter_map(|e| moved(e, by)).collect();
     Line {
         events,
         bars: line.bars,
@@ -1657,6 +1667,7 @@ mod tests {
             degree: false,
             when: Default::default(),
             nudge: 0,
+            cents: 0,
         }
     }
 
@@ -2042,6 +2053,44 @@ mod tests {
         let up = s.events.iter().filter(|e| e.note >= 72).count();
         assert!(up > 8 && up < 24, "{up} of 32");
         assert_eq!(s, run("sometimes(add(12))", &line), "seeded");
+    }
+
+    /// #699: a fraction of a semitone moves a note's cents, its note the
+    /// nearest key; whole semitones leave the cents alone.
+    #[test]
+    fn add_takes_a_fraction_of_a_semitone() {
+        let pitch = |e: &Event| (e.note, e.cents);
+        let a = run("add(0.5)", &four());
+        assert_eq!(pitch(&a.events[0]), (61, -50));
+        let b = run("add(0.25)", &a);
+        assert_eq!(pitch(&b.events[0]), (61, -25));
+        assert_eq!(pitch(&run("sub(0.1)", &four()).events[0]), (60, -10));
+        assert_eq!(pitch(&run("add(12)", &b).events[0]), (73, -25));
+        assert_eq!(pitch(&run("oct(-1)", &b).events[0]), (49, -25));
+        let s = run("add([0,0.1])", &four());
+        let firsts: Vec<_> = s
+            .events
+            .iter()
+            .filter(|e| e.start == 0)
+            .map(pitch)
+            .collect();
+        assert_eq!(firsts, [(60, 0), (60, 10)]);
+        // A live clip's bar moves the same way.
+        let mut e = four().events[0];
+        assert!(Pattern::parse("add", "1.5").unwrap().pitch(&mut e, 0));
+        assert_eq!(pitch(&e), (62, -50));
+        for (name, args, printed) in [
+            ("add", "0.5", "add(0.5)"),
+            ("sub", " 0.25 ", "sub(0.25)"),
+            ("add", "-1.5", "add(-1.5)"),
+            ("add", "[0, 0.1]", "add([0,0.1])"),
+            ("add", "\"<0 0.5>\"", "add(\"<0 0.5>\")"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).unwrap().print(), printed);
+        }
+        for bad in ["0.123", "48.5", "x1"] {
+            assert!(Pattern::parse("add", bad).is_err(), "add({bad})");
+        }
     }
 
     /// #702: a ratio squeezes or stretches, the line round in whole bars.

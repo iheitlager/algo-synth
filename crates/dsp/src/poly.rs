@@ -246,6 +246,8 @@ struct Slot {
     age: u64,
     /// This voice's unison detune in cents (0 outside unison).
     cents: f32,
+    /// Cents its note plays off the key (#699): `.add(0.1)`, `.add(perlin)`.
+    fine: f32,
     /// Frames since its note began, and since its key was let go (ADR-0023).
     since: u32,
     released: Option<u32>,
@@ -355,6 +357,15 @@ impl Pool {
             .enumerate()
             .filter(move |(_, s)| s.owner.is_some() && s.age == clock)
             .map(|(i, _)| i)
+    }
+
+    /// The note numbered `clock` plays `cents` off its key (#699).
+    pub fn set_fine(&mut self, clock: u64, cents: f32) {
+        for s in &mut self.slots {
+            if s.owner.is_some() && s.age == clock {
+                s.fine = cents;
+            }
+        }
     }
 
     /// The slots the note numbered `clock` pressed drop the envelope times
@@ -921,7 +932,7 @@ impl Pool {
                 continue;
             }
             let unison = if poly { s.cents } else { 0.0 };
-            let mut trim = 0.0;
+            let mut trim = s.fine / 100.0;
             // xorshift: a step of drift in −1..=1.
             self.rng ^= self.rng << 13;
             self.rng ^= self.rng >> 17;
@@ -930,7 +941,7 @@ impl Pool {
             if let Some(d) = self.drift.get_mut(i) {
                 *d = (*d * 0.998 + step * 0.12).clamp(-DRIFT_CENTS, DRIFT_CENTS);
                 let own = unit(i, 1) * ANALOG_CENTS * osc.detune + *d * osc.drift;
-                trim = (unison + own * p.analog) / 100.0;
+                trim += (unison + own * p.analog) / 100.0;
             }
             v.set_trim(trim, unit(i, 2) * ANALOG_CUTOFF * p.analog);
         }

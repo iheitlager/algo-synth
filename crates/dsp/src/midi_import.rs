@@ -247,6 +247,7 @@ fn layout(
                     degree: false,
                     when: Default::default(),
                     nudge: 0,
+                    cents: 0,
                     word: 0,
                 })
                 .collect();

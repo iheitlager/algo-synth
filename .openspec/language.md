@@ -612,8 +612,9 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.fast(n)` `.slow(n)` | n times faster or slower: a whole number or a ratio, each side 1–16 (`3/4`, `1.5`, #702); the line repeats until it fills whole bars, so `.fast(3/4)` of a bar plays three times in four |
 | `.rev()` | each bar backwards |
 | `.palindrome()` | every other bar backwards |
-| `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48) |
-| `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after |
+| `.add(n)` `.sub(n)` | transpose by n semitones (−48 to 48), a fraction too, to the cent (`.add(0.5)`, at most two decimals, #699): the note plays between the keys on every pitched model |
+| `.add(<signal>)` `.sub(<signal>)` | semitones read from a signal of the song's time as each note starts, `.add(perlin.range(0, 0.5))`, Strudel's pitch warble (#699); one a clip, not `env`, a list, `.onNote` or `~`; not on a `live` clip or a drum clip |
+| `.add([0,4,7])` | a copy of each note per offset, sounding together: degrees before `.scale`, semitones after; `.add([0,0.1])` layers a copy ten cents up |
 | `.ply(n)` | each note n (1–16) times in its own length |
 | `.iter(n)` | each bar starts a further 1/n (1–16) of a bar in |
 | `.shuffle(n)` | each bar cut into n (1–16) parts played in a new order each bar, every part once (#615) |

@@ -221,6 +221,7 @@ fn random_song(r: &mut Rng) -> Song {
                 grid: 16,
                 from: None,
                 beat: None,
+                bend: None,
             });
             continue;
         }
@@ -249,6 +250,7 @@ fn random_song(r: &mut Rng) -> Song {
             grid: GRIDS[r.below(GRIDS.len())],
             from: None,
             beat: None,
+            bend: None,
         });
     }
     song
@@ -3004,6 +3006,47 @@ fn a_clip_read_for_roots_comes_before_and_has_notes() {
     ] {
         let e = Song::parse(text).expect_err(msg);
         assert_eq!((&*e.msg, e.line), (msg, line), "{text}");
+    }
+}
+
+/// #699: `.add(<signal>)` is read as each note starts; it prints back and
+/// takes only a signal of the song's time, on a clip of notes.
+#[test]
+fn add_takes_a_signal_of_the_songs_time() {
+    let text = "track keys synth\nclip a = keys .fast(2) .add(perlin.range(0, 0.5)) .room(0.8)\n  \"c4 e4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let (sub, sig) = s.clips[0].bend.as_ref().expect("a signal on add");
+    assert!(!sub);
+    assert_eq!(sig.to_string(), "perlin.range(0, 0.5)");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = keys .fast(2) .add(perlin.range(0, 0.5)) .room(0.8)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let s = Song::parse("track keys synth\nclip a = keys .sub(sine)\n  \"c4\"\n").expect("parses");
+    assert!(s.clips[0].bend.as_ref().is_some_and(|(sub, _)| *sub));
+    for (bad, msg) in [
+        (
+            "keys .add(env(perc))",
+            "add takes a signal of the song's time: add(perlin.range(0, 0.5))",
+        ),
+        (
+            "keys .add(rand.onNote)",
+            "add takes a signal of the song's time: add(perlin.range(0, 0.5))",
+        ),
+        (
+            "keys .add(sine) .add(saw)",
+            "a clip takes one add of a signal",
+        ),
+        (
+            "keys live .add(sine)",
+            "a signal on add is for a clip of notes",
+        ),
+    ] {
+        let err =
+            Song::parse(&format!("track keys synth\nclip a = {bad}\n  \"c4\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
     }
 }
 

@@ -7013,3 +7013,49 @@ fn a_modular_mix_of_panned_voices_keeps_its_sides() {
     assert!((left_hz - 440.0).abs() < 10.0, "left {left_hz} Hz");
     assert!((right_hz - 880.0).abs() < 10.0, "right {right_hz} Hz");
 }
+
+/// #699: a fraction of a semitone, and a signal read at each note's start,
+/// play between the keys on every pitched model.
+#[test]
+fn a_fractional_add_plays_between_the_keys() {
+    // Models whose patch holds its pitch and crosses zero once a cycle, so
+    // `pitch_of` reads it (the SH-101's wobbles, the D-50's crosses more).
+    for model in ["Dx7", "Juno106"] {
+        let hz = |methods: &str| {
+            let mut e = Engine::new(48_000.0);
+            let text =
+                format!("tempo 120\ntrack lead synth {model}\nclip r = lead{methods}\n  \"a3\"\n");
+            assert_eq!(load_text(&mut e, &text), Ok(()), "{text}");
+            e.set_param(0, Param::Analog, 0.0);
+            e.set_param(0, Param::Cutoff, 400.0);
+            e.song_play();
+            pitch_of(&left_of(&mut e, 0.5)[4800..])
+        };
+        let base = hz("");
+        let cents = |m: &str| 1200.0 * (hz(m) / base).log2();
+        for (m, want) in [
+            (" .add(0.5)", 50.0),
+            (" .sub(0.25)", -25.0),
+            (" .add(1.3)", 130.0),
+            (" .add(sine.range(0.2, 0.2))", 20.0),
+            (" .sub(perlin.range(0.4, 0.4))", -40.0),
+        ] {
+            let got = cents(m);
+            assert!((got - want).abs() < 1.5, "{model}{m}: {got} cents");
+        }
+    }
+    // A moving signal gives each note its own: a saw over four bars is 0 on
+    // the first and a quarter-tone up (0.5 of a semitone) on the third.
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth Dx7\nclip r = lead .add(saw.slow(4))\n  \"a3\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    // A bar is 2 s at 120: the first, and the third from 4 s.
+    let x = left_of(&mut e, 5.0);
+    let (first, third) = (pitch_of(&x[4800..24_000]), pitch_of(&x[196_800..216_000]));
+    let cents = 1200.0 * (third / first).log2();
+    assert!(
+        (cents - 50.0).abs() < 1.5,
+        "{cents} cents between bars 1 and 3"
+    );
+}

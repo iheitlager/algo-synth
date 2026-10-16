@@ -93,7 +93,7 @@ const METHODS: [(&str, &str); 26] = [
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
     ("palindrome", "every other bar backwards"),
-    ("add", "n semitones up"),
+    ("add", "n semitones up, or a signal"),
     ("sub", "n semitones down"),
     ("ply", "each note n times"),
     ("iter", "each bar starts 1/n further in"),

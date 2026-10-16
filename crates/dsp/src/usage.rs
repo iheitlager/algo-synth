@@ -52,11 +52,11 @@ pub const METHODS: [(&str, &str); 26] = [
     ("palindrome", "palindrome takes no value: palindrome()"),
     (
         "add",
-        "add takes semitones from -48 to 48, a list for a chord, or one a bar: add(7), add([0,4,7]) or add(\"<0 3 5>\")",
+        "add takes semitones from -48 to 48, a list for a chord, one a bar or a signal: add(7), add(0.5), add([0,4,7]), add(\"<0 3 5>\") or add(perlin.range(0, 0.5))",
     ),
     (
         "sub",
-        "sub takes semitones from -48 to 48, or one a bar: sub(12) or sub(\"<0 12>\")",
+        "sub takes semitones from -48 to 48, one a bar or a signal: sub(12), sub(0.5) or sub(\"<0 12>\")",
     ),
     (
         "ply",

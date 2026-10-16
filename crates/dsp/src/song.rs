@@ -340,6 +340,15 @@ impl Lane {
     }
 }
 
+/// Is a method's argument a signal, not a number, a list or quoted values:
+/// `perlin.range(0, 0.5)` (#699)?
+fn is_signal(arg: &str) -> bool {
+    arg.trim()
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+}
+
 /// A loop on a track: one lane per pad on a drum track, one line of notes on
 /// a synth track (the other is then empty).
 #[derive(Clone, Debug, PartialEq)]
@@ -363,6 +372,9 @@ pub struct Clip {
     /// `"bd sn [ch oh] ch"` (#659): the beat line the lanes were made from,
     /// printed in their place until a step is edited.
     pub beat: Option<Beat>,
+    /// `.add(perlin.range(0, 0.5))` (#699): semitones read at each note's
+    /// start, and whether it was `.sub`.
+    pub bend: Option<(bool, Signal)>,
 }
 
 /// A drum clip's beat line as written, and whether the clip line wrote its
@@ -424,6 +436,7 @@ impl Clip {
                         degree: false,
                         when: notes::When::default(),
                         nudge: 0,
+                        cents: 0,
                     });
                 }
             }
@@ -1690,12 +1703,43 @@ impl Song {
                         grid,
                         from: from.map(|w| w.text.to_string()),
                         beat: None,
+                        bend: None,
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
                         for (name, ncol, sig, scol) in
                             parse_methods(text).map_err(|(c, m)| err(at + c - 1, m))?
                         {
+                            // `.add(<signal>)`: semitones read as each note
+                            // starts, in the engine (#699).
+                            if matches!(name, "add" | "sub") && is_signal(sig) {
+                                let pcol = at + scol - 1;
+                                let signal = Signal::parse(sig, &mut nodes)
+                                    .map_err(|(c, m)| err(pcol + c - 1, m))?;
+                                let clip = song.clips.get_mut(f);
+                                if signal.per_voice() || signal.on_note() || signal.rests() {
+                                    return Err(err(
+                                        pcol,
+                                        "add takes a signal of the song's time: add(perlin.range(0, 0.5))",
+                                    ));
+                                }
+                                if live || kind == Some(Kind::Drums) || from_lanes {
+                                    return Err(err(
+                                        at + ncol - 1,
+                                        "a signal on add is for a clip of notes",
+                                    ));
+                                }
+                                if let Some(clip) = clip {
+                                    if clip.bend.is_some() {
+                                        return Err(err(
+                                            at + ncol - 1,
+                                            "a clip takes one add of a signal",
+                                        ));
+                                    }
+                                    clip.bend = Some((name == "sub", signal));
+                                }
+                                continue;
+                            }
                             if Pattern::NAMES.contains(&name) {
                                 let msg = if kind == Some(Kind::Drums) && from.is_none() {
                                     Some("pattern methods are for a clip of notes")
@@ -3498,7 +3542,13 @@ impl Song {
             .map(|fr| fr.pattern.as_slice())
             .unwrap_or(&[])
             .iter()
-            .map(|p| format!(" .{}", p.print()));
+            .map(|p| format!(" .{}", p.print()))
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.bend.as_ref())
+                    .map(|(sub, s)| format!(" .{}({s})", if *sub { "sub" } else { "add" })),
+            );
         let mine: Vec<&Mod> = self.mods.iter().filter(|m| m.clip == Some(f)).collect();
         let adsr = |m: &&Mod| m.alias == Some("adsr");
         let params: Vec<String> = mine

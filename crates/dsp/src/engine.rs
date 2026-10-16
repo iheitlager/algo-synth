@@ -133,6 +133,8 @@ struct Hit {
     owner: Owner,
     note: u8,
     velocity: f32,
+    /// Cents off the key (#699).
+    cents: f32,
     /// A clip's note: its clip and tick, sampled for `.onNote` and the
     /// envelope times when it is pressed (ADR-0038).
     from: Option<(usize, u64)>,
@@ -147,6 +149,7 @@ const NO_HIT: Hit = Hit {
     owner: Owner::Live(0),
     note: 0,
     velocity: 0.0,
+    cents: 0.0,
     from: None,
 };
 
@@ -1047,6 +1050,35 @@ impl Engine {
             Owner::Live(s) => Some(usize::from(s)),
             Owner::Track(t) => self.song_routed(usize::from(t)),
         }
+    }
+
+    /// The note just started for `owner` plays `cents` off its key (#699).
+    fn set_fine(&mut self, owner: Owner, cents: f32) {
+        if let Some(pool) = self.target(owner).and_then(|s| self.pools.get_mut(s)) {
+            pool.set_fine(self.note_count, cents);
+        }
+    }
+
+    /// The cents event `ev` of clip `f` plays off its key at song tick `j`:
+    /// its own, and the clip's `.add(signal)` there (#699).
+    fn note_cents(&mut self, f: usize, ev: &Event, j: u64) -> f32 {
+        let own = f32::from(ev.cents);
+        let Some((sub, signal)) = self.song.clips.get(f).and_then(|c| c.bend.as_ref()) else {
+            return own;
+        };
+        let mut ctx = signal::Ctx {
+            cps: f64::from(self.clock.tempo()) / 240.0,
+            dt: 0.0,
+            state: &mut self.mod_state,
+            voice: None,
+        };
+        let t = j as f64 / TICKS_PER_STEP as f64 / STEPS_PER_BAR as f64;
+        let v = signal.eval(t, &mut ctx);
+        if !v.is_finite() {
+            return own;
+        }
+        let semis = if *sub { -v } else { v };
+        own + semis.clamp(-48.0, 48.0) * 100.0
     }
 
     fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
@@ -2062,15 +2094,19 @@ impl Engine {
                 };
                 *slot = Some((j + len, track, ev.note));
                 if late > 0 {
+                    let cents = self.note_cents(f, &ev, j);
                     self.queue_hit(Hit {
                         at: self.clock.tick_sample(j) + late,
                         owner: Owner::Track(track),
                         note: ev.note,
                         velocity: ev.velocity(),
+                        cents,
                         from: Some((f, j)),
                     });
                 } else {
+                    let cents = self.note_cents(f, &ev, j);
                     self.start_voice(Owner::Track(track), ev.note, ev.velocity());
+                    self.set_fine(Owner::Track(track), cents);
                     self.sample_on_note(usize::from(track), f, j);
                 }
                 let span = self
@@ -2160,11 +2196,13 @@ impl Engine {
                         continue;
                     };
                     *slot = Some((j, track, ev.note));
+                    let cents = self.note_cents(f, &ev, j);
                     self.queue_hit(Hit {
                         at,
                         owner: Owner::Track(track),
                         note: ev.note,
                         velocity: ev.velocity(),
+                        cents,
                         from: Some((f, j)),
                     });
                 }
@@ -2417,6 +2455,7 @@ impl Engine {
                                 owner,
                                 note,
                                 velocity,
+                                cents: 0.0,
                                 from: None,
                             });
                         }
@@ -2430,6 +2469,7 @@ impl Engine {
                                 owner,
                                 note,
                                 velocity,
+                                cents: 0.0,
                                 from: None,
                             });
                         }
@@ -2461,6 +2501,7 @@ impl Engine {
                                 owner,
                                 note,
                                 velocity: GRACE_VELOCITY,
+                                cents: 0.0,
                                 from: None,
                             });
                         }
@@ -2485,6 +2526,7 @@ impl Engine {
     /// Press a hit's note, and sample what its clip holds per note.
     fn press_hit(&mut self, hit: Hit) {
         self.start_voice(hit.owner, hit.note, hit.velocity);
+        self.set_fine(hit.owner, hit.cents);
         if let (Owner::Track(t), Some((f, j))) = (hit.owner, hit.from) {
             self.sample_on_note(usize::from(t), f, j);
         }

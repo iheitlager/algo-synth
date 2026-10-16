@@ -339,6 +339,9 @@ pub struct Event {
     /// Milliseconds off its tick: later for a strummed note (#604), earlier
     /// for a grace, which is soft and lets go on its tick (#605).
     pub nudge: i16,
+    /// Cents off `note`, −50 to 49 (#699): `.add(0.1)` and its kin play
+    /// between the keys.
+    pub cents: i16,
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -609,6 +612,7 @@ impl Cursor<'_> {
             degree: p.degree,
             when: Default::default(),
             nudge: 0,
+            cents: 0,
         })
     }
 
@@ -1712,6 +1716,7 @@ impl Compiler<'_> {
             degree: p.degree,
             when: self.when,
             nudge: 0,
+            cents: 0,
         });
     }
 }
@@ -1726,9 +1731,9 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16) {
+pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16) {
     (
-        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge,
+        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents,
     )
 }
 
@@ -1861,6 +1866,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     degree: false,
                     when: Default::default(),
                     nudge: 0,
+                    cents: 0,
                 });
             }
         }
@@ -1902,6 +1908,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     degree: false,
                     when: Default::default(),
                     nudge: 0,
+                    cents: 0,
                 });
             }
         }
@@ -2105,6 +2112,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     degree,
                     when: Default::default(),
                     nudge: 0,
+                    cents: 0,
                 });
             }
             (events, 1)
@@ -2125,6 +2133,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         degree: p.degree,
                         when: Default::default(),
                         nudge: 0,
+                        cents: 0,
                     });
                 }
                 at += len;
