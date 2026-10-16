@@ -5598,6 +5598,36 @@ fn a_bass_line_stays_as_typed() {
     assert_eq!(e.song_text(), text);
 }
 
+/// #622, #623, #624, #588: a chord-scale, prog colours and a markov over
+/// chords typed into a song stay as typed.
+#[test]
+fn harmony_calls_stay_as_typed() {
+    let mut e = kit(0);
+    let text = "tempo 120\nscale c major\ntrack lead synth\n\nclip harm = lead voicing\n  prog(8,7, secondary  borrow)\nclip next = lead voicing\n  markov(1, harm,3)\nclip solo = lead .scale(harm   auto)\n  \"0 2 4 6\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(e.song_text(), text);
+    e.set_song_tempo(90.0);
+    assert_eq!(e.song_text(), text.replace("tempo 120", "tempo 90"));
+}
+
+/// #634: the chords a clip plays, named for the C ABI.
+#[test]
+fn a_clips_chords_are_named() {
+    let mut e = kit(0);
+    let text = "tempo 120\nscale a minor\ntrack lead synth\n\nclip pads = lead\n  \"<a:m7 d:9 g c:maj7>\"\nclip riff = lead\n  \"a4 c5\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    assert_eq!(
+        e.clip_chords(0),
+        "1.1 a:m7 i7 | 2.1 d:9 | 3.1 g VII | 4.1 c:maj7 IIImaj7"
+    );
+    assert_eq!(
+        e.clip_chords_buf(),
+        "1.1 a:m7 i7 | 2.1 d:9 | 3.1 g VII | 4.1 c:maj7 IIImaj7"
+    );
+    assert_eq!(e.clip_chords(1), "");
+    assert_eq!(e.clip_chords(9), "");
+}
+
 /// #612, #613, #588: an arp's modes, octaves and bars typed into a song stay
 /// as typed.
 #[test]

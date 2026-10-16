@@ -1773,6 +1773,13 @@ impl Song {
                                     }
                                 })
                                 .map_err(|m| err(at + ncol - 1, m))?;
+                                let mut p = p;
+                                // `scale(<clip> auto)` falls back on the song's mode (#622).
+                                if let (Pattern::ScaleOf(_, mode, true), Some(key)) =
+                                    (&mut p, song.scale.as_ref())
+                                {
+                                    *mode = key.mode;
+                                }
                                 if let Some(clip) = song.clips.get_mut(f) {
                                     clip.pattern.push(p);
                                 }
@@ -3028,6 +3035,22 @@ impl Song {
             2 => sec.snapshots.contains(&item),
             _ => false,
         })
+    }
+
+    /// The chords note clip `clip` plays, named at each change, with
+    /// numerals in the song's key (#634, `recognize::describe`); empty for
+    /// a drum clip or one without chords.
+    pub fn clip_chords(&self, clip: usize) -> String {
+        self.clips
+            .get(clip)
+            .and_then(|c| c.notes.as_ref())
+            .filter(|n| {
+                notes::recognize::chords(&n.events, n.bars)
+                    .iter()
+                    .any(|(_, c)| c.is_some())
+            })
+            .map(|n| notes::recognize::describe(&n.events, n.bars, self.scale.as_ref()))
+            .unwrap_or_default()
     }
 
     /// Do `op` on note clip `clip` (from the composer's note view) and write

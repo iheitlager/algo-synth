@@ -241,6 +241,8 @@ pub struct Engine {
     /// The last code that did not build, and a code's text handed out.
     code_error: Option<CodeError>,
     code_text: String,
+    /// The chords of a clip handed out last (`clip_chords`, #634).
+    chords_text: String,
     /// The knob list handed out last (`knob_list`).
     knob_text: String,
     song_route: [Option<usize>; MAX_TRACKS],
@@ -380,6 +382,7 @@ impl Engine {
             codes: vec![None; SYNTHS],
             code_error: None,
             code_text: String::new(),
+            chords_text: String::new(),
             knob_text: String::new(),
             song_route: [None; MAX_TRACKS],
             mix_from_text: [0; crate::mixer::STRIPS],
@@ -2328,6 +2331,17 @@ impl Engine {
                 _ => Live::default(),
             })
             .collect()
+    }
+
+    /// The chords clip `clip` plays, named (`Song::clip_chords`, #634).
+    /// Kept for the C ABI until the next call.
+    pub fn clip_chords(&mut self, clip: usize) -> &str {
+        self.chords_text = self.song.clip_chords(clip);
+        &self.chords_text
+    }
+
+    pub fn clip_chords_buf(&self) -> &str {
+        &self.chords_text
     }
 
     /// The events clip `clip` is playing: a live one's current cycle, else

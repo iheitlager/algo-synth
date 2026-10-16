@@ -83,8 +83,10 @@ pub enum Pattern {
     Sometimes(Chance, Box<Pattern>),
     Scale(Keys),
     /// `scale(<clip> <mode>)`: the roots are the notes an earlier clip plays
-    /// (ADR-0035, #591).
-    ScaleOf(Context, Mode),
+    /// (ADR-0035, #591). With `auto` (true), `scale(<clip> auto)`, each
+    /// chord's quality picks its mode and the mode is for a chord with none
+    /// (#622): the song's, set when the song loads.
+    ScaleOf(Context, Mode, bool),
     /// Whole octaves, after the degrees are notes (#591).
     Oct(i32),
     /// `chord(<clip>)`: degrees count the notes of the chord an earlier clip
@@ -306,6 +308,26 @@ impl Context {
             buf.first().copied()
         } else {
             None
+        }
+    }
+
+    /// The scale at tick `t`: the lowest note sounding there in `mode`, or,
+    /// with `auto` (#622), the chord's recognized root (at or above its
+    /// lowest note) in the mode of its quality (`recognize::chord_scale`),
+    /// `mode` when it is none. Nothing allocates (#593).
+    pub fn key(&self, t: u64, mode: Mode, auto: bool) -> Option<(u8, Mode)> {
+        let mut buf = [0u8; MAX_CHORD];
+        let n = self.chord(t, &mut buf);
+        let notes = buf.get(..n).filter(|c| !c.is_empty())?;
+        let low = notes.first().copied()?;
+        if !auto {
+            return Some((low, mode));
+        }
+        match super::recognize::recognize(notes)
+            .and_then(|c| super::recognize::chord_scale(c.quality).map(|m| (c.root, m)))
+        {
+            Some((root, m)) => Some((low + (root + 12 - low % 12) % 12, m)),
+            None => Some((low, mode)),
         }
     }
 }
@@ -739,8 +761,9 @@ impl Pattern {
                 match srcs(first) {
                     Some((_, _, true)) => Err("a drum clip has no notes to take roots from"),
                     Some((events, bars, false)) => {
-                        let mode = match rest.split_whitespace().collect::<Vec<_>>()[..] {
-                            [m] => Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?,
+                        let (mode, auto) = match rest.split_whitespace().collect::<Vec<_>>()[..] {
+                            ["auto"] => (Mode::from_name("major").ok_or(crate::usage::SCALE)?, true),
+                            [m] => (Mode::from_name(m).ok_or_else(|| Mode::unknown(m))?, false),
                             _ => return Err(crate::usage::SCALE),
                         };
                         if events.is_empty() {
@@ -753,6 +776,7 @@ impl Pattern {
                                 bars,
                             },
                             mode,
+                            auto,
                         ))
                     }
                     None => Keys::parse(arg).map(Pattern::Scale).map_err(|m| {
@@ -860,7 +884,8 @@ impl Pattern {
                 format!("{name}({})", bare(m))
             }
             Pattern::Scale(keys) => format!("scale({})", keys.print()),
-            Pattern::ScaleOf(c, mode) => format!("scale({} {})", c.name, mode.name()),
+            Pattern::ScaleOf(c, _, true) => format!("scale({} auto)", c.name),
+            Pattern::ScaleOf(c, mode, false) => format!("scale({} {})", c.name, mode.name()),
             Pattern::Oct(n) => format!("oct({n})"),
             Pattern::ChordOf(c) => format!("chord({})", c.name),
             Pattern::StructOf(c) => format!("struct({})", c.name),
@@ -956,15 +981,15 @@ impl Pattern {
                 }
                 out
             }
-            Pattern::ScaleOf(c, mode) => {
+            Pattern::ScaleOf(c, mode, auto) => {
                 // Each note takes the root sounding in the clip where it
                 // starts, the two round together (ADR-0035).
                 let bars = lcm(line.bars, c.bars);
                 check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
                 let mut out = line.repeat(bars);
                 for e in &mut out.events {
-                    if let Some(root) = c.root(u64::from(e.start)) {
-                        place_on(e, root, *mode);
+                    if let Some((root, mode)) = c.key(u64::from(e.start), *mode, *auto) {
+                        place_on(e, root, mode);
                     }
                 }
                 out
@@ -1076,9 +1101,9 @@ impl Pattern {
                 }
                 true
             }
-            Pattern::ScaleOf(c, mode) => {
-                if let Some(root) = c.root(t) {
-                    place_on(e, root, *mode);
+            Pattern::ScaleOf(c, mode, auto) => {
+                if let Some((root, mode)) = c.key(t, *mode, *auto) {
+                    place_on(e, root, mode);
                 }
                 true
             }

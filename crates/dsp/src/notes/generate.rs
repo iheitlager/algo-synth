@@ -16,8 +16,8 @@
 //! arp(prog,up,16)                prog's chords arpeggiated, each from its start
 //! ```
 
-use super::{Cursor, Event, NoteError, Pitch, TICKS_PER_BAR, err};
-use crate::algo::{Rng, Scale, mix};
+use super::{Cursor, Event, MAX_EVENTS, NoteError, Pitch, TICKS_PER_BAR, err};
+use crate::algo::{Mode, Rng, Scale, mix};
 use crate::arp;
 pub use crate::arp::ArpMode;
 
@@ -107,6 +107,37 @@ impl Style {
         (Style::Modal, "modal"),
         (Style::Andalusian, "andalusian"),
     ];
+}
+
+/// The colours `prog` may add (#623), each with a seeded chance a chord.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Colours {
+    /// A chord from the parallel mode (major and minor) for one of the same
+    /// function: bVI or iv for IV, bVII for V, bIII for iii in major; IV for
+    /// iv and V for v in minor.
+    pub borrow: bool,
+    /// The dominant 7th of the next chord in its place, when that is not
+    /// the tonic.
+    pub secondary: bool,
+}
+
+impl Colours {
+    pub const WORDS: [&'static str; 2] = ["borrow", "secondary"];
+
+    fn any(self) -> bool {
+        self.borrow || self.secondary
+    }
+
+    /// `borrow secondary`, as a prog's argument prints.
+    fn print(self) -> String {
+        let words = [(self.borrow, "borrow"), (self.secondary, "secondary")];
+        words
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, w)| *w)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 /// How `bass` follows the chords (#611).
@@ -207,6 +238,8 @@ pub enum Gen {
         /// Each chord's length in beats, 1 to 16, in turn: `[4]` by default.
         beats: Vec<u8>,
         style: Style,
+        /// Borrowed chords and secondary dominants (#623).
+        colours: Colours,
     },
 }
 
@@ -318,6 +351,7 @@ impl Gen {
                 size,
                 beats,
                 style,
+                colours,
             } => {
                 let mut out = format!("prog({bars},{seed}");
                 if *size != Size::Triad {
@@ -339,6 +373,9 @@ impl Gen {
                         .map_or("", |s| s.1);
                     out.push_str(&format!(",{name}"));
                 }
+                if colours.any() {
+                    out.push_str(&format!(",{}", colours.print()));
+                }
                 out.push(')');
                 out
             }
@@ -358,16 +395,42 @@ impl Gen {
         match self {
             Gen::Arp { rate, bars, .. } => usize::from(*rate) * *bars as usize,
             Gen::Walk { .. } => MAX_WALK as usize,
-            Gen::Markov { src, .. } | Gen::Mutate { src, .. } | Gen::Root { src, .. } => src.len(),
+            // Over chords, any chord may land on any of the source's slots.
+            Gen::Markov { src, .. } => {
+                let mut starts = [0u16; MAX_EVENTS + 1];
+                let n = groups(src, &mut starts);
+                let widest = (0..n)
+                    .map(|g| group(src, &starts, g).len())
+                    .max()
+                    .unwrap_or(0);
+                if widest > 1 {
+                    (n * widest).min(MAX_EVENTS)
+                } else {
+                    src.len()
+                }
+            }
+            Gen::Mutate { src, .. } | Gen::Root { src, .. } => src.len(),
             // A note a beat, or an eighth for `octave`.
             Gen::Bass { bars, style, .. } => {
                 let per = if *style == BassStyle::Octave { 8 } else { 4 };
                 per * *bars as usize
             }
             Gen::ArpProg { rate, bars, .. } => usize::from(*rate) * *bars as usize,
+            // A secondary dominant is a 7th, whatever the size.
             Gen::Prog {
-                bars, size, beats, ..
-            } => size.notes() * chords(*bars, beats).count(),
+                bars,
+                size,
+                beats,
+                colours,
+                ..
+            } => {
+                let notes = if colours.secondary {
+                    size.notes().max(4)
+                } else {
+                    size.notes()
+                };
+                notes * chords(*bars, beats).count()
+            }
         }
     }
 
@@ -409,8 +472,9 @@ impl Gen {
                 size,
                 beats,
                 style,
+                colours,
                 ..
-            } => prog(*bars, beats, *size, *style, seed, scale, out),
+            } => prog(*bars, beats, (*size, *style, *colours), seed, scale, out),
         }
         out.sort_unstable_by_key(super::sort_key);
         // Past the room reserved, a push would allocate on the audio thread (#233).
@@ -523,9 +587,17 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
 
 /// Pitches follow a chain learned from the source's own order of notes; the
 /// rhythm is the source's. Every note comes from the source's pitch set.
+/// A source with chords (two or more notes starting together) is learned
+/// chord by chord (#624).
 fn markov(order: u8, src: &[Event], seed: u32, out: &mut Vec<Event>) {
     let m = src.len();
     if m == 0 {
+        return;
+    }
+    let mut starts = [0u16; MAX_EVENTS + 1];
+    let n = groups(src, &mut starts);
+    if (0..n).any(|g| group(src, &starts, g).len() > 1) {
+        markov_chords(order, src, &starts, n, seed, out);
         return;
     }
     let k = usize::from(order.clamp(1, MAX_ORDER));
@@ -560,6 +632,79 @@ fn markov(order: u8, src: &[Event], seed: u32, out: &mut Vec<Event>) {
         ctx.rotate_left(1);
         if let Some(last) = ctx.get_mut(k - 1) {
             *last = note;
+        }
+    }
+}
+
+/// Where each group of events starting together begins in `src` (sorted by
+/// start), into `starts`, and how many groups; `starts[n]` is the end.
+fn groups(src: &[Event], starts: &mut [u16; MAX_EVENTS + 1]) -> usize {
+    let mut n = 0;
+    for (i, e) in src.iter().enumerate().take(MAX_EVENTS) {
+        if i == 0 || src.get(i - 1).is_some_and(|p| p.start != e.start) {
+            if let Some(s) = starts.get_mut(n) {
+                *s = i as u16;
+            }
+            n += 1;
+        }
+    }
+    if let Some(s) = starts.get_mut(n) {
+        *s = src.len().min(MAX_EVENTS) as u16;
+    }
+    n
+}
+
+/// Group `g` of `src`, as `groups` found them.
+fn group<'a>(src: &'a [Event], starts: &[u16; MAX_EVENTS + 1], g: usize) -> &'a [Event] {
+    let at = |k: usize| usize::from(starts.get(k).copied().unwrap_or(0));
+    src.get(at(g)..at(g + 1)).unwrap_or(&[])
+}
+
+/// `markov` over a source of chords (#624): the chain's states are whole
+/// chords, so each slot of the source's rhythm takes one of its chords,
+/// every note of it, as long as it lasted there. Nothing allocates, so a
+/// live clip may run it in `render`.
+fn markov_chords(
+    order: u8,
+    src: &[Event],
+    starts: &[u16; MAX_EVENTS + 1],
+    n: usize,
+    seed: u32,
+    out: &mut Vec<Event>,
+) {
+    let k = usize::from(order.clamp(1, MAX_ORDER));
+    let mut r = rng(seed, 0x3A4);
+    let notes = |g: usize| group(src, starts, g).iter().map(|e| e.note);
+    let same = |a: usize, b: usize| notes(a).eq(notes(b));
+    // The last k chords played, as groups of the source.
+    let first = usize::try_from(r.next_u32()).unwrap_or(0) % n;
+    let mut ctx = [0usize; MAX_ORDER as usize];
+    for (j, c) in ctx.iter_mut().take(k).enumerate() {
+        *c = (first + j) % n;
+    }
+    let follows = |i: usize, ctx: &[usize]| {
+        i + k < n && ctx.iter().take(k).enumerate().all(|(j, c)| same(i + j, *c))
+    };
+    for slot in 0..n {
+        let at = group(src, starts, slot).first().map_or(0, |e| e.start);
+        let count = (0..n).filter(|i| follows(*i, &ctx)).count();
+        let pick = if count > 0 {
+            let nth = usize::try_from(r.next_u32()).unwrap_or(0) % count;
+            (0..n)
+                .filter(|i| follows(*i, &ctx))
+                .nth(nth)
+                .map_or(slot, |i| i + k)
+        } else {
+            usize::try_from(r.next_u32()).unwrap_or(0) % n
+        };
+        for e in group(src, starts, pick) {
+            if out.len() < MAX_EVENTS {
+                out.push(Event { start: at, ..*e });
+            }
+        }
+        ctx.rotate_left(1);
+        if let Some(last) = ctx.get_mut(k - 1) {
+            *last = pick;
         }
     }
 }
@@ -986,11 +1131,13 @@ fn degree(
 /// the dominant (V) and moves between functions as common practice does:
 /// tonic to anything, subdominant towards the dominant, the dominant home.
 /// Each chord is stacked from its degree to `size`, in octave 4.
+/// `colours` may then put a borrowed chord or a secondary dominant on any
+/// chord but the first and the last (#623), drawn from a stream of their
+/// own, so the same call without them gives the same chords.
 fn prog(
     bars: u32,
     beats: &[u8],
-    size: Size,
-    style: Style,
+    (size, style, colours): (Size, Style, Colours),
     seed: u32,
     scale: Option<&Scale>,
     out: &mut Vec<Event>,
@@ -1006,16 +1153,31 @@ fn prog(
         andalusian(n, &mut r, &mut steps);
     }
     let mut function = 0usize;
+    let mut degrees = [0usize; MAX_PROG as usize * 4];
+    for (k, d) in degrees.iter_mut().take(n).enumerate() {
+        *d = degree(style, k, n, &mut function, &steps, &mut r, scale);
+    }
+    let parallel = parallel(scale);
+    // Each chord's coins, both every chord so one colour doesn't move the
+    // other's: a secondary dominant (on an inner chord before one that is
+    // not the tonic), a borrowing, and which chord to borrow.
+    let mut c = rng(seed, 0x9C1);
+    let mut coins = [(false, false, 0u32); MAX_PROG as usize * 4];
+    for (k, coin) in coins.iter_mut().take(n).enumerate() {
+        let (second, lend, pick) = (c.next_u32() % 3 == 0, c.next_u32() % 3 == 0, c.next_u32());
+        let next = degrees.get(k + 1).copied().unwrap_or(0);
+        let inner = k > 0 && k + 1 < n;
+        let second = colours.secondary && inner && second && next != 0 && !diminished(scale, next);
+        *coin = (second, colours.borrow && inner && lend, pick);
+    }
     for (k, (start, len)) in chords(bars, beats).enumerate() {
-        let degree = degree(style, k, n, &mut function, &steps, &mut r, scale);
-        let mut below = 59u8;
-        for step in size.steps(degree) {
-            let pc = scale.degree((degree + step) % 7).unwrap_or(0);
-            let mut note = 60 + pc;
-            while note <= below {
-                note += 12;
-            }
-            below = note;
+        let degree = degrees.get(k).copied().unwrap_or(0);
+        let next = degrees.get(k + 1).copied().unwrap_or(0);
+        let (second, lend, pick) = coins.get(k).copied().unwrap_or_default();
+        // A secondary dominant leads to the chord played next, so not to
+        // another one.
+        let second = second && !coins.get(k + 1).is_some_and(|c| c.0);
+        let mut push = |note: u8| {
             out.push(Event {
                 start,
                 len,
@@ -1029,7 +1191,64 @@ fn prog(
                 cents: 0,
                 pan: 0,
             });
+        };
+        if second {
+            // V7 of the next chord: a major triad and a minor 7th a fifth up.
+            let root = (scale.degree(next).unwrap_or(0) + 7) % 12;
+            for i in [0, 4, 7, 10] {
+                push(60 + root + i);
+            }
+            continue;
         }
+        let (key, degree) = match parallel.filter(|_| lend) {
+            Some((p, major)) => match borrowed(degree, major, pick) {
+                Some(d) => (p, d),
+                None => (*scale, degree),
+            },
+            None => (*scale, degree),
+        };
+        let mut below = 59u8;
+        for step in size.steps(degree) {
+            let pc = key.degree((degree + step) % 7).unwrap_or(0);
+            let mut note = 60 + pc;
+            while note <= below {
+                note += 12;
+            }
+            below = note;
+            push(note);
+        }
+    }
+}
+
+/// The parallel key of a major or minor `scale` (#623), and whether the
+/// song's is major; `None` for another mode.
+fn parallel(scale: &Scale) -> Option<(Scale, bool)> {
+    let (major, minor) = (Mode::from_name("major")?, Mode::from_name("minor")?);
+    let (mode, is_major) = match scale.mode {
+        m if m == major => (minor, true),
+        m if m == minor => (major, false),
+        _ => return None,
+    };
+    Some((
+        Scale {
+            root: scale.root,
+            mode,
+        },
+        is_major,
+    ))
+}
+
+/// The degree of the parallel key borrowed for `degree` (#623), `pick`
+/// choosing between bVI and iv; `None` when it has none.
+fn borrowed(degree: usize, major: bool, pick: u32) -> Option<usize> {
+    match (major, degree) {
+        // IV: bVI or iv; V: bVII; iii: bIII.
+        (true, 3) => Some(if pick % 2 == 0 { 5 } else { 3 }),
+        (true, 4) => Some(6),
+        (true, 2) => Some(2),
+        // iv: IV; v: V.
+        (false, 3 | 4) => Some(degree),
+        _ => None,
     }
 }
 
@@ -1107,7 +1326,7 @@ fn args(cur: &mut Cursor<'_>) -> Result<Vec<(usize, usize)>, NoteError> {
     }
 }
 
-const PROG_ARGS: &str = "after the seed a prog takes a size (triad, 7th, 9th, sus), beats (2 or \"4 2 2\") or a style (classic, pop, jazz, modal, andalusian)";
+const PROG_ARGS: &str = "after the seed a prog takes a size (triad, 7th, 9th, sus), beats (2 or \"4 2 2\"), a style (classic, pop, jazz, modal, andalusian) or colours (borrow, secondary)";
 
 /// A prog's rhythm (#609): a number of beats, or up to 16 in quotes, each
 /// 1 to 16; a bad one is an error at its own column.
@@ -1380,7 +1599,7 @@ pub(super) fn parse_call(
             }
         }
         "prog" => {
-            want(&[2, 3, 4, 5], crate::usage::PROG)?;
+            want(&[2, 3, 4, 5, 6], crate::usage::PROG)?;
             if scale.and_then(|s| s.degree(0)).is_none() {
                 return err(
                     cur.base + at,
@@ -1392,6 +1611,7 @@ pub(super) fn parse_call(
                 return err(cur.base + arg(0).0, "a prog is 1 to 16 bars");
             }
             let (mut size, mut beats, mut style) = (None, None, None);
+            let mut colours: Option<Colours> = None;
             for k in 2..list.len() {
                 let r = arg(k);
                 let t = text(cur, r);
@@ -1409,6 +1629,21 @@ pub(super) fn parse_call(
                     if beats.replace(prog_beats(cur, r)?).is_some() {
                         return twice();
                     }
+                } else if !t.is_empty() && t.split_whitespace().all(|w| Colours::WORDS.contains(&w))
+                {
+                    // `borrow secondary` or `borrow,secondary` (#623).
+                    let mut c = colours.unwrap_or_default();
+                    for w in t.split_whitespace() {
+                        let on = if w == "borrow" {
+                            &mut c.borrow
+                        } else {
+                            &mut c.secondary
+                        };
+                        if std::mem::replace(on, true) {
+                            return err(at, "a prog takes each colour once");
+                        }
+                    }
+                    colours = Some(c);
                 } else {
                     return err(at, PROG_ARGS);
                 }
@@ -1419,6 +1654,7 @@ pub(super) fn parse_call(
                 size: size.unwrap_or_default(),
                 beats: beats.unwrap_or_else(|| vec![4]),
                 style: style.unwrap_or_default(),
+                colours: colours.unwrap_or_default(),
             }
         }
         "walk" => {
