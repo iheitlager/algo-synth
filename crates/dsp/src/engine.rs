@@ -2570,18 +2570,34 @@ impl Engine {
                     continue;
                 }
             }
-            let Some((target, param, v)) = self
-                .song
-                .autos
-                .get(a)
-                .map(|auto| (auto.target, auto.param, auto.value_at(local)))
-            else {
+            let Some(auto) = self.song.autos.get(a) else {
                 continue;
             };
+            let (target, param, v) = (auto.target, auto.param, auto.value_at(local));
+            // The value in force lights until its share ends (#683).
+            let mut hits = [(0usize, 0.0f64); MAX_MOD_LIT];
+            let mut n = 0;
+            auto.lit(local, &mut |k, ahead| {
+                if let Some(h) = hits.get_mut(n) {
+                    *h = (k, ahead);
+                    n += 1;
+                }
+            });
+            for &(k, ahead) in hits.iter().take(n) {
+                let span = self
+                    .spans
+                    .autos
+                    .get(a)
+                    .and_then(|s| s.get(k))
+                    .copied()
+                    .flatten();
+                self.light(span, pos + ahead);
+            }
             let Some(last) = self.auto_last.get_mut(a) else {
                 continue;
             };
-            if *last == v {
+            // A `~` in a sequence holds the lane's last value.
+            if *last == v || v.is_nan() {
                 continue;
             }
             *last = v;

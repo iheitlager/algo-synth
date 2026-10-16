@@ -15,15 +15,16 @@
 //! highlighting does (#203).
 
 use super::signal::Signal;
-use super::{Mod, Song, alias, parse_methods, split_methods, strip_comment};
+use super::{Auto, Mod, Shape, Song, alias, parse_methods, split_methods, strip_comment};
 use crate::params::Param;
 
-/// A song's spans: each clip's words, and each mod's numbers by their index
-/// in its signal (#675).
+/// A song's spans: each clip's words, each mod's numbers by their index in
+/// its signal (#675), and each auto's values by their index (#683).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SongSpans {
     pub clips: Vec<ClipSpans>,
     pub mods: Vec<Vec<Option<(u32, u32)>>>,
+    pub autos: Vec<Vec<Option<(u32, u32)>>>,
 }
 
 /// A clip's words: one span per word of its note line, in
@@ -53,6 +54,7 @@ pub fn spans(song: &Song, text: &str) -> SongSpans {
         .iter()
         .map(|md| mod_spans(song, md, &lines))
         .collect();
+    let autos = song.autos.iter().map(|a| auto_spans(a, &lines)).collect();
     let clips = song
         .clips
         .iter()
@@ -105,7 +107,51 @@ pub fn spans(song: &Song, text: &str) -> SongSpans {
             out
         })
         .collect();
-    SongSpans { clips, mods }
+    SongSpans { clips, mods, autos }
+}
+
+/// An auto's values in its line as typed (#683): each number of `Steps`, or
+/// each number of a sequence parsed again as `mod_spans` does. None for a
+/// ramp, or when the line isn't found or doesn't read as the song's.
+fn auto_spans(a: &Auto, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
+    let found = lines.iter().find_map(|&(base, l)| {
+        let body = strip_comment(l).trim_end();
+        let w: Vec<&str> = body.split_whitespace().collect();
+        (w.first() == Some(&"auto") && w.get(1) == Some(&a.name.as_str())).then_some((base, l, w))
+    });
+    let Some((base, line, w)) = found else {
+        return Vec::new();
+    };
+    let span = |word: &str| {
+        let at = offset(line, word);
+        Some((base + line.get(..at).map_or(0, u16_len), u16_len(word)))
+    };
+    // The values: the words between `target.Param` and `/bars`.
+    let values = w.get(4..w.len().saturating_sub(1)).unwrap_or(&[]);
+    match &a.shape {
+        Shape::Steps(v) => {
+            let same = values.len() == v.len()
+                && values
+                    .iter()
+                    .zip(v)
+                    .all(|(t, x)| t.parse::<f32>().ok() == Some(*x));
+            if same {
+                values.iter().map(|t| span(t)).collect()
+            } else {
+                Vec::new()
+            }
+        }
+        Shape::Seq(sig) => {
+            let (Some(first), Some(end)) = (values.first(), values.last()) else {
+                return Vec::new();
+            };
+            let from = offset(line, first);
+            let to = offset(line, end) + end.len();
+            line.get(from..to)
+                .map_or_else(Vec::new, |text| numbers(sig, base, line, text))
+        }
+        Shape::Ramp(..) => Vec::new(),
+    }
 }
 
 /// Where `inner`, a slice of `outer`, starts in it (bytes).
@@ -155,10 +201,16 @@ fn mod_spans(song: &Song, md: &Mod, lines: &[(u32, &str)]) -> Vec<Option<(u32, u
     let Some((base, line, text)) = found else {
         return Vec::new();
     };
+    numbers(&md.signal, base, line, text)
+}
+
+/// The numbers of `want`, a signal written as `text` in `line` (which starts
+/// at `base`): `text` parsed again, and spans only when it prints as `want`.
+fn numbers(want: &Signal, base: u32, line: &str, text: &str) -> Vec<Option<(u32, u32)>> {
     let Ok(sig) = Signal::parse(text, &mut 0) else {
         return Vec::new();
     };
-    if sig.to_string() != md.signal.to_string() {
+    if sig.to_string() != want.to_string() {
         return Vec::new();
     }
     let at = offset(line, text);

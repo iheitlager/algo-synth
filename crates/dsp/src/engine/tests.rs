@@ -5346,6 +5346,28 @@ fn the_numbers_in_force_are_lit() {
     assert_eq!(lit_words(&mut e), ["e4"]);
 }
 
+/// #683: an auto's value in force lights, plain values each for its share
+/// and a sequence's numbers through the bar, as typed.
+#[test]
+fn an_autos_value_in_force_is_lit() {
+    let mut e = kit(0);
+    let text = "tempo 120\ntrack lead synth Juno106\nclip m = lead\n  \"c4\"\nauto a = lead.Cutoff 300 0800 /2\nauto b = lead.Resonance  \"<0.1 [0.2 .3]>\" /2\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let mut lit: Vec<String> = lit_words(e).into_iter().filter(|w| w != "c4").collect();
+        lit.sort();
+        lit
+    };
+    assert_eq!(at(&mut e, 0.5), ["0.1", "300"]);
+    assert_eq!(at(&mut e, 1.25), ["0.2", "0800"]);
+    assert_eq!(at(&mut e, 1.75), [".3", "0800"]);
+}
+
 /// #588: a song's text stays as typed, its own layout, spellings and blank
 /// lines kept, and the words that play light up in it.
 #[test]

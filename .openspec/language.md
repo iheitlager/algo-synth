@@ -789,11 +789,18 @@ target is not checked: the text doesn't say which synth plays on it.
 ```text
 auto <name> = <target>.<Param> <value>… /<bars>
 auto <name> = <target>.<Param> ramp <from> <to> /<bars>
+auto <name> = <target>.<Param> "<sequence>" /<bars>
 ```
 
 An automation lane of 1–256 bars: values (at most 64) spread evenly, each
 held for its share, or a linear ramp. Placed in scenes like a clip, it
 starts at the scene's first bar and loops inside it.
+
+A quoted sequence (#683) is a `mod`'s: one cycle a bar from the lane's start,
+`[ ]` dividing its share and `< >` one a bar, nesting; a `~` holds the lane's
+last value. `auto wob = lead.Cutoff "<300 [800 1200]>" /2` is 300 in bar 1 and
+800, 1200 in the halves of bar 2. While the lane plays, its value in force
+lights in the text, plain values each for its share.
 
 ```song
 track kit drums
