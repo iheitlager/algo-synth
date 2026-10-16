@@ -15,7 +15,9 @@
 //! highlighting does (#203).
 
 use super::signal::Signal;
-use super::{Auto, Mod, Shape, Song, alias, parse_methods, split_methods, strip_comment};
+use super::{
+    Auto, Mod, Shape, Song, adsr_parts, alias, parse_methods, split_methods, strip_comment,
+};
 use crate::notes::TICKS_PER_BAR;
 use crate::notes::pattern::Pattern;
 use crate::params::Param;
@@ -158,7 +160,7 @@ fn auto_spans(a: &Auto, lines: &[(u32, &str)]) -> Vec<Option<(u32, u32)>> {
             let from = offset(line, first);
             let to = offset(line, end) + end.len();
             line.get(from..to)
-                .map_or_else(Vec::new, |text| numbers(sig, base, line, text))
+                .map_or_else(Vec::new, |text| numbers(sig, base, line, text, false))
         }
         Shape::Ramp(..) => Vec::new(),
     }
@@ -241,11 +243,21 @@ fn mod_spans(song: &Song, md: &Mod, lines: &[(u32, &str)]) -> Vec<Option<(u32, u
                     return None;
                 }
                 let methods = split_methods(body).1?.1;
-                parse_methods(methods)
-                    .ok()?
-                    .into_iter()
-                    .find(|(name, _, _, _)| named(name))?
-                    .2
+                let parsed = parse_methods(methods).ok()?;
+                // A part of `.adsr("a:d:s:r")` (#677), parsed in quotes.
+                if md.alias == Some("adsr") {
+                    let sig = parsed
+                        .into_iter()
+                        .find(|(n, _, _, _)| n.eq_ignore_ascii_case("adsr"))?
+                        .2;
+                    let part = adsr_parts(sig)
+                        .ok()?
+                        .into_iter()
+                        .find(|(p, _, _)| *p == Some(md.param))?
+                        .2;
+                    return Some((base, l, part, true));
+                }
+                parsed.into_iter().find(|(name, _, _, _)| named(name))?.2
             }
             None => {
                 let (target, param) = w.nth(1)?.split_once('.')?;
@@ -261,20 +273,33 @@ fn mod_spans(song: &Song, md: &Mod, lines: &[(u32, &str)]) -> Vec<Option<(u32, u
                 body.get(offset(body, first)..)?
             }
         };
-        Some((base, l, text))
+        Some((base, l, text, false))
     });
-    let Some((base, line, text)) = found else {
+    let Some((base, line, text, quoted)) = found else {
         return Vec::new();
     };
-    numbers(&md.signal, base, line, text)
+    numbers(&md.signal, base, line, text, quoted)
 }
 
 /// The numbers of `want`, a signal written as `text` in `line` (which starts
 /// at `base`): `text` parsed again, and spans only when it prints as `want`.
-fn numbers(want: &Signal, base: u32, line: &str, text: &str) -> Vec<Option<(u32, u32)>> {
-    let Ok(sig) = Signal::parse(text, &mut 0) else {
+/// `quoted`: `text` is a sequence written without its quotes (an `.adsr` part).
+fn numbers(
+    want: &Signal,
+    base: u32,
+    line: &str,
+    text: &str,
+    quoted: bool,
+) -> Vec<Option<(u32, u32)>> {
+    let parsed = if quoted {
+        Signal::parse(&format!("\"{text}\""), &mut 0)
+    } else {
+        Signal::parse(text, &mut 0)
+    };
+    let Ok(sig) = parsed else {
         return Vec::new();
     };
+    let shift = usize::from(quoted);
     if sig.to_string() != want.to_string() {
         return Vec::new();
     }
@@ -283,7 +308,10 @@ fn numbers(want: &Signal, base: u32, line: &str, text: &str) -> Vec<Option<(u32,
     (0..sig.numbers())
         .map(|v| {
             let (c, l) = sig.col(v)?;
-            let (from, to) = (byte(c as usize - 1), byte((c + l) as usize - 1));
+            let (from, to) = (
+                byte(c as usize - 1 - shift),
+                byte((c + l) as usize - 1 - shift),
+            );
             Some((
                 base + line.get(..at + from).map_or(0, u16_len),
                 text.get(from..to).map_or(0, u16_len),

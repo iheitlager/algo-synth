@@ -326,7 +326,18 @@ impl List<'_> {
         if pattern {
             self.table(Class::Call, &METHODS);
         }
+        self.adsr(model);
         self.params(Set::Track(model), true);
+    }
+
+    /// `adsr`, Strudel's envelope in one method (#677), where the model
+    /// reads the ADSR.
+    fn adsr(&mut self, model: Option<Model>) {
+        if Set::Track(model).has(Param::AdsrAttack) {
+            self.add(Class::Param, "adsr", || {
+                "\"attack:decay:sustain:release\"".to_string()
+            });
+        }
     }
 
     /// A drum clip made from a clip (#653): the methods of time.
@@ -336,6 +347,7 @@ impl List<'_> {
                 self.add(Class::Call, w, || d.to_string());
             }
         }
+        self.adsr(model);
         self.params(Set::Track(model), true);
     }
 
@@ -1682,5 +1694,12 @@ scene main 8: beat riff
         assert_eq!(words("snapshot s: lead.vibm"), ["vibmod"]);
         assert!(!words("clip b = bass .vi").contains(&"vib".to_string()));
         assert_eq!(end("mod lead.vib")[0].detail, "a knob of vibra");
+    }
+
+    /// #677: a clip offers `adsr` where its model reads the ADSR.
+    #[test]
+    fn a_clip_offers_adsr() {
+        assert!(at("track p synth Juno106\nclip a = p .ad|").contains(&"adsr".to_string()));
+        assert!(!at("track e synth Dx7\nclip a = e .ad|").contains(&"adsr".to_string()));
     }
 }

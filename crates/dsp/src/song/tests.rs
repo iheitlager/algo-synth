@@ -4344,3 +4344,80 @@ fn envelope_times_on_a_clip_are_held_per_note() {
         assert_eq!((err.line, err.col, &*err.msg), (2, col, msg), "{methods}");
     }
 }
+
+/// #677: `.adsr("a:d:s:r")` is Strudel's envelope in one method, a parameter
+/// method per part; fewer parts or an empty one leave the rest alone, and it
+/// prints back as one method.
+#[test]
+fn adsr_is_the_envelope_in_one_method() {
+    let parts = |methods: &str| {
+        let text = format!("track pad synth Juno106\nclip r = pad {methods}\n  \"c2 [d#3,g3]\"\n");
+        let s = Song::parse(&text).unwrap_or_else(|e| panic!("{methods}: {e:?}"));
+        assert_eq!(Song::parse(&s.print()), Ok(s.clone()), "{methods}");
+        let printed = s.print();
+        let line = printed
+            .lines()
+            .find(|l| l.starts_with("clip r"))
+            .unwrap_or("")
+            .to_string();
+        let held: Vec<(Param, Option<&str>)> = s.mods.iter().map(|m| (m.param, m.alias)).collect();
+        (held, line)
+    };
+    let a = Some("adsr");
+    let (held, line) = parts(".adsr(\"[.1 0]:.2:[1 0]\") .room(0.5)");
+    assert_eq!(
+        held,
+        [
+            (Param::AdsrAttack, a),
+            (Param::AdsrDecay, a),
+            (Param::AdsrSustain, a),
+            (Param::Send2, Some("room"))
+        ]
+    );
+    assert_eq!(line.matches(".adsr(").count(), 1, "{line}");
+    assert!(line.ends_with(" .room(0.5)"), "{line}");
+    let (held, _) = parts(".adsr(\"<.01 .2>:.1:.5:.3\")");
+    assert_eq!(held.iter().map(|h| h.0).collect::<Vec<_>>(), NOTE_TIMES);
+    let (held, line) = parts(".adsr(\".1::.5\")");
+    assert_eq!(
+        held.iter().map(|h| h.0).collect::<Vec<_>>(),
+        [Param::AdsrAttack, Param::AdsrSustain]
+    );
+    assert!(line.contains(".adsr(\"0.1::0.5\")"), "{line}");
+    for (methods, col, msg) in [
+        (
+            ".adsr(\".1:.2:.5:.3:1\")",
+            33,
+            "adsr has four parts: attack:decay:sustain:release",
+        ),
+        (
+            ".adsr(\".1:x\")",
+            24,
+            "a sequence holds numbers, ~, [ ] and < >, e.g. \"<300 [800 1200]>\"",
+        ),
+        (
+            ".adsr(0.1)",
+            20,
+            "adsr takes \"attack:decay:sustain:release\"",
+        ),
+        (
+            ".adsr(\"::\")",
+            21,
+            "an attack, a decay, a sustain or a release goes here",
+        ),
+        (
+            ".adsr(\".1\") .attack(.2)",
+            27,
+            "this parameter already has a method",
+        ),
+        (".adsr(\".1:.2:2\")", 27, "a sustain is 0 to 1"),
+    ] {
+        let text = format!("track pad synth Juno106\nclip r = pad {methods}\n  \"c2\"\n");
+        let err = Song::parse(&text).expect_err(methods);
+        assert_eq!((err.line, err.col, &*err.msg), (2, col, msg), "{methods}");
+    }
+    // A model that doesn't read the ADSR (#673).
+    let err =
+        Song::parse("track e synth Dx7\nclip r = e .adsr(\".1:.2\")\n  \"c2\"\n").expect_err("dx7");
+    assert_eq!((err.line, err.col), (2, 13));
+}

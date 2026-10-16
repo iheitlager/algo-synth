@@ -5365,6 +5365,45 @@ fn the_numbers_in_force_are_lit() {
     assert_eq!(lit_words(&mut e), ["e4"]);
 }
 
+/// #677: `.adsr("[.1 0]:.2:[1 0]")` plays as its three methods written out,
+/// and its numbers in force light in the `adsr` string.
+#[test]
+fn adsr_plays_as_its_parts_and_lights_them() {
+    let render = |methods: &str| {
+        let text = format!(
+            "tempo 97\ntrack pad synth Juno106\nclip r = pad {methods}\n  \"c2 [d#3,g3]\"\n"
+        );
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        render_out(&mut e, 2 * 96_000 / BLOCK)
+    };
+    let one = render(".adsr(\"[.1 0]:.2:[1 0]\")");
+    assert!(one.iter().all(|s| s.is_finite()) && one.iter().any(|s| *s != 0.0));
+    assert_eq!(
+        one,
+        render(".attack(\"0.1 0\") .decay(0.2) .sustain(\"1 0\")")
+    );
+    let mut e = kit(0);
+    let text =
+        "tempo 120\ntrack pad synth Juno106\nclip r = pad .adsr(\"[.1 0]:.2:<1 .5>\")\n  \"c2\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut done = 0;
+    let mut at = |e: &mut Engine, bars: f64| {
+        let to = (bars * 96_000.0) as usize / BLOCK;
+        run(e, to - done);
+        done = to;
+        let mut lit: Vec<String> = lit_words(e).into_iter().filter(|w| w != "c2").collect();
+        lit.sort();
+        lit
+    };
+    assert_eq!(at(&mut e, 0.25), [".1", ".2", "1"]);
+    assert_eq!(at(&mut e, 0.75), [".2", "0", "1"]);
+    assert_eq!(at(&mut e, 1.25), [".1", ".2", ".5"]);
+}
+
 /// #676: a pattern method's value for each bar, and each part of a split
 /// bar, lights while its clip plays; one inside `every` lights nothing.
 #[test]

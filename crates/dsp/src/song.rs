@@ -617,6 +617,35 @@ pub struct Mod {
     pub alias: Option<&'static str>,
 }
 
+/// A part of `.adsr`: its parameter, its column in the value and its text.
+pub(crate) type AdsrPart<'a> = (Option<Param>, usize, &'a str);
+
+/// The parts of `.adsr("a:d:s:r")`'s value (#677): each part written, its
+/// parameter, and its column in `sig` from 0, which is past the quote. An
+/// empty part leaves its parameter alone.
+pub(crate) fn adsr_parts(sig: &str) -> Result<Vec<AdsrPart<'_>>, (usize, &'static str)> {
+    let inner = sig
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .ok_or((1, "adsr takes \"attack:decay:sustain:release\""))?;
+    let mut out = Vec::new();
+    let mut col = 1;
+    for (k, part) in inner.split(':').enumerate() {
+        let Some(&param) = NOTE_TIMES.get(k) else {
+            return Err((col + 1, "adsr has four parts: attack:decay:sustain:release"));
+        };
+        let (lead, text) = (part.len() - part.trim_start().len(), part.trim());
+        if !text.is_empty() {
+            out.push((Some(param), col + part[..lead].chars().count(), text));
+        }
+        col += part.chars().count() + 1;
+    }
+    if out.is_empty() {
+        return Err((2, "an attack, a decay, a sustain or a release goes here"));
+    }
+    Ok(out)
+}
+
 /// An envelope time written as numbers is 0 to 10 seconds, a sustain 0 to 1
 /// (ADR-0038); 0 is the shortest time.
 fn note_times_fit(param: Param, signal: &Signal) -> Result<(), &'static str> {
@@ -1700,58 +1729,89 @@ impl Song {
                                 }
                                 continue;
                             }
-                            // The echo and the reverb are the master's, shared
-                            // by the clips: the last to write wins (#660).
-                            let (target, param) = match param_for(&song, Target::Track(t), name) {
-                                Err(_) if unit(name).is_some() => {
-                                    (Target::Master, param_for(&song, Target::Master, name))
-                                }
-                                p => (Target::Track(t), p),
+                            let track = Target::Track(t);
+                            // `.adsr("a:d:s:r")`, Strudel's envelope in one
+                            // method (#677): each part a method of its own,
+                            // unless a knob has the name (#674).
+                            let adsr = name.eq_ignore_ascii_case("adsr")
+                                && !knobbed(&song, track).is_some_and(|st| {
+                                    st.knobs.iter().any(|k| k.eq_ignore_ascii_case(name))
+                                });
+                            let parts = if adsr {
+                                adsr_parts(sig).map_err(|(c, m)| err(at + scol + c - 2, m))?
+                            } else {
+                                vec![(None, 0, sig)]
                             };
-                            let param = param.map_err(|msg| SongError {
-                                line,
-                                col: at + ncol - 1,
-                                msg,
-                            })?;
-                            if target == Target::Track(t) {
-                                check_reads(
-                                    &song.tracks,
-                                    &models,
-                                    t,
+                            for (fixed, off, part) in parts {
+                                // The echo and the reverb are the master's, shared
+                                // by the clips: the last to write wins (#660).
+                                let (target, param) = match fixed {
+                                    Some(p) => (track, Ok(p)),
+                                    None => match param_for(&song, track, name) {
+                                        Err(_) if unit(name).is_some() => {
+                                            (Target::Master, param_for(&song, Target::Master, name))
+                                        }
+                                        p => (track, p),
+                                    },
+                                };
+                                let param = param.map_err(|msg| SongError {
+                                    line,
+                                    col: at + ncol - 1,
+                                    msg,
+                                })?;
+                                // A part is a sequence: `[.1 0]` is `"[.1 0]"`.
+                                let quoted;
+                                let (text, shift) = if adsr {
+                                    quoted = format!("\"{part}\"");
+                                    (quoted.as_str(), off - 1)
+                                } else {
+                                    (part, 0)
+                                };
+                                let pcol = at + scol - 1 + off;
+                                if target == track {
+                                    check_reads(
+                                        &song.tracks,
+                                        &models,
+                                        t,
+                                        param,
+                                        err(at + ncol - 1, ""),
+                                        &mut later,
+                                    )?;
+                                }
+                                if let Some((slot, effect)) = needs_effect(name) {
+                                    effects.push((err(at + ncol - 1, ""), slot, effect));
+                                }
+                                if song
+                                    .mods
+                                    .iter()
+                                    .any(|m| m.clip == Some(f) && m.param == param)
+                                {
+                                    return Err(err(
+                                        at + ncol - 1,
+                                        "this parameter already has a method",
+                                    ));
+                                }
+                                let signal = Signal::parse(text, &mut nodes)
+                                    .map_err(|(c, m)| err(at + scol + shift + c - 2, m))?;
+                                per_voice_fits(&song, target, param, &signal)
+                                    .map_err(|m| err(pcol, m))?;
+                                note_times_fit(param, &signal).map_err(|m| err(pcol, m))?;
+                                if song.mods.len() >= MAX_MODS {
+                                    return Err(err(at + ncol - 1, "a song has at most 32 mods"));
+                                }
+                                song.mods.push(Mod {
+                                    // Not when a knob has the alias's name (#674).
+                                    alias: if adsr {
+                                        Some("adsr")
+                                    } else {
+                                        alias(name).filter(|(_, p)| *p == param).map(|(a, _)| a)
+                                    },
+                                    target,
                                     param,
-                                    err(at + ncol - 1, ""),
-                                    &mut later,
-                                )?;
+                                    signal,
+                                    clip: Some(f),
+                                });
                             }
-                            if let Some((slot, effect)) = needs_effect(name) {
-                                effects.push((err(at + ncol - 1, ""), slot, effect));
-                            }
-                            if song
-                                .mods
-                                .iter()
-                                .any(|m| m.clip == Some(f) && m.param == param)
-                            {
-                                return Err(err(
-                                    at + ncol - 1,
-                                    "this parameter already has a method",
-                                ));
-                            }
-                            let signal = Signal::parse(sig, &mut nodes)
-                                .map_err(|(c, m)| err(at + scol + c - 2, m))?;
-                            per_voice_fits(&song, target, param, &signal)
-                                .map_err(|m| err(at + scol - 1, m))?;
-                            note_times_fit(param, &signal).map_err(|m| err(at + scol - 1, m))?;
-                            if song.mods.len() >= MAX_MODS {
-                                return Err(err(at + ncol - 1, "a song has at most 32 mods"));
-                            }
-                            song.mods.push(Mod {
-                                // Not when a knob has the alias's name (#674).
-                                alias: alias(name).filter(|(_, p)| *p == param).map(|(a, _)| a),
-                                target,
-                                param,
-                                signal,
-                                clip: Some(f),
-                            });
                         }
                     }
                     if let Some(w) = from {
@@ -3437,14 +3497,50 @@ impl Song {
             .unwrap_or(&[])
             .iter()
             .map(|p| format!(" .{}", p.print()));
-        let params = self.mods.iter().filter(|m| m.clip == Some(f)).map(|m| {
-            format!(
-                " .{}({})",
-                m.alias
-                    .map_or_else(|| self.param_label(m.target, m.param, true), str::to_string),
-                m.signal
-            )
-        });
+        let mine: Vec<&Mod> = self.mods.iter().filter(|m| m.clip == Some(f)).collect();
+        let adsr = |m: &&Mod| m.alias == Some("adsr");
+        let params: Vec<String> = mine
+            .iter()
+            .enumerate()
+            .filter_map(|(k, m)| {
+                if !adsr(m) {
+                    return Some(format!(
+                        " .{}({})",
+                        m.alias.map_or_else(
+                            || self.param_label(m.target, m.param, true),
+                            str::to_string
+                        ),
+                        m.signal
+                    ));
+                }
+                // `.adsr`'s parts print together, once, at the first (#677).
+                if mine.iter().take(k).any(adsr) {
+                    return None;
+                }
+                let parts: Vec<String> = NOTE_TIMES
+                    .iter()
+                    .map(|p| {
+                        mine.iter()
+                            .find(|m| adsr(m) && m.param == *p)
+                            .map(|m| {
+                                let s = m.signal.to_string();
+                                s.strip_prefix('"')
+                                    .and_then(|s| s.strip_suffix('"'))
+                                    .map_or(s.clone(), str::to_string)
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                let n = parts
+                    .iter()
+                    .rposition(|p| !p.is_empty())
+                    .map_or(0, |i| i + 1);
+                Some(format!(
+                    " .adsr(\"{}\")",
+                    parts.get(..n).unwrap_or(&[]).join(":")
+                ))
+            })
+            .collect();
         patterns.chain(params).collect()
     }
 

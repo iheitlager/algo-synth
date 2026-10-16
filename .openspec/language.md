@@ -919,6 +919,23 @@ clip a = kit .delay(0.5) .delaytime(0.375) .delayfeedback(0.4) .room(0.3) .rooms
   bd x...x...x...x...
 ```
 
+`.adsr("a:d:s:r")` on a clip is Strudel's envelope in one method (#677). It
+splits at the colons into `.attack`, `.decay`, `.sustain` and `.release`, each
+a parameter method of its own, held per note (ADR-0038) and counted toward 32:
+- **A part** is a number, `[a b]` sharing the bar, or `<a b>` one a bar, as
+  in a quoted sequence.
+- **Fewer than four parts**, or an empty one (`".1::.5"`), leave the others
+  alone.
+- **Printing:** it prints back as one method.
+- **Not with the long names:** `.adsr` with `.attack` (or another of the four)
+  on one clip is an error.
+
+```song
+track bass synth Juno106
+clip low = bass .adsr("[.1 0]:.2:[1 0]") .room(0.5)
+  "c2 [d#3,g3]"
+```
+
 A per-voice signal goes on a track whose synth is Mono or Poly (not FM, LA,
 drums, samplers, Modular) and a voice parameter: `cutoff resonance vco1level
 vco2level vco3level noiselevel ringlevel sublevel wt1pos wt2pos`, and the

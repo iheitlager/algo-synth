@@ -2753,8 +2753,10 @@ impl Engine {
             if let Some(base @ None) = self.mod_base.get_mut(m) {
                 *base = Some(found);
             }
-            // Sampled as each note starts (`sample_on_note`), not here.
+            // Sampled as each note starts (`sample_on_note`), not here; its
+            // numbers light all the same (ADR-0038).
             if on_note {
+                self.light_mod(m, t);
                 continue;
             }
             let mut ctx = signal::Ctx {
@@ -2773,30 +2775,37 @@ impl Engine {
                     .and_then(crate::song::unit)
                     .map_or(v, |u| (u.knob)(v)),
             };
-            // The numbers in force light until their steps end (#675).
-            let mut hits = [(0usize, 0.0f64); MAX_MOD_LIT];
-            let mut n = 0;
+            self.light_mod(m, t);
+            match self.mod_last.get_mut(m) {
+                Some(last) if *last != v => *last = v,
+                _ => continue,
+            }
+            self.automate(target, param, v);
+        }
+    }
+
+    /// The numbers in force of mod `m` at `t` bars light until their steps
+    /// end (#675).
+    fn light_mod(&mut self, m: usize, t: f64) {
+        let mut hits = [(0usize, 0.0f64); MAX_MOD_LIT];
+        let mut n = 0;
+        if let Some(md) = self.song.mods.get(m) {
             md.signal.lit(t, &mut |v, until| {
                 if let Some(h) = hits.get_mut(n) {
                     *h = (v, until);
                     n += 1;
                 }
             });
-            for &(v, until) in hits.iter().take(n) {
-                let span = self
-                    .spans
-                    .mods
-                    .get(m)
-                    .and_then(|s| s.get(v))
-                    .copied()
-                    .flatten();
-                self.light(span, until * STEPS_PER_BAR as f64);
-            }
-            match self.mod_last.get_mut(m) {
-                Some(last) if *last != v => *last = v,
-                _ => continue,
-            }
-            self.automate(target, param, v);
+        }
+        for &(v, until) in hits.iter().take(n) {
+            let span = self
+                .spans
+                .mods
+                .get(m)
+                .and_then(|s| s.get(v))
+                .copied()
+                .flatten();
+            self.light(span, until * STEPS_PER_BAR as f64);
         }
     }
 
