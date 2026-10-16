@@ -2240,6 +2240,8 @@ mod tests {
             // The SID's filter is its own, reached by `SidFilter` (#112).
             Model::Sid,
             Model::Nes,
+            // The VL-1's RC filter is fixed (#723).
+            Model::VlTone,
         ];
         let named = |class: Class, f: Filter| {
             VOICINGS
