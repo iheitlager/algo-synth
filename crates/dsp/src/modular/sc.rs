@@ -1852,8 +1852,30 @@ impl Builder {
         }
     }
 
-    /// `Mix`: the signals of an array, flattened, added in nodes of eight.
+    /// `Mix`: the signals of an array added in nodes of eight. As
+    /// SuperCollider's `sum`, arrays add channel by channel, a shorter one
+    /// wrapping and a single signal going into every channel, so a mix of
+    /// stereo pairs stays stereo (#709).
     fn mix(&mut self, items: Vec<V>, at: Pos) -> R<V> {
+        let width = |v: &V| match v {
+            V::Arr(a) => a.len(),
+            _ => 1,
+        };
+        if items.iter().any(|v| matches!(v, V::Arr(_))) {
+            let channels = items.iter().map(width).max().unwrap_or(1);
+            let mut out = Vec::with_capacity(channels);
+            for c in 0..channels {
+                let column = items
+                    .iter()
+                    .filter_map(|v| match v {
+                        V::Arr(a) => a.get(c % a.len().max(1)).cloned(),
+                        other => Some(other.clone()),
+                    })
+                    .collect();
+                out.push(self.mix(column, at)?);
+            }
+            return Ok(V::Arr(out));
+        }
         let mut flat = Vec::new();
         flatten(items, &mut flat);
         let mut nodes: Vec<u16> = flat.iter().map(|v| self.node(v, at)).collect::<R<_>>()?;
@@ -3624,6 +3646,27 @@ mod tests {
         assert_eq!(verb.program.counts.verbs, 1);
         let names: Vec<&str> = verb.knobs.iter().map(|k| k.name.as_str()).collect();
         assert_eq!(names, vec!["mix", "room"]);
+    }
+
+    /// #709: `Mix` of stereo pairs adds them side by side, as SuperCollider's
+    /// `sum`; a single signal goes into both sides, a flat array stays one.
+    #[test]
+    fn a_mix_of_stereo_pairs_stays_stereo() {
+        let pairs =
+            patch("{ |freq| Mix.fill(3, { |k| Pan2.ar(SinOsc.ar(freq * (k + 1)), k - 1) }) }");
+        assert!(pairs.program.is_stereo(), "the pairs keep their sides");
+        assert_eq!(
+            count(&pairs, |u| matches!(u, Ugen::Pan { .. })),
+            6,
+            "a side each"
+        );
+        let beside = patch("{ |freq| Mix([Pan2.ar(Saw.ar(freq), -1), SinOsc.ar(freq)]) }");
+        assert!(
+            beside.program.is_stereo(),
+            "a signal beside a pair goes into both"
+        );
+        let flat = patch("{ |freq| Mix([SinOsc.ar(freq), Saw.ar(freq), Pulse.ar(freq)]) }");
+        assert!(!flat.program.is_stereo(), "a flat mix is one sum");
     }
 
     /// #433: a knob as `Select`'s index is a switch through the choices.

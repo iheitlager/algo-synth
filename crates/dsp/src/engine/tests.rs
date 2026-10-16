@@ -6983,3 +6983,32 @@ fn delaytime_sets_the_echo_in_seconds() {
         at / 48.0
     );
 }
+
+/// #709: a Modular voice that mixes stereo pairs plays each on its side:
+/// `Mix.fill` of two panned sines puts 440 Hz left and 880 Hz right.
+#[test]
+fn a_modular_mix_of_panned_voices_keeps_its_sides() {
+    let text = "setting duo = Modular ModularBasic\n  SynthDef(\\duo, { |freq = 440, gate = 1|\n      Mix.fill(2, { |k| Pan2.ar(SinOsc.ar(freq * (k + 1)), (k * 2) - 1) }) * 0.2 * EnvGen.kr(Env.asr(0.001, 1, 0.1), gate)\n  }).add;\ntrack d synth duo\nclip a = d\n  \"a4@4\"\n";
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let (mut l, mut r) = (Vec::new(), Vec::new());
+    for _ in 0..48_000 / 2 / BLOCK {
+        e.render(BLOCK);
+        let (a, b) = e.output().split_at(BLOCK);
+        l.extend_from_slice(a);
+        r.extend_from_slice(b);
+    }
+    // The pitch on each side over the last 0.25 s, by its zero crossings.
+    let hz = |x: &[f32]| {
+        let tail = x.get(x.len() - 12_000..).unwrap_or_default();
+        let crossings = tail
+            .windows(2)
+            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+            .count();
+        crossings as f32 * 48_000.0 / (2.0 * tail.len() as f32)
+    };
+    let (left_hz, right_hz) = (hz(&l), hz(&r));
+    assert!((left_hz - 440.0).abs() < 10.0, "left {left_hz} Hz");
+    assert!((right_hz - 880.0).abs() < 10.0, "right {right_hz} Hz");
+}

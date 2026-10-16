@@ -138,7 +138,8 @@ A subset of sclang, run once to build the voice:
   Numbers take also `reciprocal floor ceil asInteger cpsmidi ratiomidi
   dbamp ampdb`.
 - **Stereo:** multichannel expansion; a final array of two channels is
-  stereo (`Pan2`, `Splay`, `FreeVerb2`).
+  stereo (`Pan2`, `Splay`, `FreeVerb2`). `Mix` adds arrays channel by channel, as SuperCollider's
+  `sum`: `Mix.fill(4, { |k| Pan2.ar(…, k / 1.5 - 1) })` keeps its spread (#709).
 - **Filter voicings:** `voicing: \<synth>` on `MoogFF` (ladders: `arp2600
   minimoog proone prophet5 sh101 juno106 jupiter8 matrix12 ppgwave d50 odyssey
   tb303 prophet5rev1 odysseyrev2`, plus `drive: 0..1`), on `RLPF RHPF LPF` (12 dB:
