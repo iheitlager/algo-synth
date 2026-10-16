@@ -424,13 +424,17 @@ impl List<'_> {
         }
     }
 
-    /// A prog's sizes and styles (#608, #610); its beats are numbers.
+    /// A prog's sizes, styles and colours (#608, #610, #623); its beats are
+    /// numbers.
     fn prog_words(&mut self) {
         for (_, w) in notes::Size::ALL {
             self.add(Class::Name, w, || "chord size".to_string());
         }
         for (_, w) in notes::ProgStyle::ALL {
             self.add(Class::Name, w, || "progression style".to_string());
+        }
+        for w in notes::Colours::WORDS {
+            self.add(Class::Name, w, || "progression colour".to_string());
         }
     }
 
@@ -1265,6 +1269,13 @@ impl<'a> Names<'a> {
                         || call.text.ends_with(':');
                     if mode {
                         list.modes();
+                        // After a clip's name, each chord's own mode (#622).
+                        let first = call.text.split_whitespace().next().unwrap_or("");
+                        if self.clips.iter().any(|(c, _)| *c == first) {
+                            list.add(Class::Name, "auto", || {
+                                "each chord's mode, from its quality".to_string()
+                            });
+                        }
                     } else {
                         self.note_clips(list);
                     }
@@ -1404,6 +1415,12 @@ scene main 8: beat riff
             song("clip c = lead .scale(a1:dor|"),
             ["dorian", "dorian-b2", "dorian-sharp-4"]
         );
+        // After a clip, its chords' own modes (#622); not after a root.
+        assert_eq!(
+            song("clip c = lead .scale(riff au|"),
+            ["augmented", "augmented-heptatonic", "auto"]
+        );
+        assert!(!song("clip c = lead .scale(a1 au|").contains(&"auto".to_string()));
         assert_eq!(song("clip c = lead .chord(|"), ["riff"]);
         assert_eq!(song("clip c = lead .struct(|"), ["beat", "riff"]);
         assert!(song("clip c = lead .struct(\"x |").is_empty());
@@ -1637,7 +1654,9 @@ scene main 8: beat riff
             4
         );
         assert_eq!(at(&format!("{notes}prog(4,7,j|")), ["jazz"]);
-        assert_eq!(at(&format!("{notes}prog(4,7,7th,s|")), ["sus"]);
+        assert_eq!(at(&format!("{notes}prog(4,7,7th,s|")), ["sus", "secondary"]);
+        // And its colours (#623).
+        assert_eq!(at(&format!("{notes}prog(4,7,b|")), ["borrow"]);
         // Without a scale, no chords.
         assert_eq!(preview("track l synth\nclip c = l\n  prog(4,7|"), "");
     }
