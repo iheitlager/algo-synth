@@ -1261,8 +1261,8 @@ pub enum Param {
 /// Controls a Modular voice may have (`Param::Ctl1`…).
 pub const CTLS: usize = 32;
 
-/// Where the global parameters start: P1 an echo and P2 a reverb, silent until
-/// a return goes up; P3 and P4 are off.
+/// Where the global parameters start: P1 an echo and P2 a reverb, returned at
+/// unity so a send alone is heard (#660); P3 and P4 are off.
 pub const GLOBAL_DEFAULTS: [(Param, f32); 47] = [
     (Param::P2In, 0.0),
     (Param::P3In, 0.0),
@@ -1284,14 +1284,14 @@ pub const GLOBAL_DEFAULTS: [(Param, f32); 47] = [
     (Param::CompRelease, 120.0),
     (Param::CompMakeup, 0.0),
     (Param::P1Type, 1.0),
-    (Param::P1Return, 0.0),
+    (Param::P1Return, 1.0),
     (Param::P1A, 0.75),
     (Param::P1B, 0.4),
     (Param::P1C, 0.7),
     (Param::P1D, 0.0),
     (Param::P1E, 0.0),
     (Param::P2Type, 2.0),
-    (Param::P2Return, 0.0),
+    (Param::P2Return, 1.0),
     (Param::P2A, 0.65),
     (Param::P2B, 0.3),
     (Param::P2C, 0.1),

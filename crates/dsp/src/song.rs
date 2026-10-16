@@ -604,9 +604,90 @@ pub const ALIASES: [(&str, Param); 16] = [
     ("delay", Param::Send1),
 ];
 
-/// The alias `name` and its parameter, if it is one.
+/// A knob of the echo or the reverb in real units (#660): Strudel's name or
+/// ours for it, the knob it sets, the effect its slot must hold, and the
+/// conversions to the knob and back.
+#[derive(Clone, Copy, Debug)]
+pub struct Unit {
+    pub name: &'static str,
+    pub param: Param,
+    pub effect: ProcType,
+    pub knob: fn(f32) -> f32,
+    pub value: fn(f32) -> f32,
+}
+
+/// The effects' knobs in real units, as parameter methods, `mod` targets and
+/// on the `master` line: an echo time in seconds, its feedback, a reverb's
+/// tail in seconds and the low-pass in it in Hz.
+pub const UNITS: [Unit; 9] = {
+    use crate::fx::processor as fx;
+    const fn unit(name: &'static str, param: Param) -> Unit {
+        type Curve = fn(f32) -> f32;
+        let (effect, knob, value): (_, Curve, Curve) = match param {
+            Param::P1A => (ProcType::Echo, fx::echo_time_knob, fx::echo_time),
+            Param::P1B => (ProcType::Echo, fx::echo_feedback_knob, fx::echo_feedback),
+            Param::P2A => (ProcType::Reverb, fx::reverb_size_knob, fx::reverb_size),
+            _ => (ProcType::Reverb, fx::reverb_cutoff_knob, fx::reverb_cutoff),
+        };
+        Unit {
+            name,
+            param,
+            effect,
+            knob,
+            value,
+        }
+    }
+    [
+        unit("delaytime", Param::P1A),
+        unit("EchoTime", Param::P1A),
+        unit("delayfeedback", Param::P1B),
+        unit("EchoFeedback", Param::P1B),
+        unit("roomsize", Param::P2A),
+        unit("ReverbSize", Param::P2A),
+        unit("roomlp", Param::P2B),
+        unit("roomdim", Param::P2B),
+        unit("ReverbCutoff", Param::P2B),
+    ]
+};
+
+/// The unit named `name`, if it is one.
+pub fn unit(name: &str) -> Option<&'static Unit> {
+    UNITS.iter().find(|u| u.name == name)
+}
+
+/// The effect a send alias or a unit only makes sense on, and the slot's
+/// type parameter: `room` sends to a reverb, `delay` to an echo.
+fn needs_effect(name: &str) -> Option<(Param, ProcType)> {
+    let slot = |p: Param| match p {
+        Param::Send1 | Param::P1A | Param::P1B => Some(Param::P1Type),
+        Param::Send2 | Param::P2A | Param::P2B => Some(Param::P2Type),
+        _ => None,
+    };
+    match (name, unit(name)) {
+        (_, Some(u)) => slot(u.param).map(|t| (t, u.effect)),
+        ("room", _) => Some((Param::P2Type, ProcType::Reverb)),
+        ("delay", _) => Some((Param::P1Type, ProcType::Echo)),
+        _ => None,
+    }
+}
+
+/// A lane or a snapshot holds knob values: a unit's name in its
+/// `target.Param` is refused.
+fn in_units(text: &str) -> Result<(), &'static str> {
+    match text.split_once('.').and_then(|(_, p)| unit(p)) {
+        Some(_) => Err("a value in seconds or Hz goes on the master line, a mod or a clip method"),
+        None => Ok(()),
+    }
+}
+
+/// The alias `name` and its parameter, if it is one: Strudel's name or a
+/// unit's.
 fn alias(name: &str) -> Option<(&'static str, Param)> {
-    ALIASES.iter().find(|(a, _)| *a == name).copied()
+    ALIASES
+        .iter()
+        .copied()
+        .chain(UNITS.iter().map(|u| (u.name, u.param)))
+        .find(|(a, _)| *a == name)
 }
 
 /// Values set together on the first step of a scene.
@@ -635,6 +716,9 @@ pub struct MixLine {
     pub at: Mix,
     pub name: Option<String>,
     pub sets: Vec<(Param, f32)>,
+    /// The values of `sets` written in real units on the master line (#660):
+    /// the knob, the unit's name and the value as written, printed back so.
+    pub units: Vec<(Param, &'static str, f32)>,
 }
 
 /// Most values on one mixer line: every parameter of a strip or the master.
@@ -871,6 +955,9 @@ impl Song {
         let mut models: Vec<(usize, Model)> = Vec::new();
         // Parameters on a track whose model is picked after the clips (#673).
         let mut later: Vec<(SongError, usize, Param)> = Vec::new();
+        // Where `room`, `delay` or a unit needs its slot to hold an effect,
+        // checked against the master line at the end (#660).
+        let mut effects: Vec<(SongError, Param, ProcType)> = Vec::new();
         // Nodes in the song's signals so far.
         let mut nodes = 0;
         // The Modular setting whose code lines come next.
@@ -1542,21 +1629,32 @@ impl Song {
                                 }
                                 continue;
                             }
-                            let target = Target::Track(t);
-                            let param =
-                                param_for(&song, target, name).map_err(|msg| SongError {
-                                    line,
-                                    col: at + ncol - 1,
-                                    msg,
-                                })?;
-                            check_reads(
-                                &song.tracks,
-                                &models,
-                                t,
-                                param,
-                                err(at + ncol - 1, ""),
-                                &mut later,
-                            )?;
+                            // The echo and the reverb are the master's, shared
+                            // by the clips: the last to write wins (#660).
+                            let (target, param) = match param_for(&song, Target::Track(t), name) {
+                                Err(_) if unit(name).is_some() => {
+                                    (Target::Master, param_for(&song, Target::Master, name))
+                                }
+                                p => (Target::Track(t), p),
+                            };
+                            let param = param.map_err(|msg| SongError {
+                                line,
+                                col: at + ncol - 1,
+                                msg,
+                            })?;
+                            if target == Target::Track(t) {
+                                check_reads(
+                                    &song.tracks,
+                                    &models,
+                                    t,
+                                    param,
+                                    err(at + ncol - 1, ""),
+                                    &mut later,
+                                )?;
+                            }
+                            if let Some((slot, effect)) = needs_effect(name) {
+                                effects.push((err(at + ncol - 1, ""), slot, effect));
+                            }
                             if song
                                 .mods
                                 .iter()
@@ -1691,6 +1789,7 @@ impl Song {
                         let at = err(param_col(tp.col, tp.text), "");
                         check_reads(&song.tracks, &models, t, param, at, &mut later)?;
                     }
+                    in_units(tp.text).map_err(|m| err(param_col(tp.col, tp.text), m))?;
                     let Some(last) = ws.last() else {
                         return Err(err(first.col, "a length in bars goes here: /4"));
                     };
@@ -2045,6 +2144,7 @@ impl Song {
                             let at = err(param_col(tp.col, tp.text), "");
                             check_reads(&song.tracks, &models, t, param, at, &mut later)?;
                         }
+                        in_units(tp.text).map_err(|m| err(param_col(tp.col, tp.text), m))?;
                         let v = ws.get(k + 1).ok_or(err(
                             body.trim_end().chars().count() + 1,
                             "a value goes here",
@@ -2091,6 +2191,11 @@ impl Song {
                     if let Target::Track(t) = target {
                         let at = err(param_col(tp.col, tp.text), "");
                         check_reads(&song.tracks, &models, t, param, at, &mut later)?;
+                    }
+                    if let Some((slot, effect)) =
+                        tp.text.split_once('.').and_then(|(_, p)| needs_effect(p))
+                    {
+                        effects.push((err(param_col(tp.col, tp.text), ""), slot, effect));
                     }
                     if song
                         .mods
@@ -2218,6 +2323,27 @@ impl Song {
             if let Some(m) = model.filter(|m| !m.reads(param)) {
                 return Err(SongError {
                     msg: m.unread(param).into(),
+                    ..at
+                });
+            }
+        }
+        for (at, slot, effect) in effects {
+            let found = song
+                .mix_value(Mix::Master, slot)
+                .or_else(|| {
+                    crate::params::GLOBAL_DEFAULTS
+                        .iter()
+                        .find(|(p, _)| *p == slot)
+                        .map(|(_, v)| *v)
+                })
+                .is_some_and(|v| v as u32 == effect as u32);
+            if !found {
+                return Err(SongError {
+                    msg: if effect == ProcType::Echo {
+                        "this is P1's echo, and P1Type is not Echo".into()
+                    } else {
+                        "this is P2's reverb, and P2Type is not Reverb".into()
+                    },
                     ..at
                 });
             }
@@ -2384,7 +2510,10 @@ impl Song {
             let sets: Vec<String> = m
                 .sets
                 .iter()
-                .map(|(p, v)| format!("{} {}", param_name(*p), mix_text(*p, *v)))
+                .map(|(p, v)| match m.units.iter().find(|(q, _, _)| q == p) {
+                    Some((_, name, written)) => format!("{name} {written}"),
+                    None => format!("{} {}", param_name(*p), mix_text(*p, *v)),
+                })
                 .collect();
             if sets.is_empty() {
                 // A group with only its name (#214).
@@ -3015,6 +3144,7 @@ impl Song {
                 at: Mix::Group(g),
                 name: name.map(str::to_string),
                 sets: Vec::new(),
+                units: Vec::new(),
             }),
             None => {}
         }
@@ -3968,6 +4098,7 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
                 at: Mix::Group(g - 1),
                 name: Some(name.text.to_string()),
                 sets: Vec::new(),
+                units: Vec::new(),
             });
         }
     }
@@ -4024,9 +4155,13 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
         _ => return Err(err(at_col, ": goes here, then Param value, …")),
     };
     let mut sets: Vec<(Param, f32)> = Vec::new();
+    let mut units = Vec::new();
     let mut k = colon + 1;
     while let Some(pw) = ws.get(k) {
-        let param = Param::by_name(pw.text).ok_or(err(pw.col, "no parameter has this name"))?;
+        let named = unit(pw.text).filter(|_| at == Mix::Master);
+        let param = Param::by_name(pw.text)
+            .or(named.map(|u| u.param))
+            .ok_or(err(pw.col, "no parameter has this name"))?;
         let ok = if at == Mix::Master {
             param.is_global()
         } else {
@@ -4044,7 +4179,11 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
         }
         let vw = ws.get(k + 1).ok_or(err(end, "a value goes here"))?;
         let text = vw.text.strip_suffix(',').unwrap_or(vw.text);
-        let v = mix_value(param, text).map_err(|m| err(vw.col, m))?;
+        let mut v = mix_value(param, text).map_err(|m| err(vw.col, m))?;
+        if let Some(u) = named {
+            units.push((param, u.name, v));
+            v = (u.knob)(v);
+        }
         if param == Param::Out {
             let strip = match at {
                 Mix::Group(g) => STRIPS + g,
@@ -4074,7 +4213,43 @@ fn parse_mix(song: &Song, ws: &[Word<'_>], line: usize, body: &str) -> Result<Mi
     if sets.is_empty() {
         return Err(err(end, "values go here: Param value, …"));
     }
-    Ok(MixLine { at, name, sets })
+    // A unit needs its slot to hold its effect on the same line or by default.
+    for (p, name, _) in &units {
+        let Some((slot, effect)) = needs_effect(name) else {
+            continue;
+        };
+        let held = sets
+            .iter()
+            .find(|(q, _)| *q == slot)
+            .map(|(_, v)| *v)
+            .or_else(|| {
+                crate::params::GLOBAL_DEFAULTS
+                    .iter()
+                    .find(|(q, _)| *q == slot)
+                    .map(|(_, v)| *v)
+            });
+        if held.is_some_and(|v| v as u32 != effect as u32) {
+            let col = ws
+                .iter()
+                .skip(colon + 1)
+                .find(|w| w.text == *name)
+                .map_or(end, |w| w.col);
+            return Err(err(
+                col,
+                if *p == Param::P1A || *p == Param::P1B {
+                    "this is P1's echo, and P1Type is not Echo"
+                } else {
+                    "this is P2's reverb, and P2Type is not Reverb"
+                },
+            ));
+        }
+    }
+    Ok(MixLine {
+        at,
+        name,
+        sets,
+        units,
+    })
 }
 
 impl Song {

@@ -1846,13 +1846,14 @@ fn the_language_definition_covers_the_parser() {
         .map(|k| format!("heading {k}"))
         .collect();
     let grids: Vec<String> = GRIDS.iter().map(|g| g.to_string()).collect();
-    let lists: [Vec<&str>; 15] = [
+    let lists: [Vec<&str>; 16] = [
         lex::WORDS.to_vec(),
         notes::CALLS.to_vec(),
         Pattern::NAMES.to_vec(),
         signal::SOURCES.to_vec(),
         signal::METHODS.to_vec(),
         ALIASES.iter().map(|(a, _)| *a).collect(),
+        UNITS.iter().map(|u| u.name).collect(),
         Pad::ALL.iter().map(|(_, n)| *n).collect(),
         Model::ALL.iter().map(|(_, n)| *n).collect(),
         crate::algo::Mode::all()
@@ -2483,6 +2484,105 @@ fn strudels_parameter_names_are_aliases() {
     let e = Song::parse("track bass synth\nclip a = bass .distort(0.5)\n  \"c2\"\n")
         .expect_err("no alias");
     assert_eq!(e.msg, "no parameter has this name");
+}
+
+/// #660: the echo and the reverb in real units, Strudel's names and ours,
+/// as clip methods writing the master's knobs and on the master line.
+#[test]
+fn effects_are_named_in_real_units() {
+    let text = "master: EchoTime 0.25, ReverbSize 2, ReverbCutoff 4000\n\
+        track kit drums\n\
+        clip a = kit .delay(0.3) .delaytime(0.125) .delayfeedback(0.5) .roomsize(3)\n  bd x...\n\
+        mod master.roomdim = 2000\n";
+    let s = Song::parse(text).expect("parses");
+    let master = s
+        .mix
+        .iter()
+        .find(|m| m.at == Mix::Master)
+        .expect("a master line");
+    let knob = |p: Param| master.sets.iter().find(|(q, _)| *q == p).map(|(_, v)| *v);
+    let close = |a: Option<f32>, b: f32| a.is_some_and(|a| (a - b).abs() < 1e-4);
+    assert!(close(knob(Param::P1A), 250.0_f32.ln() / 2000.0_f32.ln()));
+    assert!(close(knob(Param::P2A), 20.0_f32.ln() / 100.0_f32.ln()));
+    assert!(close(knob(Param::P2B), (0.2_f32).ln() / 0.05_f32.ln()));
+    let mods: Vec<_> = s
+        .mods
+        .iter()
+        .map(|m| (m.target, m.param, m.alias))
+        .collect();
+    assert_eq!(
+        mods,
+        vec![
+            (Target::Track(0), Param::Send1, Some("delay")),
+            (Target::Master, Param::P1A, Some("delaytime")),
+            (Target::Master, Param::P1B, Some("delayfeedback")),
+            (Target::Master, Param::P2A, Some("roomsize")),
+            (Target::Master, Param::P2B, Some("roomdim")),
+        ]
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("master: EchoTime 0.25, ReverbSize 2, ReverbCutoff 4000"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains(".delay(0.3) .delaytime(0.125) .delayfeedback(0.5) .roomsize(3)"),
+        "{printed}"
+    );
+    assert!(printed.contains("mod master.roomdim = 2000"), "{printed}");
+    assert_eq!(Song::parse(&printed), Ok(s));
+    for u in UNITS {
+        assert!(((u.knob)((u.value)(0.4)) - 0.4).abs() < 1e-5, "{}", u.name);
+        assert!(Param::by_name(u.name).is_none(), "{}", u.name);
+    }
+}
+
+/// #660: `room` is the reverb on P2 and `delay` the echo on P1; on a slot
+/// holding another effect, or as a lane's knob values, they are refused.
+#[test]
+fn room_and_delay_need_their_effect() {
+    for (text, line, col, msg) in [
+        (
+            "master: P2Type Chorus\ntrack kit drums\nclip a = kit .room(0.4)\n  bd x\n",
+            3,
+            15,
+            "this is P2's reverb, and P2Type is not Reverb",
+        ),
+        (
+            "track kit drums\nclip a = kit .delaytime(0.2)\n  bd x\nmaster: P1Type Reverb\n",
+            2,
+            15,
+            "this is P1's echo, and P1Type is not Echo",
+        ),
+        (
+            "master: P1Type Chorus, EchoTime 0.2\n",
+            1,
+            24,
+            "this is P1's echo, and P1Type is not Echo",
+        ),
+        (
+            "master: P2Type Echo\nmod master.roomsize = 2\n",
+            2,
+            12,
+            "this is P2's reverb, and P2Type is not Reverb",
+        ),
+        (
+            "snapshot s: master.EchoTime 0.2\n",
+            1,
+            20,
+            "a value in seconds or Hz goes on the master line, a mod or a clip method",
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(text);
+        assert_eq!((e.line, e.col, e.msg.as_ref()), (line, col, msg), "{text}");
+    }
+    // A slot set to the effect it needs is fine.
+    assert!(
+        Song::parse(
+            "master: P2Type Reverb, ReverbSize 1\ntrack kit drums\nclip a = kit .room(1)\n  bd x\n"
+        )
+        .is_ok()
+    );
 }
 
 #[test]

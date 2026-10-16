@@ -19,9 +19,51 @@
 use super::chorus::Chorus;
 use super::echo::{Echo, MAX_FEEDBACK};
 use super::flanger::{self, Flanger};
-use super::reverb::Reverb;
+use super::reverb::{self, Reverb};
 use crate::engine::BLOCK;
 use crate::params::ProcField;
+
+/// The echo's time in seconds for knob A: 1 ms to 2 s.
+pub fn echo_time(a: f32) -> f32 {
+    2_000.0_f32.powf(a) / 1000.0
+}
+
+/// The echo's feedback for knob B.
+pub fn echo_feedback(b: f32) -> f32 {
+    b * MAX_FEEDBACK
+}
+
+/// The reverb's tail in seconds for knob A: 0.1 to 10 s.
+pub fn reverb_size(a: f32) -> f32 {
+    0.1 * 100.0_f32.powf(a)
+}
+
+/// The low-pass in the reverb's tail in Hz for knob B.
+pub fn reverb_cutoff(b: f32) -> f32 {
+    reverb::damping_hz(b)
+}
+
+/// The knob for a value in real units (#660): the inverses of the curves
+/// above, clamped to the knob's 0..=1.
+pub fn echo_time_knob(seconds: f32) -> f32 {
+    knob((seconds * 1000.0).max(1.0).ln() / 2_000.0_f32.ln())
+}
+
+pub fn echo_feedback_knob(feedback: f32) -> f32 {
+    knob(feedback / MAX_FEEDBACK)
+}
+
+pub fn reverb_size_knob(seconds: f32) -> f32 {
+    knob((seconds / 0.1).max(1.0).ln() / 100.0_f32.ln())
+}
+
+pub fn reverb_cutoff_knob(hz: f32) -> f32 {
+    knob((hz.max(1.0) / 20_000.0).ln() / 0.05_f32.ln())
+}
+
+fn knob(v: f32) -> f32 {
+    if v.is_nan() { v } else { v.clamp(0.0, 1.0) }
+}
 
 /// What a slot does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,13 +195,13 @@ impl Processor {
         let [a, b, c, d, e] = self.knob;
         match self.kind {
             ProcType::Echo => {
-                self.echo.set_time(2_000.0_f32.powf(a));
-                self.echo.set_feedback(b * MAX_FEEDBACK);
+                self.echo.set_time(echo_time(a) * 1000.0);
+                self.echo.set_feedback(echo_feedback(b));
                 self.echo.set_tone(c);
                 self.echo.set_ping_pong(d >= 0.5);
             }
             ProcType::Reverb => {
-                self.reverb.set_size(0.1 * 100.0_f32.powf(a));
+                self.reverb.set_size(reverb_size(a));
                 self.reverb.set_damping(b);
                 self.reverb.set_pre_delay(c * 100.0);
             }

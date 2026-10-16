@@ -309,7 +309,12 @@ name shows on its strip, and naming a group in the mixer writes it here.
   EqMid2Freq EqMid2Gain EqMid2Q EqHighFreq EqHighGain`, processors `P1Type
   P1Return P1A`–`P1E` … `P4…`, `P2In`–`P4In`. Processor types: `Off Echo Reverb
   Chorus Flanger`; P1 is an Echo and P2 a Reverb by default, fed by `Send1`
-  and `Send2`.
+  and `Send2` and returned at 1, so a send alone is heard (#660).
+- The echo and the reverb in real units (#660), on P1's echo and P2's reverb
+  (an error on a slot holding another effect): `EchoTime` in seconds (P1A,
+  0.001–2), `EchoFeedback` (P1B, 0–0.95), `ReverbSize`, the tail in seconds
+  (P2A, 0.1–10), `ReverbCutoff`, the low-pass in the tail in Hz (P2B,
+  1000–20000). Printed as written; Write mixer keeps them so.
 
 ```song
 track kit drums
@@ -317,7 +322,7 @@ track bass synth
 strip kit: Level 0.9, Out group1
 strip bass: Level 0.8, Pan -0.2, I1Type Overdrive, I1A 0.6, Send2 0.3
 group 1 drums: Level 0.85, I1Type Comp
-master: MasterGain 0.6, P2Type Reverb, P2Return 0.3
+master: MasterGain 0.6, P2Return 0.3, EchoTime 0.375, ReverbSize 2.5
 clip beat = kit
   bd x...x...x...x...
 clip low = bass

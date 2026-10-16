@@ -2713,7 +2713,11 @@ impl Engine {
             // step, so a lock lasts only its step (#255).
             let v = match md.signal.eval(t, &mut ctx) {
                 v if v.is_nan() => self.mod_base.get(m).copied().flatten().unwrap_or(found),
-                v => v,
+                // A value in seconds or Hz turns the knob that gives it (#660).
+                v => md
+                    .alias
+                    .and_then(crate::song::unit)
+                    .map_or(v, |u| (u.knob)(v)),
             };
             match self.mod_last.get_mut(m) {
                 Some(last) if *last != v => *last = v,
@@ -3523,6 +3527,7 @@ impl Engine {
                         at: Mix::Track(t),
                         name: None,
                         sets,
+                        units: Vec::new(),
                     });
                 }
             }
@@ -3534,6 +3539,7 @@ impl Engine {
                     at: Mix::Strip(s),
                     name: None,
                     sets,
+                    units: Vec::new(),
                 });
             }
         }
@@ -3550,15 +3556,28 @@ impl Engine {
                     at: Mix::Group(g),
                     name,
                     sets,
+                    units: Vec::new(),
                 });
             }
         }
         let sets = differs(self, 0, &GLOBAL_DEFAULTS);
         if !sets.is_empty() {
+            // A knob written in real units stays so (#660).
+            let old = self.song.mix.iter().find(|m| m.at == Mix::Master);
+            let units = sets
+                .iter()
+                .filter_map(|(p, v)| {
+                    let (_, name, written) = old?.units.iter().find(|(q, _, _)| q == p).copied()?;
+                    let u = crate::song::unit(name)?;
+                    let kept = self.song.mix_value(Mix::Master, *p) == Some(*v);
+                    Some((*p, name, if kept { written } else { round((u.value)(*v)) }))
+                })
+                .collect();
             mix.push(MixLine {
                 at: Mix::Master,
                 name: None,
                 sets,
+                units,
             });
         }
         self.song.mix = mix;
@@ -3914,6 +3933,15 @@ fn live(synth: usize) -> Option<u8> {
     u8::try_from(synth)
         .ok()
         .filter(|s| usize::from(*s) < SYNTHS)
+}
+
+/// `v` to three significant digits, as a time or a frequency is written.
+fn round(v: f32) -> f32 {
+    if v == 0.0 || !v.is_finite() {
+        return v;
+    }
+    let m = 10.0_f32.powi(2 - v.abs().log10().floor() as i32);
+    (v * m).round() / m
 }
 
 #[cfg(test)]
