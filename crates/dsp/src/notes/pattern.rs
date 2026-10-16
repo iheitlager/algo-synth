@@ -33,6 +33,8 @@ use super::{CHANCE_BARS, DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR
 use crate::algo::{Euclid, Mode, Rng, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
+/// How far `jux` puts each side: all the way, as Strudel's.
+const JUX_PAN: i8 = 100;
 /// Largest factor of `fast`, `slow`, `ply`, `iter` and `every`.
 const MAX_FACTOR: u32 = 16;
 /// Most steps in a `struct` rhythm: one a tick.
@@ -97,6 +99,9 @@ pub enum Pattern {
     /// Milliseconds between a chord's notes, upward; downward when below 0
     /// (#604).
     Strum(i16),
+    /// `jux(m)`: the line on the left, and a copy with method m on the
+    /// right, as Strudel's (#701).
+    Jux(Box<Pattern>),
     /// `arp("0 3 <2 0>")`: the line's own chords played by index, as
     /// Strudel's arp (#696): the indexes as written, and as a line of degrees.
     Arp(String, Line),
@@ -530,7 +535,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 26] = [
+    pub const NAMES: [&'static str; 27] = [
         "fast",
         "slow",
         "rev",
@@ -555,6 +560,7 @@ impl Pattern {
         "chord",
         "strum",
         "arp",
+        "jux",
         "shuffle",
         "scramble",
     ];
@@ -773,6 +779,7 @@ impl Pattern {
                     bars,
                 }))
             }
+            "jux" => Ok(Pattern::Jux(Box::new(nested(one()?, srcs)?))),
             "arp" => {
                 let bad = crate::usage::ARP_METHOD;
                 let arg = one()?.trim();
@@ -859,6 +866,7 @@ impl Pattern {
             Pattern::StructOf(c) => format!("struct({})", c.name),
             Pattern::Strum(ms) => format!("strum({ms})"),
             Pattern::Arp(text, _) => format!("arp({text})"),
+            Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -971,6 +979,21 @@ impl Pattern {
                 out
             }
             Pattern::Strum(ms) => strum(line, *ms),
+            Pattern::Jux(m) => {
+                let copy = m.apply(line)?;
+                let bars = lcm(line.bars, copy.bars);
+                check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+                let side = |l: &Line, pan: i8| {
+                    let mut l = l.repeat(bars);
+                    for e in &mut l.events {
+                        e.pan = pan;
+                    }
+                    l.events
+                };
+                let mut events = side(line, -JUX_PAN);
+                events.extend(side(&copy, JUX_PAN));
+                Line { events, bars }
+            }
             Pattern::Arp(_, idx) => {
                 if line.events.iter().any(|e| e.degree) {
                     return Err("arp plays notes: write it after scale");
@@ -1025,7 +1048,8 @@ impl Pattern {
     pub fn moves_pitch(&self) -> bool {
         match self {
             Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
-            Pattern::Stack(_) | Pattern::Strum(_) | Pattern::Arp(..) => true,
+            // A drum clip's lanes hold no pan, so jux is for notes too.
+            Pattern::Stack(_) | Pattern::Strum(_) | Pattern::Arp(..) | Pattern::Jux(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -1668,6 +1692,7 @@ mod tests {
             when: Default::default(),
             nudge: 0,
             cents: 0,
+            pan: 0,
         }
     }
 
@@ -2053,6 +2078,35 @@ mod tests {
         let up = s.events.iter().filter(|e| e.note >= 72).count();
         assert!(up > 8 && up < 24, "{up} of 32");
         assert_eq!(s, run("sometimes(add(12))", &line), "seeded");
+    }
+
+    /// #701: jux puts the line on the left and the changed copy on the right.
+    #[test]
+    fn jux_pans_the_line_left_and_its_copy_right() {
+        let j = run("jux(rev)", &four());
+        assert_eq!(j.bars, 1);
+        let side = |pan: i8| -> Vec<(u32, u8)> {
+            let mut v: Vec<_> = j
+                .events
+                .iter()
+                .filter(|e| e.pan == pan)
+                .map(|e| (e.start, e.note))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        assert_eq!(side(-100), starts(&four()));
+        assert_eq!(side(100), starts(&run("rev()", &four())));
+        assert_eq!(j.events.len(), 8);
+        // The two come round together.
+        assert_eq!(run("jux(slow(2))", &four()).bars, 2);
+        assert_eq!(Pattern::parse("jux", " rev ").unwrap().print(), "jux(rev)");
+        assert_eq!(
+            Pattern::parse("jux", "add(7)").unwrap().print(),
+            "jux(add(7))"
+        );
+        assert!(Pattern::parse("jux", "").is_err());
+        assert!(Pattern::parse("jux", "room(1)").is_err());
     }
 
     /// #699: a fraction of a semitone moves a note's cents, its note the

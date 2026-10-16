@@ -482,6 +482,7 @@ fn arp(
                 when: Default::default(),
                 nudge: 0,
                 cents: 0,
+                pan: 0,
             });
         }
     }
@@ -515,6 +516,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             when: Default::default(),
             nudge: 0,
             cents: 0,
+            pan: 0,
         });
     }
 }
@@ -640,6 +642,7 @@ fn arp_prog(
                 when: Default::default(),
                 nudge: 0,
                 cents: 0,
+                pan: 0,
             });
         }
     }
@@ -670,6 +673,7 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             when: Default::default(),
             nudge: 0,
             cents: 0,
+            pan: 0,
         });
         i = j.max(i + 1);
     }
@@ -687,6 +691,7 @@ fn bass_note(start: u32, len: u32, note: i32) -> Event {
         when: Default::default(),
         nudge: 0,
         cents: 0,
+        pan: 0,
     }
 }
 
@@ -1022,6 +1027,7 @@ fn prog(
                 when: Default::default(),
                 nudge: 0,
                 cents: 0,
+                pan: 0,
             });
         }
     }

@@ -248,6 +248,7 @@ fn layout(
                     when: Default::default(),
                     nudge: 0,
                     cents: 0,
+                    pan: 0,
                     word: 0,
                 })
                 .collect();

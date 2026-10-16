@@ -183,6 +183,8 @@ pub struct Mixer {
     wide: [bool; SYNTHS],
     /// The dry signal while a stereo effect writes both sides.
     dry: [f32; BLOCK],
+    /// The side of a stereo synth while an effect runs on its mid (#701).
+    side: [f32; BLOCK],
     /// Each synth's raw signal this block, before its inserts: what a
     /// vocoder keyed to it follows (#161). Copied before any strip is
     /// processed, so any strip can key any other.
@@ -221,6 +223,7 @@ impl Mixer {
             bus_r: Box::new([[0.0; BLOCK]; SYNTHS]),
             wide: [false; SYNTHS],
             dry: [0.0; BLOCK],
+            side: [0.0; BLOCK],
             raw: Box::new([[0.0; BLOCK]; SYNTHS]),
             nowhere: Box::new([[0.0; BLOCK]; 2]),
             groups: Box::new([[[0.0; BLOCK]; 2]; GROUPS]),
@@ -421,6 +424,42 @@ impl Mixer {
         dry.copy_from_slice(l);
         effect(dry, l, r);
         *wide = true;
+    }
+
+    /// Run a mono-in, stereo-out `effect` on stereo `synth` (#701): on its
+    /// mid, its side added back after, so a voice panned left stays left.
+    pub fn widen_mid(
+        &mut self,
+        synth: usize,
+        frames: usize,
+        effect: impl FnOnce(&[f32], &mut [f32], &mut [f32]),
+    ) {
+        let n = frames.min(BLOCK);
+        let (Some(l), Some(r)) = (self.bus.get_mut(synth), self.bus_r.get_mut(synth)) else {
+            return;
+        };
+        let (Some(l), Some(r), Some(mid), Some(side)) = (
+            l.get_mut(..n),
+            r.get_mut(..n),
+            self.dry.get_mut(..n),
+            self.side.get_mut(..n),
+        ) else {
+            return;
+        };
+        for (((a, b), m), s) in l
+            .iter()
+            .zip(r.iter())
+            .zip(mid.iter_mut())
+            .zip(side.iter_mut())
+        {
+            *m = 0.5 * (a + b);
+            *s = 0.5 * (a - b);
+        }
+        effect(mid, l, r);
+        for ((a, b), s) in l.iter_mut().zip(r.iter_mut()).zip(side.iter()) {
+            *a += s;
+            *b -= s;
+        }
     }
 
     /// Silence the buses at the start of a block.

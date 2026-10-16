@@ -7059,3 +7059,56 @@ fn a_fractional_add_plays_between_the_keys() {
         "{cents} cents between bars 1 and 3"
     );
 }
+
+/// Seconds of both sides of the master.
+fn sides_of(e: &mut Engine, secs: f32) -> (Vec<f32>, Vec<f32>) {
+    let (mut l, mut r) = (Vec::new(), Vec::new());
+    for _ in 0..(secs * 48_000.0 / BLOCK as f32) as usize {
+        e.render(BLOCK);
+        l.extend_from_slice(&e.output()[..BLOCK]);
+        r.extend_from_slice(&e.output()[BLOCK..]);
+        assert!(e.output().iter().all(|x| x.is_finite()));
+    }
+    (l, r)
+}
+
+/// #701: `.jux(m)` plays the line on the left and its copy on the right, on
+/// one track; a note on both sides takes a voice on each.
+#[test]
+fn jux_plays_the_line_left_and_the_copy_right() {
+    let play = |model: &str, methods: &str| {
+        let mut e = Engine::new(48_000.0);
+        let text =
+            format!("tempo 120\ntrack lead synth {model}\nclip r = lead{methods}\n  \"a3\"\n");
+        assert_eq!(load_text(&mut e, &text), Ok(()), "{text}");
+        e.set_param(0, Param::Analog, 0.0);
+        e.song_play();
+        sides_of(&mut e, 0.5)
+    };
+    let (l, r) = play("Dx7", " .jux(add(7))");
+    let cents = 1200.0 * (pitch_of(&r[4800..]) / pitch_of(&l[4800..])).log2();
+    assert!((cents - 700.0).abs() < 2.0, "the right a fifth up: {cents}");
+    // The same note both sides: as loud left as right, louder than one side.
+    let (l, r) = play("Dx7", " .jux(add(0))");
+    let (ll, lr) = (level(&l[4800..]), level(&r[4800..]));
+    assert!(ll > 0.01 && (ll - lr).abs() < 0.01 * ll, "{ll} {lr}");
+    // An empty copy: the right is silent, the left as loud as the middle.
+    let (l, r) = play("Dx7", " .jux(degrade(1))");
+    assert!(level(&r[4800..]) < 1.0e-6, "right {}", level(&r[4800..]));
+    let (ml, _) = play("Dx7", "");
+    let ratio = level(&l[4800..]) / level(&ml[4800..]);
+    assert!(
+        (ratio - std::f32::consts::SQRT_2).abs() < 0.05,
+        "hard left is +3 dB on the left: {ratio}"
+    );
+    // A Juno keeps its chorus, the left still the louder side.
+    let (l, r) = play("Juno106", " .jux(degrade(1))");
+    assert!(
+        level(&l[4800..]) > 2.0 * level(&r[4800..]),
+        "{} {}",
+        level(&l[4800..]),
+        level(&r[4800..])
+    );
+    let (dl, dr) = play("Juno106", "");
+    assert!(dl != dr, "the Juno's chorus is on");
+}

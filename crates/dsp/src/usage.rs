@@ -39,7 +39,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 26] = [
+pub const METHODS: [(&str, &str); 27] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -91,6 +91,7 @@ pub const METHODS: [(&str, &str); 26] = [
         "strum takes milliseconds from 1 to 100, below 0 to strum down: strum(15)",
     ),
     ("arp", ARP_METHOD),
+    ("jux", "jux takes a method: jux(rev)"),
     (
         "shuffle",
         "shuffle takes a whole number from 1 to 16: shuffle(4)",

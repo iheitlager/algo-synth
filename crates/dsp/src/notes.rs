@@ -342,6 +342,9 @@ pub struct Event {
     /// Cents off `note`, −50 to 49 (#699): `.add(0.1)` and its kin play
     /// between the keys.
     pub cents: i16,
+    /// Where it sounds, −100 (left) to 100 (right), 0 where its strip puts
+    /// it: `.jux(m)` (#701).
+    pub pan: i8,
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -613,6 +616,7 @@ impl Cursor<'_> {
             when: Default::default(),
             nudge: 0,
             cents: 0,
+            pan: 0,
         })
     }
 
@@ -1717,6 +1721,7 @@ impl Compiler<'_> {
             when: self.when,
             nudge: 0,
             cents: 0,
+            pan: 0,
         });
     }
 }
@@ -1731,9 +1736,10 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16) {
+#[allow(clippy::type_complexity)]
+pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16, i8) {
     (
-        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents,
+        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents, e.pan,
     )
 }
 
@@ -1867,6 +1873,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     when: Default::default(),
                     nudge: 0,
                     cents: 0,
+                    pan: 0,
                 });
             }
         }
@@ -1909,6 +1916,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     when: Default::default(),
                     nudge: 0,
                     cents: 0,
+                    pan: 0,
                 });
             }
         }
@@ -2113,6 +2121,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     when: Default::default(),
                     nudge: 0,
                     cents: 0,
+                    pan: 0,
                 });
             }
             (events, 1)
@@ -2134,6 +2143,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         when: Default::default(),
                         nudge: 0,
                         cents: 0,
+                        pan: 0,
                     });
                 }
                 at += len;

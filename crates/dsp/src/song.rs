@@ -437,6 +437,7 @@ impl Clip {
                         when: notes::When::default(),
                         nudge: 0,
                         cents: 0,
+                        pan: 0,
                     });
                 }
             }
@@ -1763,6 +1764,8 @@ impl Song {
                                     // A live clip changes pitches only, per note (#593).
                                     if live && !p.pitch_only() {
                                         Err("a live clip takes only pitch methods: scale, chord, oct, add(n) and sub(n)")
+                                    } else if from_lanes && matches!(p, Pattern::Jux(_)) {
+                                        Err("jux is for a clip of notes: a drum clip's lanes hold no pan")
                                     } else if from_lanes && p.moves_pitch() {
                                         Err("a drum clip takes methods of time, not pitch")
                                     } else {

@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 26] = [
+const METHODS: [(&str, &str); 27] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -116,6 +116,7 @@ const METHODS: [(&str, &str); 26] = [
     ("chord", "degrees onto an earlier clip's chords"),
     ("strum", "ms between a chord's notes"),
     ("arp", "the line's chords by note index"),
+    ("jux", "left as is, right through a method"),
     ("shuffle", "each bar's n parts in a new order"),
     ("scramble", "n parts drawn from the bar's"),
 ];
@@ -1277,7 +1278,7 @@ impl<'a> Names<'a> {
                     }
                 }
                 ("every" | "off" | "sometimesBy", 1)
-                | ("sometimes" | "often" | "rarely" | "almostNever" | "almostAlways", 0) => {
+                | ("sometimes" | "often" | "rarely" | "almostNever" | "almostAlways" | "jux", 0) => {
                     list.table(Class::Call, &METHODS)
                 }
                 (name, _) if Pattern::NAMES.contains(&name) => {}
