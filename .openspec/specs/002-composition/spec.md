@@ -566,3 +566,24 @@ A note line SHALL be a signal when it starts with a signal's source (#620): read
 - THEN it plays d4 then e4, two bars looped
 
 **Tests:** `crates/dsp/src/song/tests.rs::a_signal_from_strudel_plays_its_notes`, `crates/dsp/src/song/tests.rs::a_signal_line_reads_degrees_over_its_bars`, `crates/dsp/src/song/tests.rs::a_signal_line_follows_a_chord`, `crates/dsp/src/song/tests.rs::rib_loops_a_piece_of_the_line`, `crates/dsp/src/song/tests.rs::signal_lines_say_what_is_wrong_and_where`, `crates/dsp/src/engine/tests.rs::a_signal_line_stays_as_typed`, `crates/dsp/src/song/signal.rs::tests::randomness_is_strudels`, `crates/dsp/src/song/signal.rs::tests::strudel_spellings_print_as_written`
+
+### Requirement 21: A part and a pad per hit [SHOULD]
+
+`.slice(n, <signal>)` SHALL play, for each hit of a sampler clip of notes, part k of n with k the signal's value as the hit is pressed, rounded down and wrapped round n (#730). `.n(<signal>)` SHALL play, on a Pad Sampler track, the pad given by the signal's value for each hit of a clip of notes or a drum clip, read at each hit's own time. Both SHALL read Strudel's values at the hit's moment in the song (ADR-0041), so they change each time round and are the same on every render; `render` SHALL NOT allocate. A signal of a voice or the clock (`env`, `lfo`, a list, `lag`, `onNote`) SHALL be refused with a line and column, and so SHALL `n` on another model and a signal slice on a drum clip.
+
+**Implementation:** `crates/dsp/src/engine.rs::Engine::pick`, `crates/dsp/src/engine.rs::Engine::lane_note`, `crates/dsp/src/song.rs::Clip`
+
+#### Scenario: a random cut per hit
+
+- GIVEN a sample of four tones on pad 0 and `clip cut = brk .slice(4, irand(4))` over `"c2 c2"`
+- WHEN the song plays two bars
+- THEN each hit plays the part `irand(4)` gives at its moment
+
+#### Scenario: a random pad per hit
+
+- GIVEN two tones on pads 0 and 1 and a drum clip `.n(irand(2))` hitting `p0` each quarter
+- WHEN the song plays
+- THEN each hit plays the pad `irand(2)` gives at its moment, both pads sounding
+
+**Tests:** `crates/dsp/src/engine/tests.rs::a_slice_by_a_signal_picks_a_part_per_hit`, `crates/dsp/src/engine/tests.rs::n_by_a_signal_picks_a_pad_per_hit`, `crates/dsp/src/song/tests.rs::slice_and_n_take_a_signal_per_hit`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
+

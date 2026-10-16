@@ -1098,6 +1098,42 @@ impl Engine {
         own + semis.clamp(-48.0, 48.0) * 100.0
     }
 
+    /// Event `ev` of clip `f` as it is pressed at song tick `j`: the part of
+    /// its sample and its pad read from the clip's `.slice(n, <signal>)`
+    /// and `.n(<signal>)` there (#730). Nothing allocates.
+    fn pick(&self, f: usize, mut ev: Event, j: u64) -> Event {
+        let Some(c) = self.song.clips.get(f) else {
+            return ev;
+        };
+        let t = j as f64 / TICKS_PER_STEP as f64 / STEPS_PER_BAR as f64;
+        if let Some((n, s)) = &c.slice_by {
+            if let Some(k) = index(s.sample(t), *n) {
+                ev.region = ev.region.part(k, *n);
+            }
+        }
+        if let Some(s) = &c.pad_by {
+            ev.note = Self::pad_note(s, t).unwrap_or(ev.note);
+        }
+        ev
+    }
+
+    /// The note of the pad `.n(<signal>)` picks at `t` cycles (#730).
+    fn pad_note(s: &signal::Signal, t: f64) -> Option<u8> {
+        let k = index(s.sample(t), crate::padsampler::PADS as u32)?;
+        Some(crate::padsampler::FIRST_NOTE + k as u8)
+    }
+
+    /// A drum hit's note at `steps` clock steps: its lane's, or the pad its
+    /// clip's `.n(<signal>)` picks there (#730).
+    fn lane_note(&self, f: usize, note: u8, steps: f64) -> u8 {
+        self.song
+            .clips
+            .get(f)
+            .and_then(|c| c.pad_by.as_ref())
+            .and_then(|s| Self::pad_note(s, steps / STEPS_PER_BAR as f64))
+            .unwrap_or(note)
+    }
+
     fn start_voice(&mut self, owner: Owner, note: u8, velocity: f32) {
         let Some(synth) = self.target(owner) else {
             return;
@@ -2137,6 +2173,7 @@ impl Engine {
                 if ev.nudge < 0 || !ev.when.holds(in_first, in_last) {
                     continue;
                 }
+                let ev = self.pick(f, ev, j);
                 // A strummed note waits in the hit queue, its note-off at
                 // least a tick after it (#604).
                 let late = self.ms_samples(ev.nudge.max(0));
@@ -2253,6 +2290,7 @@ impl Engine {
                     if ev.nudge >= 0 || !ev.when.holds(in_first, in_last) {
                         continue;
                     }
+                    let ev = self.pick(f, ev, j);
                     let at = on
                         .saturating_sub((self.ms_samples(ev.nudge) as f64 * scale).round() as u64);
                     if at >= on {
@@ -2506,10 +2544,11 @@ impl Engine {
                             let st = lane.steps.get(i)?;
                             Some((lane.pad.note(), *st, lane.ratchet(i), i))
                         });
-                    let Some((note, st, ratchet, i)) = hit else {
+                    let Some((lane_note, st, ratchet, i)) = hit else {
                         continue;
                     };
                     let off = n * 16 - k * g;
+                    let note = self.lane_note(f, lane_note, step as f64 + off as f64 / g as f64);
                     let at = if off == 0 {
                         on_step
                     } else {
@@ -2545,6 +2584,7 @@ impl Engine {
                         for j in 1..u64::from(ratchet) {
                             let x = (off as f64 + (j * 16) as f64 / f64::from(ratchet)) / g as f64;
                             let whole = x.floor();
+                            let note = self.lane_note(f, lane_note, step as f64 + x);
                             self.queue_hit(Hit {
                                 at: self.clock.between_sample(step + whole as u64, x - whole),
                                 owner,
@@ -4181,6 +4221,13 @@ fn round(v: f32) -> f32 {
     }
     let m = 10.0_f32.powi(2 - v.abs().log10().floor() as i32);
     (v * m).round() / m
+}
+
+/// Index `0..n` of value `v`, rounded down and round `n` as Strudel's slice
+/// and n wrap; `None` for no value (a `~`).
+fn index(v: f64, n: u32) -> Option<u32> {
+    v.is_finite()
+        .then(|| (v.floor() as i64).rem_euclid(i64::from(n.max(1))) as u32)
 }
 
 #[cfg(test)]

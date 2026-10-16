@@ -375,6 +375,24 @@ pub struct Clip {
     /// `.add(perlin.range(0, 0.5))` (#699): semitones read at each note's
     /// start, and whether it was `.sub`.
     pub bend: Option<(bool, Signal)>,
+    /// `.slice(32, irand(32))` (#730): the part of n each hit plays, read as
+    /// it is pressed.
+    pub slice_by: Option<(u32, Signal)>,
+    /// `.n(irand(8))` (#730): the pad of a Pad Sampler each hit plays, read
+    /// as it is pressed, as Tidal's `n`.
+    pub pad_by: Option<Signal>,
+}
+
+/// The error of a signal `slice` or `n` can't read per hit (#730).
+const PICK_SIGNAL: &str =
+    "slice and n read a signal of the bar per hit: not env, lfo, a list, lag or onNote";
+
+/// `.slice(n, <signal>)`: the count and the signal's text with its byte
+/// offset in `args`, when the indexes are a signal, not quoted (#730).
+fn slice_signal(args: &str) -> Option<(&str, usize, &str)> {
+    let (count, rest) = args.split_once(',')?;
+    let sig = rest.trim_start();
+    is_signal(sig).then(|| (count.trim(), args.len() - sig.len(), sig.trim_end()))
 }
 
 /// A drum clip's beat line as written, and whether the clip line wrote its
@@ -1771,6 +1789,8 @@ impl Song {
                         from: from.map(|w| w.text.to_string()),
                         beat: None,
                         bend: None,
+                        slice_by: None,
+                        pad_by: None,
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1804,6 +1824,65 @@ impl Song {
                                         ));
                                     }
                                     clip.bend = Some((name == "sub", signal));
+                                }
+                                continue;
+                            }
+                            // `.slice(n, <signal>)` and `.n(<signal>)`: the part of
+                            // the sample and the pad each hit plays, read as it
+                            // is pressed, in the engine (#730). A knob named `n`
+                            // keeps its name.
+                            let knob_n = name == "n"
+                                && knobbed(&song, Target::Track(t)).is_some_and(|st| {
+                                    st.knobs.iter().any(|k| k.eq_ignore_ascii_case(name))
+                                });
+                            let sliced = if name == "slice" {
+                                slice_signal(sig)
+                            } else {
+                                None
+                            };
+                            if (name == "n" && !knob_n) || sliced.is_some() {
+                                let (text, off) = sliced.map_or((sig, 0), |(_, off, s)| (s, off));
+                                let pcol =
+                                    at + scol - 1 + sig.get(..off).map_or(0, |s| s.chars().count());
+                                let signal = Signal::parse(text, &mut nodes)
+                                    .map_err(|(c, m)| err(pcol + c - 1, m))?;
+                                if !signal.of_the_bar() {
+                                    return Err(err(pcol, PICK_SIGNAL));
+                                }
+                                let mcol = at + ncol - 1;
+                                let clip = song.clips.get_mut(f);
+                                if let Some((count, _, _)) = sliced {
+                                    let n = count
+                                        .parse::<u32>()
+                                        .ok()
+                                        .filter(|n| (1..=64).contains(n))
+                                        .ok_or(err(mcol, crate::usage::SLICE))?;
+                                    if kind == Some(Kind::Drums) || from_lanes {
+                                        return Err(err(
+                                            mcol,
+                                            "a signal on slice is for a clip of notes",
+                                        ));
+                                    }
+                                    if let Some(clip) = clip {
+                                        if clip.slice_by.is_some() {
+                                            return Err(err(
+                                                mcol,
+                                                "a clip takes one slice of a signal",
+                                            ));
+                                        }
+                                        clip.slice_by = Some((n, signal));
+                                    }
+                                } else {
+                                    let model = track_model(&song.tracks, &models, t);
+                                    if model.is_some_and(|m| m != Model::PadSampler) {
+                                        return Err(err(mcol, "n picks a pad of a Pad Sampler"));
+                                    }
+                                    if let Some(clip) = clip {
+                                        if clip.pad_by.is_some() {
+                                            return Err(err(mcol, "a clip takes one n"));
+                                        }
+                                        clip.pad_by = Some(signal);
+                                    }
                                 }
                                 continue;
                             }
@@ -3678,6 +3757,18 @@ impl Song {
                     .get(f)
                     .and_then(|c| c.bend.as_ref())
                     .map(|(sub, s)| format!(" .{}({s})", if *sub { "sub" } else { "add" })),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.slice_by.as_ref())
+                    .map(|(n, s)| format!(" .slice({n}, {s})")),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.pad_by.as_ref())
+                    .map(|s| format!(" .n({s})")),
             );
         let mine: Vec<&Mod> = self.mods.iter().filter(|m| m.clip == Some(f)).collect();
         let adsr = |m: &&Mod| m.alias == Some("adsr");

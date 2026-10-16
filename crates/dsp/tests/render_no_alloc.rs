@@ -58,6 +58,7 @@ track nkit drums Nes NesKit
 track vl synth VlTone VlFantasy
 track vkit drums VlTone VlKit
 track brk sampler PadSampler PadsLoud
+track pads drums PadSampler PadsLoud
 
 clip beat = kit /16
   bd x..x..x...x..x..
@@ -97,6 +98,10 @@ clip chops = brk .fit() .chop(8) .sometimesBy(0.5, mul(speed(-1))) .accelerate(0
   \"c2 ~ c2 c2\"
 clip slices = brk .splice(4, \"<0 2 1 3>*2 [3 1]\") .spread(id, rev, chop(4), stut(3, 0.5, 1/16))
   \"c2\"
+clip cuts = brk .slice(32, irand(32)) .n(\"0 <1 2>\")
+  \"c2*8\"
+clip picks = pads /16 .n(irand(4))
+  p0 x.x3x.x.x.x2x.x.
 
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
@@ -110,7 +115,7 @@ mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam drift zap ring arps chirp tune nbeat calc vbeat chops fade pan sweep [open]
+scene a 2: beat hold sand roam drift zap ring arps chirp tune nbeat calc vbeat chops cuts picks fade pan sweep [open]
 scene b 1: beat sand roam drift zap arps chirp tune nbeat calc vbeat slices [solo]
 arrange a b a b
 ";

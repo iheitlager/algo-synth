@@ -348,7 +348,17 @@ impl List<'_> {
             self.table(Class::Call, &METHODS);
         }
         self.adsr(model);
+        self.pad_n(model);
         self.params(Set::Track(model), true);
+    }
+
+    /// Tidal's `n`, a pad per hit (#730), where the track is a Pad Sampler.
+    fn pad_n(&mut self, model: Option<Model>) {
+        if model == Some(Model::PadSampler) {
+            self.add(Class::Param, "n", || {
+                "the pad each hit plays: n(irand(4))".to_string()
+            });
+        }
     }
 
     /// `adsr`, Strudel's envelope in one method (#677), where the model
@@ -388,6 +398,7 @@ impl List<'_> {
             }
         }
         self.adsr(model);
+        self.pad_n(model);
         self.params(Set::Track(model), true);
     }
 

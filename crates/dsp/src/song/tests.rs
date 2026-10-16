@@ -222,6 +222,8 @@ fn random_song(r: &mut Rng) -> Song {
                 from: None,
                 beat: None,
                 bend: None,
+                slice_by: None,
+                pad_by: None,
             });
             continue;
         }
@@ -251,6 +253,8 @@ fn random_song(r: &mut Rng) -> Song {
             from: None,
             beat: None,
             bend: None,
+            slice_by: None,
+            pad_by: None,
         });
     }
     song
@@ -4865,4 +4869,71 @@ fn signal_lines_say_what_is_wrong_and_where() {
             "a degree needs a scale: a scale line, or .scale(a1 minor) on the clip"
         )
     );
+}
+
+/// #730: `.slice(n, <signal>)` and `.n(<signal>)` are read per hit in the
+/// engine; they print back, and a quoted slice stays a pattern method.
+#[test]
+fn slice_and_n_take_a_signal_per_hit() {
+    let text = "track brk sampler PadSampler PadsLoud\ntrack kit drums PadSampler PadsLoud\n\
+                clip cut = brk .fit() .slice(32, irand(32))\n  \"c2*8\"\n\
+                clip k = kit .n(irand(4))\n  p0 x.x.x.x.x.x.x.x.\n\
+                clip q = kit .n(\"0 3 <1 2>\")\n  p0 x...x...x...x...\n";
+    let s = Song::parse(text).expect("parses");
+    let (n, sig) = s.clips[0].slice_by.as_ref().expect("a slice of a signal");
+    assert_eq!((*n, sig.to_string().as_str()), (32, "irand(32)"));
+    assert!(
+        s.clips[0]
+            .pattern
+            .iter()
+            .all(|p| !matches!(p, Pattern::Slice(..)))
+    );
+    assert_eq!(
+        s.clips[1].pad_by.as_ref().map(ToString::to_string),
+        Some("irand(4)".into())
+    );
+    assert!(s.clips[2].pad_by.is_some());
+    let printed = s.print();
+    for line in [
+        "clip cut = brk .fit() .slice(32, irand(32))\n",
+        "clip k = kit /16 .n(irand(4))\n",
+        "clip q = kit /16 .n(\"0 3 <1 2>\")\n",
+    ] {
+        assert!(printed.contains(line), "{line} in\n{printed}");
+    }
+    assert_eq!(Song::parse(&printed), Ok(s));
+    let quoted =
+        Song::parse("track brk sampler PadSampler\nclip c = brk .slice(4, \"3 0\")\n  \"c2\"\n")
+            .expect("parses");
+    assert!(quoted.clips[0].slice_by.is_none());
+    for (text, col, msg) in [
+        (
+            "track kit drums PadSampler\nclip k = kit .slice(4, irand(4))\n  p0 x...\n",
+            15,
+            "a signal on slice is for a clip of notes",
+        ),
+        (
+            "track kit drums Tr808\nclip k = kit .n(irand(4))\n  bd x...\n",
+            15,
+            "n picks a pad of a Pad Sampler",
+        ),
+        (
+            "track b sampler PadSampler\nclip c = b .slice(4, env(perc))\n  \"c2\"\n",
+            22,
+            "slice and n read a signal of the bar per hit: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "track kit drums PadSampler\nclip k = kit .n(irand(2)) .n(rand)\n  p0 x...\n",
+            28,
+            "a clip takes one n",
+        ),
+        (
+            "track b sampler PadSampler\nclip c = b .slice(0, irand(4))\n  \"c2\"\n",
+            13,
+            crate::usage::SLICE,
+        ),
+    ] {
+        let e = Song::parse(text).expect_err(text);
+        assert_eq!((e.line, e.col, e.msg.as_ref()), (2, col, msg), "{text}");
+    }
 }
