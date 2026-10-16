@@ -70,7 +70,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
         "setting <name> = <Model> <Preset>: <Param> <value>, …",
     ),
     ("track", "track <name> <kind> [<Model> [<Preset>]]"),
-    ("samples", "samples <track> <id>"),
+    ("samples", "samples <track> <id> or github:<user>/<repo>"),
     ("zone", "zone <track> <n> = <source>"),
     ("pad", "pad <track> <n> = <source>"),
     ("table", "table <n> = <source>"),

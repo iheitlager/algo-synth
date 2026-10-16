@@ -6,6 +6,27 @@
 
 use crate::padsampler::{PADS, PadCfg};
 
+/// A sound of the track's Strudel sample map (#728): its name, and maybe
+/// `:n` for its n-th file (0 when left out), as Strudel's `s("hungup:1")`.
+pub fn is_map_sound(s: &str) -> bool {
+    map_sound(s).is_some()
+}
+
+/// The name and file index of a map sound.
+pub fn map_sound(s: &str) -> Option<(&str, u32)> {
+    let (name, index) = match s.split_once(':') {
+        Some((n, i)) => (n, i.parse::<u32>().ok().filter(|i| *i < 1000)?),
+        None => (s, 0),
+    };
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    ok.then_some((name, index))
+}
+
 /// The fields by the names a pad line gives them, in print order.
 pub const FIELD_NAMES: [&str; 9] = [
     "tune", "level", "pan", "decay", "choke", "vellevel", "velstart", "oneshot", "out",
