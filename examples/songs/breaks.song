@@ -1,0 +1,65 @@
+# Breaks: Strudel's breakbeat recipes and a Tidal cut-up, on the Amen.
+# Needs the breaks kit (make samples): eight classic breaks, the Amen on pad
+# 0, which "c2" plays.
+#
+# Strudel (strudel.cc/recipes):
+#   s("amen/4").fit().chop(16).cut(1)
+#     .sometimesBy(.5, ply("2")).sometimesBy(.25, mul(speed("-1")))
+#   s("amen/4").fit().slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2").cut(1).rarely(ply("2"))
+#   s("amen").splice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2").cut(1).rarely(ply("2"))
+# Strudel's amen/4 is a note four bars long, .slow(4); its .cut(1) is the
+# kit's choke group. Tidal:
+#   spread ($) [id, rev, (|+| accelerate "1 2"), (|+| coarse "16 32 24"),
+#     chop 16, stut 4 0.25 0.05] $ sound "amencutup*8" # n (irand 32)
+# with a gong and a mandolin climbing in minor sevenths, three bars of eight.
+tempo 120
+setting gong = Modular ModularBasic: Polyphony 4
+  SynthDef(\gong, { |freq = 220, gate = 1, ring = 2|
+      var hit = LPF.ar(Impulse.ar(0), freq * 8) * 4;
+      var modes = DynKlank.ar(`[[1, 1.47, 2.09, 2.56, 3.36], [1, 0.7, 0.5, 0.35, 0.2] / [3, 2.2, 1.6, 1.2, 0.8], [3, 2.2, 1.6, 1.2, 0.8] * ring], hit, freq);
+      modes * 0.15 * EnvGen.kr(Env.asr(0.0001, 1, 6), gate)
+  }).add;
+setting mandolin = Modular ModularBasic: Polyphony 8
+  SynthDef(\mandolin, { |freq = 440, gate = 1, decay = 1|
+      // A plucked string: a burst of noise round a comb tuned to the note.
+      var burst = WhiteNoise.ar * EnvGen.kr(Env.perc(0.001, 0.004), gate);
+      var string = CombL.ar(burst, 0.05, 1 / freq, decay);
+      LPF.ar(string, 5000) * 0.3 * EnvGen.kr(Env.asr(0.001, 1, 2), gate)
+  }).add;
+track brk sampler PadSampler
+track bell synth gong
+track pluck synth mandolin
+samples brk breaks
+strip brk: Level 0.9, Send2 0.15
+strip bell: Level 0.6, Send2 0.5
+strip pluck: Level 0.5, Send2 0.4
+master: ReverbSize 3
+
+clip chopped = brk .slow(4) .fit() .chop(16) .sometimesBy(0.5, ply(2)) .sometimesBy(0.25, mul(speed(-1)))
+  "c2"
+
+clip sliced = brk .slow(4) .fit() .slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2") .rarely(ply(2))
+  "c2"
+
+clip spliced = brk .splice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2") .rarely(ply(2))
+  "c2"
+
+# The cut-up: the Amen in 16, eight a bar, each bar through the next of six
+# methods; slices out of order stand for amencutup's n (irand 32).
+clip cutup = brk .slow(4) .fit() .slice(16, "0 9 <4 10> 13 [7 3] <15 2> 6 11") .spread(id, rev, accelerate("1 2"), coarse("16 32 24"), chop(16), stut(4, 0.25, 0.05))
+  "c2"
+
+# midinote ((run 16) * 10 + 60): minor sevenths up from c4, past hearing
+# after seven of them.
+clip gongs = bell .slow(2) .ring(sine.slow(7).range(0.25, 2.5)) .pan(sine.slow(7).range(0.6, -0.6)) .room(sine.slow(17).range(0.4, 0.9))
+  "c4 bb4 ab5 f#6 e7 d8 c9 ~ ~ ~ ~ ~ ~ ~ ~ ~"
+
+clip plucks = pluck .decay(sine.slow(7).range(2.5, 0.25)) .pan(sine.slow(7).range(-0.6, 0.6)) .room(sine.slow(17).range(0.4, 0.9))
+  "c4 bb4 ab5 f#6 e7 d8 c9 ~ ~ ~ ~ ~ ~ ~ ~ ~"
+
+scene chop 8: chopped
+scene slice 8: sliced
+scene splice 8: spliced
+scene cutbells 3: cutup gongs plucks
+scene cut 5: cutup
+arrange chop slice splice cutbells cut cutbells cut

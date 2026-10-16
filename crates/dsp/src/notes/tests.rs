@@ -759,7 +759,7 @@ fn freezing_refuses_what_it_cannot_write() {
         cents: 0,
         pan: 0,
         region: Region::WHOLE,
-        fit: false,
+        fit: 0,
         play: Play::SAME,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
@@ -791,7 +791,7 @@ fn timed_notes_parse_compile_and_print() {
                 cents: 0,
                 pan: 0,
                 region: Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: Play::SAME,
             },
             Event {
@@ -807,7 +807,7 @@ fn timed_notes_parse_compile_and_print() {
                 cents: 0,
                 pan: 0,
                 region: Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: Play::SAME,
             },
             Event {
@@ -823,7 +823,7 @@ fn timed_notes_parse_compile_and_print() {
                 cents: 0,
                 pan: 0,
                 region: Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: Play::SAME,
             },
             Event {
@@ -839,7 +839,7 @@ fn timed_notes_parse_compile_and_print() {
                 cents: 0,
                 pan: 0,
                 region: Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: Play::SAME,
             },
         ]
@@ -888,7 +888,7 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         cents: 0,
         pan: 0,
         region: Region::WHOLE,
-        fit: false,
+        fit: 0,
         play: Play::SAME,
     }
 }

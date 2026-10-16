@@ -1203,6 +1203,72 @@
           "pad": 2
         }
       ]
+    },
+    {
+      "id": "breaks",
+      "name": "Breaks (clean-breaks)",
+      "kind": "drums",
+      "license": "None: the repository has no license and the breaks are taken from commercial records. Fetched on your machine for personal use; do not commit, publish or redistribute them",
+      "redistribute": false,
+      "credit": "From clean-breaks (github.com/yaxu/clean-breaks, the breaks Strudel loads with samples('github:yaxu/clean-breaks')), commit df569e8: eight classic breaks, one a pad, the Amen Brother on pad 0, all in choke group 1 so one break cuts another (Strudel's .cut(1)). Modified: rewritten as mono WAV files by `make samples` (tools/fetch_samples.py).",
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/The_Winstons_-_Amen_Brother%20%5B2019-03-04%20124550%5D.wav",
+          "sha256": "eb60c5e2e04178036c0414cf84f8dfefe90c569424c1e51323761c1c2b777008",
+          "name": "Amen Brother, The Winstons",
+          "pad": 0,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/Lyn_Collins_-_Think_%284%29%20%5B2019-03-04%20124551%5D.wav",
+          "sha256": "2315ed23f434d68738d2695f8c638726f3d3da8dbf1118640541d8c03957b4d9",
+          "name": "Think, Lyn Collins",
+          "pad": 1,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/James_Brown_-_Funky_Drummer_%282%29%20%5B2019-03-04%20124553%5D.wav",
+          "sha256": "5c3196bd3e0483cfea96525b41ada573ba3fd9cc57a41350ca1a8187fd11b985",
+          "name": "Funky Drummer, James Brown",
+          "pad": 2,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/Michael_Viner%27s_Incredible_Bongo_Band_-_Apache_%281%29%28Fixed-End%29%20%5B2019-03-04%20124550%5D.wav",
+          "sha256": "67144034967849ad57163b9731726b5a62168094a733e9d900068520b0ce33c5",
+          "name": "Apache, Incredible Bongo Band",
+          "pad": 3,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/The_Honeydrippers_-_Impeach_The_President%20%5B2019-03-04%20124550%5D.wav",
+          "sha256": "42564851267f3110d5f550574dcd0ba6ea38f2e03fb053171faef8db9b967646",
+          "name": "Impeach the President, The Honeydrippers",
+          "pad": 4,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/Skull_Snaps_-_Its_A_New_Day%20%5B2019-03-04%20124549%5D.wav",
+          "sha256": "cc84e77a6cf20c375f6cda63f45e47b7bea5f9f6e4929fb5bba8e066225805dc",
+          "name": "It's a New Day, Skull Snaps",
+          "pad": 5,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/Kool_%26_The_Gang_-_Chocolate_Buttermilk%20%5B2019-03-04%20124554%5D.wav",
+          "sha256": "72245ecb7720339ba6eb6b7ff2f65c00d7f9dbba70f6886d62cc11f7224479a4",
+          "name": "Chocolate Buttermilk, Kool & the Gang",
+          "pad": 6,
+          "choke": 1
+        },
+        {
+          "url": "https://raw.githubusercontent.com/yaxu/clean-breaks/df569e8de311c8f042f6e53f89d08c6162d32c9b/sounds/M.c_Duke_-_I%27m_Riffin_%28Smokin%27_Beats_Small_Edit%29%20%5B2019-03-04%20124552%5D.wav",
+          "sha256": "cd90ffcadf9a2cf0e6f56d11fc463a1d2c592fc3a7f43b0ba7267a01b518547e",
+          "name": "I'm Riffin', MC Duke",
+          "pad": 7,
+          "choke": 1
+        }
+      ]
     }
   ]
 }

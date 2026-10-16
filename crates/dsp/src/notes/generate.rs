@@ -484,7 +484,7 @@ fn arp(
                 cents: 0,
                 pan: 0,
                 region: crate::notes::Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: crate::notes::Play::SAME,
             });
         }
@@ -521,7 +521,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             cents: 0,
             pan: 0,
             region: crate::notes::Region::WHOLE,
-            fit: false,
+            fit: 0,
             play: crate::notes::Play::SAME,
         });
     }
@@ -650,7 +650,7 @@ fn arp_prog(
                 cents: 0,
                 pan: 0,
                 region: crate::notes::Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: crate::notes::Play::SAME,
             });
         }
@@ -684,7 +684,7 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             cents: 0,
             pan: 0,
             region: crate::notes::Region::WHOLE,
-            fit: false,
+            fit: 0,
             play: crate::notes::Play::SAME,
         });
         i = j.max(i + 1);
@@ -705,7 +705,7 @@ fn bass_note(start: u32, len: u32, note: i32) -> Event {
         cents: 0,
         pan: 0,
         region: crate::notes::Region::WHOLE,
-        fit: false,
+        fit: 0,
         play: crate::notes::Play::SAME,
     }
 }
@@ -1044,7 +1044,7 @@ fn prog(
                 cents: 0,
                 pan: 0,
                 region: crate::notes::Region::WHOLE,
-                fit: false,
+                fit: 0,
                 play: crate::notes::Play::SAME,
             });
         }

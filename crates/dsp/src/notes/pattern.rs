@@ -1452,20 +1452,21 @@ fn ply(line: &Line, n: u32) -> Line {
 }
 
 /// Each note in `n` parts across its length, part k playing the k-th n-th
-/// of the note's part of its sample (#716). A part is at least a tick.
+/// of the note's part of its sample (#716). A part is at least a tick (48
+/// to a bar): a shorter note is cut into as many as it has ticks.
 fn chop(line: &Line, n: u32) -> Result<Line, &'static str> {
-    if line.events.iter().any(|e| e.len < n) {
-        return Err("a note is too short to chop: a part takes at least a tick, 48 to a bar");
-    }
-    check(line.bars, line.events.len() * n as usize)?;
+    let parts: u32 = line.events.iter().map(|e| n.min(e.len).max(1)).sum();
+    check(line.bars, parts as usize)?;
     let mut events = Vec::new();
     for e in &line.events {
+        let n = n.min(e.len).max(1);
         for k in 0..n {
             let start = e.start + div_round(k * e.len, n);
             events.push(Event {
                 start,
                 len: (e.start + div_round((k + 1) * e.len, n) - start).max(1),
                 region: e.region.part(k, n),
+                fit: fit_part(e.fit, n),
                 ..*e
             });
         }
@@ -1498,6 +1499,7 @@ fn slice(line: &Line, n: u32, idx: &Line) -> Result<Line, &'static str> {
                     start: i.start,
                     len: i.len,
                     region: e.region.part(k, n),
+                    fit: fit_part(e.fit, n),
                     ..*e
                 }),
         );
@@ -1545,12 +1547,22 @@ fn hundredths(x: i16) -> String {
     format!("{}", f32::from(x) / 100.0)
 }
 
-/// Every note fitted: its part of the sample plays over its length (#717).
+/// Every note fitted: its part of the sample plays over its length now
+/// (#717), whatever later methods do to the length.
 fn fit(mut line: Line) -> Line {
     for e in &mut line.events {
-        e.fit = true;
+        e.fit = e.len;
     }
     line
+}
+
+/// A fitted length cut as its part is, into n (#717).
+fn fit_part(fit: u32, n: u32) -> u32 {
+    if fit == 0 {
+        0
+    } else {
+        div_round(fit, n).max(1)
+    }
 }
 
 /// Bar m starts (m mod n) / n of a bar further into the line.
@@ -2055,11 +2067,11 @@ mod tests {
             (lo - 0.75).abs() < 1e-3 && (hi - 1.0).abs() < 1e-3,
             "{lo} {hi}"
         );
-        // Parts are whole ticks.
-        assert_eq!(
-            Pattern::Chop(4).apply(&one_hit(3)),
-            Err("a note is too short to chop: a part takes at least a tick, 48 to a bar")
-        );
+        // Parts are whole ticks: three ticks chopped in four is three parts,
+        // which still play the whole of its part.
+        let short = Pattern::Chop(4).apply(&one_hit(3)).expect("chops");
+        assert_eq!(short.events.len(), 3);
+        assert_eq!(short.events[2].region.bounds().1, 1.0);
         for bad in ["0", "65", "x"] {
             assert!(Pattern::parse("chop", bad).is_err(), "{bad}");
         }
@@ -2071,14 +2083,14 @@ mod tests {
     #[test]
     fn fit_and_splice_fill_their_notes() {
         let fitted = Pattern::Fit.apply(&one_hit(48)).expect("fits");
-        assert!(fitted.events.iter().all(|e| e.fit));
+        assert!(fitted.events.iter().all(|e| e.fit == 48));
         assert_eq!(
             Pattern::parse("fit", "").map(|p| p.print()),
             Ok("fit()".to_string())
         );
         assert!(Pattern::parse("fit", "2").is_err());
         let chopped = Pattern::Chop(16).apply(&fitted).expect("chops");
-        assert!(chopped.events.iter().all(|e| e.fit && e.len == 3));
+        assert!(chopped.events.iter().all(|e| e.fit == 3 && e.len == 3));
         let p = Pattern::parse("splice", "8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\"").expect("parses");
         assert_eq!(p.print(), "splice(8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\")");
         let spliced = p.apply(&one_hit(48)).expect("splices");
@@ -2087,9 +2099,18 @@ mod tests {
             .apply(&one_hit(48))
             .expect("slices");
         assert_eq!(spliced.events.len(), sliced.events.len());
-        assert!(spliced.events.iter().zip(&sliced.events).all(|(a, b)| a.fit
-            && !b.fit
-            && (a.start, a.len, a.region) == (b.start, b.len, b.region)));
+        assert!(
+            spliced
+                .events
+                .iter()
+                .zip(&sliced.events)
+                .all(|(a, b)| a.fit == a.len
+                    && b.fit == 0
+                    && (a.start, a.len, a.region) == (b.start, b.len, b.region))
+        );
+        // A part fitted then plied keeps its rate: each copy starts it again.
+        let plied = Pattern::Ply(2).apply(&chopped).expect("plies");
+        assert!(plied.events.iter().all(|e| e.fit == 3 && e.len < 3));
     }
 
     /// #718: speed multiplies each note's speed, so `mul(speed(-1))`, its
@@ -2261,7 +2282,7 @@ mod tests {
             cents: 0,
             pan: 0,
             region: crate::notes::Region::WHOLE,
-            fit: false,
+            fit: 0,
             play: crate::notes::Play::SAME,
         }
     }

@@ -1999,7 +1999,7 @@ impl Engine {
     /// length in output frames at the tempo now, which a fitted part fills
     /// and over which its speed sweeps, its speeds and its coarseness.
     fn playback(&self, ev: &Event) -> Playback {
-        if ev.region == Region::WHOLE && !ev.fit && ev.play == Play::SAME {
+        if ev.region == Region::WHOLE && ev.fit == 0 && ev.play == Play::SAME {
             return Playback::WHOLE;
         }
         let (lo, hi) = ev.region.bounds();
@@ -2008,7 +2008,7 @@ impl Engine {
         Playback {
             lo,
             hi,
-            fit: if ev.fit { frames } else { 0.0 },
+            fit: (f64::from(ev.fit) * self.free_tick_len()) as f32,
             speed,
             end_speed: speed + f32::from(ev.play.accel) / 100.0,
             frames,

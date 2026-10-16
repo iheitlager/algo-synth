@@ -347,9 +347,11 @@ pub struct Event {
     pub pan: i8,
     /// The part of its sample a sampler plays (#716): `.chop` and `.slice`.
     pub region: Region,
-    /// Its part of the sample plays over its length, at any tempo, as
-    /// Strudel's `fit` (#717): `.fit()` and `.splice`.
-    pub fit: bool,
+    /// The ticks its part of the sample plays over, at any tempo, 0 at its
+    /// own speed, as Strudel's `fit` (#717): set by `.fit()` and `.splice`
+    /// to the note's length then, cut with the part by `chop` and `slice`,
+    /// kept by `ply`, so a plied part stutters at the rate it was fitted to.
+    pub fit: u32,
     /// How a sampler plays it: speed, a sweep and a coarser rate (#718).
     pub play: Play,
 }
@@ -692,7 +694,7 @@ impl Cursor<'_> {
             cents: 0,
             pan: 0,
             region: Region::WHOLE,
-            fit: false,
+            fit: 0,
             play: Play::SAME,
         })
     }
@@ -1810,7 +1812,7 @@ impl Compiler<'_> {
             cents: 0,
             pan: 0,
             region: Region::WHOLE,
-            fit: false,
+            fit: 0,
             play: Play::SAME,
         });
     }
@@ -1841,7 +1843,7 @@ pub(crate) fn sort_key(
     i16,
     i8,
     // How a sampler plays it, together: a tuple is ordered up to 12.
-    (Region, bool, Play),
+    (Region, u32, Play),
 ) {
     (
         e.start,
@@ -1990,7 +1992,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     cents: 0,
                     pan: 0,
                     region: Region::WHOLE,
-                    fit: false,
+                    fit: 0,
                     play: Play::SAME,
                 });
             }
@@ -2036,7 +2038,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     cents: 0,
                     pan: 0,
                     region: Region::WHOLE,
-                    fit: false,
+                    fit: 0,
                     play: Play::SAME,
                 });
             }
@@ -2246,7 +2248,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     cents: 0,
                     pan: 0,
                     region: Region::WHOLE,
-                    fit: false,
+                    fit: 0,
                     play: Play::SAME,
                 });
             }
@@ -2271,7 +2273,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         cents: 0,
                         pan: 0,
                         region: Region::WHOLE,
-                        fit: false,
+                        fit: 0,
                         play: Play::SAME,
                     });
                 }
