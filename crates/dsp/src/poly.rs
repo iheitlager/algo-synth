@@ -18,6 +18,7 @@
 
 use crate::chip::nes_voice::NesVoice;
 use crate::chip::sid_voice::SidVoice;
+use crate::chip::vl_voice::VlVoice;
 use crate::drums::{ACCENT_VELOCITY, Pad, PadVoice};
 use crate::engine::{BLOCK, SYNTHS};
 use crate::fm::FmVoice;
@@ -66,6 +67,8 @@ pub enum PolyVoice {
     Sid(SidVoice),
     /// A NES 2A03 (#112).
     Nes(NesVoice),
+    /// A Casio VL-1 (#723).
+    Vl(VlVoice),
 }
 
 impl PolyVoice {
@@ -84,6 +87,7 @@ impl PolyVoice {
             Engine::Graph => PolyVoice::Graph(GraphVoice::new(seed)),
             Engine::Sid => PolyVoice::Sid(SidVoice::new()),
             Engine::Nes => PolyVoice::Nes(NesVoice::new()),
+            Engine::Vl => PolyVoice::Vl(VlVoice::new()),
         }
     }
 
@@ -100,6 +104,7 @@ impl PolyVoice {
                 | (PolyVoice::Graph(_), Engine::Graph)
                 | (PolyVoice::Sid(_), Engine::Sid)
                 | (PolyVoice::Nes(_), Engine::Nes)
+                | (PolyVoice::Vl(_), Engine::Vl)
         )
     }
 
@@ -115,6 +120,7 @@ impl PolyVoice {
             PolyVoice::Graph(v) => v.active(),
             PolyVoice::Sid(v) => v.active(),
             PolyVoice::Nes(v) => v.active(),
+            PolyVoice::Vl(v) => v.active(),
         }
     }
 
@@ -132,6 +138,7 @@ impl PolyVoice {
             PolyVoice::Graph(v) => v.gated(),
             PolyVoice::Sid(v) => v.gated(),
             PolyVoice::Nes(v) => v.gated(),
+            PolyVoice::Vl(v) => v.gated(),
         }
     }
 
@@ -147,6 +154,7 @@ impl PolyVoice {
             PolyVoice::Graph(v) => v.release_all(),
             PolyVoice::Sid(v) => v.release_all(),
             PolyVoice::Nes(v) => v.release_all(),
+            PolyVoice::Vl(v) => v.release_all(),
         }
     }
 
@@ -166,6 +174,7 @@ impl PolyVoice {
             PolyVoice::Graph(v) => v.press(note, velocity, &p.graph, p.sample_rate(), slot),
             PolyVoice::Sid(v) => v.press(note, velocity),
             PolyVoice::Nes(v) => v.press(note, velocity),
+            PolyVoice::Vl(v) => v.press(note, velocity),
         }
     }
 
@@ -180,6 +189,7 @@ impl PolyVoice {
             PolyVoice::Graph(v) => v.release_all(),
             PolyVoice::Sid(v) => v.release_all(),
             PolyVoice::Nes(v) => v.release_all(),
+            PolyVoice::Vl(v) => v.release_all(),
         }
     }
 
@@ -214,6 +224,10 @@ impl PolyVoice {
                 v.cutoff_trim = cutoff;
             }
             PolyVoice::Nes(v) => {
+                v.trim = trim;
+                v.cutoff_trim = cutoff;
+            }
+            PolyVoice::Vl(v) => {
                 v.trim = trim;
                 v.cutoff_trim = cutoff;
             }
@@ -471,7 +485,8 @@ impl Pool {
             | PolyVoice::Pad(_)
             | PolyVoice::Graph(_)
             | PolyVoice::Sid(_)
-            | PolyVoice::Nes(_) => None,
+            | PolyVoice::Nes(_)
+            | PolyVoice::Vl(_) => None,
         }
     }
 
@@ -1065,6 +1080,7 @@ impl Pool {
                 }
                 PolyVoice::Sid(v) => v.render(&ctx, into),
                 PolyVoice::Nes(v) => v.render(&ctx, tools.samples, into),
+                PolyVoice::Vl(v) => v.render(&ctx, into),
             }
             if spread && let (Some(x), Some(r)) = (self.scratch.get(..len), right.as_deref_mut()) {
                 let (gl, gr) = s.gains.unwrap_or(MIDDLE);
@@ -1325,7 +1341,8 @@ mod tests {
                 | PolyVoice::Pad(_)
                 | PolyVoice::Graph(_)
                 | PolyVoice::Sid(_)
-                | PolyVoice::Nes(_) => 0.0,
+                | PolyVoice::Nes(_)
+                | PolyVoice::Vl(_) => 0.0,
             })
             .collect();
         assert_eq!(pitch_mods.len(), 2);
@@ -1355,6 +1372,7 @@ mod tests {
                 PolyVoice::Graph(g) => g.trim,
                 PolyVoice::Sid(s) => s.trim,
                 PolyVoice::Nes(n) => n.trim,
+                PolyVoice::Vl(v) => v.trim,
             })
             .collect()
     }

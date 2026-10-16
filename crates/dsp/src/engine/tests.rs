@@ -6702,6 +6702,8 @@ fn chips_play_notes_back_to_back() {
         Preset::SidLead,
         Preset::NesLead,
         Preset::NesBass,
+        Preset::VlPiano,
+        Preset::VlFlute,
     ] {
         let mut e = Engine::new(48_000.0);
         e.preset(0, preset);
@@ -6720,6 +6722,89 @@ fn chips_play_notes_back_to_back() {
             assert!(rms(&x) > 0.005, "{preset:?} note {n}: {}", rms(&x));
         }
     }
+}
+
+/// The fundamental of `x` at 48 kHz, 120 to 1200 Hz: the shortest lag whose
+/// autocorrelation is near the best, so a strong octave above does not pass
+/// for the pitch, nor a period twice as long.
+fn period_hz(x: &[f32]) -> f32 {
+    let corr = |lag: usize| -> f32 { x.iter().zip(&x[lag..]).map(|(a, b)| a * b).sum() };
+    let lags = 40..400;
+    let best = lags.clone().map(corr).fold(f32::MIN, f32::max);
+    let lag = lags.clone().find(|&l| {
+        let c = corr(l);
+        c > 0.9 * best && c >= corr(l - 1) && c >= corr(l + 1)
+    });
+    lag.map_or(0.0, |l| 48_000.0 / l as f32)
+}
+
+/// The VL-1 (#723) plays the note's pitch on each of its ten waveforms,
+/// finite and bounded, and its octave switch moves it an octave.
+#[test]
+fn the_vl1_plays_in_tune() {
+    let hold = [(Param::VlSustain, 9.0), (Param::VlSustainTime, 9.0)];
+    for wave in 0..10 {
+        let mut settings = hold.to_vec();
+        settings.push((Param::VlWave, wave as f32));
+        let x = nes_note(Preset::VlPiano, &settings, 57, 48_000 / BLOCK + 1);
+        let second = &x[x.len() - 48_000..];
+        let hz = period_hz(&second[..4_800]);
+        assert!((hz - 220.0).abs() <= 2.0, "wave {wave}: {hz}");
+        assert!(second.iter().all(|v| v.is_finite() && v.abs() < 1.0));
+    }
+    let mut up = hold.to_vec();
+    up.push((Param::VlOctave, 1.0));
+    let x = nes_note(Preset::VlPiano, &up, 57, 48_000 / BLOCK + 1);
+    let hz = period_hz(&x[x.len() - 4_800..]);
+    assert!((hz - 440.0).abs() <= 4.0, "{hz}");
+}
+
+/// The Piano decays away while the key is held; the Flute holds until let
+/// go, then its release ends it.
+#[test]
+fn a_vl1_note_ends() {
+    let x = nes_note(Preset::VlPiano, &[], 69, 3 * 48_000 / BLOCK);
+    assert!(rms(&x[..4_800]) > 0.02, "{}", rms(&x[..4_800]));
+    assert!(rms(&x[x.len() - 4_800..]) < 1e-3);
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, Preset::VlFlute);
+    e.note_on(0, 69, 1.0);
+    run(&mut e, 20);
+    let held = run(&mut e, 200);
+    assert!(held > 0.02, "{held}");
+    e.note_off(0, 69);
+    run(&mut e, 48_000 / BLOCK);
+    let tail = run(&mut e, 10);
+    assert!(tail < 1e-3, "{tail}");
+}
+
+/// With `VlKit` the VL-1 plays a drum track's lanes: Po a low blip of
+/// 30 ms, Pi a higher one of 20 ms, Sha a noise of 160 ms.
+#[test]
+fn the_vl1_kit_plays_from_lanes() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = FOUR.replace("track kit drums", "track kit drums VlTone VlKit");
+    assert_eq!(load_text(&mut e, &text), Ok(()));
+    e.song_play();
+    e.song_play();
+    let heard = run(&mut e, 48_000 * 3 / 4 / BLOCK);
+    assert!(heard > 0.05, "Po at 0.5 s: {heard}");
+    let hit = |note: u8| nes_note(Preset::VlKit, &[], note, 300 * 48 / BLOCK);
+    let last = |x: &[f32]| {
+        x.iter()
+            .rposition(|v| v.abs() > 1e-3)
+            .map_or(0.0, |i| i as f32 / 48.0)
+    };
+    let (po, pi, sha) = (hit(36), hit(37), hit(38));
+    for (x, ms) in [(&po, 30.0), (&pi, 20.0), (&sha, 160.0)] {
+        // The fade is under the threshold a little before the end.
+        let end = last(x);
+        assert!(end > 0.85 * ms && end < ms + 5.0, "{end} ms, not {ms}");
+    }
+    let bright = |x: &[f32]| rising(x) as f32 / last(x);
+    assert!(bright(&pi) > 3.0 * bright(&po), "Pi is higher than Po");
+    assert!(bright(&sha) > bright(&pi), "Sha is noise");
 }
 
 /// With `NesKit`, a drum key whose pad holds a sample plays it through the

@@ -1,4 +1,5 @@
-//! Chip instruments (#112, ADR-0034): the SID and the NES's 2A03, each a
+//! Chip instruments (#112, ADR-0034): the SID and the NES's 2A03 (and the
+//! Casio VL-1's tone generator, #723, ADR-0040), each a
 //! model of its own with the parts it is made of in `chip::sid` and
 //! `chip::nes`, shared with the Modular's unit generators so both play the
 //! same chip.
@@ -7,6 +8,7 @@ pub mod nes;
 pub mod nes_voice;
 pub mod sid;
 pub mod sid_voice;
+pub mod vl_voice;
 
 use crate::mono::osc::{Blep, LATENCY};
 

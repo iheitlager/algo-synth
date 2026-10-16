@@ -19,6 +19,7 @@ pub mod voice;
 
 use crate::chip::nes_voice::NesPatch;
 use crate::chip::sid_voice::SidPatch;
+use crate::chip::vl_voice::VlPatch;
 use crate::drums::{PADS, Pad, PadOut, PadParams};
 use crate::fm::patch::FmPatch;
 use crate::padsampler::PadKit;
@@ -84,6 +85,8 @@ pub struct MonoParams {
     pub sid: SidPatch,
     /// The NES's registers and driver settings (#112).
     pub nes: NesPatch,
+    /// The Casio VL-1's code, octave and kit (#723).
+    pub vl: VlPatch,
     /// The drum kit's pads and its accent (`Model::Tr808`).
     pub drums: [PadParams; PADS],
     pub drum_accent: f32,
@@ -247,6 +250,7 @@ impl MonoParams {
             fm: FmPatch::default(),
             sid: SidPatch::default(),
             nes: NesPatch::default(),
+            vl: VlPatch::default(),
             drums: [PadParams::default(); PADS],
             drum_accent: 0.5,
             pad_outs: [PadOut::default(); PADS],
@@ -637,6 +641,20 @@ impl MonoParams {
             | Param::NesKit => {
                 if let Some(i) = param.nes() {
                     self.nes.set(i, v);
+                }
+            }
+            Param::VlWave
+            | Param::VlAttack
+            | Param::VlDecay
+            | Param::VlSustain
+            | Param::VlSustainTime
+            | Param::VlRelease
+            | Param::VlVibrato
+            | Param::VlTremolo
+            | Param::VlOctave
+            | Param::VlKit => {
+                if let Some(i) = param.vl() {
+                    self.vl.set(i, v);
                 }
             }
             Param::Sid1Wave

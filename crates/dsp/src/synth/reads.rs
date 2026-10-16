@@ -29,6 +29,7 @@ enum Family {
     Graph,
     Sid,
     Nes,
+    Vl,
     /// The Mono voice: oscillators, filters, envelopes, patch slots 1 to 8.
     Mono,
 }
@@ -95,6 +96,9 @@ fn family(p: Param) -> Family {
     if p.nes().is_some() {
         return Family::Nes;
     }
+    if p.vl().is_some() {
+        return Family::Vl;
+    }
     let name = param_name(p);
     let rest = |prefix: &str| name.strip_prefix(prefix);
     if rest("Op").is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
@@ -130,7 +134,10 @@ impl Model {
         match family(p) {
             Family::Any => true,
             Family::ModWheel => {
-                mono || matches!(d.engine, Engine::Fm | Engine::Sid | Engine::Graph)
+                mono || matches!(
+                    d.engine,
+                    Engine::Fm | Engine::Sid | Engine::Vl | Engine::Graph
+                )
             }
             Family::Bend => !matches!(d.engine, Engine::Drums(_) | Engine::Pads),
             Family::Fm => d.engine == Engine::Fm,
@@ -142,12 +149,13 @@ impl Model {
             Family::Graph => d.engine == Engine::Graph,
             Family::Sid => d.engine == Engine::Sid,
             Family::Nes => d.engine == Engine::Nes,
+            Family::Vl => d.engine == Engine::Vl,
             Family::Mono => match d.engine {
                 Engine::Mono | Engine::La => true,
                 Engine::Sampler => SAMPLER.contains(&p),
                 Engine::Pads => p == Param::Vco1Level,
                 Engine::Graph => ADSR.contains(&p),
-                Engine::Sid => p == Param::Vibrato,
+                Engine::Sid | Engine::Vl => p == Param::Vibrato,
                 Engine::Fm | Engine::Drums(_) | Engine::Nes => false,
             },
         }
@@ -175,6 +183,9 @@ impl Model {
             (Family::Mono, Engine::Sid) if ADSR.contains(&p) => {
                 "the SID's envelopes are its voices': sid1attack"
             }
+            (Family::Mono, Engine::Vl) if ADSR.contains(&p) => {
+                "the VL-1's envelope is its code's digits: vlattack"
+            }
             (Family::La, _) => "a D-50 parameter: this track's synth is not a D-50",
             (Family::Tables, _) => "a PPG Wave parameter: this track's synth has no wavetables",
             (Family::Matrix, _) => {
@@ -184,6 +195,7 @@ impl Model {
             (Family::Graph, _) => "a Modular knob: this track's synth is not the Modular",
             (Family::Sid, _) => "a SID parameter: this track's synth is not the SID",
             (Family::Nes, _) => "a NES parameter: this track's synth is not the NES",
+            (Family::Vl, _) => "a VL-1 parameter: this track's synth is not the VL-Tone",
             (Family::ModWheel, _) => "this track's synth has no mod wheel",
             (Family::Bend, _) => "this track's synth has no pitch bend",
             (_, Engine::Drums(_)) => "a drum machine reads its pads' parameters: bdtune",
@@ -195,6 +207,7 @@ impl Model {
             (_, Engine::Fm) => "the DX7 does not read this parameter",
             (_, Engine::Sid) => "the SID does not read this parameter",
             (_, Engine::Nes) => "the NES does not read this parameter",
+            (_, Engine::Vl) => "the VL-1 does not read this parameter",
             (_, Engine::Mono | Engine::La) => "this track's synth does not read this parameter",
         }
     }
