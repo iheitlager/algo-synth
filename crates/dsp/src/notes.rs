@@ -346,6 +346,82 @@ pub struct Event {
     /// Where it sounds, −100 (left) to 100 (right), 0 where its strip puts
     /// it: `.jux(m)` (#701).
     pub pan: i8,
+    /// The part of its sample a sampler plays (#716): `.chop` and `.slice`.
+    pub region: Region,
+    /// The ticks its part of the sample plays over, at any tempo, 0 at its
+    /// own speed, as Strudel's `fit` (#717): set by `.fit()` and `.splice`
+    /// to the note's length then, cut with the part by `chop` and `slice`,
+    /// kept by `ply`, so a plied part stutters at the rate it was fitted to.
+    pub fit: u32,
+    /// How a sampler plays it: speed, a sweep and a coarser rate (#718).
+    pub play: Play,
+}
+
+/// How a sampler plays a note (#718): `speed` in hundredths of its rate (100
+/// as is, below 0 backwards), `accel` hundredths added to it by the note's
+/// end, and `coarse` the samples each output value holds (1 none), as
+/// Tidal's `speed`, `accelerate` and `coarse`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Play {
+    pub speed: i16,
+    pub accel: i16,
+    pub coarse: u8,
+}
+
+impl Play {
+    pub const SAME: Play = Play {
+        speed: 100,
+        accel: 0,
+        coarse: 1,
+    };
+    /// The most a speed or a sweep reaches, either way: 32 times.
+    pub const MAX: i16 = 3200;
+}
+
+impl Default for Play {
+    fn default() -> Play {
+        Play::SAME
+    }
+}
+
+/// The part of its sample a hit plays (#716, ADR-0039): from and to as
+/// fractions of the sample in steps of 1/65535, `to` 0 meaning its end, so
+/// the default is the whole sample.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Region {
+    pub from: u16,
+    pub to: u16,
+}
+
+impl Region {
+    pub const WHOLE: Region = Region { from: 0, to: 0 };
+    const ONE: u32 = u16::MAX as u32;
+
+    fn end(self) -> u32 {
+        if self.to == 0 {
+            Self::ONE
+        } else {
+            u32::from(self.to)
+        }
+    }
+
+    /// Part `k` of `n` equal parts of this region.
+    pub fn part(self, k: u32, n: u32) -> Region {
+        let (a, b) = (u64::from(self.from), u64::from(self.end()));
+        let n = u64::from(n.max(1));
+        let at = |i: u64| u16::try_from(a + (b - a) * i.min(n) / n).unwrap_or(u16::MAX);
+        let from = at(u64::from(k));
+        Region {
+            from,
+            to: at(u64::from(k) + 1).max(from.saturating_add(1)),
+        }
+    }
+
+    /// From and to as fractions of the sample, 0 to 1.
+    pub fn bounds(self) -> (f32, f32) {
+        let one = Self::ONE as f32;
+        (f32::from(self.from) / one, self.end() as f32 / one)
+    }
 }
 
 /// Equal as music: which word an event came from is not part of it.
@@ -618,6 +694,9 @@ impl Cursor<'_> {
             nudge: 0,
             cents: 0,
             pan: 0,
+            region: Region::WHOLE,
+            fit: 0,
+            play: Play::SAME,
         })
     }
 
@@ -1547,6 +1626,10 @@ struct Compiler<'a> {
     word: u16,
     /// The first word with a hit between two ticks.
     off: Option<u16>,
+    /// The cycle an alternation takes its turn from: the bar, and inside a
+    /// `*n` repeat `r` of `n`, `turn · n + r`, so `<a b>*2` plays `a b` as
+    /// Strudel's `fast` does (#721).
+    turn: u64,
 }
 
 /// The words of `slots` (notes, chords, names, rests), in the order they print.
@@ -1609,8 +1692,12 @@ impl Compiler<'_> {
             },
         }
         let times = u128::from(s.times);
+        let turn = self.turn;
         for r in 0..times {
             let (start, share) = (at.add(span.scale(r, times)), span.scale(1, times));
+            if times > 1 {
+                self.turn = turn.wrapping_mul(u64::from(s.times)).wrapping_add(r as u64);
+            }
             match s.euclid {
                 None => self.item(&s.item, start, share, bar, s.slide, s.orn),
                 Some(e) => {
@@ -1624,6 +1711,7 @@ impl Compiler<'_> {
                 }
             }
         }
+        self.turn = turn;
         self.when = outer;
     }
 
@@ -1681,7 +1769,8 @@ impl Compiler<'_> {
             }
             Item::Alt(g, hold) => {
                 let n = u32::try_from(g.len()).unwrap_or(1).max(1);
-                let pick = usize::try_from(bar / (*hold).max(1) % n).unwrap_or(0);
+                let pick = usize::try_from(self.turn / u64::from((*hold).max(1)) % u64::from(n))
+                    .unwrap_or(0);
                 if let Some(s) = g.get(pick) {
                     self.slot(s, at, span, bar);
                 }
@@ -1723,6 +1812,9 @@ impl Compiler<'_> {
             nudge: 0,
             cents: 0,
             pan: 0,
+            region: Region::WHOLE,
+            fit: 0,
+            play: Play::SAME,
         });
     }
 }
@@ -1738,9 +1830,34 @@ pub fn resolve(events: &mut [Event], scale: &Scale, root: u8) {
 /// The order events are kept in: a total order, so an unstable sort (which
 /// allocates nothing) gives the same list every time.
 #[allow(clippy::type_complexity)]
-pub(crate) fn sort_key(e: &Event) -> (u32, bool, u8, u32, bool, u8, When, i16, i16, i8) {
+pub(crate) fn sort_key(
+    e: &Event,
+) -> (
+    u32,
+    bool,
+    u8,
+    u32,
+    bool,
+    u8,
+    When,
+    i16,
+    i16,
+    i8,
+    // How a sampler plays it, together: a tuple is ordered up to 12.
+    (Region, u32, Play),
+) {
     (
-        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents, e.pan,
+        e.start,
+        e.degree,
+        e.note,
+        e.len,
+        e.accent,
+        e.vel,
+        e.when,
+        e.nudge,
+        e.cents,
+        e.pan,
+        (e.region, e.fit, e.play),
     )
 }
 
@@ -1875,6 +1992,9 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: Region::WHOLE,
+                    fit: 0,
+                    play: Play::SAME,
                 });
             }
         }
@@ -1918,6 +2038,9 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: Region::WHOLE,
+                    fit: 0,
+                    play: Play::SAME,
                 });
             }
         }
@@ -2010,10 +2133,12 @@ fn mini(slots: &[Slot]) -> Result<(Vec<Event>, u32, Option<u16>), &'static str> 
         leaves,
         word: 0,
         off: None,
+        turn: 0,
     };
     for bar in 0..bars {
         c.rng = Rng::new(mix(bar, 0x5EED));
         c.prev = Prev::Known(false);
+        c.turn = u64::from(bar);
         c.slots(slots, Frac::new(0, 1), Frac::new(1, 1), bar);
     }
     if c.full {
@@ -2123,6 +2248,9 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: Region::WHOLE,
+                    fit: 0,
+                    play: Play::SAME,
                 });
             }
             (events, 1)
@@ -2145,6 +2273,9 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         nudge: 0,
                         cents: 0,
                         pan: 0,
+                        region: Region::WHOLE,
+                        fit: 0,
+                        play: Play::SAME,
                     });
                 }
                 at += len;

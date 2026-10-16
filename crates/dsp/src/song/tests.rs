@@ -1059,7 +1059,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 31), ("sounds", 9)] {
+    for (dir, want) in [("songs", 32), ("sounds", 9)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -3231,6 +3231,12 @@ fn degrees_play_the_clips_scale_from_its_root() {
         Some(&[33, 38, 36, 40, 38, 33, 38, 36, 40, 38][..])
     );
     assert!(n.events.iter().all(|e| !e.degree));
+    // As Strudel writes it, `*8` in the line: the same notes (#721).
+    let star = Song::parse(
+        "track bass synth\nclip arp = bass .scale(a1 minor-pentatonic)\n  \"<0 2 1 3 2>*8\"\n",
+    )
+    .expect("parses");
+    assert_eq!(clip_notes(&star, 0).get(..10), notes.get(..10));
     let printed = s.print();
     assert!(
         printed.contains("clip arp = bass .fast(8) .scale(a1 minor-pentatonic)\n"),

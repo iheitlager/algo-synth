@@ -249,6 +249,9 @@ fn layout(
                     nudge: 0,
                     cents: 0,
                     pan: 0,
+                    region: crate::notes::Region::WHOLE,
+                    fit: 0,
+                    play: crate::notes::Play::SAME,
                     word: 0,
                 })
                 .collect();

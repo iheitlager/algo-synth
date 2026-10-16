@@ -71,6 +71,33 @@ fn an_alternation_over_n_holds_each_option_n_bars() {
     }
 }
 
+/// #721: `<a b>*n` is the alternation sped up, as Strudel's: each repeat
+/// takes the next turn, so `<c4 d4>*2` plays `c4 d4` every bar.
+#[test]
+fn an_alternation_repeated_takes_the_next_turn_each_time() {
+    let n = parse("\"<c4 d4>*2\"", 1).unwrap();
+    let got: Vec<_> = n.events.iter().map(|e| (e.start, e.note)).collect();
+    assert_eq!(got.get(..2), Some(&[(0, 60), (24, 62)][..]));
+    assert!(
+        pitches(&n).chunks(2).all(|bar| bar == [60, 62]),
+        "{:?}",
+        pitches(&n)
+    );
+    // Three options in twos: a b, c a, b c.
+    let three = parse("\"<c4 d4 e4>*2\"", 1).unwrap();
+    assert_eq!(three.bars, 3);
+    assert_eq!(pitches(&three), [60, 62, 64, 60, 62, 64]);
+    // Nested: the inner alternation turns with each repeat of the group.
+    let nested = parse("\"[c4 <d4 e4>]*2\"", 1).unwrap();
+    assert_eq!(pitches(&nested).get(..4), Some(&[60, 62, 60, 64][..]));
+    // A hold counts in turns too: <a b>/2 sped up twice is a for a bar, then b.
+    let held = parse("\"<c4 d4>/2*2\"", 1).unwrap();
+    assert_eq!(pitches(&held).get(..4), Some(&[60, 60, 62, 62][..]));
+    // A euclid or a plain alternation keeps its bar.
+    let euclid = parse("\"<c4 d4>(3,8)\"", 1).unwrap();
+    assert_eq!(pitches(&euclid), [60, 60, 60, 62, 62, 62]);
+}
+
 #[test]
 fn a_chance_is_drawn_from_a_fixed_seed() {
     let a = parse("\"c4? e4? g4? c5?\"", 1).unwrap();
@@ -731,6 +758,9 @@ fn freezing_refuses_what_it_cannot_write() {
         nudge: 0,
         cents: 0,
         pan: 0,
+        region: Region::WHOLE,
+        fit: 0,
+        play: Play::SAME,
     };
     // overlapping notes, a note over the bar line, a chord of two lengths
     assert!(freeze(&[ev(0, 24, 60), ev(12, 12, 62)], 1).is_none());
@@ -760,6 +790,9 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
+                fit: 0,
+                play: Play::SAME,
             },
             Event {
                 start: 0,
@@ -773,6 +806,9 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
+                fit: 0,
+                play: Play::SAME,
             },
             Event {
                 start: 6,
@@ -786,6 +822,9 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
+                fit: 0,
+                play: Play::SAME,
             },
             Event {
                 start: 12,
@@ -799,6 +838,9 @@ fn timed_notes_parse_compile_and_print() {
                 nudge: 0,
                 cents: 0,
                 pan: 0,
+                region: Region::WHOLE,
+                fit: 0,
+                play: Play::SAME,
             },
         ]
     );
@@ -845,6 +887,9 @@ fn ev3(start: u32, len: u32, note: u8) -> Event {
         nudge: 0,
         cents: 0,
         pan: 0,
+        region: Region::WHOLE,
+        fit: 0,
+        play: Play::SAME,
     }
 }
 

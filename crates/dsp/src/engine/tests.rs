@@ -7268,3 +7268,115 @@ fn jux_plays_the_line_left_and_the_copy_right() {
     let (dl, dr) = play("Juno106", "");
     assert!(dl != dr, "the Juno's chorus is on");
 }
+
+/// #716: a clip's `.slice(n, "…")` plays the parts of its pad's sample it
+/// names, through a song: a sample of four tones, `slice(4, "3 0")` plays
+/// the fourth tone, then the first.
+#[test]
+fn a_song_slices_its_pads_sample() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    // Four quarters of 0.25 s: 200, 400, 800 and 1600 Hz.
+    let tone: Vec<f32> = (0..48_000)
+        .map(|i| {
+            let hz = 200.0 * f32::from(1u16 << (i / 12_000));
+            (i as f32 * hz / 48_000.0 * std::f32::consts::TAU).sin() * 0.9
+        })
+        .collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("loads");
+    let text = "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip cut = brk .slice(4, \"3 0\")\n  \"c2\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let synth = e.song_routed(0).expect("routed");
+    e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..96_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    // The pitch over 0.2 s from `at` seconds, by its zero crossings.
+    let hz = |at: f32| {
+        let from = (at * 48_000.0) as usize + 480;
+        let x = left.get(from..from + 9_600).unwrap_or_default();
+        let crossings = x
+            .windows(2)
+            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+            .count();
+        crossings as f32 * 48_000.0 / (2.0 * x.len() as f32)
+    };
+    let (first, second) = (hz(0.0), hz(1.0));
+    assert!((first - 1600.0).abs() < 40.0, "slice 3 first: {first} Hz");
+    assert!((second - 200.0).abs() < 10.0, "then slice 0: {second} Hz");
+    // Each part stops at its end: silence between 0.3 and 0.9 s.
+    let quiet = left
+        .get(14_400..43_200)
+        .unwrap_or_default()
+        .iter()
+        .fold(0.0f32, |m, x| m.max(x.abs()));
+    assert!(quiet < 0.01, "a part stops at its end: {quiet}");
+}
+
+/// #717: `.fit()` plays a note's sample over the note's length at the tempo
+/// it starts at: half a second of 400 Hz fitted to half a bar lasts 1 s at
+/// 120 BPM, an octave down, and 4/3 s after the tempo drops to 90.
+#[test]
+fn a_fitted_sample_fills_its_note_at_any_tempo() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 * 400.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+        .collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    e.sample_buffer(wav.len())
+        .expect("fits")
+        .copy_from_slice(&wav);
+    e.load_sample(0).expect("loads");
+    let text =
+        "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip fill = brk .fit()\n  \"c2 ~\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let synth = e.song_routed(0).expect("routed");
+    e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+    e.set_pad(synth, 0, crate::padsampler::PadField::OneShot, 1.0);
+    e.song_play();
+    let mut left = Vec::new();
+    let play = |e: &mut Engine, frames: usize, out: &mut Vec<f32>| {
+        for _ in 0..frames / BLOCK {
+            e.render(BLOCK);
+            out.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+    };
+    // Bar 1 at 120 BPM (2 s), then the tempo drops for bar 2 (8/3 s).
+    play(&mut e, 96_000, &mut left);
+    e.set_song_tempo(90.0);
+    play(&mut e, 128_000, &mut left);
+    let last_sound = |from: usize, to: usize| {
+        (from..to)
+            .rev()
+            .find(|&i| left.get(i).is_some_and(|x| x.abs() > 1e-3))
+            .unwrap_or(from)
+    };
+    let first = last_sound(0, 90_000);
+    assert!(
+        (first as i64 - 48_000).abs() <= 256,
+        "ends at {first}, 1 s in"
+    );
+    // An octave down: 200 Hz over its middle.
+    let x = left.get(12_000..36_000).unwrap_or_default();
+    let hz = x
+        .windows(2)
+        .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+        .count() as f32
+        * 48_000.0
+        / (2.0 * x.len() as f32);
+    assert!((hz - 200.0).abs() < 4.0, "fitted, it plays at {hz} Hz");
+    // The next note, at 90 BPM, fills its 4/3 s.
+    let second = last_sound(96_000, 220_000) - 96_000;
+    assert!(
+        (second as i64 - 64_000).abs() <= 512,
+        "the refitted note ends at {second}"
+    );
+}

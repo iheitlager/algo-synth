@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 27] = [
+const METHODS: [(&str, &str); 38] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -119,6 +119,17 @@ const METHODS: [(&str, &str); 27] = [
     ("jux", "left as is, right through a method"),
     ("shuffle", "each bar's n parts in a new order"),
     ("scramble", "n parts drawn from the bar's"),
+    ("chop", "each hit's sample in n parts, one by one"),
+    ("slice", "part k of n of the sample, by index"),
+    ("fit", "the sample over the note, at any tempo"),
+    ("splice", "slice, each part fitted to its step"),
+    ("speed", "the sample's speed times x, -1 backwards"),
+    ("accelerate", "a speed added by the note's end"),
+    ("coarse", "each value held n samples, lo-fi"),
+    ("mul", "a speed that multiplies: mul(speed(-1))"),
+    ("stut", "n softer copies, a time apart (Tidal)"),
+    ("echo", "n softer copies, a time apart (Strudel)"),
+    ("spread", "a method a bar, in turn"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -351,7 +362,26 @@ impl List<'_> {
     /// A drum clip made from a clip (#653): the methods of time.
     fn time_methods(&mut self, model: Option<Model>) {
         for (w, d) in METHODS {
-            if !matches!(w, "add" | "sub" | "scale" | "oct" | "chord" | "strum") {
+            // Lanes hold no part of a sample, so no chop or slice (#716).
+            if !matches!(
+                w,
+                "add"
+                    | "sub"
+                    | "scale"
+                    | "oct"
+                    | "chord"
+                    | "strum"
+                    | "chop"
+                    | "slice"
+                    | "fit"
+                    | "splice"
+                    | "speed"
+                    | "accelerate"
+                    | "coarse"
+                    | "mul"
+                    | "stut"
+                    | "echo"
+            ) {
                 self.add(Class::Call, w, || d.to_string());
             }
         }

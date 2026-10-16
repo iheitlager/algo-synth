@@ -21,7 +21,7 @@ use std::cell::Cell;
 use crate::mono::env::{Env, Stage};
 use crate::mono::ladder::{Ladder, MAX_K};
 use crate::mono::voice::{MonoCtx, VoiceSet};
-use crate::sample::{SLOTS, Sample, SampleStore};
+use crate::sample::{Cursor, Playback, SLOTS, Sample, SampleStore};
 
 /// Zones a synth holds.
 pub const ZONES: usize = 64;
@@ -262,6 +262,12 @@ struct Player {
     zone: Zone,
     pos: f64,
     on: bool,
+    /// Playing as a note's `Playback` says (#716–#718), once through,
+    /// without the zone's loop; found at its first step.
+    part: bool,
+    fresh: bool,
+    play: Playback,
+    cur: Cursor,
 }
 
 /// The loop in frames if the zone loops and the points make sense.
@@ -303,9 +309,20 @@ impl Player {
     fn start(zone: Zone) -> Player {
         Player {
             zone,
-            pos: 0.0,
             on: true,
+            ..Player::default()
         }
+    }
+
+    /// Played as `play` says (#716–#718): a part, fitted, at a speed and
+    /// coarser, once through, without the zone's loop.
+    fn playing(mut self, play: &Playback) -> Player {
+        if *play != Playback::WHOLE && play.hi > play.lo {
+            self.part = true;
+            self.fresh = true;
+            self.play = *play;
+        }
+        self
     }
 
     /// The next sample at `inc` frames per output frame; ends the player at
@@ -316,6 +333,18 @@ impl Player {
             return 0.0;
         };
         let len = s.frames();
+        if self.part {
+            if self.fresh {
+                self.cur = Cursor::start(&self.play, len, inc, 0.0);
+                self.fresh = false;
+            }
+            self.cur.follow(inc);
+            if self.cur.done() {
+                self.on = false;
+                return 0.0;
+            }
+            return self.cur.next(|at| read(s, at));
+        }
         if self.pos >= len as f64 {
             self.on = false;
             return 0.0;
@@ -351,6 +380,8 @@ pub struct SamplerVoice {
     retrigger: bool,
     /// A note-off waiting for the next block to start its release zone.
     release: bool,
+    /// How the waiting note-on plays its sample (#716–#718).
+    play: Playback,
     /// Pitch trim in semitones from the pool (unison, analog variance).
     pub trim: f32,
     pub cutoff_trim: f32,
@@ -389,6 +420,14 @@ impl SamplerVoice {
         self.retrigger = true;
         self.release = false;
         self.tail.on = false;
+        self.play = Playback::WHOLE;
+    }
+
+    /// The note just pressed plays its sample as `play` says (#716–#718).
+    pub fn set_play(&mut self, play: &Playback) {
+        if self.retrigger {
+            self.play = *play;
+        }
     }
 
     pub fn release_all(&mut self) {
@@ -409,7 +448,7 @@ impl SamplerVoice {
         if self.retrigger {
             self.main = zones
                 .pick(self.note, self.vel7(), false)
-                .map_or_else(Player::default, Player::start);
+                .map_or_else(Player::default, |z| Player::start(z).playing(&self.play));
             self.tva.gate_on(&adsr);
             self.tvf.gate_on(&p.fadsr);
             self.retrigger = false;

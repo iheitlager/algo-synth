@@ -271,6 +271,127 @@ pub fn parse(bytes: &[u8], target_rate: f32) -> Result<Sample, Error> {
     })
 }
 
+/// How a sampler voice plays its note's sample, set as the note is pressed
+/// (#716, #717, #718): the part from `lo` to `hi` (fractions), the output
+/// frames it fills when fitted (0 when not), the speed it starts on and the
+/// one it ends on after `frames` output frames (below 0 backwards), and the
+/// samples each output value holds (1 none).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Playback {
+    pub lo: f32,
+    pub hi: f32,
+    pub fit: f32,
+    pub speed: f32,
+    pub end_speed: f32,
+    pub frames: f32,
+    pub coarse: u16,
+}
+
+impl Playback {
+    /// The whole sample, as the note's pitch plays it.
+    pub const WHOLE: Playback = Playback {
+        lo: 0.0,
+        hi: 1.0,
+        fit: 0.0,
+        speed: 1.0,
+        end_speed: 1.0,
+        frames: 0.0,
+        coarse: 1,
+    };
+}
+
+impl Default for Playback {
+    fn default() -> Playback {
+        Playback::WHOLE
+    }
+}
+
+/// Where a voice is in a `Playback`: found as it starts, once it knows the
+/// sample's length, then stepped a frame at a time.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Cursor {
+    pub pos: f64,
+    /// The frames it plays between: it ends below `floor` going backwards
+    /// and at `stop` going forwards.
+    floor: f64,
+    stop: f64,
+    /// Frames of sample per output frame at speed 1, its speed now and the
+    /// speed added each frame.
+    base: f64,
+    speed: f64,
+    dspeed: f64,
+    /// A held value and the frames left to hold it (#718).
+    hold: f32,
+    left: u16,
+    coarse: u16,
+    /// Fitted: its rate is its own, not the note's pitch (#717).
+    fitted: bool,
+}
+
+impl Cursor {
+    /// Start `play` on a sample of `len` frames, at `inc` frames per output
+    /// frame when not fitted, a soft hit `late` (0–1) into its part.
+    pub fn start(play: &Playback, len: usize, inc: f64, late: f32) -> Cursor {
+        let len = len as f64;
+        let floor = (f64::from(play.lo) * len).round();
+        let stop = (f64::from(play.hi) * len).round().max(floor);
+        let from = (floor + f64::from(late) * (stop - floor)).round();
+        let base = if play.fit > 0.0 {
+            ((stop - from) / f64::from(play.fit)).max(1.0e-6)
+        } else {
+            inc
+        };
+        let speed = f64::from(play.speed);
+        Cursor {
+            // Backwards it starts on the part's last frame.
+            pos: if speed < 0.0 {
+                (stop - 1.0).max(floor)
+            } else {
+                from
+            },
+            floor,
+            stop,
+            base,
+            speed,
+            dspeed: if play.frames > 0.0 {
+                f64::from(play.end_speed - play.speed) / f64::from(play.frames)
+            } else {
+                0.0
+            },
+            hold: 0.0,
+            left: 0,
+            coarse: play.coarse.max(1),
+            fitted: play.fit > 0.0,
+        }
+    }
+
+    /// The note's rate now, `inc` frames per output frame, which a voice
+    /// whose pitch moves (a bend, a glide) follows unless fitted.
+    pub fn follow(&mut self, inc: f64) {
+        if !self.fitted {
+            self.base = inc;
+        }
+    }
+
+    /// Whether it has run out of its part.
+    pub fn done(&self) -> bool {
+        self.pos >= self.stop || self.pos < self.floor
+    }
+
+    /// The value at the cursor, from `read`, held `coarse` frames at a time;
+    /// then a frame on.
+    pub fn next(&mut self, read: impl Fn(f64) -> f32) -> f32 {
+        if self.left == 0 {
+            self.hold = read(self.pos);
+            self.left = self.coarse;
+        }
+        self.left -= 1;
+        self.pos += self.base * self.speed;
+        self.speed += self.dspeed;
+        self.hold
+    }
+}
+
 /// The slots, and the memory they hold.
 pub struct SampleStore {
     slots: Vec<Option<Sample>>,
@@ -396,6 +517,32 @@ pub(crate) fn test_wav(rate: u32, values: &[f32], smpl: Option<(u32, u32, u32)>)
 
 #[cfg(test)]
 mod tests {
+
+    /// #718: a sweep reaches its end speed by the note's end, having played
+    /// the frames the ramp covers; coarse holds each value n frames.
+    #[test]
+    fn a_cursor_sweeps_its_speed_and_holds_when_coarse() {
+        let play = Playback {
+            speed: 1.0,
+            end_speed: 3.0,
+            frames: 1000.0,
+            ..Playback::WHOLE
+        };
+        let mut c = Cursor::start(&play, 100_000, 1.0, 0.0);
+        for _ in 0..1000 {
+            c.next(|_| 0.0);
+        }
+        assert!((c.speed - 3.0).abs() < 1e-6, "ends on {}", c.speed);
+        assert!((c.pos - 2000.0).abs() < 2.0, "covered {}", c.pos);
+        let coarse = Playback {
+            coarse: 4,
+            ..Playback::WHOLE
+        };
+        let mut c = Cursor::start(&coarse, 100, 1.0, 0.0);
+        let got: Vec<f32> = (0..8).map(|_| c.next(|at| at as f32)).collect();
+        assert_eq!(got, [0.0, 0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 4.0]);
+    }
+
     use super::*;
 
     /// A WAV file around `data`, with optional extra chunks.

@@ -29,7 +29,7 @@
 //! `MAX_BARS` bars; times are on the 48-tick grid, so a squeeze rounds.
 
 use super::generate::{MAX_CHORD, chord_at};
-use super::{CHANCE_BARS, DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, TICKS_PER_BAR, lcm};
+use super::{CHANCE_BARS, DEGREE_ZERO, Event, MAX_BARS, MAX_EVENTS, Play, TICKS_PER_BAR, lcm};
 use crate::algo::{Euclid, Mode, Rng, Scale, mix, pitch_class};
 
 const BAR: u32 = TICKS_PER_BAR;
@@ -107,6 +107,48 @@ pub enum Pattern {
     /// `arp("0 3 <2 0>")`: the line's own chords played by index, as
     /// Strudel's arp (#696): the indexes as written, and as a line of degrees.
     Arp(String, Line),
+    /// `chop(n)`: each note cut into n parts, one after another, each
+    /// playing the next n-th of its sample (#716).
+    Chop(u32),
+    /// `slice(n, "0 2 <1 3>")`: the sample cut into n parts and part k
+    /// played for each index k, on the indexes' rhythm (#716): the count,
+    /// the indexes as written, and as a line of degrees.
+    Slice(u32, String, Line),
+    /// `fit()`: each note's part of its sample plays over the note's length,
+    /// at any tempo, as Strudel's fit (#717).
+    Fit,
+    /// `splice(n, "0 2 <1 3>")`: `slice`, each part fitted to its step
+    /// (#717): the count, the indexes as written, and as a line of degrees.
+    Splice(u32, String, Line),
+    /// `speed(x)`: each note's sampler speed times x, below 0 backwards, in
+    /// hundredths (#718).
+    Speed(i16),
+    /// `accelerate(a)`: a speed added to each note's by its end, in
+    /// hundredths, as Tidal's (#718).
+    Accelerate(i16),
+    /// `coarse(n)`: each output value held for n samples, as Tidal's (#718).
+    Coarse(u8),
+    /// `mul(speed(…))`: Strudel's spelling of a speed that multiplies, as
+    /// `speed` does (#718).
+    Mul(Box<Pattern>),
+    /// `stut(n, gain, time)`, Tidal's, and `echo(n, time, gain)`, Strudel's
+    /// order (#719): n copies of each note `time` of a bar apart, the k-th
+    /// at gain^k of its velocity; the time in ticks and as written.
+    Stut(Stut),
+    /// `spread(m1, m2, …)`, Tidal's `spread ($)`: bar k through method k
+    /// mod n, `None` for `id`, the bar as it is (#719).
+    Spread(Vec<Option<Pattern>>),
+}
+
+/// The copies of `stut` and `echo` (#719).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stut {
+    pub count: u32,
+    pub gain: f32,
+    pub ticks: u32,
+    pub time: String,
+    /// Written as Strudel's `echo(n, time, gain)`.
+    pub echo: bool,
 }
 
 /// A factor of `fast` or `slow`, `num/den` in lowest terms, each 1 to 16
@@ -557,7 +599,7 @@ impl Line {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 27] = [
+    pub const NAMES: [&'static str; 38] = [
         "fast",
         "slow",
         "rev",
@@ -585,6 +627,17 @@ impl Pattern {
         "jux",
         "shuffle",
         "scramble",
+        "chop",
+        "slice",
+        "fit",
+        "splice",
+        "speed",
+        "accelerate",
+        "coarse",
+        "mul",
+        "stut",
+        "echo",
+        "spread",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -603,6 +656,14 @@ impl Pattern {
                 .filter(|n| (1..=MAX_FACTOR).contains(n))
                 .ok_or("this takes a whole number from 1 to 16")
         };
+        // A sample cuts finer than a factor: Strudel's chop(32).
+        let parts = |s: &str| {
+            s.trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|n| (1..=64).contains(n))
+                .ok_or("this takes a whole number of parts from 1 to 64")
+        };
         let one = || match args.as_slice() {
             [a] => Ok(*a),
             _ => Err("this takes one value"),
@@ -612,8 +673,11 @@ impl Pattern {
             _ => Err("this takes no value: ()"),
         };
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
-        if let ("fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble", [a]) =
-            (name, args.as_slice())
+        if let (
+            "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
+            | "speed" | "accelerate" | "coarse",
+            [a],
+        ) = (name, args.as_slice())
         {
             let a = a.trim();
             if let Some(text) = a.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
@@ -645,6 +709,108 @@ impl Pattern {
             "fast" => Ok(Pattern::Fast(Ratio::parse(one()?)?)),
             "slow" => Ok(Pattern::Slow(Ratio::parse(one()?)?)),
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
+            "chop" => Ok(Pattern::Chop(parts(one()?)?)),
+            "fit" => none().map(|()| Pattern::Fit),
+            "stut" | "echo" => {
+                let echo = name == "echo";
+                let [n, a, b] = args.as_slice() else {
+                    return Err(if echo {
+                        crate::usage::ECHO
+                    } else {
+                        crate::usage::STUT
+                    });
+                };
+                let (gain, time) = if echo { (b, a) } else { (a, b) };
+                let count = whole(n)?;
+                let gain = gain
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|g| (0.0..=1.0).contains(g))
+                    .ok_or("a gain is from 0 to 1, each copy that much of the one before")?;
+                Ok(Pattern::Stut(Stut {
+                    count,
+                    gain,
+                    ticks: ticks(time)?,
+                    time: time.trim().to_string(),
+                    echo,
+                }))
+            }
+            "spread" => {
+                if args.len() < 2 || args.len() > 8 {
+                    return Err(crate::usage::SPREAD);
+                }
+                args.iter()
+                    .map(|a| match a.trim() {
+                        "id" => Ok(None),
+                        m => nested(m, srcs).map(Some),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Pattern::Spread)
+            }
+            "speed" | "accelerate" => {
+                let x = one()?
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|x| x.is_finite() && x.abs() <= 32.0)
+                    .map(|x| (x * 100.0).round() as i16)
+                    .ok_or("this takes a speed from -32 to 32, 1 as is, -1 backwards")?;
+                Ok(if name == "speed" {
+                    Pattern::Speed(x)
+                } else {
+                    Pattern::Accelerate(x)
+                })
+            }
+            "coarse" => one()?
+                .trim()
+                .parse::<u8>()
+                .ok()
+                .filter(|n| (1..=64).contains(n))
+                .map(Pattern::Coarse)
+                .ok_or("this takes a whole number from 1 to 64, 1 as is"),
+            "mul" => {
+                let m = nested(one()?, srcs)?;
+                let speed = match &m {
+                    Pattern::Speed(_) => true,
+                    Pattern::PerBar(text, _) => text.starts_with("speed("),
+                    _ => false,
+                };
+                if speed {
+                    Ok(Pattern::Mul(Box::new(m)))
+                } else {
+                    Err("mul takes a speed: mul(speed(-1))")
+                }
+            }
+            "slice" | "splice" => {
+                let bad = if name == "slice" {
+                    crate::usage::SLICE
+                } else {
+                    crate::usage::SPLICE
+                };
+                let [count, arg] = args.as_slice() else {
+                    return Err(bad);
+                };
+                let n = parts(count)?;
+                let arg = arg.trim();
+                if !arg.starts_with('"') {
+                    return Err(bad);
+                }
+                let idx = super::parse(arg, 0).map_err(|e| e.msg)?;
+                if idx.events.is_empty() || idx.events.iter().any(|e| !e.degree) {
+                    return Err(bad);
+                }
+                let text = idx.print();
+                let line = Line {
+                    events: idx.events,
+                    bars: idx.bars,
+                };
+                Ok(if name == "slice" {
+                    Pattern::Slice(n, text, line)
+                } else {
+                    Pattern::Splice(n, text, line)
+                })
+            }
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
             "scramble" => Ok(Pattern::Scramble(whole(one()?)?)),
@@ -891,6 +1057,23 @@ impl Pattern {
             Pattern::StructOf(c) => format!("struct({})", c.name),
             Pattern::Strum(ms) => format!("strum({ms})"),
             Pattern::Arp(text, _) => format!("arp({text})"),
+            Pattern::Chop(n) => format!("chop({n})"),
+            Pattern::Slice(n, text, _) => format!("slice({n}, {text})"),
+            Pattern::Fit => "fit()".to_string(),
+            Pattern::Speed(x) => format!("speed({})", hundredths(*x)),
+            Pattern::Accelerate(x) => format!("accelerate({})", hundredths(*x)),
+            Pattern::Coarse(n) => format!("coarse({n})"),
+            Pattern::Mul(m) => format!("mul({})", bare(m)),
+            Pattern::Stut(s) if s.echo => format!("echo({}, {}, {})", s.count, s.time, s.gain),
+            Pattern::Stut(s) => format!("stut({}, {}, {})", s.count, s.gain, s.time),
+            Pattern::Spread(ms) => {
+                let words: Vec<String> = ms
+                    .iter()
+                    .map(|m| m.as_ref().map_or_else(|| "id".to_string(), bare))
+                    .collect();
+                format!("spread({})", words.join(", "))
+            }
+            Pattern::Splice(n, text, _) => format!("splice({n}, {text})"),
             Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::PerBar(text, _) => text.clone(),
         }
@@ -917,6 +1100,37 @@ impl Pattern {
                 out
             }
             Pattern::Ply(n) => ply(line, *n),
+            Pattern::Chop(n) => chop(line, *n)?,
+            Pattern::Slice(n, _, idx) => slice(line, *n, idx)?,
+            Pattern::Fit => fit(line.clone()),
+            Pattern::Speed(x) => played(line, |p| {
+                p.speed = (i32::from(p.speed) * i32::from(*x) / 100)
+                    .clamp(-i32::from(Play::MAX), i32::from(Play::MAX))
+                    as i16;
+            }),
+            Pattern::Accelerate(x) => played(line, |p| {
+                p.accel = p.accel.saturating_add(*x).clamp(-Play::MAX, Play::MAX);
+            }),
+            Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
+            Pattern::Mul(m) => m.apply(line)?,
+            Pattern::Stut(s) => stut(line, s)?,
+            Pattern::Spread(ms) => {
+                // A part a bar, each through its method; `id` the bar as is.
+                let as_is = Pattern::Fast(Ratio::whole(1));
+                let steps: Vec<Vec<Part>> = ms
+                    .iter()
+                    .map(|m| {
+                        vec![Part {
+                            from: 0,
+                            to: BAR,
+                            method: m.clone().unwrap_or_else(|| as_is.clone()),
+                            at: (0, 0),
+                        }]
+                    })
+                    .collect();
+                by_bar(line, &steps)?
+            }
+            Pattern::Splice(n, _, idx) => fit(slice(line, *n, idx)?),
             Pattern::Iter(n) => iter(line, *n),
             Pattern::Shuffle(n) => reorder(line, *n, true)?,
             Pattern::Scramble(n) => reorder(line, *n, false)?,
@@ -1073,8 +1287,23 @@ impl Pattern {
     pub fn moves_pitch(&self) -> bool {
         match self {
             Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
-            // A drum clip's lanes hold no pan, so jux is for notes too.
-            Pattern::Stack(_) | Pattern::Strum(_) | Pattern::Arp(..) | Pattern::Jux(_) => true,
+            // A lane holds a hit, an accent or a ghost, not gain^k (#719).
+            Pattern::Stut(_) => true,
+            Pattern::Spread(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
+            // A drum clip's lanes hold no pan, so jux is for notes too, nor
+            // the part of a sample a hit plays (#716).
+            Pattern::Stack(_)
+            | Pattern::Strum(_)
+            | Pattern::Arp(..)
+            | Pattern::Jux(_)
+            | Pattern::Chop(_)
+            | Pattern::Slice(..)
+            | Pattern::Fit
+            | Pattern::Splice(..)
+            | Pattern::Speed(_)
+            | Pattern::Accelerate(_)
+            | Pattern::Coarse(_)
+            | Pattern::Mul(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -1244,6 +1473,120 @@ fn ply(line: &Line, n: u32) -> Line {
     Line {
         events,
         bars: line.bars,
+    }
+}
+
+/// Each note in `n` parts across its length, part k playing the k-th n-th
+/// of the note's part of its sample (#716). A part is at least a tick (48
+/// to a bar): a shorter note is cut into as many as it has ticks.
+fn chop(line: &Line, n: u32) -> Result<Line, &'static str> {
+    let parts: u32 = line.events.iter().map(|e| n.min(e.len).max(1)).sum();
+    check(line.bars, parts as usize)?;
+    let mut events = Vec::new();
+    for e in &line.events {
+        let n = n.min(e.len).max(1);
+        for k in 0..n {
+            let start = e.start + div_round(k * e.len, n);
+            events.push(Event {
+                start,
+                len: (e.start + div_round((k + 1) * e.len, n) - start).max(1),
+                region: e.region.part(k, n),
+                fit: fit_part(e.fit, n),
+                ..*e
+            });
+        }
+    }
+    Ok(Line {
+        events,
+        bars: line.bars,
+    })
+}
+
+/// On the rhythm of the indexes `idx`, the notes of `line` sounding at each,
+/// playing part k of `n` of their sample for index k (#716), as the two
+/// round together.
+fn slice(line: &Line, n: u32, idx: &Line) -> Result<Line, &'static str> {
+    let bars = lcm(idx.bars, line.bars);
+    check(
+        bars,
+        idx.events.len() * (bars / idx.bars.max(1)) as usize * line.events.len().max(1),
+    )?;
+    let at = idx.repeat(bars);
+    let total = line.len().max(1);
+    let mut events = Vec::new();
+    for i in &at.events {
+        let k = (i32::from(i.note) - i32::from(DEGREE_ZERO)).rem_euclid(n as i32) as u32;
+        events.extend(
+            line.events
+                .iter()
+                .filter(|e| (i.start % total + total - e.start) % total < e.len)
+                .map(|e| Event {
+                    start: i.start,
+                    len: i.len,
+                    region: e.region.part(k, n),
+                    fit: fit_part(e.fit, n),
+                    ..*e
+                }),
+        );
+    }
+    Ok(Line { events, bars })
+}
+
+/// `count` copies of each note, `ticks` apart round the line, the k-th at
+/// `gain`^k of its velocity (#719).
+fn stut(line: &Line, s: &Stut) -> Result<Line, &'static str> {
+    check(line.bars, line.events.len() * s.count as usize)?;
+    let total = line.len().max(1);
+    let mut events = Vec::new();
+    for e in &line.events {
+        let v = e.velocity();
+        for k in 0..s.count {
+            let vel = (v * s.gain.powi(k as i32) * 127.0).round();
+            if vel < 1.0 {
+                break;
+            }
+            events.push(Event {
+                start: (e.start + k * s.ticks) % total,
+                vel: vel.min(127.0) as u8,
+                ..*e
+            });
+        }
+    }
+    Ok(Line {
+        events,
+        bars: line.bars,
+    })
+}
+
+/// Every note's sampler playing changed by `f` (#718).
+fn played(line: &Line, f: impl Fn(&mut Play)) -> Line {
+    let mut out = line.clone();
+    for e in &mut out.events {
+        f(&mut e.play);
+    }
+    out
+}
+
+/// Hundredths as a number: `100` is `1`, `-50` is `-0.5`.
+fn hundredths(x: i16) -> String {
+    format!("{}", f32::from(x) / 100.0)
+}
+
+/// Every note fitted: its part of the sample plays over its length now
+/// (#717), whatever later methods do to the length.
+fn fit(mut line: Line) -> Line {
+    for e in &mut line.events {
+        e.fit = e.len;
+    }
+    line
+}
+
+/// A fitted length cut as its part is, into n (#717).
+fn fit_part(fit: u32, n: u32) -> u32 {
+    if fit == 0 {
+        0
+    } else {
+        div_round(fit, n).max(1)
     }
 }
 
@@ -1703,6 +2046,251 @@ fn split_args(s: &str) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
+
+    fn one_hit(len: u32) -> Line {
+        Line {
+            events: vec![ev(0, len, 36)],
+            bars: 1,
+        }
+    }
+
+    /// #716: chop cuts each hit into parts across its length, each playing
+    /// the next part of its sample.
+    #[test]
+    fn chop_plays_each_hits_parts_in_turn() {
+        let out = Pattern::parse("chop", "4")
+            .expect("parses")
+            .apply(&one_hit(48))
+            .expect("chops");
+        let got: Vec<_> = out
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, e.region.bounds()))
+            .collect();
+        let quarter = |k: u32| crate::notes::Region::WHOLE.part(k, 4).bounds();
+        assert_eq!(
+            got,
+            [
+                (0, 12, quarter(0)),
+                (12, 12, quarter(1)),
+                (24, 12, quarter(2)),
+                (36, 12, quarter(3))
+            ]
+        );
+        assert_eq!(
+            Pattern::parse("chop", "4").map(|p| p.print()),
+            Ok("chop(4)".to_string())
+        );
+        // Chop inside a slice takes parts of the part.
+        let sliced = Pattern::parse("slice", "2, \"1\"")
+            .expect("parses")
+            .apply(&one_hit(48))
+            .expect("slices");
+        let twice = Pattern::Chop(2).apply(&sliced).expect("chops");
+        let (lo, hi) = twice.events[1].region.bounds();
+        assert!(
+            (lo - 0.75).abs() < 1e-3 && (hi - 1.0).abs() < 1e-3,
+            "{lo} {hi}"
+        );
+        // Parts are whole ticks: three ticks chopped in four is three parts,
+        // which still play the whole of its part.
+        let short = Pattern::Chop(4).apply(&one_hit(3)).expect("chops");
+        assert_eq!(short.events.len(), 3);
+        assert_eq!(short.events[2].region.bounds().1, 1.0);
+        for bad in ["0", "65", "x"] {
+            assert!(Pattern::parse("chop", bad).is_err(), "{bad}");
+        }
+    }
+
+    /// #717: fit marks notes to fill their length; splice is a slice whose
+    /// parts are fitted; a chop after fit keeps each part fitted, so the
+    /// parts play on at one rate, as Strudel's `s("amen/4").fit().chop(16)`.
+    #[test]
+    fn fit_and_splice_fill_their_notes() {
+        let fitted = Pattern::Fit.apply(&one_hit(48)).expect("fits");
+        assert!(fitted.events.iter().all(|e| e.fit == 48));
+        assert_eq!(
+            Pattern::parse("fit", "").map(|p| p.print()),
+            Ok("fit()".to_string())
+        );
+        assert!(Pattern::parse("fit", "2").is_err());
+        let chopped = Pattern::Chop(16).apply(&fitted).expect("chops");
+        assert!(chopped.events.iter().all(|e| e.fit == 3 && e.len == 3));
+        let p = Pattern::parse("splice", "8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\"").expect("parses");
+        assert_eq!(p.print(), "splice(8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\")");
+        let spliced = p.apply(&one_hit(48)).expect("splices");
+        let sliced = Pattern::parse("slice", "8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\"")
+            .expect("parses")
+            .apply(&one_hit(48))
+            .expect("slices");
+        assert_eq!(spliced.events.len(), sliced.events.len());
+        assert!(
+            spliced
+                .events
+                .iter()
+                .zip(&sliced.events)
+                .all(|(a, b)| a.fit == a.len
+                    && b.fit == 0
+                    && (a.start, a.len, a.region) == (b.start, b.len, b.region))
+        );
+        // A part fitted then plied keeps its rate: each copy starts it again.
+        let plied = Pattern::Ply(2).apply(&chopped).expect("plies");
+        assert!(plied.events.iter().all(|e| e.fit == 3 && e.len < 3));
+    }
+
+    /// #718: speed multiplies each note's speed, so `mul(speed(-1))`, its
+    /// Strudel spelling, reverses whatever plays; accelerate adds; coarse
+    /// sets; a quoted value is one a step.
+    #[test]
+    fn speed_accelerate_and_coarse_play_on_the_notes() {
+        let line = Pattern::Speed(200).apply(&one_hit(48)).expect("speeds");
+        let line = Pattern::parse("mul", "speed(-1)")
+            .expect("parses")
+            .apply(&line)
+            .expect("muls");
+        assert_eq!(line.events[0].play.speed, -200);
+        assert_eq!(
+            Pattern::parse("mul", "speed(-1)").map(|p| p.print()),
+            Ok("mul(speed(-1))".to_string())
+        );
+        assert_eq!(
+            Pattern::parse("speed", "0.5").map(|p| p.print()),
+            Ok("speed(0.5)".to_string())
+        );
+        assert!(Pattern::parse("mul", "add(1)").is_err());
+        let swept = Pattern::Accelerate(100).apply(&line).expect("sweeps");
+        assert_eq!(swept.events[0].play.accel, 100);
+        let lofi = Pattern::Coarse(16).apply(&one_hit(48)).expect("coarse");
+        assert_eq!(lofi.events[0].play.coarse, 16);
+        for (name, bad) in [
+            ("speed", "33"),
+            ("coarse", "0"),
+            ("coarse", "65"),
+            ("accelerate", "x"),
+        ] {
+            assert!(Pattern::parse(name, bad).is_err(), "{name}({bad})");
+        }
+        // One a step: "1 2 -1" over three notes of a bar.
+        let three = Line {
+            events: vec![ev(0, 16, 36), ev(16, 16, 36), ev(32, 16, 36)],
+            bars: 1,
+        };
+        let stepped = Pattern::parse("speed", "\"1 2 -1\"")
+            .expect("parses")
+            .apply(&three)
+            .expect("steps");
+        let speeds: Vec<i16> = stepped.events.iter().map(|e| e.play.speed).collect();
+        assert_eq!(speeds, [100, 200, -100]);
+        // Strudel's sometimesBy(.25, mul(speed("-1"))): about a quarter of
+        // 400 hits backwards, the same every time.
+        let many = Line {
+            events: (0..400).map(|k| ev(k * 3, 3, 36)).collect(),
+            bars: 25,
+        };
+        let p = Pattern::parse("sometimesBy", "0.25, mul(speed(-1))").expect("parses");
+        let once = p.apply(&many).expect("draws");
+        let back = once.events.iter().filter(|e| e.play.speed < 0).count();
+        assert!((70..=130).contains(&back), "{back} of 400 backwards");
+        assert_eq!(p.apply(&many), Ok(once));
+    }
+
+    /// #719: stut makes n copies of each note a time apart, each `gain` of
+    /// the one before; echo is the same in Strudel's order.
+    #[test]
+    fn stut_and_echo_copy_each_note_softer() {
+        let p = Pattern::parse("stut", "4, 0.25, 0.05").expect("parses");
+        assert_eq!(p.print(), "stut(4, 0.25, 0.05)");
+        let out = p.apply(&one_hit(48)).expect("copies");
+        let got: Vec<_> = out.events.iter().map(|e| (e.start, e.vel)).collect();
+        // 0.05 of a bar is two ticks of 48; a hit is 0.75 of full velocity.
+        assert_eq!(got, [(0, 95), (2, 24), (4, 6), (6, 1)]);
+        let echo = Pattern::parse("echo", "4, 0.05, 0.25").expect("parses");
+        assert_eq!(echo.print(), "echo(4, 0.05, 0.25)");
+        assert_eq!(echo.apply(&one_hit(48)), Ok(out));
+        for bad in ["4, 2, 0.05", "4, 0.25", "0, 0.25, 0.05", "4, 0.25, 0.001"] {
+            assert!(Pattern::parse("stut", bad).is_err(), "{bad}");
+        }
+    }
+
+    /// #719: spread plays bar k through its k-th method, round and round;
+    /// `id` leaves a bar as it is.
+    #[test]
+    fn spread_takes_a_method_a_bar() {
+        let two = Line {
+            events: vec![ev(0, 24, 36), ev(24, 24, 48)],
+            bars: 1,
+        };
+        let p = Pattern::parse("spread", "rev, fast(2), chop(16)").expect("parses");
+        assert_eq!(p.print(), "spread(rev, fast(2), chop(16))");
+        let out = p.apply(&two).expect("spreads");
+        assert_eq!(out.bars, 3);
+        let in_bar = |b: u32| -> Vec<(u32, u8)> {
+            out.events
+                .iter()
+                .filter(|e| e.start / 48 == b)
+                .map(|e| (e.start % 48, e.note))
+                .collect()
+        };
+        assert_eq!(in_bar(0), [(0, 48), (24, 36)], "bar 1 reversed");
+        assert_eq!(
+            in_bar(1),
+            [(0, 36), (12, 48), (24, 36), (36, 48)],
+            "bar 2 twice as fast"
+        );
+        assert_eq!(in_bar(2).len(), 32, "bar 3 chopped in 16 each");
+        let id = Pattern::parse("spread", "id, rev").expect("parses");
+        assert_eq!(id.print(), "spread(id, rev)");
+        let out = id.apply(&two).expect("spreads");
+        assert_eq!(
+            out.events
+                .iter()
+                .take(2)
+                .map(|e| e.note)
+                .collect::<Vec<_>>(),
+            [36, 48]
+        );
+        for bad in ["rev", "id, nope(1)"] {
+            assert!(Pattern::parse("spread", bad).is_err(), "{bad}");
+        }
+    }
+
+    /// #716: slice plays part k of n for each index, on the indexes' rhythm,
+    /// as Strudel's: `slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")` prints back.
+    #[test]
+    fn slice_plays_the_indexed_parts_on_their_rhythm() {
+        let p = Pattern::parse("slice", "4, \"0 2 ~ 3\"").expect("parses");
+        let out = p.apply(&one_hit(48)).expect("slices");
+        let part = |k: u32| crate::notes::Region::WHOLE.part(k, 4).bounds();
+        let got: Vec<_> = out
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, e.region.bounds()))
+            .collect();
+        assert_eq!(
+            got,
+            [(0, 12, part(0)), (12, 12, part(2)), (36, 12, part(3))]
+        );
+        // An index past n wraps round.
+        let wrap = Pattern::parse("slice", "4, \"5\"")
+            .expect("parses")
+            .apply(&one_hit(48))
+            .expect("slices");
+        assert_eq!(wrap.events[0].region.bounds(), part(1));
+        let recipe = "8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\"";
+        let p = Pattern::parse("slice", recipe).expect("parses");
+        assert_eq!(p.print(), "slice(8, \"<0 1 2 3 4*2 5 6 [6 7]>*2\")");
+        let out = p.apply(&one_hit(48)).expect("slices");
+        // Bar 1 plays slices 0 and 1, bar 2 slices 2 and 3 (#721).
+        let first: Vec<_> = out.events.iter().take(4).map(|e| e.region).collect();
+        let want: Vec<_> = (0..4)
+            .map(|k| crate::notes::Region::WHOLE.part(k, 8))
+            .collect();
+        assert_eq!(first, want);
+        for bad in ["4", "4, 2", "0, \"1\"", "4, \"c4\""] {
+            assert!(Pattern::parse("slice", bad).is_err(), "{bad}");
+        }
+    }
+
     use super::*;
 
     fn ev(start: u32, len: u32, note: u8) -> Event {
@@ -1718,6 +2306,9 @@ mod tests {
             nudge: 0,
             cents: 0,
             pan: 0,
+            region: crate::notes::Region::WHOLE,
+            fit: 0,
+            play: crate::notes::Play::SAME,
         }
     }
 

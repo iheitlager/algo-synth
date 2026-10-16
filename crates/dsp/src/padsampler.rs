@@ -13,7 +13,7 @@
 //! balances rather than pans (ADR-0010). Real-time rules (ADR-0002): a hit
 //! costs one `exp2`, one `exp` and a sine/cosine pair; a sample a few multiplies.
 
-use crate::sample::SampleStore;
+use crate::sample::{Cursor, Playback, SampleStore};
 use crate::sampler::read;
 
 /// Pads in a kit, and the note of the first.
@@ -203,12 +203,15 @@ pub struct PadVoice {
     left: f32,
     right: f32,
     rate: f32,
-    /// Frames of sample per output frame.
+    /// Frames of sample per output frame, from the pad's tune.
     inc: f64,
-    pos: f64,
     /// A hit that has not yet found its start point (it needs the sample's length).
     fresh: bool,
-    start: f32,
+    /// How far into its part a soft hit starts (VelStart), 0–1.
+    late: f32,
+    /// How the note plays its sample (#716–#718), and where it is in it.
+    play: Playback,
+    cur: Cursor,
     on: bool,
     /// The decay envelope and its per-sample factor.
     env: f32,
@@ -254,10 +257,11 @@ impl PadVoice {
             left: angle.cos(),
             right: angle.sin(),
             inc: f64::from((cfg.tune / 12.0).exp2()),
-            pos: 0.0,
             fresh: cfg.sample.is_some(),
             // A soft hit starts up to half way into the sample.
-            start: (1.0 - v) * cfg.vel_start * 0.5,
+            late: (1.0 - v) * cfg.vel_start * 0.5,
+            play: Playback::WHOLE,
+            cur: Cursor::default(),
             on: false,
             env: 1.0,
             env_k: if cfg.decay > 0.0 {
@@ -268,6 +272,15 @@ impl PadVoice {
             fade: 1.0,
             fade_step: 0.0,
         };
+    }
+
+    /// The note just pressed plays its sample as `play` says (#716–#718):
+    /// a part, a soft hit starting as far into it as it would into the
+    /// whole, fitted, at a speed and coarser.
+    pub fn set_play(&mut self, play: &Playback) {
+        if self.fresh && play.hi > play.lo {
+            self.play = *play;
+        }
     }
 
     fn fade_over(&mut self, secs: f32) {
@@ -301,7 +314,7 @@ impl PadVoice {
             return;
         };
         if self.fresh {
-            self.pos = f64::from(self.start) * sample.frames() as f64;
+            self.cur = Cursor::start(&self.play, sample.frames(), self.inc, self.late);
             self.on = true;
             self.fresh = false;
         }
@@ -309,14 +322,13 @@ impl PadVoice {
             if !self.on {
                 return;
             }
-            if self.pos >= sample.frames() as f64 {
+            if self.cur.done() {
                 self.on = false;
                 return;
             }
-            let y = read(sample, self.pos) * self.env * self.fade * self.gain;
+            let y = self.cur.next(|at| read(sample, at)) * self.env * self.fade * self.gain;
             *l += y * self.left;
             *r += y * self.right;
-            self.pos += self.inc;
             self.env *= self.env_k;
             if self.fade_step > 0.0 {
                 self.fade -= self.fade_step;
@@ -380,6 +392,84 @@ mod tests {
         c.set(PadField::Tune, f32::NAN);
         c.set(PadField::Sample, 9999.0);
         assert_eq!((c.pan, c.tune, c.sample), (1.0, 0.0, None));
+    }
+
+    /// #716: a hit given a region plays exactly that part of its sample,
+    /// frame for frame, and stops at its end; a region of `slice(4, "2")`
+    /// is the third quarter.
+    #[test]
+    fn a_region_plays_exactly_its_part_of_the_sample() {
+        let ramp: Vec<f32> = (0..4800).map(|i| i as f32 / 4800.0 - 0.5).collect();
+        let mut store = SampleStore::new();
+        store
+            .load(0, &test_wav(48_000, &ramp, None), SR)
+            .expect("loads");
+        let mut kit = PadKit::default();
+        kit.set(0, PadField::Sample, 0.0);
+        kit.set(0, PadField::VelLevel, 0.0);
+        kit.set(0, PadField::Level, 1.0);
+        let (lo, hi) = crate::notes::Region::WHOLE.part(2, 4).bounds();
+        let mut v = PadVoice::default();
+        v.press(36, 1.0, &kit, 1.0, SR);
+        v.set_play(&Playback {
+            lo,
+            hi,
+            ..Playback::WHOLE
+        });
+        let (mut l, mut r) = (vec![0.0; 2400], vec![0.0; 2400]);
+        v.render(&store, &mut l, &mut r);
+        let sample = store.get(0).expect("loaded");
+        let side = std::f32::consts::FRAC_PI_4.cos();
+        for (k, y) in l.iter().enumerate() {
+            let want = if k < 1200 {
+                sample.frame(2400 + k).0 * side
+            } else {
+                0.0
+            };
+            assert!((y - want).abs() < 1e-6, "frame {k}: {y} for {want}");
+        }
+        assert!(!v.active(), "it stops at the end of its part");
+    }
+
+    /// #718: a speed below 0 plays the part backwards, frame for frame, and
+    /// speed 2 plays it in half the time.
+    #[test]
+    fn speed_reverses_and_doubles_a_hit() {
+        let ramp: Vec<f32> = (0..4800).map(|i| i as f32 / 4800.0 - 0.5).collect();
+        let mut store = SampleStore::new();
+        store
+            .load(0, &test_wav(48_000, &ramp, None), SR)
+            .expect("loads");
+        let mut kit = PadKit::default();
+        kit.set(0, PadField::Sample, 0.0);
+        kit.set(0, PadField::VelLevel, 0.0);
+        kit.set(0, PadField::Level, 1.0);
+        let sample = store.get(0).expect("loaded");
+        let side = std::f32::consts::FRAC_PI_4.cos();
+        let play = |speed: f32| {
+            let mut v = PadVoice::default();
+            v.press(36, 1.0, &kit, 1.0, SR);
+            v.set_play(&Playback {
+                speed,
+                end_speed: speed,
+                ..Playback::WHOLE
+            });
+            let (mut l, mut r) = (vec![0.0; 6000], vec![0.0; 6000]);
+            v.render(&store, &mut l, &mut r);
+            l
+        };
+        let back = play(-1.0);
+        for (k, y) in back.iter().take(4800).enumerate() {
+            let want = sample.frame(4799 - k).0 * side;
+            assert!((y - want).abs() < 1e-6, "frame {k}: {y} for {want}");
+        }
+        assert!(
+            back.get(4800..)
+                .is_some_and(|t| t.iter().all(|y| *y == 0.0))
+        );
+        let fast = play(2.0);
+        let end = fast.iter().rposition(|y| *y != 0.0).unwrap_or(0);
+        assert!((end as i64 - 2400).abs() <= 2, "speed 2 ends at {end}");
     }
 
     // --- through the engine ------------------------------------------------

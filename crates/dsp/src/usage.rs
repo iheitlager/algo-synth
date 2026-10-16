@@ -24,6 +24,11 @@ pub const SOMETIMES_BY: &str =
     "sometimesBy takes a chance from 0 to 1 and a method: sometimesBy(0.3, add(12))";
 pub const ARP_METHOD: &str =
     "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
+pub const SLICE: &str = "slice takes a number of parts from 1 to 64 and indexes in quotes: slice(8, \"0 1 <2 3> [6 7]\")";
+pub const SPLICE: &str = "splice takes a number of parts from 1 to 64 and indexes in quotes: splice(8, \"0 1 <2 3> [6 7]\")";
+pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
+pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
+pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -39,7 +44,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 27] = [
+pub const METHODS: [(&str, &str); 38] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -100,6 +105,29 @@ pub const METHODS: [(&str, &str); 27] = [
         "scramble",
         "scramble takes a whole number from 1 to 16: scramble(4)",
     ),
+    (
+        "chop",
+        "chop takes a number of parts from 1 to 64, or one a bar: chop(16) or chop(\"<8 16>\")",
+    ),
+    ("slice", SLICE),
+    ("fit", "fit takes no value: fit()"),
+    ("splice", SPLICE),
+    (
+        "speed",
+        "speed takes a speed from -32 to 32, -1 backwards, or one a step: speed(2), speed(-1) or speed(\"1 2 -1\")",
+    ),
+    (
+        "accelerate",
+        "accelerate takes a speed from -32 to 32 to add by the note's end, or one a step: accelerate(1) or accelerate(\"1 2\")",
+    ),
+    (
+        "coarse",
+        "coarse takes a whole number from 1 to 64, or one a step: coarse(8) or coarse(\"16 32 24\")",
+    ),
+    ("mul", "mul takes a speed: mul(speed(-1))"),
+    ("stut", STUT),
+    ("echo", ECHO),
+    ("spread", SPREAD),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

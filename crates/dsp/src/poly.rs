@@ -32,6 +32,7 @@ use crate::mono::osc::Blep;
 use crate::mono::voice::{MonoCtx, MonoVoice, SharedMod, Tools, VoiceSet};
 use crate::padsampler::{PadVoice as SampledPad, pad_of};
 use crate::params::Param;
+use crate::sample::Playback;
 use crate::sample::SampleStore;
 use crate::sampler::SamplerVoice;
 use crate::synth::Engine;
@@ -406,6 +407,21 @@ impl Pool {
                 s.fine = cents;
                 s.pan = pan;
                 s.gains = gains;
+            }
+        }
+    }
+
+    /// The note numbered `clock` plays its sample as `play` says (#716–
+    /// #718): on the pad sampler and the sampler, which find their frames as
+    /// they start; other voices play on.
+    pub fn play(&mut self, clock: u64, play: &Playback) {
+        for (s, v) in self.slots.iter().zip(self.voices.iter_mut()) {
+            if s.owner.is_some() && s.age == clock {
+                match v {
+                    PolyVoice::Pad(p) => p.set_play(play),
+                    PolyVoice::Sampler(p) => p.set_play(play),
+                    _ => {}
+                }
             }
         }
     }
