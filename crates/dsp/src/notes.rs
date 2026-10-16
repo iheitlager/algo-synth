@@ -350,6 +350,35 @@ pub struct Event {
     /// Its part of the sample plays over its length, at any tempo, as
     /// Strudel's `fit` (#717): `.fit()` and `.splice`.
     pub fit: bool,
+    /// How a sampler plays it: speed, a sweep and a coarser rate (#718).
+    pub play: Play,
+}
+
+/// How a sampler plays a note (#718): `speed` in hundredths of its rate (100
+/// as is, below 0 backwards), `accel` hundredths added to it by the note's
+/// end, and `coarse` the samples each output value holds (1 none), as
+/// Tidal's `speed`, `accelerate` and `coarse`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Play {
+    pub speed: i16,
+    pub accel: i16,
+    pub coarse: u8,
+}
+
+impl Play {
+    pub const SAME: Play = Play {
+        speed: 100,
+        accel: 0,
+        coarse: 1,
+    };
+    /// The most a speed or a sweep reaches, either way: 32 times.
+    pub const MAX: i16 = 3200;
+}
+
+impl Default for Play {
+    fn default() -> Play {
+        Play::SAME
+    }
 }
 
 /// The part of its sample a hit plays (#716, ADR-0039): from and to as
@@ -664,6 +693,7 @@ impl Cursor<'_> {
             pan: 0,
             region: Region::WHOLE,
             fit: false,
+            play: Play::SAME,
         })
     }
 
@@ -1781,6 +1811,7 @@ impl Compiler<'_> {
             pan: 0,
             region: Region::WHOLE,
             fit: false,
+            play: Play::SAME,
         });
     }
 }
@@ -1809,12 +1840,21 @@ pub(crate) fn sort_key(
     i16,
     i16,
     i8,
-    Region,
-    bool,
+    // How a sampler plays it, together: a tuple is ordered up to 12.
+    (Region, bool, Play),
 ) {
     (
-        e.start, e.degree, e.note, e.len, e.accent, e.vel, e.when, e.nudge, e.cents, e.pan,
-        e.region, e.fit,
+        e.start,
+        e.degree,
+        e.note,
+        e.len,
+        e.accent,
+        e.vel,
+        e.when,
+        e.nudge,
+        e.cents,
+        e.pan,
+        (e.region, e.fit, e.play),
     )
 }
 
@@ -1951,6 +1991,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     pan: 0,
                     region: Region::WHOLE,
                     fit: false,
+                    play: Play::SAME,
                 });
             }
         }
@@ -1996,6 +2037,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     pan: 0,
                     region: Region::WHOLE,
                     fit: false,
+                    play: Play::SAME,
                 });
             }
         }
@@ -2205,6 +2247,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     pan: 0,
                     region: Region::WHOLE,
                     fit: false,
+                    play: Play::SAME,
                 });
             }
             (events, 1)
@@ -2229,6 +2272,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         pan: 0,
                         region: Region::WHOLE,
                         fit: false,
+                        play: Play::SAME,
                     });
                 }
                 at += len;

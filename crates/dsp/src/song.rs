@@ -440,6 +440,7 @@ impl Clip {
                         pan: 0,
                         region: crate::notes::Region::WHOLE,
                         fit: false,
+                        play: crate::notes::Play::SAME,
                     });
                 }
             }

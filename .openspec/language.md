@@ -623,6 +623,10 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.slice(n, "…")` | the sample cut into n (1–64) parts, and part k played for each index k, on the indexes' rhythm, as Strudel's slice (#716): `slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")`; an index past n wraps; a part stops at its end, and a pad's choke group cuts the one before, as Strudel's `.cut(1)`; not on a drum clip |
 | `.fit()` | each note's part of its sample plays over the note's length, at the tempo it starts at, as Strudel's fit (#717): its pitch follows, a pad's tune is ignored; Strudel's `s("amen/4").fit()` is `"c2" .slow(4) .fit()`, and a `.chop` after it keeps the parts at one rate; not on a drum clip |
 | `.splice(n, "…")` | `.slice`, each part fitted to its step, as Strudel's splice (#717): `splice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")`; not on a drum clip |
+| `.speed(x)` | each note's sampler speed times x (−32 to 32), as Tidal's and Strudel's speed (#718): `speed(2)` twice as fast and an octave up, `speed(-1)` backwards from its part's end; it multiplies, so `.sometimesBy(0.25, speed(-1))` reverses a quarter of whatever plays; one a step: `speed("1 2 -1")`; with `.fit()`, the fitted rate times x |
+| `.mul(speed(x))` | Strudel's spelling of `.speed(x)`, which multiplies: `.sometimesBy(.25, mul(speed("-1")))` (#718) |
+| `.accelerate(a)` | the speed added by the note's end, as Tidal's: from its speed to its speed + a (−32 to 32) in a line over the note (#718); added to an earlier one; one a step: `accelerate("1 2")` |
+| `.coarse(n)` | each output value held for n (1–64) samples, as Tidal's coarse: lo-fi (#718); one a step: `coarse("16 32 24")` |
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |

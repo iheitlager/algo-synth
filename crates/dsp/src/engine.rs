@@ -65,8 +65,8 @@ fn cycle_seed(base: u32, cycle: u64) -> u32 {
 use crate::algo::mix;
 use crate::modular::Program;
 use crate::modular::sc::{CodeError, Patch, compile};
-use crate::notes::{Edit, Event, Region, Seq, TICKS_PER_BAR, pattern};
-use crate::sample::{self, Sample, SampleStore};
+use crate::notes::{Edit, Event, Play, Region, Seq, TICKS_PER_BAR, pattern};
+use crate::sample::{self, Playback, Sample, SampleStore};
 use crate::sampler::{ZoneField, ZoneMap};
 use crate::smf;
 use crate::song::spans::{self, SongSpans};
@@ -136,10 +136,8 @@ struct Hit {
     /// Cents off the key (#699), and where it sounds, −1 to 1 (#701).
     cents: f32,
     pan: f32,
-    /// The part of its sample a sampler plays (#716), and the output frames
-    /// it fills when fitted (#717), 0 when not.
-    region: Region,
-    fit: f32,
+    /// How a sampler plays its sample (#716–#718).
+    play: Playback,
     /// A clip's note: its clip and tick, sampled for `.onNote` and the
     /// envelope times when it is pressed (ADR-0038).
     from: Option<(usize, u64)>,
@@ -156,8 +154,7 @@ const NO_HIT: Hit = Hit {
     velocity: 0.0,
     cents: 0.0,
     pan: 0.0,
-    region: Region::WHOLE,
-    fit: 0.0,
+    play: Playback::WHOLE,
     from: None,
 };
 
@@ -1070,9 +1067,8 @@ impl Engine {
         self.start_voice(hit.owner, hit.note, hit.velocity);
         if let Some(pool) = synth.and_then(|s| self.pools.get_mut(s)) {
             pool.place(self.note_count, hit.cents, hit.pan);
-            if hit.region != Region::WHOLE || hit.fit > 0.0 {
-                let (lo, hi) = hit.region.bounds();
-                pool.region(self.note_count, lo, hi, hit.fit);
+            if hit.play != Playback::WHOLE {
+                pool.play(self.note_count, &hit.play);
             }
         }
     }
@@ -1999,13 +1995,24 @@ impl Engine {
     }
 
     /// Samples in one tick at the clock's tempo.
-    /// The output frames a fitted event fills: its length at the tempo now
-    /// (#717); 0 for an event that is not fitted.
-    fn fit_frames(&self, ev: &Event) -> f32 {
-        if ev.fit {
-            (f64::from(ev.len) * self.free_tick_len()) as f32
-        } else {
-            0.0
+    /// How a sampler plays event `ev`'s sample (#716–#718): its part, its
+    /// length in output frames at the tempo now, which a fitted part fills
+    /// and over which its speed sweeps, its speeds and its coarseness.
+    fn playback(&self, ev: &Event) -> Playback {
+        if ev.region == Region::WHOLE && !ev.fit && ev.play == Play::SAME {
+            return Playback::WHOLE;
+        }
+        let (lo, hi) = ev.region.bounds();
+        let frames = (f64::from(ev.len) * self.free_tick_len()) as f32;
+        let speed = f32::from(ev.play.speed) / 100.0;
+        Playback {
+            lo,
+            hi,
+            fit: if ev.fit { frames } else { 0.0 },
+            speed,
+            end_speed: speed + f32::from(ev.play.accel) / 100.0,
+            frames,
+            coarse: u16::from(ev.play.coarse.max(1)),
         }
     }
 
@@ -2146,8 +2153,7 @@ impl Engine {
                         velocity: ev.velocity(),
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
-                        region: ev.region,
-                        fit: self.fit_frames(&ev),
+                        play: self.playback(&ev),
                         from: Some((f, j)),
                     });
                 } else {
@@ -2159,8 +2165,7 @@ impl Engine {
                         velocity: ev.velocity(),
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
-                        region: ev.region,
-                        fit: self.fit_frames(&ev),
+                        play: self.playback(&ev),
                         from: Some((f, j)),
                     });
                 }
@@ -2259,8 +2264,7 @@ impl Engine {
                         velocity: ev.velocity(),
                         cents,
                         pan: f32::from(ev.pan) / 100.0,
-                        region: ev.region,
-                        fit: self.fit_frames(&ev),
+                        play: self.playback(&ev),
                         from: Some((f, j)),
                     });
                 }
@@ -2515,8 +2519,7 @@ impl Engine {
                                 velocity,
                                 cents: 0.0,
                                 pan: 0.0,
-                                region: Region::WHOLE,
-                                fit: 0.0,
+                                play: Playback::WHOLE,
                                 from: None,
                             });
                         }
@@ -2532,8 +2535,7 @@ impl Engine {
                                 velocity,
                                 cents: 0.0,
                                 pan: 0.0,
-                                region: Region::WHOLE,
-                                fit: 0.0,
+                                play: Playback::WHOLE,
                                 from: None,
                             });
                         }
@@ -2567,8 +2569,7 @@ impl Engine {
                                 velocity: GRACE_VELOCITY,
                                 cents: 0.0,
                                 pan: 0.0,
-                                region: Region::WHOLE,
-                                fit: 0.0,
+                                play: Playback::WHOLE,
                                 from: None,
                             });
                         }

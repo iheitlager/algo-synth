@@ -1,6 +1,6 @@
 # 0039: Pitch and pan per note
 
-**Status:** Accepted, amended by #716 (the part of a sample) and #717 (fit) · **Date:** 2026-10-16
+**Status:** Accepted, amended by #716 (the part of a sample), #717 (fit) and #718 (speed) · **Date:** 2026-10-16
 
 ## Context
 
@@ -26,6 +26,8 @@ Strudel's breakbeat recipes chop a break into parts (`.chop(16)`) and play them 
 - **Not on lanes.** A drum clip's lanes hold no part, so `chop` and `slice` are for a clip of notes: `"c2" .chop(16)` on a sampler track plays pad 0's break.
 
 - **Fit (#717).** `Event.fit` marks a note whose part of the sample plays over its length, as Strudel's `fit`. The engine turns the note's length into output frames at the tempo when it is pressed and hands them over with the region; the voice sets its rate once, as it finds its frames, whatever its tune or pitch. A tempo change refits the next note, not one playing. Strudel's `s("amen/4")` is a note four bars long: `.slow(4)`, not a new spelling. A `chop` after `fit` cuts a note's length and its part alike, so the parts keep one rate.
+
+- **Speed, a sweep and coarseness (#718).** `Event.play` holds a speed in hundredths (100 as is, below 0 backwards), a sweep added by the note's end, and the samples each output value holds, as Tidal's `speed`, `accelerate` and `coarse`. `speed` multiplies, so Strudel's `mul(speed(-1))` is the same method spelled its way, and a reverse reverses whatever played. Part, fit, speeds and coarseness travel to the voice as one `Playback`, and a shared `Cursor` plays it: it starts on the part's last frame going backwards, adds the sweep's step to its speed each frame, and holds a value `coarse` frames, so a sweep costs one addition a sample and nothing is computed with powers. The multisampler follows its note's pitch while unfitted, so a bend still bends a reversed part.
 
 Rejected: a part per pad (a `PadField`), which can't give each hit of one pad its own part.
 

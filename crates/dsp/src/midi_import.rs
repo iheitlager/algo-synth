@@ -251,6 +251,7 @@ fn layout(
                     pan: 0,
                     region: crate::notes::Region::WHOLE,
                     fit: false,
+                    play: crate::notes::Play::SAME,
                     word: 0,
                 })
                 .collect();

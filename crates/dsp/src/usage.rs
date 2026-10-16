@@ -41,7 +41,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 31] = [
+pub const METHODS: [(&str, &str); 35] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -109,6 +109,19 @@ pub const METHODS: [(&str, &str); 31] = [
     ("slice", SLICE),
     ("fit", "fit takes no value: fit()"),
     ("splice", SPLICE),
+    (
+        "speed",
+        "speed takes a speed from -32 to 32, -1 backwards, or one a step: speed(2), speed(-1) or speed(\"1 2 -1\")",
+    ),
+    (
+        "accelerate",
+        "accelerate takes a speed from -32 to 32 to add by the note's end, or one a step: accelerate(1) or accelerate(\"1 2\")",
+    ),
+    (
+        "coarse",
+        "coarse takes a whole number from 1 to 64, or one a step: coarse(8) or coarse(\"16 32 24\")",
+    ),
+    ("mul", "mul takes a speed: mul(speed(-1))"),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

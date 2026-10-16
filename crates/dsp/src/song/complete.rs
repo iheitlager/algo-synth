@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 31] = [
+const METHODS: [(&str, &str); 35] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -123,6 +123,10 @@ const METHODS: [(&str, &str); 31] = [
     ("slice", "part k of n of the sample, by index"),
     ("fit", "the sample over the note, at any tempo"),
     ("splice", "slice, each part fitted to its step"),
+    ("speed", "the sample's speed times x, -1 backwards"),
+    ("accelerate", "a speed added by the note's end"),
+    ("coarse", "each value held n samples, lo-fi"),
+    ("mul", "a speed that multiplies: mul(speed(-1))"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -368,6 +372,10 @@ impl List<'_> {
                     | "slice"
                     | "fit"
                     | "splice"
+                    | "speed"
+                    | "accelerate"
+                    | "coarse"
+                    | "mul"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }
