@@ -10,14 +10,6 @@ targets = [
 ]
 
 [advisories]
-# rustls 0.23.46 fixes these four; sluis holds new versions for 3 days, so it
-# is ours from 2026-10-17 09:54 UTC (#565). None reaches us meanwhile.
-ignore = [
-    { id = "RUSTSEC-2026-0346", reason = "no TLS or reqwest value is Debug-formatted; rustls 0.23.46 held by sluis delay until 2026-10-17 (#565)" },
-    { id = "RUSTSEC-2026-0347", reason = "ECH not used; rustls 0.23.46 held by sluis delay until 2026-10-17 (#565)" },
-    { id = "RUSTSEC-2026-0348", reason = "brotli feature off; rustls 0.23.46 held by sluis delay until 2026-10-17 (#565)" },
-    { id = "RUSTSEC-2026-0349", reason = "ring provider, no post-quantum key exchange to downgrade; rustls 0.23.46 held by sluis delay until 2026-10-17 (#565)" },
-]
 
 [licenses]
 # ISC, BSD-3-Clause and CDLA-Permissive-2.0 come with TLS for the assist
