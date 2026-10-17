@@ -104,6 +104,11 @@ pub enum Item {
     Group(Vec<Slot>),
     /// `< ... >`: one option per bar, or per `n` bars for `<…>/n` (#700).
     Alt(Vec<Slot>, u32),
+    /// `{ ... }%n`: the words in turn at n a share, on from where the bar
+    /// before stopped, as Strudel's polymeter (#625); `%n` as written, or
+    /// `None` for as many a share as it has words. Its slot's repeats hold
+    /// the n: it plays as `<…>*n`.
+    Poly(Vec<Slot>, Option<u32>),
     /// `[a | b c]`: one option at random each bar, seeded as `?` is
     /// (#614); an option may be a sequence. Each with its weight, `%n`
     /// on the option, 1 without (#616).
@@ -858,8 +863,8 @@ impl Cursor<'_> {
                 '(' => parens += 1,
                 ')' => parens = parens.saturating_sub(1),
                 _ if parens > 0 => {}
-                '[' | '<' => depth += 1,
-                ']' | '>' => {
+                '[' | '<' | '{' => depth += 1,
+                ']' | '>' | '}' => {
                     depth = depth.saturating_sub(1);
                     if depth == 0 {
                         return false;
@@ -915,7 +920,7 @@ impl Cursor<'_> {
             }
             match (self.peek(), close) {
                 (None, None) => return Ok((out, weight, false)),
-                (None, Some(_)) => return err(self.col(), "a [ or < is not closed"),
+                (None, Some(_)) => return err(self.col(), "a [, < or { is not closed"),
                 (Some('|'), Some(']')) => {
                     if out.is_empty() {
                         return err(self.col(), "an option of a | b is empty");
@@ -1042,10 +1047,28 @@ impl Cursor<'_> {
                 };
                 Item::Alt(opts, hold)
             }
-            Some(']' | '>') => return err(at, "this bracket closes nothing"),
+            Some('{') => {
+                if depth >= MAX_DEPTH {
+                    return err(at, "brackets nest at most 4 deep");
+                }
+                self.i += 1;
+                let words = self.slots(Some('}'), depth + 1)?;
+                let steps = if self.peek() == Some('%') {
+                    let here = self.col();
+                    self.i += 1;
+                    match self.number()? {
+                        n @ 1..=MAX_FACTOR => Some(n),
+                        _ => return err(here, "a { } plays 1 to 16 steps a share: {a b c}%4"),
+                    }
+                } else {
+                    None
+                };
+                Item::Poly(words, steps)
+            }
+            Some(']' | '>' | '}') => return err(at, "this bracket closes nothing"),
             Some(':') => return err(at, "durations go outside the quotes, as c4:4"),
             _ => {
-                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', '|', '%']);
+                let end = self.word_end(&['(', '^', '*', '@', '?', '&', ']', '>', '}', '|', '%']);
                 let word = self.c.get(self.i..end).unwrap_or(&[]);
                 if self.pads.is_some() {
                     Item::Note(self.pitch()?)
@@ -1073,7 +1096,7 @@ impl Cursor<'_> {
                 }
             }
         };
-        if self.pads.is_some() && !matches!(item, Item::Group(_) | Item::Alt(..)) {
+        if self.pads.is_some() && !matches!(item, Item::Group(_) | Item::Alt(..) | Item::Poly(..)) {
             self.cols.push(at);
         }
         let euclid = self.inline_euclid()?;
@@ -1087,6 +1110,9 @@ impl Cursor<'_> {
                 return err(here, "a beat line takes no ?, & or ^: write those as lanes");
             }
             match self.peek() {
+                Some('*') if matches!(item, Item::Poly(..)) => {
+                    return err(here, "a { } takes its steps as %n, not *: {a b c}%4");
+                }
                 Some('*') if !got_times => {
                     self.i += 1;
                     times = self.factor(here, MAX_FACTOR)?;
@@ -1125,11 +1151,15 @@ impl Cursor<'_> {
                 }
                 Some(':') => return err(here, "durations go outside the quotes, as c4:4"),
                 Some('(') => return err(here, "euclid comes right after the word: c2(3,8)*2"),
-                Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>' | '|' | '%') => {
+                Some(c) if !c.is_whitespace() && !matches!(c, ']' | '>' | '}' | '|' | '%') => {
                     return err(here, "a word ends at a space");
                 }
                 _ => break,
             }
+        }
+        // A polymeter plays as `<…>*n`, n its steps (#625).
+        if let Item::Poly(words, steps) = &item {
+            times = steps.unwrap_or_else(|| u32::try_from(words.len()).unwrap_or(1));
         }
         Ok(Slot {
             item,
@@ -1596,6 +1626,8 @@ fn slot_text(s: &Slot) -> String {
         Item::Group(g) => format!("[{}]", slots_text(g)),
         Item::Alt(g, 1) => format!("<{}>", slots_text(g)),
         Item::Alt(g, hold) => format!("<{}>/{hold}", slots_text(g)),
+        Item::Poly(g, None) => format!("{{{}}}", slots_text(g)),
+        Item::Poly(g, Some(n)) => format!("{{{}}}%{n}", slots_text(g)),
         Item::Choice(opts) => format!("[{}]", choice_text(opts)),
         Item::Range(a, b) => format!("{a} .. {b}"),
     };
@@ -1609,7 +1641,7 @@ fn slot_text(s: &Slot) -> String {
     if s.slide {
         out.push('&');
     }
-    if s.times != 1 {
+    if s.times != 1 && !matches!(s.item, Item::Poly(..)) {
         out.push_str(&format!("*{}", s.times));
     }
     if s.weight != 1 {
@@ -1629,7 +1661,7 @@ fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
             at += 1;
         }
         match &s.item {
-            Item::Group(g) | Item::Alt(g, _) => mini_spans(g, at + 1, out),
+            Item::Group(g) | Item::Alt(g, _) | Item::Poly(g, _) => mini_spans(g, at + 1, out),
             Item::Choice(opts) => {
                 let mut o = at + 1;
                 for (g, w) in opts {
@@ -1779,7 +1811,7 @@ struct Compiler<'a> {
 fn leaves_of<'a>(slots: &'a [Slot], out: &mut Vec<&'a Item>) {
     for s in slots {
         match &s.item {
-            Item::Group(g) | Item::Alt(g, _) => leaves_of(g, out),
+            Item::Group(g) | Item::Alt(g, _) | Item::Poly(g, _) => leaves_of(g, out),
             Item::Choice(opts) => opts.iter().for_each(|(g, _)| leaves_of(g, out)),
             leaf => out.push(leaf),
         }
@@ -1910,14 +1942,9 @@ impl Compiler<'_> {
                     self.note(p, at.add(span.scale(k, n)), span.scale(1, n), bar, slide);
                 }
             }
-            Item::Alt(g, hold) => {
-                let n = u32::try_from(g.len()).unwrap_or(1).max(1);
-                let pick = usize::try_from(self.turn / u64::from((*hold).max(1)) % u64::from(n))
-                    .unwrap_or(0);
-                if let Some(s) = g.get(pick) {
-                    self.slot(s, at, span, bar);
-                }
-            }
+            Item::Alt(g, hold) => self.turn_of(g, *hold, at, span, bar),
+            // A polymeter is `<…>*n`: its repeats take the turns (#625).
+            Item::Poly(g, _) => self.turn_of(g, 1, at, span, bar),
             Item::Choice(opts) => {
                 // From the bar's seed, as a `?` draws (#614), by weight (#616).
                 let total: u32 = opts.iter().map(|(_, w)| w).sum();
@@ -1930,6 +1957,15 @@ impl Compiler<'_> {
                     r -= w;
                 }
             }
+        }
+    }
+
+    /// The option of `g` whose turn it is, each held `hold` turns.
+    fn turn_of(&mut self, g: &[Slot], hold: u32, at: Frac, span: Frac, bar: u32) {
+        let n = u32::try_from(g.len()).unwrap_or(1).max(1);
+        let pick = usize::try_from(self.turn / u64::from(hold.max(1)) % u64::from(n)).unwrap_or(0);
+        if let Some(s) = g.get(pick) {
+            self.slot(s, at, span, bar);
         }
     }
 
@@ -2236,6 +2272,15 @@ fn period(slots: &[Slot]) -> u32 {
         let inner = match &s.item {
             Item::Group(g) => period(g),
             Item::Alt(g, hold) => lcm(u32::try_from(g.len()).unwrap_or(1) * hold, period(g)),
+            // Its turns start each bar `steps` on: round in len / gcd bars.
+            Item::Poly(g, steps) => {
+                let len = u32::try_from(g.len()).unwrap_or(1).max(1);
+                let n = steps.unwrap_or(len);
+                let g2 = u32::try_from(gcd(u128::from(len), u128::from(n)))
+                    .unwrap_or(1)
+                    .max(1);
+                lcm(len / g2, period(g))
+            }
             // A choice is a chance, its pattern round in `CHANCE_BARS`.
             Item::Choice(opts) => opts.iter().fold(CHANCE_BARS, |p, (g, _)| lcm(p, period(g))),
             _ => 1,

@@ -64,8 +64,8 @@ tempo 120
 
 (source_file
   (modular (keyword) (name) (punct) (name) (name)
-    (code (call name: (name) (punct)) (other) (name) (punct) (other) (other) (punct) (number) (punct) (other) (punct))
-    (code (other) (punct) (other) (name) (other)))
+    (code (call name: (name) (punct)) (other) (name) (punct) (punct) (other) (punct) (number) (punct) (punct) (punct))
+    (code (punct) (punct) (other) (name) (other)))
   (line (keyword) (number)))
 
 ==================

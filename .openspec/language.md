@@ -386,13 +386,19 @@ range's (`0 .. 3@2`), and the start takes none.
 
 ```text
 "<word>…"
-word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | {<word>…}[%n] | <chord name>, then suffixes
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 weight = %n after an option of [a | b], last (1–16): drawn n times as often as an option without
 ```
 
+`{a b c}%n` steps through its words n (1–16) to its share, on each bar from
+where the bar before stopped, as Strudel's polymeter (#625): `"{a3 c4 e4 g4
+b4}%8"` plays five notes at eight a bar, so the phrase starts a word later
+each bar and comes round in five. Without `%n` it takes as many as it has
+words, a group. It is `<a b c>*n`, so a `*` is an error on it: its steps are
+its `%n`. The line runs until it comes round, within 64 bars and 512 notes.
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
 one option per bar, `<a b>/n` each for n (1–16) bars (#700), `<a b>*n` the turns sped up as Strudel's: each repeat takes the next one, so `<a b>*2` plays `a b` every bar and `<a b c>*2` plays `a b`, `c a`, `b c` (#721), `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a

@@ -406,7 +406,9 @@ fn typed_spans(printed: &str, spans: &[(usize, usize)], typed: &str) -> Vec<(usi
 fn words(s: &str) -> Vec<(usize, usize)> {
     let b = s.as_bytes();
     let at = |i: usize| b.get(i).copied().unwrap_or(b' ');
-    let sep = |c: u8| c.is_ascii_whitespace() || matches!(c, b'"' | b'<' | b'>' | b'[' | b']');
+    let sep = |c: u8| {
+        c.is_ascii_whitespace() || matches!(c, b'"' | b'<' | b'>' | b'[' | b']' | b'{' | b'}')
+    };
     // The end of the word from `i`.
     let word_end = |mut i: usize| {
         while i < b.len() && !sep(at(i)) {

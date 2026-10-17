@@ -18,14 +18,14 @@ syn match songComment /\%(^\|\s\)\@1<=#.*$/ contains=@Spell
 " Tokens, valid on any line. At one position the later match wins, so the
 " general name comes first and what refines it after.
 " A name may follow a number, as the engine reads `7th` (#608).
-syn match songName    /\%(\<\|\d\@1<=\)[A-Za-z_][A-Za-z0-9_#]*/ contained
+syn match songName    /\%(\<\|\d\@1<=\)[A-Za-z_]\%([A-Za-z0-9_#]\|-\d\@=\)*/ contained
 syn match songNumber  /\%([A-Za-z0-9_#]\)\@1<!-\?\.\?\d[0-9.]*/ contained
 syn match songParam   /\<[A-Za-z_]\w*\%(\.[A-Za-z]\w*\)\+/ contained
 " A call's name ends on a word char: in `g.(f, 4)` the `g` is a name.
 syn match songCall    /\<[A-Za-z_]\%([A-Za-z0-9_.]*[A-Za-z0-9_]\)\?\ze(/ contained
 " A keyword after the first, unless it names a track (`drums.Send1`) or a call.
 syn match songWord    /\<\%(live\|bars\|ramp\|drums\|synth\|sampler\|voicing\)\>\%(\.\a\|(\)\@!/ contained
-syn match songPunct   /[=:"\[\]<>(),*@?&!/+|%]/ contained
+syn match songPunct   /[=:"\[\]<>{}(),*@?&!/+|%]/ contained
 syn match songRest    /\~/ contained
 
 syn cluster songTokens contains=songName,songNumber,songParam,songCall,songWord,songPunct,songRest
