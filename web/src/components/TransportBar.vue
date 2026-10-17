@@ -137,9 +137,8 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
         <a :href="CHANGELOG" target="_blank" rel="noopener">Changelog</a>
       </div>
     </details>
-    <button :class="{ on: status.running }" @click="onPower">
-      {{ status.running ? 'Audio on' : 'Power on' }}
-    </button>
+    <!-- Only until audio runs: the browser needs a click to start sound; after it the button would only say so. -->
+    <button v-if="!status.running" @click="onPower">Power on</button>
     <span class="seg" role="group" aria-label="View">
       <button :aria-pressed="view.main === 'synths'" @click="view.main = 'synths'">Synths</button>
       <button :aria-pressed="view.main === 'mixer'" @click="view.main = 'mixer'">Mixer</button>
