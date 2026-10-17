@@ -1100,7 +1100,8 @@ impl Engine {
 
     /// Event `ev` of clip `f` as it is pressed at song tick `j`: the part of
     /// its sample and its pad read from the clip's `.slice(n, <signal>)`
-    /// and `.n(<signal>)` there (#730). Nothing allocates.
+    /// and `.n(<signal>)` there (#730), and its velocity from `.velocity(<signal>)`,
+    /// a grace keeping its own (#621). Nothing allocates.
     fn pick(&self, f: usize, mut ev: Event, j: u64) -> Event {
         let Some(c) = self.song.clips.get(f) else {
             return ev;
@@ -1113,6 +1114,12 @@ impl Engine {
         }
         if let Some(s) = &c.pad_by {
             ev.note = Self::pad_note(s, t).unwrap_or(ev.note);
+        }
+        if let Some(s) = c.vel_by.as_ref().filter(|_| ev.nudge >= 0) {
+            let v = s.sample(t);
+            if v.is_finite() {
+                ev.vel = crate::notes::pattern::vel_of(v);
+            }
         }
         ev
     }

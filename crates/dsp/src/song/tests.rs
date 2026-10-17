@@ -224,6 +224,7 @@ fn random_song(r: &mut Rng) -> Song {
                 bend: None,
                 slice_by: None,
                 pad_by: None,
+                vel_by: None,
             });
             continue;
         }
@@ -255,6 +256,7 @@ fn random_song(r: &mut Rng) -> Song {
             bend: None,
             slice_by: None,
             pad_by: None,
+            vel_by: None,
         });
     }
     song
@@ -3052,6 +3054,57 @@ fn add_takes_a_signal_of_the_songs_time() {
             Song::parse(&format!("track keys synth\nclip a = {bad}\n  \"c4\"\n")).expect_err(bad);
         assert_eq!(err.msg, msg, "{bad}");
     }
+}
+
+/// #621: `.velocity` takes a value a step, or a signal read as each note
+/// is pressed, and prints back as written.
+#[test]
+fn velocity_takes_values_or_a_signal() {
+    let text = "track keys synth\nclip a = keys .velocity(\"1 0.5\")\n  \"c4 e4\"\nclip b = keys .fast(2) .velocity(sine.range(0.4, 1).segment(16))\n  \"c4 e4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let vels: Vec<u8> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .map(|e| e.vel)
+        .collect();
+    assert_eq!(vels, [127, 64]);
+    let sig = s.clips[1].vel_by.as_ref().expect("a signal on velocity");
+    assert_eq!(sig.to_string(), "sine.range(0.4, 1).segment(16)");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = keys .velocity(\"1 0.5\")"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip b = keys .fast(2) .velocity(sine.range(0.4, 1).segment(16))"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        (
+            "keys .velocity(env(perc))",
+            "velocity reads a signal of the bar per note: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "keys .velocity(sine) .velocity(saw)",
+            "a clip takes one velocity of a signal",
+        ),
+        (
+            "keys live .velocity(sine)",
+            "a signal on velocity is for a clip of notes",
+        ),
+        ("keys .velocity(2)", crate::usage::VELOCITY),
+    ] {
+        let err =
+            Song::parse(&format!("track keys synth\nclip a = {bad}\n  \"c4\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+    let err = Song::parse("track kit drums\nclip a = kit .velocity(sine)\n  bd x...\n")
+        .expect_err("drums");
+    assert_eq!(err.msg, "a signal on velocity is for a clip of notes");
 }
 
 /// #696: Strudel's arp, the line's own chords by index.

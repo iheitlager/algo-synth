@@ -7396,6 +7396,40 @@ fn a_slice_by_a_signal_picks_a_part_per_hit() {
     );
 }
 
+/// #621: `.velocity(<signal>)` gives each note the signal's value as it is
+/// pressed: `saw.segment(2)` is 0 on the first half bar and 0.5 on the second.
+#[test]
+fn a_velocity_signal_sets_each_notes_loudness() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 * 440.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+        .collect();
+    load_tone(&mut e, 0, &tone);
+    let text = "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip v = brk .velocity(saw.segment(2))\n  \"c2 c2\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let synth = e.song_routed(0).expect("routed");
+    e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..2 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    let peak = |from: usize| {
+        left.get(from..from + 12_000)
+            .unwrap_or_default()
+            .iter()
+            .fold(0.0f32, |m, x| m.max(x.abs()))
+    };
+    let (soft, loud) = (peak(0), peak(48_000));
+    assert!(loud > 0.05, "the second hit sounds: {loud}");
+    assert!(
+        soft < loud * 0.5,
+        "the first hit, at the softest, is quieter: {soft} vs {loud}"
+    );
+}
+
 /// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the
 /// pad Strudel's `irand(2)` gives at its moment, as Tidal's `n (irand 2)`.
 #[test]

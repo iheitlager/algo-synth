@@ -682,9 +682,11 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.jux(m)` | the line on the left and a copy with method m on the right, on its one track, as Strudel's (#701, ADR-0039): `.jux(rev)`; while a note is panned the synth is stereo, its strip balancing, its chorus kept; a mono synth plays one side at a time; not on a drum clip |
 | `.arp("0 3 <2 0> [1 3]")` | the line's own chords played by index, as Strudel's arp (#696): each index, in mini-notation, the note of the chord sounding where it starts, 0 the lowest, wrapping round the chord with no octave added (`.chord` adds one); methods before it change the chords, after it the notes; the line and the indexes round together; after `.scale` |
 | `.rib(offset, cycles)` `.ribbon(…)` | Strudel's ribbon (#620): bars `offset` (0–99999) to `offset + cycles` (1–64) of the line, round its length, looped; on a signal line, the bars the signal is read from, so `rib(46, 1)` freezes one bar of `irand` |
+| `.velocity(v)` | each note's velocity, 0 (the softest) to 1, as Strudel's (#621): `velocity("1 0.5 0.7 0.5")` one a step, `~` keeping a note's own (its accent or the default); it replaces the `!` accent's loudness, and a 303's accent sweep stays; a grace keeps its softness, and a later `stut` fades from it; not on a drum clip |
+| `.velocity(<signal>)` | each note's velocity read from a signal as it is pressed, at its moment in the song, as `.n` reads one (#621): `velocity(sine.range(0.4, 1).segment(16))`, `perlin.range(0.5, 1)` for a played feel; one a clip, after every method; not `env`, `lfo`, a list, `lag` or `onNote`; not on a `live` or drum clip |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
-`.fast`, `.slow`, `.add`, `.sub`, `.ply` and `.degrade` also take a value a
+`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade` and `.velocity` also take a value a
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,

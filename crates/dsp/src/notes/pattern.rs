@@ -142,6 +142,9 @@ pub enum Pattern {
     /// cycles` of the line, looped (#620); `true` when written `ribbon`.
     /// On a signal line it says where the signal is read.
     Rib(Rib),
+    /// `velocity(x)`: each note's velocity, 0 to 1, as Strudel's (#621);
+    /// `None` for a `~`, which keeps the note's own.
+    Velocity(Option<f32>),
 }
 
 /// The copies of `stut` and `echo` (#719).
@@ -616,7 +619,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 40] = [
+    pub const NAMES: [&'static str; 41] = [
         "fast",
         "slow",
         "rev",
@@ -657,6 +660,7 @@ impl Pattern {
         "spread",
         "rib",
         "ribbon",
+        "velocity",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -694,7 +698,7 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse",
+            | "speed" | "accelerate" | "coarse" | "velocity",
             [a],
         ) = (name, args.as_slice())
         {
@@ -852,6 +856,15 @@ impl Pattern {
                     Pattern::Splice(n, text, line)
                 })
             }
+            "velocity" => match one()?.trim() {
+                "~" => Ok(Pattern::Velocity(None)),
+                v => v
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| (0.0..=1.0).contains(v))
+                    .map(|v| Pattern::Velocity(Some(v)))
+                    .ok_or(crate::usage::VELOCITY),
+            },
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
             "scramble" => Ok(Pattern::Scramble(whole(one()?)?)),
@@ -1120,6 +1133,8 @@ impl Pattern {
                 format!("{name}({}, {})", r.from, r.bars)
             }
             Pattern::Jux(m) => format!("jux({})", bare(m)),
+            Pattern::Velocity(None) => "velocity(~)".to_string(),
+            Pattern::Velocity(Some(v)) => format!("velocity({v})"),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -1157,6 +1172,7 @@ impl Pattern {
                 p.accel = p.accel.saturating_add(*x).clamp(-Play::MAX, Play::MAX);
             }),
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
+            Pattern::Velocity(v) => velocity(line, *v),
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Mul(m) => m.apply(line)?,
             Pattern::Stut(s) => stut(line, s)?,
@@ -1349,7 +1365,9 @@ impl Pattern {
             | Pattern::Speed(_)
             | Pattern::Accelerate(_)
             | Pattern::Coarse(_)
-            | Pattern::Mul(_) => true,
+            | Pattern::Mul(_)
+            // A lane holds a hit, an accent or a ghost, not a velocity (#621).
+            | Pattern::Velocity(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -1632,6 +1650,23 @@ fn played(line: &Line, f: impl Fn(&mut Play)) -> Line {
         f(&mut e.play);
     }
     out
+}
+
+/// Every note at velocity `v` (0 to 1, at least the softest, 1 of 127), a
+/// grace and a `~` (`None`) keeping their own (#621).
+fn velocity(line: &Line, v: Option<f32>) -> Line {
+    let mut out = line.clone();
+    if let Some(v) = v {
+        for e in out.events.iter_mut().filter(|e| e.nudge >= 0) {
+            e.vel = vel_of(f64::from(v));
+        }
+    }
+    out
+}
+
+/// A velocity of 0 to 1 as an event's, 1 to 127.
+pub fn vel_of(v: f64) -> u8 {
+    (v.clamp(0.0, 1.0) * 127.0).round().max(1.0) as u8
 }
 
 /// Hundredths as a number: `100` is `1`, `-50` is `-0.5`.
@@ -3290,6 +3325,70 @@ mod tests {
         assert_eq!(
             Pattern::Ply(2).apply(&many),
             Err("the pattern makes more than 512 notes")
+        );
+    }
+
+    /// #621: Strudel's velocity, a value a step, `~` keeping the note's own.
+    #[test]
+    fn velocity_sets_each_notes_velocity() {
+        let vels = |l: &Line| l.events.iter().map(|e| e.vel).collect::<Vec<_>>();
+        assert_eq!(vels(&run("velocity(0.5)", &four())), [64; 4]);
+        assert_eq!(
+            vels(&run("velocity(\"1 0.25\")", &four())),
+            [127, 127, 32, 32]
+        );
+        let mut accented = four();
+        accented.events[1].accent = true;
+        let kept = run("velocity(\"0 ~ 1 ~\")", &accented);
+        assert_eq!(
+            vels(&kept),
+            [1, 0, 127, 0],
+            "0 is the softest; ~ keeps its own"
+        );
+        assert!(kept.events[1].accent, "an accent stays where ~ keeps it");
+        assert_eq!(
+            vels(&run("velocity(\"<1 0.5>\")", &four())),
+            [127, 127, 127, 127, 64, 64, 64, 64]
+        );
+        // A grace keeps its own softness.
+        let mut graced = four();
+        graced.events[0].nudge = -30;
+        assert_eq!(run("velocity(1)", &graced).events[0].vel, 0);
+        // Echoes fade from the velocity set before them.
+        let echoed = run("stut(2, 0.5, 1/8)", &run("velocity(1)", &four()));
+        assert!(
+            echoed.events.iter().any(|e| e.vel == 64),
+            "{:?}",
+            vels(&echoed)
+        );
+        for bad in ["1.5", "-0.1", "x", ""] {
+            assert_eq!(
+                Pattern::parse("velocity", bad),
+                Err(if bad.is_empty() {
+                    "this takes one value"
+                } else {
+                    crate::usage::VELOCITY
+                }),
+                "{bad}"
+            );
+        }
+        for (args, printed) in [
+            (" 0.5 ", "velocity(0.5)"),
+            ("~", "velocity(~)"),
+            ("\"1 0.5\"", "velocity(\"1 0.5\")"),
+        ] {
+            assert_eq!(
+                Pattern::parse("velocity", args).expect(args).print(),
+                printed
+            );
+        }
+        assert!(
+            Pattern::Velocity(Some(1.0)).moves_pitch(),
+            "not on a drum clip's lanes"
+        );
+        assert!(
+            !Pattern::Velocity(Some(1.0)).pitch_only(),
+            "not on a live clip"
         );
     }
 }
