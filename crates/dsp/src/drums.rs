@@ -238,6 +238,16 @@ pub enum Machine {
 }
 
 impl Machine {
+    /// The machine's output gain (#760): +8.5 dB on the 808, +11.5 dB on the
+    /// 909, so a plain kick peaks near −18 dB, as loud as a sample kit's,
+    /// and the drums stand out against the synths.
+    pub fn makeup(self) -> f32 {
+        match self {
+            Machine::Tr808 => 2.661,
+            Machine::Tr909 => 3.758,
+        }
+    }
+
     /// The voice a machine plays for `pad`: its own, or its nearest when it
     /// has none, so a beat written for one machine plays on the other.
     pub fn voice(self, pad: Pad) -> Pad {
@@ -305,7 +315,7 @@ impl Kit {
     pub fn trigger(&mut self, pad: Pad, velocity: f32, accent: bool) {
         // A pad the machine lacks plays its nearest voice, with that voice's knobs.
         let p = self.params(self.machine.voice(pad));
-        let gain = p.gain(velocity, accent, self.accent);
+        let gain = p.gain(velocity, accent, self.accent) * self.machine.makeup();
         if pad == Pad::Ch {
             if let Some(oh) = self.voices.get_mut(Pad::Oh as usize) {
                 oh.choke();

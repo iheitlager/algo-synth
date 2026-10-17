@@ -83,10 +83,13 @@ fn every_pad_at_every_extreme_is_finite_bounded_without_dc_and_ends() {
                         kit.render(&sine, &blep, &mut tail);
                         assert!(tail.iter().all(|s| *s == 0.0), "{at}: tail");
                         assert!(out.iter().all(|s| s.is_finite()), "{at}: not finite");
-                        assert!(peak(&out) <= 1.0, "{at}: peak {}", peak(&out));
+                        // Within full scale before the machine's makeup (#760); the
+                        // master limiter takes the rest.
+                        let voice = peak(&out) / machine.makeup();
+                        assert!(voice <= 1.0, "{at}: peak {voice}");
                         assert!(peak(&out) > 0.05, "{at}: too quiet");
                         // The mean over 4 s, as the hit and its silence after.
-                        let mean = out.iter().sum::<f32>() / ms(4000.0) as f32;
+                        let mean = out.iter().sum::<f32>() / ms(4000.0) as f32 / machine.makeup();
                         assert!(mean.abs() < 1.0e-3, "{at}: DC {mean}");
                     }
                 }
