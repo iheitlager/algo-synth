@@ -1281,14 +1281,23 @@ impl Pattern {
                     .strip_prefix('"')
                     .and_then(|t| t.strip_suffix('"'))
                     .ok_or(bad)?;
-                let steps = text
-                    .split_whitespace()
-                    .map(|w| match w {
-                        "x" => Ok(true),
-                        "~" => Ok(false),
-                        _ => Err(bad),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                // `x*16`: a word repeated, as Tidal writes a rhythm (#765).
+                let mut steps = Vec::new();
+                for w in text.split_whitespace() {
+                    let (w, n) = match w.split_once('*') {
+                        Some((w, n)) => (w, n.parse::<usize>().map_err(|_| bad)?),
+                        None => (w, 1),
+                    };
+                    let hit = match w {
+                        "x" => true,
+                        "~" => false,
+                        _ => return Err(bad),
+                    };
+                    if n > MAX_STEPS {
+                        return Err("a rhythm has 1 to 48 steps");
+                    }
+                    steps.extend(std::iter::repeat_n(hit, n));
+                }
                 if steps.is_empty() || steps.len() > MAX_STEPS {
                     return Err("a rhythm has 1 to 48 steps");
                 }
@@ -1820,6 +1829,16 @@ impl Pattern {
     pub fn sets_scale(&self) -> Option<Scale> {
         match self {
             Pattern::Scale(keys) => keys.steps.first().map(|s| s.key.scale),
+            _ => None,
+        }
+    }
+
+    /// The hits of a bar this method puts a line on, `struct` or `euclid`:
+    /// a written line takes them exactly (#765).
+    pub fn steps(&self) -> Option<Vec<bool>> {
+        match self {
+            Pattern::Struct(steps) => Some(steps.clone()),
+            Pattern::Euclid(e) => Some(e.pattern()),
             _ => None,
         }
     }

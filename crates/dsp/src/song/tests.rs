@@ -1071,7 +1071,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 36), ("sounds", 9)] {
+    for (dir, want) in [("songs", 37), ("sounds", 9)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -2931,6 +2931,23 @@ fn euclid_on_a_clip_is_its_struct_and_prints_back() {
         "{printed}"
     );
     assert_eq!(Song::parse(&printed), Ok(euclid));
+}
+
+/// #765: `.struct` first takes a written line exactly, Tidal's
+/// `s "x*16" # note "{-12..0}%5"`; `x*16` is sixteen hits.
+#[test]
+fn struct_first_takes_a_dense_line_exactly() {
+    let s = Song::parse(
+        "track lead synth\n\
+         clip t = lead .struct(\"x*16\") .scale(c4 indian)\n  \"{-12..0}%5\"\n\
+         clip w = lead .scale(c4 indian)\n  \"-12 -8 -4 0 -9 -5 -1 -10 -6 -2 -11 -7 -3 -12 -8 -4\"\n\
+         clip p = lead .struct(\"x x x x\")\n  \"c4 d4 e4 f4\"\n",
+    )
+    .expect("parses");
+    assert_eq!(notes_of(&s, "t"), notes_of(&s, "w"));
+    assert_eq!(notes_of(&s, "p"), [(0, 60), (12, 62), (24, 64), (36, 65)]);
+    assert_eq!(Song::parse(&s.print()), Ok(s));
+    assert!(Song::parse("track lead synth\nclip t = lead .struct(\"x*49\")\n  \"c4\"\n").is_err());
 }
 
 /// The notes of the clip named `name`, with their starts.

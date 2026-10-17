@@ -1568,6 +1568,14 @@ impl Song {
                             n = n.ribbed(r.from, r.bars).map_err(|m| err(first.col, m))?;
                         }
                     }
+                    // A written line put on a rhythm first is taken at its hits
+                    // exactly, as Tidal's `#` takes it (#765); the method then
+                    // finds each note on its step and keeps it.
+                    if let (false, Some(steps)) =
+                        (live, clip.pattern.first().and_then(Pattern::steps))
+                    {
+                        n = n.sampled(&steps).map_err(|m| err(first.col, m))?;
+                    }
                     // Degrees (#570): the clip's `.scale` makes them notes after
                     // the methods before it; without one, the song's scale does,
                     // at once, so `add` and voicing see notes.
