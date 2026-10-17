@@ -305,9 +305,9 @@ describe('the song as it is typed (ADR-0027)', () => {
 describe('what the song cannot hold yet (#361)', () => {
   it('names what of a synth is not in the song, from the engine\'s bits', async () => {
     const { mod, send } = await boot()
-    send({ t: 'liveOnly', bits: [0, 1 | 4, 8] })
+    send({ t: 'liveOnly', bits: [0, 1 | 2, 4] })
     expect(mod.notInSong(0)).toEqual([])
-    expect(mod.notInSong(1)).toEqual(['the arpeggiator', 'its sampled pads'])
+    expect(mod.notInSong(1)).toEqual(['its sample zones', 'its sampled pads'])
     expect(mod.notInSong(2)).toEqual(['more changes than a setting holds'])
     expect(mod.notInSong(9)).toEqual([])
   })

@@ -360,7 +360,7 @@ pub extern "C" fn track_remove(s: u32) -> i32 {
 }
 
 /// What of synth `s`'s sound the song cannot hold yet (#361): bits of
-/// `LIVE_ARP` 1, `LIVE_ZONES` 2, `LIVE_PADS` 4, `LIVE_FULL` 8.
+/// `LIVE_ZONES` 1, `LIVE_PADS` 2, `LIVE_FULL` 4.
 #[unsafe(no_mangle)]
 pub extern "C" fn live_only(s: u32) -> u32 {
     query(0, |e| e.live_only(s as usize))

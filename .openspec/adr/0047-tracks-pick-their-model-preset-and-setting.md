@@ -26,7 +26,7 @@ ADR-0015 split a piece into two files: the song (`.song`) says what plays when, 
 - The editor's lexer colours `setting` as a keyword (#212). Spec 002 Req 11 holds the rules; `.openspec/language.md` § track and `.openspec/sound-design.md` § setting document them.
 - Built on since:
   - ADR-0018: a song may name a factory preset or a `setting`, never a library preset (ADR-0014).
-  - ADR-0027: a track's live sound folds into a `setting` named after the track; the fold writes no arp parameters, which stay live-only.
+  - ADR-0027: a track's live sound folds into a `setting` named after the track; the arpeggiator's parameters fold in too (ADR-0048, #228).
   - ADR-0037: a setting's parameter its model never reads is a parse error.
   - #327: a MIDI import sets each part's patch on the synth it routes the part to.
   - Spec 002 Req 11: a picked drum kit plays a free kit already in the rack (an 808, a 909, a pad sampler) and the text names it.

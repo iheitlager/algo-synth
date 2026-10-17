@@ -1045,7 +1045,7 @@ export const codes = reactive({} as Record<number, { text: string; error: { line
 
 /** What of each synth's sound the song can't hold yet (#361), as the engine reports it. */
 export const liveOnly = reactive({ bits: [] as number[] })
-const LIVE_WORDS = ['the arpeggiator', 'its sample zones', 'its sampled pads', 'more changes than a setting holds'] as const
+const LIVE_WORDS = ['its sample zones', 'its sampled pads', 'more changes than a setting holds'] as const
 /** What synth `s` has that isn't in the song, as words; empty when the song holds it all. */
 export const notInSong = (s: number): string[] => LIVE_WORDS.filter((_, i) => ((liveOnly.bits[s] ?? 0) >> i) & 1)
 

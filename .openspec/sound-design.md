@@ -18,7 +18,8 @@ setting <name> = <Model> <Preset>[: <Param> <value>[, <Param> <value>]…]
 
 A synth patch kept in the song: a factory preset and changes to it. A track
 plays it by name. The preset must be the model's; parameters are the synth's
-own (not `Model`, mixer or master ones).
+own (not `Model`, mixer or master ones), its arpeggiator's among them
+(`ArpOn`, `ArpMode`, `ArpRate`, …): a setting without them plays no arp.
 
 Models: `Arp2600 Minimoog ProOne Ms20 Cs15 Sh101 Odyssey Tb303 Prophet5
 Juno106 Jupiter8 Matrix12 PpgWave D50 Dx7 PolyMoog` (synths), `Tr808 Tr909` (drum
