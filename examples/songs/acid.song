@@ -17,11 +17,15 @@ setting acid = Modular ModularBasic
       var cut = (lpf * (2 ** (lpenv * fenv))).min(18000);
       RLPF.ar(Saw.ar(freq), cut, 1 / lpq) * EnvGen.kr(Env.adsr(0.001, 0.05, 0.6, 0.01), gate) * 1
   }).add;
-# Strudel's supersaw: seven saws spread by detune semitones, a 5 s release.
+# Strudel's supersaw: five saws spread evenly over detune semitones in all
+# (detune(1) is ±0.5), each the other side of the last (its spread 0.6), at
+# 1/sqrt(5) of the level; a 5 s release.
 setting supersaw = Modular ModularBasic: Polyphony 2
   SynthDef(\supersaw, { |freq = 65, gate = 1, detune = 1|
-      var saws = Array.fill(7, { |k| Saw.ar(freq * ((k - 3) / 3 * detune).midiratio) });
-      Splay.ar(saws) * 0.3 * EnvGen.kr(Env.adsr(0.001, 0.05, 0.6, 5), gate)
+      var saws = Array.fill(5, { |k| Saw.ar(freq * ((k / 4 - 0.5) * detune).midiratio) });
+      var l = Mix(saws * [0.447, 0.894, 0.447, 0.894, 0.447]);
+      var r = Mix(saws * [0.894, 0.447, 0.894, 0.447, 0.894]);
+      [l, r] * 0.45 * 0.3 * EnvGen.kr(Env.adsr(0.001, 0.05, 0.6, 5), gate)
   }).add;
 track bass synth acid
 track saw synth supersaw
@@ -34,7 +38,7 @@ clip bass = bass .scale(c3 minor) .rib(46, 1)
 # The supersaw plays a copy of the bass's line (a clip made from another,
 # #649) through beat(2,32).slow(2): the note sounding on step 2 of 32, d#3,
 # every two bars. `clip swell = saw bass` alone would double the whole line.
-clip swell = saw bass .beat(2, 32) .slow(2)
+clip swell = saw bass .detune(1) .beat(2, 32) .slow(2)
 
 scene acid 8: bass swell
 arrange acid
