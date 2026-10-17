@@ -709,9 +709,18 @@ def write_manifest() -> None:
     (OUT / "CREDITS.txt").write_text("\n".join(credits))
 
 
-def main() -> None:
-    ledger = json.loads(LEDGER.read_text())
+def main(argv: list[str] = sys.argv[1:]) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    # `--manifest` only indexes what is built, fetching nothing: the manifest is
+    # untracked (#672), so a fresh clone needs one for its committed CC0 packs.
+    if "--manifest" not in argv:
+        build_all()
+    write_manifest()
+    print(f"manifest: {OUT / 'manifest.json'}")
+
+
+def build_all() -> None:
+    ledger = json.loads(LEDGER.read_text())
     for pack in ledger["packs"]:
         kind = pack.get("kind", "instrument")
         if kind not in ("instrument", "drums", "voice", "sf2"):
@@ -730,8 +739,6 @@ def main() -> None:
             build_voice(pack)
         else:
             (build if kind == "instrument" else build_kit)(pack, download(pack))
-    write_manifest()
-    print(f"manifest: {OUT / 'manifest.json'}")
 
 
 if __name__ == "__main__":

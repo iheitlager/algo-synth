@@ -502,7 +502,7 @@ async function sourceBytes(source: string): Promise<ArrayBuffer | string> {
   if (source.startsWith('@')) return (await keptFile(source.slice(1))) ?? 'the file is not kept in this browser'
   if (!packs.loaded) await fetchPacks()
   const file = sourceFile(source, packs.list, packs.kits)
-  if (!file) return `no pack or kit has the sample ${source}`
+  if (!file) return `no pack or kit has the sample ${source}: run make samples`
   const res = await fetch(`${base}samples/${file}`).catch(() => null)
   return res?.ok ? res.arrayBuffer() : `could not fetch ${file}`
 }
@@ -855,7 +855,7 @@ export async function loadSongSamples(wishes: readonly { synth: number; id: stri
     else if (pack) await loadPack(w.synth, pack, true)
     else {
       samplesOn.delete(w.synth)
-      sampleStore.error = `samples: no pack or kit is called ${w.id}`
+      sampleStore.error = `samples: no pack or kit is called ${w.id}: run make samples`
     }
   }
 }
