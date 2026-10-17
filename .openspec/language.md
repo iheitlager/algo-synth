@@ -849,7 +849,16 @@ method that does nothing (#673): `.lfospeed` is the DX7's LFO, and on a
 Minimoog the error says its vibrato is VCO 3, `vco3coarse`. The model is the
 one the track names, or the one picked for its role, which the text then
 names. Every model takes its strip's, the arpeggiator's and the voice pool's
-parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`).
+parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`,
+and #21's `detune` and `humanize`).
+
+**An instrument's own tuning and timing** (#21), as real machines drift
+apart: `Detune` tunes the whole instrument off by −50 to 50 cents, every
+pitched model through its voices' pitch trim, and `Humanize` presses each
+of its clips' notes up to 0 to 30 ms late, by the tick, the track and the
+note, so the same every run and after a seek (lanes and live keys keep the
+tick). Both are 0 by default, and take a number, a lane or a signal:
+`mod pad.detune = 7`, `snapshot loose: bass.Humanize 12`.
 
 On a track that plays a Modular setting, the SynthDef's arguments name its
 knobs (#674): `.vib(4)` for `|vib = 4|`, in place of `.ctl1(4)`. A knob's name

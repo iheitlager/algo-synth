@@ -650,6 +650,8 @@ export const Param = {
   VlTremolo: 643,
   VlOctave: 644,
   VlKit: 645,
+  Detune: 646,
+  Humanize: 647,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 

@@ -1144,6 +1144,20 @@ impl Engine {
         if let Some(s) = &c.pad_by {
             ev.note = Self::pad_note(s, t).unwrap_or(ev.note);
         }
+        // A player's timing (#21): up to the synth's `Humanize` ms late, by
+        // the tick, the track and the note, the same every run.
+        let human = self
+            .song_routed(c.track)
+            .and_then(|s| self.synths.get(s))
+            .map_or(0.0, |p| p.humanize);
+        if human > 0.0 && ev.nudge >= 0 {
+            let r = crate::algo::mix(
+                0x4855_4D41 ^ j as u32,
+                u32::from(ev.note) | (c.track as u32) << 8,
+            );
+            let ms = (f64::from(r) / f64::from(u32::MAX) * f64::from(human)).round();
+            ev.nudge = ev.nudge.saturating_add(ms as i16);
+        }
         if let Some(s) = c.vel_by.as_ref().filter(|_| ev.nudge >= 0) {
             let v = s.sample(t);
             if v.is_finite() {

@@ -75,7 +75,7 @@ fn family(p: Param) -> Family {
     }
     match p {
         Model | Out | Polyphony | Assign | UnisonDetune | Analog | Legato | Priority | Glide
-        | GlideOn | ChorusMode => return Family::Any,
+        | GlideOn | ChorusMode | Detune | Humanize => return Family::Any,
         ModWheel => return Family::ModWheel,
         PitchBend | BendRange => return Family::Bend,
         Algorithm | Feedback | OscSync | LfoSpeed | LfoDelay | LfoPitchDepth | LfoAmpDepth

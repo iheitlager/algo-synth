@@ -1094,7 +1094,8 @@ impl Pool {
                 continue;
             }
             let unison = if poly { s.cents } else { 0.0 };
-            let mut trim = s.fine / 100.0;
+            // Its note's cents (#699) and the instrument's detune (#21).
+            let mut trim = (s.fine + p.detune) / 100.0;
             // xorshift: a step of drift in −1..=1.
             self.rng ^= self.rng << 13;
             self.rng ^= self.rng >> 17;

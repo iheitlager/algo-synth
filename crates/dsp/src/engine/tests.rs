@@ -7652,6 +7652,93 @@ fn a_clips_own_swing_places_its_off_beats() {
     );
 }
 
+/// #21: `Detune` tunes the whole instrument off by its cents.
+#[test]
+fn detune_moves_the_whole_instrument() {
+    let hz = |cents: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let text = "tempo 60\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, { |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.001, 0.1, 1, 0.1), gate) * 0.5\n  }).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead\n  \"a3\"\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        let synth = e.song_routed(0).expect("routed");
+        e.set_param(synth, Param::Detune, cents);
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        hz_at(&left, 0.3)
+    };
+    assert!((hz(0.0) - 220.0).abs() < 2.0, "in tune: {}", hz(0.0));
+    let up = hz(50.0);
+    assert!(
+        (up - 220.0 * 2f32.powf(50.0 / 1200.0)).abs() < 2.0,
+        "a quarter tone up: {up}"
+    );
+}
+
+/// #21: `Humanize` presses each clip note up to its ms late, by the tick and
+/// the note: the same every render, 0 on the tick.
+#[test]
+fn humanize_presses_notes_a_little_late_the_same_every_time() {
+    let onsets = |ms: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let tone: Vec<f32> = (0..600)
+            .map(|i| (i as f32 * 1_000.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        load_tone(&mut e, 0, &tone);
+        let text = "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip a = brk\n  \"c2*8\"\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        let synth = e.song_routed(0).expect("routed");
+        e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+        e.set_param(synth, Param::Humanize, ms);
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..96_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        let mut out = Vec::new();
+        let mut quiet = 1_000;
+        for (i, x) in left.iter().enumerate() {
+            if x.abs() > 0.05 {
+                if quiet >= 1_000 {
+                    out.push(i);
+                }
+                quiet = 0;
+            } else {
+                quiet += 1;
+            }
+        }
+        out
+    };
+    // Eighths, 12 000 samples apart, over one bar.
+    let grid: Vec<usize> = (0..8).map(|k| k * 12_000).collect();
+    let on = onsets(0.0);
+    assert!(
+        on.len() == 8 && on.iter().zip(&grid).all(|(a, b)| a.abs_diff(*b) < 64),
+        "on the tick: {on:?}"
+    );
+    let late = onsets(20.0);
+    let offs: Vec<usize> = late
+        .iter()
+        .zip(&grid)
+        .map(|(a, b)| a.saturating_sub(*b))
+        .collect();
+    assert!(offs.iter().all(|o| *o < 960 + 64), "within 20 ms: {offs:?}");
+    assert!(
+        late.len() == 8 && offs.iter().filter(|o| **o > 100).count() > 4,
+        "most are late: {offs:?}"
+    );
+    assert!(
+        offs.windows(2).any(|w| w[0].abs_diff(w[1]) > 100),
+        "and not by one amount: {offs:?}"
+    );
+    assert_eq!(late, onsets(20.0), "the same every render");
+}
+
 /// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the
 /// pad Strudel's `irand(2)` gives at its moment, as Tidal's `n (irand 2)`.
 #[test]

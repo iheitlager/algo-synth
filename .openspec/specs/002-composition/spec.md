@@ -630,3 +630,23 @@ The mixer SHALL have five more insert types (#745): Vowel (three formant band-pa
 - THEN the tone comes out 63 Hz higher
 
 **Tests:** `crates/dsp/src/fx/vowel.rs::tests::a_vowel_passes_its_formants_and_not_between`, `crates/dsp/src/fx/vowel.rs::tests::the_formants_morph_between_vowels`, `crates/dsp/src/fx/vowel.rs::tests::silence_stays_silent_and_every_setting_is_bounded`, `crates/dsp/src/fx/phaser.rs::tests::a_tone_at_the_notch_comes_and_goes_with_the_lfo`, `crates/dsp/src/fx/phaser.rs::tests::silence_stays_silent_and_every_setting_is_bounded`, `crates/dsp/src/fx/tremolo.rs::tests::the_level_follows_the_rate_and_depth`, `crates/dsp/src/fx/tremolo.rs::tests::half_a_cycle_apart_the_sides_pan`, `crates/dsp/src/fx/tremolo.rs::tests::no_depth_leaves_the_signal_alone`, `crates/dsp/src/fx/ring.rs::tests::the_phasor_stays_a_sine_of_its_frequency`, `crates/dsp/src/fx/ring.rs::tests::a_ring_makes_the_sum_and_difference`, `crates/dsp/src/fx/ring.rs::tests::a_shift_moves_a_tone_by_its_hertz`, `crates/dsp/src/fx/ring.rs::tests::silence_stays_silent_and_both_stay_bounded`, `crates/dsp/src/song/tests.rs::effect_names_find_the_tracks_insert`, `crates/dsp/src/engine/tests.rs::strudels_effect_names_turn_the_tracks_inserts`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
+
+### Requirement 24: An instrument's own tuning and timing [MAY]
+
+Every synth SHALL have `Detune` (−50 to 50 cents, 0 by default), added to its voices' pitch trim with each note's cents, so the whole instrument plays off tune on every pitched model, and `Humanize` (0 to 30 ms, 0 by default): each note of a clip on its track SHALL be pressed up to that many milliseconds late, by a hash of the tick, the track and the note, so the same every render and after a seek, through the hit queue with its note-off after it; a grace keeps its own place, and lanes and live keys their ticks (#21). Neither SHALL allocate in `render`.
+
+**Implementation:** `crates/dsp/src/poly.rs::Pool::retrim`, `crates/dsp/src/engine.rs::Engine::pick`, `crates/dsp/src/mono.rs::MonoParams`
+
+#### Scenario: a quarter tone up
+
+- GIVEN a sine voice playing a3 with `Detune` 50
+- WHEN it plays
+- THEN it sounds at 226.4 Hz
+
+#### Scenario: a loose player
+
+- GIVEN eighths on a pad sampler with `Humanize` 20
+- WHEN the song renders twice
+- THEN each note starts 0 to 20 ms after its tick, not all by one amount, the same both times
+
+**Tests:** `crates/dsp/src/engine/tests.rs::detune_moves_the_whole_instrument`, `crates/dsp/src/engine/tests.rs::humanize_presses_notes_a_little_late_the_same_every_time`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
