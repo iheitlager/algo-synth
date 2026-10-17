@@ -100,6 +100,8 @@ clip chops = brk .fit() .chop(8) .sometimesBy(0.5, mul(speed(-1))) .accelerate(0
   \"c2 ~ c2 c2\"
 clip slices = brk .splice(4, \"<0 2 1 3>*2 [3 1]\") .spread(id, rev, chop(4), stut(3, 0.5, 1/16))
   \"c2\"
+clip bites = brk .fit() .striate(4) .bite(4, \"0 2 <1 3> 3\") .chew(2, \"1 0\")
+  \"c2 c2\"
 clip cuts = brk .slice(32, irand(32)) .n(\"0 <1 2>\") .velocity(perlin.range(0.3, 1)) .clip(saw.segment(4).range(0.2, 1))
   \"c2*8\"
 clip picks = pads /16 .n(irand(4))
@@ -122,7 +124,7 @@ mod bell.detune = sine.range(-20, 20)
 mod lead.humanize = 12
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam drift wander zap ring arps chirp tune nbeat calc vbeat chops cuts picks fade pan sweep [open]
+scene a 2: beat hold sand roam drift wander zap ring arps chirp tune nbeat calc vbeat chops bites cuts picks fade pan sweep [open]
 scene b 1: beat sand roam drift zap arps chirp tune nbeat calc vbeat slices [solo]
 arrange a b a b
 ";

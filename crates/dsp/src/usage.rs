@@ -26,6 +26,10 @@ pub const ARP_METHOD: &str =
     "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
 pub const SLICE: &str = "slice takes a number of parts from 1 to 64 and indexes in quotes: slice(8, \"0 1 <2 3> [6 7]\")";
 pub const SPLICE: &str = "splice takes a number of parts from 1 to 64 and indexes in quotes: splice(8, \"0 1 <2 3> [6 7]\")";
+pub const BITE: &str =
+    "bite takes a number of parts from 1 to 64 and indexes in quotes: bite(4, \"0 2 <1 3>\")";
+pub const CHEW: &str =
+    "chew takes a number of parts from 1 to 64 and indexes in quotes: chew(4, \"0 1 2 [3 3]\")";
 pub const VELOCITY: &str = "velocity takes a velocity from 0 to 1, one a step or a signal: velocity(0.5), velocity(\"1 0.5 ~ 0.7\") or velocity(sine.range(0.4, 1).segment(16))";
 pub const CLIP: &str = "clip takes a share of the note's length, more than 0 up to 16, one a step or a signal: clip(0.5), clip(\"0.3 1 ~ 2\") or clip(perlin.range(0.2, 1))";
 pub const ROT: &str = "rot takes how many onsets each takes its notes from, -64 to 64, or one a bar: rot(1) or rot(\"<0 1 2 3>\")";
@@ -86,7 +90,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 66] = [
+pub const METHODS: [(&str, &str); 69] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -154,6 +158,12 @@ pub const METHODS: [(&str, &str); 66] = [
     ("slice", SLICE),
     ("fit", "fit takes no value: fit()"),
     ("splice", SPLICE),
+    (
+        "striate",
+        "striate takes a number of parts from 1 to 64, or one a bar: striate(4) or striate(\"<2 4>\")",
+    ),
+    ("bite", BITE),
+    ("chew", CHEW),
     (
         "speed",
         "speed takes a speed from -32 to 32, -1 backwards, or one a step: speed(2), speed(-1) or speed(\"1 2 -1\")",
