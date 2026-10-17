@@ -31,9 +31,10 @@ track saw synth supersaw
 clip bass = bass .scale(c3 minor) .rib(46, 1)
   irand(10).sub(7).seg(16)
 
-# s("supersaw").beat(2,32).slow(2): one hit on step 2 of 32, every two bars.
-clip swell = saw .beat(2, 32) .slow(2)
-  "c2"
+# The supersaw plays a copy of the bass's line (a clip made from another,
+# #649) through beat(2,32).slow(2): the note sounding on step 2 of 32, d#3,
+# every two bars. `clip swell = saw bass` alone would double the whole line.
+clip swell = saw bass .beat(2, 32) .slow(2)
 
 scene acid 8: bass swell
 arrange acid
