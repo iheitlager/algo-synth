@@ -62,6 +62,7 @@ pub const EUCLID_LEGATO: &str =
 pub const EUCLID_FULL: &str = "euclidFull takes hits, steps, a method for the rests and maybe a rotation: euclidFull(3, 8, add(12)) or euclidFull(3, 8, add(12), 2)";
 pub const NUDGE: &str =
     "nudge takes ticks from -6 to 6, 3 a sixteenth, below 0 earlier: nudge(1) or nudge(-1)";
+pub const CONNECT: &str = "connect takes nothing or the scale steps between its passing notes, 1 to 7: connect() or connect(2)";
 pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
 pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
 pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
@@ -85,7 +86,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 65] = [
+pub const METHODS: [(&str, &str); 66] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -196,6 +197,7 @@ pub const METHODS: [(&str, &str); 65] = [
     ("euclidLegato", EUCLID_LEGATO),
     ("euclidFull", EUCLID_FULL),
     ("nudge", NUDGE),
+    ("connect", CONNECT),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

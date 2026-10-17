@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 65] = [
+const METHODS: [(&str, &str); 66] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -157,6 +157,7 @@ const METHODS: [(&str, &str); 65] = [
     ("euclidLegato", "euclid, each hit held to the next"),
     ("euclidFull", "euclid's hits, its rests through a method"),
     ("nudge", "every note t ticks later or earlier"),
+    ("connect", "passing notes across each leap"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).

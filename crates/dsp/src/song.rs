@@ -2310,6 +2310,18 @@ impl Song {
                                 })
                                 .map_err(|m| err(at + ncol - 1, m))?;
                                 let mut p = p;
+                                // `connect` walks the clip's scale before it, else the
+                                // song's (#618).
+                                let walked = song
+                                    .clips
+                                    .get(f)
+                                    .and_then(|c| {
+                                        c.pattern.iter().rev().find_map(Pattern::sets_scale)
+                                    })
+                                    .or(song.scale);
+                                if let Some(s) = walked {
+                                    p.fill_scale(s);
+                                }
                                 // `scale(<clip> auto)` falls back on the song's mode (#622).
                                 if let (Pattern::ScaleOf(_, mode, true), Some(key)) =
                                     (&mut p, song.scale.as_ref())

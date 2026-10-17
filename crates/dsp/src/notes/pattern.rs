@@ -204,6 +204,11 @@ pub enum Pattern {
     /// `nudge(t)`: every note t ticks later, or earlier below 0, round the
     /// line, ahead of or behind the beat (#626).
     Nudge(i32),
+    /// `connect([n])`: each leap of the line filled with passing notes, n
+    /// scale steps apart, toward the next note, as Live 12's Connect
+    /// (#618); the scale its notes walk, set when the song loads, or
+    /// semitones without one. A line of degrees walks its degrees.
+    Connect(u32, Option<Scale>),
     /// `beat(steps, div)`, Strudel's: the line on `steps` of a bar cut into
     /// `div`, a `struct` of div steps (#738); the steps as written.
     Beat(String, Vec<bool>),
@@ -703,7 +708,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 65] = [
+    pub const NAMES: [&'static str; 66] = [
         "fast",
         "slow",
         "rev",
@@ -769,6 +774,7 @@ impl Pattern {
         "euclidLegato",
         "euclidFull",
         "nudge",
+        "connect",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -1070,6 +1076,17 @@ impl Pattern {
                 .filter(|n| (1..=MAX_STEPS as u32).contains(n))
                 .map(Pattern::Segment)
                 .ok_or(crate::usage::SEGMENT),
+            "connect" => match args.as_slice() {
+                [] => Ok(Pattern::Connect(1, None)),
+                [n] => n
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| (1..=7).contains(n))
+                    .map(|n| Pattern::Connect(n, None))
+                    .ok_or(crate::usage::CONNECT),
+                _ => Err(crate::usage::CONNECT),
+            },
             "nudge" => one()?
                 .trim()
                 .parse::<i32>()
@@ -1469,6 +1486,8 @@ impl Pattern {
             Pattern::WhenMod(a, b, m) => format!("whenmod({a}, {b}, {})", bare(m)),
             Pattern::Segment(n) => format!("segment({n})"),
             Pattern::Nudge(t) => format!("nudge({t})"),
+            Pattern::Connect(1, _) => "connect()".to_string(),
+            Pattern::Connect(n, _) => format!("connect({n})"),
             Pattern::EuclidInv(e) => e.print().replacen("euclid", "euclidInv", 1),
             Pattern::EuclidLegato(e) => e.print().replacen("euclid", "euclidLegato", 1),
             Pattern::EuclidFull(e, m) => {
@@ -1562,6 +1581,7 @@ impl Pattern {
                 structure(line, &rests)
             }
             Pattern::EuclidLegato(e) => legato_structure(line, &e.pattern()),
+            Pattern::Connect(n, scale) => connect(line, *n, scale.as_ref())?,
             Pattern::Nudge(t) => {
                 let len = i64::from(line.len().max(1));
                 let mut out = line.clone();
@@ -1744,6 +1764,42 @@ impl Pattern {
 }
 
 impl Pattern {
+    /// The scale a `connect` in this method walks its notes on, where it
+    /// has none (#618): the clip's `scale` before it, or the song's.
+    pub fn fill_scale(&mut self, s: Scale) {
+        match self {
+            Pattern::Connect(_, scale @ None) => *scale = Some(s),
+            Pattern::Every(_, m)
+            | Pattern::Off(_, m)
+            | Pattern::Sometimes(_, m)
+            | Pattern::Jux(m)
+            | Pattern::Mul(m)
+            | Pattern::PlyWith(_, m)
+            | Pattern::Superimpose(m)
+            | Pattern::Inside(_, m, _)
+            | Pattern::Chunk(_, m)
+            | Pattern::WhenMod(_, _, m)
+            | Pattern::EuclidFull(_, m) => m.fill_scale(s),
+            Pattern::EchoWith(e) => e.method.fill_scale(s),
+            Pattern::Spread(ms) | Pattern::Layer(ms) => {
+                ms.iter_mut().flatten().for_each(|m| m.fill_scale(s));
+            }
+            Pattern::PerBar(_, steps) => steps
+                .iter_mut()
+                .flatten()
+                .for_each(|p| p.method.fill_scale(s)),
+            _ => {}
+        }
+    }
+
+    /// The scale a `.scale(…)` sets, its first root's, if it is one.
+    pub fn sets_scale(&self) -> Option<Scale> {
+        match self {
+            Pattern::Scale(keys) => keys.steps.first().map(|s| s.key.scale),
+            _ => None,
+        }
+    }
+
     /// Does this method change only pitches, one note at a time, so a live
     /// clip can take it in `render` (#593)?
     pub fn pitch_only(&self) -> bool {
@@ -1799,6 +1855,7 @@ impl Pattern {
             | Pattern::Velocity(_)
             // A lane's hit is a step long (#740).
             | Pattern::Clip(_)
+            | Pattern::Connect(..)
             // A lane's hits have no pitch to move (#742).
             | Pattern::Rot(_)
             | Pattern::Mirror(_) => true,
@@ -2251,6 +2308,110 @@ fn chunk(line: &Line, n: u32, m: &Pattern) -> Result<Line, &'static str> {
         .collect();
     events.extend(changed.repeat(bars).events.into_iter().filter(part));
     Ok(Line { events, bars })
+}
+
+/// The shortest passing note `connect` makes: a sixteenth (#618).
+const PASSING: u32 = BAR / 16;
+
+/// A note's place on the ladder `connect` walks: a degree of a line of
+/// degrees, a degree of `scale` from its root, or a semitone.
+fn rung(e: &Event, scale: Option<&Scale>) -> i32 {
+    if e.degree {
+        return i32::from(e.note) - i32::from(DEGREE_ZERO);
+    }
+    let Some(s) = scale else {
+        return i32::from(e.note);
+    };
+    let iv = s.mode.intervals();
+    let len = i32::try_from(iv.len()).unwrap_or(1).max(1);
+    let rel = i32::from(s.snap(e.note)) - i32::from(s.root);
+    let (oct, pc) = (rel.div_euclid(12), rel.rem_euclid(12));
+    let idx = iv.iter().position(|i| i32::from(*i) == pc).unwrap_or(0);
+    oct * len + i32::try_from(idx).unwrap_or(0)
+}
+
+/// The note on rung `r`, as `rung` counts them for `like`.
+fn at_rung(like: &Event, r: i32, scale: Option<&Scale>) -> Event {
+    let note = if like.degree {
+        let d = r.clamp(-super::MAX_DEGREE, super::MAX_DEGREE);
+        u8::try_from(i32::from(DEGREE_ZERO) + d).unwrap_or(DEGREE_ZERO)
+    } else {
+        match scale {
+            Some(s) => s.degree_note(s.root, r),
+            None => u8::try_from(r.clamp(0, 127)).unwrap_or(0),
+        }
+    };
+    Event {
+        note,
+        cents: 0,
+        ..*like
+    }
+}
+
+/// Each leap of `line` to the next onset (the last to the first, round the
+/// line) filled with passing notes `step` rungs apart, sharing the time to
+/// it, each at least a sixteenth; a chord's lowest note leads (#618).
+fn connect(line: &Line, step: u32, scale: Option<&Scale>) -> Result<Line, &'static str> {
+    let total = line.len().max(1);
+    let mut onsets: Vec<u32> = line
+        .events
+        .iter()
+        .filter(|e| e.nudge >= 0)
+        .map(|e| e.start)
+        .collect();
+    onsets.sort_unstable();
+    onsets.dedup();
+    let lowest = |s: u32| {
+        line.events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.start == s && e.nudge >= 0)
+            .min_by_key(|(_, e)| e.note)
+            .map(|(i, _)| i)
+    };
+    let mut out = line.clone();
+    let step = i32::try_from(step).unwrap_or(1).max(1);
+    for (k, &s) in onsets.iter().enumerate() {
+        let next = onsets
+            .get(k + 1)
+            .copied()
+            .unwrap_or_else(|| onsets.first().copied().unwrap_or(s) + total);
+        let (Some(i), Some(j)) = (lowest(s), lowest(next % total)) else {
+            continue;
+        };
+        let (Some(a), Some(b)) = (line.events.get(i), line.events.get(j)) else {
+            continue;
+        };
+        if a.degree != b.degree {
+            continue;
+        }
+        let (from, to) = (rung(a, scale), rung(b, scale));
+        let dist = (to - from).abs();
+        if dist <= step {
+            continue;
+        }
+        let gap = next - s;
+        let wanted = u32::try_from((dist + step - 1) / step - 1).unwrap_or(0);
+        let passes = wanted.min((gap / PASSING).saturating_sub(1));
+        if passes == 0 {
+            continue;
+        }
+        let share = gap / (passes + 1);
+        if let Some(first) = out.events.get_mut(i) {
+            first.len = first.len.min(share).max(1);
+        }
+        let dir = (to - from).signum();
+        for p in 1..=passes {
+            let r = from + dir * step * i32::try_from(p).unwrap_or(0);
+            out.events.push(Event {
+                start: (s + p * share) % total,
+                len: share,
+                ..at_rung(a, r, scale)
+            });
+        }
+    }
+    check(out.bars, out.events.len())?;
+    Ok(out)
 }
 
 /// Furthest `nudge` moves a note, in ticks: two sixteenths (#626).
@@ -4824,5 +4985,103 @@ mod tests {
             !Pattern::Nudge(1).moves_pitch(),
             "on a drum clip made from one too"
         );
+    }
+
+    /// #618: connect fills each leap with passing notes on the scale.
+    #[test]
+    fn connect_walks_the_scale_across_each_leap() {
+        let c_major = Scale {
+            root: 0,
+            mode: Mode::from_name("major").expect("major"),
+        };
+        // "c4 ~ ~ ~ g4 ~ ~ ~": c4 and g4 an eighth long, a half bar apart.
+        let leap = Line {
+            events: vec![ev(0, 6, 60), ev(24, 6, 67)],
+            bars: 1,
+        };
+        let walk = Pattern::Connect(1, Some(c_major))
+            .apply(&leap)
+            .expect("walks");
+        assert_eq!(
+            starts(&walk),
+            [
+                (0, 60),
+                (6, 62),
+                (12, 64),
+                (18, 65),
+                (24, 67),
+                (30, 65),
+                (36, 64),
+                (42, 62)
+            ],
+            "up to g and down again round the line"
+        );
+        assert!(walk.events.iter().all(|e| e.len == 6));
+        // Without a scale, semitones; in steps of two, every other.
+        let chromatic = Pattern::Connect(1, None)
+            .apply(&Line {
+                events: vec![ev(0, 24, 60), ev(24, 24, 63)],
+                bars: 1,
+            })
+            .expect("walks");
+        assert_eq!(
+            starts(&chromatic).get(..4),
+            Some(&[(0, 60), (8, 61), (16, 62), (24, 63)][..])
+        );
+        let twos = Pattern::Connect(2, Some(c_major))
+            .apply(&leap)
+            .expect("walks");
+        assert_eq!(
+            starts(&twos).get(..3),
+            Some(&[(0, 60), (12, 64), (24, 67)][..])
+        );
+        // Degrees walk degrees, whatever scale comes after.
+        let degrees = Line {
+            events: vec![deg(0, 0), deg(24, 3)],
+            bars: 1,
+        };
+        let d = Pattern::Connect(1, None).apply(&degrees).expect("walks");
+        let ds: Vec<i32> = d
+            .events
+            .iter()
+            .map(|e| i32::from(e.note) - i32::from(DEGREE_ZERO))
+            .collect();
+        assert_eq!(ds.get(..4), Some(&[0, 1, 2, 3][..]));
+        // A step apart stays as it is; so does a leap with no room.
+        let near = Line {
+            events: vec![ev(0, 24, 60), ev(24, 24, 62)],
+            bars: 1,
+        };
+        assert_eq!(
+            Pattern::Connect(1, Some(c_major))
+                .apply(&near)
+                .expect("as is"),
+            near
+        );
+        let tight = Line {
+            events: vec![ev(0, 3, 60), ev(3, 45, 67)],
+            bars: 1,
+        };
+        let squeezed = Pattern::Connect(1, Some(c_major))
+            .apply(&tight)
+            .expect("as is");
+        assert_eq!(
+            starts(&squeezed).get(..2),
+            Some(&[(0, 60), (3, 67)][..]),
+            "no room between"
+        );
+        for (args, printed) in [("", "connect()"), ("2", "connect(2)"), (" 1 ", "connect()")] {
+            assert_eq!(
+                Pattern::parse("connect", args).expect(args).print(),
+                printed
+            );
+        }
+        for bad in ["0", "8", "x", "1, 2"] {
+            assert_eq!(
+                Pattern::parse("connect", bad),
+                Err(crate::usage::CONNECT),
+                "{bad}"
+            );
+        }
     }
 }

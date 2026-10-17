@@ -3437,6 +3437,54 @@ fn a_clip_takes_its_own_swing_and_a_nudge() {
     }
 }
 
+/// #618: connect walks the song's scale, or the clip's, inside every too.
+#[test]
+fn connect_walks_the_songs_or_the_clips_scale() {
+    let s = Song::parse(
+        "scale a minor\ntrack lead synth\nclip line = lead .connect()\n  \"a3 ~ e4 ~ c4 ~ a4 ~\"\n",
+    )
+    .expect("parses");
+    let notes: Vec<u8> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .map(|e| e.note)
+        .collect();
+    // a3 b3 c4 d4 e4, then down d4 c4, up d4 … to a4, and back down to a3.
+    assert_eq!(
+        notes.get(..6),
+        Some(&[57, 59, 60, 62, 64, 62][..]),
+        "{notes:?}"
+    );
+    assert!(
+        notes
+            .iter()
+            .all(|n| [57, 59, 60, 62, 64, 65, 67, 69].contains(n)),
+        "on A minor: {notes:?}"
+    );
+    let printed = s.print();
+    assert!(printed.contains("clip line = lead .connect()"), "{printed}");
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    // The clip's scale before it wins over the song's; inside every too.
+    let s = Song::parse("scale c major\ntrack lead synth\nclip a = lead .scale(c3 minor) .every(2, connect)\n  \"0 ~ 4 ~\"\n").expect("parses");
+    let first: Vec<u8> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .filter(|e| e.start < 48)
+        .map(|e| e.note)
+        .collect();
+    assert_eq!(
+        first.get(..3),
+        Some(&[48, 50, 51][..]),
+        "c d eb, C minor: {first:?}"
+    );
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {

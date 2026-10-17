@@ -695,6 +695,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.euclidInv(k, n[, rot])` | the line on the steps `euclid(k, n, rot)` leaves out, as Tidal's (#631) |
 | `.euclidLegato(k, n[, rot])` | `euclid`, each hit held until the next, the last to the bar's end (#631) |
 | `.euclidFull(k, n, m[, rot])` | the hits with the line and the rests through method m: `euclidFull(3, 8, add(12))` plays the rests an octave up (#631) |
+| `.connect([n])` | each leap filled with passing notes toward the next note, n (1–7, default 1) steps apart, as Live 12's Connect (#618): the note keeps its start and shares the time to the next with them, each at least a sixteenth, so `"c4 ~ ~ ~ g4 ~ ~ ~"` in C major is c4 d4 e4 f4 g4; the last note connects to the first round the line; a line of degrees walks its degrees, notes the clip's `.scale` before it, else the song's `scale`, else semitones; a step or less apart, or with no room, a note stays; a chord's lowest note leads; inside `every` and the chances too |
 | `.nudge(t)` | every note t ticks (−6 to 6, 3 a sixteenth) later, or earlier below 0, round the line: ahead of or behind the beat (#626) |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.often(m)` `.rarely(m)` | m on about 3 in 4, or 1 in 4, of the moments (#700) |
