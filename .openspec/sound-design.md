@@ -235,6 +235,19 @@ loads as if written. A `samples` line or zone lines take its place. The
 packs are built by `make samples`; without them the panel says the pack is
 missing and the song plays on.
 
+The manifest (`web/public/samples/manifest.json`) and `CREDITS.txt` are
+generated, not tracked (#672), so no checkout, stash or rebase puts back an
+older list. Each checkout and worktree has its own. When a pack is missing,
+from the root of the checkout whose app you use:
+
+```text
+make samples        # downloads once into .cache/samples, builds web/public/samples/, writes manifest.json
+```
+
+then reload the page, which reads the manifest once per load. With everything
+built it only rewrites the manifest, in seconds. `make dev`, `make web` and
+`make image` write a manifest of what is built when there is none.
+
 ```song
 track keys sampler GeneralMidi GmMarimba
 clip riff = keys

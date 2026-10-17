@@ -1074,7 +1074,7 @@ describe('samples lines (#214)', () => {
     const { mod, send } = await boot({ fetch: fetchAll })
     send({ t: 'song', ...ok, ok: true, text: enc('x'), error: null, tracks: [keys], samples: [{ synth: 3, id: enc('nope') }] })
     for (let i = 0; i < 10 && !mod.sampleStore.error; i++) await tick()
-    expect(mod.sampleStore.error).toBe('samples: no pack or kit is called nope')
+    expect(mod.sampleStore.error).toBe('samples: no pack or kit is called nope: run make samples')
   })
 })
 

@@ -360,6 +360,17 @@ class Voice(unittest.TestCase):
         self.assertIn("Voices: BSD-style. Somebody. Modified: rewritten as mono WAV.", credits)
         self.assertIn("Keep this notice.", credits)
 
+    def test_manifest_only_indexes_what_is_built(self):
+        fs.build_voice(self.pack, fetch=self.fake_fetch)
+        saved, fs.LEDGER = fs.LEDGER, self.root / "no-ledger.json"
+        try:
+            fs.main(["--manifest"])
+        finally:
+            fs.LEDGER = saved
+        manifest = json.loads((fs.OUT / "manifest.json").read_text())
+        self.assertEqual([k["id"] for k in manifest["kits"]], ["voices"], "built, so listed, without the ledger")
+        self.assertTrue((fs.OUT / "CREDITS.txt").is_file())
+
     def test_the_pin_covers_every_file(self):
         other = json.loads(json.dumps(self.pack))
         other["files"][5]["sha256"] = "f" * 64

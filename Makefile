@@ -27,7 +27,7 @@ check: lint deny test build wasm-check ## Run all CI gates
 # assistant, while vite build --watch keeps web/dist current; reload to see a
 # change. dsp.wasm is built first (make wasm again after a DSP change). Ctrl-C
 # stops both.
-dev: wasm install ## App and assistant on localhost:6341
+dev: wasm install web/public/samples/manifest.json ## App and assistant on localhost:6341
 	@(cd web && exec ./node_modules/.bin/vite build --watch --logLevel warn) & build=$$!; \
 	trap 'kill $$build 2>/dev/null' EXIT INT TERM; \
 	until [ -f web/dist/index.html ]; do sleep 1; done; \
@@ -50,7 +50,7 @@ export ALGO_BUILD_SHA ?= $(SHA)
 wasm: ## Build the engine to wasm
 	cargo build --locked --release --target wasm32-unknown-unknown -p algo-dsp
 	cp $(WASM_OUT) web/public/dsp.wasm
-web: install ## Bundle the Vue app
+web: install web/public/samples/manifest.json ## Bundle the Vue app
 	cd web && npm run build
 install: web/node_modules ## Install web dependencies
 # Pachelbel's Canon, written from scratch, so no third-party licence.
@@ -62,6 +62,10 @@ demo-midi: ## Regenerate the demo MIDI file
 # Unpacking .7z needs 7zz (brew install sevenzip); bsdtar reads only newer ones.
 samples: ## Fetch free sample packs
 	python3 tools/fetch_samples.py
+# The manifest is generated, not tracked (#672): git can't reset it to fewer
+# packs. A fresh clone gets one for its committed CC0 packs, fetching nothing.
+web/public/samples/manifest.json:
+	python3 tools/fetch_samples.py --manifest
 web/node_modules: web/package-lock.json
 	cd web && npm ci
 	@touch web/node_modules
@@ -173,7 +177,7 @@ env-check: ## Check the 1Password keys
 # reusing a cached layer from older sources (#198); no --no-cache needed.
 # Then the build stages' old images go: only dangling ones labelled
 # algo-synth.stage, never another project's (the disk filled with them).
-image: ## Build the Podman image
+image: web/public/samples/manifest.json ## Build the Podman image
 	podman build --build-arg ALGO_BUILD_SHA=$(SHA) -t $(IMAGE) -f Containerfile .
 	podman image prune -f --filter label=algo-synth.stage >/dev/null
 # Localhost is a secure context, so AudioWorklet works without TLS.
