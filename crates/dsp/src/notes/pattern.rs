@@ -161,6 +161,11 @@ pub enum Pattern {
     /// `plyWith(n, m)`: each note n times in its length, the k-th repeat
     /// through m k times (#741).
     PlyWith(u32, Box<Pattern>),
+    /// `superimpose(m)`: the line and a copy through m, together (#635).
+    Superimpose(Box<Pattern>),
+    /// `layer(m1, m2, …)`: only the copies, one through each method, `None`
+    /// for `id`, the line as it is (#635).
+    Layer(Vec<Option<Pattern>>),
 }
 
 /// The layers of `echoWith` and `stutWith` (#741).
@@ -657,7 +662,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 47] = [
+    pub const NAMES: [&'static str; 49] = [
         "fast",
         "slow",
         "rev",
@@ -705,6 +710,8 @@ impl Pattern {
         "echoWith",
         "stutWith",
         "plyWith",
+        "superimpose",
+        "layer",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -934,6 +941,19 @@ impl Pattern {
                     method: Box::new(nested(m, srcs)?),
                     stut,
                 }))
+            }
+            "superimpose" => Ok(Pattern::Superimpose(Box::new(nested(one()?, srcs)?))),
+            "layer" => {
+                if args.is_empty() || args.len() > 8 {
+                    return Err(crate::usage::LAYER);
+                }
+                args.iter()
+                    .map(|a| match a.trim() {
+                        "id" => Ok(None),
+                        m => nested(m, srcs).map(Some),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Pattern::Layer)
             }
             "plyWith" => {
                 let [n, m] = args.as_slice() else {
@@ -1239,6 +1259,14 @@ impl Pattern {
                 format!("{name}({}, {}, {})", e.count, e.time, bare(&e.method))
             }
             Pattern::PlyWith(n, m) => format!("plyWith({n}, {})", bare(m)),
+            Pattern::Superimpose(m) => format!("superimpose({})", bare(m)),
+            Pattern::Layer(ms) => {
+                let words: Vec<String> = ms
+                    .iter()
+                    .map(|m| m.as_ref().map_or_else(|| "id".to_string(), bare))
+                    .collect();
+                format!("layer({})", words.join(", "))
+            }
             Pattern::Mirror(Axis::First) => "mirror()".to_string(),
             Pattern::Mirror(Axis::Degree(d)) => format!("mirror({d})"),
             Pattern::Mirror(Axis::Note(n)) => format!("mirror({})", super::note_name(*n)),
@@ -1286,6 +1314,17 @@ impl Pattern {
             Pattern::Rot(n) => rot(line, *n),
             Pattern::EchoWith(e) => echo_with(line, e)?,
             Pattern::PlyWith(n, m) => ply_with(line, *n, m)?,
+            Pattern::Superimpose(m) => together(&[line.clone(), m.apply(line)?])?,
+            Pattern::Layer(ms) => {
+                let layers = ms
+                    .iter()
+                    .map(|m| {
+                        m.as_ref()
+                            .map_or_else(|| Ok(line.clone()), |m| m.apply(line))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                together(&layers)?
+            }
             Pattern::Mirror(axis) => mirror(line, *axis)?,
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Mul(m) => m.apply(line)?,
@@ -1465,7 +1504,9 @@ impl Pattern {
             Pattern::Every(_, m)
             | Pattern::Off(_, m)
             | Pattern::Sometimes(_, m)
-            | Pattern::PlyWith(_, m) => m.moves_pitch(),
+            | Pattern::PlyWith(_, m)
+            | Pattern::Superimpose(m) => m.moves_pitch(),
+            Pattern::Layer(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
             Pattern::EchoWith(e) => e.method.moves_pitch(),
             // A lane holds a hit, an accent or a ghost, not gain^k (#719).
             Pattern::Stut(_) => true,
@@ -3998,6 +4039,91 @@ mod tests {
                 .expect("p")
                 .moves_pitch(),
             "a drum clip's hits can echo"
+        );
+    }
+
+    /// #635: superimpose adds a changed copy on top, layer plays only copies.
+    #[test]
+    fn superimpose_and_layer_stack_changed_copies() {
+        let up = run("superimpose(add(12))", &four());
+        assert_eq!(
+            starts(&up),
+            [
+                (0, 60),
+                (0, 72),
+                (12, 62),
+                (12, 74),
+                (24, 64),
+                (24, 76),
+                (36, 66),
+                (36, 78)
+            ]
+        );
+        let both = run("layer(add(7), rev)", &four());
+        assert_eq!(
+            starts(&both),
+            [
+                (0, 66),
+                (0, 67),
+                (12, 64),
+                (12, 69),
+                (24, 62),
+                (24, 71),
+                (36, 60),
+                (36, 73)
+            ],
+            "a fifth up and backwards, not the line itself"
+        );
+        assert_eq!(run("layer(id)", &four()), four());
+        assert_eq!(
+            run("superimpose(slow(2))", &four()).bars,
+            2,
+            "round together"
+        );
+        let many = run("ply(16)", &run("ply(8)", &four()));
+        assert_eq!(
+            Pattern::parse("superimpose", "add(12)")
+                .expect("parses")
+                .apply(&many),
+            Err("the pattern makes more than 512 notes")
+        );
+        for (name, args, printed) in [
+            ("superimpose", " add(12) ", "superimpose(add(12))"),
+            ("layer", "add(7),rev", "layer(add(7), rev)"),
+            (
+                "layer",
+                "id, fast(2), add(-12)",
+                "layer(id, fast(2), add(-12))",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("superimpose", "", "this takes one value"),
+            (
+                "superimpose",
+                "cutoff(3)",
+                "a pattern method goes here, e.g. rev or fast(2)",
+            ),
+            ("layer", "", crate::usage::LAYER),
+            (
+                "layer",
+                "id, id, id, id, id, id, id, id, id",
+                crate::usage::LAYER,
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            !Pattern::parse("superimpose", "fast(2)")
+                .expect("p")
+                .moves_pitch(),
+            "on a drum clip too"
+        );
+        assert!(
+            Pattern::parse("layer", "id, add(7)")
+                .expect("p")
+                .moves_pitch()
         );
     }
 }

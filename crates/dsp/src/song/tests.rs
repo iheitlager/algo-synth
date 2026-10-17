@@ -3217,6 +3217,33 @@ fn echo_with_and_ply_with_on_a_clip() {
     assert_eq!(Song::parse(&printed).expect("parses back"), s);
 }
 
+/// #635: superimpose and layer on a clip, and on a drum clip made from one.
+#[test]
+fn superimpose_and_layer_on_a_clip() {
+    let text = "track lead synth\nclip riff = lead .superimpose(add(12))\n  \"c3 e3 g3\"\nclip stack = lead .layer(add(7), rev)\n  \"c3 e3 g3\"\ntrack kit drums\nclip beat = kit\n  bd x...x...\nclip dbl = kit beat .superimpose(fast(2))\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").events.len(), 6);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip riff = lead .superimpose(add(12))"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip stack = lead .layer(add(7), rev)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip dbl = kit beat .superimpose(fast(2))"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse(
+        "track kit drums\nclip beat = kit\n  bd x...\nclip d = kit beat .superimpose(add(12))\n",
+    )
+    .expect_err("pitch on drums");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {
