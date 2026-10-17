@@ -1,6 +1,6 @@
 # 0006: Static serving with Podman and Caddy
 
-**Status:** Accepted, amended by 0028 and 0029, Caddy superseded by 0030 · **Date:** 2026-09-30
+**Status:** Accepted, amended by 0028 and 0029, Caddy superseded by 0030, extended by 0044 · **Date:** 2026-09-30
 
 ## Context
 
@@ -17,3 +17,7 @@ The server does no audio work (ADR-0001). It needs to serve `index.html`, the bu
 - **Amended by ADR-0028:** an assist server runs beside Caddy for the language model, and everything algo-synth serves binds to `127.0.0.1` only; serving another host is a later decision that brings authentication.
 - **Amended by ADR-0029:** everything is served with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, so the page is cross-origin isolated and decks can share SharedArrayBuffer rings.
 - **Superseded in part by ADR-0030:** `algo-synth serve`, one Rust server, serves the app and `/api` on one port; Caddy is gone.
+
+## Later decisions
+
+- **Extended by ADR-0044:** sample packs are built by `make samples` into the gitignored `web/public/samples/`, which the server ships as it is; there is still no upload endpoint.

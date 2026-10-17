@@ -91,10 +91,9 @@ pub const SYNTHS: usize = 16;
 /// The bit of `Engine::fold` that marks the master's global parameters.
 const FOLD_GLOBAL: u32 = 1 << 31;
 /// What `Engine::live_only` reports the song cannot hold yet (#361).
-pub const LIVE_ARP: u32 = 1;
-pub const LIVE_ZONES: u32 = 2;
-pub const LIVE_PADS: u32 = 4;
-pub const LIVE_FULL: u32 = 8;
+pub const LIVE_ZONES: u32 = 1;
+pub const LIVE_PADS: u32 = 2;
+pub const LIVE_FULL: u32 = 4;
 /// Peak meters: one per strip (the synths, then the groups), then master left
 /// and right, then one per processor return.
 pub const METERS: usize = STRIPS + 2 + SENDS;
@@ -3244,6 +3243,16 @@ impl Engine {
         self.mark(synth, param);
     }
 
+    /// A song's patch starts from its preset with the arpeggiator at its
+    /// defaults: the setting holds the arp (#228), so a setting without one
+    /// leaves it off. A preset picked on the panel keeps the arp as it is.
+    fn song_preset(&mut self, synth: usize, preset: Preset) {
+        self.preset(synth, preset);
+        for (p, v) in ARP_DEFAULTS {
+            self.set_param(synth, p, v);
+        }
+    }
+
     /// A factory preset picked for `synth`: the tracks it plays take it as
     /// their preset, and its sound is folded in from there. Refused, the
     /// synth unchanged, when a track it plays names what the preset's model
@@ -3315,17 +3324,10 @@ impl Engine {
     }
 
     /// What of `synth`'s sound the song cannot hold yet (ADR-0027, #361), one
-    /// bit each: `LIVE_ARP` an arpeggiator away from its defaults,
-    /// `LIVE_ZONES` sample zones, `LIVE_PADS` sampled pads, `LIVE_FULL` more
+    /// bit each: `LIVE_ZONES` sample zones, `LIVE_PADS` sampled pads, `LIVE_FULL` more
     /// changes than a setting holds. 0 when the song holds all of it.
     pub fn live_only(&self, synth: usize) -> u32 {
         let mut bits = 0;
-        if ARP_DEFAULTS
-            .iter()
-            .any(|(p, d)| (self.param_value(synth, *p) - p.clamp(*d)).abs() > 1e-6)
-        {
-            bits |= LIVE_ARP;
-        }
         // A zone is held once its sample has a source (#522).
         let zones = self.zones.get(synth);
         if (0..crate::sampler::ZONES).any(|z| {
@@ -3648,7 +3650,7 @@ impl Engine {
                             || self.song.patch(t) != patch
                             || self.song.code(t) != code;
                         if let Some(s) = synth.filter(|_| changed) {
-                            self.preset(s, preset);
+                            self.song_preset(s, preset);
                             // The parser built it already, so it builds here.
                             if let Some(code) = code {
                                 self.set_code(s, code).ok();
@@ -4033,7 +4035,7 @@ impl Engine {
             if let (Some(s), Some((preset, sets))) = (self.song_routed(t), self.song.patch(t)) {
                 let sets = sets.to_vec();
                 let code = self.song.code(t).map(str::to_string);
-                self.preset(s, preset);
+                self.song_preset(s, preset);
                 if let Some(code) = code {
                     self.set_code(s, &code).ok();
                 }
@@ -4056,16 +4058,16 @@ impl Engine {
     }
 
     /// The parameters of track `t`'s synth that differ from its preset, as a
-    /// setting holds them: the sound only, no model, strip, global or arp
-    /// parameters, and no knob of a Modular synth with code, which its code
+    /// setting holds them: the sound and the arpeggiator (#228), no model,
+    /// strip or global parameters, and no knob of a Modular synth with code, which its code
     /// holds. `None` without a synth or a preset, or past a setting's room.
     fn changed_params(&self, t: usize) -> Option<Vec<(Param, f32)>> {
         let s = self.song_routed(t)?;
         let preset = self.song.tracks.get(t)?.preset?;
         let coded = self.patch(s).is_some();
         let mut sets = Vec::new();
-        for (p, d) in DEFAULTS.iter() {
-            if *p == Param::Model || p.is_strip() || p.is_global() || p.is_arp() {
+        for (p, d) in DEFAULTS.iter().chain(ARP_DEFAULTS.iter()) {
+            if *p == Param::Model || p.is_strip() || p.is_global() {
                 continue;
             }
             if coded && p.ctl().is_some() {

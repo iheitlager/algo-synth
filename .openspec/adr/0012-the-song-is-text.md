@@ -1,6 +1,6 @@
 # 0012: The song is text
 
-**Status:** Accepted, amended by [0015](0015-the-arrangement.md), [0022](0022-one-clock-one-transport.md) and [0028](0028-an-llm-proxy-beside-caddy.md) · **Date:** 2026-10-03
+**Status:** Accepted, amended by [0015](0015-the-arrangement.md), [0022](0022-one-clock-one-transport.md) and [0028](0028-an-llm-proxy-beside-caddy.md), extended by 0047 and 0048 · **Date:** 2026-10-03
 
 ## Context
 
@@ -46,3 +46,5 @@ A binary song format serves the engine but nobody else: not a person reading a s
 - **Superseded in part by ADR-0015 and ADR-0022:** the MIDI player does not stay separate. A MIDI file is imported into the song as notes when opened, and the song's clock is the only one.
 - **Since ADR-0008 and ADR-0009:** a track plays a synth slot with a model; there are no sources. The drums came back as drum models (TR-808, TR-909) and the samplers as models on a slot, not as sources.
 - **Amended by ADR-0028:** the model call runs behind a server on localhost (see the Decision above).
+- **Extended by ADR-0047:** a track names its model and preset, or a `setting`, in the song text, and a role pick fills in one left out (#210).
+- **Extended by ADR-0048:** the notation's `arp` and each synth's live arpeggiator share one pattern function and one mode set (#110, #612).

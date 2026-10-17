@@ -1,6 +1,6 @@
 # 0001: Everything musical is wasm
 
-**Status:** Accepted, amended by 0029 and 0017 · **Date:** 2026-09-30
+**Status:** Accepted, amended by 0029, 0017 and 0046 · **Date:** 2026-09-30
 
 ## Context
 
@@ -21,6 +21,8 @@ algo-synth must run entirely in the browser. Audio in a browser is produced on a
 **Amended by ADR-0029:** the module also runs in Web Workers, one engine per worker, for decks beyond the main one; still one module, no imports, no logic in the worker shim. The main engine stays on the audio thread.
 
 **Amended by ADR-0017:** the Spectral Lab window runs its own engine and a Web Worker that calls offline analysis and resynthesis in a second instance; the analysis is Rust, the worker only relays.
+
+**Amended by ADR-0046:** the main thread holds a second instance of the module with no engine, for the song editor: the lexer and completer exports (`lex_buf`, `lex`, `sc_lex`, `lex_ptr`, `complete`, `sc_complete`, `complete_ptr`) keep their own thread-local state and need no `init`, and pass the text as UTF-8 in their own buffers. The grammar stays in Rust; the view only paints spans and lists the words.
 
 ## Consequences
 

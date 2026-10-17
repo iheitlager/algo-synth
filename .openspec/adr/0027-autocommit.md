@@ -1,6 +1,6 @@
 # 0027: Autocommit: the song follows the synths and the synths the song
 
-**Status:** Accepted, amended by #522 and #527 (zones and pads fold) and #588 (the text stays as typed) · **Date:** 2026-10-07
+**Status:** Accepted, amended by #522 and #527 (zones and pads fold) and #588 (the text stays as typed), extended by 0048 · **Date:** 2026-10-07
 
 ## Context
 
@@ -49,3 +49,7 @@ Applying on a pause played half-typed words, and the answer to an apply put the 
 - **An edit from outside the editor writes only what it changed.** A step click, a piano-roll edit, a fold or a track edit leaves the text alone when the song stays as the text says. Otherwise it rewrites only the lines of the items it changed, as the engine prints them (`song::splice`), keeping their indent and side comment. A new item goes after the item before it, and a gone one is taken out. Items are what the comments pass names: a top-level line with a Modular setting's code, and each lane or note line of a clip. When the result would not parse back to the song, the whole song is printed instead. A rewritten line is canonical within itself: `x... x...` comes back as `x...x...`.
 - **Format prints it all:** a Format command (Shift+Alt+F, or the composer's button) prints the whole text as the engine writes it, applying the draft first. It is the only way the engine reprints the whole text on purpose.
 - **The words that play light up in the text as typed.** A clip's lines are found by their words. A note line written otherwise than it prints is matched word for word, and lights nothing when its words don't line up.
+
+## Later decisions
+
+- **Extended by ADR-0048 (#228):** the arpeggiator's settings fold into the track's setting, so they are no longer live-only.

@@ -1,6 +1,6 @@
 # 0032: Partials as the common currency: one partial set from every source, transforms and morphs on it, played live through the table oscillator and the Modular
 
-**Status:** Proposed, extended by 0033 · **Date:** 2026-10-10 · **Extends:** 0017, 0024 · **Amends:** #192 stages 4 and 5
+**Status:** Accepted, extended by 0033, clarified by 0045 · **Date:** 2026-10-10 · **Extends:** 0017, 0024 · **Amends:** #192 stages 4 and 5
 
 ## Context
 
@@ -134,3 +134,4 @@ Resynthesis on its own only copies a sound. The question became what partials gi
 ## Later decisions
 
 - **ADR-0033:** user tables and attacks persist as recipes in the song, rebuilt when it loads.
+- **Clarified by ADR-0045:** the table oscillator runs inside the Mono voice for the PPG only. The D-50 is its own `PolyVoice::La` and reads attack samples, never wavetable frames, so an LA body of wavetable frames is not built.

@@ -1,6 +1,6 @@
 # 0010: Mixer topology: strips, group buses and insert slots
 
-**Status:** Accepted, amended by #660 (returns at unity) · **Date:** 2026-10-03
+**Status:** Accepted, amended by #660 (returns at unity), extended by 0043 · **Date:** 2026-10-03
 
 ## Context
 
@@ -50,3 +50,7 @@ A send alone was silent: `P1Return` and `P2Return` started at 0, so Strudel's `.
 - **One "Drive" type with a mode knob.** A knob that picks one of four modes is awkward to operate and to show. Rejected for three drive types.
 - **A full four-band equalizer on every strip.** Ten parameters per slot against five knobs, and a wide strip. Rejected for the compact three bands; the master has the full one.
 - **Group buses as a separate parameter space.** Doubles the ids and the setup shape. Rejected for one index space.
+
+## Later decisions
+
+- **Extended by ADR-0043 (#162, #220):** each group has a direct input ahead of its inserts, fed by a kit's or a Pad Sampler's per-pad outs; solos follow these feeds.

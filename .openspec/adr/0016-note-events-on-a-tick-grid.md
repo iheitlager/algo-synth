@@ -1,6 +1,6 @@
 # 0016: Note events on a tick grid
 
-**Status:** Accepted, amended by #626 (a clip's own swing) · **Date:** 2026-10-04
+**Status:** Accepted, amended by #626 (a clip's own swing), extended by 0048 · **Date:** 2026-10-04
 
 ## Context
 
@@ -42,3 +42,7 @@ MPC-style sequencers swing each track on its own, so a straight hat can sit over
 - **Not on lanes or live clips.** A drum clip's lanes and a live clip follow the song's swing.
 
 Rejected: a second clock per clip, which would split one transport (ADR-0022) to place a handful of notes.
+
+## Later decisions
+
+- **Extended by ADR-0048:** each synth's live arpeggiator steps on the clock's tick grid in `play_tick`, and on a free-run grid of its own when the clock is stopped and `ArpFree` is on.

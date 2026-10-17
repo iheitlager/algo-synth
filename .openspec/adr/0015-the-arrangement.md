@@ -1,6 +1,6 @@
 # 0015: The arrangement: sections, scenes, automation and MIDI as notes
 
-**Status:** Accepted, amended by [0018](0018-the-song-is-the-session.md), [0022](0022-one-clock-one-transport.md), [0027](0027-autocommit.md) and [0031](0031-abletons-words.md) · **Date:** 2026-10-04
+**Status:** Accepted, amended by [0018](0018-the-song-is-the-session.md), [0022](0022-one-clock-one-transport.md), [0027](0027-autocommit.md) and [0031](0031-abletons-words.md), extended by 0047 · **Date:** 2026-10-04
 
 ## Context
 
@@ -41,3 +41,4 @@ ADR-0012 made the song a text the engine parses and plays, and so far the song h
 - **Superseded in part by ADR-0022:** the MIDI player has retired; a MIDI file is imported when opened.
 - **Superseded in part by ADR-0018 and ADR-0027:** the two files are one. Patches (#210), the mixer and the master are lines in the song, the setup file is an import, and live changes fold into the song as they are made.
 - **Renamed by ADR-0031:** in Ableton's words a frag is a `clip`, a section a `scene`, and a scene a `snapshot`. The parser still reads the words used here.
+- **Extended by ADR-0047:** the song names each track's model and preset and holds patches as `setting` lines, the first part of the setup to move into the song (#210).

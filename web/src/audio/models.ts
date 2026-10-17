@@ -1475,7 +1475,7 @@ const vlTone: ModelDef = {
 export const ARP_MODES = entries(ArpMode)
 export const ARP_RATES: Options = [['1/8', ArpRate.Eighth], ['1/16', ArpRate.Sixteenth], ['1/8T', ArpRate.EighthTriplet], ['1/16T', ArpRate.SixteenthTriplet]]
 
-/** The live arpeggiator every Mono and Poly synth carries (#110); with the song stopped it holds still unless Free run is on. */
+/** The live arpeggiator every Mono, Poly and Chips synth carries (#110); with the song stopped it holds still unless Free run is on. */
 const ARP_SECTION: Section = {
   title: 'Arp',
   controls: [

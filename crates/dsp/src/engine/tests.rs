@@ -4817,6 +4817,41 @@ fn a_hand_folds_into_the_tracks_setting() {
     );
 }
 
+/// #228: the arpeggiator folds into the track's setting like a knob, loads
+/// back on, and a setting without it leaves it off; the song holds it all.
+#[test]
+fn the_arpeggiator_folds_into_the_tracks_setting() {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track lead synth Minimoog MiniBass\n"),
+        Ok(())
+    );
+    let s = e.song_routed(0).expect("routed");
+    e.edit_param(s, Param::ArpOn, 1.0);
+    e.edit_param(s, Param::ArpMode, 2.0);
+    assert!(e.fold(), "the text changed");
+    assert_eq!(e.live_only(s), 0, "the song holds the arp");
+    let text = e.song_text().to_string();
+    assert!(text.contains("ArpOn"), "{text}");
+    let mut f = Engine::new(48_000.0);
+    assert_eq!(load_text(&mut f, &text), Ok(()));
+    let t = f.song_routed(0).expect("routed");
+    assert_eq!(f.param_value(t, Param::ArpOn), 1.0);
+    assert_eq!(f.param_value(t, Param::ArpMode), 2.0);
+    assert_eq!(
+        load_text(
+            &mut f,
+            "setting lead = Minimoog MiniBass: Cutoff 900\ntrack lead synth lead\n"
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        f.param_value(t, Param::ArpOn),
+        0.0,
+        "no arp in the setting, none playing"
+    );
+}
+
 /// ADR-0027: a fader is folded into the track's strip line, a preset picked
 /// on the synth becomes the track's preset, and what the engine sets itself
 /// (`set_param`, as automation does) is not folded.
@@ -4934,10 +4969,6 @@ fn what_the_song_cannot_hold_is_reported() {
     let s = e.song_routed(0).expect("routed");
     e.edit_param(s, Param::Cutoff, 900.0);
     assert_eq!(e.live_only(s), 0, "a knob is in the song");
-    e.edit_param(s, Param::ArpOn, 1.0);
-    assert_eq!(e.live_only(s), LIVE_ARP);
-    e.edit_param(s, Param::ArpOn, 0.0);
-    assert_eq!(e.live_only(s), 0);
 }
 
 /// #375: a kit and a bass on their own synths, in a two-bar arrangement
