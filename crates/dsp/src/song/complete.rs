@@ -370,6 +370,7 @@ impl List<'_> {
         }
         self.adsr(model);
         self.pad_n(model);
+        self.shapes(model);
         self.params(Set::Track(model), true);
     }
 
@@ -379,6 +380,31 @@ impl List<'_> {
             self.add(Class::Param, "n", || {
                 "the pad each hit plays: n(irand(4))".to_string()
             });
+        }
+    }
+
+    /// A note's own pitch and filter envelopes (#744), where the track's
+    /// voices play them.
+    fn shapes(&mut self, model: Option<Model>) {
+        if model.is_some_and(|m| m.uses_drums() || m.uses_pads()) {
+            return;
+        }
+        let filter = model.is_none_or(|m| {
+            m.uses_mono_voice() || m.uses_la() || m.uses_sampler() || m.uses_graph() || m.uses_sid()
+        });
+        for (w, d) in [
+            ("penv", "each note starts n semitones off"),
+            ("pattack", "the pitch envelope's attack, seconds"),
+            ("pdecay", "the pitch envelope's decay, seconds"),
+            ("lpenv", "each note opens the filter n octaves"),
+            ("lpattack", "the filter envelope's attack, seconds"),
+            ("lpdecay", "the filter envelope's decay, seconds"),
+            ("lpsustain", "the filter envelope's sustain, 0 to 1"),
+            ("lprelease", "the filter envelope's release, seconds"),
+        ] {
+            if filter || w.starts_with('p') {
+                self.add(Class::Param, w, || d.to_string());
+            }
         }
     }
 
@@ -1460,7 +1486,18 @@ scene main 8: beat riff
             ["riff", "d"]
         );
         assert_eq!(song("clip c = lead .fa|"), ["fast"]);
-        assert_eq!(song("clip c = lead .lp|"), ["lpf", "lpq"]);
+        assert_eq!(
+            song("clip c = lead .lp|"),
+            [
+                "lpenv",
+                "lpattack",
+                "lpdecay",
+                "lpsustain",
+                "lprelease",
+                "lpf",
+                "lpq"
+            ]
+        );
         assert_eq!(song("clip c = lead .reso|"), ["resonance"]);
         // The effects in real units (#660): Strudel's names on a clip, ours
         // on the master line.

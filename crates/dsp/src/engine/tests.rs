@@ -7459,6 +7459,65 @@ fn a_clip_signal_sets_each_notes_length() {
     );
 }
 
+/// #744: `.penv(12) .pdecay(1)` starts each note an octave up and brings it
+/// down to its key over a second, on a Modular sine.
+#[test]
+fn a_pitch_envelope_bends_each_note_to_its_key() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 60\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, { |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.001, 0.1, 1, 0.1), gate) * 0.5\n  }).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead .penv(12) .pdecay(1)\n  \"a3\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..2 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    let (early, late) = (hz_at(&left, 0.0), hz_at(&left, 1.5));
+    assert!(
+        (late - 220.0).abs() < 220.0 * 0.03,
+        "on its key after the decay: {late}"
+    );
+    assert!(early > 220.0 * 1.6, "an octave up, coming down: {early}");
+}
+
+/// #744: `.lpenv(3)` opens a low cutoff at each note's start and closes it
+/// over the decay, the note brighter early than late.
+#[test]
+fn a_filter_envelope_opens_each_note() {
+    let brightness = |method: &str| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let text = format!(
+            "tempo 60\ntrack pad synth Juno106 JunoPad\nstrip pad: Send1 0, Send2 0\nclip a = pad .cutoff(300){method}\n  \"a2\"\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        // The edge in a window: how much the signal moves sample to sample.
+        let edge = |from: usize| -> f32 {
+            let x = left.get(from..from + 4_800).unwrap_or_default();
+            x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>()
+                / x.iter().map(|v| v.abs()).sum::<f32>().max(1e-9)
+        };
+        (edge(2_400), edge(36_000))
+    };
+    let (plain_early, plain_late) = brightness("");
+    let (env_early, env_late) = brightness(" .lpenv(3) .lpdecay(0.3)");
+    assert!(
+        env_early > plain_early * 1.5,
+        "opened: {env_early} vs {plain_early}"
+    );
+    assert!(
+        (env_late - plain_late).abs() < plain_late * 0.2,
+        "closed again: {env_late} vs {plain_late}"
+    );
+}
+
 /// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the
 /// pad Strudel's `irand(2)` gives at its moment, as Tidal's `n (irand 2)`.
 #[test]

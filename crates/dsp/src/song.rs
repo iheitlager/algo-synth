@@ -387,7 +387,89 @@ pub struct Clip {
     /// `.clip(perlin.range(0.2, 1))` (#740): each note's length times the
     /// value, read as it is pressed.
     pub len_by: Option<Signal>,
+    /// `.penv(12) .pdecay(0.05)`, `.lpenv("4 1")` (#744): a note's own pitch
+    /// and filter envelopes, each value read as the note is pressed.
+    pub shape_by: Vec<(ShapeKey, Signal)>,
 }
+
+/// A value of a note's own pitch or filter envelope (#744), as Strudel names
+/// it: its name, its unit and its range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShapeKey {
+    Penv,
+    Pattack,
+    Pdecay,
+    Lpenv,
+    Lpattack,
+    Lpdecay,
+    Lpsustain,
+    Lprelease,
+}
+
+impl ShapeKey {
+    pub const ALL: [ShapeKey; 8] = [
+        ShapeKey::Penv,
+        ShapeKey::Pattack,
+        ShapeKey::Pdecay,
+        ShapeKey::Lpenv,
+        ShapeKey::Lpattack,
+        ShapeKey::Lpdecay,
+        ShapeKey::Lpsustain,
+        ShapeKey::Lprelease,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ShapeKey::Penv => "penv",
+            ShapeKey::Pattack => "pattack",
+            ShapeKey::Pdecay => "pdecay",
+            ShapeKey::Lpenv => "lpenv",
+            ShapeKey::Lpattack => "lpattack",
+            ShapeKey::Lpdecay => "lpdecay",
+            ShapeKey::Lpsustain => "lpsustain",
+            ShapeKey::Lprelease => "lprelease",
+        }
+    }
+
+    pub fn by_name(name: &str) -> Option<ShapeKey> {
+        ShapeKey::ALL.into_iter().find(|k| k.name() == name)
+    }
+
+    /// The values it takes and what to say otherwise.
+    fn range(self) -> (f32, f32, &'static str) {
+        match self {
+            ShapeKey::Penv => (-48.0, 48.0, "penv takes semitones from -48 to 48"),
+            ShapeKey::Lpenv => (-8.0, 8.0, "lpenv takes octaves from -8 to 8"),
+            ShapeKey::Lpsustain => (0.0, 1.0, "a sustain is 0 to 1"),
+            _ => (0.0, 10.0, "an envelope time is 0 to 10 seconds"),
+        }
+    }
+
+    /// Whether it moves the filter, which fewer models' voices have.
+    fn filter(self) -> bool {
+        !matches!(self, ShapeKey::Penv | ShapeKey::Pattack | ShapeKey::Pdecay)
+    }
+
+    /// `value` into its place in `shape`, held to its range.
+    pub fn set(self, shape: &mut crate::poly::Shape, value: f32) {
+        let (lo, hi, _) = self.range();
+        let v = value.clamp(lo, hi);
+        match self {
+            ShapeKey::Penv => shape.penv = v,
+            ShapeKey::Pattack => shape.pattack = v,
+            ShapeKey::Pdecay => shape.pdecay = v,
+            ShapeKey::Lpenv => shape.lpenv = v,
+            ShapeKey::Lpattack => shape.lpattack = v,
+            ShapeKey::Lpdecay => shape.lpdecay = v,
+            ShapeKey::Lpsustain => shape.lpsustain = v,
+            ShapeKey::Lprelease => shape.lprelease = v,
+        }
+    }
+}
+
+/// The error of a note envelope's signal it can't read per note (#744).
+const SHAPE_SIGNAL: &str =
+    "a note's envelope reads a signal of the bar per note: not env, lfo, a list, lag or onNote";
 
 /// The error of a signal `slice` or `n` can't read per hit (#730).
 const PICK_SIGNAL: &str =
@@ -1807,6 +1889,7 @@ impl Song {
                         pad_by: None,
                         vel_by: None,
                         len_by: None,
+                        shape_by: Vec::new(),
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1840,6 +1923,67 @@ impl Song {
                                         ));
                                     }
                                     clip.bend = Some((name == "sub", signal));
+                                }
+                                continue;
+                            }
+                            // `.penv(12)`, `.lpenv("4 1")` and their times: a note's own
+                            // pitch and filter envelopes, read as it is pressed (#744).
+                            // A knob of the name keeps it.
+                            let shape = ShapeKey::by_name(name).filter(|_| {
+                                !knobbed(&song, Target::Track(t)).is_some_and(|st| {
+                                    st.knobs.iter().any(|k| k.eq_ignore_ascii_case(name))
+                                })
+                            });
+                            if let Some(key) = shape {
+                                let pcol = at + scol - 1;
+                                let mcol = at + ncol - 1;
+                                let signal = Signal::parse(sig, &mut nodes)
+                                    .map_err(|(c, m)| err(pcol + c - 1, m))?;
+                                if !signal.of_the_bar() {
+                                    return Err(err(pcol, SHAPE_SIGNAL));
+                                }
+                                let (lo, hi, why) = key.range();
+                                if signal
+                                    .plain_numbers()
+                                    .is_some_and(|ns| ns.iter().any(|v| !(lo..=hi).contains(v)))
+                                {
+                                    return Err(err(pcol, why));
+                                }
+                                if kind == Some(Kind::Drums) || from_lanes {
+                                    return Err(err(
+                                        mcol,
+                                        "a note's envelope is for a clip of notes",
+                                    ));
+                                }
+                                let model = track_model(&song.tracks, &models, t);
+                                if key.filter()
+                                    && model.is_some_and(|m| {
+                                        !(m.uses_mono_voice()
+                                            || m.uses_la()
+                                            || m.uses_sampler()
+                                            || m.uses_graph()
+                                            || m.uses_sid())
+                                    })
+                                {
+                                    return Err(err(
+                                        mcol,
+                                        "a note's filter envelope needs a voice's own filter: a Mono or Poly synth, the D-50, the Sampler, SID or Modular",
+                                    ));
+                                }
+                                if model.is_some_and(|m| m.uses_drums() || m.uses_pads()) {
+                                    return Err(err(
+                                        mcol,
+                                        "a note's envelope is for a pitched synth",
+                                    ));
+                                }
+                                if let Some(clip) = song.clips.get_mut(f) {
+                                    if clip.shape_by.iter().any(|(k, _)| *k == key) {
+                                        return Err(err(
+                                            mcol,
+                                            "a clip takes each envelope value once",
+                                        ));
+                                    }
+                                    clip.shape_by.push((key, signal));
                                 }
                                 continue;
                             }
@@ -3848,6 +3992,13 @@ impl Song {
                     .get(f)
                     .and_then(|c| c.len_by.as_ref())
                     .map(|s| format!(" .clip({s})")),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .map_or(&[][..], |c| c.shape_by.as_slice())
+                    .iter()
+                    .map(|(k, s)| format!(" .{}({s})", k.name())),
             );
         let mine: Vec<&Mod> = self.mods.iter().filter(|m| m.clip == Some(f)).collect();
         let adsr = |m: &&Mod| m.alias == Some("adsr");

@@ -65,7 +65,7 @@ clip beat = kit /16
   sn ....x.......X3..
   ch x2.x.x4.x3.x.o2.x.
   cl euclid(7,16,2)
-clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\")
+clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\") .penv(\"<0 12>\") .pdecay(0.05) .lpenv(perlin.range(0, 3))
   \"[e3,g#3,b3] [f3,a3,c4]\"
 clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random:2,16,3)

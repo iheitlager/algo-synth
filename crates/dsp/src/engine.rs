@@ -1074,6 +1074,30 @@ impl Engine {
                 pool.play(self.note_count, &hit.play);
             }
         }
+        if let Some(shape) = hit.from.and_then(|(f, j)| self.note_shape(f, j)) {
+            if let Some(pool) = synth.and_then(|s| self.pools.get_mut(s)) {
+                pool.shape(self.note_count, shape);
+            }
+        }
+    }
+
+    /// The pitch and filter envelopes of a note of clip `f` pressed at song
+    /// tick `j`, read from the clip's `.penv`, `.lpenv` and their times
+    /// there (#744); `None` without any. Nothing allocates.
+    fn note_shape(&self, f: usize, j: u64) -> Option<crate::poly::Shape> {
+        let by = &self.song.clips.get(f)?.shape_by;
+        if by.is_empty() {
+            return None;
+        }
+        let t = j as f64 / TICKS_PER_STEP as f64 / STEPS_PER_BAR as f64;
+        let mut shape = crate::poly::Shape::PLAIN;
+        for (key, signal) in by {
+            let v = signal.sample(t);
+            if v.is_finite() {
+                key.set(&mut shape, v as f32);
+            }
+        }
+        Some(shape)
     }
 
     /// The cents event `ev` of clip `f` plays off its key at song tick `j`:

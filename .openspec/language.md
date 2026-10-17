@@ -1015,6 +1015,31 @@ clip a = kit .delay(0.5) .delaytime(0.375) .delayfeedback(0.4) .room(0.3) .rooms
   bd x...x...x...x...
 ```
 
+**A note's own envelopes** (#744), as Strudel's: on a clip of notes, each
+note takes these as it is pressed, a number, a sequence or a signal of the
+bar, so `.penv("<12 24>")` sweeps alternate bars differently.
+
+| method | does |
+|---|---|
+| `.penv(n)` | each note starts n semitones off (−48 to 48) and goes to its key over `.pdecay` |
+| `.pattack(s)` `.pdecay(s)` | the pitch envelope: off over the attack (0 by default), back over the decay (0.1 s) |
+| `.lpenv(n)` | each note opens the filter n octaves (−8 to 8) over its own envelope |
+| `.lpattack(s)` `.lpdecay(s)` `.lpsustain(x)` `.lprelease(s)` | the filter envelope, Strudel's defaults 0.005, 0.14, 0 and 0.1 |
+
+The pitch envelope plays on every pitched model; the filter's needs a voice
+with its own filter, on a Mono or Poly synth, the D-50, the Sampler, SID or
+Modular, and is an error on another. Not on a drum clip; a Modular knob of
+the name keeps it. Each value is moved once a block, 128 samples.
+
+```song
+track tom synth Sh101
+clip toms = tom .penv("<12 24>") .pdecay(0.08)
+  "c2 ~ g1 c2"
+track bass synth Juno106
+clip pluck = bass .cutoff(300) .lpenv("4 1 2 6") .lpdecay(0.1)
+  "c2*4"
+```
+
 `.adsr("a:d:s:r")` on a clip is Strudel's envelope in one method (#677). It
 splits at the colons into `.attack`, `.decay`, `.sustain` and `.release`, each
 a parameter method of its own, held per note (ADR-0038) and counted toward 32:

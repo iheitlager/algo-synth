@@ -226,6 +226,7 @@ fn random_song(r: &mut Rng) -> Song {
                 pad_by: None,
                 vel_by: None,
                 len_by: None,
+                shape_by: Vec::new(),
             });
             continue;
         }
@@ -259,6 +260,7 @@ fn random_song(r: &mut Rng) -> Song {
             pad_by: None,
             vel_by: None,
             len_by: None,
+            shape_by: Vec::new(),
         });
     }
     song
@@ -3287,6 +3289,68 @@ fn bar_level_control_on_clips() {
         assert!(printed.contains(line), "{printed}");
     }
     assert_eq!(Song::parse(&printed).expect("parses back"), s);
+}
+
+/// #744: a note's pitch and filter envelopes on a clip, printed back as
+/// written, and refused where no voice could play them.
+#[test]
+fn note_envelopes_parse_and_print_back() {
+    let text = "track lead synth Sh101\nclip a = lead .penv(\"<12 24>\") .pdecay(0.08) .lpenv(perlin.range(0, 4)) .lpsustain(0.2)\n  \"c2 ~ g1 c2\"\n";
+    let s = Song::parse(text).expect("parses");
+    let keys: Vec<ShapeKey> = s.clips[0].shape_by.iter().map(|(k, _)| *k).collect();
+    assert_eq!(
+        keys,
+        [
+            ShapeKey::Penv,
+            ShapeKey::Pdecay,
+            ShapeKey::Lpenv,
+            ShapeKey::Lpsustain
+        ]
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = lead .penv(\"<12 24>\") .pdecay(0.08) .lpenv(perlin.range(0, 4)) .lpsustain(0.2)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    // The DX7 bends its pitch, but has no filter of its own.
+    assert!(Song::parse("track k synth Dx7\nclip a = k .penv(7)\n  \"c4\"\n").is_ok());
+    for (text, msg) in [
+        (
+            "track k synth Dx7\nclip a = k .lpenv(2)\n  \"c4\"\n",
+            "a note's filter envelope needs a voice's own filter: a Mono or Poly synth, the D-50, the Sampler, SID or Modular",
+        ),
+        (
+            "track l synth\nclip a = l .penv(49)\n  \"c4\"\n",
+            "penv takes semitones from -48 to 48",
+        ),
+        (
+            "track l synth\nclip a = l .lpenv(9)\n  \"c4\"\n",
+            "lpenv takes octaves from -8 to 8",
+        ),
+        (
+            "track l synth\nclip a = l .pdecay(\"0.1 11\")\n  \"c4\"\n",
+            "an envelope time is 0 to 10 seconds",
+        ),
+        (
+            "track l synth\nclip a = l .lpsustain(2)\n  \"c4\"\n",
+            "a sustain is 0 to 1",
+        ),
+        (
+            "track l synth\nclip a = l .penv(env(perc))\n  \"c4\"\n",
+            "a note's envelope reads a signal of the bar per note: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "track l synth\nclip a = l .penv(1) .penv(2)\n  \"c4\"\n",
+            "a clip takes each envelope value once",
+        ),
+        (
+            "track k drums\nclip a = k .penv(12)\n  bd x...\n",
+            "a note's envelope is for a clip of notes",
+        ),
+    ] {
+        assert_eq!(Song::parse(text).expect_err(text).msg, msg, "{text}");
+    }
 }
 
 /// #696: Strudel's arp, the line's own chords by index.

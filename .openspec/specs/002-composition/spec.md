@@ -587,3 +587,22 @@ A note line SHALL be a signal when it starts with a signal's source (#620): read
 
 **Tests:** `crates/dsp/src/engine/tests.rs::a_slice_by_a_signal_picks_a_part_per_hit`, `crates/dsp/src/engine/tests.rs::n_by_a_signal_picks_a_pad_per_hit`, `crates/dsp/src/song/tests.rs::slice_and_n_take_a_signal_per_hit`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`
 
+### Requirement 22: A note's own envelopes [SHOULD]
+
+On a clip of notes, `.penv(semitones)` with `.pattack(s)` and `.pdecay(s)`, and `.lpenv(octaves)` with `.lpattack(s)`, `.lpdecay(s)`, `.lpsustain(level)` and `.lprelease(s)`, SHALL give each note its own pitch and filter envelope, as Strudel's (#744). Each SHALL take a number, a sequence or a signal of the bar, read as the note is pressed, so notes of one clip sweep differently. The pitch SHALL go `penv` off over the attack (default 0) and back to the note over the decay (default 0.1 s); the cutoff SHALL rise `lpenv` octaves over the attack, fall to the sustain and, once the key is up, close over the release (defaults 0.005, 0.14, 0 and 0.1, Strudel's). The pool SHALL keep a note's envelopes in its voice slot and add them to the voice's pitch and cutoff trim once a block (ADR-0039), so every model that reads the trim plays the pitch envelope and the Mono and Poly synths, the D-50, the Sampler, SID and Modular the filter's; `render` SHALL NOT allocate. A value out of range (penv −48 to 48, lpenv −8 to 8, a time 0 to 10 s, a sustain 0 to 1), a signal of a voice or the clock, a value written twice, an envelope on a drum clip or a drum machine, or a filter envelope on a model whose voices have no filter of their own SHALL be a parse error with a line and a column. A Modular knob of the same name SHALL keep it.
+
+**Implementation:** `crates/dsp/src/poly.rs::Shape`, `crates/dsp/src/engine.rs::Engine::note_shape`, `crates/dsp/src/song.rs::ShapeKey`
+
+#### Scenario: a zap
+
+- GIVEN a sine voice and `clip a = lead .penv(12) .pdecay(1)` over `"a3"`
+- WHEN the song plays
+- THEN the note starts an octave up and lands on 220 Hz after a second
+
+#### Scenario: a pluck
+
+- GIVEN a Juno pad with its cutoff at 300 and `.lpenv(3) .lpdecay(0.3)`
+- WHEN a note plays
+- THEN it is brighter at its start than without, and as dark a second in
+
+**Tests:** `crates/dsp/src/poly.rs::tests::a_shape_bends_pitch_and_cutoff_over_the_note`, `crates/dsp/src/engine/tests.rs::a_pitch_envelope_bends_each_note_to_its_key`, `crates/dsp/src/engine/tests.rs::a_filter_envelope_opens_each_note`, `crates/dsp/src/song/tests.rs::note_envelopes_parse_and_print_back`, `crates/dsp/tests/render_no_alloc.rs::a_busy_song_renders_without_allocating`

@@ -270,6 +270,86 @@ struct Slot {
     /// Frames since its note began, and since its key was let go (ADR-0023).
     since: u32,
     released: Option<u32>,
+    /// Its note's own pitch and filter envelopes (#744).
+    shape: Shape,
+}
+
+/// A note's own pitch and filter envelopes, as Strudel's `penv` and `lpenv`
+/// (#744): depths in semitones and octaves, times in seconds. Set when the
+/// note is pressed, and added to its voices' pitch and cutoff trim each
+/// block, so every model that reads the trim plays them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Shape {
+    pub penv: f32,
+    pub pattack: f32,
+    pub pdecay: f32,
+    pub lpenv: f32,
+    pub lpattack: f32,
+    pub lpdecay: f32,
+    pub lpsustain: f32,
+    pub lprelease: f32,
+}
+
+impl Shape {
+    /// No envelope, its times what a depth alone gets: a pitch that lands
+    /// on its note in 0.1 s, and Strudel's filter envelope.
+    pub const PLAIN: Shape = Shape {
+        penv: 0.0,
+        pattack: 0.0,
+        pdecay: 0.1,
+        lpenv: 0.0,
+        lpattack: 0.005,
+        lpdecay: 0.14,
+        lpsustain: 0.0,
+        lprelease: 0.1,
+    };
+
+    /// Semitones of pitch and of cutoff `since` seconds into the note, its
+    /// key up for the last `released` seconds. The pitch goes `penv` off
+    /// over the attack and back to the note over the decay, so with no
+    /// attack it starts there; the cutoff's envelope rises, falls to its
+    /// sustain and, once the key is up, to nothing over the release.
+    pub fn at(&self, since: f32, released: Option<f32>) -> (f32, f32) {
+        let pitch = if self.penv == 0.0 {
+            0.0
+        } else {
+            self.penv * ads(since, self.pattack, self.pdecay, 0.0)
+        };
+        let cut = if self.lpenv == 0.0 {
+            0.0
+        } else {
+            let level = match released {
+                None => ads(since, self.lpattack, self.lpdecay, self.lpsustain),
+                Some(r) => {
+                    let held = ads(
+                        (since - r).max(0.0),
+                        self.lpattack,
+                        self.lpdecay,
+                        self.lpsustain,
+                    );
+                    if self.lprelease > 0.0 {
+                        held * (1.0 - r / self.lprelease).max(0.0)
+                    } else {
+                        0.0
+                    }
+                }
+            };
+            12.0 * self.lpenv * level
+        };
+        (pitch, cut)
+    }
+}
+
+/// An attack-decay-sustain level, 0 to 1, `t` seconds in: up over `a`, down
+/// to `s` over `d`, then `s`.
+fn ads(t: f32, a: f32, d: f32, s: f32) -> f32 {
+    if t < a {
+        t / a
+    } else if t < a + d {
+        1.0 - (1.0 - s) * (t - a) / d
+    } else {
+        s
+    }
 }
 
 /// A number in −1..=1 that depends only on `i` and `salt`: a voice's own, repeatable offset.
@@ -407,6 +487,17 @@ impl Pool {
                 s.fine = cents;
                 s.pan = pan;
                 s.gains = gains;
+                s.shape = Shape::default();
+            }
+        }
+    }
+
+    /// The note numbered `clock` bends its pitch and cutoff as `shape` says
+    /// (#744): `place` it first.
+    pub fn shape(&mut self, clock: u64, shape: Shape) {
+        for s in &mut self.slots {
+            if s.owner.is_some() && s.age == clock {
+                s.shape = shape;
             }
         }
     }
@@ -996,6 +1087,7 @@ impl Pool {
     /// drift too; a drum machine's pads are left alone.
     fn retrim(&mut self, p: &MonoParams, poly: bool) {
         let osc = p.osc();
+        let sr = p.sample_rate().max(1.0);
         for (i, (v, s)) in self.voices.iter_mut().zip(self.slots.iter()).enumerate() {
             if p.model.uses_drums() {
                 v.set_trim(0.0, 0.0);
@@ -1013,7 +1105,11 @@ impl Pool {
                 let own = unit(i, 1) * ANALOG_CENTS * osc.detune + *d * osc.drift;
                 trim += (unison + own * p.analog) / 100.0;
             }
-            v.set_trim(trim, unit(i, 2) * ANALOG_CUTOFF * p.analog);
+            // A note's own envelopes (#744), in semitones.
+            let (bend, open) = s
+                .shape
+                .at(s.since as f32 / sr, s.released.map(|r| r as f32 / sr));
+            v.set_trim(trim + bend, unit(i, 2) * ANALOG_CUTOFF * p.analog + open);
         }
     }
 
@@ -1478,5 +1574,47 @@ mod tests {
         let out = r.run(80);
         assert!(out.iter().all(|s| s.is_finite() && s.abs() < 16.0));
         assert_eq!(r.pool.active(), MAX_VOICES);
+    }
+
+    /// #744: a note's pitch envelope starts `penv` off and lands on its note
+    /// over the decay; its filter envelope rises, falls to its sustain and
+    /// goes over the release.
+    #[test]
+    fn a_shape_bends_pitch_and_cutoff_over_the_note() {
+        let zap = Shape {
+            penv: 12.0,
+            pdecay: 0.05,
+            ..Shape::PLAIN
+        };
+        assert_eq!(zap.at(0.0, None).0, 12.0);
+        assert!((zap.at(0.025, None).0 - 6.0).abs() < 1e-4);
+        assert_eq!(zap.at(0.06, None).0, 0.0);
+        let rise = Shape {
+            penv: -7.0,
+            pattack: 0.1,
+            pdecay: 0.1,
+            ..Shape::PLAIN
+        };
+        assert!(
+            (rise.at(0.05, None).0 + 3.5).abs() < 1e-4,
+            "half way down over the attack"
+        );
+        let wah = Shape {
+            lpenv: 2.0,
+            lpattack: 0.0,
+            lpdecay: 0.1,
+            lpsustain: 0.5,
+            lprelease: 0.2,
+            ..Shape::PLAIN
+        };
+        assert_eq!(wah.at(0.0, None).1, 24.0, "two octaves open at once");
+        assert!((wah.at(0.5, None).1 - 12.0).abs() < 1e-4, "the sustain");
+        assert!(
+            (wah.at(0.6, Some(0.1)).1 - 6.0).abs() < 1e-4,
+            "half way through the release"
+        );
+        assert_eq!(wah.at(1.0, Some(0.3)).1, 0.0);
+        assert_eq!(Shape::default().at(0.3, None), (0.0, 0.0), "no envelope");
+        assert!(Shape::PLAIN.at(0.0, None) == (0.0, 0.0));
     }
 }
