@@ -186,6 +186,9 @@ pub enum Gen {
         start: u8,
         steps: u32,
         seed: u32,
+        /// `walk(c4,8,3,chords)` (#617): the clip whose chords it lands on,
+        /// its events and bars.
+        over: Option<(String, Vec<Event>, u32)>,
     },
     Markov {
         order: u8,
@@ -270,7 +273,11 @@ impl Gen {
     /// Bars before the events repeat.
     pub fn bars(&self) -> u32 {
         match self {
-            Gen::Walk { .. } => 1,
+            Gen::Walk { over: None, .. } => 1,
+            Gen::Walk {
+                over: Some((_, _, bars)),
+                ..
+            } => *bars,
             Gen::Arp { bars, .. }
             | Gen::Markov { bars, .. }
             | Gen::Mutate { bars, .. }
@@ -300,9 +307,17 @@ impl Gen {
                 let mode = mode_text(*mode, *octaves);
                 format!("arp([{}],{mode},{rate}{seed})", ps.join(","))
             }
-            Gen::Walk { start, steps, seed } => {
-                format!("walk({},{steps},{seed})", super::note_name(*start))
-            }
+            Gen::Walk {
+                start,
+                steps,
+                seed,
+                over,
+            } => match over {
+                None => format!("walk({},{steps},{seed})", super::note_name(*start)),
+                Some((from, _, _)) => {
+                    format!("walk({},{steps},{seed},{from})", super::note_name(*start))
+                }
+            },
             Gen::Markov {
                 order, from, seed, ..
             } => format!("markov({order},{from},{seed})"),
@@ -394,7 +409,9 @@ impl Gen {
     pub fn max_events(&self) -> usize {
         match self {
             Gen::Arp { rate, bars, .. } => usize::from(*rate) * *bars as usize,
-            Gen::Walk { .. } => MAX_WALK as usize,
+            Gen::Walk { over, .. } => {
+                MAX_WALK as usize * over.as_ref().map_or(1, |(_, _, b)| *b as usize)
+            }
             // Over chords, any chord may land on any of the source's slots.
             Gen::Markov { src, .. } => {
                 let mut starts = [0u16; MAX_EVENTS + 1];
@@ -448,7 +465,22 @@ impl Gen {
                 bars,
                 ..
             } => arp(chord, (*mode, *octaves), *rate, *bars, seed, out),
-            Gen::Walk { start, steps, .. } => walk(*start, *steps, seed, scale, out),
+            Gen::Walk {
+                start,
+                steps,
+                over: None,
+                ..
+            } => walk(*start, *steps, seed, scale, out),
+            Gen::Walk {
+                start,
+                steps,
+                over: Some((_, src, bars)),
+                ..
+            } => {
+                if let Some(scale) = scale {
+                    walk_over(*start, *steps, seed, scale, src, *bars, out);
+                }
+            }
             Gen::Markov { order, src, .. } => markov(*order, src, seed, out),
             Gen::Mutate { amount, src, .. } => mutate(*amount, src, seed, scale, out),
             Gen::ArpProg {
@@ -588,6 +620,98 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             fit: 0,
             play: crate::notes::Play::SAME,
         });
+    }
+}
+
+/// The degree of `scale` counted from its root's pitch class that `note`
+/// is, or is nearest.
+fn degree_of(scale: &Scale, note: u8) -> i32 {
+    let iv = scale.mode.intervals();
+    let len = i32::try_from(iv.len()).unwrap_or(1).max(1);
+    let rel = i32::from(scale.snap(note)) - i32::from(scale.root);
+    let (oct, pc) = (rel.div_euclid(12), rel.rem_euclid(12));
+    let idx = iv.iter().position(|i| i32::from(*i) == pc).unwrap_or(0);
+    oct * len + i32::try_from(idx).unwrap_or(0)
+}
+
+/// A walk that lands on the chords of `src` (#617): on each quarter, the
+/// chord note there nearest a step or two on from the last, within an
+/// octave of `start`; between quarters, at most a scale step toward the
+/// next one. `bars` bars of `steps` notes, seeded by the bar.
+fn walk_over(
+    start: u8,
+    steps: u32,
+    seed: u32,
+    scale: &Scale,
+    src: &[Event],
+    bars: u32,
+    out: &mut Vec<Event>,
+) {
+    let steps = steps.clamp(1, MAX_WALK);
+    let bars = bars.max(1);
+    let span = bars * TICKS_PER_BAR;
+    let (lo, hi) = (start.saturating_sub(12), start.saturating_add(12).min(127));
+    // The chord note sounding at `t` nearest `near`, in range.
+    let tone = |t: u32, near: i32| -> Option<u8> {
+        let mut buf = [0u8; MAX_CHORD];
+        let n = chord_at(src, t % span, &mut buf)
+            .or_else(|| chord_at(src, u32::MAX, &mut buf))
+            .map_or(0, |(_, n)| n);
+        let chord = buf.get(..n).filter(|c| !c.is_empty())?;
+        (lo..=hi)
+            .filter(|m| chord.iter().any(|c| c % 12 == m % 12))
+            .min_by_key(|m| ((i32::from(*m) - near).abs(), *m))
+    };
+    let at_degree = |d: i32| scale.degree_note(scale.root, d);
+    let beats = bars * 4;
+    let mut r = rng(seed, 0x617);
+    // Each quarter's target, in turn.
+    let mut targets = [0u8; 4 * super::MAX_BARS as usize];
+    let mut last = i32::from(scale.snap(start));
+    for (k, slot) in (0..beats).zip(targets.iter_mut()) {
+        let moved = degree_of(scale, u8::try_from(last.clamp(0, 127)).unwrap_or(60))
+            + i32::try_from(r.next_u32() % 5).unwrap_or(2)
+            - 2;
+        let near = i32::from(at_degree(moved));
+        let t =
+            tone(k * BEAT, near).unwrap_or_else(|| u8::try_from(last.clamp(0, 127)).unwrap_or(60));
+        *slot = t;
+        last = i32::from(t);
+    }
+    let mut cur = targets.first().copied().unwrap_or(start);
+    for b in 0..bars {
+        for i in 0..steps {
+            let a = b * TICKS_PER_BAR + i * TICKS_PER_BAR / steps;
+            let end = b * TICKS_PER_BAR + (i + 1) * TICKS_PER_BAR / steps;
+            let on_beat = (i * TICKS_PER_BAR) % steps == 0 && a % BEAT == 0;
+            if on_beat {
+                cur = targets.get((a / BEAT) as usize).copied().unwrap_or(cur);
+            } else {
+                // A step toward the next quarter's target, round the walk.
+                let next = targets
+                    .get(((a / BEAT + 1) % beats) as usize)
+                    .copied()
+                    .unwrap_or(cur);
+                let (here, there) = (degree_of(scale, cur), degree_of(scale, next));
+                cur = at_degree(here + (there - here).signum());
+            }
+            out.push(Event {
+                start: a,
+                len: (end - a).max(1),
+                note: cur,
+                accent: false,
+                vel: 0,
+                word: 0,
+                degree: false,
+                when: Default::default(),
+                nudge: 0,
+                cents: 0,
+                pan: 0,
+                region: crate::notes::Region::WHOLE,
+                fit: 0,
+                play: crate::notes::Play::SAME,
+            });
+        }
     }
 }
 
@@ -1676,7 +1800,7 @@ pub(super) fn parse_call(
             }
         }
         "walk" => {
-            want(&[3], crate::usage::WALK)?;
+            want(&[3, 4], crate::usage::WALK)?;
             if scale.is_none() {
                 return err(cur.base + at, "a walk needs a scale line before it");
             }
@@ -1685,10 +1809,20 @@ pub(super) fn parse_call(
             if steps == 0 {
                 return err(cur.base + arg(1).0, "a walk is 1 to 32 notes");
             }
+            let over = if list.len() == 4 {
+                let (from, (src, bars)) = source(cur, arg(3), srcs)?;
+                if src.is_empty() {
+                    return err(cur.base + arg(3).0, "this clip has no chords to land on");
+                }
+                Some((from, src, bars))
+            } else {
+                None
+            };
             Gen::Walk {
                 start,
                 steps,
                 seed: seed_at(2)?,
+                over,
             }
         }
         "markov" => {

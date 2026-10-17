@@ -70,7 +70,7 @@ clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\") .penv
 clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random:2,16,3)
 clip roam = bass live .scale(hold minor) .sub(12)
-  walk(e2,16,5)
+  walk(e2,16,5,hold)
 clip drift = pad live .scale(hold auto)
   markov(1,hold,2)
 clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5)) .tremolo(6) .vowel(\"<a [e o]>\") .fshift(sine.range(-200, 200))

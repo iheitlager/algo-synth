@@ -4,7 +4,7 @@
 //! and so does the editor's argument help, so the two never differ.
 
 pub const ARP: &str = "arp takes a chord, a mode (up:2 for two octaves), a rate and for random a seed: arp([c4,e4,g4],up,16)";
-pub const WALK: &str = "walk takes a start note, a count and a seed: walk(c4,8,1)";
+pub const WALK: &str = "walk takes a start note, a count, a seed and maybe a clip of chords: walk(c4,8,1) or walk(c4,8,1,chords)";
 pub const MARKOV: &str = "markov takes an order, a clip and a seed: markov(1,riff,3)";
 pub const MUTATE: &str = "mutate takes a clip, a percent and a seed: mutate(riff,30,5)";
 pub const ROOT: &str = "root takes a clip and maybe an octave: root(prog) or root(prog,3)";

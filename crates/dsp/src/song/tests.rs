@@ -3485,6 +3485,97 @@ fn connect_walks_the_songs_or_the_clips_scale() {
     );
 }
 
+/// #617: a walk over a clip's chords lands on a chord note every quarter
+/// and moves at most a scale step between, in phase with the chords.
+#[test]
+fn a_walk_lands_on_the_chords_notes() {
+    let text = "scale c minor\ntrack pad synth\ntrack lead synth\nclip chords = pad voicing\n  prog(4,7)\nclip line = lead\n  walk(c4,8,3,chords)\nclip free = lead\n  walk(c4,8,3)\n";
+    let s = Song::parse(text).expect("parses");
+    let chords = s.clips[0].notes.as_ref().expect("chords");
+    let line = s.clips[1].notes.as_ref().expect("line");
+    assert_eq!(line.bars, chords.bars, "as long as its chords");
+    let scale = s.scale.expect("a scale");
+    let degree = |n: u8| {
+        let iv = scale.mode.intervals();
+        let rel = i32::from(n) - i32::from(scale.root);
+        let idx = iv
+            .iter()
+            .position(|i| i32::from(*i) == rel.rem_euclid(12))
+            .expect("on the scale") as i32;
+        rel.div_euclid(12) * iv.len() as i32 + idx
+    };
+    let sounding = |t: u32| -> Vec<u8> {
+        let at = chords
+            .events
+            .iter()
+            .map(|e| e.start)
+            .filter(|st| *st <= t)
+            .max()
+            .unwrap_or(0);
+        chords
+            .events
+            .iter()
+            .filter(|e| e.start == at)
+            .map(|e| e.note % 12)
+            .collect()
+    };
+    let mut prev: Option<i32> = None;
+    for e in &line.events {
+        if e.start % 12 == 0 {
+            assert!(
+                sounding(e.start).contains(&(e.note % 12)),
+                "beat {} plays {} over {:?}",
+                e.start,
+                e.note,
+                sounding(e.start)
+            );
+        } else if let Some(p) = prev {
+            assert!(
+                (degree(e.note) - p).abs() <= 1,
+                "at {} a leap from degree {p} to {}",
+                e.start,
+                degree(e.note)
+            );
+        }
+        prev = Some(degree(e.note));
+    }
+    assert!(
+        line.events
+            .iter()
+            .map(|e| e.note)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            > 3,
+        "it moves"
+    );
+    // Without a clip, as before: one bar.
+    let free = s.clips[2].notes.as_ref().expect("free");
+    assert_eq!(free.bars, 1);
+    let printed = s.print();
+    assert!(printed.contains("  walk(c4,8,3,chords)"), "{printed}");
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        (
+            "walk(c4,8,3,nope)",
+            "no note clip with this name comes before this one",
+        ),
+        (
+            "walk(c4,8,3,line)",
+            "no note clip with this name comes before this one",
+        ),
+    ] {
+        let text = format!("scale c minor\ntrack lead synth\nclip line = lead\n  {bad}\n");
+        let err = Song::parse(&text).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+    // Live, it follows the chords each bar.
+    let live = Song::parse("scale c minor\ntrack pad synth\ntrack lead synth\nclip chords = pad voicing\n  prog(4,7)\nclip sand = lead live\n  walk(c4,8,3,chords)\n").expect("live");
+    assert!(
+        live.print()
+            .contains("clip sand = lead live\n  walk(c4,8,3,chords)")
+    );
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {
