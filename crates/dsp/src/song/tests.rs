@@ -3576,6 +3576,24 @@ fn a_walk_lands_on_the_chords_notes() {
     );
 }
 
+/// #619: an evolving mutate goes on a live clip and prints back.
+#[test]
+fn an_evolving_mutate_is_for_a_live_clip() {
+    let text = "scale a minor\ntrack lead synth\nclip riff = lead\n  \"a3 c4 e4 g4 a4 g4 e4 c4\"\nclip drift = lead live\n  mutate(riff,10,5,evolve)\n";
+    let s = Song::parse(text).expect("parses");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip drift = lead live\n  mutate(riff,10,5,evolve)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse(&text.replace("lead live", "lead")).expect_err("not live");
+    assert_eq!(
+        err.msg,
+        "evolve changes each bar from the one before: it goes on a live clip"
+    );
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {

@@ -6,7 +6,7 @@
 pub const ARP: &str = "arp takes a chord, a mode (up:2 for two octaves), a rate and for random a seed: arp([c4,e4,g4],up,16)";
 pub const WALK: &str = "walk takes a start note, a count, a seed and maybe a clip of chords: walk(c4,8,1) or walk(c4,8,1,chords)";
 pub const MARKOV: &str = "markov takes an order, a clip and a seed: markov(1,riff,3)";
-pub const MUTATE: &str = "mutate takes a clip, a percent and a seed: mutate(riff,30,5)";
+pub const MUTATE: &str = "mutate takes a clip, a percent, a seed and maybe evolve: mutate(riff,30,5) or mutate(riff,10,5,evolve)";
 pub const ROOT: &str = "root takes a clip and maybe an octave: root(prog) or root(prog,3)";
 pub const BASS: &str = "bass takes a clip, a style, maybe an octave and for walk a seed: bass(prog,fifths) or bass(prog,walk,2,5)";
 pub const PROG: &str = "prog takes a number of bars, a seed and maybe a size, beats, a style and colours: prog(4,7) or prog(4,7,7th,\"4 2 2\",jazz,borrow secondary)";

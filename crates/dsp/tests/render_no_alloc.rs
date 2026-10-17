@@ -73,6 +73,8 @@ clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5,hold)
 clip drift = pad live .scale(hold auto)
   markov(1,hold,2)
+clip wander = famicom live
+  mutate(hold,20,4,evolve)
 clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5)) .tremolo(6) .vowel(\"<a [e o]>\") .fshift(sine.range(-200, 200))
   \"[e4,b4] ~ g#4 ~\"
 clip zap = buzzer .swing(66) .nudge(1)
@@ -120,7 +122,7 @@ mod bell.detune = sine.range(-20, 20)
 mod lead.humanize = 12
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam drift zap ring arps chirp tune nbeat calc vbeat chops cuts picks fade pan sweep [open]
+scene a 2: beat hold sand roam drift wander zap ring arps chirp tune nbeat calc vbeat chops cuts picks fade pan sweep [open]
 scene b 1: beat sand roam drift zap arps chirp tune nbeat calc vbeat slices [solo]
 arrange a b a b
 ";

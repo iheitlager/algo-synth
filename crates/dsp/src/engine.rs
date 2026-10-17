@@ -2447,14 +2447,27 @@ impl Engine {
             if live.next == Some(cycle) {
                 std::mem::swap(&mut live.cur, &mut live.nxt);
             } else {
-                call.events_into(cycle_seed(call.seed(), cycle), scale, &mut live.cur);
+                if call.evolves() {
+                    call.evolve_into(cycle, |c| cycle_seed(call.seed(), c), scale, &mut live.cur);
+                } else {
+                    call.events_into(cycle_seed(call.seed(), cycle), scale, &mut live.cur);
+                }
                 pattern::pitch_all(methods, &mut live.cur, cycle * span);
             }
             live.cycle = Some(cycle);
             live.next = None;
         }
         if local > 0 && live.next != Some(cycle + 1) {
-            call.events_into(cycle_seed(call.seed(), cycle + 1), scale, &mut live.nxt);
+            if call.evolves() {
+                call.evolve_into(
+                    cycle + 1,
+                    |c| cycle_seed(call.seed(), c),
+                    scale,
+                    &mut live.nxt,
+                );
+            } else {
+                call.events_into(cycle_seed(call.seed(), cycle + 1), scale, &mut live.nxt);
+            }
             pattern::pitch_all(methods, &mut live.nxt, (cycle + 1) * span);
             live.next = Some(cycle + 1);
         }

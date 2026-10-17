@@ -650,6 +650,52 @@ fn mutate_changes_about_the_amount() {
     assert_eq!(all, with_riff("mutate(riff,100,1)").unwrap());
 }
 
+/// #619: an evolving mutate changes the bar before, not the source: bars
+/// drift further on, the same whenever worked out, back to the source every
+/// 64 bars, and still the source at 0 percent.
+#[test]
+fn an_evolving_mutate_drifts_from_its_source() {
+    let n = with_riff("mutate(riff,10,5,evolve)").unwrap();
+    let Seq::Generated(call) = &n.seq else {
+        panic!("a call");
+    };
+    assert!(call.evolves());
+    let src = pitches(&with_riff("mutate(riff,0,5)").unwrap());
+    let seed_of = |c: u64| crate::algo::mix(5, c as u32);
+    let mut out = Vec::with_capacity(call.max_events());
+    let mut bar = |c: u64| {
+        call.evolve_into(c, seed_of, Some(&minor()), &mut out);
+        out.iter().map(|e| e.note).collect::<Vec<u8>>()
+    };
+    let far = |notes: &[u8]| -> i32 {
+        notes
+            .iter()
+            .zip(&src)
+            .map(|(a, b)| (i32::from(*a) - i32::from(*b)).abs())
+            .sum()
+    };
+    let early: i32 = (0..8).map(|c| far(&bar(c))).sum();
+    let late: i32 = (48..56).map(|c| far(&bar(c))).sum();
+    assert!(late > early, "it wanders: {early} then {late}");
+    assert_eq!(bar(30), bar(30), "a seek lands on the same notes");
+    assert_eq!(bar(17).len(), src.len(), "no note is lost");
+    // Bar 64 starts again: one bar's changes from the source.
+    assert!(far(&bar(64)) < far(&bar(63)) || far(&bar(63)) == 0);
+    let still = with_riff("mutate(riff,0,5,evolve)").unwrap();
+    let Seq::Generated(still) = &still.seq else {
+        panic!("a call");
+    };
+    let mut keep = Vec::new();
+    still.evolve_into(40, seed_of, Some(&minor()), &mut keep);
+    assert_eq!(
+        keep.iter().map(|e| e.note).collect::<Vec<_>>(),
+        src,
+        "0 percent keeps the source"
+    );
+    assert_eq!(call.print(), "mutate(riff,10,5,evolve)");
+    assert!(with_riff("mutate(riff,10,5,again)").is_err());
+}
+
 #[test]
 fn generator_calls_print_canonically_and_parse_back() {
     for text in [

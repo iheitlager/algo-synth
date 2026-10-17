@@ -1533,6 +1533,13 @@ impl Song {
                             "a live clip is a call: arp, walk, markov, mutate, root, prog or bass",
                         ));
                     }
+                    // An evolving mutate changes the bar before: a live clip's (#619).
+                    if !live && matches!(&n.seq, notes::Seq::Generated(g) if g.evolves()) {
+                        return Err(err(
+                            first.col,
+                            "evolve changes each bar from the one before: it goes on a live clip",
+                        ));
+                    }
                     let clip = song
                         .clips
                         .get_mut(f)

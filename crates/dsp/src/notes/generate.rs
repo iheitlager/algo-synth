@@ -204,6 +204,9 @@ pub enum Gen {
         src: Vec<Event>,
         bars: u32,
         seed: u32,
+        /// `mutate(riff,10,5,evolve)` (#619): on a live clip each bar changes
+        /// the bar before, not the source.
+        evolve: bool,
     },
     /// The chords of an earlier clip, each arpeggiated from where it starts (#103).
     ArpProg {
@@ -245,6 +248,9 @@ pub enum Gen {
         colours: Colours,
     },
 }
+
+/// Bars an evolving `mutate` walks from before it starts again (#619).
+pub const EVOLVE_BARS: u64 = 64;
 
 /// Bars a progression may have, and the octave `root` plays in by default.
 const MAX_PROG: u32 = 16;
@@ -322,8 +328,15 @@ impl Gen {
                 order, from, seed, ..
             } => format!("markov({order},{from},{seed})"),
             Gen::Mutate {
-                from, amount, seed, ..
-            } => format!("mutate({from},{amount},{seed})"),
+                from,
+                amount,
+                seed,
+                evolve,
+                ..
+            } => {
+                let evolve = if *evolve { ",evolve" } else { "" };
+                format!("mutate({from},{amount},{seed}{evolve})")
+            }
             Gen::ArpProg {
                 from,
                 mode,
@@ -447,6 +460,54 @@ impl Gen {
                     size.notes()
                 };
                 notes * chords(*bars, beats).count()
+            }
+        }
+    }
+
+    /// Whether a live clip's bar is worked out from the bars before, an
+    /// evolving `mutate` (#619).
+    pub fn evolves(&self) -> bool {
+        matches!(self, Gen::Mutate { evolve: true, .. })
+    }
+
+    /// An evolving `mutate`'s bars for cycle `cycle` into `out` (#619): the
+    /// source with each cycle's change since the last multiple of
+    /// `EVOLVE_BARS` applied in turn, each drawn by `seed_of(cycle)` as the
+    /// plain `mutate` of that cycle is; a note that would be dropped goes
+    /// back to its source pitch instead, so the line never empties. A
+    /// function of the cycle alone, so a seek lands on the same notes; with
+    /// room reserved for `max_events` nothing allocates.
+    pub fn evolve_into(
+        &self,
+        cycle: u64,
+        seed_of: impl Fn(u64) -> u32,
+        scale: Option<&Scale>,
+        out: &mut Vec<Event>,
+    ) {
+        out.clear();
+        let Gen::Mutate { amount, src, .. } = self else {
+            return;
+        };
+        out.extend_from_slice(src);
+        let from = cycle - cycle % EVOLVE_BARS;
+        for c in from..=cycle {
+            let mut r = rng(seed_of(c), 0x3A3);
+            for (e, home) in out.iter_mut().zip(src) {
+                if r.next_u32() % 100 >= u32::from(*amount) {
+                    continue;
+                }
+                let d = r.next_u32() % 5;
+                if d == 0 {
+                    e.note = home.note;
+                    continue;
+                }
+                let shift = [0i32, -2, -1, 1, 2]
+                    .get(usize::try_from(d).unwrap_or(0))
+                    .copied()
+                    .unwrap_or(0);
+                let moved =
+                    u8::try_from((i32::from(e.note) + shift).clamp(0, 127)).unwrap_or(e.note);
+                e.note = scale.map_or(moved, |s| s.walk(moved, 0));
             }
         }
     }
@@ -1841,15 +1902,21 @@ pub(super) fn parse_call(
             }
         }
         _ => {
-            want(&[3], crate::usage::MUTATE)?;
+            want(&[3, 4], crate::usage::MUTATE)?;
             let (from, (src, bars)) = source(cur, arg(0), srcs)?;
             let amount = number(cur, arg(1), 100, "a percent is 0 to 100")?;
+            let evolve = match list.len() {
+                4 if text(cur, arg(3)) == "evolve" => true,
+                4 => return err(cur.base + arg(3).0, crate::usage::MUTATE),
+                _ => false,
+            };
             Gen::Mutate {
                 from,
                 amount: u8::try_from(amount).unwrap_or(100),
                 src,
                 bars,
                 seed: seed_at(2)?,
+                evolve,
             }
         }
     };
