@@ -1,0 +1,39 @@
+# Acid: Switch Angel's acid bass and supersaw, from Strudel.
+#
+#   $bass: n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1)
+#     .s("sawtooth").lpf(200).lpenv(slider(2.28,0,8)).lpq(12).orbit(2)
+#   $ s("supersaw").detune(1).rel(5).beat(2,32).slow(2).orbit(1)
+#
+# rib(46,1) freezes bar 46 of Strudel's random (#620): the same sixteen notes
+# here. The slider is the acid synth's lpenv knob. Each track has its own
+# strip, so the orbits need nothing.
+tempo 120
+# Strudel's sawtooth through its 12 dB low-pass: lpf 200, lpq 12, and lpenv
+# octaves of filter envelope (Strudel's default: 5 ms up, 0.14 s down, none
+# held). Its amp envelope is Strudel's synth default.
+setting acid = Modular ModularBasic
+  SynthDef(\acid, { |freq = 110, gate = 1, lpf = 200, lpenv = 2.28, lpq = 12|
+      var fenv = EnvGen.kr(Env.adsr(0.005, 0.14, 0, 0.1), gate);
+      var cut = (lpf * (2 ** (lpenv * fenv))).min(18000);
+      RLPF.ar(Saw.ar(freq), cut, 1 / lpq) * EnvGen.kr(Env.adsr(0.001, 0.05, 0.6, 0.01), gate) * 1
+  }).add;
+# Strudel's supersaw: seven saws spread by detune semitones, a 5 s release.
+setting supersaw = Modular ModularBasic: Polyphony 2
+  SynthDef(\supersaw, { |freq = 65, gate = 1, detune = 1|
+      var saws = Array.fill(7, { |k| Saw.ar(freq * ((k - 3) / 3 * detune).midiratio) });
+      Splay.ar(saws) * 0.3 * EnvGen.kr(Env.adsr(0.001, 0.05, 0.6, 5), gate)
+  }).add;
+track bass synth acid
+track saw synth supersaw
+
+# n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1): bar 46 of
+# Strudel's random, frozen, read as degrees of C minor from c3.
+clip bass = bass .scale(c3 minor) .rib(46, 1)
+  irand(10).sub(7).seg(16)
+
+# s("supersaw").beat(2,32).slow(2): one hit on step 2 of 32, every two bars.
+clip swell = saw .beat(2, 32) .slow(2)
+  "c2"
+
+scene acid 8: bass swell
+arrange acid
