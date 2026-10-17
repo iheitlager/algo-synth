@@ -1,0 +1,113 @@
+# Warehouse: 132 bpm techno in F minor, built to hear the expressiveness
+# epic (#746) in one track. A 909 four to the floor, an off-beat bass that
+# pumps under the kick, a 303 that turns and talks, a dub stab, a pad keyed
+# from the kick, and a breakdown whose lead walks the chords.
+tempo 132
+scale f minor
+
+# A sine bleep with a click: the polymeter's voice.
+setting bleep = Modular ModularBasic
+  SynthDef(\bleep, { |freq = 1200, gate = 1|
+      var env = EnvGen.kr(Env.perc(0.001, 0.12), gate);
+      SinOsc.ar(freq) * env * 0.5
+  }).add;
+# Noise for the riser into the drop.
+setting riser = Modular ModularBasic
+  SynthDef(\riser, { |freq = 200, gate = 1|
+      var env = EnvGen.kr(Env.adsr(2, 0.1, 1, 0.3), gate);
+      RHPF.ar(WhiteNoise.ar, freq * 8, 0.4) * env * 0.25
+  }).add;
+
+track kit drums Tr909 Kit909
+track perc drums Tr808 Kit808
+track bass synth Sh101 Sh101Bass
+track acid synth Tb303 Tb303Acid
+track stab synth Juno106 JunoPluck
+track pad synth Jupiter8 JupiterPad
+track lead synth Ms20 Ms20Lead
+track bleep synth bleep
+track rise synth riser
+
+strip kit: Level 1
+strip perc: Level 0.45, Pan 0.15, Send2 0.15
+# The bass and the pad duck under the kick: their Comp keyed from synth 1 (#143).
+strip bass: Level 0.7, I1Type Comp, I1A 0.55, I1B 0.9, I1C 0.05, I1D 0.25, Key 1
+strip acid: Level 0.32, I1Type Overdrive, I1A 0.4, I2Type Vowel, I2B 0.45, I2E 0.35, Send1 0.25
+strip stab: Level 0.3, I1Type Phaser, I1B 0.7, I1C 0.5, I1E 0.6, Send1 0.5, Send2 0.3
+strip pad: Level 0.2, I1Type Comp, I1A 0.5, I1B 1, I1C 0.1, I1D 0.45, I2Type Tremolo, I2B 0.35, I2D 1, Send2 0.5, Key 1
+strip lead: Level 0.28, Send1 0.35, Send2 0.35
+strip bleep: Level 0.22, I1Type FreqShift, I1B 0.5, Send1 0.4
+strip rise: Level 0.25, I1Type Bitcrush, I1C 0.5, Send2 0.4
+master: MasterGain 0.85, P1Return 0.4, P1A 0.6, P1B 0.45, P1D 1, P2Return 0.3, P2A 0.8
+
+# --- Drums ---------------------------------------------------------------
+clip kick = kit /16
+  bd x...x...x...x...
+clip beat = kit /16
+  bd x...x...x...x...
+  cp ....x.......x...
+  oh ..x...x...x...x.
+clip hats = kit /16
+  ch x.xox.xox.xox.xx
+# The hats hold their first beat on every fourth bar (#743).
+clip stutter = kit hats .linger("<1 1 1 0.25>")
+clip perc = perc /16
+  rs euclid(5,16,2)
+  cl euclid(3,8,1)
+# Silent every fourth bar, the gap a fill (#632).
+clip gaps = perc perc .mask("<1 1 1 [1 0]>")
+
+# --- Bass ----------------------------------------------------------------
+# Rolling off-beat sixteenths, each with its own weight and length, a short
+# pitch blip and a pluck of the filter on every note (#621, #740, #744).
+clip roll = bass .cutoff(240) .resonance(0.35) .velocity("0.4 1 0.7 0.85 0.4 1 0.7 0.85 0.4 1 0.7 0.85 0.4 1 0.7 0.85") .clip("<0.45 0.3>") .penv(4) .pdecay(0.03) .lpenv(2) .lpdecay(0.1)
+  "[~ f1 f1 f1]*4"
+# The breakdown's sub: three held notes a bar (#631), passing notes walking
+# the scale to the next chord's root (#618).
+clip sub = bass .cutoff(180) .euclidLegato(3,8) .connect()
+  "<f1 db1 eb1 c1>"
+
+# --- Acid ----------------------------------------------------------------
+# The 303 line turns against its own rhythm a step a bar (#742); bars 7 and 8
+# of every 8 play it mirrored round f2 (#632), and its vowel opens a e o u.
+clip acid = acid .rot("<0 1 2 3>") .whenmod(8, 6, mirror(f2)) .vowel("<a e o u>")
+  "f2! f2& ab2 c3 f2 eb3! f2 [c3& bb2] f2 f3! f2 c3 ab2! f2 eb2& f2"
+# In the drop the same line wanders a little further every bar (#619).
+clip wander = acid live
+  mutate(acid,12,7,evolve)
+
+# --- Stab and pad --------------------------------------------------------
+# A dub chord, an octave copy on top (#635), each echo a fifth up again
+# (#741), the phaser slowly turning (#745).
+clip stab = stab .superimpose(add(12)) .echoWith(3, 3/16, add(7)) .phaser(0.15)
+  "~ [f3,ab3,c4,eb4] ~ ~ ~ ~ ~ ~"
+clip harm = pad voicing
+  "<f2:m9 db2:maj7 eb2:7 c2:m7>"
+# The pad's tremolo pans slowly across the stereo.
+clip wide = pad harm .tremolo(0.25)
+
+# --- Breakdown -----------------------------------------------------------
+# A lead that walks the pad's chords, landing on a chord note every beat
+# (#617), played with a loose hand (#21).
+clip line = lead live
+  walk(c4,8,3,harm)
+# Five notes stepping at sixteen a bar against the bar (#625), swung on their
+# own over a straight song (#626), shifted a few hertz off true (#745).
+clip bleep = bleep .swing(60) .clip(0.5) .velocity("1 0.4 0.6 0.4 1 0.4 0.6 0.4 1 0.4 0.6 0.4 1 0.4 0.6 0.4") .fshift(sine.slow(8).range(-20, 20))
+  "{c5 eb5 g5 bb5 f5}%16"
+# Four bars of rising noise, crushed further as it climbs.
+clip riser = rise .slow(4) .crush(saw.slow(4).range(16, 3))
+  "c3"
+
+mod stab.detune = 8
+mod lead.humanize = 7
+mod bleep.humanize = 3
+
+scene intro 16: kick hats perc
+scene build 16: beat hats perc roll
+scene groove 32: beat hats gaps roll acid stab harm
+scene break 12: wide sub line bleep
+scene lift 4: wide sub line bleep riser
+scene drop 32: beat stutter gaps roll wander stab wide bleep
+scene outro 8: kick hats roll
+arrange intro build groove break lift drop outro

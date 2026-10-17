@@ -1,6 +1,6 @@
 # 0019: One language for patterns, signals and parameters
 
-**Status:** Accepted, extended by #255, #298, ADR-0035 and ADR-0037 · **Date:** 2026-10-05 · built in #270, #272, #276
+**Status:** Accepted, extended by #255, #298, ADR-0035 and ADR-0037, its rate set out in ADR-0042 · **Date:** 2026-10-05 · built in #270, #272, #276
 
 ## Context
 
@@ -41,3 +41,4 @@ Two open issues ask for parts of this: #204 (fluent methods on a fragment that s
 - **Extended (#255), per-step parameter locks:** a `~` in a sequence is a step with no value; the parameter takes its own back there, so a parameter method like `.cutoff("~ ~ 800 ~")` locks one step and lets go after it. A per-voice signal takes no `~`. Locks needed no new lane syntax, so ADR-0012 and ADR-0015 stand.
 - **Extended (ADR-0035), clips as context:** a pattern method may read an earlier clip for its harmony or rhythm (`.scale(<clip> <mode>)`, `.chord(<clip>)`, `.struct(<clip>)`), looked up at each note's start modulo the source's length. The closed set stands: the only names are clips.
 - **Extended (ADR-0037), a model says what it reads:** a parameter method, `mod`, `auto` or snapshot naming a parameter its track's model never reads is a parse error at the name (#673).
+- **ADR-0042 (#754):** a signal is evaluated once a render block (`engine::BLOCK`, 128 samples, 2.67 ms at 48 kHz); the table of every rate is there.

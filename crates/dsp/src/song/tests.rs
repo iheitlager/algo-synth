@@ -224,6 +224,10 @@ fn random_song(r: &mut Rng) -> Song {
                 bend: None,
                 slice_by: None,
                 pad_by: None,
+                vel_by: None,
+                len_by: None,
+                shape_by: Vec::new(),
+                swing: None,
             });
             continue;
         }
@@ -255,6 +259,10 @@ fn random_song(r: &mut Rng) -> Song {
             bend: None,
             slice_by: None,
             pad_by: None,
+            vel_by: None,
+            len_by: None,
+            shape_by: Vec::new(),
+            swing: None,
         });
     }
     song
@@ -1063,7 +1071,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 35), ("sounds", 9)] {
+    for (dir, want) in [("songs", 36), ("sounds", 9)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();
@@ -2314,7 +2322,7 @@ fn mixer_errors_say_where() {
         (
             "strip bass: I1Type Delay",
             20,
-            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder or Bitcrush",
+            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder, Bitcrush, Vowel, Phaser, Tremolo, Ring or FreqShift",
         ),
         (
             "master: P1Type Delay",
@@ -2575,9 +2583,13 @@ fn strudels_parameter_names_are_aliases() {
         assert!(Param::by_name(a).is_none_or(|q| q == p), "{a}");
         assert!(!Pattern::NAMES.contains(&a), "{a}");
     }
+    // Strudel's distort is a Distortion insert's knob (#745), not a parameter.
     let e = Song::parse("track bass synth\nclip a = bass .distort(0.5)\n  \"c2\"\n")
-        .expect_err("no alias");
-    assert_eq!(e.msg, "no parameter has this name");
+        .expect_err("no insert");
+    assert_eq!(
+        e.msg,
+        "distort needs a Distortion insert on its track: strip bass: I1Type Distortion"
+    );
 }
 
 /// #660: the echo and the reverb in real units, Strudel's names and ours,
@@ -3052,6 +3064,534 @@ fn add_takes_a_signal_of_the_songs_time() {
             Song::parse(&format!("track keys synth\nclip a = {bad}\n  \"c4\"\n")).expect_err(bad);
         assert_eq!(err.msg, msg, "{bad}");
     }
+}
+
+/// #621: `.velocity` takes a value a step, or a signal read as each note
+/// is pressed, and prints back as written.
+#[test]
+fn velocity_takes_values_or_a_signal() {
+    let text = "track keys synth\nclip a = keys .velocity(\"1 0.5\")\n  \"c4 e4\"\nclip b = keys .fast(2) .velocity(sine.range(0.4, 1).segment(16))\n  \"c4 e4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let vels: Vec<u8> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .map(|e| e.vel)
+        .collect();
+    assert_eq!(vels, [127, 64]);
+    let sig = s.clips[1].vel_by.as_ref().expect("a signal on velocity");
+    assert_eq!(sig.to_string(), "sine.range(0.4, 1).segment(16)");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = keys .velocity(\"1 0.5\")"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip b = keys .fast(2) .velocity(sine.range(0.4, 1).segment(16))"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        (
+            "keys .velocity(env(perc))",
+            "velocity reads a signal of the bar per note: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "keys .velocity(sine) .velocity(saw)",
+            "a clip takes one velocity of a signal",
+        ),
+        (
+            "keys live .velocity(sine)",
+            "a signal on velocity is for a clip of notes",
+        ),
+        ("keys .velocity(2)", crate::usage::VELOCITY),
+    ] {
+        let err =
+            Song::parse(&format!("track keys synth\nclip a = {bad}\n  \"c4\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+    let err = Song::parse("track kit drums\nclip a = kit .velocity(sine)\n  bd x...\n")
+        .expect_err("drums");
+    assert_eq!(err.msg, "a signal on velocity is for a clip of notes");
+}
+
+/// #740: `.clip` takes a value a step, or a signal read as each note is
+/// pressed, and prints back as written; `.legato` stays the synth's switch.
+#[test]
+fn clip_takes_values_or_a_signal() {
+    let text = "track bass synth\nclip a = bass .clip(\"0.25 1\")\n  \"c2 e2\"\nclip b = bass .clip(perlin.range(0.2, 1))\n  \"c2 e2\"\n";
+    let s = Song::parse(text).expect("parses");
+    let lens: Vec<u32> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .map(|e| e.len)
+        .collect();
+    assert_eq!(lens, [6, 24]);
+    let sig = s.clips[1].len_by.as_ref().expect("a signal on clip");
+    assert_eq!(sig.to_string(), "perlin.range(0.2, 1)");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = bass .clip(\"0.25 1\")"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip b = bass .clip(perlin.range(0.2, 1))"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        (
+            "bass .clip(lfo(2))",
+            "clip reads a signal of the bar per note: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "bass .clip(sine) .clip(saw)",
+            "a clip takes one clip of a signal",
+        ),
+        (
+            "bass live .clip(sine)",
+            "a signal on clip is for a clip of notes",
+        ),
+        ("bass .clip(0)", crate::usage::CLIP),
+    ] {
+        let err =
+            Song::parse(&format!("track bass synth\nclip a = {bad}\n  \"c2\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+    let s = Song::parse("track bass synth Sh101\nclip a = bass .legato(1)\n  \"c2\"\n")
+        .expect("the switch");
+    assert!(s.clips[0].len_by.is_none() && s.clips[0].pattern.is_empty());
+}
+
+/// #742: `.rot` and `.mirror` through a scale, printed back as written.
+#[test]
+fn rot_and_mirror_play_through_a_scale() {
+    let text = "track lead synth\nclip a = lead .mirror(2) .scale(a3 minor)\n  \"0 2 4 3\"\nclip b = lead .rot(\"<0 1>\") .scale(a3 minor) .mirror(a3)\n  \"0 2 [4 3] ~ 1\"\n";
+    let s = Song::parse(text).expect("parses");
+    let notes = |k: usize| -> Vec<u8> {
+        s.clips[k]
+            .notes
+            .as_ref()
+            .expect("notes")
+            .events
+            .iter()
+            .map(|e| e.note)
+            .collect()
+    };
+    // Degrees 4 2 0 1 of A minor from a3: e4 c4 a3 b3, still in the scale.
+    assert_eq!(notes(0), [64, 60, 57, 59]);
+    assert_eq!(s.clips[1].notes.as_ref().expect("notes").bars, 2);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = lead .mirror(2) .scale(a3 minor)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip b = lead .rot(\"<0 1>\") .scale(a3 minor) .mirror(a3)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse("track l synth\nclip a = l .scale(a3 minor) .mirror(2)\n  \"0 2\"\n")
+        .expect_err("after scale");
+    assert_eq!(
+        err.msg,
+        "mirror(n) turns degrees round degree n: write it before scale, or give a note: mirror(c4)"
+    );
+    let err = Song::parse("track k drums\nclip a = k\n  bd x...\nclip b = k a .rot(1)\n")
+        .expect_err("drums");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
+/// #741: echoWith, stutWith and plyWith on a clip, printed back as written.
+#[test]
+fn echo_with_and_ply_with_on_a_clip() {
+    let text = "track lead synth\nclip canon = lead .scale(c3 minor) .echoWith(3, 1/8, add(2))\n  \"0 2 4 ~\"\nclip rise = lead .plyWith(3, add(12))\n  \"c3 ~ eb3 ~\"\nclip t = lead .stutWith(2, 0.25, rev)\n  \"c3 d3\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").events.len(), 9);
+    assert_eq!(s.clips[1].notes.as_ref().expect("notes").events.len(), 6);
+    let printed = s.print();
+    for line in [
+        "clip canon = lead .scale(c3 minor) .echoWith(3, 1/8, add(2))",
+        "clip rise = lead .plyWith(3, add(12))",
+        "clip t = lead .stutWith(2, 0.25, rev)",
+    ] {
+        assert!(printed.contains(line), "{printed}");
+    }
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+}
+
+/// #635: superimpose and layer on a clip, and on a drum clip made from one.
+#[test]
+fn superimpose_and_layer_on_a_clip() {
+    let text = "track lead synth\nclip riff = lead .superimpose(add(12))\n  \"c3 e3 g3\"\nclip stack = lead .layer(add(7), rev)\n  \"c3 e3 g3\"\ntrack kit drums\nclip beat = kit\n  bd x...x...\nclip dbl = kit beat .superimpose(fast(2))\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").events.len(), 6);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip riff = lead .superimpose(add(12))"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip stack = lead .layer(add(7), rev)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip dbl = kit beat .superimpose(fast(2))"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse(
+        "track kit drums\nclip beat = kit\n  bd x...\nclip d = kit beat .superimpose(add(12))\n",
+    )
+    .expect_err("pitch on drums");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
+/// #743: the time frames on a clip and on a drum clip made from one, where
+/// a hit moved off the grid is an error.
+#[test]
+fn time_frames_on_a_clip_and_a_drum_clip() {
+    let text = "track lead synth\nclip riff = lead .linger(\"<1 1 0.25 0.5>\") .inside(2, rev)\n  \"c4 eb4 g4 bb4 c5 bb4 g4 eb4\"\ntrack kit drums\nclip beat = kit\n  bd x...x...x.x.x...\n  sn ....x.......x...\nclip held = kit beat .linger(1/4) .iterBack(2)\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").bars, 4);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip riff = lead .linger(\"<1 1 0.25 0.5>\") .inside(2, rev)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip held = kit beat .linger(1/4) .iterBack(2)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse(
+        "track kit drums\nclip beat = kit\n  bd x...x...\nclip z = kit beat .zoom(0.1, 0.9)\n",
+    )
+    .expect_err("off the grid");
+    assert_eq!(err.msg, "a method moved a hit off the clip's step grid");
+    let err =
+        Song::parse("track kit drums\nclip beat = kit\n  bd x...\nclip h = kit beat .hurry(2)\n")
+            .expect_err("hurry");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
+/// #632: mask, chunk, whenmod and segment on clips, printed back.
+#[test]
+fn bar_level_control_on_clips() {
+    let text = "track lead synth\nclip riff = lead .whenmod(8, 6, rev) .mask(\"<1 1 1 0>\")\n  \"c3 e3 g3 b3\"\nclip up = lead .chunk(4, add(12)) .segment(8)\n  \"c3 e3\"\ntrack kit drums\nclip beat = kit\n  bd x...x...x...x...\nclip fill = kit beat .whenmod(4, 3, fast(2)) .mask(\"1 1 1 0\")\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").bars, 8);
+    let printed = s.print();
+    for line in [
+        "clip riff = lead .whenmod(8, 6, rev) .mask(\"<1 1 1 0>\")",
+        "clip up = lead .chunk(4, add(12)) .segment(8)",
+        "clip fill = kit beat .whenmod(4, 3, fast(2)) .mask(\"1 1 1 0\")",
+    ] {
+        assert!(printed.contains(line), "{printed}");
+    }
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+}
+
+/// #744: a note's pitch and filter envelopes on a clip, printed back as
+/// written, and refused where no voice could play them.
+#[test]
+fn note_envelopes_parse_and_print_back() {
+    let text = "track lead synth Sh101\nclip a = lead .penv(\"<12 24>\") .pdecay(0.08) .lpenv(perlin.range(0, 4)) .lpsustain(0.2)\n  \"c2 ~ g1 c2\"\n";
+    let s = Song::parse(text).expect("parses");
+    let keys: Vec<ShapeKey> = s.clips[0].shape_by.iter().map(|(k, _)| *k).collect();
+    assert_eq!(
+        keys,
+        [
+            ShapeKey::Penv,
+            ShapeKey::Pdecay,
+            ShapeKey::Lpenv,
+            ShapeKey::Lpsustain
+        ]
+    );
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = lead .penv(\"<12 24>\") .pdecay(0.08) .lpenv(perlin.range(0, 4)) .lpsustain(0.2)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    // The DX7 bends its pitch, but has no filter of its own.
+    assert!(Song::parse("track k synth Dx7\nclip a = k .penv(7)\n  \"c4\"\n").is_ok());
+    for (text, msg) in [
+        (
+            "track k synth Dx7\nclip a = k .lpenv(2)\n  \"c4\"\n",
+            "a note's filter envelope needs a voice's own filter: a Mono or Poly synth, the D-50, the Sampler, SID or Modular",
+        ),
+        (
+            "track l synth\nclip a = l .penv(49)\n  \"c4\"\n",
+            "penv takes semitones from -48 to 48",
+        ),
+        (
+            "track l synth\nclip a = l .lpenv(9)\n  \"c4\"\n",
+            "lpenv takes octaves from -8 to 8",
+        ),
+        (
+            "track l synth\nclip a = l .pdecay(\"0.1 11\")\n  \"c4\"\n",
+            "an envelope time is 0 to 10 seconds",
+        ),
+        (
+            "track l synth\nclip a = l .lpsustain(2)\n  \"c4\"\n",
+            "a sustain is 0 to 1",
+        ),
+        (
+            "track l synth\nclip a = l .penv(env(perc))\n  \"c4\"\n",
+            "a note's envelope reads a signal of the bar per note: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "track l synth\nclip a = l .penv(1) .penv(2)\n  \"c4\"\n",
+            "a clip takes each envelope value once",
+        ),
+        (
+            "track k drums\nclip a = k .penv(12)\n  bd x...\n",
+            "a note's envelope is for a clip of notes",
+        ),
+    ] {
+        assert_eq!(Song::parse(text).expect_err(text).msg, msg, "{text}");
+    }
+}
+
+/// #745: Strudel's effect names on a clip find the track's insert of their
+/// type, wherever the strip line is, and print back as written, vowels too.
+#[test]
+fn effect_names_find_the_tracks_insert() {
+    let text = "track lead synth\nclip talk = lead .vowel(\"<a e i o>\") .phaser(0.5) .fshift(-30)\n  \"c3 eb3\"\nstrip lead: I1Type Vowel, I2Type Phaser, I3Type FreqShift\n";
+    let s = Song::parse(text).expect("parses");
+    let params: Vec<Param> = s.mods.iter().map(|m| m.param).collect();
+    assert_eq!(params, [Param::I1A, Param::I2A, Param::I3A]);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip talk = lead .vowel(\"<a e i o>\") .phaser(0.5) .fshift(-30)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    // Depths are knob B; numbers do for a vowel too.
+    let s = Song::parse(
+        "track l synth\nstrip l: I2Type Tremolo\nclip a = l .tremolo(4) .tremolodepth(0.8) .vowel(perlin.range(0, 4))\n  \"c3\"\n",
+    );
+    assert_eq!(
+        s.expect_err("no vowel insert").msg,
+        "vowel needs a Vowel insert on its track: strip l: I1Type Vowel"
+    );
+    let s = Song::parse("track l synth\nstrip l: I2Type Tremolo, I1Type Vowel\nclip a = l .tremolo(4) .tremolodepth(0.8) .vowel(perlin.range(0, 4))\n  \"c3\"\n").expect("parses");
+    let params: Vec<Param> = s.mods.iter().map(|m| m.param).collect();
+    assert_eq!(params, [Param::I2A, Param::I2B, Param::I1A]);
+    for (bad, msg) in [
+        ("l .crush(17)", "crush takes bits from 1 to 16"),
+        (
+            "l .vowel(\"a 2\")",
+            "a vowel sequence holds a e i o u or ~, not numbers",
+        ),
+        ("l .ring(10)", "ring takes a carrier from 20 to 5000 Hz"),
+        (
+            "l .crush(4) .crush(8)",
+            "this parameter already has a method",
+        ),
+        (
+            "l .shape(0.5)",
+            "shape needs an Overdrive insert on its track: strip l: I1Type Overdrive",
+        ),
+    ] {
+        let text = format!(
+            "track l synth\nstrip l: I1Type Bitcrush, I2Type Vowel, I3Type Ring\nclip a = {bad}\n  \"c3\"\n"
+        );
+        assert_eq!(Song::parse(&text).expect_err(bad).msg, msg, "{bad}");
+    }
+    // A Modular knob named ring keeps its name.
+    let modular = "setting bell = Modular ModularBasic\n  SynthDef(\\bell, { |freq = 220, gate = 1, ring = 1|\n      SinOsc.ar(freq * ring) * EnvGen.kr(Env.adsr(0.01, 0.1, 0.8, 0.1), gate) * 0.4\n  }).add;\ntrack b synth bell\nclip a = b .ring(2)\n  \"c3\"\n";
+    let s = Song::parse(modular).expect("a knob");
+    assert_ne!(s.mods[0].param, Param::I1A);
+}
+
+/// #626: a clip's own swing and a nudge, printed back as written.
+#[test]
+fn a_clip_takes_its_own_swing_and_a_nudge() {
+    let text = "swing 62\ntrack bass synth\nclip line = bass .swing(50) .nudge(-1)\n  \"a1 ~ a1 c2 ~ a1 e2 ~\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].swing, Some(50.0));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip line = bass .nudge(-1) .swing(50)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        ("bass .swing(80)", "a clip's swing is 50 (straight) to 75"),
+        ("bass .swing(60) .swing(70)", "a clip takes one swing"),
+        (
+            "bass live .swing(60)",
+            "a clip's own swing is for a clip of notes",
+        ),
+    ] {
+        let err =
+            Song::parse(&format!("track bass synth\nclip a = {bad}\n  \"c2\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+}
+
+/// #618: connect walks the song's scale, or the clip's, inside every too.
+#[test]
+fn connect_walks_the_songs_or_the_clips_scale() {
+    let s = Song::parse(
+        "scale a minor\ntrack lead synth\nclip line = lead .connect()\n  \"a3 ~ e4 ~ c4 ~ a4 ~\"\n",
+    )
+    .expect("parses");
+    let notes: Vec<u8> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .map(|e| e.note)
+        .collect();
+    // a3 b3 c4 d4 e4, then down d4 c4, up d4 … to a4, and back down to a3.
+    assert_eq!(
+        notes.get(..6),
+        Some(&[57, 59, 60, 62, 64, 62][..]),
+        "{notes:?}"
+    );
+    assert!(
+        notes
+            .iter()
+            .all(|n| [57, 59, 60, 62, 64, 65, 67, 69].contains(n)),
+        "on A minor: {notes:?}"
+    );
+    let printed = s.print();
+    assert!(printed.contains("clip line = lead .connect()"), "{printed}");
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    // The clip's scale before it wins over the song's; inside every too.
+    let s = Song::parse("scale c major\ntrack lead synth\nclip a = lead .scale(c3 minor) .every(2, connect)\n  \"0 ~ 4 ~\"\n").expect("parses");
+    let first: Vec<u8> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .filter(|e| e.start < 48)
+        .map(|e| e.note)
+        .collect();
+    assert_eq!(
+        first.get(..3),
+        Some(&[48, 50, 51][..]),
+        "c d eb, C minor: {first:?}"
+    );
+}
+
+/// #617: a walk over a clip's chords lands on a chord note every quarter
+/// and moves at most a scale step between, in phase with the chords.
+#[test]
+fn a_walk_lands_on_the_chords_notes() {
+    let text = "scale c minor\ntrack pad synth\ntrack lead synth\nclip chords = pad voicing\n  prog(4,7)\nclip line = lead\n  walk(c4,8,3,chords)\nclip free = lead\n  walk(c4,8,3)\n";
+    let s = Song::parse(text).expect("parses");
+    let chords = s.clips[0].notes.as_ref().expect("chords");
+    let line = s.clips[1].notes.as_ref().expect("line");
+    assert_eq!(line.bars, chords.bars, "as long as its chords");
+    let scale = s.scale.expect("a scale");
+    let degree = |n: u8| {
+        let iv = scale.mode.intervals();
+        let rel = i32::from(n) - i32::from(scale.root);
+        let idx = iv
+            .iter()
+            .position(|i| i32::from(*i) == rel.rem_euclid(12))
+            .expect("on the scale") as i32;
+        rel.div_euclid(12) * iv.len() as i32 + idx
+    };
+    let sounding = |t: u32| -> Vec<u8> {
+        let at = chords
+            .events
+            .iter()
+            .map(|e| e.start)
+            .filter(|st| *st <= t)
+            .max()
+            .unwrap_or(0);
+        chords
+            .events
+            .iter()
+            .filter(|e| e.start == at)
+            .map(|e| e.note % 12)
+            .collect()
+    };
+    let mut prev: Option<i32> = None;
+    for e in &line.events {
+        if e.start % 12 == 0 {
+            assert!(
+                sounding(e.start).contains(&(e.note % 12)),
+                "beat {} plays {} over {:?}",
+                e.start,
+                e.note,
+                sounding(e.start)
+            );
+        } else if let Some(p) = prev {
+            assert!(
+                (degree(e.note) - p).abs() <= 1,
+                "at {} a leap from degree {p} to {}",
+                e.start,
+                degree(e.note)
+            );
+        }
+        prev = Some(degree(e.note));
+    }
+    assert!(
+        line.events
+            .iter()
+            .map(|e| e.note)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            > 3,
+        "it moves"
+    );
+    // Without a clip, as before: one bar.
+    let free = s.clips[2].notes.as_ref().expect("free");
+    assert_eq!(free.bars, 1);
+    let printed = s.print();
+    assert!(printed.contains("  walk(c4,8,3,chords)"), "{printed}");
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        (
+            "walk(c4,8,3,nope)",
+            "no note clip with this name comes before this one",
+        ),
+        (
+            "walk(c4,8,3,line)",
+            "no note clip with this name comes before this one",
+        ),
+    ] {
+        let text = format!("scale c minor\ntrack lead synth\nclip line = lead\n  {bad}\n");
+        let err = Song::parse(&text).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+    // Live, it follows the chords each bar.
+    let live = Song::parse("scale c minor\ntrack pad synth\ntrack lead synth\nclip chords = pad voicing\n  prog(4,7)\nclip sand = lead live\n  walk(c4,8,3,chords)\n").expect("live");
+    assert!(
+        live.print()
+            .contains("clip sand = lead live\n  walk(c4,8,3,chords)")
+    );
+}
+
+/// #619: an evolving mutate goes on a live clip and prints back.
+#[test]
+fn an_evolving_mutate_is_for_a_live_clip() {
+    let text = "scale a minor\ntrack lead synth\nclip riff = lead\n  \"a3 c4 e4 g4 a4 g4 e4 c4\"\nclip drift = lead live\n  mutate(riff,10,5,evolve)\n";
+    let s = Song::parse(text).expect("parses");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip drift = lead live\n  mutate(riff,10,5,evolve)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse(&text.replace("lead live", "lead")).expect_err("not live");
+    assert_eq!(
+        err.msg,
+        "evolve changes each bar from the one before: it goes on a live clip"
+    );
 }
 
 /// #696: Strudel's arp, the line's own chords by index.

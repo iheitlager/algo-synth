@@ -142,9 +142,98 @@ pub enum Pattern {
     /// cycles` of the line, looped (#620); `true` when written `ribbon`.
     /// On a signal line it says where the signal is read.
     Rib(Rib),
+    /// `velocity(x)`: each note's velocity, 0 to 1, as Strudel's (#621);
+    /// `None` for a `~`, which keeps the note's own.
+    Velocity(Option<f32>),
+    /// `clip(x)`: each note's length times x, more than 0 up to 16, as
+    /// Strudel's legato (#740); `None` for a `~`.
+    Clip(Option<f32>),
+    /// `rot(n)`: in each bar, each onset takes the notes of the onset n
+    /// later, keeping its own time and length, as Tidal's rot (#742).
+    Rot(i32),
+    /// `mirror(axis)`: each pitch mirrored round the axis, melodic
+    /// inversion (#742).
+    Mirror(Axis),
+    /// `echoWith(n, time, m)`, Strudel's, or `stutWith` (true), Tidal's:
+    /// n layers, the k-th `time` × k later through m k times (#741); the
+    /// time in ticks and as written.
+    EchoWith(EchoWith),
+    /// `plyWith(n, m)`: each note n times in its length, the k-th repeat
+    /// through m k times (#741).
+    PlyWith(u32, Box<Pattern>),
+    /// `superimpose(m)`: the line and a copy through m, together (#635).
+    Superimpose(Box<Pattern>),
+    /// `layer(m1, m2, …)`: only the copies, one through each method, `None`
+    /// for `id`, the line as it is (#635).
+    Layer(Vec<Option<Pattern>>),
+    /// `inside(n, m)`: m on the line n times slower, then n times faster,
+    /// as Tidal's (#743); `outside` (true) the other way round.
+    Inside(Ratio, Box<Pattern>, bool),
+    /// `linger(t)`: the first `t` of each bar, as written and in ticks,
+    /// repeated to fill it, as Tidal's (#743).
+    Linger(u32, String),
+    /// `zoom(a, b)`: ticks a..b of each bar stretched over it; `compress`
+    /// (true) each bar squeezed into a..b, as Tidal's (#743). As written,
+    /// and in ticks.
+    Zoom(u32, u32, String, bool),
+    /// `hurry(n)`: n times faster and n times the sampler's speed (#743).
+    Hurry(Ratio),
+    /// `iterBack(n)`: `iter` the other way, each bar starting a further
+    /// 1/n earlier (#743).
+    IterBack(u32),
+    /// `mask(1)` keeps the notes, `mask(0)` silences them; quoted, one a
+    /// bar or a part of one, as Strudel's mask (#632).
+    Mask(bool),
+    /// `chunk(n, m)`: bar k with m on part k mod n of it, as Tidal's (#632).
+    Chunk(u32, Box<Pattern>),
+    /// `whenmod(a, b, m)`: m on the bars whose number mod a is b or more, as
+    /// Tidal's (#632).
+    WhenMod(u32, u32, Box<Pattern>),
+    /// `segment(n)`: the notes sounding at each of n steps of the bar, each
+    /// held to the next, a struct of n hits (#632).
+    Segment(u32),
+    /// `euclidInv(k, n[, rot])`: the line on the steps `euclid` leaves out
+    /// (#631).
+    EuclidInv(Euclid),
+    /// `euclidLegato(k, n[, rot])`: `euclid`, each hit held to the next
+    /// (#631).
+    EuclidLegato(Euclid),
+    /// `euclidFull(k, n, m[, rot])`: the hits with the line, the rests with
+    /// method m (#631).
+    EuclidFull(Euclid, Box<Pattern>),
+    /// `nudge(t)`: every note t ticks later, or earlier below 0, round the
+    /// line, ahead of or behind the beat (#626).
+    Nudge(i32),
+    /// `connect([n])`: each leap of the line filled with passing notes, n
+    /// scale steps apart, toward the next note, as Live 12's Connect
+    /// (#618); the scale its notes walk, set when the song loads, or
+    /// semitones without one. A line of degrees walks its degrees.
+    Connect(u32, Option<Scale>),
     /// `beat(steps, div)`, Strudel's: the line on `steps` of a bar cut into
     /// `div`, a `struct` of div steps (#738); the steps as written.
     Beat(String, Vec<bool>),
+}
+
+/// The layers of `echoWith` and `stutWith` (#741).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EchoWith {
+    pub count: u32,
+    pub ticks: u32,
+    pub time: String,
+    pub method: Box<Pattern>,
+    /// Written as Tidal's `stutWith`.
+    pub stut: bool,
+}
+
+/// What `mirror` turns the line round (#742).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    /// `mirror()`: degree 0, or the line's first note.
+    First,
+    /// `mirror(2)`: a degree, before `scale`.
+    Degree(i32),
+    /// `mirror(c4)`: a note, after `scale`.
+    Note(u8),
 }
 
 /// The copies of `stut` and `echo` (#719).
@@ -619,7 +708,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 41] = [
+    pub const NAMES: [&'static str; 66] = [
         "fast",
         "slow",
         "rev",
@@ -660,7 +749,32 @@ impl Pattern {
         "spread",
         "rib",
         "ribbon",
+        "velocity",
+        "clip",
+        "rot",
+        "mirror",
+        "echoWith",
+        "stutWith",
+        "plyWith",
+        "superimpose",
+        "layer",
+        "inside",
+        "outside",
+        "linger",
+        "zoom",
+        "compress",
+        "hurry",
+        "iterBack",
+        "mask",
+        "chunk",
+        "whenmod",
+        "segment",
         "beat",
+        "euclidInv",
+        "euclidLegato",
+        "euclidFull",
+        "nudge",
+        "connect",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -698,7 +812,7 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse",
+            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot" | "linger" | "mask",
             [a],
         ) = (name, args.as_slice())
         {
@@ -855,6 +969,197 @@ impl Pattern {
                 } else {
                     Pattern::Splice(n, text, line)
                 })
+            }
+            "velocity" => match one()?.trim() {
+                "~" => Ok(Pattern::Velocity(None)),
+                v => v
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| (0.0..=1.0).contains(v))
+                    .map(|v| Pattern::Velocity(Some(v)))
+                    .ok_or(crate::usage::VELOCITY),
+            },
+            "clip" => match one()?.trim() {
+                "~" => Ok(Pattern::Clip(None)),
+                x => x
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|x| *x > 0.0 && *x <= MAX_CLIP)
+                    .map(|x| Pattern::Clip(Some(x)))
+                    .ok_or(crate::usage::CLIP),
+            },
+            "echoWith" | "stutWith" => {
+                let stut = name == "stutWith";
+                let [n, time, m] = args.as_slice() else {
+                    return Err(if stut {
+                        crate::usage::STUT_WITH
+                    } else {
+                        crate::usage::ECHO_WITH
+                    });
+                };
+                Ok(Pattern::EchoWith(EchoWith {
+                    count: whole(n)?,
+                    ticks: ticks(time)?,
+                    time: time.trim().to_string(),
+                    method: Box::new(nested(m, srcs)?),
+                    stut,
+                }))
+            }
+            "inside" | "outside" => {
+                let [n, m] = args.as_slice() else {
+                    return Err(if name == "inside" {
+                        crate::usage::INSIDE
+                    } else {
+                        crate::usage::OUTSIDE
+                    });
+                };
+                Ok(Pattern::Inside(
+                    Ratio::parse(n)?,
+                    Box::new(nested(m, srcs)?),
+                    name == "outside",
+                ))
+            }
+            "linger" => {
+                let t = one()?.trim();
+                let ticks = bar_point(t)
+                    .filter(|t| *t > 0)
+                    .ok_or(crate::usage::LINGER)?;
+                Ok(Pattern::Linger(ticks, t.to_string()))
+            }
+            "zoom" | "compress" => {
+                let bad = if name == "zoom" {
+                    crate::usage::ZOOM
+                } else {
+                    crate::usage::COMPRESS
+                };
+                let [a, b] = args.as_slice() else {
+                    return Err(bad);
+                };
+                match (bar_point(a), bar_point(b)) {
+                    (Some(a0), Some(b0)) if a0 < b0 => Ok(Pattern::Zoom(
+                        a0,
+                        b0,
+                        format!("{}, {}", a.trim(), b.trim()),
+                        name == "compress",
+                    )),
+                    _ => Err(bad),
+                }
+            }
+            "mask" => match one()?.trim() {
+                "1" | "t" | "true" | "x" => Ok(Pattern::Mask(true)),
+                "0" | "f" | "false" | "~" => Ok(Pattern::Mask(false)),
+                _ => Err(crate::usage::MASK),
+            },
+            "chunk" => {
+                let [n, m] = args.as_slice() else {
+                    return Err(crate::usage::CHUNK);
+                };
+                Ok(Pattern::Chunk(whole(n)?, Box::new(nested(m, srcs)?)))
+            }
+            "whenmod" => {
+                let [a, b, m] = args.as_slice() else {
+                    return Err(crate::usage::WHENMOD);
+                };
+                let a = whole(a)?;
+                let b = b
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|b| *b < a)
+                    .ok_or(crate::usage::WHENMOD)?;
+                Ok(Pattern::WhenMod(a, b, Box::new(nested(m, srcs)?)))
+            }
+            "segment" => one()?
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|n| (1..=MAX_STEPS as u32).contains(n))
+                .map(Pattern::Segment)
+                .ok_or(crate::usage::SEGMENT),
+            "connect" => match args.as_slice() {
+                [] => Ok(Pattern::Connect(1, None)),
+                [n] => n
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| (1..=7).contains(n))
+                    .map(|n| Pattern::Connect(n, None))
+                    .ok_or(crate::usage::CONNECT),
+                _ => Err(crate::usage::CONNECT),
+            },
+            "nudge" => one()?
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|t| t.abs() <= MAX_NUDGE)
+                .map(Pattern::Nudge)
+                .ok_or(crate::usage::NUDGE),
+            "euclidInv" | "euclidLegato" => {
+                let e = Euclid::args(&format!("{raw})"))?;
+                if e.n as usize > MAX_STEPS {
+                    return Err("a rhythm has 1 to 48 steps");
+                }
+                Ok(if name == "euclidInv" {
+                    Pattern::EuclidInv(e)
+                } else {
+                    Pattern::EuclidLegato(e)
+                })
+            }
+            "euclidFull" => {
+                let (k, n, m, rot) = match args.as_slice() {
+                    [k, n, m] => (k, n, m, None),
+                    [k, n, m, r] => (k, n, m, Some(r)),
+                    _ => return Err(crate::usage::EUCLID_FULL),
+                };
+                let rot = rot.map_or(String::new(), |r| format!(",{}", r.trim()));
+                let e = Euclid::args(&format!("{},{}{rot})", k.trim(), n.trim()))?;
+                if e.n as usize > MAX_STEPS {
+                    return Err("a rhythm has 1 to 48 steps");
+                }
+                Ok(Pattern::EuclidFull(e, Box::new(nested(m, srcs)?)))
+            }
+            "hurry" => Ok(Pattern::Hurry(Ratio::parse(one()?)?)),
+            "iterBack" => Ok(Pattern::IterBack(whole(one()?)?)),
+            "superimpose" => Ok(Pattern::Superimpose(Box::new(nested(one()?, srcs)?))),
+            "layer" => {
+                if args.is_empty() || args.len() > 8 {
+                    return Err(crate::usage::LAYER);
+                }
+                args.iter()
+                    .map(|a| match a.trim() {
+                        "id" => Ok(None),
+                        m => nested(m, srcs).map(Some),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Pattern::Layer)
+            }
+            "plyWith" => {
+                let [n, m] = args.as_slice() else {
+                    return Err(crate::usage::PLY_WITH);
+                };
+                Ok(Pattern::PlyWith(whole(n)?, Box::new(nested(m, srcs)?)))
+            }
+            "rot" => one()?
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|n| n.abs() <= MAX_ROT)
+                .map(Pattern::Rot)
+                .ok_or(crate::usage::ROT),
+            "mirror" => {
+                let axis = match args.as_slice() {
+                    [] => Axis::First,
+                    [a] => {
+                        let a = a.trim();
+                        match a.parse::<i32>() {
+                            Ok(d) if d.abs() <= super::MAX_DEGREE => Axis::Degree(d),
+                            Ok(_) => return Err(crate::usage::MIRROR),
+                            Err(_) => Axis::Note(note_of(a).ok_or(crate::usage::MIRROR)?),
+                        }
+                    }
+                    _ => return Err(crate::usage::MIRROR),
+                };
+                Ok(Pattern::Mirror(axis))
             }
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
@@ -1158,6 +1463,53 @@ impl Pattern {
                 format!("{name}({}, {})", r.from, r.bars)
             }
             Pattern::Jux(m) => format!("jux({})", bare(m)),
+            Pattern::Velocity(None) => "velocity(~)".to_string(),
+            Pattern::Velocity(Some(v)) => format!("velocity({v})"),
+            Pattern::Rot(n) => format!("rot({n})"),
+            Pattern::EchoWith(e) => {
+                let name = if e.stut { "stutWith" } else { "echoWith" };
+                format!("{name}({}, {}, {})", e.count, e.time, bare(&e.method))
+            }
+            Pattern::PlyWith(n, m) => format!("plyWith({n}, {})", bare(m)),
+            Pattern::Superimpose(m) => format!("superimpose({})", bare(m)),
+            Pattern::Inside(r, m, out) => {
+                let name = if *out { "outside" } else { "inside" };
+                format!("{name}({}, {})", r.print(), bare(m))
+            }
+            Pattern::Linger(_, t) => format!("linger({t})"),
+            Pattern::Zoom(_, _, t, false) => format!("zoom({t})"),
+            Pattern::Zoom(_, _, t, true) => format!("compress({t})"),
+            Pattern::Hurry(r) => format!("hurry({})", r.print()),
+            Pattern::IterBack(n) => format!("iterBack({n})"),
+            Pattern::Mask(keep) => format!("mask({})", u8::from(*keep)),
+            Pattern::Chunk(n, m) => format!("chunk({n}, {})", bare(m)),
+            Pattern::WhenMod(a, b, m) => format!("whenmod({a}, {b}, {})", bare(m)),
+            Pattern::Segment(n) => format!("segment({n})"),
+            Pattern::Nudge(t) => format!("nudge({t})"),
+            Pattern::Connect(1, _) => "connect()".to_string(),
+            Pattern::Connect(n, _) => format!("connect({n})"),
+            Pattern::EuclidInv(e) => e.print().replacen("euclid", "euclidInv", 1),
+            Pattern::EuclidLegato(e) => e.print().replacen("euclid", "euclidLegato", 1),
+            Pattern::EuclidFull(e, m) => {
+                let rot = if e.rot == 0 {
+                    String::new()
+                } else {
+                    format!(", {}", e.rot)
+                };
+                format!("euclidFull({}, {}, {}{rot})", e.k, e.n, bare(m))
+            }
+            Pattern::Layer(ms) => {
+                let words: Vec<String> = ms
+                    .iter()
+                    .map(|m| m.as_ref().map_or_else(|| "id".to_string(), bare))
+                    .collect();
+                format!("layer({})", words.join(", "))
+            }
+            Pattern::Mirror(Axis::First) => "mirror()".to_string(),
+            Pattern::Mirror(Axis::Degree(d)) => format!("mirror({d})"),
+            Pattern::Mirror(Axis::Note(n)) => format!("mirror({})", super::note_name(*n)),
+            Pattern::Clip(None) => "clip(~)".to_string(),
+            Pattern::Clip(Some(x)) => format!("clip({x})"),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -1195,6 +1547,68 @@ impl Pattern {
                 p.accel = p.accel.saturating_add(*x).clamp(-Play::MAX, Play::MAX);
             }),
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
+            Pattern::Velocity(v) => velocity(line, *v),
+            Pattern::Clip(x) => clip(line, *x),
+            Pattern::Rot(n) => rot(line, *n),
+            Pattern::EchoWith(e) => echo_with(line, e)?,
+            Pattern::PlyWith(n, m) => ply_with(line, *n, m)?,
+            Pattern::Inside(r, m, out) => {
+                let (slow, fast) = if *out {
+                    (Pattern::Fast(*r), Pattern::Slow(*r))
+                } else {
+                    (Pattern::Slow(*r), Pattern::Fast(*r))
+                };
+                fast.apply(&m.apply(&slow.apply(line)?)?)?
+            }
+            Pattern::Linger(t, _) => linger(line, *t),
+            Pattern::Zoom(a, b, _, compress) => zoom(line, *a, *b, *compress),
+            Pattern::Hurry(r) => {
+                let x = i32::try_from(r.num * 100 / r.den).unwrap_or(100);
+                Pattern::Speed(i16::try_from(x).unwrap_or(100))
+                    .apply(&speed(line, r.num, r.den)?)?
+            }
+            Pattern::IterBack(n) => iter_by(line, *n, true),
+            Pattern::Mask(true) => line.clone(),
+            Pattern::Mask(false) => Line {
+                events: Vec::new(),
+                bars: line.bars,
+            },
+            Pattern::Chunk(n, m) => chunk(line, *n, m)?,
+            Pattern::WhenMod(a, b, m) => on_bars(line, *a, m, |k| k >= *b)?,
+            Pattern::Segment(n) => structure(line, &vec![true; *n as usize]),
+            Pattern::EuclidInv(e) => {
+                let rests: Vec<bool> = e.pattern().iter().map(|h| !h).collect();
+                structure(line, &rests)
+            }
+            Pattern::EuclidLegato(e) => legato_structure(line, &e.pattern()),
+            Pattern::Connect(n, scale) => connect(line, *n, scale.as_ref())?,
+            Pattern::Nudge(t) => {
+                let len = i64::from(line.len().max(1));
+                let mut out = line.clone();
+                for e in &mut out.events {
+                    e.start = u32::try_from((i64::from(e.start) + i64::from(*t)).rem_euclid(len))
+                        .unwrap_or(0);
+                }
+                out
+            }
+            Pattern::EuclidFull(e, m) => {
+                let hits = e.pattern();
+                let rests: Vec<bool> = hits.iter().map(|h| !h).collect();
+                let off = structure(&m.apply(line)?, &rests);
+                together(&[structure(line, &hits), off])?
+            }
+            Pattern::Superimpose(m) => together(&[line.clone(), m.apply(line)?])?,
+            Pattern::Layer(ms) => {
+                let layers = ms
+                    .iter()
+                    .map(|m| {
+                        m.as_ref()
+                            .map_or_else(|| Ok(line.clone()), |m| m.apply(line))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                together(&layers)?
+            }
+            Pattern::Mirror(axis) => mirror(line, *axis)?,
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Beat(_, hits) => structure(line, hits),
             Pattern::Mul(m) => m.apply(line)?,
@@ -1216,7 +1630,7 @@ impl Pattern {
                 by_bar(line, &steps)?
             }
             Pattern::Splice(n, _, idx) => fit(slice(line, *n, idx)?),
-            Pattern::Iter(n) => iter(line, *n),
+            Pattern::Iter(n) => iter_by(line, *n, false),
             Pattern::Shuffle(n) => reorder(line, *n, true)?,
             Pattern::Scramble(n) => reorder(line, *n, false)?,
             Pattern::Degrade(p) => Line {
@@ -1350,6 +1764,42 @@ impl Pattern {
 }
 
 impl Pattern {
+    /// The scale a `connect` in this method walks its notes on, where it
+    /// has none (#618): the clip's `scale` before it, or the song's.
+    pub fn fill_scale(&mut self, s: Scale) {
+        match self {
+            Pattern::Connect(_, scale @ None) => *scale = Some(s),
+            Pattern::Every(_, m)
+            | Pattern::Off(_, m)
+            | Pattern::Sometimes(_, m)
+            | Pattern::Jux(m)
+            | Pattern::Mul(m)
+            | Pattern::PlyWith(_, m)
+            | Pattern::Superimpose(m)
+            | Pattern::Inside(_, m, _)
+            | Pattern::Chunk(_, m)
+            | Pattern::WhenMod(_, _, m)
+            | Pattern::EuclidFull(_, m) => m.fill_scale(s),
+            Pattern::EchoWith(e) => e.method.fill_scale(s),
+            Pattern::Spread(ms) | Pattern::Layer(ms) => {
+                ms.iter_mut().flatten().for_each(|m| m.fill_scale(s));
+            }
+            Pattern::PerBar(_, steps) => steps
+                .iter_mut()
+                .flatten()
+                .for_each(|p| p.method.fill_scale(s)),
+            _ => {}
+        }
+    }
+
+    /// The scale a `.scale(…)` sets, its first root's, if it is one.
+    pub fn sets_scale(&self) -> Option<Scale> {
+        match self {
+            Pattern::Scale(keys) => keys.steps.first().map(|s| s.key.scale),
+            _ => None,
+        }
+    }
+
     /// Does this method change only pitches, one note at a time, so a live
     /// clip can take it in `render` (#593)?
     pub fn pitch_only(&self) -> bool {
@@ -1371,7 +1821,19 @@ impl Pattern {
     /// drum clip, whose lanes hold neither, can't take it (#653)?
     pub fn moves_pitch(&self) -> bool {
         match self {
-            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
+            Pattern::Every(_, m)
+            | Pattern::Off(_, m)
+            | Pattern::Sometimes(_, m)
+            | Pattern::PlyWith(_, m)
+            | Pattern::Superimpose(m)
+            | Pattern::Inside(_, m, _)
+            | Pattern::Chunk(_, m)
+            | Pattern::WhenMod(_, _, m)
+            | Pattern::EuclidFull(_, m) => m.moves_pitch(),
+            // A lane holds no sampler speed (#743).
+            Pattern::Hurry(_) => true,
+            Pattern::Layer(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
+            Pattern::EchoWith(e) => e.method.moves_pitch(),
             // A lane holds a hit, an accent or a ghost, not gain^k (#719).
             Pattern::Stut(_) => true,
             Pattern::Spread(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
@@ -1388,7 +1850,15 @@ impl Pattern {
             | Pattern::Speed(_)
             | Pattern::Accelerate(_)
             | Pattern::Coarse(_)
-            | Pattern::Mul(_) => true,
+            | Pattern::Mul(_)
+            // A lane holds a hit, an accent or a ghost, not a velocity (#621).
+            | Pattern::Velocity(_)
+            // A lane's hit is a step long (#740).
+            | Pattern::Clip(_)
+            | Pattern::Connect(..)
+            // A lane's hits have no pitch to move (#742).
+            | Pattern::Rot(_)
+            | Pattern::Mirror(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -1673,6 +2143,407 @@ fn played(line: &Line, f: impl Fn(&mut Play)) -> Line {
     out
 }
 
+/// Every note at velocity `v` (0 to 1, at least the softest, 1 of 127), a
+/// grace and a `~` (`None`) keeping their own (#621).
+fn velocity(line: &Line, v: Option<f32>) -> Line {
+    let mut out = line.clone();
+    if let Some(v) = v {
+        for e in out.events.iter_mut().filter(|e| e.nudge >= 0) {
+            e.vel = vel_of(f64::from(v));
+        }
+    }
+    out
+}
+
+/// The line in `e.count` layers, layer k through `e.method` k times and
+/// `e.ticks` × k later, round its length, the layers round together (#741).
+fn echo_with(line: &Line, e: &EchoWith) -> Result<Line, &'static str> {
+    let mut layers = vec![line.clone()];
+    let mut layer = line.clone();
+    for k in 1..e.count {
+        layer = e.method.apply(&layer)?;
+        let mut copy = layer.clone();
+        let len = copy.len().max(1);
+        for ev in &mut copy.events {
+            ev.start = (ev.start + k * e.ticks) % len;
+        }
+        layers.push(copy);
+    }
+    together(&layers)
+}
+
+/// Each note `n` times in its own length, as `ply`, repeat k through `m` k
+/// times (#741).
+fn ply_with(line: &Line, n: u32, m: &Pattern) -> Result<Line, &'static str> {
+    check(line.bars, line.events.len() * n as usize)?;
+    let mut layers = Vec::new();
+    for k in 0..n {
+        let mut layer = Line {
+            events: line
+                .events
+                .iter()
+                .map(|e| Event {
+                    start: e.start + div_round(k * e.len, n),
+                    len: div_round(e.len, n).max(1),
+                    ..*e
+                })
+                .collect(),
+            bars: line.bars,
+        };
+        for _ in 0..k {
+            layer = m.apply(&layer)?;
+        }
+        layers.push(layer);
+    }
+    together(&layers)
+}
+
+/// Lines played together, each repeated until they all come round.
+fn together(layers: &[Line]) -> Result<Line, &'static str> {
+    let bars = layers.iter().fold(1, |b, l| lcm(b, l.bars.max(1)));
+    let events: usize = layers
+        .iter()
+        .map(|l| l.events.len() * (bars / l.bars.max(1)) as usize)
+        .sum();
+    check(bars, events)?;
+    let mut out = Line {
+        events: Vec::with_capacity(events),
+        bars,
+    };
+    for l in layers {
+        out.events.extend(l.repeat(bars).events);
+    }
+    Ok(out)
+}
+
+/// `1/4`, `0.25`, `0` or `1` of a bar, in ticks from 0 to a bar.
+fn bar_point(s: &str) -> Option<u32> {
+    let s = s.trim();
+    let x = match s.split_once('/') {
+        Some((a, b)) => {
+            let (a, b) = (a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?);
+            (b > 0.0).then(|| a / b)?
+        }
+        None => s.parse::<f64>().ok()?,
+    };
+    (0.0..=1.0)
+        .contains(&x)
+        .then(|| (x * f64::from(BAR)).round() as u32)
+}
+
+/// The first `t` ticks of each bar played over and over to fill it, a
+/// note cut where its copy ends (#743).
+fn linger(line: &Line, t: u32) -> Line {
+    let t = t.clamp(1, BAR);
+    let mut events = Vec::new();
+    for b in 0..line.bars {
+        let lo = b * BAR;
+        let head: Vec<&Event> = line
+            .events
+            .iter()
+            .filter(|e| (lo..lo + t).contains(&e.start))
+            .collect();
+        for k in 0..BAR.div_ceil(t) {
+            let at = lo + k * t;
+            let end = (at + t).min(lo + BAR);
+            events.extend(head.iter().filter_map(|e| {
+                let start = at + (e.start - lo);
+                (start < end).then(|| Event {
+                    start,
+                    len: e.len.min(end - start).max(1),
+                    ..**e
+                })
+            }));
+        }
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
+/// Ticks `a..b` of each bar stretched over the bar, or with `compress` each
+/// bar squeezed into `a..b`, silent around it (#743).
+fn zoom(line: &Line, a: u32, b: u32, compress: bool) -> Line {
+    let d = (b - a).max(1);
+    let mut events = Vec::new();
+    for e in &line.events {
+        let lo = e.start / BAR * BAR;
+        let x = e.start - lo;
+        let (start, len, end) = if compress {
+            (a + x * d / BAR, (e.len * d / BAR).max(1), b)
+        } else if (a..b).contains(&x) {
+            ((x - a) * BAR / d, (e.len * BAR / d).max(1), BAR)
+        } else {
+            continue;
+        };
+        events.push(Event {
+            start: lo + start,
+            len: len.min(end - start).max(1),
+            ..*e
+        });
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
+/// Bar k with method `m` on part k mod `n` of it (the notes starting
+/// there), the line as it is on the rest, round together (#632).
+fn chunk(line: &Line, n: u32, m: &Pattern) -> Result<Line, &'static str> {
+    let changed = m.apply(line)?;
+    let bars = lcm(lcm(line.bars, n), changed.bars);
+    check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+    let part = |e: &Event| {
+        let k = (e.start / BAR) % n;
+        let x = e.start % BAR;
+        (div_round(k * BAR, n)..div_round((k + 1) * BAR, n)).contains(&x)
+    };
+    let mut events: Vec<Event> = line
+        .repeat(bars)
+        .events
+        .into_iter()
+        .filter(|e| !part(e))
+        .collect();
+    events.extend(changed.repeat(bars).events.into_iter().filter(part));
+    Ok(Line { events, bars })
+}
+
+/// The shortest passing note `connect` makes: a sixteenth (#618).
+const PASSING: u32 = BAR / 16;
+
+/// A note's place on the ladder `connect` walks: a degree of a line of
+/// degrees, a degree of `scale` from its root, or a semitone.
+fn rung(e: &Event, scale: Option<&Scale>) -> i32 {
+    if e.degree {
+        return i32::from(e.note) - i32::from(DEGREE_ZERO);
+    }
+    let Some(s) = scale else {
+        return i32::from(e.note);
+    };
+    let iv = s.mode.intervals();
+    let len = i32::try_from(iv.len()).unwrap_or(1).max(1);
+    let rel = i32::from(s.snap(e.note)) - i32::from(s.root);
+    let (oct, pc) = (rel.div_euclid(12), rel.rem_euclid(12));
+    let idx = iv.iter().position(|i| i32::from(*i) == pc).unwrap_or(0);
+    oct * len + i32::try_from(idx).unwrap_or(0)
+}
+
+/// The note on rung `r`, as `rung` counts them for `like`.
+fn at_rung(like: &Event, r: i32, scale: Option<&Scale>) -> Event {
+    let note = if like.degree {
+        let d = r.clamp(-super::MAX_DEGREE, super::MAX_DEGREE);
+        u8::try_from(i32::from(DEGREE_ZERO) + d).unwrap_or(DEGREE_ZERO)
+    } else {
+        match scale {
+            Some(s) => s.degree_note(s.root, r),
+            None => u8::try_from(r.clamp(0, 127)).unwrap_or(0),
+        }
+    };
+    Event {
+        note,
+        cents: 0,
+        ..*like
+    }
+}
+
+/// Each leap of `line` to the next onset (the last to the first, round the
+/// line) filled with passing notes `step` rungs apart, sharing the time to
+/// it, each at least a sixteenth; a chord's lowest note leads (#618).
+fn connect(line: &Line, step: u32, scale: Option<&Scale>) -> Result<Line, &'static str> {
+    let total = line.len().max(1);
+    let mut onsets: Vec<u32> = line
+        .events
+        .iter()
+        .filter(|e| e.nudge >= 0)
+        .map(|e| e.start)
+        .collect();
+    onsets.sort_unstable();
+    onsets.dedup();
+    let lowest = |s: u32| {
+        line.events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.start == s && e.nudge >= 0)
+            .min_by_key(|(_, e)| e.note)
+            .map(|(i, _)| i)
+    };
+    let mut out = line.clone();
+    let step = i32::try_from(step).unwrap_or(1).max(1);
+    for (k, &s) in onsets.iter().enumerate() {
+        let next = onsets
+            .get(k + 1)
+            .copied()
+            .unwrap_or_else(|| onsets.first().copied().unwrap_or(s) + total);
+        let (Some(i), Some(j)) = (lowest(s), lowest(next % total)) else {
+            continue;
+        };
+        let (Some(a), Some(b)) = (line.events.get(i), line.events.get(j)) else {
+            continue;
+        };
+        if a.degree != b.degree {
+            continue;
+        }
+        let (from, to) = (rung(a, scale), rung(b, scale));
+        let dist = (to - from).abs();
+        if dist <= step {
+            continue;
+        }
+        let gap = next - s;
+        let wanted = u32::try_from((dist + step - 1) / step - 1).unwrap_or(0);
+        let passes = wanted.min((gap / PASSING).saturating_sub(1));
+        if passes == 0 {
+            continue;
+        }
+        let share = gap / (passes + 1);
+        if let Some(first) = out.events.get_mut(i) {
+            first.len = first.len.min(share).max(1);
+        }
+        let dir = (to - from).signum();
+        for p in 1..=passes {
+            let r = from + dir * step * i32::try_from(p).unwrap_or(0);
+            out.events.push(Event {
+                start: (s + p * share) % total,
+                len: share,
+                ..at_rung(a, r, scale)
+            });
+        }
+    }
+    check(out.bars, out.events.len())?;
+    Ok(out)
+}
+
+/// Furthest `nudge` moves a note, in ticks: two sixteenths (#626).
+const MAX_NUDGE: i32 = 6;
+
+/// Furthest `rot` turns.
+const MAX_ROT: i32 = 64;
+
+/// A note name with its octave, `c4` or `eb2`, as MIDI.
+fn note_of(s: &str) -> Option<u8> {
+    let (i, d) = s.char_indices().last()?;
+    let octave = d.to_digit(10)?;
+    let pc = pitch_class(s.get(..i)?)?;
+    u8::try_from((octave + 1) * 12 + u32::from(pc))
+        .ok()
+        .filter(|n| *n <= 127)
+}
+
+/// Each bar's onsets (the notes starting together, their graces with
+/// them) each taking the notes of the onset `n` later in the bar, round it,
+/// at its own start and length, as Tidal's rot (#742).
+fn rot(line: &Line, n: i32) -> Line {
+    let mut events = Vec::with_capacity(line.events.len());
+    for b in 0..line.bars {
+        let bar: Vec<&Event> = line.events.iter().filter(|e| e.start / BAR == b).collect();
+        let mut onsets: Vec<u32> = bar
+            .iter()
+            .filter(|e| e.nudge >= 0)
+            .map(|e| e.start)
+            .collect();
+        onsets.sort_unstable();
+        onsets.dedup();
+        let m = i32::try_from(onsets.len()).unwrap_or(0);
+        if m == 0 {
+            events.extend(bar.into_iter().copied());
+            continue;
+        }
+        let at = |s: u32| bar.iter().filter(move |e| e.start == s);
+        for (k, &s) in (0..).zip(&onsets) {
+            let from = onsets
+                .get((k + n).rem_euclid(m) as usize)
+                .copied()
+                .unwrap_or(s);
+            let len = at(s).find(|e| e.nudge >= 0).map_or(1, |e| e.len);
+            events.extend(at(from).map(|e| Event {
+                start: s,
+                len: if e.nudge >= 0 { len } else { e.len },
+                ..**e
+            }));
+        }
+        // Graces before a bar's first note may start in the bar before.
+        events.extend(
+            bar.iter()
+                .filter(|e| e.nudge < 0 && !onsets.contains(&e.start))
+                .map(|e| **e),
+        );
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
+/// Each pitch turned round `axis`: a degree round a degree, a note round a
+/// note, to the cent; past the degrees or 0 to 127 it stops at the end
+/// (#742).
+fn mirror(line: &Line, axis: Axis) -> Result<Line, &'static str> {
+    let zero = i32::from(DEGREE_ZERO) * 100;
+    let pitch = |e: &Event| i32::from(e.note) * 100 + i32::from(e.cents);
+    let first_note = line
+        .events
+        .iter()
+        .find(|e| e.nudge >= 0 && !e.degree)
+        .map_or(0, pitch);
+    // The axis of a degree, and of a note, in cents.
+    let (deg_axis, note_axis) = match axis {
+        Axis::First => (zero, first_note),
+        Axis::Degree(_) if line.events.iter().any(|e| !e.degree) => {
+            return Err(
+                "mirror(n) turns degrees round degree n: write it before scale, or give a note: mirror(c4)",
+            );
+        }
+        Axis::Note(_) if line.events.iter().any(|e| e.degree) => {
+            return Err(
+                "mirror(c4) turns notes round a note: write it after scale, or give a degree: mirror(2)",
+            );
+        }
+        Axis::Degree(d) => (zero + d * 100, 0),
+        Axis::Note(n) => (0, i32::from(n) * 100),
+    };
+    let deg = super::MAX_DEGREE * 100;
+    let mut out = line.clone();
+    for e in &mut out.events {
+        let to = if e.degree {
+            (2 * deg_axis - pitch(e)).clamp(zero - deg, zero + deg)
+        } else {
+            (2 * note_axis - pitch(e)).clamp(0, 12_700)
+        };
+        let note = (to + 50).div_euclid(100);
+        e.note = u8::try_from(note).unwrap_or(0);
+        e.cents = i16::try_from(to - note * 100).unwrap_or(0);
+    }
+    Ok(out)
+}
+
+/// Every note `x` times as long, at least a tick and at most the line, a
+/// grace and a `~` (`None`) keeping their own (#740).
+fn clip(line: &Line, x: Option<f32>) -> Line {
+    let mut out = line.clone();
+    if let Some(x) = x {
+        let most = line.len().max(1);
+        for e in out.events.iter_mut().filter(|e| e.nudge >= 0) {
+            e.len = len_of(e.len, f64::from(x), most);
+        }
+    }
+    out
+}
+
+/// Length `len` times `x` (0 to `MAX_CLIP`), in whole ticks from 1 to `most`.
+pub fn len_of(len: u32, x: f64, most: u32) -> u32 {
+    let ticks = (f64::from(len) * x.clamp(0.0, f64::from(MAX_CLIP))).round();
+    (ticks as u32).clamp(1, most.max(1))
+}
+
+/// The longest `clip` (#740).
+pub const MAX_CLIP: f32 = 16.0;
+
+/// A velocity of 0 to 1 as an event's, 1 to 127.
+pub fn vel_of(v: f64) -> u8 {
+    (v.clamp(0.0, 1.0) * 127.0).round().max(1.0) as u8
+}
+
 /// Hundredths as a number: `100` is `1`, `-50` is `-0.5`.
 fn hundredths(x: i16) -> String {
     format!("{}", f32::from(x) / 100.0)
@@ -1696,14 +2567,16 @@ fn fit_part(fit: u32, n: u32) -> u32 {
     }
 }
 
-/// Bar m starts (m mod n) / n of a bar further into the line.
-fn iter(line: &Line, n: u32) -> Line {
+/// Bar m starts (m mod n) / n of a bar further into the line, or with
+/// `back` (`iterBack`, #743) that much earlier.
+fn iter_by(line: &Line, n: u32, back: bool) -> Line {
     let bars = lcm(line.bars, n);
     let all = line.repeat(bars);
     let len = all.len().max(1);
     let mut events = Vec::new();
     for m in 0..bars {
-        let from = m * BAR + div_round((m % n) * BAR, n);
+        let k = if back { (n - m % n) % n } else { m % n };
+        let from = m * BAR + div_round(k * BAR, n);
         for e in &all.events {
             let rel = (e.start + len - from % len) % len;
             if rel < BAR {
@@ -1760,12 +2633,23 @@ fn reorder(line: &Line, n: u32, shuffle: bool) -> Result<Line, &'static str> {
 /// Method `m` on the bars whose number is `phase` mod `n`, the line as it
 /// is on the others.
 fn alternate(line: &Line, n: u32, phase: u32, m: &Pattern) -> Result<Line, &'static str> {
+    on_bars(line, n, m, |k| k == phase)
+}
+
+/// Method `m` on the bars whose number mod `n` passes `on`, the line as it
+/// is on the others (`every`, `whenmod`, #632).
+fn on_bars(
+    line: &Line,
+    n: u32,
+    m: &Pattern,
+    on: impl Fn(u32) -> bool,
+) -> Result<Line, &'static str> {
     let base = line.repeat(lcm(line.bars, n));
     check(base.bars, base.events.len())?;
     let changed = m.apply(&base)?;
     let bars = lcm(base.bars, changed.bars);
     check(bars, base.events.len() * (bars / base.bars) as usize)?;
-    let on = |e: &Event| (e.start / BAR) % n == phase;
+    let on = |e: &Event| on((e.start / BAR) % n);
     let mut events: Vec<Event> = base
         .repeat(bars)
         .events
@@ -2021,6 +2905,26 @@ fn structure(line: &Line, steps: &[bool]) -> Line {
         events,
         bars: line.bars,
     }
+}
+
+/// Each bar on a rhythm, as `structure`, each hit held until the next one,
+/// the last to the bar's end (#631).
+fn legato_structure(line: &Line, steps: &[bool]) -> Line {
+    let n = u32::try_from(steps.len()).unwrap_or(1).max(1);
+    let hits: Vec<u32> = (0..n)
+        .zip(steps)
+        .filter(|(_, h)| **h)
+        .map(|(k, _)| k)
+        .collect();
+    let mut out = structure(line, steps);
+    for e in &mut out.events {
+        let k = (0..n)
+            .find(|k| div_round(*k * BAR, n) == e.start % BAR)
+            .unwrap_or(0);
+        let next = hits.iter().find(|h| **h > k).copied().unwrap_or(n);
+        e.len = (div_round(next * BAR, n) - div_round(k * BAR, n)).max(1);
+    }
+    out
 }
 
 /// `bars` bars on the hits of `src`: at each start of its events (once
@@ -3362,5 +4266,822 @@ mod tests {
             Pattern::Ply(2).apply(&many),
             Err("the pattern makes more than 512 notes")
         );
+    }
+
+    /// #621: Strudel's velocity, a value a step, `~` keeping the note's own.
+    #[test]
+    fn velocity_sets_each_notes_velocity() {
+        let vels = |l: &Line| l.events.iter().map(|e| e.vel).collect::<Vec<_>>();
+        assert_eq!(vels(&run("velocity(0.5)", &four())), [64; 4]);
+        assert_eq!(
+            vels(&run("velocity(\"1 0.25\")", &four())),
+            [127, 127, 32, 32]
+        );
+        let mut accented = four();
+        accented.events[1].accent = true;
+        let kept = run("velocity(\"0 ~ 1 ~\")", &accented);
+        assert_eq!(
+            vels(&kept),
+            [1, 0, 127, 0],
+            "0 is the softest; ~ keeps its own"
+        );
+        assert!(kept.events[1].accent, "an accent stays where ~ keeps it");
+        assert_eq!(
+            vels(&run("velocity(\"<1 0.5>\")", &four())),
+            [127, 127, 127, 127, 64, 64, 64, 64]
+        );
+        // A grace keeps its own softness.
+        let mut graced = four();
+        graced.events[0].nudge = -30;
+        assert_eq!(run("velocity(1)", &graced).events[0].vel, 0);
+        // Echoes fade from the velocity set before them.
+        let echoed = run("stut(2, 0.5, 1/8)", &run("velocity(1)", &four()));
+        assert!(
+            echoed.events.iter().any(|e| e.vel == 64),
+            "{:?}",
+            vels(&echoed)
+        );
+        for bad in ["1.5", "-0.1", "x", ""] {
+            assert_eq!(
+                Pattern::parse("velocity", bad),
+                Err(if bad.is_empty() {
+                    "this takes one value"
+                } else {
+                    crate::usage::VELOCITY
+                }),
+                "{bad}"
+            );
+        }
+        for (args, printed) in [
+            (" 0.5 ", "velocity(0.5)"),
+            ("~", "velocity(~)"),
+            ("\"1 0.5\"", "velocity(\"1 0.5\")"),
+        ] {
+            assert_eq!(
+                Pattern::parse("velocity", args).expect(args).print(),
+                printed
+            );
+        }
+        assert!(
+            Pattern::Velocity(Some(1.0)).moves_pitch(),
+            "not on a drum clip's lanes"
+        );
+        assert!(
+            !Pattern::Velocity(Some(1.0)).pitch_only(),
+            "not on a live clip"
+        );
+    }
+
+    /// #740: Strudel's clip (its legato), each note's length as a share of
+    /// its own.
+    #[test]
+    fn clip_sets_each_notes_length() {
+        let lens = |l: &Line| l.events.iter().map(|e| e.len).collect::<Vec<_>>();
+        assert_eq!(lens(&run("clip(0.5)", &four())), [6; 4]);
+        assert_eq!(
+            lens(&run("clip(2)", &four())),
+            [24; 4],
+            "overlapping the next"
+        );
+        assert_eq!(lens(&run("clip(\"0.25 ~\")", &four())), [3, 3, 12, 12]);
+        assert_eq!(lens(&run("clip(0.01)", &four())), [1; 4], "at least a tick");
+        assert_eq!(lens(&run("clip(16)", &four())), [48; 4], "at most the line");
+        assert_eq!(
+            lens(&run("clip(\"<1 0.5>\")", &four())),
+            [12, 12, 12, 12, 6, 6, 6, 6]
+        );
+        let mut graced = four();
+        graced.events[0].nudge = -30;
+        assert_eq!(
+            run("clip(2)", &graced).events[0].len,
+            12,
+            "a grace keeps its own"
+        );
+        for bad in ["0", "16.5", "-1", "x"] {
+            assert_eq!(
+                Pattern::parse("clip", bad),
+                Err(crate::usage::CLIP),
+                "{bad}"
+            );
+        }
+        for (args, printed) in [
+            (" 0.5", "clip(0.5)"),
+            ("~", "clip(~)"),
+            ("\"0.3 1\"", "clip(\"0.3 1\")"),
+        ] {
+            assert_eq!(Pattern::parse("clip", args).expect(args).print(), printed);
+        }
+        assert!(
+            Pattern::Clip(Some(1.0)).moves_pitch(),
+            "not on a drum clip's lanes"
+        );
+    }
+
+    /// #742: Tidal's rot, each onset the notes of the one n later in the
+    /// bar, the rhythm staying.
+    #[test]
+    fn rot_turns_the_notes_along_the_rhythm() {
+        // a ~ b c: three onsets at 0, 24 and 36, the second held longer.
+        let line = Line {
+            events: vec![ev(0, 12, 57), ev(24, 6, 59), ev(36, 12, 60)],
+            bars: 1,
+        };
+        let shape = |l: &Line| {
+            l.events
+                .iter()
+                .map(|e| (e.start, e.len, e.note))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shape(&run("rot(1)", &line)),
+            [(0, 12, 59), (24, 6, 60), (36, 12, 57)]
+        );
+        assert_eq!(
+            shape(&run("rot(-1)", &line)),
+            [(0, 12, 60), (24, 6, 57), (36, 12, 59)]
+        );
+        assert_eq!(shape(&run("rot(3)", &line)), shape(&line), "round the bar");
+        // A chord is one onset and moves whole, its velocity with it.
+        let mut chord = Line {
+            events: vec![ev(0, 24, 60), ev(0, 24, 64), ev(24, 24, 67)],
+            bars: 1,
+        };
+        chord.events[2].vel = 99;
+        let r = run("rot(1)", &chord);
+        assert_eq!(shape(&r), [(0, 24, 67), (24, 24, 60), (24, 24, 64)]);
+        assert_eq!(r.events[0].vel, 99, "the note's velocity comes with it");
+        // A grace moves with its note.
+        let mut graced = line.clone();
+        graced.events.push(Event {
+            nudge: -30,
+            ..ev(24, 1, 61)
+        });
+        let r = run("rot(1)", &graced);
+        assert!(
+            r.events
+                .iter()
+                .any(|e| e.start == 0 && e.nudge < 0 && e.note == 61),
+            "{:?}",
+            shape(&r)
+        );
+        // One a bar, each bar in turn.
+        let two = run("rot(\"<0 1>\")", &line);
+        assert_eq!(two.bars, 2);
+        assert_eq!(bar_notes(&two, 0), [57, 59, 60]);
+        assert_eq!(bar_notes(&two, 1), [59, 60, 57]);
+        for bad in ["65", "x", "1.5"] {
+            assert_eq!(Pattern::parse("rot", bad), Err(crate::usage::ROT), "{bad}");
+        }
+        assert_eq!(
+            Pattern::parse("rot", " -2").expect("rot").print(),
+            "rot(-2)"
+        );
+    }
+
+    /// #742: melodic inversion, degrees round a degree and notes round a note.
+    #[test]
+    fn mirror_turns_pitches_round_an_axis() {
+        let degrees = Line {
+            events: [0u8, 2, 4, 3]
+                .iter()
+                .zip(0..)
+                .map(|(d, k)| deg(k * 12, *d))
+                .collect(),
+            bars: 1,
+        };
+        let degs = |l: &Line| {
+            l.events
+                .iter()
+                .map(|e| i32::from(e.note) - i32::from(DEGREE_ZERO))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(degs(&run("mirror(2)", &degrees)), [4, 2, 0, 1]);
+        assert_eq!(degs(&run("mirror()", &degrees)), [0, -2, -4, -3]);
+        assert_eq!(
+            degs(&run("mirror(20)", &degrees)),
+            [24, 24, 24, 24],
+            "stops at the last degree"
+        );
+        let notes = |l: &Line| {
+            l.events
+                .iter()
+                .map(|e| (e.note, e.cents))
+                .collect::<Vec<_>>()
+        };
+        // c d e f# round c4, and round the line's first note.
+        assert_eq!(
+            notes(&run("mirror(c4)", &four())),
+            [(60, 0), (58, 0), (56, 0), (54, 0)]
+        );
+        assert_eq!(
+            notes(&run("mirror(d4)", &four())),
+            [(64, 0), (62, 0), (60, 0), (58, 0)]
+        );
+        assert_eq!(
+            notes(&run("mirror()", &four())),
+            notes(&run("mirror(c4)", &four()))
+        );
+        let quarter = run("mirror(c4)", &run("add(0.25)", &four()));
+        assert_eq!(
+            notes(&quarter)[0],
+            (60, -25),
+            "c4 a quarter up turns a quarter down"
+        );
+        assert_eq!(
+            notes(&run("mirror(c9)", &four()))[0],
+            (127, 0),
+            "stops at 127"
+        );
+        // Retrograde inversion is the two together.
+        let ri = run("mirror(c4)", &run("rev()", &four()));
+        assert_eq!(starts(&ri), [(0, 54), (12, 56), (24, 58), (36, 60)]);
+        assert!(
+            Pattern::parse("mirror", "c4")
+                .expect("note")
+                .apply(&degrees)
+                .is_err()
+        );
+        assert!(
+            Pattern::parse("mirror", "2")
+                .expect("degree")
+                .apply(&four())
+                .is_err()
+        );
+        for bad in ["25", "h4", "c", "1, 2"] {
+            assert_eq!(
+                Pattern::parse("mirror", bad),
+                Err(crate::usage::MIRROR),
+                "{bad}"
+            );
+        }
+        for (args, printed) in [
+            ("", "mirror()"),
+            (" -3", "mirror(-3)"),
+            ("eb2", "mirror(d#2)"),
+        ] {
+            assert_eq!(Pattern::parse("mirror", args).expect(args).print(), printed);
+        }
+    }
+
+    /// #741: echoWith and plyWith, each copy through the method once more.
+    #[test]
+    fn echo_with_and_ply_with_change_each_copy_again() {
+        let degrees = Line {
+            events: vec![deg(0, 0), deg(12, 2), deg(24, 4)],
+            bars: 1,
+        };
+        let shape = |l: &Line| {
+            let mut v: Vec<(u32, i32)> = l
+                .events
+                .iter()
+                .map(|e| (e.start, i32::from(e.note) - i32::from(DEGREE_ZERO)))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        let canon = run("echoWith(3, 1/8, add(2))", &degrees);
+        assert_eq!(
+            shape(&canon),
+            [
+                (0, 0),
+                (6, 2),
+                (12, 2),
+                (12, 4),
+                (18, 4),
+                (24, 4),
+                (24, 6),
+                (30, 6),
+                (36, 8)
+            ]
+        );
+        // stutWith is Tidal's spelling, in the same order; a copy past the
+        // line's end comes round to its start.
+        let round = run("stutWith(2, 3/4, add(12))", &four());
+        assert!(
+            round.events.iter().any(|e| e.start == 0 && e.note == 74),
+            "{:?}",
+            starts(&round)
+        );
+        assert_eq!(
+            run("echoWith(1, 1/8, add(2))", &four()),
+            four(),
+            "one layer is the line"
+        );
+        // A method of time on each layer: the layers round together.
+        assert_eq!(run("echoWith(2, 1/4, slow(2))", &four()).bars, 2);
+        let rise = run(
+            "plyWith(3, add(12))",
+            &Line {
+                events: vec![ev(0, 12, 48)],
+                bars: 1,
+            },
+        );
+        assert_eq!(starts(&rise), [(0, 48), (4, 60), (8, 72)]);
+        assert!(rise.events.iter().all(|e| e.len == 4));
+        let soft = run("plyWith(2, velocity(0.5))", &four());
+        assert_eq!(soft.events.iter().filter(|e| e.vel == 64).count(), 4);
+        // Too many layers is the 512-note limit.
+        let many = run("ply(16)", &run("ply(8)", &four()));
+        assert_eq!(
+            Pattern::parse("echoWith", "2, 1/8, add(1)")
+                .expect("parses")
+                .apply(&many),
+            Err("the pattern makes more than 512 notes")
+        );
+        for (name, args, printed) in [
+            ("echoWith", "3,1/8, add(2)", "echoWith(3, 1/8, add(2))"),
+            ("stutWith", " 2 , 0.25 , rev ", "stutWith(2, 0.25, rev)"),
+            ("plyWith", "3,add(12)", "plyWith(3, add(12))"),
+            (
+                "every",
+                "2, plyWith(2, add(7))",
+                "every(2, plyWith(2, add(7)))",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("echoWith", "3, 1/8", crate::usage::ECHO_WITH),
+            ("stutWith", "3", crate::usage::STUT_WITH),
+            ("plyWith", "3", crate::usage::PLY_WITH),
+            (
+                "echoWith",
+                "17, 1/8, rev",
+                "this takes a whole number from 1 to 16",
+            ),
+            (
+                "echoWith",
+                "2, 1, rev",
+                "a time is between 0 and 1 bar, at least a tick",
+            ),
+            (
+                "plyWith",
+                "2, cutoff(3)",
+                "a pattern method goes here, e.g. rev or fast(2)",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            Pattern::parse("echoWith", "2, 1/8, add(2)")
+                .expect("p")
+                .moves_pitch()
+        );
+        assert!(
+            !Pattern::parse("echoWith", "2, 1/8, rev")
+                .expect("p")
+                .moves_pitch(),
+            "a drum clip's hits can echo"
+        );
+    }
+
+    /// #635: superimpose adds a changed copy on top, layer plays only copies.
+    #[test]
+    fn superimpose_and_layer_stack_changed_copies() {
+        let up = run("superimpose(add(12))", &four());
+        assert_eq!(
+            starts(&up),
+            [
+                (0, 60),
+                (0, 72),
+                (12, 62),
+                (12, 74),
+                (24, 64),
+                (24, 76),
+                (36, 66),
+                (36, 78)
+            ]
+        );
+        let both = run("layer(add(7), rev)", &four());
+        assert_eq!(
+            starts(&both),
+            [
+                (0, 66),
+                (0, 67),
+                (12, 64),
+                (12, 69),
+                (24, 62),
+                (24, 71),
+                (36, 60),
+                (36, 73)
+            ],
+            "a fifth up and backwards, not the line itself"
+        );
+        assert_eq!(run("layer(id)", &four()), four());
+        assert_eq!(
+            run("superimpose(slow(2))", &four()).bars,
+            2,
+            "round together"
+        );
+        let many = run("ply(16)", &run("ply(8)", &four()));
+        assert_eq!(
+            Pattern::parse("superimpose", "add(12)")
+                .expect("parses")
+                .apply(&many),
+            Err("the pattern makes more than 512 notes")
+        );
+        for (name, args, printed) in [
+            ("superimpose", " add(12) ", "superimpose(add(12))"),
+            ("layer", "add(7),rev", "layer(add(7), rev)"),
+            (
+                "layer",
+                "id, fast(2), add(-12)",
+                "layer(id, fast(2), add(-12))",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("superimpose", "", "this takes one value"),
+            (
+                "superimpose",
+                "cutoff(3)",
+                "a pattern method goes here, e.g. rev or fast(2)",
+            ),
+            ("layer", "", crate::usage::LAYER),
+            (
+                "layer",
+                "id, id, id, id, id, id, id, id, id",
+                crate::usage::LAYER,
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            !Pattern::parse("superimpose", "fast(2)")
+                .expect("p")
+                .moves_pitch(),
+            "on a drum clip too"
+        );
+        assert!(
+            Pattern::parse("layer", "id, add(7)")
+                .expect("p")
+                .moves_pitch()
+        );
+    }
+
+    /// #743: Tidal's time frames: inside, outside, linger, zoom, compress,
+    /// hurry and iterBack.
+    #[test]
+    fn time_frames_look_at_the_bar_another_way() {
+        let notes = |l: &Line| l.events.iter().map(|e| e.note).collect::<Vec<_>>();
+        // a b c d: inside(2, rev) turns each half round, not the bar.
+        assert_eq!(notes(&run("inside(2, rev)", &four())), [62, 60, 66, 64]);
+        assert_eq!(notes(&run("rev()", &four())), [66, 64, 62, 60]);
+        // Tidal's outside 2 rev "<[a b] [c d]>" is "<[d c] [b a]>": the two
+        // bars turned round as one.
+        let two = Line {
+            events: vec![
+                ev(0, 24, 57),
+                ev(24, 24, 59),
+                ev(48, 24, 60),
+                ev(72, 24, 62),
+            ],
+            bars: 2,
+        };
+        let out = run("outside(2, rev)", &two);
+        assert_eq!(starts(&out), [(0, 62), (24, 60), (48, 59), (72, 57)]);
+        // Eight eighths: linger(1/4) plays the first two four times.
+        let eight = eight();
+        let first = &notes(&eight)[..2];
+        let held = run("linger(1/4)", &eight);
+        assert_eq!(notes(&held), [first, first, first, first].concat());
+        assert_eq!(run("linger(1)", &eight), eight);
+        // A note longer than the part is cut where its copy ends.
+        let long = Line {
+            events: vec![ev(0, 48, 60)],
+            bars: 1,
+        };
+        assert!(run("linger(0.5)", &long).events.iter().all(|e| e.len == 24));
+        assert_eq!(run("linger(\"<1 0.5>\")", &four()).bars, 2);
+        // zoom(0.25, 0.75) stretches the middle half; compress squeezes.
+        assert_eq!(
+            starts(&run("zoom(0.25, 0.75)", &four())),
+            [(0, 62), (24, 64)]
+        );
+        assert!(
+            run("zoom(1/4, 3/4)", &four())
+                .events
+                .iter()
+                .all(|e| e.len == 24)
+        );
+        let squeezed = run("compress(0, 1/2)", &four());
+        assert_eq!(starts(&squeezed), [(0, 60), (6, 62), (12, 64), (18, 66)]);
+        assert!(squeezed.events.iter().all(|e| e.len == 6));
+        // hurry: twice as fast, and twice the sampler's speed.
+        let h = run("hurry(2)", &four());
+        assert_eq!(h.events.len(), 8);
+        assert!(h.events.iter().all(|e| e.play.speed == 200 && e.len == 6));
+        // iterBack: bar 1 starts a quarter earlier, at the last note.
+        let back = run("iterBack(4)", &four());
+        assert_eq!(back.bars, 4);
+        assert_eq!(bar_notes(&back, 1), [66, 60, 62, 64]);
+        assert_eq!(bar_notes(&run("iter(4)", &four()), 1), [62, 64, 66, 60]);
+        for (name, args, printed) in [
+            ("inside", "2,rev", "inside(2, rev)"),
+            ("outside", "3/2, fast(2)", "outside(3/2, fast(2))"),
+            ("linger", " 1/4 ", "linger(1/4)"),
+            ("linger", "\"<1 0.25>\"", "linger(\"<1 0.25>\")"),
+            ("zoom", "0.25,0.75", "zoom(0.25, 0.75)"),
+            ("compress", "0, 1/2", "compress(0, 1/2)"),
+            ("hurry", "2", "hurry(2)"),
+            ("iterBack", "4", "iterBack(4)"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("inside", "2", crate::usage::INSIDE),
+            ("linger", "0", crate::usage::LINGER),
+            ("linger", "1.5", crate::usage::LINGER),
+            ("zoom", "0.75, 0.25", crate::usage::ZOOM),
+            ("zoom", "0.5", crate::usage::ZOOM),
+            ("compress", "0, 2", crate::usage::COMPRESS),
+            (
+                "hurry",
+                "0",
+                "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
+            ),
+            ("iterBack", "17", "this takes a whole number from 1 to 16"),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            Pattern::parse("hurry", "2").expect("p").moves_pitch(),
+            "not on a drum clip"
+        );
+        assert!(!Pattern::parse("inside", "2, rev").expect("p").moves_pitch());
+    }
+
+    /// #632: bar-level control: mask, chunk, whenmod and segment.
+    #[test]
+    fn bar_level_control_masks_chunks_and_segments() {
+        let mask = run("mask(\"<1 0>\")", &four());
+        assert_eq!(mask.bars, 2);
+        assert_eq!(bar_notes(&mask, 0), [60, 62, 64, 66]);
+        assert!(bar_notes(&mask, 1).is_empty(), "every other bar silent");
+        assert_eq!(notes_of(&run("mask(\"1 0 1 1\")", &four())), [60, 64, 66]);
+        assert_eq!(
+            notes_of(&run("mask(\"t ~\")", &four())),
+            [60, 62],
+            "Strudel's t and ~"
+        );
+        // chunk(4, add(12)): bar k raises its k-th quarter.
+        let c = run("chunk(4, add(12))", &four());
+        assert_eq!(c.bars, 4);
+        for k in 0..4 {
+            let raised: Vec<u8> = (0..4u8)
+                .map(|j| 60 + 2 * j + if u32::from(j) == k { 12 } else { 0 })
+                .collect();
+            assert_eq!(bar_notes(&c, k), raised, "bar {k}");
+        }
+        // whenmod(8, 6, rev): bars 6 and 7 of each 8 backwards.
+        let w = run("whenmod(8, 6, rev)", &four());
+        assert_eq!(w.bars, 8);
+        for b in 0..8 {
+            let want = if b >= 6 {
+                [66, 64, 62, 60]
+            } else {
+                [60, 62, 64, 66]
+            };
+            assert_eq!(bar_notes(&w, b), want, "bar {b}");
+        }
+        // segment(4) on a whole-bar note: four quarter notes.
+        let held = Line {
+            events: vec![ev(0, 48, 60)],
+            bars: 1,
+        };
+        let seg = run("segment(4)", &held);
+        assert_eq!(
+            seg.events
+                .iter()
+                .map(|e| (e.start, e.len))
+                .collect::<Vec<_>>(),
+            [(0, 12), (12, 12), (24, 12), (36, 12)]
+        );
+        for (name, args, printed) in [
+            ("mask", "1", "mask(1)"),
+            ("mask", "\"<1 [0 1]>\"", "mask(\"<1 [0 1]>\")"),
+            ("chunk", "4,add(12)", "chunk(4, add(12))"),
+            ("whenmod", "8, 6,rev", "whenmod(8, 6, rev)"),
+            ("segment", " 8 ", "segment(8)"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("mask", "2", crate::usage::MASK),
+            ("mask", "\"1 2\"", crate::usage::MASK),
+            ("chunk", "4", crate::usage::CHUNK),
+            ("chunk", "0, rev", "this takes a whole number from 1 to 16"),
+            ("whenmod", "8, 8, rev", crate::usage::WHENMOD),
+            ("whenmod", "8, 6", crate::usage::WHENMOD),
+            ("segment", "0", crate::usage::SEGMENT),
+            ("segment", "49", crate::usage::SEGMENT),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            Pattern::parse("chunk", "4, add(12)")
+                .expect("p")
+                .moves_pitch()
+        );
+        assert!(
+            !Pattern::parse("whenmod", "4, 2, rev")
+                .expect("p")
+                .moves_pitch(),
+            "on a drum clip too"
+        );
+    }
+
+    fn notes_of(l: &Line) -> Vec<u8> {
+        l.events.iter().map(|e| e.note).collect()
+    }
+
+    /// #631: the other euclid forms, on the rests, held, and both.
+    #[test]
+    fn euclid_forms_play_rests_hold_and_fill() {
+        let held = Line {
+            events: vec![ev(0, 48, 48)],
+            bars: 1,
+        };
+        let starts_of =
+            |p: &str| -> Vec<u32> { run(p, &held).events.iter().map(|e| e.start).collect() };
+        // (3,8) is x..x..x. on eighths of 6 ticks.
+        assert_eq!(starts_of("euclid(3,8)"), [0, 18, 36]);
+        assert_eq!(starts_of("euclidInv(3,8)"), [6, 12, 24, 30, 42]);
+        let legato = run("euclidLegato(3,8)", &held);
+        let shape: Vec<(u32, u32)> = legato.events.iter().map(|e| (e.start, e.len)).collect();
+        assert_eq!(
+            shape,
+            [(0, 18), (18, 18), (36, 12)],
+            "each to the next, the last to the bar's end"
+        );
+        let rotated: Vec<u32> = run("euclidLegato(3,8,2)", &held)
+            .events
+            .iter()
+            .map(|e| e.start)
+            .collect();
+        assert_eq!(rotated, starts_of("euclid(3,8,2)"));
+        let full = run("euclidFull(3, 8, add(12))", &held);
+        let mut notes: Vec<(u32, u8)> = full.events.iter().map(|e| (e.start, e.note)).collect();
+        notes.sort_unstable();
+        assert_eq!(
+            notes,
+            [
+                (0, 48),
+                (6, 60),
+                (12, 60),
+                (18, 48),
+                (24, 60),
+                (30, 60),
+                (36, 48),
+                (42, 60)
+            ]
+        );
+        for (name, args, printed) in [
+            ("euclidInv", "3,8", "euclidInv(3,8)"),
+            ("euclidLegato", " 5, 8 ,2", "euclidLegato(5,8,2)"),
+            ("euclidFull", "3,8,add(12)", "euclidFull(3, 8, add(12))"),
+            ("euclidFull", "3, 8, rev, 1", "euclidFull(3, 8, rev, 1)"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            (
+                "euclidInv",
+                "9,8",
+                "euclid cannot have more hits than steps",
+            ),
+            (
+                "euclidLegato",
+                "3",
+                "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)",
+            ),
+            ("euclidFull", "3,8", crate::usage::EUCLID_FULL),
+            ("euclidFull", "3,64,rev", "a rhythm has 1 to 48 steps"),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+    }
+
+    /// #626: nudge moves every note a few ticks off the grid, round the line.
+    #[test]
+    fn nudge_moves_every_note_round_the_line() {
+        assert_eq!(
+            starts(&run("nudge(1)", &four())),
+            [(1, 60), (13, 62), (25, 64), (37, 66)]
+        );
+        assert_eq!(
+            starts(&run("nudge(-1)", &four())),
+            [(11, 62), (23, 64), (35, 66), (47, 60)]
+        );
+        assert_eq!(
+            Pattern::parse("nudge", " -2").expect("p").print(),
+            "nudge(-2)"
+        );
+        for bad in ["7", "-7", "0.5", ""] {
+            assert!(Pattern::parse("nudge", bad).is_err(), "{bad}");
+        }
+        assert!(
+            !Pattern::Nudge(1).moves_pitch(),
+            "on a drum clip made from one too"
+        );
+    }
+
+    /// #618: connect fills each leap with passing notes on the scale.
+    #[test]
+    fn connect_walks_the_scale_across_each_leap() {
+        let c_major = Scale {
+            root: 0,
+            mode: Mode::from_name("major").expect("major"),
+        };
+        // "c4 ~ ~ ~ g4 ~ ~ ~": c4 and g4 an eighth long, a half bar apart.
+        let leap = Line {
+            events: vec![ev(0, 6, 60), ev(24, 6, 67)],
+            bars: 1,
+        };
+        let walk = Pattern::Connect(1, Some(c_major))
+            .apply(&leap)
+            .expect("walks");
+        assert_eq!(
+            starts(&walk),
+            [
+                (0, 60),
+                (6, 62),
+                (12, 64),
+                (18, 65),
+                (24, 67),
+                (30, 65),
+                (36, 64),
+                (42, 62)
+            ],
+            "up to g and down again round the line"
+        );
+        assert!(walk.events.iter().all(|e| e.len == 6));
+        // Without a scale, semitones; in steps of two, every other.
+        let chromatic = Pattern::Connect(1, None)
+            .apply(&Line {
+                events: vec![ev(0, 24, 60), ev(24, 24, 63)],
+                bars: 1,
+            })
+            .expect("walks");
+        assert_eq!(
+            starts(&chromatic).get(..4),
+            Some(&[(0, 60), (8, 61), (16, 62), (24, 63)][..])
+        );
+        let twos = Pattern::Connect(2, Some(c_major))
+            .apply(&leap)
+            .expect("walks");
+        assert_eq!(
+            starts(&twos).get(..3),
+            Some(&[(0, 60), (12, 64), (24, 67)][..])
+        );
+        // Degrees walk degrees, whatever scale comes after.
+        let degrees = Line {
+            events: vec![deg(0, 0), deg(24, 3)],
+            bars: 1,
+        };
+        let d = Pattern::Connect(1, None).apply(&degrees).expect("walks");
+        let ds: Vec<i32> = d
+            .events
+            .iter()
+            .map(|e| i32::from(e.note) - i32::from(DEGREE_ZERO))
+            .collect();
+        assert_eq!(ds.get(..4), Some(&[0, 1, 2, 3][..]));
+        // A step apart stays as it is; so does a leap with no room.
+        let near = Line {
+            events: vec![ev(0, 24, 60), ev(24, 24, 62)],
+            bars: 1,
+        };
+        assert_eq!(
+            Pattern::Connect(1, Some(c_major))
+                .apply(&near)
+                .expect("as is"),
+            near
+        );
+        let tight = Line {
+            events: vec![ev(0, 3, 60), ev(3, 45, 67)],
+            bars: 1,
+        };
+        let squeezed = Pattern::Connect(1, Some(c_major))
+            .apply(&tight)
+            .expect("as is");
+        assert_eq!(
+            starts(&squeezed).get(..2),
+            Some(&[(0, 60), (3, 67)][..]),
+            "no room between"
+        );
+        for (args, printed) in [("", "connect()"), ("2", "connect(2)"), (" 1 ", "connect()")] {
+            assert_eq!(
+                Pattern::parse("connect", args).expect(args).print(),
+                printed
+            );
+        }
+        for bad in ["0", "8", "x", "1, 2"] {
+            assert_eq!(
+                Pattern::parse("connect", bad),
+                Err(crate::usage::CONNECT),
+                "{bad}"
+            );
+        }
     }
 }

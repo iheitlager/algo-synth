@@ -650,6 +650,8 @@ export const Param = {
   VlTremolo: 643,
   VlOctave: 644,
   VlKit: 645,
+  Detune: 646,
+  Humanize: 647,
 } as const
 export type ParamId = (typeof Param)[keyof typeof Param]
 
@@ -761,6 +763,11 @@ export const InsertType = {
   Comp: 5,
   Vocoder: 6,
   Bitcrush: 7,
+  Vowel: 8,
+  Phaser: 9,
+  Tremolo: 10,
+  Ring: 11,
+  FreqShift: 12,
 } as const
 export type InsertTypeId = (typeof InsertType)[keyof typeof InsertType]
 

@@ -88,6 +88,22 @@ tempo 96.5
 swing 58
 ```
 
+A clip of notes may have a swing of its own, `.swing(n)` with n 50 to 75 on
+its line (#626): its off-beats are placed by it, not by the song's, so a
+straight hat sits over a swung bass (`.swing(50)` plays straight while the
+song swings). The engine queues such a clip's notes a step ahead, at their
+own times. Not on a drum clip or a `live` clip.
+
+```song
+swing 62
+track bass synth
+track lead synth
+clip line = bass .swing(50)
+  "a1 ~ a1 c2 ~ a1 e2 ~"
+clip lazy = lead .nudge(1)
+  "e4 ~ g4 ~ a4 ~ ~ ~"
+```
+
 ## scale
 
 ```text
@@ -370,13 +386,19 @@ range's (`0 .. 3@2`), and the start takes none.
 
 ```text
 "<word>…"
-word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | <chord name>, then suffixes
+word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | {<word>…}[%n] | <chord name>, then suffixes
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
 weight = %n after an option of [a | b], last (1–16): drawn n times as often as an option without
 ```
 
+`{a b c}%n` steps through its words n (1–16) to its share, on each bar from
+where the bar before stopped, as Strudel's polymeter (#625): `"{a3 c4 e4 g4
+b4}%8"` plays five notes at eight a bar, so the phrase starts a word later
+each bar and comes round in five. Without `%n` it takes as many as it has
+words, a group. It is `<a b c>*n`, so a `*` is an error on it: its steps are
+its `%n`. The line runs until it comes round, within 64 bars and 512 notes.
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
 one option per bar, `<a b>/n` each for n (1–16) bars (#700), `<a b>*n` the turns sped up as Strudel's: each repeat takes the next one, so `<a b>*2` plays `a b` every bar and `<a b c>*2` plays `a b`, `c a`, `b c` (#721), `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a
@@ -560,8 +582,10 @@ notes every run.
 | `arp(<chord>,random,<rate>,<seed>)` | random order; only `random` takes a seed, and must |
 | `arp(<clip>,<mode>[:<octaves>],<rate>[,<seed>])` | the clip's chords, each arpeggiated from its own start (a clip name wins over a chord name) |
 | `walk(<pitch>,<n>,<seed>)` | n notes (1–32) in one bar, a random walk on the scale; needs `scale` |
+| `walk(<pitch>,<n>,<seed>,<clip>)` | the walk over a clip's chords (#617): on each quarter the chord note sounding there nearest a step or two on from the last, within an octave of the pitch; between quarters at most a scale step toward the next; as many bars as the clip, n notes each, so it stays in phase; live, a new walk each time round |
 | `markov(<order>,<clip>,<seed>)` | a chain of order 1–3 learned from the clip's pitches and rhythm; over a clip of chords, the chain's states are whole chords, so it writes a new progression of the clip's own chords (#624) |
 | `mutate(<clip>,<percent>,<seed>)` | the clip with 0–100 % of its notes moved or dropped |
+| `mutate(<clip>,<percent>,<seed>,evolve)` | on a `live` clip, each bar changes the bar before, not the source, as a Turing Machine (#619): the line wanders off and stays where it went, the same bar the same after a seek; a note today's mutate would drop goes back to its source pitch instead, so none is lost; every 64 bars it starts again from the source; 0 % keeps the source |
 | `prog(<bars>,<seed>[,<size>][,<beats>][,<style>])` | 1–16 bars of chords on a seven-note `scale`, one a bar: tonic first, dominant last, functional moves. After the seed, in any order: a size `triad` (default), `7th`, `9th` or `sus` (1 4 5, 1 2 5 on the dominant); beats a chord lasts, 1–16 (`2`), or up to 16 in turn (`"4 2 2"`), the last chord cut at the end; a style `classic` (default), `pop` (I to IV or V), `jazz` (ii … V I), `modal` (I to I, no V) or `andalusian` (i VII VI V); colours `borrow` (bVI, iv, bVII, bIII from the parallel minor; IV and V from the parallel major in minor) and `secondary` (a V7 of the next chord before it), together as `borrow secondary`, each on about one chord in three but the first and the last (#623) |
 | `root(<clip>[,<octave>])` | the root of each of the clip's chords in octave 0–7 (default 2), a bass line |
 | `bass(<clip>,<style>[,<octave>][,<seed>])` | a bass line on the clip's chords, roots in octave 0–7 (default 2): `fifths` (the root on a chord's first beat, its fifth two beats on), `octave` (root and octave in eighths) or `walk` (the root on each chord's first beat, a step above or below the next root on the beat before a change, chord notes or scale steps between); only `walk` takes a seed, and must |
@@ -670,6 +694,11 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.beat(steps, div)` | the notes on steps of a bar cut into div (1–48), as Strudel's beat (#738): `beat(2, 32)` one hit on step 2, `beat("0,7,10", 16)` three; a `struct` of div steps with x on those, each step below div |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |
+| `.euclidInv(k, n[, rot])` | the line on the steps `euclid(k, n, rot)` leaves out, as Tidal's (#631) |
+| `.euclidLegato(k, n[, rot])` | `euclid`, each hit held until the next, the last to the bar's end (#631) |
+| `.euclidFull(k, n, m[, rot])` | the hits with the line and the rests through method m: `euclidFull(3, 8, add(12))` plays the rests an octave up (#631) |
+| `.connect([n])` | each leap filled with passing notes toward the next note, n (1–7, default 1) steps apart, as Live 12's Connect (#618): the note keeps its start and shares the time to the next with them, each at least a sixteenth, so `"c4 ~ ~ ~ g4 ~ ~ ~"` in C major is c4 d4 e4 f4 g4; the last note connects to the first round the line; a line of degrees walks its degrees, notes the clip's `.scale` before it, else the song's `scale`, else semitones; a step or less apart, or with no room, a note stays; a chord's lowest note leads; inside `every` and the chances too |
+| `.nudge(t)` | every note t ticks (−6 to 6, 3 a sixteenth) later, or earlier below 0, round the line: ahead of or behind the beat (#626) |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.often(m)` `.rarely(m)` | m on about 3 in 4, or 1 in 4, of the moments (#700) |
 | `.almostNever(m)` `.almostAlways(m)` | m on about 1 in 10, or 9 in 10, of the moments |
@@ -683,9 +712,28 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.jux(m)` | the line on the left and a copy with method m on the right, on its one track, as Strudel's (#701, ADR-0039): `.jux(rev)`; while a note is panned the synth is stereo, its strip balancing, its chorus kept; a mono synth plays one side at a time; not on a drum clip |
 | `.arp("0 3 <2 0> [1 3]")` | the line's own chords played by index, as Strudel's arp (#696): each index, in mini-notation, the note of the chord sounding where it starts, 0 the lowest, wrapping round the chord with no octave added (`.chord` adds one); methods before it change the chords, after it the notes; the line and the indexes round together; after `.scale` |
 | `.rib(offset, cycles)` `.ribbon(…)` | Strudel's ribbon (#620): bars `offset` (0–99999) to `offset + cycles` (1–64) of the line, round its length, looped; on a signal line, the bars the signal is read from, so `rib(46, 1)` freezes one bar of `irand` |
+| `.velocity(v)` | each note's velocity, 0 (the softest) to 1, as Strudel's (#621): `velocity("1 0.5 0.7 0.5")` one a step, `~` keeping a note's own (its accent or the default); it replaces the `!` accent's loudness, and a 303's accent sweep stays; a grace keeps its softness, and a later `stut` fades from it; not on a drum clip |
+| `.velocity(<signal>)` | each note's velocity read from a signal as it is pressed, at its moment in the song, as `.n` reads one (#621): `velocity(sine.range(0.4, 1).segment(16))`, `perlin.range(0.5, 1)` for a played feel; one a clip, after every method; not `env`, `lfo`, a list, `lag` or `onNote`; not on a `live` or drum clip |
+| `.clip(x)` | each note's length times x, more than 0 up to 16, as Strudel's clip and legato (#740): `clip("0.3 0.3 1 0.5")` one a step, below 1 staccato, above 1 into the next note (on a mono synth with glide, a slide), `~` keeping a note's own; at least a tick, at most the line; a grace keeps its own; not on a drum clip. `.legato` is the synth's legato switch, not this |
+| `.clip(<signal>)` | each note's length times the signal as it is pressed, at its moment in the song (#740): `clip(perlin.range(0.2, 1))`; one a clip, after every method; not `env`, `lfo`, a list, `lag` or `onNote`; not on a `live` or drum clip |
+| `.rot(n)` | in each bar, each onset takes the notes of the onset n (−64 to 64) later, round the bar, keeping its own time and length, as Tidal's rot (#742): `rot(1)` on `"a ~ b c"` plays `"b ~ c a"`; a chord is one onset and moves whole, its velocity and graces with it; one a bar: `rot("<0 1 2 3>")`; not on a drum clip |
+| `.mirror([axis])` | each pitch turned round an axis, melodic inversion (#742): before `.scale` a degree round a degree (`mirror(2)` on `0 2 4 3` is `4 2 0 1`, still in the scale), after it a note round a note (`mirror(c4)`), to the cent; with no axis, degree 0, or the line's first note; past the degrees or 0 to 127 a note stops at the end; `.rev() .mirror()` is the retrograde inversion. Not Strudel's `inv`, which turns a rhythm's hits round; not on a drum clip |
+| `.echoWith(n, time, m)` `.stutWith(…)` | n (1–16) layers of the line, layer k `time` × k of a bar later (`1/8`, at least a tick) and through method m k times, as Strudel's echoWith and Tidal's stutWith (#741): `echoWith(3, 1/8, add(2))` plays the line, then an eighth later two degrees up, then a quarter later four up, a canon from one line; a copy past the line's end comes round to its start; the layers round together, at most 512 notes |
+| `.plyWith(n, m)` | each note n (1–16) times in its own length, as `ply`, repeat k through method m k times (#741): `plyWith(3, add(12))` climbs an octave each repeat, `plyWith(4, velocity(0.6))` softens; m works on the repeats as a line, so a method of time moves them across it |
+| `.superimpose(m)` | the line and a copy through method m on top, at the same time, as Strudel's (#635): `superimpose(add(12))` doubles each note an octave up; on a drum clip made from one with a method of time, `superimpose(fast(2))` |
+| `.layer(m1, m2, …)` | only the copies, one through each of 1 to 8 methods, together, as Strudel's (#635): `layer(add(7), rev)`; `id` is the line as it is |
+| `.inside(n, m)` `.outside(n, m)` | method m on the line n times slower, then n times faster again, as Tidal's (#743): `inside(2, rev)` turns each half bar round, not the bar; `outside(n, m)` the other way, so `outside(2, rev)` turns two bars round as one; n a ratio as `fast`'s |
+| `.linger(t)` | the first t (more than 0 up to 1, `1/4`, `0.25`) of each bar, repeated to fill it, as Tidal's (#743): `linger(1/4)` stutters on the first beat; a note longer than the part is cut where its copy ends; one a bar: `linger("<1 1 0.25 0.5>")` |
+| `.zoom(a, b)` `.compress(a, b)` | part a to b (0 to 1, a first) of each bar stretched over it, or each bar squeezed into a to b and silent around it, as Tidal's (#743): `zoom(0.25, 0.75)` the middle half, `compress(0, 0.5)` the bar in its first half |
+| `.hurry(n)` | `fast(n)` that also plays a sampler n times as fast, an octave up for 2, as Tidal's (#743); not on a drum clip |
+| `.iterBack(n)` | `iter` the other way, each bar starting a further 1/n (1–16) earlier, as Tidal's (#743) |
+| `.mask("…")` | 1 keeps the notes, 0 silences them, one a bar or a part of one, as Strudel's (#632): `mask("<1 1 1 0>")` rests every fourth bar, `mask("1 0 1 1")` keeps the notes starting in the 1 quarters; `t`/`f` and `x`/`~` too |
+| `.chunk(n, m)` | bar k with method m on part k mod n of it, the notes starting there, as Tidal's (#632): `chunk(4, add(12))` raises a different quarter each bar, in order |
+| `.whenmod(a, b, m)` | method m on the bars whose number mod a (1–16) is b or more, as Tidal's (#632): `whenmod(8, 6, rev)` turns bars 6 and 7 of each 8 round, the fill at a phrase's end |
+| `.segment(n)` | the notes sounding at each of n (1–48) equal steps of the bar, each held to the next, as Strudel's: `segment(4)` makes a whole-bar note four quarters; it is `struct` with n hits (#632) |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
-`.fast`, `.slow`, `.add`, `.sub`, `.ply` and `.degrade` also take a value a
+`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity`, `.clip`, `.rot`, `.linger` and `.mask` also take a value a
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,
@@ -804,7 +852,24 @@ method that does nothing (#673): `.lfospeed` is the DX7's LFO, and on a
 Minimoog the error says its vibrato is VCO 3, `vco3coarse`. The model is the
 one the track names, or the one picked for its role, which the text then
 names. Every model takes its strip's, the arpeggiator's and the voice pool's
-parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`).
+parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`,
+and #21's `detune` and `humanize`).
+
+**Timing** (ADR-0042). A note starts on its exact sample, on the grid of 48
+ticks a bar (a strum, a grace, a clip's own swing and humanize off it). A
+`mod` line, a parameter method and an `auto` are worked out once a render
+block, 128 samples (2.67 ms at 48 kHz): faders, pans and sends glide across
+it, a cutoff is smoothed over 2 ms, and a note's pitch envelope moves every
+32 samples, so none of them steps. A per-note value (`.onNote`, `.velocity`,
+`.penv`, …) is read once, as its note is pressed.
+
+**An instrument's own tuning and timing** (#21), as real machines drift
+apart: `Detune` tunes the whole instrument off by −50 to 50 cents, every
+pitched model through its voices' pitch trim, and `Humanize` presses each
+of its clips' notes up to 0 to 30 ms late, by the tick, the track and the
+note, so the same every run and after a seek (lanes and live keys keep the
+tick). Both are 0 by default, and take a number, a lane or a signal:
+`mod pad.detune = 7`, `snapshot loose: bass.Humanize 12`.
 
 On a track that plays a Modular setting, the SynthDef's arguments name its
 knobs (#674): `.vib(4)` for `|vib = 4|`, in place of `.ctl1(4)`. A knob's name
@@ -979,8 +1044,33 @@ method, printed as written: `lpf` `ctf` (Cutoff), `lpq` (Resonance), `hpf`
 (HpCutoff), `hpq` (HpResonance), `attack` `att`, `decay` `dec`, `sustain`
 `sus`, `release` `rel` (the ADSR), `gain` (Level), `room` (Send2, the reverb),
 `delay` (Send1, the echo). Values are at our scale: a resonance is 0..1, not a
-Q; a `pan` is −1..1, not 0..1. Strudel's `distort` has no one parameter here.
+Q; a `pan` is −1..1, not 0..1.
 The effects return at 1, so `.room(0.4)` alone is heard, as in Strudel (#660).
+
+**Strudel's insert effects** (#745) turn a knob of the track's insert of their
+type, in Strudel's units, so the strip line names the insert and the clip
+plays it:
+
+| method | insert | knob |
+|---|---|---|
+| `.crush(bits)` | Bitcrush | A, 1 to 16 bits |
+| `.shape(x)` `.distort(x)` | Overdrive, Distortion | A, the amount 0 to 1 |
+| `.vowel("<a e i o u>")` | Vowel | A, the vowel (or 0 to 4, `perlin.range(0, 4)`) |
+| `.phaser(hz)` `.phaserdepth(x)` | Phaser | A, 0.05 to 10 Hz; B, 0 to 1 |
+| `.tremolo(hz)` `.tremolodepth(x)` | Tremolo | A, 0.1 to 20 Hz; B, 0 to 1 |
+| `.ring(hz)` | Ring | A, a carrier of 20 to 5000 Hz |
+| `.fshift(hz)` | FreqShift | A, −4095 to 4095 Hz |
+
+The slot is the track's first insert of that type, wherever its strip line
+is; without one it is an error that says which to add. A vowel sequence holds
+vowels or numbers, not both. A Modular knob of the same name keeps it.
+
+```song
+track lead synth
+strip lead: I1Type Vowel, I2Type Phaser
+clip talk = lead .vowel("<a e i o>") .phaser(0.5)
+  "c3 eb3 g3 bb3"
+```
 
 Strudel's effect names are in its units (#660): `delaytime` (the echo's time
 in seconds, P1A), `delayfeedback` (P1B, 0–0.95), `roomsize` (the reverb's
@@ -994,6 +1084,31 @@ error. A lane or a snapshot takes the knobs (`master.P1A`), not the units.
 track kit drums
 clip a = kit .delay(0.5) .delaytime(0.375) .delayfeedback(0.4) .room(0.3) .roomsize(4)
   bd x...x...x...x...
+```
+
+**A note's own envelopes** (#744), as Strudel's: on a clip of notes, each
+note takes these as it is pressed, a number, a sequence or a signal of the
+bar, so `.penv("<12 24>")` sweeps alternate bars differently.
+
+| method | does |
+|---|---|
+| `.penv(n)` | each note starts n semitones off (−48 to 48) and goes to its key over `.pdecay` |
+| `.pattack(s)` `.pdecay(s)` | the pitch envelope: off over the attack (0 by default), back over the decay (0.1 s) |
+| `.lpenv(n)` | each note opens the filter n octaves (−8 to 8) over its own envelope |
+| `.lpattack(s)` `.lpdecay(s)` `.lpsustain(x)` `.lprelease(s)` | the filter envelope, Strudel's defaults 0.005, 0.14, 0 and 0.1 |
+
+The pitch envelope plays on every pitched model; the filter's needs a voice
+with its own filter, on a Mono or Poly synth, the D-50, the Sampler, SID or
+Modular, and is an error on another. Not on a drum clip; a Modular knob of
+the name keeps it. Each value is moved once a block, 128 samples.
+
+```song
+track tom synth Sh101
+clip toms = tom .penv("<12 24>") .pdecay(0.08)
+  "c2 ~ g1 c2"
+track bass synth Juno106
+clip pluck = bass .cutoff(300) .lpenv("4 1 2 6") .lpdecay(0.1)
+  "c2*4"
 ```
 
 `.adsr("a:d:s:r")` on a clip is Strudel's envelope in one method (#677). It

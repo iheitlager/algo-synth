@@ -49,6 +49,10 @@ pub struct MonoParams {
     pub unison: bool,
     pub unison_cents: f32,
     pub analog: f32,
+    /// The whole instrument off tune, in cents (#21).
+    pub detune: f32,
+    /// How late, at most, a clip note is pressed, in ms (#21).
+    pub humanize: f32,
     /// The stereo chorus mode (0 off); the engine runs it after the voices.
     pub chorus_mode: usize,
     /// The filter switches: slope and revision (#321).
@@ -227,6 +231,8 @@ impl MonoParams {
             unison: false,
             unison_cents: 0.0,
             analog: 0.0,
+            detune: 0.0,
+            humanize: 0.0,
             chorus_mode: 0,
             filter_switches: Setting::OWN,
             vco_rev: 3,
@@ -588,6 +594,8 @@ impl MonoParams {
             Param::Assign => self.unison = v >= 0.5,
             Param::UnisonDetune => self.unison_cents = 50.0 * v,
             Param::Analog => self.analog = v,
+            Param::Detune => self.detune = v,
+            Param::Humanize => self.humanize = v,
             Param::ChorusMode => self.chorus_mode = v.round() as usize,
             Param::XMod => self.normals.xmod = 24.0 * v,
             Param::Slope => self.filter_switches.slope12 = v < 0.5,

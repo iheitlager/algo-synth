@@ -569,7 +569,7 @@ static const TSStateId ts_primary_state_ids[STATE_COUNT] = {
 
 static const TSCharacterRange sym_punct_character_set_1[] = {
   {'!', '"'}, {'%', '&'}, {'(', ','}, {'/', '/'}, {':', ':'}, {'<', '@'}, {'[', '['}, {']', '^'},
-  {'|', '|'},
+  {'{', '}'},
 };
 
 static bool ts_lex(TSLexer *lexer, TSStateId state) {
@@ -612,7 +612,7 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
           lookahead == '[' ||
           lookahead == ']' ||
           lookahead == '^' ||
-          lookahead == '|') ADVANCE(20);
+          ('{' <= lookahead && lookahead <= '}')) ADVANCE(20);
       if (('A' <= lookahead && lookahead <= 'Z') ||
           lookahead == '_' ||
           ('a' <= lookahead && lookahead <= 'z')) ADVANCE(15);
@@ -650,7 +650,7 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
           lookahead == '[' ||
           lookahead == ']' ||
           lookahead == '^' ||
-          lookahead == '|') ADVANCE(20);
+          ('{' <= lookahead && lookahead <= '}')) ADVANCE(20);
       if (('A' <= lookahead && lookahead <= 'Z') ||
           lookahead == '_' ||
           ('a' <= lookahead && lookahead <= 'z')) ADVANCE(15);
@@ -675,7 +675,7 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
           lookahead == '[' ||
           lookahead == ']' ||
           lookahead == '^' ||
-          lookahead == '|') ADVANCE(20);
+          ('{' <= lookahead && lookahead <= '}')) ADVANCE(20);
       if (('A' <= lookahead && lookahead <= 'Z') ||
           lookahead == '_' ||
           ('a' <= lookahead && lookahead <= 'z')) ADVANCE(15);
@@ -699,7 +699,7 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
           lookahead == '[' ||
           lookahead == ']' ||
           lookahead == '^' ||
-          lookahead == '|') ADVANCE(20);
+          ('{' <= lookahead && lookahead <= '}')) ADVANCE(20);
       if (('A' <= lookahead && lookahead <= 'Z') ||
           lookahead == '_' ||
           ('a' <= lookahead && lookahead <= 'z')) ADVANCE(15);

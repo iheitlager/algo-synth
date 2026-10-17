@@ -9,9 +9,15 @@
 //! | Compressor                 | threshold | ratio     | attack    | release   | make-up|
 //! | Vocoder (#161)             | shift     | release   | unvoiced  | width     | dry    |
 //! | Bitcrush (#470)            | bits      | rate      | level     | –         | dry    |
+//! | Vowel (#745)               | vowel     | resonance | level     | formants  | dry    |
+//! | Phaser (#745)              | rate      | depth     | feedback  | centre    | spread |
+//! | Tremolo (#745)             | rate      | depth     | shape     | spread    | –      |
+//! | Ring (#745)                | carrier   | depth     | level     | –         | –      |
+//! | FreqShift (#745)           | shift     | mix       | level     | –         | –      |
 //!
 //! A vocoder hears its key: another synth's raw signal, picked by the strip's
-//! `Key`; without one it is silent.
+//! `Key`; without one it is silent. A compressor with a key ducks by the
+//! key's level instead of its own (#143); without one it is as before.
 //!
 //! Every slot holds every type, allocated up front. A new type starts from
 //! rest, the old ones are reset so nothing old comes back, and nothing
@@ -22,7 +28,11 @@ use super::compressor::Compressor;
 use super::crush::Crush;
 use super::drive::{Drive, DriveMode};
 use super::eq::{EqBand, Equalizer};
+use super::phaser::Phaser;
+use super::ring::{FreqShift, Ring};
+use super::tremolo::Tremolo;
 use super::vocoder::Vocoder;
+use super::vowel::Vowel;
 
 /// What a slot does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,10 +46,15 @@ pub enum InsertType {
     Comp = 5,
     Vocoder = 6,
     Bitcrush = 7,
+    Vowel = 8,
+    Phaser = 9,
+    Tremolo = 10,
+    Ring = 11,
+    FreqShift = 12,
 }
 
 impl InsertType {
-    pub const ALL: [(InsertType, &'static str); 8] = [
+    pub const ALL: [(InsertType, &'static str); 13] = [
         (InsertType::Off, "Off"),
         (InsertType::Overdrive, "Overdrive"),
         (InsertType::Distortion, "Distortion"),
@@ -48,6 +63,11 @@ impl InsertType {
         (InsertType::Comp, "Comp"),
         (InsertType::Vocoder, "Vocoder"),
         (InsertType::Bitcrush, "Bitcrush"),
+        (InsertType::Vowel, "Vowel"),
+        (InsertType::Phaser, "Phaser"),
+        (InsertType::Tremolo, "Tremolo"),
+        (InsertType::Ring, "Ring"),
+        (InsertType::FreqShift, "FreqShift"),
     ];
 
     pub fn from_id(id: u32) -> Option<InsertType> {
@@ -83,6 +103,11 @@ pub struct Insert {
     comp: Compressor,
     vocoder: Vocoder,
     crush: Crush,
+    vowel: Vowel,
+    phaser: Phaser,
+    tremolo: Tremolo,
+    ring: Ring,
+    shift: FreqShift,
 }
 
 impl Insert {
@@ -96,6 +121,11 @@ impl Insert {
             comp: Compressor::new(sample_rate),
             vocoder: Vocoder::new(sample_rate),
             crush: Crush::new(sample_rate),
+            vowel: Vowel::new(sample_rate),
+            phaser: Phaser::new(sample_rate),
+            tremolo: Tremolo::new(sample_rate),
+            ring: Ring::new(sample_rate),
+            shift: FreqShift::new(sample_rate),
         }
     }
 
@@ -111,6 +141,11 @@ impl Insert {
         self.comp.reset();
         self.vocoder.reset();
         self.crush.reset();
+        self.vowel.reset();
+        self.phaser.reset();
+        self.tremolo.reset();
+        self.ring.reset();
+        self.shift.reset();
         self.apply();
     }
 
@@ -153,6 +188,11 @@ impl Insert {
             }
             InsertType::Vocoder => self.vocoder.set([a, b, c, d, e]),
             InsertType::Bitcrush => self.crush.set([a, b, c, d, e]),
+            InsertType::Vowel => self.vowel.set([a, b, c, d, e]),
+            InsertType::Phaser => self.phaser.set([a, b, c, d, e]),
+            InsertType::Tremolo => self.tremolo.set([a, b, c, d, e]),
+            InsertType::Ring => self.ring.set([a, b, c, d, e]),
+            InsertType::FreqShift => self.shift.set([a, b, c, d, e]),
             _ => {}
         }
     }
@@ -163,9 +203,18 @@ impl Insert {
         match self.kind {
             InsertType::Off => {}
             InsertType::Eq => self.eq.process_mono(x),
-            InsertType::Comp => self.comp.process_mono(x),
+            // Keyed by another synth, the compressor ducks under it (#143).
+            InsertType::Comp => match key {
+                Some(k) => self.comp.process_keyed(x, None, k),
+                None => self.comp.process_mono(x),
+            },
             InsertType::Vocoder => self.vocoder.process_mono(x, key),
             InsertType::Bitcrush => self.crush.process_mono(x),
+            InsertType::Vowel => self.vowel.process_mono(x),
+            InsertType::Phaser => self.phaser.process_mono(x),
+            InsertType::Tremolo => self.tremolo.process_mono(x),
+            InsertType::Ring => self.ring.process_mono(x),
+            InsertType::FreqShift => self.shift.process_mono(x),
             _ => self.drive.process(x),
         }
     }
@@ -176,9 +225,17 @@ impl Insert {
         match self.kind {
             InsertType::Off => {}
             InsertType::Eq => self.eq.process(left, right),
-            InsertType::Comp => self.comp.process(left, right),
+            InsertType::Comp => match key {
+                Some(k) => self.comp.process_keyed(left, Some(right), k),
+                None => self.comp.process(left, right),
+            },
             InsertType::Vocoder => self.vocoder.process_stereo(left, right, key),
             InsertType::Bitcrush => self.crush.process_stereo(left, right),
+            InsertType::Vowel => self.vowel.process_stereo(left, right),
+            InsertType::Phaser => self.phaser.process_stereo(left, right),
+            InsertType::Tremolo => self.tremolo.process_stereo(left, right),
+            InsertType::Ring => self.ring.process_stereo(left, right),
+            InsertType::FreqShift => self.shift.process_stereo(left, right),
             _ => {
                 self.drive.process(left);
                 self.drive_r.process(right);
@@ -358,11 +415,46 @@ mod tests {
         assert!(levels.len() <= 9, "{levels:?}");
     }
 
+    /// #143: a compressor keyed by another synth turns its strip down while
+    /// the key is loud, and without a key is as it was.
+    #[test]
+    fn a_keyed_compressor_ducks_under_its_key() {
+        let pad = sine(220.0, 0.3, 48_000);
+        let knobs = [0.5, 1.0, 0.0, 0.3, 0.0];
+        let run_keyed = |key: Option<&[f32]>| {
+            let mut s = slot(InsertType::Comp, knobs);
+            let mut y = pad.clone();
+            for (k, chunk) in y.chunks_mut(128).enumerate() {
+                let key = key.and_then(|k2| k2.get(k * 128..k * 128 + chunk.len()));
+                s.process_mono(chunk, key);
+            }
+            y
+        };
+        // No key: the compressor hears the pad alone.
+        assert!(run_keyed(None) == run(&mut slot(InsertType::Comp, knobs), &pad));
+        // A loud key in the second half: the pad ducks there only.
+        let key: Vec<f32> = (0..48_000)
+            .map(|i| if i >= 24_000 { 0.9 } else { 0.0 })
+            .collect();
+        let y = run_keyed(Some(&key));
+        let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        assert!(peak(&y[12_000..24_000]) > 0.29, "untouched before the key");
+        assert!(
+            peak(&y[36_000..]) < 0.1,
+            "ducked under it: {}",
+            peak(&y[36_000..])
+        );
+        // A silent key leaves the pad alone.
+        let quiet = vec![0.0_f32; 48_000];
+        assert!(run_keyed(Some(&quiet)) == pad);
+    }
+
     #[test]
     fn unknown_type_ids_are_none() {
         assert_eq!(InsertType::from_id(5), Some(InsertType::Comp));
         assert_eq!(InsertType::from_id(6), Some(InsertType::Vocoder));
         assert_eq!(InsertType::from_id(7), Some(InsertType::Bitcrush));
-        assert_eq!(InsertType::from_id(8), None);
+        assert_eq!(InsertType::from_id(12), Some(InsertType::FreqShift));
+        assert_eq!(InsertType::from_id(13), None);
     }
 }

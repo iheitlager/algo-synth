@@ -1,6 +1,6 @@
 # 0023: Per-voice values on the fixed synths
 
-**Status:** Accepted, amended by ADR-0038 · **Date:** 2026-10-06
+**Status:** Accepted, amended by ADR-0038, its rate set out in ADR-0042 · **Date:** 2026-10-06
 
 ## Context
 
@@ -33,3 +33,7 @@ The table gains the amplifier's four envelope times, `AdsrAttack`, `AdsrDecay`, 
 - **A full `MonoParams` per voice.** Any parameter per voice, but kilobytes per voice for 64 voices, a copy per voice per block and coefficients recomputed per voice. Rejected.
 - **Offsets on the synth's value, like `trim` and `cutoff_trim`.** Cheap and composable with a knob, but a modulation would mean something else per voice than per synth, against ADR-0019's write-over rule. Rejected.
 - **Per-voice signals evaluated inside the voice, per sample.** The exact attack of `env(perc)`, but a signal's tree walk per sample per voice, against ADR-0019's control rate. Rejected; audio rate stays in the Modular voice.
+
+## Later decisions
+
+- **ADR-0042 (#754):** the table's values are set once a render block, the control rate.

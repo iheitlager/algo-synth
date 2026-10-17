@@ -137,7 +137,7 @@ pub enum Param {
     Mute = 64,
     /// When any synth is soloed (≥ 0.5), only soloed synths sound.
     Solo = 65,
-    /// Insert slot 1's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush), 0..=7.
+    /// Insert slot 1's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush, vowel, phaser, tremolo, ring, frequency shifter), 0..=12.
     I1Type = 66,
     /// Insert slot 1's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
     I1A = 67,
@@ -149,7 +149,7 @@ pub enum Param {
     I1D = 70,
     /// Insert slot 1's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
     I1E = 71,
-    /// Insert slot 2's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush), 0..=7.
+    /// Insert slot 2's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush, vowel, phaser, tremolo, ring, frequency shifter), 0..=12.
     I2Type = 72,
     /// Insert slot 2's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
     I2A = 73,
@@ -161,7 +161,7 @@ pub enum Param {
     I2D = 76,
     /// Insert slot 2's knob E, 0..=1; what it does depends on the type (see `fx::insert`).
     I2E = 77,
-    /// Insert slot 3's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush), 0..=7.
+    /// Insert slot 3's effect id (`InsertType`: off, overdrive, distortion, fuzz, EQ, compressor, vocoder, bitcrush, vowel, phaser, tremolo, ring, frequency shifter), 0..=12.
     I3Type = 78,
     /// Insert slot 3's knob A, 0..=1; what it does depends on the type (see `fx::insert`).
     I3A = 79,
@@ -1276,6 +1276,12 @@ pub enum Param {
     VlOctave = 644,
     /// Casio VL-1. A General MIDI drum key plays Po, Pi or Sha when ≥ 0.5 (for drum tracks).
     VlKit = 645,
+    /// The whole instrument tuned off, in cents, −50..=50, as one real
+    /// machine sits off another (#21); 0 is in tune.
+    Detune = 646,
+    /// Each clip note pressed up to this many milliseconds late, 0..=30, the
+    /// same every run (#21): a player's timing; 0 is on the tick.
+    Humanize = 647,
 }
 
 /// Controls a Modular voice may have (`Param::Ctl1`…).
@@ -1363,7 +1369,7 @@ pub enum ProcField {
 
 impl Param {
     /// Every parameter with the name the TypeScript mirror uses.
-    pub const ALL: [(Param, &'static str); 646] = [
+    pub const ALL: [(Param, &'static str); 648] = [
         (Param::MasterGain, "MasterGain"),
         (Param::Vco1Wave, "Vco1Wave"),
         (Param::Vco1Coarse, "Vco1Coarse"),
@@ -2010,6 +2016,8 @@ impl Param {
         (Param::VlTremolo, "VlTremolo"),
         (Param::VlOctave, "VlOctave"),
         (Param::VlKit, "VlKit"),
+        (Param::Detune, "Detune"),
+        (Param::Humanize, "Humanize"),
     ];
 
     /// The control a parameter is, 0..32, for a Modular voice's `ctl`.
@@ -2323,6 +2331,8 @@ impl Param {
             | Param::Send4On => (0.0, 1.0),
             Param::P2In | Param::P3In | Param::P4In => (0.0, 1.0),
             Param::Polyphony => (1.0, 16.0),
+            Param::Detune => (-50.0, 50.0),
+            Param::Humanize => (0.0, 30.0),
             Param::Assign => (0.0, 1.0),
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),

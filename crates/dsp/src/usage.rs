@@ -4,9 +4,9 @@
 //! and so does the editor's argument help, so the two never differ.
 
 pub const ARP: &str = "arp takes a chord, a mode (up:2 for two octaves), a rate and for random a seed: arp([c4,e4,g4],up,16)";
-pub const WALK: &str = "walk takes a start note, a count and a seed: walk(c4,8,1)";
+pub const WALK: &str = "walk takes a start note, a count, a seed and maybe a clip of chords: walk(c4,8,1) or walk(c4,8,1,chords)";
 pub const MARKOV: &str = "markov takes an order, a clip and a seed: markov(1,riff,3)";
-pub const MUTATE: &str = "mutate takes a clip, a percent and a seed: mutate(riff,30,5)";
+pub const MUTATE: &str = "mutate takes a clip, a percent, a seed and maybe evolve: mutate(riff,30,5) or mutate(riff,10,5,evolve)";
 pub const ROOT: &str = "root takes a clip and maybe an octave: root(prog) or root(prog,3)";
 pub const BASS: &str = "bass takes a clip, a style, maybe an octave and for walk a seed: bass(prog,fifths) or bass(prog,walk,2,5)";
 pub const PROG: &str = "prog takes a number of bars, a seed and maybe a size, beats, a style and colours: prog(4,7) or prog(4,7,7th,\"4 2 2\",jazz,borrow secondary)";
@@ -26,6 +26,43 @@ pub const ARP_METHOD: &str =
     "arp takes chord indexes in quotes, 0 the lowest note: arp(\"0 3 <2 0> [1 3]\")";
 pub const SLICE: &str = "slice takes a number of parts from 1 to 64 and indexes in quotes: slice(8, \"0 1 <2 3> [6 7]\")";
 pub const SPLICE: &str = "splice takes a number of parts from 1 to 64 and indexes in quotes: splice(8, \"0 1 <2 3> [6 7]\")";
+pub const VELOCITY: &str = "velocity takes a velocity from 0 to 1, one a step or a signal: velocity(0.5), velocity(\"1 0.5 ~ 0.7\") or velocity(sine.range(0.4, 1).segment(16))";
+pub const CLIP: &str = "clip takes a share of the note's length, more than 0 up to 16, one a step or a signal: clip(0.5), clip(\"0.3 1 ~ 2\") or clip(perlin.range(0.2, 1))";
+pub const ROT: &str = "rot takes how many onsets each takes its notes from, -64 to 64, or one a bar: rot(1) or rot(\"<0 1 2 3>\")";
+pub const MIRROR: &str =
+    "mirror takes a degree from -24 to 24, a note, or nothing: mirror(2), mirror(c4) or mirror()";
+pub const ECHO_WITH: &str = "echoWith takes a number of layers from 1 to 16, a time of a bar and a method: echoWith(3, 1/8, add(2))";
+pub const STUT_WITH: &str = "stutWith takes a number of layers from 1 to 16, a time of a bar and a method: stutWith(3, 1/8, add(2))";
+pub const PLY_WITH: &str =
+    "plyWith takes a number of repeats from 1 to 16 and a method: plyWith(3, add(12))";
+pub const SUPERIMPOSE: &str =
+    "superimpose takes a method for the copy on top: superimpose(add(12))";
+pub const LAYER: &str =
+    "layer takes 1 to 8 methods, one a copy, id the line as is: layer(add(7), rev)";
+pub const INSIDE: &str =
+    "inside takes a ratio and a method, the method on the line that much slower: inside(2, rev)";
+pub const OUTSIDE: &str =
+    "outside takes a ratio and a method, the method on the line that much faster: outside(2, rev)";
+pub const LINGER: &str = "linger takes a part of a bar, more than 0 up to 1, or one a bar: linger(1/4) or linger(\"<1 0.25>\")";
+pub const ZOOM: &str =
+    "zoom takes where in the bar to start and end, 0 to 1, the start first: zoom(0.25, 0.75)";
+pub const COMPRESS: &str =
+    "compress takes where in the bar to start and end, 0 to 1, the start first: compress(0, 0.5)";
+pub const HURRY: &str = "hurry takes a ratio, each side 1 to 16: hurry(2)";
+pub const ITER_BACK: &str = "iterBack takes a whole number from 1 to 16: iterBack(4)";
+pub const MASK: &str = "mask takes 1 to keep and 0 to silence, one a bar or a part of one: mask(\"<1 0 1 1>\") or mask(\"1 0 1 1\")";
+pub const CHUNK: &str =
+    "chunk takes a number of parts from 1 to 16 and a method: chunk(4, add(12))";
+pub const WHENMOD: &str = "whenmod takes a cycle of bars from 1 to 16, the bar from which on, below it, and a method: whenmod(8, 6, rev)";
+pub const SEGMENT: &str = "segment takes a number of steps from 1 to 48: segment(4)";
+pub const EUCLID_INV: &str =
+    "euclidInv takes hits, steps and maybe a rotation: euclidInv(3,8) or euclidInv(3,8,2)";
+pub const EUCLID_LEGATO: &str =
+    "euclidLegato takes hits, steps and maybe a rotation: euclidLegato(3,8) or euclidLegato(3,8,2)";
+pub const EUCLID_FULL: &str = "euclidFull takes hits, steps, a method for the rests and maybe a rotation: euclidFull(3, 8, add(12)) or euclidFull(3, 8, add(12), 2)";
+pub const NUDGE: &str =
+    "nudge takes ticks from -6 to 6, 3 a sixteenth, below 0 earlier: nudge(1) or nudge(-1)";
+pub const CONNECT: &str = "connect takes nothing or the scale steps between its passing notes, 1 to 7: connect() or connect(2)";
 pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
 pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
 pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
@@ -49,7 +86,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 41] = [
+pub const METHODS: [(&str, &str); 66] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -135,7 +172,32 @@ pub const METHODS: [(&str, &str); 41] = [
     ("spread", SPREAD),
     ("rib", RIB),
     ("ribbon", RIBBON),
+    ("velocity", VELOCITY),
+    ("clip", CLIP),
+    ("rot", ROT),
+    ("mirror", MIRROR),
+    ("echoWith", ECHO_WITH),
+    ("stutWith", STUT_WITH),
+    ("plyWith", PLY_WITH),
+    ("superimpose", SUPERIMPOSE),
+    ("layer", LAYER),
+    ("inside", INSIDE),
+    ("outside", OUTSIDE),
+    ("linger", LINGER),
+    ("zoom", ZOOM),
+    ("compress", COMPRESS),
+    ("hurry", HURRY),
+    ("iterBack", ITER_BACK),
+    ("mask", MASK),
+    ("chunk", CHUNK),
+    ("whenmod", WHENMOD),
+    ("segment", SEGMENT),
     ("beat", BEAT),
+    ("euclidInv", EUCLID_INV),
+    ("euclidLegato", EUCLID_LEGATO),
+    ("euclidFull", EUCLID_FULL),
+    ("nudge", NUDGE),
+    ("connect", CONNECT),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

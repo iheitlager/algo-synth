@@ -141,12 +141,31 @@ impl Clock {
 
     /// The sample step `k` fires on.
     pub fn step_sample(&self, k: u64) -> u64 {
+        self.step_sample_swung(k, self.swing)
+    }
+
+    /// The sample step `k` would fire on at `swing` percent: a clip's own
+    /// swing (#626).
+    pub fn step_sample_swung(&self, k: u64, swing: f32) -> u64 {
         let off = if k % 2 == 1 {
-            (2.0 * f64::from(self.swing) / 100.0 - 1.0) * self.step_len
+            (2.0 * f64::from(swing.clamp(SWING.0, SWING.1)) / 100.0 - 1.0) * self.step_len
         } else {
             0.0
         };
         (self.grid(k) + off).round() as u64
+    }
+
+    /// The sample tick `j` would fire on at `swing` percent (#626), spaced
+    /// between its steps as `tick_sample` spaces it.
+    pub fn tick_sample_swung(&self, j: u64, swing: f32) -> u64 {
+        let (k, sub) = (j / TICKS_PER_STEP, j % TICKS_PER_STEP);
+        let a = self.step_sample_swung(k, swing);
+        if sub == 0 {
+            return a;
+        }
+        let b = self.step_sample_swung(k + 1, swing);
+        let gap = b.saturating_sub(a) as f64;
+        a + (gap * sub as f64 / TICKS_PER_STEP as f64).round() as u64
     }
 
     /// The next step due at the current position, advancing past it.

@@ -11,9 +11,13 @@ pub mod eq;
 pub mod flanger;
 pub mod insert;
 pub mod limiter;
+pub mod phaser;
 pub mod processor;
 pub mod reverb;
+pub mod ring;
+pub mod tremolo;
 pub mod vocoder;
+pub mod vowel;
 
 /// A ring buffer read at a distance behind the write position.
 pub(crate) struct Delay {

@@ -179,7 +179,7 @@ export const PROC_KNOBS: Record<number, ProcKnob[]> = {
 // --- insert slots -----------------------------------------------------------------------
 
 /** The short name a strip shows for an insert type id (`InsertType`). */
-export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP', 'VOC', 'BIT']
+export const INSERT_SHORT = ['—', 'OVR', 'DST', 'FZZ', 'EQ', 'CMP', 'VOC', 'BIT', 'VOW', 'PHS', 'TRM', 'RNG', 'SHF']
 
 const driveKnobs: ProcKnob[] = [
   { label: 'Amount', def: 0.5, text: (t) => `+${Math.round(t * 40)} dB` },
@@ -227,6 +227,53 @@ export const INSERT_KNOBS: Record<number, ProcKnob[]> = {
     { label: 'Level', def: 0.5, text: (t) => `${Math.round(t * 200)}%` },
     { label: '', def: 0.5 },
     { label: 'Dry', def: 0, text: (t) => `${Math.round(t * 100)}%` },
+  ],
+  // The formant filter (#745): a e i o u, as Strudel's vowel.
+  8: [
+    { label: 'Vowel', def: 0.5, text: (t) => 'aeiou'[Math.min(4, Math.round(t * 4))] ?? 'a' },
+    { label: 'Reso', def: 0.5, text: (t) => `Q ${(2 * 10 ** t).toFixed(1)}` },
+    { label: 'Level', def: 0.5, text: (t) => `${Math.round(t * 200)}%` },
+    { label: 'Formants', def: 0.5, text: (t) => `×${(2 ** (2 * t - 1)).toFixed(2)}` },
+    { label: 'Dry', def: 0, text: (t) => `${Math.round(t * 100)}%` },
+  ],
+  // The phaser (#745): six all-passes under an LFO.
+  9: [
+    { label: 'Rate', def: 0.5, text: (t) => `${logMap(0.05, 10)(t).toFixed(2)} Hz` },
+    { label: 'Depth', def: 0.5, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Feedback', def: 0.5, text: (t) => `${Math.round(t * 90)}%` },
+    { label: 'Centre', def: 0.5, text: (t) => hzText(logMap(200, 4000)(t)) },
+    { label: 'Spread', def: 0, text: (t) => `${Math.round(t * 180)}°` },
+  ],
+  // The tremolo and auto-pan (#745).
+  10: [
+    { label: 'Rate', def: 0.5, text: (t) => `${logMap(0.1, 20)(t).toFixed(2)} Hz` },
+    { label: 'Depth', def: 0.5, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Shape', def: 0.5, text: (t) => (t < 0.05 ? 'sine' : t > 0.95 ? 'square' : `${Math.round(t * 100)}%`) },
+    { label: 'Spread', def: 0.5, text: (t) => `${Math.round(t * 180)}°` },
+    { label: '', def: 0 },
+  ],
+  // The ring modulator (#745).
+  11: [
+    { label: 'Carrier', def: 0.5, text: (t) => hzText(logMap(20, 5000)(t)) },
+    { label: 'Depth', def: 0.5, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Level', def: 0.5, text: (t) => `${Math.round(t * 200)}%` },
+    { label: '', def: 0.5 },
+    { label: '', def: 0 },
+  ],
+  // The frequency shifter (#745): every partial moved by the same hertz.
+  12: [
+    {
+      label: 'Shift',
+      def: 0.5,
+      text: (t) => {
+        const d = 2 * t - 1
+        return `${d < 0 ? '−' : '+'}${Math.round(2 ** (12 * Math.abs(d)) - 1)} Hz`
+      },
+    },
+    { label: 'Mix', def: 0.5, text: (t) => `${Math.round(t * 100)}%` },
+    { label: 'Level', def: 0.5, text: (t) => `${Math.round(t * 200)}%` },
+    { label: '', def: 0.5 },
+    { label: '', def: 0 },
   ],
 }
 

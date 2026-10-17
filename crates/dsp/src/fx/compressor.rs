@@ -138,6 +138,36 @@ impl Compressor {
             }
         }
     }
+
+    /// Compress `left` and `right` by how loud `key` is, not themselves: a
+    /// side-chain (#143), so a pad ducks under a kick. A key shorter than
+    /// the block leaves the rest as quiet.
+    pub fn process_keyed(&mut self, left: &mut [f32], right: Option<&mut [f32]>, key: &[f32]) {
+        if self.bypassed() {
+            self.gain = 1.0;
+            return;
+        }
+        let mut right = right;
+        for (k, l) in left.chunks_mut(SUB).enumerate() {
+            let from = k * SUB;
+            let peak = key
+                .get(from..(from + l.len()).min(key.len()))
+                .unwrap_or_default()
+                .iter()
+                .fold(0.0_f32, |m, v| m.max(v.abs()));
+            let target = self.target(peak);
+            let mut r = right
+                .as_deref_mut()
+                .and_then(|r| r.get_mut(from..from + l.len()));
+            for (i, s) in l.iter_mut().enumerate() {
+                let g = self.step(target);
+                *s *= g;
+                if let Some(x) = r.as_deref_mut().and_then(|r| r.get_mut(i)) {
+                    *x *= g;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

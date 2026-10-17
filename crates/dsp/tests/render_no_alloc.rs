@@ -65,17 +65,19 @@ clip beat = kit /16
   sn ....x.......X3..
   ch x2.x.x4.x3.x.o2.x.
   cl euclid(7,16,2)
-clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\")
+clip hold = pad .cutoff(saw.exprange(200, 2000)) .resonance(\"~ 0.7 ~ ~\") .penv(\"<0 12>\") .pdecay(0.05) .lpenv(perlin.range(0, 3))
   \"[e3,g#3,b3] [f3,a3,c4]\"
 clip sand = lead live .chord(hold) .oct(1)
   arp([e4,g#4,b4,d5],random:2,16,3)
 clip roam = bass live .scale(hold minor) .sub(12)
-  walk(e2,16,5)
+  walk(e2,16,5,hold)
 clip drift = pad live .scale(hold auto)
   markov(1,hold,2)
-clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5))
+clip wander = famicom live
+  mutate(hold,20,4,evolve)
+clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5)) .tremolo(6) .vowel(\"<a [e o]>\") .fshift(sine.range(-200, 200))
   \"[e4,b4] ~ g#4 ~\"
-clip zap = buzzer
+clip zap = buzzer .swing(66) .nudge(1)
   \"e3 [g3 b3] ~ <e4 d4>\"
 clip arps = sid .sidcutoff(sine.range(200, 1800))
   \"[e3,g#3,b3] e4 ~ <b4 d5>\"
@@ -98,11 +100,14 @@ clip chops = brk .fit() .chop(8) .sometimesBy(0.5, mul(speed(-1))) .accelerate(0
   \"c2 ~ c2 c2\"
 clip slices = brk .splice(4, \"<0 2 1 3>*2 [3 1]\") .spread(id, rev, chop(4), stut(3, 0.5, 1/16))
   \"c2\"
-clip cuts = brk .slice(32, irand(32)) .n(\"0 <1 2>\")
+clip cuts = brk .slice(32, irand(32)) .n(\"0 <1 2>\") .velocity(perlin.range(0.3, 1)) .clip(saw.segment(4).range(0.2, 1))
   \"c2*8\"
 clip picks = pads /16 .n(irand(4))
   p0 x.x3x.x.x.x2x.x.
 
+strip bell: I1Type Tremolo, I2Type Vowel, I3Type FreqShift
+strip lead: I1Type Phaser, I2Type Ring
+strip pad: I1Type Comp, I1A 0.5, I1B 1, Key 1
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
 auto sweep = lead.Cutoff ramp 300 4000 /2
@@ -113,9 +118,11 @@ mod strip3.send2 = rand.segment(8) * 0.3 + perlin.slow(2) * 0.2
 mod buzzer.ctl1 = sine.slow(2).range(0.4, 0.6)
 mod lead.cutoff = env(perc).exprange(300, 4000)
 mod pad.vco1level = [1, 0.6, 0.8]
+mod bell.detune = sine.range(-20, 20)
+mod lead.humanize = 12
 mod bell.ctl2 = \"<0.1 [0 0.05]>\".slow(2) + \"1 [2 <3 ~>]\" * 0.1
 
-scene a 2: beat hold sand roam drift zap ring arps chirp tune nbeat calc vbeat chops cuts picks fade pan sweep [open]
+scene a 2: beat hold sand roam drift wander zap ring arps chirp tune nbeat calc vbeat chops cuts picks fade pan sweep [open]
 scene b 1: beat sand roam drift zap arps chirp tune nbeat calc vbeat slices [solo]
 arrange a b a b
 ";

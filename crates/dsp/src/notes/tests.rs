@@ -98,6 +98,55 @@ fn an_alternation_repeated_takes_the_next_turn_each_time() {
     assert_eq!(pitches(&euclid), [60, 60, 60, 62, 62, 62]);
 }
 
+/// #625: `{a b c}%n` steps through its words n a bar, on from where the bar
+/// before stopped, as Strudel's polymeter: it drifts against the bar.
+#[test]
+fn a_polymeter_steps_on_across_the_bars() {
+    let n = parse("\"{c4 d4 e4}%4\"", 1).unwrap();
+    assert_eq!(n.bars, 3);
+    assert_eq!(
+        pitches(&n),
+        [60, 62, 64, 60, 62, 64, 60, 62, 64, 60, 62, 64]
+    );
+    let got: Vec<u32> = n.events.iter().map(|e| e.start).take(5).collect();
+    assert_eq!(got, [0, 12, 24, 36, 48], "four a bar");
+    assert_eq!(n.print(), "\"{c4 d4 e4}%4\"");
+    // The issue's five notes at eight a bar: round in five bars.
+    let drift = parse("\"{a3 c4 e4 g4 b4}%8\"", 1).unwrap();
+    assert_eq!(drift.bars, 5);
+    assert_eq!(
+        pitches(&drift).get(8..10),
+        Some(&[67, 71][..]),
+        "bar 2 starts on the fourth, g4"
+    );
+    // Without %n, as many a share as it has words: a group.
+    let plain = parse("\"{c4 d4 e4}\"", 1).unwrap();
+    assert_eq!(pitches(&plain), [60, 62, 64]);
+    assert_eq!(plain.print(), "\"{c4 d4 e4}\"");
+    // Groups, chords and degrees inside; next to other words.
+    let inner = parse("\"{[c4 d4] [e4,g4] 2}%2 c5\"", 1).unwrap();
+    assert_eq!(inner.print(), "\"{[c4 d4] [e4,g4] 2}%2 c5\"");
+    assert_eq!(inner.bars, 3);
+    for bad in [
+        "\"{c4 d4}%0\"",
+        "\"{c4 d4}%17\"",
+        "\"{c4 d4}*2\"",
+        "\"{c4 d4\"",
+        "\"{}\"",
+        "\"c4}\"",
+    ] {
+        assert!(parse(bad, 1).is_err(), "{bad}");
+    }
+    // Over the limits.
+    assert!(
+        parse(
+            "\"{c4 d4 e4 f4 g4 a4 b4}%16 {c4 d4 e4 f4 g4 a4 b4 c5 d5}%16\"",
+            1
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn a_chance_is_drawn_from_a_fixed_seed() {
     let a = parse("\"c4? e4? g4? c5?\"", 1).unwrap();
@@ -351,7 +400,7 @@ fn print_then_parse_is_identity() {
 fn every_error_says_where() {
     for (text, col, msg) in [
         ("\"c4 e4", 7, "the quote is not closed"),
-        ("\"c4 [e4 g4\"", 11, "a [ or < is not closed"),
+        ("\"c4 [e4 g4\"", 11, "a [, < or { is not closed"),
         (
             "\"c4 x4\"",
             5,
@@ -599,6 +648,52 @@ fn mutate_changes_about_the_amount() {
         );
     }
     assert_eq!(all, with_riff("mutate(riff,100,1)").unwrap());
+}
+
+/// #619: an evolving mutate changes the bar before, not the source: bars
+/// drift further on, the same whenever worked out, back to the source every
+/// 64 bars, and still the source at 0 percent.
+#[test]
+fn an_evolving_mutate_drifts_from_its_source() {
+    let n = with_riff("mutate(riff,10,5,evolve)").unwrap();
+    let Seq::Generated(call) = &n.seq else {
+        panic!("a call");
+    };
+    assert!(call.evolves());
+    let src = pitches(&with_riff("mutate(riff,0,5)").unwrap());
+    let seed_of = |c: u64| crate::algo::mix(5, c as u32);
+    let mut out = Vec::with_capacity(call.max_events());
+    let mut bar = |c: u64| {
+        call.evolve_into(c, seed_of, Some(&minor()), &mut out);
+        out.iter().map(|e| e.note).collect::<Vec<u8>>()
+    };
+    let far = |notes: &[u8]| -> i32 {
+        notes
+            .iter()
+            .zip(&src)
+            .map(|(a, b)| (i32::from(*a) - i32::from(*b)).abs())
+            .sum()
+    };
+    let early: i32 = (0..8).map(|c| far(&bar(c))).sum();
+    let late: i32 = (48..56).map(|c| far(&bar(c))).sum();
+    assert!(late > early, "it wanders: {early} then {late}");
+    assert_eq!(bar(30), bar(30), "a seek lands on the same notes");
+    assert_eq!(bar(17).len(), src.len(), "no note is lost");
+    // Bar 64 starts again: one bar's changes from the source.
+    assert!(far(&bar(64)) < far(&bar(63)) || far(&bar(63)) == 0);
+    let still = with_riff("mutate(riff,0,5,evolve)").unwrap();
+    let Seq::Generated(still) = &still.seq else {
+        panic!("a call");
+    };
+    let mut keep = Vec::new();
+    still.evolve_into(40, seed_of, Some(&minor()), &mut keep);
+    assert_eq!(
+        keep.iter().map(|e| e.note).collect::<Vec<_>>(),
+        src,
+        "0 percent keeps the source"
+    );
+    assert_eq!(call.print(), "mutate(riff,10,5,evolve)");
+    assert!(with_riff("mutate(riff,10,5,again)").is_err());
 }
 
 #[test]

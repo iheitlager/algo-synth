@@ -43,6 +43,7 @@
 | [0039](0039-pitch-and-pan-per-note.md) | Pitch and pan per note: an event carries cents off its note and a pan; the pool keeps both per voice slot, the cents through its pitch trim, the pan as equal-power gains onto a stereo bus while a note has one; `.add(<signal>)` read at each note's tick; `.jux(m)`; chorus on the mid (#699, #701); the part of its sample a note plays, `.chop`, `.slice` (#716), `.fit`, `.splice` (#717), `.speed`, `.accelerate`, `.coarse` (#718) | Accepted, amended by #716, #717, #718, #730 |
 | [0040](0040-the-vl-tone.md) | The Casio VL-1 as a chip model: the 8-digit code as `Vl*` parameters, 16-step 4-bit pulse waveforms band-limited and RC-filtered, `VlKit` plays Po, Pi and Sha from General MIDI keys, the ten rhythms as clips (#723) | Accepted |
 | [0041](0041-strudels-randomness.md) | Strudel's randomness: `rand`, `rand2`, `irand`, `brand(By)` and `perlin` compute Strudel 1.2's `timeToRand` to the bit, read at the moment by a note line and held a sixteenth by a parameter, so a Strudel line with its `rib` plays the same notes (#620) | Accepted |
+| [0042](0042-update-rates.md) | Update rates: the render block of 128 samples is the control rate, fixed; every rate side by side, and a fast signal gets its own, a moving pitch envelope rendered in sub-blocks of 32 (#754) | Accepted |
 
 ## Status and later decisions
 

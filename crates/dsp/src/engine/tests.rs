@@ -2362,6 +2362,80 @@ fn a_clip_method_writes_while_its_clip_plays() {
     assert_eq!(e.param_value(0, Param::Send1), 0.5, "and again");
 }
 
+/// #745: Strudel's effect names on a clip turn the track's insert's knob,
+/// from Strudel's units: `.crush(4)` the bits of its Bitcrush, `.vowel` its
+/// Vowel's vowel, one a bar.
+#[test]
+fn strudels_effect_names_turn_the_tracks_inserts() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nclip a = lead .crush(4) .vowel(\"<a u>\") .ring(300)\n  \"c3\"\nstrip lead: I1Type Bitcrush, I2Type Vowel, I3Type Ring\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let strip = e.song_routed(0).expect("routed");
+    e.song_play();
+    let bar = 96_000 / BLOCK;
+    run(&mut e, 2);
+    assert!(
+        (e.param_value(strip, Param::I1A) - 0.2).abs() < 1e-6,
+        "4 bits"
+    );
+    assert_eq!(e.param_value(strip, Param::I2A), 0.0, "a");
+    let ring = e.param_value(strip, Param::I3A);
+    assert!(
+        (20.0 * 250.0_f32.powf(ring) - 300.0).abs() < 0.5,
+        "300 Hz: {ring}"
+    );
+    run(&mut e, bar);
+    assert_eq!(e.param_value(strip, Param::I2A), 1.0, "u in bar 2");
+}
+
+/// #143: a pad whose Comp is keyed from the kit ducks on each kick, the kit
+/// itself muted so only the pad is heard; without the key it holds steady.
+#[test]
+fn a_pad_keyed_from_a_kick_ducks_on_each_hit() {
+    let duck = |key: &str| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let text = format!(
+            "tempo 120\ntrack kit drums\ntrack pad synth Juno106 JunoPad\nclip beat = kit\n  bd x...x...x...x...\nclip hold = pad\n  \"[c3,e3,g3]\"\nstrip kit: Mute 1\nstrip pad: Send1 0, Send2 0, I1Type Comp, I1A 0.5, I1B 1, I1C 0, I1D 0.3{key}\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..2 * 48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        let rms = |from: usize, len: usize| {
+            let x = left.get(from..from + len).unwrap_or_default();
+            (x.iter().map(|v| v * v).sum::<f32>() / len.max(1) as f32).sqrt()
+        };
+        // After the attack: on the third beat's hit, and between hits.
+        (rms(48_000 + 480, 2_400), rms(48_000 + 14_400, 4_800))
+    };
+    let kit = first_synth();
+    let (on, between) = duck(&format!(", Key {kit}"));
+    assert!(between > 0.005, "the pad sounds: {between}");
+    assert!(
+        on < between * 0.5,
+        "it ducks on the kick: {on} vs {between}"
+    );
+    let (on, between) = duck("");
+    assert!(
+        (on - between).abs() < between * 0.3,
+        "no key, no ducking: {on} vs {between}"
+    );
+}
+
+/// The synth number (1–16) of a song's first track: its strip plus one.
+fn first_synth() -> usize {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track kit drums\nclip b = kit\n  bd x...\n"),
+        Ok(())
+    );
+    e.song_routed(0).expect("routed") + 1
+}
+
 /// #255: a `~` in a method's sequence is a step with no lock: the knob has
 /// its own value there, the locked value only on its step, and its own
 /// again when the song stops.
@@ -7394,6 +7468,311 @@ fn a_slice_by_a_signal_picks_a_part_per_hit() {
         parts.windows(2).any(|w| w[0] != w[1]),
         "the parts change: {parts:?}"
     );
+}
+
+/// #621: `.velocity(<signal>)` gives each note the signal's value as it is
+/// pressed: `saw.segment(2)` is 0 on the first half bar and 0.5 on the second.
+#[test]
+fn a_velocity_signal_sets_each_notes_loudness() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let tone: Vec<f32> = (0..24_000)
+        .map(|i| (i as f32 * 440.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+        .collect();
+    load_tone(&mut e, 0, &tone);
+    let text = "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip v = brk .velocity(saw.segment(2))\n  \"c2 c2\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let synth = e.song_routed(0).expect("routed");
+    e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..2 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    let peak = |from: usize| {
+        left.get(from..from + 12_000)
+            .unwrap_or_default()
+            .iter()
+            .fold(0.0f32, |m, x| m.max(x.abs()))
+    };
+    let (soft, loud) = (peak(0), peak(48_000));
+    assert!(loud > 0.05, "the second hit sounds: {loud}");
+    assert!(
+        soft < loud * 0.5,
+        "the first hit, at the softest, is quieter: {soft} vs {loud}"
+    );
+}
+
+/// #740: `.clip(<signal>)` sets each note's length as it is pressed:
+/// `saw.segment(2)` is 0 (a tick) on the first half bar, 0.5 on the second.
+#[test]
+fn a_clip_signal_sets_each_notes_length() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 120\ntrack lead synth Sh101\nstrip lead: Send1 0, Send2 0\nclip v = lead .clip(saw.segment(2))\n  \"c4 c4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..2 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    // How long each note sounds above a threshold, from its start.
+    let sounding = |from: usize| {
+        left.get(from..from + 48_000)
+            .unwrap_or_default()
+            .chunks(480)
+            .take_while(|c| c.iter().any(|x| x.abs() > 0.01))
+            .count()
+    };
+    let (short, long) = (sounding(0), sounding(48_000));
+    assert!(
+        short < long,
+        "the first note, a tick long, ends sooner: {short} vs {long} (10 ms each)"
+    );
+}
+
+/// #744: `.penv(12) .pdecay(1)` starts each note an octave up and brings it
+/// down to its key over a second, on a Modular sine.
+#[test]
+fn a_pitch_envelope_bends_each_note_to_its_key() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 60\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, { |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.001, 0.1, 1, 0.1), gate) * 0.5\n  }).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead .penv(12) .pdecay(1)\n  \"a3\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..2 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    let (early, late) = (hz_at(&left, 0.0), hz_at(&left, 1.5));
+    assert!(
+        (late - 220.0).abs() < 220.0 * 0.03,
+        "on its key after the decay: {late}"
+    );
+    assert!(early > 220.0 * 1.6, "an octave up, coming down: {early}");
+}
+
+/// #754: a fast pitch drop follows its line, not a staircase of blocks.
+/// `.penv(12) .pdecay(0.05)` on an a6 sine: each cycle's pitch, timed by
+/// its zero crossings, stays within 0.2 semitone of the straight drop from
+/// an octave up, where a step a block (0.63 semitone) would not.
+#[test]
+fn a_fast_pitch_drop_has_no_steps() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 60\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, { |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.0005, 0.1, 1, 0.1), gate) * 0.5\n  }).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead .penv(12) .pdecay(0.05)\n  \"a6\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..4_800 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    // Rising zero crossings, to a fraction of a sample.
+    let ups: Vec<f64> = left
+        .windows(2)
+        .enumerate()
+        .filter(|(_, w)| w[0] < 0.0 && w[1] >= 0.0)
+        .map(|(i, w)| i as f64 + f64::from(w[0] / (w[0] - w[1])))
+        .collect();
+    let mut worst = 0.0_f64;
+    for w in ups.windows(2) {
+        let mid = (w[0] + w[1]) / 2.0 / 48_000.0;
+        if !(0.002..0.045).contains(&mid) {
+            continue;
+        }
+        let hz = 48_000.0 / (w[1] - w[0]);
+        let ideal = 1_760.0 * 2f64.powf(1.0 - mid / 0.05);
+        worst = worst.max((12.0 * (hz / ideal).log2()).abs());
+    }
+    assert!(worst < 0.2, "off the line by {worst:.3} semitone");
+}
+
+/// #744: `.lpenv(3)` opens a low cutoff at each note's start and closes it
+/// over the decay, the note brighter early than late.
+#[test]
+fn a_filter_envelope_opens_each_note() {
+    let brightness = |method: &str| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let text = format!(
+            "tempo 60\ntrack pad synth Juno106 JunoPad\nstrip pad: Send1 0, Send2 0\nclip a = pad .cutoff(300){method}\n  \"a2\"\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        // The edge in a window: how much the signal moves sample to sample.
+        let edge = |from: usize| -> f32 {
+            let x = left.get(from..from + 4_800).unwrap_or_default();
+            x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>()
+                / x.iter().map(|v| v.abs()).sum::<f32>().max(1e-9)
+        };
+        (edge(2_400), edge(36_000))
+    };
+    let (plain_early, plain_late) = brightness("");
+    let (env_early, env_late) = brightness(" .lpenv(3) .lpdecay(0.3)");
+    assert!(
+        env_early > plain_early * 1.5,
+        "opened: {env_early} vs {plain_early}"
+    );
+    assert!(
+        (env_late - plain_late).abs() < plain_late * 0.2,
+        "closed again: {env_late} vs {plain_late}"
+    );
+}
+
+/// #626: a clip's own swing places its off-beats by it, not by the song's:
+/// under `swing 75`, `.swing(50)` plays straight, `.swing(67)` in between, and
+/// a clip without one swings with the song; the downbeat stays put.
+#[test]
+fn a_clips_own_swing_places_its_off_beats() {
+    let onsets = |method: &str| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let tone: Vec<f32> = (0..600)
+            .map(|i| (i as f32 * 1_000.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        load_tone(&mut e, 0, &tone);
+        let text = format!(
+            "tempo 120\nswing 75\ntrack brk sampler PadSampler PadsLoud\nclip a = brk {method}\n  \"c2*4\"\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        let synth = e.song_routed(0).expect("routed");
+        e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        // Where each hit begins: a loud sample after 1000 quiet ones.
+        let mut out = Vec::new();
+        let mut quiet = 1_000;
+        for (i, x) in left.iter().enumerate() {
+            if x.abs() > 0.05 {
+                if quiet >= 1_000 {
+                    out.push(i);
+                }
+                quiet = 0;
+            } else {
+                quiet += 1;
+            }
+        }
+        out
+    };
+    // "c2*4": quarters, each on an even step, swing moves none of them.
+    let near = |got: &[usize], want: &[usize]| {
+        got.len() >= want.len() && got.iter().zip(want).all(|(g, w)| g.abs_diff(*w) < 200)
+    };
+    let song = onsets(".fast(4)");
+    assert!(
+        near(&song, &[0, 9_000, 12_000, 21_000]),
+        "the song's swing: {song:?}"
+    );
+    let straight = onsets(".fast(4) .swing(50)");
+    assert!(
+        near(&straight, &[0, 6_000, 12_000, 18_000]),
+        "straight: {straight:?}"
+    );
+    let triplet = onsets(".fast(4) .swing(67)");
+    assert!(
+        near(&triplet, &[0, 8_040, 12_000, 20_040]),
+        "a triplet feel: {triplet:?}"
+    );
+}
+
+/// #21: `Detune` tunes the whole instrument off by its cents.
+#[test]
+fn detune_moves_the_whole_instrument() {
+    let hz = |cents: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let text = "tempo 60\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, { |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.001, 0.1, 1, 0.1), gate) * 0.5\n  }).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead\n  \"a3\"\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        let synth = e.song_routed(0).expect("routed");
+        e.set_param(synth, Param::Detune, cents);
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        hz_at(&left, 0.3)
+    };
+    assert!((hz(0.0) - 220.0).abs() < 2.0, "in tune: {}", hz(0.0));
+    let up = hz(50.0);
+    assert!(
+        (up - 220.0 * 2f32.powf(50.0 / 1200.0)).abs() < 2.0,
+        "a quarter tone up: {up}"
+    );
+}
+
+/// #21: `Humanize` presses each clip note up to its ms late, by the tick and
+/// the note: the same every render, 0 on the tick.
+#[test]
+fn humanize_presses_notes_a_little_late_the_same_every_time() {
+    let onsets = |ms: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let tone: Vec<f32> = (0..600)
+            .map(|i| (i as f32 * 1_000.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        load_tone(&mut e, 0, &tone);
+        let text = "tempo 120\ntrack brk sampler PadSampler PadsLoud\nclip a = brk\n  \"c2*8\"\n";
+        assert_eq!(load_text(&mut e, text), Ok(()));
+        let synth = e.song_routed(0).expect("routed");
+        e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+        e.set_param(synth, Param::Humanize, ms);
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..96_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        let mut out = Vec::new();
+        let mut quiet = 1_000;
+        for (i, x) in left.iter().enumerate() {
+            if x.abs() > 0.05 {
+                if quiet >= 1_000 {
+                    out.push(i);
+                }
+                quiet = 0;
+            } else {
+                quiet += 1;
+            }
+        }
+        out
+    };
+    // Eighths, 12 000 samples apart, over one bar.
+    let grid: Vec<usize> = (0..8).map(|k| k * 12_000).collect();
+    let on = onsets(0.0);
+    assert!(
+        on.len() == 8 && on.iter().zip(&grid).all(|(a, b)| a.abs_diff(*b) < 64),
+        "on the tick: {on:?}"
+    );
+    let late = onsets(20.0);
+    let offs: Vec<usize> = late
+        .iter()
+        .zip(&grid)
+        .map(|(a, b)| a.saturating_sub(*b))
+        .collect();
+    assert!(offs.iter().all(|o| *o < 960 + 64), "within 20 ms: {offs:?}");
+    assert!(
+        late.len() == 8 && offs.iter().filter(|o| **o > 100).count() > 4,
+        "most are late: {offs:?}"
+    );
+    assert!(
+        offs.windows(2).any(|w| w[0].abs_diff(w[1]) > 100),
+        "and not by one amount: {offs:?}"
+    );
+    assert_eq!(late, onsets(20.0), "the same every render");
 }
 
 /// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the

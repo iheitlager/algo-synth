@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 41] = [
+const METHODS: [(&str, &str); 66] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -132,7 +132,32 @@ const METHODS: [(&str, &str); 41] = [
     ("spread", "a method a bar, in turn"),
     ("rib", "bars of the line, cut and looped"),
     ("ribbon", "bars of the line, cut and looped"),
+    ("velocity", "each note's velocity, 0 to 1"),
+    ("clip", "each note's length times x"),
+    ("rot", "each onset the notes of the one n on"),
+    ("mirror", "each pitch turned round an axis"),
+    ("echoWith", "n layers, each later and changed again"),
+    ("stutWith", "n layers, each later and changed again (Tidal)"),
+    ("plyWith", "each note n times, each repeat changed again"),
+    ("superimpose", "the line and a changed copy on top"),
+    ("layer", "copies through each method, together"),
+    ("inside", "a method on the line n times slower"),
+    ("outside", "a method on the line n times faster"),
+    ("linger", "the bar's start repeated to fill it"),
+    ("zoom", "part of each bar, stretched over it"),
+    ("compress", "each bar squeezed into a part of it"),
+    ("hurry", "n times faster, and the sample too"),
+    ("iterBack", "each bar starts 1/n earlier"),
+    ("mask", "1 keeps, 0 silences, by bar or part"),
+    ("chunk", "a method on part k of bar k, in turn"),
+    ("whenmod", "a method on bars b to a of every a"),
+    ("segment", "the notes held at n steps of the bar"),
     ("beat", "the notes on steps k of n"),
+    ("euclidInv", "the notes on the steps euclid leaves out"),
+    ("euclidLegato", "euclid, each hit held to the next"),
+    ("euclidFull", "euclid's hits, its rests through a method"),
+    ("nudge", "every note t ticks later or earlier"),
+    ("connect", "passing notes across each leap"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -350,6 +375,11 @@ impl List<'_> {
         }
         self.adsr(model);
         self.pad_n(model);
+        self.shapes(model);
+        self.effect_names();
+        self.add(Class::Param, "swing", || {
+            "the clip's own swing, 50 to 75".to_string()
+        });
         self.params(Set::Track(model), true);
     }
 
@@ -359,6 +389,39 @@ impl List<'_> {
             self.add(Class::Param, "n", || {
                 "the pad each hit plays: n(irand(4))".to_string()
             });
+        }
+    }
+
+    /// A note's own pitch and filter envelopes (#744), where the track's
+    /// voices play them.
+    fn shapes(&mut self, model: Option<Model>) {
+        if model.is_some_and(|m| m.uses_drums() || m.uses_pads()) {
+            return;
+        }
+        let filter = model.is_none_or(|m| {
+            m.uses_mono_voice() || m.uses_la() || m.uses_sampler() || m.uses_graph() || m.uses_sid()
+        });
+        for (w, d) in [
+            ("penv", "each note starts n semitones off"),
+            ("pattack", "the pitch envelope's attack, seconds"),
+            ("pdecay", "the pitch envelope's decay, seconds"),
+            ("lpenv", "each note opens the filter n octaves"),
+            ("lpattack", "the filter envelope's attack, seconds"),
+            ("lpdecay", "the filter envelope's decay, seconds"),
+            ("lpsustain", "the filter envelope's sustain, 0 to 1"),
+            ("lprelease", "the filter envelope's release, seconds"),
+        ] {
+            if filter || w.starts_with('p') {
+                self.add(Class::Param, w, || d.to_string());
+            }
+        }
+    }
+
+    /// Strudel's effect names (#745): a knob of the track's insert of that
+    /// type.
+    fn effect_names(&mut self) {
+        for u in &crate::song::INSERT_UNITS {
+            self.add(Class::Param, u.name, || u.why.to_string());
         }
     }
 
@@ -394,6 +457,11 @@ impl List<'_> {
                     | "mul"
                     | "stut"
                     | "echo"
+                    | "velocity"
+                    | "clip"
+                    | "rot"
+                    | "mirror"
+                    | "hurry"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }
@@ -1435,7 +1503,18 @@ scene main 8: beat riff
             ["riff", "d"]
         );
         assert_eq!(song("clip c = lead .fa|"), ["fast"]);
-        assert_eq!(song("clip c = lead .lp|"), ["lpf", "lpq"]);
+        assert_eq!(
+            song("clip c = lead .lp|"),
+            [
+                "lpenv",
+                "lpattack",
+                "lpdecay",
+                "lpsustain",
+                "lprelease",
+                "lpf",
+                "lpq"
+            ]
+        );
         assert_eq!(song("clip c = lead .reso|"), ["resonance"]);
         // The effects in real units (#660): Strudel's names on a clip, ours
         // on the master line.
@@ -1448,9 +1527,15 @@ scene main 8: beat riff
         // methods of time (#653).
         assert!(song("clip c = kit b|").contains(&"beat".to_string()));
         assert!(!song("clip c = kit r|").contains(&"riff".to_string()));
-        let time = song("clip c = kit beat .|");
-        assert!(time.contains(&"fast".to_string()) && time.contains(&"room".to_string()));
-        assert!(!time.contains(&"add".to_string()) && !time.contains(&"strum".to_string()));
+        // A bare `.` fills the list with methods; a letter finds the rest.
+        let time = |w: &str| song(&format!("clip c = kit beat .{w}|"));
+        assert!(
+            time("f").contains(&"fast".to_string()) && time("ro").contains(&"room".to_string())
+        );
+        assert!(
+            !time("a").contains(&"add".to_string()) && !time("st").contains(&"strum".to_string())
+        );
+        assert!(!time("h").contains(&"hurry".to_string()));
         assert!(song("clip c = kit .|").contains(&"room".to_string()));
     }
 
@@ -1474,7 +1559,7 @@ scene main 8: beat riff
         assert_eq!(song("clip c = lead .chord(|"), ["riff"]);
         assert_eq!(song("clip c = lead .struct(|"), ["beat", "riff"]);
         assert!(song("clip c = lead .struct(\"x |").is_empty());
-        assert_eq!(song("clip c = lead .every(4, r|"), ["rev", "rarely"]);
+        assert_eq!(song("clip c = lead .every(4, r|"), ["rev", "rarely", "rot"]);
         assert!(song("clip c = lead .fast(|").is_empty());
         assert_eq!(song("clip c = lead .cutoff(sin|"), ["sine", "sine2"]);
         assert_eq!(song("clip c = lead .cutoff(sine.ex|"), ["exprange"]);

@@ -1,6 +1,6 @@
 # 0039: Pitch and pan per note
 
-**Status:** Accepted, amended by #716 (the part of a sample), #717 (fit), #718 (speed) and #730 (a part and a pad per hit) · **Date:** 2026-10-16
+**Status:** Accepted, amended by #716 (the part of a sample), #717 (fit), #718 (speed), #730 (a part and a pad per hit) and #744 (a note's own envelopes); its pitch envelope's rate in ADR-0042 · **Date:** 2026-10-16
 
 ## Context
 
@@ -54,3 +54,14 @@ Tidal's `sound "amencutup*8" # n (irand 32)` picks a new cut each hit, each time
 - **Drum hits too.** `n` on a drum clip reads at each lane hit's own time, a ratchet's further hits at theirs, its graces taking the hit's pad.
 - **Nothing allocates:** the signal is parsed at load; reading it is arithmetic on its nodes.
 - A quoted slice (`slice(8, "0 1 <2 3>")`) stays a pattern method, compiled at load.
+
+## Amendment (#744): a note's own pitch and filter envelopes
+
+Strudel gives each note a pitch sweep (`penv`, `pdecay`) and a filter envelope depth (`lpenv`, `lpdecay`), so a tom zaps and a bass plucks differently from note to note. The trim this ADR uses for cents is the place for both.
+
+- **On the clip, read at the press.** `.penv`, `.pattack`, `.pdecay`, `.lpenv`, `.lpattack`, `.lpdecay`, `.lpsustain` and `.lprelease` are signals kept on the clip, as `.n` is, and the engine reads them when a note is pressed into one `Shape`, which the pool keeps in the note's slots.
+- **Added to the trim each block.** When the pool trims its voices for the next block, it adds the pitch envelope to the pitch trim and 12 × the filter envelope's octaves to the cutoff trim, as functions of how long the note has sounded and since its key went up, which the slot already counts (ADR-0023). Nothing is stored per sample and nothing allocates.
+- **Who plays them.** Every voice that reads the pitch trim plays the pitch envelope. The cutoff trim is read by the Mono voice, LA, the multisampler, SID and the Modular graph's filters, so a filter envelope elsewhere is a parse error.
+- **Steps of a block.** The values move once a block (128 samples, under 3 ms), which a pitch drop of 50 ms takes in about twenty steps. Superseded for the pitch envelope by ADR-0042 (#754): while it moves, its voice renders in sub-blocks of 32 samples.
+
+Rejected: an envelope generator in each voice model, per sample. It is smoother, but it is the same change in nine voices.
