@@ -670,6 +670,9 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.beat(steps, div)` | the notes on steps of a bar cut into div (1–48), as Strudel's beat (#738): `beat(2, 32)` one hit on step 2, `beat("0,7,10", 16)` three; a `struct` of div steps with x on those, each step below div |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |
+| `.euclidInv(k, n[, rot])` | the line on the steps `euclid(k, n, rot)` leaves out, as Tidal's (#631) |
+| `.euclidLegato(k, n[, rot])` | `euclid`, each hit held until the next, the last to the bar's end (#631) |
+| `.euclidFull(k, n, m[, rot])` | the hits with the line and the rests through method m: `euclidFull(3, 8, add(12))` plays the rests an octave up (#631) |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.often(m)` `.rarely(m)` | m on about 3 in 4, or 1 in 4, of the moments (#700) |
 | `.almostNever(m)` `.almostAlways(m)` | m on about 1 in 10, or 9 in 10, of the moments |

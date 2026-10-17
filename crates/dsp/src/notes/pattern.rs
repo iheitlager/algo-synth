@@ -192,6 +192,15 @@ pub enum Pattern {
     /// `segment(n)`: the notes sounding at each of n steps of the bar, each
     /// held to the next, a struct of n hits (#632).
     Segment(u32),
+    /// `euclidInv(k, n[, rot])`: the line on the steps `euclid` leaves out
+    /// (#631).
+    EuclidInv(Euclid),
+    /// `euclidLegato(k, n[, rot])`: `euclid`, each hit held to the next
+    /// (#631).
+    EuclidLegato(Euclid),
+    /// `euclidFull(k, n, m[, rot])`: the hits with the line, the rests with
+    /// method m (#631).
+    EuclidFull(Euclid, Box<Pattern>),
     /// `beat(steps, div)`, Strudel's: the line on `steps` of a bar cut into
     /// `div`, a `struct` of div steps (#738); the steps as written.
     Beat(String, Vec<bool>),
@@ -691,7 +700,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 61] = [
+    pub const NAMES: [&'static str; 64] = [
         "fast",
         "slow",
         "rev",
@@ -753,6 +762,9 @@ impl Pattern {
         "whenmod",
         "segment",
         "beat",
+        "euclidInv",
+        "euclidLegato",
+        "euclidFull",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -1054,6 +1066,30 @@ impl Pattern {
                 .filter(|n| (1..=MAX_STEPS as u32).contains(n))
                 .map(Pattern::Segment)
                 .ok_or(crate::usage::SEGMENT),
+            "euclidInv" | "euclidLegato" => {
+                let e = Euclid::args(&format!("{raw})"))?;
+                if e.n as usize > MAX_STEPS {
+                    return Err("a rhythm has 1 to 48 steps");
+                }
+                Ok(if name == "euclidInv" {
+                    Pattern::EuclidInv(e)
+                } else {
+                    Pattern::EuclidLegato(e)
+                })
+            }
+            "euclidFull" => {
+                let (k, n, m, rot) = match args.as_slice() {
+                    [k, n, m] => (k, n, m, None),
+                    [k, n, m, r] => (k, n, m, Some(r)),
+                    _ => return Err(crate::usage::EUCLID_FULL),
+                };
+                let rot = rot.map_or(String::new(), |r| format!(",{}", r.trim()));
+                let e = Euclid::args(&format!("{},{}{rot})", k.trim(), n.trim()))?;
+                if e.n as usize > MAX_STEPS {
+                    return Err("a rhythm has 1 to 48 steps");
+                }
+                Ok(Pattern::EuclidFull(e, Box::new(nested(m, srcs)?)))
+            }
             "hurry" => Ok(Pattern::Hurry(Ratio::parse(one()?)?)),
             "iterBack" => Ok(Pattern::IterBack(whole(one()?)?)),
             "superimpose" => Ok(Pattern::Superimpose(Box::new(nested(one()?, srcs)?))),
@@ -1421,6 +1457,16 @@ impl Pattern {
             Pattern::Chunk(n, m) => format!("chunk({n}, {})", bare(m)),
             Pattern::WhenMod(a, b, m) => format!("whenmod({a}, {b}, {})", bare(m)),
             Pattern::Segment(n) => format!("segment({n})"),
+            Pattern::EuclidInv(e) => e.print().replacen("euclid", "euclidInv", 1),
+            Pattern::EuclidLegato(e) => e.print().replacen("euclid", "euclidLegato", 1),
+            Pattern::EuclidFull(e, m) => {
+                let rot = if e.rot == 0 {
+                    String::new()
+                } else {
+                    format!(", {}", e.rot)
+                };
+                format!("euclidFull({}, {}, {}{rot})", e.k, e.n, bare(m))
+            }
             Pattern::Layer(ms) => {
                 let words: Vec<String> = ms
                     .iter()
@@ -1499,6 +1545,17 @@ impl Pattern {
             Pattern::Chunk(n, m) => chunk(line, *n, m)?,
             Pattern::WhenMod(a, b, m) => on_bars(line, *a, m, |k| k >= *b)?,
             Pattern::Segment(n) => structure(line, &vec![true; *n as usize]),
+            Pattern::EuclidInv(e) => {
+                let rests: Vec<bool> = e.pattern().iter().map(|h| !h).collect();
+                structure(line, &rests)
+            }
+            Pattern::EuclidLegato(e) => legato_structure(line, &e.pattern()),
+            Pattern::EuclidFull(e, m) => {
+                let hits = e.pattern();
+                let rests: Vec<bool> = hits.iter().map(|h| !h).collect();
+                let off = structure(&m.apply(line)?, &rests);
+                together(&[structure(line, &hits), off])?
+            }
             Pattern::Superimpose(m) => together(&[line.clone(), m.apply(line)?])?,
             Pattern::Layer(ms) => {
                 let layers = ms
@@ -1694,7 +1751,8 @@ impl Pattern {
             | Pattern::Superimpose(m)
             | Pattern::Inside(_, m, _)
             | Pattern::Chunk(_, m)
-            | Pattern::WhenMod(_, _, m) => m.moves_pitch(),
+            | Pattern::WhenMod(_, _, m)
+            | Pattern::EuclidFull(_, m) => m.moves_pitch(),
             // A lane holds no sampler speed (#743).
             Pattern::Hurry(_) => true,
             Pattern::Layer(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
@@ -2662,6 +2720,26 @@ fn structure(line: &Line, steps: &[bool]) -> Line {
         events,
         bars: line.bars,
     }
+}
+
+/// Each bar on a rhythm, as `structure`, each hit held until the next one,
+/// the last to the bar's end (#631).
+fn legato_structure(line: &Line, steps: &[bool]) -> Line {
+    let n = u32::try_from(steps.len()).unwrap_or(1).max(1);
+    let hits: Vec<u32> = (0..n)
+        .zip(steps)
+        .filter(|(_, h)| **h)
+        .map(|(k, _)| k)
+        .collect();
+    let mut out = structure(line, steps);
+    for e in &mut out.events {
+        let k = (0..n)
+            .find(|k| div_round(*k * BAR, n) == e.start % BAR)
+            .unwrap_or(0);
+        let next = hits.iter().find(|h| **h > k).copied().unwrap_or(n);
+        e.len = (div_round(next * BAR, n) - div_round(k * BAR, n)).max(1);
+    }
+    out
 }
 
 /// `bars` bars on the hits of `src`: at each start of its events (once
@@ -4631,5 +4709,72 @@ mod tests {
 
     fn notes_of(l: &Line) -> Vec<u8> {
         l.events.iter().map(|e| e.note).collect()
+    }
+
+    /// #631: the other euclid forms, on the rests, held, and both.
+    #[test]
+    fn euclid_forms_play_rests_hold_and_fill() {
+        let held = Line {
+            events: vec![ev(0, 48, 48)],
+            bars: 1,
+        };
+        let starts_of =
+            |p: &str| -> Vec<u32> { run(p, &held).events.iter().map(|e| e.start).collect() };
+        // (3,8) is x..x..x. on eighths of 6 ticks.
+        assert_eq!(starts_of("euclid(3,8)"), [0, 18, 36]);
+        assert_eq!(starts_of("euclidInv(3,8)"), [6, 12, 24, 30, 42]);
+        let legato = run("euclidLegato(3,8)", &held);
+        let shape: Vec<(u32, u32)> = legato.events.iter().map(|e| (e.start, e.len)).collect();
+        assert_eq!(
+            shape,
+            [(0, 18), (18, 18), (36, 12)],
+            "each to the next, the last to the bar's end"
+        );
+        let rotated: Vec<u32> = run("euclidLegato(3,8,2)", &held)
+            .events
+            .iter()
+            .map(|e| e.start)
+            .collect();
+        assert_eq!(rotated, starts_of("euclid(3,8,2)"));
+        let full = run("euclidFull(3, 8, add(12))", &held);
+        let mut notes: Vec<(u32, u8)> = full.events.iter().map(|e| (e.start, e.note)).collect();
+        notes.sort_unstable();
+        assert_eq!(
+            notes,
+            [
+                (0, 48),
+                (6, 60),
+                (12, 60),
+                (18, 48),
+                (24, 60),
+                (30, 60),
+                (36, 48),
+                (42, 60)
+            ]
+        );
+        for (name, args, printed) in [
+            ("euclidInv", "3,8", "euclidInv(3,8)"),
+            ("euclidLegato", " 5, 8 ,2", "euclidLegato(5,8,2)"),
+            ("euclidFull", "3,8,add(12)", "euclidFull(3, 8, add(12))"),
+            ("euclidFull", "3, 8, rev, 1", "euclidFull(3, 8, rev, 1)"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            (
+                "euclidInv",
+                "9,8",
+                "euclid cannot have more hits than steps",
+            ),
+            (
+                "euclidLegato",
+                "3",
+                "euclid takes hits, steps and maybe a rotation: euclid(3,8) or euclid(3,8,2)",
+            ),
+            ("euclidFull", "3,8", crate::usage::EUCLID_FULL),
+            ("euclidFull", "3,64,rev", "a rhythm has 1 to 48 steps"),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
     }
 }
