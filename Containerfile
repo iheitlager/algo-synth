@@ -5,6 +5,8 @@
 
 # Rust builds the engine to wasm and the server, in one toolchain.
 FROM docker.io/library/rust:1-trixie AS rust
+# Labelled, so `make image` can drop this stage's old images and no one else's.
+LABEL algo-synth.stage=rust
 WORKDIR /src
 # Install the rust-toolchain.toml toolchain (with its wasm target) in its own
 # cached layer; otherwise rustup auto-installs it inside the cargo build layer
@@ -23,26 +25,37 @@ COPY .openspec/language.md .openspec/sound-design.md ./.openspec/
 # also rebuilds this layer.
 ARG ALGO_BUILD_SHA=
 ENV ALGO_BUILD_SHA=$ALGO_BUILD_SHA
-RUN cargo build --locked --release --target wasm32-unknown-unknown -p algo-dsp \
- && cargo build --locked --release -p algo-assist
+# target/ and the crate registry live in cache mounts, kept between builds and
+# reused, not in this layer: each commit rebuilds this layer, and with target/
+# in it every build left a ~2.6 GB image behind until the disk filled. Only the
+# two outputs go into the layer, under /out.
+RUN --mount=type=cache,id=algo-synth-target,target=/src/target \
+    --mount=type=cache,id=algo-synth-cargo,target=/usr/local/cargo/registry \
+    cargo build --locked --release --target wasm32-unknown-unknown -p algo-dsp \
+ && cargo build --locked --release -p algo-assist \
+ && mkdir -p /out \
+ && cp target/wasm32-unknown-unknown/release/algo_dsp.wasm target/release/algo-synth /out/
 
 FROM docker.io/library/node:24 AS web
+LABEL algo-synth.stage=web
 WORKDIR /src/web
 # The page reads its version from the workspace Cargo.toml and shows the same commit (#197).
 COPY Cargo.toml /src/Cargo.toml
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+# npm's downloads in a cache mount, so npm ci stays quick after `make image`
+# drops this stage's old images.
+RUN --mount=type=cache,id=algo-synth-npm,target=/root/.npm npm ci
 COPY web ./
 # The example songs and scores the build copies into the app (#20).
 COPY examples /src/examples
-COPY --from=rust /src/target/wasm32-unknown-unknown/release/algo_dsp.wasm ./public/dsp.wasm
+COPY --from=rust /out/algo_dsp.wasm ./public/dsp.wasm
 # Last, so a new commit does not redo npm ci.
 ARG ALGO_BUILD_SHA=
 ENV ALGO_BUILD_SHA=$ALGO_BUILD_SHA
 RUN npm run build
 
 FROM docker.io/library/debian:trixie-slim
-COPY --from=rust /src/target/release/algo-synth /usr/local/bin/algo-synth
+COPY --from=rust /out/algo-synth /usr/local/bin/algo-synth
 COPY --from=web /src/web/dist /srv/algo-synth
 # Inside the container it listens on all its interfaces; `make serve`
 # publishes the one port on the host's 127.0.0.1 only (ADR-0028).

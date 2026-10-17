@@ -171,8 +171,11 @@ env-check: ## Check the 1Password keys
 # The commit goes in as ALGO_BUILD_SHA, declared after the source copies in
 # Containerfile, so a new commit rebuilds the wasm and the page instead of
 # reusing a cached layer from older sources (#198); no --no-cache needed.
+# Then the build stages' old images go: only dangling ones labelled
+# algo-synth.stage, never another project's (the disk filled with them).
 image: ## Build the Podman image
 	podman build --build-arg ALGO_BUILD_SHA=$(SHA) -t $(IMAGE) -f Containerfile .
+	podman image prune -f --filter label=algo-synth.stage >/dev/null
 # Localhost is a secure context, so AudioWorklet works without TLS.
 # Replaces a container left over from an earlier serve (running or not).
 # One container, one port on the host's 127.0.0.1 (ADR-0030, ADR-0028). The
