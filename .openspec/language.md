@@ -692,9 +692,14 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.plyWith(n, m)` | each note n (1–16) times in its own length, as `ply`, repeat k through method m k times (#741): `plyWith(3, add(12))` climbs an octave each repeat, `plyWith(4, velocity(0.6))` softens; m works on the repeats as a line, so a method of time moves them across it |
 | `.superimpose(m)` | the line and a copy through method m on top, at the same time, as Strudel's (#635): `superimpose(add(12))` doubles each note an octave up; on a drum clip made from one with a method of time, `superimpose(fast(2))` |
 | `.layer(m1, m2, …)` | only the copies, one through each of 1 to 8 methods, together, as Strudel's (#635): `layer(add(7), rev)`; `id` is the line as it is |
+| `.inside(n, m)` `.outside(n, m)` | method m on the line n times slower, then n times faster again, as Tidal's (#743): `inside(2, rev)` turns each half bar round, not the bar; `outside(n, m)` the other way, so `outside(2, rev)` turns two bars round as one; n a ratio as `fast`'s |
+| `.linger(t)` | the first t (more than 0 up to 1, `1/4`, `0.25`) of each bar, repeated to fill it, as Tidal's (#743): `linger(1/4)` stutters on the first beat; a note longer than the part is cut where its copy ends; one a bar: `linger("<1 1 0.25 0.5>")` |
+| `.zoom(a, b)` `.compress(a, b)` | part a to b (0 to 1, a first) of each bar stretched over it, or each bar squeezed into a to b and silent around it, as Tidal's (#743): `zoom(0.25, 0.75)` the middle half, `compress(0, 0.5)` the bar in its first half |
+| `.hurry(n)` | `fast(n)` that also plays a sampler n times as fast, an octave up for 2, as Tidal's (#743); not on a drum clip |
+| `.iterBack(n)` | `iter` the other way, each bar starting a further 1/n (1–16) earlier, as Tidal's (#743) |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
-`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity`, `.clip` and `.rot` also take a value a
+`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity`, `.clip`, `.rot` and `.linger` also take a value a
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,

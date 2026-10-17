@@ -39,6 +39,17 @@ pub const SUPERIMPOSE: &str =
     "superimpose takes a method for the copy on top: superimpose(add(12))";
 pub const LAYER: &str =
     "layer takes 1 to 8 methods, one a copy, id the line as is: layer(add(7), rev)";
+pub const INSIDE: &str =
+    "inside takes a ratio and a method, the method on the line that much slower: inside(2, rev)";
+pub const OUTSIDE: &str =
+    "outside takes a ratio and a method, the method on the line that much faster: outside(2, rev)";
+pub const LINGER: &str = "linger takes a part of a bar, more than 0 up to 1, or one a bar: linger(1/4) or linger(\"<1 0.25>\")";
+pub const ZOOM: &str =
+    "zoom takes where in the bar to start and end, 0 to 1, the start first: zoom(0.25, 0.75)";
+pub const COMPRESS: &str =
+    "compress takes where in the bar to start and end, 0 to 1, the start first: compress(0, 0.5)";
+pub const HURRY: &str = "hurry takes a ratio, each side 1 to 16: hurry(2)";
+pub const ITER_BACK: &str = "iterBack takes a whole number from 1 to 16: iterBack(4)";
 pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
 pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
 pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
@@ -60,7 +71,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 49] = [
+pub const METHODS: [(&str, &str); 56] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -155,6 +166,13 @@ pub const METHODS: [(&str, &str); 49] = [
     ("plyWith", PLY_WITH),
     ("superimpose", SUPERIMPOSE),
     ("layer", LAYER),
+    ("inside", INSIDE),
+    ("outside", OUTSIDE),
+    ("linger", LINGER),
+    ("zoom", ZOOM),
+    ("compress", COMPRESS),
+    ("hurry", HURRY),
+    ("iterBack", ITER_BACK),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

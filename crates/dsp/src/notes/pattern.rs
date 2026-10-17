@@ -166,6 +166,21 @@ pub enum Pattern {
     /// `layer(m1, m2, …)`: only the copies, one through each method, `None`
     /// for `id`, the line as it is (#635).
     Layer(Vec<Option<Pattern>>),
+    /// `inside(n, m)`: m on the line n times slower, then n times faster,
+    /// as Tidal's (#743); `outside` (true) the other way round.
+    Inside(Ratio, Box<Pattern>, bool),
+    /// `linger(t)`: the first `t` of each bar, as written and in ticks,
+    /// repeated to fill it, as Tidal's (#743).
+    Linger(u32, String),
+    /// `zoom(a, b)`: ticks a..b of each bar stretched over it; `compress`
+    /// (true) each bar squeezed into a..b, as Tidal's (#743). As written,
+    /// and in ticks.
+    Zoom(u32, u32, String, bool),
+    /// `hurry(n)`: n times faster and n times the sampler's speed (#743).
+    Hurry(Ratio),
+    /// `iterBack(n)`: `iter` the other way, each bar starting a further
+    /// 1/n earlier (#743).
+    IterBack(u32),
 }
 
 /// The layers of `echoWith` and `stutWith` (#741).
@@ -662,7 +677,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 49] = [
+    pub const NAMES: [&'static str; 56] = [
         "fast",
         "slow",
         "rev",
@@ -712,6 +727,13 @@ impl Pattern {
         "plyWith",
         "superimpose",
         "layer",
+        "inside",
+        "outside",
+        "linger",
+        "zoom",
+        "compress",
+        "hurry",
+        "iterBack",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -749,7 +771,7 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot",
+            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot" | "linger",
             [a],
         ) = (name, args.as_slice())
         {
@@ -942,6 +964,48 @@ impl Pattern {
                     stut,
                 }))
             }
+            "inside" | "outside" => {
+                let [n, m] = args.as_slice() else {
+                    return Err(if name == "inside" {
+                        crate::usage::INSIDE
+                    } else {
+                        crate::usage::OUTSIDE
+                    });
+                };
+                Ok(Pattern::Inside(
+                    Ratio::parse(n)?,
+                    Box::new(nested(m, srcs)?),
+                    name == "outside",
+                ))
+            }
+            "linger" => {
+                let t = one()?.trim();
+                let ticks = bar_point(t)
+                    .filter(|t| *t > 0)
+                    .ok_or(crate::usage::LINGER)?;
+                Ok(Pattern::Linger(ticks, t.to_string()))
+            }
+            "zoom" | "compress" => {
+                let bad = if name == "zoom" {
+                    crate::usage::ZOOM
+                } else {
+                    crate::usage::COMPRESS
+                };
+                let [a, b] = args.as_slice() else {
+                    return Err(bad);
+                };
+                match (bar_point(a), bar_point(b)) {
+                    (Some(a0), Some(b0)) if a0 < b0 => Ok(Pattern::Zoom(
+                        a0,
+                        b0,
+                        format!("{}, {}", a.trim(), b.trim()),
+                        name == "compress",
+                    )),
+                    _ => Err(bad),
+                }
+            }
+            "hurry" => Ok(Pattern::Hurry(Ratio::parse(one()?)?)),
+            "iterBack" => Ok(Pattern::IterBack(whole(one()?)?)),
             "superimpose" => Ok(Pattern::Superimpose(Box::new(nested(one()?, srcs)?))),
             "layer" => {
                 if args.is_empty() || args.len() > 8 {
@@ -1260,6 +1324,15 @@ impl Pattern {
             }
             Pattern::PlyWith(n, m) => format!("plyWith({n}, {})", bare(m)),
             Pattern::Superimpose(m) => format!("superimpose({})", bare(m)),
+            Pattern::Inside(r, m, out) => {
+                let name = if *out { "outside" } else { "inside" };
+                format!("{name}({}, {})", r.print(), bare(m))
+            }
+            Pattern::Linger(_, t) => format!("linger({t})"),
+            Pattern::Zoom(_, _, t, false) => format!("zoom({t})"),
+            Pattern::Zoom(_, _, t, true) => format!("compress({t})"),
+            Pattern::Hurry(r) => format!("hurry({})", r.print()),
+            Pattern::IterBack(n) => format!("iterBack({n})"),
             Pattern::Layer(ms) => {
                 let words: Vec<String> = ms
                     .iter()
@@ -1314,6 +1387,22 @@ impl Pattern {
             Pattern::Rot(n) => rot(line, *n),
             Pattern::EchoWith(e) => echo_with(line, e)?,
             Pattern::PlyWith(n, m) => ply_with(line, *n, m)?,
+            Pattern::Inside(r, m, out) => {
+                let (slow, fast) = if *out {
+                    (Pattern::Fast(*r), Pattern::Slow(*r))
+                } else {
+                    (Pattern::Slow(*r), Pattern::Fast(*r))
+                };
+                fast.apply(&m.apply(&slow.apply(line)?)?)?
+            }
+            Pattern::Linger(t, _) => linger(line, *t),
+            Pattern::Zoom(a, b, _, compress) => zoom(line, *a, *b, *compress),
+            Pattern::Hurry(r) => {
+                let x = i32::try_from(r.num * 100 / r.den).unwrap_or(100);
+                Pattern::Speed(i16::try_from(x).unwrap_or(100))
+                    .apply(&speed(line, r.num, r.den)?)?
+            }
+            Pattern::IterBack(n) => iter_by(line, *n, true),
             Pattern::Superimpose(m) => together(&[line.clone(), m.apply(line)?])?,
             Pattern::Layer(ms) => {
                 let layers = ms
@@ -1346,7 +1435,7 @@ impl Pattern {
                 by_bar(line, &steps)?
             }
             Pattern::Splice(n, _, idx) => fit(slice(line, *n, idx)?),
-            Pattern::Iter(n) => iter(line, *n),
+            Pattern::Iter(n) => iter_by(line, *n, false),
             Pattern::Shuffle(n) => reorder(line, *n, true)?,
             Pattern::Scramble(n) => reorder(line, *n, false)?,
             Pattern::Degrade(p) => Line {
@@ -1505,7 +1594,10 @@ impl Pattern {
             | Pattern::Off(_, m)
             | Pattern::Sometimes(_, m)
             | Pattern::PlyWith(_, m)
-            | Pattern::Superimpose(m) => m.moves_pitch(),
+            | Pattern::Superimpose(m)
+            | Pattern::Inside(_, m, _) => m.moves_pitch(),
+            // A lane holds no sampler speed (#743).
+            Pattern::Hurry(_) => true,
             Pattern::Layer(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
             Pattern::EchoWith(e) => e.method.moves_pitch(),
             // A lane holds a hit, an accent or a ghost, not gain^k (#719).
@@ -1889,6 +1981,79 @@ fn together(layers: &[Line]) -> Result<Line, &'static str> {
     Ok(out)
 }
 
+/// `1/4`, `0.25`, `0` or `1` of a bar, in ticks from 0 to a bar.
+fn bar_point(s: &str) -> Option<u32> {
+    let s = s.trim();
+    let x = match s.split_once('/') {
+        Some((a, b)) => {
+            let (a, b) = (a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?);
+            (b > 0.0).then(|| a / b)?
+        }
+        None => s.parse::<f64>().ok()?,
+    };
+    (0.0..=1.0)
+        .contains(&x)
+        .then(|| (x * f64::from(BAR)).round() as u32)
+}
+
+/// The first `t` ticks of each bar played over and over to fill it, a
+/// note cut where its copy ends (#743).
+fn linger(line: &Line, t: u32) -> Line {
+    let t = t.clamp(1, BAR);
+    let mut events = Vec::new();
+    for b in 0..line.bars {
+        let lo = b * BAR;
+        let head: Vec<&Event> = line
+            .events
+            .iter()
+            .filter(|e| (lo..lo + t).contains(&e.start))
+            .collect();
+        for k in 0..BAR.div_ceil(t) {
+            let at = lo + k * t;
+            let end = (at + t).min(lo + BAR);
+            events.extend(head.iter().filter_map(|e| {
+                let start = at + (e.start - lo);
+                (start < end).then(|| Event {
+                    start,
+                    len: e.len.min(end - start).max(1),
+                    ..**e
+                })
+            }));
+        }
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
+/// Ticks `a..b` of each bar stretched over the bar, or with `compress` each
+/// bar squeezed into `a..b`, silent around it (#743).
+fn zoom(line: &Line, a: u32, b: u32, compress: bool) -> Line {
+    let d = (b - a).max(1);
+    let mut events = Vec::new();
+    for e in &line.events {
+        let lo = e.start / BAR * BAR;
+        let x = e.start - lo;
+        let (start, len, end) = if compress {
+            (a + x * d / BAR, (e.len * d / BAR).max(1), b)
+        } else if (a..b).contains(&x) {
+            ((x - a) * BAR / d, (e.len * BAR / d).max(1), BAR)
+        } else {
+            continue;
+        };
+        events.push(Event {
+            start: lo + start,
+            len: len.min(end - start).max(1),
+            ..*e
+        });
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
 /// Furthest `rot` turns.
 const MAX_ROT: i32 = 64;
 
@@ -2039,14 +2204,16 @@ fn fit_part(fit: u32, n: u32) -> u32 {
     }
 }
 
-/// Bar m starts (m mod n) / n of a bar further into the line.
-fn iter(line: &Line, n: u32) -> Line {
+/// Bar m starts (m mod n) / n of a bar further into the line, or with
+/// `back` (`iterBack`, #743) that much earlier.
+fn iter_by(line: &Line, n: u32, back: bool) -> Line {
     let bars = lcm(line.bars, n);
     let all = line.repeat(bars);
     let len = all.len().max(1);
     let mut events = Vec::new();
     for m in 0..bars {
-        let from = m * BAR + div_round((m % n) * BAR, n);
+        let k = if back { (n - m % n) % n } else { m % n };
+        let from = m * BAR + div_round(k * BAR, n);
         for e in &all.events {
             let rel = (e.start + len - from % len) % len;
             if rel < BAR {
@@ -4125,5 +4292,97 @@ mod tests {
                 .expect("p")
                 .moves_pitch()
         );
+    }
+
+    /// #743: Tidal's time frames: inside, outside, linger, zoom, compress,
+    /// hurry and iterBack.
+    #[test]
+    fn time_frames_look_at_the_bar_another_way() {
+        let notes = |l: &Line| l.events.iter().map(|e| e.note).collect::<Vec<_>>();
+        // a b c d: inside(2, rev) turns each half round, not the bar.
+        assert_eq!(notes(&run("inside(2, rev)", &four())), [62, 60, 66, 64]);
+        assert_eq!(notes(&run("rev()", &four())), [66, 64, 62, 60]);
+        // Tidal's outside 2 rev "<[a b] [c d]>" is "<[d c] [b a]>": the two
+        // bars turned round as one.
+        let two = Line {
+            events: vec![
+                ev(0, 24, 57),
+                ev(24, 24, 59),
+                ev(48, 24, 60),
+                ev(72, 24, 62),
+            ],
+            bars: 2,
+        };
+        let out = run("outside(2, rev)", &two);
+        assert_eq!(starts(&out), [(0, 62), (24, 60), (48, 59), (72, 57)]);
+        // Eight eighths: linger(1/4) plays the first two four times.
+        let eight = eight();
+        let first = &notes(&eight)[..2];
+        let held = run("linger(1/4)", &eight);
+        assert_eq!(notes(&held), [first, first, first, first].concat());
+        assert_eq!(run("linger(1)", &eight), eight);
+        // A note longer than the part is cut where its copy ends.
+        let long = Line {
+            events: vec![ev(0, 48, 60)],
+            bars: 1,
+        };
+        assert!(run("linger(0.5)", &long).events.iter().all(|e| e.len == 24));
+        assert_eq!(run("linger(\"<1 0.5>\")", &four()).bars, 2);
+        // zoom(0.25, 0.75) stretches the middle half; compress squeezes.
+        assert_eq!(
+            starts(&run("zoom(0.25, 0.75)", &four())),
+            [(0, 62), (24, 64)]
+        );
+        assert!(
+            run("zoom(1/4, 3/4)", &four())
+                .events
+                .iter()
+                .all(|e| e.len == 24)
+        );
+        let squeezed = run("compress(0, 1/2)", &four());
+        assert_eq!(starts(&squeezed), [(0, 60), (6, 62), (12, 64), (18, 66)]);
+        assert!(squeezed.events.iter().all(|e| e.len == 6));
+        // hurry: twice as fast, and twice the sampler's speed.
+        let h = run("hurry(2)", &four());
+        assert_eq!(h.events.len(), 8);
+        assert!(h.events.iter().all(|e| e.play.speed == 200 && e.len == 6));
+        // iterBack: bar 1 starts a quarter earlier, at the last note.
+        let back = run("iterBack(4)", &four());
+        assert_eq!(back.bars, 4);
+        assert_eq!(bar_notes(&back, 1), [66, 60, 62, 64]);
+        assert_eq!(bar_notes(&run("iter(4)", &four()), 1), [62, 64, 66, 60]);
+        for (name, args, printed) in [
+            ("inside", "2,rev", "inside(2, rev)"),
+            ("outside", "3/2, fast(2)", "outside(3/2, fast(2))"),
+            ("linger", " 1/4 ", "linger(1/4)"),
+            ("linger", "\"<1 0.25>\"", "linger(\"<1 0.25>\")"),
+            ("zoom", "0.25,0.75", "zoom(0.25, 0.75)"),
+            ("compress", "0, 1/2", "compress(0, 1/2)"),
+            ("hurry", "2", "hurry(2)"),
+            ("iterBack", "4", "iterBack(4)"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("inside", "2", crate::usage::INSIDE),
+            ("linger", "0", crate::usage::LINGER),
+            ("linger", "1.5", crate::usage::LINGER),
+            ("zoom", "0.75, 0.25", crate::usage::ZOOM),
+            ("zoom", "0.5", crate::usage::ZOOM),
+            ("compress", "0, 2", crate::usage::COMPRESS),
+            (
+                "hurry",
+                "0",
+                "this takes a ratio, each side 1 to 16: 2, 3/4 or 1.5",
+            ),
+            ("iterBack", "17", "this takes a whole number from 1 to 16"),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            Pattern::parse("hurry", "2").expect("p").moves_pitch(),
+            "not on a drum clip"
+        );
+        assert!(!Pattern::parse("inside", "2, rev").expect("p").moves_pitch());
     }
 }

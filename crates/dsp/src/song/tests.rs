@@ -3244,6 +3244,34 @@ fn superimpose_and_layer_on_a_clip() {
     assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
 }
 
+/// #743: the time frames on a clip and on a drum clip made from one, where
+/// a hit moved off the grid is an error.
+#[test]
+fn time_frames_on_a_clip_and_a_drum_clip() {
+    let text = "track lead synth\nclip riff = lead .linger(\"<1 1 0.25 0.5>\") .inside(2, rev)\n  \"c4 eb4 g4 bb4 c5 bb4 g4 eb4\"\ntrack kit drums\nclip beat = kit\n  bd x...x...x.x.x...\n  sn ....x.......x...\nclip held = kit beat .linger(1/4) .iterBack(2)\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").bars, 4);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip riff = lead .linger(\"<1 1 0.25 0.5>\") .inside(2, rev)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip held = kit beat .linger(1/4) .iterBack(2)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse(
+        "track kit drums\nclip beat = kit\n  bd x...x...\nclip z = kit beat .zoom(0.1, 0.9)\n",
+    )
+    .expect_err("off the grid");
+    assert_eq!(err.msg, "a method moved a hit off the clip's step grid");
+    let err =
+        Song::parse("track kit drums\nclip beat = kit\n  bd x...\nclip h = kit beat .hurry(2)\n")
+            .expect_err("hurry");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {

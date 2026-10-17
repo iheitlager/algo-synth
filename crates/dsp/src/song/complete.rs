@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 49] = [
+const METHODS: [(&str, &str); 56] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -141,6 +141,13 @@ const METHODS: [(&str, &str); 49] = [
     ("plyWith", "each note n times, each repeat changed again"),
     ("superimpose", "the line and a changed copy on top"),
     ("layer", "copies through each method, together"),
+    ("inside", "a method on the line n times slower"),
+    ("outside", "a method on the line n times faster"),
+    ("linger", "the bar's start repeated to fill it"),
+    ("zoom", "part of each bar, stretched over it"),
+    ("compress", "each bar squeezed into a part of it"),
+    ("hurry", "n times faster, and the sample too"),
+    ("iterBack", "each bar starts 1/n earlier"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -406,6 +413,7 @@ impl List<'_> {
                     | "clip"
                     | "rot"
                     | "mirror"
+                    | "hurry"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }
@@ -1460,9 +1468,11 @@ scene main 8: beat riff
         // methods of time (#653).
         assert!(song("clip c = kit b|").contains(&"beat".to_string()));
         assert!(!song("clip c = kit r|").contains(&"riff".to_string()));
-        let time = song("clip c = kit beat .|");
-        assert!(time.contains(&"fast".to_string()) && time.contains(&"room".to_string()));
-        assert!(!time.contains(&"add".to_string()) && !time.contains(&"strum".to_string()));
+        // A bare `.` fills the list with methods; a letter finds the rest.
+        let time = |w: &str| song(&format!("clip c = kit beat .{w}|"));
+        assert!(time("f").contains(&"fast".to_string()) && time("ro").contains(&"room".to_string()));
+        assert!(!time("a").contains(&"add".to_string()) && !time("st").contains(&"strum".to_string()));
+        assert!(!time("h").contains(&"hurry".to_string()));
         assert!(song("clip c = kit .|").contains(&"room".to_string()));
     }
 
