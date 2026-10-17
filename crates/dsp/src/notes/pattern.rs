@@ -142,6 +142,9 @@ pub enum Pattern {
     /// cycles` of the line, looped (#620); `true` when written `ribbon`.
     /// On a signal line it says where the signal is read.
     Rib(Rib),
+    /// `beat(steps, div)`, Strudel's: the line on `steps` of a bar cut into
+    /// `div`, a `struct` of div steps (#738); the steps as written.
+    Beat(String, Vec<bool>),
 }
 
 /// The copies of `stut` and `echo` (#719).
@@ -616,7 +619,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 40] = [
+    pub const NAMES: [&'static str; 41] = [
         "fast",
         "slow",
         "rev",
@@ -657,6 +660,7 @@ impl Pattern {
         "spread",
         "rib",
         "ribbon",
+        "beat",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -901,6 +905,39 @@ impl Pattern {
                     Ok(Pattern::Off(ticks(a)?, inner))
                 }
             }
+            "beat" => {
+                let bad = crate::usage::BEAT;
+                let [steps, div] = args.as_slice() else {
+                    return Err(bad);
+                };
+                let div = div
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|d| (1..=BAR).contains(d))
+                    .ok_or("a beat's steps a bar are 1 to 48")?;
+                let text = steps.trim();
+                let list = text
+                    .strip_prefix('"')
+                    .and_then(|t| t.strip_suffix('"'))
+                    .unwrap_or(text);
+                let mut hits = vec![false; div as usize];
+                let mut any = false;
+                for w in list
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|w| !w.is_empty())
+                {
+                    let k = w.parse::<u32>().map_err(|_| bad)?;
+                    *hits
+                        .get_mut(k as usize)
+                        .ok_or("a step is below the steps a bar")? = true;
+                    any = true;
+                }
+                if !any {
+                    return Err(bad);
+                }
+                Ok(Pattern::Beat(format!("beat({text}, {div})"), hits))
+            }
             "struct" => {
                 let bad = crate::usage::STRUCT;
                 let arg = one()?.trim();
@@ -1115,6 +1152,7 @@ impl Pattern {
                 format!("spread({})", words.join(", "))
             }
             Pattern::Splice(n, text, _) => format!("splice({n}, {text})"),
+            Pattern::Beat(text, _) => text.clone(),
             Pattern::Rib(r) => {
                 let name = if r.long { "ribbon" } else { "rib" };
                 format!("{name}({}, {})", r.from, r.bars)
@@ -1158,6 +1196,7 @@ impl Pattern {
             }),
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
+            Pattern::Beat(_, hits) => structure(line, hits),
             Pattern::Mul(m) => m.apply(line)?,
             Pattern::Stut(s) => stut(line, s)?,
             Pattern::Spread(ms) => {
@@ -2321,6 +2360,38 @@ mod tests {
         );
         for bad in ["rev", "id, nope(1)"] {
             assert!(Pattern::parse("spread", bad).is_err(), "{bad}");
+        }
+    }
+
+    /// #738: beat plays the line on the given steps of a bar cut into div,
+    /// as Strudel's: Switch Angel's `beat(2,32).slow(2)` is one hit an eighth
+    /// into every other bar.
+    #[test]
+    fn beat_plays_on_the_given_steps() {
+        let one = Pattern::parse("beat", "2, 32").expect("parses");
+        assert_eq!(one.print(), "beat(2, 32)");
+        let hit = one.apply(&one_hit(48)).expect("beats");
+        let got: Vec<_> = hit.events.iter().map(|e| (e.start, e.note)).collect();
+        assert_eq!(got, [(3, 36)]);
+        let slow = Pattern::Slow(Ratio::whole(2)).apply(&hit).expect("slows");
+        assert_eq!((slow.bars, slow.events[0].start), (2, 6));
+        let three = Pattern::parse("beat", "\"0,7,10\", 16").expect("parses");
+        assert_eq!(three.print(), "beat(\"0,7,10\", 16)");
+        let starts: Vec<u32> = three
+            .apply(&one_hit(48))
+            .expect("beats")
+            .events
+            .iter()
+            .map(|e| e.start)
+            .collect();
+        assert_eq!(starts, [0, 21, 30]);
+        for (bad, why) in [
+            ("16, 16", "a step is below the steps a bar"),
+            ("2, 49", "a beat's steps a bar are 1 to 48"),
+            ("\"\", 16", crate::usage::BEAT),
+            ("2", crate::usage::BEAT),
+        ] {
+            assert_eq!(Pattern::parse("beat", bad), Err(why), "{bad}");
         }
     }
 
