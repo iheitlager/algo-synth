@@ -2388,6 +2388,54 @@ fn strudels_effect_names_turn_the_tracks_inserts() {
     assert_eq!(e.param_value(strip, Param::I2A), 1.0, "u in bar 2");
 }
 
+/// #143: a pad whose Comp is keyed from the kit ducks on each kick, the kit
+/// itself muted so only the pad is heard; without the key it holds steady.
+#[test]
+fn a_pad_keyed_from_a_kick_ducks_on_each_hit() {
+    let duck = |key: &str| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let text = format!(
+            "tempo 120\ntrack kit drums\ntrack pad synth Juno106 JunoPad\nclip beat = kit\n  bd x...x...x...x...\nclip hold = pad\n  \"[c3,e3,g3]\"\nstrip kit: Mute 1\nstrip pad: Send1 0, Send2 0, I1Type Comp, I1A 0.5, I1B 1, I1C 0, I1D 0.3{key}\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..2 * 48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        let rms = |from: usize, len: usize| {
+            let x = left.get(from..from + len).unwrap_or_default();
+            (x.iter().map(|v| v * v).sum::<f32>() / len.max(1) as f32).sqrt()
+        };
+        // After the attack: on the third beat's hit, and between hits.
+        (rms(48_000 + 480, 2_400), rms(48_000 + 14_400, 4_800))
+    };
+    let kit = first_synth();
+    let (on, between) = duck(&format!(", Key {kit}"));
+    assert!(between > 0.005, "the pad sounds: {between}");
+    assert!(
+        on < between * 0.5,
+        "it ducks on the kick: {on} vs {between}"
+    );
+    let (on, between) = duck("");
+    assert!(
+        (on - between).abs() < between * 0.3,
+        "no key, no ducking: {on} vs {between}"
+    );
+}
+
+/// The synth number (1–16) of a song's first track: its strip plus one.
+fn first_synth() -> usize {
+    let mut e = Engine::new(48_000.0);
+    assert_eq!(
+        load_text(&mut e, "track kit drums\nclip b = kit\n  bd x...\n"),
+        Ok(())
+    );
+    e.song_routed(0).expect("routed") + 1
+}
+
 /// #255: a `~` in a method's sequence is a step with no lock: the knob has
 /// its own value there, the locked value only on its step, and its own
 /// again when the song stops.

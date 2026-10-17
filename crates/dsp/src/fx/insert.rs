@@ -16,7 +16,8 @@
 //! | FreqShift (#745)           | shift     | mix       | level     | –         | –      |
 //!
 //! A vocoder hears its key: another synth's raw signal, picked by the strip's
-//! `Key`; without one it is silent.
+//! `Key`; without one it is silent. A compressor with a key ducks by the
+//! key's level instead of its own (#143); without one it is as before.
 //!
 //! Every slot holds every type, allocated up front. A new type starts from
 //! rest, the old ones are reset so nothing old comes back, and nothing
@@ -202,7 +203,11 @@ impl Insert {
         match self.kind {
             InsertType::Off => {}
             InsertType::Eq => self.eq.process_mono(x),
-            InsertType::Comp => self.comp.process_mono(x),
+            // Keyed by another synth, the compressor ducks under it (#143).
+            InsertType::Comp => match key {
+                Some(k) => self.comp.process_keyed(x, None, k),
+                None => self.comp.process_mono(x),
+            },
             InsertType::Vocoder => self.vocoder.process_mono(x, key),
             InsertType::Bitcrush => self.crush.process_mono(x),
             InsertType::Vowel => self.vowel.process_mono(x),
@@ -220,7 +225,10 @@ impl Insert {
         match self.kind {
             InsertType::Off => {}
             InsertType::Eq => self.eq.process(left, right),
-            InsertType::Comp => self.comp.process(left, right),
+            InsertType::Comp => match key {
+                Some(k) => self.comp.process_keyed(left, Some(right), k),
+                None => self.comp.process(left, right),
+            },
             InsertType::Vocoder => self.vocoder.process_stereo(left, right, key),
             InsertType::Bitcrush => self.crush.process_stereo(left, right),
             InsertType::Vowel => self.vowel.process_stereo(left, right),
@@ -405,6 +413,40 @@ mod tests {
         levels.sort_unstable();
         levels.dedup();
         assert!(levels.len() <= 9, "{levels:?}");
+    }
+
+    /// #143: a compressor keyed by another synth turns its strip down while
+    /// the key is loud, and without a key is as it was.
+    #[test]
+    fn a_keyed_compressor_ducks_under_its_key() {
+        let pad = sine(220.0, 0.3, 48_000);
+        let knobs = [0.5, 1.0, 0.0, 0.3, 0.0];
+        let run_keyed = |key: Option<&[f32]>| {
+            let mut s = slot(InsertType::Comp, knobs);
+            let mut y = pad.clone();
+            for (k, chunk) in y.chunks_mut(128).enumerate() {
+                let key = key.and_then(|k2| k2.get(k * 128..k * 128 + chunk.len()));
+                s.process_mono(chunk, key);
+            }
+            y
+        };
+        // No key: the compressor hears the pad alone.
+        assert!(run_keyed(None) == run(&mut slot(InsertType::Comp, knobs), &pad));
+        // A loud key in the second half: the pad ducks there only.
+        let key: Vec<f32> = (0..48_000)
+            .map(|i| if i >= 24_000 { 0.9 } else { 0.0 })
+            .collect();
+        let y = run_keyed(Some(&key));
+        let peak = |x: &[f32]| x.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        assert!(peak(&y[12_000..24_000]) > 0.29, "untouched before the key");
+        assert!(
+            peak(&y[36_000..]) < 0.1,
+            "ducked under it: {}",
+            peak(&y[36_000..])
+        );
+        // A silent key leaves the pad alone.
+        let quiet = vec![0.0_f32; 48_000];
+        assert!(run_keyed(Some(&quiet)) == pad);
     }
 
     #[test]

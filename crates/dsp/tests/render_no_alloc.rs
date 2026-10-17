@@ -105,6 +105,7 @@ clip picks = pads /16 .n(irand(4))
 
 strip bell: I1Type Tremolo, I2Type Vowel, I3Type FreqShift
 strip lead: I1Type Phaser, I2Type Ring
+strip pad: I1Type Comp, I1A 0.5, I1B 1, Key 1
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
 auto sweep = lead.Cutoff ramp 300 4000 /2
