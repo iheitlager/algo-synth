@@ -1,6 +1,6 @@
 # 0018: The song is the session
 
-**Status:** Accepted, amended by 0027, #214 and 0031 (its words), extended by 0033 · **Date:** 2026-10-05 · built in #210, #214, #448
+**Status:** Accepted, amended by 0027, #214 and 0031 (its words), extended by 0033, clarified (visuals are views) · **Date:** 2026-10-05 · built in #210, #214, #448
 
 ## Context
 
@@ -43,3 +43,4 @@ ADR-0015 also says the song names synths by their strip names (#127); the code n
 - **Amended (#214), the setup import stays in TypeScript:** opening a `.synths.json` already writes song lines, through the engine's fold (ADR-0027). Parsing and planning that legacy, read-only format stay in `setup.ts` rather than move into the engine: a port of the whole migration path for a file nothing writes any more. The exception to ADR-0001 is limited to that importer.
 - **Renamed by ADR-0031:** frags are `clip`s, sections `scene`s and scenes `snapshot`s.
 - **ADR-0033:** `table` and `attack` lines hold the recipes of the user wavetables and attacks; the view rebuilds them when the song loads, as it fetches `samples`.
+- **Clarified, visuals are views:** the song holds no command that only changes what is drawn: no Strudel-style `.color`, `._scope`, `._pianoroll` or `._punchcard`. Each one would ask the parser to read and pass on something the engine never uses, and a new id in `params.rs` and `params.ts` (ADR-0004) for it. A scope, spectrum, piano roll or step view is part of the composer, drawn from the song and the engine's taps; it follows the playing notes and highlights the code (#203) without being asked. Track names are in the song because they name things (one namespace, above); colours and layout stay in the view.
