@@ -50,6 +50,11 @@ pub const COMPRESS: &str =
     "compress takes where in the bar to start and end, 0 to 1, the start first: compress(0, 0.5)";
 pub const HURRY: &str = "hurry takes a ratio, each side 1 to 16: hurry(2)";
 pub const ITER_BACK: &str = "iterBack takes a whole number from 1 to 16: iterBack(4)";
+pub const MASK: &str = "mask takes 1 to keep and 0 to silence, one a bar or a part of one: mask(\"<1 0 1 1>\") or mask(\"1 0 1 1\")";
+pub const CHUNK: &str =
+    "chunk takes a number of parts from 1 to 16 and a method: chunk(4, add(12))";
+pub const WHENMOD: &str = "whenmod takes a cycle of bars from 1 to 16, the bar from which on, below it, and a method: whenmod(8, 6, rev)";
+pub const SEGMENT: &str = "segment takes a number of steps from 1 to 48: segment(4)";
 pub const STUT: &str = "stut takes a number of copies from 1 to 16, a gain from 0 to 1 and a time of a bar: stut(4, 0.25, 0.05)";
 pub const ECHO: &str = "echo takes a number of copies from 1 to 16, a time of a bar and a gain from 0 to 1: echo(4, 0.05, 0.25)";
 pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the bar as it is: spread(id, rev(), chop(16))";
@@ -71,7 +76,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 56] = [
+pub const METHODS: [(&str, &str); 60] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -173,6 +178,10 @@ pub const METHODS: [(&str, &str); 56] = [
     ("compress", COMPRESS),
     ("hurry", HURRY),
     ("iterBack", ITER_BACK),
+    ("mask", MASK),
+    ("chunk", CHUNK),
+    ("whenmod", WHENMOD),
+    ("segment", SEGMENT),
 ];
 
 /// The signal sources that take arguments, and the signal methods.

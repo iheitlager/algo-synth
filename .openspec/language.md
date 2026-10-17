@@ -697,9 +697,13 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.zoom(a, b)` `.compress(a, b)` | part a to b (0 to 1, a first) of each bar stretched over it, or each bar squeezed into a to b and silent around it, as Tidal's (#743): `zoom(0.25, 0.75)` the middle half, `compress(0, 0.5)` the bar in its first half |
 | `.hurry(n)` | `fast(n)` that also plays a sampler n times as fast, an octave up for 2, as Tidal's (#743); not on a drum clip |
 | `.iterBack(n)` | `iter` the other way, each bar starting a further 1/n (1–16) earlier, as Tidal's (#743) |
+| `.mask("…")` | 1 keeps the notes, 0 silences them, one a bar or a part of one, as Strudel's (#632): `mask("<1 1 1 0>")` rests every fourth bar, `mask("1 0 1 1")` keeps the notes starting in the 1 quarters; `t`/`f` and `x`/`~` too |
+| `.chunk(n, m)` | bar k with method m on part k mod n of it, the notes starting there, as Tidal's (#632): `chunk(4, add(12))` raises a different quarter each bar, in order |
+| `.whenmod(a, b, m)` | method m on the bars whose number mod a (1–16) is b or more, as Tidal's (#632): `whenmod(8, 6, rev)` turns bars 6 and 7 of each 8 round, the fill at a phrase's end |
+| `.segment(n)` | the notes sounding at each of n (1–48) equal steps of the bar, each held to the next, as Strudel's: `segment(4)` makes a whole-bar note four quarters; it is `struct` with n hits (#632) |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
-`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity`, `.clip`, `.rot` and `.linger` also take a value a
+`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity`, `.clip`, `.rot`, `.linger` and `.mask` also take a value a
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,

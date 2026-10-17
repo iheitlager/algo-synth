@@ -3272,6 +3272,23 @@ fn time_frames_on_a_clip_and_a_drum_clip() {
     assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
 }
 
+/// #632: mask, chunk, whenmod and segment on clips, printed back.
+#[test]
+fn bar_level_control_on_clips() {
+    let text = "track lead synth\nclip riff = lead .whenmod(8, 6, rev) .mask(\"<1 1 1 0>\")\n  \"c3 e3 g3 b3\"\nclip up = lead .chunk(4, add(12)) .segment(8)\n  \"c3 e3\"\ntrack kit drums\nclip beat = kit\n  bd x...x...x...x...\nclip fill = kit beat .whenmod(4, 3, fast(2)) .mask(\"1 1 1 0\")\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").bars, 8);
+    let printed = s.print();
+    for line in [
+        "clip riff = lead .whenmod(8, 6, rev) .mask(\"<1 1 1 0>\")",
+        "clip up = lead .chunk(4, add(12)) .segment(8)",
+        "clip fill = kit beat .whenmod(4, 3, fast(2)) .mask(\"1 1 1 0\")",
+    ] {
+        assert!(printed.contains(line), "{printed}");
+    }
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {

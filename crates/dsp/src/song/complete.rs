@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 56] = [
+const METHODS: [(&str, &str); 60] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -148,6 +148,10 @@ const METHODS: [(&str, &str); 56] = [
     ("compress", "each bar squeezed into a part of it"),
     ("hurry", "n times faster, and the sample too"),
     ("iterBack", "each bar starts 1/n earlier"),
+    ("mask", "1 keeps, 0 silences, by bar or part"),
+    ("chunk", "a method on part k of bar k, in turn"),
+    ("whenmod", "a method on bars b to a of every a"),
+    ("segment", "the notes held at n steps of the bar"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -1470,8 +1474,12 @@ scene main 8: beat riff
         assert!(!song("clip c = kit r|").contains(&"riff".to_string()));
         // A bare `.` fills the list with methods; a letter finds the rest.
         let time = |w: &str| song(&format!("clip c = kit beat .{w}|"));
-        assert!(time("f").contains(&"fast".to_string()) && time("ro").contains(&"room".to_string()));
-        assert!(!time("a").contains(&"add".to_string()) && !time("st").contains(&"strum".to_string()));
+        assert!(
+            time("f").contains(&"fast".to_string()) && time("ro").contains(&"room".to_string())
+        );
+        assert!(
+            !time("a").contains(&"add".to_string()) && !time("st").contains(&"strum".to_string())
+        );
         assert!(!time("h").contains(&"hurry".to_string()));
         assert!(song("clip c = kit .|").contains(&"room".to_string()));
     }

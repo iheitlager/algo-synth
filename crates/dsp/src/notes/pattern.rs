@@ -181,6 +181,17 @@ pub enum Pattern {
     /// `iterBack(n)`: `iter` the other way, each bar starting a further
     /// 1/n earlier (#743).
     IterBack(u32),
+    /// `mask(1)` keeps the notes, `mask(0)` silences them; quoted, one a
+    /// bar or a part of one, as Strudel's mask (#632).
+    Mask(bool),
+    /// `chunk(n, m)`: bar k with m on part k mod n of it, as Tidal's (#632).
+    Chunk(u32, Box<Pattern>),
+    /// `whenmod(a, b, m)`: m on the bars whose number mod a is b or more, as
+    /// Tidal's (#632).
+    WhenMod(u32, u32, Box<Pattern>),
+    /// `segment(n)`: the notes sounding at each of n steps of the bar, each
+    /// held to the next, a struct of n hits (#632).
+    Segment(u32),
 }
 
 /// The layers of `echoWith` and `stutWith` (#741).
@@ -677,7 +688,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 56] = [
+    pub const NAMES: [&'static str; 60] = [
         "fast",
         "slow",
         "rev",
@@ -734,6 +745,10 @@ impl Pattern {
         "compress",
         "hurry",
         "iterBack",
+        "mask",
+        "chunk",
+        "whenmod",
+        "segment",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -771,7 +786,7 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot" | "linger",
+            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot" | "linger" | "mask",
             [a],
         ) = (name, args.as_slice())
         {
@@ -1004,6 +1019,37 @@ impl Pattern {
                     _ => Err(bad),
                 }
             }
+            "mask" => match one()?.trim() {
+                "1" | "t" | "true" | "x" => Ok(Pattern::Mask(true)),
+                "0" | "f" | "false" | "~" => Ok(Pattern::Mask(false)),
+                _ => Err(crate::usage::MASK),
+            },
+            "chunk" => {
+                let [n, m] = args.as_slice() else {
+                    return Err(crate::usage::CHUNK);
+                };
+                Ok(Pattern::Chunk(whole(n)?, Box::new(nested(m, srcs)?)))
+            }
+            "whenmod" => {
+                let [a, b, m] = args.as_slice() else {
+                    return Err(crate::usage::WHENMOD);
+                };
+                let a = whole(a)?;
+                let b = b
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|b| *b < a)
+                    .ok_or(crate::usage::WHENMOD)?;
+                Ok(Pattern::WhenMod(a, b, Box::new(nested(m, srcs)?)))
+            }
+            "segment" => one()?
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|n| (1..=MAX_STEPS as u32).contains(n))
+                .map(Pattern::Segment)
+                .ok_or(crate::usage::SEGMENT),
             "hurry" => Ok(Pattern::Hurry(Ratio::parse(one()?)?)),
             "iterBack" => Ok(Pattern::IterBack(whole(one()?)?)),
             "superimpose" => Ok(Pattern::Superimpose(Box::new(nested(one()?, srcs)?))),
@@ -1333,6 +1379,10 @@ impl Pattern {
             Pattern::Zoom(_, _, t, true) => format!("compress({t})"),
             Pattern::Hurry(r) => format!("hurry({})", r.print()),
             Pattern::IterBack(n) => format!("iterBack({n})"),
+            Pattern::Mask(keep) => format!("mask({})", u8::from(*keep)),
+            Pattern::Chunk(n, m) => format!("chunk({n}, {})", bare(m)),
+            Pattern::WhenMod(a, b, m) => format!("whenmod({a}, {b}, {})", bare(m)),
+            Pattern::Segment(n) => format!("segment({n})"),
             Pattern::Layer(ms) => {
                 let words: Vec<String> = ms
                     .iter()
@@ -1403,6 +1453,14 @@ impl Pattern {
                     .apply(&speed(line, r.num, r.den)?)?
             }
             Pattern::IterBack(n) => iter_by(line, *n, true),
+            Pattern::Mask(true) => line.clone(),
+            Pattern::Mask(false) => Line {
+                events: Vec::new(),
+                bars: line.bars,
+            },
+            Pattern::Chunk(n, m) => chunk(line, *n, m)?,
+            Pattern::WhenMod(a, b, m) => on_bars(line, *a, m, |k| k >= *b)?,
+            Pattern::Segment(n) => structure(line, &vec![true; *n as usize]),
             Pattern::Superimpose(m) => together(&[line.clone(), m.apply(line)?])?,
             Pattern::Layer(ms) => {
                 let layers = ms
@@ -1595,7 +1653,9 @@ impl Pattern {
             | Pattern::Sometimes(_, m)
             | Pattern::PlyWith(_, m)
             | Pattern::Superimpose(m)
-            | Pattern::Inside(_, m, _) => m.moves_pitch(),
+            | Pattern::Inside(_, m, _)
+            | Pattern::Chunk(_, m)
+            | Pattern::WhenMod(_, _, m) => m.moves_pitch(),
             // A lane holds no sampler speed (#743).
             Pattern::Hurry(_) => true,
             Pattern::Layer(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
@@ -2054,6 +2114,27 @@ fn zoom(line: &Line, a: u32, b: u32, compress: bool) -> Line {
     }
 }
 
+/// Bar k with method `m` on part k mod `n` of it (the notes starting
+/// there), the line as it is on the rest, round together (#632).
+fn chunk(line: &Line, n: u32, m: &Pattern) -> Result<Line, &'static str> {
+    let changed = m.apply(line)?;
+    let bars = lcm(lcm(line.bars, n), changed.bars);
+    check(bars, line.events.len() * (bars / line.bars.max(1)) as usize)?;
+    let part = |e: &Event| {
+        let k = (e.start / BAR) % n;
+        let x = e.start % BAR;
+        (div_round(k * BAR, n)..div_round((k + 1) * BAR, n)).contains(&x)
+    };
+    let mut events: Vec<Event> = line
+        .repeat(bars)
+        .events
+        .into_iter()
+        .filter(|e| !part(e))
+        .collect();
+    events.extend(changed.repeat(bars).events.into_iter().filter(part));
+    Ok(Line { events, bars })
+}
+
 /// Furthest `rot` turns.
 const MAX_ROT: i32 = 64;
 
@@ -2270,12 +2351,23 @@ fn reorder(line: &Line, n: u32, shuffle: bool) -> Result<Line, &'static str> {
 /// Method `m` on the bars whose number is `phase` mod `n`, the line as it
 /// is on the others.
 fn alternate(line: &Line, n: u32, phase: u32, m: &Pattern) -> Result<Line, &'static str> {
+    on_bars(line, n, m, |k| k == phase)
+}
+
+/// Method `m` on the bars whose number mod `n` passes `on`, the line as it
+/// is on the others (`every`, `whenmod`, #632).
+fn on_bars(
+    line: &Line,
+    n: u32,
+    m: &Pattern,
+    on: impl Fn(u32) -> bool,
+) -> Result<Line, &'static str> {
     let base = line.repeat(lcm(line.bars, n));
     check(base.bars, base.events.len())?;
     let changed = m.apply(&base)?;
     let bars = lcm(base.bars, changed.bars);
     check(bars, base.events.len() * (bars / base.bars) as usize)?;
-    let on = |e: &Event| (e.start / BAR) % n == phase;
+    let on = |e: &Event| on((e.start / BAR) % n);
     let mut events: Vec<Event> = base
         .repeat(bars)
         .events
@@ -4384,5 +4476,89 @@ mod tests {
             "not on a drum clip"
         );
         assert!(!Pattern::parse("inside", "2, rev").expect("p").moves_pitch());
+    }
+
+    /// #632: bar-level control: mask, chunk, whenmod and segment.
+    #[test]
+    fn bar_level_control_masks_chunks_and_segments() {
+        let mask = run("mask(\"<1 0>\")", &four());
+        assert_eq!(mask.bars, 2);
+        assert_eq!(bar_notes(&mask, 0), [60, 62, 64, 66]);
+        assert!(bar_notes(&mask, 1).is_empty(), "every other bar silent");
+        assert_eq!(notes_of(&run("mask(\"1 0 1 1\")", &four())), [60, 64, 66]);
+        assert_eq!(
+            notes_of(&run("mask(\"t ~\")", &four())),
+            [60, 62],
+            "Strudel's t and ~"
+        );
+        // chunk(4, add(12)): bar k raises its k-th quarter.
+        let c = run("chunk(4, add(12))", &four());
+        assert_eq!(c.bars, 4);
+        for k in 0..4 {
+            let raised: Vec<u8> = (0..4u8)
+                .map(|j| 60 + 2 * j + if u32::from(j) == k { 12 } else { 0 })
+                .collect();
+            assert_eq!(bar_notes(&c, k), raised, "bar {k}");
+        }
+        // whenmod(8, 6, rev): bars 6 and 7 of each 8 backwards.
+        let w = run("whenmod(8, 6, rev)", &four());
+        assert_eq!(w.bars, 8);
+        for b in 0..8 {
+            let want = if b >= 6 {
+                [66, 64, 62, 60]
+            } else {
+                [60, 62, 64, 66]
+            };
+            assert_eq!(bar_notes(&w, b), want, "bar {b}");
+        }
+        // segment(4) on a whole-bar note: four quarter notes.
+        let held = Line {
+            events: vec![ev(0, 48, 60)],
+            bars: 1,
+        };
+        let seg = run("segment(4)", &held);
+        assert_eq!(
+            seg.events
+                .iter()
+                .map(|e| (e.start, e.len))
+                .collect::<Vec<_>>(),
+            [(0, 12), (12, 12), (24, 12), (36, 12)]
+        );
+        for (name, args, printed) in [
+            ("mask", "1", "mask(1)"),
+            ("mask", "\"<1 [0 1]>\"", "mask(\"<1 [0 1]>\")"),
+            ("chunk", "4,add(12)", "chunk(4, add(12))"),
+            ("whenmod", "8, 6,rev", "whenmod(8, 6, rev)"),
+            ("segment", " 8 ", "segment(8)"),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("mask", "2", crate::usage::MASK),
+            ("mask", "\"1 2\"", crate::usage::MASK),
+            ("chunk", "4", crate::usage::CHUNK),
+            ("chunk", "0, rev", "this takes a whole number from 1 to 16"),
+            ("whenmod", "8, 8, rev", crate::usage::WHENMOD),
+            ("whenmod", "8, 6", crate::usage::WHENMOD),
+            ("segment", "0", crate::usage::SEGMENT),
+            ("segment", "49", crate::usage::SEGMENT),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            Pattern::parse("chunk", "4, add(12)")
+                .expect("p")
+                .moves_pitch()
+        );
+        assert!(
+            !Pattern::parse("whenmod", "4, 2, rev")
+                .expect("p")
+                .moves_pitch(),
+            "on a drum clip too"
+        );
+    }
+
+    fn notes_of(l: &Line) -> Vec<u8> {
+        l.events.iter().map(|e| e.note).collect()
     }
 }
