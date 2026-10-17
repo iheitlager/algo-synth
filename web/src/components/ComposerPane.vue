@@ -111,6 +111,12 @@ watch(() => status.running, (on) => on && requestSong())
       </label>
       <span v-if="song.playing && position >= 0" class="muted">bar {{ Math.floor(position / 16) + 1 }} · step {{ (position % 16) + 1 }}</span>
       <span v-if="song.cued >= 0" class="cue-note">clip {{ song.clips[song.cued]?.name }} alone</span>
+      <!-- The text's state and Format sit on this row, so the text starts level with the first track. -->
+      <span class="text-head">
+        <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
+        <span v-else-if="dirty" class="muted">applies when the line is done · Ctrl+Enter now</span>
+        <button class="format" :disabled="!status.running" title="Print the whole text as the engine writes it (Shift+Alt+F)" @click="formatSong">Format</button>
+      </span>
     </div>
     <div class="body" :style="{ '--code': splits.code != null ? `${splits.code}px` : undefined }">
       <div class="grid">
@@ -162,11 +168,6 @@ watch(() => status.running, (on) => on && requestSong())
         @resize="(v) => setSplit('code', v)"
       />
       <div class="text">
-        <div class="text-head">
-          <span v-if="song.error" class="error">line {{ song.error.line }}, col {{ song.error.col }}: {{ song.error.msg }}</span>
-          <span v-else-if="dirty" class="muted">applies when the line is done · Ctrl+Enter now</span>
-          <button class="format" :disabled="!status.running" title="Print the whole text as the engine writes it (Shift+Alt+F)" @click="formatSong">Format</button>
-        </div>
         <SongEditor
           :model-value="song.draft" :disabled="!status.running" :error="song.error"
           :lit="song.draft === song.text ? song.lit : []" @update:model-value="typeSong" @keydown="onKey" @done="applyDraft"
@@ -209,9 +210,9 @@ watch(() => status.running, (on) => on && requestSong())
 .step.l4 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); box-shadow: inset 3px 0 0 var(--hit); }
 .step.l5 { background: color-mix(in srgb, var(--hit) 55%, var(--panel-2)); box-shadow: inset 2px 0 0 var(--hit), inset 5px 0 0 var(--panel-2), inset 7px 0 0 var(--hit); }
 .step.now { outline: 2px solid var(--accent); outline-offset: 1px; }
-.text { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
-.text-head { display: flex; align-items: center; gap: 10px; }
-.format { margin-left: auto; }
+.text { display: flex; flex-direction: column; min-height: 0; }
+.text-head { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; }
+.text-head .error, .text-head .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .error { color: var(--accent); }
 .muted { color: var(--muted); }
 </style>

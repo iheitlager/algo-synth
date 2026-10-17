@@ -61,6 +61,8 @@ pub const SPREAD: &str = "spread takes 2 to 8 methods, one a bar in turn, id the
 pub const RIB: &str = "rib takes a bar to start at and a number of bars, looped: rib(46, 1)";
 pub const RIBBON: &str =
     "ribbon takes a bar to start at and a number of bars, looped: ribbon(46, 1)";
+pub const BEAT: &str =
+    "beat takes steps and the steps a bar, 1 to 48: beat(2, 32) or beat(\"0,7,10\", 16)";
 pub const STRUCT: &str = "struct takes a rhythm of x and ~ in quotes or an earlier clip: struct(\"x ~ x x\") or struct(beat)";
 
 /// The calls of a line of notes, and `euclid` on a lane.
@@ -76,7 +78,7 @@ pub const CALLS: [(&str, &str); 8] = [
 ];
 
 /// The pattern methods, in `Pattern::NAMES` order.
-pub const METHODS: [(&str, &str); 60] = [
+pub const METHODS: [(&str, &str); 61] = [
     (
         "fast",
         "fast takes a ratio, each side 1 to 16, or one a bar: fast(2), fast(3/4) or fast(\"<1 2>\")",
@@ -182,6 +184,7 @@ pub const METHODS: [(&str, &str); 60] = [
     ("chunk", CHUNK),
     ("whenmod", WHENMOD),
     ("segment", SEGMENT),
+    ("beat", BEAT),
 ];
 
 /// The signal sources that take arguments, and the signal methods.
