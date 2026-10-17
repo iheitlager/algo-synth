@@ -77,7 +77,7 @@ type Weight = Option<(u32, usize)>;
 /// A degree is held in a note number this far up, so a negative one fits.
 pub const DEGREE_ZERO: u8 = 64;
 /// Degrees reach this far above and below the root.
-const MAX_DEGREE: i32 = 24;
+pub(crate) const MAX_DEGREE: i32 = 24;
 /// The octave of a scale root written without one, as in Strudel: `a` is a3.
 pub const ROOT_OCTAVE: u8 = 3;
 /// Velocities, as drums have them.

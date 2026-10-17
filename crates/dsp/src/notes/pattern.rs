@@ -148,6 +148,23 @@ pub enum Pattern {
     /// `clip(x)`: each note's length times x, more than 0 up to 16, as
     /// Strudel's legato (#740); `None` for a `~`.
     Clip(Option<f32>),
+    /// `rot(n)`: in each bar, each onset takes the notes of the onset n
+    /// later, keeping its own time and length, as Tidal's rot (#742).
+    Rot(i32),
+    /// `mirror(axis)`: each pitch mirrored round the axis, melodic
+    /// inversion (#742).
+    Mirror(Axis),
+}
+
+/// What `mirror` turns the line round (#742).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    /// `mirror()`: degree 0, or the line's first note.
+    First,
+    /// `mirror(2)`: a degree, before `scale`.
+    Degree(i32),
+    /// `mirror(c4)`: a note, after `scale`.
+    Note(u8),
 }
 
 /// The copies of `stut` and `echo` (#719).
@@ -622,7 +639,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 42] = [
+    pub const NAMES: [&'static str; 44] = [
         "fast",
         "slow",
         "rev",
@@ -665,6 +682,8 @@ impl Pattern {
         "ribbon",
         "velocity",
         "clip",
+        "rot",
+        "mirror",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -702,7 +721,7 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse" | "velocity" | "clip",
+            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot",
             [a],
         ) = (name, args.as_slice())
         {
@@ -878,6 +897,28 @@ impl Pattern {
                     .map(|x| Pattern::Clip(Some(x)))
                     .ok_or(crate::usage::CLIP),
             },
+            "rot" => one()?
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|n| n.abs() <= MAX_ROT)
+                .map(Pattern::Rot)
+                .ok_or(crate::usage::ROT),
+            "mirror" => {
+                let axis = match args.as_slice() {
+                    [] => Axis::First,
+                    [a] => {
+                        let a = a.trim();
+                        match a.parse::<i32>() {
+                            Ok(d) if d.abs() <= super::MAX_DEGREE => Axis::Degree(d),
+                            Ok(_) => return Err(crate::usage::MIRROR),
+                            Err(_) => Axis::Note(note_of(a).ok_or(crate::usage::MIRROR)?),
+                        }
+                    }
+                    _ => return Err(crate::usage::MIRROR),
+                };
+                Ok(Pattern::Mirror(axis))
+            }
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
             "scramble" => Ok(Pattern::Scramble(whole(one()?)?)),
@@ -1148,6 +1189,10 @@ impl Pattern {
             Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::Velocity(None) => "velocity(~)".to_string(),
             Pattern::Velocity(Some(v)) => format!("velocity({v})"),
+            Pattern::Rot(n) => format!("rot({n})"),
+            Pattern::Mirror(Axis::First) => "mirror()".to_string(),
+            Pattern::Mirror(Axis::Degree(d)) => format!("mirror({d})"),
+            Pattern::Mirror(Axis::Note(n)) => format!("mirror({})", super::note_name(*n)),
             Pattern::Clip(None) => "clip(~)".to_string(),
             Pattern::Clip(Some(x)) => format!("clip({x})"),
             Pattern::PerBar(text, _) => text.clone(),
@@ -1189,6 +1234,8 @@ impl Pattern {
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
             Pattern::Velocity(v) => velocity(line, *v),
             Pattern::Clip(x) => clip(line, *x),
+            Pattern::Rot(n) => rot(line, *n),
+            Pattern::Mirror(axis) => mirror(line, *axis)?,
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Mul(m) => m.apply(line)?,
             Pattern::Stut(s) => stut(line, s)?,
@@ -1385,7 +1432,10 @@ impl Pattern {
             // A lane holds a hit, an accent or a ghost, not a velocity (#621).
             | Pattern::Velocity(_)
             // A lane's hit is a step long (#740).
-            | Pattern::Clip(_) => true,
+            | Pattern::Clip(_)
+            // A lane's hits have no pitch to move (#742).
+            | Pattern::Rot(_)
+            | Pattern::Mirror(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -1680,6 +1730,106 @@ fn velocity(line: &Line, v: Option<f32>) -> Line {
         }
     }
     out
+}
+
+/// Furthest `rot` turns.
+const MAX_ROT: i32 = 64;
+
+/// A note name with its octave, `c4` or `eb2`, as MIDI.
+fn note_of(s: &str) -> Option<u8> {
+    let (i, d) = s.char_indices().last()?;
+    let octave = d.to_digit(10)?;
+    let pc = pitch_class(s.get(..i)?)?;
+    u8::try_from((octave + 1) * 12 + u32::from(pc))
+        .ok()
+        .filter(|n| *n <= 127)
+}
+
+/// Each bar's onsets (the notes starting together, their graces with
+/// them) each taking the notes of the onset `n` later in the bar, round it,
+/// at its own start and length, as Tidal's rot (#742).
+fn rot(line: &Line, n: i32) -> Line {
+    let mut events = Vec::with_capacity(line.events.len());
+    for b in 0..line.bars {
+        let bar: Vec<&Event> = line.events.iter().filter(|e| e.start / BAR == b).collect();
+        let mut onsets: Vec<u32> = bar
+            .iter()
+            .filter(|e| e.nudge >= 0)
+            .map(|e| e.start)
+            .collect();
+        onsets.sort_unstable();
+        onsets.dedup();
+        let m = i32::try_from(onsets.len()).unwrap_or(0);
+        if m == 0 {
+            events.extend(bar.into_iter().copied());
+            continue;
+        }
+        let at = |s: u32| bar.iter().filter(move |e| e.start == s);
+        for (k, &s) in (0..).zip(&onsets) {
+            let from = onsets
+                .get((k + n).rem_euclid(m) as usize)
+                .copied()
+                .unwrap_or(s);
+            let len = at(s).find(|e| e.nudge >= 0).map_or(1, |e| e.len);
+            events.extend(at(from).map(|e| Event {
+                start: s,
+                len: if e.nudge >= 0 { len } else { e.len },
+                ..**e
+            }));
+        }
+        // Graces before a bar's first note may start in the bar before.
+        events.extend(
+            bar.iter()
+                .filter(|e| e.nudge < 0 && !onsets.contains(&e.start))
+                .map(|e| **e),
+        );
+    }
+    Line {
+        events,
+        bars: line.bars,
+    }
+}
+
+/// Each pitch turned round `axis`: a degree round a degree, a note round a
+/// note, to the cent; past the degrees or 0 to 127 it stops at the end
+/// (#742).
+fn mirror(line: &Line, axis: Axis) -> Result<Line, &'static str> {
+    let zero = i32::from(DEGREE_ZERO) * 100;
+    let pitch = |e: &Event| i32::from(e.note) * 100 + i32::from(e.cents);
+    let first_note = line
+        .events
+        .iter()
+        .find(|e| e.nudge >= 0 && !e.degree)
+        .map_or(0, pitch);
+    // The axis of a degree, and of a note, in cents.
+    let (deg_axis, note_axis) = match axis {
+        Axis::First => (zero, first_note),
+        Axis::Degree(_) if line.events.iter().any(|e| !e.degree) => {
+            return Err(
+                "mirror(n) turns degrees round degree n: write it before scale, or give a note: mirror(c4)",
+            );
+        }
+        Axis::Note(_) if line.events.iter().any(|e| e.degree) => {
+            return Err(
+                "mirror(c4) turns notes round a note: write it after scale, or give a degree: mirror(2)",
+            );
+        }
+        Axis::Degree(d) => (zero + d * 100, 0),
+        Axis::Note(n) => (0, i32::from(n) * 100),
+    };
+    let deg = super::MAX_DEGREE * 100;
+    let mut out = line.clone();
+    for e in &mut out.events {
+        let to = if e.degree {
+            (2 * deg_axis - pitch(e)).clamp(zero - deg, zero + deg)
+        } else {
+            (2 * note_axis - pitch(e)).clamp(0, 12_700)
+        };
+        let note = (to + 50).div_euclid(100);
+        e.note = u8::try_from(note).unwrap_or(0);
+        e.cents = i16::try_from(to - note * 100).unwrap_or(0);
+    }
+    Ok(out)
 }
 
 /// Every note `x` times as long, at least a tick and at most the line, a
@@ -3475,5 +3625,151 @@ mod tests {
             Pattern::Clip(Some(1.0)).moves_pitch(),
             "not on a drum clip's lanes"
         );
+    }
+
+    /// #742: Tidal's rot, each onset the notes of the one n later in the
+    /// bar, the rhythm staying.
+    #[test]
+    fn rot_turns_the_notes_along_the_rhythm() {
+        // a ~ b c: three onsets at 0, 24 and 36, the second held longer.
+        let line = Line {
+            events: vec![ev(0, 12, 57), ev(24, 6, 59), ev(36, 12, 60)],
+            bars: 1,
+        };
+        let shape = |l: &Line| {
+            l.events
+                .iter()
+                .map(|e| (e.start, e.len, e.note))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shape(&run("rot(1)", &line)),
+            [(0, 12, 59), (24, 6, 60), (36, 12, 57)]
+        );
+        assert_eq!(
+            shape(&run("rot(-1)", &line)),
+            [(0, 12, 60), (24, 6, 57), (36, 12, 59)]
+        );
+        assert_eq!(shape(&run("rot(3)", &line)), shape(&line), "round the bar");
+        // A chord is one onset and moves whole, its velocity with it.
+        let mut chord = Line {
+            events: vec![ev(0, 24, 60), ev(0, 24, 64), ev(24, 24, 67)],
+            bars: 1,
+        };
+        chord.events[2].vel = 99;
+        let r = run("rot(1)", &chord);
+        assert_eq!(shape(&r), [(0, 24, 67), (24, 24, 60), (24, 24, 64)]);
+        assert_eq!(r.events[0].vel, 99, "the note's velocity comes with it");
+        // A grace moves with its note.
+        let mut graced = line.clone();
+        graced.events.push(Event {
+            nudge: -30,
+            ..ev(24, 1, 61)
+        });
+        let r = run("rot(1)", &graced);
+        assert!(
+            r.events
+                .iter()
+                .any(|e| e.start == 0 && e.nudge < 0 && e.note == 61),
+            "{:?}",
+            shape(&r)
+        );
+        // One a bar, each bar in turn.
+        let two = run("rot(\"<0 1>\")", &line);
+        assert_eq!(two.bars, 2);
+        assert_eq!(bar_notes(&two, 0), [57, 59, 60]);
+        assert_eq!(bar_notes(&two, 1), [59, 60, 57]);
+        for bad in ["65", "x", "1.5"] {
+            assert_eq!(Pattern::parse("rot", bad), Err(crate::usage::ROT), "{bad}");
+        }
+        assert_eq!(
+            Pattern::parse("rot", " -2").expect("rot").print(),
+            "rot(-2)"
+        );
+    }
+
+    /// #742: melodic inversion, degrees round a degree and notes round a note.
+    #[test]
+    fn mirror_turns_pitches_round_an_axis() {
+        let degrees = Line {
+            events: [0u8, 2, 4, 3]
+                .iter()
+                .zip(0..)
+                .map(|(d, k)| deg(k * 12, *d))
+                .collect(),
+            bars: 1,
+        };
+        let degs = |l: &Line| {
+            l.events
+                .iter()
+                .map(|e| i32::from(e.note) - i32::from(DEGREE_ZERO))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(degs(&run("mirror(2)", &degrees)), [4, 2, 0, 1]);
+        assert_eq!(degs(&run("mirror()", &degrees)), [0, -2, -4, -3]);
+        assert_eq!(
+            degs(&run("mirror(20)", &degrees)),
+            [24, 24, 24, 24],
+            "stops at the last degree"
+        );
+        let notes = |l: &Line| {
+            l.events
+                .iter()
+                .map(|e| (e.note, e.cents))
+                .collect::<Vec<_>>()
+        };
+        // c d e f# round c4, and round the line's first note.
+        assert_eq!(
+            notes(&run("mirror(c4)", &four())),
+            [(60, 0), (58, 0), (56, 0), (54, 0)]
+        );
+        assert_eq!(
+            notes(&run("mirror(d4)", &four())),
+            [(64, 0), (62, 0), (60, 0), (58, 0)]
+        );
+        assert_eq!(
+            notes(&run("mirror()", &four())),
+            notes(&run("mirror(c4)", &four()))
+        );
+        let quarter = run("mirror(c4)", &run("add(0.25)", &four()));
+        assert_eq!(
+            notes(&quarter)[0],
+            (60, -25),
+            "c4 a quarter up turns a quarter down"
+        );
+        assert_eq!(
+            notes(&run("mirror(c9)", &four()))[0],
+            (127, 0),
+            "stops at 127"
+        );
+        // Retrograde inversion is the two together.
+        let ri = run("mirror(c4)", &run("rev()", &four()));
+        assert_eq!(starts(&ri), [(0, 54), (12, 56), (24, 58), (36, 60)]);
+        assert!(
+            Pattern::parse("mirror", "c4")
+                .expect("note")
+                .apply(&degrees)
+                .is_err()
+        );
+        assert!(
+            Pattern::parse("mirror", "2")
+                .expect("degree")
+                .apply(&four())
+                .is_err()
+        );
+        for bad in ["25", "h4", "c", "1, 2"] {
+            assert_eq!(
+                Pattern::parse("mirror", bad),
+                Err(crate::usage::MIRROR),
+                "{bad}"
+            );
+        }
+        for (args, printed) in [
+            ("", "mirror()"),
+            (" -3", "mirror(-3)"),
+            ("eb2", "mirror(d#2)"),
+        ] {
+            assert_eq!(Pattern::parse("mirror", args).expect(args).print(), printed);
+        }
     }
 }

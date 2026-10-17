@@ -3160,6 +3160,45 @@ fn clip_takes_values_or_a_signal() {
     assert!(s.clips[0].len_by.is_none() && s.clips[0].pattern.is_empty());
 }
 
+/// #742: `.rot` and `.mirror` through a scale, printed back as written.
+#[test]
+fn rot_and_mirror_play_through_a_scale() {
+    let text = "track lead synth\nclip a = lead .mirror(2) .scale(a3 minor)\n  \"0 2 4 3\"\nclip b = lead .rot(\"<0 1>\") .scale(a3 minor) .mirror(a3)\n  \"0 2 [4 3] ~ 1\"\n";
+    let s = Song::parse(text).expect("parses");
+    let notes = |k: usize| -> Vec<u8> {
+        s.clips[k]
+            .notes
+            .as_ref()
+            .expect("notes")
+            .events
+            .iter()
+            .map(|e| e.note)
+            .collect()
+    };
+    // Degrees 4 2 0 1 of A minor from a3: e4 c4 a3 b3, still in the scale.
+    assert_eq!(notes(0), [64, 60, 57, 59]);
+    assert_eq!(s.clips[1].notes.as_ref().expect("notes").bars, 2);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = lead .mirror(2) .scale(a3 minor)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip b = lead .rot(\"<0 1>\") .scale(a3 minor) .mirror(a3)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse("track l synth\nclip a = l .scale(a3 minor) .mirror(2)\n  \"0 2\"\n")
+        .expect_err("after scale");
+    assert_eq!(
+        err.msg,
+        "mirror(n) turns degrees round degree n: write it before scale, or give a note: mirror(c4)"
+    );
+    let err = Song::parse("track k drums\nclip a = k\n  bd x...\nclip b = k a .rot(1)\n")
+        .expect_err("drums");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {

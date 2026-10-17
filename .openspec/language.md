@@ -686,9 +686,11 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.velocity(<signal>)` | each note's velocity read from a signal as it is pressed, at its moment in the song, as `.n` reads one (#621): `velocity(sine.range(0.4, 1).segment(16))`, `perlin.range(0.5, 1)` for a played feel; one a clip, after every method; not `env`, `lfo`, a list, `lag` or `onNote`; not on a `live` or drum clip |
 | `.clip(x)` | each note's length times x, more than 0 up to 16, as Strudel's clip and legato (#740): `clip("0.3 0.3 1 0.5")` one a step, below 1 staccato, above 1 into the next note (on a mono synth with glide, a slide), `~` keeping a note's own; at least a tick, at most the line; a grace keeps its own; not on a drum clip. `.legato` is the synth's legato switch, not this |
 | `.clip(<signal>)` | each note's length times the signal as it is pressed, at its moment in the song (#740): `clip(perlin.range(0.2, 1))`; one a clip, after every method; not `env`, `lfo`, a list, `lag` or `onNote`; not on a `live` or drum clip |
+| `.rot(n)` | in each bar, each onset takes the notes of the onset n (−64 to 64) later, round the bar, keeping its own time and length, as Tidal's rot (#742): `rot(1)` on `"a ~ b c"` plays `"b ~ c a"`; a chord is one onset and moves whole, its velocity and graces with it; one a bar: `rot("<0 1 2 3>")`; not on a drum clip |
+| `.mirror([axis])` | each pitch turned round an axis, melodic inversion (#742): before `.scale` a degree round a degree (`mirror(2)` on `0 2 4 3` is `4 2 0 1`, still in the scale), after it a note round a note (`mirror(c4)`), to the cent; with no axis, degree 0, or the line's first note; past the degrees or 0 to 127 a note stops at the end; `.rev() .mirror()` is the retrograde inversion. Not Strudel's `inv`, which turns a rhythm's hits round; not on a drum clip |
 | `.strum(ms)` | each chord's notes (those starting together) `ms` (1–100) milliseconds apart from the lowest up, from the highest down when below 0; a single note and every note's end stay on the tick; inside `every`, `off` and `sometimes` too |
 
-`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity` and `.clip` also take a value a
+`.fast`, `.slow`, `.add`, `.sub`, `.ply`, `.degrade`, `.velocity`, `.clip` and `.rot` also take a value a
 bar, in quotes, as Strudel does (#629): `.add("<0 3 5>")` adds 0, 3 and 5 in
 turn, and the line plays until it and the values come round together (at most
 64 bars). A nested `< >` takes its own turns, so `"<0 <1 -1>>"` is 0, 1, 0,

@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 42] = [
+const METHODS: [(&str, &str); 44] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -134,6 +134,8 @@ const METHODS: [(&str, &str); 42] = [
     ("ribbon", "bars of the line, cut and looped"),
     ("velocity", "each note's velocity, 0 to 1"),
     ("clip", "each note's length times x"),
+    ("rot", "each onset the notes of the one n on"),
+    ("mirror", "each pitch turned round an axis"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -397,6 +399,8 @@ impl List<'_> {
                     | "echo"
                     | "velocity"
                     | "clip"
+                    | "rot"
+                    | "mirror"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }
@@ -1477,7 +1481,7 @@ scene main 8: beat riff
         assert_eq!(song("clip c = lead .chord(|"), ["riff"]);
         assert_eq!(song("clip c = lead .struct(|"), ["beat", "riff"]);
         assert!(song("clip c = lead .struct(\"x |").is_empty());
-        assert_eq!(song("clip c = lead .every(4, r|"), ["rev", "rarely"]);
+        assert_eq!(song("clip c = lead .every(4, r|"), ["rev", "rarely", "rot"]);
         assert!(song("clip c = lead .fast(|").is_empty());
         assert_eq!(song("clip c = lead .cutoff(sin|"), ["sine", "sine2"]);
         assert_eq!(song("clip c = lead .cutoff(sine.ex|"), ["exprange"]);
