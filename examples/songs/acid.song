@@ -7,7 +7,8 @@
 # rib(46,1) freezes bar 46 of Strudel's random (#620): the same sixteen notes
 # here. The slider is the acid synth's lpenv knob. Each track has its own
 # strip, so the orbits need nothing.
-tempo 120
+tempo 130
+swing 50
 # Strudel's sawtooth through its 12 dB low-pass: lpf 200, lpq 12, and lpenv
 # octaves of filter envelope (Strudel's default: 5 ms up, 0.14 s down, none
 # held). Its amp envelope is Strudel's synth default.
@@ -29,6 +30,10 @@ setting supersaw = Modular ModularBasic: Polyphony 2
   }).add;
 track bass synth acid
 track saw synth supersaw
+track kick drums PadSampler PadsLoud
+samples kick roland-tr909
+strip kick: Send2 0.41312042, I1Type Eq, I1B 0.65733
+master: MasterGain 0.88
 
 # n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1): bar 46 of
 # Strudel's random, frozen, read as degrees of C minor from c3.
@@ -38,7 +43,12 @@ clip bass = bass .scale(c3 minor) .rib(46, 1)
 # The supersaw plays a copy of the bass's line (a clip made from another,
 # #649) through beat(2,32).slow(2): the note sounding on step 2 of 32, d#3,
 # every two bars. `clip swell = saw bass` alone would double the whole line.
-clip swell = saw bass .detune(1) .beat(2, 32) .slow(2)
+clip swell = saw bass .beat(2, 32) .slow(2) .detune(1)
 
-scene acid 8: bass swell
+# Four on the floor on the 909 kit's kick, in Strudel's shorthand: s("bd*4").
+clip floor = kick
+  "bd*4"
+
+scene acid 8: bass swell floor
 arrange acid
+loop 1 8
