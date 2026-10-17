@@ -888,6 +888,152 @@ pub fn unit(name: &str) -> Option<&'static Unit> {
     UNITS.iter().find(|u| u.name == name)
 }
 
+/// Strudel's name for a knob of an insert, in Strudel's units (#745):
+/// `.crush(4)` the bits of the track's Bitcrush, `.vowel("<a e>")` its
+/// Vowel's vowel. The knob, the curve from the value to it, the values it
+/// takes and what to say otherwise.
+pub struct InsertUnit {
+    pub name: &'static str,
+    pub effect: InsertType,
+    pub knob: usize,
+    pub curve: fn(f32) -> f32,
+    pub lo: f32,
+    pub hi: f32,
+    pub why: &'static str,
+}
+
+/// The inserts' knobs by Strudel's names (#745).
+pub const INSERT_UNITS: [InsertUnit; 10] = {
+    const fn unit(
+        name: &'static str,
+        effect: InsertType,
+        knob: usize,
+        curve: fn(f32) -> f32,
+        (lo, hi): (f32, f32),
+        why: &'static str,
+    ) -> InsertUnit {
+        InsertUnit {
+            name,
+            effect,
+            knob,
+            curve,
+            lo,
+            hi,
+            why,
+        }
+    }
+    fn same(x: f32) -> f32 {
+        x
+    }
+    // The inverse of a knob that runs `lo * (hi / lo)^k`.
+    fn rate(x: f32, lo: f32, ratio: f32) -> f32 {
+        ((x.max(lo) / lo).ln() / ratio.ln()).clamp(0.0, 1.0)
+    }
+    [
+        unit(
+            "crush",
+            InsertType::Bitcrush,
+            0,
+            |b| ((b - 1.0) / 15.0).clamp(0.0, 1.0),
+            (1.0, 16.0),
+            "crush takes bits from 1 to 16",
+        ),
+        unit(
+            "shape",
+            InsertType::Overdrive,
+            0,
+            same,
+            (0.0, 1.0),
+            "shape takes an amount from 0 to 1",
+        ),
+        unit(
+            "distort",
+            InsertType::Distortion,
+            0,
+            same,
+            (0.0, 1.0),
+            "distort takes an amount from 0 to 1",
+        ),
+        unit(
+            "vowel",
+            InsertType::Vowel,
+            0,
+            |v| (v / 4.0).clamp(0.0, 1.0),
+            (0.0, 4.0),
+            "vowel takes a e i o u, or 0 to 4",
+        ),
+        unit(
+            "phaser",
+            InsertType::Phaser,
+            0,
+            |hz| rate(hz, 0.05, 200.0),
+            (0.05, 10.0),
+            "phaser takes a rate from 0.05 to 10 Hz",
+        ),
+        unit(
+            "phaserdepth",
+            InsertType::Phaser,
+            1,
+            same,
+            (0.0, 1.0),
+            "phaserdepth takes a depth from 0 to 1",
+        ),
+        unit(
+            "tremolo",
+            InsertType::Tremolo,
+            0,
+            |hz| rate(hz, 0.1, 200.0),
+            (0.1, 20.0),
+            "tremolo takes a rate from 0.1 to 20 Hz",
+        ),
+        unit(
+            "tremolodepth",
+            InsertType::Tremolo,
+            1,
+            same,
+            (0.0, 1.0),
+            "tremolodepth takes a depth from 0 to 1",
+        ),
+        unit(
+            "ring",
+            InsertType::Ring,
+            0,
+            |hz| rate(hz, 20.0, 250.0),
+            (20.0, 5_000.0),
+            "ring takes a carrier from 20 to 5000 Hz",
+        ),
+        unit(
+            "fshift",
+            InsertType::FreqShift,
+            0,
+            |hz| {
+                let d = hz.signum() * (hz.abs() + 1.0).log2() / 12.0;
+                ((d + 1.0) / 2.0).clamp(0.0, 1.0)
+            },
+            (-4_095.0, 4_095.0),
+            "fshift takes a shift from -4095 to 4095 Hz",
+        ),
+    ]
+};
+
+/// The insert unit named `name`, if it is one (#745).
+pub fn insert_unit(name: &str) -> Option<&'static InsertUnit> {
+    INSERT_UNITS.iter().find(|u| u.name == name)
+}
+
+/// The curve from a value in real units to the knob it turns, for a method
+/// written with the name of one (#660, #745).
+pub fn to_knob(name: &str) -> Option<fn(f32) -> f32> {
+    unit(name)
+        .map(|u| u.knob)
+        .or_else(|| insert_unit(name).map(|u| u.curve))
+}
+
+/// The knob parameter of insert slot `slot` (0–2), knob `knob` (0 is A).
+fn insert_knob(slot: usize, knob: usize) -> Option<Param> {
+    Param::from_id(Param::I1Type as u32 + (slot * 6 + 1 + knob) as u32)
+}
+
 /// The effect a send alias or a unit only makes sense on, and the slot's
 /// type parameter: `room` sends to a reverb, `delay` to an echo.
 fn needs_effect(name: &str) -> Option<(Param, ProcType)> {
@@ -1218,6 +1364,9 @@ impl Song {
         // Where `room`, `delay` or a unit needs its slot to hold an effect,
         // checked against the master line at the end (#660).
         let mut effects: Vec<(SongError, Param, ProcType)> = Vec::new();
+        // Strudel's effect names on a clip (#745): where, the mod, its track
+        // and its insert, resolved once the strip lines are read.
+        let mut inserts: Vec<(SongError, usize, usize, &InsertUnit)> = Vec::new();
         // Nodes in the song's signals so far.
         let mut nodes = 0;
         // The Modular setting whose code lines come next.
@@ -2149,6 +2298,54 @@ impl Song {
                                 && !knobbed(&song, track).is_some_and(|st| {
                                     st.knobs.iter().any(|k| k.eq_ignore_ascii_case(name))
                                 });
+                            // Strudel's effect names (#745): a knob of the track's
+                            // insert of that type, unless a knob has the name.
+                            let effect = insert_unit(name).filter(|_| {
+                                !knobbed(&song, track).is_some_and(|st| {
+                                    st.knobs.iter().any(|k| k.eq_ignore_ascii_case(name))
+                                })
+                            });
+                            if let Some(u) = effect {
+                                let (pcol, mcol) = (at + scol - 1, at + ncol - 1);
+                                let parsed = if u.effect == InsertType::Vowel {
+                                    Signal::parse_vowels(sig, &mut nodes)
+                                } else {
+                                    Signal::parse(sig, &mut nodes)
+                                };
+                                let signal = parsed.map_err(|(c, m)| err(pcol + c - 1, m))?;
+                                if signal.per_voice() {
+                                    return Err(err(
+                                        pcol,
+                                        "an insert's knob takes a signal of the song, not of a voice",
+                                    ));
+                                }
+                                if signal
+                                    .plain_numbers()
+                                    .is_some_and(|ns| ns.iter().any(|v| !(u.lo..=u.hi).contains(v)))
+                                {
+                                    return Err(err(pcol, u.why));
+                                }
+                                if song
+                                    .mods
+                                    .iter()
+                                    .any(|m| m.clip == Some(f) && m.alias == Some(u.name))
+                                {
+                                    return Err(err(mcol, "this parameter already has a method"));
+                                }
+                                if song.mods.len() >= MAX_MODS {
+                                    return Err(err(mcol, "a song has at most 32 mods"));
+                                }
+                                song.mods.push(Mod {
+                                    alias: Some(u.name),
+                                    target: track,
+                                    // Until its slot is found; no method writes it.
+                                    param: Param::Model,
+                                    signal,
+                                    clip: Some(f),
+                                });
+                                inserts.push((err(mcol, ""), song.mods.len() - 1, t, u));
+                                continue;
+                            }
                             let parts = if adsr {
                                 adsr_parts(sig).map_err(|(c, m)| err(at + scol + c - 2, m))?
                             } else {
@@ -2929,6 +3126,43 @@ impl Song {
                     },
                     ..at
                 });
+            }
+        }
+        for (at, m, t, u) in inserts {
+            let slot = (0..crate::params::INSERT_SLOTS).find(|k| {
+                Param::from_id(Param::I1Type as u32 + (*k * 6) as u32)
+                    .and_then(|p| song.mix_value(Mix::Track(t), p))
+                    .is_some_and(|v| v as u32 == u.effect as u32)
+            });
+            let Some(param) = slot.and_then(|k| insert_knob(k, u.knob)) else {
+                let track = song.tracks.get(t).map_or("", |tr| tr.name.as_str());
+                let kind = InsertType::ALL
+                    .iter()
+                    .find(|(k, _)| *k == u.effect)
+                    .map_or("", |(_, n)| *n);
+                let an = if kind.starts_with(['A', 'E', 'I', 'O', 'U']) {
+                    "an"
+                } else {
+                    "a"
+                };
+                return Err(SongError {
+                    msg: format!(
+                        "{} needs {an} {kind} insert on its track: strip {track}: I1Type {kind}",
+                        u.name
+                    )
+                    .into(),
+                    ..at
+                });
+            };
+            let clip = song.mods.get(m).and_then(|x| x.clip);
+            if song.mods.iter().any(|o| o.clip == clip && o.param == param) {
+                return Err(SongError {
+                    msg: "this parameter already has a method".into(),
+                    ..at
+                });
+            }
+            if let Some(md) = song.mods.get_mut(m) {
+                md.param = param;
             }
         }
         song.comments = Comments::collect(text, &song);
@@ -4757,7 +4991,7 @@ fn mix_value(param: Param, text: &str) -> Result<f32, &'static str> {
         }
         if text.parse::<f32>().is_err() {
             return Err(
-                "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder or Bitcrush",
+                "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder, Bitcrush, Vowel, Phaser, Tremolo, Ring or FreqShift",
             );
         }
     }

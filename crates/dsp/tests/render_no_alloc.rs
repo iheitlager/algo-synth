@@ -73,7 +73,7 @@ clip roam = bass live .scale(hold minor) .sub(12)
   walk(e2,16,5)
 clip drift = pad live .scale(hold auto)
   markov(1,hold,2)
-clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5))
+clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5)) .tremolo(6) .vowel(\"<a [e o]>\") .fshift(sine.range(-200, 200))
   \"[e4,b4] ~ g#4 ~\"
 clip zap = buzzer
   \"e3 [g3 b3] ~ <e4 d4>\"
@@ -103,6 +103,8 @@ clip cuts = brk .slice(32, irand(32)) .n(\"0 <1 2>\") .velocity(perlin.range(0.3
 clip picks = pads /16 .n(irand(4))
   p0 x.x3x.x.x.x2x.x.
 
+strip bell: I1Type Tremolo, I2Type Vowel, I3Type FreqShift
+strip lead: I1Type Phaser, I2Type Ring
 auto fade = strip2.Level ramp 1 0.2 /2
 auto pan = strip3.Pan -1 0 1 0 /1
 auto sweep = lead.Cutoff ramp 300 4000 /2

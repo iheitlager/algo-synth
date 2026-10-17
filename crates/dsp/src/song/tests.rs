@@ -2320,7 +2320,7 @@ fn mixer_errors_say_where() {
         (
             "strip bass: I1Type Delay",
             20,
-            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder or Bitcrush",
+            "an insert is Off, Overdrive, Distortion, Fuzz, Eq, Comp, Vocoder, Bitcrush, Vowel, Phaser, Tremolo, Ring or FreqShift",
         ),
         (
             "master: P1Type Delay",
@@ -2581,9 +2581,13 @@ fn strudels_parameter_names_are_aliases() {
         assert!(Param::by_name(a).is_none_or(|q| q == p), "{a}");
         assert!(!Pattern::NAMES.contains(&a), "{a}");
     }
+    // Strudel's distort is a Distortion insert's knob (#745), not a parameter.
     let e = Song::parse("track bass synth\nclip a = bass .distort(0.5)\n  \"c2\"\n")
-        .expect_err("no alias");
-    assert_eq!(e.msg, "no parameter has this name");
+        .expect_err("no insert");
+    assert_eq!(
+        e.msg,
+        "distort needs a Distortion insert on its track: strip bass: I1Type Distortion"
+    );
 }
 
 /// #660: the echo and the reverb in real units, Strudel's names and ours,
@@ -3351,6 +3355,58 @@ fn note_envelopes_parse_and_print_back() {
     ] {
         assert_eq!(Song::parse(text).expect_err(text).msg, msg, "{text}");
     }
+}
+
+/// #745: Strudel's effect names on a clip find the track's insert of their
+/// type, wherever the strip line is, and print back as written, vowels too.
+#[test]
+fn effect_names_find_the_tracks_insert() {
+    let text = "track lead synth\nclip talk = lead .vowel(\"<a e i o>\") .phaser(0.5) .fshift(-30)\n  \"c3 eb3\"\nstrip lead: I1Type Vowel, I2Type Phaser, I3Type FreqShift\n";
+    let s = Song::parse(text).expect("parses");
+    let params: Vec<Param> = s.mods.iter().map(|m| m.param).collect();
+    assert_eq!(params, [Param::I1A, Param::I2A, Param::I3A]);
+    let printed = s.print();
+    assert!(
+        printed.contains("clip talk = lead .vowel(\"<a e i o>\") .phaser(0.5) .fshift(-30)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    // Depths are knob B; numbers do for a vowel too.
+    let s = Song::parse(
+        "track l synth\nstrip l: I2Type Tremolo\nclip a = l .tremolo(4) .tremolodepth(0.8) .vowel(perlin.range(0, 4))\n  \"c3\"\n",
+    );
+    assert_eq!(
+        s.expect_err("no vowel insert").msg,
+        "vowel needs a Vowel insert on its track: strip l: I1Type Vowel"
+    );
+    let s = Song::parse("track l synth\nstrip l: I2Type Tremolo, I1Type Vowel\nclip a = l .tremolo(4) .tremolodepth(0.8) .vowel(perlin.range(0, 4))\n  \"c3\"\n").expect("parses");
+    let params: Vec<Param> = s.mods.iter().map(|m| m.param).collect();
+    assert_eq!(params, [Param::I2A, Param::I2B, Param::I1A]);
+    for (bad, msg) in [
+        ("l .crush(17)", "crush takes bits from 1 to 16"),
+        (
+            "l .vowel(\"a 2\")",
+            "a vowel sequence holds a e i o u or ~, not numbers",
+        ),
+        ("l .ring(10)", "ring takes a carrier from 20 to 5000 Hz"),
+        (
+            "l .crush(4) .crush(8)",
+            "this parameter already has a method",
+        ),
+        (
+            "l .shape(0.5)",
+            "shape needs an Overdrive insert on its track: strip l: I1Type Overdrive",
+        ),
+    ] {
+        let text = format!(
+            "track l synth\nstrip l: I1Type Bitcrush, I2Type Vowel, I3Type Ring\nclip a = {bad}\n  \"c3\"\n"
+        );
+        assert_eq!(Song::parse(&text).expect_err(bad).msg, msg, "{bad}");
+    }
+    // A Modular knob named ring keeps its name.
+    let modular = "setting bell = Modular ModularBasic\n  SynthDef(\\bell, { |freq = 220, gate = 1, ring = 1|\n      SinOsc.ar(freq * ring) * EnvGen.kr(Env.adsr(0.01, 0.1, 0.8, 0.1), gate) * 0.4\n  }).add;\ntrack b synth bell\nclip a = b .ring(2)\n  \"c3\"\n";
+    let s = Song::parse(modular).expect("a knob");
+    assert_ne!(s.mods[0].param, Param::I1A);
 }
 
 /// #696: Strudel's arp, the line's own chords by index.

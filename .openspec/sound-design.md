@@ -330,7 +330,11 @@ name shows on its strip, and naming a group in the mixer writes it here.
 
 - Strip and group parameters: `Level Pan Mute Solo Out Key`, sends
   `Send1`–`Send4` (with `Send1Pre`, `Send1On`…), inserts `I1Type I1A`–`I1E`,
-  `I2…`, `I3…`. Insert types: `Off Overdrive Distortion Fuzz Eq Comp Vocoder Bitcrush`.
+  `I2…`, `I3…`. Insert types: `Off Overdrive Distortion Fuzz Eq Comp Vocoder Bitcrush
+  Vowel Phaser Tremolo Ring FreqShift` (#745; their knobs A–E: Vowel vowel,
+  resonance, level, formants, dry; Phaser rate, depth, feedback, centre,
+  spread; Tremolo rate, depth, shape, spread; Ring carrier, depth, level;
+  FreqShift shift, mix, level).
   `Out` is `master`, `group1`–`group8` or `none`; a group goes only to a higher
   group.
 - Master parameters: `MasterGain`, `CompThreshold CompRatio CompAttack

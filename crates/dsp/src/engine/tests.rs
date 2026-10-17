@@ -2362,6 +2362,32 @@ fn a_clip_method_writes_while_its_clip_plays() {
     assert_eq!(e.param_value(0, Param::Send1), 0.5, "and again");
 }
 
+/// #745: Strudel's effect names on a clip turn the track's insert's knob,
+/// from Strudel's units: `.crush(4)` the bits of its Bitcrush, `.vowel` its
+/// Vowel's vowel, one a bar.
+#[test]
+fn strudels_effect_names_turn_the_tracks_inserts() {
+    let mut e = Engine::new(48_000.0);
+    let text = "tempo 120\ntrack lead synth\nclip a = lead .crush(4) .vowel(\"<a u>\") .ring(300)\n  \"c3\"\nstrip lead: I1Type Bitcrush, I2Type Vowel, I3Type Ring\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let strip = e.song_routed(0).expect("routed");
+    e.song_play();
+    let bar = 96_000 / BLOCK;
+    run(&mut e, 2);
+    assert!(
+        (e.param_value(strip, Param::I1A) - 0.2).abs() < 1e-6,
+        "4 bits"
+    );
+    assert_eq!(e.param_value(strip, Param::I2A), 0.0, "a");
+    let ring = e.param_value(strip, Param::I3A);
+    assert!(
+        (20.0 * 250.0_f32.powf(ring) - 300.0).abs() < 0.5,
+        "300 Hz: {ring}"
+    );
+    run(&mut e, bar);
+    assert_eq!(e.param_value(strip, Param::I2A), 1.0, "u in bar 2");
+}
+
 /// #255: a `~` in a method's sequence is a step with no lock: the knob has
 /// its own value there, the locked value only on its step, and its own
 /// again when the song stops.

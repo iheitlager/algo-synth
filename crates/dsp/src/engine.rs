@@ -2983,10 +2983,7 @@ impl Engine {
             let v = match md.signal.eval(t, &mut ctx) {
                 v if v.is_nan() => self.mod_base.get(m).copied().flatten().unwrap_or(found),
                 // A value in seconds or Hz turns the knob that gives it (#660).
-                v => md
-                    .alias
-                    .and_then(crate::song::unit)
-                    .map_or(v, |u| (u.knob)(v)),
+                v => md.alias.and_then(crate::song::to_knob).map_or(v, |k| k(v)),
             };
             self.light_mod(m, t);
             match self.mod_last.get_mut(m) {

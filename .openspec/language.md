@@ -998,8 +998,33 @@ method, printed as written: `lpf` `ctf` (Cutoff), `lpq` (Resonance), `hpf`
 (HpCutoff), `hpq` (HpResonance), `attack` `att`, `decay` `dec`, `sustain`
 `sus`, `release` `rel` (the ADSR), `gain` (Level), `room` (Send2, the reverb),
 `delay` (Send1, the echo). Values are at our scale: a resonance is 0..1, not a
-Q; a `pan` is −1..1, not 0..1. Strudel's `distort` has no one parameter here.
+Q; a `pan` is −1..1, not 0..1.
 The effects return at 1, so `.room(0.4)` alone is heard, as in Strudel (#660).
+
+**Strudel's insert effects** (#745) turn a knob of the track's insert of their
+type, in Strudel's units, so the strip line names the insert and the clip
+plays it:
+
+| method | insert | knob |
+|---|---|---|
+| `.crush(bits)` | Bitcrush | A, 1 to 16 bits |
+| `.shape(x)` `.distort(x)` | Overdrive, Distortion | A, the amount 0 to 1 |
+| `.vowel("<a e i o u>")` | Vowel | A, the vowel (or 0 to 4, `perlin.range(0, 4)`) |
+| `.phaser(hz)` `.phaserdepth(x)` | Phaser | A, 0.05 to 10 Hz; B, 0 to 1 |
+| `.tremolo(hz)` `.tremolodepth(x)` | Tremolo | A, 0.1 to 20 Hz; B, 0 to 1 |
+| `.ring(hz)` | Ring | A, a carrier of 20 to 5000 Hz |
+| `.fshift(hz)` | FreqShift | A, −4095 to 4095 Hz |
+
+The slot is the track's first insert of that type, wherever its strip line
+is; without one it is an error that says which to add. A vowel sequence holds
+vowels or numbers, not both. A Modular knob of the same name keeps it.
+
+```song
+track lead synth
+strip lead: I1Type Vowel, I2Type Phaser
+clip talk = lead .vowel("<a e i o>") .phaser(0.5)
+  "c3 eb3 g3 bb3"
+```
 
 Strudel's effect names are in its units (#660): `delaytime` (the echo's time
 in seconds, P1A), `delayfeedback` (P1B, 0–0.95), `roomsize` (the reverb's

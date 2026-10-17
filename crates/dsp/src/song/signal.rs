@@ -239,6 +239,9 @@ pub struct Signal {
     /// Where each of `values` is written: its column (in chars, from 1) and
     /// length, so the one playing can light (#675). Not part of equality.
     cols: Vec<(u32, u32)>,
+    /// Its sequences were written in vowels, `"<a e i o>"` (#745): the
+    /// values 0 to 4 print back as a e i o u.
+    vowels: bool,
 }
 
 /// Equal when the nodes are and the numbers have the same bits, so two
@@ -317,6 +320,20 @@ impl Signal {
     /// limit holds for all of its signals and each `lag` gets its own slot.
     /// An error's column counts in chars from 1.
     pub fn parse(text: &str, nodes: &mut usize) -> Result<Signal, (usize, &'static str)> {
+        Signal::parse_as(text, nodes, false)
+    }
+
+    /// As `parse`, a sequence's words maybe the vowels a e i o u, 0 to 4,
+    /// as Strudel's `vowel("<a e i o>")` takes them (#745).
+    pub fn parse_vowels(text: &str, nodes: &mut usize) -> Result<Signal, (usize, &'static str)> {
+        Signal::parse_as(text, nodes, true)
+    }
+
+    fn parse_as(
+        text: &str,
+        nodes: &mut usize,
+        vowels: bool,
+    ) -> Result<Signal, (usize, &'static str)> {
         let toks = lex(text, true)?;
         let mut p = Parser {
             toks: &toks,
@@ -328,6 +345,7 @@ impl Signal {
             cols: Vec::new(),
             base: *nodes,
             depth: 0,
+            vowels: vowels.then_some(None),
         };
         p.sum()?;
         if let Some(t) = toks.get(p.at) {
@@ -339,6 +357,7 @@ impl Signal {
             values: p.values,
             kids: p.kids,
             cols: p.cols,
+            vowels: p.vowels == Some(Some(true)),
         })
     }
 
@@ -670,6 +689,9 @@ impl Signal {
             match *kid {
                 Kid::Val(v) => match self.values.get(v) {
                     Some(v) if v.is_nan() => out.push('~'),
+                    Some(v) if self.vowels => {
+                        out.push(VOWELS.get(*v as usize).copied().unwrap_or('a'));
+                    }
                     Some(v) => write!(out, "{v}")?,
                     None => {}
                 },
@@ -946,7 +968,13 @@ struct Parser<'a, 'b> {
     /// Nodes the song had before this signal.
     base: usize,
     depth: usize,
+    /// Whether a sequence may hold vowels (#745), and once one word is read,
+    /// whether they are: a sequence is all vowels or all numbers.
+    vowels: Option<Option<bool>>,
 }
+
+/// The vowels a sequence of `vowel` may hold, 0 to 4.
+const VOWELS: [char; 5] = ['a', 'e', 'i', 'o', 'u'];
 
 type Res<T> = Result<T, (usize, &'static str)>;
 
@@ -1269,9 +1297,33 @@ impl<'a> Parser<'a, '_> {
                         *i += 1;
                     }
                     let word: String = chars.get(start..*i).unwrap_or(&[]).iter().collect();
+                    // A vowel, where they may be (#745): all or none.
+                    let vowel = self.vowels.and_then(|_| {
+                        let mut cs = word.chars();
+                        match (cs.next(), cs.next()) {
+                            (Some(c), None) => VOWELS.iter().position(|v| *v == c),
+                            _ => None,
+                        }
+                    });
+                    if let Some(seen) = self.vowels.as_mut()
+                        && word != "~"
+                    {
+                        match (*seen, vowel.is_some()) {
+                            (None, is) => *seen = Some(is),
+                            (Some(was), is) if was != is => {
+                                return Err((
+                                    col,
+                                    "a vowel sequence holds a e i o u or ~, not numbers",
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
                     // `~`: no value on this step, so a lock lets go (#255).
                     let v = if word == "~" {
                         Some(f32::NAN)
+                    } else if let Some(k) = vowel {
+                        Some(k as f32)
                     } else {
                         word.parse::<f32>().ok().filter(|v| v.is_finite())
                     }

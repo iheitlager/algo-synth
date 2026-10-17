@@ -117,7 +117,7 @@ describe('the library file', () => {
         { kind: 'drums', name: 'x', params: {} },
         { kind: 'synth', name: '', params: {} },
         { kind: 'synth', name: 'Old', model: 'Moog55', params: {} },
-        { kind: 'insert', name: 'Odd', type: 'Phaser', params: {} },
+        { kind: 'insert', name: 'Odd', type: 'Wah', params: {} },
         { kind: 'insert', name: '  Warm   drive ', type: 'Overdrive', params: { A: 0.5, Level: 1, B: 'x' } },
       ],
     }
@@ -129,7 +129,7 @@ describe('the library file', () => {
       'skipped a preset of unknown kind drums',
       'skipped a synth preset without a name',
       'skipped Old: unknown model Moog55',
-      'skipped Odd: unknown insert type Phaser',
+      'skipped Odd: unknown insert type Wah',
       'ignored unknown parameters: B, Level',
     ])
   })

@@ -371,6 +371,7 @@ impl List<'_> {
         self.adsr(model);
         self.pad_n(model);
         self.shapes(model);
+        self.effect_names();
         self.params(Set::Track(model), true);
     }
 
@@ -405,6 +406,14 @@ impl List<'_> {
             if filter || w.starts_with('p') {
                 self.add(Class::Param, w, || d.to_string());
             }
+        }
+    }
+
+    /// Strudel's effect names (#745): a knob of the track's insert of that
+    /// type.
+    fn effect_names(&mut self) {
+        for u in &crate::song::INSERT_UNITS {
+            self.add(Class::Param, u.name, || u.why.to_string());
         }
     }
 

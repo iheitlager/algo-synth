@@ -197,7 +197,7 @@ describe('processor knobs', () => {
 
 describe('insert knobs', () => {
   it('has the knobs of each type and a short name for each', () => {
-    expect(INSERT_SHORT).toHaveLength(8)
+    expect(INSERT_SHORT).toHaveLength(13)
     expect(INSERT_KNOBS[0]).toEqual([])
     for (const t of [1, 2, 3]) expect(INSERT_KNOBS[t]?.map((k) => k.label)).toEqual(['Amount', 'Tone', 'Level'])
     expect(INSERT_KNOBS[4]?.map((k) => k.label)).toEqual(['Low', 'Mid Hz', 'Mid', 'High', 'Mid Q'])
