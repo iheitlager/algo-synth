@@ -191,6 +191,9 @@ impl PadKit {
 /// Seconds a choke takes to silence a pad, and a released pad to fade.
 const CHOKE_SECS: f32 = 0.005;
 const RELEASE_SECS: f32 = 0.02;
+/// A kit's output gain, +2 dB (#760): a kick balanced to −7 dBFS by `make samples`
+/// peaks near −18 dB, as loud as the drum machines, against the synths.
+const MAKEUP: f32 = 1.259;
 
 /// One pad sounding.
 #[derive(Clone, Copy, Default)]
@@ -252,7 +255,7 @@ impl PadVoice {
             pad,
             note,
             cfg,
-            gain: (1.0 - cfg.vel_level + cfg.vel_level * v) * cfg.level * master,
+            gain: (1.0 - cfg.vel_level + cfg.vel_level * v) * cfg.level * master * MAKEUP,
             rate: sample_rate,
             left: angle.cos(),
             right: angle.sin(),
@@ -422,7 +425,7 @@ mod tests {
         let side = std::f32::consts::FRAC_PI_4.cos();
         for (k, y) in l.iter().enumerate() {
             let want = if k < 1200 {
-                sample.frame(2400 + k).0 * side
+                sample.frame(2400 + k).0 * side * MAKEUP
             } else {
                 0.0
             };
@@ -460,7 +463,7 @@ mod tests {
         };
         let back = play(-1.0);
         for (k, y) in back.iter().take(4800).enumerate() {
-            let want = sample.frame(4799 - k).0 * side;
+            let want = sample.frame(4799 - k).0 * side * MAKEUP;
             assert!((y - want).abs() < 1e-6, "frame {k}: {y} for {want}");
         }
         assert!(

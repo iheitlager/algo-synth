@@ -247,7 +247,7 @@ fn strike(v: &mut PadVoice, note: u8, velocity: f32, p: &MonoParams) {
         .copied()
         .unwrap_or_default();
     v.set_machine(machine);
-    let gain = knobs.gain(velocity, velocity >= ACCENT_VELOCITY, p.drum_accent);
+    let gain = knobs.gain(velocity, velocity >= ACCENT_VELOCITY, p.drum_accent) * machine.makeup();
     v.set_pad(pad);
     v.trigger(&knobs, gain, p.sample_rate());
 }

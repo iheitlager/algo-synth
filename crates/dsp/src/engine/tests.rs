@@ -7915,3 +7915,30 @@ fn a_maps_sound_on_a_pad_folds_back_by_name() {
         "{text}"
     );
 }
+
+/// #760: each drum machine's plain kick is as loud as a sample kit's, its
+/// loudest 50 ms at −15 dB give or take 1, so the drums stand out.
+#[test]
+fn drum_machine_kicks_peak_near_minus_18_db() {
+    for kit in ["Tr808 Kit808", "Tr909 Kit909"] {
+        let text =
+            format!("tempo 120\ntrack k drums {kit}\nclip a = k /16\n  bd x...x...x...x...\n");
+        // At the app's master gain, not the full scale `left` plays at.
+        let mut e = Engine::new(48_000.0);
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        e.song_play();
+        let mut out = Vec::new();
+        for _ in 0..96_000 / BLOCK {
+            e.render(BLOCK);
+            out.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        let win = 2_400;
+        let loudest = out
+            .windows(win)
+            .step_by(48)
+            .map(|w| w.iter().map(|s| s * s).sum::<f32>() / win as f32)
+            .fold(0.0, f32::max);
+        let db = 10.0 * loudest.log10();
+        assert!((db + 18.0).abs() <= 1.0, "{kit}: {db:.1} dB");
+    }
+}
