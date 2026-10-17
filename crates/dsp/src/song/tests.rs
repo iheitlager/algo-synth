@@ -3199,6 +3199,24 @@ fn rot_and_mirror_play_through_a_scale() {
     assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
 }
 
+/// #741: echoWith, stutWith and plyWith on a clip, printed back as written.
+#[test]
+fn echo_with_and_ply_with_on_a_clip() {
+    let text = "track lead synth\nclip canon = lead .scale(c3 minor) .echoWith(3, 1/8, add(2))\n  \"0 2 4 ~\"\nclip rise = lead .plyWith(3, add(12))\n  \"c3 ~ eb3 ~\"\nclip t = lead .stutWith(2, 0.25, rev)\n  \"c3 d3\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").events.len(), 9);
+    assert_eq!(s.clips[1].notes.as_ref().expect("notes").events.len(), 6);
+    let printed = s.print();
+    for line in [
+        "clip canon = lead .scale(c3 minor) .echoWith(3, 1/8, add(2))",
+        "clip rise = lead .plyWith(3, add(12))",
+        "clip t = lead .stutWith(2, 0.25, rev)",
+    ] {
+        assert!(printed.contains(line), "{printed}");
+    }
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+}
+
 /// #696: Strudel's arp, the line's own chords by index.
 #[test]
 fn arp_plays_the_lines_chords_by_index() {

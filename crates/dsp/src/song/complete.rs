@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 44] = [
+const METHODS: [(&str, &str); 47] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -136,6 +136,9 @@ const METHODS: [(&str, &str); 44] = [
     ("clip", "each note's length times x"),
     ("rot", "each onset the notes of the one n on"),
     ("mirror", "each pitch turned round an axis"),
+    ("echoWith", "n layers, each later and changed again"),
+    ("stutWith", "n layers, each later and changed again (Tidal)"),
+    ("plyWith", "each note n times, each repeat changed again"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).

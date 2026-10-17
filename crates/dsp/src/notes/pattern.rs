@@ -154,6 +154,24 @@ pub enum Pattern {
     /// `mirror(axis)`: each pitch mirrored round the axis, melodic
     /// inversion (#742).
     Mirror(Axis),
+    /// `echoWith(n, time, m)`, Strudel's, or `stutWith` (true), Tidal's:
+    /// n layers, the k-th `time` × k later through m k times (#741); the
+    /// time in ticks and as written.
+    EchoWith(EchoWith),
+    /// `plyWith(n, m)`: each note n times in its length, the k-th repeat
+    /// through m k times (#741).
+    PlyWith(u32, Box<Pattern>),
+}
+
+/// The layers of `echoWith` and `stutWith` (#741).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EchoWith {
+    pub count: u32,
+    pub ticks: u32,
+    pub time: String,
+    pub method: Box<Pattern>,
+    /// Written as Tidal's `stutWith`.
+    pub stut: bool,
 }
 
 /// What `mirror` turns the line round (#742).
@@ -639,7 +657,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 44] = [
+    pub const NAMES: [&'static str; 47] = [
         "fast",
         "slow",
         "rev",
@@ -684,6 +702,9 @@ impl Pattern {
         "clip",
         "rot",
         "mirror",
+        "echoWith",
+        "stutWith",
+        "plyWith",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -897,6 +918,29 @@ impl Pattern {
                     .map(|x| Pattern::Clip(Some(x)))
                     .ok_or(crate::usage::CLIP),
             },
+            "echoWith" | "stutWith" => {
+                let stut = name == "stutWith";
+                let [n, time, m] = args.as_slice() else {
+                    return Err(if stut {
+                        crate::usage::STUT_WITH
+                    } else {
+                        crate::usage::ECHO_WITH
+                    });
+                };
+                Ok(Pattern::EchoWith(EchoWith {
+                    count: whole(n)?,
+                    ticks: ticks(time)?,
+                    time: time.trim().to_string(),
+                    method: Box::new(nested(m, srcs)?),
+                    stut,
+                }))
+            }
+            "plyWith" => {
+                let [n, m] = args.as_slice() else {
+                    return Err(crate::usage::PLY_WITH);
+                };
+                Ok(Pattern::PlyWith(whole(n)?, Box::new(nested(m, srcs)?)))
+            }
             "rot" => one()?
                 .trim()
                 .parse::<i32>()
@@ -1190,6 +1234,11 @@ impl Pattern {
             Pattern::Velocity(None) => "velocity(~)".to_string(),
             Pattern::Velocity(Some(v)) => format!("velocity({v})"),
             Pattern::Rot(n) => format!("rot({n})"),
+            Pattern::EchoWith(e) => {
+                let name = if e.stut { "stutWith" } else { "echoWith" };
+                format!("{name}({}, {}, {})", e.count, e.time, bare(&e.method))
+            }
+            Pattern::PlyWith(n, m) => format!("plyWith({n}, {})", bare(m)),
             Pattern::Mirror(Axis::First) => "mirror()".to_string(),
             Pattern::Mirror(Axis::Degree(d)) => format!("mirror({d})"),
             Pattern::Mirror(Axis::Note(n)) => format!("mirror({})", super::note_name(*n)),
@@ -1235,6 +1284,8 @@ impl Pattern {
             Pattern::Velocity(v) => velocity(line, *v),
             Pattern::Clip(x) => clip(line, *x),
             Pattern::Rot(n) => rot(line, *n),
+            Pattern::EchoWith(e) => echo_with(line, e)?,
+            Pattern::PlyWith(n, m) => ply_with(line, *n, m)?,
             Pattern::Mirror(axis) => mirror(line, *axis)?,
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Mul(m) => m.apply(line)?,
@@ -1411,7 +1462,11 @@ impl Pattern {
     /// drum clip, whose lanes hold neither, can't take it (#653)?
     pub fn moves_pitch(&self) -> bool {
         match self {
-            Pattern::Every(_, m) | Pattern::Off(_, m) | Pattern::Sometimes(_, m) => m.moves_pitch(),
+            Pattern::Every(_, m)
+            | Pattern::Off(_, m)
+            | Pattern::Sometimes(_, m)
+            | Pattern::PlyWith(_, m) => m.moves_pitch(),
+            Pattern::EchoWith(e) => e.method.moves_pitch(),
             // A lane holds a hit, an accent or a ghost, not gain^k (#719).
             Pattern::Stut(_) => true,
             Pattern::Spread(ms) => ms.iter().flatten().any(Pattern::moves_pitch),
@@ -1730,6 +1785,67 @@ fn velocity(line: &Line, v: Option<f32>) -> Line {
         }
     }
     out
+}
+
+/// The line in `e.count` layers, layer k through `e.method` k times and
+/// `e.ticks` × k later, round its length, the layers round together (#741).
+fn echo_with(line: &Line, e: &EchoWith) -> Result<Line, &'static str> {
+    let mut layers = vec![line.clone()];
+    let mut layer = line.clone();
+    for k in 1..e.count {
+        layer = e.method.apply(&layer)?;
+        let mut copy = layer.clone();
+        let len = copy.len().max(1);
+        for ev in &mut copy.events {
+            ev.start = (ev.start + k * e.ticks) % len;
+        }
+        layers.push(copy);
+    }
+    together(&layers)
+}
+
+/// Each note `n` times in its own length, as `ply`, repeat k through `m` k
+/// times (#741).
+fn ply_with(line: &Line, n: u32, m: &Pattern) -> Result<Line, &'static str> {
+    check(line.bars, line.events.len() * n as usize)?;
+    let mut layers = Vec::new();
+    for k in 0..n {
+        let mut layer = Line {
+            events: line
+                .events
+                .iter()
+                .map(|e| Event {
+                    start: e.start + div_round(k * e.len, n),
+                    len: div_round(e.len, n).max(1),
+                    ..*e
+                })
+                .collect(),
+            bars: line.bars,
+        };
+        for _ in 0..k {
+            layer = m.apply(&layer)?;
+        }
+        layers.push(layer);
+    }
+    together(&layers)
+}
+
+/// Lines played together, each repeated until they all come round.
+fn together(layers: &[Line]) -> Result<Line, &'static str> {
+    let bars = layers.iter().fold(1, |b, l| lcm(b, l.bars.max(1)));
+    let events: usize = layers
+        .iter()
+        .map(|l| l.events.len() * (bars / l.bars.max(1)) as usize)
+        .sum();
+    check(bars, events)?;
+    let mut out = Line {
+        events: Vec::with_capacity(events),
+        bars,
+    };
+    for l in layers {
+        out.events.extend(l.repeat(bars).events);
+    }
+    Ok(out)
 }
 
 /// Furthest `rot` turns.
@@ -3771,5 +3887,117 @@ mod tests {
         ] {
             assert_eq!(Pattern::parse("mirror", args).expect(args).print(), printed);
         }
+    }
+
+    /// #741: echoWith and plyWith, each copy through the method once more.
+    #[test]
+    fn echo_with_and_ply_with_change_each_copy_again() {
+        let degrees = Line {
+            events: vec![deg(0, 0), deg(12, 2), deg(24, 4)],
+            bars: 1,
+        };
+        let shape = |l: &Line| {
+            let mut v: Vec<(u32, i32)> = l
+                .events
+                .iter()
+                .map(|e| (e.start, i32::from(e.note) - i32::from(DEGREE_ZERO)))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        let canon = run("echoWith(3, 1/8, add(2))", &degrees);
+        assert_eq!(
+            shape(&canon),
+            [
+                (0, 0),
+                (6, 2),
+                (12, 2),
+                (12, 4),
+                (18, 4),
+                (24, 4),
+                (24, 6),
+                (30, 6),
+                (36, 8)
+            ]
+        );
+        // stutWith is Tidal's spelling, in the same order; a copy past the
+        // line's end comes round to its start.
+        let round = run("stutWith(2, 3/4, add(12))", &four());
+        assert!(
+            round.events.iter().any(|e| e.start == 0 && e.note == 74),
+            "{:?}",
+            starts(&round)
+        );
+        assert_eq!(
+            run("echoWith(1, 1/8, add(2))", &four()),
+            four(),
+            "one layer is the line"
+        );
+        // A method of time on each layer: the layers round together.
+        assert_eq!(run("echoWith(2, 1/4, slow(2))", &four()).bars, 2);
+        let rise = run(
+            "plyWith(3, add(12))",
+            &Line {
+                events: vec![ev(0, 12, 48)],
+                bars: 1,
+            },
+        );
+        assert_eq!(starts(&rise), [(0, 48), (4, 60), (8, 72)]);
+        assert!(rise.events.iter().all(|e| e.len == 4));
+        let soft = run("plyWith(2, velocity(0.5))", &four());
+        assert_eq!(soft.events.iter().filter(|e| e.vel == 64).count(), 4);
+        // Too many layers is the 512-note limit.
+        let many = run("ply(16)", &run("ply(8)", &four()));
+        assert_eq!(
+            Pattern::parse("echoWith", "2, 1/8, add(1)")
+                .expect("parses")
+                .apply(&many),
+            Err("the pattern makes more than 512 notes")
+        );
+        for (name, args, printed) in [
+            ("echoWith", "3,1/8, add(2)", "echoWith(3, 1/8, add(2))"),
+            ("stutWith", " 2 , 0.25 , rev ", "stutWith(2, 0.25, rev)"),
+            ("plyWith", "3,add(12)", "plyWith(3, add(12))"),
+            (
+                "every",
+                "2, plyWith(2, add(7))",
+                "every(2, plyWith(2, add(7)))",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args).expect(args).print(), printed);
+        }
+        for (name, args, msg) in [
+            ("echoWith", "3, 1/8", crate::usage::ECHO_WITH),
+            ("stutWith", "3", crate::usage::STUT_WITH),
+            ("plyWith", "3", crate::usage::PLY_WITH),
+            (
+                "echoWith",
+                "17, 1/8, rev",
+                "this takes a whole number from 1 to 16",
+            ),
+            (
+                "echoWith",
+                "2, 1, rev",
+                "a time is between 0 and 1 bar, at least a tick",
+            ),
+            (
+                "plyWith",
+                "2, cutoff(3)",
+                "a pattern method goes here, e.g. rev or fast(2)",
+            ),
+        ] {
+            assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
+        }
+        assert!(
+            Pattern::parse("echoWith", "2, 1/8, add(2)")
+                .expect("p")
+                .moves_pitch()
+        );
+        assert!(
+            !Pattern::parse("echoWith", "2, 1/8, rev")
+                .expect("p")
+                .moves_pitch(),
+            "a drum clip's hits can echo"
+        );
     }
 }
