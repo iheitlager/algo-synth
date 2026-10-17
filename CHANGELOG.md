@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-17
+
+### Added
+
+- **Signals write notes, and `rib`:** a note line may be a signal, `irand(10).sub(7).seg(16)` or `perlin.range(0, 7).segment(8)`, read into degrees at load through the clip's scale or `.chord`; `.rib(offset, cycles)` (or `.ribbon`) loops a stretch of any line; signals take Strudel's `.seg` and `.add` `.sub` `.mul` `.div` (#620).
+- **`.scale(<clip> auto)`:** each chord of the clip picks its own scale from its quality, dorian over `m7`, mixolydian over `7`, locrian over `m7b5` and so on; a chord it can't name takes the song's mode (#622).
+- **Prog colours:** `prog(8,7,borrow secondary)` borrows chords from the parallel key (bVI, bVII, bIII, iv in major) and puts a secondary dominant before a chord, each seeded, never on the first or last chord; `prog(8,7)` plays as before (#623).
+- **Markov over chords:** `markov` on a clip of chords learns and writes whole chords, so it makes a new progression from the clip's own chords in its rhythm; a clip of single notes plays as before (#624).
+- **Chord recognition:** the engine names the chords a clip plays, at each change, as a symbol (`a:m7/g`) and, with a `scale` line, the roman numeral the parser reads (`i7`, `bVII`); short melody notes off the strong beats leave a chord's name alone. The Assistant gets each clip's chords with the song, and the C ABI hands them out (`clip_chords`) (#634).
+- **`.arp("0 3 <2 0> [1 3]")`:** Strudel's arp, a clip's own chords played by index in mini-notation, wrapping round the chord, each note lighting its chord (#696).
+- **`voicing(lefthand)`:** Strudel's rootless left-hand voicings for m7, 7, maj7, m7b5, dim7, m6 and their kin, within F3–A4 or under an anchor, the top note moving least from chord to chord (#698).
+- **Between the keys:** `.add(0.5)`, `.sub(0.25)` and `.add([0,0.1])` move notes by a fraction of a semitone, to the cent, on every pitched model (#699).
+- **`.add(<signal>)`:** semitones from a signal read as each note starts, `.add(perlin.range(0, 0.5))`, Strudel's pitch warble (#699).
+- **Strudel's chances:** `.often(m)`, `.rarely(m)`, `.almostNever(m)`, `.almostAlways(m)` and `.sometimesBy(p, m)` beside `.sometimes(m)`, seeded, a moment a rarer chance takes taken by a likelier one too (#700).
+- **`<a b>/n`:** an alternation holds each option n bars, in a note line and in a value a bar, `.add("<0 12>/16")` (#700).
+- **`.jux(m)`:** the line on the left and a copy with method m on the right, on one track, as Strudel's `.jux(rev)`: notes carry a pan, and a synth goes stereo while one sounds, keeping its chorus (#701, ADR-0039).
+- **Ratios in `.fast` and `.slow`:** `.fast(3/4)`, `.slow(1.5)`, each side 1 to 16, the line repeated until it fills whole bars, as in Strudel (#702).
+- **Rain and Bells, an example sound:** physical models in the Modular, with no samples. Rain from bubbles that chirp as they ring, at random gaps, over a patter and a wash. A cathedral bell of beating partial pairs with a minor-third tierce. Wind chimes struck by gusts. A vector bell and a vector pad whose joystick moves over each note and through a chord progression (#704).
+- **Bounce to WAV:** the engine renders the song offline into a hi-fi stereo WAV, faster than realtime and the same bytes every run (#705). 16-bit (TPDF-dithered), 24-bit or 32-bit float at any rate up to 192 kHz. The song plays its arrangement and then a tail that rings out. A song with a `loop` plays to the loop's end and marks the loop in a `smpl` chunk; one without an arrangement plays five minutes. It runs as C ABI exports for the app and as a CLI: `cargo run --release -p algo-dsp --example bounce -- in.song out.wav --rate 96000 --bits 24`.
+- **Export WAV in the app:** a picker in the transport bar bounces the song as it is now (48 or 96 kHz at 24-bit, 48 kHz float, or 44.1 kHz/16-bit for CD) in a worker of its own, faster than it plays, then downloads `<song>.wav` (#705). Samples, zones, pads and user tables go with it; it shows its progress and can be cancelled.
+- **`.chop(n)` and `.slice(n, "…")`, Strudel's breakbeat cuts:** a note on a sampler or pad sampler plays a part of its sample. `"c2" .chop(16)` cuts pad 0's break into sixteen parts across the note; `.slice(8, "<0 1 2 3 4*2 5 6 [6 7]>*2")` plays part k for each index. A part stops at its end, and a pad's choke group cuts the one before, as Strudel's `.cut(1)` (ADR-0039 amended, #716).
+- **`.fit()` and `.splice(n, "…")`, a sample fitted to its note:** a note's part of its sample plays over the note's length at the tempo it starts at, so Strudel's `s("amen/4").fit().chop(16)` is `"c2" .slow(4) .fit() .chop(16)` and keeps time at any tempo; `.splice` is `.slice` with each part fitted to its step (ADR-0039 amended, #717).
+- **`.speed`, `.accelerate` and `.coarse` on the samplers, and `mul(speed(…))`:** a note's speed multiplies its sample's rate, below 0 it plays backwards, so Strudel's `.sometimesBy(.25, mul(speed("-1")))` reverses a quarter of a chopped break; `.accelerate(a)` sweeps the speed over the note and `.coarse(n)` holds each value n samples, as Tidal's; each takes one a step: `speed("1 2 -1")` (ADR-0039 amended, #718).
+- **`.stut(n, gain, time)`, `.echo(n, time, gain)` and `.spread(m1, m2, …)`, Tidal's cut-up tools:** stut makes n softer copies of each note a time apart (echo is Strudel's order); spread plays each bar through the next of its methods, `id` the bar as it is, so Tidal's `spread ($) [id, rev, chop 16, stut 4 0.25 0.05]` is `.spread(id, rev, chop(16), stut(4, 0.25, 0.05))` (#719).
+- **A breaks kit and `breaks.song`:** `make samples` fetches eight classic breaks from clean-breaks (the Amen on pad 0, all in one choke group, as Strudel's `.cut(1)`), for personal use only: they have no licence. `examples/songs/breaks.song` plays Strudel's three breakbeat recipes (chop, slice, splice) and a Tidal cut-up with a gong and a mandolin. `.fit()` now sets its rate where it is written, so a `.ply` after it stutters a part as Strudel's does, and `.chop` cuts a note shorter than its parts into one a tick (#720).
+- **Casio VL-1:** the `VlTone` model in the Chips family, its 8-digit ADSR code (waveform, attack, decay, sustain level, sustain time, release, vibrato, tremolo) as parameters, ten tones, an octave switch and presets `VlPiano`, `VlFantasy`, `VlViolin`, `VlFlute`, `VlGuitar` (#723).
+- **VL-1 drums:** `VlKit` plays the rhythm unit's Po, Pi and Sha from a drums track's lanes (#723).
+- **VL-Tone song:** the VL-1's ten rhythms, March to Beguine, one after the other with a tone over each (#723).
+- **Samples from the web, by name, as Strudel's `samples('github:…')`:** a track names a Strudel sample map, `samples brk github:yaxu/clean-breaks` or an https URL to its `.json`, and its pad lines take the map's sounds by name, `pad brk 1 = amen` or `hungup:1`. The app fetches the map once and only the sounds the pads name; a map or sound it can't have is an error at its line. `breaks-online.song` plays Strudel's slice recipe line for line from clean-breaks (ADR-0013 amended, #728).
+- **A random cut or pad per hit:** `.slice(32, irand(32))` plays a new part of the sample on each hit and `.n(irand(4))` a new pad of a Pad Sampler, read as each hit is pressed, as Tidal's `n (irand n)`; a quoted `.n("0 3 <1 2>")` takes pads in turn (#730).
+- **Number conversions on a signal:** in a Modular SynthDef, `cpsmidi`, `ratiomidi`, `ampdb`, `dbamp`, `reciprocal`, `floor` and `ceil` work on a signal such as `freq` as they did on a number, so SuperDirt's `supermandolin` keeps its key-tracked pluck, `0.1 * (freq.cpsmidi / 69)`, and `tidal-cutup.song` plays it, with its gong's `clip`s back (#731).
+- **`tidal-cutup.song`:** a TidalCycles patch whole, at its own 90 bpm: the Amen cut in 32 through spread's six methods, then NES, VL-1 and 808 kits standing in for Dirt-Samples' `v`, `casio` and `ulgab`, one a half bar as `cat` takes them, and SuperDirt's `supergong` and `supermandolin` ported to the Modular, climbing for three cycles of eight as `whenmod 8 3` keeps them (#732).
+- **`.beat(steps, div)`, Strudel's hits on given steps:** a line played on the steps of a bar cut into div, so Switch Angel's `s("supersaw").beat(2,32).slow(2)` is `.beat(2, 32) .slow(2)` over `"c2"`; `beat("0,7,10", 16)` takes a list (#738).
+
+### Changed
+
+- **Random signals are Strudel's:** `rand`, `irand`, `rand2`, `brand` and `perlin` give Strudel's own values, so a Strudel line with its `rib` plays the same notes here; songs using them take new random values, still the same every run (#620, ADR-0041).
+- **Sleng Teng in two phases:** the riddim opens on remade Casio MT-40 drums (a short, boxy Tr808 setting), then plays on a remade Boss DR-550 (a punchier Tr909 setting with clap and rim shots), as dancehall went digital (#722).
+
+### Fixed
+
+- **The live arp after a stop:** keys held with the arp on while the song stopped and played from the top made the arp's pattern index underflow. That panicked in debug builds and picked a wrong note in release; the pattern now starts over (#705).
+- **`Mix` of stereo pairs stays stereo:** in Modular code, `Mix` adds arrays channel by channel, as SuperCollider's `sum`, so `Mix.fill(n, { |k| Pan2.ar(…) })` keeps its spread instead of coming out mono (#709).
+- **`<a b>*n` as in Strudel:** each repeat of an alternation takes the next turn, so `"<0 1>*2"` plays `0 1` every bar and Strudel's `n("<0 2 1 3 2>*8")` can be written as it is, without `.fast(8)` (#721).
+
 ## [0.46.0] - 2026-10-16
 
 ### Added
