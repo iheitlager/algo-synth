@@ -105,16 +105,19 @@ pub enum Item {
     /// `< ... >`: one option per bar, or per `n` bars for `<…>/n` (#700).
     Alt(Vec<Slot>, u32),
     /// `{ ... }%n`: the words in turn at n a share, on from where the bar
-    /// before stopped, as Strudel's polymeter (#625); `%n` as written, or
-    /// `None` for as many a share as it has words. Its slot's repeats hold
-    /// the n: it plays as `<…>*n`.
-    Poly(Vec<Slot>, Option<u32>),
+    /// before stopped, as Strudel's polymeter (#625); `%n` as written, none
+    /// for as many a share as it has words, or a stack, `%[5, 7]`, a run at
+    /// each at once, as Tidal's (#765). Its slot's repeats hold the first n:
+    /// it plays as `<…>*n`.
+    Poly(Vec<Slot>, Vec<u32>),
     /// `[a | b c]`: one option at random each bar, seeded as `?` is
     /// (#614); an option may be a sequence. Each with its weight, `%n`
     /// on the option, 1 without (#616).
     Choice(Vec<(Vec<Slot>, u32)>),
     /// `0 .. 12`: every degree from the first to the last, sharing the slot.
-    Range(i32, i32),
+    /// Either end may be a stack, `-12 .. [0, 5]`: a run for each pair, all
+    /// over the slot at once, as Tidal's (#765).
+    Range(Vec<i32>, Vec<i32>),
 }
 
 /// A chord written by name and the notes it names in the song's key.
@@ -839,7 +842,9 @@ impl Cursor<'_> {
             }
             match self.peek() {
                 Some(',') => {
+                    // `[0, 5]`, as Tidal spaces a stack (#765).
                     self.i += 1;
+                    self.skip_ws();
                     out.push(self.pitch()?);
                 }
                 Some(']') => {
@@ -960,7 +965,7 @@ impl Cursor<'_> {
                 }
                 _ if self.at_range() => {
                     let at = self.col();
-                    let from = out.pop().and_then(|s| bare_degree(&s));
+                    let from = out.pop().and_then(|s| bare_degrees(&s));
                     let Some(from) = from else {
                         return err(at, "a range runs from one degree to another: 0 .. 12");
                     };
@@ -970,7 +975,7 @@ impl Cursor<'_> {
                     if end.orn.is_some() {
                         return err(at, "a grace goes on a note or a degree");
                     }
-                    let Some(to) = bare_degree(&Slot {
+                    let Some(to) = bare_degrees(&Slot {
                         times: 1,
                         weight: 1,
                         euclid: None,
@@ -981,7 +986,7 @@ impl Cursor<'_> {
                     }) else {
                         return err(at, "a range runs from one degree to another: 0 .. 12");
                     };
-                    self.count_range(from, to, at)?;
+                    self.count_range(&from, &to, at)?;
                     out.push(Slot {
                         item: Item::Range(from, to),
                         ..end
@@ -998,13 +1003,20 @@ impl Cursor<'_> {
             && self.c.get(self.i + 2).is_none_or(|c| c.is_whitespace())
     }
 
-    /// A range of `from` to `to` counts a word for each of its degrees.
-    fn count_range(&mut self, from: i32, to: i32, at: usize) -> Result<(), NoteError> {
-        for _ in 0..from.abs_diff(to) {
-            self.count_item()?;
-        }
-        if from.abs() > MAX_DEGREE || to.abs() > MAX_DEGREE {
-            return err(at, "a degree is -24 to 24");
+    /// A range of `from` to `to` counts a word for each of its degrees, and
+    /// for each run past the first when an end is a stack.
+    fn count_range(&mut self, from: &[i32], to: &[i32], at: usize) -> Result<(), NoteError> {
+        for (k, (a, b)) in from
+            .iter()
+            .flat_map(|a| to.iter().map(move |b| (a, b)))
+            .enumerate()
+        {
+            for _ in 0..a.abs_diff(*b) + u32::from(k > 0) {
+                self.count_item()?;
+            }
+            if a.abs() > MAX_DEGREE || b.abs() > MAX_DEGREE {
+                return err(at, "a degree is -24 to 24");
+            }
         }
         Ok(())
     }
@@ -1053,16 +1065,42 @@ impl Cursor<'_> {
                 }
                 self.i += 1;
                 let words = self.slots(Some('}'), depth + 1)?;
-                let steps = if self.peek() == Some('%') {
+                let mut steps = Vec::new();
+                if self.peek() == Some('%') {
                     let here = self.col();
                     self.i += 1;
-                    match self.number()? {
-                        n @ 1..=MAX_FACTOR => Some(n),
-                        _ => return err(here, "a { } plays 1 to 16 steps a share: {a b c}%4"),
+                    // `%[5, 7]`: a run at each, at once (#765).
+                    let stack = self.peek() == Some('[');
+                    if stack {
+                        self.i += 1;
                     }
-                } else {
-                    None
-                };
+                    loop {
+                        if stack {
+                            self.skip_ws();
+                        }
+                        match self.number()? {
+                            n @ 1..=MAX_FACTOR => steps.push(n),
+                            _ => return err(here, "a { } plays 1 to 16 steps a share: {a b c}%4"),
+                        }
+                        if !stack {
+                            break;
+                        }
+                        self.skip_ws();
+                        match self.peek() {
+                            Some(',') => self.i += 1,
+                            Some(']') => {
+                                self.i += 1;
+                                break;
+                            }
+                            _ => {
+                                return err(
+                                    self.col(),
+                                    "a stack of steps is numbers with commas, then ]: %[5, 7]",
+                                );
+                            }
+                        }
+                    }
+                }
                 Item::Poly(words, steps)
             }
             Some(']' | '>' | '}') => return err(at, "this bracket closes nothing"),
@@ -1083,12 +1121,23 @@ impl Cursor<'_> {
                             .then(|| w.iter().collect::<String>().parse::<i32>().ok())
                             .flatten()
                     };
-                    let (Some(from), Some(to)) = (num(a), num(b)) else {
+                    let from = num(a);
+                    // `-12..[0, 5]`: a stack for its end, read as a chord (#765).
+                    let to = if b.first() == Some(&'[') {
+                        self.i += k + 3;
+                        let ps = self.chord()?;
+                        ps.iter()
+                            .all(|p| p.degree && !p.accent)
+                            .then(|| ps.iter().map(degree_of).collect())
+                    } else {
+                        self.i = end;
+                        num(b).map(|t| vec![t])
+                    };
+                    let (Some(from), Some(to)) = (from, to) else {
                         return err(at, "a range runs from one degree to another: 0 .. 12");
                     };
-                    self.count_range(from, to, at)?;
-                    self.i = end;
-                    Item::Range(from, to)
+                    self.count_range(&[from], &to, at)?;
+                    Item::Range(vec![from], to)
                 } else if chord::is_note(word) || is_degree(word) {
                     Item::Note(self.pitch()?)
                 } else {
@@ -1159,7 +1208,10 @@ impl Cursor<'_> {
         }
         // A polymeter plays as `<…>*n`, n its steps (#625).
         if let Item::Poly(words, steps) = &item {
-            times = steps.unwrap_or_else(|| u32::try_from(words.len()).unwrap_or(1));
+            times = steps
+                .first()
+                .copied()
+                .unwrap_or_else(|| u32::try_from(words.len()).unwrap_or(1));
         }
         Ok(Slot {
             item,
@@ -1568,22 +1620,40 @@ fn pitch_text(p: &Pitch) -> String {
 }
 
 /// The degree a slot is when it is only that: no accent, no suffix.
-fn bare_degree(s: &Slot) -> Option<i32> {
-    match s.item {
-        Item::Note(p)
-            if p.degree
-                && !p.accent
-                && s.times == 1
-                && s.weight == 1
-                && s.euclid.is_none()
-                && s.orn.is_none()
-                && s.cond.is_none()
-                && !s.slide =>
-        {
-            Some(i32::from(p.note) - i32::from(DEGREE_ZERO))
+fn bare_degrees(s: &Slot) -> Option<Vec<i32>> {
+    let ps = match &s.item {
+        Item::Note(p) => std::slice::from_ref(p),
+        // A stack, `[0, 5]`, for a range's end (#765).
+        Item::Chord(ps) => ps.as_slice(),
+        _ => return None,
+    };
+    let plain = s.times == 1
+        && s.weight == 1
+        && s.euclid.is_none()
+        && s.orn.is_none()
+        && s.cond.is_none()
+        && !s.slide;
+    (plain && ps.iter().all(|p| p.degree && !p.accent)).then(|| ps.iter().map(degree_of).collect())
+}
+
+/// The degree a degree's pitch holds.
+fn degree_of(p: &Pitch) -> i32 {
+    i32::from(p.note) - i32::from(DEGREE_ZERO)
+}
+
+/// A range's end: a degree, or a stack of them as a chord prints.
+fn ends_text(ds: &[i32]) -> String {
+    match ds {
+        [d] => d.to_string(),
+        _ => {
+            let inner: Vec<String> = ds.iter().map(i32::to_string).collect();
+            format!("[{}]", inner.join(","))
         }
-        _ => None,
     }
+}
+
+fn range_text(a: &[i32], b: &[i32]) -> String {
+    format!("{} .. {}", ends_text(a), ends_text(b))
 }
 
 /// Is `w` a degree: maybe `-`, digits, maybe `!`?
@@ -1626,10 +1696,17 @@ fn slot_text(s: &Slot) -> String {
         Item::Group(g) => format!("[{}]", slots_text(g)),
         Item::Alt(g, 1) => format!("<{}>", slots_text(g)),
         Item::Alt(g, hold) => format!("<{}>/{hold}", slots_text(g)),
-        Item::Poly(g, None) => format!("{{{}}}", slots_text(g)),
-        Item::Poly(g, Some(n)) => format!("{{{}}}%{n}", slots_text(g)),
+        Item::Poly(g, steps) => match steps.as_slice() {
+            [] => format!("{{{}}}", slots_text(g)),
+            [n] => format!("{{{}}}%{n}", slots_text(g)),
+            ns => format!(
+                "{{{}}}%{}",
+                slots_text(g),
+                ends_text(&ns.iter().map(|&n| n as i32).collect::<Vec<_>>())
+            ),
+        },
         Item::Choice(opts) => format!("[{}]", choice_text(opts)),
-        Item::Range(a, b) => format!("{a} .. {b}"),
+        Item::Range(a, b) => range_text(a, b),
     };
     if let Some(e) = s.euclid {
         out.push_str(e.print().trim_start_matches("euclid"));
@@ -1673,7 +1750,7 @@ fn mini_spans(slots: &[Slot], mut at: usize, out: &mut Vec<(usize, usize)>) {
             Item::Note(p) => out.push((at, pitch_text(p).len())),
             Item::Chord(ps) => out.push((at, chord_text(ps).len())),
             Item::Symbol(sym) => out.push((at, sym.text.len())),
-            Item::Range(a, b) => out.push((at, format!("{a} .. {b}").len())),
+            Item::Range(a, b) => out.push((at, range_text(a, b).len())),
         }
         at += slot_text(s).len();
     }
@@ -1702,6 +1779,24 @@ impl Notes {
             }
         }
         out
+    }
+
+    /// The line taken at the hits of `steps`, each bar (#765): the notes
+    /// sounding at a hit, from where the line puts them exactly, held to the
+    /// next step. A line of notes squeezed finer than a tick, as Tidal's
+    /// `{-12..0}%5`, is taken as Tidal's `#` takes it, where `.struct` on its
+    /// events would read them rounded. Other lines are kept as they are.
+    pub fn sampled(self, steps: &[bool]) -> Result<Notes, &'static str> {
+        let Seq::Mini(slots) = &self.seq else {
+            return Ok(self);
+        };
+        let (mut events, bars, _) = mini(slots, steps)?;
+        events.sort_unstable_by_key(sort_key);
+        Ok(Notes {
+            events,
+            bars,
+            ..self
+        })
     }
 
     /// The canonical text of the line: parsing it gives these notes back.
@@ -1805,6 +1900,8 @@ struct Compiler<'a> {
     /// `*n` repeat `r` of `n`, `turn · n + r`, so `<a b>*2` plays `a b` as
     /// Strudel's `fast` does (#721).
     turn: u64,
+    /// The hits of a bar a note is taken at, exactly, when not empty (#765).
+    grid: &'a [bool],
 }
 
 /// The words of `slots` (notes, chords, names, rests), in the order they print.
@@ -1866,12 +1963,21 @@ impl Compiler<'_> {
                 None => return,
             },
         }
-        let times = u128::from(s.times);
+        // A polymeter of a stack of steps, `%[5, 7]`, a run at each (#765).
+        let runs = match &s.item {
+            Item::Poly(_, ns) if ns.len() > 1 => ns.as_slice(),
+            _ => std::slice::from_ref(&s.times),
+        };
         let turn = self.turn;
-        for r in 0..times {
+        for (r, &n) in runs
+            .iter()
+            .flat_map(|n| (0..u128::from(*n)).map(move |r| (r, n)))
+        {
+            let times = u128::from(n);
             let (start, share) = (at.add(span.scale(r, times)), span.scale(1, times));
+            self.turn = turn;
             if times > 1 {
-                self.turn = turn.wrapping_mul(u64::from(s.times)).wrapping_add(r as u64);
+                self.turn = turn.wrapping_mul(u64::from(n)).wrapping_add(r as u64);
             }
             match s.euclid {
                 None => self.item(&s.item, start, share, bar, s.slide, s.orn),
@@ -1929,17 +2035,19 @@ impl Compiler<'_> {
                 }
             }
             Item::Group(g) => self.slots(g, at, span, bar),
-            Item::Range(a, b) => {
-                let n = u128::from(a.abs_diff(*b)) + 1;
-                let step = if b < a { -1 } else { 1 };
-                for k in 0..n {
-                    let d = a + step * i32::try_from(k).unwrap_or(0);
-                    let p = Pitch {
-                        note: u8::try_from(i32::from(DEGREE_ZERO) + d).unwrap_or(DEGREE_ZERO),
-                        accent: false,
-                        degree: true,
-                    };
-                    self.note(p, at.add(span.scale(k, n)), span.scale(1, n), bar, slide);
+            Item::Range(froms, tos) => {
+                for (a, b) in froms.iter().flat_map(|a| tos.iter().map(move |b| (a, b))) {
+                    let n = u128::from(a.abs_diff(*b)) + 1;
+                    let step = if b < a { -1 } else { 1 };
+                    for k in 0..n {
+                        let d = a + step * i32::try_from(k).unwrap_or(0);
+                        let p = Pitch {
+                            note: u8::try_from(i32::from(DEGREE_ZERO) + d).unwrap_or(DEGREE_ZERO),
+                            accent: false,
+                            degree: true,
+                        };
+                        self.note(p, at.add(span.scale(k, n)), span.scale(1, n), bar, slide);
+                    }
                 }
             }
             Item::Alt(g, hold) => self.turn_of(g, *hold, at, span, bar),
@@ -1970,6 +2078,9 @@ impl Compiler<'_> {
     }
 
     fn note(&mut self, p: Pitch, at: Frac, span: Frac, bar: u32, slide: bool) {
+        if !self.grid.is_empty() {
+            return self.taken(p, at, span, bar);
+        }
         if self.events.len() >= MAX_EVENTS {
             self.full = true;
             return;
@@ -1995,6 +2106,43 @@ impl Compiler<'_> {
             fit: 0,
             play: Play::SAME,
         });
+    }
+
+    /// The note at each hit of the grid it sounds on, held to the next step,
+    /// as `.struct` takes a line, but from its exact place in the bar: a note
+    /// shorter than a tick is taken where it is, not where a tick rounds it.
+    fn taken(&mut self, p: Pitch, at: Frac, span: Frac, bar: u32) {
+        let n = self.grid.len() as u128;
+        let end = at.add(span);
+        let tick =
+            |k: u128| u32::try_from((k * u128::from(TICKS_PER_BAR) + n / 2) / n).unwrap_or(0);
+        for k in (0..n).filter(|&k| self.grid.get(k as usize) == Some(&true)) {
+            // at <= k/n < end
+            if at.n * n > k * at.d || k * end.d >= end.n * n {
+                continue;
+            }
+            if self.events.len() >= MAX_EVENTS {
+                self.full = true;
+                return;
+            }
+            let (start, next) = (tick(k), tick(k + 1));
+            self.events.push(Event {
+                start: bar * TICKS_PER_BAR + start,
+                len: (next - start).max(1),
+                note: p.note,
+                accent: p.accent,
+                vel: 0,
+                word: self.word,
+                degree: p.degree,
+                when: self.when,
+                nudge: 0,
+                cents: 0,
+                pan: 0,
+                region: Region::WHOLE,
+                fit: 0,
+                play: Play::SAME,
+            });
+        }
     }
 }
 
@@ -2275,11 +2423,17 @@ fn period(slots: &[Slot]) -> u32 {
             // Its turns start each bar `steps` on: round in len / gcd bars.
             Item::Poly(g, steps) => {
                 let len = u32::try_from(g.len()).unwrap_or(1).max(1);
-                let n = steps.unwrap_or(len);
-                let g2 = u32::try_from(gcd(u128::from(len), u128::from(n)))
-                    .unwrap_or(1)
-                    .max(1);
-                lcm(len / g2, period(g))
+                let ns = if steps.is_empty() {
+                    std::slice::from_ref(&len)
+                } else {
+                    steps.as_slice()
+                };
+                ns.iter().fold(period(g), |p, &n| {
+                    let g2 = u32::try_from(gcd(u128::from(len), u128::from(n)))
+                        .unwrap_or(1)
+                        .max(1);
+                    lcm(p, len / g2)
+                })
             }
             // A choice is a chance, its pattern round in `CHANCE_BARS`.
             Item::Choice(opts) => opts.iter().fold(CHANCE_BARS, |p, (g, _)| lcm(p, period(g))),
@@ -2305,7 +2459,8 @@ fn classic_ticks(b: &Beat) -> u32 {
 
 /// A mini-notation line's events and bars, and the first word with a hit
 /// between two ticks, which a tick rounds.
-fn mini(slots: &[Slot]) -> Result<(Vec<Event>, u32, Option<u16>), &'static str> {
+/// With a `grid`, only the notes sounding at its hits, taken there (#765).
+fn mini(slots: &[Slot], grid: &[bool]) -> Result<(Vec<Event>, u32, Option<u16>), &'static str> {
     let bars = period(slots);
     if bars > MAX_BARS {
         return Err("this line takes more than 64 bars to repeat");
@@ -2322,6 +2477,7 @@ fn mini(slots: &[Slot]) -> Result<(Vec<Event>, u32, Option<u16>), &'static str> 
         word: 0,
         off: None,
         turn: 0,
+        grid,
     };
     for bar in 0..bars {
         c.rng = Rng::new(mix(bar, 0x5EED));
@@ -2363,7 +2519,7 @@ pub fn parse_beat(
         cols: Vec::new(),
     };
     let slots = cur.slots(None, 0)?;
-    let (mut events, bars, off) = mini(&slots).map_err(|msg| NoteError { col: base, msg })?;
+    let (mut events, bars, off) = mini(&slots, &[]).map_err(|msg| NoteError { col: base, msg })?;
     let col = |w: u16| cur.cols.get(usize::from(w)).copied().unwrap_or(base);
     if let Some(w) = off {
         return err(
@@ -2405,7 +2561,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
             (words.collect(), last / TICKS_PER_BAR + 1)
         }
         Seq::Mini(slots) => {
-            let (events, bars, _) = mini(slots)?;
+            let (events, bars, _) = mini(slots, &[])?;
             (events, bars)
         }
         Seq::Generated(g) => (g.events(g.seed(), scale), g.bars()),
