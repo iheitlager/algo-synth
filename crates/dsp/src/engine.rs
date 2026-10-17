@@ -78,7 +78,10 @@ use crate::song::{
 use crate::table::{TableSet, Tables, UserTables};
 use crate::voice::{Owner, sine_table};
 
-/// Frames per render call; the Web Audio render quantum.
+/// Frames per render call; the Web Audio render quantum. It is also the
+/// control rate: `mod` lines, parameter methods, autos, per-voice values and
+/// a pool's trims are worked out once a block, 2.67 ms at 48 kHz; what moves
+/// faster has a finer rate of its own (ADR-0042).
 pub const BLOCK: usize = 128;
 /// Frames a synced deck may be off its master's bar and stay put: the grid's
 /// own rounding (ADR-0029).

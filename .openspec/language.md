@@ -855,6 +855,14 @@ names. Every model takes its strip's, the arpeggiator's and the voice pool's
 parameters (`level`, `pan`, `send1`, `room`, `arpon`, `polyphony`, `glide`,
 and #21's `detune` and `humanize`).
 
+**Timing** (ADR-0042). A note starts on its exact sample, on the grid of 48
+ticks a bar (a strum, a grace, a clip's own swing and humanize off it). A
+`mod` line, a parameter method and an `auto` are worked out once a render
+block, 128 samples (2.67 ms at 48 kHz): faders, pans and sends glide across
+it, a cutoff is smoothed over 2 ms, and a note's pitch envelope moves every
+32 samples, so none of them steps. A per-note value (`.onNote`, `.velocity`,
+`.penv`, …) is read once, as its note is pressed.
+
 **An instrument's own tuning and timing** (#21), as real machines drift
 apart: `Detune` tunes the whole instrument off by −50 to 50 cents, every
 pitched model through its voices' pitch trim, and `Humanize` presses each

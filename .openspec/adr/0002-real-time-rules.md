@@ -1,6 +1,6 @@
 # 0002: Real-time rules for the render loop
 
-**Status:** Accepted, clarified 2026-10-09 (#227) · **Date:** 2026-09-30
+**Status:** Accepted, clarified 2026-10-09 (#227), the control rate made explicit by [0042](0042-update-rates.md) · **Date:** 2026-09-30
 
 ## Context
 
@@ -23,3 +23,4 @@
 ## Later decisions
 
 - **Clarified (#227):** the rules are about `render`. Load-time buffers grow outside it: `midi_buf`, `sysex_buf`, `sample_buf` and `song_buf` take the length JavaScript asks for, and loading a song, a MIDI file, a SysEx bank or a WAV parses and allocates in that call (ADR-0012, ADR-0013). `render` only reads what the load built.
+- **The control rate (ADR-0042, #754):** "smoothed at control rate" means once a render block, `engine::BLOCK`, 128 samples; ADR-0042 lists every update rate and gives a fast signal one of its own.

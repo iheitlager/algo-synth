@@ -7555,6 +7555,42 @@ fn a_pitch_envelope_bends_each_note_to_its_key() {
     assert!(early > 220.0 * 1.6, "an octave up, coming down: {early}");
 }
 
+/// #754: a fast pitch drop follows its line, not a staircase of blocks.
+/// `.penv(12) .pdecay(0.05)` on an a6 sine: each cycle's pitch, timed by
+/// its zero crossings, stays within 0.2 semitone of the straight drop from
+/// an octave up, where a step a block (0.63 semitone) would not.
+#[test]
+fn a_fast_pitch_drop_has_no_steps() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 60\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, { |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.0005, 0.1, 1, 0.1), gate) * 0.5\n  }).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead .penv(12) .pdecay(0.05)\n  \"a6\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..4_800 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    // Rising zero crossings, to a fraction of a sample.
+    let ups: Vec<f64> = left
+        .windows(2)
+        .enumerate()
+        .filter(|(_, w)| w[0] < 0.0 && w[1] >= 0.0)
+        .map(|(i, w)| i as f64 + f64::from(w[0] / (w[0] - w[1])))
+        .collect();
+    let mut worst = 0.0_f64;
+    for w in ups.windows(2) {
+        let mid = (w[0] + w[1]) / 2.0 / 48_000.0;
+        if !(0.002..0.045).contains(&mid) {
+            continue;
+        }
+        let hz = 48_000.0 / (w[1] - w[0]);
+        let ideal = 1_760.0 * 2f64.powf(1.0 - mid / 0.05);
+        worst = worst.max((12.0 * (hz / ideal).log2()).abs());
+    }
+    assert!(worst < 0.2, "off the line by {worst:.3} semitone");
+}
+
 /// #744: `.lpenv(3)` opens a low cutoff at each note's start and closes it
 /// over the decay, the note brighter early than late.
 #[test]
