@@ -1101,7 +1101,8 @@ impl Engine {
     /// Event `ev` of clip `f` as it is pressed at song tick `j`: the part of
     /// its sample and its pad read from the clip's `.slice(n, <signal>)`
     /// and `.n(<signal>)` there (#730), and its velocity from `.velocity(<signal>)`,
-    /// a grace keeping its own (#621). Nothing allocates.
+    /// and its length from `.clip(<signal>)` (#740), a grace keeping its
+    /// own (#621). Nothing allocates.
     fn pick(&self, f: usize, mut ev: Event, j: u64) -> Event {
         let Some(c) = self.song.clips.get(f) else {
             return ev;
@@ -1119,6 +1120,16 @@ impl Engine {
             let v = s.sample(t);
             if v.is_finite() {
                 ev.vel = crate::notes::pattern::vel_of(v);
+            }
+        }
+        if let Some(s) = c.len_by.as_ref().filter(|_| ev.nudge >= 0) {
+            let v = s.sample(t);
+            let most = c
+                .notes
+                .as_ref()
+                .map_or(TICKS_PER_BAR, |n| n.bars * TICKS_PER_BAR);
+            if v.is_finite() {
+                ev.len = crate::notes::pattern::len_of(ev.len, v, most);
             }
         }
         ev

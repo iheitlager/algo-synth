@@ -145,6 +145,9 @@ pub enum Pattern {
     /// `velocity(x)`: each note's velocity, 0 to 1, as Strudel's (#621);
     /// `None` for a `~`, which keeps the note's own.
     Velocity(Option<f32>),
+    /// `clip(x)`: each note's length times x, more than 0 up to 16, as
+    /// Strudel's legato (#740); `None` for a `~`.
+    Clip(Option<f32>),
 }
 
 /// The copies of `stut` and `echo` (#719).
@@ -619,7 +622,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 41] = [
+    pub const NAMES: [&'static str; 42] = [
         "fast",
         "slow",
         "rev",
@@ -661,6 +664,7 @@ impl Pattern {
         "rib",
         "ribbon",
         "velocity",
+        "clip",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -698,7 +702,7 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse" | "velocity",
+            | "speed" | "accelerate" | "coarse" | "velocity" | "clip",
             [a],
         ) = (name, args.as_slice())
         {
@@ -864,6 +868,15 @@ impl Pattern {
                     .filter(|v| (0.0..=1.0).contains(v))
                     .map(|v| Pattern::Velocity(Some(v)))
                     .ok_or(crate::usage::VELOCITY),
+            },
+            "clip" => match one()?.trim() {
+                "~" => Ok(Pattern::Clip(None)),
+                x => x
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|x| *x > 0.0 && *x <= MAX_CLIP)
+                    .map(|x| Pattern::Clip(Some(x)))
+                    .ok_or(crate::usage::CLIP),
             },
             "iter" => Ok(Pattern::Iter(whole(one()?)?)),
             "shuffle" => Ok(Pattern::Shuffle(whole(one()?)?)),
@@ -1135,6 +1148,8 @@ impl Pattern {
             Pattern::Jux(m) => format!("jux({})", bare(m)),
             Pattern::Velocity(None) => "velocity(~)".to_string(),
             Pattern::Velocity(Some(v)) => format!("velocity({v})"),
+            Pattern::Clip(None) => "clip(~)".to_string(),
+            Pattern::Clip(Some(x)) => format!("clip({x})"),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -1173,6 +1188,7 @@ impl Pattern {
             }),
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
             Pattern::Velocity(v) => velocity(line, *v),
+            Pattern::Clip(x) => clip(line, *x),
             Pattern::Rib(r) => rib(line, r.from, r.bars)?,
             Pattern::Mul(m) => m.apply(line)?,
             Pattern::Stut(s) => stut(line, s)?,
@@ -1367,7 +1383,9 @@ impl Pattern {
             | Pattern::Coarse(_)
             | Pattern::Mul(_)
             // A lane holds a hit, an accent or a ghost, not a velocity (#621).
-            | Pattern::Velocity(_) => true,
+            | Pattern::Velocity(_)
+            // A lane's hit is a step long (#740).
+            | Pattern::Clip(_) => true,
             p => p.pitch_only(),
         }
     }
@@ -1663,6 +1681,28 @@ fn velocity(line: &Line, v: Option<f32>) -> Line {
     }
     out
 }
+
+/// Every note `x` times as long, at least a tick and at most the line, a
+/// grace and a `~` (`None`) keeping their own (#740).
+fn clip(line: &Line, x: Option<f32>) -> Line {
+    let mut out = line.clone();
+    if let Some(x) = x {
+        let most = line.len().max(1);
+        for e in out.events.iter_mut().filter(|e| e.nudge >= 0) {
+            e.len = len_of(e.len, f64::from(x), most);
+        }
+    }
+    out
+}
+
+/// Length `len` times `x` (0 to `MAX_CLIP`), in whole ticks from 1 to `most`.
+pub fn len_of(len: u32, x: f64, most: u32) -> u32 {
+    let ticks = (f64::from(len) * x.clamp(0.0, f64::from(MAX_CLIP))).round();
+    (ticks as u32).clamp(1, most.max(1))
+}
+
+/// The longest `clip` (#740).
+pub const MAX_CLIP: f32 = 16.0;
 
 /// A velocity of 0 to 1 as an event's, 1 to 127.
 pub fn vel_of(v: f64) -> u8 {
@@ -3389,6 +3429,51 @@ mod tests {
         assert!(
             !Pattern::Velocity(Some(1.0)).pitch_only(),
             "not on a live clip"
+        );
+    }
+
+    /// #740: Strudel's clip (its legato), each note's length as a share of
+    /// its own.
+    #[test]
+    fn clip_sets_each_notes_length() {
+        let lens = |l: &Line| l.events.iter().map(|e| e.len).collect::<Vec<_>>();
+        assert_eq!(lens(&run("clip(0.5)", &four())), [6; 4]);
+        assert_eq!(
+            lens(&run("clip(2)", &four())),
+            [24; 4],
+            "overlapping the next"
+        );
+        assert_eq!(lens(&run("clip(\"0.25 ~\")", &four())), [3, 3, 12, 12]);
+        assert_eq!(lens(&run("clip(0.01)", &four())), [1; 4], "at least a tick");
+        assert_eq!(lens(&run("clip(16)", &four())), [48; 4], "at most the line");
+        assert_eq!(
+            lens(&run("clip(\"<1 0.5>\")", &four())),
+            [12, 12, 12, 12, 6, 6, 6, 6]
+        );
+        let mut graced = four();
+        graced.events[0].nudge = -30;
+        assert_eq!(
+            run("clip(2)", &graced).events[0].len,
+            12,
+            "a grace keeps its own"
+        );
+        for bad in ["0", "16.5", "-1", "x"] {
+            assert_eq!(
+                Pattern::parse("clip", bad),
+                Err(crate::usage::CLIP),
+                "{bad}"
+            );
+        }
+        for (args, printed) in [
+            (" 0.5", "clip(0.5)"),
+            ("~", "clip(~)"),
+            ("\"0.3 1\"", "clip(\"0.3 1\")"),
+        ] {
+            assert_eq!(Pattern::parse("clip", args).expect(args).print(), printed);
+        }
+        assert!(
+            Pattern::Clip(Some(1.0)).moves_pitch(),
+            "not on a drum clip's lanes"
         );
     }
 }

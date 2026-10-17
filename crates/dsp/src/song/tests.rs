@@ -225,6 +225,7 @@ fn random_song(r: &mut Rng) -> Song {
                 slice_by: None,
                 pad_by: None,
                 vel_by: None,
+                len_by: None,
             });
             continue;
         }
@@ -257,6 +258,7 @@ fn random_song(r: &mut Rng) -> Song {
             slice_by: None,
             pad_by: None,
             vel_by: None,
+            len_by: None,
         });
     }
     song
@@ -3105,6 +3107,57 @@ fn velocity_takes_values_or_a_signal() {
     let err = Song::parse("track kit drums\nclip a = kit .velocity(sine)\n  bd x...\n")
         .expect_err("drums");
     assert_eq!(err.msg, "a signal on velocity is for a clip of notes");
+}
+
+/// #740: `.clip` takes a value a step, or a signal read as each note is
+/// pressed, and prints back as written; `.legato` stays the synth's switch.
+#[test]
+fn clip_takes_values_or_a_signal() {
+    let text = "track bass synth\nclip a = bass .clip(\"0.25 1\")\n  \"c2 e2\"\nclip b = bass .clip(perlin.range(0.2, 1))\n  \"c2 e2\"\n";
+    let s = Song::parse(text).expect("parses");
+    let lens: Vec<u32> = s.clips[0]
+        .notes
+        .as_ref()
+        .expect("notes")
+        .events
+        .iter()
+        .map(|e| e.len)
+        .collect();
+    assert_eq!(lens, [6, 24]);
+    let sig = s.clips[1].len_by.as_ref().expect("a signal on clip");
+    assert_eq!(sig.to_string(), "perlin.range(0.2, 1)");
+    let printed = s.print();
+    assert!(
+        printed.contains("clip a = bass .clip(\"0.25 1\")"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("clip b = bass .clip(perlin.range(0.2, 1))"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        (
+            "bass .clip(lfo(2))",
+            "clip reads a signal of the bar per note: not env, lfo, a list, lag or onNote",
+        ),
+        (
+            "bass .clip(sine) .clip(saw)",
+            "a clip takes one clip of a signal",
+        ),
+        (
+            "bass live .clip(sine)",
+            "a signal on clip is for a clip of notes",
+        ),
+        ("bass .clip(0)", crate::usage::CLIP),
+    ] {
+        let err =
+            Song::parse(&format!("track bass synth\nclip a = {bad}\n  \"c2\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
+    let s = Song::parse("track bass synth Sh101\nclip a = bass .legato(1)\n  \"c2\"\n")
+        .expect("the switch");
+    assert!(s.clips[0].len_by.is_none() && s.clips[0].pattern.is_empty());
 }
 
 /// #696: Strudel's arp, the line's own chords by index.

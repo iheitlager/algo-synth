@@ -384,6 +384,9 @@ pub struct Clip {
     /// `.velocity(sine.range(0.4, 1).segment(16))` (#621): each note's
     /// velocity, 0 to 1, read as it is pressed.
     pub vel_by: Option<Signal>,
+    /// `.clip(perlin.range(0.2, 1))` (#740): each note's length times the
+    /// value, read as it is pressed.
+    pub len_by: Option<Signal>,
 }
 
 /// The error of a signal `slice` or `n` can't read per hit (#730).
@@ -393,6 +396,10 @@ const PICK_SIGNAL: &str =
 /// The error of a signal `velocity` can't read per note (#621).
 const VELOCITY_SIGNAL: &str =
     "velocity reads a signal of the bar per note: not env, lfo, a list, lag or onNote";
+
+/// The error of a signal `clip` can't read per note (#740).
+const CLIP_SIGNAL: &str =
+    "clip reads a signal of the bar per note: not env, lfo, a list, lag or onNote";
 
 /// `.slice(n, <signal>)`: the count and the signal's text with its byte
 /// offset in `args`, when the indexes are a signal, not quoted (#730).
@@ -1799,6 +1806,7 @@ impl Song {
                         slice_by: None,
                         pad_by: None,
                         vel_by: None,
+                        len_by: None,
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -1859,6 +1867,30 @@ impl Song {
                                         ));
                                     }
                                     clip.vel_by = Some(signal);
+                                }
+                                continue;
+                            }
+                            // `.clip(<signal>)`: each note's length, read as it is
+                            // pressed, in the engine (#740).
+                            if name == "clip" && is_signal(sig) {
+                                let pcol = at + scol - 1;
+                                let signal = Signal::parse(sig, &mut nodes)
+                                    .map_err(|(c, m)| err(pcol + c - 1, m))?;
+                                if !signal.of_the_bar() {
+                                    return Err(err(pcol, CLIP_SIGNAL));
+                                }
+                                let mcol = at + ncol - 1;
+                                if live || kind == Some(Kind::Drums) || from_lanes {
+                                    return Err(err(
+                                        mcol,
+                                        "a signal on clip is for a clip of notes",
+                                    ));
+                                }
+                                if let Some(clip) = song.clips.get_mut(f) {
+                                    if clip.len_by.is_some() {
+                                        return Err(err(mcol, "a clip takes one clip of a signal"));
+                                    }
+                                    clip.len_by = Some(signal);
                                 }
                                 continue;
                             }
@@ -3810,6 +3842,12 @@ impl Song {
                     .get(f)
                     .and_then(|c| c.vel_by.as_ref())
                     .map(|s| format!(" .velocity({s})")),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.len_by.as_ref())
+                    .map(|s| format!(" .clip({s})")),
             );
         let mine: Vec<&Mod> = self.mods.iter().filter(|m| m.clip == Some(f)).collect();
         let adsr = |m: &&Mod| m.alias == Some("adsr");

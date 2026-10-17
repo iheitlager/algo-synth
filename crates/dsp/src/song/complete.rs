@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 41] = [
+const METHODS: [(&str, &str); 42] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -133,6 +133,7 @@ const METHODS: [(&str, &str); 41] = [
     ("rib", "bars of the line, cut and looped"),
     ("ribbon", "bars of the line, cut and looped"),
     ("velocity", "each note's velocity, 0 to 1"),
+    ("clip", "each note's length times x"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -395,6 +396,7 @@ impl List<'_> {
                     | "stut"
                     | "echo"
                     | "velocity"
+                    | "clip"
             ) {
                 self.add(Class::Call, w, || d.to_string());
             }

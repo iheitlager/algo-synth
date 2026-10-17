@@ -7430,6 +7430,35 @@ fn a_velocity_signal_sets_each_notes_loudness() {
     );
 }
 
+/// #740: `.clip(<signal>)` sets each note's length as it is pressed:
+/// `saw.segment(2)` is 0 (a tick) on the first half bar, 0.5 on the second.
+#[test]
+fn a_clip_signal_sets_each_notes_length() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    let text = "tempo 120\ntrack lead synth Sh101\nstrip lead: Send1 0, Send2 0\nclip v = lead .clip(saw.segment(2))\n  \"c4 c4\"\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.song_play();
+    let mut left = Vec::new();
+    for _ in 0..2 * 48_000 / BLOCK {
+        e.render(BLOCK);
+        left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    // How long each note sounds above a threshold, from its start.
+    let sounding = |from: usize| {
+        left.get(from..from + 48_000)
+            .unwrap_or_default()
+            .chunks(480)
+            .take_while(|c| c.iter().any(|x| x.abs() > 0.01))
+            .count()
+    };
+    let (short, long) = (sounding(0), sounding(48_000));
+    assert!(
+        short < long,
+        "the first note, a tick long, ends sooner: {short} vs {long} (10 ms each)"
+    );
+}
+
 /// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the
 /// pad Strudel's `irand(2)` gives at its moment, as Tidal's `n (irand 2)`.
 #[test]
