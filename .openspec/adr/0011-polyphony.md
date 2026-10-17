@@ -1,6 +1,6 @@
 # 0011: Polyphony: a voice pool per synth
 
-**Status:** Accepted, extended 2026-10-09 (#227) · **Date:** 2026-10-03
+**Status:** Accepted, extended 2026-10-09 (#227), extended by 0043, clarified by 0045 · **Date:** 2026-10-03
 
 ## Context
 
@@ -39,3 +39,5 @@ Four of them are subtractive and can run on the Mono voice; the PPG Wave and D-5
 ## Later decisions
 
 - **Extended:** the Moog PolyMoog (#330) joined later as an eighth polyphonic model, a subtractive one on the Mono voice with its 12 dB filter, on the same terms as the subtractive four.
+- **Extended by ADR-0043:** `PolyVoice::Drum`, `Pool::hit` and `Pool::hit_pad` skip polyphony, unison and the key stack: one retriggered voice per pad.
+- **Clarified by ADR-0045:** the FM voice and the D-50's LA voice are `PolyVoice` variants; there is no table variant, since the PPG's table oscillator runs inside the Mono voice.

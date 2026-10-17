@@ -1,6 +1,6 @@
 # 0009: Synth models: one voice, many instruments
 
-**Status:** Accepted, superseded in part by [ADR-0025](0025-one-definition-per-instrument.md) · **Date:** 2026-10-03
+**Status:** Accepted, superseded in part by [ADR-0025](0025-one-definition-per-instrument.md), extended by 0043 and 0045 · **Date:** 2026-10-03
 
 ## Context
 
@@ -37,3 +37,5 @@ These machines share most of their parts: VCOs, noise, a low-pass filter, envelo
 
 - **Grown:** the six monosynths became twenty-one models (`Model::ALL`): the monosynths with the ARP Odyssey (#64) and the TB-303 (#536); the polysynths of ADR-0011 with the PolyMoog (#330); the PPG Wave, Roland D-50 and Yamaha DX7 on their own voices; the TR-808 and TR-909 drum kits; the Sampler and PadSampler; and Modular (ADR-0020, ADR-0024). Every one is a `Model` on a synth slot, chosen by the same parameter.
 - **Superseded in part by ADR-0025:** what each model decides lives in its own definition in `synth/`, with `Model::def` the one match, not in `mono/model.rs`.
+- **Extended by ADR-0043:** the TR-808, TR-909 and Pad Sampler are models whose pool plays pads, with `drums::Machine` stand-ins so one beat plays on either machine.
+- **Extended by ADR-0045:** the DX7 and the D-50 run voices of their own (`PolyVoice::Fm`, `PolyVoice::La`); the PPG is a Mono-voice model whose oscillators read wavetables.

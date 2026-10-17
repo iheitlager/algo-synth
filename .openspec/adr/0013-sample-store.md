@@ -1,6 +1,6 @@
 # 0013: The sample store: Rust parses and resamples WAV at load, in bounded memory
 
-**Status:** Accepted, amended by #728 (samples from the web) · **Date:** 2026-10-04
+**Status:** Accepted, amended by #728 (samples from the web), extended by 0044 · **Date:** 2026-10-04
 
 ## Context
 
@@ -29,3 +29,6 @@ A song may name a Strudel sample map (`samples brk github:yaxu/clean-breaks`) an
 - **Nothing is redistributed.** The song names a URL; the sounds come from where the user points and are never fetched by `make samples` or committed.
 - **Errors at the line.** A map or a sound that can't be had shows at its `samples` or `pad` line; the rest of the song plays.
 
+## Later decisions
+
+- **Extended by ADR-0044:** packs are converted to mono 16-bit WAV at build time, so the store needs no decoder; the manifest is generated and untracked (#672).

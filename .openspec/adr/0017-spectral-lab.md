@@ -1,6 +1,6 @@
 # 0017: The Spectral Lab: a third window with its own engine, analysis in Rust off the audio thread
 
-**Status:** Proposed, extended by 0032 · **Date:** 2026-10-10 · **Amends:** 0001
+**Status:** Accepted, extended by 0032 · **Date:** 2026-10-10 · **Amends:** 0001
 
 ## Context
 
@@ -44,4 +44,5 @@ Analysis is unlike everything the engine does today. An STFT of a ten-second sou
 
 ## Later decisions
 
-- **ADR-0032** (proposed): the lab also transforms and morphs partial sets from more than one source, and sends them as user wavetables, an attack and a body, or a multisample, besides a sample.
+- **ADR-0032:** the lab also transforms and morphs partial sets from more than one source, and sends them as user wavetables, an attack and a body, or a multisample, besides a sample.
+- **Built (#228):** the lab, its analysis and the resynthesis are built (`web/spectral-lab.html`, `crates/dsp/src/analysis/`). ADR-0032 dropped the Synclavier model of stage 5, so the resynthesis plays as a Sampler zone, a user wavetable or a Modular partial bank, and spec 006 gains no Synclavier requirements.
