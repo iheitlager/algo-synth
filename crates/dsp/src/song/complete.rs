@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 66] = [
+const METHODS: [(&str, &str); 69] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -123,6 +123,9 @@ const METHODS: [(&str, &str); 66] = [
     ("slice", "part k of n of the sample, by index"),
     ("fit", "the sample over the note, at any tempo"),
     ("splice", "slice, each part fitted to its step"),
+    ("striate", "the bar n times, part k of each sample"),
+    ("bite", "part k of n of the bar, by index"),
+    ("chew", "bite, the speed following the squeeze"),
     ("speed", "the sample's speed times x, -1 backwards"),
     ("accelerate", "a speed added by the note's end"),
     ("coarse", "each value held n samples, lo-fi"),
@@ -451,6 +454,8 @@ impl List<'_> {
                     | "slice"
                     | "fit"
                     | "splice"
+                    | "striate"
+                    | "chew"
                     | "speed"
                     | "accelerate"
                     | "coarse"

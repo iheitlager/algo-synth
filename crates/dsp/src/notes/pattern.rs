@@ -120,6 +120,17 @@ pub enum Pattern {
     /// `splice(n, "0 2 <1 3>")`: `slice`, each part fitted to its step
     /// (#717): the count, the indexes as written, and as a line of degrees.
     Splice(u32, String, Line),
+    /// `striate(n)`: each bar played n times, squeezed into n parts, pass k
+    /// playing part k of every note's sample, as Tidal's striate (#762).
+    Striate(u32),
+    /// `bite(n, "0 2 <1 3>")`: each bar cut into n parts of time and part k
+    /// played for each index k, squeezed into its step, as Tidal's and
+    /// Strudel's bite (#762): the count, the indexes as written, and as a
+    /// line of degrees.
+    Bite(u32, String, Line),
+    /// `chew(n, "…")`: `bite`, each part's sampler speed following its
+    /// squeeze, as Tidal's chew (#762).
+    Chew(u32, String, Line),
     /// `speed(x)`: each note's sampler speed times x, below 0 backwards, in
     /// hundredths (#718).
     Speed(i16),
@@ -708,7 +719,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 66] = [
+    pub const NAMES: [&'static str; 69] = [
         "fast",
         "slow",
         "rev",
@@ -740,6 +751,9 @@ impl Pattern {
         "slice",
         "fit",
         "splice",
+        "striate",
+        "bite",
+        "chew",
         "speed",
         "accelerate",
         "coarse",
@@ -812,7 +826,8 @@ impl Pattern {
         // A value a bar, `add("<0 3 5>")`: the method once for each (#629).
         if let (
             "fast" | "slow" | "add" | "sub" | "ply" | "degrade" | "shuffle" | "scramble" | "chop"
-            | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot" | "linger" | "mask",
+            | "striate" | "speed" | "accelerate" | "coarse" | "velocity" | "clip" | "rot"
+            | "linger" | "mask",
             [a],
         ) = (name, args.as_slice())
         {
@@ -847,6 +862,7 @@ impl Pattern {
             "slow" => Ok(Pattern::Slow(Ratio::parse(one()?)?)),
             "ply" => Ok(Pattern::Ply(whole(one()?)?)),
             "chop" => Ok(Pattern::Chop(parts(one()?)?)),
+            "striate" => Ok(Pattern::Striate(parts(one()?)?)),
             "fit" => none().map(|()| Pattern::Fit),
             "rib" | "ribbon" => {
                 let [from, bars] = args.as_slice() else {
@@ -941,11 +957,12 @@ impl Pattern {
                     Err("mul takes a speed: mul(speed(-1))")
                 }
             }
-            "slice" | "splice" => {
-                let bad = if name == "slice" {
-                    crate::usage::SLICE
-                } else {
-                    crate::usage::SPLICE
+            "slice" | "splice" | "bite" | "chew" => {
+                let bad = match name {
+                    "slice" => crate::usage::SLICE,
+                    "splice" => crate::usage::SPLICE,
+                    "bite" => crate::usage::BITE,
+                    _ => crate::usage::CHEW,
                 };
                 let [count, arg] = args.as_slice() else {
                     return Err(bad);
@@ -964,10 +981,11 @@ impl Pattern {
                     events: idx.events,
                     bars: idx.bars,
                 };
-                Ok(if name == "slice" {
-                    Pattern::Slice(n, text, line)
-                } else {
-                    Pattern::Splice(n, text, line)
+                Ok(match name {
+                    "slice" => Pattern::Slice(n, text, line),
+                    "splice" => Pattern::Splice(n, text, line),
+                    "bite" => Pattern::Bite(n, text, line),
+                    _ => Pattern::Chew(n, text, line),
                 })
             }
             "velocity" => match one()?.trim() {
@@ -1457,6 +1475,9 @@ impl Pattern {
                 format!("spread({})", words.join(", "))
             }
             Pattern::Splice(n, text, _) => format!("splice({n}, {text})"),
+            Pattern::Striate(n) => format!("striate({n})"),
+            Pattern::Bite(n, text, _) => format!("bite({n}, {text})"),
+            Pattern::Chew(n, text, _) => format!("chew({n}, {text})"),
             Pattern::Beat(text, _) => text.clone(),
             Pattern::Rib(r) => {
                 let name = if r.long { "ribbon" } else { "rib" };
@@ -1630,6 +1651,9 @@ impl Pattern {
                 by_bar(line, &steps)?
             }
             Pattern::Splice(n, _, idx) => fit(slice(line, *n, idx)?),
+            Pattern::Striate(n) => striate(line, *n)?,
+            Pattern::Bite(n, _, idx) => bite(line, *n, idx, false)?,
+            Pattern::Chew(n, _, idx) => bite(line, *n, idx, true)?,
             Pattern::Iter(n) => iter_by(line, *n, false),
             Pattern::Shuffle(n) => reorder(line, *n, true)?,
             Pattern::Scramble(n) => reorder(line, *n, false)?,
@@ -1847,6 +1871,8 @@ impl Pattern {
             | Pattern::Slice(..)
             | Pattern::Fit
             | Pattern::Splice(..)
+            | Pattern::Striate(_)
+            | Pattern::Chew(..)
             | Pattern::Speed(_)
             | Pattern::Accelerate(_)
             | Pattern::Coarse(_)
@@ -2102,6 +2128,84 @@ fn slice(line: &Line, n: u32, idx: &Line) -> Result<Line, &'static str> {
                     region: e.region.part(k, n),
                     fit: fit_part(e.fit, n),
                     ..*e
+                }),
+        );
+    }
+    Ok(Line { events, bars })
+}
+
+/// Each bar played `n` times, squeezed into n parts of it, pass k playing
+/// part k of every note's sample (#762). A pass is at least a tick (48 to a
+/// bar), so more than 48 plays 48.
+fn striate(line: &Line, n: u32) -> Result<Line, &'static str> {
+    let n = n.clamp(1, BAR);
+    check(line.bars, line.events.len() * n as usize)?;
+    let mut events = Vec::with_capacity(line.events.len() * n as usize);
+    for k in 0..n {
+        let (from, to) = (div_round(k * BAR, n), div_round((k + 1) * BAR, n));
+        let w = to - from;
+        events.extend(line.events.iter().map(|e| {
+            let lo = e.start / BAR * BAR;
+            let start = lo + from + (e.start - lo) * w / BAR;
+            Event {
+                start,
+                len: div_round(e.len * w, BAR).clamp(1, (lo + to - start).max(1)),
+                region: e.region.part(k, n),
+                fit: fit_part(e.fit, n),
+                ..*e
+            }
+        }));
+    }
+    Ok(Line {
+        events,
+        bars: line.bars,
+    })
+}
+
+/// On the rhythm of the indexes `idx`, part k of `n` of each bar's time for
+/// index k, squeezed or stretched into its step, as the two round together
+/// (#762); with `chew` each note's sampler speed times the squeeze. A part
+/// of no whole tick (more than 48) plays nothing.
+fn bite(line: &Line, n: u32, idx: &Line, chew: bool) -> Result<Line, &'static str> {
+    let bars = lcm(idx.bars, line.bars);
+    check(
+        bars,
+        idx.events.len() * (bars / idx.bars.max(1)) as usize * line.events.len().max(1),
+    )?;
+    let at = idx.repeat(bars);
+    let all = line.repeat(bars);
+    let mut events = Vec::new();
+    for i in &at.events {
+        let k = (i32::from(i.note) - i32::from(DEGREE_ZERO)).rem_euclid(n as i32) as u32;
+        let lo = i.start / BAR * BAR;
+        let (from, to) = (lo + div_round(k * BAR, n), lo + div_round((k + 1) * BAR, n));
+        let w = to - from;
+        if w == 0 {
+            continue;
+        }
+        let end = i.start + i.len;
+        events.extend(
+            all.events
+                .iter()
+                .filter(|e| (from..to).contains(&e.start))
+                .filter_map(|e| {
+                    let start = i.start + (e.start - from) * i.len / w;
+                    let mut play = e.play;
+                    if chew {
+                        let by = |x: i16| {
+                            (i64::from(x) * i64::from(w) / i64::from(i.len.max(1)))
+                                .clamp(-i64::from(Play::MAX), i64::from(Play::MAX))
+                                as i16
+                        };
+                        play.speed = by(play.speed);
+                        play.accel = by(play.accel);
+                    }
+                    (start < end).then(|| Event {
+                        start,
+                        len: (e.len * i.len / w).clamp(1, end - start),
+                        play,
+                        ..*e
+                    })
                 }),
         );
     }
@@ -3112,6 +3216,98 @@ mod tests {
         assert_eq!(short.events[2].region.bounds().1, 1.0);
         for bad in ["0", "65", "x"] {
             assert!(Pattern::parse("chop", bad).is_err(), "{bad}");
+        }
+    }
+
+    /// #762: striate plays the bar once a part, every hit's part k in pass
+    /// k; bite plays parts of the bar's time by index; chew's speed
+    /// follows the squeeze.
+    #[test]
+    fn striate_bite_and_chew_cut_the_bar() {
+        let half = |k: u32| crate::notes::Region::WHOLE.part(k, 2).bounds();
+        let two = Line {
+            events: vec![ev(0, 24, 36), ev(24, 24, 38)],
+            bars: 1,
+        };
+        let out = Pattern::parse("striate", "2")
+            .expect("parses")
+            .apply(&two)
+            .expect("striates");
+        let got: Vec<_> = out
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, e.note, e.region.bounds()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (0, 12, 36, half(0)),
+                (12, 12, 38, half(0)),
+                (24, 12, 36, half(1)),
+                (36, 12, 38, half(1))
+            ]
+        );
+        assert_eq!(
+            Pattern::Striate(64).apply(&two).map(|l| l.events.len()),
+            Ok(96)
+        );
+        assert!(Pattern::parse("striate", "\"<2 4>\"").is_ok());
+
+        let four = Line {
+            events: vec![
+                ev(0, 12, 36),
+                ev(12, 12, 38),
+                ev(24, 12, 40),
+                ev(36, 12, 41),
+            ],
+            bars: 1,
+        };
+        let p = Pattern::parse("bite", "4, \"3 0\"").expect("parses");
+        assert_eq!(p.print(), "bite(4, \"3 0\")");
+        let bitten = p.apply(&four).expect("bites");
+        let got: Vec<_> = bitten
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, e.note, e.play.speed))
+            .collect();
+        // Each quarter stretched over half a bar, its speed as it was.
+        assert_eq!(got, [(0, 24, 41, 100), (24, 24, 36, 100)]);
+        assert!(
+            !p.moves_pitch(),
+            "bite moves notes, so a drum clip takes it"
+        );
+
+        let p = Pattern::parse("chew", "4, \"0 1 2 [3 3]\"").expect("parses");
+        assert!(p.moves_pitch(), "chew sets a sampler speed");
+        let chewed = p.apply(&four).expect("chews");
+        let got: Vec<_> = chewed
+            .events
+            .iter()
+            .map(|e| (e.start, e.len, e.note, e.play.speed))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (0, 12, 36, 100),
+                (12, 12, 38, 100),
+                (24, 12, 40, 100),
+                (36, 6, 41, 200),
+                (42, 6, 41, 200)
+            ]
+        );
+        // Stretched, it slows.
+        let slow = Pattern::parse("chew", "4, \"0\"").expect("parses");
+        assert_eq!(slow.apply(&four).map(|l| l.events[0].play.speed), Ok(25));
+
+        for (name, bad) in [
+            ("striate", "0"),
+            ("striate", "65"),
+            ("bite", "4"),
+            ("bite", "0, \"1\""),
+            ("bite", "4, 1"),
+            ("chew", "4, \"c4\""),
+        ] {
+            assert!(Pattern::parse(name, bad).is_err(), "{name}({bad})");
         }
     }
 

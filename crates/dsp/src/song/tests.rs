@@ -3207,6 +3207,34 @@ fn rot_and_mirror_play_through_a_scale() {
     assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
 }
 
+/// #762: striate, bite and chew on a sampler clip, printed back as written;
+/// a drum clip takes bite, which moves hits, but not striate or chew.
+#[test]
+fn striate_bite_and_chew_on_a_clip() {
+    let text = "track brk sampler\nclip a = brk .fit() .striate(4)\n  \"c2 e2\"\nclip b = brk .bite(4, \"0 2 <1 3> 3\") .chew(2, \"1 0\")\n  \"c2*8\"\ntrack kit drums\nclip beat = kit\n  bd x...x...x.x.x...\n  sn ....x.......x...\nclip bit = kit beat .bite(4, \"3 2 1 0\")\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].notes.as_ref().expect("notes").events.len(), 8);
+    let printed = s.print();
+    for line in [
+        "clip a = brk .fit() .striate(4)",
+        "clip b = brk .bite(4, \"0 2 <1 3> 3\") .chew(2, \"1 0\")",
+        "clip bit = kit beat .bite(4, \"3 2 1 0\")",
+    ] {
+        assert!(printed.contains(line), "{printed}");
+    }
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for m in [".striate(2)", ".chew(2, \"1 0\")"] {
+        let err = Song::parse(&format!(
+            "track kit drums\nclip a = kit\n  bd x...\nclip b = kit a {m}\n"
+        ))
+        .expect_err("drums");
+        assert_eq!(
+            err.msg, "a drum clip takes methods of time, not pitch",
+            "{m}"
+        );
+    }
+}
+
 /// #741: echoWith, stutWith and plyWith on a clip, printed back as written.
 #[test]
 fn echo_with_and_ply_with_on_a_clip() {
