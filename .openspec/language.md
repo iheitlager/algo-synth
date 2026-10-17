@@ -380,13 +380,16 @@ in octave 3 (or the octave on the line); with neither, a degree is an error.
 Not in generators, a scale walk or a `voicing` clip. `0 .. 12` (or `0..12`)
 is every degree from the first to the last, downward when the last is lower,
 sharing the word's time as a `[ ]` group would; suffixes after it are the
-range's (`0 .. 3@2`), and the start takes none.
+range's (`0 .. 3@2`), and the start takes none. Either end may be a stack,
+`-12 .. [0, 5]`: a run for each, over the word's time at once, as Tidal's
+(#765).
 
 **Mini-notation:** one quoted cycle is one bar; its words share it.
 
 ```text
 "<word>…"
-word   = <pitch> | <degree> | <degree> .. <degree> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | {<word>…}[%n] | <chord name>, then suffixes
+word   = <pitch> | <degree> | <ends> .. <ends> | ~ | [<word>…] | [<word>… | <word>…] | [<pitch>,<pitch>…] | <<word>…> | {<word>…}[%n | %[n,n…]] | <chord name>, then suffixes
+ends   = <degree> | [<degree>,<degree>…]
 euclid = (k,n[,rot]) right after the word: it plays on k hits over n steps of its share
 grace  = ^u ^l ^f ^d ^m after a note or degree: graces before it, or a mordent
 suffix = *n repeat in its share (1–16) | @n weight in shares (1–48) | ?[p] some bars only | ?<condition> | & slide
@@ -398,7 +401,7 @@ where the bar before stopped, as Strudel's polymeter (#625): `"{a3 c4 e4 g4
 b4}%8"` plays five notes at eight a bar, so the phrase starts a word later
 each bar and comes round in five. Without `%n` it takes as many as it has
 words, a group. It is `<a b c>*n`, so a `*` is an error on it: its steps are
-its `%n`. The line runs until it comes round, within 64 bars and 512 notes.
+its `%n`. A stack of steps, `%[5, 7]`, plays a run at each at once (#765). The line runs until it comes round, within 64 bars and 512 notes.
 `[a b]` groups share one word's time, `[c4,e4,g4]` is a chord, `<a b>` plays
 one option per bar, `<a b>/n` each for n (1–16) bars (#700), `<a b>*n` the turns sped up as Strudel's: each repeat takes the next one, so `<a b>*2` plays `a b` every bar and `<a b c>*2` plays `a b`, `c a`, `b c` (#721), `[a | b c]` one option at random each bar, filling the
 group's time (#614: seeded as `?` is, repeats after 8; an option may be a
@@ -693,7 +696,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.degrade([p])` | drop each note with chance p (0–1, default 0.5), seeded |
 | `.every(n, m)` | method m on every nth bar from the first: `every(4, rev)` |
 | `.off(t, m)` | add a copy t of a bar later (0 < t < 1, `1/8` or `0.125`) with m |
-| `.struct("x ~ x x")` | each bar on a rhythm of 1–48 steps: at each `x`, the notes sounding there |
+| `.struct("x ~ x x")` | each bar on a rhythm of 1–48 steps: at each `x`, the notes sounding there; `x*16` is sixteen `x`. First on a clip, it takes them from where the line puts them exactly, as Tidal's `#` does, so a line finer than a tick (`"{-12..0}%5"`, 65 notes a bar) gives one note a step, where later in the chain it reads them rounded to ticks (#765) |
 | `.struct(<clip>)` | the rhythm of an earlier clip (ADR-0035): at each start of its notes, or each hit of a drum clip (any pad), the notes sounding there, for as long as its note (a drum hit: a step); the two loop round together (at most 64 bars) |
 | `.beat(steps, div)` | the notes on steps of a bar cut into div (1–48), as Strudel's beat (#738): `beat(2, 32)` one hit on step 2, `beat("0,7,10", 16)` three; a `struct` of div steps with x on those, each step below div |
 | `.euclid(k, n[, rot])` | `struct` with k hits spread over n (1–48) steps, rotated left by rot: `euclid(5,8)` is `struct("x ~ x x ~ x x ~")` |

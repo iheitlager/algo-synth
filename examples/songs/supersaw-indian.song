@@ -1,0 +1,52 @@
+# Tidal's supersaw in the Indian scale, clusters panned at random:
+#
+#   d1
+#     $ sometimesBy 0.3 (jux (iter 16))
+#     $ sometimesBy 0.1 (rev)
+#     $ s "supersaw*16"
+#     # pan (rand)
+#     # sustain "0.1"
+#     # note (scale "indian" "{-12..[0, 5]}%[5, 7]")
+#     # lpf (range 200 10000 $ slow 8 $ sine) # resonance "0.2"
+#
+# Tidal's default 0.5625 cycles a second is 135 BPM, a cycle a bar. The
+# notes come from "supersaw*16": sixteen a bar, each taking the note
+# pattern's values at its start, as .struct("x*16") does, first on a clip,
+# from where each note is exactly (#765). In Tidal a range is one step, its
+# numbers squeezed into it, so {-12..0}%5 runs -12 to 0 five times a bar.
+# The stacks [0, 5] and [5, 7] make four such runs at once, four saws a
+# step; "{-12..[0, 5]}%[5, 7]" is one line here too, but under iter(16)
+# its sixteen bars pass a clip's 512 notes, so each run has a track of its
+# own. Where two runs land on one degree, Tidal plays it twice, and so do
+# these. Tidal's note 0 is middle C, c4 here.
+#
+# SuperDirt's supersaw, near enough: detuned saws, its 0.1 s note held for
+# a sixteenth (0.11 s here), and Tidal's lpf through a 12 dB low-pass;
+# resonance 0.2 is a Q of 4 there. pan rand is a random pan per note,
+# which jux's hard left and right sit on.
+tempo 135
+setting supersaw = Modular ModularBasic: Polyphony 4
+  SynthDef(\supersaw, { |freq = 220, gate = 1, lpf = 2000, lpq = 4|
+      var saws = Array.fill(5, { |k| Saw.ar(freq * ((k / 4 - 0.5) * 0.3).midiratio) });
+      var sig = RLPF.ar(Mix(saws) * 0.2, lpf.min(18000), 1 / lpq);
+      Pan2.ar(sig * EnvGen.kr(Env.adsr(0.005, 0.05, 0.8, 0.02), gate) * 0.4, Rand(-1, 1))
+  }).add;
+track saw_a synth supersaw
+track saw_b synth supersaw
+track saw_c synth supersaw
+track saw_d synth supersaw
+
+clip run_a = saw_a .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+  "{-12..0}%5"
+
+clip run_b = saw_b .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+  "{-12..0}%7"
+
+clip run_c = saw_c .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+  "{-12..5}%5"
+
+clip run_d = saw_d .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+  "{-12..5}%7"
+
+scene d1 16: run_a run_b run_c run_d
+arrange d1

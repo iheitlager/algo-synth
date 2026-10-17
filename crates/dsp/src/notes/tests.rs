@@ -2854,3 +2854,120 @@ fn prog_colours_print_back_and_fit_their_room() {
         }
     }
 }
+
+/// The degrees of `n`, a list per start, lowest first.
+fn steps_of(n: &Notes) -> Vec<(u32, Vec<i32>)> {
+    let mut out: Vec<(u32, Vec<i32>)> = Vec::new();
+    for e in &n.events {
+        let d = i32::from(e.note) - i32::from(DEGREE_ZERO);
+        match out.last_mut() {
+            Some((at, ds)) if *at == e.start => ds.push(d),
+            _ => out.push((e.start, vec![d])),
+        }
+    }
+    out
+}
+
+/// #765: a range's end and a polymeter's steps take a stack, a run for
+/// each at once, as Tidal's `{-12..[0, 5]}%[5, 7]`.
+#[test]
+fn stacks_in_a_range_and_a_polymeter_print_back() {
+    let n = parse("\"{-12..[0, 5]}%[5, 7]\"", 1).unwrap();
+    assert_eq!(n.print(), "\"{-12 .. [0,5]}%[5,7]\"");
+    assert_eq!(parse(&n.print(), 1).unwrap(), n);
+    // One run is one range: -12..0 and -12..5, at 5 and 7 a bar.
+    let runs: usize = [13 * 5, 18 * 5, 13 * 7, 18 * 7].iter().sum();
+    assert_eq!((n.bars, n.events.len()), (1, runs));
+    let spaced = parse("\"[0,2] .. 4 -1..[1, 3]\"", 1).unwrap();
+    assert_eq!(spaced.print(), "\"[0,2] .. 4 -1 .. [1,3]\"");
+    assert_eq!(parse(&spaced.print(), 1).unwrap(), spaced);
+    assert_eq!(spaced.events.len(), 5 + 3 + 3 + 5);
+    // A stack of steps drifts as each of them would.
+    assert_eq!(parse("\"{c4 d4 e4}%[2, 4]\"", 1).unwrap().bars, 3);
+    for bad in [
+        "\"-12..[0, e4]\"",
+        "\"0 .. [1! 2]\"",
+        "\"{c4 d4}%[2 4]\"",
+        "\"{c4 d4}%[2, 0]\"",
+        "\"{c4 d4}%[2,\"",
+    ] {
+        assert!(parse(bad, 1).is_err(), "{bad}");
+    }
+}
+
+/// #765: a line taken at a rhythm takes each note from its exact place, so
+/// `{-12..0}%5` at sixteenths gives Tidal's notes, one a step, where the
+/// bar's 48 ticks would round its 65 notes onto each other.
+#[test]
+fn a_dense_line_is_taken_exactly_at_a_rhythm() {
+    let sixteenths = [true; 16];
+    let took = parse("\"{-12..0}%5\"", 1)
+        .unwrap()
+        .sampled(&sixteenths)
+        .unwrap();
+    let want = [
+        -12, -8, -4, 0, -9, -5, -1, -10, -6, -2, -11, -7, -3, -12, -8, -4,
+    ];
+    let got = steps_of(&took);
+    assert_eq!(
+        got.iter().map(|(at, _)| *at).collect::<Vec<_>>(),
+        (0..16).map(|k| k * 3).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        got.iter().map(|(_, ds)| ds.clone()).collect::<Vec<_>>(),
+        want.map(|d| vec![d])
+    );
+    assert!(
+        took.events.iter().all(|e| e.len == 3),
+        "held to the next step"
+    );
+    // The whole form is the four runs at once.
+    let all = parse("\"{-12..[0, 5]}%[5, 7]\"", 1)
+        .unwrap()
+        .sampled(&sixteenths)
+        .unwrap();
+    let mut runs: Vec<Event> = [
+        "\"{-12..0}%5\"",
+        "\"{-12..0}%7\"",
+        "\"{-12..5}%5\"",
+        "\"{-12..5}%7\"",
+    ]
+    .iter()
+    .flat_map(|t| parse(t, 1).unwrap().sampled(&sixteenths).unwrap().events)
+    .map(|e| Event { word: 0, ..e })
+    .collect();
+    runs.sort_unstable_by_key(sort_key);
+    let words: Vec<Event> = all.events.iter().map(|e| Event { word: 0, ..*e }).collect();
+    assert_eq!(words, runs);
+    assert_eq!(all.events.len(), 64);
+    // Rests are hits not taken; a line on the ticks is as `struct` reads it.
+    let mut off = [true; 16];
+    off[1] = false;
+    assert_eq!(
+        parse("\"{-12..0}%5\"", 1)
+            .unwrap()
+            .sampled(&off)
+            .unwrap()
+            .events
+            .len(),
+        15
+    );
+    for (text, hits) in [
+        ("\"c4 [e4 g4] ~ b4\"", vec![true, true, false, true]),
+        ("\"<c4 [d4,f4]> e4*3 [g4 a4]\"", vec![true; 8]),
+        (
+            "\"{c4 d4 e4}%4 [~ b4]\"",
+            vec![true, false, true, true, false, true],
+        ),
+    ] {
+        let n = parse(text, 1).unwrap();
+        let line = pattern::Line {
+            events: n.events.clone(),
+            bars: n.bars,
+        };
+        let ticked = pattern::Pattern::Struct(hits.clone()).apply(&line).unwrap();
+        let mut ticked = ticked.events;
+        ticked.sort_unstable_by_key(sort_key);
+        assert_eq!(n.sampled(&hits).unwrap().events, ticked, "{text}");
+    }
+}
