@@ -390,6 +390,9 @@ pub struct Clip {
     /// `.penv(12) .pdecay(0.05)`, `.lpenv("4 1")` (#744): a note's own pitch
     /// and filter envelopes, each value read as the note is pressed.
     pub shape_by: Vec<(ShapeKey, Signal)>,
+    /// `.swing(62)` (#626): the clip's own swing in percent, 50 to 75, in
+    /// place of the song's.
+    pub swing: Option<f32>,
 }
 
 /// A value of a note's own pitch or filter envelope (#744), as Strudel names
@@ -2039,6 +2042,7 @@ impl Song {
                         vel_by: None,
                         len_by: None,
                         shape_by: Vec::new(),
+                        swing: None,
                     });
                     let f = song.clips.len() - 1;
                     if let Some((at, text)) = methods {
@@ -2072,6 +2076,33 @@ impl Song {
                                         ));
                                     }
                                     clip.bend = Some((name == "sub", signal));
+                                }
+                                continue;
+                            }
+                            // `.swing(62)`: the clip's own swing (#626), the engine
+                            // placing its notes by it.
+                            if name == "swing" {
+                                let mcol = at + ncol - 1;
+                                let v = sig
+                                    .trim()
+                                    .parse::<f32>()
+                                    .ok()
+                                    .filter(|v| (50.0..=75.0).contains(v))
+                                    .ok_or(err(
+                                        at + scol - 1,
+                                        "a clip's swing is 50 (straight) to 75",
+                                    ))?;
+                                if live || kind == Some(Kind::Drums) || from_lanes {
+                                    return Err(err(
+                                        mcol,
+                                        "a clip's own swing is for a clip of notes",
+                                    ));
+                                }
+                                if let Some(clip) = song.clips.get_mut(f) {
+                                    if clip.swing.is_some() {
+                                        return Err(err(mcol, "a clip takes one swing"));
+                                    }
+                                    clip.swing = Some(v);
                                 }
                                 continue;
                             }
@@ -4226,6 +4257,12 @@ impl Song {
                     .get(f)
                     .and_then(|c| c.len_by.as_ref())
                     .map(|s| format!(" .clip({s})")),
+            )
+            .chain(
+                self.clips
+                    .get(f)
+                    .and_then(|c| c.swing)
+                    .map(|s| format!(" .swing({s})")),
             )
             .chain(
                 self.clips

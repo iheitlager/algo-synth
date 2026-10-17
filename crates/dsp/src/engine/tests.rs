@@ -7592,6 +7592,66 @@ fn a_filter_envelope_opens_each_note() {
     );
 }
 
+/// #626: a clip's own swing places its off-beats by it, not by the song's:
+/// under `swing 75`, `.swing(50)` plays straight, `.swing(67)` in between, and
+/// a clip without one swings with the song; the downbeat stays put.
+#[test]
+fn a_clips_own_swing_places_its_off_beats() {
+    let onsets = |method: &str| {
+        let mut e = Engine::new(48_000.0);
+        e.set_param(0, Param::MasterGain, 1.0);
+        let tone: Vec<f32> = (0..600)
+            .map(|i| (i as f32 * 1_000.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9)
+            .collect();
+        load_tone(&mut e, 0, &tone);
+        let text = format!(
+            "tempo 120\nswing 75\ntrack brk sampler PadSampler PadsLoud\nclip a = brk {method}\n  \"c2*4\"\n"
+        );
+        assert_eq!(load_text(&mut e, &text), Ok(()));
+        let synth = e.song_routed(0).expect("routed");
+        e.set_pad(synth, 0, crate::padsampler::PadField::Sample, 0.0);
+        e.song_play();
+        let mut left = Vec::new();
+        for _ in 0..48_000 / BLOCK {
+            e.render(BLOCK);
+            left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+        }
+        // Where each hit begins: a loud sample after 1000 quiet ones.
+        let mut out = Vec::new();
+        let mut quiet = 1_000;
+        for (i, x) in left.iter().enumerate() {
+            if x.abs() > 0.05 {
+                if quiet >= 1_000 {
+                    out.push(i);
+                }
+                quiet = 0;
+            } else {
+                quiet += 1;
+            }
+        }
+        out
+    };
+    // "c2*4": quarters, each on an even step, swing moves none of them.
+    let near = |got: &[usize], want: &[usize]| {
+        got.len() >= want.len() && got.iter().zip(want).all(|(g, w)| g.abs_diff(*w) < 200)
+    };
+    let song = onsets(".fast(4)");
+    assert!(
+        near(&song, &[0, 9_000, 12_000, 21_000]),
+        "the song's swing: {song:?}"
+    );
+    let straight = onsets(".fast(4) .swing(50)");
+    assert!(
+        near(&straight, &[0, 6_000, 12_000, 18_000]),
+        "straight: {straight:?}"
+    );
+    let triplet = onsets(".fast(4) .swing(67)");
+    assert!(
+        near(&triplet, &[0, 8_040, 12_000, 20_040]),
+        "a triplet feel: {triplet:?}"
+    );
+}
+
 /// #730: `.n(irand(2))` on a Pad Sampler's drum clip plays, at each hit, the
 /// pad Strudel's `irand(2)` gives at its moment, as Tidal's `n (irand 2)`.
 #[test]

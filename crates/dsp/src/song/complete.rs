@@ -88,7 +88,7 @@ const KEYWORD_USAGE: [(&str, &str); 20] = [
 ];
 
 /// What each pattern method does (`Pattern::NAMES`).
-const METHODS: [(&str, &str); 64] = [
+const METHODS: [(&str, &str); 65] = [
     ("fast", "n times faster"),
     ("slow", "n times slower"),
     ("rev", "each bar backwards"),
@@ -156,6 +156,7 @@ const METHODS: [(&str, &str); 64] = [
     ("euclidInv", "the notes on the steps euclid leaves out"),
     ("euclidLegato", "euclid, each hit held to the next"),
     ("euclidFull", "euclid's hits, its rests through a method"),
+    ("nudge", "every note t ticks later or earlier"),
 ];
 
 /// What each generator call plays (`notes::CALLS`, and `euclid`).
@@ -375,6 +376,9 @@ impl List<'_> {
         self.pad_n(model);
         self.shapes(model);
         self.effect_names();
+        self.add(Class::Param, "swing", || {
+            "the clip's own swing, 50 to 75".to_string()
+        });
         self.params(Set::Track(model), true);
     }
 

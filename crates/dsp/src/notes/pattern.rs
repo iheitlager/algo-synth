@@ -201,6 +201,9 @@ pub enum Pattern {
     /// `euclidFull(k, n, m[, rot])`: the hits with the line, the rests with
     /// method m (#631).
     EuclidFull(Euclid, Box<Pattern>),
+    /// `nudge(t)`: every note t ticks later, or earlier below 0, round the
+    /// line, ahead of or behind the beat (#626).
+    Nudge(i32),
     /// `beat(steps, div)`, Strudel's: the line on `steps` of a bar cut into
     /// `div`, a `struct` of div steps (#738); the steps as written.
     Beat(String, Vec<bool>),
@@ -700,7 +703,7 @@ impl Rib {
 
 impl Pattern {
     /// The names a method can have, for telling them from parameters.
-    pub const NAMES: [&'static str; 64] = [
+    pub const NAMES: [&'static str; 65] = [
         "fast",
         "slow",
         "rev",
@@ -765,6 +768,7 @@ impl Pattern {
         "euclidInv",
         "euclidLegato",
         "euclidFull",
+        "nudge",
     ];
 
     /// The method `name(args)`; `args` is the text between its brackets.
@@ -1066,6 +1070,13 @@ impl Pattern {
                 .filter(|n| (1..=MAX_STEPS as u32).contains(n))
                 .map(Pattern::Segment)
                 .ok_or(crate::usage::SEGMENT),
+            "nudge" => one()?
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|t| t.abs() <= MAX_NUDGE)
+                .map(Pattern::Nudge)
+                .ok_or(crate::usage::NUDGE),
             "euclidInv" | "euclidLegato" => {
                 let e = Euclid::args(&format!("{raw})"))?;
                 if e.n as usize > MAX_STEPS {
@@ -1457,6 +1468,7 @@ impl Pattern {
             Pattern::Chunk(n, m) => format!("chunk({n}, {})", bare(m)),
             Pattern::WhenMod(a, b, m) => format!("whenmod({a}, {b}, {})", bare(m)),
             Pattern::Segment(n) => format!("segment({n})"),
+            Pattern::Nudge(t) => format!("nudge({t})"),
             Pattern::EuclidInv(e) => e.print().replacen("euclid", "euclidInv", 1),
             Pattern::EuclidLegato(e) => e.print().replacen("euclid", "euclidLegato", 1),
             Pattern::EuclidFull(e, m) => {
@@ -1550,6 +1562,15 @@ impl Pattern {
                 structure(line, &rests)
             }
             Pattern::EuclidLegato(e) => legato_structure(line, &e.pattern()),
+            Pattern::Nudge(t) => {
+                let len = i64::from(line.len().max(1));
+                let mut out = line.clone();
+                for e in &mut out.events {
+                    e.start = u32::try_from((i64::from(e.start) + i64::from(*t)).rem_euclid(len))
+                        .unwrap_or(0);
+                }
+                out
+            }
             Pattern::EuclidFull(e, m) => {
                 let hits = e.pattern();
                 let rests: Vec<bool> = hits.iter().map(|h| !h).collect();
@@ -2231,6 +2252,9 @@ fn chunk(line: &Line, n: u32, m: &Pattern) -> Result<Line, &'static str> {
     events.extend(changed.repeat(bars).events.into_iter().filter(part));
     Ok(Line { events, bars })
 }
+
+/// Furthest `nudge` moves a note, in ticks: two sixteenths (#626).
+const MAX_NUDGE: i32 = 6;
 
 /// Furthest `rot` turns.
 const MAX_ROT: i32 = 64;
@@ -4776,5 +4800,29 @@ mod tests {
         ] {
             assert_eq!(Pattern::parse(name, args), Err(msg), "{name}({args})");
         }
+    }
+
+    /// #626: nudge moves every note a few ticks off the grid, round the line.
+    #[test]
+    fn nudge_moves_every_note_round_the_line() {
+        assert_eq!(
+            starts(&run("nudge(1)", &four())),
+            [(1, 60), (13, 62), (25, 64), (37, 66)]
+        );
+        assert_eq!(
+            starts(&run("nudge(-1)", &four())),
+            [(11, 62), (23, 64), (35, 66), (47, 60)]
+        );
+        assert_eq!(
+            Pattern::parse("nudge", " -2").expect("p").print(),
+            "nudge(-2)"
+        );
+        for bad in ["7", "-7", "0.5", ""] {
+            assert!(Pattern::parse("nudge", bad).is_err(), "{bad}");
+        }
+        assert!(
+            !Pattern::Nudge(1).moves_pitch(),
+            "on a drum clip made from one too"
+        );
     }
 }

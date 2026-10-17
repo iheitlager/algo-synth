@@ -315,6 +315,9 @@ pub struct Engine {
     /// Drum hits between steps, waiting for their sample (#353), and how many.
     hits: [Hit; HITS],
     hit_count: usize,
+    /// The last two clock steps whose swung clips' notes were queued ahead
+    /// (#626); a step not among them plays them on the song's ticks.
+    swung: [Option<u64>; 2],
     /// Each synth's live arpeggiator (spec 002 Req 7).
     arps: [Arp; SYNTHS],
     /// MIDI input's target and held notes (#10).
@@ -415,6 +418,7 @@ impl Engine {
             pad_fold: 0,
             hits: [NO_HIT; HITS],
             hit_count: 0,
+            swung: [None; 2],
             arps: [Arp::default(); SYNTHS],
             midi_in: MidiIn::default(),
             free_tick: 0,
@@ -1717,6 +1721,7 @@ impl Engine {
     }
 
     pub fn song_stop(&mut self) {
+        self.swung = [None; 2];
         self.commit_song();
         self.cue = None;
         self.launch = Launch::default();
@@ -2028,6 +2033,7 @@ impl Engine {
     pub fn song_seek_bar(&mut self, bar: u64) {
         self.clock.seek_step(bar.saturating_mul(STEPS_PER_BAR));
         self.hit_count = 0;
+        self.swung = [None; 2];
     }
 
     /// Where the last fired step fell: the arrangement entry and the steps into
@@ -2205,6 +2211,11 @@ impl Engine {
                     self.light(Some(span), until as f64 / TICKS_PER_STEP as f64);
                 }
                 k -= 1;
+            }
+            // A clip with a swing of its own was queued from the step before
+            // (`note_swung`, #626).
+            if self.own_swing(f).is_some() && self.swung.contains(&Some(step)) {
+                continue;
             }
             let first = self.first_event(f, local);
             for k in first.. {
@@ -2534,6 +2545,82 @@ impl Engine {
         // of its notes too (#605).
         self.lane_hits(step + 1, true);
         self.note_graces(step + 1);
+        self.note_swung(step + 1);
+    }
+
+    /// Clip `f`'s own swing (#626), when it differs from the song's; `None`
+    /// for a live clip, which follows the song's.
+    fn own_swing(&self, f: usize) -> Option<f32> {
+        let c = self.song.clips.get(f)?;
+        c.swing.filter(|s| !c.live && *s != self.clock.swing())
+    }
+
+    /// The notes in clock step `step` of the clips with a swing of their own
+    /// (#626), queued from the step before at the samples their swing puts
+    /// them on: a swing moves an off-beat at most half a step, so each is
+    /// still ahead. A note-off waits at least a tick past its note.
+    fn note_swung(&mut self, step: u64) {
+        self.swung = [self.swung[1], Some(step)];
+        for j in step * TICKS_PER_STEP..(step + 1) * TICKS_PER_STEP {
+            let Some((from, scene)) = self.tick_place(j) else {
+                return;
+            };
+            let (in_first, in_last) = self.first_last(step, from, scene);
+            let on = self.clock.tick_sample(j);
+            for f in 0..self.song.clips.len() {
+                let Some(swing) = self.own_swing(f) else {
+                    continue;
+                };
+                let Some((track, span, false)) = self.note_clip(f, scene) else {
+                    continue;
+                };
+                if !self.song.heard(usize::from(track)) {
+                    continue;
+                }
+                let local = u32::try_from(from % span).unwrap_or(0);
+                let at_tick = self.clock.tick_sample_swung(j, swing);
+                for k in self.first_event(f, local).. {
+                    let Some(ev) = self.note_event(f, k).filter(|e| e.start == local) else {
+                        break;
+                    };
+                    if ev.nudge < 0 || !ev.when.holds(in_first, in_last) {
+                        continue;
+                    }
+                    let ev = self.pick(f, ev, j);
+                    let at = at_tick + self.ms_samples(ev.nudge.max(0));
+                    let late = at.saturating_sub(on);
+                    let len = if late > 0 {
+                        let ticks = (late as f64 / self.free_tick_len()).ceil() as u64;
+                        u64::from(ev.len).max(ticks + 1)
+                    } else {
+                        u64::from(ev.len)
+                    };
+                    let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
+                        continue;
+                    };
+                    *slot = Some((j + len, track, ev.note));
+                    let cents = self.note_cents(f, &ev, j);
+                    self.queue_hit(Hit {
+                        at,
+                        owner: Owner::Track(track),
+                        note: ev.note,
+                        velocity: ev.velocity(),
+                        cents,
+                        pan: f32::from(ev.pan) / 100.0,
+                        play: self.playback(&ev),
+                        from: Some((f, j)),
+                    });
+                    let span = self
+                        .spans
+                        .clips
+                        .get(f)
+                        .and_then(|s| s.notes.get(usize::from(ev.word)))
+                        .copied();
+                    let until = (j + u64::from(ev.len)) as f64 / TICKS_PER_STEP as f64;
+                    self.light(span, until);
+                }
+            }
+        }
     }
 
     /// The lanes' hits from clock step `step` up to the next (#353): a lane

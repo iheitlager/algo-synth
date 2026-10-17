@@ -88,6 +88,22 @@ tempo 96.5
 swing 58
 ```
 
+A clip of notes may have a swing of its own, `.swing(n)` with n 50 to 75 on
+its line (#626): its off-beats are placed by it, not by the song's, so a
+straight hat sits over a swung bass (`.swing(50)` plays straight while the
+song swings). The engine queues such a clip's notes a step ahead, at their
+own times. Not on a drum clip or a `live` clip.
+
+```song
+swing 62
+track bass synth
+track lead synth
+clip line = bass .swing(50)
+  "a1 ~ a1 c2 ~ a1 e2 ~"
+clip lazy = lead .nudge(1)
+  "e4 ~ g4 ~ a4 ~ ~ ~"
+```
+
 ## scale
 
 ```text
@@ -673,6 +689,7 @@ methods (`.scale`, `.chord`, `.oct`, `.add(n)`, `.sub(n)`).
 | `.euclidInv(k, n[, rot])` | the line on the steps `euclid(k, n, rot)` leaves out, as Tidal's (#631) |
 | `.euclidLegato(k, n[, rot])` | `euclid`, each hit held until the next, the last to the bar's end (#631) |
 | `.euclidFull(k, n, m[, rot])` | the hits with the line and the rests through method m: `euclidFull(3, 8, add(12))` plays the rests an octave up (#631) |
+| `.nudge(t)` | every note t ticks (−6 to 6, 3 a sixteenth) later, or earlier below 0, round the line: ahead of or behind the beat (#626) |
 | `.sometimes(m)` | m on about half the moments, seeded |
 | `.often(m)` `.rarely(m)` | m on about 3 in 4, or 1 in 4, of the moments (#700) |
 | `.almostNever(m)` `.almostAlways(m)` | m on about 1 in 10, or 9 in 10, of the moments |

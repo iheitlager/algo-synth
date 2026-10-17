@@ -75,7 +75,7 @@ clip drift = pad live .scale(hold auto)
   markov(1,hold,2)
 clip ring = bell .add(\"<0 [3 5]>\") .jux(rev) .add(0.25) .add(perlin.range(0, 0.5)) .tremolo(6) .vowel(\"<a [e o]>\") .fshift(sine.range(-200, 200))
   \"[e4,b4] ~ g#4 ~\"
-clip zap = buzzer
+clip zap = buzzer .swing(66) .nudge(1)
   \"e3 [g3 b3] ~ <e4 d4>\"
 clip arps = sid .sidcutoff(sine.range(200, 1800))
   \"[e3,g#3,b3] e4 ~ <b4 d5>\"

@@ -227,6 +227,7 @@ fn random_song(r: &mut Rng) -> Song {
                 vel_by: None,
                 len_by: None,
                 shape_by: Vec::new(),
+                swing: None,
             });
             continue;
         }
@@ -261,6 +262,7 @@ fn random_song(r: &mut Rng) -> Song {
             vel_by: None,
             len_by: None,
             shape_by: Vec::new(),
+            swing: None,
         });
     }
     song
@@ -3407,6 +3409,32 @@ fn effect_names_find_the_tracks_insert() {
     let modular = "setting bell = Modular ModularBasic\n  SynthDef(\\bell, { |freq = 220, gate = 1, ring = 1|\n      SinOsc.ar(freq * ring) * EnvGen.kr(Env.adsr(0.01, 0.1, 0.8, 0.1), gate) * 0.4\n  }).add;\ntrack b synth bell\nclip a = b .ring(2)\n  \"c3\"\n";
     let s = Song::parse(modular).expect("a knob");
     assert_ne!(s.mods[0].param, Param::I1A);
+}
+
+/// #626: a clip's own swing and a nudge, printed back as written.
+#[test]
+fn a_clip_takes_its_own_swing_and_a_nudge() {
+    let text = "swing 62\ntrack bass synth\nclip line = bass .swing(50) .nudge(-1)\n  \"a1 ~ a1 c2 ~ a1 e2 ~\"\n";
+    let s = Song::parse(text).expect("parses");
+    assert_eq!(s.clips[0].swing, Some(50.0));
+    let printed = s.print();
+    assert!(
+        printed.contains("clip line = bass .nudge(-1) .swing(50)"),
+        "{printed}"
+    );
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    for (bad, msg) in [
+        ("bass .swing(80)", "a clip's swing is 50 (straight) to 75"),
+        ("bass .swing(60) .swing(70)", "a clip takes one swing"),
+        (
+            "bass live .swing(60)",
+            "a clip's own swing is for a clip of notes",
+        ),
+    ] {
+        let err =
+            Song::parse(&format!("track bass synth\nclip a = {bad}\n  \"c2\"\n")).expect_err(bad);
+        assert_eq!(err.msg, msg, "{bad}");
+    }
 }
 
 /// #696: Strudel's arp, the line's own chords by index.

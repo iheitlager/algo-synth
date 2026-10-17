@@ -1,6 +1,6 @@
 # 0016: Note events on a tick grid
 
-**Status:** Accepted · **Date:** 2026-10-04
+**Status:** Accepted, amended by #626 (a clip's own swing) · **Date:** 2026-10-04
 
 ## Context
 
@@ -32,3 +32,13 @@ ADR-0012 gave the song drum lanes on sixteenth steps, and the clock fires only o
 - **Quantize to sixteenths.** Simple, but triplets, `[ ]` subdivision and exact MIDI import would be lost. Rejected.
 - **A finer global clock (tick as the clock step).** Uniform, but drums, swing and the whole clock tests would move for no gain. Rejected.
 - **960 ticks per beat as in MIDI files.** Exact for import, but a bar of 960×4 ticks would make every event list longer for notes that sit on the sixteenth grid anyway; MIDI import can round to 48 per bar or write `@bar.beat.tick` as ADR-0015 says. Rejected.
+
+## Amendment (#626): a clip's own swing
+
+MPC-style sequencers swing each track on its own, so a straight hat can sit over a swung bass. The clock has one swing, the song's, and every tick's sample follows it.
+
+- **Placed by the clip, queued a step ahead.** A clip of notes with `.swing(n)` is skipped at the song's ticks. When a clock step fires, the engine queues that clip's notes of the next step in the hit queue, at the samples its own swing gives the clock's grid (`Clock::tick_sample_swung`). A swing moves an off-beat by at most half a step, so a note the clip wants earlier than the song's tick is still ahead when queued. Its note-off waits at least a tick past its note, as a strummed note's does (#604).
+- **The first step plays on the song's ticks.** The engine remembers the two steps it last queued ahead; one it didn't, the first after play or a seek, plays at the song's ticks, so no note is lost.
+- **Not on lanes or live clips.** A drum clip's lanes and a live clip follow the song's swing.
+
+Rejected: a second clock per clip, which would split one transport (ADR-0022) to place a handful of notes.
