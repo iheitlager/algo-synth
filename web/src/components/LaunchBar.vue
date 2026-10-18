@@ -4,12 +4,13 @@
 // a pad per snapshot switches it on; both land at the moment chosen, Shift or
 // the Now pad at once. The keys work from every view: 1–0 scenes, z–m
 // snapshots, [ ] the moment, \ back to the arrangement, Esc cancel, Space
-// play/stop. Rec writes the scenes launched as the `arrange` line.
+// play/stop, ← → a bar back or on at once. Rec writes the scenes launched as
+// the `arrange` line.
 import { computed, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
-import { arrange, launch, playSong, song, status, stopSong } from '../audio/engine'
+import { arrange, launch, playSong, song, songPosition, status, stopSong } from '../audio/engine'
 import {
   QUANTIZES, QUANTIZE_NAMES, SCENE_KEYS, SNAPSHOT_KEYS, arrangeOps, keyAction, keyLabel, landsIn,
-  launchState, newRec, recordStep, stepQuantize,
+  launchState, newRec, recordStep, stepBar, stepQuantize,
 } from '../audio/launch'
 import { Quantize } from '../audio/params'
 
@@ -66,6 +67,13 @@ function onKey(e: KeyboardEvent) {
       launch.cancel()
       break
     case 'transport': if (song.playing) stopSong(); else playSong(); break
+    case 'bar': {
+      // A focused control's own arrows (a selector, a splitter) come first.
+      if (e.defaultPrevented) return
+      const bars = song.arrange.reduce((n, s) => n + (song.scenes[s]?.bars ?? 0), 0)
+      arrange.seekBar(stepBar(songPosition.value, a.by, bars))
+      break
+    }
   }
   e.preventDefault()
 }

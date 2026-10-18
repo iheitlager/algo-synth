@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { arrangeOps, keyAction, landsIn, newRec, recordStep, stepQuantize, typing } from './launch'
+import { arrangeOps, keyAction, landsIn, newRec, recordStep, stepBar, stepQuantize, typing } from './launch'
 import { Quantize } from './params'
 
 const key = (code: string, more: Partial<Parameters<typeof keyAction>[0]> = {}) =>
   keyAction({ code, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, target: null, ...more })
 
 describe('Launch keys (#489)', () => {
+  it('moves a bar back or on with the arrows, within the song (#775)', () => {
+    expect(key('ArrowLeft')).toEqual({ kind: 'bar', by: -1 })
+    expect(key('ArrowRight')).toEqual({ kind: 'bar', by: 1 })
+    expect(key('ArrowLeft', { target: { tagName: 'TEXTAREA' } as unknown as EventTarget })).toBeNull()
+    expect(stepBar(16 * 3 + 5, -1, 8)).toBe(2)
+    expect(stepBar(16 * 3 + 5, 1, 8)).toBe(4)
+    expect(stepBar(5, -1, 8)).toBe(0)
+    expect(stepBar(16 * 7, 1, 8)).toBe(7)
+    expect(stepBar(-1, 1, 0)).toBe(1)
+  })
+
   it('launches scenes with the digits and switches snapshots with z–m, Shift for now', () => {
     expect(key('Digit1')).toEqual({ kind: 'scene', index: 0, now: false })
     expect(key('Digit0', { shiftKey: true })).toEqual({ kind: 'scene', index: 9, now: true })
