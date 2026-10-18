@@ -1434,6 +1434,22 @@ impl Engine {
         if let Some(s) = self.sample_sources.get_mut(slot) {
             *s = None;
         }
+        // Zones and pads let go of it: the slot's next sample is another
+        // pack's, which they would play and fold into the song as theirs.
+        for zones in &mut self.zones {
+            for z in 0..crate::sampler::ZONES {
+                if zones.get(z).is_some_and(|z| z.sample == Some(slot)) {
+                    zones.set(z, ZoneField::Sample, -1.0);
+                }
+            }
+        }
+        for synth in &mut self.synths {
+            for p in 0..crate::padsampler::PADS {
+                if synth.pad_kit.pad(p).is_some_and(|c| c.sample == Some(slot)) {
+                    synth.pad_kit.set(p, PadField::Sample, -1.0);
+                }
+            }
+        }
     }
 
     /// Set a field of one of `synth`'s zones (see `sampler::ZoneField`): a

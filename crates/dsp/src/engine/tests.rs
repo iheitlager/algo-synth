@@ -7991,6 +7991,39 @@ fn a_fitted_sample_fills_its_note_at_any_tempo() {
     );
 }
 
+/// #775: a kit's pads left on a synth let go of their slots when the slots
+/// are cleared, so the next song's pack loaded into them is not folded into
+/// that song as pad lines.
+#[test]
+fn a_cleared_slot_leaves_the_pads_that_played_it() {
+    let mut e = kit(0);
+    let tone: Vec<f32> = (0..4_800).map(|i| (i as f32 / 20.0).sin() * 0.5).collect();
+    let wav = crate::sample::test_wav(48_000, &tone, None);
+    let load = |e: &mut Engine, source: &[u8]| {
+        e.sample_buffer(wav.len())
+            .expect("fits")
+            .copy_from_slice(&wav);
+        e.load_sample(3).expect("loads");
+        e.song_buffer(source.len())
+            .expect("fits")
+            .copy_from_slice(source);
+        assert!(e.set_sample_source_from_buffer(3));
+    };
+    load(&mut e, b"kit/kick");
+    // The last song's kit, laid out on synth 0: not a hand's change.
+    e.set_pad(0, 0, PadField::Sample, 3.0);
+    e.set_pad(0, 0, PadField::Level, 1.5);
+    e.settle_pads(0);
+    // The next song's synth 0 is a sampler; its pack frees the kit's slot and refills it.
+    let text = "track xylo sampler GeneralMidi GmXylophone\n";
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    e.clear_sample(3);
+    assert_eq!(e.pad_value(0, 0, PadField::Sample), -1.0, "the pad let go");
+    load(&mut e, b"gm-xylophone/gm-xylophone-01");
+    e.fold();
+    assert!(!e.song_text().contains("pad "), "{}", e.song_text());
+}
+
 /// #728: a pad playing a sample map's sound folds back by its name, the
 /// track keeping its map line.
 #[test]
