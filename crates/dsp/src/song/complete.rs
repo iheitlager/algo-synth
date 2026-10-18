@@ -136,7 +136,7 @@ const METHODS: [(&str, &str); 69] = [
     ("rib", "bars of the line, cut and looped"),
     ("ribbon", "bars of the line, cut and looped"),
     ("velocity", "each note's velocity, 0 to 1"),
-    ("clip", "each note's length times x"),
+    ("clip", "each note's length times x, or 0.1s"),
     ("rot", "each onset the notes of the one n on"),
     ("mirror", "each pitch turned round an axis"),
     ("echoWith", "n layers, each later and changed again"),

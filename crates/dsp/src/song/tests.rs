@@ -3224,6 +3224,23 @@ fn rot_and_mirror_play_through_a_scale() {
     assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
 }
 
+/// #766: `.clip(0.1s)` on a clip, printed back as written, its notes held
+/// 100 ms; a drum clip doesn't take it.
+#[test]
+fn clip_in_seconds_on_a_clip() {
+    let text = "track lead synth\nclip a = lead .clip(0.1s)\n  \"c4 e4\"\n";
+    let s = Song::parse(text).expect("parses");
+    let notes = s.clips[0].notes.as_ref().expect("notes");
+    assert!(notes.events.iter().all(|e| e.hold == 100));
+    assert!(s.clips[0].len_by.is_none(), "seconds are not a signal");
+    let printed = s.print();
+    assert!(printed.contains("clip a = lead .clip(0.1s)"), "{printed}");
+    assert_eq!(Song::parse(&printed).expect("parses back"), s);
+    let err = Song::parse("track k drums\nclip a = k\n  bd x...\nclip b = k a .clip(0.1s)\n")
+        .expect_err("drums");
+    assert_eq!(err.msg, "a drum clip takes methods of time, not pitch");
+}
+
 /// #762: striate, bite and chew on a sampler clip, printed back as written;
 /// a drum clip takes bite, which moves hits, but not striate or chew.
 #[test]

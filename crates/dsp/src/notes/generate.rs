@@ -643,6 +643,7 @@ fn arp(
                 region: crate::notes::Region::WHOLE,
                 fit: 0,
                 play: crate::notes::Play::SAME,
+                hold: 0,
             });
         }
     }
@@ -680,6 +681,7 @@ fn walk(start: u8, steps: u32, seed: u32, scale: Option<&Scale>, out: &mut Vec<E
             region: crate::notes::Region::WHOLE,
             fit: 0,
             play: crate::notes::Play::SAME,
+            hold: 0,
         });
     }
 }
@@ -771,6 +773,7 @@ fn walk_over(
                 region: crate::notes::Region::WHOLE,
                 fit: 0,
                 play: crate::notes::Play::SAME,
+                hold: 0,
             });
         }
     }
@@ -982,6 +985,7 @@ fn arp_prog(
                 region: crate::notes::Region::WHOLE,
                 fit: 0,
                 play: crate::notes::Play::SAME,
+                hold: 0,
             });
         }
     }
@@ -1016,6 +1020,7 @@ fn root(src: &[Event], octave: u8, out: &mut Vec<Event>) {
             region: crate::notes::Region::WHOLE,
             fit: 0,
             play: crate::notes::Play::SAME,
+            hold: 0,
         });
         i = j.max(i + 1);
     }
@@ -1037,6 +1042,7 @@ fn bass_note(start: u32, len: u32, note: i32) -> Event {
         region: crate::notes::Region::WHOLE,
         fit: 0,
         play: crate::notes::Play::SAME,
+        hold: 0,
     }
 }
 
@@ -1393,6 +1399,7 @@ fn prog(
                 region: crate::notes::Region::WHOLE,
                 fit: 0,
                 play: crate::notes::Play::SAME,
+                hold: 0,
             });
         };
         if second {

@@ -83,7 +83,7 @@ clip arps = sid .sidcutoff(sine.range(200, 1800))
   \"[e3,g#3,b3] e4 ~ <b4 d5>\"
 clip chirp = chipper
   \"e3 b3 ~ e4\"
-clip tune = famicom .nesvibrato(sine.range(0, 0.5))
+clip tune = famicom .nesvibrato(sine.range(0, 0.5)) .clip(0.05s)
   \"e4 [b4 e5] ~ <g4 a4>\"
 clip nbeat = nkit /16
   bd x...x...x...x...

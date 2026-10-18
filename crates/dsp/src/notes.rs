@@ -402,6 +402,7 @@ fn sample(l: &SigLine) -> Result<Vec<Event>, &'static str> {
             region: Region::WHOLE,
             fit: 0,
             play: Play::SAME,
+            hold: 0,
         });
     }
     Ok(events)
@@ -480,6 +481,9 @@ pub struct Event {
     pub fit: u32,
     /// How a sampler plays it: speed, a sweep and a coarser rate (#718).
     pub play: Play,
+    /// How long it is held, in milliseconds whatever the tempo, 0 for its
+    /// length in ticks: `.clip(0.1s)`, Tidal's sustain (#766).
+    pub hold: u16,
 }
 
 /// How a sampler plays a note (#718): `speed` in hundredths of its rate (100
@@ -822,6 +826,7 @@ impl Cursor<'_> {
             region: Region::WHOLE,
             fit: 0,
             play: Play::SAME,
+            hold: 0,
         })
     }
 
@@ -2105,6 +2110,7 @@ impl Compiler<'_> {
             region: Region::WHOLE,
             fit: 0,
             play: Play::SAME,
+            hold: 0,
         });
     }
 
@@ -2141,6 +2147,7 @@ impl Compiler<'_> {
                 region: Region::WHOLE,
                 fit: 0,
                 play: Play::SAME,
+                hold: 0,
             });
         }
     }
@@ -2171,7 +2178,7 @@ pub(crate) fn sort_key(
     i16,
     i8,
     // How a sampler plays it, together: a tuple is ordered up to 12.
-    (Region, u32, Play),
+    (Region, u32, Play, u16),
 ) {
     (
         e.start,
@@ -2184,7 +2191,7 @@ pub(crate) fn sort_key(
         e.nudge,
         e.cents,
         e.pan,
-        (e.region, e.fit, e.play),
+        (e.region, e.fit, e.play, e.hold),
     )
 }
 
@@ -2322,6 +2329,7 @@ pub fn edit_timed(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     region: Region::WHOLE,
                     fit: 0,
                     play: Play::SAME,
+                    hold: 0,
                 });
             }
         }
@@ -2368,6 +2376,7 @@ pub fn edit(events: &[Event], bars: u32, op: Edit) -> Option<Vec<Event>> {
                     region: Region::WHOLE,
                     fit: 0,
                     play: Play::SAME,
+                    hold: 0,
                 });
             }
         }
@@ -2596,6 +2605,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                     region: Region::WHOLE,
                     fit: 0,
                     play: Play::SAME,
+                    hold: 0,
                 });
             }
             (events, 1)
@@ -2621,6 +2631,7 @@ fn compile(seq: Seq, scale: Option<&Scale>) -> Result<Notes, &'static str> {
                         region: Region::WHOLE,
                         fit: 0,
                         play: Play::SAME,
+                        hold: 0,
                     });
                 }
                 at += len;

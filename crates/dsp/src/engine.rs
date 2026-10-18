@@ -261,6 +261,9 @@ pub struct Engine {
     /// Notes of the song waiting for their note-off, as (tick, track, note):
     /// a fixed table, so the clock can end a note without allocating.
     note_offs: [Option<(u64, u8, u8)>; NOTE_OFFS],
+    /// Notes held for a time in seconds (`.clip(0.1s)`, #766), as (sample,
+    /// track, note): let go when the clock reaches the sample, not a tick.
+    releases: [Option<(u64, u8, u8)>; NOTE_OFFS],
     /// One per clip of the song; empty for all but the live ones.
     live: Vec<Live>,
     /// A song loaded while the song plays, ready to take over at the next
@@ -396,6 +399,7 @@ impl Engine {
             mix_from_text: [0; crate::mixer::STRIPS],
             import_patches: false,
             note_offs: [None; NOTE_OFFS],
+            releases: [None; NOTE_OFFS],
             live: Vec::new(),
             pending: None,
             cue: None,
@@ -2049,6 +2053,7 @@ impl Engine {
     pub fn song_seek_bar(&mut self, bar: u64) {
         self.clock.seek_step(bar.saturating_mul(STEPS_PER_BAR));
         self.hit_count = 0;
+        self.let_go_held();
         self.swung = [None; 2];
     }
 
@@ -2187,7 +2192,8 @@ impl Engine {
                     .note_offs
                     .iter()
                     .flatten()
-                    .any(|(at, t, n)| *at > j && *t == track && *n == note);
+                    .any(|(at, t, n)| *at > j && *t == track && *n == note)
+                    || self.held(track, note, 0);
                 if !again {
                     self.stop_note(Owner::Track(track), note);
                 }
@@ -2252,10 +2258,13 @@ impl Engine {
                 } else {
                     u64::from(ev.len)
                 };
-                let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
-                    continue;
-                };
-                *slot = Some((j + len, track, ev.note));
+                let on = self.clock.tick_sample(j) + late;
+                if !self.hold_release(&ev, track, on) {
+                    let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
+                        continue;
+                    };
+                    *slot = Some((j + len, track, ev.note));
+                }
                 if late > 0 {
                     let cents = self.note_cents(f, &ev, j);
                     self.queue_hit(Hit {
@@ -2550,6 +2559,41 @@ impl Engine {
                 self.stop_note(Owner::Track(track), note);
             }
         }
+        self.let_go_held();
+    }
+
+    /// End every note held for a time in seconds now (#766): where the
+    /// queued hits are dropped the clock moves, so none waits for a sample
+    /// it may never reach.
+    fn let_go_held(&mut self) {
+        for i in 0..self.releases.len() {
+            if let Some((_, track, note)) = self.releases.get_mut(i).and_then(Option::take) {
+                self.stop_note(Owner::Track(track), note);
+            }
+        }
+    }
+
+    /// Hold event `ev` of `track`, pressed at sample `on`, for its `hold` ms
+    /// (#766); false when it has none or the table is full, so it ends on
+    /// its ticks.
+    fn hold_release(&mut self, ev: &Event, track: u8, on: u64) -> bool {
+        if ev.hold == 0 {
+            return false;
+        }
+        let after = (f64::from(ev.hold) * f64::from(self.sample_rate) / 1000.0).round() as u64;
+        let Some(slot) = self.releases.iter_mut().find(|s| s.is_none()) else {
+            return false;
+        };
+        *slot = Some((on + after.max(1), track, ev.note));
+        true
+    }
+
+    /// Is `note` of `track` held in seconds past sample `after` (#766)?
+    fn held(&self, track: u8, note: u8, after: u64) -> bool {
+        self.releases
+            .iter()
+            .flatten()
+            .any(|(at, t, n)| *at > after && *t == track && *n == note)
     }
 
     /// Hit what every lane of the song has on clock step `k`; each lane loops
@@ -2624,10 +2668,12 @@ impl Engine {
                     } else {
                         u64::from(ev.len)
                     };
-                    let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
-                        continue;
-                    };
-                    *slot = Some((j + len, track, ev.note));
+                    if !self.hold_release(&ev, track, at) {
+                        let Some(slot) = self.note_offs.iter_mut().find(|s| s.is_none()) else {
+                            continue;
+                        };
+                        *slot = Some((j + len, track, ev.note));
+                    }
                     let cents = self.note_cents(f, &ev, j);
                     self.queue_hit(Hit {
                         at,
@@ -2817,6 +2863,30 @@ impl Engine {
     /// Play the queued hits the clock has reached, in the order queued.
     fn fire_hits(&mut self) {
         let pos = self.clock.position();
+        // Notes held in seconds let go first, unless pressed again since
+        // (#766, as a tick's note-off, #536).
+        for i in 0..self.releases.len() {
+            let due = self
+                .releases
+                .get(i)
+                .copied()
+                .flatten()
+                .filter(|(at, _, _)| *at <= pos);
+            if let Some((_, track, note)) = due {
+                if let Some(slot) = self.releases.get_mut(i) {
+                    *slot = None;
+                }
+                let again = self.held(track, note, pos)
+                    || self
+                        .note_offs
+                        .iter()
+                        .flatten()
+                        .any(|(_, t, n)| *t == track && *n == note);
+                if !again {
+                    self.stop_note(Owner::Track(track), note);
+                }
+            }
+        }
         let mut i = 0;
         while i < self.hit_count {
             let Some(hit) = self.hits.get(i).copied() else {
@@ -2845,7 +2915,9 @@ impl Engine {
             .hits
             .iter()
             .take(self.hit_count)
-            .map(|h| h.at.saturating_sub(pos))
+            .map(|h| h.at)
+            .chain(self.releases.iter().flatten().map(|(at, _, _)| *at))
+            .map(|at| at.saturating_sub(pos))
             .min();
         next.and_then(|gap| usize::try_from(gap).ok())
             .map_or(remaining, |gap| gap.clamp(1, remaining.max(1)))
@@ -3795,6 +3867,20 @@ impl Engine {
                 self.stop_note(Owner::Track(track), note);
             }
         }
+        for i in 0..self.releases.len() {
+            let unheard = self
+                .releases
+                .get(i)
+                .copied()
+                .flatten()
+                .filter(|(_, track, _)| !self.song.heard(usize::from(*track)));
+            if let Some((_, track, note)) = unheard {
+                if let Some(slot) = self.releases.get_mut(i) {
+                    *slot = None;
+                }
+                self.stop_note(Owner::Track(track), note);
+            }
+        }
         self.reprint();
         true
     }
@@ -4113,6 +4199,7 @@ impl Engine {
                     let len = u64::from(a as u32).max(1) * STEPS_PER_BAR;
                     self.clock.seek_step((k + 1) % len);
                     self.hit_count = 0;
+                    self.let_go_held();
                 }
                 ok
             }

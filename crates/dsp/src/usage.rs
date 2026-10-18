@@ -31,7 +31,7 @@ pub const BITE: &str =
 pub const CHEW: &str =
     "chew takes a number of parts from 1 to 64 and indexes in quotes: chew(4, \"0 1 2 [3 3]\")";
 pub const VELOCITY: &str = "velocity takes a velocity from 0 to 1, one a step or a signal: velocity(0.5), velocity(\"1 0.5 ~ 0.7\") or velocity(sine.range(0.4, 1).segment(16))";
-pub const CLIP: &str = "clip takes a share of the note's length, more than 0 up to 16, one a step or a signal: clip(0.5), clip(\"0.3 1 ~ 2\") or clip(perlin.range(0.2, 1))";
+pub const CLIP: &str = "clip takes a share of the note's length, more than 0 up to 16, one a step or a signal, or seconds up to 16, to the ms: clip(0.5), clip(\"0.3 1 ~ 2\"), clip(perlin.range(0.2, 1)) or clip(0.1s)";
 pub const ROT: &str = "rot takes how many onsets each takes its notes from, -64 to 64, or one a bar: rot(1) or rot(\"<0 1 2 3>\")";
 pub const MIRROR: &str =
     "mirror takes a degree from -24 to 24, a note, or nothing: mirror(2), mirror(c4) or mirror()";

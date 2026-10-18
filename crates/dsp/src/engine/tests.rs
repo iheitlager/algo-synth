@@ -7564,6 +7564,86 @@ fn a_clip_signal_sets_each_notes_length() {
     );
 }
 
+/// A Modular sine that sounds while its gate is held and stops within half
+/// a millisecond of letting go (#766), playing `line` at `tempo` with
+/// `methods` on its clip.
+fn gated_sine(tempo: u32, methods: &str, line: &str) -> String {
+    format!(
+        "tempo {tempo}\nsetting tone = Modular ModularBasic\n  SynthDef(\\tone, {{ |freq = 220, gate = 1|\n      SinOsc.ar(freq) * EnvGen.kr(Env.adsr(0.0005, 0.1, 1, 0.0005), gate) * 0.5\n  }}).add;\ntrack lead synth tone\nstrip lead: Send1 0, Send2 0\nclip a = lead {methods}\n  \"{line}\"\n"
+    )
+}
+
+/// Seconds from the first sample above the threshold to the last, within
+/// the first `within` seconds.
+fn sounds_for(left: &[f32], within: f64) -> f64 {
+    let end = ((within * 48_000.0) as usize).min(left.len());
+    let loud = |x: &f32| x.abs() > 0.01;
+    let window = left.get(..end).unwrap_or_default();
+    match (window.iter().position(loud), window.iter().rposition(loud)) {
+        (Some(a), Some(b)) => (b - a) as f64 / 48_000.0,
+        _ => 0.0,
+    }
+}
+
+/// #766: `.clip(0.1s)` holds a sixteenth 0.1 s to the sample, at 135 BPM
+/// (a sixteenth is 0.111 s, a tick 37 ms) and at 70 BPM (0.214 s).
+#[test]
+fn a_clip_in_seconds_holds_each_note_that_long() {
+    let sixteenth = "a4 ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~";
+    for tempo in [135, 70] {
+        for (methods, want) in [(".clip(0.1s)", 0.1), ("", 60.0 / f64::from(tempo) / 4.0)] {
+            let mut e = Engine::new(48_000.0);
+            e.set_param(0, Param::MasterGain, 1.0);
+            assert_eq!(
+                load_text(&mut e, &gated_sine(tempo, methods, sixteenth)),
+                Ok(())
+            );
+            e.song_play();
+            let mut left = Vec::new();
+            for _ in 0..48_000 / BLOCK {
+                e.render(BLOCK);
+                left.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+            }
+            let got = sounds_for(&left, 0.5);
+            assert!(
+                (got - want).abs() < 0.002,
+                "{tempo} BPM {methods:?}: held {got:.4} s, want {want:.4} s"
+            );
+        }
+    }
+}
+
+/// #766: a note held in seconds lets go when the song stops, not only when
+/// the clock reaches its sample, which a stopped clock never does.
+#[test]
+fn a_note_held_in_seconds_lets_go_on_stop() {
+    let mut e = Engine::new(48_000.0);
+    e.set_param(0, Param::MasterGain, 1.0);
+    assert_eq!(
+        load_text(&mut e, &gated_sine(120, ".clip(4s)", "a4")),
+        Ok(())
+    );
+    e.song_play();
+    for _ in 0..9_600 / BLOCK {
+        e.render(BLOCK);
+    }
+    assert!(
+        e.output().iter().any(|x| x.abs() > 0.01),
+        "the note sounds before the stop"
+    );
+    e.song_stop();
+    let mut tail = Vec::new();
+    for _ in 0..9_600 / BLOCK {
+        e.render(BLOCK);
+        tail.extend_from_slice(e.output().get(..BLOCK).unwrap_or_default());
+    }
+    let last = tail.get(tail.len() - 4_800..).unwrap_or_default();
+    assert!(
+        last.iter().all(|x| x.abs() < 1e-3),
+        "silent 0.1 s after the stop"
+    );
+}
+
 /// #744: `.penv(12) .pdecay(1)` starts each note an octave up and brings it
 /// down to its key over a second, on a Modular sine.
 #[test]
