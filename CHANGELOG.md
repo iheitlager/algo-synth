@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-18
+
+### Added
+
+- **An instrument's own tuning and timing:** `Detune` (−50 to 50 cents) puts a whole synth off tune, as one real machine sits off another, and `Humanize` (0 to 30 ms) presses each of its clip notes a little late, the same every run, a player's timing (#21).
+- **A side-chain for the Comp insert:** a strip's `Key` now keys its compressor too, so `strip pad: I1Type Comp, I1B 1, Key 1` ducks the pad under synth 1's kick, the classic pumping pad; a strip without a key compresses as before (#143).
+- **The arpeggiator is saved in the song:** its settings fold into the track's `setting` like any knob, so a saved or reloaded song plays the arp it had, and the rail no longer marks it as live-only (#228).
+- **A walk over the chords:** `walk(c4,8,3,chords)` lands on a note of the chord sounding at each quarter and moves by scale steps between, so a melody follows the harmony clip, live too (#617).
+- **`.connect()`:** passing notes across each leap of a line, walking the scale toward the next note in the time it holds, as Live 12's Connect: `"c4 ~ ~ ~ g4 ~ ~ ~"` in C major plays c4 d4 e4 f4 g4 (#618).
+- **An evolving mutate:** `mutate(riff,10,5,evolve)` on a live clip changes each bar from the one before, so a riff slowly wanders and stays where it went, the same after a seek, starting over every 64 bars, as a Turing Machine (#619).
+- **`.velocity(…)`:** a velocity per note, 0 to 1, as Strudel's: one a step (`velocity("1 0.5 ~ 0.7")`, `~` keeping the note's own), or a signal read as each note is pressed (`velocity(perlin.range(0.5, 1))`), so a line can play soft, loud and in between beyond the `!` accent (#621).
+- **Polymeter in mini-notation:** `"{a3 c4 e4 g4 b4}%8"` steps through its words eight a bar, each bar on from where the last stopped, so a five-note phrase drifts against the bar and comes round in five, as Strudel's curly braces (#625).
+- **A groove per clip:** `.swing(n)` gives a clip of notes a swing of its own, 50 to 75, so a straight line sits over a swung song or the other way round, and `.nudge(t)` moves every note a few ticks ahead of or behind the beat (#626).
+- **The other euclid forms:** `.euclidInv(k, n)` on the steps euclid leaves out, `.euclidLegato(k, n)` with each hit held to the next, and `.euclidFull(k, n, m)` with the rests through a method, as Tidal's (#631).
+- **Bar-level control:** `.mask("<1 1 1 0>")` (silence by bar or part, Strudel's), `.chunk(n, m)` (a method on a different part of each bar), `.whenmod(a, b, m)` (a method on the last bars of each phrase, the fill) and `.segment(n)` (a held note as n steps), as in Tidal and Strudel (#632).
+- **`.superimpose(m)` and `.layer(m1, m2, …)`:** Strudel's changed copies at the same time: the line with a copy on top (`superimpose(add(12))`, an octave doubling), or only the copies, one through each method (`layer(add(7), rev)`), where `.off` needed a shift (#635).
+- **`.clip(…)`:** each note's length as a share of its own, as Strudel's clip and legato: one a step (`clip("0.3 0.3 1 0.5")`, below 1 staccato, above 1 into the next note), or a signal read as each note is pressed, so a line can be short, short, long without writing timed notes; `.legato` stays the synth's legato switch (#740).
+- **`.echoWith(n, time, m)`, `.stutWith(…)` and `.plyWith(n, m)`:** Strudel's and Tidal's echoes that change as they go: n layers, each later and through the method once more than the one before, so `echoWith(3, 1/8, add(2))` makes a canon of one line and `plyWith(3, add(12))` a note climbing in octaves within its own length (#741).
+- **`.rot(n)` and `.mirror(axis)`:** Tidal's rot, each onset of a bar taking the notes of the one n later while the rhythm stays (`rot("<0 1 2 3>")`), and melodic inversion, degrees turned round a degree before `.scale` and notes round a note after it, so `.rev() .mirror()` is the retrograde inversion (#742).
+- **Tidal's time frames:** `.inside(n, m)` and `.outside(n, m)` (a method on the line slowed or sped up, so `inside(2, rev)` turns each half bar round), `.linger(t)` (the start of each bar repeated to fill it, a stutter), `.zoom(a, b)` and `.compress(a, b)` (part of each bar stretched, or each bar squeezed), `.hurry(n)` (`fast` and the sample's speed together) and `.iterBack(n)` (#743).
+- **A note's own pitch and filter envelopes:** Strudel's `.penv(n)` with `.pattack` and `.pdecay` (each note starts n semitones off and lands on its key, a zap or a tom) and `.lpenv(n)` with `.lpattack`, `.lpdecay`, `.lpsustain` and `.lprelease` (each note opens the filter n octaves), each a number, a sequence or a signal read as the note is pressed (#744).
+- **Five more inserts and Strudel's effect names:** Vowel (a formant filter, a e i o u), Phaser, Tremolo (and auto-pan), Ring and FreqShift insert types, and on a clip Strudel's `.crush`, `.shape`, `.distort`, `.vowel("<a e i o>")`, `.phaser`, `.tremolo`, `.ring` and `.fshift` turning the track's insert of that type in Strudel's units (#745).
+- **Warehouse:** an example techno track in F minor that plays the expressiveness epic in one song: velocity and length per step, a pumping keyed bass and pad, a turning, talking 303 that evolves in the drop, a dub stab with rising echoes, a lead walking the chords and a swung polymeter bleep (#746).
+- **`.striate(n)`, `.bite(n, "…")` and `.chew(n, "…")`:** Tidal's interleaved and granular cuts. Striate plays the bar n times, pass k playing part k of every hit's sample. Bite plays parts of the bar's time by index, squeezed into each step, and works on a drum clip too. Chew is bite with the sampler speed following the squeeze (#762).
+- **Stacks in a range and a polymeter, and a dense line taken exactly at a rhythm:** a range's end and a polymeter's steps take a stack, so Tidal's `"{-12..[0, 5]}%[5, 7]"` is four runs at once; `.struct` first on a clip takes each note from its exact place in the bar, as Tidal's `#` does, so `"{-12..0}%5"` under `.struct("x*16")` gives one note a step; `struct` takes `x*16`; a chord takes spaces after its commas, `[0, 5]` (#765).
+- **Tidal supersaw example:** `supersaw-indian.song`, a Tidal patch of supersaw clusters in the Indian scale through `jux(iter(16))` and a swept low-pass (#765).
+- **`.clip(0.1s)`, a note held in seconds:** Tidal's sustain. Each note is held that long whatever the tempo and its step, and lets go to the sample rather than on a tick, so a sixteenth at 135 BPM sounds 0.1 s, not 0.111 s. `sustain` keeps its Strudel meaning, the envelope's level (#766).
+
+### Changed
+
+- **Smoother pitch envelopes, and the engine's timing written down:** a note's `.penv` now moves every 32 samples while it sweeps, so a fast drop follows its line within about 0.1 semitone instead of stepping each 2.7 ms block; ADR-0042 and a Timing note in the language reference set out what runs at which rate (#754).
+
+### Fixed
+
+- **rustls upgraded to 0.23.46:** the assist server's TLS library now has the fixes for RUSTSEC-2026-0346, -0347, -0348 and -0349, and `deny.toml` no longer ignores them (#565).
+- **Built sample packs no longer vanish after a git reset:** `web/public/samples/manifest.json` and `CREDITS.txt` are generated and untracked, so a checkout, stash or rebase can't put back the 5-pack list; `make dev`, `make web` and `make image` write one when it is missing, and a missing pack's message says to run `make samples` (#672).
+- **`make image` no longer fills the disk:** the engine's build keeps cargo's target and registry, and npm's downloads, in cache mounts reused between builds, so a commit no longer leaves a ~2.6 GB build stage behind, and the old build stages are pruned after each build (#751).
+- The 808, 909 and sample drum kits are louder, a plain kick near −18 dB, so the drums stand out against the synths (#760).
+
 ## [0.47.0] - 2026-10-17
 
 ### Added
