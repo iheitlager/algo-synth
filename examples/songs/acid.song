@@ -31,8 +31,12 @@ setting supersaw = Modular ModularBasic: Polyphony 2
 track bass synth acid
 track saw synth supersaw
 track kick drums PadSampler PadsLoud
+track hihat drums PadSampler PadsLoud
+track snare drums Tr808 Kit808
 samples kick roland-tr909
-strip kick: Send2 0.41312042, I1Type Eq, I1B 0.65733
+samples hihat roland-tr909
+strip kick: Send2 0.41312042, I1Type Eq, I1B 0.65733, I2A 0.47837776, I2B 0.18373162, I2C 0.20857078
+strip snare: Solo 1, I1Type Eq, I1B 0.72130054, I1D 0.6339614, I1E 0.5934283
 master: MasterGain 0.88
 
 # n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1): bar 46 of
@@ -45,10 +49,19 @@ clip bass = bass .scale(c3 minor) .rib(46, 1)
 # every two bars. `clip swell = saw bass` alone would double the whole line.
 clip swell = saw bass .beat(2, 32) .slow(2) .detune(1)
 
-# Four on the floor on the 909 kit's kick, in Strudel's shorthand: s("bd*4").
+# Four on the floor on the 909 kit's kick, in Strudel's shorthand: s("bd*4"),
+# with the kit's clap on 2 and 4.
 clip floor = kick
-  "bd*4"
+  "bd [bd,cp] bd [bd,cp]"
 
-scene acid 8: bass swell floor
+clip symcal = hihat
+  "[hh oh]*4"
+
+# A syncopated 808 snare around the claps: off-beat sixteenths, ghosts
+# leading in, a drag and a ratchet to turn the second bar.
+clip skip = snare
+  sn ...x..o..x..o.x....x..o..x.o.d.X2
+
+scene acid 8: bass swell floor symcal skip
 arrange acid
 loop 1 8
