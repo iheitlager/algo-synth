@@ -20,8 +20,8 @@
 # own. Where two runs land on one degree, Tidal plays it twice, and so do
 # these. Tidal's note 0 is middle C, c4 here.
 #
-# SuperDirt's supersaw, near enough: detuned saws, its 0.1 s note held for
-# a sixteenth (0.11 s here), and Tidal's lpf through a 12 dB low-pass;
+# SuperDirt's supersaw, near enough: detuned saws, its 0.1 s note held
+# 0.1 s by .clip(0.1s) (#766), and Tidal's lpf through a 12 dB low-pass;
 # resonance 0.2 is a Q of 4 there. pan rand is a random pan per note,
 # which jux's hard left and right sit on.
 tempo 135
@@ -36,16 +36,16 @@ track saw_b synth supersaw
 track saw_c synth supersaw
 track saw_d synth supersaw
 
-clip run_a = saw_a .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+clip run_a = saw_a .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
   "{-12..0}%5"
 
-clip run_b = saw_b .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+clip run_b = saw_b .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
   "{-12..0}%7"
 
-clip run_c = saw_c .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+clip run_c = saw_c .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
   "{-12..5}%5"
 
-clip run_d = saw_d .struct("x*16") .scale(c4 indian) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
+clip run_d = saw_d .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
   "{-12..5}%7"
 
 scene d1 16: run_a run_b run_c run_d

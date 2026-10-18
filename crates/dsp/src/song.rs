@@ -558,6 +558,7 @@ impl Clip {
                         region: crate::notes::Region::WHOLE,
                         fit: 0,
                         play: crate::notes::Play::SAME,
+                        hold: 0,
                     });
                 }
             }

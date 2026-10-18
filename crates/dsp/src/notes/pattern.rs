@@ -159,6 +159,9 @@ pub enum Pattern {
     /// `clip(x)`: each note's length times x, more than 0 up to 16, as
     /// Strudel's legato (#740); `None` for a `~`.
     Clip(Option<f32>),
+    /// `clip(0.1s)`: each note held that many milliseconds, whatever the
+    /// tempo and its step, as Tidal's sustain (#766).
+    Hold(u16),
     /// `rot(n)`: in each bar, each onset takes the notes of the onset n
     /// later, keeping its own time and length, as Tidal's rot (#742).
     Rot(i32),
@@ -999,6 +1002,7 @@ impl Pattern {
             },
             "clip" => match one()?.trim() {
                 "~" => Ok(Pattern::Clip(None)),
+                x if x.ends_with('s') => hold_ms(x).map(Pattern::Hold).ok_or(crate::usage::CLIP),
                 x => x
                     .parse::<f32>()
                     .ok()
@@ -1540,6 +1544,7 @@ impl Pattern {
             Pattern::Mirror(Axis::Note(n)) => format!("mirror({})", super::note_name(*n)),
             Pattern::Clip(None) => "clip(~)".to_string(),
             Pattern::Clip(Some(x)) => format!("clip({x})"),
+            Pattern::Hold(ms) => format!("clip({}s)", f64::from(*ms) / 1000.0),
             Pattern::PerBar(text, _) => text.clone(),
         }
     }
@@ -1579,6 +1584,7 @@ impl Pattern {
             Pattern::Coarse(n) => played(line, |p| p.coarse = *n),
             Pattern::Velocity(v) => velocity(line, *v),
             Pattern::Clip(x) => clip(line, *x),
+            Pattern::Hold(ms) => held(line, *ms),
             Pattern::Rot(n) => rot(line, *n),
             Pattern::EchoWith(e) => echo_with(line, e)?,
             Pattern::PlyWith(n, m) => ply_with(line, *n, m)?,
@@ -1900,6 +1906,7 @@ impl Pattern {
             | Pattern::Velocity(_)
             // A lane's hit is a step long (#740).
             | Pattern::Clip(_)
+            | Pattern::Hold(_)
             | Pattern::Connect(..)
             // A lane's hits have no pitch to move (#742).
             | Pattern::Rot(_)
@@ -2648,9 +2655,29 @@ fn clip(line: &Line, x: Option<f32>) -> Line {
         let most = line.len().max(1);
         for e in out.events.iter_mut().filter(|e| e.nudge >= 0) {
             e.len = len_of(e.len, f64::from(x), most);
+            e.hold = 0;
         }
     }
     out
+}
+
+/// Every note held `ms` milliseconds whatever the tempo, a grace keeping
+/// its own (#766): the engine lets it go to the sample.
+fn held(line: &Line, ms: u16) -> Line {
+    let mut out = line.clone();
+    for e in out.events.iter_mut().filter(|e| e.nudge >= 0) {
+        e.hold = ms;
+    }
+    out
+}
+
+/// `0.1s` in milliseconds: more than 0 up to `MAX_CLIP` seconds, to the
+/// millisecond (#766).
+fn hold_ms(x: &str) -> Option<u16> {
+    let x = x.strip_suffix('s')?.trim();
+    let decimals = x.split_once('.').map_or(0, |(_, d)| d.len());
+    let ms = (x.parse::<f64>().ok()? * 1000.0).round();
+    (decimals <= 3 && ms >= 1.0 && ms <= f64::from(MAX_CLIP) * 1000.0).then_some(ms as u16)
 }
 
 /// Length `len` times `x` (0 to `MAX_CLIP`), in whole ticks from 1 to `most`.
@@ -3238,6 +3265,43 @@ mod tests {
         }
     }
 
+    /// #766: `clip(0.1s)` holds each note that long in milliseconds, prints
+    /// back as written, and a later fraction gives back the ticks.
+    #[test]
+    fn clip_in_seconds_holds_each_note() {
+        let p = Pattern::parse("clip", "0.1s").expect("parses");
+        assert_eq!(p, Pattern::Hold(100));
+        assert_eq!(p.print(), "clip(0.1s)");
+        assert_eq!(
+            Pattern::parse("clip", "0.9").map(|p| p.print()),
+            Ok("clip(0.9)".to_string())
+        );
+        assert_eq!(Pattern::parse("clip", "16s"), Ok(Pattern::Hold(16_000)));
+        assert_eq!(
+            Pattern::parse("clip", "0.125s").map(|p| p.print()),
+            Ok("clip(0.125s)".to_string())
+        );
+        let mut grace = ev(0, 2, 60);
+        grace.nudge = -30;
+        let line = Line {
+            events: vec![grace, ev(0, 12, 62)],
+            bars: 1,
+        };
+        let held = p.apply(&line).expect("holds");
+        let holds: Vec<_> = held.events.iter().map(|e| (e.hold, e.len)).collect();
+        assert_eq!(holds, [(0, 2), (100, 12)], "a grace keeps its own");
+        let back = Pattern::Clip(Some(0.5)).apply(&held).expect("clips");
+        assert_eq!(back.events[1].hold, 0);
+        assert!(Pattern::parse("clip", "\"<0.1s 0.5>\"").is_ok());
+        for bad in ["0s", "17s", "0.0001s", "xs", "-1s", "s"] {
+            assert_eq!(
+                Pattern::parse("clip", bad),
+                Err(crate::usage::CLIP),
+                "{bad}"
+            );
+        }
+    }
+
     /// #762: striate plays the bar once a part, every hit's part k in pass
     /// k; bite plays parts of the bar's time by index; chew's speed
     /// follows the squeeze.
@@ -3569,6 +3633,7 @@ mod tests {
             region: crate::notes::Region::WHOLE,
             fit: 0,
             play: crate::notes::Play::SAME,
+            hold: 0,
         }
     }
 
