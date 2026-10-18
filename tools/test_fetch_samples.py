@@ -2,6 +2,7 @@ import array
 import json
 import math
 import struct
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -422,6 +423,16 @@ class KitLedger(unittest.TestCase):
         self.assertTrue(all("/c74fc80f8db8038f6a33648ffef5ac00a07ad402/jazz/" in f["url"] for f in jazz["files"]))
         by_pad = {f["pad"]: f["url"].rsplit("/", 1)[1] for f in jazz["files"]}
         self.assertEqual([by_pad[k] for k in (0, 2, 6, 10)], ["000_BD.wav", "007_SN.wav", "003_HH.wav", "004_OH.wav"])
+
+
+class Untracked(unittest.TestCase):
+    def test_no_fetched_file_is_committed(self):
+        """What `make samples` writes is gitignored and stays out of git (#771):
+        a force-added file comes back on every checkout and rebase."""
+        root = Path(__file__).resolve().parent.parent
+        out = subprocess.run(["git", "ls-files", "-ci", "--exclude-standard"], cwd=root,
+                             capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.split(), [])
 
 
 if __name__ == "__main__":
