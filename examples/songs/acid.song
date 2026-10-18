@@ -36,7 +36,7 @@ track snare drums Tr808 Kit808
 samples kick roland-tr909
 samples hihat roland-tr909
 strip kick: Send2 0.41312042, I1Type Eq, I1B 0.65733, I2A 0.47837776, I2B 0.18373162, I2C 0.20857078
-strip snare: Solo 1, I1Type Eq, I1B 0.72130054, I1D 0.6339614, I1E 0.5934283
+strip snare: I1Type Eq, I1B 0.72130054, I1D 0.6339614, I1E 0.5934283
 master: MasterGain 0.88
 
 # n(irand(10).sub(7).seg(16)).scale("c:minor").rib(46,1): bar 46 of

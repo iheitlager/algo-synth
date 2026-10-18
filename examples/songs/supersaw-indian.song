@@ -35,6 +35,12 @@ track saw_a synth supersaw
 track saw_b synth supersaw
 track saw_c synth supersaw
 track saw_d synth supersaw
+track kick drums PadSampler
+samples kick roland-tr909
+strip kick: Level 0.9
+track hats drums PadSampler
+samples hats roland-tr909
+strip hats: Level 0.4
 
 clip run_a = saw_a .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
   "{-12..0}%5"
@@ -48,5 +54,16 @@ clip run_c = saw_c .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(
 clip run_d = saw_d .struct("x*16") .scale(c4 indian) .clip(0.1s) .lpf(sine.slow(8).range(200, 10000)) .sometimesBy(0.1, rev) .sometimesBy(0.3, jux(iter(16)))
   "{-12..5}%7"
 
-scene d1 16: run_a run_b run_c run_d
+# four to the floor on the 909's kick, claps on two and four
+clip floor = kick
+  bd x...x...x...x...
+  cp ....x.......x...
+
+# closed hat on the four beats, open hat on the off-beats between
+clip hat = hats
+  ch x...x...x...x...
+  oh ..x...x...x...x.
+
+scene d1 16: run_a run_b run_c run_d floor hat
 arrange d1
+loop 1 16
