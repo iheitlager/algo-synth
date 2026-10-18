@@ -1,16 +1,40 @@
-# Silver Box: acid in A minor on the TB-303 (#536), the way its lines are
-# made: sixteenths of one note with a few others, accents (!) that charge
-# the sweep so a run of them screams, and slides (&) that glide on one gate.
-# Cutoff, resonance, decay and accent each move on a lane of their own, as
-# hands on the four knobs would. Silver Box Modular plays the same song on a
-# SuperCollider SynthDef.
+# Silver Box: acid in A minor (#536), twice over. First the bass is a
+# SuperCollider SynthDef built from what the TB-303 is made of; then the
+# TB-303 model takes over the same lines and screams.
+#
+# A 303 line is sixteenths of one note with a few others, accents (!) that
+# charge the sweep so a run of them screams, and slides (&) that glide on one
+# gate. Cutoff, resonance, decay and accent each move on a lane of their own,
+# as hands on the four knobs would.
 tempo 126
 swing 54
 
+# The 303 as code: a saw through the 303's diode ladder (MoogFF with voicing:
+# \tb303), a decay that opens it, the VCA's long decay cut by the gate. A
+# song's ! plays at full velocity, so amp tells an accent from a plain note:
+# an accent opens the filter with the decay, charges a lagged sweep that a run
+# of accents stacks, and lifts the VCA. \freq.kr's lag is the slide, gliding
+# between legato notes on one voice. The arguments are the knobs, Ctl1 to
+# Ctl5 in order: cutoff, resonance (MoogFF's gain; its default is the top of
+# its range), env mod, decay and accent.
+setting acid = Modular ModularBasic: Polyphony 1, Legato 1
+  SynthDef(\acid, { |cutoff = 500, res = 4.4, envmod = 2500, decay = 0.25, accent = 3000, gate = 1, amp = 0.5|
+      var f, acc, env, sweep, vca, sig;
+      f = \freq.kr(110, 0.06);
+      acc = (amp - 0.4).max(0) * 10;
+      env = EnvGen.kr(Env.perc(0.003, decay), gate);
+      sweep = (env * acc).lag(0.5);
+      vca = EnvGen.kr(Env.adsr(0.003, 3, 0, 0.01), gate);
+      sig = MoogFF.ar(Saw.ar(f), (env * envmod) + (sweep * accent) + cutoff, res, voicing: \tb303, drive: 0.4);
+      sig * vca * (1 + (env * acc)) * 0.8
+  }).add;
+
 track kit drums Tr909 Kit909
+track modular synth acid
 track bass synth Tb303 Tb303Acid
 track high synth Tb303 Tb303Squelch
 
+strip modular: Level 0.9, I1Type Overdrive, I1A 0.25
 strip bass: Level 0.9, I1Type Overdrive, I1A 0.25
 strip high: Level 0.45, Pan 0.25, Send1 0.3
 
@@ -27,27 +51,43 @@ clip ride = kit /16
 clip fill = kit /16
   sn ................................................x.x.x.x.xxxxxxXX
 
-# The line: one A with accents on the off-beats and slides into the octave.
-clip line = bass
+# The modular section. The line: one A with accents on the off-beats and
+# slides into the octave.
+clip code_line = modular
   "a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1"
 # Its answer, every other bar.
+clip code_turn = modular
+  "<[a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1] [a1 ~ a1! c2 a1 e2& d2 a1! ~ a1 g2& f2 e2 c2! a1 ~]>"
+# Long notes for the break, so the knobs carry it.
+clip hold = modular
+  "<[a1*8] [c2*8] [d2*8] [e2*4 g2*4]>"
+
+# The 303 section: the answer again, on the model.
 clip turn = bass
   "<[a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1] [a1 ~ a1! c2 a1 e2& d2 a1! ~ a1 g2& f2 e2 c2! a1 ~]>"
 # Every note accented: the run that screams, each accent charging the
 # sweep further. Slid notes don't retrigger the envelope, so only a few.
 clip scream = bass
   "a1! a2! a1! c2! a1! e2!& a1! g2! a1! a2! a1! c2!& d2! c2! g1!& a1!"
-# Long notes for the break, so the knobs carry it.
-clip hold = bass
-  "<[a1*8] [c2*8] [d2*8] [e2*4 g2*4]>"
+clip line = bass
+  "a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1"
 # An octave up on the squelch, sparse, from the peak on.
 clip spark = high
   "~ ~ a3! ~ ~ e3& g3 ~ ~ ~ a3! ~ c4& a3 ~ ~"
 
+auto code_cut_low = modular.Ctl1 ramp 300 700 /8
+auto code_cut_open = modular.Ctl1 ramp 600 2400 /16
+auto code_cut_break = modular.Ctl1 ramp 250 3200 /8
+auto code_res_mid = modular.Ctl2 2.8 /8
+auto code_res_up = modular.Ctl2 ramp 2.8 4.4 /16
+auto code_res_top = modular.Ctl2 4.3 /8
+auto code_decay_short = modular.Ctl4 0.2 /8
+auto code_decay_long = modular.Ctl4 ramp 0.2 1.2 /8
+auto code_accent_up = modular.Ctl5 ramp 1500 4500 /16
+
 auto cut_low = bass.Cutoff ramp 300 700 /8
 auto cut_open = bass.Cutoff ramp 600 2400 /16
 auto cut_wild = bass.Cutoff 1800 900 2600 1200 /4
-auto cut_break = bass.Cutoff ramp 250 3200 /8
 auto res_mid = bass.Resonance 0.6 /8
 auto res_up = bass.Resonance ramp 0.6 0.92 /16
 auto res_top = bass.Resonance 0.9 /8
@@ -55,10 +95,11 @@ auto decay_short = bass.FenvDecay 0.2 /8
 auto decay_long = bass.FenvDecay ramp 0.2 1.2 /8
 auto accent_up = bass.Accent ramp 0.3 0.9 /16
 
-scene intro 8: kick hats line cut_low res_mid decay_short
-scene groove 16: beat hats turn fill cut_open res_up accent_up decay_short
-scene break 8: hats hold cut_break res_top decay_long
+scene intro 8: kick hats code_line code_cut_low code_res_mid code_decay_short
+scene groove 16: beat hats code_turn fill code_cut_open code_res_up code_accent_up code_decay_short
+scene break 8: hats hold code_cut_break code_res_top code_decay_long
+scene acid 16: beat hats turn fill cut_open res_up accent_up decay_short
 scene scream 8: beat ride scream fill cut_wild res_top decay_short
 scene peak 16: beat hats ride turn spark fill cut_wild res_top decay_long
 scene outro 8: kick hats line cut_low res_mid decay_short
-arrange intro groove break scream peak outro
+arrange intro groove break acid scream peak outro

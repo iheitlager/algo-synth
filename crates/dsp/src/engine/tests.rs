@@ -7001,7 +7001,7 @@ fn songs_loaded_in_turn_leave_no_mix_behind() {
         "chicago-loop",
         "on-the-run",
         "nes-dynamo",
-        "silver-box-modular",
+        "silver-box",
         "patch-bay",
     ] {
         assert_eq!(load_text(&mut e, &read(name)), Ok(()));
