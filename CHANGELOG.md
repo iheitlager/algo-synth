@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-10-18
+
+### Fixed
+
+- **Sample packs out of git:** the five pad and piano packs and their archives, fetched by `make samples` but committed since #123, are untracked, so a checkout or rebase no longer fights them; a tools test fails when a gitignored file is committed (#771).
+
 ## [0.48.0] - 2026-10-18
 
 ### Added
