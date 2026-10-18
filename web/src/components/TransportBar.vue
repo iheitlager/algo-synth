@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
-  clearAll, engineBuild, getEngine, loadDemo, meter, opened, openFiles, params, pauseSong, playSong, power, saveSong, song, songChanged, songPosition,
-  SCORES, SONGS, SOUNDS, status, stopSong, view,
+  clearAll, engineBuild, getEngine, meter, opened, openFiles, params, pauseSong, playSong, power, saveSong, song, songChanged, songPosition,
+  status, stopSong, view,
 } from '../audio/engine'
 import { canPick, isSongFile, pickOpen } from '../audio/songfile'
 import { bounce, cancelExport, exportWav, FORMATS } from '../audio/bounce'
@@ -70,15 +70,6 @@ function onExport(e: Event) {
   if (format) void exportWav(format)
 }
 
-// Loading a demo powers audio on, so start the scope.
-async function onDemo(e: Event) {
-  const select = e.target as HTMLSelectElement
-  const demo = [...SCORES, ...SONGS, ...SOUNDS].find((d) => d.file === select.value)
-  select.value = ''
-  if (!demo) return
-  await loadDemo(demo)
-  await onPower()
-}
 // A MIDI file, a setup (.synths.json), a song (.song), or several at once (#41, #105).
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
@@ -99,7 +90,9 @@ async function onPick() {
 const saveTitle = () =>
   !songChanged.value ? 'Nothing changed since the song was opened or saved'
   : picking && opened.name ? `Save the song into ${opened.name}`
-  : picking ? 'Save the song as a .song file' : 'Download the song as .song text'
+  : picking ? 'Save the song as a .song file'
+  // Without the File System Access API (Brave turns it off) Save can't write into the file it opened.
+  : 'Download the song as .song text; this browser cannot save into the opened file (Brave: enable brave://flags/#file-system-access-api)'
 
 // Which build is running (#197): the page's version and the engine's, with the commits in the details.
 const buildText = () => details(engineBuild)
@@ -150,18 +143,6 @@ const scene = computed(() => (song.entry >= 0 ? song.scenes[song.arrange[song.en
     <!-- The Spectral Lab (ADR-0017): its own window, with its own engine. -->
     <button title="Take a WAV apart and resynthesise it, in a window of its own" @click="openLab">Lab</button>
     <button title="Discard the song, the synths and the mix; start with one Modular synth" @click="onNew">New</button>
-    <select class="picker" aria-label="Load a demo" title="Load a demo: a score, an example song or a sound" @change="onDemo">
-      <option value="">Demo…</option>
-      <optgroup label="Scores">
-        <option v-for="d in SCORES" :key="d.file" :value="d.file">{{ d.name }}</option>
-      </optgroup>
-      <optgroup label="Songs">
-        <option v-for="d in SONGS" :key="d.file" :value="d.file">{{ d.name }}</option>
-      </optgroup>
-      <optgroup label="Sounds">
-        <option v-for="d in SOUNDS" :key="d.file" :value="d.file">{{ d.name }}</option>
-      </optgroup>
-    </select>
     <button v-if="picking" title="A MIDI file, its .synths.json setup, a .song, or several" @click="onPick">Open…</button>
     <label v-else class="file" title="A MIDI file, its .synths.json setup, a .song, or several">
       <input type="file" multiple accept=".mid,.midi,audio/midi,.json,application/json,.song" @change="onFile" />Open…

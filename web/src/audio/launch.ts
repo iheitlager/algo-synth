@@ -25,6 +25,7 @@ export type Action =
   | { kind: 'resume' }
   | { kind: 'cancel' }
   | { kind: 'transport' }
+  | { kind: 'bar'; by: -1 | 1 }
 
 interface Key {
   code: string
@@ -56,8 +57,16 @@ export function keyAction(e: Key): Action | null {
     case 'Backslash': return { kind: 'resume' }
     case 'Escape': return { kind: 'cancel' }
     case 'Space': return { kind: 'transport' }
+    case 'ArrowLeft': return { kind: 'bar', by: -1 }
+    case 'ArrowRight': return { kind: 'bar', by: 1 }
   }
   return null
+}
+
+/** The bar ← (−1) or → (+1) moves to from step `position` (−1 before the first), within `bars` when the song has a length. */
+export function stepBar(position: number, by: -1 | 1, bars: number): number {
+  const bar = Math.floor(Math.max(0, position) / 16) + by
+  return Math.max(0, bars > 0 ? Math.min(bars - 1, bar) : bar)
 }
 
 /** The next moment `[` (−1) or `]` (+1) chooses, stopping at the ends. */

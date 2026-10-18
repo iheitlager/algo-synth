@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-10-18
+
+### Added
+
+- **← → move a bar:** the arrow keys jump the playing song a bar back or on at once, from every view; not while typing (#775).
+
+### Changed
+
+- **Open only:** the Demo menu is gone; open an example from `examples/` with Open… (#775).
+- **Fewer example songs:** four-on-the-floor, dub-half-time, lucky-man-solo, nes-fortress and sid-three-voices are removed; the assistant's eval cases that started from them start from chicago-loop and dub-chank (#775).
+- **Save in Brave:** where the browser can't write into the opened file (Brave turns the File System Access API off), Save's tooltip says so and names the flag to turn it on (#775).
+- **One Silver Box:** silver-box and silver-box-modular are one song: the bass first as a SuperCollider SynthDef, then on the TB-303 model (#775).
+
+### Fixed
+
+- **No stray pad lines after another song:** a sampler song opened after a sampled-kit song (patch-bay, then strudel) no longer gets `pad` lines of its pack's samples, nor plays them on the old kit's pads; a cleared sample slot leaves the pads and zones that played it (#775).
+
 ## [0.48.1] - 2026-10-18
 
 ### Fixed
