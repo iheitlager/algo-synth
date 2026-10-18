@@ -51,7 +51,7 @@ clip ride = kit /16
 clip fill = kit /16
   sn ................................................x.x.x.x.xxxxxxXX
 
-# The modular section. The line: one A with accents on the off-beats and
+# On the SynthDef first. The line: one A with accents on the off-beats and
 # slides into the octave.
 clip code_line = modular
   "a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1"
@@ -62,7 +62,7 @@ clip code_turn = modular
 clip hold = modular
   "<[a1*8] [c2*8] [d2*8] [e2*4 g2*4]>"
 
-# The 303 section: the answer again, on the model.
+# Then on the TB-303: the answer again.
 clip turn = bass
   "<[a1! a1 a2& a1 ~ a1 c2! a1& d2 a1 ~ a2! g1& a1 e2!& a1] [a1 ~ a1! c2 a1 e2& d2 a1! ~ a1 g2& f2 e2 c2! a1 ~]>"
 # Every note accented: the run that screams, each accent charging the
