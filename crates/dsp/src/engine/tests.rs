@@ -4002,11 +4002,11 @@ fn a_noise_siren_is_seeded() {
     assert!(a.iter().flatten().all(|v| v.is_finite() && v.abs() <= 1.0));
 }
 
-/// The dub siren preset's panel leads with its nine controls, in order: mode
+/// The dub siren preset's panel leads with its ten controls, in order: mode
 /// a six-way switch, amount, rate, depth and sweep knobs, dir an up/down switch,
-/// rise and tone knobs, tail a switch (#777).
+/// rise and tone knobs, tail and chip switches (#777).
 #[test]
-fn the_dub_siren_panel_is_its_nine_controls() {
+fn the_dub_siren_panel_is_its_ten_controls() {
     let code = crate::mono::preset::Preset::ModularDubSiren
         .code()
         .expect("code");
@@ -4014,7 +4014,7 @@ fn the_dub_siren_panel_is_its_nine_controls() {
     let first: Vec<_> = p
         .knobs
         .iter()
-        .take(9)
+        .take(10)
         .map(|k| (k.name.as_str(), k.step, k.lo, k.hi))
         .collect();
     assert_eq!(
@@ -4029,6 +4029,7 @@ fn the_dub_siren_panel_is_its_nine_controls() {
             ("rise", 0.0, 0.0, 1.0),
             ("tone", 0.0, 0.0, 7000.0),
             ("tail", 1.0, 0.0, 1.0),
+            ("chip", 1.0, 0.0, 1.0),
         ]
     );
     let controls = p
@@ -4040,7 +4041,7 @@ fn the_dub_siren_panel_is_its_nine_controls() {
                 .is_some_and(|m| m.name == "Controls")
         })
         .count();
-    assert_eq!(controls, 9, "only the nine: the key is the pitch");
+    assert_eq!(controls, 10, "only the ten: the key is the pitch");
 }
 
 /// The dub siren sounds in all six modes, plays the key an `amount` away, and

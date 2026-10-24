@@ -6,7 +6,9 @@
 # rate (Hz), Ctl4 depth (the swing above the base, semitones), Ctl5 sweep (the
 # glide time when let go, s), Ctl6 dir (that glide 0 down, 1 up), Ctl7 rise (the
 # climb when pressed, s), Ctl8 tone (the low-pass, Hz), Ctl9 tail (0 the dive
-# that fades, 1 back to the base at full level, slowing into ticks).
+# that fades, 1 back to the base at full level, slowing into ticks), Ctl10 chip
+# (0 a 555: hard edges, its duty moving with the sweep; 1 the NJD transistor
+# pair: a 50% square, its rising edges rounded).
 tempo 76
 swing 50
 scale g minor
@@ -19,7 +21,7 @@ setting wailer = Modular ModularDubSiren: Ctl1 1, Ctl2 0, Ctl3 0.7, Ctl4 12, Ctl
 # the NJD clone: two transistor astables, a square LFO at its middle speed, a
 # second's climb as the cap charges, the dark RC output, and let go it falls
 # back to the base and slows into ticks as the cap drains
-setting njd = Modular ModularDubSiren: Ctl1 0, Ctl2 0, Ctl3 3.3, Ctl4 12, Ctl5 2.5, Ctl6 0, Ctl7 1, Ctl8 600, Ctl9 1
+setting njd = Modular ModularDubSiren: Ctl1 0, Ctl2 0, Ctl3 3.3, Ctl4 12, Ctl5 2.5, Ctl6 0, Ctl7 1, Ctl8 600, Ctl9 1, Ctl10 1
 # the effects: an octave either side of the key, a short tail, some rising
 setting updown = Modular ModularDubSiren: Ctl1 2, Ctl2 -12, Ctl3 2, Ctl4 24, Ctl5 0.4, Ctl6 1
 setting wail = Modular ModularDubSiren: Ctl1 1, Ctl2 -12, Ctl3 0.5, Ctl4 24, Ctl5 0.4, Ctl6 0

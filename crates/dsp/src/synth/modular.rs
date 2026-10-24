@@ -67,9 +67,13 @@ pub const DEF: ModelDef = ModelDef {
         // charging), tone the low-pass, and tail 1 its release: the swing
         // falls back to the base at full level while one half of the square
         // follows the cap, so the tone slows into ticks and stops.
+        // chip picks the oscillator: 0 a 555, hard edges and its duty
+        // stretched by the control pin, wide low and narrowing as it climbs;
+        // 1 the NJD's transistor pair, a 50% square whose rising edges the
+        // collector's 4k7 into 10nF (47 µs) rounds into a shark fin.
         PresetDef {
             code: Some(
-                "SynthDef(\\dubsiren, { |freq = 440, gate = 1, mode = 0, amount = -12, rate = 6, depth = 19, sweep = 1.25, dir = 0, rise = 0.01, tone = 3500, tail = 0|\n    var lfo = Select.kr(mode, [LFPulse.kr(rate).range(-1, 1), LFTri.kr(rate), LFSaw.kr(rate), LFSaw.kr(rate).neg, LFNoise0.kr(rate), LFNoise1.kr(rate)]);\n    var env = EnvGen.kr(Env.asr(rise, 1, sweep), gate);\n    var glide = Select.kr(tail, [env.range(Select.kr(dir, [-24, 24]), 0), 0]);\n    var swing = lfo.range(0, depth) * Select.kr(tail, [1, env]);\n    var cap = Select.kr(tail, [1, env.max(0.001)]);\n    var pitch = freq * (amount + swing + glide).midiratio * 2 * cap / (1 + cap);\n    var sig = LPF.ar(Pulse.ar(pitch, Select.kr(tail, [0.6, cap / (1 + cap)])), tone);\n    Select.ar(tail, [sig * env, LeakDC.ar(sig) * (env * 1000).min(1)])\n}).add;\n",
+                "SynthDef(\\dubsiren, { |freq = 440, gate = 1, mode = 0, amount = -12, rate = 6, depth = 19, sweep = 1.25, dir = 0, rise = 0.01, tone = 3500, tail = 0, chip = 0|\n    var lfo = Select.kr(mode, [LFPulse.kr(rate).range(-1, 1), LFTri.kr(rate), LFSaw.kr(rate), LFSaw.kr(rate).neg, LFNoise0.kr(rate), LFNoise1.kr(rate)]);\n    var env = EnvGen.kr(Env.asr(rise, 1, sweep), gate);\n    var glide = Select.kr(tail, [env.range(Select.kr(dir, [-24, 24]), 0), 0]);\n    var swing = lfo.range(0, depth) * Select.kr(tail, [1, env]);\n    var cap = Select.kr(tail, [1, env.max(0.001)]);\n    var pitch = freq * (amount + swing + glide).midiratio * 2 * cap / (1 + cap);\n    var duty = Select.kr(chip, [(0.6 - ((swing + glide) * 0.01)).clip(0.5, 0.9), 0.5]);\n    var sq = Pulse.ar(pitch, Select.kr(tail, [duty, cap / (1 + cap)]));\n    var sig = LPF.ar(Select.ar(chip, [sq, sq.min(LPF.ar(sq, 3400))]), tone);\n    Select.ar(tail, [sig * env, LeakDC.ar(sig) * (env * 1000).min(1)])\n}).add;\n",
             ),
             ..PresetDef::of(Preset::ModularDubSiren, &[(Polyphony, 1.0)])
         },
