@@ -939,6 +939,7 @@ export const Preset = {
   VlFlute: 120,
   VlGuitar: 121,
   VlKit: 122,
+  ModularFmDrum: 123,
 } as const
 export type PresetId = (typeof Preset)[keyof typeof Preset]
 

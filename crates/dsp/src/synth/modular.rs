@@ -77,6 +77,18 @@ pub const DEF: ModelDef = ModelDef {
             ),
             ..PresetDef::of(Preset::ModularDubSiren, &[(Polyphony, 1.0)])
         },
+        // Moritz Klein's FM drum (MKI x ES.EDU, #779): the key is VCO1, the
+        // carrier; VCO2 a ratio of it, its triangle FMs VCO1 exponentially by
+        // fm semitones; a pitch envelope lifts both by depth over pdecay.
+        // wave 0 is the diodes rounding VCO1's triangle into a sine, driven
+        // harder for the first ms of the hit; 1 VCO1's pulse ring-modulated
+        // by VCO2 through the high-pass. The velocity is the accent.
+        PresetDef {
+            code: Some(
+                "SynthDef(\\fmdrum, { |freq = 110, amp = 0.5, ratio = 1.5, fm = 18, depth = 24, pdecay = 0.08, decay = 0.5, wave = 0, drive = 3|\n    var hit = Env.perc(0.001, pdecay).kr * depth;\n    var mod = LFTri.ar(freq * ratio * hit.midiratio);\n    var car = freq * (hit + (mod * fm)).midiratio;\n    var sine = (LFTri.ar(car) * (1.5 + (Env.perc(0.0005, 0.005).kr * drive * amp * 2))).softclip;\n    var ring = HPF.ar(Pulse.ar(car) * mod, 7000) * 2;\n    Select.ar(wave, [sine, ring]) * Env.perc(0.001, decay).kr * amp\n}).add;\n",
+            ),
+            ..PresetDef::of(Preset::ModularFmDrum, &[(Polyphony, 4.0)])
+        },
     ],
     ..ModelDef::MONO
 };
