@@ -1071,7 +1071,7 @@ arrange a b
 #[test]
 fn the_example_songs_parse_and_print_back() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for (dir, want) in [("songs", 31), ("sounds", 9)] {
+    for (dir, want) in [("songs", 31), ("sounds", 10)] {
         let mut seen = 0;
         for entry in std::fs::read_dir(root.join(dir)).expect("examples dir") {
             let path = entry.expect("entry").path();

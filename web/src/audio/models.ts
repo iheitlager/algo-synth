@@ -1301,7 +1301,7 @@ const modular: ModelDef = {
   maker: 'algo-synth · a SuperCollider SynthDef',
   tagline: 'Oscillators, filters, envelopes, delays and reverb, written as a SynthDef and played per note',
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
-  presets: ['ModularBasic', 'ModularHoover', 'ModularKick', 'ModularSid', 'ModularDubSiren'],
+  presets: ['ModularBasic', 'ModularHoover', 'ModularKick', 'ModularSid', 'ModularDubSiren', 'ModularFmDrum'],
   sections: [
     // The code's amplitude envelope when it writes one out, else the voice's own ADSR.
     { title: 'Amplifier envelope', panelEnv: true, controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },

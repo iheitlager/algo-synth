@@ -1,0 +1,48 @@
+# FM drum (#779): Moritz Klein's FM drum (MKI x ES.EDU) as the ModularFmDrum
+# preset, one box tuned five ways into a kit. The key is VCO1, the carrier;
+# the velocity is the accent, louder and harder on the hit.
+# The panel: Ctl1 amp, Ctl2 ratio (VCO2 as a ratio of VCO1), Ctl3 fm (how far
+# VCO2 swings VCO1, semitones), Ctl4 depth (the pitch envelope, semitones),
+# Ctl5 pdecay (its fall, s), Ctl6 decay (the VCA's, s), Ctl7 wave (0 the
+# diode-rounded sine, 1 the ring mod through the high-pass), Ctl8 drive (the
+# distortion on the hit).
+tempo 120
+swing 54
+scale a minor
+
+# sine: a deep kick, a tom, a snare from a wide clanging FM
+setting kick = Modular ModularFmDrum: Ctl2 1.5, Ctl3 6, Ctl4 30, Ctl5 0.05, Ctl6 0.45, Ctl7 0, Ctl8 4
+setting tom = Modular ModularFmDrum: Ctl2 1.5, Ctl3 12, Ctl4 12, Ctl5 0.1, Ctl6 0.3, Ctl7 0, Ctl8 2
+setting snare = Modular ModularFmDrum: Ctl2 2.7, Ctl3 36, Ctl4 12, Ctl5 0.03, Ctl6 0.18, Ctl7 0, Ctl8 6
+# pulse: the ring mod, a closed hat and a metal bell
+setting hat = Modular ModularFmDrum: Ctl2 2.9, Ctl3 24, Ctl4 0, Ctl6 0.06, Ctl7 1
+setting metal = Modular ModularFmDrum: Ctl2 1.41, Ctl3 6, Ctl4 0, Ctl6 0.8, Ctl7 1
+
+track kick synth kick
+track tom synth tom
+track snare synth snare
+track hat synth hat
+track metal synth metal
+
+strip kick: Level 0.9
+strip tom: Level 0.7, Pan -0.3
+strip snare: Level 0.7, Pan 0.1
+strip hat: Level 0.6, Pan 0.3, Send2 0.1
+strip metal: Level 0.5, Pan -0.2, Send1 0.3, Send2 0.3
+
+clip kicks = kick
+  "a1 ~ ~ a1 ~ ~ a1 ~"
+clip toms = tom
+  "~ ~ ~ ~ ~ [a2 e2] ~ c2"
+clip snares = snare
+  "~ ~ d3 ~ ~ ~ d3 ~"
+clip hats = hat
+  "a5 a5 a5 a5 a5 a5 a5 [a5 a5]"
+clip bells = metal
+  "e5 ~ ~ ~ ~ ~ ~ ~"
+
+scene kick_only 2: kicks
+scene groove 4: kicks snares hats
+scene fill 2: kicks snares hats toms
+scene metal 4: kicks snares hats bells
+arrange kick_only groove fill groove metal

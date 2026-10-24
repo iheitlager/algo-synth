@@ -136,11 +136,12 @@ pub enum Preset {
     VlFlute = 120,
     VlGuitar = 121,
     VlKit = 122,
+    ModularFmDrum = 123,
 }
 
 impl Preset {
     /// Every preset with the name the TypeScript mirror uses.
-    pub const ALL: [(Preset, &'static str); 123] = [
+    pub const ALL: [(Preset, &'static str); 124] = [
         (Preset::Bass, "Bass"),
         (Preset::Lead, "Lead"),
         (Preset::SyncLead, "SyncLead"),
@@ -264,6 +265,7 @@ impl Preset {
         (Preset::VlFlute, "VlFlute"),
         (Preset::VlGuitar, "VlGuitar"),
         (Preset::VlKit, "VlKit"),
+        (Preset::ModularFmDrum, "ModularFmDrum"),
     ];
 
     /// The preset for a raw id, or `None` for an unknown one.
@@ -1106,7 +1108,7 @@ mod tests {
 
     #[test]
     fn unknown_ids_are_none() {
-        assert_eq!(Preset::from_id(123), None);
+        assert_eq!(Preset::from_id(124), None);
     }
 
     /// A four-note chord at the default master gain stays bounded: the voices
