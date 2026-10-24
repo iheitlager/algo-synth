@@ -1,0 +1,48 @@
+# Atari Punk (#781): Forrest Mims' Stepped Tone Generator, the 556 box, as the
+# ModularPunk preset and played like a synth. The key is the astable; the
+# one-shot it triggers divides it into undertones (1, 1/2, 1/3...), in tune.
+# The panel: Ctl1 width (the one-shot's pot, 0..1; the mod wheel turns it on
+# to the end), Ctl2 track (1 the same steps on every key; 0 the real box, a
+# fixed 0..55 ms pulse, so higher keys divide further), Ctl3 chip (0 the 556,
+# a pulse half the period at least; 1 transistors, thin and rounded), Ctl4
+# glide (the slide between legato keys, when assigned mono).
+# Assign picks the voices: 0 poly, 1 unison (a stack), 2 mono.
+tempo 132
+swing 50
+scale a minor
+
+# mono: one voice, sliding between keys, the width swept by its auto
+setting lead = Modular ModularPunk: Assign 2, Ctl1 0.45, Ctl2 1, Ctl3 0, Ctl4 0.08, AdsrRelease 0.08
+# poly: chords a third of the key down, thin transistor pulses
+setting chords = Modular ModularPunk: Assign 0, Ctl1 0.68, Ctl2 1, Ctl3 1, AdsrAttack 0.01, AdsrRelease 0.4
+# unison: four voices stacked on one key an octave down, spread
+setting stack = Modular ModularPunk: Assign 1, Polyphony 4, UnisonDetune 0.3, Ctl1 0.55, Ctl2 1, Ctl3 0, AdsrRelease 0.1
+# the real box: a fixed pulse, so the bass line steps unevenly
+setting box = Modular ModularPunk: Assign 2, Ctl1 0.5, Ctl2 0, Ctl3 0, Ctl4 0, AdsrRelease 0.05
+
+track lead synth lead
+track chords synth chords
+track stack synth stack
+track box synth box
+
+strip lead: Level 0.7, Pan 0.1, Send1 0.2
+strip chords: Level 0.5, Pan -0.3, Send2 0.25
+strip stack: Level 0.6, Pan 0.2
+strip box: Level 0.6
+
+clip riff = lead
+  "a4 c5 e5 [d5 c5] a4 ~ g4 [a4 c5]"
+clip pads = chords
+  "[a4,c5,e5] ~ ~ ~ [f4,a4,c5] ~ [g4,b4,d5] ~"
+clip stab = stack
+  "a3 ~ a3 ~ e3 ~ g3 ~"
+clip bass = box
+  "a2 a2 ~ c3 ~ e2 g2 ~"
+
+auto sweep = lead.Ctl1 ramp 0.4 0.8 /8
+
+scene box_only 2: bass
+scene riff 4: bass riff
+scene swept 4: bass riff sweep
+scene full 4: bass riff pads stab
+arrange box_only riff swept full riff

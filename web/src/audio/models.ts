@@ -386,7 +386,8 @@ const proOne: ModelDef = {
 }
 
 /** What every polyphonic model has: how notes are assigned, the unison spread and the vintage drift. */
-const ASSIGN: Options = [['Poly', 0], ['Unison', 1]]
+// Mono plays one voice whatever the polyphony (#781); Unison stacks them all on the key.
+const ASSIGN: Options = [['Poly', 0], ['Mono', 2], ['Unison', 1]]
 const voicesSection = (): Section => ({
   title: 'Voices',
   controls: [select('Assign', Param.Assign, ASSIGN), range('Unison detune', Param.UnisonDetune, 0, 1, 0.01), range('Vintage', Param.Analog, 0, 1, 0.01)],
@@ -1301,7 +1302,7 @@ const modular: ModelDef = {
   maker: 'algo-synth · a SuperCollider SynthDef',
   tagline: 'Oscillators, filters, envelopes, delays and reverb, written as a SynthDef and played per note',
   theme: { panel: '#20252d', ink: '#e9e4d6', soft: '#8a93a0', trim: '#0d0f13', accent: '#f0b03a' },
-  presets: ['ModularBasic', 'ModularHoover', 'ModularKick', 'ModularSid', 'ModularDubSiren', 'ModularFmDrum'],
+  presets: ['ModularBasic', 'ModularHoover', 'ModularKick', 'ModularSid', 'ModularDubSiren', 'ModularFmDrum', 'ModularPunk'],
   sections: [
     // The code's amplitude envelope when it writes one out, else the voice's own ADSR.
     { title: 'Amplifier envelope', panelEnv: true, controls: [envelope('', Param.AdsrAttack, Param.AdsrDecay, Param.AdsrSustain, Param.AdsrRelease)] },
@@ -1309,6 +1310,7 @@ const modular: ModelDef = {
     // Beside the code and as tall, so a change to the SynthDef shows in the sound as it is typed.
     { title: 'Spectrum', fill: true, controls: [{ kind: 'spectrum' }] },
     { title: 'Knobs', wide: true, controls: [{ kind: 'knobs' }] },
+    voicesSection(),
   ],
 }
 

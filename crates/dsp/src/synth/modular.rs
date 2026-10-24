@@ -89,6 +89,36 @@ pub const DEF: ModelDef = ModelDef {
             ),
             ..PresetDef::of(Preset::ModularFmDrum, &[(Polyphony, 4.0)])
         },
+        // The Atari Punk Console (Forrest Mims' Stepped Tone Generator, a
+        // 556, #781), played as a synth: the key is the astable's pot, and
+        // the one-shot it triggers ignores the edges while it runs, so it
+        // sounds the key divided by n = floor(w) + 1, w its pulse in the
+        // key's periods: the undertones, always in tune with the key. width
+        // is the one-shot's pot (a cubed taper, the mod wheel turns it on
+        // to the end): track 1 makes it 8 periods of the key at most, the
+        // same steps on every key; 0 the real 0..55 ms (500k into 0.1 µF),
+        // so a higher key divides further. chip 0 the 556: the astable's
+        // output holds the trigger low through its low half, 0.5 minus
+        // f / 288 kHz with 1k over the pot into 10 nF, so the one-shot's
+        // pulse is that wide at least; 1 transistors: the trigger through
+        // a coupling cap fires on the edge only, so the pulse goes thin,
+        // and the collector's 47 µs rounds the rising edges (#777). glide
+        // is the key's lag, sliding from one legato note to the next when
+        // the synth is assigned mono.
+        PresetDef {
+            code: Some(
+                "SynthDef(\\punk, { |gate = 1, width = 0.45, track = 1, chip = 0, glide = 0.05, modwheel = 0|\n    var freq = \\freq.kr(440, glide);\n    var pot = (width + (modwheel * (1 - width))).cubed;\n    var w = Select.kr(track, [pot * 0.055 * freq, pot * 8]);\n    var n = w.floor + 1;\n    var low = Select.kr(chip, [0.5 - (freq / 288000), 0]);\n    var sq = Pulse.ar(freq / n, (w.max(low) / n).clip(0.02, 0.98));\n    LeakDC.ar(Select.ar(chip, [sq, sq.min(LPF.ar(sq, 3400))])) * 0.6\n}).add;\n",
+            ),
+            ..PresetDef::of(
+                Preset::ModularPunk,
+                &[
+                    (Polyphony, 8.0),
+                    (AdsrAttack, 0.002),
+                    (AdsrSustain, 1.0),
+                    (AdsrRelease, 0.15),
+                ],
+            )
+        },
     ],
     ..ModelDef::MONO
 };

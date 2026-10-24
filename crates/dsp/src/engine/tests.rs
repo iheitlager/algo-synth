@@ -4087,6 +4087,127 @@ fn the_dub_siren_sweeps_down_or_up() {
     );
 }
 
+/// The punk console's panel is its four controls: width a knob 0..1, track
+/// and chip switches, glide; the key is the astable, the mod wheel not a
+/// knob (#781).
+#[test]
+fn the_punk_panel_is_its_four_controls() {
+    let code = crate::mono::preset::Preset::ModularPunk
+        .code()
+        .expect("code");
+    let p = crate::modular::sc::compile(code).expect("it builds");
+    let controls: Vec<_> = p
+        .knobs
+        .iter()
+        .filter(|k| {
+            p.modules
+                .get(k.module)
+                .is_some_and(|m| m.name == "Controls")
+        })
+        .map(|k| (k.name.as_str(), k.step, k.lo, k.hi))
+        .collect();
+    assert_eq!(
+        controls,
+        [
+            ("width", 0.0, 0.0, 1.0),
+            ("track", 1.0, 0.0, 1.0),
+            ("chip", 1.0, 0.0, 1.0),
+            ("glide", 0.0, 0.0, 1.0),
+        ]
+    );
+}
+
+/// Assigned mono, the punk console slides from one held key to the next by
+/// its glide; with none it jumps (#781).
+#[test]
+fn the_punk_console_glides_when_mono() {
+    let ctl = |i| Param::ctl_param(i).expect("ctl");
+    let early = |glide: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularPunk);
+        e.set_param(0, Param::Assign, 2.0);
+        e.set_param(0, ctl(3), glide);
+        e.note_on(0, 45, 1.0);
+        left_of(&mut e, 0.3);
+        e.note_on(0, 69, 1.0);
+        let out = left_of(&mut e, 0.05);
+        assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+        ups(&out) as f32 / 0.05
+    };
+    let (jump, slide) = (early(0.0), early(0.8));
+    assert!(jump > 400.0, "no glide: at 440 Hz at once ({jump})");
+    assert!(slide < 250.0, "a glide: still low ({slide})");
+}
+
+/// The punk console sounds the key divided by n = floor(w) + 1: tracked, the
+/// same step on every key; untracked, a fixed pulse divides a higher key
+/// further; the mod wheel turns width on to the end (#781).
+#[test]
+fn the_punk_console_steps_down_from_the_key() {
+    let ctl = |i| Param::ctl_param(i).expect("ctl");
+    let hz = |note: u8, width: f32, track: f32, wheel: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularPunk);
+        e.set_param(0, ctl(0), width);
+        e.set_param(0, ctl(1), track);
+        e.set_param(0, Param::ModWheel, wheel);
+        e.note_on(0, note, 1.0);
+        let out = left_of(&mut e, 1.0);
+        assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+        assert!(
+            level(&out[4800..]) > 0.02,
+            "it sounds: {note} {width} {track} {wheel} {}",
+            level(&out[4800..])
+        );
+        // Crossings of the middle of the swing: a long pulse's ripple
+        // crosses zero once the DC is out.
+        let tail = &out[24_000..];
+        let (lo, hi) = tail
+            .iter()
+            .fold((0.0_f32, 0.0_f32), |(l, h), v| (l.min(*v), h.max(*v)));
+        let mid: Vec<f32> = tail.iter().map(|v| v - (lo + hi) / 2.0).collect();
+        ups(&mid) as f32 * 2.0
+    };
+    let near = |got: f32, want: f32| (got - want).abs() < want * 0.02 + 2.0;
+    // w = 8 width³: 0.729 at the default, the key itself; 2.5 at 0.6786.
+    let at = |w: f32| (w / 8.0).cbrt();
+    assert!(near(hz(69, 0.45, 1.0, 0.0), 440.0), "the key");
+    let a = hz(69, at(2.5), 1.0, 0.0);
+    let b = hz(81, at(2.5), 1.0, 0.0);
+    assert!(near(a, 440.0 / 3.0), "a third: {a}");
+    assert!(near(b, 880.0 / 3.0), "a third an octave up: {b}");
+    // Untracked, 55 ms x 0.45³ = 5 ms: 2.2 periods of 440 Hz, 4.4 of 880.
+    let a = hz(69, 0.45, 0.0, 0.0);
+    let b = hz(81, 0.45, 0.0, 0.0);
+    assert!(near(a, 440.0 / 3.0), "440 / 3: {a}");
+    assert!(near(b, 880.0 / 5.0), "880 / 5: {b}");
+    // The wheel full turns the pot to its end, 8 periods: n = 9.
+    let w = hz(69, 0.45, 1.0, 1.0);
+    assert!(near(w, 440.0 / 9.0), "the wheel steps down: {w}");
+}
+
+/// The 556's trigger is held through the astable's low half, so its pulse is
+/// half the period at least; the transistors' coupled trigger lets it go thin
+/// (#781).
+#[test]
+fn the_punk_chips_differ_in_how_thin_the_pulse_goes() {
+    let ctl = |i| Param::ctl_param(i).expect("ctl");
+    let duty = |chip: f32| {
+        let mut e = Engine::new(48_000.0);
+        e.preset(0, crate::mono::preset::Preset::ModularPunk);
+        e.set_param(0, ctl(0), 0.25);
+        e.set_param(0, ctl(2), chip);
+        e.note_on(0, 57, 1.0);
+        let out = left_of(&mut e, 0.5);
+        assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+        let tail = &out[12_000..];
+        tail.iter().filter(|v| **v > 0.0).count() as f32 / tail.len() as f32
+    };
+    let (ic, transistors) = (duty(0.0), duty(1.0));
+    assert!((ic - 0.5).abs() < 0.05, "the 556 at half: {ic}");
+    assert!(transistors < 0.25, "the transistors thin: {transistors}");
+}
+
 /// #216's acceptance: the gabber kick falls in pitch, is driven square, ends
 /// by itself and renders the same twice.
 #[test]

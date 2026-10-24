@@ -1597,6 +1597,27 @@ mod tests {
         assert_eq!(r.held(), vec![64, 64, 64, 64]);
     }
 
+    /// #781: `Assign` mono plays one voice whatever `Polyphony` says, falling
+    /// back to the key still held as `Polyphony` 1 does.
+    #[test]
+    fn assign_mono_plays_one_voice() {
+        use crate::params::Param;
+        let mut r = Rig::new(6.0);
+        r.params.set(Param::Assign, 2.0);
+        r.on(LIVE, 60);
+        r.on(LIVE, 64);
+        r.run(4);
+        assert_eq!(r.pool.active(), 1, "one voice");
+        let note = |r: &Rig| r.pool.voice(LIVE).map(|v| v.note());
+        assert_eq!(note(&r), Some(64), "the last key");
+        r.off(LIVE, 64);
+        r.run(2);
+        assert_eq!(note(&r), Some(60), "back to the key still down");
+        r.params.set(Param::Assign, 0.0);
+        r.on(LIVE, 67);
+        assert_eq!(r.held().len(), 2, "poly again");
+    }
+
     /// Spec 006 Req 3: `Analog` gives each voice its own bounded offsets, the same
     /// every time, and 0 is exact.
     #[test]
