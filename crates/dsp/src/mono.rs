@@ -45,8 +45,10 @@ pub struct MonoParams {
     pub model: Model,
     /// Voices the synth plays at once (spec 006): 1 is monophonic.
     pub polyphony: usize,
-    /// Unison assignment, its detune spread in cents either side, and the analog variance.
+    /// Unison or mono assignment, the unison's detune spread in cents either
+    /// side, and the analog variance.
     pub unison: bool,
+    pub mono: bool,
     pub unison_cents: f32,
     pub analog: f32,
     /// The whole instrument off tune, in cents (#21).
@@ -207,8 +209,12 @@ impl MonoParams {
         self.model.def().env_at(self.env_rev)
     }
 
-    /// The voices this synth plays at once: `Polyphony`, at most its model's.
+    /// The voices this synth plays at once: `Polyphony`, at most its model's;
+    /// one when assigned mono (#781).
     pub fn voices(&self) -> usize {
+        if self.mono {
+            return 1;
+        }
         let most = if self.model.uses_graph() {
             self.model.voices().min(self.graph_cap)
         } else {
@@ -229,6 +235,7 @@ impl MonoParams {
             model: Model::Arp2600,
             polyphony: 1,
             unison: false,
+            mono: false,
             unison_cents: 0.0,
             analog: 0.0,
             detune: 0.0,
@@ -591,7 +598,10 @@ impl MonoParams {
             | Param::EqHighFreq
             | Param::EqHighGain => {}
             Param::Polyphony => self.polyphony = v.round().max(1.0) as usize,
-            Param::Assign => self.unison = v >= 0.5,
+            Param::Assign => {
+                self.unison = (0.5..1.5).contains(&v);
+                self.mono = v >= 1.5;
+            }
             Param::UnisonDetune => self.unison_cents = 50.0 * v,
             Param::Analog => self.analog = v,
             Param::Detune => self.detune = v,

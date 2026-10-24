@@ -315,7 +315,7 @@ pub enum Param {
     /// owner, with note priority and glide), more press each note on a voice.
     Polyphony = 153,
     /// How a poly synth assigns notes: 0 poly (a voice per note), 1 unison (every
-    /// voice plays the last note).
+    /// voice plays the last note), 2 mono (one voice, as `Polyphony` 1, #781).
     Assign = 154,
     /// Unison detune spread, 0..=1: 0 to ±50 cents across the voices.
     UnisonDetune = 155,
@@ -2333,7 +2333,7 @@ impl Param {
             Param::Polyphony => (1.0, 16.0),
             Param::Detune => (-50.0, 50.0),
             Param::Humanize => (0.0, 30.0),
-            Param::Assign => (0.0, 1.0),
+            Param::Assign => (0.0, 2.0),
             Param::ChorusMode => (0.0, 3.0),
             Param::XMod | Param::Slope => (0.0, 1.0),
             Param::FilterRev | Param::VcoRev | Param::EnvRev => (1.0, 3.0),
