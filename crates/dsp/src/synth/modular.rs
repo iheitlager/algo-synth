@@ -63,9 +63,13 @@ pub const DEF: ModelDef = ModelDef {
         // amount sets the base in semitones from the key, rate and depth the
         // LFO's speed and swing above it, and on release the pitch glides two
         // octaves down or up (dir) over sweep seconds as it fades.
+        // The NJD clone's ways (#777): rise is the press's climb (the cap
+        // charging), tone the low-pass, and tail 1 its release: the swing
+        // falls back to the base at full level while one half of the square
+        // follows the cap, so the tone slows into ticks and stops.
         PresetDef {
             code: Some(
-                "SynthDef(\\dubsiren, { |freq = 440, gate = 1, mode = 0, amount = -12, rate = 6, depth = 19, sweep = 1.5, dir = 0|\n    var lfo = Select.kr(mode, [LFPulse.kr(rate).range(-1, 1), LFTri.kr(rate), LFSaw.kr(rate), LFSaw.kr(rate).neg, LFNoise0.kr(rate), LFNoise1.kr(rate)]);\n    var env = EnvGen.kr(Env.asr(releaseTime: sweep), gate);\n    var glide = env.range(Select.kr(dir, [-24, 24]), 0);\n    var sig = LPF.ar(Pulse.ar(freq * (lfo.range(amount, amount + depth) + glide).midiratio, 0.6), 3500);\n    sig * env\n}).add;\n",
+                "SynthDef(\\dubsiren, { |freq = 440, gate = 1, mode = 0, amount = -12, rate = 6, depth = 19, sweep = 1.25, dir = 0, rise = 0.01, tone = 3500, tail = 0|\n    var lfo = Select.kr(mode, [LFPulse.kr(rate).range(-1, 1), LFTri.kr(rate), LFSaw.kr(rate), LFSaw.kr(rate).neg, LFNoise0.kr(rate), LFNoise1.kr(rate)]);\n    var env = EnvGen.kr(Env.asr(rise, 1, sweep), gate);\n    var glide = Select.kr(tail, [env.range(Select.kr(dir, [-24, 24]), 0), 0]);\n    var swing = lfo.range(0, depth) * Select.kr(tail, [1, env]);\n    var cap = Select.kr(tail, [1, env.max(0.001)]);\n    var pitch = freq * (amount + swing + glide).midiratio * 2 * cap / (1 + cap);\n    var sig = LPF.ar(Pulse.ar(pitch, Select.kr(tail, [0.6, cap / (1 + cap)])), tone);\n    Select.ar(tail, [sig * env, LeakDC.ar(sig) * (env * 1000).min(1)])\n}).add;\n",
             ),
             ..PresetDef::of(Preset::ModularDubSiren, &[(Polyphony, 1.0)])
         },
