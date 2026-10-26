@@ -8212,3 +8212,92 @@ fn drum_machine_kicks_peak_near_minus_18_db() {
         assert!((db + 18.0).abs() <= 1.0, "{kit}: {db:.1} dB");
     }
 }
+
+/// The hi-hat's panel is the box's: amp (the accent), decay, tone and
+/// drive, each a knob; the key is TUNE (#783).
+#[test]
+fn the_hihat_panel_is_its_four_controls() {
+    let code = crate::mono::preset::Preset::ModularHihat
+        .code()
+        .expect("code");
+    let p = crate::modular::sc::compile(code).expect("it builds");
+    let controls: Vec<_> = p
+        .knobs
+        .iter()
+        .filter(|k| {
+            p.modules
+                .get(k.module)
+                .is_some_and(|m| m.name == "Controls")
+        })
+        .map(|k| k.name.as_str())
+        .collect();
+    assert_eq!(controls, ["amp", "decay", "tone", "drive"]);
+}
+
+/// One hit of the hi-hat at C4 with its decay, tone and drive: the left
+/// channel for 0.6 s, finite and bounded.
+fn hihat_hit(decay: f32, tone: f32, drive: f32) -> Vec<f32> {
+    let ctl = |i| Param::ctl_param(i).expect("ctl");
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularHihat);
+    e.set_param(0, ctl(1), decay);
+    e.set_param(0, ctl(2), tone);
+    e.set_param(0, ctl(3), drive);
+    e.note_on(0, 60, 1.0);
+    let out = left_of(&mut e, 0.6);
+    assert!(out.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+    out
+}
+
+/// TONE moves the band-pass down from about 7 kHz to about 4.5 kHz: the
+/// hit's zero crossings follow it (#783).
+#[test]
+fn the_hihat_tone_moves_its_band() {
+    let centre = |tone| {
+        let out = hihat_hit(0.25, tone, 0.5);
+        let early = &out[..4_800];
+        early
+            .windows(2)
+            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+            .count() as f32
+            / 0.1
+            / 2.0
+    };
+    let (bright, dark) = (centre(0.0), centre(1.0));
+    assert!((6_000.0..8_500.0).contains(&bright), "tone 0: {bright} Hz");
+    assert!((3_800.0..5_200.0).contains(&dark), "tone 1: {dark} Hz");
+}
+
+/// DECAY is the hat's length: closed short, open long, and it is heard
+/// (#783).
+#[test]
+fn the_hihat_decay_is_closed_or_open() {
+    let tail = |decay| {
+        let out = hihat_hit(decay, 0.5, 0.5);
+        let peak = out.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        assert!(peak > 0.2, "heard: {peak}");
+        out.iter()
+            .rposition(|v| v.abs() > peak * 0.001)
+            .unwrap_or(0) as f32
+            / 48_000.0
+    };
+    let (closed, open) = (tail(0.05), tail(0.8));
+    assert!(closed < 0.08, "closed: {closed} s");
+    assert!(open > 0.4, "open: {open} s");
+}
+
+/// Turned all the way, accent and drive full and the band at its
+/// loudest, the hi-hat stays under full scale (#783).
+#[test]
+fn the_hihat_stays_bounded_turned_up() {
+    let ctl = |i| Param::ctl_param(i).expect("ctl");
+    let mut e = Engine::new(48_000.0);
+    e.preset(0, crate::mono::preset::Preset::ModularHihat);
+    e.set_param(0, ctl(0), 1.0);
+    e.set_param(0, ctl(2), 1.0);
+    e.set_param(0, ctl(3), 1.0);
+    e.note_on(0, 60, 1.0);
+    let out = left_of(&mut e, 0.3);
+    let peak = out.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+    assert!(peak.is_finite() && peak < 1.0, "peak {peak}");
+}

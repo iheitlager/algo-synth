@@ -30,7 +30,7 @@ SuperCollider SynthDef), `Sid` (the C64's chip), `Nes` (the NES's 2A03; with
 through its DMC), `VlTone` (the Casio VL-1; with `VlKit` its
 drums Po, Pi and Sha). Presets are factory names, as `MiniBass`,
 `AcidBass`, `Tb303Acid`, `JunoPad`, `Kit909`; `Modular` has `ModularBasic`,
-`ModularHoover`, `ModularKick`, `ModularSid`, `ModularDubSiren`, `ModularFmDrum`, `ModularPunk`; `Sid` has `SidLead`, `SidBass`,
+`ModularHoover`, `ModularKick`, `ModularSid`, `ModularDubSiren`, `ModularFmDrum`, `ModularPunk`, `ModularHihat`; `Sid` has `SidLead`, `SidBass`,
 `SidArp`, `SidSync`; `Nes` has `NesLead`, `NesBass`, `NesArp`, `NesKit`;
 `VlTone` has `VlPiano`, `VlFantasy`, `VlViolin`, `VlFlute`, `VlGuitar`, `VlKit`;
 `GeneralMidi` has `GmPiano`, `GmElectricPiano`, `GmVibraphone`, `GmMarimba`,

@@ -1,0 +1,35 @@
+# Hi-hat (#783): Moritz Klein's hi-hat (MKI x ES.EDU) as the ModularHihat
+# preset. Six square oscillators through a resonant band-pass, under a VCA
+# whose envelope is its supply. The key is TUNE: c4 plays the box as built,
+# a higher key a smaller, brighter cymbal. The velocity is the accent.
+# The panel: Ctl1 amp, Ctl2 decay (s), Ctl3 tone (0 the band at about 7 kHz,
+# 1 at about 4.5 kHz), Ctl4 drive (how hard the VCA clips).
+tempo 120
+swing 54
+scale a minor
+
+# closed: short and bright; open: long and darker; ride: tuned up, ringing
+setting closed = Modular ModularHihat: Ctl2 0.05, Ctl3 0.2, Ctl4 0.5
+setting open = Modular ModularHihat: Ctl2 0.6, Ctl3 0.6, Ctl4 0.7
+setting ride = Modular ModularHihat: Ctl2 0.9, Ctl3 0.4, Ctl4 0.3
+
+track closed synth closed
+track open synth open
+track ride synth ride
+
+strip closed: Level 0.7, Pan 0.2
+strip open: Level 0.6, Pan 0.2, Send2 0.1
+strip ride: Level 0.5, Pan -0.3, Send1 0.2
+
+# the accents fall on the off-beats
+clip ticks = closed .velocity("0.6 0.6 1 0.6 0.6 0.6 1 0.6")
+  "c4 c4 c4 c4 c4 c4 c4 [c4 c4]"
+clip opens = open
+  "~ ~ ~ ~ ~ ~ ~ c4"
+clip rides = ride .velocity("1 0.6 0.8 0.6")
+  "e4 e4 e4 e4"
+
+scene closed 2: ticks
+scene open 2: ticks opens
+scene ride 4: rides opens
+arrange closed open ride open
