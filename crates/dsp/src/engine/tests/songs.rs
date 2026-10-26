@@ -729,6 +729,39 @@ fn pocket_orchestra_plays_start_to_finish() {
     }
 }
 
+/// Electro on the 808 samples, accent across: it plays to its end, finite
+/// and bounded, and the bass, lead and stab are heard (the 808's samples
+/// are the app's to load, #789).
+#[test]
+#[ignore = "a long render: make test-songs"]
+fn accent_across_plays_start_to_finish() {
+    let mut e = Engine::new(48_000.0);
+    let text = include_str!("../../../../../examples/songs/accent-across.song");
+    assert_eq!(load_text(&mut e, text), Ok(()));
+    let tracks = e.song().tracks.len();
+    assert_eq!(tracks, 4);
+    let bars = e.song().bars();
+    assert_eq!(bars, 44, "the arrangement's scenes");
+    let frames = (bars as f32 * 4.0 * 60.0 / e.song().tempo * 48_000.0) as u64;
+    e.song_play();
+    let mut heard = vec![0.0_f32; tracks];
+    for _ in (0..frames).step_by(BLOCK) {
+        e.clear_meters();
+        e.render(BLOCK);
+        assert!(
+            e.output().iter().all(|s| s.is_finite() && s.abs() <= 1.0),
+            "finite and bounded"
+        );
+        for (t, h) in heard.iter_mut().enumerate() {
+            let strip = e.song_routed(t).expect("routed");
+            *h = h.max(e.meters()[strip]);
+        }
+    }
+    for (t, h) in heard.iter().enumerate().skip(1) {
+        assert!(*h > 0.001, "track {t} is heard");
+    }
+}
+
 /// The rhythm boxes' percussion: it plays to its end, finite and bounded,
 /// and every track but the CR-78 and the 808 is heard (their samples are
 /// the app's to load, #787).
