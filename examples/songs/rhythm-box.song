@@ -1,0 +1,142 @@
+# Rhythm Box (#787): the odd sounds of the rhythm boxes, percussion only,
+# one scene per box and then all of them together.
+# CR-78 (samples): its guiro is two samples, Quid 1 the scrape out and
+# Quid 2 the scrape back, so it is played as a pair; four woodblocks a
+# little tune apart; tambourine, cowbell, three congas and the Hit.
+# TR-808 (samples, not the synth model): the cowbell, claves, maracas and
+# rimshot of electro, the clap with flams, congas, toms and the long kick.
+# Casio VL-1: three sounds in all, Po (a low blip on the kicks and toms),
+# Pi (a high one on the rim, cowbell and claves) and Sha (noise on the rest).
+# FM drum (#779): a woodblock, a metal bell and a tom. Hi-hat (#783): a
+# shaker and an open hat.
+# Bells: the FM bell, both cowbells and the CR-78's Hit. Rimshots: the 808's
+# and the VL-1's Pi. Claps: the 808's, answered by the VL-1's Sha.
+# The sample pads are written by number: a named lane plays its General MIDI
+# note, which on these kits is not always the sound it names. The CR-78 and
+# 808 need their packs: make samples.
+tempo 104
+swing 56
+scale a minor
+
+# FM drum: Ctl2 ratio, Ctl3 fm, Ctl4 depth, Ctl5 pdecay, Ctl6 decay, Ctl7 wave, Ctl8 drive
+setting wood = Modular ModularFmDrum: Ctl2 2, Ctl3 3, Ctl4 14, Ctl5 0.008, Ctl6 0.07, Ctl7 0, Ctl8 3
+setting bell = Modular ModularFmDrum: Ctl2 1.41, Ctl3 6, Ctl4 0, Ctl6 0.9, Ctl7 1
+setting tom = Modular ModularFmDrum: Ctl2 1.5, Ctl3 12, Ctl4 12, Ctl5 0.1, Ctl6 0.3, Ctl7 0, Ctl8 2
+# Hi-hat: Ctl2 decay, Ctl3 tone, Ctl4 drive
+setting shaker = Modular ModularHihat: Ctl2 0.03, Ctl3 0, Ctl4 0.3
+setting openhat = Modular ModularHihat: Ctl2 0.45, Ctl3 0.6, Ctl4 0.7
+
+track cr78 drums PadSampler
+samples cr78 roland-cr78
+track tr808 drums PadSampler
+samples tr808 roland-tr808
+track vl1 drums VlTone VlKit
+track wood synth wood
+track bell synth bell
+track tom synth tom
+track shaker synth shaker
+track openhat synth openhat
+
+# Send1 echo, Send2 reverb
+strip cr78: Level 0.8, Pan -0.15, Send2 0.15
+strip tr808: Level 0.8, Pan 0.15, Send1 0.08, Send2 0.12
+strip vl1: Level 0.55, Pan -0.4, Send1 0.35, Send2 0.2
+strip wood: Level 0.5, Pan 0.45, Send1 0.25, Send2 0.2
+strip bell: Level 0.4, Pan -0.3, Send1 0.35, Send2 0.4
+strip tom: Level 0.55, Pan 0.25, Send2 0.3
+strip shaker: Level 0.5, Pan 0.35
+strip openhat: Level 0.45, Pan 0.3, Send2 0.15
+master: MasterGain 0.75, P1Return 0.45, EchoTime 0.433, EchoFeedback 0.45, P2Return 0.35, ReverbSize 2.5
+
+# CR-78, a bossa as its preset buttons played it: the guiro scraped out and
+# back (p12 then p15) on every beat, the woodblocks p9 p11 p13 p14 as a
+# two-bar tune, congas low p1, mid p3, high p4, the tambourine p7 on the
+# backbeat, the cowbell on the clave's three
+clip cr_bossa = cr78 /16
+  bd x.....x.x.....x.
+  ch x.x.x.x.x.x.x.xo
+  p12 x...x...x...x...
+  p15 ..x...x...x...x.
+  p9 x.......x...............x.......
+  p11 ...x.......x......x.............
+  p13 ......x.........x...x...........
+  p14 ..............x.............x...
+  p1 x.....x.........x.....x.........
+  p3 ...x......x.x......x......x.x...
+  p4 ....x..........o....x.........x.
+  p7 ....x.......x...
+  cb x..x..x...x..x..
+clip cr_hit = cr78 /16
+  bd x.......x.......
+  sn ....x.......x...
+  ch x.xxx.x.x.xxx.xo
+  oh ..............x.
+  p5 X...............................x..........x....
+  p12 x...x...x...x...
+  p15 ..x...x...x...x.
+  p7 ....x.......x..x
+
+# TR-808, electro: the cowbell's figure, claves on the clave, the maracas
+# on the sixteenths, the clap flammed, the rimshot in the cracks, congas
+# low p7, mid p12, high p15 and the toms p9 p11 p14 into every fourth bar
+clip tr_electro = tr808 /16
+  bd X.....x...x...x.......x...x.....
+  cp ....f.......X...
+  rs ..x....x.o....x.
+  ma xoxoxoxoXoxoxoxo
+  p4 x..x..x...x.x...
+  cb x..x..x...x..x..x..x..x...x.x...
+  ch x.x.x.x.x.x.x.x.
+  p7 ......x.......x.
+  p12 ...x......x.....
+  p15 .x.....x.x....x.
+clip tr_fill = tr808 /16
+  bd X.....x...x.....
+  cp ....f.......f.f.
+  rs x.x.x.x.x.x.x2x3x.
+  p9 ..........x2.x...
+  p11 ........x2.x.....
+  p14 ....x2.x.........
+  p13 X...............
+  ma xxxxxxxxxxxxxxxx
+
+# Casio VL-1, its rhythm unit's three sounds: Po on bd and the toms, Pi on
+# the rimshot, cowbell and claves, Sha on the snare, hats and clap
+clip vl_samba = vl1 /16
+  bd x..x..x.x..x..x.
+  lt .............x.x
+  rs ..x...x...x..x..
+  cb x.......x...x...
+  ch xxxxxxxxxxxxxxxx
+  cp ....x.......x...
+clip vl_answer = vl1 /16
+  rs ......x2........x3
+  cp .....x.x.....x.x
+
+# FM drum: the woodblock tune an octave over the CR-78's, the bell on the
+# first of every other bar, a tom run at the end of the fourth
+clip woods = wood
+  "<[e6 ~ g6 ~ a6 ~ ~ e6] [~ ~ c7 ~ a6 g6 ~ e6]>"
+clip bells = bell
+  "<a5 ~ e5 ~>"
+clip bells_peak = bell
+  "<[a5 ~ ~ e5] [~ ~ c6 ~] [a5 ~ ~ e5] [g5 ~ e5 ~]>"
+clip toms = tom
+  "<~ ~ ~ [~ ~ ~ ~ [a2 a2] [e2 e2] [c2 a1] a1]>"
+
+# hi-hat: the shaker on the sixteenths, leaning on the off-beats; the open
+# hat on the last eighth
+clip shake = shaker .velocity("0.5 0.35 1 0.35 0.5 0.35 1 0.35 0.5 0.35 1 0.35 0.5 0.35 1 0.6")
+  "c4*16"
+clip opens = openhat
+  "~ ~ ~ ~ ~ ~ ~ c4"
+
+scene cr78 8: cr_bossa
+scene vl1 4: vl_samba vl_answer
+scene tr808 8: tr_electro shake
+scene fm 4: woods bells toms shake opens
+scene tutti 8: cr_hit tr_electro vl_samba woods bells toms shake opens
+scene bells 4: cr_bossa vl_answer bells_peak shake
+scene break 2: tr_fill vl_answer toms
+scene outro 8: cr_bossa tr_electro vl_samba woods bells_peak shake opens
+arrange cr78 vl1 tr808 fm tutti bells break outro
