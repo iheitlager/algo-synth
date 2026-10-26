@@ -119,6 +119,25 @@ pub const DEF: ModelDef = ModelDef {
                 ],
             )
         },
+        // Moritz Klein's hi-hat (MKI x ES.EDU, #783): six 40106 squares at
+        // 261, 240, 219, 180, 150 and 123 Hz, which TUNE moves together
+        // through the chip's supply, so the key is the top one (C4 plays the
+        // circuit as built), each at a fresh phase on every hit. A multiple-
+        // feedback band-pass (82k, 2 x 3.3 nF, 470 R + the 1k TONE pot) picks
+        // 4.7..8 kHz at Q 5..7; the mix goes in small, as the 100k-into-680R
+        // node does, under BPF's saturation. The envelope is the VCA
+        // transistor's collector supply, so it gates and clips (clip2): an
+        // instant attack, the 0.47 uF cap falling through 470k || DECAY.
+        // Then the collector's 2.2 nF / 33k pole (a two-pole LPF standing in
+        // for the one-pole) and the 3.4 kHz Q 1 Sallen-Key high-pass. One
+        // envelope in the box: a hit restarts it, a closed hat chokes an open
+        // one. The velocity is the accent.
+        PresetDef {
+            code: Some(
+                "SynthDef(\\hihat, { |freq = 261.63, amp = 0.5, decay = 0.25, tone = 0.5, drive = 0.5|\n    var sq = Mix([LFPulse.ar(freq, Rand(0, 1)), LFPulse.ar(freq * 0.9195, Rand(0, 1)), LFPulse.ar(freq * 0.8391, Rand(0, 1)), LFPulse.ar(freq * 0.6897, Rand(0, 1)), LFPulse.ar(freq * 0.5747, Rand(0, 1)), LFPulse.ar(freq * 0.4713, Rand(0, 1))]);\n    var band = BPF.ar((sq - 3) * 0.02, 4700 * (1.7 ** (1 - tone)), 0.17);\n    var env = Env.perc(0.0005, decay).kr * amp;\n    var vca = (band * (4 + (drive * 60))).clip2(env);\n    RHPF.ar(LPF.ar(vca, 3600), 3400, 1) * 10\n}).add;\n",
+            ),
+            ..PresetDef::of(Preset::ModularHihat, &[(Polyphony, 1.0)])
+        },
     ],
     ..ModelDef::MONO
 };
