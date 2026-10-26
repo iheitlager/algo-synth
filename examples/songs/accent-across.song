@@ -1,0 +1,88 @@
+# Accent Across: LA electro on the 808 the way Egyptian Lover describes
+# making his sound (Spin, 2026): the accent "all the way across to make
+# everything louder", then "EQ it and take the bass out", and "all the
+# reverbs, all the delays". An original tune in that style, not his.
+# The 808 is the sample pack (make samples), its pads by number: p1 rimshot,
+# p2 snare, p3 clap, p4 claves, p5 maracas, p6 closed hat, p7 low conga,
+# p8 cowbell, p9 low tom, p10 open hat, p11 mid tom, p12 mid conga,
+# p13 cymbal, p14 high tom, p15 high conga.
+# On the sample kit an accent (X) is velocity 1 against a hit's 0.75: the
+# intro plays plain hits, then every hit is accented from the groove on.
+# The 808's strip: the Eq insert's low shelf (200 Hz) down 12 dB, a
+# compressor for the hot desk, echo and reverb.
+# The melody is in E phrygian dominant (E F G# A B C D).
+tempo 125
+swing 52
+scale e phrygian-dominant
+
+setting bass = Sh101 Sh101Bass
+setting lead = Sh101 Sh101Lead
+setting stab = Juno106 JunoPoly: AdsrAttack 0.002, AdsrDecay 0.16, AdsrSustain 0, AdsrRelease 0.12, Cutoff 2200, Resonance 0.3, EnvCutoff 0.5, FenvDecay 0.12
+
+track tr808 drums PadSampler
+samples tr808 roland-tr808
+track bass synth bass
+track lead synth lead
+track stab synth stab
+
+# Send1 echo, Send2 reverb
+strip tr808: Level 0.85, I1Type Eq, I1A 0.1, I2Type Comp, I2A 0.6, Send1 0.25, Send2 0.3
+strip bass: Level 0.75
+strip lead: Level 0.45, Pan 0.2, Send1 0.45, Send2 0.4
+strip stab: Level 0.35, Pan -0.25, Send1 0.3, Send2 0.5
+# P1 a dotted eighth at 125 (0.36 s), P2 a big plate
+master: MasterGain 0.75, P1Return 0.5, EchoTime 0.36, EchoFeedback 0.5, P2Return 0.45, ReverbSize 3.5
+
+# the 808, plain hits: the kick off the beat, clap on two and four, the
+# hats on the sixteenths, the cowbell's figure
+clip plain = tr808 /16
+  bd x.....x...x.....
+  p3 ....x.......x...
+  p6 x.x.x.x.x.x.x.x.
+  p8 x..x..x...x..x..x..x..x...x.x...
+clip across = tr808 /16
+  bd X.....X...X..X..X.....X...X.....
+  p3 ....X.......X...
+  p2 ....X.......X..X
+  p6 XXXXXXXXXXXXXXXX
+  p10 ..............X.
+  p8 X..X..X...X..X..X..X..X...X.X...
+  p1 ..X....X......X.
+  p4 X..X..X...X.X...
+  p5 XXXXXXXXXXXXXXXX
+# the clap in a roll into the next bar, toms down the kit, the cymbal on one
+clip roll = tr808 /16
+  bd X.....X...X.....
+  p3 ....X.......X3X3X4X4
+  p6 XXXXXXXXXXXXXXXX
+  p14 ........X.X.....
+  p11 ..........X.X...
+  p9 ............X.X.
+  p13 X...............
+# congas and rimshots under the echo, no kick
+clip conga = tr808 /16
+  p7 X.....X...X.....
+  p12 ...X......X..X..
+  p15 .X.X....X....X.X
+  p1 ..X.....X.....X.
+  p5 XXXXXXXXXXXXXXXX
+  p3 ....X.......X...
+
+# bass: E with the flat second and the third, the 808 kick's rhythm
+clip bassline = bass
+  "<[e1! ~ ~ e1 ~ ~ e2 ~ e1! ~ ~ e1 ~ f1 ~ e1] [e1! ~ ~ e1 ~ ~ e2 ~ g#1 ~ a1 ~ g#1 ~ f1 ~]>"
+# lead: the flat second falling back to the root, an answer climbing to C
+clip theme = lead
+  "<[e4 ~ f4 e4 ~ ~ g#4 ~ a4 g#4 f4 ~ e4 ~ ~ ~] [~ ~ b4 c5 b4 ~ a4 g#4 a4 ~ g#4 f4 e4 ~ ~ ~] [e5 ~ d5 c5 b4 ~ c5 b4 a4 ~ g#4 ~ f4 g#4 e4 ~] [~ ~ ~ ~ f4 ~ e4 ~ ~ ~ ~ ~ ~ ~ ~ ~]>"
+# stab: E major with the flat second over it, on the off-beats
+clip stabs = stab
+  "<[~ [e3,g#3,b3] ~ ~ ~ [e3,g#3,b3] ~ ~] [~ [f3,a3,c4] ~ ~ ~ [e3,g#3,b3] ~ ~]>"
+
+scene intro 4: plain
+scene groove 8: across bassline
+scene theme 8: across bassline theme stabs
+scene roll 2: roll bassline
+scene conga 8: conga bassline stabs
+scene theme_b 8: across bassline theme stabs
+scene outro 4: across stabs
+arrange intro groove theme roll conga theme_b roll outro
